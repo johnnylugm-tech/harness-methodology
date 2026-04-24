@@ -1,0 +1,27 @@
+{
+  "_comment": "Example quality_manifest.json. Real file generated at P2 exit by HarnessBridge.generate_quality_manifest().",
+  "schema_version": "1.0",
+  "generated_at_phase": 2,
+  "fr_ids": ["FR-001", "FR-002", "FR-003"],
+  "nfr_dimension_mapping": {
+    "NFR-PERF-01": "performance",
+    "NFR-SEC-01": "security"
+  },
+  "architecture_constraints": [
+    "No synchronous I/O in main thread",
+    "All external calls must have 30s timeout"
+  ],
+  "high_risk_modules": ["audio_pipeline.py", "codec_manager.py"],
+  "gate_score_overrides": {
+    "FR-001": { "test_coverage": 90 }
+  },
+  "gate_results": {
+    "gate1": {
+      "FR-001": { "score": 94.0, "quality_complete": true, "rounds_used": 1, "open_critical": 0, "open_high": 0 },
+      "FR-002": { "score": 91.0, "quality_complete": true, "rounds_used": 1, "open_critical": 0, "open_high": 0 }
+    },
+    "gate2": null,
+    "gate3": null,
+    "gate4": null
+  }
+}
