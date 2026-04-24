@@ -1,0 +1,26 @@
+# Gate 2: P3 phase-exit (all FRs complete). Replaces auto-research P3.
+# First full security + mutation pass before P4 Testing begins.
+gate: 2
+trigger: phase_exit
+phase: 3
+scope: full_phase
+dimensions:
+  - { name: linting,            tier: 1, model: gemini-flash, threshold: 90,  weight: 0.15 }
+  - { name: type_safety,        tier: 1, model: gemini-flash, threshold: 85,  weight: 0.15 }
+  - { name: test_coverage,      tier: 1, model: gemini-flash, threshold: 80,  weight: 0.15 }
+  - { name: security,           tier: 2, model: gemini-flash, threshold: 80,  weight: 0.15 }
+  - { name: secrets_scanning,   tier: 1, model: gemini-flash, threshold: 100, weight: 0.10 }
+  - { name: license_compliance, tier: 1, model: gemini-flash, threshold: 100, weight: 0.10 }
+  - { name: mutation_testing,   tier: 1, model: gemini-flash, threshold: 70,  weight: 0.20 }
+blocking: true
+score_gate: 75
+max_rounds: 3
+early_stop: true
+saturation_rounds: 3
+mutation_testing:
+  median_runs: 3
+  timeout_per_run: 120
+crg:
+  impact_check: true
+  impact_threshold: 0.7
+replaces: auto_research_p3

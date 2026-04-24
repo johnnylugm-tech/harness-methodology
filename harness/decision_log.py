@@ -1,0 +1,59 @@
+# harness/decision_log.py
+# Extracted from feature-13-observability — PyYAML + stdlib only (no Langfuse).
+# Structured YAML decision log per agent/gate invocation.
+from __future__ import annotations
+import uuid
+from dataclasses import dataclass, field, asdict
+from datetime import datetime, timezone
+from pathlib import Path
+
+try:
+    import yaml
+    _YAML = True
+except ImportError:
+    _YAML = False
+
+
+@dataclass
+class DecisionLogEntry:
+    agent_id: str           # Developer | Reviewer | GATE
+    phase: int
+    decision: str           # APPROVE | REJECT | GATE_PASS | GATE_BLOCK
+    reasoning: str
+    trace_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
+    fr_id: str | None = None
+    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    uaf_score: float = 0.0
+    gate_score: float | None = None
+    metadata: dict = field(default_factory=dict)
+
+
+class DecisionLogWriter:
+    """Writes .methodology/decision_logs/{date}/{agent}_{phase}_{seq}.yaml"""
+
+    def __init__(self, log_root: str = ".methodology/decision_logs"):
+        self.log_root = Path(log_root)
+
+    def write(self, entry: DecisionLogEntry) -> Path:
+        d = self.log_root / datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        d.mkdir(parents=True, exist_ok=True)
+        seq = len(list(d.glob(f"{entry.agent_id}_{entry.phase}_*.yaml"))) + 1
+        p = d / f"{entry.agent_id}_{entry.phase}_{seq:03d}.yaml"
+        data = asdict(entry)
+        p.write_text(
+            yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
+            if _YAML else __import__('json').dumps(data, indent=2, ensure_ascii=False)
+        )
+        return p
+
+    def read_phase(self, phase: int) -> list[dict]:
+        entries = []
+        for f in sorted(self.log_root.rglob(f"*_{phase}_*.yaml")):
+            try:
+                entries.append(
+                    yaml.safe_load(f.read_text()) if _YAML
+                    else __import__('json').loads(f.read_text())
+                )
+            except Exception:
+                pass
+        return entries

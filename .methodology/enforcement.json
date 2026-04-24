@@ -1,0 +1,28 @@
+{
+  "_comment": "Team constitution thresholds. Edit this file to adjust per-team requirements. Do NOT modify framework code.",
+  "constitution": {
+    "correctness":     { "p1": 90, "p2": 85, "p3": 80, "p4_plus": 80 },
+    "security":        { "p1": 80, "p2": 80, "p3": 85, "p4_plus": 90 },
+    "maintainability": { "p3": 75, "p4_plus": 80 },
+    "test_coverage":   { "p4": 80, "p5_plus": 85 }
+  },
+  "hr_overrides": {
+    "HR-11_phase_truth_threshold": 70,
+    "HR-01_self_approve": "blocked",
+    "HR-06_reviewer_modify": "blocked"
+  },
+  "aspice": {
+    "min_compliance_rate": 80,
+    "groups": ["SYS", "SWE", "SUP"]
+  },
+  "naming": {
+    "fr_pattern": "FR-[0-9]{2}",
+    "nfr_pattern": "NFR-[0-9]{2}",
+    "tc_pattern": "TC-[0-9]{3}"
+  },
+  "hermes_backend": {
+    "_comment": "Configure Hermes-side backend LLM. Options: claude, gpt4, llama3, mistral",
+    "reviewer_model": "auto"
+  },
+  "gate_overrides": {}
+}

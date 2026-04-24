@@ -1,0 +1,13 @@
+# Gate 1: P3/P5/P7/P8 per-FR check. Replaces check_fr_full.py Layer 3.
+# No auto-iteration: failure -> developer fixes -> manual re-run.
+gate: 1
+trigger: per_fr_completion
+scope: single_fr
+dimensions:
+  - { name: linting,       tier: 1, model: gemini-flash, threshold: 90, weight: 0.33 }
+  - { name: type_safety,   tier: 1, model: gemini-flash, threshold: 85, weight: 0.33 }
+  - { name: test_coverage, tier: 1, model: gemini-flash, threshold: 80, weight: 0.34 }
+blocking: true
+early_stop: false
+max_rounds: 1
+replaces: check_fr_full_layer3

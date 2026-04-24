@@ -1,0 +1,62 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "HarnessQualityManifest",
+  "description": "Cross-phase quality handoff contract. Generated at P2 exit, updated at each Gate.",
+  "type": "object",
+  "required": ["schema_version", "generated_at_phase", "fr_ids", "gate_results"],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0" },
+    "generated_at_phase": { "type": "integer", "minimum": 1, "maximum": 8 },
+    "fr_ids": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^FR-[0-9]{3}$" },
+      "description": "All functional requirement IDs in scope"
+    },
+    "nfr_dimension_mapping": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "NFR-ID -> harness dimension name (e.g. NFR-PERF-01 -> performance)"
+    },
+    "architecture_constraints": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Constraints from SAD.md (e.g. No synchronous I/O in main thread)"
+    },
+    "high_risk_modules": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "File paths flagged as high-risk in SAD.md"
+    },
+    "gate_score_overrides": {
+      "type": "object",
+      "description": "FR-level threshold overrides: { 'FR-001': { 'test_coverage': 90 } }",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": { "type": "number" }
+      }
+    },
+    "gate_results": {
+      "type": "object",
+      "required": ["gate1", "gate2", "gate3", "gate4"],
+      "properties": {
+        "gate1": { "type": "object", "description": "Per-FR results map (fr_id -> result)" },
+        "gate2": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/gateResult" }] },
+        "gate3": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/gateResult" }] },
+        "gate4": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/gateResult" }] }
+      }
+    }
+  },
+  "$defs": {
+    "gateResult": {
+      "type": "object",
+      "required": ["score", "quality_complete", "rounds_used"],
+      "properties": {
+        "score":            { "type": "number", "minimum": 0, "maximum": 100 },
+        "quality_complete": { "type": "boolean" },
+        "rounds_used":      { "type": "integer", "minimum": 1, "maximum": 3 },
+        "open_critical":   { "type": "integer", "minimum": 0 },
+        "open_high":       { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

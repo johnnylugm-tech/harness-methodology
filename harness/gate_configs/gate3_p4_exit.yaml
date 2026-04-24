@@ -1,0 +1,34 @@
+# Gate 3: P4 phase-exit (testing complete). Replaces auto-research P4.
+# First full 12-dim evaluation. CRG fully enabled.
+gate: 3
+trigger: phase_exit
+phase: 4
+scope: full_phase
+dimensions:
+  - { name: linting,            tier: 1, model: gemini-flash, threshold: 90,  weight: 0.10 }
+  - { name: type_safety,        tier: 1, model: gemini-flash, threshold: 85,  weight: 0.10 }
+  - { name: test_coverage,      tier: 1, model: gemini-flash, threshold: 80,  weight: 0.10 }
+  - { name: security,           tier: 2, model: gemini-flash, threshold: 80,  weight: 0.10 }
+  - { name: secrets_scanning,   tier: 1, model: gemini-flash, threshold: 100, weight: 0.08 }
+  - { name: license_compliance, tier: 1, model: gemini-flash, threshold: 100, weight: 0.07 }
+  - { name: mutation_testing,   tier: 1, model: gemini-flash, threshold: 70,  weight: 0.10 }
+  - { name: architecture,       tier: 3, model: claude,       threshold: 80,  weight: 0.10 }
+  - { name: readability,        tier: 3, model: claude,       threshold: 80,  weight: 0.07 }
+  - { name: error_handling,     tier: 3, model: claude,       threshold: 80,  weight: 0.10 }
+  - { name: documentation,      tier: 3, model: claude,       threshold: 75,  weight: 0.03 }
+  - { name: performance,        tier: 3, model: claude,       threshold: 75,  weight: 0.05 }
+blocking: true
+score_gate: 80
+max_rounds: 3
+early_stop: true
+saturation_rounds: 3
+mutation_testing:
+  median_runs: 3
+  timeout_per_run: 120
+crg:
+  enabled: true
+  reconnaissance: true
+  tier3_guidance: true
+  impact_threshold: 0.7
+  drift_threshold: 0.4
+replaces: auto_research_p4
