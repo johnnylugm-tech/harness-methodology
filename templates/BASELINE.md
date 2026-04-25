@@ -1,43 +1,43 @@
-# BASELINE.md - {專案名稱}
+# BASELINE.md - {Project Name}
 
-> 本檔案為 On-demand Lazy Load 模板，僅在需要產生此文件時載入。
-> 來自：SKILL_TEMPLATES.md §T5.1
+> On-demand Lazy Load template. Load only when this document needs to be generated.
+> Source: SKILL_TEMPLATES.md SS T5.1
 
-## 1. 基線概述
-- 建立人：{name}
-- 審查人：{name}
-- session_id：{session_id}
-- 日期：{date}
+## 1. Baseline Overview
+- Created by: {name}
+- Reviewed by: {name}
+- session_id: {session_id}
+- Date: {date}
 
-## 2. 功能基線（對應 SRS FR，100% ✅）
+## 2. Feature Baseline (corresponds to SRS FR, 100% complete)
 
-| FR ID | 功能描述 | 基線狀態 | 備註 |
-|-------|----------|---------|------|
-| FR-01 | {描述} | ✅ | |
+| FR ID | Feature Description | Baseline Status | Notes |
+|-------|--------------------|-----------------| ------|
+| FR-01 | {description} | PASS | |
 
-## 3. 品質基線
+## 3. Quality Baseline
 
-| 指標 | 門檼 | 實際値 | 狀態 |
-|------|------|--------|------|
-| Constitution | ≥ 80% | {value} | ✅/❌ |
-| 覆蓋率 | ≥ 80% | {value} | ✅/❌ |
-| 邏輯正確性 | ≥ 90 分 | {value} | ✅/❌ |
+| Metric | Threshold | Actual | Status |
+|--------|-----------|--------|--------|
+| Constitution | >= 80% | {value} | PASS/FAIL |
+| Coverage | >= 80% | {value} | PASS/FAIL |
+| Logic Correctness | >= 90 | {value} | PASS/FAIL |
 
-## 4. 效能基線（A/B 監控基準）
+## 4. Performance Baseline (A/B monitoring reference)
 
-| 指標 | 基線値 |
-|------|--------|
-| 回應時間 | {value} ms |
-| 記憶體 | {value} MB |
-| 錯誤率 | {value}% |
+| Metric | Baseline Value |
+|--------|----------------|
+| Response Time | {value} ms |
+| Memory | {value} MB |
+| Error Rate | {value}% |
 
-## 5. 已知問題登錄
-| 嚴重性 | 數量 | 說明 |
-|--------|------|------|
-| HIGH | {N} | {說明} |
+## 5. Known Issues
+| Severity | Count | Description |
+|----------|-------|-------------|
+| HIGH | {N} | {description} |
 
-> ⚠️ HIGH 嚴重性 = 0 才能建立基線
+> WARNING: HIGH severity must be 0 before establishing baseline
 
-## 6. 驗收簽收
-- Agent A：{name} ({session_id}) - {date}
-- Agent B：{name} ({session_id}) - {date}
+## 6. Sign-off
+- Agent A: {name} ({session_id}) - {date}
+- Agent B: {name} ({session_id}) - {date}

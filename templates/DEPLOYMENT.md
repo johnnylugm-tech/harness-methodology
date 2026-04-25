@@ -1,25 +1,25 @@
-# DEPLOYMENT.md - 部署指南
+# DEPLOYMENT.md - Deployment Guide
 
-## 部署前檢查清單
+## Pre-Deployment Checklist
 
-- [ ] 所有 Constitution 檢查通過
-- [ ] 所有測試通過
-- [ ] SPEC_TRACKING.md 所有項目 ✅
-- [ ] TRACABILITY_MATRIX.md 所有項目 ✅
+- [ ] All Constitution checks passed
+- [ ] All tests passing
+- [ ] SPEC_TRACKING.md all items complete
+- [ ] TRACEABILITY_MATRIX.md all items complete
 
-## 部署方式
+## Deployment Methods
 
-### Docker 部署
+### Docker Deployment
 
 ```bash
-# 建構映像
+# Build image
 docker build -t myapp:latest .
 
-# 執行容器
+# Run container
 docker run -d -p 8000:8000 myapp:latest
 ```
 
-### 系統服務（systemd）
+### System Service (systemd)
 
 ```ini
 [Unit]
@@ -37,9 +37,9 @@ Restart=on-failure
 WantedBy=multi-user.target
 ```
 
-## 環境變數
+## Environment Variables
 
-| 變數 | 說明 | 預設値 |
-|------|------|--------|
-| LOG_LEVEL | 日誌等級 | INFO |
-| MAX_WORKERS | 最大工作線程 | 4 |
+| Variable | Description | Default |
+|----------|-------------|--------|
+| LOG_LEVEL | Log level | INFO |
+| MAX_WORKERS | Max worker threads | 4 |

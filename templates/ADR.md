@@ -1,19 +1,19 @@
-# ADR-{ID}: {標題}
+# ADR-{ID}: {Title}
 
-> 本檔案為 On-demand Lazy Load 模板，僅在需要產生此文件時載入。
-> 來自：SKILL_TEMPLATES.md §T2.2
+> On-demand Lazy Load template. Load only when this document needs to be generated.
+> Source: SKILL_TEMPLATES.md SS T2.2
 
-## 狀態
+## Status
 {Proposed / Accepted / Deprecated}
 
-## 背景
-{上下文}
+## Context
+{Background context}
 
-## 決策
-{選擇的方案}
+## Decision
+{Chosen solution}
 
-## 理由
-{選擇理由}
+## Rationale
+{Reason for choice}
 
-## 後果
-{正面影響 / 負面影響}
+## Consequences
+{Positive impacts / Negative impacts}
