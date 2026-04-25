@@ -33,7 +33,6 @@ class AuditLogger:
 
     def log_event(self, entry: AuditEntry) -> None:
         """Log an audit event."""
-        # Basic implementation - override if governance audit is available
         pass
 
     def query(self, filters: dict) -> list:

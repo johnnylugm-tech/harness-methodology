@@ -1,7 +1,5 @@
 """
 Kill-Switch Circuit Breaker Custom Exceptions.
-
-Defines all exception types raised by the Kill-Switch system.
 """
 
 

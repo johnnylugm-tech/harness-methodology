@@ -1,7 +1,5 @@
 """
 Kill-Switch Circuit Breaker Enums.
-
-Defines all enum types used throughout the Kill-Switch system.
 """
 
 from enum import Enum, auto
@@ -9,9 +7,9 @@ from enum import Enum, auto
 
 class CircuitState(Enum):
     """Circuit breaker states for agent monitoring."""
-    CLOSED = auto()      # Normal operation
-    OPEN = auto()        # Kill-Switch triggered
-    HALF_OPEN = auto()  # Testing recovery
+    CLOSED = auto()
+    OPEN = auto()
+    HALF_OPEN = auto()
 
 
 class KillSwitchEventType(Enum):
