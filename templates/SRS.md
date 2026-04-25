@@ -8,9 +8,9 @@
 
 ## 2. Functional Requirements
 
-| ID | Requirement Description | Implementation Function | Verification Method |
-|----|------------------------|------------------------|--------------------|
-| FR-01 | {requirement} | {function name} | {verification method} |
+| ID | Requirement Description | Implementation Function (est.) | Verification Method |
+|----|------------------------|-------------------------------|--------------------|
+| FR-01 | {requirement} | {function_name} | {verification} |
 | FR-02 | ... | ... | ... |
 
 ## 3. Non-Functional Requirements (NFR)
@@ -45,7 +45,7 @@
       "id": "FR-01",
       "description": "{requirement description}",
       "implementation_functions": ["{function_name}"],
-      "verification_method": "{verification method}"
+      "verification_method": "{verification}"
     }
   ],
   "non_functional_requirements": [
@@ -60,4 +60,4 @@
 ```
 <!-- FR:END -->
 
-Note: Fill in the JSON above — it is used for requirement traceability tracking.
+Note: Fill in the JSON above - used for downstream requirements traceability.

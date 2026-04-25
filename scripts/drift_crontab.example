@@ -1,0 +1,23 @@
+# Drift Monitor Cron Job
+# Add the following to crontab: crontab -e
+
+# Run drift monitor hourly (at minute 0)
+0 * * * * /path/to/project/.venv/bin/python /path/to/project/scripts/cron_drift_monitor.py >> /path/to/logs/drift_monitor.log 2>&1
+
+# ============================================================
+# Setup Instructions:
+# ============================================================
+# 1. Copy this file content to your crontab:
+#    crontab -e
+#
+# 2. Or install directly:
+#    crontab scripts/drift_crontab.example
+#
+# 3. Ensure the logs directory exists:
+#    mkdir -p /path/to/logs
+#
+# 4. Test the script manually first:
+#    /path/to/project/.venv/bin/python /path/to/project/scripts/cron_drift_monitor.py
+#
+# 5. Check logs:
+#    tail -f /path/to/logs/drift_monitor.log
