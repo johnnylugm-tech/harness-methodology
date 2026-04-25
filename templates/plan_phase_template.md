@@ -1,0 +1,793 @@
+# Phase {PHASE} Execution Plan — {PROJECT_NAME}
+
+> **Version**: {VERSION}
+> **Project**: {PROJECT_NAME}
+> **Date**: {DATE}
+> **Framework**: harness-methodology {VERSION}
+> **Status**: Pending Johnny confirmation to start
+
+---
+
+## 0. Execution Protocol (§0)
+
+```
+[Step 0] READ state.json → current_phase={PHASE}
+[Step 1] LOAD SKILL.md §4 Phase routing
+[Step 2] CHECK entry conditions → blocker → STOP
+[Step 3] EXECUTE SOP → LAZY LOAD docs/P{PHASE}_SOP.md
+[Step 4] RECORD output | SPAWN A/B agent
+[Step 5] CHECK exit conditions → fail → FIX + RETRY
+[Step 6] UPDATE state.json phase={PHASE_PLUS_1} → GOTO 1
+```
+
+**CLI Commands**:
+```bash
+python3 cli.py update-step --step N
+python3 cli.py end-phase --phase {PHASE}
+python3 cli.py stage-pass --phase {PHASE}
+python3 cli.py run-phase --phase {PHASE} --goal "{GOAL}"
+```
+
+---
+
+## 1. Hard Rules (HR-01~HR-15)
+
+| HR | Rule | Consequence | Action |
+|----|------|-------------|--------|
+| HR-01 | A/B must be different Agents; self-review forbidden | Terminate -25 | Developer spawn → Reviewer spawn (strict order) |
+| HR-02 | Quality Gate requires actual command output | Terminate -20 | Save stdout for each QG |
+| HR-03 | Phases execute in order; skipping forbidden | Terminate -30 | state.json phase={PHASE} |
+| HR-04 | HybridWorkflow mode=ON, A/B mandatory | Terminate | prompt includes mode=ON |
+| HR-05 | On conflict, harness-methodology takes priority | Log | methodology wins disputes |
+| HR-06 | External frameworks outside spec are forbidden | Terminate -20 | forbidden list |
+| HR-07 | DEVELOPMENT_LOG must record session_id | -15 | Log session_id per entry |
+| HR-08 | Phase end requires Quality Gate execution | Terminate -10 | stage-pass --phase {PHASE} |
+| HR-09 | Claims Verifier must pass | Terminate -20 | citations cross-check |
+| HR-10 | sessions_spawn.log must have A/B records | Terminate -15 | 2 entries per step |
+| HR-11 | Phase Truth < 70% blocks next Phase entry | Terminate | <70% → PAUSE |
+| HR-12 | A/B review > 5 rounds → PAUSE | — | Stop proactively at round 5 |
+| HR-13 | Phase execution > 3x estimate → PAUSE | — | Record start_time |
+| HR-14 | Integrity < 40 → FREEZE | — | Check Integrity after QG |
+| HR-15 | citations must include line numbers + artifact_verification | -15 | No citations = task failure |
+
+---
+
+## 2. A/B Collaboration (HR-01, HR-04)
+
+### On Demand / Need to Know Principles
+
+| Principle | Definition |
+|-----------|------------|
+| **Need to Know** | Provide only necessary information; L1/NFR supplied only when asked |
+| **On Demand** | Sub-agent reads artifact paths itself; no dumping |
+| **Single Responsibility** | Each Sub-agent handles one FR only |
+
+### HR Constraints (Phase {PHASE})
+{HR_LIST}
+
+### TH Thresholds (Phase {PHASE})
+{TH_LIST}
+
+### A/B Roles (Phase {PHASE})
+
+| Role | Agent | Responsibility |
+|------|-------|----------------|
+| **Agent A** | `{AGENT_A}` | Primary implementation |
+| **Agent B** | `{AGENT_B}` | Review and verification |
+
+### TH Threshold Details
+
+{TH_THRESHOLDS_TABLE}
+
+---
+
+## 3. FR-by-FR Task Table ({FR_COUNT} total)
+
+{FR_TABLE_ROWS}
+
+---
+
+## 3.5 Previous Phase Artifact Handover (Phase {PHASE} prerequisites)
+
+{artifacts_summary}
+
+---
+
+## 4. Output Structure Tree
+
+```
+{DELIVERABLE_STRUCTURE}
+```
+
+> Source: parsed from SAD.md §1.3 FR requirements mapping table
+
+### Deliverable Checklist
+
+```markdown
+{DELIVERABLE_CHECKLIST}
+```
+
+---
+
+## 5. FR Detailed Tasks ({FR_COUNT} total)
+
+> FR detailed tasks require parsing SRS.md §FR-XX
+> Full content: `.methodology/plans/phase{PHASE}_FULL.md`
+> To generate detailed tasks, add `--detailed` flag
+
+{FR_DETAILED_TASKS}
+
+---
+
+## 6. External Documents
+
+{EXTERNAL_DOCS}
+
+---
+
+## 7. Agent Prompt Templates
+
+### Agent A (determined by Phase)
+Agent A role is determined by Phase:
+- Phase 1: requirements
+- Phase 2-3: architect/developer
+- Phase 4: tester
+- Phase 5: devops
+- Phase 6: qa
+- Phase 7: risk
+- Phase 8: devops
+
+### Agent B (determined by Phase)
+Agent B role is determined by Phase:
+- Phase 1-2: architect/reviewer
+- Phase 3: reviewer
+- Phase 4: reviewer
+- Phase 5-6: architect
+- Phase 7: architect
+- Phase 8: reviewer
+
+See each Phase's output documents for detailed prompts.
+
+```
+{DEVELOPER_PROMPT}
+```
+
+### Agent B (Reviewer)
+
+```
+{REVIEWER_PROMPT}
+```
+
+```
+===============================================
+TASK: FR-{FR_NUM} {MODULE_NAME}
+TASK_ID: task-{FR_NUM_ZF}
+===============================================
+
+PROMPT (self-read):
+- SRS.md (§FR-{FR_NUM})
+- 02-architecture/SAD.md (§Module boundary mapping table)
+
+OUTPUT:
+- {OUTPUT_FILE}
+- {TEST_FILE}
+
+FORBIDDEN:
+- app/infrastructure/ (Phase 3+ use 03-development/infrastructure/ instead)
+- @covers annotation → use docstring [FR-XX] instead
+- @type: edge → use positive/negative/boundary
+- ... (omit) → task failure
+- Write docstring without grep-confirming line numbers
+- Return JSON without grep-confirming Citations are written
+
+[MANDATORY STEPS - Citations Verification]
+
+STEP 1: Read SRS.md §FR-XX and SAD.md §corresponding section
+
+STEP 2: Use grep to confirm actual function line numbers:
+```bash
+grep -n "def function_name|class ClassName" app/xxx.py
+```
+Record the output line numbers (not estimates)
+
+STEP 3: Use STEP 2 actual line numbers when implementing + writing docstrings
+
+STEP 4: After writing, grep again to confirm:
+```bash
+grep -A5 "def function_name" app/xxx.py | grep "Citations:"
+```
+Verify Citations are actually written and line numbers are correct
+
+STEP 5: Only proceed to return JSON after passing STEP 4
+
+OUTPUT_FORMAT:
+{{
+ "status": "success|error|unable_to_proceed",
+ "result": "actual output",
+ "confidence": 1-10,
+ "citations": ["FR-{FR_NUM}", "SAD.md#L23-L45"],
+ "summary": "under 50 chars"
+}}
+===============================================
+```
+
+---
+
+## 8. Iteration Repair Flow
+
+### 4-Dimension Evaluation Criteria (Target 10/10)
+
+{four_dimensional_table}
+
+### Iteration Strategy (per FR)
+
+```mermaid
+graph TD
+    A[Round 1: Basic implementation] --> B[pytest PASS]
+    B --> C{Round 2-3: Stabilize}
+    C --> D[logging + error handling]
+    D --> E{Round 4: Enforce HR-15}
+    E --> F[citations with line numbers]
+    F --> G{Round 5: A/B collaboration}
+    G --> H[sessions_spawn.log complete]
+    H --> I{4-dimension 10/10?}
+    I -->|Yes| J[APPROVE]
+    I -->|No| K[Round 6+: Continuous improvement]
+    K -->|HR-12 5 rounds| L[PAUSE]
+```
+
+### Per-Round Targets
+
+{iteration_rounds_table}
+
+### Termination Conditions
+
+```
+All 4 dimensions 10/10 → APPROVE
+HR-12 5-round limit → PAUSE (notify Johnny)
+HR-13 >3x estimated time → PAUSE (checkpoint)
+```
+
+### 4-Dimension Pass Criteria
+
+| Dimension | Evaluation Method | Target |
+|-----------|-------------------|--------|
+| **Spec Compliance** | `grep -c '\[FR-' app/**/*.py` | citations >= 1 per function |
+| **A/B Collaboration** | `sessions_spawn.log` fully recorded | 1 entry each for developer + reviewer |
+| **Sub-agent Management** | `SubagentIsolator` used correctly | `fresh_messages` isolation |
+| **Test Coverage** | `pytest --cov=app/ --cov-report=term` | >=80% |
+
+### 4-Dimension Evaluation Commands
+
+```bash
+# 1. Spec compliance
+grep -r "\[FR-" app/ --include="*.py" | wc -l
+
+# 2. A/B collaboration
+cat sessions_spawn.log | grep -c "developer\|reviewer"
+
+# 3. Sub-agent management
+cat sessions_spawn.log | grep -c "spawn"
+
+# 4. Test coverage
+pytest --cov=app/ --cov-report=term -q
+```
+
+**HR-12 (5-round limit)**:
+- Round 1-4: Continue normal repair
+- Round 5: HR-12 PAUSE, notify Johnny
+
+---
+
+## 9. Tool Invocation Timing (On Demand triggers)
+
+| Tool | Trigger Timing | Invocation |
+|------|----------------|------------|
+| **SubagentIsolator** | Before dispatching Sub-agent | `si.spawn(role=AgentRole.{AGENT_A_UPPER}, task="...")` |
+| **PermissionGuard** | Before exec/rm operations | `pg.check(Operation(type="exec", ...))` |
+| **ContextManager** | context > 50 messages | `cm.compress_if_needed()` |
+| **SessionManager** | Task > 30 minutes | `sm.save("task-id", state)` |
+| **KnowledgeCurator** | Verify coverage before dispatch | `kc.verify_coverage(fr_list=["FR-01"])` |
+| **ToolRegistry** | When new tool is introduced | `tr.register("Tool", handler)` |
+
+### On Demand Trigger Conditions
+
+```
+- SubagentIsolator → before each dispatch (HR-01)
+- PermissionGuard → before exec/rm (security check)
+- ContextManager → auto-compress when context > 50
+- SessionManager → on task start + auto-save after 30 min
+- KnowledgeCurator → verify before Phase start
+- ToolRegistry → register when new tool is discovered
+```
+
+{subagent_mgmt}
+
+## 10. Quality Gate (Step 9)
+
+### Execute in order — all must pass before APPROVE
+
+```bash
+{QG_COMMANDS}
+```
+
+---
+
+## 10.5 Automated Quality Enhancement (v6.61+ features)
+
+### Automated features supported by current framework version
+
+| Feature | Version | Enable | Description |
+|---------|---------|--------|-------------|
+| **BVS** | v6.62 | Auto (Constitution runner) | Validates agent behavior against Constitution |
+| **HR-09 Claims Verifier** | v6.63 | Auto (Constitution runner) | Validates citations have artifact backing |
+| **CQG** | v6.61 | `python cli.py quality-gate` | Linter + Complexity + Coverage auto-check |
+| **AutoResearch** | IMPROVEMENT_P1-3 | Standalone Skill | Auto-generate test cases (standalone Skill, integrate when mature) |
+| **Feedback Loop** | v6.29 | Auto (if enabled) | Collect and feed back execution results |
+| **Steering Loop** | v6.67 | `steering run --phase N` | Auto-adjust strategy based on feedback |
+| **Self-Correction Engine** | v6.67 | Auto (if enabled) | Auto-correct code based on errors |
+| **Verify_Agent** | v6.21 | `cli.py verify-artifact --phase {PHASE}` | Third-party independent audit (when Agent B exceeds 20 rounds) |
+| **SAB Drift Detection** | IMPROVEMENT_P0-3 | `python cli.py trace-check` or UnifiedGate | Validate code<->SAD consistency |
+
+### Recommended automation flow (Phase 3+)
+
+```bash
+# 1. FR Execution Loop
+for FR in FR-01 FR-02 ... FR-09; do
+    # Agent A + Agent B execution
+    # Constitution Check (auto-includes BVS + HR-09)
+done
+
+# 2. Automated quality check
+python cli.py quality-gate --phase {PHASE}
+
+# 3. SAB Drift Detection (code<->SAD consistency)
+python cli.py trace-check --phase {PHASE}
+
+# 4. AutoResearch auto-generate tests (standalone Skill)
+# See: skills/auto_research/SKILL.md
+
+# 5. Feedback Loop collect feedback
+steering run --phase {PHASE}
+
+# 6. Verify_Agent (if needed)
+if [ $AGENT_B_ROUNDS -gt 20 ]; then
+    python cli.py verify-artifact --phase {PHASE}
+fi
+```
+
+### SAB Drift Detection Description
+
+| Item | Content |
+|------|---------|
+| **TH-16** | Code<->SAD mapping rate = 100% |
+| **Purpose** | Validate code structure matches SAD design |
+| **Tool** | `sab_spec.py` + `trace-check` command |
+| **Timing** | Execute before Phase 3 Constitution check |
+
+---
+
+## 11. sessions_spawn.log Format (HR-10)
+
+Each FR generates 2 records, total {FR_COUNT} x 2 = {TOTAL_RECORDS} records:
+
+```json
+{SESSION_LOG_EXAMPLE}
+```
+
+---
+
+## 12. Commit Format
+
+```
+[Phase {PHASE}] Step {N}: FR-{FR_NUM} {MODULE_NAME} (HASH)
+```
+
+Example:
+```
+[Phase {PHASE}] Step 1: FR-01 {MODULE_NAME} (a1b2c3d)
+[Phase {PHASE}] Step 2: FR-02 {MODULE_NAME} (e4f5g6h)
+...
+```
+
+---
+
+## 13. Estimated Time
+
+| Stage | Estimated Time |
+|-------|----------------|
+| Pre-execution | 10 minutes |
+| FR-01 ~ FR-{FR_COUNT} (15-20 min each) | 120-160 minutes |
+| Quality Gate | 30 minutes |
+| **Total** | **~3-3.5 hours** |
+
+---
+
+## 14. Phase Truth Composition
+
+```
+FrameworkEnforcer BLOCK (weight 40%)
+Sessions_spawn.log (weight 20%)
+pytest actual pass (weight 20%)
+Test coverage meets threshold (weight 20%)
+```
+
+---
+
+## 15. Tool Quick Reference
+
+### SubagentIsolator
+```python
+from subagent_isolator import SubagentIsolator, AgentRole
+si = SubagentIsolator()
+result = si.spawn(role=AgentRole.DEVELOPER, task="FR-{FR_NUM}", artifact_paths=["SRS.md"])
+```
+
+### PermissionGuard
+```python
+from permission_guard import PermissionGuard
+pg = PermissionGuard()
+pg.check(Operation(type="exec", permission="EXEC_BASH", target="rm -rf /tmp"))
+```
+
+### KnowledgeCurator
+```python
+from knowledge_curator import KnowledgeCurator
+kc = KnowledgeCurator()
+kc.verify_coverage(fr_list=["FR-01", "FR-02"])
+```
+
+### ContextManager (3-layer compression)
+```python
+from context_manager import ContextManager
+cm = ContextManager()
+cm.compress_if_needed()  # L1>50, L2>100, L3>200
+```
+
+### SessionManager
+```python
+from checkpoint_manager import SessionManager
+sm = SessionManager()
+sm.save("fr{FN}-impl", state_dict)
+```
+
+### ToolRegistry
+```python
+from tool_registry import ToolRegistry
+tr = ToolRegistry()
+tr.register("NewTool", handler)
+```
+
+---
+
+## 16. Pre-Execution Checklist
+
+```
+□ state.json initialized (phase={PHASE}, step=0)
+□ sessions_spawn.log cleared and rebuilt
+□ KnowledgeCurator.verify_coverage() executed
+□ ContextManager.create_task() executed ({FR_COUNT} tasks)
+□ Artifact paths confirmed
+□ Forbidden items defined
+□ Output format defined
+□ sessions_spawn.log first entry written (before spawn)
+□ state.json updated
+□ Long-running tasks session-saved (if > 30 minutes)
+□ New tools registered via ToolRegistry.register (if any)
+□ DEVELOPMENT_LOG updated (Phase {PHASE} start)
+```
+
+---
+
+## 17. Agent Execution Flow (v7.25+ with enhancements)
+
+### IMPORTANT: sessions_spawn is called directly by Agent
+
+`sessions_spawn` is an OpenClaw runtime tool, **not a Python module**.
+cli.py cannot import it, but **Agent can call it directly**.
+
+### Enhanced Feature Integration (Section 10.5)
+
+| Feature | Integration Timing | Invocation |
+|---------|--------------------|------------|
+| **BVS** | After each FR review | `constitution/runner.py --type implementation` |
+| **HR-09 Claims Verifier** | After each FR review | `constitution/runner.py --type implementation` (auto) |
+| **check_fr_full.py** | After each FR APPROVE | `check_fr_full.py --fr {fr_id} --project /path --loop` |
+| **CQG** | After each FR APPROVE | `cli.py quality-gate --phase {PHASE}` |
+| **SAB Drift Detection** | POST-FLIGHT | `cli.py trace-check --phase {PHASE}` |
+| **Steering Loop** | POST-FLIGHT | `cli.py steering run --phase {PHASE}` |
+| **Phase Truth** | POST-FLIGHT | `cli.py phase-verify --phase {PHASE}` |
+| **AutoResearch** | POST-FLIGHT | `cli.py auto-research --project /path --phase {PHASE}` |
+
+### Agent Execution Workflow (with enhancements)
+
+```
++-------------------------------------------------------------+
+| Agent: python cli.py run-phase --phase {PHASE}              |
+|   -> PRE-FLIGHT (FSM, Constitution, Tool Registry)          |
++-------------------------------------------------------------+
+                              |
+                              v
++-------------------------------------------------------------+
+|  FR Execution Loop (FR-01 ~ FR-{FR_COUNT})                  |
+|                                                             |
+|  +-------------------------------------------------------+  |
+|  | 1. Developer implement -> sessions_spawn(dev)         |  |
+|  | 2. Parse JSON -> write files                          |  |
+|  | 3. Reviewer review -> sessions_spawn(rev)             |  |
+|  | 4. Constitution Check (includes BVS + HR-09)          |  |
+|  | 5. CQG (Linter + Complexity + Coverage)               |  |
+|  | 6. HR-12 check -> PAUSE at >=5 rounds                 |  |
+|  +-------------------------------------------------------+  |
++-------------------------------------------------------------+
+                              |
+                              v
++-------------------------------------------------------------+
+| POST-FLIGHT                                                 |
+|   1. SAB Drift Detection (code<->SAD)                       |
+|   2. Steering Loop (if enabled)                             |
+|   3. Phase Truth validation (>90%)                          |
+|   4. AutoResearch quality improvement (Phase-aware)         |
+|   5. stage-pass + enforce BLOCK                             |
++-------------------------------------------------------------+
+```
+
+### Full Agent Execution Script (with enhancements)
+
+```python
+#!/usr/bin/env python3
+"""
+Phase {PHASE} FR Execution Script (includes Section 10.5 enhancements)
+Version: v7.25+
+"""
+
+import subprocess
+import json
+from pathlib import Path
+
+PROJECT_PATH = Path("/path/to/project")
+PHASE = {PHASE}
+FR_LIST = ["FR-01", "FR-02", ..., "FR-{FR_COUNT}"]
+
+def run_cmd(cmd: list, cwd: Path = PROJECT_PATH) -> subprocess.CompletedProcess:
+    """Execute CLI command and return result"""
+    print(f"   $ {' '.join(cmd)}")
+    result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+    return result
+
+# ==========================================
+# PRE-FLIGHT
+# ==========================================
+print("PRE-FLIGHT")
+run_cmd(["python3", "cli.py", "run-phase", "--phase", str(PHASE)])
+
+# ==========================================
+# FR Execution Loop
+# ==========================================
+for fr_id in FR_LIST:
+    print(f"\n{'='*60}")
+    print(f"Processing {fr_id}")
+    print(f"{'='*60}")
+
+    iteration = 1
+    max_iterations = 5
+
+    while iteration <= max_iterations:
+        print(f"\nIteration {fr_id} {iteration}/{max_iterations}")
+
+        # 1. Developer implementation
+        print(f"\n[Developer] Implement {fr_id}")
+
+        dev_task = f"""You are the Developer Agent. Implement {fr_id}.
+
+Tasks:
+1. Read SRS.md (section {fr_id}) and SAD.md
+2. Implement code (use app/ path)
+3. Return JSON:
+
+{{
+  "status": "success",
+  "files": [
+    {{
+      "path": "app/.../{fr_id.lower()}.py",
+      "content": "# full code..."
+    }}
+  ],
+  "confidence": 1-10,
+  "citations": ["{fr_id}", "SRS.md#L23"],
+  "summary": "implementation summary"
+}}
+
+[FORBIDDEN]
+- app/infrastructure/ (deprecated)
+- docstring missing [FR-XX]
+- docstring missing Citations (with line numbers)
+"""
+
+        dev_result = sessions_spawn(task=dev_task, mode="run", runtime="subagent")
+
+        # 2. Parse JSON and write files
+        print(f"\nWriting files...")
+        try:
+            result_text = dev_result.get("result", "{}").strip()
+            if result_text.startswith('[SKILL]'):
+                result_text = result_text[6:].strip()
+            import re
+            match = re.search(r'```(?:json)?\s*([\s\S]*?)```', result_text)
+            if match:
+                result_text = match.group(1).strip()
+            dev_data = json.loads(result_text)
+            for f in dev_data.get("files", []):
+                file_path = PROJECT_PATH / f["path"]
+                file_path.parent.mkdir(parents=True, exist_ok=True)
+                file_path.write_text(f["content"])
+                print(f"   OK {f['path']}")
+        except Exception as e:
+            print(f"   ERROR file write failed: {e}")
+
+        # 3. Reviewer review
+        print(f"\n[Reviewer] Review {fr_id}")
+
+        rev_task = f"""You are the Reviewer Agent. Review {fr_id}.
+
+Tasks:
+1. Read code files
+2. Cross-check against SRS.md (section {fr_id}) and SAD.md
+3. Return JSON:
+
+{{
+  "status": "success",
+  "review_status": "APPROVE or REJECT",
+  "reason": "review reason",
+  "confidence": 1-10,
+  "citations": ["{fr_id}", "SAD.md#L45"],
+  "summary": "review summary"
+}}
+
+[REJECT_IF]
+- docstring missing [FR-XX] marker -> REJECT
+- docstring missing Citations (with line numbers) -> REJECT
+- missing citations or citations lack line numbers -> REJECT (HR-15)
+"""
+
+        rev_result = sessions_spawn(task=rev_task, mode="run", runtime="subagent")
+
+        # 4. Constitution Check (includes BVS + HR-09)
+        print(f"\n[BVS + HR-09] Constitution Check")
+        result = run_cmd(["python3", "quality_gate/constitution/runner.py", "--type", "implementation"])
+        print(f"   {'OK' if result.returncode == 0 else 'WARN'} Constitution {'PASS' if result.returncode == 0 else 'WARN'}")
+
+        # 5. CQG (Linter + Complexity + Coverage)
+        print(f"\n[CQG] Quality Gate Check")
+        result = run_cmd(["python3", "cli.py", "quality-gate", "--phase", str(PHASE)])
+        print(f"   {'OK' if result.returncode == 0 else 'WARN'} CQG {'PASS' if result.returncode == 0 else 'WARN'}")
+
+        # 6. Iteration decision
+        review_status = rev_result.get("review_status", None)
+        if review_status == "APPROVE":
+            print(f"\n{fr_id} APPROVE")
+
+            # Layer 1-3 check
+            print(f"\n[Layer 1-3] FR Quality Check")
+            METHODOLOGY_V2 = Path("/path/to/methodology-v2")
+            result = run_cmd([
+                "python3",
+                str(METHODOLOGY_V2 / "scripts" / "check_fr_full.py"),
+                "--fr", fr_id,
+                "--project", str(PROJECT_PATH),
+                "--loop"
+            ])
+            print(f"   {'OK' if result.returncode == 0 else 'WARN'} Layer 1-3 Check {'PASS' if result.returncode == 0 else 'needs fix'}")
+
+            break
+        else:
+            print(f"\n{fr_id} REJECT -> re-implement")
+            iteration += 1
+            if iteration > max_iterations:
+                print(f"\nHR-12 TRIGGERED: > {max_iterations} rounds -> PAUSE")
+                break
+
+# ==========================================
+# POST-FLIGHT
+# ==========================================
+print(f"\n{'='*60}")
+print("POST-FLIGHT")
+print(f"{'='*60}")
+
+print(f"\n[SAB Drift] Code<->SAD consistency check")
+result = run_cmd(["python3", "cli.py", "trace-check", "--phase", str(PHASE)])
+print(f"   {'OK' if result.returncode == 0 else 'WARN'} SAB Drift {'PASS' if result.returncode == 0 else 'WARN'}")
+
+print(f"\n[Steering] Steering Loop")
+result = run_cmd(["python3", "cli.py", "steering", "run", "--phase", str(PHASE)])
+print(f"   {'OK' if result.returncode == 0 else 'INFO'} Steering {'complete' if result.returncode == 0 else 'not enabled'}")
+
+print(f"\n[Phase Truth] Phase Truth validation")
+result = run_cmd(["python3", "cli.py", "phase-verify", "--phase", str(PHASE)])
+print(f"   {'OK' if result.returncode == 0 else 'FAIL'} Phase Truth {'>90%' if result.returncode == 0 else '<70% -> PAUSE'}")
+
+print(f"\n[AutoResearch] Phase-aware quality improvement ({PHASE})")
+result = run_cmd(["python3", "cli.py", "auto-research", "--project", str(REPO), "--phase", str(PHASE)])
+print(f"   {'OK' if result.returncode == 0 else 'SKIP'} AutoResearch {'complete' if result.returncode == 0 else 'skipped'}")
+
+print(f"\n[STAGE_PASS] Running stage-pass")
+run_cmd(["python3", "cli.py", "stage-pass", "--phase", str(PHASE)])
+
+print(f"\nPhase {PHASE} complete!")
+```
+
+### PhaseHooks + Enhanced Feature Call Timing
+
+| Timing | Call | Purpose |
+|--------|------|---------|
+| PRE-FLIGHT | `cli.py run-phase --phase {PHASE}` | FSM + Constitution |
+| After Dev execution | `sessions_spawn(dev)` | Implement code |
+| After Rev execution | `sessions_spawn(rev)` | Review code |
+| **Constitution** | `runner.py --type implementation` | **BVS + HR-09** |
+| **CQG** | `cli.py quality-gate` | **Linter + Complexity** |
+| HR-12 | `monitoring_hr12_check()` | PAUSE at >=5 rounds |
+| **SAB Drift** | `cli.py trace-check` | **code<->SAD** |
+| **Steering** | `cli.py steering run` | **Workflow control** |
+| **Phase Truth** | `cli.py phase-verify` | **>90% validation** |
+| **AutoResearch** | `cli.py auto-research` | **Phase-aware quality improvement** |
+| POST-FLIGHT | `cli.py run-phase --resume` | Final State |
+
+### sessions_spawn Call Method
+
+```python
+sessions_spawn(
+    task="You are the Developer Agent...",
+    mode="run",
+    runtime="subagent",
+    timeout=300,
+)
+```
+
+### Developer Return Format
+
+```json
+{
+  "status": "success",
+  "files": [
+    {
+      "path": "app/processing/lexicon_mapper.py",
+      "content": "# full code..."
+    }
+  ],
+  "confidence": 8,
+  "citations": ["FR-01", "SRS.md#L23-L45"],
+  "summary": "FR-01 LexiconMapper implementation complete"
+}
+```
+
+### Reviewer Return Format
+
+```json
+{
+  "status": "success",
+  "review_status": "APPROVE",
+  "reason": "Code conforms to SRS section FR-01 spec",
+  "confidence": 9,
+  "citations": ["FR-01", "SAD.md#L45-L60"],
+  "summary": "Review passed, no violations"
+}
+```
+
+---
+
+## 18. Next Steps
+
+```bash
+# After Johnny review, run:
+python3 cli.py run-phase --phase {PHASE} --goal "{GOAL}"
+
+# Or repair a specific step:
+python3 cli.py plan-phase --phase {PHASE} --repair --step {PHASE}.2 --goal "{GOAL}"
+
+# Generate complete FR detailed tasks (requires SRS.md):
+python3 scripts/generate_full_plan.py --phase {PHASE} --repo /path/to/project
+```
+
+---
+
+*This plan is generated from SKILL.md {VERSION} + P{PHASE}_SOP.md {VERSION}*
