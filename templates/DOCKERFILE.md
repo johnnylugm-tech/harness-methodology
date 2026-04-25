@@ -1,6 +1,6 @@
 # Dockerfile Template
 
-> Best-practice Docker configuration.
+> Docker configuration based on best practices
 
 ## Usage
 
@@ -8,7 +8,7 @@
 # Copy to project root
 cp .methodology/templates/DOCKERFILE.md Dockerfile
 
-# Edit custom content
+# Edit as needed
 vim Dockerfile
 ```
 
@@ -30,7 +30,7 @@ COPY src/ ./src/
 CMD ["python", "-m", "src.cli"]
 ```
 
-## Multi-Stage Build (Recommended)
+## Multi-Stage Build (recommended)
 
 ```dockerfile
 # Build stage

@@ -1,19 +1,20 @@
 # ADR-{ID}: {Title}
 
-> On-demand Lazy Load template. Load only when this document needs to be generated.
+> On-demand Lazy Load template.
 > Source: SKILL_TEMPLATES.md SS T2.2
 
 ## Status
 {Proposed / Accepted / Deprecated}
 
 ## Context
-{Background context}
+{Background and context}
 
 ## Decision
-{Chosen solution}
+{Chosen approach}
 
 ## Rationale
-{Reason for choice}
+{Why this choice}
 
 ## Consequences
-{Positive impacts / Negative impacts}
+- Positive: {positive impacts}
+- Negative: {negative impacts}

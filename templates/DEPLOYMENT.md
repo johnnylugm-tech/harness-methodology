@@ -3,13 +3,13 @@
 ## Pre-Deployment Checklist
 
 - [ ] All Constitution checks passed
-- [ ] All tests passing
+- [ ] All tests passed
 - [ ] SPEC_TRACKING.md all items complete
 - [ ] TRACEABILITY_MATRIX.md all items complete
 
 ## Deployment Methods
 
-### Docker Deployment
+### Docker
 
 ```bash
 # Build image
@@ -19,7 +19,7 @@ docker build -t myapp:latest .
 docker run -d -p 8000:8000 myapp:latest
 ```
 
-### System Service (systemd)
+### systemd Service
 
 ```ini
 [Unit]
@@ -40,6 +40,6 @@ WantedBy=multi-user.target
 ## Environment Variables
 
 | Variable | Description | Default |
-|----------|-------------|--------|
+|----------|-------------|---------|
 | LOG_LEVEL | Log level | INFO |
 | MAX_WORKERS | Max worker threads | 4 |

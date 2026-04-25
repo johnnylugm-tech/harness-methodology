@@ -1,9 +1,9 @@
 # CONFIG_RECORDS.md - {Project Name}
 
-> On-demand Lazy Load template. Load only when this document needs to be generated.
+> On-demand Lazy Load template.
 > Source: SKILL_TEMPLATES.md SS T8.1
 
-## 1. Version Info
+## 1. Version Information
 - Version: v{version}
 - Git Commit: {hash}
 - Release Date: {date}
@@ -14,7 +14,7 @@
 | Development | {config} |
 | Production | {config} |
 
-## 3. Dependencies
+## 3. Dependency List
 ```
 {pip freeze / npm lock output}
 ```
@@ -24,24 +24,24 @@
 |----------|------|-------------|
 | {VAR} | secret | {description} |
 
-## 5. Deployment Records
+## 5. Deployment Log
 | Date | Version | Method | Executor |
 |------|---------|--------|----------|
 | {date} | {ver} | {method} | {name} |
 
-## 6. Config Change Log
-| Phase | Change | Reason |
-|-------|--------|--------|
+## 6. Configuration Change Log
+| Phase | Change | Rationale |
+|-------|--------|----------|
 | Phase 5 | {change} | {reason} |
 
 ## 7. Rollback SOP
-**Trigger condition**: {condition}
+**Trigger Condition**: {condition}
 **Commands**:
 ```bash
 {rollback commands}
 ```
 
-## 8. Config Compliance
+## 8. Configuration Compliance
 - [ ] Phase 7 risk mitigations implemented
 - [ ] Monitoring thresholds configured
 - [ ] Circuit breaker enabled

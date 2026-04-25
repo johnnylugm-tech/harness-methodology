@@ -1,15 +1,15 @@
 # BASELINE.md - {Project Name}
 
-> On-demand Lazy Load template. Load only when this document needs to be generated.
+> On-demand Lazy Load template.
 > Source: SKILL_TEMPLATES.md SS T5.1
 
 ## 1. Baseline Overview
-- Created by: {name}
-- Reviewed by: {name}
+- Author: {name}
+- Reviewer: {name}
 - session_id: {session_id}
 - Date: {date}
 
-## 2. Feature Baseline (corresponds to SRS FR, 100% complete)
+## 2. Functional Baseline (maps to SRS FR, 100% complete)
 
 | FR ID | Feature Description | Baseline Status | Notes |
 |-------|--------------------|-----------------| ------|
@@ -23,10 +23,10 @@
 | Coverage | >= 80% | {value} | PASS/FAIL |
 | Logic Correctness | >= 90 | {value} | PASS/FAIL |
 
-## 4. Performance Baseline (A/B monitoring reference)
+## 4. Performance Baseline (A/B monitoring)
 
 | Metric | Baseline Value |
-|--------|----------------|
+|--------|---------------|
 | Response Time | {value} ms |
 | Memory | {value} MB |
 | Error Rate | {value}% |
@@ -36,8 +36,8 @@
 |----------|-------|-------------|
 | HIGH | {N} | {description} |
 
-> WARNING: HIGH severity must be 0 before establishing baseline
+> HIGH severity count must be 0 before establishing baseline
 
-## 6. Sign-off
+## 6. Acceptance Sign-off
 - Agent A: {name} ({session_id}) - {date}
 - Agent B: {name} ({session_id}) - {date}
