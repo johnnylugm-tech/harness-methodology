@@ -1,34 +1,34 @@
-# QUALITY_REPORT.md - {專案名稱}
+# QUALITY_REPORT.md - {Project Name}
 
-> 本檔案為 On-demand Lazy Load 模板，僅在需要產生此文件時載入。
-> 來自：SKILL_TEMPLATES.md §T6.1
+> On-demand Lazy Load template.
+> Source: SKILL_TEMPLATES.md SS T6.1
 
-## 1. 品質指標全覽
+## 1. Quality Metrics Overview
 
-| 指標 | Phase 5 基線 | Phase 6 實際 | 變化 |
-|------|-------------|-------------|------|
-| Constitution | {v5} | {v6} | {Δ} |
-| 覆蓋率 | {v5} | {v6} | {Δ} |
+| Metric | Phase 5 Baseline | Phase 6 Actual | Delta |
+|--------|------------------|----------------|-------|
+| Constitution | {v5} | {v6} | {delta} |
+| Coverage | {v5} | {v6} | {delta} |
 
-## 2. ASPICE 合規性
-| Phase | 狀態 |
-|-------|------|
-| Phase 1-4 | ✅/❌ |
-| Phase 5 | ✅/❌ |
+## 2. ASPICE Compliance
+| Phase | Status |
+|-------|--------|
+| Phase 1-4 | PASS/FAIL |
+| Phase 5 | PASS/FAIL |
 
-## 3. Constitution 四維度
-| 維度 | 分數 |
-|------|------|
-| 正確性 | {value}% |
-| 安全性 | {value}% |
-| 可維護性 | {value}% |
-| 測試覆蓋率 | {value}% |
+## 3. Constitution Four Dimensions
+| Dimension | Score |
+|-----------|-------|
+| Correctness | {value}% |
+| Security | {value}% |
+| Maintainability | {value}% |
+| Test Coverage | {value}% |
 
-## 4. 品質問題根源分析
-| 問題 | 等級 | 根源 | 解決方案 |
-|------|------|------|---------|
-| {問題} | {等級} | {根源} | {方案} |
+## 4. Root Cause Analysis
+| Issue | Severity | Root Cause | Resolution |
+|-------|----------|------------|------------|
+| {issue} | {severity} | {root cause} | {resolution} |
 
-## 5. 改進建議
-1. {建脃1}
-2. {建脃2}
+## 5. Improvement Recommendations
+1. {recommendation 1}
+2. {recommendation 2}

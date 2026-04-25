@@ -1,16 +1,16 @@
-# RISK_REGISTER.md - {專案名稱}
+# RISK_REGISTER.md - {Project Name}
 
-> 本檔案為 On-demand Lazy Load 模板，僅在需要產生此文件時載入。
-> 來自：SKILL_TEMPLATES.md §T7.1
+> On-demand Lazy Load template.
+> Source: SKILL_TEMPLATES.md SS T7.1
 
-## 風險矩陣
+## Risk Matrix
 
-| ID | 風險描述 | 維度 | 等級 | 概率 | 影響 | 緩解措施 | 狀態 |
-|----|----------|------|------|------|------|---------|------|
-| R-01 | {描述} | {維度} | {等級} | {prob}% | {impact} | {措施} | {狀態} |
+| ID | Risk Description | Dimension | Level | Probability | Impact | Mitigation | Status |
+|----|-----------------|-----------|-------|-------------|--------|------------|--------|
+| R-01 | {description} | {dimension} | {level} | {prob}% | {impact} | {mitigation} | {status} |
 
-## Decision Gate 確認
+## Decision Gate Confirmation
 
-| 風險 ID | 決策 | 確認人 | session_id | 日期 |
-|---------|------|--------|------------|------|
-| R-01 | {決策} | {name} | {session_id} | {date} |
+| Risk ID | Decision | Approver | session_id | Date |
+|---------|----------|----------|------------|------|
+| R-01 | {decision} | {name} | {session_id} | {date} |

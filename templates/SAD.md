@@ -1,40 +1,40 @@
-# SAD - {專案名稱}
+# SAD - {Project Name}
 
-> 本檔案為 On-demand Lazy Load 模板，僅在需要產生此文件時載入。
-> 來自：SKILL_TEMPLATES.md §T2.1
+> On-demand Lazy Load template.
+> Source: SKILL_TEMPLATES.md SS T2.1
 
-## 1. 架構概述
-{架構高層描述}
+## 1. Architecture Overview
+{High-level architecture description}
 
-## 2. 模組設計
+## 2. Module Design
 
-### 2.1 {模組名稱}
+### 2.1 {Module Name}
 
-| 屬性 | 値 |
-|------|-----|
-| 職責 | {職責} |
-| 對外介面 | {API} |
-| 依賴 | {依賴模組} |
+| Attribute | Value |
+|-----------|-------|
+| Responsibility | {responsibility} |
+| External Interface | {API} |
+| Dependencies | {dependency modules} |
 
-#### 邏輯約束
-- {約圇1}
-- {約圇2}
+#### Logical Constraints
+- {constraint 1}
+- {constraint 2}
 
-## 3. 錯誤處理
-| 等級 | 處理策略 |
-|------|---------|
-| L1 | 立即返回 |
-| L2 | 重試 3 次 |
-| L3 | 降級處理 |
+## 3. Error Handling
+| Level | Handling Strategy |
+|-------|------------------|
+| L1 | Immediate return |
+| L2 | Retry 3 times |
+| L3 | Graceful degradation |
 
-## 4. 技術選型
-| 技術 | 理由 |
-|------|------|
-| {技術} | {理由} |
+## 4. Technology Choices
+| Technology | Rationale |
+|------------|----------|
+| {technology} | {reason} |
 
 ---
 
-## 5. SAB Block（機器可讀格式）
+## 5. SAB Block (machine-readable)
 
 <!-- SAB:START -->
 ```json
@@ -42,7 +42,7 @@
   "version": "1.0",
   "created_at": "{YYYY-MM-DD}",
   "phase": 2,
-  "project": "{專案名}",
+  "project": "{project_name}",
   "layers": [
     {
       "name": "{layer_name}",
@@ -63,4 +63,4 @@
 ```
 <!-- SAB:END -->
 
-**說明**：請填寫上方的 JSON 結構，這用於後續 Drift Detection。
+Note: Fill in the JSON above — it is used for Drift Detection.
