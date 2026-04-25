@@ -1,17 +1,17 @@
 # Project Structure Template
 
-> Spec Kit style standardized project structure
+> Standardized project structure (Spec Kit style)
 
 ---
 
-## Standard Directory Structure
+## Standard Directory Layout
 
 ```
 project/
 +-- 00-summary/             # Summary
 +-- 01-requirements/        # Phase 1: Requirements (SRS.md)
 +-- 02-architecture/        # Phase 2: Architecture (SAD.md)
-+-- 03-development/src/     # Phase 3: Code implementation
++-- 03-development/src/     # Phase 3: Implementation
 +-- 03-development/tests/   # Phase 3: Tests
 +-- 04-testing/             # Phase 4: Test verification
 +-- 05-deployment/          # Phase 5: Deployment
@@ -19,19 +19,17 @@ project/
 +-- .methodology/           # Framework state tracking
 ```
 
-> NOTE: Phase number aligns with directory prefix (Phase N -> 0N-xxx/)
+> Note: Phase number aligns with directory prefix (Phase N -> 0N-xxx/)
 
 ---
 
 ## 01-requirements Template
 
-### SRS.md
-
 ```markdown
 # Requirements Specification
 
 ## Project Name
-[name]
+[Name]
 
 ## Functional Requirements
 
@@ -43,8 +41,6 @@ project/
 ---
 
 ## 02-architecture Template
-
-### SAD.md
 
 ```markdown
 # Architecture Design
@@ -64,11 +60,22 @@ project/
 
 ```
 src/
-+-- FR-01/                  # FR-01 module
++-- FR-01/
 |   +-- __init__.py
 |   +-- main.py
 |   +-- test_fr01.py
-+-- FR-02/                  # FR-02 module
++-- FR-02/
+```
+
+---
+
+## 04-testing Template
+
+```
+tests/
++-- test_fr01.py
++-- test_fr02.py
++-- integration/
 ```
 
 ---

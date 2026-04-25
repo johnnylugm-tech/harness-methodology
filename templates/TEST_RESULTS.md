@@ -11,18 +11,18 @@
 
 ## Detailed Results
 
-### Passing Tests
+### Passed Tests
 | ID | Description | Execution Time |
-|----|-------------|----------------|
+|----|-------------|---------------|
 | TC-01 | {description} | {time} |
 
-### Failing Tests
+### Failed Tests
 | ID | Description | Failure Reason | Root Cause |
-|----|-------------|----------------|------------|
+|----|-------------|---------------|------------|
 | TC-XX | {description} | {reason} | {analysis} |
 
 ## Failure Analysis
 ### {TC-ID}
-**Issue**: {description}
+**Problem**: {description}
 **Root Cause**: {analysis}
 **Fix**: {method}

@@ -55,5 +55,3 @@
 }
 ```
 <!-- TEST:END -->
-
-Note: Fill in the JSON above — it is used for test coverage tracking.
