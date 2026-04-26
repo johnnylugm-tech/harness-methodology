@@ -339,7 +339,7 @@ class DevLogChecker:
         # Check common empty record patterns
         empty_patterns = [
             r'✅\s*$',     # emoji only
-            r'通過\s*$',    # no specific description (Chinese: Passed)
+            r'(PASS|passed|passed)\s*$',  # passed
         ]
 
         for pattern in empty_patterns:
