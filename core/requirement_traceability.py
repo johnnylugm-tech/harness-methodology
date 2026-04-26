@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Requirement Traceability - 需求可追溯性模組
+Requirement Traceability - Requirement Traceability Module
 
-FR → SRS → Code → Test 雙向追溯。ASPICE SWE.3 / SYS.4 合規。
+FR -> SRS -> Code -> Test bidirectional traceability. ASPICE SWE.3 / SYS.4 compliant.
 
 Note: In harness-methodology, run as:
     python core/requirement_traceability.py --project-id <id>
@@ -128,7 +128,7 @@ class RequirementTraceability:
         self.links: List[TraceLink] = []
         self._link_index: Dict[str, List[str]] = {}
 
-    def add_requirement(self, req_id: str, title: str, srs_section: str = None, description: str = "", priority: str = "HIGH", metadata: dict = None) -> None:
+    def add_requirement(self, req_id: str, title: str, srs_section: str = None, description: str = "", priority: str = "HIGH", metadata: dict = None):
         req = Requirement(req_id=req_id, title=title, description=description,
                           srs_section=srs_section, priority=priority, metadata=metadata or {})
         self.requirements[req_id] = req
@@ -230,7 +230,7 @@ class RequirementTraceability:
             }
         return report
 
-    def save(self, filepath: str) -> bool:
+    def save(self, filepath: str) -> None:
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(self.export_report(), f, indent=2, ensure_ascii=False)
 
