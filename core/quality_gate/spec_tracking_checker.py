@@ -49,6 +49,7 @@ class SpecTrackingChecker:
                 "errors": []
             }
         
+        if not self.spec_file or not self.spec_file.exists(): return {"complete": False, "missing": ["File not found"]}
         content = self.spec_file.read_text(encoding="utf-8")
         missing = []
         errors = []
@@ -135,6 +136,7 @@ class SpecTrackingChecker:
             }
         
         completeness_result = self.check_completeness()
+        if not self.spec_file or not self.spec_file.exists(): return {"complete": False, "missing": ["File not found"]}
         content = self.spec_file.read_text(encoding="utf-8")
         stats = self._count_status(content)
         
@@ -177,6 +179,7 @@ class SpecTrackingChecker:
                 print(f"  • {item}")
         
         # 讀取並顯示狀態統計
+        if not self.spec_file or not self.spec_file.exists(): return {"complete": False, "missing": ["File not found"]}
         content = self.spec_file.read_text(encoding="utf-8")
         stats = self._count_status(content)
         if stats:
