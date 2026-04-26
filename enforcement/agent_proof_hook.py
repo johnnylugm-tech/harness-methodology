@@ -147,9 +147,9 @@ if __name__ == "__main__":
     def _try_immutable(self):
         """Attempt to set Unix immutable attribute (requires root)."""
         try:
-            subprocess.run(["chattr", "+i", str(self.hook_path)], capture_output=True)
+            subprocess.run(["chattr", "+i", str(self.hook_path)], capture_output=True, shell=False)
             if os.path.exists("/usr/bin/lsattr"):
-                subprocess.run(["lsattr", str(self.hook_path)], capture_output=True)
+                subprocess.run(["lsattr", str(self.hook_path)], capture_output=True, shell=False)
             print("  Immutable attribute set (if supported)")
         except Exception:
             pass
@@ -178,7 +178,7 @@ if __name__ == "__main__":
     def uninstall(self):
         """Uninstall hook and restore backup."""
         try:
-            subprocess.run(["chattr", "-i", str(self.hook_path)], capture_output=True)
+            subprocess.run(["chattr", "-i", str(self.hook_path)], capture_output=True, shell=False)
         except Exception:
             pass
         if self.core_path.exists():
