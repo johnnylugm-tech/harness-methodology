@@ -1,4 +1,3 @@
-import subprocess
 #!/usr/bin/env python3
 """
 Agent-Proof Hook
@@ -13,6 +12,7 @@ Features:
 """
 
 import os
+import subprocess
 import sys
 import hashlib
 import shutil
