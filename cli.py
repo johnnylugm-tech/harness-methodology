@@ -4716,8 +4716,6 @@ Full execution script is in templates/plan_phase_template.md Section 17.
             # Remove FR-XX: prefix to get title
             if ':' in raw:
                 title = raw.split(':', 1)[1].strip()
-            elif ':' in raw:
-                title = raw.split(':', 1)[1].strip()
             else:
                 title = raw.strip()
             title = title[:60]
