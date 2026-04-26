@@ -23,9 +23,23 @@ from typing import Dict, List, Any, Optional
 
 
 class PhaseHooks:
-    """Phase execution hooks framework."""
+    """
+    Phase execution hooks framework.
+    
+    Provides specialized hooks for different stages of the development lifecycle:
+    - Pre-flight: State checks and configuration validation.
+    - Monitoring: Logging events during active development.
+    - Post-flight: Final validation and reporting.
+    """
 
     def __init__(self, project_path: str, phase: int = None):
+        """
+        Initialize the hooks manager.
+        
+        Args:
+            project_path: Path to the project root directory.
+            phase: Optional integer representing the current methodology phase.
+        """
         self.project_path = Path(project_path)
         self.phase = phase
         self.docs_path = self.project_path / "docs"
