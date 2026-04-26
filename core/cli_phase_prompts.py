@@ -3,167 +3,167 @@
 
 PHASE_PROMPTS = {
     1: {
-        "name": "需求規格",
+        "name": "Requirements Specification",
         "agent_a": "architect",
         "agent_b": "reviewer",
         "developer": """```
-TASK: 制定軟體需求規格 (SRS)
+TASK: Draft Software Requirements Specification (SRS)
 TASK_ID: task-p1
 ═══════════════════════════════════════
 
-【階段目標】
-建立完整的軟體需求規格（SRS），包含功能需求(FR)和非功能需求(NFR)
+[Phase Goal]
+Establish complete Software Requirements Specification (SRS) covering functional requirements (FR) and non-functional requirements (NFR)
 
-【On Demand 讀取】（只讀這些章節，❌ 禁止 dump 全文）
-- TASK_INITIALIZATION_PROMPT.md（只讀專案目標和約束）
+[On Demand Reading] (read only these sections, NO full-file dump)
+- TASK_INITIALIZATION_PROMPT.md (read only project goals and constraints)
 
-【產出】
-- SRS.md：軟體需求規格文件
-- SPEC_TRACKING.md：規格追蹤矩陣
-- TRACEABILITY_MATRIX.md：需求追蹤矩陣
+[Outputs]
+- SRS.md: Software Requirements Specification document
+- SPEC_TRACKING.md: Specification Tracking Matrix
+- TRACEABILITY_MATRIX.md: Requirements Traceability Matrix
 
-【驗證標準】
+[Verification Criteria]
 - Constitution SRS ≥80%
-- 每個 FR 有明確的驗收標準
-- 每個 NFR 可追蹤到 FR
-- Traceability 矩陣 100% 完整
+- Every FR has explicit acceptance criteria
+- Every NFR traceable to an FR
+- Traceability matrix 100% complete
 
-【FORBIDDEN】
-- ❌ 遺漏任何 FR 或 NFR
-- ❌ 規格模糊、無法驗證
-- ❌ 遺漏介面規格
-- ❌ 無 citations 或 citations 無行號 → HR-15 違規
+[FORBIDDEN]
+- NO missing FR or NFR
+- NO vague or unverifiable specs
+- NO missing interface specs
+- NO citations missing or lacking line numbers -> HR-15 violation
 
-【OUTPUT_FORMAT】
+[OUTPUT_FORMAT]
 {{
  "status": "success|error|unable_to_proceed",
- "result": "實際產出（SRS.md 路徑）",
+ "result": "actual output (SRS.md path)",
  "confidence": 1-10,
  "citations": ["TASK_INITIALIZATION_PROMPT.md#L10-L20"],
- "summary": "50字內"
+ "summary": "within 50 words"
 }}
 
-HR-15 強制執行：citations 必須包含「檔名#L行號」格式
+HR-15 enforced: citations must include 'filename#Llinenum' format
 ═══════════════════════════════════════
 ```""",
         "reviewer": """```
-TASK: Review 軟體需求規格 (SRS)
+TASK: Review Software Requirements Specification (SRS)
 TASK_ID: task-p1-review
 ═══════════════════════════════════════
 
-【審查範圍】（只讀這些章節，❌ 禁止 dump 全文）
-- SRS.md（只讀 FR 和 NFR 章節）
+[Review Scope] (read only these sections, NO full-file dump)
+- SRS.md (read only FR and NFR sections)
 - SPEC_TRACKING.md
 - TRACEABILITY_MATRIX.md
 
-【驗證檢查清單】
-1. 每個 FR 有明確的驗收標準
-2. 每個 NFR 可追蹤到對應的 FR
-3. Traceability 矩陣完整（FR → NFR → Test）
-4. Constitution SRS 分數 ≥80%
-5. 介面規格清晰（輸入/輸出/錯誤處理）
+[Verification Checklist]
+1. Every FR has explicit acceptance criteria
+2. Every NFR traceable to a corresponding FR
+3. Traceability matrix complete (FR -> NFR -> Test)
+4. Constitution SRS score >=80%
+5. Interface specs clear (input/output/error handling)
 
-【REJECT_IF】
-- ❌ FR 遺漏或模糊 → REJECT
-- ❌ NFR 無法驗證 → REJECT
-- ❌ Traceability 不完整 → REJECT
+[REJECT_IF]
+- FR missing or vague -> REJECT
+- NFR unverifiable -> REJECT
+- Traceability incomplete -> REJECT
 - ❌ Constitution < 80% → REJECT
-- ❌ 缺少 citations 或無行號 → REJECT（HR-15）
+- Missing citations or no line numbers -> REJECT (HR-15)
 
-【OUTPUT_FORMAT】
+[OUTPUT_FORMAT]
 {{
  "status": "APPROVE|REJECT",
  "confidence": 1-10,
- "violations": ["具體問題"],
- "constitution_score": "分數",
- "summary": "50字內"
+ "violations": ["specific issues"],
+ "constitution_score": "score",
+ "summary": "within 50 words"
 }}
 ═══════════════════════════════════════
 ```"""
     },
     
     2: {
-        "name": "架構設計",
+        "name": "Architecture Design",
         "agent_a": "architect",
         "agent_b": "reviewer",
         "developer": """```
-TASK: 制定系統架構文件 (SAD) + 架構決策記錄 (ADR)
+TASK: Draft System Architecture Document (SAD) + Architecture Decision Records (ADR)
 TASK_ID: task-p2
 ═══════════════════════════════════════
 
-【階段目標】
-基於 SRS 設計系統架構，包含模組邊界、介面、資料流
+[Phase Goal]
+Design system architecture based on SRS, covering module boundaries, interfaces, data flow
 
-【On Demand 讀取】（只讀這些章節，❌ 禁止 dump 全文）
-- SRS.md（只讀 FR 需求和介面規格）
-- 任務初始化提示（只讀約束）
+[On Demand Reading] (read only these sections, NO full-file dump)
+- SRS.md (read only FR requirements and interface specs)
+- Task initialization prompt (read only constraints)
 
-【產出】
-- SAD.md：系統架構文件
-- ADR.md：架構決策記錄（每個關鍵決策一筆）
+[Outputs]
+- SAD.md: System Architecture Document
+- ADR.md: Architecture Decision Records (one entry per key decision)
 
-【驗證標準】
+[Verification Criteria]
 - Constitution SAD ≥80%
-- SAD↔SRS 一致性 =100%
-- 每個 FR 有對應的 Module
-- 每個 Module 有明確職責和介面
+- SAD<->SRS consistency =100%
+- Every FR has a corresponding Module
+- Every Module has clear responsibilities and interfaces
 
-【FORBIDDEN】
-- ❌ 偏離 SRS 的需求
-- ❌ 模組邊界模糊或重疊
-- ❌ 遺漏錯誤處理機制
-- ❌ 無 citations 或無行號 → HR-15 違規
+[FORBIDDEN]
+- NO deviations from SRS requirements
+- NO vague or overlapping module boundaries
+- NO missing error-handling mechanism
+- NO citations missing or lacking line numbers -> HR-15 violation
 
-【OUTPUT_FORMAT】
+[OUTPUT_FORMAT]
 {{
  "status": "success|error|unable_to_proceed",
- "result": "實際產出（SAD.md, ADR.md 路徑）",
+ "result": "actual output (SAD.md, ADR.md path)",
  "confidence": 1-10,
  "citations": ["SRS.md#L20-L30", "SAD.md#L10-L15"],
- "summary": "50字內"
+ "summary": "within 50 words"
 }}
 
-HR-15 強制執行：citations 必須包含「檔名#L行號」格式
+HR-15 enforced: citations must include 'filename#Llinenum' format
 ═══════════════════════════════════════
 ```""",
         "reviewer": """```
-TASK: Review 系統架構文件 (SAD) + 架構決策記錄 (ADR)
+TASK: Review System Architecture Document (SAD) + Architecture Decision Records (ADR)
 TASK_ID: task-p2-review
 ═══════════════════════════════════════
 
-【審查範圍】（只讀這些章節，❌ 禁止 dump 全文）
-- SAD.md（只讀 Module 邊界和介面章節）
-- ADR.md（只讀決策理由）
-- SRS.md（只讀 FR 對應章節）
+[Review Scope] (read only these sections, NO full-file dump)
+- SAD.md (read only Module boundary and interface sections)
+- ADR.md (read only decision rationale)
+- SRS.md (read only FR-corresponding sections)
 
-【驗證檢查清單】
-1. SAD↔SRS 一致性 =100%（每個 FR 有對應 Module）
-2. 每個 Module 有明確職責（單一職責原則）
-3. 介面規格清晰（輸入/輸出/錯誤處理）
-4. ADR 記錄關鍵決策及其理由
-5. Constitution SAD 分數 ≥80%
+[Verification Checklist]
+1. SAD<->SRS consistency =100% (every FR has a corresponding Module)
+2. Every Module has clear responsibility (Single Responsibility Principle)
+3. Interface specs clear (input/output/error handling)
+4. ADR records key decisions and their rationale
+5. Constitution SAD score >=80%
 
-【REJECT_IF】
-- ❌ SAD↔SRS 不一致 → REJECT
-- ❌ Module 職責重疊 → REJECT
-- ❌ 介面模糊 → REJECT
-- ❌ ADR 決策理由不足 → REJECT
-- ❌ 缺少 citations 或無行號 → REJECT（HR-15）
+[REJECT_IF]
+- SAD<->SRS inconsistent -> REJECT
+- Module responsibilities overlap -> REJECT
+- Interface vague -> REJECT
+- ADR decision rationale insufficient -> REJECT
+- Missing citations or no line numbers -> REJECT (HR-15)
 
-【OUTPUT_FORMAT】
+[OUTPUT_FORMAT]
 {{
  "status": "APPROVE|REJECT",
  "confidence": 1-10,
- "violations": ["具體問題"],
- "consistency_score": "SRS↔SAD 一致性 %",
- "summary": "50字內"
+ "violations": ["specific issues"],
+ "consistency_score": "SRS<->SAD consistency %",
+ "summary": "within 50 words"
 }}
 ═══════════════════════════════════════
 ```"""
     },
     
     3: {
-        "name": "代碼實現",
+        "name": "Code Implementation",
         "agent_a": "developer",
         "agent_b": "reviewer",
         "developer": """```
@@ -171,12 +171,12 @@ TASK: {fr['fr']} {fr['title']}
 TASK_ID: task-{fr_num}
 ═══════════════════════════════════════
 
-【先決條件】
+[Prerequisites]
 cd {repo_path}
-pwd  # 確認在正確目錄
+pwd  # confirm in correct directory
 
-【Phase Hooks 整合】（HR-09 強制執行）
-⚠️ 每個 FR 執行前後必須呼叫 PhaseHooksAdapter：
+[Phase Hooks Integration] (HR-09 enforced)
+IMPORTANT: PhaseHooksAdapter must be called before and after each FR:
 import sys
 from pathlib import Path
 sys.path.insert(0, '{methodology_path}')
@@ -187,56 +187,56 @@ adapter = PhaseHooksAdapter(
     phase={phase_num},
     feature_flags={{"uqlm": True, "gap_detector": True, "hunter": True, "shields": True}}
 )
-# Preflight：只在第一個 FR 前執行一次
+# Preflight: run once before first FR only
 adapter.preflight_all()
 
-# FR 前
+# Before FR
 adapter.monitoring_before_dev("{fr_id}")
 
-# Developer 實作...
+# Developer implements...
 
-# FR 後（developer result 傳入）
+# After FR (pass developer result in)
 hook_result = adapter.monitoring_after_dev("{fr_id}", result=dev_result)
 if not hook_result.get("passed"):
     raise Exception(f"Hook blocked by Feature: {{hook_result}}")
 
-【階段目標】
-依據 SAD 實作指定模組，包含單元測試
+[Phase Goal]
+Implement specified module per SAD, including unit tests
 
-【On Demand 讀取】（只讀這些章節，❌ 禁止 dump 全文）
+[On Demand Reading] (read only these sections, NO full-file dump)
 
-SRS.md 只讀取：
-- §{fr['fr']} 需求描述
-- §{fr['fr']} 測試案例（有的話）
+Read from SRS.md only:
+- §{fr['fr']} requirement description
+- §{fr['fr']} test cases (if any)
 
-SAD.md 只讀取：
-- §Module 邊界對照表（對應 {fr['fr']} 的章節）
+Read from SAD.md only:
+- §Module boundary table (section corresponding to {fr['fr']})
 
-【產出】
-- {fr.get('file', 'app/processing/{fr_num}.py')}：實作代碼
-- tests/test_{fr_num}.py：單元測試
+[Outputs]
+- {fr.get('file', 'app/processing/{fr_num}.py')}: implementation code
+- tests/test_{fr_num}.py: unit tests
 
-【驗證標準】
-- pytest 100% 通過
-- 覆蓋率 ≥70%
-- docstring 包含 [FR-XX] 標記
-- docstring 包含 Citations（SRS.md#L行號, SAD.md#L行號）
+[Verification Criteria]
+- pytest 100% pass
+- coverage >=70%
+- docstring includes [FR-XX] tag
+- docstring includes Citations (SRS.md#Llinenum, SAD.md#Llinenum)
 
-【FORBIDDEN】
-- ❌ dump SRS.md/SAD.md 全文
-- ❌ app/infrastructure/（已廢除，請用正確目錄）
-- ❌ docstring 沒有 [FR-XX] 標記
-- ❌ docstring 沒有 Citations（含行號）
+[FORBIDDEN]
+- NO dumping full SRS.md/SAD.md
+- NO app/infrastructure/ (deprecated, use correct directory)
+- NO missing [FR-XX] tag in docstring
+- NO missing Citations (with line numbers) in docstring
 - ❌ @type: edge
-- ❌ ... 省略 → 任務失敗
-- ❌ 無 citations 或 citations 無行號 → HR-15 違規
-- ❌ citations 未寫入 code docstring → HR-15 違規
-- ❌ 未呼叫 PhaseHooks → HR-09 違規
+- NO ellipsis omissions -> task failure
+- NO citations missing or lacking line numbers -> HR-15 violation
+- NO citations omitted from code docstring -> HR-15 violation
+- NO skipping PhaseHooks call -> HR-09 violation
 
-【OUTPUT_FORMAT】
+[OUTPUT_FORMAT]
 {{
   "status": "success|error|unable_to_proceed",
-  "result": "實際產出（路徑）",
+  "result": "actual output (path)",
   "confidence": 1-10,
   "citations": ["{fr['fr']}", "SRS.md#L23-L45", "SAD.md#L50-L60"],
   "hook_calls": {{
@@ -248,11 +248,11 @@ SAD.md 只讀取：
       "hunter_severity": null
     }}
   }},
-  "summary": "50字內"
+  "summary": "within 50 words"
 }}
 
-HR-15 強制執行：citations 必須包含「檔名#L行號」格式
-HR-09 強制執行：每個 FR 必須呼叫 Phase Hooks
+HR-15 enforced: citations must include 'filename#Llinenum' format
+HR-09 enforced: Phase Hooks must be called for every FR
 ═══════════════════════════════════════
 ```""",
         "reviewer": """```
@@ -260,453 +260,453 @@ TASK: Review {fr['fr']} {fr['title']}
 TASK_ID: task-{fr_num}-review
 ═══════════════════════════════════════
 
-【先決條件】
+[Prerequisites]
 cd {repo_path}
 
-【Phase Hooks 整合】
-# Reviewer 執行前
+[Phase Hooks Integration]
+# Before Reviewer runs
 adapter.monitoring_before_rev("{fr_id}")
 
-【審查範圍】（只讀這些章節，❌ 禁止 dump 全文）
+[Review Scope] (read only these sections, NO full-file dump)
 
-待審查檔案：
-- {fr.get('file', 'app/processing/{fr_num}.py')}（每個函數的 docstring 需含 [FR-XX]）
+Files to review:
+- {fr.get('file', 'app/processing/{fr_num}.py')} (every function docstring must include [FR-XX])
 - tests/test_{fr_num}.py
 
-規格參考：
-- SRS.md §{fr['fr']}（只讀需求和測試案例章節）
+Spec reference:
+- SRS.md §{fr['fr']} (read only requirement and test case sections)
 
-【驗證檢查清單】
-1. 每個公開函數的 docstring 含 [FR-XX] 標記
-2. 每個公開函數的 docstring 含 Citations（SRS.md#L行號, SAD.md#L行號）
-3. 測試覆蓋率 ≥70%
-4. pytest 100% 通過
-5. 無邏輯錯誤或安全漏洞
-6. Constitution 測試覆蓋率 >90%（TH-06）
+[Verification Checklist]
+1. Every public function docstring includes [FR-XX] tag
+2. Every public function docstring includes Citations (SRS.md#Llinenum, SAD.md#Llinenum)
+3. Test coverage >=70%
+4. pytest 100% pass
+5. No logic errors or security vulnerabilities
+6. Constitution test coverage >90% (TH-06)
 
-【REJECT_IF】
-- ❌ docstring 無 [FR-XX] 標記 → REJECT
-- ❌ docstring 無 Citations（含行號）→ REJECT
-- ❌ NFR 約束違背 → REJECT
+[REJECT_IF]
+- docstring missing [FR-XX] tag -> REJECT
+- docstring missing Citations (with line numbers) -> REJECT
+- NFR constraint violated -> REJECT
 - ❌ confidence < 6 → REJECT
-- ❌ 缺少 citations 或 citations 無行號 → REJECT（HR-15）
-- ❌ 覆蓋率 < 70% → REJECT
-- ❌ 未呼叫 PhaseHooks → HR-09 違規
+- Missing citations or citations lacking line numbers -> REJECT (HR-15)
+- coverage < 70% -> REJECT
+- NO skipping PhaseHooks call -> HR-09 violation
 
-# Reviewer 完成後
+# After Reviewer finishes
 hook_result = adapter.monitoring_after_rev("{fr_id}", result=rev_result)
 
-【OUTPUT_FORMAT】
+[OUTPUT_FORMAT]
 {{
   "status": "APPROVE|REJECT",
   "confidence": 1-10,
-  "violations": ["具體問題"],
-  "coverage": "覆蓋率 %",
+  "violations": ["specific issues"],
+  "coverage": "coverage %",
   "hook_calls": {{
     "monitoring_before_rev": {{ "blocked": False }},
     "monitoring_after_rev": {{ "passed": True }}
   }},
-  "summary": "50字內"
+  "summary": "within 50 words"
 }}
 ═══════════════════════════════════════
 ```"""
     },
     
     4: {
-        "name": "測試規劃與執行",
+        "name": "Testing Planning and Execution",
         "agent_a": "qa",
         "agent_b": "reviewer",
         "developer": """```
-TASK: 制定測試計畫 (TEST_PLAN) + 執行測試 (TEST_RESULTS)
+TASK: Draft Test Plan (TEST_PLAN) + Execute Tests (TEST_RESULTS)
 TASK_ID: task-p4
 ═══════════════════════════════════════
 
-【階段目標】
-基於 Phase 3 代碼制定完整測試計畫並執行
+[Phase Goal]
+Develop complete test plan based on Phase 3 code and execute
 
-【On Demand 讀取】（只讀這些章節，❌ 禁止 dump 全文）
-- SRS.md（只讀 FR 需求和驗收標準）
-- SAD.md（只讀 Module 介面）
-- src/（只看導出的公開介面）
+[On Demand Reading] (read only these sections, NO full-file dump)
+- SRS.md (read only FR requirements and acceptance criteria)
+- SAD.md (read only Module interfaces)
+- src/ (view only exported public interfaces)
 
-【產出】
-- TEST_PLAN.md：測試計畫（測試策略、環境、風險）
-- TEST_RESULTS.md：測試結果（執行記錄、通過率）
-- COVERAGE_REPORT.md：覆蓋率報告
+[Outputs]
+- TEST_PLAN.md: Test Plan (test strategy, environment, risks)
+- TEST_RESULTS.md: Test Results (execution log, pass rate)
+- COVERAGE_REPORT.md: Coverage Report
 
-【驗證標準】
-- Constitution 測試覆蓋率 >90%（TH-06）
-- FR↔測試 映射率 ≥90%
-- 整合測試 100% 通過
-- 效能測試達標（如有）
+[Verification Criteria]
+- Constitution test coverage >90% (TH-06)
+- FR<->test mapping rate >=90%
+- Integration tests 100% pass
+- Performance tests pass (if applicable)
 
-【FORBIDDEN】
-- ❌ 測試案例未對應 FR
-- ❌ 測試環境未隔離
-- ❌ 關鍵路徑未覆蓋
-- ❌ 無 citations 或無行號 → HR-15 違規
+[FORBIDDEN]
+- NO test cases without FR mapping
+- NO un-isolated test environment
+- NO uncovered critical paths
+- NO citations missing or lacking line numbers -> HR-15 violation
 
-【OUTPUT_FORMAT】
+[OUTPUT_FORMAT]
 {{
  "status": "success|error|unable_to_proceed",
- "result": "實際產出（TEST_PLAN.md, TEST_RESULTS.md 路徑）",
+ "result": "actual output (TEST_PLAN.md, TEST_RESULTS.md path)",
  "confidence": 1-10,
  "citations": ["SRS.md#L20-L30", "src/"],
- "summary": "50字內"
+ "summary": "within 50 words"
 }}
 
-HR-15 強制執行：citations 必須包含「檔名#L行號」格式
+HR-15 enforced: citations must include 'filename#Llinenum' format
 ═══════════════════════════════════════
 ```""",
         "reviewer": """```
-TASK: Review 測試計畫 (TEST_PLAN) + 測試結果 (TEST_RESULTS)
+TASK: Review Test Plan (TEST_PLAN) + Test Results (TEST_RESULTS)
 TASK_ID: task-p4-review
 ═══════════════════════════════════════
 
-【審查範圍】（只讀這些章節，❌ 禁止 dump 全文）
+[Review Scope] (read only these sections, NO full-file dump)
 - TEST_PLAN.md
 - TEST_RESULTS.md
 - COVERAGE_REPORT.md
 
-【驗證檢查清單】
-1. 每個 FR 有對應的測試案例
-2. FR↔測試 映射率 ≥90%
-3. 關鍵路徑覆蓋完整
-4. 測試環境與正式環境一致
-5. Constitution 測試分數 >80%
+[Verification Checklist]
+1. Every FR has corresponding test cases
+2. FR<->test mapping rate >=90%
+3. Critical paths fully covered
+4. Test environment matches production environment
+5. Constitution test score >80%
 
-【REJECT_IF】
-- ❌ FR 未完全覆蓋 → REJECT
-- ❌ 關鍵路徑未測試 → REJECT
-- ❌ 環境不一致 → REJECT
-- ❌ 覆蓋率 < 80% → REJECT
-- ❌ 缺少 citations 或無行號 → REJECT（HR-15）
+[REJECT_IF]
+- FR not fully covered -> REJECT
+- Critical paths untested -> REJECT
+- Environment inconsistent -> REJECT
+- coverage < 80% -> REJECT
+- Missing citations or no line numbers -> REJECT (HR-15)
 
-【OUTPUT_FORMAT】
+[OUTPUT_FORMAT]
 {{
  "status": "APPROVE|REJECT",
  "confidence": 1-10,
- "violations": ["具體問題"],
- "coverage_rate": "FR↔測試 映射率 %",
- "summary": "50字內"
+ "violations": ["specific issues"],
+ "coverage_rate": "FR<->test mapping rate %",
+ "summary": "within 50 words"
 }}
 ═══════════════════════════════════════
 ```"""
     },
     
     5: {
-        "name": "驗證交付",
+        "name": "Verification and Delivery",
         "agent_a": "devops",
         "agent_b": "architect",
         "developer": """```
-TASK: 建立系統 Baseline + Monitoring Plan
+TASK: Establish System Baseline + Monitoring Plan
 TASK_ID: task-p5
 ═══════════════════════════════════════
 
-【階段目標】
-依據測試結果建立系統 Baseline，確保可監控、可追溯
+[Phase Goal]
+Establish system Baseline based on test results, ensuring monitorability and traceability
 
-【On Demand 讀取】（只讀這些章節，❌ 禁止 dump 全文）
-- TEST_RESULTS.md（只讀通過/失敗統計）
-- SRS.md（只讀效能需求和約束）
+[On Demand Reading] (read only these sections, NO full-file dump)
+- TEST_RESULTS.md (read only pass/fail statistics)
+- SRS.md (read only performance requirements and constraints)
 
-【產出】
-- BASELINE.md：系統基線（效能基準、配置快照）
-- MONITORING_PLAN.md：監控計畫（指標、警報閾值）
-- VERIFICATION_REPORT.md：驗證報告
+[Outputs]
+- BASELINE.md: System Baseline (performance benchmarks, configuration snapshot)
+- MONITORING_PLAN.md: Monitoring Plan (metrics, alert thresholds)
+- VERIFICATION_REPORT.md: Verification Report
 
-【驗證標準】
-- Baseline 效能符合 SRS 約束
-- Monitoring 覆蓋關鍵指標
-- 警報閾值設定合理
+[Verification Criteria]
+- Baseline performance meets SRS constraints
+- Monitoring covers key metrics
+- Alert thresholds set reasonably
 
-【FORBIDDEN】
-- ❌ Baseline 偏離實際效能
-- ❌ 監控指標遺漏關鍵項目
-- ❌ 警報閾值過寬或過嚴
-- ❌ 無 citations 或無行號 → HR-15 違規
+[FORBIDDEN]
+- NO Baseline deviating from actual performance
+- NO missing key monitoring metrics
+- NO alert thresholds too broad or too strict
+- NO citations missing or lacking line numbers -> HR-15 violation
 
-【OUTPUT_FORMAT】
+[OUTPUT_FORMAT]
 {{
  "status": "success|error|unable_to_proceed",
- "result": "實際產出（BASELINE.md, MONITORING_PLAN.md 路徑）",
+ "result": "actual output (BASELINE.md, MONITORING_PLAN.md path)",
  "confidence": 1-10,
  "citations": ["TEST_RESULTS.md#L10-L20"],
- "summary": "50字內"
+ "summary": "within 50 words"
 }}
 
-HR-15 強制執行：citations 必須包含「檔名#L行號」格式
+HR-15 enforced: citations must include 'filename#Llinenum' format
 ═══════════════════════════════════════
 ```""",
         "reviewer": """```
-TASK: Review 系統 Baseline + Monitoring Plan
+TASK: Review System Baseline + Monitoring Plan
 TASK_ID: task-p5-review
 ═══════════════════════════════════════
 
-【審查範圍】（只讀這些章節，❌ 禁止 dump 全文）
+[Review Scope] (read only these sections, NO full-file dump)
 - BASELINE.md
 - MONITORING_PLAN.md
-- TEST_RESULTS.md（只讀統計）
+- TEST_RESULTS.md (read only statistics)
 
-【驗證檢查清單】
-1. Baseline 效能符合 SRS 約束
-2. Monitoring 覆蓋所有關鍵指標
-3. 警報閾值合理（可達標且不會誤報）
-4. 監控儀表板可追蹤
-5. Constitution 驗證分數 ≥80%
+[Verification Checklist]
+1. Baseline performance meets SRS constraints
+2. Monitoring covers all key metrics
+3. Alert thresholds reasonable (achievable, no false positives)
+4. Monitoring dashboard is trackable
+5. Constitution verification score >=80%
 
-【REJECT_IF】
-- ❌ Baseline 不符合 SRS → REJECT
-- ❌ 監控指標遺漏 → REJECT
-- ❌ 警報閾值不合理 → REJECT
-- ❌ 缺少 citations 或無行號 → REJECT（HR-15）
+[REJECT_IF]
+- Baseline does not meet SRS -> REJECT
+- Monitoring metrics missing -> REJECT
+- Alert thresholds unreasonable -> REJECT
+- Missing citations or no line numbers -> REJECT (HR-15)
 
-【OUTPUT_FORMAT】
+[OUTPUT_FORMAT]
 {{
  "status": "APPROVE|REJECT",
  "confidence": 1-10,
- "violations": ["具體問題"],
- "summary": "50字內"
+ "violations": ["specific issues"],
+ "summary": "within 50 words"
 }}
 ═══════════════════════════════════════
 ```"""
     },
     
     6: {
-        "name": "品質保證",
+        "name": "Quality Assurance",
         "agent_a": "qa",
         "agent_b": "architect",
         "developer": """```
-TASK: 生成品質報告 (QUALITY_REPORT)
+TASK: Generate Quality Report (QUALITY_REPORT)
 TASK_ID: task-p6
 ═══════════════════════════════════════
 
-【階段目標】
-進行全面品質評估，確保系統達到發布標準
+[Phase Goal]
+Conduct comprehensive quality assessment, ensuring system meets release standards
 
-【On Demand 讀取】（只讀這些章節，❌ 禁止 dump 全文）
-- TEST_RESULTS.md（只讀失敗案例）
-- BASELINE.md（只讀效能數據）
-- QUALITY_REPORT.md（如有，讀取現有版本）
+[On Demand Reading] (read only these sections, NO full-file dump)
+- TEST_RESULTS.md (read only failure cases)
+- BASELINE.md (read only performance data)
+- QUALITY_REPORT.md (read existing version if any)
 
-【產出】
-- QUALITY_REPORT.md：品質報告（品質維度、指標、問題清單）
-- 問題修復計畫（如有問題）
+[Outputs]
+- QUALITY_REPORT.md: Quality Report (quality dimensions, metrics, issue list)
+- Issue remediation plan (if issues exist)
 
-【驗證標準】
-- Constitution 品質總分 ≥80%
-- 邏輯正確性分數 ≥90
-- 所有高優先問題已修復或接受風險
+[Verification Criteria]
+- Constitution quality total score >=80%
+- Logic correctness score >=90
+- All high-priority issues fixed or risk-accepted
 
-【FORBIDDEN】
-- ❌ 隱瞞品質問題
-- ❌ 高優先問題未處理
-- ❌ 報告數據與實際不符
-- ❌ 無 citations 或無行號 → HR-15 違規
+[FORBIDDEN]
+- NO concealing quality issues
+- NO high-priority issues unresolved
+- NO data in report inconsistent with actuals
+- NO citations missing or lacking line numbers -> HR-15 violation
 
-【OUTPUT_FORMAT】
+[OUTPUT_FORMAT]
 {{
  "status": "success|error|unable_to_proceed",
- "result": "實際產出（QUALITY_REPORT.md 路徑）",
+ "result": "actual output (QUALITY_REPORT.md path)",
  "confidence": 1-10,
  "citations": ["TEST_RESULTS.md#L30-L40"],
- "summary": "50字內"
+ "summary": "within 50 words"
 }}
 
-HR-15 強制執行：citations 必須包含「檔名#L行號」格式
+HR-15 enforced: citations must include 'filename#Llinenum' format
 ═══════════════════════════════════════
 ```""",
         "reviewer": """```
-TASK: Review 品質報告 (QUALITY_REPORT)
+TASK: Review Quality Report (QUALITY_REPORT)
 TASK_ID: task-p6-review
 ═══════════════════════════════════════
 
-【審查範圍】（只讀這些章節，❌ 禁止 dump 全文）
+[Review Scope] (read only these sections, NO full-file dump)
 - QUALITY_REPORT.md
 - TEST_RESULTS.md
 - BASELINE.md
 
-【驗證檢查清單】
-1. Constitution 品質總分 ≥80%
-2. 邏輯正確性分數 ≥90
-3. 高優先問題已修復或接受風險
-4. 品質趨勢合理（相較 Baseline）
-5. 發布建議明確
+[Verification Checklist]
+1. Constitution quality total score >=80%
+2. Logic correctness score >=90
+3. High-priority issues fixed or risk-accepted
+4. Quality trend reasonable (compared to Baseline)
+5. Release recommendation is clear
 
-【REJECT_IF】
+[REJECT_IF]
 - ❌ Constitution < 80% → REJECT
-- ❌ 高優先問題未處理 → REJECT
-- ❌ 數據與實際不符 → REJECT
-- ❌ 缺少 citations 或無行號 → REJECT（HR-15）
+- NO high-priority issues unresolved → REJECT
+- Data inconsistent with actuals -> REJECT
+- Missing citations or no line numbers -> REJECT (HR-15)
 
-【OUTPUT_FORMAT】
+[OUTPUT_FORMAT]
 {{
  "status": "APPROVE|REJECT",
  "confidence": 1-10,
- "violations": ["具體問題"],
- "quality_score": "Constitution 分數",
- "summary": "50字內"
+ "violations": ["specific issues"],
+ "quality_score": "Constitution score",
+ "summary": "within 50 words"
 }}
 ═══════════════════════════════════════
 ```"""
     },
     
     7: {
-        "name": "風險管理",
+        "name": "Risk Management",
         "agent_a": "qa",
         "agent_b": "pm",
         "developer": """```
-TASK: 風險識別、評估與緩解計畫
+TASK: Risk Identification, Assessment and Mitigation Plan
 TASK_ID: task-p7
 ═══════════════════════════════════════
 
-【階段目標】
-識別、追蹤並制定所有已識別風險的緩解策略
+[Phase Goal]
+Identify, track and develop mitigation strategies for all identified risks
 
-【On Demand 讀取】（只讀這些章節，❌ 禁止 dump 全文）
-- QUALITY_REPORT.md（只讀問題和風險章節）
-- SRS.md（只讀約束和假設）
+[On Demand Reading] (read only these sections, NO full-file dump)
+- QUALITY_REPORT.md (read only issues and risk sections)
+- SRS.md (read only constraints and assumptions)
 
-【產出】
-- RISK_REGISTER.md：風險註冊表（風險描述、機率、影響、狀態）
-- RISK_MITIGATION_PLANS.md：緩解計畫（每個風險的應對策略）
-- RISK_STATUS_REPORT.md：風險狀態報告
+[Outputs]
+- RISK_REGISTER.md: Risk Register (risk description, probability, impact, status)
+- RISK_MITIGATION_PLANS.md: Mitigation Plans (response strategy for each risk)
+- RISK_STATUS_REPORT.md: Risk Status Report
 
-【驗證標準】
-- 所有已識別風險有緩解計畫
-- 風險狀態正確（Open/InProgress/Closed）
-- 緩解計畫可行且已分配責任
+[Verification Criteria]
+- All identified risks have mitigation plans
+- Risk status correct (Open/InProgress/Closed)
+- Mitigation plans feasible with assigned responsibility
 
-【FORBIDDEN】
-- ❌ 遺漏已知風險
-- ❌ 風險評估不客觀
-- ❌ 緩解計畫不具體或不可行
-- ❌ 無 citations 或無行號 → HR-15 違規
+[FORBIDDEN]
+- NO missing known risks
+- NO non-objective risk assessment
+- NO vague or infeasible mitigation plans
+- NO citations missing or lacking line numbers -> HR-15 violation
 
-【OUTPUT_FORMAT】
+[OUTPUT_FORMAT]
 {{
  "status": "success|error|unable_to_proceed",
- "result": "實際產出（RISK_REGISTER.md 路徑）",
+ "result": "actual output (RISK_REGISTER.md path)",
  "confidence": 1-10,
  "citations": ["QUALITY_REPORT.md#L20-L30"],
- "summary": "50字內"
+ "summary": "within 50 words"
 }}
 
-HR-15 強制執行：citations 必須包含「檔名#L行號」格式
+HR-15 enforced: citations must include 'filename#Llinenum' format
 ═══════════════════════════════════════
 ```""",
         "reviewer": """```
-TASK: Review 風險管理文件
+TASK: Review Risk Management Documents
 TASK_ID: task-p7-review
 ═══════════════════════════════════════
 
-【審查範圍】（只讀這些章節，❌ 禁止 dump 全文）
+[Review Scope] (read only these sections, NO full-file dump)
 - RISK_REGISTER.md
 - RISK_MITIGATION_PLANS.md
 - QUALITY_REPORT.md
 
-【驗證檢查清單】
-1. 所有已識別風險有對應緩解計畫
-2. 風險評估合理（機率×影響）
-3. 緩解計畫具體且可行
-4. 責任分配明確
-5. 追蹤機制到位
+[Verification Checklist]
+1. All identified risks have corresponding mitigation plans
+2. Risk assessment reasonable (probability x impact)
+3. Mitigation plans specific and feasible
+4. Responsibility assignment clear
+5. Tracking mechanism in place
 
-【REJECT_IF】
-- ❌ 風險遺漏 → REJECT
-- ❌ 評估不客觀 → REJECT
-- ❌ 緩解計畫不可行 → REJECT
-- ❌ 缺少 citations 或無行號 → REJECT（HR-15）
+[REJECT_IF]
+- Risk missing -> REJECT
+- Assessment not objective -> REJECT
+- Mitigation plan infeasible -> REJECT
+- Missing citations or no line numbers -> REJECT (HR-15)
 
-【OUTPUT_FORMAT】
+[OUTPUT_FORMAT]
 {{
  "status": "APPROVE|REJECT",
  "confidence": 1-10,
- "violations": ["具體問題"],
- "risk_count": "風險數量",
- "summary": "50字內"
+ "violations": ["specific issues"],
+ "risk_count": "number of risks",
+ "summary": "within 50 words"
 }}
 ═══════════════════════════════════════
 ```"""
     },
     
     8: {
-        "name": "配置管理",
+        "name": "Configuration Management",
         "agent_a": "devops",
         "agent_b": "pm",
         "developer": """```
-TASK: 建立配置管理系統，確保可追溯性
+TASK: Establish Configuration Management System, ensure traceability
 TASK_ID: task-p8
 ═══════════════════════════════════════
 
-【階段目標】
-建立完整的配置管理系統，確保系統可部署、可重現
+[Phase Goal]
+Establish complete configuration management system, ensuring deployability and reproducibility
 
-【On Demand 讀取】（只讀這些章節，❌ 禁止 dump 全文）
-- RISK_REGISTER.md（只讀已知風險）
-- BASELINE.md（只讀配置快照）
-- QUALITY_REPORT.md（如有）
+[On Demand Reading] (read only these sections, NO full-file dump)
+- RISK_REGISTER.md (read only known risks)
+- BASELINE.md (read only configuration snapshot)
+- QUALITY_REPORT.md (if available)
 
-【產出】
-- CONFIG_RECORDS.md：配置記錄（環境、版本、參數）
-- DEPLOYMENT_CHECKLIST.md：部署檢查清單
-- ENVIRONMENT_SPEC.md：環境規格
-- requirements.lock：依賴鎖定
+[Outputs]
+- CONFIG_RECORDS.md: Configuration Records (environment, version, parameters)
+- DEPLOYMENT_CHECKLIST.md: Deployment Checklist
+- ENVIRONMENT_SPEC.md: Environment Specification
+- requirements.lock: dependency lock
 
-【驗證標準】
-- requirements.lock 存在且完整
-- 部署檢查清單 100% 可執行
-- 配置記錄可追溯到每個元件
+[Verification Criteria]
+- requirements.lock exists and complete
+- Deployment checklist 100% executable
+- Configuration records traceable to every component
 
-【FORBIDDEN】
-- ❌ requirements.lock 與實際不符
-- ❌ 部署檢查清單不完整
-- ❌ 配置記錄遺漏關鍵參數
-- ❌ 無 citations 或無行號 → HR-15 違規
+[FORBIDDEN]
+- NO requirements.lock inconsistent with actuals
+- NO incomplete deployment checklist
+- NO missing key parameters in configuration records
+- NO citations missing or lacking line numbers -> HR-15 violation
 
-【OUTPUT_FORMAT】
+[OUTPUT_FORMAT]
 {{
  "status": "success|error|unable_to_proceed",
- "result": "實際產出（CONFIG_RECORDS.md, requirements.lock 路徑）",
+ "result": "actual output (CONFIG_RECORDS.md, requirements.lock path)",
  "confidence": 1-10,
  "citations": ["BASELINE.md#L10-L15"],
- "summary": "50字內"
+ "summary": "within 50 words"
 }}
 
-HR-15 強制執行：citations 必須包含「檔名#L行號」格式
+HR-15 enforced: citations must include 'filename#Llinenum' format
 ═══════════════════════════════════════
 ```""",
         "reviewer": """```
-TASK: Review 配置管理文件
+TASK: Review Configuration Management Documents
 TASK_ID: task-p8-review
 ═══════════════════════════════════════
 
-【審查範圍】（只讀這些章節，❌ 禁止 dump 全文）
+[Review Scope] (read only these sections, NO full-file dump)
 - CONFIG_RECORDS.md
 - DEPLOYMENT_CHECKLIST.md
 - ENVIRONMENT_SPEC.md
 - requirements.lock
 
-【驗證檢查清單】
-1. requirements.lock 與實際完全一致
-2. 部署檢查清單可完整執行
-3. 配置記錄涵蓋所有環境（Dev/Staging/Prod）
-4. 版本一致性（元件版本、依賴版本）
-5. 部署流程可重現
+[Verification Checklist]
+1. requirements.lock fully consistent with actuals
+2. Deployment checklist fully executable
+3. Configuration records cover all environments (Dev/Staging/Prod)
+4. Version consistency (component versions, dependency versions)
+5. Deployment process reproducible
 
-【REJECT_IF】
-- ❌ requirements.lock 不完整或不一致 → REJECT
-- ❌ 部署清單不完整 → REJECT
-- ❌ 配置遺漏關鍵參數 → REJECT
-- ❌ 缺少 citations 或無行號 → REJECT（HR-15）
+[REJECT_IF]
+- requirements.lock incomplete or inconsistent -> REJECT
+- Deployment checklist incomplete -> REJECT
+- Configuration missing key parameters -> REJECT
+- Missing citations or no line numbers -> REJECT (HR-15)
 
-【OUTPUT_FORMAT】
+[OUTPUT_FORMAT]
 {{
  "status": "APPROVE|REJECT",
  "confidence": 1-10,
- "violations": ["具體問題"],
+ "violations": ["specific issues"],
  "deployment_ready": true/false,
- "summary": "50字內"
+ "summary": "within 50 words"
 }}
 ═══════════════════════════════════════
 ```"""
