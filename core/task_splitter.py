@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Task Splitter - 任務自動分解
+Task Splitter - Automatic Task Decomposition
 """
 
 from typing import List, Dict, Any, Optional
@@ -42,7 +42,7 @@ class Task:
 
 
 class TaskSplitter:
-    """任務分解器"""
+    """Task decomposer"""
 
     def __init__(self):
         self.tasks: Dict[str, Task] = {}
@@ -66,12 +66,12 @@ class TaskSplitter:
         goal_lower = goal.lower()
         tasks = []
         phase_map = [
-            (["研究", "research", "分析", "analyze"], "調研與分析", "收集資訊、分析需求", TaskPriority.HIGH, 2.0),
-            (["設計", "design", "規劃", "plan"], "系統設計", "設計架構、規劃模組", TaskPriority.HIGH, 3.0),
-            (["開發", "develop", "實現", "implement", "寫", "build"], "開發實現", "編碼、實現功能", TaskPriority.CRITICAL, 8.0),
-            (["測試", "test", "驗證", "verify"], "測試驗證", "編寫測試、驗證功能", TaskPriority.HIGH, 4.0),
-            (["文檔", "doc", "說明"], "文檔撰寫", "撰寫使用文檔", TaskPriority.MEDIUM, 2.0),
-            (["部署", "deploy", "發布", "release"], "部署發布", "部署上線、發布版本", TaskPriority.HIGH, 1.0),
+            (["research", "analyze", "analysis"], "Research & Analysis", "Gather info, analyze requirements", TaskPriority.HIGH, 2.0),
+            (["design", "plan", "planning"], "System Design", "Design architecture, plan modules", TaskPriority.HIGH, 3.0),
+            (["develop", "implement", "build", "code"], "Development", "Code, implement features", TaskPriority.CRITICAL, 8.0),
+            (["test", "verify", "validation"], "Testing & Verification", "Write tests, verify features", TaskPriority.HIGH, 4.0),
+            (["doc", "documentation"], "Documentation", "Write usage docs", TaskPriority.MEDIUM, 2.0),
+            (["deploy", "release", "publish"], "Deployment & Release", "Deploy, release version", TaskPriority.HIGH, 1.0),
         ]
         for keywords, name, desc, priority, hours in phase_map:
             if any(k in goal_lower for k in keywords):
