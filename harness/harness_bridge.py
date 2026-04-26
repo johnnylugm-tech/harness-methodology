@@ -45,7 +45,7 @@ class GateBlockedError(Exception):
 
 class HarnessBridge:
     """
-    software_self_improvement と methodology-v2 の橋接層.
+    Bridge layer between software_self_improvement and methodology-v2.
     Gate triggering, CRG integration, blocking decisions, quality_manifest updates.
     """
 
