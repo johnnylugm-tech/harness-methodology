@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Enforcement Configuration - 統一設定
+Enforcement Configuration - Unified Configuration
 """
 
 from dataclasses import dataclass, field

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Verification Gates - 驗證關卡
+Verification Gates - Verification Gates
 """
 
 from dataclasses import dataclass, field
@@ -17,7 +17,7 @@ class GateStatus(Enum):
 
 
 class Gate:
-    """單一驗證關卡"""
+    """Single verification gate"""
 
     def __init__(self, name: str, required_output: str = None,
                  validator: Callable = None, auto_pass: bool = False):
@@ -69,15 +69,15 @@ class Gate:
 
 
 class VerificationGates:
-    """驗證關卡管理器"""
+    """Verification gate manager"""
 
     DEFAULT_GATES = {
-        "task_created": {"name": "任務建立", "required_output": "task_spec", "auto_pass": False},
-        "agent_assigned": {"name": "分派代理", "required_output": "assignment", "auto_pass": False},
-        "output_generated": {"name": "產出產生", "required_output": "result", "auto_pass": False},
-        "quality_check": {"name": "品質檢查", "auto_pass": False},
-        "human_approved": {"name": "人類審批", "required_output": "approval", "auto_pass": False},
-        "completed": {"name": "任務完成", "required_output": "final_result", "auto_pass": False},
+        "task_created": {"name": "Task Created", "required_output": "task_spec", "auto_pass": False},
+        "agent_assigned": {"name": "Agent Assigned", "required_output": "assignment", "auto_pass": False},
+        "output_generated": {"name": "Output Generated", "required_output": "result", "auto_pass": False},
+        "quality_check": {"name": "Quality Check", "auto_pass": False},
+        "human_approved": {"name": "Human Approved", "required_output": "approval", "auto_pass": False},
+        "completed": {"name": "Task Completed", "required_output": "final_result", "auto_pass": False},
     }
 
     def __init__(self):

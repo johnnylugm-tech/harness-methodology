@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Requirement Traceability - 需求可追溯性模組
+Requirement Traceability - Requirement Traceability Module
 
-FR → SRS → Code → Test 雙向追溯。ASPICE SWE.3 / SYS.4 合規。
+FR -> SRS -> Code -> Test bidirectional traceability. ASPICE SWE.3 / SYS.4 compliant.
 
 Note: In harness-methodology, run as:
     python core/requirement_traceability.py --project-id <id>

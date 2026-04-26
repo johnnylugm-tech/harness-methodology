@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Hybrid Workflow - 智慧分流工作流
+Hybrid Workflow - Smart-Routing Workflow
 
-三種模式：
-- OFF: 單一 Agent
-- HYBRID: 智慧分流（小改自動，大改審查）
-- ON: 強制 A/B 審查
+Three modes:
+- OFF: Single Agent
+- HYBRID: Smart routing (small changes auto, large changes review)
+- ON: Forced A/B review
 """
 
 from enum import Enum
@@ -49,16 +49,16 @@ class HybridWorkflow:
         total_changes = added_lines + removed_lines
         security_keywords = ['auth', 'password', 'token', 'permission', 'security']
         is_security = any(kw in diff.lower() for kw in security_keywords)
-        new_keywords = ['def new_', 'class new_', '# 新增', '# new']
+        new_keywords = ['def new_', 'class new_', '# new']
         is_new_feature = any(kw in diff.lower() for kw in new_keywords)
         if is_security or is_new_feature:
-            change_type, reason = ChangeType.LARGE, "安全相關或新功能"
+            change_type, reason = ChangeType.LARGE, "security-related or new feature"
         elif total_changes < self.small_threshold:
-            change_type, reason = ChangeType.SMALL, f"改動 < {self.small_threshold} 行"
+            change_type, reason = ChangeType.SMALL, f"change < {self.small_threshold} lines"
         elif total_changes > self.large_threshold:
-            change_type, reason = ChangeType.LARGE, f"改動 > {self.large_threshold} 行"
+            change_type, reason = ChangeType.LARGE, f"change > {self.large_threshold} lines"
         else:
-            change_type, reason = ChangeType.SMALL, "中等改動，預設通過"
+            change_type, reason = ChangeType.SMALL, "medium change, auto-pass"
         return ChangeAnalysis(
             type=change_type, lines_changed=total_changes,
             files_affected=len(set(l.split('/')[0] for l in lines if '/' in l)),
@@ -83,10 +83,10 @@ class HybridWorkflow:
         analysis = self.analyze_change(diff)
         if self.should_review(analysis):
             return {"status": "needs_review", "analysis": analysis,
-                    "message": f"需要審查：{analysis.reason}"}
+                    "message": f"Review required: {analysis.reason}"}
         result = code_func()
         return {"status": "auto_approved", "analysis": analysis, "result": result,
-                "message": f"自動通過：{analysis.reason}"}
+                "message": f"Auto-passed: {analysis.reason}"}
 
     def get_stats(self) -> dict:
         total = self.stats["total_tasks"]

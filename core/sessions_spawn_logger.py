@@ -1,5 +1,5 @@
-# Sessions Spawn Logger - 自動記錄 sub-agent 派遣
-# v6.60: 加入 log_update() 支援兩階段寫入（PENDING → COMPLETED/FAILED）
+# Sessions Spawn Logger - Auto-record sub-agent dispatch
+# v6.60: Added log_update() supporting two-phase write (PENDING -> COMPLETED/FAILED)
 
 import json
 from pathlib import Path
@@ -9,7 +9,7 @@ from typing import Optional, Dict, Any, List
 
 class SessionsSpawnLogger:
     """
-    自動記錄 sessions_spawn 派遣事件
+    Auto-record sessions_spawn dispatch events
     """
 
     LOG_FILENAME = ".methodology/sessions_spawn.log"
@@ -107,6 +107,6 @@ class SessionsSpawnLogger:
 
 def log_spawn_event(repo_path: Path, role: str, task: str,
                     session_id: str, **kwargs) -> Dict[str, Any]:
-    """便利函數：直接記錄一次派遣"""
+    """Convenience function: directly record one dispatch"""
     logger = SessionsSpawnLogger(repo_path)
     return logger.log_spawn(role=role, task=task, session_id=session_id, **kwargs)
