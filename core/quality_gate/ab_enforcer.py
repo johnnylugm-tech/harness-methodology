@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-A/B Enforcement - 強制 A/B 協作驗證
+A/B Enforcement - mandatory A/B collaboration verification
 
-功能：
-1. 驗證 Developer ≠ Reviewer（不同 session）
-2. 驗證每個 Phase 有 A/B 來回對話
-3. 驗證 QA ≠ Developer（Phase 4）
+Features:
+1. Verify Developer != Reviewer (different sessions)
+2. Verify each Phase has A/B back-and-forth dialogue
+3. Verify QA != Developer (Phase 4)
 
-使用方式：
+Usage:
     from quality_gate.ab_enforcer import ABEnforcer
     
     enforcer = ABEnforcer("/path/to/project")
@@ -21,38 +21,38 @@ from typing import Dict, List, Optional, Tuple
 
 class ABEnforcer:
     """
-    A/B 協作強制驗證器
+    A/B collaboration mandatory verifier
     
-    用於驗證 Developer 和 Reviewer 是否真正協作，
-    確保不是同一個人自行完成所有工作。
+    Used to verify that Developer and Reviewer truly collaborate,
+    ensuring the work is not done by one person alone.
     """
     
     def __init__(self, project_path: str):
         """
-        初始化 ABEnforcer
+        Initialize ABEnforcer
         
         Args:
-            project_path: 專案根目錄路徑
+            project_path: project root directory path
         """
         self.project_path = Path(project_path)
         self.development_log_path = self.project_path / "DEVELOPMENT_LOG.md"
     
     def verify_developer_reviewer_separation(self, phase: str) -> Dict:
         """
-        驗證 Developer 與 Reviewer 不是同一人
+        Verify Developer and Reviewer are not the same person
         
-        讀取 DEVELOPMENT_LOG Phase X 的 session_id，
-        確認 Developer session ≠ Reviewer session。
+        Read DEVELOPMENT_LOG Phase X session_id,
+        confirm Developer session != Reviewer session.
         
         Args:
-            phase: Phase 識別碼（如 "phase_1", "phase_2"）
+            phase: Phase identifier (e.g. "phase_1", "phase_2")
             
         Returns:
             Dict: {
-                "separated": bool,           # 是否分離
+                "separated": bool,           # whether separated
                 "developer_session": str,    # Developer session
                 "reviewer_session": str,     # Reviewer session
-                "details": Dict             # 詳細資訊
+                "details": Dict             # detail info
             }
         """
         if not self.development_log_path.exists():
@@ -65,7 +65,7 @@ class ABEnforcer:
         
         content = self.development_log_path.read_text(encoding="utf-8")
         
-        # 1. 提取該 Phase 的內容
+        # 1. Extract content for this Phase
         phase_content = self._extract_phase_content(content, phase)
         
         if not phase_content:
@@ -76,26 +76,26 @@ class ABEnforcer:
                 "error": f"Phase {phase} not found in DEVELOPMENT_LOG"
             }
         
-        # 2. 找出 Developer 和 Reviewer 的 session
+        # 2. Find Developer and Reviewer sessions
         developer_session = self._extract_session(phase_content, "developer")
         reviewer_session = self._extract_session(phase_content, "reviewer")
         
-        # 3. 判斷是否分離
+        # 3. Determine if separated
         if developer_session and reviewer_session:
-            # 檢查 session 是否不同
-            # 可能是完整的 session_id，也可能是部分標記
+            # Check if sessions differ
+            # May be full session_id or partial marker
             dev_normalized = self._normalize_session(developer_session)
             rev_normalized = self._normalize_session(reviewer_session)
             
             separated = dev_normalized != rev_normalized and dev_normalized and rev_normalized
         elif developer_session and not reviewer_session:
-            # 有 Developer 但沒有 Reviewer - 分離失敗
+            # Developer present but no Reviewer - separation failed
             separated = False
         elif not developer_session and reviewer_session:
-            # 有 Reviewer 但沒有 Developer - 分離失敗
+            # Reviewer present but no Developer - separation failed
             separated = False
         else:
-            # 都沒有找到，視為未分離
+            # Neither found, treat as not separated
             separated = False
         
         return {
@@ -111,21 +111,21 @@ class ABEnforcer:
     
     def verify_ab_dialogue_exists(self, phase: str) -> Dict:
         """
-        驗證 A/B 有實際對話（非單方面審查）
+        Verify A/B has actual dialogue (not one-sided review)
         
-        檢查 DEVELOPMENT_LOG 是否有來回對話：
-        - 不是只有「Developer 產出」「Reviewer 通過」
-        - 而是有「Developer 回應 Reviewer 意見」的記錄
+        Check DEVELOPMENT_LOG for back-and-forth dialogue:
+        - Not just "Developer output" "Reviewer approved"
+        - But includes "Developer responds to Reviewer feedback" records
         
         Args:
-            phase: Phase 識別碼
+            phase: Phase identifier
             
         Returns:
             Dict: {
-                "has_dialogue": bool,      # 是否有對話
-                "dialogue_count": int,    # 對話回合數
-                "dialogue_examples": List[str],  # 對話範例
-                "details": Dict           # 詳細資訊
+                "has_dialogue": bool,      # whether dialogue exists
+                "dialogue_count": int,    # number of dialogue rounds
+                "dialogue_examples": List[str],  # dialogue examples
+                "details": Dict           # detail info
             }
         """
         if not self.development_log_path.exists():
@@ -138,7 +138,7 @@ class ABEnforcer:
         
         content = self.development_log_path.read_text(encoding="utf-8")
         
-        # 1. 提取該 Phase 的內容
+        # 1. Extract content for this Phase
         phase_content = self._extract_phase_content(content, phase)
         
         if not phase_content:
@@ -149,28 +149,28 @@ class ABEnforcer:
                 "error": f"Phase {phase} not found in DEVELOPMENT_LOG"
             }
         
-        # 2. 尋找來回對話的跡象
+        # 2. Search for signs of back-and-forth dialogue
         dialogue_indicators = [
-            # Developer 回應 Reviewer 意見
-            r"回應.*?[Rr]eviewer",
-            r"[Rr]eviewer.*?意見.*?修改",
-            r"[Rr]eviewer.*?建議.*?採納",
-            r"根據.*?[Rr]eviewer.*?調整",
-            # 來回標記
-            r"→.*?←",  # 來回箭頭
-            r"Developer.*?回覆",
-            r"[Rr]eviewer.*?回覆",
-            # 修正迭代
-            r"修正.*?\d+次",
-            r"迭代.*?\d+次",
-            r"修改.*?次",
+            # Developer responds to Reviewer feedback
+            r"responds.*?[Rr]eviewer",
+            r"[Rr]eviewer.*?feedback.*?revised",
+            r"[Rr]eviewer.*?suggestion.*?adopted",
+            r"based.*?[Rr]eviewer.*?adjusted",
+            # Round-trip markers
+            r"→.*?←",  # round-trip arrows
+            r"Developer.*?replied",
+            r"[Rr]eviewer.*?replied",
+            # Fix iterations
+            r"fix.*?\d+.*?time",
+            r"iteration.*?\d+",
+            r"revision.*?time",
             r" Revision \d+",
-            r"版本.*?\d+",
-            # Reviewer 提出意見
-            r"[Rr]eviewer.*?提出",
-            r"[Rr]eviewer.*?指出",
-            r"[Rr]eviewer.*?發現",
-            r"[Rr]eviewer.*?建議",
+            r"version.*?\d+",
+            # Reviewer raises feedback
+            r"[Rr]eviewer.*?raised",
+            r"[Rr]eviewer.*?pointed out",
+            r"[Rr]eviewer.*?found",
+            r"[Rr]eviewer.*?suggested",
         ]
         
         dialogue_count = 0
@@ -180,19 +180,19 @@ class ABEnforcer:
             matches = re.findall(pattern, phase_content, re.IGNORECASE)
             if matches:
                 dialogue_count += len(matches)
-                # 保留前 3 個範例
+                # Keep first 3 examples
                 for match in matches[:3]:
                     if len(dialogue_examples) < 3:
                         dialogue_examples.append(match.strip()[:100])
         
-        # 3. 判斷是否有真正對話
-        # 標準：至少有一次來回（有 Reviewer 意見 + Developer 回應）
+        # 3. Determine if there is genuine dialogue
+        # Criterion: at least one round-trip (Reviewer feedback + Developer response)
         has_dialogue = dialogue_count >= 2
         
-        # 額外檢查：如果只有 Developer 產出和 Reviewer 通過，沒有來回
+        # Extra check: only Developer output and Reviewer approved, no round-trip
         simple_patterns = [
-            r"Developer.*?產出",
-            r"[Rr]eviewer.*?通過",
+            r"Developer.*?output",
+            r"[Rr]eviewer.*?approved",
         ]
         has_simple_only = all(re.search(p, phase_content, re.IGNORECASE) for p in simple_patterns)
         
@@ -211,16 +211,16 @@ class ABEnforcer:
     
     def verify_qa_not_developer(self) -> Dict:
         """
-        驗證 Phase 4 Tester ≠ Phase 3 Developer
+        Verify Phase 4 Tester != Phase 3 Developer
         
-        確保測試人員與開發人員不同，避免自我測試。
+        Ensure tester differs from developer to avoid self-testing.
         
         Returns:
             Dict: {
-                "separated": bool,           # 是否分離
+                "separated": bool,           # whether separated
                 "developer_session": str,   # Phase 3 Developer session
                 "tester_session": str,      # Phase 4 Tester session
-                "details": Dict              # 詳細資訊
+                "details": Dict              # detail info
             }
         """
         if not self.development_log_path.exists():
@@ -233,32 +233,32 @@ class ABEnforcer:
         
         content = self.development_log_path.read_text(encoding="utf-8")
         
-        # 1. 找出 Phase 3 的 Developer session
+        # 1. Find Phase 3 Developer session
         phase3_content = self._extract_phase_content(content, "phase_3")
         developer_session = self._extract_session(phase3_content, "developer") if phase3_content else None
         
-        # 2. 找出 Phase 4 的 Tester session
+        # 2. Find Phase 4 Tester session
         phase4_content = self._extract_phase_content(content, "phase_4")
         tester_session = self._extract_session(phase4_content, "tester") if phase4_content else None
         
-        # 如果找不到 Tester，嘗試找 QA
+        # If Tester not found, try QA
         if not tester_session:
             tester_session = self._extract_session(phase4_content, "qa") if phase4_content else None
         
-        # 3. 判斷是否分離
+        # 3. Determine if separated
         if developer_session and tester_session:
             dev_normalized = self._normalize_session(developer_session)
             test_normalized = self._normalize_session(tester_session)
             
             separated = dev_normalized != test_normalized and dev_normalized and test_normalized
         elif developer_session and not tester_session:
-            # 有 Developer 但沒有 Tester - 視為未分離
+            # Developer present but no Tester - treat as not separated
             separated = False
         elif not developer_session and tester_session:
-            # 有 Tester 但沒有 Developer - 視為未分離
+            # Tester present but no Developer - treat as not separated
             separated = False
         else:
-            # 都沒有找到，視為未分離
+            # Neither found, treat as not separated
             separated = False
         
         return {
@@ -273,15 +273,15 @@ class ABEnforcer:
     
     def verify_all_ab_checks(self, phase: int) -> Dict:
         """
-        執行所有 A/B 驗證檢查
+        Run all A/B verification checks
         
-        這是主要入口點，執行所有 A/B 協作驗證。
+        This is the main entry point, runs all A/B collaboration verification.
         
         Args:
-            phase: Phase 編號
+            phase: Phase number
             
         Returns:
-            Dict: 包含所有驗證結果的綜合報告
+            Dict: comprehensive report containing all verification results
         """
         phase_str = f"phase_{phase}"
         
@@ -293,26 +293,26 @@ class ABEnforcer:
     
     def _extract_phase_content(self, content: str, phase: str) -> str:
         """
-        從 DEVELOPMENT_LOG 中提取特定 Phase 的內容
+        Extract specific Phase content from DEVELOPMENT_LOG
         
         Args:
-            content: 完整內容
-            phase: Phase 識別碼
+            content: full content
+            phase: Phase identifier
             
         Returns:
-            str: 該 Phase 的內容
+            str: content for that Phase
         """
-        # 處理 phase_1 -> Phase 1 等格式
+        # Handle phase_1 -> Phase 1 format etc.
         phase_pattern = phase.replace("_", " ").title()
-        # 確保 phase_str 格式正確
+        # Ensure phase_str format is correct
         phase_str = phase if phase.startswith("phase_") else f"phase_{phase}"
         
-        # 嘗試多種匹配模式
+        # Try multiple matching patterns
         patterns = [
             # Phase 1 / Phase1
             rf"(?:Phase\s*1|Phase1).*?(?=(?:Phase\s*\d|Phase\d|$))",
             rf"##\s*Phase\s*{phase_str.split('_')[1]}.*?(?=##\s*Phase|$)",
-            # 找 Phase 標題到下一個 Phase 標題之間的內容
+            # Find content between Phase heading and next Phase heading
             rf"(?:#{{1,6}}\s*)?[Pp]hase\s*{phase_str.split('_')[1]}.*?(?=(?:#{{1,6}}\s*)?[Pp]hase\s*\d|$)",
         ]
         
@@ -321,25 +321,25 @@ class ABEnforcer:
             if match:
                 return match.group(0)
         
-        # 如果無法精確匹配，返回整個 content（保守做法）
+        # If no exact match, return full content (conservative approach)
         return content
     
     def _extract_session(self, content: str, role: str) -> Optional[str]:
         """
-        從內容中提取特定角色的 session
+        Extract specific role session from content
         
         Args:
-            content: 內容
-            role: 角色（developer, reviewer, tester, qa）
+            content: content
+            role: role (developer, reviewer, tester, qa)
             
         Returns:
-            Optional[str]: session 標識
+            Optional[str]: session identifier
         """
-        # 優先查找 session_id
+        # Prioritize finding session_id
         session_patterns = [
-            rf"[Ss]ession[-]?[Ii][Dd][：:]\s*([a-zA-Z0-9-]+)",
-            rf"[Rr]untime[：:]\s*[Ss]ub[-]?[Aa]gent.*?[Ss]ession",
-            rf"{role}.*?[Ss]ession[：:]\s*([a-zA-Z0-9-]+)",
+            rf"[Ss]ession[-]?[Ii][Dd][:]\s*([a-zA-Z0-9-]+)",
+            rf"[Rr]untime[:]\s*[Ss]ub[-]?[Aa]gent.*?[Ss]ession",
+            rf"{role}.*?[Ss]ession[:]\s*([a-zA-Z0-9-]+)",
             rf"[Ss]ub[-]?[Aa]gent.*?{role}.*?([a-zA-Z0-9-]+)",
         ]
         
@@ -348,7 +348,7 @@ class ABEnforcer:
             if match:
                 return match.group(1)
         
-        # 如果沒有 session_id，嘗試找角色名稱作為標記
+        # If no session_id, try role name as marker
         role_patterns = [
             rf"[Dd]eveloper\s*[Aa]gent",
             rf"[Rr]eviewer\s*[Aa]gent",
@@ -366,36 +366,36 @@ class ABEnforcer:
     
     def _normalize_session(self, session: str) -> str:
         """
-        標準化 session 標識，以便比較
+        Normalize session identifier for comparison
         
         Args:
-            session: session 標識
+            session: session identifier
             
         Returns:
-            str: 標準化後的標識
+            str: normalized identifier
         """
         if not session:
             return ""
         
-        # 移除特殊字符，轉為小寫
+        # Remove special chars, convert to lowercase
         normalized = re.sub(r'[^a-zA-Z0-9]', '', session.lower())
         
-        # 如果是 inferred_ 開頭，保留以便識別
+        # If starts with inferred_, keep it for identification
         return normalized
 
 
-# ===== 快速函式入口 =====
+# ===== Quick Function Entry Points =====
 
 def verify_ab_separation(project_path: str, phase: int) -> Dict:
     """
-    快速驗證 Developer 和 Reviewer 分離
+    Quick verify Developer and Reviewer separation
     
     Args:
-        project_path: 專案根目錄路徑
-        phase: Phase 編號
+        project_path: project root directory path
+        phase: Phase number
         
     Returns:
-        Dict: 驗證結果
+        Dict: verification result
     """
     enforcer = ABEnforcer(project_path)
     return enforcer.verify_developer_reviewer_separation(f"phase_{phase}")
@@ -403,14 +403,14 @@ def verify_ab_separation(project_path: str, phase: int) -> Dict:
 
 def verify_ab_dialogue(project_path: str, phase: int) -> Dict:
     """
-    快速驗證 A/B 對話存在
+    Quick verify A/B dialogue exists
     
     Args:
-        project_path: 專案根目錄路徑
-        phase: Phase 編號
+        project_path: project root directory path
+        phase: Phase number
         
     Returns:
-        Dict: 驗證結果
+        Dict: verification result
     """
     enforcer = ABEnforcer(project_path)
     return enforcer.verify_ab_dialogue_exists(f"phase_{phase}")
@@ -432,18 +432,18 @@ if __name__ == "__main__":
     print(f"A/B Enforcement Results for Phase {phase}:")
     print("=" * 50)
     
-    # Developer/Reviewer 分離
+    # Developer/Reviewer separation
     sep = enforcer.verify_developer_reviewer_separation(phase_str)
     print(f"Developer/Reviewer Separation: {sep['separated']}")
     print(f"  Developer session: {sep.get('developer_session', 'N/A')}")
     print(f"  Reviewer session: {sep.get('reviewer_session', 'N/A')}")
     
-    # A/B 對話
+    # A/B dialogue
     dial = enforcer.verify_ab_dialogue_exists(phase_str)
     print(f"  Has Dialogue: {dial['has_dialogue']}")
     print(f"  Dialogue Count: {dial['dialogue_count']}")
     
-    # Phase 4 特殊檢查
+    # Phase 4 special check
     if phase == 4:
         qa = enforcer.verify_qa_not_developer()
         print(f"QA/Developer Separation: {qa['separated']}")
