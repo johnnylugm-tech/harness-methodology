@@ -179,6 +179,7 @@ class SpecTrackingChecker:
                 print(f"  • {item}")
         
         # Read and display status statistics
+        if not self.spec_file or not self.spec_file.exists(): return
         content = self.spec_file.read_text(encoding="utf-8")
         stats = self._count_status(content)
         if stats:
