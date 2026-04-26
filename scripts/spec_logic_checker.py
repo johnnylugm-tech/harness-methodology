@@ -51,7 +51,7 @@ class SpecLogicChecker:
     # Detection patterns
     PATTERNS = {
         "string_insertion": [
-            (r'\+\s*["\'][。？！\s]', "Possible extra character insertion (punctuation/space)"),
+            (r'\+\s*["\'][.?!\s]', "Possible extra character insertion (punctuation/space)"),
             (r'\+\s*"\.join\(', "Possible redundant character insertion"),
         ],
         "branch_inconsistency": [
@@ -222,15 +222,15 @@ class SemanticValidator:
         desc = description.lower()
 
         # Note: conditions match Chinese SRS content intentionally
-        if "分段" in desc and "字" in desc:
+        if "segment" in desc and ("char" in desc or "length" in desc):
             return "output_len_le_input"
-        elif "合併" in desc:
+        elif "merge" in desc:
             return "single_file_format_equals_multi"
-        elif "保留" in desc or "標點" in desc:
+        elif "retain" in desc or "punct" in desc:
             return "no_extra_char_insertion"
-        elif "重試" in desc:
+        elif "retry" in desc:
             return "L1_L2_retryable_L3_L4_not"
-        elif "燔斷" in desc:
+        elif "break" in desc or "circuit" in desc:
             return "consecutive_failures_trigger_circuit_break"
         elif "timeout" in desc:
             return "timeout_raises_TimeoutError"
@@ -245,7 +245,7 @@ class SemanticValidator:
         verification = requirement["verification"]
 
         if verification == "output_len_le_input":
-            if re.search(r'\+\s*["\'][。？！\s]', code):
+            if re.search(r'\+\s*["\'][.?!\s]', code):
                 return False, f"{fr_id} may insert extra characters"
 
         elif verification == "single_file_format_equals_multi":
