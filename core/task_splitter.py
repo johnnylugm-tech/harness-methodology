@@ -58,7 +58,7 @@ class TaskSplitter:
         self.tasks[task.id] = task
         return task
 
-    def add_dependency(self, task_id: str, depends_on: str):
+    def add_dependency(self, task_id: str, depends_on: str) -> None:
         if task_id in self.tasks and depends_on in self.tasks:
             self.tasks[task_id].dependencies.append(depends_on)
 
