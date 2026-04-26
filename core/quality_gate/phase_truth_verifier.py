@@ -2,13 +2,13 @@
 """
 Phase Truth Verifier
 ====================
-驗證某個 Phase 是否真的通過了。
+Verify whether a Phase truly passed.
 
-輸出：
-- 自動檢查的分數
-- 需要手動確認的項目清單
+Output:
+- Automatically checked score
+- List of items requiring manual confirmation
 
-使用方法:
+Usage:
     from quality_gate.phase_truth_verifier import PhaseTruthVerifier
 
     verifier = PhaseTruthVerifier("/path/to/project", 3)
@@ -32,14 +32,14 @@ if str(_methodology_root) not in sys.path:
 
 
 class PhaseTruthVerifier:
-    """Phase 真相驗證器"""
+    """Phase truth verifier"""
 
-    # 權重配置
+    # Weight configuration
     WEIGHTS = {
         "framework_block": 0.35,      # FrameworkEnforcer BLOCK
         "session_log": 0.25,           # Sessions_spawn.log
-        "pytest_pass": 0.25,          # pytest 實際通過
-        "coverage": 0.15,             # 覆蓋率達標
+        "pytest_pass": 0.25,          # pytest actually passes
+        "coverage": 0.15,             # coverage meets threshold
     }
 
     def __init__(self, project_root: str, phase: int):
@@ -48,7 +48,7 @@ class PhaseTruthVerifier:
         self.results = {}
 
     def check_framework_block(self) -> Tuple[bool, float, str]:
-        """檢查 FrameworkEnforcer BLOCK"""
+        """Check FrameworkEnforcer BLOCK"""
         try:
             # Add enforcement to path if needed
             enforcement_path = self.project_root / "enforcement"
@@ -62,49 +62,49 @@ class PhaseTruthVerifier:
 
             passed = result.passed
             score = 100.0 if passed else 0.0
-            details = f"{len(result.block_checks)} 項檢查, {len(result.violations)} 項違規"
+            details = f"{len(result.block_checks)} check(s), {len(result.violations)} violation(s)"
 
             return passed, score, details
         except ImportError as e:
-            return False, 0.0, f"無法導入 FrameworkEnforcer: {e}"
+            return False, 0.0, f"Cannot import FrameworkEnforcer: {e}"
         except Exception as e:
             return False, 0.0, f"Error: {e}"
 
     def check_session_log(self) -> Tuple[bool, float, str]:
-        """檢查 Sessions_spawn.log"""
+        """Check Sessions_spawn.log"""
         log_file = self.project_root / "sessions_spawn.log"
 
         if not log_file.exists():
-            return False, 0.0, "sessions_spawn.log 不存在"
+            return False, 0.0, "sessions_spawn.log not found"
 
         try:
             content = log_file.read_text().strip()
             
-            # 支援兩種格式：
-            # 1. 逐行 JSON（每行一個 JSON object）
-            # 2. 單一 JSON（包含 sessions array）
+            # Support two formats:
+            # 1. Line-by-line JSON (one JSON object per line)
+            # 2. Single JSON (contains sessions array)
             roles = set()
             sessions = set()
             
-            # 嘗試作為整體 JSON 解析
+            # Try parsing as whole JSON
             try:
                 data = json.loads(content)
                 if isinstance(data, dict) and "sessions" in data:
-                    # 格式 2: {"sessions": [...]}
+                    # Format 2: {"sessions": [...]}
                     for entry in data.get("sessions", []):
                         roles.add(entry.get("role", ""))
                         sessions.add(entry.get("session_id", ""))
                 elif isinstance(data, list):
-                    # 格式 1: 直接是 list
+                    # Format 1: directly a list
                     for entry in data:
                         roles.add(entry.get("role", ""))
                         sessions.add(entry.get("session_id", ""))
                 else:
-                    # 可能是單一 entry
+                    # May be single entry
                     roles.add(data.get("role", ""))
                     sessions.add(data.get("session_id", ""))
             except json.JSONDecodeError:
-                # 嘗試逐行解析
+                # Try line-by-line parsing
                 lines = [l for l in content.split("\n") if l]
                 for line in lines:
                     try:
@@ -118,14 +118,14 @@ class PhaseTruthVerifier:
             has_sessions = len(sessions) >= 2
 
             score = 100.0 if has_ab and has_sessions else 50.0 if has_sessions else 0.0
-            details = f"{len(sessions)} 筆記錄, {len(roles)} 個角色, {len(sessions)} 個 session"
+            details = f"{len(sessions)} record(s), {len(roles)} role(s), {len(sessions)} session(s)"
 
             return has_ab and has_sessions, score, details
         except Exception as e:
             return False, 0.0, f"Error: {e}"
 
     def check_pytest(self) -> Tuple[bool, float, str]:
-        """檢查 pytest 實際通過"""
+        """Check pytest actually passes"""
         try:
             result = subprocess.run(
                 ["pytest", "--tb=no", "-q"],
@@ -137,18 +137,18 @@ class PhaseTruthVerifier:
 
             passed = result.returncode == 0
             score = 100.0 if passed else 0.0
-            details = "pytest 全部通過" if passed else "pytest 有失敗"
+            details = "pytest all passed" if passed else "pytest has failures"
 
             return passed, score, details
         except subprocess.TimeoutExpired:
-            return False, 0.0, "pytest 執行超時"
+            return False, 0.0, "pytest execution timed out"
         except FileNotFoundError:
-            return False, 0.0, "pytest 未找到"
+            return False, 0.0, "pytest not found"
         except Exception as e:
             return False, 0.0, f"Error: {e}"
 
     def check_coverage(self) -> Tuple[bool, float, str]:
-        """檢查覆蓋率"""
+        """Check coverage"""
         threshold = 70
 
         try:
@@ -160,7 +160,7 @@ class PhaseTruthVerifier:
                 timeout=120
             )
 
-            # 嘗試從輸出解析覆蓋率
+            # Try parsing coverage from output
             output = result.stdout + result.stderr
 
             coverage_match = re.search(r"TOTAL\s+\d+\s+\d+\s+(\d+)%", output)
@@ -172,16 +172,16 @@ class PhaseTruthVerifier:
 
             passed = coverage >= threshold
             score = min(100.0, coverage) if passed else coverage
-            details = f"覆蓋率 {coverage}% (門檻 {threshold}%)"
+            details = f"coverage {coverage}% (threshold {threshold}%)"
 
             return passed, score, details
         except Exception as e:
             return False, 0.0, f"Error: {e}"
 
     def get_manual_checklist(self) -> List[Dict]:
-        """生成需要手動確認的項目"""
+        """Generate items requiring manual confirmation"""
 
-        # Phase 目錄映射（支援多種命名慣例）
+        # Phase directory mapping (supports multiple naming conventions)
         phase_dirs = {
             1: ["01-requirements", "01-specify", "requirements", "specify"],
             2: ["02-architecture", "02-plan", "architecture", "plan", "docs"],
@@ -217,7 +217,7 @@ class PhaseTruthVerifier:
 
         checklist = []
 
-        # 根據 Phase 添加需要確認的項目（檢查多個可能位置）
+        # Add items to confirm based on Phase (check multiple possible locations)
         if self.phase in phase_artifacts:
             dirs_to_check = [None] + phase_dirs.get(self.phase, [])  # None = root directory
             
@@ -238,50 +238,50 @@ class PhaseTruthVerifier:
                 
                 checklist.append({
                     "item": found_path,
-                    "status": "✅ 存在" if exists else "❌ 缺失",
-                    "action": f"隨機選 1 處，確認內容不是空洞的 template"
+                    "status": "✅ present" if exists else "❌ missing",
+                    "action": f"Pick 1 at random, confirm content is not a hollow template"
                 })
 
-        # 通用檢查
+        # General checks
         checklist.extend([
             {
                 "item": "DEVELOPMENT_LOG.md",
-                "status": "✅ 存在" if (self.project_root / "DEVELOPMENT_LOG.md").exists() else "❌ 缺失",
-                "action": "查看是否有實際命令輸出（不是截圖，是文字）"
+                "status": "✅ present" if (self.project_root / "DEVELOPMENT_LOG.md").exists() else "❌ missing",
+                "action": "Check for actual command output (text, not screenshot)"
             },
             {
                 "item": "sessions_spawn.log",
-                "status": "✅ 存在" if (self.project_root / "sessions_spawn.log").exists() else "❌ 缺失",
-                "action": "隨機選 1 筆記錄，確認 task 描述合理"
+                "status": "✅ present" if (self.project_root / "sessions_spawn.log").exists() else "❌ missing",
+                "action": "Pick 1 record at random, confirm task description is reasonable"
             },
         ])
 
         return checklist
 
     def verify(self) -> Dict:
-        """執行完整驗證"""
+        """Execute full verification"""
 
         print("=" * 60)
-        print(f"Phase {self.phase} 真相驗證")
+        print(f"Phase {self.phase} truth verification")
         print("=" * 60)
         print()
 
-        # 執行各項檢查（根據 Phase 調整權重）
-        # Phase 1-2: 只有 BLOCK + session_log，權重調整
+        # Execute checks (adjust weights based on Phase)
+        # Phase 1-2: only BLOCK + session_log, weights adjusted
         if self.phase < 3:
             checks = [
                 ("FrameworkEnforcer BLOCK", self.check_framework_block, 0.60),
                 ("Sessions_spawn.log", self.check_session_log, 0.40),
             ]
-        # Phase 3-4: 4 項檢查（含 pytest/coverage）
+        # Phase 3-4: 4 checks (includes pytest/coverage)
         elif self.phase <= 4:
             checks = [
                 ("FrameworkEnforcer BLOCK", self.check_framework_block, 0.35),
                 ("Sessions_spawn.log", self.check_session_log, 0.25),
-                ("pytest 實際通過", self.check_pytest, 0.25),
-                ("測試覆蓋率達標", self.check_coverage, 0.15),
+                ("pytest actually passes", self.check_pytest, 0.25),
+                ("test coverage meets threshold", self.check_coverage, 0.15),
             ]
-        # Phase 5-8: 只有 BLOCK + session_log（無代碼階段）
+        # Phase 5-8: only BLOCK + session_log (non-code phases)
         else:
             checks = [
                 ("FrameworkEnforcer BLOCK", self.check_framework_block, 0.60),
@@ -310,19 +310,19 @@ class PhaseTruthVerifier:
 
         print()
         print("=" * 60)
-        verdict = "✅ 可能真實" if total_score >= 70 else "❌ 高度可疑"
-        print(f"總分：{total_score:.0f}% - {verdict}")
+        verdict = "✅ likely genuine" if total_score >= 70 else "❌ highly suspicious"
+        print(f"Total score: {total_score:.0f}% - {verdict}")
         print("=" * 60)
         print()
 
-        # 輸出需要手動確認的項目
-        print("【需要 Johnny 手動確認】")
+        # Output items requiring manual confirmation
+        print("[Manual Confirmation Required]")
         print()
 
         checklist = self.get_manual_checklist()
         for i, item in enumerate(checklist, 1):
             print(f"{i}. [{item['item']}]")
-            print(f"   狀態：{item['status']}")
+            print(f"   Status: {item['status']}")
             print(f"   → {item['action']}")
             print()
 
