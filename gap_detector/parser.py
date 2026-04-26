@@ -65,9 +65,9 @@ class SpecParser:
     """Parser for SPEC.md files."""
 
     FEATURE_BLOCK_PATTERN = re.compile(r"### F(\d+):\s+(.+)")
-    METADATA_PATTERN = re.compile(r"^\*\*(\w+)：\*\*\s*(.+)$|^\*\*(\w+):\*\*\s*(.+)$")
-    DEPENDS_PATTERN = re.compile(r"\*\*依賴[：:][*]*\s*(.+?)(?:\n|$)")
-    CRITERIA_PATTERN = re.compile(r"\*\*驗收標準：\*\*\s*(.+?)(?:\n|$)")
+    METADATA_PATTERN = re.compile(r"^\*\*(\w+):\*\*\s*(.+)$")
+    DEPENDS_PATTERN = re.compile(r"\*\*[Dd]epends:[*]*\s*(.+?)(?:\n|$)")
+    CRITERIA_PATTERN = re.compile(r"\*\*[Aa]cceptance [Cc]riteria:\*\*\s*(.+?)(?:\n|$)")
 
     def __init__(self, spec_path) -> None:
         self.spec_path = str(spec_path)
@@ -130,9 +130,9 @@ class SpecParser:
                 if metadata_match:
                     key = metadata_match.group(1) or metadata_match.group(3)
                     value = metadata_match.group(2) or metadata_match.group(4)
-                    if key == "描述":
+                    if key == "Description":
                         current_feature.description = value
-                    elif key == "優先權" and value.startswith("P"):
+                    elif key == "Priority" and value.startswith("P"):
                         current_feature.priority = value
                 criteria_match = self.CRITERIA_PATTERN.search(line)
                 if criteria_match:
@@ -157,8 +157,8 @@ class SpecParser:
                 m = re.search(r"# Feature #(\d+):\s+(.+)", line)
                 if m:
                     metadata.title = m.group(2).strip()
-            elif "版本" in line:
-                m = re.search(r"\*\*版本[：:]\*\*\s*(.+)", line)
+            elif "Version" in line:
+                m = re.search(r"\*\*Version:\*\*\s*(.+)", line)
                 if m:
                     metadata.version = m.group(1).strip()
         return metadata
