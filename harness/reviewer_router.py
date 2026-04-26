@@ -57,7 +57,7 @@ class ReviewerRouter:
         raw = msgs[-1]["content"] if msgs else ""
         return self._parse_response(raw)
 
-    def _build_prompt(self, role: str, prompt: str, phase: int, fr_id: str | None) -> str:
+    def _build_prompt(self, role: str, prompt: str, phase: int, fr_id: str | None = None) -> str:
         fr_tag = f" | FR {fr_id}" if fr_id else ""
         header = f"[Harness Reviewer | Phase {phase}{fr_tag}]\nRole: {role}\n\n"
         footer = (
