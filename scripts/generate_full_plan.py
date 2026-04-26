@@ -48,7 +48,7 @@ def parse_srs_fr_sections(srs_path: Path) -> List[Dict]:
 
     # Find all FR sections (FR-01 to FR-99)
     # Note: pattern uses full-width colon to match Chinese-formatted SRS
-    fr_pattern = re.compile(r'(### FR-(\d+)：[^\n]+\n\n)(.*?)(?=\n---\n|\n### FR-\d+|$)', re.DOTALL)
+    fr_pattern = re.compile(r'(### FR-(\d+):[^\n]+\n\n)(.*?)(?=\n---\n|\n### FR-\d+|$)', re.DOTALL)
 
     frs = []
     for m in fr_pattern.finditer(content):
@@ -57,16 +57,16 @@ def parse_srs_fr_sections(srs_path: Path) -> List[Dict]:
         details = m.group(3).strip()
 
         # Extract description (matches Chinese SRS format)
-        desc_match = re.search(r'\*\*描述\*\*：(.+?)(?:\n|$)', details, re.DOTALL)
+        desc_match = re.search(r'\*\*Description\*\*:(.+?)(?:\n|$)', details, re.DOTALL)
         desc = desc_match.group(1).strip() if desc_match else ""
 
         # Extract test cases (matches Chinese SRS format)
-        test_cases = re.findall(r'測試案例：[^「」]+「([^」]+)」[^「」]+「([^」]+)」', details)
+        test_cases = re.findall(r'[Tt]est [Cc]ases?:[^"]+"([^"]+)"[^"]+"([^"]+)"', details)
 
         # Extract key requirements
         req_lines = []
-        if '內容' in details:
-            content_section = details.split('內容')[1].split('**')[0].strip()
+        if 'Content' in details:
+            content_section = details.split('Content')[1].split('**')[0].strip()
             req_lines = [l.strip() for l in content_section.split('\n') if l.strip() and l.strip().startswith('-')]
 
         frs.append({
@@ -167,7 +167,7 @@ def parse_quality_report(repo_path: Path) -> Dict:
         content = qr_path.read_text(encoding='utf-8')
 
         # Matches both ASCII colon and full-width colon
-        metrics = re.findall(r'\*\*([^\*]+)\*\*[：:](.+?)(?:\n|$)', content)
+        metrics = re.findall(r'\*\*([^\*]+)\*\*:(.+?)(?:\n|$)', content)
 
         return {
             'metrics': [(k.strip(), v.strip()) for k, v in metrics],
@@ -239,7 +239,7 @@ def parse_srs_nfr_sections(srs_path: Path) -> List[Dict]:
     content = srs_path.read_text(encoding='utf-8')
 
     # Note: pattern uses full-width colon to match Chinese-formatted SRS
-    nfr_pattern = re.compile(r'(### NFR-(\d+)：[^\n]+\n\n)(.*?)(?=\n---\n|\n###|\n##|\Z)', re.DOTALL)
+    nfr_pattern = re.compile(r'(### NFR-(\d+):[^\n]+\n\n)(.*?)(?=\n---\n|\n###|\n##|\Z)', re.DOTALL)
 
     nfrs = []
     for m in nfr_pattern.finditer(content):
