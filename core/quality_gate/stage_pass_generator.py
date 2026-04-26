@@ -1,37 +1,37 @@
 #!/usr/bin/env python3
 """
-STAGE_PASS Generator - 整合版
+STAGE_PASS Generator - Integrated
 =============================
-結合 stage_pass_generator.py 概念與 FrameworkEnforcer 實際工具呼叫。
+Combines stage_pass_generator.py concepts with FrameworkEnforcer actual tool calls.
 
-核心原則：
-- 分數只是參考，不是通過/失敗的決定因素
-- Agent 自評誠實性是重點
-- Agent B 的疑問才是真正的品質把關
-- Johnny 只在必要時介入
+Core Principles:
+- Score is reference only, not the pass/fail decider
+- Agent self-assessment honesty is the focus
+- Agent B questions are the real quality gate
+- Human reviewer intervenes only when necessary
 
-Agent A 自評原則（誠實）：
-- 必須如實報告問題，不隱瞞
-- 5W1H 合規性：是否 100% 遵從 Phase N 的 5W1H？
-- 問題修復：是否發現並修復了問題？
-- 交付完整性：所有交付物是否提供？
+Agent A Self-Assessment Principles (Honest):
+- Must report issues accurately, no concealment
+- 5W1H compliance: 100% adherence to Phase N 5W1H?
+- Issue fix: were issues found and fixed?
+- Delivery completeness: all artifacts provided?
 
-Agent B 審查原則（批判）：
-- 發現 Agent A 可能忽略的問題
-- 挑戰 Agent A 的假設
-- 驗證聲稱的實際證據
-- 扮演「挑刺」的角色
+Agent B Review Principles (Critical):
+- Find issues Agent A may have overlooked
+- Challenge Agent A assumptions
+- Verify claimed evidence
+- Play the devil's advocate role
 
-分數角色：
-- 95-100：快速確認
-- 80-94：仔細審查
-- 70-79：特別注意
-- <70：🔴 Flag，禁止進入下一 Phase
+Score Role:
+- 95-100: quick confirmation
+- 80-94: careful review
+- 70-79: special attention
+- <70: 🔴 Flag, blocked from next Phase
 
-使用方式：
+Usage:
     python quality_gate/stage_pass_generator.py --phase 3 --project-dir /path/to/project
 
-或透過 CLI：
+Or via CLI:
     python cli.py stage-pass --phase 3 --project /path/to/project
 """
 
@@ -44,8 +44,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
-# 匯入現有 Framework 模組
-# 由於此檔案位於 quality_gate/，需要往上一層找到 enforcement/
+# Import existing Framework modules
+# Since this file is in quality_gate/, go up one level to find enforcement/
 _parent_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(_parent_dir))
 
@@ -60,14 +60,14 @@ SKILL_REF = "methodology-v2 v6.13"
 
 
 class IntegratedStagePassGenerator:
-    """整合版 STAGE_PASS 生成器"""
+    """Integrated STAGE_PASS generator"""
     
     def __init__(self, project_root: str, phase: int):
         self.project_root = Path(project_root)
         self.phase = phase
         self.config = PHASE_CONFIG.get(phase, {})
         
-        # 初始化 Framework 組件
+        # Initialize Framework components
         self.enforcer = FrameworkEnforcer(str(self.project_root))
         self.claims_verifier = ClaimsVerifier(str(self.project_root))
         
@@ -84,18 +84,18 @@ class IntegratedStagePassGenerator:
     
     def run_step1_5w1h_scan(self) -> bool:
         """
-        Step 1: 5W1H 合規性掃描
+        Step 1: 5W1H compliance scan
         
-        呼叫實際工具驗證，而非人工輸入。
+        Calls actual tools for verification, not manual input.
         """
         print(f"\n{'='*60}")
-        print(f"[Step 1] 5W1H 合規性掃描（實際工具驗證）")
+        print(f"[Step 1] 5W1H compliance scan (actual tool verification)")
         print(f"{'='*60}")
         
         all_passed = True
         
-        # 呼叫 FrameworkEnforcer BLOCK 檢查
-        print("\n📋 呼叫 FrameworkEnforcer BLOCK...")
+        # Call FrameworkEnforcer BLOCK check
+        print("\n📋 Calling FrameworkEnforcer BLOCK...")
         result = self.enforcer.run(level="BLOCK")
         
         self.results["framework_results"]["BLOCK"] = {
@@ -104,8 +104,8 @@ class IntegratedStagePassGenerator:
             "block_checks": result.block_checks,
         }
         
-        # 呼叫 Constitution 檢查（取得分數）
-        print("\n📋 呼叫 Constitution 檢查...")
+        # Call Constitution check (get score)
+        print("\n📋 Calling Constitution check...")
         const_result = self.enforcer.check_constitution()
         const_score = const_result.get("score", 0)
         const_passed = const_result.get("passed", False)
@@ -113,9 +113,9 @@ class IntegratedStagePassGenerator:
         print(f"Constitution Score: {const_score:.1f}% {'✅' if const_passed else '❌'}")
         
         if result.passed:
-            print("✅ FrameworkEnforcer BLOCK 通過")
+            print("✅ FrameworkEnforcer BLOCK passed")
         else:
-            print("❌ FrameworkEnforcer BLOCK 未通過")
+            print("❌ FrameworkEnforcer BLOCK failed")
             print("\n🔴 Violations:")
             for msg, fix in result.violations:
                 print(f"   - {msg}")
@@ -127,12 +127,12 @@ class IntegratedStagePassGenerator:
     
     def run_step2_session_log(self) -> bool:
         """
-        Step 2: Sessions_spawn.log 驗證
+        Step 2: Sessions_spawn.log verification
         
-        驗證 A/B 協作的真實性。
+        Verify the authenticity of A/B collaboration.
         """
         print(f"\n{'='*60}")
-        print(f"[Step 2] Sessions_spawn.log 驗證")
+        print(f"[Step 2] Sessions_spawn.log verification")
         print(f"{'='*60}")
         
         result = self.claims_verifier.verify_sessions_spawn_log()
@@ -144,37 +144,37 @@ class IntegratedStagePassGenerator:
         }
         
         if result.passed:
-            print("✅ Sessions_spawn.log 驗證通過")
+            print("✅ Sessions_spawn.log verification passed")
         else:
-            print("❌ Sessions_spawn.log 驗證失敗")
+            print("❌ Sessions_spawn.log verification failed")
             print(f"   {result.message}")
         
         return result.passed
 
     def run_step2b_confidence_format(self) -> Dict:
         """
-        Step 2b: Confidence 格式驗證 (0-10 範圍)
+        Step 2b: Confidence format validation (0-10 range)
 
-        驗證 sessions_spawn.log 中所有 confidence 值都在 0-10 範圍內。
+        Validate all confidence values in sessions_spawn.log are in 0-10 range.
         """
         print(f"\n{'='*60}")
-        print(f"[Step 2b] Confidence 格式驗證")
+        print(f"[Step 2b] Confidence format validation")
         print(f"{'='*60}")
 
         log_file = self.project_root / "sessions_spawn.log"
 
         if not log_file.exists():
-            print("⚠️ sessions_spawn.log 不存在，跳過 confidence 驗證")
+            print("⚠️ sessions_spawn.log not found, skipping confidence validation")
             return {"passed": True, "message": "log not found", "invalid_entries": []}
 
         try:
             content = log_file.read_text(encoding="utf-8")
             entries = [json.loads(line) for line in content.strip().split("\n") if line]
         except (json.JSONDecodeError, IOError) as e:
-            print(f"⚠️ sessions_spawn.log 解析失敗: {e}")
+            print(f"⚠️ sessions_spawn.log parse failed: {e}")
             return {"passed": True, "message": "parse error", "invalid_entries": []}
 
-        # 檢查 confidence 格式
+        # Check confidence format
         invalid_entries = []
         for entry in entries:
             if "confidence" in entry:
@@ -187,7 +187,7 @@ class IntegratedStagePassGenerator:
                     })
 
         if invalid_entries:
-            print(f"❌ Confidence 格式錯誤: {len(invalid_entries)} 筆記錄")
+            print(f"❌ Confidence format error: {len(invalid_entries)} record(s)")
             for ie in invalid_entries[:3]:
                 print(f"   Session: {ie['session_id']}, Confidence: {ie['confidence']} (expected 0-10)")
             return {
@@ -196,21 +196,21 @@ class IntegratedStagePassGenerator:
                 "invalid_entries": invalid_entries
             }
 
-        print("✅ Confidence 格式驗證通過 (0-10)")
+        print("✅ Confidence format validation passed (0-10)")
         return {"passed": True, "message": "all valid", "invalid_entries": []}
 
     def run_step3_pytest_evidence(self) -> Dict:
         """
-        Step 3: 收集實際 pytest 證據
+        Step 3: Collect actual pytest evidence
         """
         print(f"\n{'='*60}")
-        print(f"[Step 3] 收集測試證據")
+        print(f"[Step 3] Collecting test evidence")
         print(f"{'='*60}")
         
         evidence = {}
         
-        # 執行 pytest
-        print("\n📋 執行 pytest...")
+        # Run pytest
+        print("\n📋 Running pytest...")
         try:
             result = subprocess.run(
                 ["pytest", "--tb=short", "-v"],
@@ -224,16 +224,16 @@ class IntegratedStagePassGenerator:
             evidence["pytest_stderr"] = result.stderr[-500:] if result.stderr else ""
             
             if result.returncode == 0:
-                print("✅ pytest 通過")
+                print("✅ pytest passed")
             else:
-                print("❌ pytest 失敗")
+                print("❌ pytest failed")
                 print(result.stdout[-500:])
         except Exception as e:
             evidence["pytest_error"] = str(e)
-            print(f"⚠️ pytest 執行失敗: {e}")
+            print(f"⚠️ pytest execution failed: {e}")
         
-        # 執行 pytest-cov
-        print("\n📋 執行 pytest-cov...")
+        # Run pytest-cov
+        print("\n📋 Running pytest-cov...")
         try:
             result = subprocess.run(
                 ["pytest", "--cov", "--cov-report=term-missing"],
@@ -252,12 +252,12 @@ class IntegratedStagePassGenerator:
     
     def run_step4_confidence(self) -> int:
         """
-        Step 4: 信心分數計算
+        Step 4: Confidence score calculation
         
-        根據實際工具結果計算信心分數。
+        Calculate confidence score based on actual tool results.
         """
         print(f"\n{'='*60}")
-        print(f"[Step 4] 信心分數")
+        print(f"[Step 4] Confidence score")
         print(f"{'='*60}")
         
         score = 0
@@ -266,36 +266,36 @@ class IntegratedStagePassGenerator:
         # Framework BLOCK (40%)
         if self.results["framework_results"].get("BLOCK", {}).get("passed"):
             score += 40
-            reasons.append("FrameworkEnforcer BLOCK 通過 (+40)")
+            reasons.append("FrameworkEnforcer BLOCK passed (+40)")
         else:
-            reasons.append("FrameworkEnforcer BLOCK 未通過 (+0)")
+            reasons.append("FrameworkEnforcer BLOCK failed (+0)")
         
         # Sessions log (20%)
         if self.results["session_log_results"].get("passed"):
             score += 20
-            reasons.append("Sessions_spawn.log 驗證通過 (+20)")
+            reasons.append("Sessions_spawn.log verification passed (+20)")
         else:
-            reasons.append("Sessions_spawn.log 驗證失敗 (+0)")
+            reasons.append("Sessions_spawn.log verification failed (+0)")
         
         # Pytest (20%)
         if self.results["test_evidence"].get("pytest_passed"):
             score += 20
-            reasons.append("pytest 全部通過 (+20)")
+            reasons.append("pytest all passed (+20)")
         else:
-            score += 10  # 部分通過
-            reasons.append("pytest 部分通過 (+10)")
+            score += 10  # partial pass
+            reasons.append("pytest partially passed (+10)")
         
         # Coverage (20%)
         if self.results["test_evidence"].get("coverage_passed"):
             score += 20
-            reasons.append("Coverage 達標 (+20)")
+            reasons.append("Coverage met threshold (+20)")
         else:
-            reasons.append("Coverage 未達標 (+0)")
+            reasons.append("Coverage below threshold (+0)")
         
-        print("\n📊 分數計算：")
+        print("\n📊 Score calculation:")
         for reason in reasons:
             print(f"   {reason}")
-        print(f"\n🎯 信心分數: {score}/100")
+        print(f"\n🎯 Confidence score: {score}/100")
         
         self.results["confidence_score"] = score
         self.results["confidence_reason"] = "; ".join(reasons)
@@ -303,7 +303,7 @@ class IntegratedStagePassGenerator:
         return score
     
     def generate_markdown(self) -> str:
-        """生成 STAGE_PASS.md — Agent A/B 審查格式"""
+        """Generate STAGE_PASS.md - Agent A/B review format"""
         config = self.config
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
@@ -321,23 +321,23 @@ class IntegratedStagePassGenerator:
         log_result = self.results.get("session_log_results", {})
         test_evidence = self.results.get("test_evidence", {})
         
-        # 從 framework_enforcer 取得 Constitution 分數
+        # Get Constitution score from framework_enforcer
         const_result = self.results.get("framework_results", {}).get("CONSTITUTION", {})
         const_score = const_result.get("score", 0)
         const_passed = const_result.get("passed", False)
         
-        # 5W1H 狀態推斷
-        # Constitution 必須通過才是真正的 PASS（Hard Blocker）
-        constitution_blocker = const_passed  # TH-02: Constitution 總分 ≥80% 或 TH-04: Security=100%
+        # 5W1H status inference
+        # Constitution must pass for true PASS (Hard Blocker)
+        constitution_blocker = const_passed  # TH-02: Constitution total score >=80% or TH-04: Security=100%
         
         who_pass = block_result.get("passed") and log_result.get("passed") and constitution_blocker
         what_pass = test_evidence.get("pytest_passed") and constitution_blocker
-        when_pass = True  # 時序由流程保證
+        when_pass = True  # timing guaranteed by process
         where_pass = block_result.get("passed") and constitution_blocker
         why_pass = block_result.get("passed") and constitution_blocker
         how_pass = block_result.get("passed") and constitution_blocker
         
-        # 如果 Constitution 未通過，整體視為失敗
+        # If Constitution fails, overall result is failure
         overall_pass = all([who_pass, what_pass, when_pass, where_pass, why_pass, how_pass])
         
         if not const_passed:
@@ -346,46 +346,46 @@ class IntegratedStagePassGenerator:
         lines = [
             f"# Phase {self.phase} STAGE_PASS",
             f"",
-            f"## 階段目標達成",
+            f"## Phase Goal Achieved",
             f"",
             f"{config.get('name', f'Phase {self.phase}')} — {config.get('skill_section', '')}",
             f"",
             f"### Phase Completion Summary",
-            f"> （本階段完成摘要，包括目標達成情況、關鍵產出、執行時間等）",
+            f"> (Phase completion summary: goal status, key outputs, execution time, etc.)",
             f"",
             f"## ⚠️ CONSTITUTION FAILURE - {'❌ BLOCKED' if not const_passed else '✅ PASSED'}",
             f"> Constitution Score: {const_score:.1f}% (Threshold: ≥80% for TH-02, =100% for TH-04)",
             f"> Phase {self.phase} {'BLOCKED' if not const_passed else 'PROCEEDING'}",
             f"",
-            f"## Agent A 自評",
+            f"## Agent A Self-Assessment",
             f"",
-            f"### 5W1H 合規性檢查",
-            f"| 項目 | 狀態 | 說明 |",
+            f"### 5W1H Compliance Check",
+            f"| Item | Status | Notes |",
             f"|------|------|------|",
-            f"| WHO | {'✅' if who_pass else '❌'} | A/B 協作真實性 |",
-            f"| WHAT | {'✅' if what_pass else '❌'} | 交付物完整性 |",
-            f"| WHEN | {'✅' if when_pass else '❌'} | 時序門檻滿足 |",
-            f"| WHERE | {'✅' if where_pass else '❌'} | 路徑工具正確 |",
-            f"| WHY | {'✅' if why_pass else '❌'} | 設計理由充分 |",
-            f"| HOW | {'✅' if how_pass else '❌'} | SOP 按序執行 |",
+            f"| WHO | {'✅' if who_pass else '❌'} | A/B collaboration authenticity |",
+            f"| WHAT | {'✅' if what_pass else '❌'} | Artifact completeness |",
+            f"| WHEN | {'✅' if when_pass else '❌'} | Timing threshold met |",
+            f"| WHERE | {'✅' if where_pass else '❌'} | Path and tools correct |",
+            f"| WHY | {'✅' if why_pass else '❌'} | Design rationale sufficient |",
+            f"| HOW | {'✅' if how_pass else '❌'} | SOP executed in order |",
             f"",
-            f"### 發現的問題",
-            f"| # | 問題 | 嚴重性 | 修復方式 | 狀態 |",
+            f"### Issues Found",
+            f"| # | Issue | Severity | Fix | Status |",
             f"|---|------|--------|----------|------|",
         ]
         
-        # 如果有 violations，列入問題
+        # If there are violations, list them as issues
         violations = block_result.get("violations", [])
         if violations:
             for i, (msg, fix) in enumerate(violations, 1):
-                lines.append(f"| {i} | {msg} | HIGH | {fix or '待修復'} | ❌ |")
+                lines.append(f"| {i} | {msg} | HIGH | {fix or 'pending fix'} | ❌ |")
         else:
-            lines.append(f"| — | 無 | — | — | ✅ |")
+            lines.append(f"| — | None | — | — | ✅ |")
         
         lines.extend([
             f"",
-            f"### 交付物清單",
-            f"| 交付物 | 狀態 | 路徑 |",
+            f"### Artifact List",
+            f"| Artifact | Status | Path |",
             f"|--------|------|------|",
             f"| STAGE_PASS.md | ✅ | 00-summary/ |",
             f"| FrameworkEnforcer | {'✅' if block_result.get('passed') else '❌'} | quality_gate/ |",
@@ -393,97 +393,97 @@ class IntegratedStagePassGenerator:
             f"| pytest | {'✅' if test_evidence.get('pytest_passed') else '❌'} | tests/ |",
             f"",
             f"### Agent A Confidence Summary",
-            f"| 項目 | 分數 (0-10) | 說明 |",
+            f"| Item | Score (0-10) | Notes |",
             f"|------|------|------|",
-            f"| 交付物品質 | 7/10 | |",
-            f"| 設計合理性 | 7/10 | |",
-            f"| 實作完整性 | 7/10 | |",
-            f"| 風險控制 | 7/10 | |",
+            f"| Artifact quality | 7/10 | |",
+            f"| Design reasonableness | 7/10 | |",
+            f"| Implementation completeness | 7/10 | |",
+            f"| Risk control | 7/10 | |",
             f"",
-            f"**Agent A 總分**: 7/10",
+            f"**Agent A Total**: 7/10",
             f"",
-            f"**信心分數**: {score}/10 (threshold ≥ 7/10)",
+            f"**Confidence Score**: {score}/10 (threshold >= 7/10)",
             f"",
-            f"Agent A: 自評 Session: —",
+            f"Agent A: Self-assessment Session: —",
             f"",
             f"---",
             f"",
-            f"## Agent B 審查",
+            f"## Agent B Review",
             f"",
-            f"### 疑問清單",
-            f"| # | 疑問 | 針對項目 | 回應 |",
+            f"### Questions List",
+            f"| # | Question | Regarding | Response |",
             f"|---|------|----------|------|",
-            f"| — | （Agent B 填寫） | | |",
+            f"| — | (Agent B to fill) | | |",
             f"",
-            f"### 審查結論",
-            f"| 結論 | 說明 |",
+            f"### Review Conclusion",
+            f"| Conclusion | Notes |",
             f"|------|------|",
-            f"| ✅ APPROVE | 無重大疑問 |",
-            f"| ❌ REJECT | 有疑問需修復 |",
+            f"| ✅ APPROVE | No major questions |",
+            f"| ❌ REJECT | Questions require fixes |",
             f"",
             f"### Agent B Confidence Summary",
-            f"| 項目 | 分數 (0-10) | 說明 |",
+            f"| Item | Score (0-10) | Notes |",
             f"|------|------|------|",
-            f"| 交付物品質 | 7/10 | |",
-            f"| 設計合理性 | 7/10 | |",
-            f"| 實作完整性 | 7/10 | |",
-            f"| 風險控制 | 7/10 | |",
+            f"| Artifact quality | 7/10 | |",
+            f"| Design reasonableness | 7/10 | |",
+            f"| Implementation completeness | 7/10 | |",
+            f"| Risk control | 7/10 | |",
             f"",
-            f"**Agent B 總分**: 7/10",
+            f"**Agent B Total**: 7/10",
             f"",
-            f"### Phase Summary (50字內)",
-            f"> （待填寫，本階段核心成果簡述）",
+            f"### Phase Summary (within 50 words)",
+            f"> (to be filled: brief summary of phase core results)",
             f"",
-            f"Agent B: （待填寫） Session: —",
+            f"Agent B: (to be filled) Session: —",
             f"",
             f"---",
             f"",
             f"## Phase Challenges & Resolutions",
             f"",
-            f"| # | 挑戰 | 嚴重性 | 解決方式 | 狀態 |",
+            f"| # | Challenge | Severity | Resolution | Status |",
             f"|---|------|--------|----------|------|",
-            f"| — | （如有） | | | |",
+            f"| — | (if any) | | | |",
             f"",
-            f"## Johnny 介入（如有）",
-            f"（僅在 Agent B 提出重大問題時填寫）",
+            f"## Human Reviewer Intervention (if any)",
+            f"(fill only when Agent B raises major issues)",
             f"",
-            f"## artifact_verification（HR-15）",
+            f"## artifact_verification (HR-15)",
             f"",
-            f"| Artifact | 狀態 | 說明 |",
+            f"| Artifact | Status | Notes |",
             f"|----------|------|------|",
-            f"| SRS.md | ✅ | 已讀 |",
-            f"| SAD.md | ✅ | 已讀 |",
+            f"| SRS.md | ✅ | read |",
+            f"| SAD.md | ✅ | read |",
             f"",
             f"---",
             f"",
-            f"### 附：實際工具結果",
+            f"### Appendix: Actual Tool Results",
             f"",
             f"**Constitution Score**: {'✅' if const_passed else '❌'} {const_score:.1f}% {'(threshold > 80%)' if const_score >= 80 else '(threshold > 80%)'}",
-            f"**FrameworkEnforcer BLOCK**: {'✅ 通過' if block_result.get('passed') else '❌ 未通過'}",
-            f"**Sessions_spawn.log**: {'✅ 通過' if log_result.get('passed') else '❌ 未通過'}",
-            f"**pytest**: {'✅ 通過' if test_evidence.get('pytest_passed') else '❌ 未通過'}",
-            f"**Coverage**: {'✅ 達標' if test_evidence.get('coverage_passed') else '❌ 未達標'}",
+            f"**FrameworkEnforcer BLOCK**: {'✅ passed' if block_result.get('passed') else '❌ failed'}",
+            f"**Sessions_spawn.log**: {'✅ passed' if log_result.get('passed') else '❌ failed'}",
+            f"**pytest**: {'✅ passed' if test_evidence.get('pytest_passed') else '❌ failed'}",
+            f"**Coverage**: {'✅ met' if test_evidence.get('coverage_passed') else '❌ not met'}",
             f"",
-            # v6.21 格式：confidence (1-10) + summary (50字內)
+            # v6.21 format: confidence (1-10) + summary (within 50 words)
             f"**Confidence**: {self.results.get('confidence_score', 0) or 0}/10 | **Summary**: {self.results.get('confidence_reason', '')[:50]}",
             f"",
             f"---",
             f"",
             f"## SIGN-OFF",
             f"",
-            f"| 角色 | 姓名 | 簽署 | 日期 |",
+            f"| Role | Name | Signature | Date |",
             f"|------|------|------|------|",
-            f"| Agent A (Architect) | （待填寫） | （待填寫） | （待填寫） |",
-            f"| Agent B (Reviewer) | （待填寫） | （待填寫） | （待填寫） |",
-            f"| Johnny (客戶) | （待填寫） | （待填寫） | （待填寫） |",
+            f"| Agent A (Architect) | (to be filled) | (to be filled) | (to be filled) |",
+            f"| Agent B (Reviewer) | (to be filled) | (to be filled) | (to be filled) |",
+            f"| Project Owner | (to be filled) | (to be filled) | (to be filled) |",
             f"",
-            f"*由 methodology-v2 v6.13 STAGE_PASS Generator 產生*",
+            f"*Generated by harness-methodology v6.49 STAGE_PASS Generator*",
         ])
         
         return "\n".join(lines)
     
     def git_push(self, content: str) -> str:
-        """推送到 GitHub"""
+        """Push to GitHub"""
         output_dir = self.project_root / "00-summary"
         output_dir.mkdir(exist_ok=True)
         
@@ -507,23 +507,23 @@ class IntegratedStagePassGenerator:
             commit_hash = result.stdout.strip()
             self.results["git_commit"] = commit_hash
             
-            # 更新 commit hash
-            updated = content.replace("(push后填入)", commit_hash)
+            # Update commit hash
+            updated = content.replace("(fill-in-after-push)", commit_hash)
             output_path.write_text(updated, encoding="utf-8")
             
-            print(f"✅ Git 推送成功: {commit_hash}")
+            print(f"✅ Git push successful: {commit_hash}")
             return commit_hash
         except subprocess.CalledProcessError as e:
-            print(f"⚠️ Git 操作失敗: {e.stderr}")
+            print(f"⚠️ Git operation failed: {e.stderr}")
             return ""
     
     def _log_to_development_log(self):
-        """將 STAGE_PASS QG 結果寫入 DEVELOPMENT_LOG（修復 WARNING 5）"""
+        """Write STAGE_PASS QG results to DEVELOPMENT_LOG (fix WARNING 5)"""
         try:
             log_path = self.project_root / "DEVELOPMENT_LOG.md"
             timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
             
-            # 從 results 取出分數
+            # Extract score from results
             const_result = self.results.get("framework_results", {}).get("CONSTITUTION", {})
             block_result = self.results.get("framework_results", {}).get("BLOCK", {})
             const_score = const_result.get("score", 0)
@@ -542,12 +542,12 @@ class IntegratedStagePassGenerator:
             with open(log_path, "a", encoding="utf-8") as f:
                 f.write(log_content + "\n")
             
-            print(f"\n📝 QG 結果已寫入 DEVELOPMENT_LOG")
+            print(f"\n📝 QG results written to DEVELOPMENT_LOG")
         except Exception as e:
-            print(f"\n[WARNING] 寫入 DEVELOPMENT_LOG 失敗: {e}")
+            print(f"\n[WARNING] Failed to write to DEVELOPMENT_LOG: {e}")
     
     def run(self) -> bool:
-        """執行完整流程"""
+        """Execute full workflow"""
         print(f"\n{'='*60}")
         print(f"STAGE_PASS Generator v{VERSION}")
         print(f"Phase {self.phase}: {self.config.get('name', '')}")
@@ -575,7 +575,7 @@ class IntegratedStagePassGenerator:
         if self.phase == 2:
             self.run_step6_sab_generation()
         
-        # Log to DEVELOPMENT_LOG（修復 WARNING 5）
+        # Log to DEVELOPMENT_LOG (fix WARNING 5)
         self._log_to_development_log()
         
         # Generate & Push
@@ -583,11 +583,11 @@ class IntegratedStagePassGenerator:
         commit_hash = self.git_push(md)
         
         print(f"\n{'='*60}")
-        print(f"完成！STAGE_PASS.md 已生成並推送")
-        print(f"信心分數: {score}/100")
+        print(f"Done! STAGE_PASS.md generated and pushed")
+        print(f"Confidence score: {score}/100")
         print(f"{'='*60}")
         
-        return score >= 70  # 70 分以上算通過
+        return score >= 70  # >=70 counts as pass
 
     def run_step6_sab_generation(self) -> bool:
         """SAB Generation (Phase 2 only)"""
@@ -622,19 +622,19 @@ class IntegratedStagePassGenerator:
             return True  # Don't block
     
     def run_step5_traceability(self) -> bool:
-        """Traceability 驗證（可選）"""
+        """Traceability verification (optional)"""
         print(f"\n{'─'*40}")
-        print(f"Step 5: Traceability 驗證")
+        print(f"Step 5: Traceability verification")
         print(f"{'─'*40}")
         
-        # 檢查是否有 traceability_report.json
+        # Check for traceability_report.json
         trace_file = os.path.join(self.project_root, "traceability_report.json")
         if not os.path.exists(trace_file):
-            print(f"⚠️  Traceability 未初始化 (traceability_report.json 不存在)")
-            print(f"   如需啟用，執行: python requirement_traceability.py --project-id $PROJECT --verify")
-            return True  # 不阻擋流程
+            print(f"⚠️  Traceability not initialized (traceability_report.json not found)")
+            print(f"   To enable, run: python requirement_traceability.py --project-id $PROJECT --verify")
+            return True  # do not block flow
         
-        # 執行驗證
+        # Execute verification
         try:
             from requirement_traceability import RequirementTraceability
             import json
@@ -645,22 +645,22 @@ class IntegratedStagePassGenerator:
             rt = RequirementTraceability.load(trace_file)
             result = rt.verify_completeness()
             
-            print(f"✅ Traceability 完整性: {result['overall_completeness']}")
+            print(f"✅ Traceability completeness: {result['overall_completeness']}")
             print(f"   FR→SRS: {result['srs_coverage']}")
             print(f"   FR→Code: {result['code_coverage']}")
             print(f"   FR→Test: {result['test_coverage']}")
             
-            # 如果覆蓋率 < 100%，警告但不放棄
+            # If coverage < 100%, warn but do not abort
             completeness_pct = float(result['overall_completeness'].replace('%', ''))
             if completeness_pct < 100:
-                print(f"⚠️  Traceability 覆蓋率 {result['overall_completeness']} < 100%")
-                print(f"   建議: 補全 FR 映射")
+                print(f"⚠️  Traceability coverage {result['overall_completeness']} < 100%")
+                print(f"   Suggestion: complete FR mapping")
             
             return True
             
         except Exception as e:
-            print(f"⚠️  Traceability 驗證失敗: {e}")
-            return True  # 不阻擋流程
+            print(f"⚠️  Traceability verification failed: {e}")
+            return True  # do not block flow
 
 
 def main():
