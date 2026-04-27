@@ -1298,6 +1298,21 @@ CREATE TABLE IF NOT EXISTS effort_records (
 
 ---
 
+### §3.19 — `constitution/` (HR Compliance Package)
+
+**Purpose**: Real implementations of the HR-compliance interfaces imported by `steering/integrations.py`. Eliminates the graceful-degrade no-ops; `SteeringIntegrator` is now fully operational.
+
+| File | Class | Role |
+|---|---|---|
+| `constitution/__init__.py` | — | Package marker; re-exports all three classes |
+| `constitution/bvs_runner.py` | `BVSRunner` | HR-03 phase-order checker: reads `.methodology/state.json`, validates phase prerequisites and FSM state |
+| `constitution/citation_parser.py` | `CitationParser` | HR-07/09: regex extraction of citation markers (`[FR-01]`, `[§3.2]`, etc.) and obligation-verb claims; `verify_claim()` checks traceability keywords |
+| `constitution/verification_constitution_checker.py` | `VerificationConstitutionChecker` | Bridges `steering/integrations.py` to `enforcement.constitution_as_code` (R001-R007); gracefully degrades to pass-through if `enforcement/` unavailable |
+
+**Imports**: stdlib only (`re`, `json`, `pathlib`). No external dependencies.  
+**Integration**: `SteeringIntegrator.bvs_integrator` property and `iterate_with_full_check()` now call real code instead of hitting `ImportError`.
+
+
 ## 7. Runtime Prerequisites & Remaining Work
 
 All in-framework bugs and stubs have been resolved. The one remaining dependency is external:
@@ -1364,7 +1379,7 @@ python3 -m software_self_improvement.runner
 | Priority | Action | Score Delta | Unlock Condition | Dimension |
 |---|---|---|---|---|
 | **P1** | SSI result field name verification | 0 pts (correctness fix) | Run one real gate end-to-end; confirm whether SSI runner renames `open_critical_count` -> `open_critical` before writing result JSON, or whether `harness_bridge._parse_result()` needs updating | A |
-| **P1** | `constitution/` package stub or real impl | 0 pts (gap closure) | `steering/integrations.py` lazy-imports `constitution.bvs_runner`, `constitution.cqg_runner`, `constitution.hr12_checker` — all inside `try/except`; implement minimal stubs or document as intentional optional integration | A |
+| **P1** | ~~`constitution/` package stub or real impl~~ | ✅ Done (v2.0.1) | `constitution/` implemented — `BVSRunner`, `CitationParser`, `VerificationConstitutionChecker` all deployed. | A |
 | **P2** | `harness_bridge` empirical project validation | **+1 -> 93** | First full run against a real project. Confirms Tier 1 deterministic scoring is stable and subprocess call chain works end-to-end | A (20->21) |
 | **P2** | CRG activation + empirical data | **+1 -> 94** | First real project run with CRG MCP available. Validates `min(tool, llm)` floor and `crg_metrics.json` structural signals. Currently `CRGBridge.is_available()` returns `False` in standalone mode | E (10->11) |
 | **P3** | ASPICE full traceability matrix (Phase E docs) | **+1 -> 95** | Complete `TRACEABILITY_MATRIX.md` linking all FR-01..FR-N to code modules, test cases, and gate results. Required for full ASPICE Level 2 alignment | C (15->16) |
@@ -1375,7 +1390,7 @@ python3 -m software_self_improvement.runner
 | Item | File | Status | Action |
 |---|---|---|---|
 | SSI output field mismatch | `harness/harness_bridge.py` | **Unverified** — `score.py` emits `open_critical_count`/`open_high_count`; `_parse_result()` reads `open_critical`/`open_high`. Runner may rename in output JSON. | Add `_parse_result` unit test with fixture matching real SSI runner JSON output |
-| `constitution.*` graceful degrade | `steering/integrations.py` | `try/except ImportError` wraps all 3 integration calls; silently no-ops if package absent | Either implement `constitution/` as a top-level package (3 modules: `bvs_runner`, `cqg_runner`, `hr12_checker`) or document as intentional optional integration in §3.12 |
+| `constitution.*` graceful degrade | `steering/integrations.py` | ✅ **Resolved (v2.0.1)** — `constitution/` package implemented: `BVSRunner` (HR-03 phase checks), `CitationParser` (HR-07/09), `VerificationConstitutionChecker` (bridges R001-R007). All imports now resolve; `SteeringIntegrator` fully operational. | See §3.19 |
 | HR-12 real limiter not wired | `steering/steering_loop.py` | `max_iterations` config enforced in `should_continue()`, but no hook into `ConstitutionAsCode` R_HR12 check in `steering/integrations.py` | Wire `hr12_checker.check()` return value into `SteeringLoop` decision loop |
 | Gate 4 Hermes approval timeout | `harness/harness_bridge.py` | No timeout on Hermes MCP call in `_require_hermes_approve()` — can hang if Hermes unavailable | Add `timeout` kwarg (default 30s) to `ReviewerRouter.review()` |
 | `enforcement.json` policy hot-reload | `enforcement/policy_engine.py` | Loads policy once at startup; no file-watch mechanism | Add explicit `reload_policy()` CLI hook in `harness_cli.py` or watchdog-based reload |
