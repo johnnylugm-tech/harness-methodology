@@ -7,11 +7,12 @@ Standalone entrypoint for the harness-methodology repo.
 Does NOT require the full parent system (cli.py needs 30+ external modules).
 
 Usage:
-    python harness_cli.py run-phase  --phase 3 --project .
-    python harness_cli.py run-gate   --gate 2  --phase 3 --project .
-    python harness_cli.py manifest   --fr-ids FR-01 FR-02 --sad SAD.md
-    python harness_cli.py status     [--project .]
-    python harness_cli.py effort     [--phase 3] [--project .]
+    python harness_cli.py plan-phase  --phase 3 [--repo .] [--output plan.md]
+    python harness_cli.py run-phase   --phase 3 [--project .] [--force]
+    python harness_cli.py run-gate    --gate 2  --phase 3 [--project .] [--fr-id FR-01]
+    python harness_cli.py manifest    --fr-ids FR-01 FR-02 [--sad SAD.md]
+    python harness_cli.py status      [--project .]
+    python harness_cli.py effort      [--phase 3] [--project .]
 
 Available gates:
     Gate 1  per-FR check       (P3/P5/P7/P8, trigger: per_fr_completion)
@@ -29,6 +30,30 @@ from pathlib import Path
 # Ensure repo root on path so core/ and harness/ resolve
 _REPO_ROOT = Path(__file__).parent
 sys.path.insert(0, str(_REPO_ROOT))
+
+
+# ---------------------------------------------------------------------------
+# plan-phase
+# ---------------------------------------------------------------------------
+
+def cmd_plan_phase(args: argparse.Namespace) -> int:
+    from scripts.generate_full_plan import generate_full_plan
+
+    repo_path = Path(args.repo).resolve()
+    output_path = Path(args.output) if args.output else None
+
+    print(f"\n{'='*60}\nplan-phase: Phase {args.phase} | repo={repo_path}\n{'='*60}")
+
+    plan = generate_full_plan(args.phase, repo_path, output_path)
+    if plan is None:
+        print(f"\n[ERROR] Failed to generate plan for phase {args.phase}")
+        return 1
+
+    if output_path:
+        print(f"\nPlan written → {output_path}  ({len(plan)} chars)")
+    else:
+        print(plan)
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -194,6 +219,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = p.add_subparsers(dest="command", metavar="command")
     sub.required = True
+
+    # plan-phase
+    pp = sub.add_parser("plan-phase", help="Generate phase execution plan from SRS/SAD artifacts (stdlib only)")
+    pp.add_argument("--phase",  type=int, required=True, help="Phase number (1-8)")
+    pp.add_argument("--repo",   default=".", help="Project repository path (default: .)")
+    pp.add_argument("--output", default=None, help="Output file path (default: stdout)")
+    pp.set_defaults(func=cmd_plan_phase)
 
     # run-phase
     rp = sub.add_parser("run-phase", help="Run pre/post-flight hooks for a phase")

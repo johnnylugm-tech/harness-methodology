@@ -70,13 +70,14 @@ The system uses this macro architecture:
 
 `cli.py` is retained as-is because it is the entrypoint for the full parent system that contains harness-methodology as a sub-component. Any work purely within harness-methodology should use `harness_cli.py`.
 
-**`harness_cli.py` commands**:
+**`harness_cli.py` commands** (6 total):
 ```
-python harness_cli.py run-phase  --phase 3 [--project .] [--force]
-python harness_cli.py run-gate   --gate 2  --phase 3 [--project .] [--fr-id FR-01]
-python harness_cli.py manifest   --fr-ids FR-01 FR-02 [--sad SAD.md]
-python harness_cli.py status     [--project .]
-python harness_cli.py effort     [--phase 3]
+python harness_cli.py plan-phase  --phase 3 [--repo .] [--output plan.md]
+python harness_cli.py run-phase   --phase 3 [--project .] [--force]
+python harness_cli.py run-gate    --gate 2  --phase 3 [--project .] [--fr-id FR-01]
+python harness_cli.py manifest    --fr-ids FR-01 FR-02 [--sad SAD.md]
+python harness_cli.py status      [--project .]
+python harness_cli.py effort      [--phase 3]
 ```
 
 ---

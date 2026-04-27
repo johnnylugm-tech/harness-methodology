@@ -1,0 +1,855 @@
+# Harness Methodology — User Manual v1.0
+
+> **Audience**: Engineers using Claude (AI agent) + harness-methodology to execute software development projects.
+> **Framework version**: v6.102.0 | **Document date**: 2026-04-27
+
+---
+
+## Table of Contents
+
+1. [Overview](#1-overview)
+2. [Prerequisites & Setup](#2-prerequisites--setup)
+3. [Core Concepts](#3-core-concepts)
+4. [Basic Flow — Happy Path (P1 → P8)](#4-basic-flow--happy-path-p1--p8)
+5. [Phase-by-Phase Guide](#5-phase-by-phase-guide)
+6. [Quality Gate Reference](#6-quality-gate-reference)
+7. [Alternative Flows](#7-alternative-flows)
+8. [Interactive Conversation Patterns](#8-interactive-conversation-patterns)
+9. [CLI Reference](#9-cli-reference)
+10. [Environment Variables](#10-environment-variables)
+11. [Troubleshooting](#11-troubleshooting)
+
+---
+
+## 1. Overview
+
+Harness Methodology is an **8-phase quality-gated software development framework**. You work through each phase by:
+
+1. **Generating a plan** — the harness parses your SRS/SAD artifacts and produces a checklist
+2. **Executing with Claude** — you describe tasks to Claude; developer + reviewer agents do the work
+3. **Running quality gates** — automated scoring blocks advancement until standards are met
+4. **Advancing** — once gates pass, move to the next phase
+
+```
+P1 Requirements → P2 Architecture → P3 Implementation → P4 Testing
+→ P5 Verification → P6 Quality Assurance → P7 Risk → P8 Config
+         ↑                    ↑                  ↑             ↑
+       [pre-flight]        [Gate 1]           [Gate 2/3]    [Gate 4]
+```
+
+**What the harness does for you:**
+- Pre-flight checks before each phase (FSM state, constitution compliance)
+- Per-FR quality checks during implementation (Gate 1)
+- Phase-exit quality gates that block advancement until score thresholds are met
+- Audit trail: every gate decision logged to `.methodology/decision_logs/`
+- Effort tracking in SQLite (`.methodology/effort_metrics.db`)
+
+---
+
+## 2. Prerequisites & Setup
+
+### 2.1 Required
+
+```bash
+# Python 3.10+
+python3 --version
+
+# PyYAML (for gate config loading)
+pip install pyyaml
+
+# Clone the repo
+git clone https://github.com/johnnylugm-tech/harness-methodology.git
+cd harness-methodology
+```
+
+### 2.2 Optional but Recommended
+
+```bash
+# software_self_improvement — required for Gate runs
+# Without it, plan-phase / run-phase / status / effort work, but run-gate will error
+pip install -e path/to/software_self_improvement
+
+# Hermes MCP — required for Gate 4 human review
+export HERMES_REVIEWER_TARGET=telegram:YOUR_CHAT_ID   # or other target
+
+# CRG (Code Review Graph) — optional, enhances Gate 3/4 scoring
+# Gracefully skipped if not installed
+```
+
+### 2.3 Project Directory Structure
+
+Your project (the codebase being built) should have this layout:
+
+```
+your-project/
+  SRS.md                    ← Phase 1 output (required for plan-phase P2+)
+  SAD.md                    ← Phase 2 output (required for plan-phase P3+)
+  .methodology/
+    state.json              ← FSM state (auto-created)
+    quality_manifest.json   ← Gate results (created at P2 exit)
+    decision_logs/          ← Per-gate YAML audit entries
+    effort_metrics.db       ← SQLite effort tracking
+  .sessi-work/              ← SSI gate workspace (auto-created)
+```
+
+> **Note**: `harness_cli.py` refers to the *project root* with `--project` or `--repo`.
+> The harness-methodology repo itself is the *framework* — keep them separate.
+
+---
+
+## 3. Core Concepts
+
+### 3.1 Phases (P1–P8)
+
+| Phase | Name | Key Output | Gates |
+|---|---|---|---|
+| P1 | Requirements Specification | `SRS.md` | — |
+| P2 | Architecture Design | `SAD.md`, `quality_manifest.json` | — |
+| P3 | Implementation | Code + unit tests | Gate 1 (per-FR), Gate 2 (exit) |
+| P4 | Testing | Test plan + results | Gate 1 (per-FR), Gate 3 (exit) |
+| P5 | Verification & Delivery | Baseline, monitoring plan | — |
+| P6 | Quality Assurance | Quality report | Gate 4 (exit, full project) |
+| P7 | Risk Management | Risk register | Gate 1 (per-FR) |
+| P8 | Configuration Management | Config records | Gate 1 (per-FR) |
+
+### 3.2 Functional Requirements (FRs)
+
+Each phase works on a list of FRs (e.g. `FR-01`, `FR-02`). Each FR is an atomic unit of work:
+- Developer agent builds/tests it
+- Reviewer agent reviews it
+- Gate 1 checks it before marking it done
+
+### 3.3 Quality Gates
+
+| Gate | When | Scope | Blocking threshold |
+|---|---|---|---|
+| Gate 1 | Per-FR at P3/P5/P7/P8 | Single FR | Per-dimension (linting≥90, type≥85, coverage≥80) |
+| Gate 2 | P3 exit | Full phase | Composite score ≥ 75 |
+| Gate 3 | P4 exit | Full phase | Composite score ≥ 80, all 12 dims |
+| Gate 4 | P6 exit | Full project | Composite score ≥ 85 + Hermes human APPROVE |
+
+### 3.4 FSM States
+
+The framework tracks project state in `.methodology/state.json`:
+
+```
+INITIAL → ACTIVE → (phase-by-phase) → COMPLETE
+                ↓
+              PAUSED   ← manual pause or gate block
+                ↓
+              FREEZE   ← kill switch or critical violation
+```
+
+---
+
+## 4. Basic Flow — Happy Path (P1 → P8)
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  SETUP                                                      │
+│  1. harness_cli.py manifest --fr-ids FR-01 FR-02 --sad SAD.md  │  ← P2 exit
+└─────────────────────────────────────────────────────────────┘
+            ↓
+┌─────────────────────────────────────────────────────────────┐
+│  EACH PHASE (repeat for P3–P8)                             │
+│  1. plan-phase  --phase N --repo /project                  │
+│  2. [Claude] Execute phase tasks per plan                  │
+│  3. run-phase   --phase N --project /project               │  ← pre-flight
+│  4. [Claude] Per-FR dev + review loop                      │
+│  5. run-gate    --gate 1 --phase N --fr-id FR-XX           │  ← per FR (Gates trigger)
+│  6. run-gate    --gate N+1 --phase N                       │  ← phase exit gate
+│  7. status      --project /project                         │  ← confirm
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Condensed happy-path command sequence** for P3:
+
+```bash
+# 1. Generate plan
+python harness_cli.py plan-phase --phase 3 --repo /project --output /project/phase3_plan.md
+
+# 2. Pre-flight check
+python harness_cli.py run-phase --phase 3 --project /project
+
+# 3a. Per-FR gate after each FR is done
+python harness_cli.py run-gate --gate 1 --phase 3 --project /project --fr-id FR-01
+python harness_cli.py run-gate --gate 1 --phase 3 --project /project --fr-id FR-02
+
+# 4. Phase exit gate
+python harness_cli.py run-gate --gate 2 --phase 3 --project /project
+
+# 5. Check status
+python harness_cli.py status --project /project
+```
+
+---
+
+## 5. Phase-by-Phase Guide
+
+### Phase 1 — Requirements Specification
+
+**Goal**: Produce `SRS.md` covering all FRs and NFRs.
+
+**Interactive prompt to Claude**:
+```
+我們開始 Phase 1：需求規格。
+
+專案描述：[你的專案描述]
+
+請：
+1. 訪談我以確認所有功能需求（FR）
+2. 識別非功能需求（NFR）
+3. 輸出完整的 SRS.md，格式包含 ### FR-01: [名稱] 與 ### NFR-01: [名稱]
+```
+
+**Output**: `SRS.md` in project root.
+
+**harness command**:
+```bash
+python harness_cli.py plan-phase --phase 1 --repo /project
+# (No gate for P1 — output is purely documentary)
+```
+
+---
+
+### Phase 2 — Architecture Design
+
+**Goal**: Produce `SAD.md` + initialize `quality_manifest.json`.
+
+**Interactive prompt to Claude**:
+```
+我們進入 Phase 2：架構設計。
+
+已有：SRS.md（見附件或 /project/SRS.md）
+
+請：
+1. 設計系統架構（模組劃分、資料流、技術選型）
+2. 輸出 SAD.md
+3. 列出本專案的 FR ID 清單（用於生成 quality manifest）
+```
+
+**After Claude produces SAD.md**, initialize the manifest:
+```bash
+python harness_cli.py manifest \
+  --fr-ids FR-01 FR-02 FR-03 \
+  --sad /project/SAD.md
+```
+
+**Expected output**:
+```
+quality_manifest.json written → /project/.methodology/quality_manifest.json
+  fr_ids        : ['FR-01', 'FR-02', 'FR-03']
+  generated_at  : phase 2
+```
+
+---
+
+### Phase 3 — Implementation
+
+**Goal**: Implement all FRs with unit tests. Gate 1 per FR, Gate 2 at exit.
+
+**Interactive prompt to Claude**:
+```
+Phase 3：實作。
+
+已有：SRS.md、SAD.md
+FR 清單：FR-01, FR-02, FR-03
+
+請對每個 FR 依序執行：
+1. [Developer] 實作 FR-XX 模組（含單元測試）
+2. [Reviewer] 審查 FR-XX 實作
+3. 告知我審查結果後，我會執行 Gate 1
+
+從 FR-01 開始。
+```
+
+**After each FR is reviewed**, run Gate 1:
+```bash
+python harness_cli.py run-gate --gate 1 --phase 3 --project /project --fr-id FR-01
+```
+
+**After all FRs pass Gate 1**, run Gate 2 (phase exit):
+```bash
+python harness_cli.py run-gate --gate 2 --phase 3 --project /project
+```
+
+---
+
+### Phase 4 — Testing
+
+**Goal**: Comprehensive test plan + execution. Gate 1 per FR, Gate 3 at exit.
+
+**Interactive prompt to Claude**:
+```
+Phase 4：測試。
+
+請：
+1. 制定完整測試計畫（TEST_PLAN.md）：單元、整合、效能、安全測試
+2. 執行所有測試並記錄結果（TEST_RESULTS.md）
+3. 確保每個 FR 的覆蓋率符合要求（≥80%）
+
+對每個 FR 完成後告知我，我會執行 Gate 1 確認。
+```
+
+```bash
+# Per-FR gate
+python harness_cli.py run-gate --gate 1 --phase 4 --project /project --fr-id FR-01
+
+# Phase exit gate (12 dimensions including architecture + error_handling)
+python harness_cli.py run-gate --gate 3 --phase 4 --project /project
+```
+
+---
+
+### Phase 5 — Verification & Delivery
+
+**Goal**: System-level verification. No gate exit, but Gate 1 applies to FRs.
+
+**Interactive prompt to Claude**:
+```
+Phase 5：驗證與交付。
+
+請：
+1. 對照 SRS.md 逐一驗證所有 FR 是否完整交付
+2. 建立系統 baseline（BASELINE.md）
+3. 制定監控計畫（MONITORING_PLAN.md）
+4. 輸出驗證報告（VERIFICATION_REPORT.md）
+```
+
+```bash
+python harness_cli.py run-phase --phase 5 --project /project
+```
+
+---
+
+### Phase 6 — Quality Assurance
+
+**Goal**: Final full-project quality check. Gate 4 (score≥85 + Hermes APPROVE).
+
+**Interactive prompt to Claude**:
+```
+Phase 6：品質保證。
+
+請：
+1. 執行全面品質審查（所有12個維度）
+2. 輸出 QUALITY_REPORT.md
+3. 準備 RELEASE_NOTES.md 與 FINAL_SIGN_OFF.md
+```
+
+**Run Gate 4** (requires SSI + Hermes):
+```bash
+python harness_cli.py run-gate --gate 4 --phase 6 --project /project
+# → Runs SSI evaluation (score ≥ 85)
+# → Sends to Hermes reviewer for human APPROVE
+# → On APPROVE: gate passes, decision logged
+# → On REJECT: GateBlockedError raised
+```
+
+---
+
+### Phase 7 — Risk Management
+
+**Goal**: Risk register + mitigation plans. Gate 1 per FR.
+
+**Interactive prompt to Claude**:
+```
+Phase 7：風險管理。
+
+請：
+1. 識別所有技術、進度、資源、外部風險
+2. 建立 RISK_REGISTER.md
+3. 為每個高風險項制定緩解計畫
+4. 使用 Claude（非 Hermes）進行審查（Phase 7 自動路由至 Claude）
+```
+
+```bash
+python harness_cli.py run-gate --gate 1 --phase 7 --project /project --fr-id FR-RISK-01
+```
+
+> **Note**: Phase 7 and 8 automatically route to Claude reviewer (not Hermes). This is enforced by `get_reviewer_model(phase=7)` returning `"claude"`.
+
+---
+
+### Phase 8 — Configuration Management
+
+**Goal**: Complete configuration records. Gate 1 per config item.
+
+**Interactive prompt to Claude**:
+```
+Phase 8：組態管理。
+
+請：
+1. 記錄所有環境、部署、安全、監控設定（CONFIG_RECORDS.md）
+2. 建立部署檢查清單（DEPLOYMENT_CHECKLIST.md）
+3. 輸出環境規格（ENVIRONMENT_SPEC.md）
+```
+
+```bash
+python harness_cli.py run-gate --gate 1 --phase 8 --project /project --fr-id FR-CFG-01
+python harness_cli.py effort --project /project   # review total effort
+```
+
+---
+
+## 6. Quality Gate Reference
+
+### Gate 1 — Per-FR Lightweight Check
+
+| Dimension | Tier | Model | Threshold | Weight |
+|---|---|---|---|---|
+| linting | 1 | gemini-flash | 90 | 0.33 |
+| type_safety | 1 | gemini-flash | 85 | 0.33 |
+| test_coverage | 1 | gemini-flash | 80 | 0.34 |
+
+- Blocking: **per-dimension** (not composite score)
+- On fail: fix the specific dimension and re-run Gate 1 for that FR
+- Max rounds: 1 (no auto-iteration)
+
+### Gate 2 — P3 Phase Exit
+
+| Score threshold | 75 | Dimensions | 7 |
+|---|---|---|---|
+| Max rounds | 3 | Saturation rounds | 3 |
+| CRG | impact_check | mutation_testing | median_runs=3 |
+
+### Gate 3 — P4 Phase Exit
+
+| Score threshold | 80 | Dimensions | 12 (full) |
+|---|---|---|---|
+| Max rounds | 3 | CRG | full recon + tier3_guidance |
+
+### Gate 4 — Full Project (P6 exit)
+
+| Score threshold | 85 | Dimensions | 12 (full) |
+|---|---|---|---|
+| Max rounds | 3 | Human review | Hermes APPROVE required |
+
+---
+
+## 7. Alternative Flows
+
+### AF-01 — Gate Blocked → Fix → Re-run
+
+```
+run-gate → GateBlockedError
+  │
+  ├─ Read gate output: which dimensions failed?
+  │    [FAIL] linting: 82.0 (threshold=90)
+  │
+  ├─ Tell Claude:
+  │    "Gate 1 blocked for FR-01: linting score 82 (need ≥90).
+  │     Please fix all linting issues in FR-01 module and re-run."
+  │
+  ├─ Claude fixes → confirm
+  │
+  └─ Re-run:
+       python harness_cli.py run-gate --gate 1 --phase 3 --fr-id FR-01
+```
+
+### AF-02 — Preflight Check Failed
+
+```
+run-phase → "PRE-FLIGHT FAILED"
+  │
+  ├─ Common causes:
+  │    • state.json shows FREEZE or PAUSED
+  │    • constitution violations in docs/
+  │    • Phase regression (trying to run P5 when state shows P3)
+  │
+  ├─ Diagnose:
+  │    python harness_cli.py status --project /project
+  │
+  ├─ Force override (if you understand the failure):
+  │    python harness_cli.py run-phase --phase N --project /project --force
+  │
+  └─ Fix constitution violations:
+       Tell Claude: "Pre-flight constitution check failed. Review docs/ for
+       HR violations and fix them before I re-run."
+```
+
+### AF-03 — Gate 4 Hermes Reviewer REJECT
+
+```
+run-gate --gate 4 → GateBlockedError (REVIEWER_REJECT)
+  │
+  ├─ Check decision log for reviewer's violations:
+  │    cat .methodology/decision_logs/YYYY-MM-DD/GATE_*_REVIEWER_REJECT*.yaml
+  │
+  ├─ Address violations → tell Claude:
+  │    "Gate 4 reviewer rejected. Violations: [list].
+  │     Please address each violation and produce updated deliverables."
+  │
+  ├─ Re-run Gate 4 after fixes
+  │
+  └─ If HERMES_REVIEWER_TARGET not set:
+       export HERMES_REVIEWER_TARGET=telegram:YOUR_ID
+       (or use --force to skip human review during development)
+```
+
+### AF-04 — SSI Runner Not Installed
+
+```
+run-gate → "[ERROR] Install software_self_improvement..."
+  │
+  ├─ Install SSI:
+  │    pip install -e /path/to/software_self_improvement
+  │    # or: pip install software_self_improvement
+  │
+  ├─ Verify:
+  │    python3 -c "import software_self_improvement"
+  │
+  └─ Re-run gate
+```
+
+### AF-05 — HR-12 Iteration Limit Hit
+
+HR-12 states: no more than 5 ineffective review iterations per FR.
+
+```
+PhaseHooks.monitoring_hr12_check → returns False (iteration ≥ 5)
+  │
+  ├─ This means: the developer-reviewer loop ran 5+ times without convergence
+  │
+  ├─ Tell Claude:
+  │    "FR-XX has exceeded 5 review iterations without passing.
+  │     Please step back and identify the root cause rather than incremental fixes.
+  │     Propose a fundamental redesign of this FR implementation."
+  │
+  └─ After redesign: restart FR from monitoring_before_dev
+```
+
+### AF-06 — Kill Switch Triggered
+
+```
+KillSwitch.evaluate_and_trigger → circuit OPEN for agent_id
+  │
+  ├─ Agent is halted (is_agent_circuit_open returns True)
+  │
+  ├─ Diagnose:
+  │    from kill_switch import KillSwitch
+  │    ks = KillSwitch()
+  │    history = ks.get_interrupt_history(agent_id="AGENT_X")
+  │
+  ├─ Manual re-enable (after acknowledging cause):
+  │    ks.re_enable("AGENT_X", operator_id="HUMAN", acknowledgment="Root cause fixed: ...")
+  │
+  └─ Resume phase
+```
+
+### AF-07 — Phase Rollback (State Regression)
+
+```
+You need to re-run a phase that was already marked complete.
+  │
+  ├─ Edit .methodology/state.json:
+  │    {"state": "ACTIVE", "current_phase": N-1, "last_update": "..."}
+  │
+  ├─ Re-run with force:
+  │    python harness_cli.py run-phase --phase N --project /project --force
+  │
+  └─ Note: gate results are preserved in quality_manifest.json
+       If you want to reset gate results, edit gate_results in the manifest
+```
+
+### AF-08 — Plan Not Accurate (SRS Parsing Failed)
+
+```
+plan-phase outputs empty or incorrect tasks
+  │
+  ├─ Check SRS.md format:
+  │    Must have: ### FR-01: [title] sections
+  │    Must have: ### NFR-01: [title] sections
+  │
+  ├─ Check repo path:
+  │    python harness_cli.py plan-phase --phase 3 --repo /path/to/PROJECT
+  │    (not harness-methodology repo itself)
+  │
+  └─ Fallback: use plan as a starting point and supplement with manual tasks
+       Tell Claude: "Here's the generated plan. Please also check SRS.md
+       directly for any FR I may have missed."
+```
+
+---
+
+## 8. Interactive Conversation Patterns
+
+### 8.1 Starting a New Project
+
+```
+使用者：
+我要開始一個新的軟體專案，使用 harness-methodology 框架。
+專案描述：[描述]
+技術棧：[Python/TypeScript/etc]
+
+請從 Phase 1 開始，幫我完成需求訪談並輸出 SRS.md。
+
+Claude 會：
+- 訪談需求
+- 識別 FR 和 NFR
+- 輸出完整 SRS.md
+```
+
+### 8.2 Phase 執行提示模板
+
+```
+使用者：
+我們進入 Phase [N]：[相名稱]。
+
+相關檔案：
+- SRS.md：[path 或 paste]
+- SAD.md：[path 或 paste（若 P3+）]
+
+已生成的計畫（plan-phase 輸出）：
+[貼上 plan-phase 輸出]
+
+FR 清單：FR-01, FR-02, FR-03
+
+請按照計畫依序執行，每完成一個 FR 請報告，等我確認後繼續。
+```
+
+### 8.3 Gate 失敗後的修復對話
+
+```
+使用者：
+Gate [N] 失敗，以下是輸出：
+
+GATE 2 BLOCKED
+  score: 71.3 (need ≥75)
+  [FAIL] mutation_testing: 65.0 (threshold=70)
+  [FAIL] security: 72.0 (threshold=80)
+
+請針對失敗維度進行修復：
+1. mutation_testing：增加 mutation test 覆蓋率
+2. security：修復以下安全問題
+
+修復後告知我，我會重新執行 Gate 2。
+```
+
+### 8.4 查看進度
+
+```
+使用者：
+顯示目前專案進度。
+
+# 然後執行：
+python harness_cli.py status --project /project
+python harness_cli.py effort --project /project
+
+# 將輸出貼給 Claude：
+"目前狀態如下，請分析進度並建議下一步："
+[paste output]
+```
+
+### 8.5 多 FR 並行處理
+
+```
+使用者：
+我有 5 個 FR（FR-01 到 FR-05），它們彼此獨立。
+請設計並行處理策略，同時開發 2-3 個 FR，但每個 FR 完成後我需要先執行 Gate 1 再繼續。
+
+Claude 策略：
+- FR-01 + FR-02 並行開發 → Gate 1 x2 → FR-03 + FR-04 並行 → Gate 1 x2 → FR-05 → Gate 1
+- Phase exit: Gate 2
+```
+
+### 8.6 僅使用 harness 工具（不運行 SSI）
+
+```
+使用者：
+我目前沒有安裝 SSI，但想使用 harness 的計畫和狀態功能。
+
+可用功能（無需 SSI）：
+✅ plan-phase — 生成執行計畫
+✅ run-phase  — 執行 pre/post-flight hooks（constitution 檢查）
+✅ manifest   — 初始化 quality manifest（不含 gate 結果）
+✅ status     — 查看 FSM 狀態
+✅ effort     — 查看時間追蹤
+
+❌ run-gate   — 需要 SSI（會顯示安裝提示）
+```
+
+---
+
+## 9. CLI Reference
+
+### `plan-phase` — 生成 Phase 執行計畫
+
+```bash
+python harness_cli.py plan-phase \
+  --phase  3          \  # Phase 編號 1-8（必填）
+  --repo   /project   \  # 專案路徑（預設：.）
+  --output plan.md       # 輸出路徑（省略則 stdout）
+```
+
+**輸入**：讀取 `--repo` 下的 `SRS.md`、`SAD.md`、`TEST_PLAN.md` 等  
+**輸出**：Markdown 格式的任務清單，含每個 FR 的詳細任務  
+**依賴**：純 stdlib，無外部套件
+
+---
+
+### `run-phase` — 執行 Phase Hooks（Pre/Post-flight）
+
+```bash
+python harness_cli.py run-phase \
+  --phase   3          \  # Phase 編號（必填）
+  --project /project   \  # 專案路徑（預設：.）
+  --force               # 強制忽略 preflight 失敗
+```
+
+**Pre-flight 檢查**：
+- FSM 狀態（不在 FREEZE/PAUSED）
+- Constitution 合規性（`docs/` 目錄）
+- Tool Registry 可用性（若已安裝）
+
+**返回碼**：0=pre-flight通過；1=失敗（使用 `--force` 繞過）
+
+---
+
+### `run-gate` — 執行品質門
+
+```bash
+python harness_cli.py run-gate \
+  --gate    2          \  # Gate 編號 1-4（必填）
+  --phase   3          \  # 當前 Phase（必填）
+  --project /project   \  # 專案路徑（預設：.）
+  --fr-id   FR-01        # FR ID（Gate 1 必填）
+```
+
+**返回碼**：0=通過；1=阻塞（Gate Blocked）；2=錯誤（SSI 未安裝等）  
+**需要**：SSI 已安裝；Gate 4 額外需要 `HERMES_REVIEWER_TARGET`
+
+---
+
+### `manifest` — 生成 Quality Manifest（P2 exit）
+
+```bash
+python harness_cli.py manifest \
+  --fr-ids FR-01 FR-02 FR-03 \  # FR ID 清單（必填）
+  --sad    SAD.md               # SAD.md 路徑（預設：SAD.md）
+```
+
+**輸出**：`.methodology/quality_manifest.json`  
+**時機**：Phase 2 完成後執行一次
+
+---
+
+### `status` — 查看專案狀態
+
+```bash
+python harness_cli.py status \
+  --project /project   # 專案路徑（預設：.）
+```
+
+**顯示**：FSM 狀態 + quality_manifest 中所有 gate 結果摘要
+
+---
+
+### `effort` — 查看工時統計
+
+```bash
+python harness_cli.py effort \
+  --phase   3          \  # 篩選特定 Phase（省略=全部）
+  --project /project      # 專案路徑（預設：.）
+```
+
+**顯示**：Gate 執行次數、平均耗時、各 Phase/Gate 細分  
+**資料來源**：`.methodology/effort_metrics.db`（SQLite）
+
+---
+
+## 10. Environment Variables
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `HERMES_REVIEWER_TARGET` | `""` | Hermes review target (e.g. `telegram:6308981865`). Required for Gate 4. |
+| `HERMES_TIMEOUT_MS` | `120000` | Hermes long-poll timeout in ms (default: 2 minutes) |
+| `SSI_ROOT` | `software_self_improvement` | Path to SSI package root (used as subprocess cwd) |
+| `PYTHONPATH` | — | Must include SSI package directory for `run-gate` to work |
+
+**Setup example**:
+```bash
+export HERMES_REVIEWER_TARGET=telegram:1234567890
+export PYTHONPATH=/path/to/software_self_improvement:$PYTHONPATH
+```
+
+---
+
+## 11. Troubleshooting
+
+### `ModuleNotFoundError: No module named 'core'`
+```bash
+# Run from the harness-methodology repo root
+cd /path/to/harness-methodology
+python harness_cli.py ...
+```
+
+### `[ERROR] Install software_self_improvement...`
+```bash
+pip install -e /path/to/software_self_improvement
+python3 -c "import software_self_improvement; print('OK')"
+```
+
+### `Gate 1 always fails — linting threshold 90`
+```
+# Tell Claude:
+"Gate 1 requires linting score ≥ 90. Please run a linter on the FR-XX 
+module and fix ALL warnings/errors before I re-submit."
+```
+
+### `status shows state.json not found`
+```bash
+# Initialize state manually:
+mkdir -p /project/.methodology
+echo '{"state": "ACTIVE", "current_phase": 1, "last_update": "'"$(date -u +%Y-%m-%dT%H:%M:%S)"'"}' \
+  > /project/.methodology/state.json
+```
+
+### `Gate 4: HERMES_REVIEWER_TARGET not set`
+```bash
+# Set target, then re-run:
+export HERMES_REVIEWER_TARGET=telegram:YOUR_CHAT_ID
+python harness_cli.py run-gate --gate 4 --phase 6 --project /project
+```
+
+### `plan-phase outputs empty task list`
+```
+Cause: SRS.md not found at expected path, or FR format doesn't match.
+
+Required SRS.md format:
+  ### FR-01: [Title]
+  **Description**: [description]
+
+Required path: {--repo}/SRS.md  (or {--repo}/01-requirements/SRS.md)
+```
+
+### `pre-flight blocked by constitution`
+```bash
+# Run phase with --force to bypass (development only):
+python harness_cli.py run-phase --phase 3 --project /project --force
+
+# Or fix the constitution violation:
+# Tell Claude: "Pre-flight constitution check found violations. 
+# Please review docs/ and fix HR policy violations."
+```
+
+---
+
+## Appendix — Gate Score Formula
+
+Gate 2/3/4 composite score = weighted average of all dimension scores:
+
+```
+score = Σ (dimension_score × dimension_weight)
+
+Example Gate 2 (7 dims):
+  linting(90) × 0.15 + type_safety(88) × 0.15 + test_coverage(82) × 0.15
+  + security(85) × 0.15 + secrets_scanning(100) × 0.10
+  + license_compliance(100) × 0.10 + mutation_testing(72) × 0.20
+  = 86.45  ✅ (≥75)
+```
+
+Gate 1 uses per-dimension pass/fail, not composite score.
+
+---
+
+*Generated by harness-methodology framework. Keep in sync with code changes.*
