@@ -1,6 +1,10 @@
-# harness/crg_bridge.py
-# §6.5: 4-point CRG integration wrapper.
-# Graceful degradation: all methods are no-ops if CRG not installed.
+"""
+CRG Bridge: Interface for the Code Review Graph (CRG) analysis tools.
+
+Provides methods for structural reconnaissance, context retrieval, impact analysis,
+and structural drift verification using the SSI toolchain.
+"""
+
 from __future__ import annotations
 import json
 import os
@@ -14,66 +18,105 @@ class CRGBridge:
     _available: bool | None = None
 
     def is_available(self) -> bool:
+        """Check if the CRG MCP tools and required libraries are available."""
         if self._available is None:
             r = subprocess.run(
                 ["python3", "-c", "import mcp__code_review_graph"],
                 capture_output=True,
+                check=False
             )
             self._available = r.returncode == 0
         return self._available
 
-    # Point 1: Structural Reconnaissance (Gate 3/4 phase entry)
     def run_reconnaissance(self, project_root: str) -> dict:
-        """9 CRG queries → seed issue_registry. ~3,900 tokens, once per session."""
+        """
+        Execute full structural reconnaissance to seed the issue registry.
+        
+        Args:
+            project_root: Path to the target project.
+
+        Returns:
+            A dictionary containing reconnaissance data.
+        """
         if not self.is_available():
             return {}
         subprocess.run(
             ["python3", "scripts/crg_integration.py", "ensure", project_root],
             capture_output=True, text=True, cwd=self._ssi_root(),
+            check=False
         )
         p = Path(project_root) / ".sessi-work" / "crg_reconnaissance.json"
-        return json.loads(p.read_text()) if p.exists() else {}
+        return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
 
-    # Point 2: Tier 3 dimension guidance (get_minimal_context before each eval)
     def get_minimal_context(self, project_root: str, dimension: str) -> dict:
-        """Returns minimal CRG context. Reduces Tier 3 eval tokens 30–50%."""
+        """
+        Retrieve minimal CRG context for a specific quality dimension.
+        
+        Args:
+            project_root: Path to the target project.
+            dimension: The quality dimension being evaluated.
+
+        Returns:
+            A dictionary containing structural context hints.
+        """
         if not self.is_available():
             return {}
         r = subprocess.run(
             ["python3", "scripts/crg_integration.py", "context", project_root, dimension],
             capture_output=True, text=True, cwd=self._ssi_root(),
+            check=False
         )
         try:
             return json.loads(r.stdout)
         except Exception:
             return {}
 
-    # Point 3: Pre-fix safety gate (before each improvement round)
     def check_impact(self, project_root: str, ref: str = "HEAD", threshold: float = 0.7) -> bool:
-        """True if risky (risk_score >= threshold OR hub/bridge touched) → defer fix."""
+        """
+        Check if changes since 'ref' are risky based on structural impact.
+        
+        Args:
+            project_root: Path to the target project.
+            ref: Git reference to compare against.
+            threshold: Risk score threshold (0.0 - 1.0).
+
+        Returns:
+            True if the impact exceeds the threshold or touches hub nodes.
+        """
         if not self.is_available():
             return False
         r = subprocess.run(
             ["python3", "scripts/crg_integration.py", "risky",
              project_root, ref, str(threshold)],
             capture_output=True, cwd=self._ssi_root(),
+            check=False
         )
         return r.returncode == 1   # convention: 1=risky, 0=safe
 
-    # Point 4: Post-round structural drift verification
     def check_drift(self, project_root: str, threshold: float = 0.4) -> bool:
-        """True if structural drift > threshold → trigger revert protocol."""
+        """
+        Verify structural drift after an improvement round.
+        
+        Args:
+            project_root: Path to the target project.
+            threshold: Maximum allowed structural drift.
+
+        Returns:
+            True if drift exceeds the threshold.
+        """
         if not self.is_available():
             return False
         p = Path(project_root) / ".sessi-work" / "crg_metrics.json"
         if not p.exists():
             return False
-        return json.loads(p.read_text()).get("structural_drift", 0) > threshold
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return data.get("structural_drift", 0) > threshold
 
     def load_metrics(self, project_root: str) -> dict:
-        """Load 6 formula-driven CRG signals from crg_metrics.json."""
+        """Load calculated CRG metrics from the work directory."""
         p = Path(project_root) / ".sessi-work" / "crg_metrics.json"
-        return json.loads(p.read_text()) if p.exists() else {}
+        return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
 
     def _ssi_root(self) -> str:
+        """Resolve the SSI toolchain root directory."""
         return os.environ.get("SSI_ROOT", "software_self_improvement")

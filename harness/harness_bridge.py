@@ -1,7 +1,9 @@
-# harness/harness_bridge.py
-# Bridge between software_self_improvement and methodology-v2.
-# Handles: Gate triggering, CRG integration, result parsing, blocking decisions,
-# quality_manifest updates.
+"""
+Harness Bridge: Integration layer between the quality harness and the methodology.
+
+Handles gate execution, results parsing, and quality manifest updates.
+"""
+
 from __future__ import annotations
 import json
 import subprocess
@@ -17,6 +19,7 @@ from harness.effort_tracker import EffortTracker, EffortRecord
 
 @dataclass
 class DimResult:
+    """Result of a single quality dimension evaluation."""
     name: str
     score: float
     threshold: float
@@ -25,6 +28,7 @@ class DimResult:
 
 @dataclass
 class GateResult:
+    """Summary result of a quality gate execution."""
     gate_num: int
     score: float
     dimensions: list[DimResult] = field(default_factory=list)
@@ -35,6 +39,7 @@ class GateResult:
 
 
 class GateBlockedError(Exception):
+    """Exception raised when a quality gate fails to meet its targets."""
     def __init__(self, gate_num: int, result: GateResult):
         self.gate_num = gate_num
         self.result = result
@@ -46,16 +51,16 @@ class GateBlockedError(Exception):
 
 class HarnessBridge:
     """
-    Bridge layer between software_self_improvement and methodology-v2.
-    Gate triggering, CRG integration, blocking decisions, quality_manifest updates.
+    Bridge layer between software_self_improvement and harness-methodology.
+
+    Handles gate triggering, CRG integration, result parsing, and manifest updates.
     """
 
     def __init__(self):
+        """Initialize the bridge with its dependent subsystems."""
         self.crg = CRGBridge()        # gracefully degrades if CRG unavailable
         self._log = DecisionLogWriter()
         self._effort = EffortTracker()
-
-    # ------------------------------------------------------------------ Public API
 
     def run_gate(
         self,
@@ -64,6 +69,21 @@ class HarnessBridge:
         phase: int,
         fr_id: str | None = None,
     ) -> GateResult:
+        """
+        Execute a quality gate and persist its results.
+
+        Args:
+            gate_num: The gate ID (1-4).
+            project_root: Absolute path to the target project.
+            phase: Current methodology phase.
+            fr_id: Optional Functional Requirement ID (Gate 1 only).
+
+        Returns:
+            The resulting GateResult object.
+
+        Raises:
+            GateBlockedError: If the gate fails its quality targets.
+        """
         config = self._load_config(gate_num)
         t0 = time.time()
 
@@ -124,28 +144,20 @@ class HarnessBridge:
         }
         out = Path(".methodology/quality_manifest.json")
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(json.dumps(manifest, indent=2, ensure_ascii=False))
+        out.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
         return out
 
-    # ------------------------------------------------------------------ Internal
-
     def _load_config(self, gate_num: int) -> dict:
+        """Load the YAML configuration for a specific gate."""
         import yaml
         names = {1: "gate1_per_fr.yaml", 2: "gate2_p3_exit.yaml",
                  3: "gate3_p4_exit.yaml", 4: "gate4_p6_full.yaml"}
-        with open(Path(__file__).parent / "gate_configs" / names[gate_num]) as f:
+        config_path = Path(__file__).parent / "gate_configs" / names[gate_num]
+        with open(config_path, "r", encoding="utf-8") as f:
             return yaml.safe_load(f)
 
     def _invoke_harness(self, config: dict, project_root: str, fr_id: str | None) -> GateResult:
-        """
-        Invoke software_self_improvement runner (Steps 3a-3f loop).
-        Writes config to .sessi-work/gate{n}_config.yaml, reads result from
-        .sessi-work/gate{n}_result.json after subprocess completes.
-
-        Expected result JSON schema:
-            {score, quality_complete, rounds_used, open_critical, open_high,
-             dimensions: [{name, score, threshold, issues}]}
-        """
+        """Invoke the SSI runner subprocess."""
         import yaml
 
         gate_num = config["gate"]
@@ -156,7 +168,7 @@ class HarnessBridge:
         result_path = work_dir / f"gate{gate_num}_result.json"
         result_path.unlink(missing_ok=True)
 
-        with open(config_path, "w") as f:
+        with open(config_path, "w", encoding="utf-8") as f:
             yaml.dump(config, f)
 
         cmd = [
@@ -169,7 +181,7 @@ class HarnessBridge:
             cmd += ["--fr-id", fr_id]
 
         timeout_s = config.get("max_rounds", 3) * 300
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_s)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_s, check=False)
 
         if not result_path.exists():
             raise RuntimeError(
@@ -177,7 +189,7 @@ class HarnessBridge:
                 f"stderr: {proc.stderr[:500]}"
             )
 
-        raw = json.loads(result_path.read_text())
+        raw = json.loads(result_path.read_text(encoding="utf-8"))
         dims = [
             DimResult(
                 name=d["name"], score=d["score"],
@@ -198,12 +210,11 @@ class HarnessBridge:
     def _require_hermes_approve(
         self, result: GateResult, phase: int, fr_id: str | None
     ) -> None:
-        """Gate 4 only: block unless Hermes reviewer returns APPROVE."""
+        """Check for external approval from Hermes reviewer."""
         from harness.reviewer_router import ReviewerRouter
         try:
             router = ReviewerRouter()
         except (ValueError, RuntimeError):
-            # HERMES_REVIEWER_TARGET not set or MCP unavailable — skip silently
             return
 
         dim_summary = ", ".join(f"{d.name}={d.score:.0f}" for d in result.dimensions)
@@ -231,10 +242,11 @@ class HarnessBridge:
     def _update_quality_manifest(
         self, gate_num: int, fr_id: str | None, result: GateResult
     ) -> None:
+        """Update the persistent manifest with latest gate results."""
         p = Path(".methodology/quality_manifest.json")
         if not p.exists():
             return
-        manifest = json.loads(p.read_text())
+        manifest = json.loads(p.read_text(encoding="utf-8"))
         key = f"gate{gate_num}"
         payload: dict[str, Any] = {
             "score": result.score, "quality_complete": result.quality_complete,
@@ -247,4 +259,4 @@ class HarnessBridge:
             manifest["gate_results"][key][fr_id] = payload
         else:
             manifest["gate_results"][key] = payload
-        p.write_text(json.dumps(manifest, indent=2, ensure_ascii=False))
+        p.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
