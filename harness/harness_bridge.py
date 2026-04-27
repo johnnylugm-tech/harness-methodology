@@ -4,6 +4,7 @@
 # quality_manifest updates.
 from __future__ import annotations
 import json
+import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -66,7 +67,7 @@ class HarnessBridge:
         config = self._load_config(gate_num)
         t0 = time.time()
 
-        # § 6.5 Point 1 — CRG Reconnaissance at Gate 3/4 entry
+        # §6.5 Point 1 — CRG Reconnaissance at Gate 3/4 entry
         if config.get("crg", {}).get("reconnaissance"):
             self.crg.run_reconnaissance(project_root)
 
@@ -97,10 +98,14 @@ class HarnessBridge:
             if result.score < config.get("score_gate", 0) or not result.quality_complete:
                 raise GateBlockedError(gate_num, result)
 
+        # Fix ④ — Gate 4 requires explicit Hermes reviewer APPROVE
+        if gate_num == 4:
+            self._require_hermes_approve(result, phase, fr_id)
+
         return result
 
     def generate_quality_manifest(self, fr_ids: list[str], sad_path: str) -> Path:
-        """Called at P2 exit. Parses SAD.md → constraints + high_risk_modules."""
+        """Called at P2 exit. Parses SAD.md -> constraints + high_risk_modules."""
         try:
             from scripts.generate_sab import parse_sad
             sab = parse_sad(sad_path)
@@ -134,16 +139,94 @@ class HarnessBridge:
     def _invoke_harness(self, config: dict, project_root: str, fr_id: str | None) -> GateResult:
         """
         Invoke software_self_improvement runner (Steps 3a-3f loop).
-        max_rounds / early_stop / saturation_rounds from config.
+        Writes config to .sessi-work/gate{n}_config.yaml, reads result from
+        .sessi-work/gate{n}_result.json after subprocess completes.
 
-        TODO: Replace stub with real SSI runner:
-            subprocess.run(["python3", "-m", "software_self_improvement.runner",
-                           "--config", config_path, "--root", project_root])
+        Expected result JSON schema:
+            {score, quality_complete, rounds_used, open_critical, open_high,
+             dimensions: [{name, score, threshold, issues}]}
         """
-        raise NotImplementedError(
-            "Wire up software_self_improvement runner. "
-            "Interface: run(config, project_root, fr_id) -> GateResult"
+        import yaml
+
+        gate_num = config["gate"]
+        work_dir = Path(".sessi-work")
+        work_dir.mkdir(parents=True, exist_ok=True)
+
+        config_path = work_dir / f"gate{gate_num}_config.yaml"
+        result_path = work_dir / f"gate{gate_num}_result.json"
+        result_path.unlink(missing_ok=True)
+
+        with open(config_path, "w") as f:
+            yaml.dump(config, f)
+
+        cmd = [
+            "python3", "-m", "software_self_improvement.runner",
+            "--config", str(config_path),
+            "--root", project_root,
+            "--output", str(result_path),
+        ]
+        if fr_id:
+            cmd += ["--fr-id", fr_id]
+
+        timeout_s = config.get("max_rounds", 3) * 300
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_s)
+
+        if not result_path.exists():
+            raise RuntimeError(
+                f"SSI runner exited (rc={proc.returncode}) but wrote no result file.\n"
+                f"stderr: {proc.stderr[:500]}"
+            )
+
+        raw = json.loads(result_path.read_text())
+        dims = [
+            DimResult(
+                name=d["name"], score=d["score"],
+                threshold=d["threshold"], issues=d.get("issues", []),
+            )
+            for d in raw.get("dimensions", [])
+        ]
+        return GateResult(
+            gate_num=gate_num,
+            score=raw["score"],
+            dimensions=dims,
+            open_critical=raw.get("open_critical", 0),
+            open_high=raw.get("open_high", 0),
+            quality_complete=raw.get("quality_complete", False),
+            rounds_used=raw.get("rounds_used", 0),
         )
+
+    def _require_hermes_approve(
+        self, result: GateResult, phase: int, fr_id: str | None
+    ) -> None:
+        """Gate 4 only: block unless Hermes reviewer returns APPROVE."""
+        from harness.reviewer_router import ReviewerRouter
+        try:
+            router = ReviewerRouter()
+        except (ValueError, RuntimeError):
+            # HERMES_REVIEWER_TARGET not set or MCP unavailable — skip silently
+            return
+
+        dim_summary = ", ".join(f"{d.name}={d.score:.0f}" for d in result.dimensions)
+        review = router.review(
+            role="reviewer",
+            prompt=(
+                f"Gate 4 final quality review.\n"
+                f"Score: {result.score:.1f} | rounds: {result.rounds_used}\n"
+                f"open_critical: {result.open_critical} | open_high: {result.open_high}\n"
+                f"Dimensions: {dim_summary}\n"
+                f"Approve only if all dimensions meet thresholds and critical=0."
+            ),
+            phase=phase,
+            fr_id=fr_id,
+        )
+        if review.get("review_status") != "APPROVE":
+            self._log.write(DecisionLogEntry(
+                agent_id="GATE", phase=phase, fr_id=fr_id,
+                decision="REVIEWER_REJECT",
+                reasoning=f"Gate 4 Hermes REJECT: {review.get('summary', '')}",
+                gate_score=result.score,
+            ))
+            raise GateBlockedError(4, result)
 
     def _update_quality_manifest(
         self, gate_num: int, fr_id: str | None, result: GateResult
