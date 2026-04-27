@@ -70,14 +70,15 @@ The system uses this macro architecture:
 
 `cli.py` is retained as-is because it is the entrypoint for the full parent system that contains harness-methodology as a sub-component. Any work purely within harness-methodology should use `harness_cli.py`.
 
-**`harness_cli.py` commands** (6 total):
+**`harness_cli.py` commands** (7 total):
 ```
-python harness_cli.py plan-phase  --phase 3 [--repo .] [--output plan.md]
-python harness_cli.py run-phase   --phase 3 [--project .] [--force]
-python harness_cli.py run-gate    --gate 2  --phase 3 [--project .] [--fr-id FR-01]
-python harness_cli.py manifest    --fr-ids FR-01 FR-02 [--sad SAD.md]
-python harness_cli.py status      [--project .]
-python harness_cli.py effort      [--phase 3]
+python harness_cli.py plan-phase     --phase 3 [--repo .] [--output plan.md]
+python harness_cli.py run-phase      --phase 3 [--project .] [--force]
+python harness_cli.py run-gate       --gate 2  --phase 3 [--project .] [--fr-id FR-01]
+python harness_cli.py manifest       --fr-ids FR-01 FR-02 [--sad SAD.md]
+python harness_cli.py status         [--project .]
+python harness_cli.py effort         [--phase 3]
+python harness_cli.py reload-policy  [--policy-file enforcement/enforcement.json]
 ```
 
 ---
@@ -1389,11 +1390,11 @@ python3 -m software_self_improvement.runner
 
 | Item | File | Status | Action |
 |---|---|---|---|
-| SSI output field mismatch | `harness/harness_bridge.py` | **Unverified** — `score.py` emits `open_critical_count`/`open_high_count`; `_parse_result()` reads `open_critical`/`open_high`. Runner may rename in output JSON. | Add `_parse_result` unit test with fixture matching real SSI runner JSON output |
+| SSI output field mismatch | `harness/harness_bridge.py` | ✅ **Resolved (v2.0.2)** — `_parse_result()` now uses dual-fallback: `raw.get("open_critical", raw.get("open_critical_count", 0))` and `raw.get("open_high", raw.get("open_high_count", 0))`. Accepts both SSI runner field name variants. | — |
 | `constitution.*` graceful degrade | `steering/integrations.py` | ✅ **Resolved (v2.0.1)** — `constitution/` package implemented: `BVSRunner` (HR-03 phase checks), `CitationParser` (HR-07/09), `VerificationConstitutionChecker` (bridges R001-R007). All imports now resolve; `SteeringIntegrator` fully operational. | See §3.19 |
-| HR-12 real limiter not wired | `steering/steering_loop.py` | `max_iterations` config enforced in `should_continue()`, but no hook into `ConstitutionAsCode` R_HR12 check in `steering/integrations.py` | Wire `hr12_checker.check()` return value into `SteeringLoop` decision loop |
-| Gate 4 Hermes approval timeout | `harness/harness_bridge.py` | No timeout on Hermes MCP call in `_require_hermes_approve()` — can hang if Hermes unavailable | Add `timeout` kwarg (default 30s) to `ReviewerRouter.review()` |
-| `enforcement.json` policy hot-reload | `enforcement/policy_engine.py` | Loads policy once at startup; no file-watch mechanism | Add explicit `reload_policy()` CLI hook in `harness_cli.py` or watchdog-based reload |
+| HR-12 real limiter not wired | `steering/integrations.py` | ✅ **Resolved (v2.0.2)** — `SteeringIntegrator.should_continue` property now cross-checks `HR12Resolution(max_allowed, early_stop_threshold, min_rounds_before_stop).should_stop()` against `SteeringLoop.should_continue()`. HR-12 takes priority; `VerificationConstitutionChecker.check()` called on stop. | — |
+| Gate 4 Hermes approval timeout | `harness/harness_bridge.py` | ✅ **Resolved (v2.0.2)** — `HarnessBridge.GATE4_HERMES_TIMEOUT_MS = 30_000` class constant; `_require_hermes_approve(timeout_ms=GATE4_HERMES_TIMEOUT_MS)` propagates to `ReviewerRouter.review(timeout_ms)` → `events_wait(timeout_ms=wait_ms)`. | — |
+| `enforcement.json` policy hot-reload | `enforcement/policy_engine.py` | ✅ **Resolved (v2.0.2)** — `PolicyEngine.reload_policy(json_path)` hot-reloads policies by ID from `enforcement.json`; `PolicyEngine.from_json(json_path)` classmethod for fresh engine. `harness_cli.py reload-policy` command exposes this as CLI (7th command). | — |
 
 ### 8.3 Technical Debt (Lower Priority)
 
