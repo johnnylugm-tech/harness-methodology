@@ -2,6 +2,7 @@
 # Rewritten for Claude Code: sessions_spawn -> Task tool + Hermes MCP reviewer.
 # Gap G2: model="hermes" routes to ReviewerRouter (heterogeneous backend).
 # Need-to-know principle: persona + current phase SOP + task only.
+# Fix ③: P7/P8 phases auto-route to Claude per REVIEWER_POLICY (get_reviewer_model).
 from __future__ import annotations
 from pathlib import Path
 
@@ -21,6 +22,10 @@ class AgentSpawner:
     Routes agent invocations to:
     - Task tool (Claude Code) for Developer/primary agents
     - ReviewerRouter (Hermes MCP) for Reviewer agents (Gap G2)
+
+    Phase routing policy (via get_reviewer_model):
+    - Phases 7, 8 -> Claude  (Risk Assessment + Config Mgmt)
+    - All others  -> Hermes  (default)
     """
 
     _reviewer = None   # lazy-init: avoids crash when HERMES env not set
@@ -44,23 +49,29 @@ class AgentSpawner:
         full_prompt = self._build_prompt(role, prompt, context, phase)
 
         if model == "hermes":
-            result = self._get_reviewer().review(
-                role=role, prompt=full_prompt, phase=phase, fr_id=fr_id,
+            # Honor phase-level routing policy: P7/P8 stay on Claude
+            from harness.reviewer_router import get_reviewer_model
+            effective = get_reviewer_model(phase, role)
+            if effective == "hermes":
+                result = self._get_reviewer().review(
+                    role=role, prompt=full_prompt, phase=phase, fr_id=fr_id,
+                )
+                return self._parse_result(result)
+            # effective == "claude" for P7/P8 — fall through to Task tool
+
+        # Claude Code Task tool (replaces OpenClaw sessions_spawn)
+        try:
+            from claude_code_sdk import Task  # type: ignore[import]
+            result = Task(
+                description=f"{role}: {prompt[:80]}",
+                prompt=full_prompt,
+                timeout=task_timeout,
             )
-        else:
-            # Claude Code Task tool (replaces OpenClaw sessions_spawn)
-            try:
-                from claude_code_sdk import Task  # type: ignore[import]
-                result = Task(
-                    description=f"{role}: {prompt[:80]}",
-                    prompt=full_prompt,
-                    timeout=task_timeout,
-                )
-            except ImportError:
-                raise RuntimeError(
-                    "claude_code_sdk not available. "
-                    "Ensure running inside Claude Code environment."
-                )
+        except ImportError:
+            raise RuntimeError(
+                "claude_code_sdk not available. "
+                "Ensure running inside Claude Code environment."
+            )
 
         return self._parse_result(result)
 
