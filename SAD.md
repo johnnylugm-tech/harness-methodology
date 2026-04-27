@@ -83,6 +83,21 @@ python harness_cli.py reload-policy  [--policy-file enforcement/enforcement.json
 
 ---
 
+### 2.4 GitHub Integration & Automation Layer
+
+Full integration guide: **[INTEGRATION.md](INTEGRATION.md)**. Summary:
+
+| Mechanism | File | Context | Purpose |
+|---|---|---|---|
+| **GitHub Actions CI** | `.github/workflows/harness_ci.yml` | This repo (framework self-test) | Mutation testing (median-3, threshold ≥70) + `pytest tests/` on push/PR to `main` |
+| **Git Hooks installer** | `scripts/setup-git-hooks.sh` | Target project | Installs `prepare-commit-msg` (block commit), `post-merge` (warn), `pre-push` (block push) keyed on `git config quality.phase` |
+| **Drift Monitor cron** | `scripts/cron_drift_monitor.py` | Target project (crontab) | Hourly architecture drift detection; alert via log / email / Slack. Path via `DRIFT_PROJECT_PATH` env var |
+| **On-demand scripts** | `scripts/*.py` | Target project | FR audit, phase audit, spec compliance, FR mapping — see INTEGRATION.md §3.4 |
+
+**Key rule**: `setup-git-hooks.sh` must run inside the target project (not inside this repo). Hooks call `quality_gate.cli` — the `quality_gate/` module must be importable from the target project root (submodule, pip, or copy).
+
+---
+
 ## 3. Detailed Module Design
 
 ### 3.1 `harness/harness_bridge.py` — Gate Controller & Bridge
@@ -1314,6 +1329,25 @@ CREATE TABLE IF NOT EXISTS effort_records (
 **Integration**: `SteeringIntegrator.bvs_integrator` property and `iterate_with_full_check()` now call real code instead of hitting `ImportError`.
 
 
+### §3.20 — `scripts/phase_auditor.py` — Phase Completeness Auditor
+
+**Responsibility**: Deep-audit a completed phase against the 8-Phase methodology spec. Largest script in `scripts/` (65KB). Checks artifact presence, gate result validity, FR coverage, and deviation log entries for a target project.
+
+**Usage** (run from target project root, `PYTHONPATH` pointing to harness):
+```bash
+python /path/to/harness/scripts/phase_auditor.py --phase 3 [--project .] [--report audit_p3.md]
+```
+
+**Scope**:
+- Validates that all required phase artifacts exist (`.methodology/state.json`, gate results, plan doc)
+- Cross-checks FR coverage against `generate_fr_mapping.py` output
+- Reads `quality_manifest.json` for gate pass/fail history
+- Produces a Markdown audit report suitable for ASPICE evidence package
+
+**Integration**: Called by `harness_cli.py run-phase` at phase exit (optional `--audit` flag). Can be run standalone for retrospective audits. Not in the critical path for gate evaluation.
+
+---
+
 ## 7. Runtime Prerequisites & Remaining Work
 
 All in-framework bugs and stubs have been resolved. The one remaining dependency is external:
@@ -1402,5 +1436,5 @@ python3 -m software_self_improvement.runner
 |---|---|---|
 | Chinese-language comments | `core/cli_phase_prompts.py` (359 lines), `core/quality_gate/ab_enforcer.py` (111 lines), `core/quality_gate/phase_truth_verifier.py` (53 lines), `core/quality_gate/spec_tracking_checker.py` (53 lines) | Remaining un-translated content from methodology-v2 port; non-blocking but reduces readability for English-only contributors |
 | `cli.py` standalone boundary | `cli.py` (288KB, v6.102.0) | Requires 30+ external modules; cannot run in harness-only mode. Intentional design boundary — add explicit note in README that `harness_cli.py` is the standalone entry point |
-| `phase_auditor.py` (65KB) undocumented | `scripts/phase_auditor.py` | Largest script in `scripts/`; not yet covered in SAD.md module map. Add SAD.md §3.19 if this is promoted to core workflow |
+| `phase_auditor.py` | `scripts/phase_auditor.py` | ✅ Documented in §3.20 |
 | `EnsembleScorer` threshold calibration | `detection/ensemble_scorer.py` | `PASS_THRESHOLD = 0.65` is arbitrary; recalibrate against real project runs once empirical data is available (targeted after first P2 project run) |
