@@ -972,7 +972,42 @@ All in-framework bugs and stubs have been resolved. The one remaining dependency
 
 | Item | Location | Status | Notes |
 |---|---|---|---|
-| `software_self_improvement` package | `harness_bridge._invoke_harness()` | **External dependency** — not in this repo | Must be installed separately. Subprocess interface is wired and ready. Install, then gate runs work end-to-end. |
+| `software_self_improvement` package | `harness_bridge._invoke_harness()` | **External dependency** | Install: `pip install -e path/to/software_self_improvement`. Once installed, `python3 -m software_self_improvement.runner` resolves and gate runs work end-to-end. |
+
+### Integration Contract (authoritative source: `software_self_improvement` repo)
+
+| Artifact | Path in SSI repo | Purpose |
+|---|---|---|
+| Entry point | `software_self_improvement/runner.py` | CLI called by `_invoke_harness()` |
+| Result schema | `schemas/harness_gate_result.schema.json` | JSON Schema Draft-7 for output file |
+| Integration doc | `docs/HARNESS_INTEGRATION.md` | Full interface spec: args, workspace layout, gate table, env vars |
+
+**Subprocess call** (written in `_invoke_harness`):
+```
+python3 -m software_self_improvement.runner
+    --config  .sessi-work/gate{n}_config.yaml
+    --root    {project_root}
+    --output  .sessi-work/gate{n}_result.json
+    [--fr-id  {fr_id}]
+```
+
+**Exit codes**: `0` = `quality_complete=True` | `1` = gate not passed | `2+` = error
+
+**Config translation** (`runner.translate_gate_config`):
+- `dimensions[].threshold` (harness) → `dimensions[name].target` (SSI)
+- `dimensions[].tier` / `model` → `llm_routing` tier assignment
+- Gate 1: `score_gate` absent → per-dim threshold only (blocking handled by harness, not runner)
+
+**Workspace** (both repos share `.sessi-work/` in project root):
+```
+.sessi-work/
+  gate{n}_config.yaml          ← harness writes (runner input)
+  gate{n}_ssi_config.json      ← runner writes (translated SSI config)
+  gate{n}_result.json          ← runner writes (harness reads)
+  round_{k}/scores/*.json      ← evaluators write, score.py reads
+  issue_registry.json          ← persistent across rounds
+  crg_metrics.json             ← crg_bridge writes, runner reads (optional)
+```
 
 ### Previously Fixed Stubs (resolved in this version)
 
