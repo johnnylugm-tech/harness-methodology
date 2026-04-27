@@ -52,13 +52,31 @@ The system uses this macro architecture:
 
 | Pattern | Applied In | Purpose |
 |---|---|---|
-| Lazy-Loading Factory | `cli.py` | Deferred subsystem init |
+| Lazy-Loading Factory | `cli.py` (full system) | Deferred subsystem init across 30+ modules |
 | Strategy Pattern | `core/agent_spawner.py` | Switch between Task tool vs Hermes reviewer |
 | Bridge Pattern | `harness/` directory | Decouple methodology flow from quality tools |
-| Façade Pattern | `cli.py` | Unified external interface over complex subsystems |
+| Façade Pattern | `harness_cli.py` (standalone) | Minimal harness-only CLI facade |
 | Proxy Pattern | `harness/reviewer_router.py` | Local proxy to remote Hermes MCP service |
 | Circuit Breaker | `implement/kill_switch/` | Safety backstop independent of main flow |
 | Graceful Degradation | `harness/crg_bridge.py` | All CRG methods no-op if CRG not installed |
+
+### 2.3 CLI Architecture: Two-Entry-Point Design
+
+| Entry Point | File | Scope | Runnable Standalone |
+|---|---|---|---|
+| **Full system CLI** | `cli.py` | Requires 30+ external modules (`progress_dashboard`, `gantt_chart`, `sprint_planner`, `enterprise_hub`, `steering`, etc.) — belongs to the parent system | ❌ Not runnable in this repo alone |
+| **Harness CLI** | `harness_cli.py` | Only uses modules present in this repo (`core/`, `harness/`) | ✅ Runnable standalone |
+
+`cli.py` is retained as-is because it is the entrypoint for the full parent system that contains harness-methodology as a sub-component. Any work purely within harness-methodology should use `harness_cli.py`.
+
+**`harness_cli.py` commands**:
+```
+python harness_cli.py run-phase  --phase 3 [--project .] [--force]
+python harness_cli.py run-gate   --gate 2  --phase 3 [--project .] [--fr-id FR-01]
+python harness_cli.py manifest   --fr-ids FR-01 FR-02 [--sad SAD.md]
+python harness_cli.py status     [--project .]
+python harness_cli.py effort     [--phase 3]
+```
 
 ---
 
@@ -892,8 +910,8 @@ CREATE TABLE IF NOT EXISTS effort_records (
   "layers": [
     {
       "name": "0_Entrypoint_Facade",
-      "description": "CLI entrypoints acting as facades over the full system.",
-      "modules": ["cli.py", "cli_phase_subagent.py"],
+      "description": "CLI entrypoints. harness_cli.py is the standalone harness entrypoint. cli.py is the full-system entrypoint (requires 30+ external modules, not runnable in this repo alone).",
+      "modules": ["harness_cli.py", "cli_phase_subagent.py", "cli.py"],
       "allowed_dependencies": ["1_Integration_Bridge", "2_Core_Orchestration"]
     },
     {
