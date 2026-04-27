@@ -121,18 +121,47 @@ class HarnessBridge:
 1. `_load_config(gate_num)` — loads `harness/gate_configs/gate{n}_*.yaml` via PyYAML
 2. Record `t0 = time.time()`
 3. If `config["crg"]["reconnaissance"]` is set → `self.crg.run_reconnaissance(project_root)`
-4. `result = self._invoke_harness(config, project_root, fr_id)` — **⚠️ STUB**: raises `NotImplementedError`. Wire up with: `subprocess.run(["python3", "-m", "software_self_improvement.runner", "--config", config_path, "--root", project_root])`
+4. `result = self._invoke_harness(config, project_root, fr_id)` — calls SSI runner subprocess (see below)
 5. `self._update_quality_manifest(gate_num, fr_id, result)` — writes to `.methodology/quality_manifest.json`
 6. `self._effort.record(EffortRecord(phase, gate_num, "GATE", "gate_run", duration_s=time.time()-t0))`
 7. `self._log.write(DecisionLogEntry(..., decision="GATE_PASS" or "GATE_BLOCK", gate_score=result.score))`
 8. **Blocking logic**:
    - Gate 1: `raise GateBlockedError` if any `d.score < d.threshold` in `result.dimensions`
    - Gate 2/3/4: `raise GateBlockedError` if `result.score < config["score_gate"]` OR `not result.quality_complete`
-9. Return `GateResult`
+9. Gate 4 only: `_require_hermes_approve(result, phase, fr_id)` — Hermes reviewer must APPROVE
+10. Return `GateResult`
+
+**`_invoke_harness` implementation**:
+- Writes gate config to `.sessi-work/gate{n}_config.yaml`
+- Clears `.sessi-work/gate{n}_result.json`
+- Runs: `python3 -m software_self_improvement.runner --config <path> --root <root> --output <result_path> [--fr-id <fr_id>]`
+- Timeout: `config["max_rounds"] * 300` seconds
+- On completion: reads and parses `.sessi-work/gate{n}_result.json` → `GateResult`
+- **Runtime prerequisite**: `software_self_improvement` package must be installed and on `PYTHONPATH`
+
+**Expected SSI runner output JSON** (`.sessi-work/gate{n}_result.json`):
+```json
+{
+  "score": 85.5,
+  "quality_complete": true,
+  "rounds_used": 2,
+  "open_critical": 0,
+  "open_high": 1,
+  "dimensions": [
+    {"name": "linting", "score": 92.0, "threshold": 90, "issues": []}
+  ]
+}
+```
+
+**`_require_hermes_approve(result, phase, fr_id)`** (Gate 4 only):
+- Instantiates `ReviewerRouter()` — silently skips if `HERMES_REVIEWER_TARGET` not set
+- Sends gate score + dimension summary for human review via Hermes
+- `review_status != "APPROVE"` → logs `REVIEWER_REJECT` + raises `GateBlockedError(4, result)`
 
 **`generate_quality_manifest` logic**:
 - Called at P2 exit
-- Attempts `from scripts.generate_sab import parse_sad` — **⚠️ NOTE**: `parse_sad` does not exist in `scripts/generate_sab.py` (which exports `extract_sab_from_sad`). This import always fails; `sab = {}` fallback is used. This is a known dead-code path.
+- Calls `from scripts.generate_sab import parse_sad` — **now functional** (added in fix ②+⑤)
+- `parse_sad` returns `{nfr_dim_map, constraints, high_risk, ...}` from SAD.md SAB block
 - Writes JSON to `.methodology/quality_manifest.json` with schema:
   ```json
   {
@@ -415,9 +444,19 @@ class AgentSpawner:
     ) -> dict: ...
 ```
 
-**`spawn()` routing**:
-- `model == "hermes"` → `self._get_reviewer().review(role, full_prompt, phase, fr_id)`
-- `model == "claude"` → `claude_code_sdk.Task(description=..., prompt=..., timeout=task_timeout)` (raises `RuntimeError` if `claude_code_sdk` not importable)
+**`spawn()` routing** (with phase policy enforcement):
+```
+model == "hermes":
+    effective = get_reviewer_model(phase, role)   # checks _CLAUDE_PHASES = {7, 8}
+    if effective == "hermes":
+        → ReviewerRouter.review(role, full_prompt, phase, fr_id)  [return]
+    # effective == "claude" for P7/P8 — fall through to Task tool
+
+model == "claude" (or P7/P8 auto-routed):
+    → claude_code_sdk.Task(description=..., prompt=..., timeout=task_timeout)
+      raises RuntimeError if claude_code_sdk not importable
+```
+- P7 (Risk Assessment) and P8 (Config Mgmt) **always use Claude**, even when caller passes `model="hermes"`
 
 **`_build_prompt(role, prompt, context, phase) -> str`** — constructs:
 ```
@@ -540,21 +579,25 @@ Operator -> HarnessBridge.run_gate(gate_num=2, project_root, phase=3, fr_id=None
   │
   ├─ 2. t0 = time.time()
   │
-  ├─ 3. [gate2 has crg.impact_check but NOT crg.reconnaissance — no recon step]
+  ├─ 3. [gate2: crg.impact_check=true but no crg.reconnaissance — no recon step here]
   │
   ├─ 4. _invoke_harness(config, project_root, None)
-  │      └─ ⚠️ raises NotImplementedError("Wire up software_self_improvement runner...")
-  │         FUTURE: subprocess.run(["python3", "-m", "software_self_improvement.runner", ...])
+  │      ├─ writes .sessi-work/gate2_config.yaml
+  │      ├─ subprocess.run(["python3", "-m", "software_self_improvement.runner",
+  │      │                  "--config", ..., "--root", ..., "--output", ...])
+  │      │   timeout = max_rounds(3) * 300 = 900s
+  │      └─ reads .sessi-work/gate2_result.json → GateResult
+  │         [RuntimeError if result file missing after subprocess exits]
   │
-  └─ [execution stops here until SSI runner is wired]
-
-  On success (GateResult returned):
   ├─ 5. _update_quality_manifest(2, None, result)
   ├─ 6. EffortTracker.record(...)
-  ├─ 7. DecisionLogWriter.write(...)
-  └─ 8. if result.score < 75 or not result.quality_complete → raise GateBlockedError
-         else → return GateResult
+  ├─ 7. DecisionLogWriter.write(decision="GATE_PASS|GATE_BLOCK")
+  ├─ 8. if result.score < 75 or not result.quality_complete → raise GateBlockedError
+  └─ 9. return GateResult
+  [Gate 4 only: step 9 = _require_hermes_approve() before return]
 ```
+
+> **Runtime prerequisite**: `software_self_improvement` package must be installed. The subprocess interface is wired; the external package is the remaining dependency.
 
 ### 4.2 A/B Review via Hermes MCP
 
@@ -923,12 +966,20 @@ CREATE TABLE IF NOT EXISTS effort_records (
 
 ---
 
-## 7. Known Stubs & Future Work
+## 7. Runtime Prerequisites & Remaining Work
 
-| Item | Location | Status | Required Action |
+All in-framework bugs and stubs have been resolved. The one remaining dependency is external:
+
+| Item | Location | Status | Notes |
 |---|---|---|---|
-| SSI runner integration | `harness_bridge._invoke_harness()` | `NotImplementedError` stub | Wire up: `subprocess.run(["python3", "-m", "software_self_improvement.runner", ...])` |
-| `parse_sad` import | `harness_bridge.generate_quality_manifest()` | Always fails; falls back to `sab={}` | Either add `parse_sad` to `scripts/generate_sab.py` or update import to `extract_sab_from_sad` |
-| P7/P8 Claude routing | `reviewer_router.get_reviewer_model()` | Defined but not called by `review()` | Wire `get_reviewer_model()` into `review()` dispatch |
-| Hermes reviewer APPROVE for Gate 4 | `gate4_p6_full.yaml` comment | No enforcement code yet | Add post-gate reviewer approval check in orchestration layer |
-| `scripts/generate_sab.py::parse_sad` | Called from `harness_bridge` | Function doesn't exist (actual fn is `extract_sab_from_sad`) | Fix call site or add `parse_sad` alias |
+| `software_self_improvement` package | `harness_bridge._invoke_harness()` | **External dependency** — not in this repo | Must be installed separately. Subprocess interface is wired and ready. Install, then gate runs work end-to-end. |
+
+### Previously Fixed Stubs (resolved in this version)
+
+| Fix | Location | Resolution |
+|---|---|---|
+| ① SSI runner stub | `harness_bridge._invoke_harness()` | Replaced `NotImplementedError` with subprocess call + JSON result parsing |
+| ② `parse_sad` import failure | `harness_bridge.generate_quality_manifest()` | Fixed by adding `parse_sad()` to `scripts/generate_sab.py` |
+| ③ P7/P8 Claude routing not wired | `core/agent_spawner.spawn()` | `get_reviewer_model(phase, role)` now checked before Hermes dispatch; P7/P8 auto-route to Claude |
+| ④ Gate 4 Hermes APPROVE not enforced | `harness_bridge.run_gate()` | Added `_require_hermes_approve()` called after score check passes |
+| ⑤ `parse_sad` alias missing | `scripts/generate_sab.py` | Added `parse_sad()` function wrapping `extract_sab_from_sad`, with correct key mapping |
