@@ -18,6 +18,37 @@ import sys
 from pathlib import Path
 
 
+def parse_sad(sad_path: str) -> dict:
+    """
+    Parse SAD.md and return SAB dict keyed for harness_bridge compatibility.
+
+    Keys returned:
+        nfr_dim_map  - maps NFR IDs to quality dimension names
+        constraints  - architecture constraints list
+        high_risk    - high-risk module list
+        (+ all fields from sab_spec.to_dict())
+
+    Raises:
+        RuntimeError if SAD.md has no SAB block or cannot be parsed.
+    """
+    try:
+        from quality_gate.sab_parser import extract_sab_from_sad
+    except ImportError:
+        from sab_parser import extract_sab_from_sad
+
+    sab_spec = extract_sab_from_sad(sad_path)
+    if sab_spec is None:
+        raise RuntimeError(f"No SAB block found in {sad_path}")
+
+    raw = sab_spec.to_dict()
+    return {
+        "nfr_dim_map": raw.get("nfr_dimension_mapping", {}),
+        "constraints": raw.get("architecture_constraints", []),
+        "high_risk": raw.get("high_risk_modules", []),
+        **raw,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description="Generate SAB from SAD.md")
     parser.add_argument("--project", default=".", help="Project path")
