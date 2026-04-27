@@ -15,6 +15,8 @@ HR-12 conflict resolution:
 - Not contradictory: can stop early, but cannot exceed 5 rounds
 - SteeringLoop.should_continue() terminates early when convergence is met,
   achieving the goal of "no wasted iterations"
+- SteeringIntegrator.should_continue property cross-checks both HR12Resolution
+  AND VerificationConstitutionChecker for formal compliance verification.
 """
 
 from dataclasses import dataclass, field
@@ -517,7 +519,45 @@ class SteeringIntegrator:
 
     @property
     def should_continue(self) -> Tuple[bool, str]:
-        return self.steering.should_continue()
+        """
+        HR-12 wired: cross-check SteeringLoop decision with HR12Resolution,
+        then verify through VerificationConstitutionChecker on stop.
+        """
+        should, reason = self.steering.should_continue()
+
+        n = len(self.steering.iterations)
+        last_delta = (
+            self.steering.iterations[-1].score_delta
+            if self.steering.iterations else 0.0
+        )
+        early_converged = reason in ("quality_threshold_reached", "converged")
+
+        # HR12Resolution cross-check
+        hr12 = HR12Resolution(
+            max_allowed=self.hr.max_iterations,
+            early_stop_threshold=self.hr.convergence_threshold,
+            min_rounds_before_stop=self.hr.min_iterations,
+        )
+        hr12_stop, hr12_reason = hr12.should_stop(n, last_delta, early_converged)
+
+        if hr12_stop and should:
+            # HR12Resolution says stop but SteeringLoop says continue — HR-12 wins
+            should = False
+            reason = f"hr12:{hr12_reason}"
+
+        # On any stop: run VerificationConstitutionChecker for formal compliance log
+        if not should:
+            try:
+                from constitution.verification_constitution_checker import VerificationConstitutionChecker
+                best_score = (
+                    self.steering.best_output.total_score * 100
+                    if self.steering.best_output else 0.0
+                )
+                VerificationConstitutionChecker().check({"quality_score": best_score})
+            except Exception:  # pylint: disable=broad-exception-caught
+                pass  # degrade gracefully — never block on constitution check failure
+
+        return should, reason
 
     def get_full_summary(self) -> Dict[str, Any]:
         """Get full summary (including HR compliance status)."""

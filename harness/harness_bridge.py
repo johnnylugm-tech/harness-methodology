@@ -56,6 +56,9 @@ class HarnessBridge:
     Handles gate triggering, CRG integration, result parsing, and manifest updates.
     """
 
+    # Default timeout for Gate 4 Hermes reviewer (seconds → ms for reviewer_router)
+    GATE4_HERMES_TIMEOUT_MS: int = 30_000
+
     def __init__(self):
         """Initialize the bridge with its dependent subsystems."""
         self.crg = CRGBridge()        # gracefully degrades if CRG unavailable
@@ -201,16 +204,25 @@ class HarnessBridge:
             gate_num=gate_num,
             score=raw["score"],
             dimensions=dims,
-            open_critical=raw.get("open_critical", 0),
-            open_high=raw.get("open_high", 0),
+            # §8.2 fix: SSI score.py emits open_critical_count / open_high_count;
+            # runner may rename to open_critical / open_high — accept both.
+            open_critical=raw.get("open_critical", raw.get("open_critical_count", 0)),
+            open_high=raw.get("open_high", raw.get("open_high_count", 0)),
             quality_complete=raw.get("quality_complete", False),
             rounds_used=raw.get("rounds_used", 0),
         )
 
     def _require_hermes_approve(
-        self, result: GateResult, phase: int, fr_id: str | None
+        self, result: GateResult, phase: int, fr_id: str | None,
+        timeout_ms: int = GATE4_HERMES_TIMEOUT_MS,
     ) -> None:
-        """Check for external approval from Hermes reviewer."""
+        """
+        Check for external approval from Hermes reviewer (Gate 4 only).
+
+        Args:
+            timeout_ms: Max wait time for Hermes response (default 30 s).
+                        Override via HERMES_TIMEOUT_MS env var or this param.
+        """
         from harness.reviewer_router import ReviewerRouter
         try:
             router = ReviewerRouter()
@@ -229,6 +241,7 @@ class HarnessBridge:
             ),
             phase=phase,
             fr_id=fr_id,
+            timeout_ms=timeout_ms,
         )
         if review.get("review_status") != "APPROVE":
             self._log.write(DecisionLogEntry(

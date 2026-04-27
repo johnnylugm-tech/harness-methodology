@@ -45,14 +45,37 @@ class ReviewerRouter:
             )
         self.target = target
 
-    def review(self, role: str, prompt: str, phase: int, fr_id: str | None = None) -> dict:
-        """Send → long-poll wait → read. Returns parsed JSON response."""
+    def review(
+        self,
+        role: str,
+        prompt: str,
+        phase: int,
+        fr_id: str | None = None,
+        timeout_ms: int | None = None,
+    ) -> dict:
+        """
+        Send review request to Hermes, wait for response, parse result.
+
+        Args:
+            role: Agent role (e.g. 'reviewer').
+            prompt: Review prompt text.
+            phase: Current methodology phase.
+            fr_id: Optional FR identifier for context.
+            timeout_ms: Override wait timeout in milliseconds.
+                        Falls back to HERMES_TIMEOUT_MS env var (default 120 s).
+
+        Returns:
+            Parsed JSON response dict with 'review_status', 'confidence',
+            'violations', and 'summary' keys.
+        """
         if not _HERMES_AVAILABLE:
             raise RuntimeError("Hermes MCP tools not available in this Claude Code session.")
 
+        wait_ms = timeout_ms if timeout_ms is not None else HERMES_TIMEOUT_MS
+
         full_prompt = self._build_prompt(role, prompt, phase, fr_id)
         mcp__hermes__messages_send(target=self.target, message=full_prompt)
-        mcp__hermes__events_wait(session_key=self.target, timeout_ms=HERMES_TIMEOUT_MS)
+        mcp__hermes__events_wait(session_key=self.target, timeout_ms=wait_ms)
         msgs = mcp__hermes__messages_read(session_key=self.target, limit=1)
         raw = msgs[-1]["content"] if msgs else ""
         return self._parse_response(raw)

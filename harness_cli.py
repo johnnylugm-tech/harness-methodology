@@ -6,12 +6,13 @@ Standalone entrypoint for the harness-methodology repo.
 Does NOT require the full parent system (cli.py needs 30+ external modules).
 
 Usage:
-    python harness_cli.py plan-phase  --phase 3 [--repo .] [--output plan.md]
-    python harness_cli.py run-phase   --phase 3 [--project .] [--force]
-    python harness_cli.py run-gate    --gate 2  --phase 3 [--project .] [--fr-id FR-01]
-    python harness_cli.py manifest    --fr-ids FR-01 FR-02 [--sad SAD.md]
-    python harness_cli.py status      [--project .]
-    python harness_cli.py effort      [--phase 3] [--project .]
+    python harness_cli.py plan-phase     --phase 3 [--repo .] [--output plan.md]
+    python harness_cli.py run-phase      --phase 3 [--project .] [--force]
+    python harness_cli.py run-gate       --gate 2  --phase 3 [--project .] [--fr-id FR-01]
+    python harness_cli.py manifest       --fr-ids FR-01 FR-02 [--sad SAD.md]
+    python harness_cli.py status         [--project .]
+    python harness_cli.py effort         [--phase 3] [--project .]
+    python harness_cli.py reload-policy  [--policy-file enforcement/enforcement.json]
 
 Available gates:
     Gate 1  per-FR check       (P3/P5/P7/P8, trigger: per_fr_completion)
@@ -214,6 +215,40 @@ def cmd_effort(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# reload-policy
+# ---------------------------------------------------------------------------
+
+def cmd_reload_policy(args: argparse.Namespace) -> int:
+    """Hot-reload enforcement policies from enforcement.json."""
+    from enforcement.policy_engine import PolicyEngine
+
+    json_path = args.policy_file
+    if not Path(json_path).exists():
+        print(f"\n[ERROR] Policy file not found: {json_path}")
+        print("  Create enforcement/enforcement.json with a 'policies' array.")
+        return 1
+
+    try:
+        engine = PolicyEngine()
+        loaded = engine.reload_policy(json_path)
+        summary = engine.get_summary()
+        print(f"\n{'='*60}\nPolicy Hot-Reload\n{'='*60}")
+        print(f"  file          : {json_path}")
+        print(f"  loaded        : {loaded} policies from file")
+        print(f"  total active  : {len(engine.policies)} policies")
+        print(f"  enabled       : {summary.get('total', len(engine.policies))}")
+        if loaded > 0:
+            print("\n[Loaded policies]")
+            for pol in engine.policies[-loaded:]:
+                status = "enabled" if pol.enabled else "disabled"
+                print(f"  [{pol.enforcement.value.upper()}] {pol.id} — {pol.description} ({status})")
+        return 0
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        print(f"\n[ERROR] Failed to reload policies: {e}")
+        return 1
+
+
+# ---------------------------------------------------------------------------
 # CLI wiring
 # ---------------------------------------------------------------------------
 
@@ -267,6 +302,15 @@ def build_parser() -> argparse.ArgumentParser:
     ef.add_argument("--phase",   type=int, default=None, help="Filter by phase")
     ef.add_argument("--project", default=".", help="Project root (default: .)")
     ef.set_defaults(func=cmd_effort)
+
+    # reload-policy
+    rl = sub.add_parser("reload-policy", help="Hot-reload enforcement policies from enforcement.json")
+    rl.add_argument(
+        "--policy-file",
+        default="enforcement/enforcement.json",
+        help="Path to enforcement.json (default: enforcement/enforcement.json)",
+    )
+    rl.set_defaults(func=cmd_reload_policy)
 
     return p
 

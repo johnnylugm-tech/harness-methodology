@@ -130,7 +130,7 @@ class PolicyEngine:
         if not commit_file:
             return True  # Not in hook context, skip
         if os.path.exists(commit_file):
-            with open(commit_file, "r") as f:
+            with open(commit_file, "r", encoding="utf-8") as f:
                 msg = f.read()
             return bool(self._has_task_id(msg))
         return True
@@ -142,7 +142,7 @@ class PolicyEngine:
     def _check_quality_score(self) -> bool:
         score_file = ".methodology/.quality_score"
         if os.path.exists(score_file):
-            with open(score_file, "r") as f:
+            with open(score_file, "r", encoding="utf-8") as f:
                 return float(f.read().strip()) >= 90
         return True
 
@@ -154,14 +154,14 @@ class PolicyEngine:
     def _check_test_coverage(self) -> bool:
         coverage_file = ".methodology/.coverage"
         if os.path.exists(coverage_file):
-            with open(coverage_file, "r") as f:
+            with open(coverage_file, "r", encoding="utf-8") as f:
                 return float(f.read().strip()) >= 80
         return True
 
     def _check_security_score(self) -> bool:
         score_file = ".methodology/.security_score"
         if os.path.exists(score_file):
-            with open(score_file, "r") as f:
+            with open(score_file, "r", encoding="utf-8") as f:
                 return float(f.read().strip()) >= 95
         return True
 
@@ -176,13 +176,13 @@ class PolicyEngine:
         try:
             result = subprocess.run(
                 ["python3", doc_checker_path, "--format", "json"],
-                capture_output=True, text=True, timeout=30
+                capture_output=True, text=True, timeout=30, check=False
             )
             if result.returncode == 0:
                 data = json.loads(result.stdout)
                 return data.get("passed", True)
             return True
-        except Exception:
+        except Exception:  # pylint: disable=broad-exception-caught
             return True
 
     def _check_phase_artifacts(self) -> bool:
@@ -196,10 +196,10 @@ class PolicyEngine:
         try:
             result = subprocess.run(
                 ["python3", enforcer_path, "--json"],
-                capture_output=True, text=True, timeout=30
+                capture_output=True, text=True, timeout=30, check=False
             )
             return result.returncode == 0
-        except Exception:
+        except Exception:  # pylint: disable=broad-exception-caught
             return True
 
     def add_policy(self, policy: Policy):
@@ -224,6 +224,84 @@ class PolicyEngine:
             if p.id == policy_id:
                 p.enabled = False
 
+    def reload_policy(self, json_path: str) -> int:
+        """
+        Hot-reload policies from an enforcement.json file.
+
+        JSON format::
+
+            {
+              "policies": [
+                {
+                  "id": "my-policy",
+                  "description": "Description",
+                  "enforcement": "block",
+                  "severity": "critical",
+                  "enabled": true,
+                  "metadata": {}
+                }
+              ]
+            }
+
+        Existing policies with the same id are replaced.
+        JSON-sourced policies use a pass-through check_fn (informational);
+        pair them with a concrete check_fn by subclassing or extending.
+
+        Args:
+            json_path: Path to the enforcement.json file.
+
+        Returns:
+            Number of policies loaded from file.
+
+        Raises:
+            FileNotFoundError: If the json_path does not exist.
+            json.JSONDecodeError: If the file is not valid JSON.
+        """
+        from pathlib import Path as _Path
+        p = _Path(json_path)
+        if not p.exists():
+            raise FileNotFoundError(f"Policy file not found: {json_path}")
+
+        data = json.loads(p.read_text(encoding="utf-8"))
+        loaded = 0
+        for entry in data.get("policies", []):
+            pid = entry.get("id")
+            if not pid:
+                continue
+            # Replace existing policy with same id
+            self.policies = [pol for pol in self.policies if pol.id != pid]
+            level_str = entry.get("enforcement", "log")
+            try:
+                level = EnforcementLevel(level_str)
+            except ValueError:
+                level = EnforcementLevel.LOG
+            self.add_policy(Policy(
+                id=pid,
+                description=entry.get("description", ""),
+                check_fn=lambda: True,   # JSON policies are informational by default
+                enforcement=level,
+                severity=entry.get("severity", "medium"),
+                enabled=entry.get("enabled", True),
+                metadata=entry.get("metadata", {}),
+            ))
+            loaded += 1
+        return loaded
+
+    @classmethod
+    def from_json(cls, json_path: str) -> "PolicyEngine":
+        """
+        Create a PolicyEngine pre-loaded with policies from enforcement.json.
+
+        Args:
+            json_path: Path to the enforcement.json file.
+
+        Returns:
+            PolicyEngine instance with default policies plus JSON-loaded policies.
+        """
+        engine = cls()
+        engine.reload_policy(json_path)
+        return engine
+
     def check(self, policy_id: str) -> PolicyResult:
         policy = next((p for p in self.policies if p.id == policy_id), None)
         if not policy:
@@ -236,7 +314,7 @@ class PolicyEngine:
             )
         try:
             passed = policy.check_fn()
-        except Exception:
+        except Exception:  # pylint: disable=broad-exception-caught
             passed = False
         blocked = policy.enforcement == EnforcementLevel.BLOCK and not passed
         result = PolicyResult(
