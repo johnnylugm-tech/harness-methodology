@@ -2,7 +2,7 @@
 
 **8-Phase ASPICE AI Development Methodology + 4-Gate 12-Dimension Quality Harness**
 
-Design Score: **91/100** Academic Benchmark (Phase B → 92/100)
+Design Score: **92/100** Academic Benchmark
 
 ## Architecture
 
@@ -34,11 +34,23 @@ Design Score: **91/100** Academic Benchmark (Phase B → 92/100)
 ## Quick Start
 
 ```bash
+# Standalone harness CLI (no external dependencies beyond this repo)
 export HERMES_REVIEWER_TARGET="telegram:YOUR_CHAT_ID"
-python cli.py run-phase --phase 3
-python cli.py plan-phase --phase 3
-python cli.py trace-check
+python harness_cli.py plan-phase  --phase 3
+python harness_cli.py run-phase   --phase 3
+python harness_cli.py run-gate    --gate 2 --phase 3
+python harness_cli.py status
 ```
+
+> `cli.py` is the full parent-system entry point (requires 30+ external modules). Use `harness_cli.py` for standalone harness operations.
+
+## Integrate Into Your Project
+
+See **[INTEGRATION.md](INTEGRATION.md)** for:
+- Git hooks setup (`scripts/setup-git-hooks.sh`)
+- Drift monitor cron (`scripts/cron_drift_monitor.py`)
+- Recommended target-project GitHub Actions
+- Environment variables reference
 
 ## Score Reconciliation
 
@@ -49,4 +61,4 @@ final_score = min(tool_score, llm_score)   # CRG can only lower, never raise
 Early-stop (Gates 2–4): PASS → CONTINUE (anti-pattern guard) → PLATEAU → BLOCKED
 
 ---
-*harness-methodology v1.0 | Plan v1.9 | Academic Benchmark 91/100*
+*harness-methodology v2.0 | Academic Benchmark 92/100 | [SAD.md](SAD.md) | [INTEGRATION.md](INTEGRATION.md)*
