@@ -1350,3 +1350,41 @@ python3 -m software_self_improvement.runner
 | ③ P7/P8 Claude routing not wired | `core/agent_spawner.spawn()` | `get_reviewer_model(phase, role)` now checked before Hermes dispatch; P7/P8 auto-route to Claude |
 | ④ Gate 4 Hermes APPROVE not enforced | `harness_bridge.run_gate()` | Added `_require_hermes_approve()` called after score check passes |
 | ⑤ `parse_sad` alias missing | `scripts/generate_sab.py` | Added `parse_sad()` function wrapping `extract_sab_from_sad`, with correct key mapping |
+
+
+---
+
+## 8. Future Work — Score Roadmap & Open Items
+
+> **Baseline score (v2.0)**: 92/100 (Academic Benchmark, 7-dimension framework).
+> Target ceiling ~96/100; remaining 8 points have concrete unlock conditions below.
+
+### 8.1 Score Roadmap (post-v2.0 unlocks)
+
+| Priority | Action | Score Delta | Unlock Condition | Dimension |
+|---|---|---|---|---|
+| **P1** | SSI result field name verification | 0 pts (correctness fix) | Run one real gate end-to-end; confirm whether SSI runner renames `open_critical_count` -> `open_critical` before writing result JSON, or whether `harness_bridge._parse_result()` needs updating | A |
+| **P1** | `constitution/` package stub or real impl | 0 pts (gap closure) | `steering/integrations.py` lazy-imports `constitution.bvs_runner`, `constitution.cqg_runner`, `constitution.hr12_checker` — all inside `try/except`; implement minimal stubs or document as intentional optional integration | A |
+| **P2** | `harness_bridge` empirical project validation | **+1 -> 93** | First full run against a real project. Confirms Tier 1 deterministic scoring is stable and subprocess call chain works end-to-end | A (20->21) |
+| **P2** | CRG activation + empirical data | **+1 -> 94** | First real project run with CRG MCP available. Validates `min(tool, llm)` floor and `crg_metrics.json` structural signals. Currently `CRGBridge.is_available()` returns `False` in standalone mode | E (10->11) |
+| **P3** | ASPICE full traceability matrix (Phase E docs) | **+1 -> 95** | Complete `TRACEABILITY_MATRIX.md` linking all FR-01..FR-N to code modules, test cases, and gate results. Required for full ASPICE Level 2 alignment | C (15->16) |
+| **P4** | Developer-side deterministic tooling | **+1-2 -> 96** | Replace or augment Claude developer agent with static analysis pipeline (mypy strict, semgrep, complexity checker). Reduces D-dimension LLM dependency from 13/15 to 15/15 | D (13->15) |
+
+### 8.2 Open Integration Items (Ready, No External Blockers)
+
+| Item | File | Status | Action |
+|---|---|---|---|
+| SSI output field mismatch | `harness/harness_bridge.py` | **Unverified** — `score.py` emits `open_critical_count`/`open_high_count`; `_parse_result()` reads `open_critical`/`open_high`. Runner may rename in output JSON. | Add `_parse_result` unit test with fixture matching real SSI runner JSON output |
+| `constitution.*` graceful degrade | `steering/integrations.py` | `try/except ImportError` wraps all 3 integration calls; silently no-ops if package absent | Either implement `constitution/` as a top-level package (3 modules: `bvs_runner`, `cqg_runner`, `hr12_checker`) or document as intentional optional integration in §3.12 |
+| HR-12 real limiter not wired | `steering/steering_loop.py` | `max_iterations` config enforced in `should_continue()`, but no hook into `ConstitutionAsCode` R_HR12 check in `steering/integrations.py` | Wire `hr12_checker.check()` return value into `SteeringLoop` decision loop |
+| Gate 4 Hermes approval timeout | `harness/harness_bridge.py` | No timeout on Hermes MCP call in `_require_hermes_approve()` — can hang if Hermes unavailable | Add `timeout` kwarg (default 30s) to `ReviewerRouter.review()` |
+| `enforcement.json` policy hot-reload | `enforcement/policy_engine.py` | Loads policy once at startup; no file-watch mechanism | Add explicit `reload_policy()` CLI hook in `harness_cli.py` or watchdog-based reload |
+
+### 8.3 Technical Debt (Lower Priority)
+
+| Item | File | Notes |
+|---|---|---|
+| Chinese-language comments | `core/cli_phase_prompts.py` (359 lines), `core/quality_gate/ab_enforcer.py` (111 lines), `core/quality_gate/phase_truth_verifier.py` (53 lines), `core/quality_gate/spec_tracking_checker.py` (53 lines) | Remaining un-translated content from methodology-v2 port; non-blocking but reduces readability for English-only contributors |
+| `cli.py` standalone boundary | `cli.py` (288KB, v6.102.0) | Requires 30+ external modules; cannot run in harness-only mode. Intentional design boundary — add explicit note in README that `harness_cli.py` is the standalone entry point |
+| `phase_auditor.py` (65KB) undocumented | `scripts/phase_auditor.py` | Largest script in `scripts/`; not yet covered in SAD.md module map. Add SAD.md §3.19 if this is promoted to core workflow |
+| `EnsembleScorer` threshold calibration | `detection/ensemble_scorer.py` | `PASS_THRESHOLD = 0.65` is arbitrary; recalibrate against real project runs once empirical data is available (targeted after first P2 project run) |
