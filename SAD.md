@@ -57,8 +57,9 @@ The system uses this macro architecture:
 | Bridge Pattern | `harness/` directory | Decouple methodology flow from quality tools |
 | Façade Pattern | `harness_cli.py` (standalone) | Minimal harness-only CLI facade |
 | Proxy Pattern | `harness/reviewer_router.py` | Local proxy to remote Hermes MCP service |
-| Circuit Breaker | `implement/kill_switch/` | Safety backstop independent of main flow |
+| Circuit Breaker | `kill_switch/` | Safety backstop independent of main flow |
 | Graceful Degradation | `harness/crg_bridge.py` | All CRG methods no-op if CRG not installed |
+| LLM-as-Judge | `steering/steering_loop.py` | Objective A/B output evaluation via LLM |
 
 ### 2.3 CLI Architecture: Two-Entry-Point Design
 
@@ -178,7 +179,7 @@ class HarnessBridge:
 
 **`generate_quality_manifest` logic**:
 - Called at P2 exit
-- Calls `from scripts.generate_sab import parse_sad` — **now functional** (added in fix ②+⑤)
+- Calls `from scripts.generate_sab import parse_sad` — functional (added in fix ②+⑤)
 - `parse_sad` returns `{nfr_dim_map, constraints, high_risk, ...}` from SAD.md SAB block
 - Writes JSON to `.methodology/quality_manifest.json` with schema:
   ```json
@@ -229,7 +230,7 @@ def get_reviewer_model(phase: int, role: str = "reviewer") -> str:
     return "claude" if phase in _CLAUDE_PHASES else REVIEWER_POLICY.get(role, "hermes")
 ```
 
-> **⚠️ Implementation note**: `get_reviewer_model()` is defined but **not called** by `review()`. The `review()` method always uses the Hermes path regardless of phase. P7/P8 Claude routing is policy-declared but not yet wired in.
+> **Note**: `reviewer_router.py`'s `review()` method always routes to Hermes. P7/P8 phase routing to Claude is enforced at the caller level — `agent_spawner.spawn()` calls `get_reviewer_model(phase, role)` before dispatching to `ReviewerRouter` (see §3.7).
 
 **Public API**:
 
@@ -586,6 +587,316 @@ def get_stats(self) -> dict:
 
 ---
 
+### 3.10 `core/subagent_isolator.py` — Need-to-Know Isolation
+
+**Responsibility**: Enforces On-Demand / Need-to-Know isolation for subagent spawning. Each subagent receives a fresh message context with only the artifacts relevant to its task.
+
+**Key classes**:
+
+```python
+@dataclass
+class ArtifactSpec:
+    path: str
+    role: str          # "input" | "output" | "reference"
+    required: bool = True
+    description: str = ""
+
+@dataclass
+class SubagentContext:
+    task: str
+    role: str
+    artifacts: List[ArtifactSpec]
+    persona_prompt: str
+    metadata: Dict[str, Any]
+    messages: List[Dict]    # Always fresh (enforced empty at creation)
+    isolation_id: str       # SHA-256[:16] of {task, role}
+```
+
+**`SubagentIsolator`**:
+
+```python
+class SubagentIsolator:
+    def create_context(task, role, artifacts, persona_prompt, metadata) -> SubagentContext:
+        # messages=[] enforced — no prior conversation history
+
+    def validate(ctx) -> None:
+        # Raises ArtifactValidationError if any required input artifact missing
+
+    def validate_outputs(ctx) -> dict:
+        # Returns {complete, produced, missing} after subagent completes
+
+    def verify_isolation(ctx) -> None:
+        # Raises IsolationViolationError if messages[] is non-empty
+
+    def spawn(task, role, artifacts, persona_prompt, metadata, validate=True) -> dict:
+        # High-level: create_context → validate → return to_spawn_config()
+
+    def release(isolation_id) -> None:
+        # Free context reference after subagent completes
+```
+
+**Convenience factory**:
+```python
+def create_isolated_spawn(task, role, input_paths, output_paths, persona_prompt) -> dict:
+    # One-shot: build + validate + return spawn config
+```
+
+---
+
+### 3.11 `core/verification_gate.py` — Task Verification Gates
+
+**Responsibility**: Generic verification gate manager for task lifecycle state tracking. Distinct from quality gates (§3.1) — these track agent task state (created → assigned → generated → approved → completed).
+
+**Key classes**:
+
+```python
+class GateStatus(Enum):
+    NOT_REACHED = "not_reached"
+    PASSED = "passed"
+    FAILED = "failed"
+    BYPASSED = "bypassed"
+
+class Gate:
+    def __init__(name, required_output=None, validator=None, auto_pass=False): ...
+    def check(context: dict) -> bool: ...
+    def bypass(reason: str = None): ...
+    def reset(): ...
+
+class VerificationGates:
+    DEFAULT_GATES = {
+        "task_created", "agent_assigned", "output_generated",
+        "quality_check", "human_approved", "completed"
+    }
+    def register_gate(gate_id, gate): ...
+    def execute_sequence(context) -> dict: ...
+    def get_status() -> dict: ...
+    def get_passed_count() -> int: ...
+    def reset_all(): ...
+
+class HITLGates(VerificationGates):
+    # Sequence: task_created → output_generated → human_approved → completed
+
+class AutonomousGates(VerificationGates):
+    # Sequence: task_created → agent_assigned → output_generated → quality_check → completed
+```
+
+---
+
+### 3.12 `steering/` — AB Workflow Steering Engine
+
+**Responsibility**: LLM-as-judge A/B iteration control. Drives the AB Workflow component referenced by the full-system `cli.py`. Used when two candidate outputs must be compared and converged toward a winner.
+
+#### `steering/steering_loop.py` — Core Iteration Engine
+
+**Key classes**:
+
+```python
+class IterationStage(Enum):
+    EXPLORATION = "exploration"   # first N rounds, free competition
+    COMPETITION = "competition"   # middle rounds, score differences emerge
+    CONVERGENCE = "convergence"   # final rounds, converging to winner
+
+@dataclass
+class SteeringConfig:
+    max_iterations: int = 5
+    min_iterations: int = 3
+    exploration_rounds: int = 2
+    convergence_threshold: float = 0.05   # delta < this = converged
+    quality_threshold: float = 0.85
+    weights: Dict[str, float] = {
+        "quality": 0.4, "efficiency": 0.2, "clarity": 0.2, "consistency": 0.2
+    }
+
+class LLMJudgeScorer:
+    def score(output_a, output_b) -> {"A": {scores}, "B": {scores}}:
+        # Dimensions: correctness, completeness, consistency, concision, maintainability
+        # Fallback: pessimistic 0.5 across all dims on parse failure
+
+    def generate_feedback(output_a, output_b, scores_a, scores_b, winner) -> dict:
+        # Returns: {winner_advantages, loser_improvements, actionable_guidance}
+```
+
+**`SteeringLoop(provider, config, history_path)`**:
+
+```python
+def iterate(output_a, output_b) -> IterationResult:
+    # 1. Update stage (EXPLORATION → COMPETITION → CONVERGENCE)
+    # 2. LLM-judge score both outputs
+    # 3. Compute weighted total (quality*0.4 + clarity*0.2 + consistency*0.2)
+    # 4. Determine winner, update best_output
+    # 5. Generate feedback
+    # 6. Compute convergence score (avg delta of last 3 rounds)
+    # 7. Persist history to .methodology/steering_history.json
+    # → Returns IterationResult
+
+def should_continue() -> (bool, str):
+    # Returns False if: max_iterations reached, quality_threshold met,
+    # or CONVERGENCE stage + delta <= convergence_threshold
+    # Resolves HR-12 conflict: "no >5 meaningless iterations" via early stop
+
+def run_until_converge(get_next_pair_fn, max_rounds=None) -> IterationResult:
+    # Drives iteration loop until should_continue() is False
+```
+
+**Three defects fixed in current implementation**:
+- Defect A: Scoring was fake (hard-coded 0.5) → replaced with LLM-as-judge
+- Defect B: Efficiency logic inverted → fixed to quality/tokens ratio
+- Defect C: Convergence logic inverted → delta < threshold means converged (not diverged)
+
+#### `steering/integrations.py` — Integration Adapters
+
+**Responsibility**: Connects `SteeringLoop` to BVS, Constitution, CQG, and HR-12 enforcement systems.
+
+| Class | Integrates With | Key Method |
+|---|---|---|
+| `SteeringBVSIntegrator` | BVS Runner (HR-03 phase invariants) | `check_phase_invariants(steering_result, context)` |
+| `SteeringConstitutionIntegrator` | Constitution Checker (HR-07/09/15) | `check_output_compliance(output, phase)` |
+| `SteeringCQGIntegrator` | CQG code quality checker | `measure_code_quality(output) -> {quality, complexity, readability}` |
+| `HR12Resolution` | HR-12 conflict resolver | `should_stop(current_round, score_delta) -> (bool, reason)` |
+| `SteeringIntegrator` | Unified facade | `iterate_with_full_check(output_a, output_b) -> (IterationResult, [IntegrationResult])` |
+
+**Import behavior**: Constitution module imports (`from constitution.bvs_runner`, `from constitution.citation_parser`, `from constitution.verification_constitution_checker`) are lazy-loaded inside try/except blocks. `constitution/` is not present in this repo as a top-level package — these calls gracefully degrade to warnings when the full-system constitution module is absent.
+
+**HR-12 Resolution**:
+- HR-12 says "no >5 rounds of ineffective iteration" (negative constraint)
+- `SteeringLoop.max_iterations=5` is positive upper bound
+- Not contradictory: `should_continue()` terminates early when convergence met, satisfying HR-12 intent without contradicting the cap
+
+---
+
+### 3.13 `kill_switch/` — Agent Safety Kill Switch
+
+**Responsibility**: Circuit-breaker safety system. Monitors agent health, trips circuit on threshold violation, issues interrupt events, and logs all actions for audit.
+
+**Module structure** (10 files, all relative imports — self-contained):
+
+| File | Class/Purpose |
+|---|---|
+| `kill_switch.py` | `KillSwitch` — main facade |
+| `circuit_breaker.py` | `CircuitBreaker` — trip/reset logic |
+| `health_monitor.py` | `HealthMonitor` — per-agent metric collection |
+| `interrupt_engine.py` | `InterruptEngine` — interrupt event lifecycle |
+| `state_manager.py` | `StateManager` — persistent agent state (killed/active) |
+| `audit_logger.py` | `AuditLogger` — interrupt audit trail |
+| `models.py` | `InterruptEvent`, `MonitorConfig` — dataclasses |
+| `enums.py` | `CircuitState`, `KillReason` — enumerations |
+| `exceptions.py` | `InterruptInProgressError` |
+| `__init__.py` | Package exports |
+
+**`KillSwitch` public API**:
+
+```python
+class KillSwitch:
+    def __init__(self, audit_logger=None, state_manager=None):
+        # Composes: HealthMonitor, CircuitBreaker, StateManager, InterruptEngine
+
+    def start_monitoring(agent_id: str, config: MonitorConfig = None) -> None:
+        # Starts health monitoring + initializes circuit for agent
+
+    def stop_monitoring(agent_id: str) -> None
+
+    def is_agent_circuit_open(agent_id: str) -> bool:
+        # True if state_manager.is_agent_killed OR circuit_breaker.is_open
+
+    def get_agent_state(agent_id: str) -> CircuitState
+
+    def manual_trigger(agent_id, reason, operator_id) -> InterruptEvent:
+        # Immediate human-initiated kill
+
+    def evaluate_and_trigger(agent_id, config: MonitorConfig) -> bool:
+        # Auto-evaluation: check metrics → record failure → open circuit if threshold exceeded
+        # Returns True if interrupt was triggered
+
+    def re_enable(agent_id, operator_id, acknowledgment) -> bool:
+        # Clear killed state, reset circuit, stop monitoring
+        # Returns True if successfully re-enabled (or already active)
+
+    def get_interrupt_history(agent_id=None, limit=100) -> List[InterruptEvent]
+```
+
+**`MonitorConfig` fields** (from `kill_switch/models.py`):
+- `agent_id: str`
+- `failure_threshold: int` — consecutive failures before circuit trips
+- `cooldown_seconds: int` — circuit open duration before half-open retry
+
+---
+
+### 3.14 `enforcement/` — Policy Enforcement Framework
+
+**Responsibility**: Enforces behavioral policies on agents and commits. 7 files covering hook installation, constitution-as-code enforcement, policy evaluation, and server-side enforcement.
+
+| File | Class | Purpose |
+|---|---|---|
+| `agent_proof_hook.py` | `AgentProofHook` | Git pre-commit hook that agents cannot bypass; validates commit message task ID format |
+| `constitution_as_code.py` | `ConstitutionAsCode` | Constitution rules expressed as executable Python checks |
+| `constitution_policy_sync.py` | `ConstitutionPolicySync` | Synchronizes policy definitions with constitution document |
+| `execution_registry.py` | `ExecutionRegistry` | Registry tracking all executed enforcement actions |
+| `framework_enforcer.py` | `FrameworkEnforcer` | Main enforcement orchestrator; coordinates all enforcement subsystems |
+| `policy_engine.py` | `PolicyEngine` | Evaluates named policies against runtime context |
+| `server_enforcer.py` | `ServerEnforcer` | Server-side enforcement for remote agent actions |
+
+**`AgentProofHook` key behavior**:
+- Installs to `.git/hooks/pre-commit` (thin wrapper) + `.methodology/agent_hook_core.py` (core logic)
+- Core logic: validates commit messages contain `[TASK-123]` pattern; detects `--no-verify` bypass attempts
+- Attempts Unix immutable attribute (`chattr +i`) on hook file
+- Commands: `install`, `verify`, `uninstall`
+
+---
+
+### 3.15 `quality_dashboard/` — Quality Research & Dashboard
+
+**Responsibility**: Auto-research loop and quality metrics dashboard. Used by the full-system CLI to provide ongoing quality monitoring.
+
+| File | Class | Purpose |
+|---|---|---|
+| `dashboard.py` (24KB) | `QualityDashboard` | Main dashboard aggregating all quality metrics |
+| `agent_auto_research.py` (34KB) | `AgentAutoResearch` | AI-driven automated research and quality investigation |
+| `auto_research_loop.py` (17KB) | `AutoResearchLoop` | Orchestrates iterative research rounds |
+
+**Relationship to Gate 2**: `gate2_p3_exit.yaml` declares `replaces: auto_research_p3` — the Gate 2 automated evaluation replaces what was previously the `auto_research_p3` component from this dashboard.
+
+---
+
+### 3.16 `core/quality_gate/` — Quality Gate Implementations
+
+**Responsibility**: Concrete quality check implementations used by the gate evaluation pipeline. Subdirectory of `core/`.
+
+| File | Size | Class | Purpose |
+|---|---|---|---|
+| `ab_enforcer.py` | 16KB | `ABEnforcer` | A/B test enforcement; HR-12 compliance checking |
+| `phase_truth_verifier.py` | 13KB | `PhaseTruthVerifier` | Verifies phase completion truth conditions |
+| `spec_tracking_checker.py` | 8KB | `SpecTrackingChecker` | Tracks specification coverage across FRs |
+| `stage_pass_generator.py` | 26KB | `StagePassGenerator` | Generates stage pass certificates after gate clears |
+| `feedback_hook.py` | 1.4KB | `FeedbackHook` | Hook for injecting evaluator feedback into next round |
+| `constitution/__init__.py` | — | Package marker | Constitution sub-package (used by `preflight_constitution`) |
+
+---
+
+### 3.17 `detection/` — Anomaly & Drift Detection
+
+**Responsibility**: Detects code drift, scoring anomalies, and suspicious patterns across evaluation rounds.
+
+| File | Class | Purpose |
+|---|---|---|
+| `drift_detector.py` | `DriftDetector` | Detects structural drift between evaluation rounds; feeds `CRGBridge.check_drift` |
+| `ensemble_scorer.py` | `EnsembleScorer` | Combines multiple scoring signals into ensemble score |
+| `pattern_matcher.py` | `PatternMatcher` | Pattern-based detection of known anti-patterns |
+
+---
+
+### 3.18 `gap_detector/` — Specification Gap Detection
+
+**Responsibility**: Detects gaps between requirements specification and implementation. Used to surface uncovered FRs or missing artifacts.
+
+| File | Class | Purpose |
+|---|---|---|
+| `detector.py` | `GapDetector` | Core gap identification logic |
+| `parser.py` | `GapParser` | Parses spec documents to extract expected coverage |
+| `reporter.py` | `GapReporter` | Formats gap findings for reporting |
+| `scanner.py` | `GapScanner` | Scans codebase for coverage evidence |
+
+---
+
 ## 4. Core Workflow Sequences
 
 ### 4.1 Gate Run (e.g. Gate 2, P3 exit)
@@ -646,11 +957,11 @@ AgentSpawner.spawn(model="hermes", role="Reviewer", prompt, context, phase, fr_i
 ```
 HarnessBridge.generate_quality_manifest(fr_ids=["FR-01","FR-02"], sad_path="SAD.md")
   │
-  ├─ try: from scripts.generate_sab import parse_sad  ← ⚠️ ALWAYS FAILS (fn doesn't exist)
-  │  except: sab = {}
+  ├─ from scripts.generate_sab import parse_sad  ← functional (fix ②+⑤ applied)
+  │  sab = parse_sad(sad_path)  → {nfr_dim_map, constraints, high_risk, ...}
   │
-  ├─ manifest = {schema_version, generated_at_phase=2, fr_ids, nfr_dimension_mapping={},
-  │              architecture_constraints=[], high_risk_modules=[], gate_score_overrides={},
+  ├─ manifest = {schema_version, generated_at_phase=2, fr_ids, nfr_dimension_mapping,
+  │              architecture_constraints, high_risk_modules, gate_score_overrides={},
   │              gate_results={gate1:{}, gate2:null, gate3:null, gate4:null}}
   │
   └─ Path(".methodology/quality_manifest.json").write_text(json.dumps(manifest, indent=2))
@@ -897,14 +1208,14 @@ CREATE TABLE IF NOT EXISTS effort_records (
 
 ---
 
-## 6. SAB Block (machine-readable, v1.1 — As-Built)
+## 6. SAB Block (machine-readable, v1.2 — As-Built)
 
-> Updated from v1.2 original. Removed non-existent modules; added all verified harness/ and core/ modules.
+> Updated from v1.1. Added: `steering/`, `quality_dashboard/`. Fixed: `kill_switch/` path (was `implement/kill_switch/`). Added: `core/subagent_isolator.py`, `core/verification_gate.py` to Layer 2. Added design pattern: LLM-as-Judge.
 
 <!-- SAB:START -->
 ```json
 {
-  "version": "1.1",
+  "version": "1.2",
   "created_at": "2026-04-27",
   "project": "harness-methodology",
   "layers": [
@@ -929,7 +1240,7 @@ CREATE TABLE IF NOT EXISTS effort_records (
     },
     {
       "name": "2_Core_Orchestration",
-      "description": "Manages agent lifecycle, phase execution, workflow routing, task decomposition, and session logging.",
+      "description": "Manages agent lifecycle, phase execution, workflow routing, task decomposition, AB steering, and session logging.",
       "modules": [
         "core/agent_spawner.py",
         "core/phase_hooks.py",
@@ -937,20 +1248,22 @@ CREATE TABLE IF NOT EXISTS effort_records (
         "core/task_splitter.py",
         "core/sessions_spawn_logger.py",
         "core/subagent_isolator.py",
-        "core/verification_gate.py"
+        "core/verification_gate.py",
+        "steering/"
       ],
       "allowed_dependencies": ["3_Quality_Features", "4_Base_Utilities"]
     },
     {
       "name": "3_Quality_Features",
-      "description": "Concrete quality check implementations, safety features, gap detection, and enforcement hooks.",
+      "description": "Concrete quality check implementations, safety features, gap detection, enforcement hooks, and quality monitoring dashboard.",
       "modules": [
         "core/quality_gate/",
         "core/requirement_traceability.py",
         "detection/",
         "gap_detector/",
-        "implement/kill_switch/",
-        "enforcement/"
+        "kill_switch/",
+        "enforcement/",
+        "quality_dashboard/"
       ],
       "allowed_dependencies": ["4_Base_Utilities"]
     },
