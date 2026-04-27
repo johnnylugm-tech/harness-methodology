@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""
+r"""
 Constitution as Code
 ====================
 Framework rules as executable code, not advisory documents.
@@ -68,7 +68,7 @@ class ConstitutionAsCode:
         self.add_rule(Rule(
             id="R001",
             description="All commits must have task_id",
-            check_fn=lambda msg: bool(re.search(r'\[[A-Z]+-\d+\]', msg or "")),
+            check_fn=lambda msg: bool(re.search(r'\\[[A-Z]+-\d+\\]', msg or "")),
             severity=RuleSeverity.CRITICAL,
             error_message="Commit message must include task_id, format: [TASK-123]",
         ))
