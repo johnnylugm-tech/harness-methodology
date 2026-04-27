@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""
+r"""
 Constitution as Code
 ====================
 Framework rules as executable code, not advisory documents.

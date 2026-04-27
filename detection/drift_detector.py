@@ -5,22 +5,15 @@ M2: Drift Detector
 Detects drift between code artifacts and specification documents.
 
 Detects:
-- SAD drift  : code structure deviates from SAD module mapping
-- Spec drift : implemented features missing from SRS
-- Phase drift: current phase state inconsistent with artifacts
-
-Usage:
-    from detection import DriftDetector
-
-    detector = DriftDetector("/path/to/project")
-    result = detector.detect_sad_drift()
-    if result.has_drift:
-        print(result.drift_items)
+- SAD drift  : code structure deviates from SAD module mapping.
+- Spec drift : implemented features missing from SRS.
+- Phase drift: current phase state inconsistent with artifacts.
 """
 
 from __future__ import annotations
 
 import re
+import json
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -32,6 +25,7 @@ from typing import Dict, List, Optional, Set
 # ---------------------------------------------------------------------------
 
 class DriftSeverity(Enum):
+    """Severity levels for drift findings."""
     LOW = "LOW"
     MEDIUM = "MEDIUM"
     HIGH = "HIGH"
@@ -60,6 +54,7 @@ class DriftResult:
     score: float = 1.0  # 1.0 = no drift, 0.0 = full drift
 
     def to_dict(self) -> Dict:
+        """Serialize the drift result to a dictionary."""
         return {
             "drift_type": self.drift_type,
             "has_drift": self.has_drift,
@@ -96,7 +91,20 @@ class DriftDetector:
     MODULE_PATTERN = re.compile(r'`([^`]+\.py)`')
     SAD_FR_PATTERN = re.compile(r'FR-(\d+)[^\n]*?`([^`]+\.py)`')
 
+    # Expected artifacts per phase
+    PHASE_ARTIFACTS = {
+        1: ["SRS.md", "TRACEABILITY_MATRIX.md"],
+        2: ["SAD.md", "ADR.md"],
+        3: ["tests/"],
+        4: ["TEST_PLAN.md", "TEST_RESULTS.md"],
+        5: ["BASELINE.md"],
+        6: ["QUALITY_REPORT.md"],
+        7: ["RISK_REGISTER.md"],
+        8: ["CONFIG_RECORDS.md"],
+    }
+
     def __init__(self, project_path: str):
+        """Initialize with the project root path."""
         self.project_path = Path(project_path)
         self.state_path = self.project_path / ".methodology" / "state.json"
 
@@ -176,7 +184,7 @@ class DriftDetector:
                 text = py_file.read_text(encoding="utf-8", errors="replace")
                 for m in self.FR_PATTERN.finditer(text):
                     implemented_frs.add(f"FR-{m.group(1).zfill(2)}")
-            except Exception:
+            except Exception: # pylint: disable=broad-exception-caught
                 pass
 
         missing = required_frs - implemented_frs
@@ -211,19 +219,6 @@ class DriftDetector:
 
         Maps phase number to expected artifact files and checks existence.
         """
-        import json
-
-        PHASE_ARTIFACTS = {
-            1: ["SRS.md", "TRACEABILITY_MATRIX.md"],
-            2: ["SAD.md", "ADR.md"],
-            3: ["tests/"],
-            4: ["TEST_PLAN.md", "TEST_RESULTS.md"],
-            5: ["BASELINE.md"],
-            6: ["QUALITY_REPORT.md"],
-            7: ["RISK_REGISTER.md"],
-            8: ["CONFIG_RECORDS.md"],
-        }
-
         if not self.state_path.exists():
             return DriftResult(drift_type="phase", has_drift=False, score=1.0,
                                drift_items=[DriftItem(
@@ -232,8 +227,8 @@ class DriftDetector:
                                )])
 
         try:
-            state = json.loads(self.state_path.read_text())
-        except Exception as e:
+            state = json.loads(self.state_path.read_text(encoding="utf-8"))
+        except Exception: # pylint: disable=broad-exception-caught
             return DriftResult(drift_type="phase", has_drift=False, score=1.0)
 
         current_phase = state.get("current_phase", 0)
@@ -242,7 +237,7 @@ class DriftDetector:
         drifted = 0
 
         for phase in range(1, min(current_phase + 1, 9)):
-            expected = PHASE_ARTIFACTS.get(phase, [])
+            expected = self.PHASE_ARTIFACTS.get(phase, [])
             for artifact in expected:
                 checked += 1
                 path = self.project_path / artifact
@@ -275,6 +270,7 @@ class DriftDetector:
         return {"sad": sad, "spec": spec, "phase": phase}
 
     def _find_file(self, candidates: List[str]) -> Optional[Path]:
+        """Utility to find a file among multiple candidate relative paths."""
         for c in candidates:
             p = self.project_path / c
             if p.exists():

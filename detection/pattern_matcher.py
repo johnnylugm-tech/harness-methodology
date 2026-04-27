@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""
+r"""
 M2: Pattern Matcher
 ===================
 Matches code and artifact content against rule-based patterns.
@@ -34,6 +34,7 @@ from typing import Any, Dict, List, Optional
 # ---------------------------------------------------------------------------
 
 class RuleType(Enum):
+    """Types of rules supported by the pattern matcher."""
     FORBIDDEN = "FORBIDDEN"
     REQUIRED = "REQUIRED"
     QUALITY = "QUALITY"
@@ -50,17 +51,20 @@ class Rule:
     _compiled: Any = field(default=None, repr=False)
 
     def __post_init__(self):
+        """Compile the regex pattern upon initialization."""
         try:
             self._compiled = re.compile(self.pattern, re.MULTILINE | re.IGNORECASE)
         except re.error:
             self._compiled = None
 
     def matches(self, text: str) -> bool:
+        """Return True if the pattern matches the given text."""
         if not self._compiled:
             return False
         return bool(self._compiled.search(text))
 
     def find_all(self, text: str) -> List[str]:
+        """Return all occurrences of the pattern in the given text."""
         if not self._compiled:
             return []
         return self._compiled.findall(text)
@@ -74,6 +78,7 @@ class RuleSet:
 
     @classmethod
     def from_dict(cls, rule_dicts: List[Dict], name: str = "default") -> "RuleSet":
+        """Create a RuleSet from a list of dictionaries."""
         rules = []
         for d in rule_dicts:
             rule_type = RuleType(d.get("type", "FORBIDDEN"))
@@ -87,12 +92,15 @@ class RuleSet:
         return cls(name=name, rules=rules)
 
     def forbidden(self) -> List[Rule]:
+        """Return all FORBIDDEN rules in the set."""
         return [r for r in self.rules if r.rule_type == RuleType.FORBIDDEN]
 
     def required(self) -> List[Rule]:
+        """Return all REQUIRED rules in the set."""
         return [r for r in self.rules if r.rule_type == RuleType.REQUIRED]
 
     def quality(self) -> List[Rule]:
+        """Return all QUALITY rules in the set."""
         return [r for r in self.rules if r.rule_type == RuleType.QUALITY]
 
 
@@ -106,6 +114,7 @@ class PatternMatch:
     quality_score: float = 1.0  # 0.0-1.0
 
     def to_dict(self) -> Dict:
+        """Serialize the match result to a dictionary."""
         return {
             "passed": self.passed,
             "quality_score": round(self.quality_score, 3),
@@ -199,6 +208,7 @@ class PatternMatcher:
     """
 
     def __init__(self, rule_set: Optional[RuleSet] = None):
+        """Initialize with an optional rule set (defaults to HARNESS_RULES)."""
         self.rule_set = rule_set or HARNESS_RULES
 
     def match_text(self, text: str) -> PatternMatch:
@@ -253,14 +263,19 @@ class PatternMatcher:
     def match_file(self, file_path: str) -> PatternMatch:
         """Match a file's content against the rule set."""
         try:
-            text = open(file_path, encoding="utf-8", errors="replace").read()
+            with open(file_path, encoding="utf-8", errors="replace") as f:
+                text = f.read()
             return self.match_text(text)
         except Exception as e:
             return PatternMatch(
                 passed=False,
-                forbidden_hits=[{"rule": "file-read-error", "description": str(e), "severity": "HIGH"}],
+                forbidden_hits=[{
+                    "rule": "file-read-error",
+                    "description": str(e),
+                    "severity": "HIGH"
+                }],
             )
 
     def match_files(self, file_paths: List[str]) -> Dict[str, PatternMatch]:
-        """Match multiple files."""
+        """Match multiple files sequentially."""
         return {fp: self.match_file(fp) for fp in file_paths}

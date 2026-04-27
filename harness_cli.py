@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-harness_cli.py — Standalone CLI for harness-methodology
-=========================================================
+harness_cli.py — Standalone CLI for harness-methodology.
 
 Standalone entrypoint for the harness-methodology repo.
 Does NOT require the full parent system (cli.py needs 30+ external modules).
@@ -37,6 +36,7 @@ sys.path.insert(0, str(_REPO_ROOT))
 # ---------------------------------------------------------------------------
 
 def cmd_plan_phase(args: argparse.Namespace) -> int:
+    """Generate phase execution plan from SRS/SAD artifacts."""
     from scripts.generate_full_plan import generate_full_plan
 
     repo_path = Path(args.repo).resolve()
@@ -61,6 +61,7 @@ def cmd_plan_phase(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 def cmd_run_phase(args: argparse.Namespace) -> int:
+    """Run pre/post-flight hooks for a phase."""
     from core.phase_hooks import PhaseHooks
 
     project = Path(args.project).resolve()
@@ -89,6 +90,7 @@ def cmd_run_phase(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 def cmd_run_gate(args: argparse.Namespace) -> int:
+    """Execute a quality gate."""
     from harness.harness_bridge import HarnessBridge, GateBlockedError
 
     project = str(Path(args.project).resolve())
@@ -136,6 +138,7 @@ def cmd_run_gate(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 def cmd_manifest(args: argparse.Namespace) -> int:
+    """Generate quality_manifest.json at P2 exit."""
     from harness.harness_bridge import HarnessBridge
 
     bridge = HarnessBridge()
@@ -144,7 +147,7 @@ def cmd_manifest(args: argparse.Namespace) -> int:
         sad_path=args.sad,
     )
     print(f"quality_manifest.json written → {out}")
-    manifest = json.loads(out.read_text())
+    manifest = json.loads(out.read_text(encoding="utf-8"))
     print(f"  fr_ids        : {manifest['fr_ids']}")
     print(f"  generated_at  : phase {manifest['generated_at_phase']}")
     return 0
@@ -155,6 +158,7 @@ def cmd_manifest(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 def cmd_status(args: argparse.Namespace) -> int:
+    """Show current manifest + FSM state."""
     project = Path(args.project).resolve()
     manifest_path = project / ".methodology" / "quality_manifest.json"
     state_path    = project / ".methodology" / "state.json"
@@ -162,7 +166,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     print(f"\n{'='*60}\nHarness Status: {project}\n{'='*60}")
 
     if state_path.exists():
-        state = json.loads(state_path.read_text())
+        state = json.loads(state_path.read_text(encoding="utf-8"))
         print(f"\n[FSM State]")
         print(f"  state         : {state.get('state', 'UNKNOWN')}")
         print(f"  current_phase : {state.get('current_phase', 0)}")
@@ -171,7 +175,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         print("\n[FSM State] .methodology/state.json not found (project not initialised)")
 
     if manifest_path.exists():
-        m = json.loads(manifest_path.read_text())
+        m = json.loads(manifest_path.read_text(encoding="utf-8"))
         print(f"\n[Quality Manifest]")
         print(f"  schema_version: {m.get('schema_version')}")
         print(f"  fr_ids        : {m.get('fr_ids')}")
@@ -196,12 +200,15 @@ def cmd_status(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 def cmd_effort(args: argparse.Namespace) -> int:
+    """Show gate effort metrics summary."""
     from harness.effort_tracker import EffortTracker
 
     tracker = EffortTracker()
     summary = tracker.summary(phase=args.phase)
 
-    print(f"\n{'='*60}\nEffort Summary{' | Phase ' + str(args.phase) if args.phase else ''}\n{'='*60}")
+    print(f"\n{'='*60}")
+    title = f"Effort Summary{' | Phase ' + str(args.phase) if args.phase else ''}"
+    print(f"{title}\n{'='*60}")
     print(json.dumps(summary, indent=2))
     return 0
 
@@ -211,6 +218,7 @@ def cmd_effort(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 def build_parser() -> argparse.ArgumentParser:
+    """Construct the ArgumentParser for the CLI."""
     p = argparse.ArgumentParser(
         prog="harness_cli.py",
         description="Harness-methodology standalone CLI",
@@ -221,7 +229,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.required = True
 
     # plan-phase
-    pp = sub.add_parser("plan-phase", help="Generate phase execution plan from SRS/SAD artifacts (stdlib only)")
+    help_plan = "Generate phase execution plan from SRS/SAD artifacts (stdlib only)"
+    pp = sub.add_parser("plan-phase", help=help_plan)
     pp.add_argument("--phase",  type=int, required=True, help="Phase number (1-8)")
     pp.add_argument("--repo",   default=".", help="Project repository path (default: .)")
     pp.add_argument("--output", default=None, help="Output file path (default: stdout)")
@@ -263,6 +272,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
+    """Main entry point for the CLI."""
     parser = build_parser()
     args = parser.parse_args()
     return args.func(args)
