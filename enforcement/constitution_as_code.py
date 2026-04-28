@@ -35,7 +35,7 @@ class Rule:
 
 
 class ConstitutionAsCode:
-    """
+    r"""
     Constitution as Code.
 
     Converts Constitution documents into executable rules::

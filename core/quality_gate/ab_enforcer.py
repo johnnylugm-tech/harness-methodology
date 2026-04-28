@@ -83,19 +83,11 @@ class ABEnforcer:
         # 3. Determine if separated
         if developer_session and reviewer_session:
             # Check if sessions differ
-            # May be full session_id or partial marker
             dev_normalized = self._normalize_session(developer_session)
             rev_normalized = self._normalize_session(reviewer_session)
             
-            separated = dev_normalized != rev_normalized and dev_normalized and rev_normalized
-        elif developer_session and not reviewer_session:
-            # Developer present but no Reviewer - separation failed
-            separated = False
-        elif not developer_session and reviewer_session:
-            # Reviewer present but no Developer - separation failed
-            separated = False
+            separated = bool(dev_normalized != rev_normalized and dev_normalized and rev_normalized)
         else:
-            # Neither found, treat as not separated
             separated = False
         
         return {
@@ -291,7 +283,7 @@ class ABEnforcer:
             "qa_not_developer": self.verify_qa_not_developer() if phase == 4 else None
         }
     
-    def _extract_phase_content(self, content: str, phase: str) -> str:
+    def _extract_phase_content(self, content: str, phase: str) -> Optional[str]:
         """
         Extract specific Phase content from DEVELOPMENT_LOG
         
@@ -300,29 +292,23 @@ class ABEnforcer:
             phase: Phase identifier
             
         Returns:
-            str: content for that Phase
+            Optional[str]: content for that Phase, or None if not found
         """
-        # Handle phase_1 -> Phase 1 format etc.
-        phase_pattern = phase.replace("_", " ").title()
         # Ensure phase_str format is correct
-        phase_str = phase if phase.startswith("phase_") else f"phase_{phase}"
+        phase_num = phase.split('_')[1] if '_' in phase else phase
         
         # Try multiple matching patterns
         patterns = [
-            # Phase 1 / Phase1
-            rf"(?:Phase\s*1|Phase1).*?(?=(?:Phase\s*\d|Phase\d|$))",
-            rf"##\s*Phase\s*{phase_str.split('_')[1]}.*?(?=##\s*Phase|$)",
-            # Find content between Phase heading and next Phase heading
-            rf"(?:#{{1,6}}\s*)?[Pp]hase\s*{phase_str.split('_')[1]}.*?(?=(?:#{{1,6}}\s*)?[Pp]hase\s*\d|$)",
+            rf"##\s*Phase\s*{phase_num}.*?(?=##\s*Phase|$)",
+            rf"(?:#{{1,6}}\s*)?[Pp]hase\s*{phase_num}.*?(?=(?:#{{1,6}}\s*)?[Pp]hase\s*\d|$)",
         ]
         
         for pattern in patterns:
-            match = re.search(pattern, content, re.DOTALL)
+            match = re.search(pattern, content, re.DOTALL | re.IGNORECASE)
             if match:
                 return match.group(0)
         
-        # If no exact match, return full content (conservative approach)
-        return content
+        return None
     
     def _extract_session(self, content: str, role: str) -> Optional[str]:
         """
