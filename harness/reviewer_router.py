@@ -8,6 +8,7 @@ import json
 import os
 import re
 from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
 
 # ---------------------------------------------------------------------------
 # MCP imports (graceful degradation if not available)
@@ -140,7 +141,7 @@ class ReviewerRouter:
         phase: int,
         fr_id: str | None = None,
         timeout_ms: int | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """
         Send review request through the priority chain.
 
