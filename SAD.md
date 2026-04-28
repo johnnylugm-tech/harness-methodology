@@ -1,4 +1,4 @@
-# SAD — Harness Methodology v1.4 (As-Built — A/B Chain Optimization @ 2026-04-28)
+# SAD — Harness Methodology v1.5 (As-Built — Sequential A/B + Dep-Ordered Decomposition @ 2026-04-28)
 
 > **Sync guarantee**: This document is reverse-engineered from the live codebase.
 > Any change to the code **must** be reflected here, and vice-versa.
@@ -225,11 +225,12 @@ class HarnessBridge:
 
 ---
 
-### 3.2 `harness/reviewer_router.py` — Reviewer Proxy (v2.0)
+### 3.2 `harness/reviewer_router.py` — Reviewer Proxy (v2.1)
 
 **Responsibility**: Routes review requests through a **priority-ordered chain** of backends
-(Hermes MCP → Gemini CLI MCP → sub-agent). Supports auto-decomposition of large/complex tasks
-and graceful degradation with full audit trail. Replaces single-Hermes-only v1.3 model.
+(Hermes MCP → Gemini CLI MCP → sub-agent). Supports **dependency-ordered decomposition** of
+large/complex tasks with **sequential A/B execution** (one subtask completes full A/B chain
+before the next starts) and graceful degradation with full audit trail.
 
 **Module-level constants** (all overridable via env vars):
 
@@ -239,10 +240,19 @@ and graceful degradation with full audit trail. Replaces single-Hermes-only v1.3
 | `HERMES_TIMEOUT_MS` | `HERMES_TIMEOUT_MS` | `90000` | Hermes wait timeout (ms) — per CLAUDE.md protocol |
 | `GEMINI_TIMEOUT_MS` | `GEMINI_TIMEOUT_MS` | `60000` | Gemini CLI MCP timeout (ms) |
 | `TASK_SIZE_THRESHOLD` | `TASK_SIZE_THRESHOLD` | `2000` | Chars above which task is auto-decomposed |
-| `SUBTASK_MAX_SIZE` | `SUBTASK_MAX_SIZE` | `800` | Target chars per subtask after decompose |
+| `SUBTASK_MAX_SIZE` | `SUBTASK_MAX_SIZE` | `800` | Target chars per subtask (paragraph fallback) |
+| `MAX_CONTEXT_LINES` | `MAX_CONTEXT_LINES` | `6` | Approved-subtask summaries injected as context |
 | `REVIEWER_CHAIN_CONFIG` | `REVIEWER_CHAIN` | `"hermes,gemini"` | Priority-ordered chain; `subagent` always appended |
 
 ```python
+@dataclass
+class SubTask:
+    content: str          # subtask text
+    label: str            # e.g. "Phase 3", "FR-01", "§3.2", "para_1"
+    dependencies: list[str] = field(default_factory=list)  # other labels this depends on
+    index: int = 1        # 1-based position in execution order
+    total: int = 1        # total subtask count
+
 def get_reviewer_model(phase: int, role: str = "reviewer") -> str:
     """Returns 'claude' if phase in {7, 8}, else REVIEWER_POLICY[role] (defaults to 'hermes')."""
     return "claude" if phase in _CLAUDE_PHASES else REVIEWER_POLICY.get(role, "hermes")
@@ -270,9 +280,12 @@ class ReviewerRouter:
         # Returns: {"review_status": "APPROVE|REJECT", "confidence": 0-1,
         #           "violations": [], "summary": "",
         #           "_reviewer_used": "hermes|gemini|subagent",
-        #           "_degraded": bool,        # True if primary(s) timed out
-        #           "_degradation": list,     # [{reviewer, reason}, ...]
-        #           "_degradation_note": str} # human-readable degradation summary
+        #           "_degraded": bool,         # True if primary(s) timed out
+        #           "_degradation": list,      # [{reviewer, reason}, ...]
+        #           "_degradation_note": str,  # human-readable degradation summary
+        #           "_stopped_at": str,        # label of REJECT subtask (multi-subtask only)
+        #           "_completed_subtasks": int,
+        #           "_total_subtasks": int}
 ```
 
 **Priority chain execution** (`_try_chain`):
@@ -280,38 +293,62 @@ class ReviewerRouter:
 For each ReviewerSpec in chain (hermes → gemini → subagent):
   1. hermes: send → events_wait(90s) → messages_read → parse
              TimeoutError on: events_wait fail | messages_read "Session database unavailable" | no msgs
-  2. gemini: mcp__gemini_cli__ask_gemini → clean hook contamination → parse
+  2. gemini: mcp__gemini_cli__ask_gemini → _clean_gemini_response() → parse
              RuntimeError on: import fail | API error
-  3. subagent: AgentSpawner.spawn(model="claude") — always succeeds
+  3. subagent: AgentSpawner.spawn(model="claude") — always succeeds (lazy import, no circular)
                Returns _degraded=True if any previous step failed
 
 On timeout/error: log to _degradation, try next in chain.
 ```
 
-**Task decomposition** (`_maybe_decompose`):
+**Task decomposition** (`_decompose_with_deps`):
 ```
 IF len(prompt) <= TASK_SIZE_THRESHOLD (2000 chars):
-    → no decomposition, single review call
+    → no decomposition, returns [SubTask(prompt, label="full")]
 
-IF prompt contains multiple FR-XXX references:
-    → Strategy 1: split on FR boundaries, one subtask per FR
-       Valid only if all subtasks ≤ TASK_SIZE_THRESHOLD
+Detection pipeline (tried in order):
+  1. _extract_phase_sections(): regex "Phase N" / "PX" headers (SRS.md style)
+  2. _extract_fr_sections(): FR-XXX boundary split
+  3. _extract_heading_sections(): §X.Y / "X.Y Title" numbered headings (SAD.md style)
+  4. _paragraph_subtasks(): fallback — paragraph split targeting SUBTASK_MAX_SIZE (800 chars)
+                            sequential deps: para_N depends on para_(N-1)
 
-ELSE:
-    → Strategy 2: paragraph-boundary split targeting SUBTASK_MAX_SIZE (800 chars)
+Dependency graph (_build_dep_graph):
+  - Cross-reference scan: if label B appears in label A's content → A depends on B
+  - Implicit phase ordering: Phase-N → depends on Phase-(N-1)
 
-Multi-subtask results merged: any REJECT → REJECT; confidence = min; violations = union
+Execution order (_topological_sort):
+  - Kahn's algorithm (BFS on in-degree=0 nodes)
+  - Cycle-safe: remaining nodes appended in original order if cycle detected
+  - Result: list[SubTask] in dependency-safe execution order with index/total set
 ```
 
-**`review()` execution sequence** (v2.0 — chain-aware):
-1. `_maybe_decompose(prompt)` → single task or list of subtasks
-2. If multi-subtask → call `_try_chain` per subtask → `_merge_results`
-3. `_try_chain` iterates `self._chain` (ReviewerSpec list) in priority order:
-   - hermes: `_try_hermes(prompt, timeout_ms)` — raises `TimeoutError` on any failure
-   - gemini: `_try_gemini(prompt, timeout_ms)` — raises `RuntimeError` on any failure
-   - subagent: `_try_subagent(role, prompt, phase, fr_id)` — always returns
-4. On exception: append to `degradation_log`, continue to next spec
-5. First success: set `_reviewer_used`, embed `degradation_log`, return result
+**`review()` execution sequence** (v2.1 — sequential A/B with context accumulation):
+```python
+subtasks = self._decompose_with_deps(prompt, role)  # topologically sorted
+approved_context: list[str] = []                     # grows as subtasks APPROVE
+
+for subtask in subtasks:
+    enriched = self._enrich_with_context(subtask, approved_context)
+    # enriched = subtask.content + injected last MAX_CONTEXT_LINES approved summaries
+
+    result = self._try_chain(role, enriched, phase, fr_id, timeout_ms,
+                             task_idx=subtask.index, task_total=subtask.total)
+    # ↑ Full A/B chain (hermes → gemini → subagent) runs to completion for THIS subtask
+    #   before moving to the next subtask
+
+    if result.get("review_status") == "REJECT":
+        result["_stopped_at"] = subtask.label       # which subtask caused REJECT
+        result["_completed_subtasks"] = len(results)
+        result["_total_subtasks"] = subtask.total
+        return self._merge_results(results)          # early exit — no further subtasks
+
+    if result.get("summary"):
+        approved_context.append(f"✅ [{subtask.label}] {result['summary']}")
+        # last MAX_CONTEXT_LINES (6) injected into next subtask
+
+return self._merge_results(results)
+```
 
 **`_build_prompt(role, prompt, phase, fr_id=None) -> str`**:
 ```
@@ -1006,23 +1043,45 @@ Operator -> HarnessBridge.run_gate(gate_num=2, project_root, phase=3, fr_id=None
 
 > **Runtime prerequisite**: `software_self_improvement` package must be installed. The subprocess interface is wired; the external package is the remaining dependency.
 
-### 4.2 A/B Review via Hermes MCP
+### 4.2 A/B Review via Hermes MCP (v2.1 — Sequential + Dep-Ordered)
 
 ```
 AgentSpawner.spawn(model="hermes", role="Reviewer", prompt, context, phase, fr_id)
   │
   └─ ReviewerRouter.review(role, full_prompt, phase, fr_id)
        │
-       ├─ 1. _maybe_decompose(prompt) → [prompt] | [subtask_1, subtask_2, ...]
-       │      IF len(prompt) > 2000 chars:
-       │        Strategy A: split by FR-XXX boundaries (one subtask per FR)
-       │        Strategy B: split at paragraph boundaries (≤800 chars/subtask)
+       ├─ 1. _decompose_with_deps(prompt) → list[SubTask] (topologically sorted)
        │
-       ├─ 2. For each subtask → _try_chain(role, subtask, phase, fr_id)
+       │      IF len(prompt) <= 2000 chars:
+       │        → [SubTask(prompt, label="full")]   — no decomposition
        │
-       │    _try_chain priority loop:
+       │      Detection pipeline (tried in order):
+       │        A. _extract_phase_sections(): "Phase N" / "PX" (SRS.md style)
+       │        B. _extract_fr_sections(): FR-XXX boundaries
+       │        C. _extract_heading_sections(): §X.Y / "X.Y Title" (SAD.md style)
+       │        D. _paragraph_subtasks(): para-split ≤800 chars (sequential deps)
+       │
+       │      _build_dep_graph(): cross-ref scan + implicit Phase-N → Phase-(N-1)
+       │      _topological_sort(): Kahn's BFS, cycle-safe
+       │
+       ├─ 2. Sequential execution (ONE subtask completes A/B chain → NEXT starts):
+       │
+       │      approved_context = []
+       │      FOR subtask IN subtasks (dependency order):
+       │        enriched = subtask.content + last 6 ✅ approved summaries
+       │        │
+       │        result = _try_chain(role, enriched, phase, fr_id) ◄── FULL A/B runs here
+       │        │
+       │        IF result == REJECT:
+       │          result._stopped_at = subtask.label
+       │          STOP → _merge_results(completed so far)    ← early exit
+       │        ELSE:
+       │          approved_context.append(f"✅ [{subtask.label}] {result['summary']}")
+       │          CONTINUE to next subtask
+       │
+       │    _try_chain priority loop (runs to completion for each subtask):
        │    ├─ [P1] Hermes MCP (HERMES_TIMEOUT_MS = 90000ms):
-       │    │    ├─ mcp__hermes__messages_send(target, prompt)
+       │    │    ├─ mcp__hermes__messages_send(target, enriched)
        │    │    ├─ mcp__hermes__events_wait(timeout_ms=90000)
        │    │    │    └─ Timeout/error → TimeoutError → try P2
        │    │    ├─ mcp__hermes__messages_read(limit=1)
@@ -1030,7 +1089,7 @@ AgentSpawner.spawn(model="hermes", role="Reviewer", prompt, context, phase, fr_i
        │    │    └─ No msgs → TimeoutError → try P2
        │    │
        │    ├─ [P2] Gemini CLI MCP (GEMINI_TIMEOUT_MS = 60000ms):
-       │    │    ├─ mcp__gemini_cli__ask_gemini(prompt, model="gemini-2.5-flash")
+       │    │    ├─ mcp__gemini_cli__ask_gemini(enriched, model="gemini-2.5-flash")
        │    │    ├─ _clean_gemini_response() → strip ECC hook contamination
        │    │    └─ RuntimeError on any failure → try P3
        │    │
@@ -1040,13 +1099,14 @@ AgentSpawner.spawn(model="hermes", role="Reviewer", prompt, context, phase, fr_i
        │         └─ result["_degradation_note"] = "[DEGRADED] Fell back to sub-agent after: ..."
        │
        └─ 3. _merge_results([subtask_results]):
-              ├─ Any REJECT → short-circuit return REJECT
+              ├─ Any REJECT → return REJECT (with _stopped_at, _completed_subtasks)
               ├─ confidence = min(all subtask confidences)
               ├─ violations = union(all violations)
               └─ summary = " | ".join(all summaries)
 
 Result keys: review_status, confidence, violations, summary,
-             _reviewer_used, _degraded, _degradation, _degradation_note
+             _reviewer_used, _degraded, _degradation, _degradation_note,
+             _stopped_at (REJECT only), _completed_subtasks, _total_subtasks
 ```
 
 ### 4.3 Quality Manifest Generation (P2 exit)
@@ -1490,6 +1550,7 @@ python3 -m software_self_improvement.runner
 ## 8. Future Work — Score Roadmap & Open Items
 
 > **Baseline score (v2.0)**: 92/100 (Academic Benchmark, 7-dimension framework).
+> **v2.1 delta**: Sequential A/B + dep-ordered decomposition — no score regression; improves A/B reliability for large docs (SRS.md, SAD.md).
 > Target ceiling ~96/100; remaining 8 points have concrete unlock conditions below.
 
 ### 8.1 Score Roadmap (post-v2.0 unlocks)
@@ -1512,6 +1573,7 @@ python3 -m software_self_improvement.runner
 | HR-12 real limiter not wired | `steering/integrations.py` | ✅ **Resolved (v2.0.2)** — `SteeringIntegrator.should_continue` property now cross-checks `HR12Resolution(max_allowed, early_stop_threshold, min_rounds_before_stop).should_stop()` against `SteeringLoop.should_continue()`. HR-12 takes priority; `VerificationConstitutionChecker.check()` called on stop. | — |
 | Gate 4 Hermes approval timeout | `harness/harness_bridge.py` | ✅ **Resolved (v2.0.2)** — `HarnessBridge.GATE4_HERMES_TIMEOUT_MS = 30_000` class constant; `_require_hermes_approve(timeout_ms=GATE4_HERMES_TIMEOUT_MS)` propagates to `ReviewerRouter.review(timeout_ms)` → `events_wait(timeout_ms=wait_ms)`. | — |
 | `enforcement.json` policy hot-reload | `enforcement/policy_engine.py` | ✅ **Resolved (v2.0.2)** — `PolicyEngine.reload_policy(json_path)` hot-reloads policies by ID from `enforcement.json`; `PolicyEngine.from_json(json_path)` classmethod for fresh engine. `harness_cli.py reload-policy` command exposes this as CLI (7th command). | — |
+| Sequential A/B + dep-ordered decomposition | `harness/reviewer_router.py` | ✅ **Resolved (v2.1)** — `_decompose_with_deps()` replaces `_maybe_decompose()`; `review()` sequential for-loop replaces list comprehension; `_enrich_with_context()` injects `approved_context`; `_topological_sort()` ensures dependency-safe order; `SubTask` dataclass tracks label/deps/index/total. | See §3.2, §4.2 |
 
 ### 8.3 Technical Debt (Lower Priority)
 
