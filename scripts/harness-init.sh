@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+# =============================================================================
+# harness-init.sh — Idempotent harness integration setup for a target project
+# =============================================================================
+# Safe to run multiple times; already-done steps are automatically skipped.
+#
+# Usage (run from inside your target project, or set TARGET_DIR):
+#   bash /path/to/harness-methodology/scripts/harness-init.sh [--phase N]
+#   TARGET_DIR=/your/project bash /path/to/harness/scripts/harness-init.sh --phase 3
+#
+# Embed in project init scripts (Makefile, setup.sh, etc.) — fully idempotent.
+# =============================================================================
+
+set -euo pipefail
+
+HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+TARGET_DIR="${TARGET_DIR:-$(pwd)}"
+PHASE_ARG=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --phase) PHASE_ARG="$2"; shift 2 ;;
+        *)       echo "Unknown arg: $1"; exit 1 ;;
+    esac
+done
+
+GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
+ok()   { echo -e "  ${GREEN}✓${NC}  $1"; }
+skip() { echo -e "  ${YELLOW}↷${NC}  $1 (already done)"; }
+err()  { echo -e "  ${RED}✗${NC}  $1"; exit 1; }
+
+echo "══════════════════════════════════════════════"
+echo "  Harness-Methodology Init"
+echo "  Target : $TARGET_DIR"
+echo "══════════════════════════════════════════════"
+echo
+
+[[ -d "$TARGET_DIR/.git" ]] || err "$TARGET_DIR is not a git repository"
+
+HOOKS_DIR="$TARGET_DIR/.git/hooks"
+HOOK_MARKER="# harness-methodology"
+
+# ── Step 1: Git hooks ─────────────────────────────────────────────────────────
+if grep -q "$HOOK_MARKER" "$HOOKS_DIR/prepare-commit-msg" 2>/dev/null; then
+    skip "git hooks"
+else
+    mkdir -p "$HOOKS_DIR"
+
+    # prepare-commit-msg (blocking)
+    cat > "$HOOKS_DIR/prepare-commit-msg" << 'HOOK'
+#!/bin/bash
+# harness-methodology
+PHASE=$(git config --local --get quality.phase 2>/dev/null || echo "1")
+command -v python3 &>/dev/null || exit 0
+python3 -c "import quality_gate.cli" 2>/dev/null || exit 0
+cd "$(git rev-parse --show-toplevel)"
+python3 -m quality_gate.cli quality check-phase "$PHASE" --block || {
+    echo ""
+    echo "QUALITY GATE FAILED (Phase $PHASE)"
+    echo "Fix issues or bypass: git commit --no-verify"
+    exit 1
+}
+HOOK
+    chmod +x "$HOOKS_DIR/prepare-commit-msg"
+
+    # post-merge (non-blocking, informational)
+    cat > "$HOOKS_DIR/post-merge" << 'HOOK'
+#!/bin/bash
+# harness-methodology
+PHASE=$(git config --local --get quality.phase 2>/dev/null || echo "1")
+command -v python3 &>/dev/null || exit 0
+python3 -c "import quality_gate.cli" 2>/dev/null || exit 0
+cd "$(git rev-parse --show-toplevel)"
+python3 -m quality_gate.cli quality check-phase "$PHASE" --strict || true
+HOOK
+    chmod +x "$HOOKS_DIR/post-merge"
+
+    # pre-push (blocking, STAGE_PASS bypass)
+    cat > "$HOOKS_DIR/pre-push" << 'HOOK'
+#!/bin/bash
+# harness-methodology
+PHASE=$(git config --local --get quality.phase 2>/dev/null || echo "1")
+command -v python3 &>/dev/null || exit 0
+python3 -c "import quality_gate.cli" 2>/dev/null || exit 0
+[[ "${STAGE_PASS:-}" == "1" ]] && exit 0
+LAST_MSG=$(git log -1 --pretty=%B 2>/dev/null | head -n1 || true)
+[[ "$LAST_MSG" == *"STAGE_PASS"* ]] && exit 0
+cd "$(git rev-parse --show-toplevel)"
+python3 -m quality_gate.cli quality check-phase "$PHASE" --block || {
+    echo ""
+    echo "PRE-PUSH GATE FAILED (Phase $PHASE)"
+    echo "Fix issues or bypass: STAGE_PASS=1 git push"
+    exit 1
+}
+HOOK
+    chmod +x "$HOOKS_DIR/pre-push"
+
+    ok "git hooks installed (prepare-commit-msg | post-merge | pre-push)"
+fi
+
+# ── Step 2: quality.phase ─────────────────────────────────────────────────────
+CURRENT_PHASE=$(git -C "$TARGET_DIR" config --local quality.phase 2>/dev/null || true)
+if [[ -n "$CURRENT_PHASE" ]]; then
+    skip "quality.phase (current: $CURRENT_PHASE)"
+else
+    PHASE="${PHASE_ARG:-1}"
+    git -C "$TARGET_DIR" config quality.phase "$PHASE"
+    ok "quality.phase = $PHASE"
+fi
+
+# ── Step 3: CI workflow ───────────────────────────────────────────────────────
+CI_DEST="$TARGET_DIR/.github/workflows/harness_quality_gate.yml"
+CI_TEMPLATE="$HARNESS_DIR/templates/harness_quality_gate.yml"
+
+if [[ -f "$CI_DEST" ]]; then
+    skip ".github/workflows/harness_quality_gate.yml"
+elif [[ ! -f "$CI_TEMPLATE" ]]; then
+    echo -e "  ${YELLOW}↷${NC}  CI workflow (template not found — skipped)"
+else
+    mkdir -p "$TARGET_DIR/.github/workflows"
+    cp "$CI_TEMPLATE" "$CI_DEST"
+    ok "CI workflow → .github/workflows/harness_quality_gate.yml"
+fi
+
+echo
+echo "  Done."
+echo "  Advance phase : git config quality.phase N"
+echo "  Bypass commit : git commit --no-verify"
+echo "  Bypass push   : STAGE_PASS=1 git push"
+echo "══════════════════════════════════════════════"

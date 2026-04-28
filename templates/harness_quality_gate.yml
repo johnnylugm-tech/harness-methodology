@@ -1,0 +1,30 @@
+# Harness Quality Gate — CI workflow template
+# Auto-copied by harness-init.sh; or copy manually to your project's .github/workflows/
+#
+# Set repo variable CURRENT_PHASE (Settings → Variables → Actions) to match your phase.
+# Defaults to phase 3 if the variable is not set.
+name: Harness Quality Gate
+
+on:
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  gate-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true   # required if quality_gate/ is installed as a submodule
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Run Quality Gate (current phase)
+        env:
+          PHASE: ${{ vars.CURRENT_PHASE || '3' }}
+        run: python -m quality_gate.cli quality check-phase $PHASE --block
