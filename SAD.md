@@ -1,4 +1,4 @@
-# SAD — Harness Methodology v1.5 (As-Built — Sequential A/B + Dep-Ordered Decomposition @ 2026-04-28)
+# SAD — Harness Methodology v1.6 (As-Built — parsers/ layer + coverage 37% @ 2026-04-29)
 
 > **Sync guarantee**: This document is reverse-engineered from the live codebase.
 > Any change to the code **must** be reflected here, and vice-versa.
@@ -951,14 +951,33 @@ class KillSwitch:
 
 **Responsibility**: Concrete quality check implementations used by the gate evaluation pipeline. Subdirectory of `core/`.
 
-| File | Size | Class | Purpose |
+**Business logic modules:**
+
+| File | Class | Purpose |
+|---|---|---|
+| `ab_enforcer.py` | `ABEnforcer` | A/B enforcement; HR-12 compliance checking. Delegates parsing to `parsers.DevelopmentLogParser` |
+| `phase_truth_verifier.py` | `PhaseTruthVerifier` | Verifies phase completion truth via sessions_spawn.log, pytest, coverage, framework BLOCK |
+| `spec_tracking_checker.py` | `SpecTrackingChecker` | Tracks SPEC_TRACKING.md completeness. Delegates parsing to `parsers.SpecTrackingParser` |
+| `stage_pass_generator.py` | `IntegratedStagePassGenerator` | Generates stage pass certificates; integrates FrameworkEnforcer + ClaimsVerifier |
+| `feedback_hook.py` | `AutoQualityGateWithFeedback` | AutoQualityGate subclass that submits feedback on gate completion |
+| `constitution/__init__.py` | — | Constitution sub-package (used by `preflight_constitution`) |
+
+**Support modules (stubs/config — crg-003 additions):**
+
+| File | Purpose |
+|---|---|
+| `claims_verifier.py` | `ClaimsVerifier` + `ClaimsVerifyResult` — verifies sessions_spawn.log A/B role claims |
+| `phase_config.py` | `PHASE_CONFIG` dict — per-phase config consumed by `IntegratedStagePassGenerator` |
+| `phase_paths.py` | `PHASE_ARTIFACT_PATHS` — artifact path registry per phase |
+
+**`parsers/` sub-package** (crg-003 refactor — breaks coupling with test-parsing community):
+
+| File | Class | Extracted from | Methods |
 |---|---|---|---|
-| `ab_enforcer.py` | 16KB | `ABEnforcer` | A/B test enforcement; HR-12 compliance checking |
-| `phase_truth_verifier.py` | 13KB | `PhaseTruthVerifier` | Verifies phase completion truth conditions |
-| `spec_tracking_checker.py` | 8KB | `SpecTrackingChecker` | Tracks specification coverage across FRs |
-| `stage_pass_generator.py` | 26KB | `StagePassGenerator` | Generates stage pass certificates after gate clears |
-| `feedback_hook.py` | 1.4KB | `FeedbackHook` | Hook for injecting evaluator feedback into next round |
-| `constitution/__init__.py` | — | Package marker | Constitution sub-package (used by `preflight_constitution`) |
+| `parsers/development_log_parser.py` | `DevelopmentLogParser` | `ab_enforcer.py` | `extract_phase_content`, `extract_session`, `normalize_session` |
+| `parsers/spec_tracking_parser.py` | `SpecTrackingParser` | `spec_tracking_checker.py` | `has_table`, `has_update_log`, `find_entries_without_status`, `count_status` |
+
+> **Design invariant**: All regex / Markdown parsing lives in `parsers/`. Checker classes contain only orchestration and business logic — zero `re.search()` calls.
 
 ---
 
@@ -1574,6 +1593,8 @@ python3 -m software_self_improvement.runner
 | Gate 4 Hermes approval timeout | `harness/harness_bridge.py` | ✅ **Resolved (v2.0.2)** — `HarnessBridge.GATE4_HERMES_TIMEOUT_MS = 30_000` class constant; `_require_hermes_approve(timeout_ms=GATE4_HERMES_TIMEOUT_MS)` propagates to `ReviewerRouter.review(timeout_ms)` → `events_wait(timeout_ms=wait_ms)`. | — |
 | `enforcement.json` policy hot-reload | `enforcement/policy_engine.py` | ✅ **Resolved (v2.0.2)** — `PolicyEngine.reload_policy(json_path)` hot-reloads policies by ID from `enforcement.json`; `PolicyEngine.from_json(json_path)` classmethod for fresh engine. `harness_cli.py reload-policy` command exposes this as CLI (7th command). | — |
 | Sequential A/B + dep-ordered decomposition | `harness/reviewer_router.py` | ✅ **Resolved (v2.1)** — `_decompose_with_deps()` replaces `_maybe_decompose()`; `review()` sequential for-loop replaces list comprehension; `_enrich_with_context()` injects `approved_context`; `_topological_sort()` ensures dependency-safe order; `SubTask` dataclass tracks label/deps/index/total. | See §3.2, §4.2 |
+| crg-003: high coupling quality_gate ↔ tests-parse | `core/quality_gate/` | ✅ **Resolved** — `parsers/` sub-package extracted: `DevelopmentLogParser` from `ab_enforcer.py`, `SpecTrackingParser` from `spec_tracking_checker.py`. All regex in `parsers/`; checkers contain zero `re.search()` calls. | See §3.16 |
+| crg-004: test coverage <50% | `core/quality_gate/` | ✅ **Partially resolved** — coverage 16% → 37% (+57 new tests): parsers 100%, phase_truth_verifier 57%, feedback_hook 81%. `stage_pass_generator.py` (297 lines, 0%) deferred — requires full FrameworkEnforcer subprocess env. | — |
 
 ### 8.3 Technical Debt (Lower Priority)
 
