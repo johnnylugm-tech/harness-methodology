@@ -1,4 +1,4 @@
-# SAD — Harness Methodology v1.0 (As-Built, Reverse-Engineered from main @ 2026-04-27)
+# SAD — Harness Methodology v1.3 (As-Built — TDD Integration @ 2026-04-28)
 
 > **Sync guarantee**: This document is reverse-engineered from the live codebase.
 > Any change to the code **must** be reflected here, and vice-versa.
@@ -912,6 +912,31 @@ class KillSwitch:
 | `reporter.py` | `GapReporter` | Formats gap findings for reporting |
 | `scanner.py` | `GapScanner` | Scans codebase for coverage evidence |
 
+### §3.21 — `scripts/check_spec_trace.py` — FR Spec Trace Validator
+
+**Responsibility**: Validates that every FR-XXX ID found in SAD.md has a corresponding
+test file in the target project's `tests/` directory. Called at P4 Gate 3 entry (before SSI runner)
+to enforce 100% SPEC trace coverage. Implements the P3 TDD scaffolding contract — ensuring
+tests written in P3 Step 0 are present before P4 quality evaluation begins.
+
+**Usage** (called by `harness_bridge.run_gate(gate_num=3)` pre-flight):
+```bash
+python3 harness/scripts/check_spec_trace.py SAD.md tests/
+# Exit 0: all FRs traced → Gate 3 proceeds
+# Exit 1: untested FRs found → GateBlockedError raised before SSI runner
+```
+
+**Logic**:
+- Extracts all `\bFR-\d+\b` IDs from SAD.md
+- Scans `tests/test_fr_*.py` files for FR references (filename + content)
+- Reports: `FRs: N | Tested: M | Untested: K`
+- Exit 0 = Gate 3 may proceed | Exit 1 = Gate 3 blocked until `test_fr_XXX.py` files created
+
+**Integration**: `harness_bridge.run_gate(gate_num=3)` calls this script before `_invoke_harness()`.
+Failure raises `GateBlockedError(3, ...)` listing untested FRs. The script is in `scripts/` alongside
+`check_fr_full.py` and `verify_spec_compliance.py`.
+
+
 ---
 
 ## 4. Core Workflow Sequences
@@ -1063,6 +1088,9 @@ max_rounds: 1
 replaces: check_fr_full_layer3
 ```
 > Note: No `score_gate` — Gate 1 uses per-dimension thresholds only. No auto-iteration on failure; developer must manually fix and re-run.
+> **TDD semantic**: `test_coverage(80)` in Gate 1 requires that TDD test stubs for the FR were
+> committed **before** implementation (P3 Step 0). Coverage is measured against FR-specific
+> acceptance criteria, not just line coverage.
 
 **Gate 2** — `gate2_p3_exit.yaml` (P3 exit — all FRs complete):
 ```yaml
@@ -1233,7 +1261,7 @@ CREATE TABLE IF NOT EXISTS effort_records (
 ```json
 {
   "version": "1.2",
-  "created_at": "2026-04-27",
+  "created_at": "2026-04-28",
   "project": "harness-methodology",
   "layers": [
     {
@@ -1417,7 +1445,7 @@ python3 -m software_self_improvement.runner
 | **P1** | ~~`constitution/` package stub or real impl~~ | ✅ Done (v2.0.1) | `constitution/` implemented — `BVSRunner`, `CitationParser`, `VerificationConstitutionChecker` all deployed. | A |
 | **P2** | `harness_bridge` empirical project validation | **+1 -> 93** | First full run against a real project. Confirms Tier 1 deterministic scoring is stable and subprocess call chain works end-to-end | A (20->21) |
 | **P2** | CRG activation + empirical data | **+1 -> 94** | First real project run with CRG MCP available. Validates `min(tool, llm)` floor and `crg_metrics.json` structural signals. Currently `CRGBridge.is_available()` returns `False` in standalone mode | E (10->11) |
-| **P3** | ASPICE full traceability matrix (Phase E docs) | **+1 -> 95** | Complete `TRACEABILITY_MATRIX.md` linking all FR-01..FR-N to code modules, test cases, and gate results. Required for full ASPICE Level 2 alignment | C (15->16) |
+| **P3** | ASPICE full traceability matrix (Phase E docs) | **+1 -> 95** | `scripts/check_spec_trace.py` now automates FR→test traceability (partial). Complete `TRACEABILITY_MATRIX.md` linking FR-01..FR-N to code modules, test cases, and gate results for full ASPICE Level 2 alignment | C (15->16) |
 | **P4** | Developer-side deterministic tooling | **+1-2 -> 96** | Replace or augment Claude developer agent with static analysis pipeline (mypy strict, semgrep, complexity checker). Reduces D-dimension LLM dependency from 13/15 to 15/15 | D (13->15) |
 
 ### 8.2 Open Integration Items (Ready, No External Blockers)
