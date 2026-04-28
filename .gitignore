@@ -1,11 +1,24 @@
 .worktrees/
 
-# Quality run artifacts (committed intentionally via SKILL.md, but ignore future runs)
+# ── Quality-run runtime artifacts (never commit) ──────────────────────────
+# SKILL.md working directory — raw tool outputs, per-round JSON, scan blobs
+.sessi-work/
+# Python coverage binary
 .coverage
+# Ephemeral coverage snapshots emitted by quality runs
 coverage_r*.json
 crg_status.json
+# Methodology runtime state
 .methodology/effort_metrics.db
+.methodology/decision_logs/
+# NOTE: .methodology/enforcement.json and quality_manifest.example.json are
+#       intentional source artifacts — do NOT add them here.
+
+# ── Python build/test artifacts ────────────────────────────────────────────
 __pycache__/
 *.pyc
 *.pyo
 .pytest_cache/
+*.egg-info/
+dist/
+build/
