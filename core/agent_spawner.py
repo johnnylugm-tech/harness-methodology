@@ -77,7 +77,13 @@ class AgentSpawner:
                 result = self._get_reviewer().review(
                     role=role, prompt=full_prompt, phase=phase, fr_id=fr_id,
                 )
-                return self._parse_result(result)
+                parsed = self._parse_result(result)
+                # Surface degradation metadata to callers (for audit trail)
+                if result.get("_degraded"):
+                    parsed["_degraded"] = True
+                    parsed["_reviewer_used"] = result.get("_reviewer_used", "unknown")
+                    parsed["_degradation_note"] = result.get("_degradation_note")
+                return parsed
             # effective == "claude" for P7/P8 — fall through to Task tool
 
         # Claude Code Task tool (replaces OpenClaw sessions_spawn)

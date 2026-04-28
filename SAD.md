@@ -1,4 +1,4 @@
-# SAD — Harness Methodology v1.3 (As-Built — TDD Integration @ 2026-04-28)
+# SAD — Harness Methodology v1.4 (As-Built — A/B Chain Optimization @ 2026-04-28)
 
 > **Sync guarantee**: This document is reverse-engineered from the live codebase.
 > Any change to the code **must** be reflected here, and vice-versa.
@@ -225,37 +225,39 @@ class HarnessBridge:
 
 ---
 
-### 3.2 `harness/reviewer_router.py` — Reviewer Proxy
+### 3.2 `harness/reviewer_router.py` — Reviewer Proxy (v2.0)
 
-**Responsibility**: Routes review requests to heterogeneous backend via Hermes MCP. Hermes is the sole reviewer path; Gemini has been removed from the reviewer chain (since v1.3).
+**Responsibility**: Routes review requests through a **priority-ordered chain** of backends
+(Hermes MCP → Gemini CLI MCP → sub-agent). Supports auto-decomposition of large/complex tasks
+and graceful degradation with full audit trail. Replaces single-Hermes-only v1.3 model.
 
-**Module-level constants & functions**:
+**Module-level constants** (all overridable via env vars):
+
+| Constant | Env Var | Default | Purpose |
+|---|---|---|---|
+| `HERMES_TARGET` | `HERMES_REVIEWER_TARGET` | `""` | Hermes channel (e.g. `telegram:6308981865`) |
+| `HERMES_TIMEOUT_MS` | `HERMES_TIMEOUT_MS` | `90000` | Hermes wait timeout (ms) — per CLAUDE.md protocol |
+| `GEMINI_TIMEOUT_MS` | `GEMINI_TIMEOUT_MS` | `60000` | Gemini CLI MCP timeout (ms) |
+| `TASK_SIZE_THRESHOLD` | `TASK_SIZE_THRESHOLD` | `2000` | Chars above which task is auto-decomposed |
+| `SUBTASK_MAX_SIZE` | `SUBTASK_MAX_SIZE` | `800` | Target chars per subtask after decompose |
+| `REVIEWER_CHAIN_CONFIG` | `REVIEWER_CHAIN` | `"hermes,gemini"` | Priority-ordered chain; `subagent` always appended |
 
 ```python
-HERMES_TARGET = os.environ.get("HERMES_REVIEWER_TARGET", "")
-HERMES_TIMEOUT_MS = int(os.environ.get("HERMES_TIMEOUT_MS", "120000"))  # default 120 s
-_CLAUDE_PHASES = {7, 8}   # Risk Assessment + Config Mgmt stay on Claude
-
-REVIEWER_POLICY = {
-    "default": "hermes",
-    "p7_risk": "claude",
-    "p8_config": "claude",
-}
-
 def get_reviewer_model(phase: int, role: str = "reviewer") -> str:
     """Returns 'claude' if phase in {7, 8}, else REVIEWER_POLICY[role] (defaults to 'hermes')."""
     return "claude" if phase in _CLAUDE_PHASES else REVIEWER_POLICY.get(role, "hermes")
 ```
 
-> **Note**: `reviewer_router.py`'s `review()` method always routes to Hermes. P7/P8 phase routing to Claude is enforced at the caller level — `agent_spawner.spawn()` calls `get_reviewer_model(phase, role)` before dispatching to `ReviewerRouter` (see §3.7).
+> **Note**: P7/P8 phase routing to Claude is enforced at the caller level — `agent_spawner.spawn()`
+> calls `get_reviewer_model(phase, role)` before dispatching to `ReviewerRouter` (see §3.7).
 
 **Public API**:
 
 ```python
 class ReviewerRouter:
-    def __init__(self, target: str = HERMES_TARGET):
-        # Raises ValueError if target is empty string
-        # e.g. export HERMES_REVIEWER_TARGET=telegram:6308981865
+    def __init__(self, target: str = HERMES_TARGET, chain_config: str = REVIEWER_CHAIN_CONFIG):
+        # target: Hermes channel (empty string OK if hermes not in chain)
+        # chain_config: "hermes,gemini" | "hermes" | "gemini" (subagent always appended)
 
     def review(
         self,
@@ -263,19 +265,53 @@ class ReviewerRouter:
         prompt: str,
         phase: int,
         fr_id: str | None = None,
+        timeout_ms: int | None = None,
     ) -> dict:
         # Returns: {"review_status": "APPROVE|REJECT", "confidence": 0-1,
-        #           "violations": [], "summary": ""}
+        #           "violations": [], "summary": "",
+        #           "_reviewer_used": "hermes|gemini|subagent",
+        #           "_degraded": bool,        # True if primary(s) timed out
+        #           "_degradation": list,     # [{reviewer, reason}, ...]
+        #           "_degradation_note": str} # human-readable degradation summary
 ```
 
-**`review()` execution sequence**:
-1. Check `_HERMES_AVAILABLE` (import guard) → raise `RuntimeError` if False
-2. `full_prompt = self._build_prompt(role, prompt, phase, fr_id)`
-3. `mcp__hermes__messages_send(target=self.target, message=full_prompt)`
-4. `mcp__hermes__events_wait(session_key=self.target, timeout_ms=HERMES_TIMEOUT_MS)` — long-poll
-5. `msgs = mcp__hermes__messages_read(session_key=self.target, limit=1)`
-6. `raw = msgs[-1]["content"] if msgs else ""`
-7. `return self._parse_response(raw)`
+**Priority chain execution** (`_try_chain`):
+```
+For each ReviewerSpec in chain (hermes → gemini → subagent):
+  1. hermes: send → events_wait(90s) → messages_read → parse
+             TimeoutError on: events_wait fail | messages_read "Session database unavailable" | no msgs
+  2. gemini: mcp__gemini_cli__ask_gemini → clean hook contamination → parse
+             RuntimeError on: import fail | API error
+  3. subagent: AgentSpawner.spawn(model="claude") — always succeeds
+               Returns _degraded=True if any previous step failed
+
+On timeout/error: log to _degradation, try next in chain.
+```
+
+**Task decomposition** (`_maybe_decompose`):
+```
+IF len(prompt) <= TASK_SIZE_THRESHOLD (2000 chars):
+    → no decomposition, single review call
+
+IF prompt contains multiple FR-XXX references:
+    → Strategy 1: split on FR boundaries, one subtask per FR
+       Valid only if all subtasks ≤ TASK_SIZE_THRESHOLD
+
+ELSE:
+    → Strategy 2: paragraph-boundary split targeting SUBTASK_MAX_SIZE (800 chars)
+
+Multi-subtask results merged: any REJECT → REJECT; confidence = min; violations = union
+```
+
+**`review()` execution sequence** (v2.0 — chain-aware):
+1. `_maybe_decompose(prompt)` → single task or list of subtasks
+2. If multi-subtask → call `_try_chain` per subtask → `_merge_results`
+3. `_try_chain` iterates `self._chain` (ReviewerSpec list) in priority order:
+   - hermes: `_try_hermes(prompt, timeout_ms)` — raises `TimeoutError` on any failure
+   - gemini: `_try_gemini(prompt, timeout_ms)` — raises `RuntimeError` on any failure
+   - subagent: `_try_subagent(role, prompt, phase, fr_id)` — always returns
+4. On exception: append to `degradation_log`, continue to next spec
+5. First success: set `_reviewer_used`, embed `degradation_log`, return result
 
 **`_build_prompt(role, prompt, phase, fr_id=None) -> str`**:
 ```
@@ -977,21 +1013,40 @@ AgentSpawner.spawn(model="hermes", role="Reviewer", prompt, context, phase, fr_i
   │
   └─ ReviewerRouter.review(role, full_prompt, phase, fr_id)
        │
-       ├─ 1. _build_prompt() → "[Harness Reviewer | Phase N | FR X]\nRole: ...\n{prompt}\nOutput JSON: ..."
+       ├─ 1. _maybe_decompose(prompt) → [prompt] | [subtask_1, subtask_2, ...]
+       │      IF len(prompt) > 2000 chars:
+       │        Strategy A: split by FR-XXX boundaries (one subtask per FR)
+       │        Strategy B: split at paragraph boundaries (≤800 chars/subtask)
        │
-       ├─ 2. mcp__hermes__messages_send(target=HERMES_TARGET, message=full_prompt)
+       ├─ 2. For each subtask → _try_chain(role, subtask, phase, fr_id)
        │
-       ├─ 3. mcp__hermes__events_wait(session_key=HERMES_TARGET, timeout_ms=120000)
-       │      └─ Long-poll (default 120 s)
+       │    _try_chain priority loop:
+       │    ├─ [P1] Hermes MCP (HERMES_TIMEOUT_MS = 90000ms):
+       │    │    ├─ mcp__hermes__messages_send(target, prompt)
+       │    │    ├─ mcp__hermes__events_wait(timeout_ms=90000)
+       │    │    │    └─ Timeout/error → TimeoutError → try P2
+       │    │    ├─ mcp__hermes__messages_read(limit=1)
+       │    │    │    └─ "Session database unavailable" → TimeoutError → try P2
+       │    │    └─ No msgs → TimeoutError → try P2
+       │    │
+       │    ├─ [P2] Gemini CLI MCP (GEMINI_TIMEOUT_MS = 60000ms):
+       │    │    ├─ mcp__gemini_cli__ask_gemini(prompt, model="gemini-2.5-flash")
+       │    │    ├─ _clean_gemini_response() → strip ECC hook contamination
+       │    │    └─ RuntimeError on any failure → try P3
+       │    │
+       │    └─ [P3] Sub-agent (graceful degradation — always succeeds):
+       │         ├─ AgentSpawner.spawn(model="claude", ...) — lazy import (no circular)
+       │         ├─ result["_degraded"] = True
+       │         └─ result["_degradation_note"] = "[DEGRADED] Fell back to sub-agent after: ..."
        │
-       ├─ 4. msgs = mcp__hermes__messages_read(session_key=HERMES_TARGET, limit=1)
-       │
-       ├─ 5. raw = msgs[-1]["content"] if msgs else ""
-       │
-       └─ 6. _parse_response(raw)
-              ├─ Success: json.loads(re.search(r"\{.*\}", raw, re.DOTALL).group())
-              └─ Failure: {"review_status": "REJECT", "confidence": 0.0,
-                           "violations": ["parse_error"], "summary": raw[:200]}
+       └─ 3. _merge_results([subtask_results]):
+              ├─ Any REJECT → short-circuit return REJECT
+              ├─ confidence = min(all subtask confidences)
+              ├─ violations = union(all violations)
+              └─ summary = " | ".join(all summaries)
+
+Result keys: review_status, confidence, violations, summary,
+             _reviewer_used, _degraded, _degradation, _degradation_note
 ```
 
 ### 4.3 Quality Manifest Generation (P2 exit)
