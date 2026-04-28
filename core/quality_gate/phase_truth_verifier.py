@@ -21,14 +21,18 @@ import json
 import sys
 import re
 from pathlib import Path
-from quality_gate.phase_paths import PHASE_ARTIFACT_PATHS
 from typing import Dict, List, Tuple
 
-# Ensure methodology-v2 root is in sys.path for enforcement import
+# Ensure core/ is on sys.path so sibling quality_gate.* imports resolve
 _script_dir = Path(__file__).resolve().parent  # quality_gate/
-_methodology_root = _script_dir.parent  # methodology-v2/
+_methodology_root = _script_dir.parent         # core/
 if str(_methodology_root) not in sys.path:
     sys.path.insert(0, str(_methodology_root))
+
+try:
+    from core.quality_gate.phase_paths import PHASE_ARTIFACT_PATHS
+except ImportError:
+    from quality_gate.phase_paths import PHASE_ARTIFACT_PATHS  # type: ignore[no-redef]
 
 
 class PhaseTruthVerifier:

@@ -18,6 +18,8 @@ import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from core.quality_gate.parsers import DevelopmentLogParser
+
 
 class ABEnforcer:
     """
@@ -283,91 +285,18 @@ class ABEnforcer:
             "qa_not_developer": self.verify_qa_not_developer() if phase == 4 else None
         }
     
+    # ------------------------------------------------------------------
+    # Parsing — delegated to DevelopmentLogParser (crg-003)
+    # ------------------------------------------------------------------
+
     def _extract_phase_content(self, content: str, phase: str) -> Optional[str]:
-        """
-        Extract specific Phase content from DEVELOPMENT_LOG
-        
-        Args:
-            content: full content
-            phase: Phase identifier
-            
-        Returns:
-            Optional[str]: content for that Phase, or None if not found
-        """
-        # Ensure phase_str format is correct
-        phase_num = phase.split('_')[1] if '_' in phase else phase
-        
-        # Try multiple matching patterns
-        patterns = [
-            rf"##\s*Phase\s*{phase_num}.*?(?=##\s*Phase|$)",
-            rf"(?:#{{1,6}}\s*)?[Pp]hase\s*{phase_num}.*?(?=(?:#{{1,6}}\s*)?[Pp]hase\s*\d|$)",
-        ]
-        
-        for pattern in patterns:
-            match = re.search(pattern, content, re.DOTALL | re.IGNORECASE)
-            if match:
-                return match.group(0)
-        
-        return None
-    
+        return DevelopmentLogParser.extract_phase_content(content, phase)
+
     def _extract_session(self, content: str, role: str) -> Optional[str]:
-        """
-        Extract specific role session from content
-        
-        Args:
-            content: content
-            role: role (developer, reviewer, tester, qa)
-            
-        Returns:
-            Optional[str]: session identifier
-        """
-        # Prioritize finding session_id
-        session_patterns = [
-            rf"[Ss]ession[-]?[Ii][Dd][:]\s*([a-zA-Z0-9-]+)",
-            rf"[Rr]untime[:]\s*[Ss]ub[-]?[Aa]gent.*?[Ss]ession",
-            rf"{role}.*?[Ss]ession[:]\s*([a-zA-Z0-9-]+)",
-            rf"[Ss]ub[-]?[Aa]gent.*?{role}.*?([a-zA-Z0-9-]+)",
-        ]
-        
-        for pattern in session_patterns:
-            match = re.search(pattern, content, re.IGNORECASE)
-            if match:
-                return match.group(1)
-        
-        # If no session_id, try role name as marker
-        role_patterns = [
-            rf"[Dd]eveloper\s*[Aa]gent",
-            rf"[Rr]eviewer\s*[Aa]gent",
-            rf"[Tt]ester\s*[Aa]gent",
-            rf"[Qq][Aa]\s*[Aa]gent",
-        ]
-        
-        role_lower = role.lower()
-        for pattern in role_patterns:
-            if role_lower in pattern.lower():
-                if re.search(pattern, content, re.IGNORECASE):
-                    return f"inferred_{role_lower}_agent"
-        
-        return None
-    
+        return DevelopmentLogParser.extract_session(content, role)
+
     def _normalize_session(self, session: str) -> str:
-        """
-        Normalize session identifier for comparison
-        
-        Args:
-            session: session identifier
-            
-        Returns:
-            str: normalized identifier
-        """
-        if not session:
-            return ""
-        
-        # Remove special chars, convert to lowercase
-        normalized = re.sub(r'[^a-zA-Z0-9]', '', session.lower())
-        
-        # If starts with inferred_, keep it for identification
-        return normalized
+        return DevelopmentLogParser.normalize_session(session)
 
 
 # ===== Quick Function Entry Points =====

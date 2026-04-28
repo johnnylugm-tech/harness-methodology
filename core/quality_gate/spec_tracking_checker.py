@@ -14,6 +14,8 @@ import re
 from typing import Dict, List, Optional
 from pathlib import Path
 
+from core.quality_gate.parsers import SpecTrackingParser
+
 
 class SpecTrackingChecker:
     """Specification tracking completeness checker"""
@@ -78,34 +80,18 @@ class SpecTrackingChecker:
             "errors": errors
         }
     
+    # ------------------------------------------------------------------
+    # Parsing — delegated to SpecTrackingParser (crg-003)
+    # ------------------------------------------------------------------
+
     def _has_table(self, content: str, table_name: str) -> bool:
-        """Check if specified table exists"""
-        pattern = rf"{table_name}.*\|.*\|"
-        return bool(re.search(pattern, content, re.DOTALL))
-    
+        return SpecTrackingParser.has_table(content, table_name)
+
     def _has_update_log(self, content: str) -> bool:
-        """Check if update log exists"""
-        return ("Update log" in content) and "Date" in content and "|" in content
-    
+        return SpecTrackingParser.has_update_log(content)
+
     def _find_entries_without_status(self, content: str) -> List[str]:
-        """Find entries without status"""
-        entries = []
-        # Find all table rows
-        lines = content.split("\n")
-        for line in lines:
-            if "|" in line and not line.strip().startswith("|"):
-                # Check if data row (not header or separator)
-                parts = [p.strip() for p in line.split("|")]
-                if len(parts) >= 4 and not any(x in parts[1] for x in ["Spec", "Requirement", "Item"]):
-                    # Check if last non-empty column is status
-                    status_col = None
-                    for p in reversed(parts):
-                        if p:
-                            status_col = p
-                            break
-                    if status_col and not any(x in status_col for x in ["✅", "⚠️", "❌", "Done", "Pending", "Not Implemented"]):
-                        entries.append(parts[1] if len(parts) > 1 else "Unknown")
-        return entries
+        return SpecTrackingParser.find_entries_without_status(content)
     
     def run(self) -> bool:
         """Run specification tracking check (backward-compatible, returns bool)"""
@@ -188,22 +174,7 @@ class SpecTrackingChecker:
                 print(f"  {status}: {count}")
     
     def _count_status(self, content: str) -> Dict[str, int]:
-        """Count entries per status"""
-        stats = {
-            "✅ Done": 0,
-            "⚠️ Pending": 0,
-            "❌ Not Implemented": 0
-        }
-        
-        for line in content.split("\n"):
-            if "✅" in line:
-                stats["✅ Done"] += 1
-            elif "⚠️" in line:
-                stats["⚠️ Pending"] += 1
-            elif "❌" in line:
-                stats["❌ Not Implemented"] += 1
-        
-        return stats
+        return SpecTrackingParser.count_status(content)
 
 
 def main():
