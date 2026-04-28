@@ -1,7 +1,7 @@
-# Harness Methodology — User Manual v1.0
+# Harness Methodology — User Manual v2.0
 
 > **Audience**: Engineers using Claude (AI agent) + harness-methodology to execute software development projects.
-> **Framework version**: v6.102.0 | **Document date**: 2026-04-27
+> **Framework version**: v2.0 | **Document date**: 2026-04-28
 
 ---
 
@@ -18,6 +18,7 @@
 9. [CLI Reference](#9-cli-reference)
 10. [Environment Variables](#10-environment-variables)
 11. [Troubleshooting](#11-troubleshooting)
+12. [GitHub Integration Setup](#12-github-integration-setup)
 
 ---
 
@@ -74,6 +75,11 @@ export HERMES_REVIEWER_TARGET=telegram:YOUR_CHAT_ID   # or other target
 
 # CRG (Code Review Graph) — optional, enhances Gate 3/4 scoring
 # Gracefully skipped if not installed
+
+# Git hooks (target-project integration) — run ONCE in your target project root
+bash /path/to/harness-methodology/scripts/setup-git-hooks.sh
+git config quality.phase 3   # update each time you advance a phase
+# After this: git commit / push / PR all trigger harness checks automatically
 ```
 
 ### 2.3 Project Directory Structure
@@ -94,6 +100,27 @@ your-project/
 
 > **Note**: `harness_cli.py` refers to the *project root* with `--project` or `--repo`.
 > The harness-methodology repo itself is the *framework* — keep them separate.
+
+### 2.4 GitHub Integration — Invisible Mode
+
+> **TL;DR**: One-time setup → harness runs in the background forever. Developers just use `git` normally — no extra commands needed.
+
+```
+One-time setup                      Automatic thereafter
+────────────────────────────────────────────────────────────
+setup-git-hooks.sh           →  hooks fire on every commit / merge / push
+Add CI YAML to target repo   →  gate check on every PR (blocks merge if fail)
+Set DRIFT_PROJECT_PATH       →  drift alert every hour (log / email / Slack)
+```
+
+| Trigger | Mechanism | Blocking? |
+|---|---|---|
+| `git commit` | `prepare-commit-msg` hook — phase-aware gate check | ✅ blocks commit |
+| `git merge` | `post-merge` hook — drift detection | ❌ log only |
+| `git push` | `pre-push` hook — full phase gate | ✅ blocks push |
+| PR opened | CI workflow `quality check-phase $PHASE` | ✅ blocks merge |
+
+> **Full setup guide**: [§12 GitHub Integration Setup](#12-github-integration-setup) | [INTEGRATION.md](../INTEGRATION.md)
 
 ---
 
@@ -668,6 +695,42 @@ Claude 策略：
 ❌ run-gate   — 需要 SSI（會顯示安裝提示）
 ```
 
+### 8.7 提供 GitHub Repo — 自動套用 Harness（無感模式）
+
+**目標**：只要給 Claude 一個 GitHub repo URL，harness 自動套用，開發者日常工作流程完全不受影響。
+
+```
+使用者：
+這是我的目標專案：https://github.com/myorg/myproject
+目前在 Phase 3（實作階段）。
+請幫我套用 harness-methodology 的 GitHub 整合。
+
+Claude 會依序確認並執行：
+1. quality_gate/ 可 import（submodule / clone+PYTHONPATH / 直接複製）
+2. setup-git-hooks.sh 安裝 hooks 到目標專案 .git/hooks/
+3. git config quality.phase 3
+4. 建立 CI workflow（.github/workflows/harness_quality_gate.yml）
+5. 確認 DRIFT_PROJECT_PATH（可選）
+```
+
+**設定完成後的開發者體驗（完全透明）：**
+```
+✅ git commit  → 自動 phase check（不通過則阻擋 + 提示修復指令）
+✅ git push    → 自動 pre-push gate（同上）
+✅ PR 開啟     → CI 自動執行 gate check（不通過則阻擋 merge）
+✅ 每小時      → drift monitor 自動偵測架構偏移
+❌ 不需要手動執行任何 harness 指令於日常開發
+```
+
+**若 Claude 無本地存取（pure chat mode）**，提供一次性指令：
+```bash
+cd /your/target/project
+git submodule add https://github.com/johnnylugm-tech/harness-methodology harness
+bash harness/scripts/setup-git-hooks.sh
+git config quality.phase 3
+```
+
+
 ---
 
 ## 9. CLI Reference
@@ -834,6 +897,66 @@ python harness_cli.py run-phase --phase 3 --project /project --force
 
 ---
 
+## 12. GitHub Integration Setup
+
+> **Quick answer**: Run `setup-git-hooks.sh` once in your target project. After that, harness is invisible — git hooks and CI enforce quality gates automatically on every commit / push / PR.
+
+### 12.1 One-Time Setup Checklist
+
+```bash
+# ── Step 1: Make quality_gate/ importable in your target project ───────────────
+# Option A — git submodule (recommended, tracks framework updates)
+cd /your/target/project
+git submodule add https://github.com/johnnylugm-tech/harness-methodology harness
+
+# Option B — clone + PYTHONPATH (no submodule overhead)
+git clone https://github.com/johnnylugm-tech/harness-methodology ~/.harness
+echo 'export PYTHONPATH=~/.harness:$PYTHONPATH' >> ~/.zshrc   # or .bashrc
+
+# Option C — copy quality_gate/ only (minimal footprint, no auto-update)
+cp -r /path/to/harness-methodology/quality_gate /your/target/project/
+
+# ── Step 2: Install git hooks ──────────────────────────────────────────────────
+bash /path/to/harness-methodology/scripts/setup-git-hooks.sh
+# (if using submodule: bash harness/scripts/setup-git-hooks.sh)
+
+# ── Step 3: Set current phase ──────────────────────────────────────────────────
+git config quality.phase 3   # update each time you advance a phase
+
+# ── Step 4: Add CI workflow (optional but recommended) ────────────────────────
+# Copy sample YAML from INTEGRATION.md §4 to:
+#   .github/workflows/harness_quality_gate.yml
+```
+
+### 12.2 Verify Setup
+
+```bash
+git config quality.phase                              # → current phase number
+ls .git/hooks/prepare-commit-msg .git/hooks/pre-push  # → both should exist
+python3 -c "import quality_gate.cli; print('OK')"    # → OK
+```
+
+### 12.3 Phase Transition
+
+After advancing from Phase N → N+1:
+```bash
+git config quality.phase N+1
+# hooks automatically enforce Phase N+1 gates from the next commit onward
+```
+
+### 12.4 Emergency Bypass
+
+```bash
+# Skip pre-push gate for one push:
+STAGE_PASS=1 git push
+
+# Skip commit-msg hook for one commit (use sparingly):
+git commit --no-verify -m "emergency fix"
+```
+
+> **Full reference**: [INTEGRATION.md](../INTEGRATION.md) — all 3 dependency options, CI YAML, drift monitor cron, environment variables, phase transition checklist.
+
+
 ## Appendix — Gate Score Formula
 
 Gate 2/3/4 composite score = weighted average of all dimension scores:
@@ -852,4 +975,4 @@ Gate 1 uses per-dimension pass/fail, not composite score.
 
 ---
 
-*Generated by harness-methodology framework. Keep in sync with code changes.*
+*Harness Methodology v2.0 | User Manual | [INTEGRATION.md](../INTEGRATION.md) | [SAD.md](../SAD.md)*
