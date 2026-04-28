@@ -1,0 +1,121 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.9.6, pytest-8.4.2, pluggy-1.6.0
+benchmark: 5.2.3 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
+rootdir: /Users/johnny/.gemini/tmp/johnny/harness-methodology
+plugins: anyio-4.12.1, benchmark-5.2.3, asyncio-1.2.0, cov-7.1.0, hypothesis-6.141.1
+asyncio: mode=strict, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 58 items
+
+tests/test_agent_spawner.py ......                                       [ 10%]
+tests/test_decision_log.py ........                                      [ 24%]
+tests/test_drift_detector.py ....                                        [ 31%]
+tests/test_ensemble_scorer.py ....                                       [ 37%]
+tests/test_harness_bridge.py ....                                        [ 44%]
+tests/test_pattern_matcher.py ....                                       [ 51%]
+tests/test_requirement_traceability.py ....                              [ 58%]
+tests/test_reviewer_router.py F............                              [ 81%]
+tests/test_spec_contract.py F.F.F..F                                     [ 94%]
+tests/test_task_splitter.py ...                                          [100%]
+
+=================================== FAILURES ===================================
+________________ TestReviewerRouter.test_raises_when_no_target _________________
+
+self = <tests.test_reviewer_router.TestReviewerRouter object at 0x1072e2250>
+
+    def test_raises_when_no_target(self):
+        from harness.reviewer_router import ReviewerRouter
+        with pytest.raises(ValueError, match="HERMES_REVIEWER_TARGET"):
+>           ReviewerRouter(target="")
+E           Failed: DID NOT RAISE <class 'ValueError'>
+
+tests/test_reviewer_router.py:20: Failed
+_____________________ test_harness_cli_plan_phase_contract _____________________
+
+    @pytest.mark.spec
+    def test_harness_cli_plan_phase_contract():
+        """SPEC: python harness_cli.py plan-phase --phase 3 exists and runs."""
+        # RED state: Check if CLI responds
+        result = subprocess.run(["python3", "harness_cli.py", "plan-phase", "--phase", "3", "--output", "plan_tmp.md"], capture_output=True, text=True)
+>       assert result.returncode == 0
+E       AssertionError: assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['python3', 'harness_cli.py', 'plan-phase', '--phase', '3', '--output', 'plan_tmp.md'], returnco...rse_srs_fr_sections\n    if not srs_path.exists():\nAttributeError: \'NoneType\' object has no attribute \'exists\'\n').returncode
+
+tests/test_spec_contract.py:10: AssertionError
+_______________________ test_kill_switch_safety_contract _______________________
+
+    @pytest.mark.spec
+    def test_kill_switch_safety_contract():
+        """SPEC: KillSwitch module must be present and functional."""
+        from kill_switch.kill_switch import KillSwitch
+        ks = KillSwitch()
+>       assert hasattr(ks, 'check')
+E       AssertionError: assert False
+E        +  where False = hasattr(<kill_switch.kill_switch.KillSwitch object at 0x1073442b0>, 'check')
+
+tests/test_spec_contract.py:28: AssertionError
+_____________________ test_reviewer_router_proxy_contract ______________________
+
+    @pytest.mark.spec
+    def test_reviewer_router_proxy_contract():
+        """SPEC: ReviewerRouter implements proxy to Hermes MCP."""
+        from harness.reviewer_router import ReviewerRouter
+        router = ReviewerRouter()
+>       assert hasattr(router, 'request_review')
+E       AssertionError: assert False
+E        +  where False = hasattr(<harness.reviewer_router.ReviewerRouter object at 0x107375eb0>, 'request_review')
+
+tests/test_spec_contract.py:44: AssertionError
+__________________ test_decision_log_writer_artifact_contract __________________
+
+    @pytest.mark.spec
+    def test_decision_log_writer_artifact_contract():
+        """SPEC: DecisionLogWriter produces YAML per-decision."""
+>       from core.decision_log_writer import DecisionLogWriter
+E       ModuleNotFoundError: No module named 'core.decision_log_writer'
+
+tests/test_spec_contract.py:61: ModuleNotFoundError
+=============================== warnings summary ===============================
+tests/test_spec_contract.py:5
+  /Users/johnny/.gemini/tmp/johnny/harness-methodology/tests/test_spec_contract.py:5: PytestUnknownMarkWarning: Unknown pytest.mark.spec - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.spec
+
+tests/test_spec_contract.py:14
+  /Users/johnny/.gemini/tmp/johnny/harness-methodology/tests/test_spec_contract.py:14: PytestUnknownMarkWarning: Unknown pytest.mark.spec - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.spec
+
+tests/test_spec_contract.py:23
+  /Users/johnny/.gemini/tmp/johnny/harness-methodology/tests/test_spec_contract.py:23: PytestUnknownMarkWarning: Unknown pytest.mark.spec - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.spec
+
+tests/test_spec_contract.py:30
+  /Users/johnny/.gemini/tmp/johnny/harness-methodology/tests/test_spec_contract.py:30: PytestUnknownMarkWarning: Unknown pytest.mark.spec - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.spec
+
+tests/test_spec_contract.py:39
+  /Users/johnny/.gemini/tmp/johnny/harness-methodology/tests/test_spec_contract.py:39: PytestUnknownMarkWarning: Unknown pytest.mark.spec - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.spec
+
+tests/test_spec_contract.py:46
+  /Users/johnny/.gemini/tmp/johnny/harness-methodology/tests/test_spec_contract.py:46: PytestUnknownMarkWarning: Unknown pytest.mark.spec - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.spec
+
+tests/test_spec_contract.py:53
+  /Users/johnny/.gemini/tmp/johnny/harness-methodology/tests/test_spec_contract.py:53: PytestUnknownMarkWarning: Unknown pytest.mark.spec - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.spec
+
+tests/test_spec_contract.py:58
+  /Users/johnny/.gemini/tmp/johnny/harness-methodology/tests/test_spec_contract.py:58: PytestUnknownMarkWarning: Unknown pytest.mark.spec - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.spec
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================================ tests coverage ================================
+_______________ coverage: platform darwin, python 3.9.6-final-0 ________________
+
+Coverage JSON written to file coverage_r1.json
+=========================== short test summary info ============================
+FAILED tests/test_reviewer_router.py::TestReviewerRouter::test_raises_when_no_target
+FAILED tests/test_spec_contract.py::test_harness_cli_plan_phase_contract - As...
+FAILED tests/test_spec_contract.py::test_kill_switch_safety_contract - Assert...
+FAILED tests/test_spec_contract.py::test_reviewer_router_proxy_contract - Ass...
+FAILED tests/test_spec_contract.py::test_decision_log_writer_artifact_contract
+=================== 5 failed, 53 passed, 8 warnings in 1.36s ===================
