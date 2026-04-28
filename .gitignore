@@ -1,1 +1,11 @@
 .worktrees/
+
+# Quality run artifacts (committed intentionally via SKILL.md, but ignore future runs)
+.coverage
+coverage_r*.json
+crg_status.json
+.methodology/effort_metrics.db
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/

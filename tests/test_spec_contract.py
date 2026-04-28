@@ -41,7 +41,7 @@ def test_reviewer_router_proxy_contract():
     """SPEC: ReviewerRouter implements proxy to Hermes MCP."""
     from harness.reviewer_router import ReviewerRouter
     router = ReviewerRouter()
-    assert hasattr(router, 'request_review')
+    assert hasattr(router, 'review')
 
 @pytest.mark.spec
 def test_github_actions_ci_contract():
