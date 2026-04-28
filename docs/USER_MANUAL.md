@@ -726,8 +726,7 @@ Claude 會依序確認並執行：
 ```bash
 cd /your/target/project
 git submodule add https://github.com/johnnylugm-tech/harness-methodology harness
-bash harness/scripts/setup-git-hooks.sh
-git config quality.phase 3
+bash harness/scripts/harness-init.sh --phase 1   # idempotent — safe to re-run
 ```
 
 
@@ -899,33 +898,54 @@ python harness_cli.py run-phase --phase 3 --project /project --force
 
 ## 12. GitHub Integration Setup
 
-> **Quick answer**: Run `setup-git-hooks.sh` once in your target project. After that, harness is invisible — git hooks and CI enforce quality gates automatically on every commit / push / PR.
+> **Quick answer**: Run `harness-init.sh` once in your target project. It is fully idempotent — safe to embed in any init script (Makefile, setup.sh, CI bootstrap). Already-done steps are skipped automatically.
 
-### 12.1 One-Time Setup Checklist
+### 12.1 One-Time Setup (Idempotent)
+
+**Step 0 — install `quality_gate/` module** (once per machine, not per project):
 
 ```bash
-# ── Step 1: Make quality_gate/ importable in your target project ───────────────
-# Option A — git submodule (recommended, tracks framework updates)
+# Option A — git submodule (recommended)
 cd /your/target/project
 git submodule add https://github.com/johnnylugm-tech/harness-methodology harness
 
-# Option B — clone + PYTHONPATH (no submodule overhead)
+# Option B — global clone + PYTHONPATH (add to .zshrc/.bashrc)
 git clone https://github.com/johnnylugm-tech/harness-methodology ~/.harness
-echo 'export PYTHONPATH=~/.harness:$PYTHONPATH' >> ~/.zshrc   # or .bashrc
+echo 'export PYTHONPATH=~/.harness:$PYTHONPATH' >> ~/.zshrc
 
-# Option C — copy quality_gate/ only (minimal footprint, no auto-update)
+# Option C — copy quality_gate/ into project
 cp -r /path/to/harness-methodology/quality_gate /your/target/project/
+```
 
-# ── Step 2: Install git hooks ──────────────────────────────────────────────────
-bash /path/to/harness-methodology/scripts/setup-git-hooks.sh
-# (if using submodule: bash harness/scripts/setup-git-hooks.sh)
+**Steps 1–3 — run the init script** (idempotent, safe to re-run):
 
-# ── Step 3: Set current phase ──────────────────────────────────────────────────
-git config quality.phase 3   # update each time you advance a phase
+```bash
+# From inside your target project:
+bash /path/to/harness-methodology/scripts/harness-init.sh --phase 1
 
-# ── Step 4: Add CI workflow (optional but recommended) ────────────────────────
-# Copy sample YAML from INTEGRATION.md §4 to:
-#   .github/workflows/harness_quality_gate.yml
+# If using submodule (Option A above):
+bash harness/scripts/harness-init.sh --phase 1
+
+# Output (first run):
+#   ✓  git hooks installed (prepare-commit-msg | post-merge | pre-push)
+#   ✓  quality.phase = 1
+#   ✓  CI workflow → .github/workflows/harness_quality_gate.yml
+
+# Output (subsequent runs — all skipped, no side effects):
+#   ↷  git hooks (already done)
+#   ↷  quality.phase (already done)
+#   ↷  .github/workflows/harness_quality_gate.yml (already done)
+```
+
+**Embed in project init scripts:**
+```makefile
+# Makefile
+init:
+	bash harness/scripts/harness-init.sh --phase 1
+```
+```bash
+# setup.sh
+bash "$(dirname "$0")/harness/scripts/harness-init.sh" --phase 1
 ```
 
 ### 12.2 Verify Setup
