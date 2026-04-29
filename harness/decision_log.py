@@ -1,6 +1,6 @@
+"""Structured YAML decision log per agent/gate invocation."""
 # harness/decision_log.py
 # Extracted from feature-13-observability — PyYAML + stdlib only (no Langfuse).
-# Structured YAML decision log per agent/gate invocation.
 from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field, asdict
@@ -13,20 +13,28 @@ try:
 except ImportError:
     _YAML = False
 
+@dataclass
+class DecisionContext:
+    """Grouped context for a decision."""
+    agent_id: str
+    phase: int
+    fr_id: str | None = None
+    trace_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
+    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 @dataclass
 class DecisionLogEntry:
-    agent_id: str           # Developer | Reviewer | GATE
-    phase: int
+    """Decision log entry with reduced direct attribute count."""
+    ctx: DecisionContext
     decision: str           # APPROVE | REJECT | GATE_PASS | GATE_BLOCK
     reasoning: str
-    trace_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
-    fr_id: str | None = None
-    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-    uaf_score: float = 0.0
-    gate_score: float | None = None
+    scores: dict[str, float] = field(default_factory=dict) # uaf_score, gate_score
     metadata: dict = field(default_factory=dict)
 
+    @property
+    def agent_id(self): return self.ctx.agent_id
+    @property
+    def phase(self): return self.ctx.phase
 
 class DecisionLogWriter:
     """Writes .methodology/decision_logs/{date}/{agent}_{phase}_{seq}.yaml"""

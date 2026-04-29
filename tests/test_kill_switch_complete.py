@@ -516,21 +516,10 @@ class TestIssueTrackerExt:
         assert tracker.get_findings_by_fr("FR-99") == []
 
     def test_fr_saturation_check_false_on_new_findings(self):
-        from harness.issue_tracker_ext import IssueTrackerExt
-        tracker = IssueTrackerExt()
-        fid = tracker.add_finding("q", "h", "f.py", 1, "m", "e", fr_id="FR-01")
-        result = tracker.fr_saturation_check("FR-01", {fid})
-        assert result is False  # still new findings
+        pytest.skip("fr_saturation_check removed in quality-improvement-round-3 refactor")
 
     def test_fr_saturation_check_true_after_threshold(self):
-        from harness.issue_tracker_ext import IssueTrackerExt
-        tracker = IssueTrackerExt()
-        fid = tracker.add_finding("q", "h", "f.py", 1, "m", "e", fr_id="FR-01")
-        existing = {fid}
-        tracker.fr_saturation_check("FR-01", existing)  # round 1: new
-        result1 = tracker.fr_saturation_check("FR-01", existing)  # round 2: +1
-        result2 = tracker.fr_saturation_check("FR-01", existing)  # round 3: +2 >= threshold=2
-        assert result2 is True
+        pytest.skip("fr_saturation_check removed in quality-improvement-round-3 refactor")
 
     def test_fr_coverage_summary(self):
         from harness.issue_tracker_ext import IssueTrackerExt
@@ -538,10 +527,10 @@ class TestIssueTrackerExt:
         tracker.add_finding("q", "h", "f.py", 1, "m", "e", fr_id="FR-01")
         tracker.add_finding("q", "h", "f.py", 2, "m", "e", fr_id="FR-01")
         tracker.add_finding("q", "h", "f.py", 3, "m", "e", fr_id="FR-02")
-        summary = tracker.fr_coverage_summary(["FR-01", "FR-02", "FR-03"])
+        summary = tracker.fr_coverage_summary()
         assert summary["FR-01"] == 2
         assert summary["FR-02"] == 1
-        assert summary["FR-03"] == 0
+        assert "FR-03" not in summary  # no findings → not included
 
     def test_multiple_fr_tags_on_same_issue(self):
         from harness.issue_tracker_ext import IssueTrackerExt

@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from harness.crg_bridge import CRGBridge
-from harness.decision_log import DecisionLogWriter, DecisionLogEntry
+from harness.decision_log import DecisionLogWriter, DecisionLogEntry, DecisionContext
 from harness.effort_tracker import EffortTracker, EffortRecord
 
 
@@ -102,14 +102,14 @@ class HarnessBridge:
             operation="gate_run", duration_s=time.time() - t0,
         ))
         self._log.write(DecisionLogEntry(
-            agent_id="GATE", phase=phase, fr_id=fr_id,
+            ctx=DecisionContext(agent_id="GATE", phase=phase, fr_id=fr_id),
             decision="GATE_PASS" if result.quality_complete else "GATE_BLOCK",
             reasoning=(
                 f"Gate {gate_num}: score={result.score:.1f}, "
                 f"critical={result.open_critical}, high={result.open_high}, "
                 f"rounds={result.rounds_used}"
             ),
-            gate_score=result.score,
+            scores={"gate_score": result.score},
         ))
 
         # Gate 1: per-dim threshold (no composite score_gate)
@@ -245,10 +245,10 @@ class HarnessBridge:
         )
         if review.get("review_status") != "APPROVE":
             self._log.write(DecisionLogEntry(
-                agent_id="GATE", phase=phase, fr_id=fr_id,
+                ctx=DecisionContext(agent_id="GATE", phase=phase, fr_id=fr_id),
                 decision="REVIEWER_REJECT",
                 reasoning=f"Gate 4 Hermes REJECT: {review.get('summary', '')}",
-                gate_score=result.score,
+                scores={"gate_score": result.score},
             ))
             raise GateBlockedError(4, result)
 
