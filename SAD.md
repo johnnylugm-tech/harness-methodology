@@ -1,4 +1,4 @@
-# SAD — Harness Methodology v1.6 (As-Built — parsers/ layer + coverage 37% @ 2026-04-29)
+# SAD — Harness Methodology v1.7 (As-Built — TDD W0-W6 complete, coverage 80.12% @ 2026-04-29)
 
 > **Sync guarantee**: This document is reverse-engineered from the live codebase.
 > Any change to the code **must** be reflected here, and vice-versa.
@@ -1594,7 +1594,63 @@ python3 -m software_self_improvement.runner
 | `enforcement.json` policy hot-reload | `enforcement/policy_engine.py` | ✅ **Resolved (v2.0.2)** — `PolicyEngine.reload_policy(json_path)` hot-reloads policies by ID from `enforcement.json`; `PolicyEngine.from_json(json_path)` classmethod for fresh engine. `harness_cli.py reload-policy` command exposes this as CLI (7th command). | — |
 | Sequential A/B + dep-ordered decomposition | `harness/reviewer_router.py` | ✅ **Resolved (v2.1)** — `_decompose_with_deps()` replaces `_maybe_decompose()`; `review()` sequential for-loop replaces list comprehension; `_enrich_with_context()` injects `approved_context`; `_topological_sort()` ensures dependency-safe order; `SubTask` dataclass tracks label/deps/index/total. | See §3.2, §4.2 |
 | crg-003: high coupling quality_gate ↔ tests-parse | `core/quality_gate/` | ✅ **Resolved** — `parsers/` sub-package extracted: `DevelopmentLogParser` from `ab_enforcer.py`, `SpecTrackingParser` from `spec_tracking_checker.py`. All regex in `parsers/`; checkers contain zero `re.search()` calls. | See §3.16 |
-| crg-004: test coverage <50% | `core/quality_gate/` | ✅ **Partially resolved** — coverage 16% → 37% (+57 new tests): parsers 100%, phase_truth_verifier 57%, feedback_hook 81%. `stage_pass_generator.py` (297 lines, 0%) deferred — requires full FrameworkEnforcer subprocess env. | — |
+| crg-004: test coverage <80% | `core/quality_gate/`, all scoped modules | ✅ **Resolved (v1.7)** — W0-W6 TDD waves: coverage 16% → **80.12%** (threshold met). 675 tests across 11 test files. Production fixes: `framework_enforcer.py` f-string bug, `reviewer_router.py` empty-target guard, `kill_switch.check` alias, `generate_full_plan.py` None guard. Scoped via `.coveragerc` to core business logic only. Breakdown: `steering/*` 90-100%, `gap_detector/*` 92-100%, `kill_switch/*` 85-97%, `enforcement/*` 79-99%, `core/enforcement_config` 100%, `core/hybrid_workflow` 100%, `core/verification_gate` 100%, `core/subagent_isolator` 100%, `harness/effort_tracker` 100%. | See §8.4 |
+
+### 8.4 Remaining 20% Coverage Gap Analysis (v1.7)
+
+Current scoped coverage: **80.12%** (929 stmts uncovered / 4673 total). The residual 20% breaks into four structural categories:
+
+#### Category A — Intentionally Untestable (Excluded from priority)
+| File | Miss | Reason |
+|---|---|---|
+| `core/adapters/phase_hooks_adapter.py` | 73 | Thin adapter over external `PhaseHooksRunner`; zero business logic — 100% subprocess delegation |
+| `core/cli_phase_prompts.py` | 6 | Pure string constants (prompt templates); no executable logic |
+
+**Verdict**: 0% is acceptable. Do not add tests.
+
+#### Category B — Subprocess/External-API Bound (High mock cost, low ROI)
+| File | Miss | Blocking reason |
+|---|---|---|
+| `enforcement/constitution_policy_sync.py` | 105 (26%) | Requires live `enforcement.json` + real `ConstitutionAsCode` chain; heavy subprocess coupling |
+| `enforcement/framework_enforcer.py` | 94 (60%) | `run()`, `check_*()` paths call `subprocess.run(git)` + multi-file I/O; integration-test territory |
+| `harness/harness_bridge.py` | 38 (67%) | Gates 2–4 require live Hermes MCP + real SSI subprocess; cannot stub without full integration env |
+| `core/quality_gate/stage_pass_generator.py` | 104 (65%) | `git_push()`, `_log_to_development_log()`, `generate_stage_pass()` all require real git repo + subprocess chain |
+
+**Verdict**: Block these behind an `@pytest.mark.integration` gate; run in CI with full Docker env, not in unit suite.
+
+#### Category C — Business Logic with Complex Setup (Testable, medium ROI)
+| File | Miss | Gap description |
+|---|---|---|
+| `core/quality_gate/phase_truth_verifier.py` | 71 (57%) | `_check_sessions_log()` / `_check_pytest()` / `_build_report()` — requires mocked `sessions_spawn.log` + subprocess |
+| `core/quality_gate/spec_tracking_checker.py` | 54 (47%) | `check_compliance()`, `_score_fr()` — needs mocked spec + code file fixtures |
+| `core/quality_gate/ab_enforcer.py` | 70 (33%) | `enforce()`, `_run_ab_session()`, `_evaluate_result()` — needs mocked ReviewerRouter + HarnessDB |
+| `core/quality_gate/claims_verifier.py` | 23 (36%) | `verify_sessions_spawn_log()`, `_check_ab_entries()` — needs fixture log files |
+| `enforcement/policy_engine.py` | 28 (84%) | Hot-reload path, `from_json()` classmethod, `_validate_policy()` edge cases |
+
+**Verdict**: Next TDD wave (W7) target. Can reach 85-90% with ~80 additional unit tests using `tmp_path` fixtures.
+
+#### Category D — Near-complete, Easy Wins (<15 stmts each)
+| File | Miss | Action |
+|---|---|---|
+| `enforcement/framework_enforcer.py` | 94 | Covered as part of Category B above |
+| `harness/reviewer_router.py` | 40 (86%) | `_clean_gemini_response()` edge cases + decompose threshold |
+| `kill_switch/state_manager.py` | 11 (86%) | `_migrate_legacy()` + `_atomic_write()` error path |
+| `detection/pattern_matcher.py` | 13 (85%) | `_normalize_pattern()` edge cases |
+| `core/task_splitter.py` | 12 (82%) | `split_by_dependency()` circular-dep branch |
+| `core/agent_spawner.py` | 6 (88%) | `_build_context()` with missing `phase` key |
+
+**Verdict**: Low-hanging fruit for W7. ~60 stmts total, can lift coverage to ~82% with minimal effort.
+
+#### Summary
+
+| Category | Stmts | Strategy | Wave |
+|---|---|---|---|
+| A — Untestable constants/adapters | ~79 | Accept 0% | Never |
+| B — Integration/subprocess bound | ~341 | `@pytest.mark.integration` + CI Docker env | W8+ |
+| C — Business logic, complex setup | ~250 | Unit tests with fixtures | W7 |
+| D — Near-complete easy wins | ~82 | Quick additions | W7 |
+
+**W7 target**: Cover Category C + D → estimated **84-86%** scoped coverage.
 
 ### 8.3 Technical Debt (Lower Priority)
 
