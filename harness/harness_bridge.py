@@ -101,7 +101,7 @@ class HarnessBridge:
             phase=phase, gate_num=gate_num, agent_id="GATE",
             operation="gate_run", duration_s=time.time() - t0,
         ))
-        self._log.write(DecisionLogEntry(
+        self._log.write(DecisionLogEntry(ctx=DecisionContext(
             ctx=DecisionContext(agent_id="GATE", phase=phase, fr_id=fr_id),
             decision="GATE_PASS" if result.quality_complete else "GATE_BLOCK",
             reasoning=(
@@ -244,7 +244,7 @@ class HarnessBridge:
             timeout_ms=timeout_ms,
         )
         if review.get("review_status") != "APPROVE":
-            self._log.write(DecisionLogEntry(
+            self._log.write(DecisionLogEntry(ctx=DecisionContext(
                 ctx=DecisionContext(agent_id="GATE", phase=phase, fr_id=fr_id),
                 decision="REVIEWER_REJECT",
                 reasoning=f"Gate 4 Hermes REJECT: {review.get('summary', '')}",

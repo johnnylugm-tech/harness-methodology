@@ -64,14 +64,34 @@ class IssueTrackerExt(IssueTracker):
             message=message, evidence=evidence, fr_id=fr_id
         ))
 
+    def fr_saturation_check(self, fr_id: str, findings: set[str], threshold: int = 2) -> bool:
+        """
+        Returns True if no NEW findings were found for 'threshold' consecutive calls.
+        [Restored for backward compatibility with tests]
+        """
+        if not findings.difference(self._round_findings.get(fr_id, set())):
+            self._saturation_counters[fr_id] = self._saturation_counters.get(fr_id, 0) + 1
+        else:
+            self._saturation_counters[fr_id] = 0
+        self._round_findings[fr_id] = findings
+        return self._saturation_counters.get(fr_id, 0) >= threshold
+
     def get_findings_by_fr(self, fr_id: str) -> list[dict]:
         """Returns open issues tagged with specific FR ID."""
         return [i for i in self.open_issues() if fr_id in i.get("fr_ids", [])]
 
-    def fr_coverage_summary(self) -> dict[str, int]:
-        """Returns count of open issues per FR."""
+    def fr_coverage_summary(self, fr_ids: list[str] | None = None) -> dict[str, int]:
+        """
+        Returns count of open issues per FR. 
+        [Restored parameter for backward compatibility with tests]
+        """
         summary: dict[str, int] = {}
+        if fr_ids:
+            for fr_id in fr_ids:
+                summary[fr_id] = 0
+                
         for issue in self.open_issues():
             for fr_id in issue.get("fr_ids", []):
-                summary[fr_id] = summary.get(fr_id, 0) + 1
+                if fr_ids is None or fr_id in fr_ids:
+                    summary[fr_id] = summary.get(fr_id, 0) + 1
         return summary
