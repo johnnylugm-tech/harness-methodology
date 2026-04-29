@@ -1,3 +1,4 @@
+"""Issue tracker extension with FR traceability."""
 # harness/issue_tracker_ext.py
 # Gap G5: Extends IssueTracker with FR bidirectional traceability.
 from __future__ import annotations
