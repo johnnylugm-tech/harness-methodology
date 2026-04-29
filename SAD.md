@@ -1,4 +1,4 @@
-# SAD — Harness Methodology v1.7 (As-Built — TDD W0-W6 complete, coverage 80.12% @ 2026-04-29)
+# SAD — Harness Methodology v1.8 (As-Built — TDD W0-W7 complete, coverage 84.16% @ 2026-04-29)
 
 > **Sync guarantee**: This document is reverse-engineered from the live codebase.
 > Any change to the code **must** be reflected here, and vice-versa.
@@ -1594,11 +1594,13 @@ python3 -m software_self_improvement.runner
 | `enforcement.json` policy hot-reload | `enforcement/policy_engine.py` | ✅ **Resolved (v2.0.2)** — `PolicyEngine.reload_policy(json_path)` hot-reloads policies by ID from `enforcement.json`; `PolicyEngine.from_json(json_path)` classmethod for fresh engine. `harness_cli.py reload-policy` command exposes this as CLI (7th command). | — |
 | Sequential A/B + dep-ordered decomposition | `harness/reviewer_router.py` | ✅ **Resolved (v2.1)** — `_decompose_with_deps()` replaces `_maybe_decompose()`; `review()` sequential for-loop replaces list comprehension; `_enrich_with_context()` injects `approved_context`; `_topological_sort()` ensures dependency-safe order; `SubTask` dataclass tracks label/deps/index/total. | See §3.2, §4.2 |
 | crg-003: high coupling quality_gate ↔ tests-parse | `core/quality_gate/` | ✅ **Resolved** — `parsers/` sub-package extracted: `DevelopmentLogParser` from `ab_enforcer.py`, `SpecTrackingParser` from `spec_tracking_checker.py`. All regex in `parsers/`; checkers contain zero `re.search()` calls. | See §3.16 |
-| crg-004: test coverage <80% | `core/quality_gate/`, all scoped modules | ✅ **Resolved (v1.7)** — W0-W6 TDD waves: coverage 16% → **80.12%** (threshold met). 675 tests across 11 test files. Production fixes: `framework_enforcer.py` f-string bug, `reviewer_router.py` empty-target guard, `kill_switch.check` alias, `generate_full_plan.py` None guard. Scoped via `.coveragerc` to core business logic only. Breakdown: `steering/*` 90-100%, `gap_detector/*` 92-100%, `kill_switch/*` 85-97%, `enforcement/*` 79-99%, `core/enforcement_config` 100%, `core/hybrid_workflow` 100%, `core/verification_gate` 100%, `core/subagent_isolator` 100%, `harness/effort_tracker` 100%. | See §8.4 |
+| crg-004: test coverage <80% | `core/quality_gate/`, all scoped modules | ✅ **Resolved (v1.8)** — W0-W7 TDD waves: coverage 16% → **84.16%** (threshold met, exceeded). 767 tests across 12 test files. W7 added 92 tests covering Category C+D: `ClaimsVerifier`, `SpecTrackingChecker`, `ABEnforcer`, `PhaseTruthVerifier`, `PolicyEngine`, `TaskSplitter`, `StateManager`, `PatternMatcher`, `AuditLogger`, `CRGBridge`, `SpecTrackingParser`. Production fixes: `framework_enforcer.py` f-string bug, `reviewer_router.py` empty-target guard, `kill_switch.check` alias, `generate_full_plan.py` None guard. Scoped via `.coveragerc` to core business logic only. | See §8.4 |
 
-### 8.4 Remaining 20% Coverage Gap Analysis (v1.7)
+### 8.4 Coverage Gap Analysis — v1.7 → v1.8 (W7 complete)
 
-Current scoped coverage: **80.12%** (929 stmts uncovered / 4673 total). The residual 20% breaks into four structural categories:
+**v1.8 scoped coverage: 84.16%** (740 stmts uncovered / 4673 total). W7 closed Category C+D gaps; residual 16% is structural (Categories A+B).
+
+#### v1.7 baseline: 80.12% (929 stmts uncovered / 4673 total). The residual 20% breaks into four structural categories:
 
 #### Category A — Intentionally Untestable (Excluded from priority)
 | File | Miss | Reason |
@@ -1651,6 +1653,8 @@ Current scoped coverage: **80.12%** (929 stmts uncovered / 4673 total). The resi
 | D — Near-complete easy wins | ~82 | Quick additions | W7 |
 
 **W7 target**: Cover Category C + D → estimated **84-86%** scoped coverage.
+
+**✅ W7 achieved: 84.16%** (767 tests, 92 new in W7). Remaining 16% is Category A+B — intentionally deferred to integration suite (W8+ / CI Docker env).
 
 ### 8.3 Technical Debt (Lower Priority)
 
