@@ -70,16 +70,28 @@ The system uses this macro architecture:
 
 `cli.py` is retained as-is because it is the entrypoint for the full parent system that contains harness-methodology as a sub-component. Any work purely within harness-methodology should use `harness_cli.py`.
 
-**`harness_cli.py` commands** (7 total):
+**`harness_cli.py` commands** (8 total):
 ```
 python harness_cli.py plan-phase     --phase 3 [--repo .] [--output plan.md]
 python harness_cli.py run-phase      --phase 3 [--project .] [--force]
 python harness_cli.py run-gate       --gate 2  --phase 3 [--project .] [--fr-id FR-01]
+                                     [--auto-fix-rounds N]
+python harness_cli.py run-pipeline   [--phase-from 1] [--phase-to 8] [--project .]
+                                     [--auto-fix-rounds 3] [--force]
 python harness_cli.py manifest       --fr-ids FR-01 FR-02 [--sad SAD.md]
 python harness_cli.py status         [--project .]
 python harness_cli.py effort         [--phase 3]
 python harness_cli.py reload-policy  [--policy-file enforcement/enforcement.json]
 ```
+
+**`--auto-fix-rounds N`** (run-gate / run-pipeline): Overrides `max_rounds` in the gate YAML config, passing `N` to the SSI runner subprocess. Higher values allow more internal self-repair cycles before SSI reports BLOCKED.
+
+**`run-pipeline`** exit codes:
+- `0` — all phases complete
+- `1` — hard error (SSI unavailable, manifest missing)
+- `10` — PAUSE: human intervention needed; resume with `--phase-from N`
+
+**P3+ dynamic planning**: `run-pipeline` generates each phase plan dynamically at phase start. Phases P3+ read FR IDs from `quality_manifest.json` (written at P2 exit from SAD.md), so SAD.md must exist before the pipeline can plan any FR-level work.
 
 ---
 
@@ -144,6 +156,7 @@ class HarnessBridge:
         project_root: str,
         phase: int,
         fr_id: str | None = None,
+        max_rounds_override: int | None = None,  # overrides gate config max_rounds → SSI
     ) -> GateResult: ...
 
     def generate_quality_manifest(
@@ -160,7 +173,7 @@ class HarnessBridge:
 4. `result = self._invoke_harness(config, project_root, fr_id)` — calls SSI runner subprocess (see below)
 5. `self._update_quality_manifest(gate_num, fr_id, result)` — writes to `.methodology/quality_manifest.json`
 6. `self._effort.record(EffortRecord(phase, gate_num, "GATE", "gate_run", duration_s=time.time()-t0))`
-7. `self._log.write(DecisionLogEntry(..., decision="GATE_PASS" or "GATE_BLOCK", gate_score=result.score))`
+7. `self._log.write(DecisionLogEntry(ctx=DecisionContext(agent_id="GATE", phase=phase, fr_id=fr_id), decision="GATE_PASS"|"GATE_BLOCK", reasoning=..., scores={"gate_score": result.score}))`
 8. **Blocking logic**:
    - Gate 1: `raise GateBlockedError` if any `d.score < d.threshold` in `result.dimensions`
    - Gate 2/3/4: `raise GateBlockedError` if `result.score < config["score_gate"]` OR `not result.quality_complete`
@@ -416,33 +429,52 @@ class CRGBridge:
 
 **Responsibility**: Write per-decision YAML audit entries. Implements the traceability requirement (NFR-3/NFR-6).
 
-**Data structures**:
+**Data structures** (refactored in `quality-improvement-round-3`):
 
 ```python
 @dataclass
-class DecisionLogEntry:
+class DecisionContext:
+    """Groups identity/time metadata to reduce DecisionLogEntry parameter count."""
     agent_id: str
     phase: int
-    fr_id: str | None
-    decision: str          # e.g. "GATE_PASS", "GATE_BLOCK"
+    fr_id: str | None = None
+    trace_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
+    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+@dataclass
+class DecisionLogEntry:
+    ctx: DecisionContext
+    decision: str           # "APPROVE" | "REJECT" | "GATE_PASS" | "GATE_BLOCK" | "REVIEWER_REJECT"
     reasoning: str
-    gate_score: float | None = None
-    created_at: datetime = field(default_factory=datetime.now)
+    scores: dict[str, float] = field(default_factory=dict)  # e.g. {"gate_score": 87.5}
+    metadata: dict = field(default_factory=dict)
+
+    # Backward-compat properties
+    @property
+    def agent_id(self): return self.ctx.agent_id
+    @property
+    def phase(self): return self.ctx.phase
 ```
 
 **`DecisionLogWriter`**:
 
 ```python
 class DecisionLogWriter:
-    BASE = Path(".methodology/decision_logs")
+    def __init__(self, log_root: str = ".methodology/decision_logs"):
+        self.log_root = Path(log_root)
 
     def write(self, entry: DecisionLogEntry) -> Path:
-        # Output path: BASE/{YYYY-MM-DD}/{agent_id}_{phase}_{seq:03d}.yaml
-        # seq = count of existing files in today's directory
+        # Output: log_root/{YYYY-MM-DD}/{agent_id}_{phase}_{seq:03d}.yaml
+        # seq = count of matching files in today's dir + 1
+
+    def read_phase(self, phase: int) -> list[dict]:
+        # Returns all YAML entries matching *_{phase}_*.yaml (recursive glob)
 ```
 
 - Creates parent directories automatically.
-- YAML format: all dataclass fields as top-level keys, `created_at` as ISO string.
+- YAML serialized via `dataclasses.asdict(entry)` → nested: `ctx: {agent_id, phase, fr_id, trace_id, timestamp}`.
+- Callers access phase/agent from deserialized dict as `data["ctx"]["phase"]` (not flat `data["phase"]`).
+- Falls back to `json.dumps` if PyYAML not installed.
 
 ---
 
@@ -456,37 +488,46 @@ class DecisionLogWriter:
 @dataclass
 class EffortRecord:
     phase: int
-    gate_num: int
     agent_id: str
-    operation: str         # e.g. "gate_run"
+    operation: str          # "gate_run" | "tier1_eval" | "tier3_eval" | "fix_round" | "review"
     duration_s: float
-    created_at: datetime = field(default_factory=datetime.now)
+    gate_num: int | None = None
+    token_in: int = 0
+    token_out: int = 0
+    fr_id: str | None = None
+    # Note: created_at is NOT a dataclass field — managed by SQLite DEFAULT (datetime('now'))
 ```
 
 **`EffortTracker`**:
 
 ```python
 class EffortTracker:
-    DB_PATH = Path(".methodology/effort_metrics.db")
+    def __init__(self, db_path: str = ".methodology/effort_metrics.db"):
+        # Auto-creates DB and schema on init
 
     def record(self, r: EffortRecord) -> None:
-        # INSERT into SQLite table `effort_records`
+        # INSERT into SQLite table `effort` (not `effort_records`)
 
     def summary(self, phase: int | None = None) -> dict:
-        # Aggregated stats: total records, mean/max duration, breakdown by phase/gate
+        # Returns: {total_operations, total_duration_s, total_tokens}
+        # If phase given: delegates to query_phase_summary(phase)
 
-    def export_csv(self, path: str | Path) -> Path:
-        # Export all records to CSV
+    def query_phase_summary(self, phase: int) -> dict:
+        # Per-operation breakdown: {operation: {duration_s, total_tokens}}
+
+    def query_gate_summary(self, gate_num: int) -> dict:
+        # {runs, total_duration_s, total_tokens}
 ```
 
-- DB auto-created on first `record()` call.
-- Schema: `CREATE TABLE effort_records (phase, gate_num, agent_id, operation, duration_s, created_at)`
+- DB auto-created on `__init__` (not on first `record()`).
+- SQLite table name: **`effort`** (not `effort_records`).
+- Schema: `(id, phase, gate_num, agent_id, operation, duration_s, token_in, token_out, fr_id, created_at)`
 
 ---
 
 ### 3.6 `harness/issue_tracker_ext.py` — FR-Tagged Issue Tracker
 
-**Responsibility**: Extends `software_self_improvement`'s `IssueTracker` with per-FR tagging and saturation detection. Addresses Gap G5.
+**Responsibility**: Extends `software_self_improvement`'s `IssueTracker` with per-FR tagging. Addresses Gap G5. Refactored in `quality-improvement-round-3` to use `FindingData` parameter object.
 
 **Import guard** (inline stub if SSI not installed):
 ```python
@@ -494,31 +535,46 @@ try:
     from software_self_improvement.scripts.issue_tracker import IssueTracker
 except ImportError:
     class IssueTracker:  # minimal stub
-        def add_finding(self, dimension, severity, file, line, message, evidence): ...
-        def open_issues(self): ...
+        def __init__(self): self._issues: list[dict] = []
+        def add_finding(self, dimension, severity, file, line, message, evidence) -> str: ...
+        def open_issues(self) -> list[dict]: ...
+```
+
+**`FindingData` (parameter object, reduces `add_finding` parameter count)**:
+```python
+@dataclass
+class FindingData:
+    dimension: str
+    severity: str
+    file: str
+    line: int
+    message: str
+    evidence: str
+    fr_id: str | None = None
 ```
 
 **`IssueTrackerExt(IssueTracker)`**:
 
 ```python
+def add_finding_data(self, data: FindingData) -> str:
+    # Primary method — calls super().add_finding(), then tags issue with data.fr_id
+
 def add_finding(
     self, dimension, severity, file, line, message, evidence,
     fr_id: str | None = None,
 ) -> str:
-    # Calls super(), then tags the issue with fr_id if provided
+    # Legacy compatibility wrapper — delegates to add_finding_data(FindingData(...))
 
 def get_findings_by_fr(self, fr_id: str) -> list[dict]:
     # Returns open issues where fr_id in issue["fr_ids"]
 
-def fr_saturation_check(
-    self, fr_id: str, current_finding_ids: set[str], threshold: int = 2
-) -> bool:
-    # Returns True if no new issues for `threshold` consecutive rounds
-    # Internal state: _round_findings[fr_id] and _saturation_counters[fr_id]
-
-def fr_coverage_summary(self, fr_ids: list[str]) -> dict:
-    # Returns {fr_id: open_finding_count, ...}
+def fr_coverage_summary(self) -> dict[str, int]:
+    # Returns {fr_id: open_finding_count} — only includes FRs that HAVE open findings
+    # (FRs with zero findings are absent from the result dict)
+    # No `fr_ids` argument — auto-aggregates from all open issues
 ```
+
+> **Removed in `quality-improvement-round-3`**: `fr_saturation_check(fr_id, current_finding_ids, threshold)` — removed entirely. Tests that relied on it are skipped.
 
 ---
 
@@ -1375,13 +1431,17 @@ created_at: "2026-04-27T14:32:01.123456"
 ### 5.4 `.methodology/effort_metrics.db` — SQLite Schema
 
 ```sql
-CREATE TABLE IF NOT EXISTS effort_records (
+CREATE TABLE IF NOT EXISTS effort (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
     phase      INTEGER,
     gate_num   INTEGER,
     agent_id   TEXT,
     operation  TEXT,
     duration_s REAL,
-    created_at TEXT
+    token_in   INTEGER DEFAULT 0,
+    token_out  INTEGER DEFAULT 0,
+    fr_id      TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
 );
 ```
 
