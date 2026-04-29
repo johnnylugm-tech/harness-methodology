@@ -62,7 +62,7 @@ def get_persona(persona_type: str) -> Persona:
             personality="Automation-first, reliability-focused, prioritizes CI/CD and monitoring",
         ),
     }
-    return personas.get(persona_type.lower())
+    return personas[persona_type.lower()]
 
 
 __all__ = [
