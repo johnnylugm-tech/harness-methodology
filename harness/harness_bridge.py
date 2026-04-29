@@ -71,6 +71,7 @@ class HarnessBridge:
         project_root: str,
         phase: int,
         fr_id: str | None = None,
+        max_rounds_override: int | None = None,
     ) -> GateResult:
         """
         Execute a quality gate and persist its results.
@@ -80,6 +81,8 @@ class HarnessBridge:
             project_root: Absolute path to the target project.
             phase: Current methodology phase.
             fr_id: Optional Functional Requirement ID (Gate 1 only).
+            max_rounds_override: Override SSI max_rounds in gate config.
+                                 Used by --auto-fix-rounds CLI flag and run-pipeline.
 
         Returns:
             The resulting GateResult object.
@@ -88,6 +91,8 @@ class HarnessBridge:
             GateBlockedError: If the gate fails its quality targets.
         """
         config = self._load_config(gate_num)
+        if max_rounds_override is not None:
+            config["max_rounds"] = max_rounds_override
         t0 = time.time()
 
         # §6.5 Point 1 — CRG Reconnaissance at Gate 3/4 entry

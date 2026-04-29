@@ -288,4 +288,77 @@ result = adapter.run_phase_lifecycle(fr_results_list)
 
 ---
 
+## 11. Autonomous Execution Protocol (Claude Code)
+
+Claude Code can run the **full P1→P8 pipeline autonomously** using the Bash tool.
+Humans are required at only **3 checkpoints**.
+
+### One-Prompt Launch
+
+```
+"Build [description]. Repo: [path]. Tech: [stack].
+Run harness-methodology P1→P8 autonomously.
+Gate 4 needs my Telegram APPROVE — handle everything else."
+```
+
+### Full Pipeline Command
+
+```bash
+# P3+ plan is generated dynamically after SAD.md exists (P2 output)
+python harness_cli.py run-pipeline \
+  --phase-from 1 --phase-to 8 \
+  --project /path/to/project \
+  --auto-fix-rounds 3
+
+# Resume after human provides SRS.md (P1) or SAD.md (P2)
+python harness_cli.py run-pipeline --phase-from 3 --project /path/to/project
+```
+
+### Step-by-Step (Claude Bash tool pattern)
+
+```bash
+# 1. Dynamic plan — P3+ REQUIRES SAD.md from P2 to know FR list
+python harness_cli.py plan-phase --phase $N --repo $PROJECT \
+  --output $PROJECT/.methodology/phase${N}_plan.md
+
+# 2. Preflight
+python harness_cli.py run-phase --phase $N --project $PROJECT
+
+# 3. Per-FR Gate 1 (P3/P4/P5/P7/P8) — FR IDs come from quality_manifest.json
+python harness_cli.py run-gate --gate 1 --phase $N --project $PROJECT \
+  --fr-id FR-XX --auto-fix-rounds 3
+
+# 4. Phase exit gate (P3→Gate2, P4→Gate3, P6→Gate4)
+python harness_cli.py run-gate --gate $G --phase $N --project $PROJECT \
+  --auto-fix-rounds 3
+
+# 5. Confirm
+python harness_cli.py status --project $PROJECT
+```
+
+### `--auto-fix-rounds N`
+
+Passes `max_rounds=N` to SSI runner, controlling how many internal
+self-repair cycles SSI performs before reporting BLOCKED.
+- Gate 1 default: 1 (override to 3 for harder FRs)
+- Gates 2–4 default: 3 (override to 5 for complex phases)
+
+### Mandatory Human Checkpoints (3 only)
+
+| Checkpoint | When | Required Action |
+|---|---|---|
+| P1 — Requirements | Before pipeline can plan P3+ | Provide `SRS.md` with `### FR-XX:` sections |
+| Gate 4 — Final APPROVE | P6 exit | Click APPROVE on Telegram (Hermes MCP) |
+| PAUSE (exit code 10) | Gate blocked after max rounds | Fix root cause; re-run `--phase-from N` |
+
+### Pipeline Exit Codes
+
+| Code | Meaning | Action |
+|---|---|---|
+| 0 | All phases complete | Done |
+| 1 | Hard error (SSI unavailable, manifest missing) | Diagnose |
+| 10 | PAUSE — human intervention needed | Fix → `--phase-from N` |
+
+---
+
 *harness-methodology v6.49.0 — Academic Benchmark 91/100*

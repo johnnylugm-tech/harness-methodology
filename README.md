@@ -33,12 +33,30 @@ Design Score: **92/100** Academic Benchmark
 
 ## Quick Start
 
+### 全自主模式（推薦）— 一次啟動，P1→P8 自動執行
+
 ```bash
-# Standalone harness CLI (no external dependencies beyond this repo)
 export HERMES_REVIEWER_TARGET="telegram:YOUR_CHAT_ID"
+
+# 全管道（P3+ 計劃在 P2 產出 SAD.md 後動態生成）
+python harness_cli.py run-pipeline \
+  --phase-from 1 --phase-to 8 \
+  --project /path/to/project \
+  --auto-fix-rounds 3
+
+# Gate blocked 或 SRS/SAD 缺少時 exit 10 → 修復後接續：
+python harness_cli.py run-pipeline --phase-from N --project /path/to/project
+```
+
+人類僅需介入 3 次：提供 SRS.md (P1)、提供 SAD.md (P2)、Gate 4 Telegram APPROVE。
+
+### 手動分步
+
+```bash
 python harness_cli.py plan-phase  --phase 3
 python harness_cli.py run-phase   --phase 3
-python harness_cli.py run-gate    --gate 2 --phase 3
+python harness_cli.py run-gate    --gate 1 --phase 3 --fr-id FR-01 --auto-fix-rounds 3
+python harness_cli.py run-gate    --gate 2 --phase 3 --auto-fix-rounds 3
 python harness_cli.py status
 ```
 

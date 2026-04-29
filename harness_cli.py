@@ -9,16 +9,24 @@ Usage:
     python harness_cli.py plan-phase     --phase 3 [--repo .] [--output plan.md]
     python harness_cli.py run-phase      --phase 3 [--project .] [--force]
     python harness_cli.py run-gate       --gate 2  --phase 3 [--project .] [--fr-id FR-01]
+                                         [--auto-fix-rounds 3]
+    python harness_cli.py run-pipeline   [--phase-from 1] [--phase-to 8] [--project .]
+                                         [--auto-fix-rounds 3] [--force]
     python harness_cli.py manifest       --fr-ids FR-01 FR-02 [--sad SAD.md]
     python harness_cli.py status         [--project .]
     python harness_cli.py effort         [--phase 3] [--project .]
     python harness_cli.py reload-policy  [--policy-file enforcement/enforcement.json]
 
 Available gates:
-    Gate 1  per-FR check       (P3/P5/P7/P8, trigger: per_fr_completion)
+    Gate 1  per-FR check       (P3/P4/P5/P7/P8, trigger: per_fr_completion)
     Gate 2  P3 phase-exit      (score_gate: 75, 7 dims)
     Gate 3  P4 phase-exit      (score_gate: 80, 12 dims, full CRG)
     Gate 4  P6 full-project    (score_gate: 85, 12 dims, Hermes APPROVE required)
+
+Exit codes (run-pipeline):
+    0   All phases complete
+    1   Hard failure (investigate error)
+    10  PAUSE — human intervention needed; fix then re-run with --phase-from N
 """
 from __future__ import annotations
 
@@ -96,8 +104,11 @@ def cmd_run_gate(args: argparse.Namespace) -> int:
 
     project = str(Path(args.project).resolve())
     bridge = HarnessBridge()
+    auto_fix_rounds = getattr(args, "auto_fix_rounds", None)
 
     print(f"\n{'='*60}\nrun-gate: Gate {args.gate} | Phase {args.phase}\n{'='*60}")
+    if auto_fix_rounds is not None:
+        print(f"  max SSI rounds : {auto_fix_rounds} (--auto-fix-rounds override)")
 
     fr_id = args.fr_id or None
     try:
@@ -106,6 +117,7 @@ def cmd_run_gate(args: argparse.Namespace) -> int:
             project_root=project,
             phase=args.phase,
             fr_id=fr_id,
+            max_rounds_override=auto_fix_rounds,
         )
         print(f"\nGATE {args.gate} PASSED")
         print(f"  score         : {result.score:.1f}")
@@ -249,6 +261,227 @@ def cmd_reload_policy(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# run-pipeline helpers
+# ---------------------------------------------------------------------------
+
+# Phases where Gate 1 runs per-FR
+_PER_FR_GATE1_PHASES: frozenset[int] = frozenset({3, 4, 5, 7, 8})
+
+# Phase → composite exit gate number
+_PHASE_EXIT_GATES: dict[int, int] = {3: 2, 4: 3, 6: 4}
+
+
+def _parse_fr_ids(text: str) -> list[str]:
+    """Extract sorted unique FR-XX IDs from arbitrary markdown text."""
+    import re
+    return sorted(set(re.findall(r"\bFR-\d+\b", text)))
+
+
+def _plan_phase_silent(phase: int, repo: Path, output: Path) -> None:
+    """Run plan-phase; warns on failure but never blocks the pipeline."""
+    try:
+        from scripts.generate_full_plan import generate_full_plan
+        plan = generate_full_plan(phase, repo, output)
+        if plan:
+            print(f"  plan → {output}")
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        print(f"  [WARN] plan-phase error: {exc} — continuing without plan")
+
+
+def _preflight(phase: int, project: Path, force: bool) -> int:
+    """Run phase pre-flight hooks. Returns 0 on pass."""
+    try:
+        from core.phase_hooks import PhaseHooks
+        hooks = PhaseHooks(str(project), phase=phase)
+        pre = hooks.preflight_all()
+        if not pre.get("all_passed") and not force:
+            print(f"  [PREFLIGHT FAIL] {pre.get('details', '')}")
+            return 1
+        return 0
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        print(f"  [WARN] Phase hooks unavailable: {exc}")
+        return 0 if force else 1
+
+
+def _advance_fsm(project: Path, completed_phase: int) -> None:
+    """Write .methodology/state.json to record phase completion."""
+    from datetime import datetime, timezone
+    state_path = project / ".methodology" / "state.json"
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    existing_state = "ACTIVE"
+    if state_path.exists():
+        try:
+            existing_state = json.loads(state_path.read_text()).\
+                get("state", "ACTIVE")
+        except Exception:  # pylint: disable=broad-exception-caught
+            pass
+    state_path.write_text(
+        json.dumps({
+            "state": existing_state,
+            "current_phase": completed_phase + 1,
+            "last_update": datetime.now(timezone.utc).isoformat(),
+        }, indent=2),
+        encoding="utf-8",
+    )
+
+
+# ---------------------------------------------------------------------------
+# run-pipeline
+# ---------------------------------------------------------------------------
+
+def cmd_run_pipeline(args: argparse.Namespace) -> int:
+    """
+    Execute the full harness pipeline from phase_from to phase_to.
+
+    P1/P2 pause if SRS.md / SAD.md are missing (human must provide them).
+    P3+ plans are generated dynamically from SAD.md / quality_manifest.json
+    so FR IDs are always available before Gate 1 runs.
+
+    Exit codes:
+        0  — all requested phases completed
+        1  — hard error (SSI unavailable, missing manifest, etc.)
+        10 — PAUSE: human intervention needed; re-run with --phase-from N
+    """
+    from harness.harness_bridge import HarnessBridge, GateBlockedError
+
+    project = Path(args.project).resolve()
+    phase_from = args.phase_from
+    phase_to = args.phase_to
+    max_rounds = args.auto_fix_rounds
+    bridge = HarnessBridge()
+
+    print(f"\n{'='*60}")
+    print(f"run-pipeline  P{phase_from}→P{phase_to}  project={project}")
+    print(f"auto-fix-rounds={max_rounds}  force={args.force}")
+    print(f"{'='*60}")
+
+    for phase in range(phase_from, phase_to + 1):
+        print(f"\n{'─'*60}\n[Phase {phase}]\n{'─'*60}")
+
+        # ── P1: SRS.md must exist (human writes it) ──────────────────────
+        if phase == 1:
+            srs = project / "SRS.md"
+            if srs.exists():
+                print(f"[P1] SRS.md exists — skipping generation")
+            else:
+                print(f"[P1] PAUSE: SRS.md not found at {srs}")
+                print(f"     Create SRS.md (### FR-XX: ... sections required),")
+                print(f"     then re-run:")
+                print(f"     python harness_cli.py run-pipeline --phase-from 2 "
+                      f"--project {project}")
+                return 10
+            continue
+
+        # ── P2: SAD.md must exist; generate manifest if missing ──────────
+        if phase == 2:
+            sad = project / "SAD.md"
+            manifest_path = project / ".methodology" / "quality_manifest.json"
+            if not sad.exists():
+                print(f"[P2] PAUSE: SAD.md not found at {sad}")
+                print(f"     Generate SAD.md, then re-run:")
+                print(f"     python harness_cli.py run-pipeline --phase-from 2 "
+                      f"--project {project}")
+                return 10
+            if manifest_path.exists():
+                print(f"[P2] quality_manifest.json exists — skipping manifest generation")
+            else:
+                fr_ids = _parse_fr_ids(sad.read_text(encoding="utf-8", errors="ignore"))
+                if not fr_ids:
+                    srs = project / "SRS.md"
+                    if srs.exists():
+                        fr_ids = _parse_fr_ids(srs.read_text(encoding="utf-8", errors="ignore"))
+                if not fr_ids:
+                    print("[P2] ERROR: No FR-XX IDs found in SAD.md or SRS.md.")
+                    print("     Add '### FR-01: ...' sections and re-run.")
+                    return 1
+                bridge.generate_quality_manifest(fr_ids, str(sad))
+                print(f"[P2] quality_manifest.json created  fr_ids={fr_ids}")
+            continue
+
+        # ── P3+: SAD.md + manifest required for FR-level gate planning ────
+        manifest_path = project / ".methodology" / "quality_manifest.json"
+        if not manifest_path.exists():
+            print(f"[ERROR] quality_manifest.json missing — complete Phase 2 first.")
+            return 1
+
+        fr_ids = json.loads(manifest_path.read_text(encoding="utf-8")).get("fr_ids", [])
+
+        # ── Step 1: Dynamic plan (reads SAD.md produced in P2) ────────────
+        plan_out = project / ".methodology" / f"phase{phase}_plan.md"
+        print(f"\n[{phase}.1] plan-phase")
+        _plan_phase_silent(phase, project, plan_out)
+
+        # ── Step 2: Preflight ─────────────────────────────────────────────
+        print(f"\n[{phase}.2] preflight")
+        if _preflight(phase, project, force=args.force) != 0:
+            print(f"[BLOCKED] Preflight failed for Phase {phase}.")
+            print(f"  Fix constitution/FSM issues, then re-run with --phase-from {phase}")
+            return 10
+
+        # ── Step 3: Per-FR Gate 1 ─────────────────────────────────────────
+        if phase in _PER_FR_GATE1_PHASES:
+            if not fr_ids:
+                print(f"[ERROR] No FR IDs in manifest — cannot run Gate 1 for phase {phase}.")
+                return 1
+            print(f"\n[{phase}.3] Gate 1 for {len(fr_ids)} FR(s): {fr_ids}")
+            for fr_id in fr_ids:
+                print(f"  [{fr_id}] Gate 1 …", end=" ", flush=True)
+                try:
+                    bridge.run_gate(
+                        gate_num=1, project_root=str(project),
+                        phase=phase, fr_id=fr_id,
+                        max_rounds_override=max_rounds,
+                    )
+                    print("PASSED")
+                except GateBlockedError as exc:
+                    print("BLOCKED")
+                    for dim in exc.result.dimensions:
+                        status = "PASS" if dim.score >= dim.threshold else "FAIL"
+                        print(f"    [{status}] {dim.name}: {dim.score:.1f} "
+                              f"(need ≥{dim.threshold})")
+                    print(f"\n[PAUSE] Gate 1 blocked for {fr_id} "
+                          f"after {max_rounds} SSI round(s).")
+                    print(f"  Fix issues above, then re-run with --phase-from {phase}")
+                    return 10
+                except (NotImplementedError, RuntimeError) as exc:
+                    print(f"\n[ERROR] Gate 1 / {fr_id}: {exc}")
+                    return 1
+
+        # ── Step 4: Phase exit gate ───────────────────────────────────────
+        if phase in _PHASE_EXIT_GATES:
+            gate_num = _PHASE_EXIT_GATES[phase]
+            print(f"\n[{phase}.4] Gate {gate_num} (phase exit) …", end=" ", flush=True)
+            try:
+                result = bridge.run_gate(
+                    gate_num=gate_num, project_root=str(project),
+                    phase=phase, fr_id=None,
+                    max_rounds_override=max_rounds,
+                )
+                print(f"PASSED  score={result.score:.1f}")
+            except GateBlockedError as exc:
+                print("BLOCKED")
+                for dim in exc.result.dimensions:
+                    status = "PASS" if dim.score >= dim.threshold else "FAIL"
+                    print(f"  [{status}] {dim.name}: {dim.score:.1f} "
+                          f"(need ≥{dim.threshold})")
+                print(f"\n[PAUSE] Gate {gate_num} blocked after {max_rounds} SSI round(s).")
+                print(f"  Fix issues above, then re-run with --phase-from {phase}")
+                return 10
+            except (NotImplementedError, RuntimeError) as exc:
+                print(f"\n[ERROR] Gate {gate_num}: {exc}")
+                return 1
+
+        # ── Advance FSM state ─────────────────────────────────────────────
+        _advance_fsm(project, phase)
+        print(f"\n[Phase {phase}] ✓ Complete")
+
+    print(f"\n{'='*60}")
+    print(f"PIPELINE COMPLETE  P{phase_from}→P{phase_to} ✓")
+    print(f"{'='*60}")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # CLI wiring
 # ---------------------------------------------------------------------------
 
@@ -284,7 +517,28 @@ def build_parser() -> argparse.ArgumentParser:
     rg.add_argument("--phase",   type=int, required=True, help="Current phase number")
     rg.add_argument("--project", default=".", help="Project root (default: .)")
     rg.add_argument("--fr-id",   default=None, help="FR ID (Gate 1 only)")
+    rg.add_argument(
+        "--auto-fix-rounds", type=int, default=None, metavar="N", dest="auto_fix_rounds",
+        help="Override SSI max_rounds (default: use gate config value)",
+    )
     rg.set_defaults(func=cmd_run_gate)
+
+    # run-pipeline
+    rpl = sub.add_parser(
+        "run-pipeline",
+        help="Full autonomous pipeline P{from}→P{to} with dynamic phase planning",
+    )
+    rpl.add_argument("--phase-from", type=int, default=1, metavar="N", dest="phase_from",
+                     help="Start phase (default: 1)")
+    rpl.add_argument("--phase-to",   type=int, default=8, metavar="N", dest="phase_to",
+                     help="End phase (default: 8)")
+    rpl.add_argument("--project",    default=".", help="Project root (default: .)")
+    rpl.add_argument(
+        "--auto-fix-rounds", type=int, default=3, metavar="N", dest="auto_fix_rounds",
+        help="SSI max_rounds per gate — controls self-repair depth (default: 3)",
+    )
+    rpl.add_argument("--force", action="store_true", help="Ignore preflight failures")
+    rpl.set_defaults(func=cmd_run_pipeline)
 
     # manifest
     mf = sub.add_parser("manifest", help="Generate quality_manifest.json at P2 exit")

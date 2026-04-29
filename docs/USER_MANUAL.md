@@ -15,6 +15,7 @@
 6. [Quality Gate Reference](#6-quality-gate-reference)
 7. [Alternative Flows](#7-alternative-flows)
 8. [Interactive Conversation Patterns](#8-interactive-conversation-patterns)
+   - [8.8 全自主模式（推薦）](#88-全自主模式推薦)
 9. [CLI Reference](#9-cli-reference)
 10. [Environment Variables](#10-environment-variables)
 11. [Troubleshooting](#11-troubleshooting)
@@ -729,6 +730,75 @@ git submodule add https://github.com/johnnylugm-tech/harness-methodology harness
 bash harness/scripts/harness-init.sh --phase 1   # idempotent — safe to re-run
 ```
 
+---
+
+### 8.8 全自主模式（推薦）
+
+**一次 prompt，Claude 自主完成 P1→P8。人類只需介入 3 個時間點。**
+
+#### 啟動 prompt（使用者給 Claude 一次）
+
+```
+建一個 [專案描述]。
+技術棧：Python 3.11
+Repo：/path/to/project
+
+請使用 harness-methodology 全自主執行 P1→P8。
+Gate 4 需要我在 Telegram APPROVE，其餘你全權處理。
+```
+
+#### Claude 的執行策略
+
+```bash
+# 完整管道一鍵啟動（Claude 用 Bash tool 執行）
+python harness_cli.py run-pipeline \
+  --phase-from 1 --phase-to 8 \
+  --project /path/to/project \
+  --auto-fix-rounds 3
+```
+
+> **關鍵設計**：P3+ 的計劃（FR 清單）從 P2 產出的 `SAD.md` 動態讀取。
+> 若 P2 尚未完成，pipeline 會以 exit code 10 暫停，等待人類提供 `SAD.md`。
+
+#### 分步執行（Claude 用 Bash tool 逐步控制）
+
+```bash
+# 每 Phase 開始先產計劃（P3+ 必須等 SAD.md 存在）
+python harness_cli.py plan-phase --phase $N --repo $PROJECT
+
+# Preflight
+python harness_cli.py run-phase --phase $N --project $PROJECT
+
+# 每 FR Gate 1（FR IDs 自動從 quality_manifest.json 讀取）
+python harness_cli.py run-gate --gate 1 --phase $N \
+  --project $PROJECT --fr-id FR-01 --auto-fix-rounds 3
+
+# Phase exit gate
+python harness_cli.py run-gate --gate 2 --phase 3 \
+  --project $PROJECT --auto-fix-rounds 3
+
+# 確認狀態
+python harness_cli.py status --project $PROJECT
+```
+
+#### 人類介入點（僅 3 個）
+
+| 時機 | 觸發條件 | 行動 | 預計時間 |
+|------|---------|------|---------|
+| P1 需求 | SRS.md 不存在，pipeline exit 10 | 提供 `SRS.md`（含 `### FR-XX:` 段落） | ~5 min |
+| P2 架構 | SAD.md 不存在，pipeline exit 10 | 提供 `SAD.md`（含 FR ID） | ~10 min |
+| Gate 4 最終核准 | P6 exit，Hermes 發送通知 | Telegram 點 APPROVE | ~2 min |
+
+> **Gate block 自動處理**：`--auto-fix-rounds 3` 讓 SSI 內部自行修復最多 3 輪。
+> 3 輪後仍 BLOCKED → pipeline exit 10，Claude 報告根因，等待人類指示後 `--phase-from N` 重跑。
+
+#### Pipeline 退出碼
+
+| Exit Code | 含義 | 行動 |
+|-----------|------|------|
+| `0` | 所有 phase 完成 | Done ✓ |
+| `1` | 硬錯誤（SSI 未安裝、manifest 遺失等） | 診斷錯誤訊息 |
+| `10` | PAUSE — 需人類介入 | 修復後 `--phase-from N` 重跑 |
 
 ---
 
