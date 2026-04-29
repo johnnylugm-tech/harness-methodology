@@ -159,7 +159,7 @@ class FrameworkEnforcer:
             "passed": passed,
             "coverage": coverage,
             "threshold": DEFAULT_THRESHOLD,
-            "message": f"Coverage {coverage:.1f}% {'>=': if passed else '<'} {DEFAULT_THRESHOLD}%",
+            "message": f"Coverage {coverage:.1f}% {'>=' if passed else '<'} {DEFAULT_THRESHOLD}%",
         }
 
     def check_traceability_matrix(self) -> Dict:

@@ -1,0 +1,25 @@
+[run]
+source =
+    core
+    harness
+    detection
+    enforcement
+    gap_detector
+    kill_switch
+    steering
+
+omit =
+    scripts/*
+    quality_dashboard/*
+    harness_cli.py
+    tests/*
+    */__init__.py
+    */conftest.py
+
+[report]
+fail_under = 80
+show_missing = true
+skip_covered = false
+
+[html]
+directory = htmlcov

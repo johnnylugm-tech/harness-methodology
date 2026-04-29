@@ -56,9 +56,9 @@ def test_drift_monitor_cron_contract():
     assert os.path.exists("scripts/cron_drift_monitor.py")
 
 @pytest.mark.spec
-def test_decision_log_writer_artifact_contract():
+def test_decision_log_writer_artifact_contract(tmp_path):
     """SPEC: DecisionLogWriter produces YAML per-decision."""
-    from core.decision_log_writer import DecisionLogWriter
-    writer = DecisionLogWriter()
-    assert hasattr(writer, 'write_log')
+    from harness.decision_log import DecisionLogWriter
+    writer = DecisionLogWriter(str(tmp_path))
+    assert hasattr(writer, 'write')
 

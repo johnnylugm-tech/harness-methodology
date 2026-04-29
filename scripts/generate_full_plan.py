@@ -32,8 +32,11 @@ from typing import Dict, List, Optional
 # Phase-Specific Parsers
 # ============================================================================
 
-def parse_srs_fr_sections(srs_path: Path) -> List[Dict]:
+def parse_srs_fr_sections(srs_path) -> List[Dict]:
     """Parse SRS.md to extract FR sections"""
+    if srs_path is None:
+        return []
+    srs_path = Path(srs_path)
     if not srs_path.exists():
         return []
 

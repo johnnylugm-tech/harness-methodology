@@ -70,6 +70,10 @@ class KillSwitch:
                                limit: int = 100) -> List[InterruptEvent]:
         return self.interrupt_engine.get_interrupt_history(agent_id=agent_id, limit=limit)
 
+    def check(self, agent_id: str, config: MonitorConfig) -> bool:
+        """Alias for evaluate_and_trigger (contract API)."""
+        return self.evaluate_and_trigger(agent_id, config)
+
     def evaluate_and_trigger(self, agent_id: str, config: MonitorConfig) -> bool:
         try:
             metrics = self.health_monitor.get_metrics(agent_id)
