@@ -185,7 +185,9 @@ Test coverage threshold   20%
 
 ```
 Agent A (role: DEVELOPER / architect / tester / devops / qa / risk)
-  |-- implements FR-XX
+  |-- [TDD-1] Write failing test for FR requirement (RED — confirm test fails first)
+  |-- [TDD-2] Implement FR until test passes (GREEN)
+  |-- [TDD-3] Refactor without breaking tests (IMPROVE)
   |-- returns JSON: {status, files, confidence, citations, summary}
   |
 Agent B (role: REVIEWER / architect)

@@ -128,11 +128,11 @@ def cmd_run_gate(args: argparse.Namespace) -> int:
         return 0
 
     except GateBlockedError as e:
-        print(f"\nGATE {args.gate} BLOCKED")
-        print(f"  {e}")
-        for dim in e.result.dimensions:
-            status = "PASS" if dim.score >= dim.threshold else "FAIL"
-            print(f"  [{status}] {dim.name}: {dim.score:.1f} (threshold={dim.threshold})")
+        project_path = Path(args.project).resolve()
+        print(_format_block_diagnostic(
+            e, args.gate, args.phase, fr_id,
+            auto_fix_rounds if auto_fix_rounds is not None else 3, project_path,
+        ))
         return 1
 
     except NotImplementedError as e:
@@ -326,6 +326,121 @@ def _advance_fsm(project: Path, completed_phase: int) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Gate BLOCKED diagnostic helpers
+# ---------------------------------------------------------------------------
+
+_DIMENSION_HINTS: dict[str, str] = {
+    "linting":            "Run `ruff check . --fix` (or flake8); resolve all remaining lint errors",
+    "type_safety":        "Run `mypy .`; add missing annotations and fix all type errors",
+    "test_coverage":      "Run `pytest --cov` to find uncovered lines; add unit tests for each gap",
+    "security":           "Fix OWASP-category issues; validate all inputs; remove eval/exec patterns",
+    "secrets_scanning":   "Remove hard-coded secrets; move to env vars / vault; run `gitleaks detect`",
+    "license_compliance": "Run `pip-licenses`; replace or vendor GPL/incompatible dependencies",
+    "mutation_testing":   "Run `mutmut run`; add assertions that kill every surviving mutant",
+    "architecture":       "Verify imports comply with SAD.md layer boundaries; fix all violations",
+    "readability":        "Add [FR-XX] docstrings with Citations:; split functions >30 lines",
+    "error_handling":     "Wrap I/O and network calls in try/except with specific exception types",
+    "documentation":      "All public APIs need [FR-XX] docstrings with Citations: + line numbers",
+    "performance":        "Profile with cProfile; fix N+1 queries; add caching where needed",
+}
+
+
+def _format_block_diagnostic(
+    exc: GateBlockedError,
+    gate_num: int,
+    phase: int,
+    fr_id: str | None,
+    max_rounds: int,
+    project: Path,
+) -> str:
+    """Format a structured diagnostic for a gate BLOCKED event; also writes last_block.md."""
+    failing = [d for d in exc.result.dimensions if d.score < d.threshold]
+    passing = [d for d in exc.result.dimensions if d.score >= d.threshold]
+
+    lines = [
+        "",
+        "─" * 60,
+        f"GATE {gate_num} BLOCKED"
+        + (f"  fr={fr_id}" if fr_id else "")
+        + f"  phase={phase}  after {max_rounds} SSI round(s)",
+        f"  composite score : {exc.result.score:.1f}",
+        f"  open critical   : {exc.result.open_critical}",
+        f"  open high       : {exc.result.open_high}",
+        "",
+        f"Failing dimensions ({len(failing)}):",
+    ]
+    for dim in failing:
+        gap = dim.threshold - dim.score
+        hint = _DIMENSION_HINTS.get(dim.name, "Review dimension-specific issues in SSI output")
+        lines.append(
+            f"  [FAIL] {dim.name:<22} score={dim.score:>5.1f}  "
+            f"need={dim.threshold:>5.1f}  gap={gap:>4.1f}"
+        )
+        lines.append(f"         → {hint}")
+
+    if passing:
+        lines.append("")
+        lines.append(
+            f"Passing ({len(passing)}): "
+            + ", ".join(f"{d.name}={d.score:.1f}" for d in passing)
+        )
+
+    fr_flag = f" --fr-id {fr_id}" if fr_id else ""
+    lines.extend([
+        "",
+        "Fix the failing dimensions above, then resume:",
+        f"  python harness_cli.py run-gate --gate {gate_num} --phase {phase}"
+        f"{fr_flag} --project {project} --auto-fix-rounds {max_rounds}",
+        "  # or restart pipeline from this phase:",
+        f"  python harness_cli.py run-pipeline --phase-from {phase}"
+        f" --project {project} --auto-fix-rounds {max_rounds}",
+        "─" * 60,
+    ])
+
+    # Write .methodology/last_block.md
+    report_lines = [
+        f"# Gate {gate_num} BLOCKED — Phase {phase}",
+        "",
+        f"Generated: {__import__('datetime').datetime.now().isoformat()}",
+        f"fr_id: {fr_id or 'n/a'} | rounds: {exc.result.rounds_used} | "
+        f"open_critical: {exc.result.open_critical} | open_high: {exc.result.open_high}",
+        "",
+        "## Failing Dimensions",
+        "",
+    ]
+    for dim in failing:
+        gap = dim.threshold - dim.score
+        hint = _DIMENSION_HINTS.get(dim.name, "Review SSI output")
+        report_lines += [
+            f"### {dim.name}",
+            f"- score: {dim.score:.1f} / threshold: {dim.threshold:.1f} (gap: {gap:.1f})",
+            f"- fix: {hint}",
+            "",
+        ]
+    report_lines += [
+        "## Resume Commands",
+        "",
+        "```bash",
+        f"python harness_cli.py run-gate --gate {gate_num} --phase {phase}"
+        + (f" --fr-id {fr_id}" if fr_id else "")
+        + f" --project {project} --auto-fix-rounds {max_rounds}",
+        "# or:",
+        f"python harness_cli.py run-pipeline --phase-from {phase}"
+        f" --project {project} --auto-fix-rounds {max_rounds}",
+        "```",
+    ]
+    try:
+        report_path = project / ".methodology" / "last_block.md"
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text("\n".join(report_lines), encoding="utf-8")
+        lines.append(f"  Full report → {report_path}")
+    except Exception:  # pylint: disable=broad-exception-caught
+        pass
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # run-pipeline
 # ---------------------------------------------------------------------------
 
@@ -435,13 +550,7 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
                     print("PASSED")
                 except GateBlockedError as exc:
                     print("BLOCKED")
-                    for dim in exc.result.dimensions:
-                        status = "PASS" if dim.score >= dim.threshold else "FAIL"
-                        print(f"    [{status}] {dim.name}: {dim.score:.1f} "
-                              f"(need ≥{dim.threshold})")
-                    print(f"\n[PAUSE] Gate 1 blocked for {fr_id} "
-                          f"after {max_rounds} SSI round(s).")
-                    print(f"  Fix issues above, then re-run with --phase-from {phase}")
+                    print(_format_block_diagnostic(exc, 1, phase, fr_id, max_rounds, project))
                     return 10
                 except (NotImplementedError, RuntimeError) as exc:
                     print(f"\n[ERROR] Gate 1 / {fr_id}: {exc}")
@@ -460,12 +569,7 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
                 print(f"PASSED  score={result.score:.1f}")
             except GateBlockedError as exc:
                 print("BLOCKED")
-                for dim in exc.result.dimensions:
-                    status = "PASS" if dim.score >= dim.threshold else "FAIL"
-                    print(f"  [{status}] {dim.name}: {dim.score:.1f} "
-                          f"(need ≥{dim.threshold})")
-                print(f"\n[PAUSE] Gate {gate_num} blocked after {max_rounds} SSI round(s).")
-                print(f"  Fix issues above, then re-run with --phase-from {phase}")
+                print(_format_block_diagnostic(exc, gate_num, phase, None, max_rounds, project))
                 return 10
             except (NotImplementedError, RuntimeError) as exc:
                 print(f"\n[ERROR] Gate {gate_num}: {exc}")

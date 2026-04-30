@@ -93,6 +93,16 @@ python harness_cli.py reload-policy  [--policy-file enforcement/enforcement.json
 
 **P3+ dynamic planning**: `run-pipeline` generates each phase plan dynamically at phase start. Phases P3+ read FR IDs from `quality_manifest.json` (written at P2 exit from SAD.md), so SAD.md must exist before the pipeline can plan any FR-level work.
 
+**Gate BLOCKED diagnostic** (`run-gate` exit 1 / `run-pipeline` exit 10): Both commands emit a structured per-dimension diagnosis on block. Output includes: composite score, open_critical/high counts, per-failing-dimension score/threshold/gap and a fix hint, passing dimension summary, and copy-pasteable resume commands. Full report written to `.methodology/last_block.md`. Fix hints cover all 12 dimension names: `linting`, `type_safety`, `test_coverage`, `security`, `secrets_scanning`, `license_compliance`, `mutation_testing`, `architecture`, `readability`, `error_handling`, `documentation`, `performance`. Implemented in `_format_block_diagnostic()` (module-level helper in `harness_cli.py`); the dict `_DIMENSION_HINTS` maps dimension name → actionable fix string.
+
+**ECC hooks (globally active)**: `~/.claude/hooks/hooks.json` runs ECC (everything-claude-code) hooks across all Claude Code sessions. Relevant to harness:
+- `pre:bash:dispatcher` — blocks `git --no-verify` (prevents HR violation from bypassing hooks), push reminders
+- `pre:edit-write:suggest-compact` — suggests compaction when context nears limit (prevents gate score drift from truncated context)
+- `stop:cost-tracker` — tracks token/cost per session
+These hooks operate at the Claude Code session layer, independently of the harness Python pipeline. They are **pre-installed** and require no harness-side configuration.
+
+**Agent A TDD mandate** (SKILL.md §6): Agent A must follow RED→GREEN→IMPROVE before returning results. Gate 1 `test_coverage` dimension verifies outcomes; implementations without prior failing tests are expected to score lower on `mutation_testing`.
+
 ---
 
 ### 2.4 GitHub Integration & Automation Layer
@@ -1112,6 +1122,8 @@ Operator -> HarnessBridge.run_gate(gate_num=2, project_root, phase=3, fr_id=None
   ├─ 6. EffortTracker.record(...)
   ├─ 7. DecisionLogWriter.write(decision="GATE_PASS|GATE_BLOCK")
   ├─ 8. if result.score < 75 or not result.quality_complete → raise GateBlockedError
+  │      [CLI layer catches GateBlockedError → _format_block_diagnostic() →
+  │       structured stdout + writes .methodology/last_block.md]
   └─ 9. return GateResult
   [Gate 4 only: step 9 = _require_hermes_approve() before return]
 ```
