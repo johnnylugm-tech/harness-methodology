@@ -125,6 +125,12 @@ def cmd_run_gate(args: argparse.Namespace) -> int:
         print(f"  rounds_used   : {result.rounds_used}")
         print(f"  open_critical : {result.open_critical}")
         print(f"  open_high     : {result.open_high}")
+        git = _make_git(args, Path(args.project).resolve())
+        git.ensure_gitignore()
+        if args.gate == 1:
+            git.commit_fr_gate1(fr_id or "unknown", result.score, args.phase)
+        else:
+            git.commit_and_push_gate(args.gate, args.phase, result.score)
         return 0
 
     except GateBlockedError as e:
@@ -163,6 +169,9 @@ def cmd_manifest(args: argparse.Namespace) -> int:
     manifest = json.loads(out.read_text(encoding="utf-8"))
     print(f"  fr_ids        : {manifest['fr_ids']}")
     print(f"  generated_at  : phase {manifest['generated_at_phase']}")
+    git = _make_git(args, Path(args.sad).resolve().parent)
+    git.ensure_gitignore()
+    git.commit_and_push_p2(args.fr_ids)
     return 0
 
 
@@ -301,6 +310,13 @@ def _preflight(phase: int, project: Path, force: bool) -> int:
     except Exception as exc:  # pylint: disable=broad-exception-caught
         print(f"  [WARN] Phase hooks unavailable: {exc}")
         return 0 if force else 1
+
+
+def _make_git(args: argparse.Namespace, project: Path) -> "GitStrategy":
+    """Instantiate GitStrategy from parsed args. Lazy-imports to keep startup fast."""
+    from harness.git_strategy import GitStrategy
+    no_git = getattr(args, "no_git", False)
+    return GitStrategy(project=project, enabled=not no_git)
 
 
 def _advance_fsm(project: Path, completed_phase: int) -> None:
@@ -464,6 +480,8 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
     phase_to = args.phase_to
     max_rounds = args.auto_fix_rounds
     bridge = HarnessBridge()
+    git = _make_git(args, project)
+    git.ensure_gitignore()
 
     print(f"\n{'='*60}")
     print(f"run-pipeline  P{phase_from}→P{phase_to}  project={project}")
@@ -511,6 +529,7 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
                     return 1
                 bridge.generate_quality_manifest(fr_ids, str(sad))
                 print(f"[P2] quality_manifest.json created  fr_ids={fr_ids}")
+                git.commit_and_push_p2(fr_ids)  # PUSH ①
             continue
 
         # ── P3+: SAD.md + manifest required for FR-level gate planning ────
@@ -542,12 +561,13 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
             for fr_id in fr_ids:
                 print(f"  [{fr_id}] Gate 1 …", end=" ", flush=True)
                 try:
-                    bridge.run_gate(
+                    g1_result = bridge.run_gate(
                         gate_num=1, project_root=str(project),
                         phase=phase, fr_id=fr_id,
                         max_rounds_override=max_rounds,
                     )
                     print("PASSED")
+                    git.commit_fr_gate1(fr_id, g1_result.score, phase)  # local commit
                 except GateBlockedError as exc:
                     print("BLOCKED")
                     print(_format_block_diagnostic(exc, 1, phase, fr_id, max_rounds, project))
@@ -567,6 +587,9 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
                     max_rounds_override=max_rounds,
                 )
                 print(f"PASSED  score={result.score:.1f}")
+                git.commit_and_push_gate(  # PUSH ②③⑤
+                    gate_num, phase, result.score, n_frs=len(fr_ids),
+                )
             except GateBlockedError as exc:
                 print("BLOCKED")
                 print(_format_block_diagnostic(exc, gate_num, phase, None, max_rounds, project))
@@ -582,6 +605,10 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
     print(f"\n{'='*60}")
     print(f"PIPELINE COMPLETE  P{phase_from}→P{phase_to} ✓")
     print(f"{'='*60}")
+    # PUSH ⑥ — P7/P8 final artifacts (risk register + config records)
+    late_phases = [p for p in range(phase_from, phase_to + 1) if p in (7, 8)]
+    if late_phases:
+        git.commit_and_push_final(late_phases)
     return 0
 
 
@@ -625,6 +652,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--auto-fix-rounds", type=int, default=None, metavar="N", dest="auto_fix_rounds",
         help="Override SSI max_rounds (default: use gate config value)",
     )
+    rg.add_argument("--no-git", action="store_true", dest="no_git",
+                    help="Disable git commit/push after gate pass")
     rg.set_defaults(func=cmd_run_gate)
 
     # run-pipeline
@@ -642,12 +671,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="SSI max_rounds per gate — controls self-repair depth (default: 3)",
     )
     rpl.add_argument("--force", action="store_true", help="Ignore preflight failures")
+    rpl.add_argument("--no-git", action="store_true", dest="no_git",
+                     help="Disable all git commit/push operations")
     rpl.set_defaults(func=cmd_run_pipeline)
 
     # manifest
     mf = sub.add_parser("manifest", help="Generate quality_manifest.json at P2 exit")
     mf.add_argument("--fr-ids", nargs="+", required=True, metavar="FR_ID")
     mf.add_argument("--sad",    default="SAD.md", help="Path to SAD.md (default: SAD.md)")
+    mf.add_argument("--no-git", action="store_true", dest="no_git",
+                    help="Disable git commit/push after manifest generation")
     mf.set_defaults(func=cmd_manifest)
 
     # status

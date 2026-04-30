@@ -75,10 +75,10 @@ The system uses this macro architecture:
 python harness_cli.py plan-phase     --phase 3 [--repo .] [--output plan.md]
 python harness_cli.py run-phase      --phase 3 [--project .] [--force]
 python harness_cli.py run-gate       --gate 2  --phase 3 [--project .] [--fr-id FR-01]
-                                     [--auto-fix-rounds N]
+                                     [--auto-fix-rounds N] [--no-git]
 python harness_cli.py run-pipeline   [--phase-from 1] [--phase-to 8] [--project .]
-                                     [--auto-fix-rounds 3] [--force]
-python harness_cli.py manifest       --fr-ids FR-01 FR-02 [--sad SAD.md]
+                                     [--auto-fix-rounds 3] [--force] [--no-git]
+python harness_cli.py manifest       --fr-ids FR-01 FR-02 [--sad SAD.md] [--no-git]
 python harness_cli.py status         [--project .]
 python harness_cli.py effort         [--phase 3]
 python harness_cli.py reload-policy  [--policy-file enforcement/enforcement.json]
@@ -1823,6 +1823,51 @@ prompt = generate_persona_prompt("developer", task="implement FR-01 login featur
 **`core/cli_phase_prompts.py`** (24KB): Phase-specific prompt templates used by `harness_cli.py plan-phase` and the pipeline to generate FR execution prompts. Contains one prompt template per phase (P1–P8), formatted for the sub-agent that will execute the FR.
 
 **`core/enforcement_config.py`** (5KB): Configuration schema and defaults for the `enforcement/` subsystem. Provides `EnforcementConfig` dataclass with fields for policy severity levels, audit trail retention, and hook behavior. Loaded by `FrameworkEnforcer.__init__()` at phase preflight.
+
+---
+
+### §3.27 — `harness/git_strategy.py` — Gate-Aligned Git Strategy
+
+**Responsibility**: Implements the **5-Push Gate-Aligned commit + push policy** for harness pipelines. Injected at gate pass / phase completion points in `harness_cli.py`. All operations are no-ops when `--no-git` is passed or `HARNESS_NO_GIT=1` is set. Git failures are logged as warnings — they never block the pipeline.
+
+**Push schedule**:
+
+| Push | Trigger | Commit Message Pattern |
+|---|---|---|
+| ① | P2 exit: `manifest` command success | `docs(P2): finalize SRS + SAD; generate quality manifest [fr_ids=...]` |
+| ② | Gate 2 PASS (P3 exit, score ≥75) | `feat(P3): Gate2 PASS score=XX — N FR(s) implemented` |
+| ③ | Gate 3 PASS (P4 exit, score ≥80) | `test(P4): Gate3 PASS score=XX — full test suite` |
+| ④ | P5 BASELINE.md | auto-included in ② or ③ if `_has_changes()` returns True |
+| ⑤ | Gate 4 APPROVE (P6 full, score ≥85) | `release(P6): Gate4 PASS score=XX — pipeline complete` + `git tag gate4-YYYYMMDD-scoreXX` |
+| ⑥ | P7+P8 completion | `docs(P7+P8): risk register + config records` |
+
+**Local commit policy** (no push): Each Gate 1 PASS per FR commits locally:
+```
+feat(FR-01): Gate1 PASS — score=88.0 [phase=3]
+```
+
+**`.gitignore` auto-maintenance** (`ensure_gitignore()`): Called once per pipeline run. Appends missing entries for harness runtime artifacts:
+```
+.sessi-work/
+.methodology/last_block.md
+.methodology/steering_history.json
+```
+
+**Public API**:
+
+```python
+class GitStrategy:
+    def __init__(self, project: Path, enabled: bool = True, push: bool = True)
+
+    def ensure_gitignore() -> None          # idempotent — no-op if entries already present
+    def commit_fr_gate1(fr_id, score, phase) -> bool   # Gate 1 per-FR commit only
+    def commit_and_push_p2(fr_ids) -> bool             # PUSH ①
+    def commit_and_push_gate(gate_num, phase, score, n_frs=0) -> bool  # PUSH ②③⑤ + tag
+    def commit_and_push_final(phases) -> bool          # PUSH ⑥
+```
+
+**CLI flag**: `--no-git` added to `run-gate`, `run-pipeline`, and `manifest` subcommands.
+Env override: `HARNESS_NO_GIT=1` disables git across all commands without a flag.
 
 ---
 
