@@ -918,6 +918,19 @@ def run_until_converge(get_next_pair_fn, max_rounds=None) -> IterationResult:
 - `SteeringLoop.max_iterations=5` is positive upper bound
 - Not contradictory: `should_continue()` terminates early when convergence met, satisfying HR-12 intent without contradicting the cap
 
+#### `steering/__init__.py` — Package Re-exporter
+
+Re-exports all public classes from `steering_loop` and `integrations` so callers can use `from steering import SteeringLoop, SteeringIntegrator` without knowing the submodule layout.
+
+```python
+__all__ = [
+    "SteeringLoop", "SteeringConfig", "IterationStage",
+    "ScoredOutput", "IterationResult", "LLMJudgeScorer",      # from steering_loop
+    "SteeringBVSIntegrator", "SteeringConstitutionIntegrator",  # from integrations
+    "SteeringCQGIntegrator", "SteeringIntegrator", "HR12Resolution",
+]
+```
+
 ---
 
 ### 3.13 `kill_switch/` — Agent Safety Kill Switch
@@ -1563,22 +1576,253 @@ CREATE TABLE IF NOT EXISTS effort (
 **Integration**: `SteeringIntegrator.bvs_integrator` property and `iterate_with_full_check()` now call real code instead of hitting `ImportError`.
 
 
-### §3.20 — `scripts/phase_auditor.py` — Phase Completeness Auditor
+### §3.20 — `scripts/` Directory Overview
 
-**Responsibility**: Deep-audit a completed phase against the 8-Phase methodology spec. Largest script in `scripts/` (65KB). Checks artifact presence, gate result validity, FR coverage, and deviation log entries for a target project.
+Full inventory of the `scripts/` directory (21 items). Grouped by role:
 
-**Usage** (run from target project root, `PYTHONPATH` pointing to harness):
+#### Phase Lifecycle & Planning
+
+| Script | Size | Purpose |
+|---|---|---|
+| `phase_auditor.py` | 65KB | Deep-audit a completed phase: validates artifacts, gate results, FR coverage; produces ASPICE-grade Markdown report |
+| `generate_full_plan.py` | 22KB | Generates a full FR-level execution plan for a phase from SAD.md; outputs `.methodology/phase{N}_plan.md` |
+| `generate_fr_mapping.py` | 6KB | Builds an FR→file mapping from SAD.md and codebase scan; consumed by `phase_auditor.py` and gate pre-flight |
+| `generate_sab.py` | 3KB | CLI wrapper around `sab_parser.extract_sab_from_sad`; also exposes `parse_sad()` called by `HarnessBridge.generate_quality_manifest()` |
+
+**`phase_auditor.py` usage**:
 ```bash
 python /path/to/harness/scripts/phase_auditor.py --phase 3 [--project .] [--report audit_p3.md]
 ```
 
-**Scope**:
-- Validates that all required phase artifacts exist (`.methodology/state.json`, gate results, plan doc)
-- Cross-checks FR coverage against `generate_fr_mapping.py` output
-- Reads `quality_manifest.json` for gate pass/fail history
-- Produces a Markdown audit report suitable for ASPICE evidence package
+**`generate_full_plan.py` usage** (called by `harness_cli.py plan-phase`):
+```bash
+python scripts/generate_full_plan.py --phase 3 --repo /path/to/project \
+  --output .methodology/phase3_plan.md
+```
 
-**Integration**: Called by `harness_cli.py run-phase` at phase exit (optional `--audit` flag). Can be run standalone for retrospective audits. Not in the critical path for gate evaluation.
+#### FR Verification
+
+| Script | Size | Purpose |
+|---|---|---|
+| `check_fr_full.py` | 7KB | Full bidirectional FR audit: SRS → SAD → code → test chain completeness |
+| `check_fr_quality.py` | 4KB | FR-level quality scoring: docstring coverage, citation format, `[FR-XX]` tag presence |
+| `check_spec_trace.py` | 3KB | Validates every FR-ID in SAD.md has a matching `tests/test_fr_*.py`; Gate 3 pre-flight |
+
+#### Integration & Automation
+
+| Script | Size | Purpose |
+|---|---|---|
+| `setup-git-hooks.sh` | 9KB | Installs `prepare-commit-msg` / `post-merge` / `pre-push` hooks in a **target project** |
+| `cron_drift_monitor.py` | 2KB | Hourly drift detection cron; reads `DRIFT_PROJECT_PATH` env var; alerts via log/email/Slack |
+| `cron_docs_optimizer.py` | 9KB | Scheduled docs quality optimizer; runs against stale documentation |
+| `harness-init.sh` | 5KB | Bootstrap script: creates `.methodology/` skeleton, copies config templates to a new target project |
+
+#### Compliance & Diagnostics
+
+| Script | Size | Purpose |
+|---|---|---|
+| `spec_logic_checker.py` | 10KB | Validates spec logic consistency (no contradictory requirements, all FRs have priorities) |
+| `dev_log_checker.py` | 12KB | Validates `DEVELOPMENT_LOG.md` format and HR-07 session_id presence |
+| `verify_spec_compliance.py` | 7KB | End-to-end spec compliance: code must implement every FR declared in SAD.md |
+| `verify_path_consistency.py` | 3KB | Confirms all path references in SAD.md and manifest match actual filesystem |
+| `state_monitor.py` | 6KB | Reads `.methodology/state.json`; reports FSM state, phase, timestamps |
+
+#### Release Management
+
+| Script | Size | Purpose |
+|---|---|---|
+| `bump_version.py` | 2KB | Semantic version bump: updates `SKILL.md` + `SAD.md` version headers |
+| `create_release.sh` | 1KB | Creates a GitHub release tag from current version |
+
+---
+
+### §3.22 — `core/task_splitter.py` — Task Decomposer
+
+**Responsibility**: Decomposes a high-level development goal into a DAG of ordered `Task` objects with dependencies, priorities, and estimated hours. Used by `harness_cli.py plan-phase` and `AgentSpawner` for FR-level work breakdown.
+
+**Key classes**:
+
+```python
+class TaskStatus(Enum):
+    PENDING | RUNNING | COMPLETED | FAILED | BLOCKED
+
+class TaskPriority(Enum):
+    LOW(1) | MEDIUM(2) | HIGH(3) | CRITICAL(4)
+
+@dataclass
+class Task:
+    id: str                          # "task-001", "task-002", ...
+    name: str
+    description: str
+    status: TaskStatus = PENDING
+    priority: TaskPriority = MEDIUM
+    dependencies: List[str]          # list of task ids this depends on
+    assignee: Optional[str]
+    estimated_hours: float
+    actual_hours: float
+    output: Any
+    created_at: str                  # ISO datetime
+    completed_at: Optional[str]
+```
+
+**`TaskSplitter`**:
+
+```python
+class TaskSplitter:
+    def create_task(name, description, priority, estimated_hours) -> Task
+    def add_dependency(task_id, depends_on) -> None
+    def split_from_goal(goal: str) -> List[Task]
+        # Keyword-maps goal text → standard phase tasks:
+        # research → Design → Development → Testing → Documentation → Deployment
+        # Sequentially chained (each depends on previous)
+    def get_ready_tasks() -> List[Task]     # PENDING with all deps COMPLETED
+    def get_execution_order() -> List[Task] # topological sort
+    def get_dag() -> Dict                   # {nodes: [...], edges: [...]}
+    def get_summary() -> Dict               # counts by status + total_estimated_hours
+```
+
+---
+
+### §3.23 — `core/sessions_spawn_logger.py` — Spawn Event Logger
+
+**Responsibility**: Records agent spawn events to `.methodology/sessions_spawn.log` (HR-10 compliance). Supports two-phase write (PENDING → COMPLETED/FAILED via `log_update()`).
+
+**Public API**:
+
+```python
+class SessionsSpawnLogger:
+    LOG_FILENAME = ".methodology/sessions_spawn.log"
+
+    def __init__(self, repo_path: Path)
+
+    def log_spawn(
+        role: str, task: str, session_id: str,
+        confidence: Optional[int] = None,
+        status: str = "SPAWNED",
+        **kwargs,
+    ) -> Dict                     # appends JSON line to log
+
+    def log_update(session_id: str, **updates) -> Optional[Dict]
+        # Finds entry by session_id, applies updates in-place
+        # Used to flip PENDING → COMPLETED/FAILED after spawn completes
+
+    def validate() -> Dict        # {valid: bool, count: int, errors: []}
+    def get_summary() -> Dict     # {total_entries, role_counts, fr_tasks, status_counts, valid}
+```
+
+**Log format** (each line is a JSON object):
+```json
+{"timestamp": "...", "role": "developer", "task": "FR-01", "session_id": "dev-abc123", "status": "SPAWNED", "confidence": 8}
+```
+
+**Convenience function**:
+```python
+def log_spawn_event(repo_path, role, task, session_id, **kwargs) -> Dict
+    # One-shot: SessionsSpawnLogger(repo_path).log_spawn(...)
+```
+
+**HR-10 compliance**: `validate()` checks every entry has `role` + `session_id` fields. Two entries per FR (developer + reviewer) required by HR-10.
+
+---
+
+### §3.24 — `core/requirement_traceability.py` — ASPICE Traceability Manager
+
+**Responsibility**: FR → SRS → Code → Test bidirectional traceability. ASPICE SWE.3/SYS.4 compliant. Tracks which requirements are implemented, which code components satisfy them, and which test files verify the implementation.
+
+**Key dataclasses**:
+
+```python
+class LinkType(Enum):
+    FR_TO_SRS | SRS_TO_CODE | CODE_TO_TEST | TEST_TO_QUALITY | QUALITY_TO_AUDIT | BIDIRECTIONAL
+
+@dataclass
+class Requirement:       # req_id, title, description, priority, status, srs_section
+@dataclass
+class CodeComponent:     # file_path, functions, classes, fr_id, test_files, coverage
+@dataclass
+class TestCoverage:      # test_file, test_functions, fr_id, coverage_percentage, status
+@dataclass
+class TraceLink:         # link_id, source_type/id, target_type/id, link_type, bidirectional
+```
+
+**`RequirementTraceability` public API**:
+
+```python
+class RequirementTraceability:
+    def __init__(self, project_id: str)
+    def add_requirement(req_id, title, srs_section=None, ...) -> Requirement
+    def add_code_component(file_path, fr_id=None, ...) -> CodeComponent
+    def add_test_coverage(test_file, fr_id=None, ...) -> TestCoverage
+    def add_link(source_type, source_id, target_type, target_id, link_type, ...) -> TraceLink
+    def get_downstream(req_id) -> {srs: [], code: [], test: [], quality: []}
+    def get_upstream(component_id) -> {fr: [], srs: [], code: []}
+    def verify_completeness() -> {
+        total_requirements, srs_coverage, code_coverage,
+        test_coverage, verification_rate, total_links,
+        missing_mappings: {fr_without_srs, fr_without_code, fr_without_test}
+    }
+    def get_traceability_matrix() -> list[dict]   # one row per FR
+    def export_report(format="standard"|"aspice") -> dict
+    def save(filepath) -> None
+```
+
+**ASPICE compliance checks** (when `format="aspice"`):
+- `SWE_3_B_SP1`: 100% SRS coverage
+- `SWE_3_B_SP2`: 100% code coverage
+- `SWE_3_B_SP3`: 100% test coverage
+
+**CLI usage**:
+```bash
+python core/requirement_traceability.py --project-id <id> [--verify] [--export report.json] [--format aspice]
+```
+
+---
+
+### §3.25 — `agent_personas/` — Role Persona Library
+
+**Responsibility**: Provides preset agent personas loaded by `AgentSpawner._load_persona()`. Each persona supplies a role description and personality traits injected into the agent prompt `[PERSONA]` block.
+
+**Package structure**:
+
+| File | Purpose |
+|---|---|
+| `persona.py` | `Persona` dataclass + `generate_persona_prompt(persona_type, task)` |
+| `__init__.py` | Re-exports `Persona`, `generate_persona_prompt`, `get_persona`, `PERSONAS` dict |
+| `ARCHITECT.md` | Narrative persona document (read by `_load_persona("ARCHITECT")`) |
+| `DEVELOPER.md` | Developer persona |
+| `REVIEWER.md` | Reviewer persona |
+| `QA_ENGINEER.md` | QA Engineer persona |
+| `DEVOPS.md` | DevOps persona |
+| `PRODUCT_MANAGER.md` | Product Manager persona |
+
+**`get_persona(persona_type: str) -> Persona`** (6 presets):
+- `architect` — Strategic, big-picture thinker, prioritizes scalability
+- `developer` — Practical, efficiency-focused, follows best practices
+- `reviewer` — Detail-oriented, critical thinker, focuses on quality
+- `qa` — Thorough, systematic, prioritizes test coverage and edge cases
+- `pm` — User-centric, data-driven, balances business and technical needs
+- `devops` — Automation-first, reliability-focused, prioritizes CI/CD
+
+**Usage**:
+```python
+from agent_personas import get_persona, generate_persona_prompt
+
+# Object-oriented
+persona = get_persona("developer")
+
+# String prompt (called by AgentSpawner._load_persona)
+prompt = generate_persona_prompt("developer", task="implement FR-01 login feature")
+```
+
+**Note**: `AgentSpawner._load_persona(role)` reads `agent_personas/{ROLE.upper()}.md` — the Markdown files are the authoritative persona source; `persona.py` provides the programmatic wrapper.
+
+---
+
+### §3.26 — `core/cli_phase_prompts.py` + `core/enforcement_config.py` — Layer 4 Utilities
+
+**`core/cli_phase_prompts.py`** (24KB): Phase-specific prompt templates used by `harness_cli.py plan-phase` and the pipeline to generate FR execution prompts. Contains one prompt template per phase (P1–P8), formatted for the sub-agent that will execute the FR.
+
+**`core/enforcement_config.py`** (5KB): Configuration schema and defaults for the `enforcement/` subsystem. Provides `EnforcementConfig` dataclass with fields for policy severity levels, audit trail retention, and hook behavior. Loaded by `FrameworkEnforcer.__init__()` at phase preflight.
 
 ---
 
