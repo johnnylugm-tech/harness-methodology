@@ -1,4 +1,4 @@
-# SAD — Harness Methodology v1.8 (As-Built — TDD W0-W7 complete, coverage 84.16% @ 2026-04-29)
+# SAD — Harness Methodology v1.9 (As-Built — Audit: 98% SAD↔code consistency, 2026-05-02)
 
 > **Sync guarantee**: This document is reverse-engineered from the live codebase.
 > Any change to the code **must** be reflected here, and vice-versa.
@@ -373,7 +373,7 @@ for subtask in subtasks:
 return self._merge_results(results)
 ```
 
-**`_build_prompt(role, prompt, phase, fr_id=None) -> str`**:
+**`_build_prompt(role, prompt, phase, fr_id=None, task_idx=1, task_total=1) -> str`**:
 ```
 [Harness Reviewer | Phase {phase}{ | FR {fr_id}}]
 Role: {role}
@@ -947,8 +947,8 @@ __all__ = [
 | `interrupt_engine.py` | `InterruptEngine` — interrupt event lifecycle |
 | `state_manager.py` | `StateManager` — persistent agent state (killed/active) |
 | `audit_logger.py` | `AuditLogger` — interrupt audit trail |
-| `models.py` | `InterruptEvent`, `MonitorConfig` — dataclasses |
-| `enums.py` | `CircuitState`, `KillReason` — enumerations |
+| `models.py` | `InterruptEvent`, `MonitorConfig`, `HealthMetrics`, `CircuitBreakerState` — dataclasses |
+| `enums.py` | `CircuitState`, `KillReason`, `KillSwitchEventType`, `InterruptOutcome` — enumerations |
 | `exceptions.py` | `InterruptInProgressError` |
 | `__init__.py` | Package exports |
 
@@ -998,7 +998,7 @@ class KillSwitch:
 |---|---|---|
 | `agent_proof_hook.py` | `AgentProofHook` | Git pre-commit hook that agents cannot bypass; validates commit message task ID format |
 | `constitution_as_code.py` | `ConstitutionAsCode` | Constitution rules expressed as executable Python checks |
-| `constitution_policy_sync.py` | `ConstitutionPolicySync` | Synchronizes policy definitions with constitution document |
+| `constitution_policy_sync.py` | `ConstitutionPolicyGenerator` | Synchronizes policy definitions with constitution document |
 | `execution_registry.py` | `ExecutionRegistry` | Registry tracking all executed enforcement actions |
 | `framework_enforcer.py` | `FrameworkEnforcer` | Main enforcement orchestrator; coordinates all enforcement subsystems |
 | `policy_engine.py` | `PolicyEngine` | Evaluates named policies against runtime context |
@@ -1019,7 +1019,7 @@ class KillSwitch:
 | File | Class | Purpose |
 |---|---|---|
 | `dashboard.py` (24KB) | `QualityDashboard` | Main dashboard aggregating all quality metrics |
-| `agent_auto_research.py` (34KB) | `AgentAutoResearch` | AI-driven automated research and quality investigation |
+| `agent_auto_research.py` (34KB) | `AgentDrivenAutoResearch` | AI-driven automated research and quality investigation |
 | `auto_research_loop.py` (17KB) | `AutoResearchLoop` | Orchestrates iterative research rounds |
 
 **Relationship to Gate 2**: `gate2_p3_exit.yaml` declares `replaces: auto_research_p3` — the Gate 2 automated evaluation replaces what was previously the `auto_research_p3` component from this dashboard.
@@ -1079,9 +1079,9 @@ class KillSwitch:
 | File | Class | Purpose |
 |---|---|---|
 | `detector.py` | `GapDetector` | Core gap identification logic |
-| `parser.py` | `GapParser` | Parses spec documents to extract expected coverage |
+| `parser.py` | `SpecParser` | Parses spec documents to extract expected coverage |
 | `reporter.py` | `GapReporter` | Formats gap findings for reporting |
-| `scanner.py` | `GapScanner` | Scans codebase for coverage evidence |
+| `scanner.py` | `CodeScanner` | Scans codebase for coverage evidence |
 
 ### §3.21 — `scripts/check_spec_trace.py` — FR Spec Trace Validator
 
@@ -1615,6 +1615,8 @@ python scripts/generate_full_plan.py --phase 3 --repo /path/to/project \
 | `setup-git-hooks.sh` | 9KB | Installs `prepare-commit-msg` / `post-merge` / `pre-push` hooks in a **target project** |
 | `cron_drift_monitor.py` | 2KB | Hourly drift detection cron; reads `DRIFT_PROJECT_PATH` env var; alerts via log/email/Slack |
 | `cron_docs_optimizer.py` | 9KB | Scheduled docs quality optimizer; runs against stale documentation |
+| `drift_crontab.example` | 780B | Example crontab configuration for `cron_drift_monitor.py` |
+| `DRIFT_CRON_SETUP.md` | 2KB | Setup guide for drift cron monitoring |
 | `harness-init.sh` | 5KB | Bootstrap script: creates `.methodology/` skeleton, copies config templates to a new target project |
 
 #### Compliance & Diagnostics
@@ -1661,6 +1663,7 @@ class Task:
     estimated_hours: float
     actual_hours: float
     output: Any
+    error: Optional[str]
     created_at: str                  # ISO datetime
     completed_at: Optional[str]
 ```
@@ -1786,7 +1789,7 @@ python core/requirement_traceability.py --project-id <id> [--verify] [--export r
 
 | File | Purpose |
 |---|---|
-| `persona.py` | `Persona` dataclass + `generate_persona_prompt(persona_type, task)` |
+| `persona.py` | `Persona` class + `generate_persona_prompt(persona_type, task)` |
 | `__init__.py` | Re-exports `Persona`, `generate_persona_prompt`, `get_persona`, `PERSONAS` dict |
 | `ARCHITECT.md` | Narrative persona document (read by `_load_persona("ARCHITECT")`) |
 | `DEVELOPER.md` | Developer persona |
