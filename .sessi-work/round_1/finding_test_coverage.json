@@ -1,0 +1,1 @@
+{"dimension": "test_coverage", "severity": "high", "location": "tests/", "issue": "Coverage is 45.80%, below the 80% target", "tool_output": ".sessi-work/round_1/tools/pytest.out"}

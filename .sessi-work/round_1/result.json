@@ -1,0 +1,221 @@
+{
+  "overall_score": 76.0,
+  "score_gate": 85,
+  "target": 85,
+  "meets_target": false,
+  "quality_complete": false,
+  "open_critical_count": 0,
+  "open_high_count": 4,
+  "open_medium_count": 4,
+  "open_total": 9,
+  "failing_dimensions": [
+    {
+      "dimension": "type_safety",
+      "score": 50,
+      "target": 95,
+      "gap": 45,
+      "weight": 0.06666666666666667,
+      "impact": 3.0
+    },
+    {
+      "dimension": "security",
+      "score": 70,
+      "target": 90,
+      "gap": 20,
+      "weight": 0.13333333333333333,
+      "impact": 2.6666666666666665
+    },
+    {
+      "dimension": "linting",
+      "score": 60,
+      "target": 95,
+      "gap": 35,
+      "weight": 0.06666666666666667,
+      "impact": 2.3333333333333335
+    },
+    {
+      "dimension": "test_coverage",
+      "score": 45,
+      "target": 80,
+      "gap": 35,
+      "weight": 0.06666666666666667,
+      "impact": 2.3333333333333335
+    },
+    {
+      "dimension": "mutation_testing",
+      "score": 50,
+      "target": 70,
+      "gap": 20,
+      "weight": 0.06666666666666667,
+      "impact": 1.3333333333333333
+    },
+    {
+      "dimension": "error_handling",
+      "score": 80,
+      "target": 85,
+      "gap": 5,
+      "weight": 0.06666666666666667,
+      "impact": 0.3333333333333333
+    }
+  ],
+  "breakdown": {
+    "linting": {
+      "score": 60,
+      "target": 95,
+      "gap": 35,
+      "weight": 0.06666666666666667,
+      "weighted_score": 4.0
+    },
+    "type_safety": {
+      "score": 50,
+      "target": 95,
+      "gap": 45,
+      "weight": 0.06666666666666667,
+      "weighted_score": 3.3333333333333335
+    },
+    "test_coverage": {
+      "score": 45,
+      "target": 80,
+      "gap": 35,
+      "weight": 0.06666666666666667,
+      "weighted_score": 3.0
+    },
+    "security": {
+      "score": 70,
+      "target": 90,
+      "gap": 20,
+      "weight": 0.13333333333333333,
+      "weighted_score": 9.333333333333334
+    },
+    "performance": {
+      "score": 85,
+      "target": 80,
+      "gap": 0,
+      "weight": 0.06666666666666667,
+      "weighted_score": 5.666666666666667
+    },
+    "architecture": {
+      "score": 80,
+      "target": 80,
+      "gap": 0,
+      "weight": 0.13333333333333333,
+      "weighted_score": 10.666666666666666
+    },
+    "readability": {
+      "score": 85,
+      "target": 85,
+      "gap": 0,
+      "weight": 0.06666666666666667,
+      "weighted_score": 5.666666666666667
+    },
+    "error_handling": {
+      "score": 80,
+      "target": 85,
+      "gap": 5,
+      "weight": 0.06666666666666667,
+      "weighted_score": 5.333333333333333
+    },
+    "documentation": {
+      "score": 85,
+      "target": 85,
+      "gap": 0,
+      "weight": 0.06666666666666667,
+      "weighted_score": 5.666666666666667
+    },
+    "secrets_scanning": {
+      "score": 100,
+      "target": 100,
+      "gap": 0,
+      "weight": 0.13333333333333333,
+      "weighted_score": 13.333333333333334
+    },
+    "mutation_testing": {
+      "score": 50,
+      "target": 70,
+      "gap": 20,
+      "weight": 0.06666666666666667,
+      "weighted_score": 3.3333333333333335
+    },
+    "license_compliance": {
+      "score": 100,
+      "target": 95,
+      "gap": 0,
+      "weight": 0.06666666666666667,
+      "weighted_score": 6.666666666666667
+    }
+  },
+  "crg_adjustments": {
+    "architecture": {
+      "dimension": "architecture",
+      "score": 80,
+      "tool_score": 80,
+      "llm_score": 100
+    },
+    "documentation": {
+      "dimension": "documentation",
+      "score": 85,
+      "tool_score": 85,
+      "llm_score": 100
+    },
+    "error_handling": {
+      "dimension": "error_handling",
+      "score": 80,
+      "tool_score": 80,
+      "llm_score": 100
+    },
+    "license_compliance": {
+      "dimension": "license_compliance",
+      "score": 100,
+      "tool_score": 100,
+      "llm_score": 100
+    },
+    "linting": {
+      "dimension": "linting",
+      "score": 60,
+      "tool_score": 60,
+      "llm_score": 100
+    },
+    "mutation_testing": {
+      "dimension": "mutation_testing",
+      "score": 50,
+      "tool_score": 50,
+      "llm_score": 100
+    },
+    "performance": {
+      "dimension": "performance",
+      "score": 85,
+      "tool_score": 85,
+      "llm_score": 100
+    },
+    "readability": {
+      "dimension": "readability",
+      "score": 85,
+      "tool_score": 85,
+      "llm_score": 100
+    },
+    "secrets_scanning": {
+      "dimension": "secrets_scanning",
+      "score": 100,
+      "tool_score": 100,
+      "llm_score": 100
+    },
+    "security": {
+      "dimension": "security",
+      "score": 70,
+      "tool_score": 70,
+      "llm_score": 100
+    },
+    "test_coverage": {
+      "dimension": "test_coverage",
+      "score": 45,
+      "tool_score": 45,
+      "llm_score": 100
+    },
+    "type_safety": {
+      "dimension": "type_safety",
+      "score": 50,
+      "tool_score": 50,
+      "llm_score": 100
+    }
+  }
+}

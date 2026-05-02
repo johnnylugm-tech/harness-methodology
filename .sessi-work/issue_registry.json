@@ -1,0 +1,118 @@
+{
+  "issues": [
+    {
+      "id": "crg-001",
+      "dimension": "readability",
+      "round_found": 0,
+      "severity": "medium",
+      "file": "cli.py",
+      "message": "Why is cli.py so large? (288KB+)",
+      "evidence": "CRG Hub analysis",
+      "status": "open"
+    },
+    {
+      "id": "crg-002",
+      "dimension": "architecture",
+      "round_found": 0,
+      "severity": "low",
+      "file": "templates/",
+      "message": "Unused templates detected",
+      "evidence": "CRG Dead code analysis",
+      "status": "open"
+    },
+    {
+      "id": "crg-003",
+      "dimension": "architecture",
+      "round_found": 1,
+      "severity": "high",
+      "file": "core/quality_gate/",
+      "message": "High coupling with tests-parse community",
+      "evidence": "CRG Architecture analysis",
+      "status": "open"
+    },
+    {
+      "id": "crg-004",
+      "dimension": "test_coverage",
+      "round_found": 1,
+      "severity": "high",
+      "file": "core/quality_gate/",
+      "message": "Low test coverage (<50%)",
+      "evidence": "Pytest-cov analysis",
+      "status": "open"
+    },
+    {
+      "id": "crg-005",
+      "dimension": "type_safety",
+      "round_found": 1,
+      "severity": "medium",
+      "file": "harness/",
+      "message": "Missing type hints in public methods",
+      "evidence": "Pyright analysis",
+      "status": "open"
+    },
+    {
+      "id": "abadd19c1b",
+      "dimension": "linting",
+      "severity": "medium",
+      "file": "",
+      "line": null,
+      "message": "",
+      "evidence": "",
+      "status": "open",
+      "round_found": 1,
+      "last_seen_round": 1,
+      "round_resolved": null,
+      "resolution_note": null,
+      "commit_sha": null,
+      "files_changed": []
+    },
+    {
+      "id": "c6230aeac8",
+      "dimension": "type_safety",
+      "severity": "high",
+      "file": "",
+      "line": null,
+      "message": "",
+      "evidence": "",
+      "status": "open",
+      "round_found": 1,
+      "last_seen_round": 1,
+      "round_resolved": null,
+      "resolution_note": null,
+      "commit_sha": null,
+      "files_changed": []
+    },
+    {
+      "id": "5c8aea3c4e",
+      "dimension": "security",
+      "severity": "medium",
+      "file": "",
+      "line": null,
+      "message": "",
+      "evidence": "",
+      "status": "open",
+      "round_found": 1,
+      "last_seen_round": 1,
+      "round_resolved": null,
+      "resolution_note": null,
+      "commit_sha": null,
+      "files_changed": []
+    },
+    {
+      "id": "6175369462",
+      "dimension": "test_coverage",
+      "severity": "high",
+      "file": "",
+      "line": null,
+      "message": "",
+      "evidence": "",
+      "status": "open",
+      "round_found": 1,
+      "last_seen_round": 1,
+      "round_resolved": null,
+      "resolution_note": null,
+      "commit_sha": null,
+      "files_changed": []
+    }
+  ]
+}

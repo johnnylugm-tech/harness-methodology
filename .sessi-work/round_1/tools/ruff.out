@@ -1,0 +1,4421 @@
+F841 Local variable `hooks` is assigned to but never used
+   --> core/adapters/phase_hooks_adapter.py:187:9
+    |
+186 |         fr_outcomes = []
+187 |         hooks = self._get_hooks()
+    |         ^^^^^
+188 |         for entry in fr_results:
+189 |             fr_id = entry["fr_id"]
+    |
+help: Remove assignment to unused variable `hooks`
+
+F401 [*] `typing.Optional` imported but unused
+  --> core/hybrid_workflow.py:13:20
+   |
+11 | from enum import Enum
+12 | from dataclasses import dataclass
+13 | from typing import Optional, Callable
+   |                    ^^^^^^^^
+14 |
+15 | class WorkflowMode(Enum):
+   |
+help: Remove unused import: `typing.Optional`
+
+E741 Ambiguous variable name: `l`
+  --> core/hybrid_workflow.py:47:34
+   |
+45 |     def analyze_change(self, diff: str) -> ChangeAnalysis:
+46 |         lines = diff.split('\n')
+47 |         added_lines = len([l for l in lines if l.startswith('+')])
+   |                                  ^
+48 |         removed_lines = len([l for l in lines if l.startswith('-')])
+49 |         total_changes = added_lines + removed_lines
+   |
+
+E741 Ambiguous variable name: `l`
+  --> core/hybrid_workflow.py:48:36
+   |
+46 |         lines = diff.split('\n')
+47 |         added_lines = len([l for l in lines if l.startswith('+')])
+48 |         removed_lines = len([l for l in lines if l.startswith('-')])
+   |                                    ^
+49 |         total_changes = added_lines + removed_lines
+50 |         security_keywords = ['auth', 'password', 'token', 'permission', 'security']
+   |
+
+E741 Ambiguous variable name: `l`
+  --> core/hybrid_workflow.py:64:56
+   |
+62 |         return ChangeAnalysis(
+63 |             type=change_type, lines_changed=total_changes,
+64 |             files_affected=len(set(l.split('/')[0] for l in lines if '/' in l)),
+   |                                                        ^
+65 |             is_security_related=is_security, is_new_feature=is_new_feature, reason=reason
+66 |         )
+   |
+
+F401 [*] `typing.Optional` imported but unused
+  --> core/phase_hooks.py:22:37
+   |
+20 | from pathlib import Path
+21 | from datetime import datetime
+22 | from typing import Dict, List, Any, Optional
+   |                                     ^^^^^^^^
+   |
+help: Remove unused import: `typing.Optional`
+
+F541 [*] f-string without any placeholders
+  --> core/phase_hooks.py:56:15
+   |
+54 |     def preflight_fsm_check(self) -> Dict[str, Any]:
+55 |         """Check FSM state; FREEZE/PAUSED blocks execution."""
+56 |         print(f"\n[PRE-FLIGHT] FSM State Check")
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+57 |         if not self.state_path.exists():
+58 |             return {"passed": False, "state": "UNKNOWN", "message": "state.json not found"}
+   |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+  --> core/phase_hooks.py:89:15
+   |
+87 |     def preflight_tool_registry(self) -> Dict[str, Any]:
+88 |         """Check tool registry state."""
+89 |         print(f"\n[PRE-FLIGHT] Tool Registry Check")
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+90 |         try:
+91 |             from tool_registry import ToolRegistry
+   |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/phase_hooks.py:165:15
+    |
+163 |     def postflight_constitution(self) -> Dict[str, Any]:
+164 |         """Post-flight constitution check."""
+165 |         print(f"\n[POST-FLIGHT] Constitution Check")
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+166 |         return self.preflight_constitution(check_mode="postflight")
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/phase_hooks.py:170:15
+    |
+168 |     def postflight_update_state(self, success: bool = True) -> Dict[str, Any]:
+169 |         """Update FSM state.json on success."""
+170 |         print(f"\n[POST-FLIGHT] Update FSM State")
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+171 |         if not success:
+172 |             return {"updated": False, "reason": "execution_failed"}
+    |
+help: Remove extraneous `f` prefix
+
+F401 `typing.Any` imported but unused
+  --> core/quality_gate/__init__.py:10:20
+   |
+ 8 | from dataclasses import dataclass, field
+ 9 | from datetime import datetime, timezone
+10 | from typing import Any
+   |                    ^^^
+   |
+help: Remove unused import: `typing.Any`
+
+F401 [*] `typing.List` imported but unused
+  --> core/quality_gate/ab_enforcer.py:19:26
+   |
+17 | import re
+18 | from pathlib import Path
+19 | from typing import Dict, List, Optional, Tuple
+   |                          ^^^^
+20 |
+21 | from core.quality_gate.parsers import DevelopmentLogParser
+   |
+help: Remove unused import
+
+F401 [*] `typing.Tuple` imported but unused
+  --> core/quality_gate/ab_enforcer.py:19:42
+   |
+17 | import re
+18 | from pathlib import Path
+19 | from typing import Dict, List, Optional, Tuple
+   |                                          ^^^^^
+20 |
+21 | from core.quality_gate.parsers import DevelopmentLogParser
+   |
+help: Remove unused import
+
+F541 [*] f-string without any placeholders
+  --> core/quality_gate/parsers/development_log_parser.py:56:13
+   |
+54 |         # Patterns that capture an explicit session token (group 1 required)
+55 |         session_patterns = [
+56 |             rf"[Ss]ession[-]?[Ii][Dd][:]\s*([a-zA-Z0-9-]+)",
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+57 |             rf"{role}.*?[Ss]ession[:]\s*([a-zA-Z0-9-]+)",
+58 |             rf"[Ss]ub[-]?[Aa]gent.*?{role}.*?([a-zA-Z0-9-]+)",
+   |
+help: Remove extraneous `f` prefix
+
+F401 [*] `os` imported but unused
+  --> core/quality_gate/phase_truth_verifier.py:18:8
+   |
+16 | """
+17 |
+18 | import os
+   |        ^^
+19 | import subprocess
+20 | import json
+   |
+help: Remove unused import: `os`
+
+F401 [*] `quality_gate.phase_paths.PHASE_ARTIFACT_PATHS` imported but unused
+  --> core/quality_gate/phase_truth_verifier.py:35:42
+   |
+33 |     from core.quality_gate.phase_paths import PHASE_ARTIFACT_PATHS
+34 | except ImportError:
+35 |     from quality_gate.phase_paths import PHASE_ARTIFACT_PATHS  # type: ignore[no-redef]
+   |                                          ^^^^^^^^^^^^^^^^^^^^
+   |
+help: Remove unused import: `quality_gate.phase_paths.PHASE_ARTIFACT_PATHS`
+
+E741 Ambiguous variable name: `l`
+   --> core/quality_gate/phase_truth_verifier.py:112:32
+    |
+110 |             except json.JSONDecodeError:
+111 |                 # Try line-by-line parsing
+112 |                 lines = [l for l in content.split("\n") if l]
+    |                                ^
+113 |                 for line in lines:
+114 |                     try:
+    |
+
+E722 Do not use bare `except`
+   --> core/quality_gate/phase_truth_verifier.py:118:21
+    |
+116 |                         roles.add(entry.get("role", ""))
+117 |                         sessions.add(entry.get("session_id", ""))
+118 |                     except:
+    |                     ^^^^^^
+119 |                         pass
+    |
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/phase_truth_verifier.py:246:31
+    |
+244 |                     "item": found_path,
+245 |                     "status": "✅ present" if exists else "❌ missing",
+246 |                     "action": f"Pick 1 at random, confirm content is not a hollow template"
+    |                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+247 |                 })
+    |
+help: Remove extraneous `f` prefix
+
+F401 [*] `os` imported but unused
+  --> core/quality_gate/spec_tracking_checker.py:12:8
+   |
+10 | """
+11 |
+12 | import os
+   |        ^^
+13 | import re
+14 | from typing import Dict, List, Optional
+   |
+help: Remove unused import: `os`
+
+F401 [*] `re` imported but unused
+  --> core/quality_gate/spec_tracking_checker.py:13:8
+   |
+12 | import os
+13 | import re
+   |        ^^
+14 | from typing import Dict, List, Optional
+15 | from pathlib import Path
+   |
+help: Remove unused import: `re`
+
+F401 [*] `typing.Optional` imported but unused
+  --> core/quality_gate/spec_tracking_checker.py:14:32
+   |
+12 | import os
+13 | import re
+14 | from typing import Dict, List, Optional
+   |                                ^^^^^^^^
+15 | from pathlib import Path
+   |
+help: Remove unused import: `typing.Optional`
+
+E701 Multiple statements on one line (colon)
+  --> core/quality_gate/spec_tracking_checker.py:54:61
+   |
+52 |             }
+53 |         
+54 |         if not self.spec_file or not self.spec_file.exists(): return {"complete": False, "missing": ["File not found"]}
+   |                                                             ^
+55 |         content = self.spec_file.read_text(encoding="utf-8")
+56 |         missing = []
+   |
+
+E701 Multiple statements on one line (colon)
+   --> core/quality_gate/spec_tracking_checker.py:125:61
+    |
+124 |         completeness_result = self.check_completeness()
+125 |         if not self.spec_file or not self.spec_file.exists(): return {"complete": False, "missing": ["File not found"]}
+    |                                                             ^
+126 |         content = self.spec_file.read_text(encoding="utf-8")
+127 |         stats = self._count_status(content)
+    |
+
+E701 Multiple statements on one line (colon)
+   --> core/quality_gate/spec_tracking_checker.py:168:61
+    |
+167 |         # Read and display status statistics
+168 |         if not self.spec_file or not self.spec_file.exists(): return
+    |                                                             ^
+169 |         content = self.spec_file.read_text(encoding="utf-8")
+170 |         stats = self._count_status(content)
+    |
+
+F401 [*] `typing.List` imported but unused
+  --> core/quality_gate/stage_pass_generator.py:45:26
+   |
+43 | from datetime import datetime
+44 | from pathlib import Path
+45 | from typing import Dict, List, Optional
+   |                          ^^^^
+46 |
+47 | # Import existing Framework modules
+   |
+help: Remove unused import
+
+F401 [*] `typing.Optional` imported but unused
+  --> core/quality_gate/stage_pass_generator.py:45:32
+   |
+43 | from datetime import datetime
+44 | from pathlib import Path
+45 | from typing import Dict, List, Optional
+   |                                ^^^^^^^^
+46 |
+47 | # Import existing Framework modules
+   |
+help: Remove unused import
+
+E402 Module level import not at top of file
+  --> core/quality_gate/stage_pass_generator.py:52:1
+   |
+50 | sys.path.insert(0, str(_parent_dir))
+51 |
+52 | from enforcement.framework_enforcer import FrameworkEnforcer
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+53 | from pathlib import Path
+54 | from datetime import datetime
+   |
+
+E402 Module level import not at top of file
+  --> core/quality_gate/stage_pass_generator.py:53:1
+   |
+52 | from enforcement.framework_enforcer import FrameworkEnforcer
+53 | from pathlib import Path
+   | ^^^^^^^^^^^^^^^^^^^^^^^^
+54 | from datetime import datetime
+55 | from quality_gate.claims_verifier import ClaimsVerifier
+   |
+
+E402 Module level import not at top of file
+  --> core/quality_gate/stage_pass_generator.py:54:1
+   |
+52 | from enforcement.framework_enforcer import FrameworkEnforcer
+53 | from pathlib import Path
+54 | from datetime import datetime
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+55 | from quality_gate.claims_verifier import ClaimsVerifier
+56 | from quality_gate.phase_config import PHASE_CONFIG
+   |
+
+F811 [*] Redefinition of unused `datetime` from line 43
+  --> core/quality_gate/stage_pass_generator.py:54:22
+   |
+52 | from enforcement.framework_enforcer import FrameworkEnforcer
+53 | from pathlib import Path
+54 | from datetime import datetime
+   |                      ^^^^^^^^ `datetime` redefined here
+55 | from quality_gate.claims_verifier import ClaimsVerifier
+56 | from quality_gate.phase_config import PHASE_CONFIG
+   |
+  ::: core/quality_gate/stage_pass_generator.py:43:22
+   |
+41 | import argparse
+42 | import subprocess
+43 | from datetime import datetime
+   |                      -------- previous definition of `datetime` here
+44 | from pathlib import Path
+45 | from typing import Dict, List, Optional
+   |
+help: Remove definition: `datetime`
+
+E402 Module level import not at top of file
+  --> core/quality_gate/stage_pass_generator.py:55:1
+   |
+53 | from pathlib import Path
+54 | from datetime import datetime
+55 | from quality_gate.claims_verifier import ClaimsVerifier
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+56 | from quality_gate.phase_config import PHASE_CONFIG
+   |
+
+E402 Module level import not at top of file
+  --> core/quality_gate/stage_pass_generator.py:56:1
+   |
+54 | from datetime import datetime
+55 | from quality_gate.claims_verifier import ClaimsVerifier
+56 | from quality_gate.phase_config import PHASE_CONFIG
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+57 |
+58 | VERSION = "1.1.0"
+   |
+
+F541 [*] f-string without any placeholders
+  --> core/quality_gate/stage_pass_generator.py:92:15
+   |
+90 |         """
+91 |         print(f"\n{'='*60}")
+92 |         print(f"[Step 1] 5W1H compliance scan (actual tool verification)")
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+93 |         print(f"{'='*60}")
+   |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:135:15
+    |
+133 |         """
+134 |         print(f"\n{'='*60}")
+135 |         print(f"[Step 2] Sessions_spawn.log verification")
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+136 |         print(f"{'='*60}")
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:161:15
+    |
+159 |         """
+160 |         print(f"\n{'='*60}")
+161 |         print(f"[Step 2b] Confidence format validation")
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+162 |         print(f"{'='*60}")
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:207:15
+    |
+205 |         """
+206 |         print(f"\n{'='*60}")
+207 |         print(f"[Step 3] Collecting test evidence")
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+208 |         print(f"{'='*60}")
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:260:15
+    |
+258 |         """
+259 |         print(f"\n{'='*60}")
+260 |         print(f"[Step 4] Confidence score")
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+261 |         print(f"{'='*60}")
+    |
+help: Remove extraneous `f` prefix
+
+F841 Local variable `now` is assigned to but never used
+   --> core/quality_gate/stage_pass_generator.py:308:9
+    |
+306 |         """Generate STAGE_PASS.md - Agent A/B review format"""
+307 |         config = self.config
+308 |         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    |         ^^^
+309 |         
+310 |         score = self.results["confidence_score"] or 0
+    |
+help: Remove assignment to unused variable `now`
+
+F841 Local variable `score_badge` is assigned to but never used
+   --> core/quality_gate/stage_pass_generator.py:318:13
+    |
+316 |             score_badge = f"🟡 {score}/100"
+317 |         else:
+318 |             score_badge = f"🔴 {score}/100"
+    |             ^^^^^^^^^^^
+319 |         
+320 |         block_result = self.results.get("framework_results", {}).get("BLOCK", {})
+    |
+help: Remove assignment to unused variable `score_badge`
+
+F841 Local variable `overall_pass` is assigned to but never used
+   --> core/quality_gate/stage_pass_generator.py:344:13
+    |
+343 |         if not const_passed:
+344 |             overall_pass = False
+    |             ^^^^^^^^^^^^
+345 |         
+346 |         lines = [
+    |
+help: Remove assignment to unused variable `overall_pass`
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:348:13
+    |
+346 |         lines = [
+347 |             f"# Phase {self.phase} STAGE_PASS",
+348 |             f"",
+    |             ^^^
+349 |             f"## Phase Goal Achieved",
+350 |             f"",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:349:13
+    |
+347 |             f"# Phase {self.phase} STAGE_PASS",
+348 |             f"",
+349 |             f"## Phase Goal Achieved",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^
+350 |             f"",
+351 |             f"{config.get('name', f'Phase {self.phase}')} — {config.get('skill_section', '')}",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:350:13
+    |
+348 |             f"",
+349 |             f"## Phase Goal Achieved",
+350 |             f"",
+    |             ^^^
+351 |             f"{config.get('name', f'Phase {self.phase}')} — {config.get('skill_section', '')}",
+352 |             f"",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:352:13
+    |
+350 |             f"",
+351 |             f"{config.get('name', f'Phase {self.phase}')} — {config.get('skill_section', '')}",
+352 |             f"",
+    |             ^^^
+353 |             f"### Phase Completion Summary",
+354 |             f"> (Phase completion summary: goal status, key outputs, execution time, etc.)",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:353:13
+    |
+351 |             f"{config.get('name', f'Phase {self.phase}')} — {config.get('skill_section', '')}",
+352 |             f"",
+353 |             f"### Phase Completion Summary",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+354 |             f"> (Phase completion summary: goal status, key outputs, execution time, etc.)",
+355 |             f"",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:354:13
+    |
+352 |             f"",
+353 |             f"### Phase Completion Summary",
+354 |             f"> (Phase completion summary: goal status, key outputs, execution time, etc.)",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+355 |             f"",
+356 |             f"## ⚠️ CONSTITUTION FAILURE - {'❌ BLOCKED' if not const_passed else '✅ PASSED'}",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:355:13
+    |
+353 |             f"### Phase Completion Summary",
+354 |             f"> (Phase completion summary: goal status, key outputs, execution time, etc.)",
+355 |             f"",
+    |             ^^^
+356 |             f"## ⚠️ CONSTITUTION FAILURE - {'❌ BLOCKED' if not const_passed else '✅ PASSED'}",
+357 |             f"> Constitution Score: {const_score:.1f}% (Threshold: ≥80% for TH-02, =100% for TH-04)",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:359:13
+    |
+357 |             f"> Constitution Score: {const_score:.1f}% (Threshold: ≥80% for TH-02, =100% for TH-04)",
+358 |             f"> Phase {self.phase} {'BLOCKED' if not const_passed else 'PROCEEDING'}",
+359 |             f"",
+    |             ^^^
+360 |             f"## Agent A Self-Assessment",
+361 |             f"",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:360:13
+    |
+358 |             f"> Phase {self.phase} {'BLOCKED' if not const_passed else 'PROCEEDING'}",
+359 |             f"",
+360 |             f"## Agent A Self-Assessment",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+361 |             f"",
+362 |             f"### 5W1H Compliance Check",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:361:13
+    |
+359 |             f"",
+360 |             f"## Agent A Self-Assessment",
+361 |             f"",
+    |             ^^^
+362 |             f"### 5W1H Compliance Check",
+363 |             f"| Item | Status | Notes |",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:362:13
+    |
+360 |             f"## Agent A Self-Assessment",
+361 |             f"",
+362 |             f"### 5W1H Compliance Check",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+363 |             f"| Item | Status | Notes |",
+364 |             f"|------|------|------|",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:363:13
+    |
+361 |             f"",
+362 |             f"### 5W1H Compliance Check",
+363 |             f"| Item | Status | Notes |",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+364 |             f"|------|------|------|",
+365 |             f"| WHO | {'✅' if who_pass else '❌'} | A/B collaboration authenticity |",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:364:13
+    |
+362 |             f"### 5W1H Compliance Check",
+363 |             f"| Item | Status | Notes |",
+364 |             f"|------|------|------|",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^
+365 |             f"| WHO | {'✅' if who_pass else '❌'} | A/B collaboration authenticity |",
+366 |             f"| WHAT | {'✅' if what_pass else '❌'} | Artifact completeness |",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:371:13
+    |
+369 |             f"| WHY | {'✅' if why_pass else '❌'} | Design rationale sufficient |",
+370 |             f"| HOW | {'✅' if how_pass else '❌'} | SOP executed in order |",
+371 |             f"",
+    |             ^^^
+372 |             f"### Issues Found",
+373 |             f"| # | Issue | Severity | Fix | Status |",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:372:13
+    |
+370 |             f"| HOW | {'✅' if how_pass else '❌'} | SOP executed in order |",
+371 |             f"",
+372 |             f"### Issues Found",
+    |             ^^^^^^^^^^^^^^^^^^^
+373 |             f"| # | Issue | Severity | Fix | Status |",
+374 |             f"|---|------|--------|----------|------|",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:373:13
+    |
+371 |             f"",
+372 |             f"### Issues Found",
+373 |             f"| # | Issue | Severity | Fix | Status |",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+374 |             f"|---|------|--------|----------|------|",
+375 |         ]
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:374:13
+    |
+372 |             f"### Issues Found",
+373 |             f"| # | Issue | Severity | Fix | Status |",
+374 |             f"|---|------|--------|----------|------|",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+375 |         ]
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:383:26
+    |
+381 |                 lines.append(f"| {i} | {msg} | HIGH | {fix or 'pending fix'} | ❌ |")
+382 |         else:
+383 |             lines.append(f"| — | None | — | — | ✅ |")
+    |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+384 |         
+385 |         lines.extend([
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:386:13
+    |
+385 |         lines.extend([
+386 |             f"",
+    |             ^^^
+387 |             f"### Artifact List",
+388 |             f"| Artifact | Status | Path |",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:387:13
+    |
+385 |         lines.extend([
+386 |             f"",
+387 |             f"### Artifact List",
+    |             ^^^^^^^^^^^^^^^^^^^^
+388 |             f"| Artifact | Status | Path |",
+389 |             f"|--------|------|------|",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:388:13
+    |
+386 |             f"",
+387 |             f"### Artifact List",
+388 |             f"| Artifact | Status | Path |",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+389 |             f"|--------|------|------|",
+390 |             f"| STAGE_PASS.md | ✅ | 00-summary/ |",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:389:13
+    |
+387 |             f"### Artifact List",
+388 |             f"| Artifact | Status | Path |",
+389 |             f"|--------|------|------|",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+390 |             f"| STAGE_PASS.md | ✅ | 00-summary/ |",
+391 |             f"| FrameworkEnforcer | {'✅' if block_result.get('passed') else '❌'} | quality_gate/ |",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:390:13
+    |
+388 |             f"| Artifact | Status | Path |",
+389 |             f"|--------|------|------|",
+390 |             f"| STAGE_PASS.md | ✅ | 00-summary/ |",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+391 |             f"| FrameworkEnforcer | {'✅' if block_result.get('passed') else '❌'} | quality_gate/ |",
+392 |             f"| Sessions_spawn.log | {'✅' if log_result.get('passed') else '❌'} | .openclaw/ |",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:394:13
+    |
+392 |             f"| Sessions_spawn.log | {'✅' if log_result.get('passed') else '❌'} | .openclaw/ |",
+393 |             f"| pytest | {'✅' if test_evidence.get('pytest_passed') else '❌'} | tests/ |",
+394 |             f"",
+    |             ^^^
+395 |             f"### Agent A Confidence Summary",
+396 |             f"| Item | Score (0-10) | Notes |",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:395:13
+    |
+393 |             f"| pytest | {'✅' if test_evidence.get('pytest_passed') else '❌'} | tests/ |",
+394 |             f"",
+395 |             f"### Agent A Confidence Summary",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+396 |             f"| Item | Score (0-10) | Notes |",
+397 |             f"|------|------|------|",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:396:13
+    |
+394 |             f"",
+395 |             f"### Agent A Confidence Summary",
+396 |             f"| Item | Score (0-10) | Notes |",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+397 |             f"|------|------|------|",
+398 |             f"| Artifact quality | 7/10 | |",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:397:13
+    |
+395 |             f"### Agent A Confidence Summary",
+396 |             f"| Item | Score (0-10) | Notes |",
+397 |             f"|------|------|------|",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^
+398 |             f"| Artifact quality | 7/10 | |",
+399 |             f"| Design reasonableness | 7/10 | |",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:398:13
+    |
+396 |             f"| Item | Score (0-10) | Notes |",
+397 |             f"|------|------|------|",
+398 |             f"| Artifact quality | 7/10 | |",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+399 |             f"| Design reasonableness | 7/10 | |",
+400 |             f"| Implementation completeness | 7/10 | |",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:399:13
+    |
+397 |             f"|------|------|------|",
+398 |             f"| Artifact quality | 7/10 | |",
+399 |             f"| Design reasonableness | 7/10 | |",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+400 |             f"| Implementation completeness | 7/10 | |",
+401 |             f"| Risk control | 7/10 | |",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:400:13
+    |
+398 |             f"| Artifact quality | 7/10 | |",
+399 |             f"| Design reasonableness | 7/10 | |",
+400 |             f"| Implementation completeness | 7/10 | |",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+401 |             f"| Risk control | 7/10 | |",
+402 |             f"",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:401:13
+    |
+399 |             f"| Design reasonableness | 7/10 | |",
+400 |             f"| Implementation completeness | 7/10 | |",
+401 |             f"| Risk control | 7/10 | |",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+402 |             f"",
+403 |             f"**Agent A Total**: 7/10",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:402:13
+    |
+400 |             f"| Implementation completeness | 7/10 | |",
+401 |             f"| Risk control | 7/10 | |",
+402 |             f"",
+    |             ^^^
+403 |             f"**Agent A Total**: 7/10",
+404 |             f"",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:403:13
+    |
+401 |             f"| Risk control | 7/10 | |",
+402 |             f"",
+403 |             f"**Agent A Total**: 7/10",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+404 |             f"",
+405 |             f"**Confidence Score**: {score}/10 (threshold >= 7/10)",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:404:13
+    |
+402 |             f"",
+403 |             f"**Agent A Total**: 7/10",
+404 |             f"",
+    |             ^^^
+405 |             f"**Confidence Score**: {score}/10 (threshold >= 7/10)",
+406 |             f"",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:406:13
+    |
+404 |             f"",
+405 |             f"**Confidence Score**: {score}/10 (threshold >= 7/10)",
+406 |             f"",
+    |             ^^^
+407 |             f"Agent A: Self-assessment Session: —",
+408 |             f"",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:407:13
+    |
+405 |             f"**Confidence Score**: {score}/10 (threshold >= 7/10)",
+406 |             f"",
+407 |             f"Agent A: Self-assessment Session: —",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+408 |             f"",
+409 |             f"---",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:408:13
+    |
+406 |             f"",
+407 |             f"Agent A: Self-assessment Session: —",
+408 |             f"",
+    |             ^^^
+409 |             f"---",
+410 |             f"",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:409:13
+    |
+407 |             f"Agent A: Self-assessment Session: —",
+408 |             f"",
+409 |             f"---",
+    |             ^^^^^^
+410 |             f"",
+411 |             f"## Agent B Review",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:410:13
+    |
+408 |             f"",
+409 |             f"---",
+410 |             f"",
+    |             ^^^
+411 |             f"## Agent B Review",
+412 |             f"",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:411:13
+    |
+409 |             f"---",
+410 |             f"",
+411 |             f"## Agent B Review",
+    |             ^^^^^^^^^^^^^^^^^^^^
+412 |             f"",
+413 |             f"### Questions List",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:412:13
+    |
+410 |             f"",
+411 |             f"## Agent B Review",
+412 |             f"",
+    |             ^^^
+413 |             f"### Questions List",
+414 |             f"| # | Question | Regarding | Response |",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:413:13
+    |
+411 |             f"## Agent B Review",
+412 |             f"",
+413 |             f"### Questions List",
+    |             ^^^^^^^^^^^^^^^^^^^^^
+414 |             f"| # | Question | Regarding | Response |",
+415 |             f"|---|------|----------|------|",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:414:13
+    |
+412 |             f"",
+413 |             f"### Questions List",
+414 |             f"| # | Question | Regarding | Response |",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+415 |             f"|---|------|----------|------|",
+416 |             f"| — | (Agent B to fill) | | |",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:415:13
+    |
+413 |             f"### Questions List",
+414 |             f"| # | Question | Regarding | Response |",
+415 |             f"|---|------|----------|------|",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+416 |             f"| — | (Agent B to fill) | | |",
+417 |             f"",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:416:13
+    |
+414 |             f"| # | Question | Regarding | Response |",
+415 |             f"|---|------|----------|------|",
+416 |             f"| — | (Agent B to fill) | | |",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+417 |             f"",
+418 |             f"### Review Conclusion",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:417:13
+    |
+415 |             f"|---|------|----------|------|",
+416 |             f"| — | (Agent B to fill) | | |",
+417 |             f"",
+    |             ^^^
+418 |             f"### Review Conclusion",
+419 |             f"| Conclusion | Notes |",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:418:13
+    |
+416 |             f"| — | (Agent B to fill) | | |",
+417 |             f"",
+418 |             f"### Review Conclusion",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^
+419 |             f"| Conclusion | Notes |",
+420 |             f"|------|------|",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:419:13
+    |
+417 |             f"",
+418 |             f"### Review Conclusion",
+419 |             f"| Conclusion | Notes |",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^
+420 |             f"|------|------|",
+421 |             f"| ✅ APPROVE | No major questions |",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:420:13
+    |
+418 |             f"### Review Conclusion",
+419 |             f"| Conclusion | Notes |",
+420 |             f"|------|------|",
+    |             ^^^^^^^^^^^^^^^^^^
+421 |             f"| ✅ APPROVE | No major questions |",
+422 |             f"| ❌ REJECT | Questions require fixes |",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:421:13
+    |
+419 |             f"| Conclusion | Notes |",
+420 |             f"|------|------|",
+421 |             f"| ✅ APPROVE | No major questions |",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+422 |             f"| ❌ REJECT | Questions require fixes |",
+423 |             f"",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:422:13
+    |
+420 |             f"|------|------|",
+421 |             f"| ✅ APPROVE | No major questions |",
+422 |             f"| ❌ REJECT | Questions require fixes |",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+423 |             f"",
+424 |             f"### Agent B Confidence Summary",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:423:13
+    |
+421 |             f"| ✅ APPROVE | No major questions |",
+422 |             f"| ❌ REJECT | Questions require fixes |",
+423 |             f"",
+    |             ^^^
+424 |             f"### Agent B Confidence Summary",
+425 |             f"| Item | Score (0-10) | Notes |",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:424:13
+    |
+422 |             f"| ❌ REJECT | Questions require fixes |",
+423 |             f"",
+424 |             f"### Agent B Confidence Summary",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+425 |             f"| Item | Score (0-10) | Notes |",
+426 |             f"|------|------|------|",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:425:13
+    |
+423 |             f"",
+424 |             f"### Agent B Confidence Summary",
+425 |             f"| Item | Score (0-10) | Notes |",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+426 |             f"|------|------|------|",
+427 |             f"| Artifact quality | 7/10 | |",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:426:13
+    |
+424 |             f"### Agent B Confidence Summary",
+425 |             f"| Item | Score (0-10) | Notes |",
+426 |             f"|------|------|------|",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^
+427 |             f"| Artifact quality | 7/10 | |",
+428 |             f"| Design reasonableness | 7/10 | |",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:427:13
+    |
+425 |             f"| Item | Score (0-10) | Notes |",
+426 |             f"|------|------|------|",
+427 |             f"| Artifact quality | 7/10 | |",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+428 |             f"| Design reasonableness | 7/10 | |",
+429 |             f"| Implementation completeness | 7/10 | |",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:428:13
+    |
+426 |             f"|------|------|------|",
+427 |             f"| Artifact quality | 7/10 | |",
+428 |             f"| Design reasonableness | 7/10 | |",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+429 |             f"| Implementation completeness | 7/10 | |",
+430 |             f"| Risk control | 7/10 | |",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:429:13
+    |
+427 |             f"| Artifact quality | 7/10 | |",
+428 |             f"| Design reasonableness | 7/10 | |",
+429 |             f"| Implementation completeness | 7/10 | |",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+430 |             f"| Risk control | 7/10 | |",
+431 |             f"",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:430:13
+    |
+428 |             f"| Design reasonableness | 7/10 | |",
+429 |             f"| Implementation completeness | 7/10 | |",
+430 |             f"| Risk control | 7/10 | |",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+431 |             f"",
+432 |             f"**Agent B Total**: 7/10",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:431:13
+    |
+429 |             f"| Implementation completeness | 7/10 | |",
+430 |             f"| Risk control | 7/10 | |",
+431 |             f"",
+    |             ^^^
+432 |             f"**Agent B Total**: 7/10",
+433 |             f"",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:432:13
+    |
+430 |             f"| Risk control | 7/10 | |",
+431 |             f"",
+432 |             f"**Agent B Total**: 7/10",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+433 |             f"",
+434 |             f"### Phase Summary (within 50 words)",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:433:13
+    |
+431 |             f"",
+432 |             f"**Agent B Total**: 7/10",
+433 |             f"",
+    |             ^^^
+434 |             f"### Phase Summary (within 50 words)",
+435 |             f"> (to be filled: brief summary of phase core results)",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:434:13
+    |
+432 |             f"**Agent B Total**: 7/10",
+433 |             f"",
+434 |             f"### Phase Summary (within 50 words)",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+435 |             f"> (to be filled: brief summary of phase core results)",
+436 |             f"",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:435:13
+    |
+433 |             f"",
+434 |             f"### Phase Summary (within 50 words)",
+435 |             f"> (to be filled: brief summary of phase core results)",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+436 |             f"",
+437 |             f"Agent B: (to be filled) Session: —",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:436:13
+    |
+434 |             f"### Phase Summary (within 50 words)",
+435 |             f"> (to be filled: brief summary of phase core results)",
+436 |             f"",
+    |             ^^^
+437 |             f"Agent B: (to be filled) Session: —",
+438 |             f"",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:437:13
+    |
+435 |             f"> (to be filled: brief summary of phase core results)",
+436 |             f"",
+437 |             f"Agent B: (to be filled) Session: —",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+438 |             f"",
+439 |             f"---",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:438:13
+    |
+436 |             f"",
+437 |             f"Agent B: (to be filled) Session: —",
+438 |             f"",
+    |             ^^^
+439 |             f"---",
+440 |             f"",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:439:13
+    |
+437 |             f"Agent B: (to be filled) Session: —",
+438 |             f"",
+439 |             f"---",
+    |             ^^^^^^
+440 |             f"",
+441 |             f"## Phase Challenges & Resolutions",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:440:13
+    |
+438 |             f"",
+439 |             f"---",
+440 |             f"",
+    |             ^^^
+441 |             f"## Phase Challenges & Resolutions",
+442 |             f"",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:441:13
+    |
+439 |             f"---",
+440 |             f"",
+441 |             f"## Phase Challenges & Resolutions",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+442 |             f"",
+443 |             f"| # | Challenge | Severity | Resolution | Status |",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:442:13
+    |
+440 |             f"",
+441 |             f"## Phase Challenges & Resolutions",
+442 |             f"",
+    |             ^^^
+443 |             f"| # | Challenge | Severity | Resolution | Status |",
+444 |             f"|---|------|--------|----------|------|",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:443:13
+    |
+441 |             f"## Phase Challenges & Resolutions",
+442 |             f"",
+443 |             f"| # | Challenge | Severity | Resolution | Status |",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+444 |             f"|---|------|--------|----------|------|",
+445 |             f"| — | (if any) | | | |",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:444:13
+    |
+442 |             f"",
+443 |             f"| # | Challenge | Severity | Resolution | Status |",
+444 |             f"|---|------|--------|----------|------|",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+445 |             f"| — | (if any) | | | |",
+446 |             f"",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:445:13
+    |
+443 |             f"| # | Challenge | Severity | Resolution | Status |",
+444 |             f"|---|------|--------|----------|------|",
+445 |             f"| — | (if any) | | | |",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^
+446 |             f"",
+447 |             f"## Human Reviewer Intervention (if any)",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:446:13
+    |
+444 |             f"|---|------|--------|----------|------|",
+445 |             f"| — | (if any) | | | |",
+446 |             f"",
+    |             ^^^
+447 |             f"## Human Reviewer Intervention (if any)",
+448 |             f"(fill only when Agent B raises major issues)",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:447:13
+    |
+445 |             f"| — | (if any) | | | |",
+446 |             f"",
+447 |             f"## Human Reviewer Intervention (if any)",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+448 |             f"(fill only when Agent B raises major issues)",
+449 |             f"",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:448:13
+    |
+446 |             f"",
+447 |             f"## Human Reviewer Intervention (if any)",
+448 |             f"(fill only when Agent B raises major issues)",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+449 |             f"",
+450 |             f"## artifact_verification (HR-15)",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:449:13
+    |
+447 |             f"## Human Reviewer Intervention (if any)",
+448 |             f"(fill only when Agent B raises major issues)",
+449 |             f"",
+    |             ^^^
+450 |             f"## artifact_verification (HR-15)",
+451 |             f"",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:450:13
+    |
+448 |             f"(fill only when Agent B raises major issues)",
+449 |             f"",
+450 |             f"## artifact_verification (HR-15)",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+451 |             f"",
+452 |             f"| Artifact | Status | Notes |",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:451:13
+    |
+449 |             f"",
+450 |             f"## artifact_verification (HR-15)",
+451 |             f"",
+    |             ^^^
+452 |             f"| Artifact | Status | Notes |",
+453 |             f"|----------|------|------|",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:452:13
+    |
+450 |             f"## artifact_verification (HR-15)",
+451 |             f"",
+452 |             f"| Artifact | Status | Notes |",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+453 |             f"|----------|------|------|",
+454 |             f"| SRS.md | ✅ | read |",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:453:13
+    |
+451 |             f"",
+452 |             f"| Artifact | Status | Notes |",
+453 |             f"|----------|------|------|",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+454 |             f"| SRS.md | ✅ | read |",
+455 |             f"| SAD.md | ✅ | read |",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:454:13
+    |
+452 |             f"| Artifact | Status | Notes |",
+453 |             f"|----------|------|------|",
+454 |             f"| SRS.md | ✅ | read |",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^
+455 |             f"| SAD.md | ✅ | read |",
+456 |             f"",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:455:13
+    |
+453 |             f"|----------|------|------|",
+454 |             f"| SRS.md | ✅ | read |",
+455 |             f"| SAD.md | ✅ | read |",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^
+456 |             f"",
+457 |             f"---",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:456:13
+    |
+454 |             f"| SRS.md | ✅ | read |",
+455 |             f"| SAD.md | ✅ | read |",
+456 |             f"",
+    |             ^^^
+457 |             f"---",
+458 |             f"",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:457:13
+    |
+455 |             f"| SAD.md | ✅ | read |",
+456 |             f"",
+457 |             f"---",
+    |             ^^^^^^
+458 |             f"",
+459 |             f"### Appendix: Actual Tool Results",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:458:13
+    |
+456 |             f"",
+457 |             f"---",
+458 |             f"",
+    |             ^^^
+459 |             f"### Appendix: Actual Tool Results",
+460 |             f"",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:459:13
+    |
+457 | …     f"---",
+458 | …     f"",
+459 | …     f"### Appendix: Actual Tool Results",
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+460 | …     f"",
+461 | …     f"**Constitution Score**: {'✅' if const_passed else '❌'} {const_score:.1f}% {'(threshold > 80%)' if const_score >= 80 else '(t …
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:460:13
+    |
+458 | …     f"",
+459 | …     f"### Appendix: Actual Tool Results",
+460 | …     f"",
+    |       ^^^
+461 | …     f"**Constitution Score**: {'✅' if const_passed else '❌'} {const_score:.1f}% {'(threshold > 80%)' if const_score >= 80 else '(t …
+462 | …     f"**FrameworkEnforcer BLOCK**: {'✅ passed' if block_result.get('passed') else '❌ failed'}",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:466:13
+    |
+464 | …     f"**pytest**: {'✅ passed' if test_evidence.get('pytest_passed') else '❌ failed'}",
+465 | …     f"**Coverage**: {'✅ met' if test_evidence.get('coverage_passed') else '❌ not met'}",
+466 | …     f"",
+    |       ^^^
+467 | …     # v6.21 format: confidence (1-10) + summary (within 50 words)
+468 | …     f"**Confidence**: {self.results.get('confidence_score', 0) or 0}/10 | **Summary**: {self.results.get('confidence_reason', '')[:…
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:469:13
+    |
+467 | …     # v6.21 format: confidence (1-10) + summary (within 50 words)
+468 | …     f"**Confidence**: {self.results.get('confidence_score', 0) or 0}/10 | **Summary**: {self.results.get('confidence_reason', '')[:…
+469 | …     f"",
+    |       ^^^
+470 | …     f"---",
+471 | …     f"",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:470:13
+    |
+468 | …     f"**Confidence**: {self.results.get('confidence_score', 0) or 0}/10 | **Summary**: {self.results.get('confidence_reason', '')[:…
+469 | …     f"",
+470 | …     f"---",
+    |       ^^^^^^
+471 | …     f"",
+472 | …     f"## SIGN-OFF",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:471:13
+    |
+469 |             f"",
+470 |             f"---",
+471 |             f"",
+    |             ^^^
+472 |             f"## SIGN-OFF",
+473 |             f"",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:472:13
+    |
+470 |             f"---",
+471 |             f"",
+472 |             f"## SIGN-OFF",
+    |             ^^^^^^^^^^^^^^
+473 |             f"",
+474 |             f"| Role | Name | Signature | Date |",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:473:13
+    |
+471 |             f"",
+472 |             f"## SIGN-OFF",
+473 |             f"",
+    |             ^^^
+474 |             f"| Role | Name | Signature | Date |",
+475 |             f"|------|------|------|------|",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:474:13
+    |
+472 |             f"## SIGN-OFF",
+473 |             f"",
+474 |             f"| Role | Name | Signature | Date |",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+475 |             f"|------|------|------|------|",
+476 |             f"| Agent A (Architect) | (to be filled) | (to be filled) | (to be filled) |",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:475:13
+    |
+473 |             f"",
+474 |             f"| Role | Name | Signature | Date |",
+475 |             f"|------|------|------|------|",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+476 |             f"| Agent A (Architect) | (to be filled) | (to be filled) | (to be filled) |",
+477 |             f"| Agent B (Reviewer) | (to be filled) | (to be filled) | (to be filled) |",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:476:13
+    |
+474 |             f"| Role | Name | Signature | Date |",
+475 |             f"|------|------|------|------|",
+476 |             f"| Agent A (Architect) | (to be filled) | (to be filled) | (to be filled) |",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+477 |             f"| Agent B (Reviewer) | (to be filled) | (to be filled) | (to be filled) |",
+478 |             f"| Project Owner | (to be filled) | (to be filled) | (to be filled) |",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:477:13
+    |
+475 |             f"|------|------|------|------|",
+476 |             f"| Agent A (Architect) | (to be filled) | (to be filled) | (to be filled) |",
+477 |             f"| Agent B (Reviewer) | (to be filled) | (to be filled) | (to be filled) |",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+478 |             f"| Project Owner | (to be filled) | (to be filled) | (to be filled) |",
+479 |             f"",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:478:13
+    |
+476 |             f"| Agent A (Architect) | (to be filled) | (to be filled) | (to be filled) |",
+477 |             f"| Agent B (Reviewer) | (to be filled) | (to be filled) | (to be filled) |",
+478 |             f"| Project Owner | (to be filled) | (to be filled) | (to be filled) |",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+479 |             f"",
+480 |             f"*Generated by harness-methodology v6.49 STAGE_PASS Generator*",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:479:13
+    |
+477 |             f"| Agent B (Reviewer) | (to be filled) | (to be filled) | (to be filled) |",
+478 |             f"| Project Owner | (to be filled) | (to be filled) | (to be filled) |",
+479 |             f"",
+    |             ^^^
+480 |             f"*Generated by harness-methodology v6.49 STAGE_PASS Generator*",
+481 |         ])
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:480:13
+    |
+478 |             f"| Project Owner | (to be filled) | (to be filled) | (to be filled) |",
+479 |             f"",
+480 |             f"*Generated by harness-methodology v6.49 STAGE_PASS Generator*",
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+481 |         ])
+    |
+help: Remove extraneous `f` prefix
+
+F841 Local variable `const_passed` is assigned to but never used
+   --> core/quality_gate/stage_pass_generator.py:530:13
+    |
+528 |             block_result = self.results.get("framework_results", {}).get("BLOCK", {})
+529 |             const_score = const_result.get("score", 0)
+530 |             const_passed = const_result.get("passed", False)
+    |             ^^^^^^^^^^^^
+531 |             violations_count = len(block_result.get("violations", []))
+    |
+help: Remove assignment to unused variable `const_passed`
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:545:19
+    |
+543 |                 f.write(log_content + "\n")
+544 |             
+545 |             print(f"\n📝 QG results written to DEVELOPMENT_LOG")
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+546 |         except Exception as e:
+547 |             print(f"\n[WARNING] Failed to write to DEVELOPMENT_LOG: {e}")
+    |
+help: Remove extraneous `f` prefix
+
+F841 Local variable `step1_passed` is assigned to but never used
+   --> core/quality_gate/stage_pass_generator.py:557:9
+    |
+556 |         # Step 1: Framework BLOCK
+557 |         step1_passed = self.run_step1_5w1h_scan()
+    |         ^^^^^^^^^^^^
+558 |         
+559 |         # Step 2: Session log
+    |
+help: Remove assignment to unused variable `step1_passed`
+
+F841 Local variable `step2_passed` is assigned to but never used
+   --> core/quality_gate/stage_pass_generator.py:560:9
+    |
+559 |         # Step 2: Session log
+560 |         step2_passed = self.run_step2_session_log()
+    |         ^^^^^^^^^^^^
+561 |
+562 |         # Step 2b: Confidence format validation
+    |
+help: Remove assignment to unused variable `step2_passed`
+
+F841 Local variable `confidence_check` is assigned to but never used
+   --> core/quality_gate/stage_pass_generator.py:563:9
+    |
+562 |         # Step 2b: Confidence format validation
+563 |         confidence_check = self.run_step2b_confidence_format()
+    |         ^^^^^^^^^^^^^^^^
+564 |         
+565 |         # Step 3: Test evidence
+    |
+help: Remove assignment to unused variable `confidence_check`
+
+F841 Local variable `commit_hash` is assigned to but never used
+   --> core/quality_gate/stage_pass_generator.py:583:9
+    |
+581 |         # Generate & Push
+582 |         md = self.generate_markdown()
+583 |         commit_hash = self.git_push(md)
+    |         ^^^^^^^^^^^
+584 |         
+585 |         print(f"\n{'='*60}")
+    |
+help: Remove assignment to unused variable `commit_hash`
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:586:15
+    |
+585 |         print(f"\n{'='*60}")
+586 |         print(f"Done! STAGE_PASS.md generated and pushed")
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+587 |         print(f"Confidence score: {score}/100")
+588 |         print(f"{'='*60}")
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:595:15
+    |
+593 |         """SAB Generation (Phase 2 only)"""
+594 |         print(f"\n{'─'*40}")
+595 |         print(f"Step 6: SAB Generation (Phase 2)")
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+596 |         print(f"{'─'*40}")
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:606:19
+    |
+605 |         if not os.path.exists(sab_script):
+606 |             print(f"⚠️  generate_sab.py not found, skipping SAB generation")
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+607 |             return True
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:615:23
+    |
+613 |             )
+614 |             if result.returncode == 0:
+615 |                 print(f"✅ SAB generated successfully")
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+616 |                 return True
+617 |             else:
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:627:15
+    |
+625 |         """Traceability verification (optional)"""
+626 |         print(f"\n{'─'*40}")
+627 |         print(f"Step 5: Traceability verification")
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+628 |         print(f"{'─'*40}")
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:633:19
+    |
+631 |         trace_file = os.path.join(self.project_root, "traceability_report.json")
+632 |         if not os.path.exists(trace_file):
+633 |             print(f"⚠️  Traceability not initialized (traceability_report.json not found)")
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+634 |             print(f"   To enable, run: python requirement_traceability.py --project-id $PROJECT --verify")
+635 |             return True  # do not block flow
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:634:19
+    |
+632 |         if not os.path.exists(trace_file):
+633 |             print(f"⚠️  Traceability not initialized (traceability_report.json not found)")
+634 |             print(f"   To enable, run: python requirement_traceability.py --project-id $PROJECT --verify")
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+635 |             return True  # do not block flow
+    |
+help: Remove extraneous `f` prefix
+
+F841 Local variable `data` is assigned to but never used
+   --> core/quality_gate/stage_pass_generator.py:643:17
+    |
+642 |             with open(trace_file, "r") as f:
+643 |                 data = json.load(f)
+    |                 ^^^^
+644 |             
+645 |             rt = RequirementTraceability.load(trace_file)
+    |
+help: Remove assignment to unused variable `data`
+
+F541 [*] f-string without any placeholders
+   --> core/quality_gate/stage_pass_generator.py:657:23
+    |
+655 |             if completeness_pct < 100:
+656 |                 print(f"⚠️  Traceability coverage {result['overall_completeness']} < 100%")
+657 |                 print(f"   Suggestion: complete FR mapping")
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+658 |             
+659 |             return True
+    |
+help: Remove extraneous `f` prefix
+
+F401 [*] `typing.Set` imported but unused
+  --> core/requirement_traceability.py:14:47
+   |
+12 | from dataclasses import dataclass, field
+13 | from enum import Enum
+14 | from typing import Dict, List, Optional, Any, Set
+   |                                               ^^^
+15 | from datetime import datetime
+16 | import json
+   |
+help: Remove unused import: `typing.Set`
+
+E741 Ambiguous variable name: `l`
+   --> core/requirement_traceability.py:222:43
+    |
+220 |             "completeness": self.verify_completeness(),
+221 |             "traceability_matrix": self.get_traceability_matrix(),
+222 |             "all_links": [l.to_dict() for l in self.links],
+    |                                           ^
+223 |         }
+224 |         if format == "aspice":
+    |
+
+E741 Ambiguous variable name: `l`
+  --> core/sessions_spawn_logger.py:77:24
+   |
+75 |         if not content:
+76 |             return {"valid": True, "count": 0, "errors": []}
+77 |         lines = [l for l in content.split("\n") if l.strip()]
+   |                        ^
+78 |         errors, count = [], 0
+79 |         for i, line in enumerate(lines):
+   |
+
+F401 [*] `os` imported but unused
+  --> core/subagent_isolator.py:17:8
+   |
+15 | from typing import Dict, List, Any, Optional
+16 | from pathlib import Path
+17 | import os
+   |        ^^
+18 | import json
+19 | import hashlib
+   |
+help: Remove unused import: `os`
+
+F401 [*] `dataclasses.dataclass` imported but unused
+ --> core/verification_gate.py:6:25
+  |
+4 | """
+5 |
+6 | from dataclasses import dataclass, field
+  |                         ^^^^^^^^^
+7 | from enum import Enum
+8 | from typing import Callable, Dict, List, Optional, Any
+  |
+help: Remove unused import
+
+F401 [*] `dataclasses.field` imported but unused
+ --> core/verification_gate.py:6:36
+  |
+4 | """
+5 |
+6 | from dataclasses import dataclass, field
+  |                                    ^^^^^
+7 | from enum import Enum
+8 | from typing import Callable, Dict, List, Optional, Any
+  |
+help: Remove unused import
+
+F401 [*] `hashlib` imported but unused
+  --> enforcement/agent_proof_hook.py:17:8
+   |
+15 | import subprocess
+16 | import sys
+17 | import hashlib
+   |        ^^^^^^^
+18 | import shutil
+19 | from pathlib import Path
+   |
+help: Remove unused import: `hashlib`
+
+F401 [*] `typing.Optional` imported but unused
+  --> enforcement/agent_proof_hook.py:20:20
+   |
+18 | import shutil
+19 | from pathlib import Path
+20 | from typing import Optional
+   |                    ^^^^^^^^
+   |
+help: Remove unused import: `typing.Optional`
+
+F541 [*] f-string without any placeholders
+  --> enforcement/agent_proof_hook.py:36:17
+   |
+34 |     METHODOLOGY_DIR = ".methodology"
+35 |     HOOK_MODULE = "agent_hook_core"
+36 |     HOOK_FILE = f".methodology/agent_hook_core.py"
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+37 |
+38 |     WRAPPER_TEMPLATE = '''#!/usr/bin/env python3
+   |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+  --> enforcement/agent_proof_hook.py:78:15
+   |
+76 |         self._install_hook_wrapper(force=force)
+77 |         self._try_immutable()
+78 |         print(f"Agent-Proof Hook installed")
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+79 |         print(f"  Core module: {self.core_path}")
+80 |         print(f"  Hook: {self.hook_path}")
+   |
+help: Remove extraneous `f` prefix
+
+F401 [*] `dataclasses.field` imported but unused
+  --> enforcement/constitution_as_code.py:13:36
+   |
+11 | """
+12 |
+13 | from dataclasses import dataclass, field
+   |                                    ^^^^^
+14 | from enum import Enum
+15 | from typing import List, Dict, Callable, Any, Optional
+   |
+help: Remove unused import: `dataclasses.field`
+
+F401 [*] `typing.Optional` imported but unused
+  --> enforcement/constitution_as_code.py:15:47
+   |
+13 | from dataclasses import dataclass, field
+14 | from enum import Enum
+15 | from typing import List, Dict, Callable, Any, Optional
+   |                                               ^^^^^^^^
+16 | import re
+   |
+help: Remove unused import: `typing.Optional`
+
+F401 [*] `pathlib.Path` imported but unused
+  --> enforcement/constitution_policy_sync.py:16:21
+   |
+14 | import os
+15 | from typing import List, Dict, Any, Optional, Callable
+16 | from pathlib import Path
+   |                     ^^^^
+17 |
+18 | from enforcement.policy_engine import PolicyEngine, Policy, EnforcementLevel
+   |
+help: Remove unused import: `pathlib.Path`
+
+F401 [*] `enforcement.constitution_as_code.ConstitutionAsCode` imported but unused
+  --> enforcement/constitution_policy_sync.py:19:46
+   |
+18 | from enforcement.policy_engine import PolicyEngine, Policy, EnforcementLevel
+19 | from enforcement.constitution_as_code import ConstitutionAsCode, Rule, RuleSeverity
+   |                                              ^^^^^^^^^^^^^^^^^^
+   |
+help: Remove unused import
+
+F401 [*] `enforcement.constitution_as_code.Rule` imported but unused
+  --> enforcement/constitution_policy_sync.py:19:66
+   |
+18 | from enforcement.policy_engine import PolicyEngine, Policy, EnforcementLevel
+19 | from enforcement.constitution_as_code import ConstitutionAsCode, Rule, RuleSeverity
+   |                                                                  ^^^^
+   |
+help: Remove unused import
+
+F401 [*] `enforcement.constitution_as_code.RuleSeverity` imported but unused
+  --> enforcement/constitution_policy_sync.py:19:72
+   |
+18 | from enforcement.policy_engine import PolicyEngine, Policy, EnforcementLevel
+19 | from enforcement.constitution_as_code import ConstitutionAsCode, Rule, RuleSeverity
+   |                                                                        ^^^^^^^^^^^^
+   |
+help: Remove unused import
+
+F401 [*] `dataclasses.field` imported but unused
+  --> enforcement/execution_registry.py:11:36
+   |
+ 9 | """
+10 |
+11 | from dataclasses import dataclass, field
+   |                                    ^^^^^
+12 | from typing import Dict, List, Any, Optional
+13 | from datetime import datetime
+   |
+help: Remove unused import: `dataclasses.field`
+
+F401 [*] `os` imported but unused
+  --> enforcement/framework_enforcer.py:19:8
+   |
+17 | """
+18 |
+19 | import os
+   |        ^^
+20 | import sys
+21 | from pathlib import Path
+   |
+help: Remove unused import: `os`
+
+F401 [*] `enforcement.PolicyEngine` imported but unused
+  --> enforcement/framework_enforcer.py:24:25
+   |
+22 | from typing import List, Dict, Tuple, Optional
+23 |
+24 | from enforcement import PolicyEngine, ConstitutionAsCode, EnforcementLevel
+   |                         ^^^^^^^^^^^^
+25 | from enforcement.execution_registry import ExecutionRegistry
+   |
+help: Remove unused import
+
+F401 [*] `enforcement.ConstitutionAsCode` imported but unused
+  --> enforcement/framework_enforcer.py:24:39
+   |
+22 | from typing import List, Dict, Tuple, Optional
+23 |
+24 | from enforcement import PolicyEngine, ConstitutionAsCode, EnforcementLevel
+   |                                       ^^^^^^^^^^^^^^^^^^
+25 | from enforcement.execution_registry import ExecutionRegistry
+   |
+help: Remove unused import
+
+F401 [*] `enforcement.EnforcementLevel` imported but unused
+  --> enforcement/framework_enforcer.py:24:59
+   |
+22 | from typing import List, Dict, Tuple, Optional
+23 |
+24 | from enforcement import PolicyEngine, ConstitutionAsCode, EnforcementLevel
+   |                                                           ^^^^^^^^^^^^^^^^
+25 | from enforcement.execution_registry import ExecutionRegistry
+   |
+help: Remove unused import
+
+F401 [*] `enforcement.execution_registry.ExecutionRegistry` imported but unused
+  --> enforcement/framework_enforcer.py:25:44
+   |
+24 | from enforcement import PolicyEngine, ConstitutionAsCode, EnforcementLevel
+25 | from enforcement.execution_registry import ExecutionRegistry
+   |                                            ^^^^^^^^^^^^^^^^^
+   |
+help: Remove unused import: `enforcement.execution_registry.ExecutionRegistry`
+
+F541 [*] f-string without any placeholders
+   --> enforcement/framework_enforcer.py:113:63
+    |
+111 |             docs_path = self.project_root / "docs"
+112 |             if not docs_path.exists():
+113 |                 return {"score": 0, "passed": False, "error": f"docs/ directory not found"}
+    |                                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+114 |             result = run_constitution_check(phase_info["type"], str(docs_path))
+115 |             return {
+    |
+help: Remove extraneous `f` prefix
+
+E741 Ambiguous variable name: `l`
+   --> enforcement/framework_enforcer.py:268:34
+    |
+266 |             "\n### Verified Links",
+267 |         ]
+268 |         lines += [f"  + {l}" for l in trace["verified_phases"]]
+    |                                  ^
+269 |         lines += ["\n### Missing Links"]
+270 |         lines += ([f"  - {l}" for l in trace["missing_links"]] or ["  (none)"])
+    |
+
+E741 Ambiguous variable name: `l`
+   --> enforcement/framework_enforcer.py:270:35
+    |
+268 |         lines += [f"  + {l}" for l in trace["verified_phases"]]
+269 |         lines += ["\n### Missing Links"]
+270 |         lines += ([f"  - {l}" for l in trace["missing_links"]] or ["  (none)"])
+    |                                   ^
+271 |         aspice = self.check_aspice_completeness()
+272 |         lines += [
+    |
+
+F401 [*] `typing.Optional` imported but unused
+  --> enforcement/policy_engine.py:12:47
+   |
+10 | from dataclasses import dataclass, field
+11 | from enum import Enum
+12 | from typing import Dict, List, Callable, Any, Optional
+   |                                               ^^^^^^^^
+13 | from datetime import datetime
+14 | import hashlib
+   |
+help: Remove unused import: `typing.Optional`
+
+F401 [*] `hashlib` imported but unused
+  --> enforcement/policy_engine.py:14:8
+   |
+12 | from typing import Dict, List, Callable, Any, Optional
+13 | from datetime import datetime
+14 | import hashlib
+   |        ^^^^^^^
+15 | import json
+16 | import os
+   |
+help: Remove unused import: `hashlib`
+
+F401 [*] `json` imported but unused
+  --> enforcement/server_enforcer.py:15:8
+   |
+13 | import os
+14 | import sys
+15 | import json
+   |        ^^^^
+16 | from typing import Dict, List
+   |
+help: Remove unused import: `json`
+
+F401 [*] `typing.List` imported but unused
+  --> enforcement/server_enforcer.py:16:26
+   |
+14 | import sys
+15 | import json
+16 | from typing import Dict, List
+   |                          ^^^^
+   |
+help: Remove unused import: `typing.List`
+
+E701 Multiple statements on one line (colon)
+  --> gap_detector/detector.py:93:39
+   |
+91 |         s = GapSummary(total_gaps=len(self._gaps))
+92 |         for g in self._gaps:
+93 |             if g.gap_type == "MISSING": s.missing += 1
+   |                                       ^
+94 |             elif g.gap_type == "INCOMPLETE": s.incomplete += 1
+95 |             elif g.gap_type == "ORPHANED": s.orphaned += 1
+   |
+
+E701 Multiple statements on one line (colon)
+  --> gap_detector/detector.py:94:44
+   |
+92 |         for g in self._gaps:
+93 |             if g.gap_type == "MISSING": s.missing += 1
+94 |             elif g.gap_type == "INCOMPLETE": s.incomplete += 1
+   |                                            ^
+95 |             elif g.gap_type == "ORPHANED": s.orphaned += 1
+96 |             if g.severity == "critical": s.critical += 1
+   |
+
+E701 Multiple statements on one line (colon)
+  --> gap_detector/detector.py:95:42
+   |
+93 |             if g.gap_type == "MISSING": s.missing += 1
+94 |             elif g.gap_type == "INCOMPLETE": s.incomplete += 1
+95 |             elif g.gap_type == "ORPHANED": s.orphaned += 1
+   |                                          ^
+96 |             if g.severity == "critical": s.critical += 1
+97 |             elif g.severity == "major": s.major += 1
+   |
+
+E701 Multiple statements on one line (colon)
+  --> gap_detector/detector.py:96:40
+   |
+94 |             elif g.gap_type == "INCOMPLETE": s.incomplete += 1
+95 |             elif g.gap_type == "ORPHANED": s.orphaned += 1
+96 |             if g.severity == "critical": s.critical += 1
+   |                                        ^
+97 |             elif g.severity == "major": s.major += 1
+98 |             elif g.severity == "minor": s.minor += 1
+   |
+
+E701 Multiple statements on one line (colon)
+  --> gap_detector/detector.py:97:39
+   |
+95 |             elif g.gap_type == "ORPHANED": s.orphaned += 1
+96 |             if g.severity == "critical": s.critical += 1
+97 |             elif g.severity == "major": s.major += 1
+   |                                       ^
+98 |             elif g.severity == "minor": s.minor += 1
+99 |         return s
+   |
+
+E701 Multiple statements on one line (colon)
+  --> gap_detector/detector.py:98:39
+   |
+96 |             if g.severity == "critical": s.critical += 1
+97 |             elif g.severity == "major": s.major += 1
+98 |             elif g.severity == "minor": s.minor += 1
+   |                                       ^
+99 |         return s
+   |
+
+E701 Multiple statements on one line (colon)
+   --> gap_detector/detector.py:109:27
+    |
+108 |     def _compute_similarity(self, a: str, b: str) -> float:
+109 |         if not a and not b: return 1.0
+    |                           ^
+110 |         if not a or not b: return 0.0
+111 |         d = _levenshtein_distance(a, b)
+    |
+
+E701 Multiple statements on one line (colon)
+   --> gap_detector/detector.py:110:26
+    |
+108 |     def _compute_similarity(self, a: str, b: str) -> float:
+109 |         if not a and not b: return 1.0
+110 |         if not a or not b: return 0.0
+    |                          ^
+111 |         d = _levenshtein_distance(a, b)
+112 |         return 1.0 - (d / max(len(a), len(b)))
+    |
+
+E701 Multiple statements on one line (colon)
+   --> gap_detector/detector.py:118:32
+    |
+116 |         best_match, best_sim, best_type = None, 0.0, "none"
+117 |         for ci in code_items:
+118 |             if not ci.is_public: continue
+    |                                ^
+119 |             cn = self._normalize_name(ci.name)
+120 |             sim = self._compute_similarity(sn, cn)
+    |
+
+F401 [*] `typing.Optional` imported but unused
+  --> gap_detector/parser.py:12:20
+   |
+10 | from dataclasses import dataclass, field
+11 | from pathlib import Path
+12 | from typing import Optional
+   |                    ^^^^^^^^
+   |
+help: Remove unused import: `typing.Optional`
+
+E701 Multiple statements on one line (colon)
+  --> gap_detector/reporter.py:54:39
+   |
+52 |         s = GapSummary(total_gaps=len(self.gaps))
+53 |         for g in self.gaps:
+54 |             if g.gap_type == "MISSING": s.missing += 1
+   |                                       ^
+55 |             elif g.gap_type == "INCOMPLETE": s.incomplete += 1
+56 |             elif g.gap_type == "ORPHANED": s.orphaned += 1
+   |
+
+E701 Multiple statements on one line (colon)
+  --> gap_detector/reporter.py:55:44
+   |
+53 |         for g in self.gaps:
+54 |             if g.gap_type == "MISSING": s.missing += 1
+55 |             elif g.gap_type == "INCOMPLETE": s.incomplete += 1
+   |                                            ^
+56 |             elif g.gap_type == "ORPHANED": s.orphaned += 1
+57 |             if g.severity == "critical": s.critical += 1
+   |
+
+E701 Multiple statements on one line (colon)
+  --> gap_detector/reporter.py:56:42
+   |
+54 |             if g.gap_type == "MISSING": s.missing += 1
+55 |             elif g.gap_type == "INCOMPLETE": s.incomplete += 1
+56 |             elif g.gap_type == "ORPHANED": s.orphaned += 1
+   |                                          ^
+57 |             if g.severity == "critical": s.critical += 1
+58 |             elif g.severity == "major": s.major += 1
+   |
+
+E701 Multiple statements on one line (colon)
+  --> gap_detector/reporter.py:57:40
+   |
+55 |             elif g.gap_type == "INCOMPLETE": s.incomplete += 1
+56 |             elif g.gap_type == "ORPHANED": s.orphaned += 1
+57 |             if g.severity == "critical": s.critical += 1
+   |                                        ^
+58 |             elif g.severity == "major": s.major += 1
+59 |             elif g.severity == "minor": s.minor += 1
+   |
+
+E701 Multiple statements on one line (colon)
+  --> gap_detector/reporter.py:58:39
+   |
+56 |             elif g.gap_type == "ORPHANED": s.orphaned += 1
+57 |             if g.severity == "critical": s.critical += 1
+58 |             elif g.severity == "major": s.major += 1
+   |                                       ^
+59 |             elif g.severity == "minor": s.minor += 1
+60 |         return s
+   |
+
+E701 Multiple statements on one line (colon)
+  --> gap_detector/reporter.py:59:39
+   |
+57 |             if g.severity == "critical": s.critical += 1
+58 |             elif g.severity == "major": s.major += 1
+59 |             elif g.severity == "minor": s.minor += 1
+   |                                       ^
+60 |         return s
+   |
+
+F541 [*] f-string without any placeholders
+   --> harness/git_strategy.py:150:19
+    |
+148 |         """Stage all changes and commit. Returns True on success or nothing-to-commit."""
+149 |         if not self._has_changes():
+150 |             print(f"  [git] nothing to commit — skip")
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+151 |             return True
+152 |         r1 = self._run_git("add", "-A")
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> harness/git_strategy.py:168:19
+    |
+166 |             return False
+167 |         if not self.push:
+168 |             print(f"  [git] push skipped (push=False)")
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+169 |             return True
+170 |         r = self._run_git("push")
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> harness/git_strategy.py:174:15
+    |
+172 |             print(f"  [git WARN] git push failed: {r.stderr[:200]}")
+173 |             return False
+174 |         print(f"  [git] pushed → remote")
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+175 |         return True
+    |
+help: Remove extraneous `f` prefix
+
+F401 [*] `dataclasses.field` imported but unused
+ --> harness/issue_tracker_ext.py:4:36
+  |
+2 | # Gap G5: Extends IssueTracker with FR bidirectional traceability.
+3 | from __future__ import annotations
+4 | from dataclasses import dataclass, field
+  |                                    ^^^^^
+5 |
+6 | try:
+  |
+help: Remove unused import: `dataclasses.field`
+
+F401 [*] `typing.Dict` imported but unused
+  --> harness/reviewer_router.py:11:25
+   |
+ 9 | import re
+10 | from dataclasses import dataclass, field
+11 | from typing import Any, Dict, List, Optional
+   |                         ^^^^
+12 |
+13 | # ---------------------------------------------------------------------------
+   |
+help: Remove unused import
+
+F401 [*] `typing.List` imported but unused
+  --> harness/reviewer_router.py:11:31
+   |
+ 9 | import re
+10 | from dataclasses import dataclass, field
+11 | from typing import Any, Dict, List, Optional
+   |                               ^^^^
+12 |
+13 | # ---------------------------------------------------------------------------
+   |
+help: Remove unused import
+
+F401 [*] `typing.Optional` imported but unused
+  --> harness/reviewer_router.py:11:37
+   |
+ 9 | import re
+10 | from dataclasses import dataclass, field
+11 | from typing import Any, Dict, List, Optional
+   |                                     ^^^^^^^^
+12 |
+13 | # ---------------------------------------------------------------------------
+   |
+help: Remove unused import
+
+E741 Ambiguous variable name: `l`
+   --> harness/reviewer_router.py:494:20
+    |
+492 |         # Implicit phase ordering: Phase-N depends on Phase-(N-1)
+493 |         phase_labels = sorted(
+494 |             [l for l in labels if re.match(r'^Phase-\d+$', l, re.IGNORECASE)],
+    |                    ^
+495 |             key=lambda l: int(re.search(r'\d+', l).group()),
+496 |         )
+    |
+
+E741 Ambiguous variable name: `l`
+   --> harness/reviewer_router.py:495:24
+    |
+493 |         phase_labels = sorted(
+494 |             [l for l in labels if re.match(r'^Phase-\d+$', l, re.IGNORECASE)],
+495 |             key=lambda l: int(re.search(r'\d+', l).group()),
+    |                        ^
+496 |         )
+497 |         for i in range(1, len(phase_labels)):
+    |
+
+E741 Ambiguous variable name: `l`
+   --> harness/reviewer_router.py:531:28
+    |
+530 |         # Append any remaining (cycle nodes) in original order
+531 |         remaining = [l for l in labels if l not in result]
+    |                            ^
+532 |         result.extend(remaining)
+533 |         return result
+    |
+
+F541 [*] f-string without any placeholders
+   --> harness_cli.py:192:15
+    |
+190 |     if state_path.exists():
+191 |         state = json.loads(state_path.read_text(encoding="utf-8"))
+192 |         print(f"\n[FSM State]")
+    |               ^^^^^^^^^^^^^^^^
+193 |         print(f"  state         : {state.get('state', 'UNKNOWN')}")
+194 |         print(f"  current_phase : {state.get('current_phase', 0)}")
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> harness_cli.py:201:15
+    |
+199 |     if manifest_path.exists():
+200 |         m = json.loads(manifest_path.read_text(encoding="utf-8"))
+201 |         print(f"\n[Quality Manifest]")
+    |               ^^^^^^^^^^^^^^^^^^^^^^^
+202 |         print(f"  schema_version: {m.get('schema_version')}")
+203 |         print(f"  fr_ids        : {m.get('fr_ids')}")
+    |
+help: Remove extraneous `f` prefix
+
+F821 Undefined name `GitStrategy`
+   --> harness_cli.py:315:60
+    |
+315 | def _make_git(args: argparse.Namespace, project: Path) -> "GitStrategy":
+    |                                                            ^^^^^^^^^^^
+316 |     """Instantiate GitStrategy from parsed args. Lazy-imports to keep startup fast."""
+317 |     from harness.git_strategy import GitStrategy
+    |
+
+F821 Undefined name `GateBlockedError`
+   --> harness_cli.py:365:10
+    |
+364 | def _format_block_diagnostic(
+365 |     exc: GateBlockedError,
+    |          ^^^^^^^^^^^^^^^^
+366 |     gate_num: int,
+367 |     phase: int,
+    |
+
+F541 [*] f-string without any placeholders
+   --> harness_cli.py:498:23
+    |
+496 |             srs = project / "SRS.md"
+497 |             if srs.exists():
+498 |                 print(f"[P1] SRS.md exists — skipping generation")
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+499 |             else:
+500 |                 print(f"[P1] PAUSE: SRS.md not found at {srs}")
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> harness_cli.py:501:23
+    |
+499 |             else:
+500 |                 print(f"[P1] PAUSE: SRS.md not found at {srs}")
+501 |                 print(f"     Create SRS.md (### FR-XX: ... sections required),")
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+502 |                 print(f"     then re-run:")
+503 |                 print(f"     python harness_cli.py run-pipeline --phase-from 2 "
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> harness_cli.py:502:23
+    |
+500 |                 print(f"[P1] PAUSE: SRS.md not found at {srs}")
+501 |                 print(f"     Create SRS.md (### FR-XX: ... sections required),")
+502 |                 print(f"     then re-run:")
+    |                       ^^^^^^^^^^^^^^^^^^^^
+503 |                 print(f"     python harness_cli.py run-pipeline --phase-from 2 "
+504 |                       f"--project {project}")
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> harness_cli.py:514:23
+    |
+512 |             if not sad.exists():
+513 |                 print(f"[P2] PAUSE: SAD.md not found at {sad}")
+514 |                 print(f"     Generate SAD.md, then re-run:")
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+515 |                 print(f"     python harness_cli.py run-pipeline --phase-from 2 "
+516 |                       f"--project {project}")
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> harness_cli.py:519:23
+    |
+517 |                 return 10
+518 |             if manifest_path.exists():
+519 |                 print(f"[P2] quality_manifest.json exists — skipping manifest generation")
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+520 |             else:
+521 |                 fr_ids = _parse_fr_ids(sad.read_text(encoding="utf-8", errors="ignore"))
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> harness_cli.py:538:19
+    |
+536 |         manifest_path = project / ".methodology" / "quality_manifest.json"
+537 |         if not manifest_path.exists():
+538 |             print(f"[ERROR] quality_manifest.json missing — complete Phase 2 first.")
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+539 |             return 1
+    |
+help: Remove extraneous `f` prefix
+
+F401 [*] `sys` imported but unused
+  --> quality_dashboard/agent_auto_research.py:23:8
+   |
+21 | import json
+22 | import subprocess
+23 | import sys
+   |        ^^^
+24 | import re
+25 | from dataclasses import dataclass, field
+   |
+help: Remove unused import: `sys`
+
+F401 [*] `re` imported but unused
+  --> quality_dashboard/agent_auto_research.py:24:8
+   |
+22 | import subprocess
+23 | import sys
+24 | import re
+   |        ^^
+25 | from dataclasses import dataclass, field
+26 | from typing import List, Dict, Optional
+   |
+help: Remove unused import: `re`
+
+F401 [*] `typing.Optional` imported but unused
+  --> quality_dashboard/agent_auto_research.py:26:32
+   |
+24 | import re
+25 | from dataclasses import dataclass, field
+26 | from typing import List, Dict, Optional
+   |                                ^^^^^^^^
+27 | from datetime import datetime
+28 | from pathlib import Path
+   |
+help: Remove unused import: `typing.Optional`
+
+E741 Ambiguous variable name: `l`
+   --> quality_dashboard/agent_auto_research.py:371:43
+    |
+369 |         if dimension == "D1_Linting":
+370 |             out, err, rc = self._run_tool_capture(["ruff", "check", "03-development/src/"])
+371 |             counts["before"] = len([l for l in out.split('\n') if l.strip() and not l.startswith('#')])
+    |                                           ^
+372 |             counts["issue_list"] = [l for l in out.split('\n') if l.strip() and ':' in l][:10]  # First 10
+373 |             counts["tool_output"] = out[:500]  # First 500 chars
+    |
+
+E741 Ambiguous variable name: `l`
+   --> quality_dashboard/agent_auto_research.py:372:43
+    |
+370 |             out, err, rc = self._run_tool_capture(["ruff", "check", "03-development/src/"])
+371 |             counts["before"] = len([l for l in out.split('\n') if l.strip() and not l.startswith('#')])
+372 |             counts["issue_list"] = [l for l in out.split('\n') if l.strip() and ':' in l][:10]  # First 10
+    |                                           ^
+373 |             counts["tool_output"] = out[:500]  # First 500 chars
+    |
+
+E741 Ambiguous variable name: `l`
+   --> quality_dashboard/agent_auto_research.py:377:43
+    |
+375 |         elif dimension == "D2_TypeSafety":
+376 |             out, err, rc = self._run_tool_capture(["python3", "-m", "mypy", "03-development/src/"])
+377 |             counts["before"] = len([l for l in out.split('\n') if 'error:' in l or 'warning:' in l])
+    |                                           ^
+378 |             counts["issue_list"] = [l for l in out.split('\n') if 'error:' in l][:10]
+379 |             counts["tool_output"] = out[:500]
+    |
+
+E741 Ambiguous variable name: `l`
+   --> quality_dashboard/agent_auto_research.py:378:43
+    |
+376 |             out, err, rc = self._run_tool_capture(["python3", "-m", "mypy", "03-development/src/"])
+377 |             counts["before"] = len([l for l in out.split('\n') if 'error:' in l or 'warning:' in l])
+378 |             counts["issue_list"] = [l for l in out.split('\n') if 'error:' in l][:10]
+    |                                           ^
+379 |             counts["tool_output"] = out[:500]
+    |
+
+E722 Do not use bare `except`
+   --> quality_dashboard/agent_auto_research.py:389:13
+    |
+387 |                 counts["issue_list"] = [f"{r['filename']}:{r['line']} {r['issue_text']}"
+388 |                                        for r in data.get("results", [])[:10]]
+389 |             except:
+    |             ^^^^^^
+390 |                 counts["before"] = out.count("CONFIDENCE")
+391 |             counts["tool_output"] = out[:500]
+    |
+
+E741 Ambiguous variable name: `l`
+   --> quality_dashboard/agent_auto_research.py:395:43
+    |
+393 |         elif dimension == "D5_Complexity":
+394 |             out, err, rc = self._run_tool_capture(["lizard", "03-development/src/"])
+395 |             counts["before"] = len([l for l in out.split('\n') if 'CCN' in l])
+    |                                           ^
+396 |             counts["issue_list"] = [l for l in out.split('\n') if 'CCN' in l][:10]
+397 |             counts["tool_output"] = out[:500]
+    |
+
+E741 Ambiguous variable name: `l`
+   --> quality_dashboard/agent_auto_research.py:396:43
+    |
+394 |             out, err, rc = self._run_tool_capture(["lizard", "03-development/src/"])
+395 |             counts["before"] = len([l for l in out.split('\n') if 'CCN' in l])
+396 |             counts["issue_list"] = [l for l in out.split('\n') if 'CCN' in l][:10]
+    |                                           ^
+397 |             counts["tool_output"] = out[:500]
+    |
+
+E722 Do not use bare `except`
+   --> quality_dashboard/agent_auto_research.py:430:17
+    |
+428 |                     elif ccn > 15:
+429 |                         return "MEDIUM"
+430 |                 except:
+    |                 ^^^^^^
+431 |                     pass
+432 |             return "LOW"
+    |
+
+F541 [*] f-string without any placeholders
+   --> quality_dashboard/agent_auto_research.py:564:19
+    |
+562 |                 history["baseline"] = baseline
+563 |
+564 |             print(f"\nCurrent scores:")
+    |                   ^^^^^^^^^^^^^^^^^^^^
+565 |             for dim, score in sorted(current_scores.items()):
+566 |                 target_met = "OK" if score >= 85 else "LOW"
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> quality_dashboard/agent_auto_research.py:585:19
+    |
+583 |                 break
+584 |
+585 |             print(f"\nDimensions needing improvement:")
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+586 |             for dim, score in low_dims[:3]:
+587 |                 print(f"   - {dim}: {score:.1f}%")
+    |
+help: Remove extraneous `f` prefix
+
+E722 Do not use bare `except`
+   --> quality_dashboard/agent_auto_research.py:652:17
+    |
+650 |                     dim, score = line.strip().split('=')
+651 |                     scores[dim] = float(score)
+652 |                 except:
+    |                 ^^^^^^
+653 |                     pass
+    |
+
+E722 Do not use bare `except`
+   --> quality_dashboard/agent_auto_research.py:684:9
+    |
+682 |             medium = data["metrics"]["_totals"]["SEVERITY.MEDIUM"]
+683 |             scores["D4_Security"] = max(0, 100 - high * 20 - medium * 10)
+684 |         except:
+    |         ^^^^^^
+685 |             scores["D4_Security"] = 100
+    |
+
+F541 [*] f-string without any placeholders
+   --> quality_dashboard/agent_auto_research.py:902:23
+    |
+901 |                 test_file.write_text(new_content)
+902 |                 print(f"   Added sys.path configuration")
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+903 |                 return True
+    |
+help: Remove extraneous `f` prefix
+
+E722 Do not use bare `except`
+   --> quality_dashboard/agent_auto_research.py:926:13
+    |
+924 |                     return False
+925 |
+926 |             except:
+    |             ^^^^^^
+927 |                 continue
+    |
+
+F541 [*] f-string without any placeholders
+   --> quality_dashboard/agent_auto_research.py:942:15
+    |
+940 |         total_improvement = sum(r.total_improvement for r in self.records)
+941 |
+942 |         print(f"\nIteration summary:")
+    |               ^^^^^^^^^^^^^^^^^^^^^^^
+943 |         print(f"   Total iterations: {len(self.records)}")
+944 |         print(f"   Total improvement: {'+' if total_improvement >= 0 else ''}{total_improvement:.1f}%")
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> quality_dashboard/agent_auto_research.py:947:19
+    |
+946 |         if baseline:
+947 |             print(f"\nScore changes:")
+    |                   ^^^^^^^^^^^^^^^^^^^
+948 |             for dim in sorted(baseline.keys()):
+949 |                 baseline_score = baseline.get(dim, 0)
+    |
+help: Remove extraneous `f` prefix
+
+F401 [*] `json` imported but unused
+  --> quality_dashboard/auto_research_loop.py:16:8
+   |
+14 | """
+15 |
+16 | import json
+   |        ^^^^
+17 | import subprocess
+18 | import sys
+   |
+help: Remove unused import: `json`
+
+F401 [*] `dataclasses.field` imported but unused
+  --> quality_dashboard/auto_research_loop.py:20:36
+   |
+18 | import sys
+19 | import re
+20 | from dataclasses import dataclass, field
+   |                                    ^^^^^
+21 | from typing import List, Dict, Optional, Callable
+22 | from datetime import datetime
+   |
+help: Remove unused import: `dataclasses.field`
+
+F401 [*] `typing.Callable` imported but unused
+  --> quality_dashboard/auto_research_loop.py:21:42
+   |
+19 | import re
+20 | from dataclasses import dataclass, field
+21 | from typing import List, Dict, Optional, Callable
+   |                                          ^^^^^^^^
+22 | from datetime import datetime
+23 | from pathlib import Path
+   |
+help: Remove unused import: `typing.Callable`
+
+F811 [*] Redefinition of unused `sys` from line 18
+  --> quality_dashboard/auto_research_loop.py:24:8
+   |
+22 | from datetime import datetime
+23 | from pathlib import Path
+24 | import sys
+   |        ^^^ `sys` redefined here
+25 | sys.path.insert(0, str(Path(__file__).parent))
+26 | from dashboard import QualityDashboard, DimensionScore
+   |
+  ::: quality_dashboard/auto_research_loop.py:18:8
+   |
+16 | import json
+17 | import subprocess
+18 | import sys
+   |        --- previous definition of `sys` here
+19 | import re
+20 | from dataclasses import dataclass, field
+   |
+help: Remove definition: `sys`
+
+F401 [*] `dashboard.DimensionScore` imported but unused
+  --> quality_dashboard/auto_research_loop.py:26:41
+   |
+24 | import sys
+25 | sys.path.insert(0, str(Path(__file__).parent))
+26 | from dashboard import QualityDashboard, DimensionScore
+   |                                         ^^^^^^^^^^^^^^
+27 |
+28 | # ============================================================================
+   |
+help: Remove unused import: `dashboard.DimensionScore`
+
+F841 [*] Local variable `e` is assigned to but never used
+   --> quality_dashboard/auto_research_loop.py:123:33
+    |
+121 |                         expected_improvement=10.0  # expected improvement per test file: 10%
+122 |                     ))
+123 |             except Exception as e:
+    |                                 ^
+124 |                 continue
+    |
+help: Remove assignment to unused variable `e`
+
+F541 [*] f-string without any placeholders
+   --> quality_dashboard/auto_research_loop.py:132:20
+    |
+130 |         class_name = ''.join([w.capitalize() for w in rel_path.stem.split('_')]) + 'Tests'
+131 |
+132 |         imports = [f"import pytest", f"import sys", f"sys.path.insert(0, '{py_file.parent.parent}')"]
+    |                    ^^^^^^^^^^^^^^^^
+133 |
+134 |         try:
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> quality_dashboard/auto_research_loop.py:132:38
+    |
+130 |         class_name = ''.join([w.capitalize() for w in rel_path.stem.split('_')]) + 'Tests'
+131 |
+132 |         imports = [f"import pytest", f"import sys", f"sys.path.insert(0, '{py_file.parent.parent}')"]
+    |                                      ^^^^^^^^^^^^^
+133 |
+134 |         try:
+    |
+help: Remove extraneous `f` prefix
+
+E722 Do not use bare `except`
+   --> quality_dashboard/auto_research_loop.py:143:9
+    |
+141 |             if module_import not in imports:
+142 |                 imports.append(module_import)
+143 |         except:
+    |         ^^^^^^
+144 |             pass
+    |
+
+E722 Do not use bare `except`
+   --> quality_dashboard/auto_research_loop.py:189:9
+    |
+187 |             action.reverted = True
+188 |             return True
+189 |         except:
+    |         ^^^^^^
+190 |             return False
+    |
+
+E722 Do not use bare `except`
+   --> quality_dashboard/auto_research_loop.py:247:9
+    |
+245 |             action.reverted = True
+246 |             return True
+247 |         except:
+    |         ^^^^^^
+248 |             return False
+    |
+
+F541 [*] f-string without any placeholders
+   --> quality_dashboard/auto_research_loop.py:271:58
+    |
+269 |                   empty_blocks = match.group()
+270 |                   # suggest adding meaningful error handling
+271 |                   new_code = content.replace(empty_blocks, f'''try:
+    |  __________________________________________________________^
+272 | |         pass
+273 | |     except Exception as e:
+274 | |         # TODO: Handle specific exception
+275 | |         print(f"Error occurred: {{e}}")
+276 | |         raise''')
+    | |________________^
+277 |
+278 |                   if new_code != content:
+    |
+help: Remove extraneous `f` prefix
+
+E722 Do not use bare `except`
+   --> quality_dashboard/auto_research_loop.py:298:9
+    |
+296 |             action.executed = True
+297 |             return True
+298 |         except:
+    |         ^^^^^^
+299 |             return False
+    |
+
+E722 Do not use bare `except`
+   --> quality_dashboard/auto_research_loop.py:311:9
+    |
+309 |             action.reverted = True
+310 |             return True
+311 |         except:
+    |         ^^^^^^
+312 |             return False
+    |
+
+F841 Local variable `project_path` is assigned to but never used
+   --> quality_dashboard/auto_research_loop.py:347:9
+    |
+345 |         print("=" * 60)
+346 |
+347 |         project_path = self.dashboard.project_path
+    |         ^^^^^^^^^^^^
+348 |
+349 |         for iteration in range(1, max_iterations + 1):
+    |
+help: Remove assignment to unused variable `project_path`
+
+F541 [*] f-string without any placeholders
+   --> quality_dashboard/auto_research_loop.py:373:19
+    |
+371 |                 break
+372 |
+373 |             print(f"\nLowest scoring dimensions:")
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+374 |             for name, dim in low_dims[:3]:
+375 |                 print(f"   {dim.name}: {dim.score:.0f}% (target: >=70%)")
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> quality_dashboard/auto_research_loop.py:411:31
+    |
+409 |                         improvements_made.append(action)
+410 |                     else:
+411 |                         print(f"   No improvement, reverting...")
+    |                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+412 |                         strategy.revert(action)
+413 |                         # re-validate
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> quality_dashboard/auto_research_loop.py:416:27
+    |
+414 |                         strategy.validate(action)
+415 |                 else:
+416 |                     print(f"   Execution failed")
+    |                           ^^^^^^^^^^^^^^^^^^^^^^
+417 |
+418 |             # Step 6: log iteration result
+    |
+help: Remove extraneous `f` prefix
+
+F401 [*] `sys` imported but unused
+  --> quality_dashboard/dashboard.py:14:8
+   |
+12 | import json
+13 | import subprocess
+14 | import sys
+   |        ^^^
+15 | from datetime import datetime
+16 | from pathlib import Path
+   |
+help: Remove unused import: `sys`
+
+F401 [*] `typing.Optional` imported but unused
+  --> quality_dashboard/dashboard.py:18:32
+   |
+16 | from pathlib import Path
+17 | from dataclasses import dataclass, field, asdict
+18 | from typing import List, Dict, Optional
+   |                                ^^^^^^^^
+19 | import statistics
+   |
+help: Remove unused import: `typing.Optional`
+
+E741 Ambiguous variable name: `l`
+  --> quality_dashboard/dashboard.py:63:34
+   |
+61 |     def evaluate(self, project_path: str) -> DimensionScore:
+62 |         stdout, _, rc = run_tool(["ruff", "check", f"{project_path}/03-development/src", "--ignore=D100,E501,F401"])
+63 |         error_count = len([l for l in stdout.split('\n') if l.strip() and l.startswith('F')])
+   |                                  ^
+64 |         score = max(0, 100 - error_count * 5)
+65 |         issues = [l.strip() for l in stdout.split('\n') if l.strip() and l.startswith('F')][:5]
+   |
+
+E741 Ambiguous variable name: `l`
+  --> quality_dashboard/dashboard.py:65:33
+   |
+63 |         error_count = len([l for l in stdout.split('\n') if l.strip() and l.startswith('F')])
+64 |         score = max(0, 100 - error_count * 5)
+65 |         issues = [l.strip() for l in stdout.split('\n') if l.strip() and l.startswith('F')][:5]
+   |                                 ^
+66 |         return DimensionScore(self.name, score, self.weight, issues, True, "ruff")
+   |
+
+E741 Ambiguous variable name: `l`
+  --> quality_dashboard/dashboard.py:76:33
+   |
+74 |         error_count = stdout.count(": error:")
+75 |         score = max(0, 100 - error_count * 10)
+76 |         issues = [l.strip() for l in stdout.split('\n') if ': error:' in l][:5]
+   |                                 ^
+77 |         return DimensionScore(self.name, score, self.weight, issues, True, "mypy")
+   |
+
+E722 Do not use bare `except`
+   --> quality_dashboard/dashboard.py:111:9
+    |
+109 |             score = max(0, 100 - high * 20 - medium * 10)
+110 |             issues = [f"HIGH: {high}", f"MEDIUM: {medium}"]
+111 |         except:
+    |         ^^^^^^
+112 |             score = 100
+113 |             issues = ["No issues found"]
+    |
+
+E722 Do not use bare `except`
+   --> quality_dashboard/dashboard.py:137:21
+    |
+135 |                         if cc > 15:
+136 |                             hotspots[file_path] = cc
+137 |                     except:
+    |                     ^^^^^^
+138 |                         continue
+139 |         avg_cc = statistics.mean(hotspots.values()) if hotspots else 0
+    |
+
+E741 Ambiguous variable name: `l`
+   --> quality_dashboard/dashboard.py:157:33
+    |
+155 |         stdout, _, rc = run_tool(["radon", "cc", src_path, "-a"], timeout=30)
+156 |         # Only calculate C/D/E as issues, A/B are good quality
+157 |         issues = [l.strip() for l in stdout.split('\n') if ' - C' in l or ' - D' in l or ' - E' in l][:3]
+    |                                 ^
+158 |         score = max(0, 100 - len(issues) * 10)
+159 |         return DimensionScore(self.name, score, self.weight, issues if issues else ["No major issues"], False, "radon")
+    |
+
+E741 Ambiguous variable name: `l`
+   --> quality_dashboard/dashboard.py:168:32
+    |
+166 |         # static metrics: avg function length, comment density
+167 |         stdout, _, rc = run_tool(["grep", "-r", "-h", '"""', project_path, "--include=*.py"], timeout=30)
+168 |         doc_count = len([l for l in stdout.split('\n') if l.strip()])
+    |                                ^
+169 |         stdout2, _, _ = run_tool(["find", project_path, "-name", "*.py"], timeout=10)
+170 |         total = len([l for l in stdout2.split('\n') if l.strip() and '.py' in l])
+    |
+
+E741 Ambiguous variable name: `l`
+   --> quality_dashboard/dashboard.py:170:28
+    |
+168 |         doc_count = len([l for l in stdout.split('\n') if l.strip()])
+169 |         stdout2, _, _ = run_tool(["find", project_path, "-name", "*.py"], timeout=10)
+170 |         total = len([l for l in stdout2.split('\n') if l.strip() and '.py' in l])
+    |                            ^
+171 |         ratio = (doc_count / max(total, 1)) * 100
+172 |         score = min(100, ratio * 2)  # rough estimate
+    |
+
+E722 Do not use bare `except`
+   --> quality_dashboard/dashboard.py:187:17
+    |
+185 |                 try:
+186 |                     catch_count += int(line.split(':')[1])
+187 |                 except:
+    |                 ^^^^^^
+188 |                     continue
+189 |         score = min(100, 50 + catch_count * 2)
+    |
+
+E741 Ambiguous variable name: `l`
+   --> quality_dashboard/dashboard.py:199:32
+    |
+197 |     def evaluate(self, project_path: str) -> DimensionScore:
+198 |         stdout, _, rc = run_tool(["grep", "-r", "-l", '"""', project_path, "--include=*.py"], timeout=30)
+199 |         doc_count = len([l for l in stdout.split('\n') if l.strip()])
+    |                                ^
+200 |         stdout2, _, _ = run_tool(["find", project_path, "-name", "*.py", "-type", "f"], timeout=10)
+201 |         total = len([l for l in stdout2.split('\n') if l.strip()])
+    |
+
+E741 Ambiguous variable name: `l`
+   --> quality_dashboard/dashboard.py:201:28
+    |
+199 |         doc_count = len([l for l in stdout.split('\n') if l.strip()])
+200 |         stdout2, _, _ = run_tool(["find", project_path, "-name", "*.py", "-type", "f"], timeout=10)
+201 |         total = len([l for l in stdout2.split('\n') if l.strip()])
+    |                            ^
+202 |         coverage = (doc_count / max(total, 1)) * 100
+203 |         issues = [f"{doc_count}/{total} files with docstrings"]
+    |
+
+F541 [*] f-string without any placeholders
+   --> scripts/check_fr_full.py:182:19
+    |
+180 |         if not args.skip_cqg:
+181 |             print(f"\n{'='*50}")
+182 |             print(f"  Layer 3: CQG (Linter + Complexity)")
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+183 |             print(f"{'='*50}")
+184 |             fr_files = get_fr_files(Path(project), fr_id)
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+  --> scripts/check_fr_quality.py:70:15
+   |
+68 |     if not files:
+69 |         print(f"  No files found for {fr_id}")
+70 |         print(f"  Skipping (ensure traceability_report.json is up to date)")
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+71 |         return True, []
+   |
+help: Remove extraneous `f` prefix
+
+F401 [*] `os` imported but unused
+  --> scripts/cron_docs_optimizer.py:18:8
+   |
+16 | """
+17 |
+18 | import os
+   |        ^^
+19 | import re
+20 | import sys
+   |
+help: Remove unused import: `os`
+
+E402 Module level import not at top of file
+  --> scripts/cron_drift_monitor.py:18:1
+   |
+16 | sys.path.insert(0, str(project_root))
+17 |
+18 | from quality_gate.drift_monitor import DriftMonitor
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+19 | from orchestration import create_feedback_store
+   |
+
+E402 Module level import not at top of file
+  --> scripts/cron_drift_monitor.py:19:1
+   |
+18 | from quality_gate.drift_monitor import DriftMonitor
+19 | from orchestration import create_feedback_store
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+
+F401 [*] `typing.Set` imported but unused
+  --> scripts/dev_log_checker.py:23:47
+   |
+21 | from dataclasses import dataclass, asdict
+22 | from pathlib import Path
+23 | from typing import Dict, List, Any, Optional, Set, Tuple
+   |                                               ^^^
+   |
+help: Remove unused import
+
+F401 [*] `typing.Tuple` imported but unused
+  --> scripts/dev_log_checker.py:23:52
+   |
+21 | from dataclasses import dataclass, asdict
+22 | from pathlib import Path
+23 | from typing import Dict, List, Any, Optional, Set, Tuple
+   |                                                    ^^^^^
+   |
+help: Remove unused import
+
+F541 [*] f-string without any placeholders
+  --> scripts/dev_log_checker.py:79:13
+   |
+77 |         lines = [
+78 |             f"{'='*60}",
+79 |             f"Development Log Checker Result",
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+80 |             f"{'='*60}",
+81 |             f"Status: {status}",
+   |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+  --> scripts/dev_log_checker.py:85:13
+   |
+83 |             f"Has Header: {self.has_header}",
+84 |             f"Has Phase Records: {self.has_phase_records}",
+85 |             f"",
+   |             ^^^
+86 |             f"Decision Gates: {len(self.decision_gates)}",
+87 |             f"Session IDs: {len(self.session_ids)}",
+   |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+  --> scripts/dev_log_checker.py:89:13
+   |
+87 |             f"Session IDs: {len(self.session_ids)}",
+88 |             f"Commands with Output: {sum(1 for c in self.commands if c.output_present)}",
+89 |             f"",
+   |             ^^^
+90 |         ]
+   |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> scripts/generate_fr_mapping.py:109:11
+    |
+108 |     print(f"\n{'='*50}")
+109 |     print(f"FR Mapping Generator")
+    |           ^^^^^^^^^^^^^^^^^^^^^^^
+110 |     print(f"{'='*50}")
+111 |     print(f"Project: {project}")
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> scripts/generate_fr_mapping.py:113:11
+    |
+111 |     print(f"Project: {project}")
+112 |
+113 |     print(f"\n[Step 1] Scanning FR tags from docstrings...")
+    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+114 |     fr_tag_mapping = scan_for_fr_tags(project)
+115 |     for fr_id, files in sorted(fr_tag_mapping.items()):
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> scripts/generate_fr_mapping.py:118:11
+    |
+116 |         print(f"  {fr_id}: {len(files)} files (FR tag)")
+117 |
+118 |     print(f"\n[Step 2] Keyword matching (fallback)...")
+    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+119 |     fr_keyword_mapping = {}
+120 |     for fr_id, keywords in FR_KEYWORDS.items():
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> scripts/generate_fr_mapping.py:126:11
+    |
+124 |             print(f"  {fr_id}: {len(files)} files (keyword fallback)")
+125 |
+126 |     print(f"\n[Step 3] Merging results...")
+    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+127 |     mapping = {}
+128 |     all_fr_ids = set(list(fr_tag_mapping.keys()) + list(fr_keyword_mapping.keys()))
+    |
+help: Remove extraneous `f` prefix
+
+E741 Ambiguous variable name: `l`
+  --> scripts/generate_full_plan.py:73:40
+   |
+71 |         if 'Content' in details:
+72 |             content_section = details.split('Content')[1].split('**')[0].strip()
+73 |             req_lines = [l.strip() for l in content_section.split('\n') if l.strip() and l.strip().startswith('-')]
+   |                                        ^
+74 |
+75 |         frs.append({
+   |
+
+F541 [*] f-string without any placeholders
+   --> scripts/generate_full_plan.py:599:9
+    |
+597 |         f"# Phase {phase} Full Execution Plan -- {repo_path.name}",
+598 |         "",
+599 |         f"> **Version**: v6.49.0",
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^
+600 |         f"> **Project**: {repo_path.name}",
+601 |         f"> **Date**: {datetime.now().strftime('%Y-%m-%d')}",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> scripts/generate_full_plan.py:602:9
+    |
+600 |         f"> **Project**: {repo_path.name}",
+601 |         f"> **Date**: {datetime.now().strftime('%Y-%m-%d')}",
+602 |         f"> **Framework**: harness-methodology v6.49.0",
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+603 |         f"> **Phase**: {phase} - {phase_names.get(phase, 'Unknown')}",
+604 |         f"> **Status**: Full version (including Phase {phase} detailed tasks)",
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+  --> scripts/generate_sab.py:67:11
+   |
+66 |     print(f"\n{'='*50}")
+67 |     print(f"SAB Generator")
+   |           ^^^^^^^^^^^^^^^^
+68 |     print(f"{'='*50}")
+69 |     print(f"Input: {sad_file}")
+   |
+help: Remove extraneous `f` prefix
+
+F401 [*] `sab_parser.SabParser` imported but unused
+  --> scripts/generate_sab.py:76:32
+   |
+74 |         from quality_gate.sab_parser import SabParser, extract_sab_from_sad
+75 |     except ImportError:
+76 |         from sab_parser import SabParser, extract_sab_from_sad
+   |                                ^^^^^^^^^
+77 |
+78 |     sab_spec = extract_sab_from_sad(sad_file)
+   |
+help: Remove unused import: `sab_parser.SabParser`
+
+F541 [*] f-string without any placeholders
+  --> scripts/generate_sab.py:87:11
+   |
+85 |         json.dump(sab_spec.to_dict(), f, indent=2, ensure_ascii=False)
+86 |
+87 |     print(f"SAB generated successfully")
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+88 |     print(f"  Modules: {len(sab_spec.modules)}")
+89 |     print(f"  Layers: {len(sab_spec.layers)}")
+   |
+help: Remove extraneous `f` prefix
+
+F841 Local variable `candidates` is assigned to but never used
+   --> scripts/phase_auditor.py:461:9
+    |
+459 |     def check_c2_stage_pass(self):
+460 |         """C2: STAGE_PASS certificate completeness and quality"""
+461 |         candidates = [
+    |         ^^^^^^^^^^
+462 |             f"00-summary/Phase{self.phase}_STAGE_PASS.md",
+463 |             f"00-summary/Phase_{self.phase}_-_*_STAGE_PASS.md",
+    |
+help: Remove assignment to unused variable `candidates`
+
+F541 [*] f-string without any placeholders
+   --> scripts/phase_auditor.py:509:19
+    |
+507 |             dimension="STAGE_PASS Certificate",
+508 |             severity="PASS",
+509 |             title=f"STAGE_PASS document exists",
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+510 |             detail=sp_path,
+511 |         ))
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> scripts/phase_auditor.py:568:24
+    |
+566 |                 severity=sev,
+567 |                 title=f"{'✅' if sev=='PASS' else '⚠️' if sev=='WARNING' else '❌'} STAGE_PASS Confidence Score: {score}/100",
+568 |                 detail=f"Threshold: >=70 (HR-11)",
+    |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+569 |                 rule_ref="HR-11",
+570 |             ))
+    |
+help: Remove extraneous `f` prefix
+
+F841 Local variable `all_unique` is assigned to but never used
+   --> scripts/phase_auditor.py:690:13
+    |
+688 |         # Session ID uniqueness
+689 |         if len(session_ids) >= 2:
+690 |             all_unique = len(session_ids) == len([
+    |             ^^^^^^^^^^
+691 |                 s for s in sessions if isinstance(s, dict) and s.get("session_id")
+692 |             ])
+    |
+help: Remove assignment to unused variable `all_unique`
+
+F541 [*] f-string without any placeholders
+    --> scripts/phase_auditor.py:1149:36
+     |
+1147 |             f"phase {self.phase}", f"phase{self.phase}",
+1148 |             f"Phase {self.phase}", f"Phase{self.phase}",
+1149 |             f"Phase_{self.phase}", f"STAGE_PASS",
+     |                                    ^^^^^^^^^^^^^
+1150 |         ]
+1151 |         phase_commits = [
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> scripts/phase_auditor.py:1352:27
+     |
+1350 |                     dimension="Integrity Tracker",
+1351 |                     severity="WARNING",
+1352 |                     title=f"Integrity violation records:",
+     |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1353 |                     detail="\n".join([
+1354 |                         f"  - {v.get('type','?')}: {v.get('details','')[:60]}"
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> scripts/phase_auditor.py:1438:9
+     |
+1436 |     lines = [
+1437 |         f"# Audit Report -- Phase {result.phase}: {result.phase_name}",
+1438 |         f"",
+     |         ^^^
+1439 |         f"> **Project**: {result.repo}  ",
+1440 |         f"> **Audit Time**: {result.audit_time}  ",
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> scripts/phase_auditor.py:1441:9
+     |
+1439 |         f"> **Project**: {result.repo}  ",
+1440 |         f"> **Audit Time**: {result.audit_time}  ",
+1441 |         f"> **Methodology Version**: harness-methodology v6.49  ",
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1442 |         f"> **Audit Tool**: phase_auditor.py  ",
+1443 |         f"",
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> scripts/phase_auditor.py:1442:9
+     |
+1440 |         f"> **Audit Time**: {result.audit_time}  ",
+1441 |         f"> **Methodology Version**: harness-methodology v6.49  ",
+1442 |         f"> **Audit Tool**: phase_auditor.py  ",
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1443 |         f"",
+1444 |         f"---",
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> scripts/phase_auditor.py:1443:9
+     |
+1441 |         f"> **Methodology Version**: harness-methodology v6.49  ",
+1442 |         f"> **Audit Tool**: phase_auditor.py  ",
+1443 |         f"",
+     |         ^^^
+1444 |         f"---",
+1445 |         f"",
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> scripts/phase_auditor.py:1444:9
+     |
+1442 |         f"> **Audit Tool**: phase_auditor.py  ",
+1443 |         f"",
+1444 |         f"---",
+     |         ^^^^^^
+1445 |         f"",
+1446 |         f"## Final Verdict",
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> scripts/phase_auditor.py:1445:9
+     |
+1443 |         f"",
+1444 |         f"---",
+1445 |         f"",
+     |         ^^^
+1446 |         f"## Final Verdict",
+1447 |         f"",
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> scripts/phase_auditor.py:1446:9
+     |
+1444 |         f"---",
+1445 |         f"",
+1446 |         f"## Final Verdict",
+     |         ^^^^^^^^^^^^^^^^^^^
+1447 |         f"",
+1448 |         f"| Item | Value |",
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> scripts/phase_auditor.py:1447:9
+     |
+1445 |         f"",
+1446 |         f"## Final Verdict",
+1447 |         f"",
+     |         ^^^
+1448 |         f"| Item | Value |",
+1449 |         f"|------|------|",
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> scripts/phase_auditor.py:1448:9
+     |
+1446 |         f"## Final Verdict",
+1447 |         f"",
+1448 |         f"| Item | Value |",
+     |         ^^^^^^^^^^^^^^^^^^^
+1449 |         f"|------|------|",
+1450 |         f"| Verdict | {verdict_icon} **{verdict_label}** |",
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> scripts/phase_auditor.py:1449:9
+     |
+1447 |         f"",
+1448 |         f"| Item | Value |",
+1449 |         f"|------|------|",
+     |         ^^^^^^^^^^^^^^^^^^
+1450 |         f"| Verdict | {verdict_icon} **{verdict_label}** |",
+1451 |         f"| Audit Score | **{result.score:.1f} / 100** |",
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> scripts/phase_auditor.py:1455:9
+     |
+1453 |         f"| Warnings (WARNING) | {len(warnings)} |",
+1454 |         f"| Passed Items (PASS) | {len(passes)} |",
+1455 |         f"",
+     |         ^^^
+1456 |     ]
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> scripts/phase_auditor.py:1460:13
+     |
+1458 |     if criticals:
+1459 |         lines += [
+1460 |             f"## Critical Issues (must be fixed before entering next Phase)",
+     |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1461 |             f"",
+1462 |         ]
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> scripts/phase_auditor.py:1461:13
+     |
+1459 |         lines += [
+1460 |             f"## Critical Issues (must be fixed before entering next Phase)",
+1461 |             f"",
+     |             ^^^
+1462 |         ]
+1463 |         for f in criticals:
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> scripts/phase_auditor.py:1476:13
+     |
+1474 |     if warnings:
+1475 |         lines += [
+1476 |             f"## Warnings (recommended fixes)",
+     |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1477 |             f"",
+1478 |         ]
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> scripts/phase_auditor.py:1477:13
+     |
+1475 |         lines += [
+1476 |             f"## Warnings (recommended fixes)",
+1477 |             f"",
+     |             ^^^
+1478 |         ]
+1479 |         for f in warnings:
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> scripts/phase_auditor.py:1488:9
+     |
+1487 |     lines += [
+1488 |         f"## Per-Dimension Detailed Results",
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1489 |         f"",
+1490 |     ]
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> scripts/phase_auditor.py:1489:9
+     |
+1487 |     lines += [
+1488 |         f"## Per-Dimension Detailed Results",
+1489 |         f"",
+     |         ^^^
+1490 |     ]
+1491 |     for dim, dim_findings in findings_by_dim.items():
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> scripts/phase_auditor.py:1496:22
+     |
+1494 |         dim_icon = "🔴" if dim_criticals > 0 else ("🟡" if dim_warnings > 0 else "✅")
+1495 |         lines.append(f"### {dim_icon} {dim}")
+1496 |         lines.append(f"")
+     |                      ^^^
+1497 |         for f in dim_findings:
+1498 |             sev_icon = {
+     |
+help: Remove extraneous `f` prefix
+
+F841 Local variable `sev_icon` is assigned to but never used
+    --> scripts/phase_auditor.py:1498:13
+     |
+1496 |         lines.append(f"")
+1497 |         for f in dim_findings:
+1498 |             sev_icon = {
+     |             ^^^^^^^^
+1499 |                 "CRITICAL": "🔴", "WARNING": "🟡", "PASS": "✅", "INFO": "ℹ️"
+1500 |             }.get(f.severity, "❓")
+     |
+help: Remove assignment to unused variable `sev_icon`
+
+F541 [*] f-string without any placeholders
+    --> scripts/phase_auditor.py:1510:13
+     |
+1508 |     if criticals or warnings:
+1509 |         lines += [
+1510 |             f"## fix recommendations",
+     |             ^^^^^^^^^^^^^^^^^^^^^^^^^
+1511 |             f"",
+1512 |         ]
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> scripts/phase_auditor.py:1511:13
+     |
+1509 |         lines += [
+1510 |             f"## fix recommendations",
+1511 |             f"",
+     |             ^^^
+1512 |         ]
+1513 |         for i, f in enumerate(criticals, 1):
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> scripts/phase_auditor.py:1523:9
+     |
+1521 |     # next steps
+1522 |     lines += [
+1523 |         f"## next steps",
+     |         ^^^^^^^^^^^^^^^^
+1524 |         f"",
+1525 |     ]
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> scripts/phase_auditor.py:1524:9
+     |
+1522 |     lines += [
+1523 |         f"## next steps",
+1524 |         f"",
+     |         ^^^
+1525 |     ]
+1526 |     if result.verdict == "PASS":
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> scripts/phase_auditor.py:1534:9
+     |
+1533 |     lines += [
+1534 |         f"",
+     |         ^^^
+1535 |         f"---",
+1536 |         f"*Auto-generated by phase_auditor.py | harness-methodology v6.49*",
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> scripts/phase_auditor.py:1535:9
+     |
+1533 |     lines += [
+1534 |         f"",
+1535 |         f"---",
+     |         ^^^^^^
+1536 |         f"*Auto-generated by phase_auditor.py | harness-methodology v6.49*",
+1537 |     ]
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+    --> scripts/phase_auditor.py:1536:9
+     |
+1534 |         f"",
+1535 |         f"---",
+1536 |         f"*Auto-generated by phase_auditor.py | harness-methodology v6.49*",
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1537 |     ]
+     |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> scripts/spec_logic_checker.py:175:15
+    |
+173 |         print("="*60)
+174 |
+175 |         print(f"\nStatistics")
+    |               ^^^^^^^^^^^^^^^
+176 |         print(f"   Files:     {result.files_checked}")
+177 |         print(f"   Functions: {result.functions_checked}")
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> scripts/spec_logic_checker.py:184:19
+    |
+183 |         if result.issues:
+184 |             print(f"\nIssue List")
+    |                   ^^^^^^^^^^^^^^^
+185 |             for issue in result.issues:
+186 |                 print(f"\n   [{issue.severity}] {issue.file_path}:{issue.line_number}")
+    |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+   --> scripts/spec_logic_checker.py:278:15
+    |
+276 |         print("="*60)
+277 |         validator = SemanticValidator(args.srs)
+278 |         print(f"\nSRS Requirements")
+    |               ^^^^^^^^^^^^^^^^^^^^^
+279 |         print(f"   Total: {len(validator.requirements)}")
+    |
+help: Remove extraneous `f` prefix
+
+F401 [*] `typing.List` imported but unused
+  --> scripts/verify_path_consistency.py:19:26
+   |
+17 | import sys
+18 | from pathlib import Path
+19 | from typing import Dict, List, Set, Tuple
+   |                          ^^^^
+20 |
+21 | TOOL_FILES = [
+   |
+help: Remove unused import
+
+F401 [*] `typing.Tuple` imported but unused
+  --> scripts/verify_path_consistency.py:19:37
+   |
+17 | import sys
+18 | from pathlib import Path
+19 | from typing import Dict, List, Set, Tuple
+   |                                     ^^^^^
+20 |
+21 | TOOL_FILES = [
+   |
+help: Remove unused import
+
+F541 [*] f-string without any placeholders
+  --> scripts/verify_path_consistency.py:94:19
+   |
+92 |         if tool_phase_paths and plan_dir not in [p.rstrip("/") for p in tool_phase_paths]:
+93 |             inconsistencies.append({"phase": phase, "plan_path": plan_path_str, "tool_paths": tool_phase_paths})
+94 |             print(f"  STATUS: INCONSISTENT")
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+95 |         else:
+96 |             print(f"  STATUS: CONSISTENT")
+   |
+help: Remove extraneous `f` prefix
+
+F541 [*] f-string without any placeholders
+  --> scripts/verify_path_consistency.py:96:19
+   |
+94 |             print(f"  STATUS: INCONSISTENT")
+95 |         else:
+96 |             print(f"  STATUS: CONSISTENT")
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^
+97 |
+98 |     print("\n" + "=" * 60)
+   |
+help: Remove extraneous `f` prefix
+
+F401 [*] `typing.Tuple` imported but unused
+  --> scripts/verify_spec_compliance.py:17:20
+   |
+15 | import argparse
+16 | from pathlib import Path
+17 | from typing import Tuple, List, Dict
+   |                    ^^^^^
+   |
+help: Remove unused import
+
+F401 [*] `typing.List` imported but unused
+  --> scripts/verify_spec_compliance.py:17:27
+   |
+15 | import argparse
+16 | from pathlib import Path
+17 | from typing import Tuple, List, Dict
+   |                           ^^^^
+   |
+help: Remove unused import
+
+E701 Multiple statements on one line (colon)
+   --> scripts/verify_spec_compliance.py:119:23
+    |
+117 |         has_500  = '"500"' in content or "'500'" in content or ": 500" in content
+118 |         has_1000 = '"1000"' in content or "'1000'" in content or ": 1000" in content
+119 |         if not has_200:  self.issues.append("Prosody: comma pause not set (should be 200ms)")
+    |                       ^
+120 |         if not has_500:  self.issues.append("Prosody: period pause not set (should be 500ms)")
+121 |         if not has_1000: self.issues.append("Prosody: newline pause not set (should be 1000ms)")
+    |
+
+E701 Multiple statements on one line (colon)
+   --> scripts/verify_spec_compliance.py:120:23
+    |
+118 |         has_1000 = '"1000"' in content or "'1000'" in content or ": 1000" in content
+119 |         if not has_200:  self.issues.append("Prosody: comma pause not set (should be 200ms)")
+120 |         if not has_500:  self.issues.append("Prosody: period pause not set (should be 500ms)")
+    |                       ^
+121 |         if not has_1000: self.issues.append("Prosody: newline pause not set (should be 1000ms)")
+122 |         if has_200 and has_500 and has_1000:
+    |
+
+E701 Multiple statements on one line (colon)
+   --> scripts/verify_spec_compliance.py:121:24
+    |
+119 |         if not has_200:  self.issues.append("Prosody: comma pause not set (should be 200ms)")
+120 |         if not has_500:  self.issues.append("Prosody: period pause not set (should be 500ms)")
+121 |         if not has_1000: self.issues.append("Prosody: newline pause not set (should be 1000ms)")
+    |                        ^
+122 |         if has_200 and has_500 and has_1000:
+123 |             self.passed.append("Prosody: pause timing correctly implemented (P8)")
+    |
+
+F401 [*] `dataclasses.field` imported but unused
+  --> steering/integrations.py:22:36
+   |
+20 | """
+21 |
+22 | from dataclasses import dataclass, field
+   |                                    ^^^^^
+23 | from typing import Dict, List, Any, Optional, Tuple
+24 | from pathlib import Path
+   |
+help: Remove unused import: `dataclasses.field`
+
+F401 [*] `json` imported but unused
+  --> steering/integrations.py:25:8
+   |
+23 | from typing import Dict, List, Any, Optional, Tuple
+24 | from pathlib import Path
+25 | import json
+   |        ^^^^
+26 |
+27 | from steering.steering_loop import IterationResult, SteeringLoop, SteeringConfig
+   |
+help: Remove unused import: `json`
+
+F401 [*] `steering.steering_loop.SteeringLoop` imported but unused
+  --> steering/integrations.py:27:53
+   |
+25 | import json
+26 |
+27 | from steering.steering_loop import IterationResult, SteeringLoop, SteeringConfig
+   |                                                     ^^^^^^^^^^^^
+   |
+help: Remove unused import: `steering.steering_loop.SteeringLoop`
+
+F811 [*] Redefinition of unused `SteeringLoop` from line 27
+   --> steering/integrations.py:435:44
+    |
+433 |         hr_constraints: Optional[HRConstraints] = None
+434 |     ):
+435 |         from steering.steering_loop import SteeringLoop
+    |                                            ^^^^^^^^^^^^ `SteeringLoop` redefined here
+436 |
+437 |         self.steering = SteeringLoop(provider, config)
+    |
+   ::: steering/integrations.py:27:53
+    |
+ 25 | import json
+ 26 |
+ 27 | from steering.steering_loop import IterationResult, SteeringLoop, SteeringConfig
+    |                                                     ------------ previous definition of `SteeringLoop` here
+    |
+help: Remove definition: `SteeringLoop`
+
+F841 Local variable `cqg_scores` is assigned to but never used
+   --> steering/integrations.py:514:17
+    |
+512 |                     self._cqg_integrator = SteeringCQGIntegrator()
+513 |                 winner_output = steering_result.best_so_far.output
+514 |                 cqg_scores = self._cqg_integrator.measure_code_quality(winner_output)
+    |                 ^^^^^^^^^^
+515 |             except Exception:
+516 |                 pass
+    |
+help: Remove assignment to unused variable `cqg_scores`
+
+F841 Local variable `result` is assigned to but never used
+   --> steering/steering_loop.py:433:13
+    |
+431 |         for _ in range(max_iter):
+432 |             output_a, output_b = get_next_pair_fn()
+433 |             result = self.iterate(output_a, output_b)
+    |             ^^^^^^
+434 |
+435 |             continue_it, _ = self.should_continue()
+    |
+help: Remove assignment to unused variable `result`
+
+F401 [*] `pytest` imported but unused
+ --> tests/test_ab_enforcer.py:1:8
+  |
+1 | import pytest
+  |        ^^^^^^
+2 | from pathlib import Path
+3 | from core.quality_gate.ab_enforcer import ABEnforcer
+  |
+help: Remove unused import: `pytest`
+
+F401 [*] `pathlib.Path` imported but unused
+ --> tests/test_ab_enforcer.py:2:21
+  |
+1 | import pytest
+2 | from pathlib import Path
+  |                     ^^^^
+3 | from core.quality_gate.ab_enforcer import ABEnforcer
+  |
+help: Remove unused import: `pathlib.Path`
+
+F401 [*] `pathlib.Path` imported but unused
+ --> tests/test_decision_log.py:5:21
+  |
+3 | # Updated for DecisionContext refactor (quality-improvement-round-3).
+4 | import pytest
+5 | from pathlib import Path
+  |                     ^^^^
+6 | from harness.decision_log import DecisionLogWriter, DecisionLogEntry, DecisionContext
+  |
+help: Remove unused import: `pathlib.Path`
+
+F401 [*] `pytest` imported but unused
+ --> tests/test_drift_detector.py:5:8
+  |
+3 | """
+4 |
+5 | import pytest
+  |        ^^^^^^
+6 | import json
+7 | from pathlib import Path
+  |
+help: Remove unused import: `pytest`
+
+F401 [*] `json` imported but unused
+ --> tests/test_drift_detector.py:6:8
+  |
+5 | import pytest
+6 | import json
+  |        ^^^^
+7 | from pathlib import Path
+8 | from detection.drift_detector import DriftDetector
+  |
+help: Remove unused import: `json`
+
+F401 [*] `pathlib.Path` imported but unused
+ --> tests/test_drift_detector.py:7:21
+  |
+5 | import pytest
+6 | import json
+7 | from pathlib import Path
+  |                     ^^^^
+8 | from detection.drift_detector import DriftDetector
+  |
+help: Remove unused import: `pathlib.Path`
+
+F401 [*] `pathlib.Path` imported but unused
+  --> tests/test_enforcement.py:11:21
+   |
+ 9 | import os
+10 | import pytest
+11 | from pathlib import Path
+   |                     ^^^^
+12 | from unittest.mock import MagicMock, patch
+   |
+help: Remove unused import: `pathlib.Path`
+
+F841 [*] Local variable `e` is assigned to but never used
+   --> tests/test_enforcement.py:263:29
+    |
+261 |         try:
+262 |             pe.enforce_all()
+263 |         except Exception as e:
+    |                             ^
+264 |             # Other default policies may fail/block, that's ok for this test
+265 |             pass
+    |
+help: Remove assignment to unused variable `e`
+
+F401 [*] `dataclasses.dataclass` imported but unused
+   --> tests/test_enforcement.py:297:33
+    |
+295 |         from enforcement.policy_engine import Policy, EnforcementLevel, PolicyViolationException
+296 |         pe = self._pe()
+297 |         from dataclasses import dataclass
+    |                                 ^^^^^^^^^
+298 |         p = Policy(id="blocker", description="x", check_fn=lambda: False,
+299 |                    enforcement=EnforcementLevel.BLOCK)
+    |
+help: Remove unused import: `dataclasses.dataclass`
+
+F401 [*] `pytest` imported but unused
+ --> tests/test_ensemble_scorer.py:5:8
+  |
+3 | """
+4 |
+5 | import pytest
+  |        ^^^^^^
+6 | from detection.ensemble_scorer import EnsembleScorer
+  |
+help: Remove unused import: `pytest`
+
+F401 [*] `pytest` imported but unused
+ --> tests/test_feedback_hook.py:4:8
+  |
+2 | tests/test_feedback_hook.py — Unit tests for AutoQualityGateWithFeedback (crg-004).
+3 | """
+4 | import pytest
+  |        ^^^^^^
+5 | from unittest.mock import MagicMock, patch
+6 | from core.quality_gate.feedback_hook import AutoQualityGateWithFeedback
+  |
+help: Remove unused import: `pytest`
+
+F841 Local variable `wrapped` is assigned to but never used
+  --> tests/test_feedback_hook.py:52:67
+   |
+50 |         with patch.object(gate, "_get_adapter", return_value=mock_adapter):
+51 |             # Manually craft a result where phase=None would be returned
+52 |             with patch.object(gate, "check", wraps=gate.check) as wrapped:
+   |                                                                   ^^^^^^^
+53 |                 # The base check() always returns the passed phase kwarg, so
+54 |                 # we verify adapter is not invoked when result["phase"] is None
+   |
+help: Remove assignment to unused variable `wrapped`
+
+F841 Local variable `public` is assigned to but never used
+   --> tests/test_gap_detector.py:240:9
+    |
+238 |         make_py_file(tmp_path, "module_a.py", SIMPLE_PY)
+239 |         result = CodeScanner(tmp_path).scan()
+240 |         public = [item for mod in result.modules for item in mod.items if not item.is_public]
+    |         ^^^^^^
+241 |         # _private_helper should be is_public=False
+242 |         private_names = [item.name for mod in result.modules for item in mod.items if not item.is_public]
+    |
+help: Remove assignment to unused variable `public`
+
+F401 [*] `harness.harness_bridge.DimResult` imported but unused
+ --> tests/test_harness_bridge.py:8:51
+  |
+6 | from unittest.mock import patch, MagicMock
+7 | from pathlib import Path
+8 | from harness.harness_bridge import HarnessBridge, DimResult, GateResult, GateBlockedError
+  |                                                   ^^^^^^^^^
+  |
+help: Remove unused import: `harness.harness_bridge.DimResult`
+
+F401 [*] `json` imported but unused
+ --> tests/test_kill_switch_complete.py:6:8
+  |
+4 | Covers: CircuitBreaker, StateManager, HealthMonitor, InterruptEngine, KillSwitch facade.
+5 | """
+6 | import json
+  |        ^^^^
+7 | import pytest
+8 | from pathlib import Path
+  |
+help: Remove unused import: `json`
+
+F401 [*] `pathlib.Path` imported but unused
+ --> tests/test_kill_switch_complete.py:8:21
+  |
+6 | import json
+7 | import pytest
+8 | from pathlib import Path
+  |                     ^^^^
+9 | from unittest.mock import MagicMock, patch
+  |
+help: Remove unused import: `pathlib.Path`
+
+F401 [*] `kill_switch.enums.InterruptOutcome` imported but unused
+  --> tests/test_kill_switch_complete.py:11:57
+   |
+ 9 | from unittest.mock import MagicMock, patch
+10 |
+11 | from kill_switch.enums import CircuitState, KillReason, InterruptOutcome, KillSwitchEventType
+   |                                                         ^^^^^^^^^^^^^^^^
+12 | from kill_switch.exceptions import AgentNotFoundError, StatePersistenceError, InterruptInProgressError
+13 | from kill_switch.models import (
+   |
+help: Remove unused import
+
+F401 [*] `kill_switch.enums.KillSwitchEventType` imported but unused
+  --> tests/test_kill_switch_complete.py:11:75
+   |
+ 9 | from unittest.mock import MagicMock, patch
+10 |
+11 | from kill_switch.enums import CircuitState, KillReason, InterruptOutcome, KillSwitchEventType
+   |                                                                           ^^^^^^^^^^^^^^^^^^^
+12 | from kill_switch.exceptions import AgentNotFoundError, StatePersistenceError, InterruptInProgressError
+13 | from kill_switch.models import (
+   |
+help: Remove unused import
+
+F401 [*] `kill_switch.models.InterruptEvent` imported but unused
+  --> tests/test_kill_switch_complete.py:14:56
+   |
+12 | from kill_switch.exceptions import AgentNotFoundError, StatePersistenceError, InterruptInProgressError
+13 | from kill_switch.models import (
+14 |     CircuitBreakerState, HealthMetrics, MonitorConfig, InterruptEvent
+   |                                                        ^^^^^^^^^^^^^^
+15 | )
+   |
+help: Remove unused import: `kill_switch.models.InterruptEvent`
+
+E702 Multiple statements on one line (semicolon)
+   --> tests/test_kill_switch_complete.py:99:20
+    |
+ 97 |         cb.initialize_circuit("a1")
+ 98 |         cb.open_circuit("a1", cooldown_seconds=0)
+ 99 |         import time; time.sleep(0.01)
+    |                    ^
+100 |         # After cooldown, should be HALF_OPEN (not OPEN)
+101 |         result = cb.is_open("a1")
+    |
+
+F401 [*] `kill_switch.health_monitor.HealthMonitor` imported but unused
+   --> tests/test_kill_switch_complete.py:466:48
+    |
+465 |     def test_evaluate_and_trigger_returns_false_no_breach(self, tmp_path):
+466 |         from kill_switch.health_monitor import HealthMonitor
+    |                                                ^^^^^^^^^^^^^
+467 |         from datetime import datetime, timezone
+468 |         ks = self._ks(tmp_path)
+    |
+help: Remove unused import: `kill_switch.health_monitor.HealthMonitor`
+
+F401 [*] `pytest` imported but unused
+ --> tests/test_parsers.py:7:8
+  |
+5 | independent of the checker business logic.
+6 | """
+7 | import pytest
+  |        ^^^^^^
+8 | from core.quality_gate.parsers import DevelopmentLogParser, SpecTrackingParser
+  |
+help: Remove unused import: `pytest`
+
+F401 [*] `pytest` imported but unused
+ --> tests/test_pattern_matcher.py:5:8
+  |
+3 | """
+4 |
+5 | import pytest
+  |        ^^^^^^
+6 | from detection.pattern_matcher import PatternMatcher, RuleSet
+  |
+help: Remove unused import: `pytest`
+
+F401 [*] `pathlib.Path` imported but unused
+  --> tests/test_phase_truth_verifier.py:9:21
+   |
+ 7 | import json
+ 8 | import pytest
+ 9 | from pathlib import Path
+   |                     ^^^^
+10 | from unittest.mock import MagicMock, patch
+   |
+help: Remove unused import: `pathlib.Path`
+
+F401 [*] `pytest` imported but unused
+ --> tests/test_requirement_traceability.py:1:8
+  |
+1 | import pytest
+  |        ^^^^^^
+2 | from core.requirement_traceability import RequirementTraceability, TraceStatus, Requirement
+  |
+help: Remove unused import: `pytest`
+
+F401 [*] `core.requirement_traceability.Requirement` imported but unused
+ --> tests/test_requirement_traceability.py:2:81
+  |
+1 | import pytest
+2 | from core.requirement_traceability import RequirementTraceability, TraceStatus, Requirement
+  |                                                                                 ^^^^^^^^^^^
+3 |
+4 | def test_add_requirement():
+  |
+help: Remove unused import: `core.requirement_traceability.Requirement`
+
+F401 [*] `unittest.mock.MagicMock` imported but unused
+ --> tests/test_reviewer_router.py:4:34
+  |
+2 | # Phase B deliverable B14 — M4: framework self-tests for ReviewerRouter.
+3 | import pytest
+4 | from unittest.mock import patch, MagicMock
+  |                                  ^^^^^^^^^
+5 | import json
+  |
+help: Remove unused import: `unittest.mock.MagicMock`
+
+F401 [*] `json` imported but unused
+ --> tests/test_reviewer_router.py:5:8
+  |
+3 | import pytest
+4 | from unittest.mock import patch, MagicMock
+5 | import json
+  |        ^^^^
+  |
+help: Remove unused import: `json`
+
+F401 [*] `pytest` imported but unused
+ --> tests/test_reviewer_router_extended.py:8:8
+  |
+6 | """
+7 | import os
+8 | import pytest
+  |        ^^^^^^
+9 | from unittest.mock import patch, MagicMock
+  |
+help: Remove unused import: `pytest`
+
+F401 [*] `pytest` imported but unused
+ --> tests/test_spec_tracking_checker.py:1:8
+  |
+1 | import pytest
+  |        ^^^^^^
+2 | from pathlib import Path
+3 | from core.quality_gate.spec_tracking_checker import SpecTrackingChecker
+  |
+help: Remove unused import: `pytest`
+
+F401 [*] `pathlib.Path` imported but unused
+ --> tests/test_spec_tracking_checker.py:2:21
+  |
+1 | import pytest
+2 | from pathlib import Path
+  |                     ^^^^
+3 | from core.quality_gate.spec_tracking_checker import SpecTrackingChecker
+  |
+help: Remove unused import: `pathlib.Path`
+
+F401 [*] `unittest.mock.call` imported but unused
+ --> tests/test_steering.py:7:45
+  |
+5 | import json
+6 | import pytest
+7 | from unittest.mock import MagicMock, patch, call
+  |                                             ^^^^
+8 | from pathlib import Path
+9 | from typing import Dict, Any
+  |
+help: Remove unused import: `unittest.mock.call`
+
+F401 [*] `typing.Dict` imported but unused
+ --> tests/test_steering.py:9:20
+  |
+7 | from unittest.mock import MagicMock, patch, call
+8 | from pathlib import Path
+9 | from typing import Dict, Any
+  |                    ^^^^
+  |
+help: Remove unused import
+
+F401 [*] `typing.Any` imported but unused
+ --> tests/test_steering.py:9:26
+  |
+7 | from unittest.mock import MagicMock, patch, call
+8 | from pathlib import Path
+9 | from typing import Dict, Any
+  |                          ^^^
+  |
+help: Remove unused import
+
+F401 [*] `pytest` imported but unused
+ --> tests/test_task_splitter.py:1:8
+  |
+1 | import pytest
+  |        ^^^^^^
+2 | from core.task_splitter import TaskSplitter, TaskStatus, TaskPriority
+  |
+help: Remove unused import: `pytest`
+
+F401 [*] `unittest.mock.call` imported but unused
+  --> tests/test_w6_gap_fill.py:11:45
+   |
+ 9 | import pytest
+10 | from pathlib import Path
+11 | from unittest.mock import MagicMock, patch, call
+   |                                             ^^^^
+   |
+help: Remove unused import: `unittest.mock.call`
+
+F401 [*] `core.enforcement_config.Platform` imported but unused
+   --> tests/test_w6_gap_fill.py:120:79
+    |
+118 | class TestConfigGenerator:
+119 |     def test_local_only(self):
+120 |         from core.enforcement_config import ConfigGenerator, EnforcementMode, Platform
+    |                                                                               ^^^^^^^^
+121 |         c = ConfigGenerator.local_only()
+122 |         assert c.mode == EnforcementMode.LOCAL
+    |
+help: Remove unused import: `core.enforcement_config.Platform`
+
+F401 [*] `importlib` imported but unused
+   --> tests/test_w6_gap_fill.py:728:20
+    |
+726 |              patch("core.quality_gate.stage_pass_generator.ClaimsVerifier", mock_cv_cls):
+727 |             from core.quality_gate import stage_pass_generator
+728 |             import importlib
+    |                    ^^^^^^^^^
+729 |             # Fresh import each time through patches
+730 |             gen = stage_pass_generator.IntegratedStagePassGenerator(str(tmp_path), phase)
+    |
+help: Remove unused import: `importlib`
+
+F841 Local variable `t` is assigned to but never used
+    --> tests/test_w6_gap_fill.py:1108:9
+     |
+1106 |         from harness.effort_tracker import EffortTracker
+1107 |         db = str(tmp_path / "effort.db")
+1108 |         t = EffortTracker(db_path=db)
+     |         ^
+1109 |         assert (tmp_path / "effort.db").exists()
+     |
+help: Remove assignment to unused variable `t`
+
+F401 [*] `re` imported but unused
+ --> tests/test_w7_gap_fill.py:5:8
+  |
+3 | """
+4 | import json
+5 | import re
+  |        ^^
+6 | import subprocess
+7 | import pytest
+  |
+help: Remove unused import: `re`
+
+F841 Local variable `tasks` is assigned to but never used
+   --> tests/test_w7_gap_fill.py:621:9
+    |
+619 |         from core.task_splitter import TaskSplitter
+620 |         s = TaskSplitter()
+621 |         tasks = s.split_from_goal("design a system")
+    |         ^^^^^
+622 |         ready = s.get_ready_tasks()
+623 |         # First task has no deps → ready
+    |
+help: Remove assignment to unused variable `tasks`
+
+Found 384 errors.
+[*] 292 fixable with the `--fix` option (20 hidden fixes can be enabled with the `--unsafe-fixes` option).

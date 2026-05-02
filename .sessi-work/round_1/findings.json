@@ -1,0 +1,30 @@
+[
+  {
+    "dimension": "linting",
+    "severity": "medium",
+    "location": "core/, scripts/",
+    "issue": "Multiple unused variables and imports",
+    "tool_output": ".sessi-work/round_1/tools/ruff.out"
+  },
+  {
+    "dimension": "type_safety",
+    "severity": "high",
+    "location": "scripts/, gap_detector/, steering/",
+    "issue": "Mypy errors: var-annotated, Python 3.10 syntax on 3.9, arg-type mismatches",
+    "tool_output": ".sessi-work/round_1/tools/mypy.out"
+  },
+  {
+    "dimension": "security",
+    "severity": "medium",
+    "location": "core/phase_hooks.py",
+    "issue": "Bandit findings: B110 (try_except_pass) and B404 (subprocess)",
+    "tool_output": ".sessi-work/round_1/tools/bandit.out"
+  },
+  {
+    "dimension": "test_coverage",
+    "severity": "high",
+    "location": "tests/",
+    "issue": "Coverage is 45.80%, below the 80% target",
+    "tool_output": ".sessi-work/round_1/tools/pytest.out"
+  }
+]

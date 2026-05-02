@@ -1,0 +1,18 @@
+dimensions:
+  linting: {weight: 1, enabled: true}
+  type_safety: {weight: 1, enabled: true}
+  test_coverage: {weight: 1, enabled: true}
+  security: {weight: 2, enabled: true}
+  performance: {weight: 1, enabled: true}
+  architecture: {weight: 2, enabled: true}
+  readability: {weight: 1, enabled: true}
+  error_handling: {weight: 1, enabled: true}
+  documentation: {weight: 1, enabled: true}
+  secrets_scanning: {weight: 2, enabled: true}
+  mutation_testing: {weight: 1, enabled: true}
+  license_compliance: {weight: 1, enabled: true}
+rounds: 3
+score_gate: 85
+early_stop: true
+saturation_rounds: 3
+evidence_threshold: 10

@@ -1,0 +1,127 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.9.6, pytest-8.4.2, pluggy-1.6.0
+benchmark: 5.2.3 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
+rootdir: /Users/johnny/harness-methodology
+plugins: anyio-4.12.1, benchmark-5.2.3, asyncio-1.2.0, cov-7.1.0, hypothesis-6.141.1, json-report-1.5.0, metadata-3.1.1
+asyncio: mode=strict, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 764 items
+
+tests/test_ab_enforcer.py ....                                           [  0%]
+tests/test_agent_spawner.py ......                                       [  1%]
+tests/test_decision_log.py .........                                     [  2%]
+tests/test_drift_detector.py ....                                        [  3%]
+tests/test_enforcement.py .............................................. [  9%]
+..................................                                       [ 13%]
+tests/test_ensemble_scorer.py ....                                       [ 14%]
+tests/test_feedback_hook.py .........                                    [ 15%]
+tests/test_gap_detector.py ............................................. [ 21%]
+..................                                                       [ 23%]
+tests/test_harness_bridge.py ....                                        [ 23%]
+tests/test_kill_switch_complete.py ..................................... [ 28%]
+.........................ss...............                               [ 34%]
+tests/test_parsers.py ..........................                         [ 37%]
+tests/test_pattern_matcher.py ....                                       [ 38%]
+tests/test_phase_truth_verifier.py .........................             [ 41%]
+tests/test_requirement_traceability.py ....                              [ 42%]
+tests/test_reviewer_router.py .............                              [ 43%]
+tests/test_reviewer_router_extended.py ................................. [ 48%]
+.........................                                                [ 51%]
+tests/test_spec_contract.py ssss                                         [ 51%]
+tests/test_spec_tracking_checker.py ...                                  [ 52%]
+tests/test_steering.py ................................................. [ 58%]
+.........................................................                [ 66%]
+tests/test_task_splitter.py ...                                          [ 66%]
+tests/test_w6_gap_fill.py .............................................. [ 72%]
+........................................................................ [ 81%]
+..............................................                           [ 87%]
+tests/test_w7_gap_fill.py .............................................. [ 93%]
+..............................................
+ERROR: Coverage failure: total of 46 is less than fail-under=80
+                                                                         [100%]
+
+=============================== warnings summary ===============================
+tests/test_spec_contract.py:3
+  /Users/johnny/harness-methodology/tests/test_spec_contract.py:3: PytestUnknownMarkWarning: Unknown pytest.mark.spec - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.spec
+
+tests/test_spec_contract.py:8
+  /Users/johnny/harness-methodology/tests/test_spec_contract.py:8: PytestUnknownMarkWarning: Unknown pytest.mark.spec - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.spec
+
+tests/test_spec_contract.py:13
+  /Users/johnny/harness-methodology/tests/test_spec_contract.py:13: PytestUnknownMarkWarning: Unknown pytest.mark.spec - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.spec
+
+tests/test_spec_contract.py:18
+  /Users/johnny/harness-methodology/tests/test_spec_contract.py:18: PytestUnknownMarkWarning: Unknown pytest.mark.spec - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.spec
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================================ tests coverage ================================
+_______________ coverage: platform darwin, python 3.9.6-final-0 ________________
+
+Name                                                  Stmts   Miss  Cover   Missing
+-----------------------------------------------------------------------------------
+agent_personas/persona.py                                17     17     0%   8-61
+cli.py                                                 3786   3786     0%   14-6760
+cli_phase_subagent.py                                    33     33     0%   4-566
+constitution/bvs_runner.py                               30     21    30%   34-36, 45-73, 81-86
+constitution/citation_parser.py                          19      9    53%   51, 55, 67-77
+constitution/verification_constitution_checker.py        21      8    62%   31-32, 51, 59-60, 68-70
+core/adapters/phase_hooks_adapter.py                     73     73     0%   37-228
+core/agent_spawner.py                                    51      6    88%   41-42, 83-85, 119
+core/cli_phase_prompts.py                                 6      6     0%   4-725
+core/enforcement_config.py                               68      0   100%
+core/hybrid_workflow.py                                  65      0   100%
+core/phase_hooks.py                                     129     26    80%   76-81, 92-94, 97-98, 102-110, 165-166, 197-205, 226-227
+core/quality_gate/ab_enforcer.py                        104     28    73%   240, 248-256, 335-366
+core/quality_gate/claims_verifier.py                     36      0   100%
+core/quality_gate/feedback_hook.py                       26      5    81%   23-27
+core/quality_gate/parsers/development_log_parser.py      31      0   100%
+core/quality_gate/parsers/spec_tracking_parser.py        39      1    97%   45
+core/quality_gate/phase_config.py                         2      0   100%
+core/quality_gate/phase_paths.py                          2      0   100%
+core/quality_gate/phase_truth_verifier.py               166     21    87%   34-35, 60-61, 74-75, 118-119, 151-152, 239-241, 343-355
+core/quality_gate/spec_tracking_checker.py              101     18    82%   74-75, 158, 182-200, 204-205
+core/quality_gate/stage_pass_generator.py               297    104    65%   229-230, 316, 497-515, 522-547, 551-590, 594-622, 626-663, 667-674, 678
+core/requirement_traceability.py                        152     26    83%   49, 69, 87, 136, 177-181, 192, 234-235, 239-251, 255
+core/sessions_spawn_logger.py                            86      4    95%   36, 76, 86-87
+core/subagent_isolator.py                                73      0   100%
+core/task_splitter.py                                    67      0   100%
+core/verification_gate.py                                91      0   100%
+detection/drift_detector.py                             110     13    88%   58, 119, 173, 182, 187-188, 231-232, 267-270, 278
+detection/ensemble_scorer.py                            100      6    94%   45, 67, 134, 152, 165-166
+detection/pattern_matcher.py                             86      0   100%
+enforcement/agent_proof_hook.py                         100      8    92%   151-153, 182-183, 189-190, 216
+enforcement/constitution_as_code.py                      88      6    93%   134, 144, 156, 165, 172, 200
+enforcement/constitution_policy_sync.py                 142    105    26%   48-51, 77-86, 90-97, 100-117, 120, 126-166, 170-176, 195, 200-210, 215-236, 240
+enforcement/execution_registry.py                        70      1    99%   178
+enforcement/framework_enforcer.py                       234     94    60%   89-92, 95, 100-115, 155-156, 184, 199-218, 226-250, 261-293, 307, 314, 335, 342-345, 358-363, 376, 392, 397-400, 409-421, 425
+enforcement/policy_engine.py                            177     22    88%   136, 157-158, 164-165, 176-186, 196-203, 308, 317-318, 340
+enforcement/server_enforcer.py                           97     11    89%   58-59, 64-66, 73-75, 86-87, 144
+gap_detector/detector.py                                122     10    92%   75-76, 80-81, 84-85, 95, 124-125, 127
+gap_detector/parser.py                                  120      2    98%   104-105
+gap_detector/reporter.py                                 62      0   100%
+gap_detector/scanner.py                                 132      8    94%   91, 155-156, 164-165, 180-181, 184
+harness/crg_bridge.py                                    44      3    93%   43-49
+harness/decision_log.py                                  47      4    91%   13-14, 65-66
+harness/effort_tracker.py                                38      0   100%
+harness/git_strategy.py                                 102    102     0%   25-200
+harness/harness_bridge.py                               116     39    66%   95, 100, 122-123, 130-133, 140-141, 160-165, 169-208, 234-235, 266, 275-277
+harness/issue_tracker_ext.py                             46      0   100%
+harness/reviewer_router.py                              296     40    86%   23, 29, 232-246, 252, 260-278, 282-289, 426, 637-638
+kill_switch/audit_logger.py                              20      0   100%
+kill_switch/circuit_breaker.py                           69      2    97%   56, 63
+kill_switch/enums.py                                     26      0   100%
+kill_switch/exceptions.py                                12      0   100%
+kill_switch/health_monitor.py                            42      2    95%   43, 64
+kill_switch/interrupt_engine.py                          81      7    91%   48-49, 122-123, 129-131
+kill_switch/kill_switch.py                               63      6    90%   87-95
+kill_switch/models.py                                    49      0   100%
+kill_switch/state_manager.py                             78     11    86%   35-36, 58-60, 65-66, 68, 78-79, 106
+steering/integrations.py                                202     21    90%   326, 452-456, 481, 493-501, 510-516, 545-546, 557-558
+steering/steering_loop.py                               157      0   100%
+-----------------------------------------------------------------------------------
+TOTAL                                                  8699   4715    46%
+FAIL Required test coverage of 80.0% not reached. Total coverage: 45.80%
+================== 758 passed, 6 skipped, 4 warnings in 1.66s ==================

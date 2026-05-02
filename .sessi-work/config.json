@@ -1,0 +1,180 @@
+{
+  "version": "1.0",
+  "quality": {
+    "score_gate": 85,
+    "max_rounds": 3,
+    "early_stop": true,
+    "saturation_rounds": 3,
+    "commit_per_fix": true,
+    "target": 85
+  },
+  "workspace": {
+    "work_dir": ".sessi-work",
+    "preserve_git": true
+  },
+  "dimensions": {
+    "linting": {
+      "enabled": true,
+      "weight": 0.06666666666666667,
+      "target": 95,
+      "tools": []
+    },
+    "type_safety": {
+      "enabled": true,
+      "weight": 0.06666666666666667,
+      "target": 95,
+      "tools": []
+    },
+    "test_coverage": {
+      "enabled": true,
+      "weight": 0.06666666666666667,
+      "target": 80,
+      "tools": []
+    },
+    "security": {
+      "enabled": true,
+      "weight": 0.13333333333333333,
+      "target": 90,
+      "tools": []
+    },
+    "performance": {
+      "enabled": true,
+      "weight": 0.06666666666666667,
+      "target": 80,
+      "tools": []
+    },
+    "architecture": {
+      "enabled": true,
+      "weight": 0.13333333333333333,
+      "target": 80,
+      "tools": []
+    },
+    "readability": {
+      "enabled": true,
+      "weight": 0.06666666666666667,
+      "target": 85,
+      "tools": []
+    },
+    "error_handling": {
+      "enabled": true,
+      "weight": 0.06666666666666667,
+      "target": 85,
+      "tools": []
+    },
+    "documentation": {
+      "enabled": true,
+      "weight": 0.06666666666666667,
+      "target": 85,
+      "tools": []
+    },
+    "secrets_scanning": {
+      "enabled": true,
+      "weight": 0.13333333333333333,
+      "target": 100,
+      "tools": []
+    },
+    "mutation_testing": {
+      "enabled": true,
+      "weight": 0.06666666666666667,
+      "target": 70,
+      "tools": [],
+      "time_budget_seconds": 300
+    },
+    "license_compliance": {
+      "enabled": true,
+      "weight": 0.06666666666666667,
+      "target": 95,
+      "tools": []
+    },
+    "property_testing": {
+      "enabled": false,
+      "weight": 0.07,
+      "target": 75,
+      "tools": []
+    },
+    "fuzzing": {
+      "enabled": false,
+      "weight": 0.08,
+      "target": 70,
+      "tools": []
+    },
+    "accessibility": {
+      "enabled": false,
+      "weight": 0.06,
+      "target": 85,
+      "tools": []
+    },
+    "observability": {
+      "enabled": false,
+      "weight": 0.05,
+      "target": 80,
+      "tools": []
+    },
+    "supply_chain_security": {
+      "enabled": false,
+      "weight": 0.06,
+      "target": 80,
+      "tools": []
+    }
+  },
+  "scoring": {
+    "reconcile_method": "min",
+    "evidence_threshold": 10,
+    "tool_diff_min_lines": 3,
+    "cap_unsupported_delta": 3,
+    "regression_detection": true,
+    "revert_on_regression": true
+  },
+  "evaluation": {
+    "tool_first": true,
+    "evidence_required": true,
+    "per_dimension_depth": "thorough",
+    "explain_gaps": true
+  },
+  "llm_routing": {
+    "enabled": true,
+    "tier1": {
+      "provider": "gemini",
+      "model": "gemini-2.5-flash",
+      "dimensions": [
+        "linting",
+        "type_safety",
+        "test_coverage",
+        "secrets_scanning",
+        "license_compliance",
+        "mutation_testing"
+      ]
+    },
+    "tier2": {
+      "provider": "gemini",
+      "model": "gemini-2.5-flash",
+      "dimensions": [
+        "security"
+      ]
+    },
+    "tier3": {
+      "provider": "claude_native",
+      "model": "claude",
+      "dimensions": [
+        "architecture",
+        "readability",
+        "error_handling",
+        "documentation",
+        "performance"
+      ]
+    },
+    "improve": {
+      "provider": "claude_native"
+    },
+    "token_budget": {
+      "tier1_input_max": 8000,
+      "tier2_input_max": 10000,
+      "tier3_input_max": 20000
+    }
+  },
+  "rounds": 3,
+  "score_gate": 85,
+  "early_stop": true,
+  "saturation_rounds": 3,
+  "evidence_threshold": 10
+}

@@ -1,0 +1,1 @@
+{"dimension": "linting", "severity": "medium", "location": "core/, scripts/", "issue": "Multiple unused variables and imports", "tool_output": ".sessi-work/round_1/tools/ruff.out"}

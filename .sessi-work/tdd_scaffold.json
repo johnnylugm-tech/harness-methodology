@@ -1,0 +1,7 @@
+{
+  "scaffold_date": "2026-04-28T00:00:00Z",
+  "spec_sources": ["SAD.md", "SKILL.md"],
+  "contracts_found": 8,
+  "tests_written": 8,
+  "status": "RED"
+}
