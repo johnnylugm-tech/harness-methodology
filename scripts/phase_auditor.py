@@ -506,7 +506,7 @@ class PhaseAuditor:
             check_id="C2",
             dimension="STAGE_PASS Certificate",
             severity="PASS",
-            title=f"STAGE_PASS document exists",
+            title="STAGE_PASS document exists",
             detail=sp_path,
         ))
 
@@ -565,7 +565,7 @@ class PhaseAuditor:
                 dimension="STAGE_PASS Certificate",
                 severity=sev,
                 title=f"{'✅' if sev=='PASS' else '⚠️' if sev=='WARNING' else '❌'} STAGE_PASS Confidence Score: {score}/100",
-                detail=f"Threshold: >=70 (HR-11)",
+                detail="Threshold: >=70 (HR-11)",
                 rule_ref="HR-11",
             ))
         else:
@@ -1146,7 +1146,7 @@ class PhaseAuditor:
         phase_keywords = [
             f"phase {self.phase}", f"phase{self.phase}",
             f"Phase {self.phase}", f"Phase{self.phase}",
-            f"Phase_{self.phase}", f"STAGE_PASS",
+            f"Phase_{self.phase}", "STAGE_PASS",
         ]
         phase_commits = [
             c for c in commits
@@ -1349,7 +1349,7 @@ class PhaseAuditor:
                     check_id="C8",
                     dimension="Integrity Tracker",
                     severity="WARNING",
-                    title=f"Integrity violation records:",
+                    title="Integrity violation records:",
                     detail="\n".join([
                         f"  - {v.get('type','?')}: {v.get('details','')[:60]}"
                         for v in violations[:5]
@@ -1435,30 +1435,30 @@ def generate_report(result: AuditResult, output_format: str = "markdown") -> str
 
     lines = [
         f"# Audit Report -- Phase {result.phase}: {result.phase_name}",
-        f"",
+        "",
         f"> **Project**: {result.repo}  ",
         f"> **Audit Time**: {result.audit_time}  ",
-        f"> **Methodology Version**: harness-methodology v6.49  ",
-        f"> **Audit Tool**: phase_auditor.py  ",
-        f"",
-        f"---",
-        f"",
-        f"## Final Verdict",
-        f"",
-        f"| Item | Value |",
-        f"|------|------|",
+        "> **Methodology Version**: harness-methodology v6.49  ",
+        "> **Audit Tool**: phase_auditor.py  ",
+        "",
+        "---",
+        "",
+        "## Final Verdict",
+        "",
+        "| Item | Value |",
+        "|------|------|",
         f"| Verdict | {verdict_icon} **{verdict_label}** |",
         f"| Audit Score | **{result.score:.1f} / 100** |",
         f"| Critical Issues (CRITICAL) | {len(criticals)} |",
         f"| Warnings (WARNING) | {len(warnings)} |",
         f"| Passed Items (PASS) | {len(passes)} |",
-        f"",
+        "",
     ]
 
     if criticals:
         lines += [
-            f"## Critical Issues (must be fixed before entering next Phase)",
-            f"",
+            "## Critical Issues (must be fixed before entering next Phase)",
+            "",
         ]
         for f in criticals:
             lines.append(f"### {f.title}")
@@ -1473,8 +1473,8 @@ def generate_report(result: AuditResult, output_format: str = "markdown") -> str
 
     if warnings:
         lines += [
-            f"## Warnings (recommended fixes)",
-            f"",
+            "## Warnings (recommended fixes)",
+            "",
         ]
         for f in warnings:
             lines.append(f"- {f.title}")
@@ -1485,15 +1485,15 @@ def generate_report(result: AuditResult, output_format: str = "markdown") -> str
         lines.append("")
 
     lines += [
-        f"## Per-Dimension Detailed Results",
-        f"",
+        "## Per-Dimension Detailed Results",
+        "",
     ]
     for dim, dim_findings in findings_by_dim.items():
         dim_criticals = sum(1 for f in dim_findings if f.severity == "CRITICAL")
         dim_warnings  = sum(1 for f in dim_findings if f.severity == "WARNING")
         dim_icon = "🔴" if dim_criticals > 0 else ("🟡" if dim_warnings > 0 else "✅")
         lines.append(f"### {dim_icon} {dim}")
-        lines.append(f"")
+        lines.append("")
         for f in dim_findings:
             sev_icon = {
                 "CRITICAL": "🔴", "WARNING": "🟡", "PASS": "✅", "INFO": "ℹ️"
@@ -1507,8 +1507,8 @@ def generate_report(result: AuditResult, output_format: str = "markdown") -> str
     # fix recommendations
     if criticals or warnings:
         lines += [
-            f"## fix recommendations",
-            f"",
+            "## fix recommendations",
+            "",
         ]
         for i, f in enumerate(criticals, 1):
             lines.append(f"{i}. **[CRITICAL]** {f.title.lstrip('❌ ')}")
@@ -1520,8 +1520,8 @@ def generate_report(result: AuditResult, output_format: str = "markdown") -> str
 
     # next steps
     lines += [
-        f"## next steps",
-        f"",
+        "## next steps",
+        "",
     ]
     if result.verdict == "PASS":
         lines.append(f"Phase {result.phase} audit passed; may proceed to Phase {result.phase + 1}.")
@@ -1531,9 +1531,9 @@ def generate_report(result: AuditResult, output_format: str = "markdown") -> str
         lines.append(f"Fix all CRITICAL issues, resubmit Phase {result.phase} artifacts, then re-run the audit.")
 
     lines += [
-        f"",
-        f"---",
-        f"*Auto-generated by phase_auditor.py | harness-methodology v6.49*",
+        "",
+        "---",
+        "*Auto-generated by phase_auditor.py | harness-methodology v6.49*",
     ]
 
     return "\n".join(lines)

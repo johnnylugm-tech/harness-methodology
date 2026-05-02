@@ -14,7 +14,7 @@ import re
 import sys
 import argparse
 from pathlib import Path
-from typing import Tuple, List, Dict
+from typing import Dict
 
 
 class SpecComplianceChecker:

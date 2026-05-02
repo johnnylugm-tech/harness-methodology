@@ -15,7 +15,6 @@ Trigger:
 - Fix:    python cron_docs_optimizer.py --fix
 """
 
-import os
 import re
 import sys
 from pathlib import Path

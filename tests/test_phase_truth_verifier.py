@@ -6,7 +6,6 @@ check_framework_block is excluded (requires full FrameworkEnforcer env).
 """
 import json
 import pytest
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier

@@ -1,8 +1,7 @@
 # tests/test_reviewer_router.py
 # Phase B deliverable B14 — M4: framework self-tests for ReviewerRouter.
 import pytest
-from unittest.mock import patch, MagicMock
-import json
+from unittest.mock import patch
 
 
 # ── ReviewerRouter unit tests ────────────────────────────────────────────────

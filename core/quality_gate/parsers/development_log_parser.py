@@ -53,7 +53,7 @@ class DevelopmentLogParser:
         """
         # Patterns that capture an explicit session token (group 1 required)
         session_patterns = [
-            rf"[Ss]ession[-]?[Ii][Dd][:]\s*([a-zA-Z0-9-]+)",
+            r"[Ss]ession[-]?[Ii][Dd][:]\s*([a-zA-Z0-9-]+)",
             rf"{role}.*?[Ss]ession[:]\s*([a-zA-Z0-9-]+)",
             rf"[Ss]ub[-]?[Aa]gent.*?{role}.*?([a-zA-Z0-9-]+)",
         ]

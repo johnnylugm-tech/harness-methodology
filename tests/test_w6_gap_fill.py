@@ -8,7 +8,7 @@ import json
 import os
 import pytest
 from pathlib import Path
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 
 # ─── EnforcementConfig ────────────────────────────────────────────────────────
@@ -117,7 +117,7 @@ class TestEnforcementConfig:
 
 class TestConfigGenerator:
     def test_local_only(self):
-        from core.enforcement_config import ConfigGenerator, EnforcementMode, Platform
+        from core.enforcement_config import ConfigGenerator, EnforcementMode
         c = ConfigGenerator.local_only()
         assert c.mode == EnforcementMode.LOCAL
         assert c.enforce_on_push is False
@@ -725,7 +725,6 @@ class TestIntegratedStagePassGenerator:
         with patch("core.quality_gate.stage_pass_generator.FrameworkEnforcer", mock_enforcer_cls), \
              patch("core.quality_gate.stage_pass_generator.ClaimsVerifier", mock_cv_cls):
             from core.quality_gate import stage_pass_generator
-            import importlib
             # Fresh import each time through patches
             gen = stage_pass_generator.IntegratedStagePassGenerator(str(tmp_path), phase)
         return gen, mock_enforcer_cls, mock_cv_cls

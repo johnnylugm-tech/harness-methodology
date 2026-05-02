@@ -172,7 +172,7 @@ class SpecLogicChecker:
         print("Spec Logic Checker Report")
         print("="*60)
 
-        print(f"\nStatistics")
+        print("\nStatistics")
         print(f"   Files:     {result.files_checked}")
         print(f"   Functions: {result.functions_checked}")
         print(f"   Issues:    {len(result.issues)}")
@@ -181,7 +181,7 @@ class SpecLogicChecker:
         print(f"\nResult: {'PASS' if result.passed else 'FAIL'}")
 
         if result.issues:
-            print(f"\nIssue List")
+            print("\nIssue List")
             for issue in result.issues:
                 print(f"\n   [{issue.severity}] {issue.file_path}:{issue.line_number}")
                 print(f"   Function: {issue.function_name}")
@@ -198,8 +198,8 @@ class SemanticValidator:
         self.srs_path = srs_path
         self.requirements = self._parse_srs()
 
-    def _parse_srs(self) -> Dict[str, str]:
-        requirements = {}
+    def _parse_srs(self) -> Dict[str, Any]:
+        requirements: Dict[str, Any] = {}
 
         try:
             content = Path(self.srs_path).read_text(encoding="utf-8")
@@ -275,7 +275,7 @@ def main():
         print("Semantic Validation Report")
         print("="*60)
         validator = SemanticValidator(args.srs)
-        print(f"\nSRS Requirements")
+        print("\nSRS Requirements")
         print(f"   Total: {len(validator.requirements)}")
 
         for fr_id, req in list(validator.requirements.items())[:5]:

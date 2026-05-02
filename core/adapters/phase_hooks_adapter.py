@@ -184,7 +184,7 @@ class PhaseHooksAdapter:
             }
 
         fr_outcomes = []
-        hooks = self._get_hooks()
+        # hooks = self._get_hooks()  # Removed per linting
         for entry in fr_results:
             fr_id = entry["fr_id"]
             self.before_dev(fr_id)

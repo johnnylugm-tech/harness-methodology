@@ -8,7 +8,7 @@ import json
 import os
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # MCP imports (graceful degradation if not available)
@@ -491,7 +491,7 @@ class ReviewerRouter:
 
         # Implicit phase ordering: Phase-N depends on Phase-(N-1)
         phase_labels = sorted(
-            [l for l in labels if re.match(r'^Phase-\d+$', l, re.IGNORECASE)],
+            [line for line in labels if re.match(r'^Phase-\d+$', l, re.IGNORECASE)],
             key=lambda l: int(re.search(r'\d+', l).group()),
         )
         for i in range(1, len(phase_labels)):
@@ -528,7 +528,7 @@ class ReviewerRouter:
                         queue.sort()
 
         # Append any remaining (cycle nodes) in original order
-        remaining = [l for l in labels if l not in result]
+        remaining = [line for line in labels if l not in result]
         result.extend(remaining)
         return result
 

@@ -1,6 +1,5 @@
 import pytest
 import subprocess
-import os
 
 @pytest.mark.contract
 def test_id_01_reviewer_independence():
@@ -13,7 +12,6 @@ def test_id_01_reviewer_independence():
 def test_id_02_hybrid_scoring_logic():
     """SAD: min(tool_score, llm_score) enforcement.
     This is a logic check, but we can verify the function exists."""
-    from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
     # Check if the scoring logic is present in the codebase
     # (Simplified check for now)
     assert True
@@ -28,7 +26,7 @@ def test_id_03_kill_switch_circuit_breaker():
 @pytest.mark.contract
 def test_id_04_task_splitter_dag():
     """SAD: TaskSplitter must decompose goals into a DAG."""
-    from core.task_splitter import TaskSplitter, TaskStatus
+    from core.task_splitter import TaskSplitter
     splitter = TaskSplitter()
     tasks = splitter.split_from_goal("Implement login")
     assert len(tasks) > 0

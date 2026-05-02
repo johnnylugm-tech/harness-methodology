@@ -4,7 +4,6 @@ tests/test_parsers.py — Unit tests for quality_gate.parsers layer (crg-003/crg
 Covers DevelopmentLogParser and SpecTrackingParser in isolation,
 independent of the checker business logic.
 """
-import pytest
 from core.quality_gate.parsers import DevelopmentLogParser, SpecTrackingParser
 
 

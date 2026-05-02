@@ -189,7 +189,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 
     if state_path.exists():
         state = json.loads(state_path.read_text(encoding="utf-8"))
-        print(f"\n[FSM State]")
+        print("\n[FSM State]")
         print(f"  state         : {state.get('state', 'UNKNOWN')}")
         print(f"  current_phase : {state.get('current_phase', 0)}")
         print(f"  last_update   : {state.get('last_update', '-')}")
@@ -198,7 +198,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 
     if manifest_path.exists():
         m = json.loads(manifest_path.read_text(encoding="utf-8"))
-        print(f"\n[Quality Manifest]")
+        print("\n[Quality Manifest]")
         print(f"  schema_version: {m.get('schema_version')}")
         print(f"  fr_ids        : {m.get('fr_ids')}")
         gates = m.get("gate_results", {})
@@ -495,11 +495,11 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
         if phase == 1:
             srs = project / "SRS.md"
             if srs.exists():
-                print(f"[P1] SRS.md exists — skipping generation")
+                print("[P1] SRS.md exists — skipping generation")
             else:
                 print(f"[P1] PAUSE: SRS.md not found at {srs}")
-                print(f"     Create SRS.md (### FR-XX: ... sections required),")
-                print(f"     then re-run:")
+                print("     Create SRS.md (### FR-XX: ... sections required),")
+                print("     then re-run:")
                 print(f"     python harness_cli.py run-pipeline --phase-from 2 "
                       f"--project {project}")
                 return 10
@@ -511,12 +511,12 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
             manifest_path = project / ".methodology" / "quality_manifest.json"
             if not sad.exists():
                 print(f"[P2] PAUSE: SAD.md not found at {sad}")
-                print(f"     Generate SAD.md, then re-run:")
+                print("     Generate SAD.md, then re-run:")
                 print(f"     python harness_cli.py run-pipeline --phase-from 2 "
                       f"--project {project}")
                 return 10
             if manifest_path.exists():
-                print(f"[P2] quality_manifest.json exists — skipping manifest generation")
+                print("[P2] quality_manifest.json exists — skipping manifest generation")
             else:
                 fr_ids = _parse_fr_ids(sad.read_text(encoding="utf-8", errors="ignore"))
                 if not fr_ids:
@@ -535,7 +535,7 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
         # ── P3+: SAD.md + manifest required for FR-level gate planning ────
         manifest_path = project / ".methodology" / "quality_manifest.json"
         if not manifest_path.exists():
-            print(f"[ERROR] quality_manifest.json missing — complete Phase 2 first.")
+            print("[ERROR] quality_manifest.json missing — complete Phase 2 first.")
             return 1
 
         fr_ids = json.loads(manifest_path.read_text(encoding="utf-8")).get("fr_ids", [])

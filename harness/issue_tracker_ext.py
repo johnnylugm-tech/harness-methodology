@@ -1,7 +1,7 @@
 """Issue tracker extension with FR traceability."""
 # Gap G5: Extends IssueTracker with FR bidirectional traceability.
 from __future__ import annotations
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 try:
     from software_self_improvement.scripts.issue_tracker import IssueTracker

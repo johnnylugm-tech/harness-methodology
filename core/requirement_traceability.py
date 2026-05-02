@@ -11,7 +11,7 @@ Note: In harness-methodology, run as:
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Any, Set
+from typing import Dict, List, Optional, Any
 from datetime import datetime
 import json
 import uuid
@@ -219,7 +219,7 @@ class RequirementTraceability:
             "exported_at": datetime.now().isoformat(),
             "completeness": self.verify_completeness(),
             "traceability_matrix": self.get_traceability_matrix(),
-            "all_links": [l.to_dict() for l in self.links],
+            "all_links": [l.to_dict() for line in self.links],
         }
         if format == "aspice":
             c = report["completeness"]

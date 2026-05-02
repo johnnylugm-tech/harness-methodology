@@ -9,9 +9,8 @@ Key principle: Hard Block — non-compliant = blocked, no opt-out.
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Callable, Any, Optional
+from typing import Dict, List, Callable, Any
 from datetime import datetime
-import hashlib
 import json
 import os
 

@@ -13,10 +13,8 @@ Purpose:
 import re
 import os
 from typing import List, Dict, Any, Optional, Callable
-from pathlib import Path
 
 from enforcement.policy_engine import PolicyEngine, Policy, EnforcementLevel
-from enforcement.constitution_as_code import ConstitutionAsCode, Rule, RuleSeverity
 
 
 class ConstitutionPolicyGenerator:

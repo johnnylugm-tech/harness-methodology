@@ -1,7 +1,6 @@
 """
 tests/test_feedback_hook.py — Unit tests for AutoQualityGateWithFeedback (crg-004).
 """
-import pytest
 from unittest.mock import MagicMock, patch
 from core.quality_gate.feedback_hook import AutoQualityGateWithFeedback
 

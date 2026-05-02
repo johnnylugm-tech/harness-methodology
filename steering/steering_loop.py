@@ -32,7 +32,7 @@ class IterationStage(Enum):
 @dataclass
 class ScoredOutput:
     """Scored output"""
-    output: Dict[str, Any]
+    output: Union[Dict[str, Any], str]
     scores: Dict[str, float]      # per-dimension scores
     total_score: float
     stage: IterationStage = IterationStage.EXPLORATION
@@ -115,7 +115,7 @@ Output JSON:
     def __init__(self, provider):
         self.provider = provider
 
-    def score(self, output_a: Dict[str, Any], output_b: Dict[str, Any]) -> Dict[str, Dict[str, float]]:
+    def score(self, output_a: Union[Dict[str, Any], str], output_b: Union[Dict[str, Any], str]) -> Dict[str, Any]:
         """
         Score A/B outputs using LLM judge.
 
@@ -142,8 +142,8 @@ Output JSON:
 
     def generate_feedback(
         self,
-        output_a: Dict[str, Any],
-        output_b: Dict[str, Any],
+        output_a: Union[Dict[str, Any], str],
+        output_b: Union[Dict[str, Any], str],
         scores_a: Dict[str, float],
         scores_b: Dict[str, float],
         winner: str
@@ -414,7 +414,7 @@ class SteeringLoop:
     def run_until_converge(
         self,
         get_next_pair_fn,   # () -> (output_a, output_b)
-        max_rounds: int = None
+        max_rounds: Optional[int] = None
     ) -> IterationResult:
         """
         Run until convergence.

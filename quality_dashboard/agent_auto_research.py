@@ -20,10 +20,8 @@ Flow:
 
 import json
 import subprocess
-import sys
-import re
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional
+from typing import List, Dict
 from datetime import datetime
 from pathlib import Path
 
@@ -368,14 +366,14 @@ Scores:
 
         if dimension == "D1_Linting":
             out, err, rc = self._run_tool_capture(["ruff", "check", "03-development/src/"])
-            counts["before"] = len([l for l in out.split('\n') if l.strip() and not l.startswith('#')])
-            counts["issue_list"] = [l for l in out.split('\n') if l.strip() and ':' in l][:10]  # First 10
+            counts["before"] = len([line for line in out.split('\n') if line.strip() and not line.startswith('#')])
+            counts["issue_list"] = [line for line in out.split('\n') if line.strip() and ':' in l][:10]  # First 10
             counts["tool_output"] = out[:500]  # First 500 chars
 
         elif dimension == "D2_TypeSafety":
             out, err, rc = self._run_tool_capture(["python3", "-m", "mypy", "03-development/src/"])
-            counts["before"] = len([l for l in out.split('\n') if 'error:' in l or 'warning:' in l])
-            counts["issue_list"] = [l for l in out.split('\n') if 'error:' in l][:10]
+            counts["before"] = len([line for line in out.split('\n') if 'error:' in l or 'warning:' in l])
+            counts["issue_list"] = [line for line in out.split('\n') if 'error:' in l][:10]
             counts["tool_output"] = out[:500]
 
         elif dimension == "D4_Security":
@@ -392,8 +390,8 @@ Scores:
 
         elif dimension == "D5_Complexity":
             out, err, rc = self._run_tool_capture(["lizard", "03-development/src/"])
-            counts["before"] = len([l for l in out.split('\n') if 'CCN' in l])
-            counts["issue_list"] = [l for l in out.split('\n') if 'CCN' in l][:10]
+            counts["before"] = len([line for line in out.split('\n') if 'CCN' in l])
+            counts["issue_list"] = [line for line in out.split('\n') if 'CCN' in l][:10]
             counts["tool_output"] = out[:500]
 
         else:
@@ -561,7 +559,7 @@ Run these commands to verify:
                 baseline = current_scores.copy()
                 history["baseline"] = baseline
 
-            print(f"\nCurrent scores:")
+            print("\nCurrent scores:")
             for dim, score in sorted(current_scores.items()):
                 target_met = "OK" if score >= 85 else "LOW"
                 print(f"   [{target_met}] {dim}: {score:.1f}%")
@@ -582,7 +580,7 @@ Run these commands to verify:
                 print("All dimensions meet target")
                 break
 
-            print(f"\nDimensions needing improvement:")
+            print("\nDimensions needing improvement:")
             for dim, score in low_dims[:3]:
                 print(f"   - {dim}: {score:.1f}%")
 
@@ -899,7 +897,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 ''' + content
 
                 test_file.write_text(new_content)
-                print(f"   Added sys.path configuration")
+                print("   Added sys.path configuration")
                 return True
 
         except Exception as e:
@@ -939,12 +937,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
         total_improvement = sum(r.total_improvement for r in self.records)
 
-        print(f"\nIteration summary:")
+        print("\nIteration summary:")
         print(f"   Total iterations: {len(self.records)}")
         print(f"   Total improvement: {'+' if total_improvement >= 0 else ''}{total_improvement:.1f}%")
 
         if baseline:
-            print(f"\nScore changes:")
+            print("\nScore changes:")
             for dim in sorted(baseline.keys()):
                 baseline_score = baseline.get(dim, 0)
                 final_score = self.records[-1].dimensions_status.get(dim, baseline_score) if self.records else baseline_score

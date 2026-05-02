@@ -16,13 +16,10 @@ Usage::
             print(f"FAIL: {msg}")
 """
 
-import os
 import sys
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
 
-from enforcement import PolicyEngine, ConstitutionAsCode, EnforcementLevel
-from enforcement.execution_registry import ExecutionRegistry
 
 
 class EnforcementResult:
@@ -110,7 +107,7 @@ class FrameworkEnforcer:
             phase_info = phase_info_map.get(self.phase, {"type": "srs", "dir": "docs"})
             docs_path = self.project_root / "docs"
             if not docs_path.exists():
-                return {"score": 0, "passed": False, "error": f"docs/ directory not found"}
+                return {"score": 0, "passed": False, "error": "docs/ directory not found"}
             result = run_constitution_check(phase_info["type"], str(docs_path))
             return {
                 "score": result.score,
@@ -265,9 +262,9 @@ class FrameworkEnforcer:
             f"Total: {trace['stats']['total']}  Verified: {trace['stats']['verified']}  Missing: {trace['stats']['missing']}",
             "\n### Verified Links",
         ]
-        lines += [f"  + {l}" for l in trace["verified_phases"]]
+        lines += [f"  + {l}" for line in trace["verified_phases"]]
         lines += ["\n### Missing Links"]
-        lines += ([f"  - {l}" for l in trace["missing_links"]] or ["  (none)"])
+        lines += ([f"  - {l}" for line in trace["missing_links"]] or ["  (none)"])
         aspice = self.check_aspice_completeness()
         lines += [
             "",

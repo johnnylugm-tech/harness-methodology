@@ -66,7 +66,7 @@ class _ASTVisitor(ast.NodeVisitor):
     def __init__(self, file_path: str, module_name: str):
         self.file_path = file_path
         self.module_name = module_name
-        self.items = []
+        self.items: list = []
         self.in_class = False
         self.current_class = ""
 
@@ -110,12 +110,12 @@ class CodeScanner:
 
     def __init__(self, implement_dir) -> None:
         self.implement_dir = str(implement_dir)
-        self._errors = []
+        self._errors: list = []
         if not Path(self.implement_dir).exists():
             raise ScanError("E_FILE_NOT_FOUND", f"Directory not found: {self.implement_dir}")
 
     def scan(self) -> ScannedCode:
-        self._errors = []
+        self._errors: list = []
         modules = []
         files = self._discover_files()
         total = len(files)

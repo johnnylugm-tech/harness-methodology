@@ -14,10 +14,8 @@ Features:
 import os
 import subprocess
 import sys
-import hashlib
 import shutil
 from pathlib import Path
-from typing import Optional
 
 
 class AgentProofHook:
@@ -33,7 +31,7 @@ class AgentProofHook:
 
     METHODOLOGY_DIR = ".methodology"
     HOOK_MODULE = "agent_hook_core"
-    HOOK_FILE = f".methodology/agent_hook_core.py"
+    HOOK_FILE = ".methodology/agent_hook_core.py"
 
     WRAPPER_TEMPLATE = '''#!/usr/bin/env python3
 """
@@ -75,7 +73,7 @@ except Exception as e:
         self._install_core_module(method_dir)
         self._install_hook_wrapper(force=force)
         self._try_immutable()
-        print(f"Agent-Proof Hook installed")
+        print("Agent-Proof Hook installed")
         print(f"  Core module: {self.core_path}")
         print(f"  Hook: {self.hook_path}")
 
