@@ -139,7 +139,7 @@ if __name__ == "__main__":
             print(f"  Backed up existing hook to {backup_path}")
         with open(self.hook_path, "w") as f:
             f.write(self.WRAPPER_TEMPLATE)
-        os.chmod(self.hook_path, 0o755)
+        os.chmod(self.hook_path, 0o755)  # nosec B103 — git hooks must be executable
         print(f"  Hook wrapper installed: {self.hook_path}")
 
     def _try_immutable(self):

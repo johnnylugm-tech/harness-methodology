@@ -375,13 +375,13 @@ Scores:
         if dimension == "D1_Linting":
             out, err, rc = self._run_tool_capture(["ruff", "check", "03-development/src/"])
             counts["before"] = len([line for line in out.split('\n') if line.strip() and not line.startswith('#')])
-            counts["issue_list"] = [line for line in out.split('\n') if line.strip() and ':' in l][:10]  # First 10
+            counts["issue_list"] = [line for line in out.split('\n') if line.strip() and ':' in line][:10]  # First 10
             counts["tool_output"] = out[:500]  # First 500 chars
 
         elif dimension == "D2_TypeSafety":
             out, err, rc = self._run_tool_capture(["python3", "-m", "mypy", "03-development/src/"])
-            counts["before"] = len([line for line in out.split('\n') if 'error:' in l or 'warning:' in l])
-            counts["issue_list"] = [line for line in out.split('\n') if 'error:' in l][:10]
+            counts["before"] = len([line for line in out.split('\n') if 'error:' in line or 'warning:' in line])
+            counts["issue_list"] = [line for line in out.split('\n') if 'error:' in line][:10]
             counts["tool_output"] = out[:500]
 
         elif dimension == "D4_Security":
@@ -398,8 +398,8 @@ Scores:
 
         elif dimension == "D5_Complexity":
             out, err, rc = self._run_tool_capture(["lizard", "03-development/src/"])
-            counts["before"] = len([line for line in out.split('\n') if 'CCN' in l])
-            counts["issue_list"] = [line for line in out.split('\n') if 'CCN' in l][:10]
+            counts["before"] = len([line for line in out.split('\n') if 'CCN' in line])
+            counts["issue_list"] = [line for line in out.split('\n') if 'CCN' in line][:10]
             counts["tool_output"] = out[:500]
 
         else:

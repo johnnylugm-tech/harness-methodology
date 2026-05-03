@@ -491,8 +491,8 @@ class ReviewerRouter:
 
         # Implicit phase ordering: Phase-N depends on Phase-(N-1)
         phase_labels = sorted(
-            [line for line in labels if re.match(r'^Phase-\d+$', l, re.IGNORECASE)],
-            key=lambda l: int(re.search(r'\d+', l).group()),
+            [label for label in labels if re.match(r'^Phase-\d+$', label, re.IGNORECASE)],
+            key=lambda x: int(re.search(r'\d+', x).group()),
         )
         for i in range(1, len(phase_labels)):
             prev = phase_labels[i - 1]
@@ -528,7 +528,7 @@ class ReviewerRouter:
                         queue.sort()
 
         # Append any remaining (cycle nodes) in original order
-        remaining = [line for line in labels if l not in result]
+        remaining = [label for label in labels if label not in result]
         result.extend(remaining)
         return result
 

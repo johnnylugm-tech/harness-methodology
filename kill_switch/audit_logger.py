@@ -28,7 +28,10 @@ class AuditLogger:
     Provides basic audit logging for interrupt events.
     """
 
-    def __init__(self, log_dir: str = "/tmp/kill_switch_logs"):
+    def __init__(self, log_dir: str = None):
+        if log_dir is None:
+            import tempfile
+            log_dir = tempfile.gettempdir() + "/kill_switch_logs"
         self.log_dir = log_dir
 
     def log_event(self, entry: AuditEntry) -> None:
