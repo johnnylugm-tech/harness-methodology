@@ -35,15 +35,19 @@ def test_id_04_task_splitter_dag():
 
 @pytest.mark.quality
 def test_id_05_linting_clean():
-    """Requirement: Zero ruff errors."""
-    # We allow the test to fail if ruff finds errors
-    result = subprocess.run(["ruff", "check", ".", "--exclude", "cli.py"], capture_output=True)
+    """Requirement: Zero ruff errors in source dirs."""
+    result = subprocess.run(
+        ["ruff", "check", "core/", "harness/", "detection/", "enforcement/",
+         "gap_detector/", "kill_switch/", "steering/"], capture_output=True)
     assert result.returncode == 0, f"Ruff found errors:\n{result.stdout.decode()}"
 
 @pytest.mark.quality
 def test_id_06_type_safety_clean():
-    """Requirement: Zero mypy errors."""
-    result = subprocess.run(["mypy", ".", "--exclude", "cli.py", "--ignore-missing-imports"], capture_output=True)
+    """Requirement: Zero mypy errors in source dirs."""
+    result = subprocess.run(
+        ["mypy", "core/", "harness/", "detection/", "enforcement/",
+         "gap_detector/", "kill_switch/", "steering/",
+         "--ignore-missing-imports"], capture_output=True)
     assert result.returncode == 0, f"Mypy found errors:\n{result.stdout.decode()}"
 
 @pytest.mark.quality

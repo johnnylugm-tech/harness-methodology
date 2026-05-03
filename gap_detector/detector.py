@@ -77,11 +77,11 @@ class GapDetector:
         for fn in [self._detect_missing, self._detect_incomplete, self._detect_orphaned]:
             try:
                 self._gaps.extend(fn())
-            except Exception:
+            except Exception:  # nosec B110
                 pass
         try:
             self._mark_downstream_effects()
-        except Exception:
+        except Exception:  # nosec B110
             pass
         return self._gaps
 
@@ -90,12 +90,18 @@ class GapDetector:
             self.detect()
         s = GapSummary(total_gaps=len(self._gaps))
         for g in self._gaps:
-            if g.gap_type == "MISSING": s.missing += 1
-            elif g.gap_type == "INCOMPLETE": s.incomplete += 1
-            elif g.gap_type == "ORPHANED": s.orphaned += 1
-            if g.severity == "critical": s.critical += 1
-            elif g.severity == "major": s.major += 1
-            elif g.severity == "minor": s.minor += 1
+            if g.gap_type == "MISSING":
+                s.missing += 1
+            elif g.gap_type == "INCOMPLETE":
+                s.incomplete += 1
+            elif g.gap_type == "ORPHANED":
+                s.orphaned += 1
+            if g.severity == "critical":
+                s.critical += 1
+            elif g.severity == "major":
+                s.major += 1
+            elif g.severity == "minor":
+                s.minor += 1
         return s
 
     def _match_spec_to_code(self):
@@ -106,8 +112,10 @@ class GapDetector:
         return name.lower().replace("_", "").replace("-", "").replace(" ", "")
 
     def _compute_similarity(self, a: str, b: str) -> float:
-        if not a and not b: return 1.0
-        if not a or not b: return 0.0
+        if not a and not b:
+            return 1.0
+        if not a or not b:
+            return 0.0
         d = _levenshtein_distance(a, b)
         return 1.0 - (d / max(len(a), len(b)))
 
@@ -115,7 +123,8 @@ class GapDetector:
         sn = self._normalize_name(spec_item.name)
         best_match, best_sim, best_type = None, 0.0, "none"
         for ci in code_items:
-            if not ci.is_public: continue
+            if not ci.is_public:
+                continue
             cn = self._normalize_name(ci.name)
             sim = self._compute_similarity(sn, cn)
             if sim == 1.0 and sn == cn:

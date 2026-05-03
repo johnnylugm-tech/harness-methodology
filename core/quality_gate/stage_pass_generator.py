@@ -39,7 +39,7 @@ import os
 import sys
 import json
 import argparse
-import subprocess
+import subprocess  # nosec B404
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict
@@ -49,10 +49,10 @@ from typing import Any, Dict
 _parent_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(_parent_dir))
 
-from enforcement.framework_enforcer import FrameworkEnforcer
-from pathlib import Path
-from quality_gate.claims_verifier import ClaimsVerifier
-from quality_gate.phase_config import PHASE_CONFIG
+from enforcement.framework_enforcer import FrameworkEnforcer  # noqa: E402
+from pathlib import Path  # noqa: E402
+from quality_gate.claims_verifier import ClaimsVerifier  # noqa: E402
+from quality_gate.phase_config import PHASE_CONFIG  # noqa: E402
 
 VERSION = "1.1.0"
 SKILL_REF = "methodology-v2 v6.13"
@@ -211,7 +211,7 @@ class IntegratedStagePassGenerator:
         # Run pytest
         print("\n📋 Running pytest...")
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # nosec B603 B607
                 ["pytest", "--tb=short", "-v"],
                 cwd=self.project_root,
                 capture_output=True,
@@ -234,7 +234,7 @@ class IntegratedStagePassGenerator:
         # Run pytest-cov
         print("\n📋 Running pytest-cov...")
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # nosec B603 B607
                 ["pytest", "--cov", "--cov-report=term-missing"],
                 cwd=self.project_root,
                 capture_output=True,
@@ -309,24 +309,29 @@ class IntegratedStagePassGenerator:
         block_result = self.results.get("framework_results", {}).get("BLOCK", {})
         log_result = self.results.get("session_log_results", {})
         test_evidence = self.results.get("test_evidence", {})
-        
-        # Get Constitution score from framework_enforcer
         const_result = self.results.get("framework_results", {}).get("CONSTITUTION", {})
         const_score = const_result.get("score", 0)
         const_passed = const_result.get("passed", False)
-        
-        # 5W1H status inference
-        # Constitution must pass for true PASS (Hard Blocker)
-        constitution_blocker = const_passed  # TH-02: Constitution total score >=80% or TH-04: Security=100%
-        
+        constitution_blocker = const_passed
+
         who_pass = block_result.get("passed") and log_result.get("passed") and constitution_blocker
         what_pass = test_evidence.get("pytest_passed") and constitution_blocker
-        when_pass = True  # timing guaranteed by process
         where_pass = block_result.get("passed") and constitution_blocker
-        why_pass = block_result.get("passed") and constitution_blocker
-        how_pass = block_result.get("passed") and constitution_blocker
-        
-        lines = [
+
+        lines: list[str] = []
+        self._md_header(lines, config, const_passed, const_score)
+        self._md_5w1h(lines, who_pass, what_pass, where_pass)
+        self._md_issues(lines, block_result)
+        self._md_artifacts(lines, block_result, log_result, test_evidence)
+        self._md_agent_a(lines, score)
+        self._md_agent_b(lines)
+        self._md_challenges(lines)
+        self._md_appendix(lines, const_passed, const_score, block_result, log_result, test_evidence)
+        self._md_signoff(lines)
+        return "\n".join(lines)
+
+    def _md_header(self, lines, config, const_passed, const_score):
+        lines.extend([
             f"# Phase {self.phase} STAGE_PASS",
             "",
             "## Phase Goal Achieved",
@@ -342,6 +347,13 @@ class IntegratedStagePassGenerator:
             "",
             "## Agent A Self-Assessment",
             "",
+        ])
+
+    def _md_5w1h(self, lines, who_pass, what_pass, where_pass):
+        when_pass = True
+        why_pass = where_pass
+        how_pass = where_pass
+        lines.extend([
             "### 5W1H Compliance Check",
             "| Item | Status | Notes |",
             "|------|------|------|",
@@ -352,21 +364,24 @@ class IntegratedStagePassGenerator:
             f"| WHY | {'✅' if why_pass else '❌'} | Design rationale sufficient |",
             f"| HOW | {'✅' if how_pass else '❌'} | SOP executed in order |",
             "",
+        ])
+
+    def _md_issues(self, lines, block_result):
+        lines.extend([
             "### Issues Found",
             "| # | Issue | Severity | Fix | Status |",
             "|---|------|--------|----------|------|",
-        ]
-        
-        # If there are violations, list them as issues
+        ])
         violations = block_result.get("violations", [])
         if violations:
             for i, (msg, fix) in enumerate(violations, 1):
                 lines.append(f"| {i} | {msg} | HIGH | {fix or 'pending fix'} | ❌ |")
         else:
             lines.append("| — | None | — | — | ✅ |")
-        
+        lines.append("")
+
+    def _md_artifacts(self, lines, block_result, log_result, test_evidence):
         lines.extend([
-            "",
             "### Artifact List",
             "| Artifact | Status | Path |",
             "|--------|------|------|",
@@ -375,6 +390,10 @@ class IntegratedStagePassGenerator:
             f"| Sessions_spawn.log | {'✅' if log_result.get('passed') else '❌'} | .openclaw/ |",
             f"| pytest | {'✅' if test_evidence.get('pytest_passed') else '❌'} | tests/ |",
             "",
+        ])
+
+    def _md_agent_a(self, lines, score):
+        lines.extend([
             "### Agent A Confidence Summary",
             "| Item | Score (0-10) | Notes |",
             "|------|------|------|",
@@ -391,6 +410,10 @@ class IntegratedStagePassGenerator:
             "",
             "---",
             "",
+        ])
+
+    def _md_agent_b(self, lines):
+        lines.extend([
             "## Agent B Review",
             "",
             "### Questions List",
@@ -421,6 +444,10 @@ class IntegratedStagePassGenerator:
             "",
             "---",
             "",
+        ])
+
+    def _md_challenges(self, lines):
+        lines.extend([
             "## Phase Challenges & Resolutions",
             "",
             "| # | Challenge | Severity | Resolution | Status |",
@@ -439,19 +466,28 @@ class IntegratedStagePassGenerator:
             "",
             "---",
             "",
+        ])
+
+    def _md_appendix(self, lines, const_passed, const_score, block_result, log_result, test_evidence):
+        lines.extend([
             "### Appendix: Actual Tool Results",
             "",
-            f"**Constitution Score**: {'✅' if const_passed else '❌'} {const_score:.1f}% {'(threshold > 80%)' if const_score >= 80 else '(threshold > 80%)'}",
+            f"**Constitution Score**: {'✅' if const_passed else '❌'} {const_score:.1f}% "
+            f"{'(threshold > 80%)' if const_score >= 80 else '(threshold > 80%)'}",
             f"**FrameworkEnforcer BLOCK**: {'✅ passed' if block_result.get('passed') else '❌ failed'}",
             f"**Sessions_spawn.log**: {'✅ passed' if log_result.get('passed') else '❌ failed'}",
             f"**pytest**: {'✅ passed' if test_evidence.get('pytest_passed') else '❌ failed'}",
             f"**Coverage**: {'✅ met' if test_evidence.get('coverage_passed') else '❌ not met'}",
             "",
-            # v6.21 format: confidence (1-10) + summary (within 50 words)
-            f"**Confidence**: {self.results.get('confidence_score', 0) or 0}/10 | **Summary**: {self.results.get('confidence_reason', '')[:50]}",
+            f"**Confidence**: {self.results.get('confidence_score', 0) or 0}/10 "
+            f"| **Summary**: {self.results.get('confidence_reason', '')[:50]}",
             "",
             "---",
             "",
+        ])
+
+    def _md_signoff(self, lines):
+        lines.extend([
             "## SIGN-OFF",
             "",
             "| Role | Name | Signature | Date |",
@@ -462,8 +498,6 @@ class IntegratedStagePassGenerator:
             "",
             "*Generated by harness-methodology v6.49 STAGE_PASS Generator*",
         ])
-        
-        return "\n".join(lines)
     
     def git_push(self, content: str) -> str:
         """Push to GitHub"""
@@ -476,12 +510,12 @@ class IntegratedStagePassGenerator:
         output_path.write_text(content, encoding="utf-8")
         
         try:
-            subprocess.run(["git", "add", str(output_path)], check=True, capture_output=True)
+            subprocess.run(["git", "add", str(output_path)], check=True, capture_output=True)  # nosec B603 B607
             msg = f"chore: Phase {self.phase} STAGE_PASS — {SKILL_REF}"
-            subprocess.run(["git", "commit", "-m", msg], check=True, capture_output=True)
-            subprocess.run(["git", "push"], check=True, capture_output=True)
+            subprocess.run(["git", "commit", "-m", msg], check=True, capture_output=True)  # nosec B603 B607
+            subprocess.run(["git", "push"], check=True, capture_output=True)  # nosec B603 B607
             
-            result = subprocess.run(
+            result = subprocess.run(  # nosec B603 B607
                 ["git", "rev-parse", "--short", "HEAD"],
                 check=True,
                 capture_output=True,
@@ -577,7 +611,7 @@ class IntegratedStagePassGenerator:
         print("Step 6: SAB Generation (Phase 2)")
         print(f"{'─'*40}")
         
-        import subprocess
+        import subprocess  # nosec B404
         import os
         
         sab_script = os.path.join(os.path.dirname(__file__), "..", "scripts", "generate_sab.py")
@@ -589,7 +623,7 @@ class IntegratedStagePassGenerator:
             return True
         
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # nosec B603 B607
                 ["python3", sab_script, "--project", self.project_root],
                 capture_output=True, text=True, timeout=60
             )

@@ -165,7 +165,7 @@ class PolicyEngine:
         return True
 
     def _check_aspice_docs(self) -> bool:
-        import subprocess
+        import subprocess  # nosec B404
         doc_checker_path = os.path.join(
             os.path.dirname(os.path.dirname(__file__)),
             "quality_gate", "doc_checker.py"
@@ -173,7 +173,7 @@ class PolicyEngine:
         if not os.path.exists(doc_checker_path):
             return True
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # nosec B603 B607
                 ["python3", doc_checker_path, "--format", "json"],
                 capture_output=True, text=True, timeout=30, check=False
             )
@@ -185,7 +185,7 @@ class PolicyEngine:
             return True
 
     def _check_phase_artifacts(self) -> bool:
-        import subprocess
+        import subprocess  # nosec B404
         enforcer_path = os.path.join(
             os.path.dirname(os.path.dirname(__file__)),
             "quality_gate", "phase_artifact_enforcer.py"
@@ -193,7 +193,7 @@ class PolicyEngine:
         if not os.path.exists(enforcer_path):
             return True
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # nosec B603 B607
                 ["python3", enforcer_path, "--json"],
                 capture_output=True, text=True, timeout=30, check=False
             )

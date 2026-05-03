@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 try:
-    import yaml
+    import yaml  # type: ignore[import-untyped]
     _YAML = True
 except ImportError:
     _YAML = False
@@ -62,6 +62,6 @@ class DecisionLogWriter:
                     yaml.safe_load(f.read_text()) if _YAML
                     else __import__('json').loads(f.read_text())
                 )
-            except Exception:
+            except Exception:  # nosec B110
                 pass
         return entries

@@ -185,7 +185,7 @@ class DriftDetector:
                 for m in self.FR_PATTERN.finditer(text):
                     implemented_frs.add(f"FR-{m.group(1).zfill(2)}")
             except Exception: # pylint: disable=broad-exception-caught
-                pass
+                pass  # nosec B110
 
         missing = required_frs - implemented_frs
         checked = len(required_frs)

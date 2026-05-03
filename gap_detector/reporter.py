@@ -51,12 +51,18 @@ class GapReporter:
     def _compute_summary(self) -> GapSummary:
         s = GapSummary(total_gaps=len(self.gaps))
         for g in self.gaps:
-            if g.gap_type == "MISSING": s.missing += 1
-            elif g.gap_type == "INCOMPLETE": s.incomplete += 1
-            elif g.gap_type == "ORPHANED": s.orphaned += 1
-            if g.severity == "critical": s.critical += 1
-            elif g.severity == "major": s.major += 1
-            elif g.severity == "minor": s.minor += 1
+            if g.gap_type == "MISSING":
+                s.missing += 1
+            elif g.gap_type == "INCOMPLETE":
+                s.incomplete += 1
+            elif g.gap_type == "ORPHANED":
+                s.orphaned += 1
+            if g.severity == "critical":
+                s.critical += 1
+            elif g.severity == "major":
+                s.major += 1
+            elif g.severity == "minor":
+                s.minor += 1
         return s
 
     def _gap_to_dict(self, gap: Gap) -> dict:

@@ -145,7 +145,7 @@ class FrameworkEnforcer:
                 break
         else:
             return {"passed": False, "coverage": 0, "threshold": DEFAULT_THRESHOLD, "message": "coverage report not found"}
-        import xml.etree.ElementTree as ET
+        import xml.etree.ElementTree as ET  # nosec B405
         try:
             tree = ET.parse(coverage_file)  # nosec B314 — trusted local coverage.xml from pytest-cov
             coverage = float(tree.getroot().attrib.get("line-rate", 0)) * 100

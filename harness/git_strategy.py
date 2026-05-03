@@ -32,7 +32,7 @@ Git failures are warnings — they never block the pipeline.
 from __future__ import annotations
 
 import os
-import subprocess
+import subprocess  # nosec B404
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -506,7 +506,7 @@ class GitStrategy:
 
     def _run_git(self, *args: str) -> subprocess.CompletedProcess:
         try:
-            return subprocess.run(
+            return subprocess.run(  # nosec B603 B607
                 ["git", *args],
                 capture_output=True, text=True,
                 cwd=str(self.project), timeout=60, check=False,

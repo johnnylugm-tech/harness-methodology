@@ -12,7 +12,7 @@ Features:
 """
 
 import os
-import subprocess
+import subprocess  # nosec B404
 import sys
 import shutil
 from pathlib import Path
@@ -146,11 +146,11 @@ if __name__ == "__main__":
     def _try_immutable(self):
         """Attempt to set Unix immutable attribute (requires root)."""
         try:
-            subprocess.run(["chattr", "+i", str(self.hook_path)], capture_output=True, shell=False)
+            subprocess.run(["chattr", "+i", str(self.hook_path)], capture_output=True, shell=False)  # nosec B603 B607
             if os.path.exists("/usr/bin/lsattr"):
-                subprocess.run(["lsattr", str(self.hook_path)], capture_output=True, shell=False)
+                subprocess.run(["lsattr", str(self.hook_path)], capture_output=True, shell=False)  # nosec B603 B607
             print("  Immutable attribute set (if supported)")
-        except Exception:
+        except Exception:  # nosec B110
             pass
 
     def verify(self) -> bool:
@@ -177,8 +177,8 @@ if __name__ == "__main__":
     def uninstall(self):
         """Uninstall hook and restore backup."""
         try:
-            subprocess.run(["chattr", "-i", str(self.hook_path)], capture_output=True, shell=False)
-        except Exception:
+            subprocess.run(["chattr", "-i", str(self.hook_path)], capture_output=True, shell=False)  # nosec B603 B607
+        except Exception:  # nosec B110
             pass
         if self.core_path.exists():
             self.core_path.unlink()

@@ -15,12 +15,12 @@ Usage:
     result = verifier.verify()
 """
 
-import subprocess
+import subprocess  # nosec B404
 import json
 import sys
 import re
 from pathlib import Path
-from typing import Any, Optional, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 # Ensure core/ is on sys.path so sibling quality_gate.* imports resolve
 _script_dir = Path(__file__).resolve().parent  # quality_gate/
@@ -29,7 +29,7 @@ if str(_methodology_root) not in sys.path:
     sys.path.insert(0, str(_methodology_root))
 
 try:
-    from core.quality_gate.phase_paths import PHASE_ARTIFACT_PATHS
+    from core.quality_gate.phase_paths import PHASE_ARTIFACT_PATHS  # noqa: F401
 except ImportError:
     pass  # type: ignore[no-redef]
 
@@ -115,7 +115,7 @@ class PhaseTruthVerifier:
                         roles.add(entry.get("role", ""))
                         sessions.add(entry.get("session_id", ""))
                     except Exception:
-                        pass
+                        pass  # nosec B110
 
             has_ab = len(roles) >= 2
             has_sessions = len(sessions) >= 2
@@ -130,7 +130,7 @@ class PhaseTruthVerifier:
     def check_pytest(self) -> Tuple[bool, float, str]:
         """Check pytest actually passes"""
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # nosec B603 B607
                 ["pytest", "--tb=no", "-q"],
                 cwd=self.project_root,
                 capture_output=True,
@@ -155,7 +155,7 @@ class PhaseTruthVerifier:
         threshold = 70
 
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # nosec B603 B607
                 ["pytest", "--cov=.","--cov-report=term-missing","--tb=no","-q"],
                 cwd=self.project_root,
                 capture_output=True,
