@@ -70,7 +70,7 @@ def parse_srs_fr_sections(srs_path) -> List[Dict]:
         req_lines = []
         if 'Content' in details:
             content_section = details.split('Content')[1].split('**')[0].strip()
-            req_lines = [l.strip() for line in content_section.split('\n') if line.strip() and line.strip().startswith('-')]
+            req_lines = [line.strip() for line in content_section.split('\n') if line.strip() and line.strip().startswith('-')]
 
         frs.append({
             'fr': fr_num,

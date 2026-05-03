@@ -312,7 +312,7 @@ def _preflight(phase: int, project: Path, force: bool) -> int:
         return 0 if force else 1
 
 
-def _make_git(args: argparse.Namespace, project: Path) -> "GitStrategy":
+def _make_git(args: argparse.Namespace, project: Path) -> "GitStrategy":  # noqa: F821 — lazy import
     """Instantiate GitStrategy from parsed args. Lazy-imports to keep startup fast."""
     from harness.git_strategy import GitStrategy
     no_git = getattr(args, "no_git", False)
@@ -362,7 +362,7 @@ _DIMENSION_HINTS: dict[str, str] = {
 
 
 def _format_block_diagnostic(
-    exc: "GateBlockedError",
+    exc: "GateBlockedError",  # noqa: F821 — lazy import
     gate_num: int,
     phase: int,
     fr_id: str | None,

@@ -108,13 +108,13 @@ class PhaseTruthVerifier:
                     sessions.add(data.get("session_id", ""))
             except json.JSONDecodeError:
                 # Try line-by-line parsing
-                lines = [line for line in content.split("\n") if l]
+                lines = [line for line in content.split("\n") if line]
                 for line in lines:
                     try:
                         entry = json.loads(line)
                         roles.add(entry.get("role", ""))
                         sessions.add(entry.get("session_id", ""))
-                    except:
+                    except Exception:
                         pass
 
             has_ab = len(roles) >= 2

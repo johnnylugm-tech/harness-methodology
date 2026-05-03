@@ -392,7 +392,7 @@ Scores:
                 counts["before"] = len(data.get("results", []))
                 counts["issue_list"] = [f"{r['filename']}:{r['line']} {r['issue_text']}"
                                        for r in data.get("results", [])[:10]]
-            except:
+            except Exception:
                 counts["before"] = out.count("CONFIDENCE")
             counts["tool_output"] = out[:500]
 
@@ -433,7 +433,7 @@ Scores:
                         return "HIGH"
                     elif ccn > 15:
                         return "MEDIUM"
-                except:
+                except Exception:
                     pass
             return "LOW"
 
@@ -704,7 +704,7 @@ for k, v in result.dimensions.items():
             high = data["metrics"]["_totals"]["SEVERITY.HIGH"]
             medium = data["metrics"]["_totals"]["SEVERITY.MEDIUM"]
             scores["D4_Security"] = max(0, 100 - high * 20 - medium * 10)
-        except:
+        except Exception:
             scores["D4_Security"] = 100
 
         # D5-D9: default scores
@@ -946,7 +946,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
                     # no auto-fix; Agent needs to understand context
                     return False
 
-            except:
+            except Exception:
                 continue
 
         return False

@@ -219,7 +219,7 @@ class RequirementTraceability:
             "exported_at": datetime.now().isoformat(),
             "completeness": self.verify_completeness(),
             "traceability_matrix": self.get_traceability_matrix(),
-            "all_links": [l.to_dict() for line in self.links],
+            "all_links": [line.to_dict() for line in self.links],
         }
         if format == "aspice":
             c = report["completeness"]

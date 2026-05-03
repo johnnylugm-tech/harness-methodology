@@ -138,7 +138,7 @@ class CoverageImprovement(ImprovementStrategy):
             module_import = f"from {module_name} import *"
             if module_import not in imports:
                 imports.append(module_import)
-        except:
+        except Exception:
             pass
 
         test_methods = []
@@ -184,7 +184,7 @@ class {class_name}:
                 Path(action.file_path).unlink()
             action.reverted = True
             return True
-        except:
+        except Exception:
             return False
 
 
@@ -242,7 +242,7 @@ class LintingImprovement(ImprovementStrategy):
             Path(action.file_path).write_text(action.original_code)
             action.reverted = True
             return True
-        except:
+        except Exception:
             return False
 
 
@@ -293,7 +293,7 @@ class ErrorHandlingImprovement(ImprovementStrategy):
             Path(action.file_path).write_text(action.new_code)
             action.executed = True
             return True
-        except:
+        except Exception:
             return False
 
     def validate(self, action: ImprovementAction) -> float:
@@ -306,7 +306,7 @@ class ErrorHandlingImprovement(ImprovementStrategy):
             Path(action.file_path).write_text(action.original_code)
             action.reverted = True
             return True
-        except:
+        except Exception:
             return False
 
 
