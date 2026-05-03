@@ -362,7 +362,7 @@ _DIMENSION_HINTS: dict[str, str] = {
 
 
 def _format_block_diagnostic(
-    exc: GateBlockedError,
+    exc: "GateBlockedError",
     gate_num: int,
     phase: int,
     fr_id: str | None,
