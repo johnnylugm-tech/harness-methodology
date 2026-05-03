@@ -262,9 +262,9 @@ class FrameworkEnforcer:
             f"Total: {trace['stats']['total']}  Verified: {trace['stats']['verified']}  Missing: {trace['stats']['missing']}",
             "\n### Verified Links",
         ]
-        lines += [f"  + {l}" for line in trace["verified_phases"]]
+        lines += [f"  + {line}" for line in trace["verified_phases"]]
         lines += ["\n### Missing Links"]
-        lines += ([f"  - {l}" for line in trace["missing_links"]] or ["  (none)"])
+        lines += ([f"  - {line}" for line in trace["missing_links"]] or ["  (none)"])
         aspice = self.check_aspice_completeness()
         lines += [
             "",
