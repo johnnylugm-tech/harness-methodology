@@ -1,4 +1,4 @@
-# SAD — Harness Methodology v1.9 (As-Built — Audit: 98% SAD↔code consistency, 2026-05-02)
+# SAD — Harness Methodology v2.2 (As-Built — Audit: 100% SAD↔code consistency, 2026-05-04)
 
 > **Sync guarantee**: This document is reverse-engineered from the live codebase.
 > Any change to the code **must** be reflected here, and vice-versa.
@@ -801,7 +801,7 @@ def create_isolated_spawn(task, role, input_paths, output_paths, persona_prompt)
 
 ### 3.11 `core/verification_gate.py` — Task Verification Gates
 
-**Responsibility**: Generic verification gate manager for task lifecycle state tracking. Distinct from quality gates (§3.1) — these track agent task state (created → assigned → generated → approved → completed).
+**Responsibility**: Generic verification gate manager for task lifecycle state tracking. Distinct from quality gates (§3.1) — these track agent task state (created → assigned → generated → approved → completed). Also contains `GateRemediationReport` (structured gate-failure diagnosis for HANDOVER.md).
 
 **Key classes**:
 
@@ -835,6 +835,36 @@ class HITLGates(VerificationGates):
 class AutonomousGates(VerificationGates):
     # Sequence: task_created → agent_assigned → output_generated → quality_check → completed
 ```
+
+**Module-level constants** (gate remediation support):
+
+```python
+_GATE_THRESHOLDS: Dict[int, float] = {1: 70.0, 2: 75.0, 3: 80.0, 4: 85.0}
+_GATE_ACTION_TEMPLATES: Dict[int, List[str]]  # per-gate ordered fix hints (Gates 1–4)
+```
+
+**`GateRemediationReport`** (`@dataclass`):
+
+```python
+@dataclass
+class GateRemediationReport:
+    gate_num: int
+    phase: int
+    score: float
+    threshold: Optional[float] = None       # None → uses _GATE_THRESHOLDS[gate_num]
+    failing_checks: List[str] = []          # e.g. ["D3_Coverage", "D5_Security"]
+    gate_evidence: Optional[Dict] = None    # raw Gate.evidence dict
+
+    @property
+    def effective_threshold(self) -> float: ...   # override or default
+    @property
+    def gap(self) -> float: ...                   # max(0, threshold - score)
+    def action_items(self) -> List[str]: ...      # failing_checks items first, then templates
+    def to_status_string(self) -> str: ...        # "Gate N FAILED: score=X (threshold=Y, gap=Z)..."
+    def to_dict(self) -> Dict[str, Any]: ...      # JSON-serialisable; used by HandoverGenerator
+```
+
+`action_items()` ordering: each `failing_checks` entry prepends `"Fix failing check: **{check}** (score=X)"` before the generic `_GATE_ACTION_TEMPLATES[gate_num]` list. For unknown gate_num, falls back to `["Investigate Gate N failure...", "Re-run gate after fixing..."]`.
 
 ---
 
@@ -1474,7 +1504,7 @@ CREATE TABLE IF NOT EXISTS effort (
 
 ## 6. SAB Block (machine-readable, v1.2 — As-Built)
 
-> Updated from v1.1. Added: `steering/`, `quality_dashboard/`. Fixed: `kill_switch/` path (was `implement/kill_switch/`). Added: `core/subagent_isolator.py`, `core/verification_gate.py` to Layer 2. Added design pattern: LLM-as-Judge.
+> Updated from v1.2. Added to Layer 1: `harness/handover_generator.py`, `harness/fr_progress_tracker.py`, `harness/retry_utils.py`.
 
 <!-- SAB:START -->
 ```json
@@ -1497,6 +1527,9 @@ CREATE TABLE IF NOT EXISTS effort (
         "harness/reviewer_router.py",
         "harness/crg_bridge.py",
         "harness/decision_log.py",
+        "harness/handover_generator.py",
+        "harness/fr_progress_tracker.py",
+        "harness/retry_utils.py",
         "harness/effort_tracker.py",
         "harness/issue_tracker_ext.py"
       ],
@@ -1829,25 +1862,32 @@ prompt = generate_persona_prompt("developer", task="implement FR-01 login featur
 
 ---
 
-### §3.27 — `harness/git_strategy.py` — Gate-Aligned Git Strategy
+### §3.27 — `harness/git_strategy.py` — Gate-Aligned Git Strategy (10-Push)
 
-**Responsibility**: Implements the **5-Push Gate-Aligned commit + push policy** for harness pipelines. Injected at gate pass / phase completion points in `harness_cli.py`. All operations are no-ops when `--no-git` is passed or `HARNESS_NO_GIT=1` is set. Git failures are logged as warnings — they never block the pipeline.
+**Responsibility**: Implements the **10-Push Gate-Aligned commit + push policy** for harness pipelines. Each push auto-generates `HANDOVER.md` at the repo root via `HandoverGenerator` (§3.28). All operations are no-ops when `--no-git` is passed or `HARNESS_NO_GIT=1` is set. Git failures are logged as warnings — they never block the pipeline.
 
 **Push schedule**:
 
-| Push | Trigger | Commit Message Pattern |
-|---|---|---|
-| ① | P2 exit: `manifest` command success | `docs(P2): finalize SRS + SAD; generate quality manifest [fr_ids=...]` |
-| ② | Gate 2 PASS (P3 exit, score ≥75) | `feat(P3): Gate2 PASS score=XX — N FR(s) implemented` |
-| ③ | Gate 3 PASS (P4 exit, score ≥80) | `test(P4): Gate3 PASS score=XX — full test suite` |
-| ④ | P5 BASELINE.md | auto-included in ② or ③ if `_has_changes()` returns True |
-| ⑤ | Gate 4 APPROVE (P6 full, score ≥85) | `release(P6): Gate4 PASS score=XX — pipeline complete` + `git tag gate4-YYYYMMDD-scoreXX` |
-| ⑥ | P7+P8 completion | `docs(P7+P8): risk register + config records` |
+| Push | ID | Trigger | Commit Message Pattern |
+|---|---|---|---|
+| ① | `P1-plan-YYYYMMDD` | P1 exit: task plan complete | `docs(P1): task plan committed` |
+| ② | `P2-manifest-YYYYMMDD` | P2 exit: `manifest` command success | `docs(P2): finalize SRS + SAD; generate quality manifest [fr_ids=...]` |
+| ③ | `P3-mid-YYYYMMDD` | P3 mid: FR completion ratio ≥ 50% | `feat(P3-mid): FR progress checkpoint — N/T FRs at Gate1 PASS` |
+| ④ | `P3-pre-ssi-YYYYMMDD` | P3 pre-SSI: all FRs at Gate 1 PASS | `feat(P3-pre-ssi): all FRs Gate1 PASS — entering SSI round` |
+| ⑤ | `Gate2-YYYYMMDD` | Gate 2 PASS (P3 exit, score ≥75) | `feat(P3): Gate2 PASS score=XX — N FR(s) implemented` |
+| ⑥ | `Gate3-YYYYMMDD` | Gate 3 PASS (P4 exit, score ≥80) | `test(P4): Gate3 PASS score=XX — full test suite` |
+| ⑦ | `P5-baseline-YYYYMMDD` | P5: BASELINE.md written | auto-included if `_has_changes()` returns True |
+| ⑧ | `Gate4-YYYYMMDD` | Gate 4 APPROVE (P6, score ≥85) | `release(P6): Gate4 PASS score=XX — pipeline complete` + `git tag gate4-YYYYMMDD-scoreXX` |
+| ⑨ | `P7-risk-YYYYMMDD` | P7 completion | `docs(P7): risk register complete` |
+| ⑩ | `P8-config-YYYYMMDD` | P8 completion | `docs(P8): config mgmt records complete` |
 
 **Local commit policy** (no push): Each Gate 1 PASS per FR commits locally:
 ```
 feat(FR-01): Gate1 PASS — score=88.0 [phase=3]
 ```
+`commit_fr_gate1()` also calls `FRProgressTracker.record_gate1_pass()` (§3.29) to persist progress to `.methodology/fr_progress.json`.
+
+**HANDOVER.md auto-generation**: Every push calls `_write_handover(checkpoint_id, phase, background, status, steps, notes, extra)`, which invokes `HandoverGenerator.write()` (§3.28). The written HANDOVER.md includes a `/compact` prompt for the next Claude session. Failures are silently swallowed — never block the pipeline.
 
 **`.gitignore` auto-maintenance** (`ensure_gitignore()`): Called once per pipeline run. Appends missing entries for harness runtime artifacts:
 ```
@@ -1862,15 +1902,177 @@ feat(FR-01): Gate1 PASS — score=88.0 [phase=3]
 class GitStrategy:
     def __init__(self, project: Path, enabled: bool = True, push: bool = True)
 
-    def ensure_gitignore() -> None          # idempotent — no-op if entries already present
-    def commit_fr_gate1(fr_id, score, phase) -> bool   # Gate 1 per-FR commit only
-    def commit_and_push_p2(fr_ids) -> bool             # PUSH ①
-    def commit_and_push_gate(gate_num, phase, score, n_frs=0) -> bool  # PUSH ②③⑤ + tag
-    def commit_and_push_final(phases) -> bool          # PUSH ⑥
+    def ensure_gitignore() -> None
+    def commit_fr_gate1(fr_id, score, phase) -> bool        # Gate 1 local commit + FRProgressTracker
+
+    # PUSH methods (each writes HANDOVER.md before push)
+    def commit_and_push_p1(fr_ids, background, notes=None) -> bool        # PUSH ①
+    def commit_and_push_p2(fr_ids, background=None, notes=None) -> bool   # PUSH ②
+    def commit_and_push_p3_mid(fr_done, fr_total, fr_ids,
+                               background=None, notes=None) -> bool       # PUSH ③
+    def commit_and_push_p3_pre_ssi(fr_ids, background=None,
+                                   notes=None) -> bool                    # PUSH ④
+    def commit_and_push_gate(gate_num, phase, score, n_frs=0,
+                             background=None, notes=None) -> bool         # PUSH ⑤⑥⑧ + tag
+    def commit_and_push_p5_baseline(background=None, notes=None) -> bool  # PUSH ⑦
+    def commit_and_push_p7(background=None, notes=None) -> bool           # PUSH ⑨
+    def commit_and_push_p8(background=None, notes=None) -> bool           # PUSH ⑩
+    def commit_and_push_final(phases, background=None, notes=None) -> bool  # deprecated → p7/p8
 ```
+
+**Helpers** (private):
+- `_write_handover(checkpoint_id, phase, background, status, steps, notes, extra)` — calls `HandoverGenerator`, prints checkpoint_id, never raises.
+- `_cp(label) -> str` — builds checkpoint_id: `{label}-{YYYYMMDD}` (UTC).
+- `_fr_summary(fr_ids) -> str` — compact FR list string, max 5 shown.
 
 **CLI flag**: `--no-git` added to `run-gate`, `run-pipeline`, and `manifest` subcommands.
 Env override: `HARNESS_NO_GIT=1` disables git across all commands without a flag.
+
+---
+
+### §3.28 — `harness/handover_generator.py` — Session Handover Writer
+
+**Responsibility**: Renders `HANDOVER.md` at the project root after each significant push checkpoint. Provides the next Claude session with task background, current execution status, next steps, and notes (including `/compact` prompt).
+
+**Public API**:
+
+```python
+class HandoverGenerator:
+    DEFAULT_NOTES = [
+        "100% follow SKILL.md",
+        "Do NOT commit .sessi-work/ or .methodology/ runtime artifacts",
+        "Git failures are warnings — never block the pipeline",
+    ]
+
+    def __init__(self, project: Path)
+
+    def write(
+        self,
+        checkpoint_id: str,   # e.g. "P3-pre-ssi-20260504"
+        phase: int,
+        task_background: str,
+        current_status: str,
+        next_steps: List[str],
+        notes: List[str] | None = None,   # prepended AFTER DEFAULT_NOTES
+        extra: Dict | None = None,        # optional freeform section
+    ) -> Path
+```
+
+**Rendered HANDOVER.md structure**:
+```markdown
+# Harness Session Handover — {checkpoint_id}
+
+> ⚠️ 開始下一個工作階段前，請先執行 /compact 壓縮上下文
+
+**Phase**: {phase} | **Generated**: {UTC ISO timestamp}
+
+## 任務背景
+{task_background}
+
+## 目前執行狀況
+{current_status}
+
+## 接下來的工作
+1. {next_steps[0]}
+...
+
+## 注意事項
+- 100% follow SKILL.md
+- Do NOT commit .sessi-work/ or .methodology/ runtime artifacts
+- Git failures are warnings — never block the pipeline
+- {caller-supplied notes...}
+
+## 附加資訊  ← only if extra provided
+{extra key-value pairs}
+
+---
+*由 HandoverGenerator 自動生成。下次 push 時此檔案將被覆寫。*
+```
+
+**Behavior**: Each call **overwrites** the single `HANDOVER.md` at project root. The checkpoint_id (including date suffix) identifies which push created the file.
+
+---
+
+### §3.29 — `harness/fr_progress_tracker.py` — FR Gate-1 Progress Persistence
+
+**Responsibility**: Persists FR Gate-1 PASS/FAIL status across sessions to `.methodology/fr_progress.json`. Enables mid-P3 session recovery — the next session can resume from the last known checkpoint without re-running completed FRs.
+
+**Public API**:
+
+```python
+class FRProgressTracker:
+    def __init__(self, project: Path, phase: int = 3)
+
+    def record_gate1_pass(self, fr_id: str, score: float = 0.0, phase: int = None) -> None
+    def record_gate1_fail(self, fr_id: str, score: float = 0.0,
+                          phase: int = None, reason: str = "") -> None
+    def reset(self) -> None                  # deletes fr_progress.json
+    def load(self) -> dict                   # returns scaffold if missing or corrupt
+
+    # Query methods
+    def passed_fr_ids(self) -> List[str]     # sorted alphabetically
+    def failed_fr_ids(self) -> List[str]
+    def pending(self, all_fr_ids: List[str]) -> List[str]   # preserves input order
+    def completion_ratio(self, total: int) -> float          # 0.0 if total == 0
+    def summary(self, total: Optional[int] = None) -> str    # "2/5 Gate1 PASS"
+    def to_status_string(self, total: Optional[int] = None) -> str  # includes failed FRs + "retry"
+```
+
+**Persistence schema** (`.methodology/fr_progress.json`):
+```json
+{
+  "phase": 3,
+  "updated_at": "2026-05-04T10:00:00+00:00",
+  "frs": {
+    "FR-001": {
+      "status": "gate1_pass",   // "gate1_pass" | "gate1_fail"
+      "score": 82.5,
+      "phase": 3,
+      "timestamp": "2026-05-04T10:00:00+00:00",
+      "reason": ""              // only for gate1_fail
+    }
+  }
+}
+```
+
+**Resilience**: `load()` returns `{"frs": {}}` scaffold on missing file or corrupt JSON. `_write()` auto-creates `.methodology/` directory. `record_gate1_pass()` and `record_gate1_fail()` overwrite any existing entry for the same `fr_id`.
+
+**Integration with GitStrategy**: `commit_fr_gate1()` (§3.27) calls `FRProgressTracker.record_gate1_pass()` after each successful Gate 1 commit. Wrapped in `try/except` — tracker failure never blocks the git commit.
+
+---
+
+### §3.30 — `harness/retry_utils.py` — Exponential Backoff Utility
+
+**Responsibility**: Generic retry decorator / wrapper with configurable exponential backoff + jitter. Used by `quality_dashboard/agent_auto_research.py` to wrap the SSI subprocess call.
+
+**Public API**:
+
+```python
+def retry_with_backoff(
+    fn: Callable[[], T],
+    *,
+    max_attempts: int = 3,
+    base_delay: float = 1.0,
+    max_delay: float = 60.0,
+    jitter: float = 0.25,          # ±25% random jitter on computed delay
+    retryable: Optional[Callable[[Exception], bool]] = None,
+                                   # None → retries (OSError, TimeoutError) only
+    on_retry: Optional[Callable[[int, Exception, float], None]] = None,
+                                   # on_retry(attempt, exc, wait_secs)
+) -> T
+
+def _compute_delay(attempt: int, base: float, cap: float, jitter: float) -> float
+    # delay = min(base * 2^(attempt-1), cap) * (1 ± jitter)
+    # attempt=1 → base; attempt=2 → 2×base; capped at max_delay
+```
+
+**Behavior**:
+- `max_attempts < 1` → raises `ValueError` immediately.
+- Non-retryable exception (not matched by `retryable` predicate) → re-raised on first occurrence; never retried.
+- Exhausted all attempts → re-raises the last exception.
+- `on_retry` is `None` → prints `"Retry {attempt}/{max_attempts} after {wait:.1f}s: {exc}"`.
+
+**Integration**: `quality_dashboard/agent_auto_research.py` wraps `_evaluate_all_dimensions()` inner subprocess call with `retry_with_backoff(max_attempts=3, base_delay=2.0, retryable=lambda exc: isinstance(exc, (OSError, subprocess.TimeoutExpired)))`. Falls back to `_fallback_evaluation()` if all retries exhausted.
 
 ---
 
