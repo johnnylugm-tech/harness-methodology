@@ -1,1 +1,0 @@
-{"dimension": "type_safety", "severity": "high", "location": "scripts/, gap_detector/, steering/", "issue": "Mypy errors: var-annotated, Python 3.10 syntax on 3.9, arg-type mismatches", "tool_output": ".sessi-work/round_1/tools/mypy.out"}

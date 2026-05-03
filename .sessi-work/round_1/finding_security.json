@@ -1,1 +1,0 @@
-{"dimension": "security", "severity": "medium", "location": "core/phase_hooks.py", "issue": "Bandit findings: B110 (try_except_pass) and B404 (subprocess)", "tool_output": ".sessi-work/round_1/tools/bandit.out"}

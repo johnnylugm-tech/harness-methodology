@@ -11,6 +11,8 @@ crg_status.json
 # Methodology runtime state
 .methodology/effort_metrics.db
 .methodology/decision_logs/
+.methodology/last_block.md
+.methodology/steering_history.json
 # NOTE: .methodology/enforcement.json and quality_manifest.example.json are
 #       intentional source artifacts — do NOT add them here.
 
