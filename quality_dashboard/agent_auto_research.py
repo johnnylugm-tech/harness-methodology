@@ -20,7 +20,6 @@ Flow:
 
 import json
 import subprocess
-import sys
 from dataclasses import dataclass, field
 from typing import List, Dict
 from datetime import datetime

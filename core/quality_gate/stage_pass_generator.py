@@ -304,17 +304,17 @@ class IntegratedStagePassGenerator:
     def generate_markdown(self) -> str:
         """Generate STAGE_PASS.md - Agent A/B review format"""
         config = self.config
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        _now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         score = self.results["confidence_score"] or 0
         if score >= 95:
-            score_badge = f"🟢 {score}/100"
+            _score_badge = f"🟢 {score}/100"
         elif score >= 80:
-            score_badge = f"🟡 {score}/100"
+            _score_badge = f"🟡 {score}/100"
         elif score >= 70:
-            score_badge = f"🟡 {score}/100"
+            _score_badge = f"🟡 {score}/100"
         else:
-            score_badge = f"🔴 {score}/100"
+            _score_badge = f"🔴 {score}/100"
         
         block_result = self.results.get("framework_results", {}).get("BLOCK", {})
         log_result = self.results.get("session_log_results", {})
@@ -337,10 +337,10 @@ class IntegratedStagePassGenerator:
         how_pass = block_result.get("passed") and constitution_blocker
         
         # If Constitution fails, overall result is failure
-        overall_pass = all([who_pass, what_pass, when_pass, where_pass, why_pass, how_pass])
+        _overall_pass = all([who_pass, what_pass, when_pass, where_pass, why_pass, how_pass])
         
         if not const_passed:
-            overall_pass = False
+            _overall_pass = False
         
         lines = [
             f"# Phase {self.phase} STAGE_PASS",
@@ -526,7 +526,7 @@ class IntegratedStagePassGenerator:
             const_result = self.results.get("framework_results", {}).get("CONSTITUTION", {})
             block_result = self.results.get("framework_results", {}).get("BLOCK", {})
             const_score = const_result.get("score", 0)
-            const_passed = const_result.get("passed", False)
+            _const_passed = const_result.get("passed", False)
             violations_count = len(block_result.get("violations", []))
             
             log_lines = [
@@ -553,13 +553,13 @@ class IntegratedStagePassGenerator:
         print(f"{'='*60}")
         
         # Step 1: Framework BLOCK
-        step1_passed = self.run_step1_5w1h_scan()
+        _step1_passed = self.run_step1_5w1h_scan()
         
         # Step 2: Session log
-        step2_passed = self.run_step2_session_log()
+        _step2_passed = self.run_step2_session_log()
 
         # Step 2b: Confidence format validation
-        confidence_check = self.run_step2b_confidence_format()
+        _confidence_check = self.run_step2b_confidence_format()
         
         # Step 3: Test evidence
         self.run_step3_pytest_evidence()
@@ -579,7 +579,7 @@ class IntegratedStagePassGenerator:
         
         # Generate & Push
         md = self.generate_markdown()
-        commit_hash = self.git_push(md)
+        _commit_hash = self.git_push(md)
         
         print(f"\n{'='*60}")
         print("Done! STAGE_PASS.md generated and pushed")
@@ -639,7 +639,7 @@ class IntegratedStagePassGenerator:
             import json
             
             with open(trace_file, "r") as f:
-                data = json.load(f)
+                _data = json.load(f)
             
             rt = RequirementTraceability.load(trace_file)
             result = rt.verify_completeness()
