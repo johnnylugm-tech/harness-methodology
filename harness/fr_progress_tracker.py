@@ -1,0 +1,217 @@
+"""
+harness/fr_progress_tracker.py — Persistent FR Gate-1 progress within P3.
+
+Writes ``<project>/.methodology/fr_progress.json`` after every Gate-1 event so
+that a new session can resume P3 without re-running completed FRs.
+
+Schema
+------
+.. code-block:: json
+
+    {
+        "phase": 3,
+        "updated_at": "2026-05-04T10:30:00Z",
+        "frs": {
+            "FR-001": {"status": "gate1_pass", "score": 82.5, "phase": 3,
+                       "timestamp": "2026-05-04T10:00:00Z"},
+            "FR-002": {"status": "gate1_fail", "score": 61.0, "phase": 3,
+                       "timestamp": "2026-05-04T10:05:00Z",
+                       "reason": "coverage below threshold"}
+        }
+    }
+
+Usage::
+
+    tracker = FRProgressTracker(project_root)
+    tracker.record_gate1_pass("FR-001", score=82.5, phase=3)
+    tracker.record_gate1_fail("FR-002", score=61.0, phase=3, reason="low coverage")
+
+    print(tracker.summary())         # "2/5 FRs Gate1 PASS"
+    print(tracker.pending(all_frs))  # ["FR-003", "FR-004", "FR-005"]
+"""
+from __future__ import annotations
+
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional
+
+_STATUS_PASS = "gate1_pass"
+_STATUS_FAIL = "gate1_fail"
+_STATUS_PENDING = "pending"
+
+_METHODOLOGY_DIR = ".methodology"
+_PROGRESS_FILE = "fr_progress.json"
+
+
+class FRProgressTracker:
+    """
+    Persist and query FR Gate-1 progress inside a project's ``.methodology/`` dir.
+
+    Thread-safety: each call to :meth:`record_*` performs an atomic
+    read-modify-write on the JSON file.  Concurrent access from multiple
+    processes is not protected; that case is not expected in the single-agent
+    harness pipeline.
+
+    Parameters
+    ----------
+    project:
+        Absolute path to the project root.
+    phase:
+        Pipeline phase number (default 3).  Stored in the progress file for
+        informational purposes only.
+    """
+
+    def __init__(self, project: Path, phase: int = 3) -> None:
+        self.project = project
+        self.phase = phase
+        self._path = project / _METHODOLOGY_DIR / _PROGRESS_FILE
+
+    # ------------------------------------------------------------------
+    # Public write API
+    # ------------------------------------------------------------------
+
+    def record_gate1_pass(self, fr_id: str, score: float, phase: int | None = None) -> None:
+        """Record a Gate-1 PASS for *fr_id*."""
+        self._update_fr(
+            fr_id,
+            status=_STATUS_PASS,
+            score=score,
+            phase=phase or self.phase,
+        )
+
+    def record_gate1_fail(
+        self,
+        fr_id: str,
+        score: float,
+        phase: int | None = None,
+        reason: str = "",
+    ) -> None:
+        """Record a Gate-1 FAIL for *fr_id*."""
+        self._update_fr(
+            fr_id,
+            status=_STATUS_FAIL,
+            score=score,
+            phase=phase or self.phase,
+            reason=reason,
+        )
+
+    def reset(self) -> None:
+        """Delete the progress file (start fresh)."""
+        if self._path.exists():
+            self._path.unlink()
+
+    # ------------------------------------------------------------------
+    # Public read API
+    # ------------------------------------------------------------------
+
+    def load(self) -> dict:
+        """Return the raw progress dict (empty scaffold if file missing)."""
+        if not self._path.exists():
+            return {"phase": self.phase, "updated_at": "", "frs": {}}
+        try:
+            return json.loads(self._path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return {"phase": self.phase, "updated_at": "", "frs": {}}
+
+    def passed_fr_ids(self) -> list[str]:
+        """Return sorted list of FR IDs with Gate-1 PASS."""
+        data = self.load()
+        return sorted(
+            fr_id
+            for fr_id, entry in data.get("frs", {}).items()
+            if entry.get("status") == _STATUS_PASS
+        )
+
+    def failed_fr_ids(self) -> list[str]:
+        """Return sorted list of FR IDs with Gate-1 FAIL (last attempt)."""
+        data = self.load()
+        return sorted(
+            fr_id
+            for fr_id, entry in data.get("frs", {}).items()
+            if entry.get("status") == _STATUS_FAIL
+        )
+
+    def pending(self, all_fr_ids: list[str]) -> list[str]:
+        """
+        Return FRs from *all_fr_ids* that have NOT yet achieved Gate-1 PASS.
+        Preserves original order.
+        """
+        passed = set(self.passed_fr_ids())
+        return [fr for fr in all_fr_ids if fr not in passed]
+
+    def completion_ratio(self, total: int) -> float:
+        """Return fraction of *total* FRs that have Gate-1 PASS (0.0–1.0)."""
+        if total <= 0:
+            return 0.0
+        return len(self.passed_fr_ids()) / total
+
+    def summary(self, total: Optional[int] = None) -> str:
+        """
+        Human-readable summary string, e.g. ``"3/6 FRs Gate1 PASS"``.
+
+        Parameters
+        ----------
+        total:
+            Expected total FR count.  If ``None``, uses count of all recorded FRs.
+        """
+        passed = self.passed_fr_ids()
+        all_recorded = self.load().get("frs", {})
+        denom = total if total is not None else len(all_recorded)
+        passed_ids = ",".join(passed[:5])
+        if len(passed) > 5:
+            passed_ids += f",…+{len(passed) - 5}"
+        tail = f" [{passed_ids}]" if passed_ids else ""
+        return f"{len(passed)}/{denom} FRs Gate1 PASS{tail}"
+
+    def to_status_string(self, total: Optional[int] = None) -> str:
+        """
+        Multi-line status string suitable for HANDOVER.md ``current_status``.
+        """
+        data = self.load()
+        frs = data.get("frs", {})
+        passed = [fid for fid, e in frs.items() if e.get("status") == _STATUS_PASS]
+        failed = [fid for fid, e in frs.items() if e.get("status") == _STATUS_FAIL]
+        denom = total if total is not None else len(frs)
+        lines = [
+            f"{len(passed)}/{denom} FRs Gate1 PASS.",
+        ]
+        if passed:
+            lines.append(f"Passed: {', '.join(sorted(passed))}")
+        if failed:
+            lines.append(f"Failed (need retry): {', '.join(sorted(failed))}")
+        return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _update_fr(
+        self,
+        fr_id: str,
+        status: str,
+        score: float,
+        phase: int,
+        reason: str = "",
+    ) -> None:
+        """Read → modify → write the progress file."""
+        data = self.load()
+        entry: dict = {
+            "status": status,
+            "score": round(score, 2),
+            "phase": phase,
+            "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+        if reason:
+            entry["reason"] = reason
+        data.setdefault("frs", {})[fr_id] = entry
+        data["phase"] = self.phase
+        data["updated_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._write(data)
+
+    def _write(self, data: dict) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._path.write_text(
+            json.dumps(data, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )

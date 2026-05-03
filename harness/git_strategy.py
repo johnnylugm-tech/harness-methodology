@@ -37,6 +37,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from harness.handover_generator import HandoverGenerator
+from harness.fr_progress_tracker import FRProgressTracker
 
 # Harness runtime artifacts that pollute git history
 _GITIGNORE_ENTRIES: list[str] = [
@@ -87,10 +88,19 @@ class GitStrategy:
         """
         Local commit after FR Gate 1 PASS.  **Never pushes.**
 
+        Also persists progress to ``.methodology/fr_progress.json`` so a new
+        session can resume P3 without re-running completed FRs.
+
         Returns True if commit succeeded or if there was nothing to commit.
         """
         if not self.enabled:
             return True
+        try:
+            FRProgressTracker(self.project, phase=phase).record_gate1_pass(
+                fr_id, score=score, phase=phase
+            )
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            print(f"  [git WARN] FRProgressTracker update failed: {exc}")
         msg = f"feat({fr_id}): Gate1 PASS — score={score:.1f} [phase={phase}]"
         return self._commit(msg)
 

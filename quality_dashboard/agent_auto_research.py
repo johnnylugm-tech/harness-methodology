@@ -20,10 +20,18 @@ Flow:
 
 import json
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from typing import List, Dict
 from datetime import datetime
 from pathlib import Path
+
+# Retry utility — gracefully degrade if harness package not on path
+try:
+    from harness.retry_utils import retry_with_backoff
+except ImportError:  # pragma: no cover
+    def retry_with_backoff(fn, **_kwargs):  # type: ignore[misc]
+        return fn()
 
 # ============================================================================
 # PROGRAM TEMPLATES (guiding principles for each dimension)
@@ -623,11 +631,12 @@ Run these commands to verify:
         return self._generate_final_report()
 
     def _evaluate_all_dimensions(self) -> Dict[str, float]:
-        """Evaluate all 9 dimensions"""
-        # run dashboard to get scores
+        """Evaluate all 9 dimensions, with exponential-backoff retry on transient failures."""
         _dashboard_dir = str(Path(__file__).parent)
-        result = subprocess.run(
-            ["python3", "-c", f"""
+
+        def _run_dashboard() -> subprocess.CompletedProcess:
+            r = subprocess.run(
+                ["python3", "-c", f"""
 import sys
 sys.path.insert(0, '{_dashboard_dir}')
 from dashboard import QualityDashboard
@@ -637,9 +646,25 @@ print(result.total_score)
 for k, v in result.dimensions.items():
     print(f'{{k}}={{v.score}}')
 """],
-            capture_output=True, text=True, timeout=120,
-            cwd=str(self.project_path)
-        )
+                capture_output=True, text=True, timeout=120,
+                cwd=str(self.project_path),
+            )
+            if r.returncode != 0 and not r.stdout.strip():
+                # Treat as transient so retry fires
+                raise OSError(
+                    f"dashboard exited {r.returncode}: {r.stderr[:200]}"
+                )
+            return r
+
+        try:
+            result = retry_with_backoff(
+                _run_dashboard,
+                max_attempts=3,
+                base_delay=2.0,
+                retryable=lambda exc: isinstance(exc, (OSError, subprocess.TimeoutExpired)),
+            )
+        except Exception:  # pylint: disable=broad-exception-caught
+            return self._fallback_evaluation()
 
         scores = {}
         for line in result.stdout.split('\n'):
@@ -647,7 +672,7 @@ for k, v in result.dimensions.items():
                 try:
                     dim, score = line.strip().split('=')
                     scores[dim] = float(score)
-                except:
+                except Exception:  # pylint: disable=broad-exception-caught
                     pass
 
         return scores if scores else self._fallback_evaluation()
