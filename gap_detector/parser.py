@@ -77,7 +77,7 @@ class SpecParser:
             raise SpecParseError("E_NOT_MARKDOWN", f"File is not a Markdown file: {self.spec_path}")
 
     def parse(self) -> ParsedSpec:
-        self._errors: list = []
+        self._errors = []
         content = self._load_file()
         lines = content.replace("\r\n", "\n").replace("\r", "\n").split("\n")
         feature_items = self._parse_features(lines)

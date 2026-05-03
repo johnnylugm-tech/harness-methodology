@@ -115,7 +115,7 @@ class CodeScanner:
             raise ScanError("E_FILE_NOT_FOUND", f"Directory not found: {self.implement_dir}")
 
     def scan(self) -> ScannedCode:
-        self._errors: list = []
+        self._errors = []
         modules = []
         files = self._discover_files()
         total = len(files)
