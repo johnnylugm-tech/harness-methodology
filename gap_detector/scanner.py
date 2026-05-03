@@ -110,7 +110,7 @@ class CodeScanner:
 
     def __init__(self, implement_dir) -> None:
         self.implement_dir = str(implement_dir)
-        self._errors: list = []
+        self._errors: list[ScanErrorRecord] = []
         if not Path(self.implement_dir).exists():
             raise ScanError("E_FILE_NOT_FOUND", f"Directory not found: {self.implement_dir}")
 

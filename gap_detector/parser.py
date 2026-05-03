@@ -70,7 +70,7 @@ class SpecParser:
 
     def __init__(self, spec_path) -> None:
         self.spec_path = str(spec_path)
-        self._errors: list = []
+        self._errors: list[ParseError] = []
         if not Path(self.spec_path).exists():
             raise SpecParseError("E_FILE_NOT_FOUND", f"SPEC.md file not found: {self.spec_path}")
         if not self.spec_path.endswith(".md"):
