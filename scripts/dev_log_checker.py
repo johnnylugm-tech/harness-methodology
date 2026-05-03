@@ -319,7 +319,8 @@ class DevLogChecker:
                     next_line = lines[j]
                     if self.RESULT_PATTERN.search(next_line):
                         output_present = True
-                        result = self.RESULT_PATTERN.search(next_line).group(1).strip()
+                        m = self.RESULT_PATTERN.search(next_line)
+                        result = m.group(1).strip() if m else ""
                         break
                     # Stop if another command is seen
                     if self.COMMAND_PATTERN.search(next_line):

@@ -54,7 +54,7 @@ def extract_fr_tags(content: str) -> list:
 
 def scan_for_fr_tags(project: Path) -> dict:
     """Scan all Python files, parse FR tags from docstrings."""
-    fr_files = defaultdict(list)
+    fr_files: dict[str, list[str]] = defaultdict(list)
     src_dirs = [
         project / "03-development" / "src",
         project / "03-development" / "tests",

@@ -42,7 +42,7 @@ PHASE_ARTIFACTS = {
 
 
 def extract_paths_from_tool(filepath: str) -> Dict[int, Set[str]]:
-    paths = {5: set(), 6: set(), 7: set(), 8: set()}
+    paths: dict[int, set[str]] = {5: set(), 6: set(), 7: set(), 8: set()}
     try:
         content = Path(filepath).read_text(encoding="utf-8")
         for phase, pattern in PHASE_WHERE_PATTERNS.items():

@@ -25,7 +25,7 @@ import re
 import sys
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, cast
 
 
 # ============================================================================
@@ -562,11 +562,17 @@ def generate_full_plan(phase: int, repo_path: Path, output_path: Optional[Path] 
     ]
     srs_path = next((p for p in srs_paths if p.exists()), None)
 
+    # Phase 1-4 need SRS; 5-8 are implementation phases
+    if srs_path is None and phase <= 4:
+        print(f"[ERROR] SRS.md not found for phase {phase}")
+        return None
+    _srs = cast(Path, srs_path)  # safe: phases 5-8 don't use srs_path
+
     generators = {
-        1: lambda: generate_phase1_tasks(repo_path, srs_path),
-        2: lambda: generate_phase2_tasks(repo_path, srs_path),
-        3: lambda: generate_phase3_tasks(repo_path, srs_path),
-        4: lambda: generate_phase4_tasks(repo_path, srs_path),
+        1: lambda: generate_phase1_tasks(repo_path, _srs),
+        2: lambda: generate_phase2_tasks(repo_path, _srs),
+        3: lambda: generate_phase3_tasks(repo_path, _srs),
+        4: lambda: generate_phase4_tasks(repo_path, _srs),
         5: lambda: generate_phase5_tasks(repo_path),
         6: lambda: generate_phase6_tasks(repo_path),
         7: lambda: generate_phase7_tasks(repo_path),

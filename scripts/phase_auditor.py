@@ -45,7 +45,7 @@ HARD_RULES = {
 }
 
 # Phase specifications (per SKILL.md v6.13 Phase routing table)
-PHASE_SPEC = {
+PHASE_SPEC: dict[int, dict[str, Any]] = {
     1: {
         "name": "Requirements Specification",
         "agent_a": "architect",
@@ -401,7 +401,7 @@ class PhaseAuditor:
     def __init__(self, fetcher: GitHubFetcher, phase: int):
         self.gh = fetcher
         self.phase = phase
-        self.spec = PHASE_SPEC.get(phase, {})
+        self.spec: dict[str, Any] = PHASE_SPEC.get(phase, {})
         self.result = AuditResult(
             repo=fetcher.repo,
             phase=phase,
