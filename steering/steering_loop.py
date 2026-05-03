@@ -181,7 +181,7 @@ Output JSON:
                 "actionable_guidance": "Request human judge intervention"
             }
 
-    def _extract_text(self, output: Dict[str, Any]) -> str:
+    def _extract_text(self, output: Union[Dict[str, Any], str]) -> str:
         """Extract text from output dict."""
         if isinstance(output, str):
             return output

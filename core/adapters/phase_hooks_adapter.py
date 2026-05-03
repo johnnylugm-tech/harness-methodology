@@ -94,7 +94,7 @@ class PhaseHooksAdapter:
         """Signal start of developer execution for fr_id."""
         self._get_hooks().monitoring_before_dev(fr_id)
 
-    def after_dev(self, fr_id: str, result: Dict[str, Any] = None) -> None:
+    def after_dev(self, fr_id: str, result: Optional[Dict[str, Any]] = None) -> None:
         """
         Signal end of developer execution.
 
@@ -113,7 +113,7 @@ class PhaseHooksAdapter:
         """Signal start of reviewer execution for fr_id."""
         self._get_hooks().monitoring_before_rev(fr_id)
 
-    def after_rev(self, fr_id: str, result: Dict[str, Any] = None) -> None:
+    def after_rev(self, fr_id: str, result: Optional[Dict[str, Any]] = None) -> None:
         """
         Signal end of reviewer execution.
 

@@ -48,8 +48,8 @@ class SessionsSpawnLogger:
                   confidence: Optional[int] = None, status: str = "SPAWNED",
                   **kwargs) -> Dict[str, Any]:
         self._ensure_initialized()
-        entry = {"timestamp": datetime.now().isoformat(), "role": role,
-                 "task": task, "session_id": session_id, "status": status}
+        entry: dict[str, Any] = {"timestamp": datetime.now().isoformat(), "role": role,
+                                "task": task, "session_id": session_id, "status": status}
         if confidence is not None:
             entry["confidence"] = confidence
         entry.update(kwargs)
@@ -89,7 +89,8 @@ class SessionsSpawnLogger:
 
     def get_summary(self) -> Dict[str, Any]:
         result = self.validate()
-        role_counts, fr_tasks = {}, set()
+        role_counts: dict[str, int] = {}
+        fr_tasks: set[str] = set()
         status_counts = {"PENDING": 0, "SPAWNED": 0, "COMPLETED": 0, "FAILED": 0}
         for entry in self._read_entries():
             role = entry.get("role", "unknown")

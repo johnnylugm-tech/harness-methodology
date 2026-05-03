@@ -490,9 +490,13 @@ class ReviewerRouter:
                         deps[label].append(other)
 
         # Implicit phase ordering: Phase-N depends on Phase-(N-1)
+        def _phase_num(label: str) -> int:
+            m = re.search(r'\d+', label)
+            return int(m.group()) if m else 0
+
         phase_labels = sorted(
             [label for label in labels if re.match(r'^Phase-\d+$', label, re.IGNORECASE)],
-            key=lambda x: int(re.search(r'\d+', x).group()),
+            key=_phase_num,
         )
         for i in range(1, len(phase_labels)):
             prev = phase_labels[i - 1]

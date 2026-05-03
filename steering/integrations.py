@@ -20,7 +20,7 @@ HR-12 conflict resolution:
 """
 
 from dataclasses import dataclass
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 from pathlib import Path
 
 from steering.steering_loop import IterationResult, SteeringLoop, SteeringConfig
@@ -170,7 +170,7 @@ class SteeringConstitutionIntegrator:
 
     def check_output_compliance(
         self,
-        output: Dict[str, Any],
+        output: Union[Dict[str, Any], str],
         phase: int
     ) -> IntegrationResult:
         """
@@ -242,7 +242,7 @@ class SteeringConstitutionIntegrator:
             }
         )
 
-    def _extract_text(self, output: Dict[str, Any]) -> str:
+    def _extract_text(self, output: Union[Dict[str, Any], str]) -> str:
         if isinstance(output, str):
             return output
         return output.get("text", output.get("content", str(output)))
@@ -272,7 +272,7 @@ class SteeringCQGIntegrator:
 
     def measure_code_quality(
         self,
-        output: Dict[str, Any]
+        output: Union[Dict[str, Any], str]
     ) -> Dict[str, float]:
         """
         Measure code quality.
@@ -320,7 +320,7 @@ class SteeringCQGIntegrator:
         cqg_quality = cqg_scores.get("quality", 0.5)
         return base_score * (1 - cqg_weight) + cqg_quality * cqg_weight
 
-    def _extract_text(self, output: Dict[str, Any]) -> str:
+    def _extract_text(self, output: Union[Dict[str, Any], str]) -> str:
         if isinstance(output, str):
             return output
         return output.get("text", output.get("content", str(output)))

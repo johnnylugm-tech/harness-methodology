@@ -16,7 +16,7 @@ def _levenshtein_distance(s1: str, s2: str) -> int:
         return _levenshtein_distance(s2, s1)
     if len(s2) == 0:
         return len(s1)
-    previous_row = range(len(s2) + 1)
+    previous_row: list[int] = list(range(len(s2) + 1))
     for i, c1 in enumerate(s1):
         current_row = [i + 1]
         for j, c2 in enumerate(s2):
