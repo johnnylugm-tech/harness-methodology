@@ -20,7 +20,7 @@ class Gate:
     """Single verification gate"""
 
     def __init__(self, name: str, required_output: Optional[str] = None,
-                 validator: Callable = None, auto_pass: bool = False):
+                 validator: Optional[Callable[..., Any]] = None, auto_pass: bool = False):
         self.name = name
         self.required_output = required_output
         self.validator = validator
@@ -71,7 +71,7 @@ class Gate:
 class VerificationGates:
     """Verification gate manager"""
 
-    DEFAULT_GATES = {
+    DEFAULT_GATES: dict[str, dict[str, Any]] = {
         "task_created": {"name": "Task Created", "required_output": "task_spec", "auto_pass": False},
         "agent_assigned": {"name": "Agent Assigned", "required_output": "assignment", "auto_pass": False},
         "output_generated": {"name": "Output Generated", "required_output": "result", "auto_pass": False},
@@ -87,7 +87,7 @@ class VerificationGates:
     def register_gate(self, gate_id: str, gate: Gate):
         self.gates[gate_id] = gate
 
-    def register_default_gates(self, gate_ids: List[str] = None):
+    def register_default_gates(self, gate_ids: Optional[List[str]] = None):
         if gate_ids is None:
             gate_ids = list(self.DEFAULT_GATES.keys())
         for gate_id in gate_ids:

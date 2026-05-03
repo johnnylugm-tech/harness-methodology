@@ -49,7 +49,7 @@ class PhaseHooksAdapter:
     called from external CLI or remote trigger contexts.
     """
 
-    def __init__(self, project_path: str, phase: int = None):
+    def __init__(self, project_path: str, phase: Optional[int] = None):
         self.project_path = str(project_path)
         self.phase = phase
         self._hooks = None  # lazy init
