@@ -38,7 +38,7 @@ def test_id_05_linting_clean():
     """Requirement: Zero ruff errors in source dirs."""
     result = subprocess.run(
         ["ruff", "check", "core/", "harness/", "detection/", "enforcement/",
-         "gap_detector/", "kill_switch/", "steering/"], capture_output=True)
+         "gap_detector/", "kill_switch/", "steering/", "scripts/"], capture_output=True)
     assert result.returncode == 0, f"Ruff found errors:\n{result.stdout.decode()}"
 
 @pytest.mark.quality
