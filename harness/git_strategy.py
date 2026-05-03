@@ -147,7 +147,7 @@ class GitStrategy:
     def _commit(self, message: str) -> bool:
         """Stage all changes and commit. Returns True on success or nothing-to-commit."""
         if not self._has_changes():
-            print(f"  [git] nothing to commit — skip")
+            print("  [git] nothing to commit — skip")
             return True
         r1 = self._run_git("add", "-A")
         if r1.returncode != 0:
@@ -165,13 +165,13 @@ class GitStrategy:
         if not self._commit(message):
             return False
         if not self.push:
-            print(f"  [git] push skipped (push=False)")
+            print("  [git] push skipped (push=False)")
             return True
         r = self._run_git("push")
         if r.returncode != 0:
             print(f"  [git WARN] git push failed: {r.stderr[:200]}")
             return False
-        print(f"  [git] pushed → remote")
+        print("  [git] pushed → remote")
         return True
 
     def _tag_release(self, score: float) -> None:

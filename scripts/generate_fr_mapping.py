@@ -106,16 +106,16 @@ def main():
     output_file = project / args.output
 
     print(f"\n{'='*50}")
-    print(f"FR Mapping Generator")
+    print("FR Mapping Generator")
     print(f"{'='*50}")
     print(f"Project: {project}")
 
-    print(f"\n[Step 1] Scanning FR tags from docstrings...")
+    print("\n[Step 1] Scanning FR tags from docstrings...")
     fr_tag_mapping = scan_for_fr_tags(project)
     for fr_id, files in sorted(fr_tag_mapping.items()):
         print(f"  {fr_id}: {len(files)} files (FR tag)")
 
-    print(f"\n[Step 2] Keyword matching (fallback)...")
+    print("\n[Step 2] Keyword matching (fallback)...")
     fr_keyword_mapping = {}
     for fr_id, keywords in FR_KEYWORDS.items():
         files = scan_for_keywords(project, fr_id, keywords)
@@ -123,7 +123,7 @@ def main():
         if fr_id not in fr_tag_mapping:
             print(f"  {fr_id}: {len(files)} files (keyword fallback)")
 
-    print(f"\n[Step 3] Merging results...")
+    print("\n[Step 3] Merging results...")
     mapping = {}
     all_fr_ids = set(list(fr_tag_mapping.keys()) + list(fr_keyword_mapping.keys()))
     for fr_id in sorted(all_fr_ids):

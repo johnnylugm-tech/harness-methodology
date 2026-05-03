@@ -2,9 +2,6 @@
 Unit tests for DriftDetector.
 """
 
-import pytest
-import json
-from pathlib import Path
 from detection.drift_detector import DriftDetector
 
 

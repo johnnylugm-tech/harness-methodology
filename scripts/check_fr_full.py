@@ -179,7 +179,7 @@ def main():
         # Layer 3: CQG
         if not args.skip_cqg:
             print(f"\n{'='*50}")
-            print(f"  Layer 3: CQG (Linter + Complexity)")
+            print("  Layer 3: CQG (Linter + Complexity)")
             print(f"{'='*50}")
             fr_files = get_fr_files(Path(project), fr_id)
             if not fr_files:

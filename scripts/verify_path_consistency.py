@@ -16,7 +16,7 @@ Exit codes:
 import re
 import sys
 from pathlib import Path
-from typing import Dict, List, Set, Tuple
+from typing import Dict, Set
 
 TOOL_FILES = [
     "quality_gate/phase_paths.py",
@@ -91,9 +91,9 @@ def main():
         plan_dir = plan_path_str.rstrip("/")
         if tool_phase_paths and plan_dir not in [p.rstrip("/") for p in tool_phase_paths]:
             inconsistencies.append({"phase": phase, "plan_path": plan_path_str, "tool_paths": tool_phase_paths})
-            print(f"  STATUS: INCONSISTENT")
+            print("  STATUS: INCONSISTENT")
         else:
-            print(f"  STATUS: CONSISTENT")
+            print("  STATUS: CONSISTENT")
 
     print("\n" + "=" * 60)
     print("SUMMARY")

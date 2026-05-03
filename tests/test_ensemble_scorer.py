@@ -2,7 +2,6 @@
 Unit tests for EnsembleScorer.
 """
 
-import pytest
 from detection.ensemble_scorer import EnsembleScorer
 
 

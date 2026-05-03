@@ -74,7 +74,7 @@ class SessionsSpawnLogger:
         content = self.log_path.read_text().strip()
         if not content:
             return {"valid": True, "count": 0, "errors": []}
-        lines = [l for l in content.split("\n") if l.strip()]
+        lines = [line for line in content.split("\n") if line.strip()]
         errors, count = [], 0
         for i, line in enumerate(lines):
             try:

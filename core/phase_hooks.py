@@ -19,7 +19,7 @@ Usage:
 import json
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 
 
 class PhaseHooks:
@@ -53,7 +53,7 @@ class PhaseHooks:
 
     def preflight_fsm_check(self) -> Dict[str, Any]:
         """Check FSM state; FREEZE/PAUSED blocks execution."""
-        print(f"\n[PRE-FLIGHT] FSM State Check")
+        print("\n[PRE-FLIGHT] FSM State Check")
         if not self.state_path.exists():
             return {"passed": False, "state": "UNKNOWN", "message": "state.json not found"}
         state = json.loads(self.state_path.read_text())
@@ -86,7 +86,7 @@ class PhaseHooks:
 
     def preflight_tool_registry(self) -> Dict[str, Any]:
         """Check tool registry state."""
-        print(f"\n[PRE-FLIGHT] Tool Registry Check")
+        print("\n[PRE-FLIGHT] Tool Registry Check")
         try:
             from tool_registry import ToolRegistry
             count = len(ToolRegistry.list_tools())
@@ -162,12 +162,12 @@ class PhaseHooks:
 
     def postflight_constitution(self) -> Dict[str, Any]:
         """Post-flight constitution check."""
-        print(f"\n[POST-FLIGHT] Constitution Check")
+        print("\n[POST-FLIGHT] Constitution Check")
         return self.preflight_constitution(check_mode="postflight")
 
     def postflight_update_state(self, success: bool = True) -> Dict[str, Any]:
         """Update FSM state.json on success."""
-        print(f"\n[POST-FLIGHT] Update FSM State")
+        print("\n[POST-FLIGHT] Update FSM State")
         if not success:
             return {"updated": False, "reason": "execution_failed"}
         if not self.state_path.exists():
@@ -223,5 +223,7 @@ class PhaseHooks:
             ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             with open(self.log_path, "a") as f:
                 f.write(f"[{ts}] {message}\n")
-        except Exception:
-            pass
+        except Exception as e:
+            # Failure to log shouldn't block execution, but we should not pass silently
+            import sys
+            sys.stderr.write(f"Warning: Failed to append to run-phase.log: {e}\n")

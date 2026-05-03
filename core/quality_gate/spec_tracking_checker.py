@@ -9,9 +9,7 @@ Usage:
     result = checker.run()
 """
 
-import os
-import re
-from typing import Dict, List, Optional
+from typing import Dict, List
 from pathlib import Path
 
 from core.quality_gate.parsers import SpecTrackingParser

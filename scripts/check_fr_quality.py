@@ -67,7 +67,7 @@ def run_check(fr_id: str, project: Path) -> tuple:
     files = get_fr_files(project, fr_id)
     if not files:
         print(f"  No files found for {fr_id}")
-        print(f"  Skipping (ensure traceability_report.json is up to date)")
+        print("  Skipping (ensure traceability_report.json is up to date)")
         return True, []
 
     print(f"  Checking {len(files)} file(s): {files}\n")

@@ -4,9 +4,8 @@ All LLM/API calls mocked.
 """
 import json
 import pytest
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 from pathlib import Path
-from typing import Dict, Any
 
 
 # ─── Shared fixtures / helpers ────────────────────────────────────────────────

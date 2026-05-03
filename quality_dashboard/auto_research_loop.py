@@ -13,17 +13,15 @@ Flow:
 7. Repeat until target reached or max iterations hit
 """
 
-import json
 import subprocess
 import sys
 import re
-from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Callable
+from dataclasses import dataclass
+from typing import List, Dict, Optional
 from datetime import datetime
 from pathlib import Path
-import sys
 sys.path.insert(0, str(Path(__file__).parent))
-from dashboard import QualityDashboard, DimensionScore
+from dashboard import QualityDashboard
 
 # ============================================================================
 # IMPROVEMENT STRATEGIES
@@ -120,7 +118,7 @@ class CoverageImprovement(ImprovementStrategy):
                         new_code=test_code,
                         expected_improvement=10.0  # expected improvement per test file: 10%
                     ))
-            except Exception as e:
+            except Exception:
                 continue
 
         return actions[:3]  # generate at most 3 test files
@@ -129,7 +127,7 @@ class CoverageImprovement(ImprovementStrategy):
         module_name = str(rel_path).replace('/', '.').replace('.py', '')
         class_name = ''.join([w.capitalize() for w in rel_path.stem.split('_')]) + 'Tests'
 
-        imports = [f"import pytest", f"import sys", f"sys.path.insert(0, '{py_file.parent.parent}')"]
+        imports = ["import pytest", "import sys", f"sys.path.insert(0, '{py_file.parent.parent}')"]
 
         try:
             content = py_file.read_text()
@@ -268,11 +266,11 @@ class ErrorHandlingImprovement(ImprovementStrategy):
             for match in matches:
                 empty_blocks = match.group()
                 # suggest adding meaningful error handling
-                new_code = content.replace(empty_blocks, f'''try:
+                new_code = content.replace(empty_blocks, '''try:
         pass
     except Exception as e:
         # TODO: Handle specific exception
-        print(f"Error occurred: {{e}}")
+        print(f"Error occurred: {e}")
         raise''')
 
                 if new_code != content:
@@ -370,7 +368,7 @@ class AutoResearchLoop:
                 print("All dimensions meet target, no improvement needed")
                 break
 
-            print(f"\nLowest scoring dimensions:")
+            print("\nLowest scoring dimensions:")
             for name, dim in low_dims[:3]:
                 print(f"   {dim.name}: {dim.score:.0f}% (target: >=70%)")
 
@@ -408,12 +406,12 @@ class AutoResearchLoop:
                         print(f"   Improved: {original_score:.1f}% -> {new_score:.1f}% (+{new_score-original_score:.1f}%)")
                         improvements_made.append(action)
                     else:
-                        print(f"   No improvement, reverting...")
+                        print("   No improvement, reverting...")
                         strategy.revert(action)
                         # re-validate
                         strategy.validate(action)
                 else:
-                    print(f"   Execution failed")
+                    print("   Execution failed")
 
             # Step 6: log iteration result
             self.iteration_log.append({

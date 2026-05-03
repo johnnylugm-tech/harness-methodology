@@ -70,7 +70,7 @@ def parse_srs_fr_sections(srs_path) -> List[Dict]:
         req_lines = []
         if 'Content' in details:
             content_section = details.split('Content')[1].split('**')[0].strip()
-            req_lines = [l.strip() for l in content_section.split('\n') if l.strip() and l.strip().startswith('-')]
+            req_lines = [l.strip() for line in content_section.split('\n') if line.strip() and line.strip().startswith('-')]
 
         frs.append({
             'fr': fr_num,
@@ -596,10 +596,10 @@ def generate_full_plan(phase: int, repo_path: Path, output_path: Path = None) ->
     plan_lines = [
         f"# Phase {phase} Full Execution Plan -- {repo_path.name}",
         "",
-        f"> **Version**: v6.49.0",
+        "> **Version**: v6.49.0",
         f"> **Project**: {repo_path.name}",
         f"> **Date**: {datetime.now().strftime('%Y-%m-%d')}",
-        f"> **Framework**: harness-methodology v6.49.0",
+        "> **Framework**: harness-methodology v6.49.0",
         f"> **Phase**: {phase} - {phase_names.get(phase, 'Unknown')}",
         f"> **Status**: Full version (including Phase {phase} detailed tasks)",
         "",

@@ -8,7 +8,7 @@ Each step execution is recorded with timestamp + artifact.
 Signatures are SHA-256 hashes — unforgeable.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 import hashlib

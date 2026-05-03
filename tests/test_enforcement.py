@@ -8,7 +8,6 @@ Covers: EnforcementResult, FrameworkEnforcer (mocked checks), PolicyEngine,
 import json
 import os
 import pytest
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 
@@ -260,7 +259,7 @@ class TestPolicyEngine:
         # Should not raise because disabled policies are skipped
         try:
             pe.enforce_all()
-        except Exception as e:
+        except Exception:
             # Other default policies may fail/block, that's ok for this test
             pass
 
@@ -294,7 +293,6 @@ class TestPolicyEngine:
     def test_raise_on_block_raises_when_blocked(self):
         from enforcement.policy_engine import Policy, EnforcementLevel, PolicyViolationException
         pe = self._pe()
-        from dataclasses import dataclass
         p = Policy(id="blocker", description="x", check_fn=lambda: False,
                    enforcement=EnforcementLevel.BLOCK)
         pe.add_policy(p)

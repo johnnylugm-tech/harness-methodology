@@ -15,7 +15,6 @@ Usage:
     result = verifier.verify()
 """
 
-import os
 import subprocess
 import json
 import sys
@@ -32,7 +31,7 @@ if str(_methodology_root) not in sys.path:
 try:
     from core.quality_gate.phase_paths import PHASE_ARTIFACT_PATHS
 except ImportError:
-    from quality_gate.phase_paths import PHASE_ARTIFACT_PATHS  # type: ignore[no-redef]
+    pass  # type: ignore[no-redef]
 
 
 class PhaseTruthVerifier:
@@ -109,7 +108,7 @@ class PhaseTruthVerifier:
                     sessions.add(data.get("session_id", ""))
             except json.JSONDecodeError:
                 # Try line-by-line parsing
-                lines = [l for l in content.split("\n") if l]
+                lines = [line for line in content.split("\n") if l]
                 for line in lines:
                     try:
                         entry = json.loads(line)
@@ -243,7 +242,7 @@ class PhaseTruthVerifier:
                 checklist.append({
                     "item": found_path,
                     "status": "✅ present" if exists else "❌ missing",
-                    "action": f"Pick 1 at random, confirm content is not a hollow template"
+                    "action": "Pick 1 at random, confirm content is not a hollow template"
                 })
 
         # General checks

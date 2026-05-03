@@ -2,7 +2,6 @@
 # Phase B deliverable B15 — M4: framework self-tests for DecisionLogWriter.
 # Updated for DecisionContext refactor (quality-improvement-round-3).
 import pytest
-from pathlib import Path
 from harness.decision_log import DecisionLogWriter, DecisionLogEntry, DecisionContext
 
 

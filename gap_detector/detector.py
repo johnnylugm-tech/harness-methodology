@@ -64,12 +64,12 @@ class GapDetector:
         self.spec = spec
         self.code = code
         self.similarity_threshold = similarity_threshold
-        self._gaps = []
-        self._matches = []
+        self._gaps: list = []
+        self._matches: list = []
 
     def detect(self):
-        self._gaps = []
-        self._matches = []
+        self._gaps: list = []
+        self._matches: list = []
         try:
             self._matches = self._match_spec_to_code()
         except Exception:

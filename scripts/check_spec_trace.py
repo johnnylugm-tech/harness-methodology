@@ -46,7 +46,9 @@ def find_tested_frs(tests_dir: str) -> set[str]:
     return tested
 
 
-def main(argv: list[str] | None = None) -> int:
+from typing import Optional, List
+
+def main(argv: Optional[List[str]] = None) -> int:
     args = argv or sys.argv[1:]
     if len(args) < 2:
         print("Usage: check_spec_trace.py <SAD.md> <tests_dir>")

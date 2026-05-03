@@ -11,11 +11,10 @@ Usage:
 
 import json
 import subprocess
-import sys
 from datetime import datetime
 from pathlib import Path
 from dataclasses import dataclass, field, asdict
-from typing import List, Dict, Optional
+from typing import List, Dict
 import statistics
 
 # ============================================================================
@@ -60,9 +59,9 @@ class LintingEvaluator:
 
     def evaluate(self, project_path: str) -> DimensionScore:
         stdout, _, rc = run_tool(["ruff", "check", f"{project_path}/03-development/src", "--ignore=D100,E501,F401"])
-        error_count = len([l for l in stdout.split('\n') if l.strip() and l.startswith('F')])
+        error_count = len([line for line in stdout.split('\n') if line.strip() and line.startswith('F')])
         score = max(0, 100 - error_count * 5)
-        issues = [l.strip() for l in stdout.split('\n') if l.strip() and l.startswith('F')][:5]
+        issues = [l.strip() for line in stdout.split('\n') if line.strip() and line.startswith('F')][:5]
         return DimensionScore(self.name, score, self.weight, issues, True, "ruff")
 
 class TypeSafetyEvaluator:
@@ -73,7 +72,7 @@ class TypeSafetyEvaluator:
         stdout, _, rc = run_tool(["mypy", f"{project_path}/03-development/src", "--ignore-missing-imports", "--no-error-summary"], timeout=60)
         error_count = stdout.count(": error:")
         score = max(0, 100 - error_count * 10)
-        issues = [l.strip() for l in stdout.split('\n') if ': error:' in l][:5]
+        issues = [l.strip() for line in stdout.split('\n') if ': error:' in l][:5]
         return DimensionScore(self.name, score, self.weight, issues, True, "mypy")
 
 class CoverageEvaluator:
@@ -154,7 +153,7 @@ class ArchitectureEvaluator:
         src_path = f"{project_path}/03-development/src"
         stdout, _, rc = run_tool(["radon", "cc", src_path, "-a"], timeout=30)
         # Only calculate C/D/E as issues, A/B are good quality
-        issues = [l.strip() for l in stdout.split('\n') if ' - C' in l or ' - D' in l or ' - E' in l][:3]
+        issues = [l.strip() for line in stdout.split('\n') if ' - C' in l or ' - D' in l or ' - E' in l][:3]
         score = max(0, 100 - len(issues) * 10)
         return DimensionScore(self.name, score, self.weight, issues if issues else ["No major issues"], False, "radon")
 
@@ -165,9 +164,9 @@ class ReadabilityEvaluator:
     def evaluate(self, project_path: str) -> DimensionScore:
         # static metrics: avg function length, comment density
         stdout, _, rc = run_tool(["grep", "-r", "-h", '"""', project_path, "--include=*.py"], timeout=30)
-        doc_count = len([l for l in stdout.split('\n') if l.strip()])
+        doc_count = len([line for line in stdout.split('\n') if line.strip()])
         stdout2, _, _ = run_tool(["find", project_path, "-name", "*.py"], timeout=10)
-        total = len([l for l in stdout2.split('\n') if l.strip() and '.py' in l])
+        total = len([line for line in stdout2.split('\n') if line.strip() and '.py' in l])
         ratio = (doc_count / max(total, 1)) * 100
         score = min(100, ratio * 2)  # rough estimate
         issues = [f"{doc_count}/{total} files with docstrings (estimate)"]
@@ -196,9 +195,9 @@ class DocumentationEvaluator:
 
     def evaluate(self, project_path: str) -> DimensionScore:
         stdout, _, rc = run_tool(["grep", "-r", "-l", '"""', project_path, "--include=*.py"], timeout=30)
-        doc_count = len([l for l in stdout.split('\n') if l.strip()])
+        doc_count = len([line for line in stdout.split('\n') if line.strip()])
         stdout2, _, _ = run_tool(["find", project_path, "-name", "*.py", "-type", "f"], timeout=10)
-        total = len([l for l in stdout2.split('\n') if l.strip()])
+        total = len([line for line in stdout2.split('\n') if line.strip()])
         coverage = (doc_count / max(total, 1)) * 100
         issues = [f"{doc_count}/{total} files with docstrings"]
         return DimensionScore(self.name, coverage, self.weight, issues, False, "agent")

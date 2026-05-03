@@ -2,7 +2,6 @@
 Unit tests for PatternMatcher.
 """
 
-import pytest
 from detection.pattern_matcher import PatternMatcher, RuleSet
 
 

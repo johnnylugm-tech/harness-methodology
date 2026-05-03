@@ -1,5 +1,4 @@
-import pytest
-from core.requirement_traceability import RequirementTraceability, TraceStatus, Requirement
+from core.requirement_traceability import RequirementTraceability, TraceStatus
 
 def test_add_requirement():
     rt = RequirementTraceability(project_id="test-proj")

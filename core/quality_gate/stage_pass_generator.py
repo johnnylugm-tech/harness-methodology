@@ -42,7 +42,7 @@ import argparse
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict
 
 # Import existing Framework modules
 # Since this file is in quality_gate/, go up one level to find enforcement/
@@ -51,7 +51,6 @@ sys.path.insert(0, str(_parent_dir))
 
 from enforcement.framework_enforcer import FrameworkEnforcer
 from pathlib import Path
-from datetime import datetime
 from quality_gate.claims_verifier import ClaimsVerifier
 from quality_gate.phase_config import PHASE_CONFIG
 
@@ -89,7 +88,7 @@ class IntegratedStagePassGenerator:
         Calls actual tools for verification, not manual input.
         """
         print(f"\n{'='*60}")
-        print(f"[Step 1] 5W1H compliance scan (actual tool verification)")
+        print("[Step 1] 5W1H compliance scan (actual tool verification)")
         print(f"{'='*60}")
         
         all_passed = True
@@ -132,7 +131,7 @@ class IntegratedStagePassGenerator:
         Verify the authenticity of A/B collaboration.
         """
         print(f"\n{'='*60}")
-        print(f"[Step 2] Sessions_spawn.log verification")
+        print("[Step 2] Sessions_spawn.log verification")
         print(f"{'='*60}")
         
         result = self.claims_verifier.verify_sessions_spawn_log()
@@ -158,7 +157,7 @@ class IntegratedStagePassGenerator:
         Validate all confidence values in sessions_spawn.log are in 0-10 range.
         """
         print(f"\n{'='*60}")
-        print(f"[Step 2b] Confidence format validation")
+        print("[Step 2b] Confidence format validation")
         print(f"{'='*60}")
 
         log_file = self.project_root / "sessions_spawn.log"
@@ -204,7 +203,7 @@ class IntegratedStagePassGenerator:
         Step 3: Collect actual pytest evidence
         """
         print(f"\n{'='*60}")
-        print(f"[Step 3] Collecting test evidence")
+        print("[Step 3] Collecting test evidence")
         print(f"{'='*60}")
         
         evidence = {}
@@ -257,7 +256,7 @@ class IntegratedStagePassGenerator:
         Calculate confidence score based on actual tool results.
         """
         print(f"\n{'='*60}")
-        print(f"[Step 4] Confidence score")
+        print("[Step 4] Confidence score")
         print(f"{'='*60}")
         
         score = 0
@@ -345,33 +344,33 @@ class IntegratedStagePassGenerator:
         
         lines = [
             f"# Phase {self.phase} STAGE_PASS",
-            f"",
-            f"## Phase Goal Achieved",
-            f"",
+            "",
+            "## Phase Goal Achieved",
+            "",
             f"{config.get('name', f'Phase {self.phase}')} — {config.get('skill_section', '')}",
-            f"",
-            f"### Phase Completion Summary",
-            f"> (Phase completion summary: goal status, key outputs, execution time, etc.)",
-            f"",
+            "",
+            "### Phase Completion Summary",
+            "> (Phase completion summary: goal status, key outputs, execution time, etc.)",
+            "",
             f"## ⚠️ CONSTITUTION FAILURE - {'❌ BLOCKED' if not const_passed else '✅ PASSED'}",
             f"> Constitution Score: {const_score:.1f}% (Threshold: ≥80% for TH-02, =100% for TH-04)",
             f"> Phase {self.phase} {'BLOCKED' if not const_passed else 'PROCEEDING'}",
-            f"",
-            f"## Agent A Self-Assessment",
-            f"",
-            f"### 5W1H Compliance Check",
-            f"| Item | Status | Notes |",
-            f"|------|------|------|",
+            "",
+            "## Agent A Self-Assessment",
+            "",
+            "### 5W1H Compliance Check",
+            "| Item | Status | Notes |",
+            "|------|------|------|",
             f"| WHO | {'✅' if who_pass else '❌'} | A/B collaboration authenticity |",
             f"| WHAT | {'✅' if what_pass else '❌'} | Artifact completeness |",
             f"| WHEN | {'✅' if when_pass else '❌'} | Timing threshold met |",
             f"| WHERE | {'✅' if where_pass else '❌'} | Path and tools correct |",
             f"| WHY | {'✅' if why_pass else '❌'} | Design rationale sufficient |",
             f"| HOW | {'✅' if how_pass else '❌'} | SOP executed in order |",
-            f"",
-            f"### Issues Found",
-            f"| # | Issue | Severity | Fix | Status |",
-            f"|---|------|--------|----------|------|",
+            "",
+            "### Issues Found",
+            "| # | Issue | Severity | Fix | Status |",
+            "|---|------|--------|----------|------|",
         ]
         
         # If there are violations, list them as issues
@@ -380,104 +379,104 @@ class IntegratedStagePassGenerator:
             for i, (msg, fix) in enumerate(violations, 1):
                 lines.append(f"| {i} | {msg} | HIGH | {fix or 'pending fix'} | ❌ |")
         else:
-            lines.append(f"| — | None | — | — | ✅ |")
+            lines.append("| — | None | — | — | ✅ |")
         
         lines.extend([
-            f"",
-            f"### Artifact List",
-            f"| Artifact | Status | Path |",
-            f"|--------|------|------|",
-            f"| STAGE_PASS.md | ✅ | 00-summary/ |",
+            "",
+            "### Artifact List",
+            "| Artifact | Status | Path |",
+            "|--------|------|------|",
+            "| STAGE_PASS.md | ✅ | 00-summary/ |",
             f"| FrameworkEnforcer | {'✅' if block_result.get('passed') else '❌'} | quality_gate/ |",
             f"| Sessions_spawn.log | {'✅' if log_result.get('passed') else '❌'} | .openclaw/ |",
             f"| pytest | {'✅' if test_evidence.get('pytest_passed') else '❌'} | tests/ |",
-            f"",
-            f"### Agent A Confidence Summary",
-            f"| Item | Score (0-10) | Notes |",
-            f"|------|------|------|",
-            f"| Artifact quality | 7/10 | |",
-            f"| Design reasonableness | 7/10 | |",
-            f"| Implementation completeness | 7/10 | |",
-            f"| Risk control | 7/10 | |",
-            f"",
-            f"**Agent A Total**: 7/10",
-            f"",
+            "",
+            "### Agent A Confidence Summary",
+            "| Item | Score (0-10) | Notes |",
+            "|------|------|------|",
+            "| Artifact quality | 7/10 | |",
+            "| Design reasonableness | 7/10 | |",
+            "| Implementation completeness | 7/10 | |",
+            "| Risk control | 7/10 | |",
+            "",
+            "**Agent A Total**: 7/10",
+            "",
             f"**Confidence Score**: {score}/10 (threshold >= 7/10)",
-            f"",
-            f"Agent A: Self-assessment Session: —",
-            f"",
-            f"---",
-            f"",
-            f"## Agent B Review",
-            f"",
-            f"### Questions List",
-            f"| # | Question | Regarding | Response |",
-            f"|---|------|----------|------|",
-            f"| — | (Agent B to fill) | | |",
-            f"",
-            f"### Review Conclusion",
-            f"| Conclusion | Notes |",
-            f"|------|------|",
-            f"| ✅ APPROVE | No major questions |",
-            f"| ❌ REJECT | Questions require fixes |",
-            f"",
-            f"### Agent B Confidence Summary",
-            f"| Item | Score (0-10) | Notes |",
-            f"|------|------|------|",
-            f"| Artifact quality | 7/10 | |",
-            f"| Design reasonableness | 7/10 | |",
-            f"| Implementation completeness | 7/10 | |",
-            f"| Risk control | 7/10 | |",
-            f"",
-            f"**Agent B Total**: 7/10",
-            f"",
-            f"### Phase Summary (within 50 words)",
-            f"> (to be filled: brief summary of phase core results)",
-            f"",
-            f"Agent B: (to be filled) Session: —",
-            f"",
-            f"---",
-            f"",
-            f"## Phase Challenges & Resolutions",
-            f"",
-            f"| # | Challenge | Severity | Resolution | Status |",
-            f"|---|------|--------|----------|------|",
-            f"| — | (if any) | | | |",
-            f"",
-            f"## Human Reviewer Intervention (if any)",
-            f"(fill only when Agent B raises major issues)",
-            f"",
-            f"## artifact_verification (HR-15)",
-            f"",
-            f"| Artifact | Status | Notes |",
-            f"|----------|------|------|",
-            f"| SRS.md | ✅ | read |",
-            f"| SAD.md | ✅ | read |",
-            f"",
-            f"---",
-            f"",
-            f"### Appendix: Actual Tool Results",
-            f"",
+            "",
+            "Agent A: Self-assessment Session: —",
+            "",
+            "---",
+            "",
+            "## Agent B Review",
+            "",
+            "### Questions List",
+            "| # | Question | Regarding | Response |",
+            "|---|------|----------|------|",
+            "| — | (Agent B to fill) | | |",
+            "",
+            "### Review Conclusion",
+            "| Conclusion | Notes |",
+            "|------|------|",
+            "| ✅ APPROVE | No major questions |",
+            "| ❌ REJECT | Questions require fixes |",
+            "",
+            "### Agent B Confidence Summary",
+            "| Item | Score (0-10) | Notes |",
+            "|------|------|------|",
+            "| Artifact quality | 7/10 | |",
+            "| Design reasonableness | 7/10 | |",
+            "| Implementation completeness | 7/10 | |",
+            "| Risk control | 7/10 | |",
+            "",
+            "**Agent B Total**: 7/10",
+            "",
+            "### Phase Summary (within 50 words)",
+            "> (to be filled: brief summary of phase core results)",
+            "",
+            "Agent B: (to be filled) Session: —",
+            "",
+            "---",
+            "",
+            "## Phase Challenges & Resolutions",
+            "",
+            "| # | Challenge | Severity | Resolution | Status |",
+            "|---|------|--------|----------|------|",
+            "| — | (if any) | | | |",
+            "",
+            "## Human Reviewer Intervention (if any)",
+            "(fill only when Agent B raises major issues)",
+            "",
+            "## artifact_verification (HR-15)",
+            "",
+            "| Artifact | Status | Notes |",
+            "|----------|------|------|",
+            "| SRS.md | ✅ | read |",
+            "| SAD.md | ✅ | read |",
+            "",
+            "---",
+            "",
+            "### Appendix: Actual Tool Results",
+            "",
             f"**Constitution Score**: {'✅' if const_passed else '❌'} {const_score:.1f}% {'(threshold > 80%)' if const_score >= 80 else '(threshold > 80%)'}",
             f"**FrameworkEnforcer BLOCK**: {'✅ passed' if block_result.get('passed') else '❌ failed'}",
             f"**Sessions_spawn.log**: {'✅ passed' if log_result.get('passed') else '❌ failed'}",
             f"**pytest**: {'✅ passed' if test_evidence.get('pytest_passed') else '❌ failed'}",
             f"**Coverage**: {'✅ met' if test_evidence.get('coverage_passed') else '❌ not met'}",
-            f"",
+            "",
             # v6.21 format: confidence (1-10) + summary (within 50 words)
             f"**Confidence**: {self.results.get('confidence_score', 0) or 0}/10 | **Summary**: {self.results.get('confidence_reason', '')[:50]}",
-            f"",
-            f"---",
-            f"",
-            f"## SIGN-OFF",
-            f"",
-            f"| Role | Name | Signature | Date |",
-            f"|------|------|------|------|",
-            f"| Agent A (Architect) | (to be filled) | (to be filled) | (to be filled) |",
-            f"| Agent B (Reviewer) | (to be filled) | (to be filled) | (to be filled) |",
-            f"| Project Owner | (to be filled) | (to be filled) | (to be filled) |",
-            f"",
-            f"*Generated by harness-methodology v6.49 STAGE_PASS Generator*",
+            "",
+            "---",
+            "",
+            "## SIGN-OFF",
+            "",
+            "| Role | Name | Signature | Date |",
+            "|------|------|------|------|",
+            "| Agent A (Architect) | (to be filled) | (to be filled) | (to be filled) |",
+            "| Agent B (Reviewer) | (to be filled) | (to be filled) | (to be filled) |",
+            "| Project Owner | (to be filled) | (to be filled) | (to be filled) |",
+            "",
+            "*Generated by harness-methodology v6.49 STAGE_PASS Generator*",
         ])
         
         return "\n".join(lines)
@@ -542,7 +541,7 @@ class IntegratedStagePassGenerator:
             with open(log_path, "a", encoding="utf-8") as f:
                 f.write(log_content + "\n")
             
-            print(f"\n📝 QG results written to DEVELOPMENT_LOG")
+            print("\n📝 QG results written to DEVELOPMENT_LOG")
         except Exception as e:
             print(f"\n[WARNING] Failed to write to DEVELOPMENT_LOG: {e}")
     
@@ -583,7 +582,7 @@ class IntegratedStagePassGenerator:
         commit_hash = self.git_push(md)
         
         print(f"\n{'='*60}")
-        print(f"Done! STAGE_PASS.md generated and pushed")
+        print("Done! STAGE_PASS.md generated and pushed")
         print(f"Confidence score: {score}/100")
         print(f"{'='*60}")
         
@@ -592,7 +591,7 @@ class IntegratedStagePassGenerator:
     def run_step6_sab_generation(self) -> bool:
         """SAB Generation (Phase 2 only)"""
         print(f"\n{'─'*40}")
-        print(f"Step 6: SAB Generation (Phase 2)")
+        print("Step 6: SAB Generation (Phase 2)")
         print(f"{'─'*40}")
         
         import subprocess
@@ -603,7 +602,7 @@ class IntegratedStagePassGenerator:
             sab_script = os.path.join(os.path.dirname(__file__), "scripts", "generate_sab.py")
         
         if not os.path.exists(sab_script):
-            print(f"⚠️  generate_sab.py not found, skipping SAB generation")
+            print("⚠️  generate_sab.py not found, skipping SAB generation")
             return True
         
         try:
@@ -612,7 +611,7 @@ class IntegratedStagePassGenerator:
                 capture_output=True, text=True, timeout=60
             )
             if result.returncode == 0:
-                print(f"✅ SAB generated successfully")
+                print("✅ SAB generated successfully")
                 return True
             else:
                 print(f"⚠️  SAB generation failed: {result.stderr[:200]}")
@@ -624,14 +623,14 @@ class IntegratedStagePassGenerator:
     def run_step5_traceability(self) -> bool:
         """Traceability verification (optional)"""
         print(f"\n{'─'*40}")
-        print(f"Step 5: Traceability verification")
+        print("Step 5: Traceability verification")
         print(f"{'─'*40}")
         
         # Check for traceability_report.json
         trace_file = os.path.join(self.project_root, "traceability_report.json")
         if not os.path.exists(trace_file):
-            print(f"⚠️  Traceability not initialized (traceability_report.json not found)")
-            print(f"   To enable, run: python requirement_traceability.py --project-id $PROJECT --verify")
+            print("⚠️  Traceability not initialized (traceability_report.json not found)")
+            print("   To enable, run: python requirement_traceability.py --project-id $PROJECT --verify")
             return True  # do not block flow
         
         # Execute verification
@@ -654,7 +653,7 @@ class IntegratedStagePassGenerator:
             completeness_pct = float(result['overall_completeness'].replace('%', ''))
             if completeness_pct < 100:
                 print(f"⚠️  Traceability coverage {result['overall_completeness']} < 100%")
-                print(f"   Suggestion: complete FR mapping")
+                print("   Suggestion: complete FR mapping")
             
             return True
             

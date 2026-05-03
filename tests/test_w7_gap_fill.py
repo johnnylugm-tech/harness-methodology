@@ -2,7 +2,6 @@
 W7 — Gap-fill tests targeting Category C + D (84-86% goal).
 """
 import json
-import re
 import subprocess
 import pytest
 from pathlib import Path

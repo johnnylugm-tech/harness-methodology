@@ -1,4 +1,3 @@
-import pytest
 from core.task_splitter import TaskSplitter, TaskStatus, TaskPriority
 
 def test_create_task():

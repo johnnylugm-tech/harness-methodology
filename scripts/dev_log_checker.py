@@ -20,7 +20,7 @@ import sys
 import json
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Set, Tuple
+from typing import Dict, List, Any, Optional
 
 
 @dataclass
@@ -76,17 +76,17 @@ class DevLogCheckResult:
 
         lines = [
             f"{'='*60}",
-            f"Development Log Checker Result",
+            "Development Log Checker Result",
             f"{'='*60}",
             f"Status: {status}",
             f"File Exists: {self.file_exists}",
             f"Has Header: {self.has_header}",
             f"Has Phase Records: {self.has_phase_records}",
-            f"",
+            "",
             f"Decision Gates: {len(self.decision_gates)}",
             f"Session IDs: {len(self.session_ids)}",
             f"Commands with Output: {sum(1 for c in self.commands if c.output_present)}",
-            f"",
+            "",
         ]
 
         if self.errors:

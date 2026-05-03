@@ -5,7 +5,7 @@ Unit tests for HarnessBridge.
 import pytest
 from unittest.mock import patch, MagicMock
 from pathlib import Path
-from harness.harness_bridge import HarnessBridge, DimResult, GateResult, GateBlockedError
+from harness.harness_bridge import HarnessBridge, GateResult, GateBlockedError
 
 
 class TestHarnessBridge:

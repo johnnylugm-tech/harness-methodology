@@ -1,5 +1,3 @@
-import pytest
-from pathlib import Path
 from core.quality_gate.spec_tracking_checker import SpecTrackingChecker
 
 def test_spec_tracking_checker_not_found(tmp_path):

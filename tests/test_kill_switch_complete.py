@@ -3,15 +3,13 @@ tests/test_kill_switch_complete.py — Complete kill_switch/ coverage (W2).
 
 Covers: CircuitBreaker, StateManager, HealthMonitor, InterruptEngine, KillSwitch facade.
 """
-import json
 import pytest
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from kill_switch.enums import CircuitState, KillReason, InterruptOutcome, KillSwitchEventType
+from kill_switch.enums import CircuitState, KillReason
 from kill_switch.exceptions import AgentNotFoundError, StatePersistenceError, InterruptInProgressError
 from kill_switch.models import (
-    CircuitBreakerState, HealthMetrics, MonitorConfig, InterruptEvent
+    CircuitBreakerState, HealthMetrics, MonitorConfig
 )
 
 
@@ -463,7 +461,6 @@ class TestKillSwitchFacade:
         assert isinstance(result, bool)
 
     def test_evaluate_and_trigger_returns_false_no_breach(self, tmp_path):
-        from kill_switch.health_monitor import HealthMonitor
         from datetime import datetime, timezone
         ks = self._ks(tmp_path)
         ks.start_monitoring("a1", MonitorConfig("a1"))

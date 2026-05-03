@@ -19,10 +19,9 @@ HR-12 conflict resolution:
   AND VerificationConstitutionChecker for formal compliance verification.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Any, Optional, Tuple
 from pathlib import Path
-import json
 
 from steering.steering_loop import IterationResult, SteeringLoop, SteeringConfig
 
@@ -432,7 +431,6 @@ class SteeringIntegrator:
         config: Optional["SteeringConfig"] = None,
         hr_constraints: Optional[HRConstraints] = None
     ):
-        from steering.steering_loop import SteeringLoop
 
         self.steering = SteeringLoop(provider, config)
         self.hr = hr_constraints or HRConstraints()
