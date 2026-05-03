@@ -44,8 +44,8 @@ class HybridWorkflow:
 
     def analyze_change(self, diff: str) -> ChangeAnalysis:
         lines = diff.split('\n')
-        added_lines = len([line for line in lines if lineine.startswith('+')])
-        removed_lines = len([line for line in lines if lineine.startswith('-')])
+        added_lines = len([line for line in lines if line.startswith('+')])
+        removed_lines = len([line for line in lines if line.startswith('-')])
         total_changes = added_lines + removed_lines
         security_keywords = ['auth', 'password', 'token', 'permission', 'security']
         is_security = any(kw in diff.lower() for kw in security_keywords)
@@ -61,7 +61,7 @@ class HybridWorkflow:
             change_type, reason = ChangeType.SMALL, "medium change, auto-pass"
         return ChangeAnalysis(
             type=change_type, lines_changed=total_changes,
-            files_affected=len(set(line.split('/')[0] for line in lines if '/' in l)),
+            files_affected=len(set(line.split('/')[0] for line in lines if '/' in line)),
             is_security_related=is_security, is_new_feature=is_new_feature, reason=reason
         )
 

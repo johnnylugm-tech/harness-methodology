@@ -20,7 +20,6 @@ Flow:
 
 import json
 import subprocess
-import sys
 from dataclasses import dataclass, field
 from typing import List, Dict
 from datetime import datetime
@@ -375,13 +374,13 @@ Scores:
         if dimension == "D1_Linting":
             out, err, rc = self._run_tool_capture(["ruff", "check", "03-development/src/"])
             counts["before"] = len([line for line in out.split('\n') if line.strip() and not line.startswith('#')])
-            counts["issue_list"] = [line for line in out.split('\n') if line.strip() and ':' in l][:10]  # First 10
+            counts["issue_list"] = [line for line in out.split('\n') if line.strip() and ':' in line][:10]  # First 10
             counts["tool_output"] = out[:500]  # First 500 chars
 
         elif dimension == "D2_TypeSafety":
             out, err, rc = self._run_tool_capture(["python3", "-m", "mypy", "03-development/src/"])
-            counts["before"] = len([line for line in out.split('\n') if 'error:' in l or 'warning:' in l])
-            counts["issue_list"] = [line for line in out.split('\n') if 'error:' in l][:10]
+            counts["before"] = len([line for line in out.split('\n') if 'error:' in line or 'warning:' in line])
+            counts["issue_list"] = [line for line in out.split('\n') if 'error:' in line][:10]
             counts["tool_output"] = out[:500]
 
         elif dimension == "D4_Security":
@@ -392,14 +391,14 @@ Scores:
                 counts["before"] = len(data.get("results", []))
                 counts["issue_list"] = [f"{r['filename']}:{r['line']} {r['issue_text']}"
                                        for r in data.get("results", [])[:10]]
-            except:
+            except Exception:
                 counts["before"] = out.count("CONFIDENCE")
             counts["tool_output"] = out[:500]
 
         elif dimension == "D5_Complexity":
             out, err, rc = self._run_tool_capture(["lizard", "03-development/src/"])
-            counts["before"] = len([line for line in out.split('\n') if 'CCN' in l])
-            counts["issue_list"] = [line for line in out.split('\n') if 'CCN' in l][:10]
+            counts["before"] = len([line for line in out.split('\n') if 'CCN' in line])
+            counts["issue_list"] = [line for line in out.split('\n') if 'CCN' in line][:10]
             counts["tool_output"] = out[:500]
 
         else:
@@ -433,7 +432,7 @@ Scores:
                         return "HIGH"
                     elif ccn > 15:
                         return "MEDIUM"
-                except:
+                except Exception:
                     pass
             return "LOW"
 
@@ -704,7 +703,7 @@ for k, v in result.dimensions.items():
             high = data["metrics"]["_totals"]["SEVERITY.HIGH"]
             medium = data["metrics"]["_totals"]["SEVERITY.MEDIUM"]
             scores["D4_Security"] = max(0, 100 - high * 20 - medium * 10)
-        except:
+        except Exception:
             scores["D4_Security"] = 100
 
         # D5-D9: default scores
@@ -946,7 +945,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
                     # no auto-fix; Agent needs to understand context
                     return False
 
-            except:
+            except Exception:
                 continue
 
         return False

@@ -61,7 +61,7 @@ class LintingEvaluator:
         stdout, _, rc = run_tool(["ruff", "check", f"{project_path}/03-development/src", "--ignore=D100,E501,F401"])
         error_count = len([line for line in stdout.split('\n') if line.strip() and line.startswith('F')])
         score = max(0, 100 - error_count * 5)
-        issues = [l.strip() for line in stdout.split('\n') if line.strip() and line.startswith('F')][:5]
+        issues = [line.strip() for line in stdout.split('\n') if line.strip() and line.startswith('F')][:5]
         return DimensionScore(self.name, score, self.weight, issues, True, "ruff")
 
 class TypeSafetyEvaluator:
@@ -72,7 +72,7 @@ class TypeSafetyEvaluator:
         stdout, _, rc = run_tool(["mypy", f"{project_path}/03-development/src", "--ignore-missing-imports", "--no-error-summary"], timeout=60)
         error_count = stdout.count(": error:")
         score = max(0, 100 - error_count * 10)
-        issues = [l.strip() for line in stdout.split('\n') if ': error:' in l][:5]
+        issues = [line.strip() for line in stdout.split('\n') if ': error:' in line][:5]
         return DimensionScore(self.name, score, self.weight, issues, True, "mypy")
 
 class CoverageEvaluator:
@@ -107,7 +107,7 @@ class SecurityEvaluator:
             medium = data["metrics"]["_totals"]["SEVERITY.MEDIUM"]
             score = max(0, 100 - high * 20 - medium * 10)
             issues = [f"HIGH: {high}", f"MEDIUM: {medium}"]
-        except:
+        except Exception:
             score = 100
             issues = ["No issues found"]
         return DimensionScore(self.name, score, self.weight, issues, True, "bandit")
@@ -133,7 +133,7 @@ class ComplexityEvaluator:
                         file_path = '/'.join(loc.split('@')[-1].split('/')[3:])  # skip 03-development/src/
                         if cc > 15:
                             hotspots[file_path] = cc
-                    except:
+                    except Exception:
                         continue
         avg_cc = statistics.mean(hotspots.values()) if hotspots else 0
         score = max(0, 100 - avg_cc * 5)
@@ -153,7 +153,7 @@ class ArchitectureEvaluator:
         src_path = f"{project_path}/03-development/src"
         stdout, _, rc = run_tool(["radon", "cc", src_path, "-a"], timeout=30)
         # Only calculate C/D/E as issues, A/B are good quality
-        issues = [l.strip() for line in stdout.split('\n') if ' - C' in l or ' - D' in l or ' - E' in l][:3]
+        issues = [line.strip() for line in stdout.split('\n') if ' - C' in line or ' - D' in line or ' - E' in line][:3]
         score = max(0, 100 - len(issues) * 10)
         return DimensionScore(self.name, score, self.weight, issues if issues else ["No major issues"], False, "radon")
 
@@ -166,7 +166,7 @@ class ReadabilityEvaluator:
         stdout, _, rc = run_tool(["grep", "-r", "-h", '"""', project_path, "--include=*.py"], timeout=30)
         doc_count = len([line for line in stdout.split('\n') if line.strip()])
         stdout2, _, _ = run_tool(["find", project_path, "-name", "*.py"], timeout=10)
-        total = len([line for line in stdout2.split('\n') if line.strip() and '.py' in l])
+        total = len([line for line in stdout2.split('\n') if line.strip() and '.py' in line])
         ratio = (doc_count / max(total, 1)) * 100
         score = min(100, ratio * 2)  # rough estimate
         issues = [f"{doc_count}/{total} files with docstrings (estimate)"]
@@ -183,7 +183,7 @@ class ErrorHandlingEvaluator:
             if ':' in line:
                 try:
                     catch_count += int(line.split(':')[1])
-                except:
+                except Exception:
                     continue
         score = min(100, 50 + catch_count * 2)
         issues = [f"{catch_count} try-except blocks found"]

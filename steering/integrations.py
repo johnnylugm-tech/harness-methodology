@@ -509,7 +509,7 @@ class SteeringIntegrator:
                 if self._cqg_integrator is None:
                     self._cqg_integrator = SteeringCQGIntegrator()
                 winner_output = steering_result.best_so_far.output
-                cqg_scores = self._cqg_integrator.measure_code_quality(winner_output)
+                self._cqg_integrator.measure_code_quality(winner_output)
             except Exception:
                 pass
 

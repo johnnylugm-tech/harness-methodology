@@ -7,7 +7,7 @@ Provides AutoQualityGate with linter, complexity, coverage, style checkers.
 from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any  # noqa: F401 — may be used by derived classes
 
 
 @dataclass

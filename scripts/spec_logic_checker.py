@@ -20,7 +20,7 @@ import re
 import sys
 import argparse
 from pathlib import Path
-from typing import List, Dict, Tuple
+from typing import Any, List, Dict, Tuple
 from dataclasses import dataclass, field
 
 

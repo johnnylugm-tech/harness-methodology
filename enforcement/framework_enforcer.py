@@ -147,7 +147,7 @@ class FrameworkEnforcer:
             return {"passed": False, "coverage": 0, "threshold": DEFAULT_THRESHOLD, "message": "coverage report not found"}
         import xml.etree.ElementTree as ET
         try:
-            tree = ET.parse(coverage_file)
+            tree = ET.parse(coverage_file)  # nosec B314 — trusted local coverage.xml from pytest-cov
             coverage = float(tree.getroot().attrib.get("line-rate", 0)) * 100
         except Exception:
             return {"passed": False, "coverage": 0, "threshold": DEFAULT_THRESHOLD, "message": "failed to parse coverage report"}
@@ -262,9 +262,9 @@ class FrameworkEnforcer:
             f"Total: {trace['stats']['total']}  Verified: {trace['stats']['verified']}  Missing: {trace['stats']['missing']}",
             "\n### Verified Links",
         ]
-        lines += [f"  + {l}" for line in trace["verified_phases"]]
+        lines += [f"  + {line}" for line in trace["verified_phases"]]
         lines += ["\n### Missing Links"]
-        lines += ([f"  - {l}" for line in trace["missing_links"]] or ["  (none)"])
+        lines += ([f"  - {line}" for line in trace["missing_links"]] or ["  (none)"])
         aspice = self.check_aspice_completeness()
         lines += [
             "",
