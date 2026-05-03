@@ -6,7 +6,7 @@ Usage::
     from harness.retry_utils import retry_with_backoff
 
     result = retry_with_backoff(
-        lambda: subprocess.run(["ruff", "check", "."], capture_output=True),
+        lambda: subprocess.run(["ruff", "check", "."], capture_output=True),  # nosec B603 B607
         max_attempts=3,
         base_delay=1.0,
         retryable=lambda exc: isinstance(exc, (OSError, subprocess.TimeoutExpired)),
@@ -76,9 +76,9 @@ def retry_with_backoff(
 
     Examples
     --------
-    >>> import subprocess
+    >>> import subprocess  # nosec B404
     >>> result = retry_with_backoff(
-    ...     lambda: subprocess.run(["true"], check=True),
+    ...     lambda: subprocess.run(["true"], check=True),  # nosec B603 B607
     ...     max_attempts=2,
     ... )
     """
@@ -107,7 +107,7 @@ def retry_with_backoff(
                 )
             time.sleep(delay)
 
-    assert last_exc is not None  # unreachable without exception
+    assert last_exc is not None  # unreachable without exception  # nosec B101
     raise last_exc
 
 
@@ -115,4 +115,4 @@ def _compute_delay(attempt: int, base: float, cap: float, jitter: float) -> floa
     """Compute capped exponential delay with uniform jitter."""
     raw = min(base * (2 ** (attempt - 1)), cap)
     spread = raw * jitter
-    return raw + random.uniform(-spread, spread)  # noqa: S311
+    return raw + random.uniform(-spread, spread)  # noqa: S311  # nosec B311

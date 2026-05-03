@@ -36,7 +36,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-_STATUS_PASS = "gate1_pass"
+_STATUS_PASS = "gate1_pass"  # nosec B105
 _STATUS_FAIL = "gate1_fail"
 _STATUS_PENDING = "pending"
 

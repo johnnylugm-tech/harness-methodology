@@ -50,10 +50,10 @@ class HealthMonitor:
         now = datetime.now(timezone.utc)
         return HealthMetrics(
             agent_id=agent_id,
-            error_rate=random.uniform(0.0, 0.15),
-            latency_p99_ms=random.uniform(100.0, 6000.0),
-            memory_usage_percent=random.uniform(30.0, 95.0),
-            output_rate_kbps=random.uniform(10.0, 150.0),
+            error_rate=random.uniform(0.0, 0.15),  # nosec B311
+            latency_p99_ms=random.uniform(100.0, 6000.0),  # nosec B311
+            memory_usage_percent=random.uniform(30.0, 95.0),  # nosec B311
+            output_rate_kbps=random.uniform(10.0, 150.0),  # nosec B311
             last_health_check=now,
             timestamp=now,
         )

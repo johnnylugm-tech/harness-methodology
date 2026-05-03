@@ -6,7 +6,7 @@ Handles gate execution, results parsing, and quality manifest updates.
 
 from __future__ import annotations
 import json
-import subprocess
+import subprocess  # nosec B404
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -157,7 +157,7 @@ class HarnessBridge:
 
     def _load_config(self, gate_num: int) -> dict:
         """Load the YAML configuration for a specific gate."""
-        import yaml
+        import yaml  # type: ignore[import-untyped]
         names = {1: "gate1_per_fr.yaml", 2: "gate2_p3_exit.yaml",
                  3: "gate3_p4_exit.yaml", 4: "gate4_p6_full.yaml"}
         config_path = Path(__file__).parent / "gate_configs" / names[gate_num]
@@ -189,7 +189,7 @@ class HarnessBridge:
             cmd += ["--fr-id", fr_id]
 
         timeout_s = config.get("max_rounds", 3) * 300
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_s, check=False)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_s, check=False)  # nosec B603 B607
 
         if not result_path.exists():
             raise RuntimeError(

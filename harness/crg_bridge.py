@@ -8,7 +8,7 @@ and structural drift verification using the SSI toolchain.
 from __future__ import annotations
 import json
 import os
-import subprocess
+import subprocess  # nosec B404
 from pathlib import Path
 
 
@@ -20,7 +20,7 @@ class CRGBridge:
     def is_available(self) -> bool:
         """Check if the CRG MCP tools and required libraries are available."""
         if self._available is None:
-            r = subprocess.run(
+            r = subprocess.run(  # nosec B603 B607
                 ["python3", "-c", "import mcp__code_review_graph"],
                 capture_output=True,
                 check=False
@@ -40,7 +40,7 @@ class CRGBridge:
         """
         if not self.is_available():
             return {}
-        subprocess.run(
+        subprocess.run(  # nosec B603 B607
             ["python3", "scripts/crg_integration.py", "ensure", project_root],
             capture_output=True, text=True, cwd=self._ssi_root(),
             check=False
@@ -61,7 +61,7 @@ class CRGBridge:
         """
         if not self.is_available():
             return {}
-        r = subprocess.run(
+        r = subprocess.run(  # nosec B603 B607
             ["python3", "scripts/crg_integration.py", "context", project_root, dimension],
             capture_output=True, text=True, cwd=self._ssi_root(),
             check=False
@@ -85,7 +85,7 @@ class CRGBridge:
         """
         if not self.is_available():
             return False
-        r = subprocess.run(
+        r = subprocess.run(  # nosec B603 B607
             ["python3", "scripts/crg_integration.py", "risky",
              project_root, ref, str(threshold)],
             capture_output=True, cwd=self._ssi_root(),

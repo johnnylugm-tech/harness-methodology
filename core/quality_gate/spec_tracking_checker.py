@@ -49,7 +49,8 @@ class SpecTrackingChecker:
                 "errors": []
             }
         
-        if not self.spec_file or not self.spec_file.exists(): return {"complete": False, "missing": ["File not found"]}
+        if not self.spec_file or not self.spec_file.exists():
+            return {"complete": False, "missing": ["File not found"]}
         content = self.spec_file.read_text(encoding="utf-8")
         missing = []
         errors: list[str] = []
@@ -120,7 +121,8 @@ class SpecTrackingChecker:
             }
         
         completeness_result = self.check_completeness()
-        if not self.spec_file or not self.spec_file.exists(): return {"complete": False, "missing": ["File not found"]}
+        if not self.spec_file or not self.spec_file.exists():
+            return {"complete": False, "missing": ["File not found"]}
         content = self.spec_file.read_text(encoding="utf-8")
         stats = self._count_status(content)
         
@@ -163,7 +165,8 @@ class SpecTrackingChecker:
                 print(f"  • {item}")
         
         # Read and display status statistics
-        if not self.spec_file or not self.spec_file.exists(): return
+        if not self.spec_file or not self.spec_file.exists():
+            return
         content = self.spec_file.read_text(encoding="utf-8")
         stats = self._count_status(content)
         if stats:
