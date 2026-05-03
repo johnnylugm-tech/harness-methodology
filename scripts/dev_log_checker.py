@@ -153,7 +153,7 @@ class DevLogChecker:
             DevLogCheckResult: check result
         """
         errors = []
-        warnings = []
+        warnings: list[str] = []
 
         # Check if file exists
         file_exists = self.dev_log_path.exists()

@@ -168,7 +168,7 @@ class ABEnforcer:
         ]
         
         dialogue_count = 0
-        dialogue_examples = []
+        dialogue_examples: list[str] = []
         
         for pattern in dialogue_indicators:
             matches = re.findall(pattern, phase_content, re.IGNORECASE)

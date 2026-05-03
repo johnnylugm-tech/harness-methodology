@@ -9,7 +9,7 @@ Key principle: Hard Block — non-compliant = blocked, no opt-out.
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Callable, Any
+from typing import Any, Callable, Dict, List, Optional
 from datetime import datetime
 import json
 import os
@@ -357,7 +357,7 @@ class PolicyEngine:
             "all_passed": blocked == 0,
         }
 
-    def raise_on_block(self, results: List[PolicyResult] = None):
+    def raise_on_block(self, results: Optional[List[PolicyResult]] = None):
         results = results or self.results
         blocked = [r for r in results if r.blocked]
         if blocked:

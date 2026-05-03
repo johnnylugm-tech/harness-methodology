@@ -119,7 +119,7 @@ class AgentSpawner:
             parts.append(f"[CONTEXT]\n{ctx_str}")
         return "\n\n".join(parts)
 
-    def _parse_result(self, result: any) -> dict:
+    def _parse_result(self, result: Any) -> dict:
         """Parse the raw agent result into a standard format."""
         if isinstance(result, dict):
             return result

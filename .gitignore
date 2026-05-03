@@ -1,5 +1,9 @@
 .worktrees/
 
+# ── claude-mem plugin runtime artifacts ────────────────────────────────────
+# Auto-generated context files injected by the claude-mem MCP plugin
+**/CLAUDE.md
+
 # ── Quality-run runtime artifacts (never commit) ──────────────────────────
 # SKILL.md working directory — raw tool outputs, per-round JSON, scan blobs
 .sessi-work/

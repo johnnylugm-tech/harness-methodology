@@ -19,7 +19,7 @@ Usage:
 import json
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Any
+from typing import Optional, Dict, List, Any
 
 
 class PhaseHooks:
@@ -32,7 +32,7 @@ class PhaseHooks:
     - Post-flight: Final validation and reporting.
     """
 
-    def __init__(self, project_path: str, phase: int = None):
+    def __init__(self, project_path: str, phase: Optional[int] = None):
         """
         Initialize the hooks manager.
         

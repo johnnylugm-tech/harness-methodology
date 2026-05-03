@@ -52,7 +52,7 @@ class SpecTrackingChecker:
         if not self.spec_file or not self.spec_file.exists(): return {"complete": False, "missing": ["File not found"]}
         content = self.spec_file.read_text(encoding="utf-8")
         missing = []
-        errors = []
+        errors: list[str] = []
         
         # Check if core features table exists
         if not self._has_table(content, "Core Features"):

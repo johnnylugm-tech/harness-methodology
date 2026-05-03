@@ -128,7 +128,7 @@ class RequirementTraceability:
         self.links: List[TraceLink] = []
         self._link_index: Dict[str, List[str]] = {}
 
-    def add_requirement(self, req_id: str, title: str, srs_section: str = None, description: str = "", priority: str = "HIGH", metadata: dict = None):
+    def add_requirement(self, req_id: str, title: str, srs_section: Optional[str] = None, description: str = "", priority: str = "HIGH", metadata: dict = None):
         req = Requirement(req_id=req_id, title=title, description=description,
                           srs_section=srs_section, priority=priority, metadata=metadata or {})
         self.requirements[req_id] = req

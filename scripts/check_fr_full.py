@@ -24,10 +24,11 @@ Pass criteria:
 """
 
 import argparse
+import os
 import subprocess
 import sys
-import os
 from pathlib import Path
+from typing import Optional
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 METHODOLOGY_V2_DIR = SCRIPT_DIR.parent
@@ -97,7 +98,7 @@ def run_complexity(project: Path, files: list) -> tuple:
     return len(errors) == 0, errors
 
 
-def run_check(name: str, cmd: list, project: str, cwd: str = None) -> tuple:
+def run_check(name: str, cmd: list, project: str, cwd: Optional[str] = None) -> tuple:
     """Run a check command."""
     print(f"\n{'='*50}")
     print(f"  {name}")

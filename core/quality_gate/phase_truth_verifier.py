@@ -20,7 +20,7 @@ import json
 import sys
 import re
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Any, Optional, Dict, List, Tuple
 
 # Ensure core/ is on sys.path so sibling quality_gate.* imports resolve
 _script_dir = Path(__file__).resolve().parent  # quality_gate/
@@ -48,7 +48,7 @@ class PhaseTruthVerifier:
     def __init__(self, project_root: str, phase: int):
         self.project_root = Path(project_root)
         self.phase = phase
-        self.results = {}
+        self.results: dict[str, Any] = {}
 
     def check_framework_block(self) -> Tuple[bool, float, str]:
         """Check FrameworkEnforcer BLOCK"""

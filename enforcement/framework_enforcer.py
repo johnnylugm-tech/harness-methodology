@@ -32,10 +32,10 @@ class EnforcementResult:
         self.block_checks: Dict[str, bool] = {}
         self.warn_checks: Dict[str, bool] = {}
 
-    def add_violation(self, message: str, fix: str = None):
+    def add_violation(self, message: str, fix: Optional[str] = None):
         self.violations.append((message, fix))
 
-    def add_warning(self, message: str, fix: str = None):
+    def add_warning(self, message: str, fix: Optional[str] = None):
         self.warnings.append((message, fix))
 
     def add_block_check(self, name: str, passed: bool):
@@ -76,7 +76,7 @@ class FrameworkEnforcer:
         {"name": "ENHANCED_CHECKLIST"},
     ]
 
-    def __init__(self, project_root: str = None, phase: int = 1):
+    def __init__(self, project_root: Optional[str] = None, phase: int = 1):
         self.project_root = Path(project_root) if project_root else Path.cwd()
         self.phase = phase
         self._spec_checker = None
@@ -200,8 +200,8 @@ class FrameworkEnforcer:
             Phase.IMPLEMENT: 3, Phase.VERIFY: 4, Phase.SYSTEM_TEST: 5,
             Phase.QUALITY: 6, Phase.RISK: 7, Phase.CONFIG: 8,
         }
-        verified = []
-        missing = []
+        verified: list[str] = []
+        missing: list[str] = []
         for phase in Phase:
             if phase_map.get(phase, 0) > self.phase:
                 continue

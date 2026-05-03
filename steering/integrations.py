@@ -106,9 +106,9 @@ class SteeringBVSIntegrator:
         Returns:
             IntegrationResult: with HR compliance status
         """
-        violations = []
-        warnings = []
-        metrics = {}
+        violations: list[str] = []
+        warnings: list[str] = []
+        metrics: dict[str, float] = {}
 
         # 1. Phase order check (HR-03)
         bvs_report = self.bvs_runner.run()
@@ -183,9 +183,9 @@ class SteeringConstitutionIntegrator:
         Returns:
             IntegrationResult: with Constitution compliance status
         """
-        violations = []
-        warnings = []
-        metrics = {}
+        violations: list[str] = []
+        warnings: list[str] = []
+        metrics: dict[str, float] = {}
 
         # Type check -- output must be dict; convert string if needed
         if not isinstance(output, dict):
@@ -436,9 +436,9 @@ class SteeringIntegrator:
         self.hr = hr_constraints or HRConstraints()
 
         # Lazy-load integration modules (avoid circular dependencies)
-        self._bvs_integrator = None
-        self._constitution_integrator = None
-        self._cqg_integrator = None
+        self._bvs_integrator: Optional[SteeringBVSIntegrator] = None
+        self._constitution_integrator: Optional[SteeringConstitutionIntegrator] = None
+        self._cqg_integrator: Optional[SteeringCQGIntegrator] = None
 
         self.project_path = Path(project_path)
         self.phase = phase
