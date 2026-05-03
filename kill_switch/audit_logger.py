@@ -3,6 +3,8 @@ KillSwitch Audit Logger.
 
 Provides audit logging for kill switch events.
 """
+import os
+import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
@@ -28,10 +30,9 @@ class AuditLogger:
     Provides basic audit logging for interrupt events.
     """
 
-    def __init__(self, log_dir: str = None):
+    def __init__(self, log_dir: Optional[str] = None):
         if log_dir is None:
-            import tempfile
-            log_dir = tempfile.gettempdir() + "/kill_switch_logs"
+            log_dir = os.path.join(tempfile.gettempdir(), "kill_switch_logs")
         self.log_dir = log_dir
 
     def log_event(self, entry: AuditEntry) -> None:

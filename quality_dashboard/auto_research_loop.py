@@ -342,8 +342,6 @@ class AutoResearchLoop:
         print("AutoResearch Loop Started")
         print("=" * 60)
 
-        _project_path = self.dashboard.project_path
-
         for iteration in range(1, max_iterations + 1):
             print(f"\n{'─' * 60}")
             print(f"Iteration {iteration}/{max_iterations}")

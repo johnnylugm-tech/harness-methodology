@@ -430,7 +430,7 @@ class SteeringLoop:
 
         for _ in range(max_iter):
             output_a, output_b = get_next_pair_fn()
-            _result = self.iterate(output_a, output_b)
+            self.iterate(output_a, output_b)
 
             continue_it, _ = self.should_continue()
             if not continue_it:

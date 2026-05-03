@@ -458,11 +458,6 @@ class PhaseAuditor:
     # -- C2: STAGE_PASS Structure Analysis ----------------------------────
     def check_c2_stage_pass(self):
         """C2: STAGE_PASS certificate completeness and quality"""
-        _candidates = [
-            f"00-summary/Phase{self.phase}_STAGE_PASS.md",
-            f"00-summary/Phase_{self.phase}_-_*_STAGE_PASS.md",
-            f"Phase{self.phase}_STAGE_PASS.md",
-        ]
         # try to find matching path in file tree
         # match:
         #   - Phase2_STAGE_PASS.md (Phase + number + underscore)
@@ -687,9 +682,6 @@ class PhaseAuditor:
 
         # Session ID uniqueness
         if len(session_ids) >= 2:
-            _all_unique = len(session_ids) == len([
-                s for s in sessions if isinstance(s, dict) and s.get("session_id")
-            ])
             self.result.add(Finding(
                 check_id="C3",
                 dimension="A/B Session Separation",
@@ -1495,9 +1487,6 @@ def generate_report(result: AuditResult, output_format: str = "markdown") -> str
         lines.append(f"### {dim_icon} {dim}")
         lines.append("")
         for f in dim_findings:
-            _sev_icon = {
-                "CRITICAL": "🔴", "WARNING": "🟡", "PASS": "✅", "INFO": "ℹ️"
-            }.get(f.severity, "❓")
             lines.append(f"- {f.title}")
             if f.detail and f.severity != "PASS":
                 for detail_line in f.detail.splitlines():
