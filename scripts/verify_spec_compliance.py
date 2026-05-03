@@ -22,8 +22,8 @@ class SpecComplianceChecker:
 
     def __init__(self, project_path: str):
         self.project_path = Path(project_path)
-        self.issues = []
-        self.passed = []
+        self.issues: list[str] = []
+        self.passed: list[str] = []
 
     def check_all(self) -> Dict:
         """Run all checks."""

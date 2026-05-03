@@ -42,7 +42,7 @@ import argparse
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Dict
+from typing import Any, Dict
 
 # Import existing Framework modules
 # Since this file is in quality_gate/, go up one level to find enforcement/
@@ -70,7 +70,7 @@ class IntegratedStagePassGenerator:
         self.enforcer = FrameworkEnforcer(str(self.project_root))
         self.claims_verifier = ClaimsVerifier(str(self.project_root))
         
-        self.results = {
+        self.results: dict[str, Any] = {
             "phase": phase,
             "five_w1h_results": {},
             "framework_results": {},
@@ -206,7 +206,7 @@ class IntegratedStagePassGenerator:
         print("[Step 3] Collecting test evidence")
         print(f"{'='*60}")
         
-        evidence = {}
+        evidence: dict[str, Any] = {}
         
         # Run pytest
         print("\n📋 Running pytest...")

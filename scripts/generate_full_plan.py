@@ -25,7 +25,7 @@ import re
 import sys
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Optional, Dict, List, Optional
 
 
 # ============================================================================
@@ -552,7 +552,7 @@ def generate_phase8_tasks(repo_path: Path) -> List[str]:
 # Main Generator
 # ============================================================================
 
-def generate_full_plan(phase: int, repo_path: Path, output_path: Path = None) -> Optional[str]:
+def generate_full_plan(phase: int, repo_path: Path, output_path: Path | None = None) -> Optional[str]:
     """Generate full plan with phase-specific detailed tasks"""
 
     srs_paths = [

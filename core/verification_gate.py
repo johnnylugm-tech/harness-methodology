@@ -19,7 +19,7 @@ class GateStatus(Enum):
 class Gate:
     """Single verification gate"""
 
-    def __init__(self, name: str, required_output: str = None,
+    def __init__(self, name: str, required_output: Optional[str] = None,
                  validator: Callable = None, auto_pass: bool = False):
         self.name = name
         self.required_output = required_output
@@ -57,7 +57,7 @@ class Gate:
             return False
         return False
 
-    def bypass(self, reason: str = None):
+    def bypass(self, reason: Optional[str] = None):
         self.status = GateStatus.BYPASSED
         self.verified_at = datetime.now()
         self.evidence = {"bypass_reason": reason or "manual_bypass"}

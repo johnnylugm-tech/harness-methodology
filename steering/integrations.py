@@ -107,7 +107,7 @@ class SteeringBVSIntegrator:
             IntegrationResult: with HR compliance status
         """
         violations = []
-        warnings = []
+        warnings: list[str] = []
         metrics = {}
 
         # 1. Phase order check (HR-03)

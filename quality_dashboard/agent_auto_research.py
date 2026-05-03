@@ -21,7 +21,7 @@ Flow:
 import json
 import subprocess
 from dataclasses import dataclass, field
-from typing import List, Dict
+from typing import Any, Dict, List, Optional
 from datetime import datetime
 from pathlib import Path
 
@@ -199,9 +199,12 @@ class AgentDrivenAutoResearch:
         self.history_file = self.data_dir / "agent_history.json"
         self.records: List[IterationRecord] = []
         self.phase = phase
-        self.active_dims = self.PHASE_CONFIG.get(phase, self.PHASE_CONFIG[3])['dimensions']
-        self.target_score = self.PHASE_CONFIG.get(phase, self.PHASE_CONFIG[3])['target']
-        self.pass_score = self.PHASE_CONFIG.get(phase, self.PHASE_CONFIG[3])['pass']
+        cfg = self.PHASE_CONFIG.get(phase, self.PHASE_CONFIG[3])
+        self.active_dims: list[str] = cfg['dimensions']  # type: ignore[assignment]
+        self.target_score: float = cfg['target']  # type: ignore[assignment]
+        self.pass_score: float = cfg['pass']  # type: ignore[assignment]
+        self.iteration_records: list[dict] = []
+        self.dashboard_reports: list[str] = []
 
     def load_history(self) -> Dict:
         if self.history_file.exists():
@@ -346,7 +349,7 @@ Scores:
     # VERIFICATION: Tool Evidence, Before/After Count, Verifiable Severity
     # ============================================================================
 
-    def _run_tool_capture(self, tool_cmd: List[str], cwd: Path = None) -> tuple:
+    def _run_tool_capture(self, tool_cmd: List[str], cwd: Optional[Path] = None) -> tuple:
         """Run tool and capture output, return (stdout, stderr, returncode)"""
         if cwd is None:
             cwd = self.project_path
@@ -665,7 +668,7 @@ for k, v in result.dimensions.items():
         except Exception:  # pylint: disable=broad-exception-caught
             return self._fallback_evaluation()
 
-        scores = {}
+        scores: dict[str, float] = {}
         for line in result.stdout.split('\n'):
             if '=' in line and 'Iteration' not in line:
                 try:
@@ -679,7 +682,7 @@ for k, v in result.dimensions.items():
     def _fallback_evaluation(self) -> Dict[str, float]:
         """Fallback evaluation when dashboard is unavailable"""
         # simple fallback evaluation logic
-        scores = {}
+        scores: dict[str, float] = {}
 
         # D1: Linting
         r1 = subprocess.run(["ruff", "check", str(self.project_path), "--ignore=D100,E501,F401"],

@@ -17,7 +17,7 @@ import subprocess
 import sys
 import re
 from dataclasses import dataclass
-from typing import List, Dict, Optional
+from typing import Any, Dict, List, Optional
 from datetime import datetime
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -447,7 +447,7 @@ class AutoResearchLoop:
         first = history[0] if history else None
         last = history[-1] if history else None
 
-        report = {
+        report: dict[str, Any] = {
             "total_iterations": len(self.iteration_log),
             "initial_score": first.total_score if first else 0,
             "final_score": last.total_score if last else 0,

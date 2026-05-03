@@ -112,7 +112,7 @@ class ConstitutionPolicyGenerator:
                     current_rule["threshold"] = float(m.group(1))
                     continue
                 if line.strip() and not line.startswith("#") and not line.startswith("["):
-                    current_rule["description"] += " " + line.strip()
+                    current_rule["description"] = (current_rule.get("description") or "") + " " + line.strip()
 
         if current_rule:
             rules.append(current_rule)
@@ -163,7 +163,7 @@ class ConstitutionPolicyGenerator:
 
         return lambda: True  # Generic: always pass
 
-    def generate(self, constitution_path: str = None) -> List[Policy]:
+    def generate(self, constitution_path: Optional[str] = None) -> List[Policy]:
         """Generate a list of Policy objects from Constitution.md."""
         if constitution_path is None:
             constitution_path = self.find_constitution()
@@ -183,7 +183,7 @@ class ConstitutionPolicyGenerator:
             for rule in rules
         ]
 
-    def sync_to_engine(self, engine: PolicyEngine = None) -> PolicyEngine:
+    def sync_to_engine(self, engine: Optional[PolicyEngine] = None) -> PolicyEngine:
         """Sync generated policies into a PolicyEngine instance."""
         policies = self.generate()
         if engine is None:

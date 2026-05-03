@@ -14,7 +14,7 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 from dataclasses import dataclass, field, asdict
-from typing import List, Dict
+from typing import Any, Dict, List, Optional
 import statistics
 
 # ============================================================================
@@ -45,7 +45,7 @@ class IterationResult:
 # TOOL-DRIVEN EVALUATORS
 # ============================================================================
 
-def run_tool(cmd: List[str], timeout: int = 30, cwd: str = None) -> tuple:
+def run_tool(cmd: List[str], timeout: int = 30, cwd: Optional[str] = None) -> tuple:
     """Run tool and return (stdout, stderr, returncode)"""
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=cwd)
@@ -84,7 +84,7 @@ class CoverageEvaluator:
         stdout, _, rc = run_tool(["python3", "-m", "pytest", f"{project_path}/03-development/tests",
                                  "--cov=src", "--cov-report=term-missing", "--tb=no", "-q"],
                                 timeout=60, cwd=project_path)
-        coverage = 0
+        coverage: float = 0.0
         for line in stdout.split('\n'):
             if 'TOTAL' in line:
                 parts = line.replace('%', ' ').split()
@@ -120,7 +120,7 @@ class ComplexityEvaluator:
         # Only analyze src, not tests
         src_path = f"{project_path}/03-development/src"
         stdout, _, rc = run_tool(["lizard", src_path, "-L", "15"], timeout=30)
-        hotspots = {}
+        hotspots: dict[str, float] = {}
         for line in stdout.split('\n'):
             if '.py' in line and 'location' not in line and line.strip():
                 parts = line.split()
@@ -209,7 +209,7 @@ class DocumentationEvaluator:
 class QualityDashboard:
     """Quality Monitoring Dashboard"""
 
-    EVALUATORS = [
+    EVALUATORS: list[Any] = [
         LintingEvaluator(),
         TypeSafetyEvaluator(),
         CoverageEvaluator(),
@@ -301,7 +301,7 @@ class QualityDashboard:
         return result
 
     def _identify_hotspots(self, dimensions: Dict[str, DimensionScore]) -> Dict[str, float]:
-        hotspots = {}
+        hotspots: dict[str, float] = {}
         for name, dim in dimensions.items():
             if dim.score < 60:
                 for issue in dim.issues:
