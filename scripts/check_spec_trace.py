@@ -20,6 +20,7 @@ Exit codes:
 import re
 import sys
 from pathlib import Path
+from typing import Optional, List
 
 
 def extract_fr_ids(sad_path: str) -> list[str]:
@@ -46,7 +47,6 @@ def find_tested_frs(tests_dir: str) -> set[str]:
     return tested
 
 
-from typing import Optional, List
 
 def main(argv: Optional[List[str]] = None) -> int:
     args = argv or sys.argv[1:]

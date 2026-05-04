@@ -25,7 +25,7 @@ Pass criteria:
 
 import argparse
 import os
-import subprocess
+import subprocess  # nosec B404
 import sys
 from pathlib import Path
 from typing import Optional
@@ -58,14 +58,14 @@ def run_linter(project: Path, files: list) -> tuple:
         return True, []
     linter_cmd = None
     for cmd in ["pylint", "pylint3"]:
-        if subprocess.run(["which", cmd], capture_output=True).returncode == 0:
+        if subprocess.run(["which", cmd], capture_output=True).returncode == 0:  # nosec B603 B607
             linter_cmd = cmd
             break
     if not linter_cmd:
         print("  pylint not found, skipping Lint")
         return True, []
     for py_file in py_files:
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603
             [linter_cmd, "--errors-only", str(py_file)],
             capture_output=True, text=True, cwd=str(project)
         )
@@ -83,11 +83,11 @@ def run_complexity(project: Path, files: list) -> tuple:
     py_files = [project / f for f in files if f.endswith(".py")]
     if not py_files:
         return True, []
-    if subprocess.run(["which", "radon"], capture_output=True).returncode != 0:
+    if subprocess.run(["which", "radon"], capture_output=True).returncode != 0:  # nosec B603 B607
         print("  radon not found, skipping Complexity")
         return True, []
     for py_file in py_files:
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603 B607
             ["radon", "cc", "-a", "-m", "10", str(py_file)],
             capture_output=True, text=True, cwd=str(project)
         )
@@ -107,7 +107,7 @@ def run_check(name: str, cmd: list, project: str, cwd: Optional[str] = None) -> 
     env["PYTHONPATH"] = f"{METHODOLOGY_V2_DIR}:{env.get('PYTHONPATH', '')}"
     exec_cwd = cwd or str(METHODOLOGY_V2_DIR)
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603
             cmd, capture_output=True, text=True, timeout=300, cwd=exec_cwd, env=env
         )
         output = result.stdout + result.stderr

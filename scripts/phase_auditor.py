@@ -21,7 +21,7 @@ import argparse
 import base64
 import json
 import re
-import subprocess
+import subprocess  # nosec B404
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -325,7 +325,7 @@ class GitHubFetcher:
 
     def _gh(self, endpoint: str) -> Any:
         """Execute gh api command"""
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603 B607
             ["gh", "api", endpoint],
             capture_output=True, text=True
         )

@@ -22,7 +22,7 @@ Minimal check -- Constitution/CQG run separately after completion.
 """
 
 import argparse
-import subprocess
+import subprocess  # nosec B404
 import sys
 from pathlib import Path
 
@@ -53,7 +53,7 @@ def get_fr_files(project_path: Path, fr_id: str) -> list:
 def check_syntax(file_path: Path) -> tuple:
     """Python syntax check."""
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603 B607
             ["python3", "-m", "py_compile", str(file_path)],
             capture_output=True, text=True
         )

@@ -73,7 +73,7 @@ def scan_for_fr_tags(project: Path) -> dict:
                 for fr_id in fr_ids:
                     if rel_path not in fr_files[fr_id]:
                         fr_files[fr_id].append(rel_path)
-            except Exception:
+            except Exception:  # nosec B112
                 continue
     return dict(fr_files)
 
@@ -91,7 +91,7 @@ def scan_for_keywords(project: Path, fr_id: str, keywords: list) -> list:
                 matches = sum(1 for kw in keywords if kw.lower() in content)
                 if matches >= 2:
                     files.append(str(py_file.relative_to(project)))
-            except Exception:
+            except Exception:  # nosec B112
                 continue
     return list(set(files))
 

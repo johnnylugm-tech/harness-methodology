@@ -510,7 +510,7 @@ class SteeringIntegrator:
                     self._cqg_integrator = SteeringCQGIntegrator()
                 winner_output = steering_result.best_so_far.output
                 self._cqg_integrator.measure_code_quality(winner_output)
-            except Exception:  # nosec B110
+            except Exception:  # nosec B110  # degrade gracefully
                 pass
 
         return steering_result, integration_results
@@ -552,8 +552,8 @@ class SteeringIntegrator:
                     if self.steering.best_output else 0.0
                 )
                 VerificationConstitutionChecker().check({"quality_score": best_score})
-            except Exception:  # nosec B110  # degrade gracefully
-                pass
+            except Exception:  # pylint: disable=broad-exception-caught  # nosec B110
+                pass  # degrade gracefully — never block on constitution check failure
 
         return should, reason
 

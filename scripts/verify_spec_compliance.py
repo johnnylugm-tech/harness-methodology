@@ -116,9 +116,12 @@ class SpecComplianceChecker:
         has_200  = '"200"' in content or "'200'" in content or ": 200" in content
         has_500  = '"500"' in content or "'500'" in content or ": 500" in content
         has_1000 = '"1000"' in content or "'1000'" in content or ": 1000" in content
-        if not has_200:  self.issues.append("Prosody: comma pause not set (should be 200ms)")
-        if not has_500:  self.issues.append("Prosody: period pause not set (should be 500ms)")
-        if not has_1000: self.issues.append("Prosody: newline pause not set (should be 1000ms)")
+        if not has_200:
+            self.issues.append("Prosody: comma pause not set (should be 200ms)")
+        if not has_500:
+            self.issues.append("Prosody: period pause not set (should be 500ms)")
+        if not has_1000:
+            self.issues.append("Prosody: newline pause not set (should be 1000ms)")
         if has_200 and has_500 and has_1000:
             self.passed.append("Prosody: pause timing correctly implemented (P8)")
             cli_file = self.project_path / "src" / "cli.py"

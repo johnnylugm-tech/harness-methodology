@@ -15,8 +15,8 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from quality_gate.drift_monitor import DriftMonitor
-from orchestration import create_feedback_store
+from quality_gate.drift_monitor import DriftMonitor  # noqa: E402
+from orchestration import create_feedback_store  # noqa: E402
 
 
 def main():

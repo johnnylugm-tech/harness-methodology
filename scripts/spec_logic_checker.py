@@ -91,7 +91,7 @@ class SpecLogicChecker:
                 file_issues = self._check_file(content, str(py_file))
                 self.issues.extend(file_issues)
                 functions_checked += len(re.findall(r'def\s+\w+', content))
-            except Exception:
+            except Exception:  # nosec B110
                 pass
 
         score = self._calculate_score(len(self.issues), functions_checked)
