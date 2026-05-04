@@ -1,7 +1,7 @@
 # Harness Methodology — User Manual v2.0
 
 > **Audience**: Engineers using Claude (AI agent) + harness-methodology to execute software development projects.
-> **Framework version**: v2.0 | **Document date**: 2026-04-28
+> **Framework version**: v2.2 | **Document date**: 2026-05-04
 
 ---
 

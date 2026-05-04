@@ -118,5 +118,5 @@ Score reconciliation: final_score = min(tool_score, llm_score)
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `HERMES_REVIEWER_TARGET` | Yes | — | e.g. `telegram:6308981865` |
-| `HERMES_TIMEOUT_MS` | No | `120000` | Reviewer response timeout (ms) |
+| `HERMES_TIMEOUT_MS` | No | `30000` | Reviewer response timeout (ms) — maps to `HarnessBridge.GATE4_HERMES_TIMEOUT_MS`; env var override not yet wired in code |
 | `SSI_ROOT` | No | `software_self_improvement` | Path to SSI installation |

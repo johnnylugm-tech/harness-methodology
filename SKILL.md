@@ -148,26 +148,22 @@ prompt = get_persona("DEVELOPER").to_prompt(task="FR-01 implementation")
 
 ## 5. Quality Gate Commands
 
+> **Note**: `cli.py` below is the full parent-system CLI (requires 30+ external modules).
+> For standalone harness operations, use `harness_cli.py` — see §2.3 in SAD.md.
+
 ```bash
-# Check phase gate
+# Harness-standalone equivalents (harness_cli.py)
+python harness_cli.py run-gate  --gate 1 --phase 3 --fr-id FR-01
+python harness_cli.py run-gate  --gate 2 --phase 3
+python harness_cli.py status
+
+# Full parent-system CLI (requires 30+ external modules, not standalone)
 python cli.py quality-gate --phase <N>
-
-# Stage pass (end of phase)
 python cli.py stage-pass --phase <N>
-
-# Verify artifacts
 python cli.py verify-artifact --phase <N>
-
-# Check Phase Truth score
 python cli.py phase-verify --phase <N>
-
-# SAB drift detection
 python cli.py trace-check --phase <N>
-
-# Steering loop
 python cli.py steering run --phase <N>
-
-# Auto research
 python cli.py auto-research --project /path --phase <N>
 ```
 
