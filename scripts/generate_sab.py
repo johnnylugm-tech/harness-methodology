@@ -71,7 +71,7 @@ def main():
 
     sys.path.insert(0, str(project))
     try:
-        from quality_gate.sab_parser import extract_sab_from_sad  # noqa: F401
+        from quality_gate.sab_parser import extract_sab_from_sad
     except ImportError:
         from sab_parser import extract_sab_from_sad
 

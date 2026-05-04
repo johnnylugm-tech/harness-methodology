@@ -28,11 +28,6 @@ _methodology_root = _script_dir.parent         # core/
 if str(_methodology_root) not in sys.path:
     sys.path.insert(0, str(_methodology_root))
 
-try:
-    from core.quality_gate.phase_paths import PHASE_ARTIFACT_PATHS  # noqa: F401
-except ImportError:
-    pass  # type: ignore[no-redef]
-
 
 class PhaseTruthVerifier:
     """Phase truth verifier"""

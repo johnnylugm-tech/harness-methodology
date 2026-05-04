@@ -107,7 +107,7 @@ def run_check(name: str, cmd: list, project: str, cwd: Optional[str] = None) -> 
     env["PYTHONPATH"] = f"{METHODOLOGY_V2_DIR}:{env.get('PYTHONPATH', '')}"
     exec_cwd = cwd or str(METHODOLOGY_V2_DIR)
     try:
-        result = subprocess.run(  # nosec B603
+        result = subprocess.run(  # nosec B603 B607
             cmd, capture_output=True, text=True, timeout=300, cwd=exec_cwd, env=env
         )
         output = result.stdout + result.stderr
