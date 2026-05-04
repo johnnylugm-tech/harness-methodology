@@ -6,6 +6,7 @@ Handles gate execution, results parsing, and quality manifest updates.
 
 from __future__ import annotations
 import json
+import os
 import subprocess  # nosec B404
 import time
 from dataclasses import dataclass, field
@@ -56,8 +57,8 @@ class HarnessBridge:
     Handles gate triggering, CRG integration, result parsing, and manifest updates.
     """
 
-    # Default timeout for Gate 4 Hermes reviewer (seconds → ms for reviewer_router)
-    GATE4_HERMES_TIMEOUT_MS: int = 30_000
+    # Default timeout for Gate 4 Hermes reviewer — reads HERMES_TIMEOUT_MS env var, default 120s
+    GATE4_HERMES_TIMEOUT_MS: int = int(os.environ.get("HERMES_TIMEOUT_MS", "120000"))
 
     def __init__(self):
         """Initialize the bridge with its dependent subsystems."""
@@ -225,8 +226,7 @@ class HarnessBridge:
         Check for external approval from Hermes reviewer (Gate 4 only).
 
         Args:
-            timeout_ms: Max wait time for Hermes response (default 30 s).
-                        Override via HERMES_TIMEOUT_MS env var or this param.
+            timeout_ms: Max wait time for Hermes response (default 120 s from HERMES_TIMEOUT_MS env var).
         """
         from harness.reviewer_router import ReviewerRouter
         try:

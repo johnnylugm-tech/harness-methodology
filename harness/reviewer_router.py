@@ -35,7 +35,7 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 HERMES_TARGET = os.environ.get("HERMES_REVIEWER_TARGET", "")
-HERMES_TIMEOUT_MS  = int(os.environ.get("HERMES_TIMEOUT_MS",  "90000"))   # 90s per CLAUDE.md
+HERMES_TIMEOUT_MS  = int(os.environ.get("HERMES_TIMEOUT_MS",  "120000"))  # 120s default
 GEMINI_TIMEOUT_MS  = int(os.environ.get("GEMINI_TIMEOUT_MS",  "60000"))   # 60s for Gemini CLI MCP
 TASK_SIZE_THRESHOLD = int(os.environ.get("TASK_SIZE_THRESHOLD", "2000"))  # chars — decompose if exceeded
 SUBTASK_MAX_SIZE    = int(os.environ.get("SUBTASK_MAX_SIZE",    "800"))   # chars/subtask (paragraph split)

@@ -118,5 +118,5 @@ Score reconciliation: final_score = min(tool_score, llm_score)
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `HERMES_REVIEWER_TARGET` | Yes | — | e.g. `telegram:6308981865` |
-| `HERMES_TIMEOUT_MS` | No | `30000` | Reviewer response timeout (ms) — maps to `HarnessBridge.GATE4_HERMES_TIMEOUT_MS`; env var override not yet wired in code |
+| `HERMES_TIMEOUT_MS` | No | `120000` | Hermes reviewer response timeout (ms, default 2 min). Wired in both `reviewer_router.py` (module-level constant) and `HarnessBridge.GATE4_HERMES_TIMEOUT_MS` (class constant). |
 | `SSI_ROOT` | No | `software_self_improvement` | Path to SSI installation |
