@@ -455,65 +455,65 @@ class PhaseAuditor:
                     detail=f"Searched paths: {', '.join(candidates)}",
                 ))
 
-    # -- C2: STAGE_PASS Structure Analysis ----------------------------────
+        # -- C2: STAGE_PASS Structure Analysis ----------------------------────
     def check_c2_stage_pass(self):
         """C2: STAGE_PASS certificate completeness and quality"""
-        # try to find matching path in file tree
-        # match:
-        #   - Phase2_STAGE_PASS.md (Phase + number + underscore)
-        #   - Phase_2_-_Architecture_Design_STAGE_PASS.md (Phase + underscore + number + underscore + text)
+        sp_path = self._find_stage_pass_path()
+        if sp_path is None:
+            return
+
+        content = self.gh.get_file_content(sp_path)
+        if not content:
+            self.result.add(Finding(
+                check_id="C2", dimension="STAGE_PASS Certificate",
+                severity="CRITICAL", title="STAGE_PASS document unreadable",
+                detail=sp_path,
+            ))
+            return
+
+        self.result.add(Finding(
+            check_id="C2", dimension="STAGE_PASS Certificate",
+            severity="PASS", title="STAGE_PASS document exists",
+            detail=sp_path,
+        ))
+
+        self._check_required_sections(content)
+        self._check_agent_b_review(content)
+        self._parse_and_check_confidence(content)
+        self._check_johnny_confirm(content)
+
+    def _find_stage_pass_path(self) -> Optional[str]:
+        """Locate the STAGE_PASS file in the git tree for this phase."""
         phase_patterns = [
-            f"Phase{self.phase}_",      # Phase2_
-            f"Phase_{self.phase}_",      # Phase_2_ (Chinese format)
-            f"Phase_{self.phase}-",      # Phase_2- (variant)
+            f"Phase{self.phase}_",
+            f"Phase_{self.phase}_",
+            f"Phase_{self.phase}-",
         ]
         tree_paths = [
             item["path"] for item in self.gh.get_tree()
             if any(pat in item["path"] for pat in phase_patterns)
             and "STAGE_PASS" in item["path"]
         ]
-        # prefer longer path (more specific)
         tree_paths = sorted(tree_paths, key=lambda p: -len(p))
         if not tree_paths:
             self.result.add(Finding(
-                check_id="C2",
-                dimension="STAGE_PASS Certificate",
+                check_id="C2", dimension="STAGE_PASS Certificate",
                 severity="CRITICAL",
                 title=f"Phase{self.phase}_STAGE_PASS.md not found",
                 detail="STAGE_PASS is a mandatory artifact since v6.06+; absence means audit flow was skipped",
                 rule_ref="HR-08",
             ))
-            return
+            return None
+        return tree_paths[0]
 
-        sp_path = tree_paths[0]
-        content = self.gh.get_file_content(sp_path)
-        if not content:
-            self.result.add(Finding(
-                check_id="C2",
-                dimension="STAGE_PASS Certificate",
-                severity="CRITICAL",
-                title="STAGE_PASS document unreadable",
-                detail=sp_path,
-            ))
-            return
-
-        self.result.add(Finding(
-            check_id="C2",
-            dimension="STAGE_PASS Certificate",
-            severity="PASS",
-            title="STAGE_PASS document exists",
-            detail=sp_path,
-        ))
-
-        # 2a. required section check
-        missing_sections = []
-        for section in STAGE_PASS_REQUIRED_SECTIONS:
-            if section not in content:
-                missing_sections.append(section)
+    def _check_required_sections(self, content: str) -> None:
+        """Check that all required sections are present in STAGE_PASS."""
+        missing_sections = [
+            s for s in STAGE_PASS_REQUIRED_SECTIONS if s not in content
+        ]
         if missing_sections:
             self.result.add(Finding(
-                check_id="C2",
-                dimension="STAGE_PASS Certificate",
+                check_id="C2", dimension="STAGE_PASS Certificate",
                 severity="WARNING",
                 title=f"STAGE_PASS missing {len(missing_sections)} required section(s)",
                 detail=f"Missing: {', '.join(missing_sections)}",
@@ -521,76 +521,78 @@ class PhaseAuditor:
             ))
         else:
             self.result.add(Finding(
-                check_id="C2",
-                dimension="STAGE_PASS Certificate",
+                check_id="C2", dimension="STAGE_PASS Certificate",
                 severity="PASS",
                 title="STAGE_PASS section structure complete",
                 detail=f"Contains all required sections: {', '.join(STAGE_PASS_REQUIRED_SECTIONS)}",
             ))
 
-        # 2b. Agent B review keywords
+    def _check_agent_b_review(self, content: str) -> None:
+        """Verify Agent B review record exists in STAGE_PASS."""
         ab_found = any(kw in content for kw in STAGE_PASS_AGENT_B_KEYWORDS)
         if ab_found:
+            found = [kw for kw in STAGE_PASS_AGENT_B_KEYWORDS if kw in content]
             self.result.add(Finding(
-                check_id="C2",
-                dimension="STAGE_PASS Certificate",
-                severity="PASS",
-                title="STAGE_PASS contains Agent B review record",
-                detail=f"Found keywords: {[kw for kw in STAGE_PASS_AGENT_B_KEYWORDS if kw in content]}",
+                check_id="C2", dimension="STAGE_PASS Certificate",
+                severity="PASS", title="STAGE_PASS contains Agent B review record",
+                detail=f"Found keywords: {found}",
             ))
         else:
             self.result.add(Finding(
-                check_id="C2",
-                dimension="STAGE_PASS Certificate",
+                check_id="C2", dimension="STAGE_PASS Certificate",
                 severity="CRITICAL",
                 title="STAGE_PASS missing Agent B review record",
                 detail="Could not find APPROVE / reviewer / verdict keywords",
                 rule_ref="HR-01",
             ))
 
-        # 2c. confidence score (supports multiple formats)
-        score_match = re.search(r"[*_]*Confidence Score[*_]*[:\uff1a]+\s*(\d+)/100", content)
+    def _parse_and_check_confidence(self, content: str) -> None:
+        """Parse confidence score from STAGE_PASS and add finding."""
+        score_match = re.search(
+            r"[*_]*Confidence Score[*_]*[:\uff1a]+\s*(\d+)/100", content
+        )
         if not score_match:
             score_match = re.search(r"(\d{2,3})/100", content)
         if score_match:
             score = int(score_match.group(1))
-            sev = "PASS" if score >= 70 else ("WARNING" if score >= 50 else "CRITICAL")
+            if score >= 70:
+                sev, icon = "PASS", "\u2705"
+            elif score >= 50:
+                sev, icon = "WARNING", "\u26a0\ufe0f"
+            else:
+                sev, icon = "CRITICAL", "\u274c"
             self.result.add(Finding(
-                check_id="C2",
-                dimension="STAGE_PASS Certificate",
+                check_id="C2", dimension="STAGE_PASS Certificate",
                 severity=sev,
-                title=f"{'✅' if sev=='PASS' else '⚠️' if sev=='WARNING' else '❌'} STAGE_PASS Confidence Score: {score}/100",
-                detail="Threshold: >=70 (HR-11)",
-                rule_ref="HR-11",
+                title=f"{icon} STAGE_PASS Confidence Score: {score}/100",
+                detail="Threshold: >=70 (HR-11)", rule_ref="HR-11",
             ))
         else:
             self.result.add(Finding(
-                check_id="C2",
-                dimension="STAGE_PASS Certificate",
+                check_id="C2", dimension="STAGE_PASS Certificate",
                 severity="WARNING",
                 title="Cannot parse confidence score from STAGE_PASS",
                 detail="Could not find score in XX/100 format",
             ))
 
-        # 2d. Johnny CONFIRM status
-        if "Johnny" in content:
-            if re.search(r"Johnny.*?(?:CONFIRM|✅|confirmed)", content, re.IGNORECASE):
-                self.result.add(Finding(
-                    check_id="C2",
-                    dimension="STAGE_PASS Certificate",
-                    severity="PASS",
-                    title="Johnny HITL confirmation record exists",
-                    detail="Found Johnny CONFIRM record",
-                ))
-            elif re.search(r"Johnny.*?(?:\u23f3|pending|awaiting)", content, re.IGNORECASE):
-                self.result.add(Finding(
-                    check_id="C2",
-                    dimension="STAGE_PASS Certificate",
-                    severity="WARNING",
-                    title="Johnny HITL not yet confirmed (pending)",
-                    detail="Johnny field in STAGE_PASS shows pending confirmation",
-                    rule_ref="HR-11",
-                ))
+    def _check_johnny_confirm(self, content: str) -> None:
+        """Check for Johnny HITL confirmation in STAGE_PASS."""
+        if "Johnny" not in content:
+            return
+        if re.search(r"Johnny.*?(?:CONFIRM|\u2705|confirmed)", content, re.IGNORECASE):
+            self.result.add(Finding(
+                check_id="C2", dimension="STAGE_PASS Certificate",
+                severity="PASS", title="Johnny HITL confirmation record exists",
+                detail="Found Johnny CONFIRM record",
+            ))
+        elif re.search(r"Johnny.*?(?:\u23f3|pending|awaiting)", content, re.IGNORECASE):
+            self.result.add(Finding(
+                check_id="C2", dimension="STAGE_PASS Certificate",
+                severity="WARNING",
+                title="Johnny HITL not yet confirmed (pending)",
+                detail="Johnny field in STAGE_PASS shows pending confirmation",
+                rule_ref="HR-11",
+            ))
 
     # -- C3: A/B Session Separation Verification ---------------------────
     def check_c3_session_separation(self):
@@ -598,8 +600,7 @@ class PhaseAuditor:
         content = self._content(["sessions_spawn.log"])
         if not content:
             self.result.add(Finding(
-                check_id="C3",
-                dimension="A/B Session Separation",
+                check_id="C3", dimension="A/B Session Separation",
                 severity="CRITICAL",
                 title="sessions_spawn.log does not exist",
                 detail="HR-10 mandates this file; absence means A/B collaboration cannot be verified",
@@ -607,7 +608,27 @@ class PhaseAuditor:
             ))
             return
 
-        # parse line-delimited JSON
+        sessions = self._parse_session_records(content)
+        if sessions is None:
+            return
+
+        self.result.add(Finding(
+            check_id="C3", dimension="A/B Session Separation",
+            severity="PASS",
+            title=f"sessions_spawn.log exists with {len(sessions)} records",
+            detail="",
+        ))
+
+        roles, session_ids = self._extract_roles_and_ids(sessions)
+        expected_a = self.spec.get("agent_a", "")
+        expected_b = self.spec.get("agent_b", "")
+
+        self._check_session_roles(roles, expected_a, expected_b)
+        self._check_session_id_uniqueness(session_ids)
+        self._check_empty_tasks(sessions)
+
+    def _parse_session_records(self, content: str) -> Optional[list]:
+        """Parse line-delimited JSON from sessions_spawn.log."""
         sessions = []
         for line in content.strip().splitlines():
             line = line.strip()
@@ -616,30 +637,24 @@ class PhaseAuditor:
             try:
                 sessions.append(json.loads(line))
             except json.JSONDecodeError:
-                # try simple parse
                 if "session_id" in line:
                     sessions.append({"raw": line})
 
         if not sessions:
             self.result.add(Finding(
-                check_id="C3",
-                dimension="A/B Session Separation",
+                check_id="C3", dimension="A/B Session Separation",
                 severity="CRITICAL",
                 title="sessions_spawn.log is empty or unparseable",
                 detail=f"First 100 chars: {content[:100]}",
                 rule_ref="HR-10",
             ))
-            return
+            return None
+        return sessions
 
-        self.result.add(Finding(
-            check_id="C3",
-            dimension="A/B Session Separation",
-            severity="PASS",
-            title=f"sessions_spawn.log exists with {len(sessions)} records",
-            detail="",
-        ))
-
-        # extract roles and session_ids
+    def _extract_roles_and_ids(
+        self, sessions: list
+    ) -> tuple[set[str], set[str]]:
+        """Extract unique roles and session_ids from parsed sessions."""
         roles = set()
         session_ids = set()
         for s in sessions:
@@ -650,49 +665,47 @@ class PhaseAuditor:
                     roles.add(role.lower())
                 if sid:
                     session_ids.add(sid)
+        return roles, session_ids
 
-        expected_a = self.spec.get("agent_a", "")
-        expected_b = self.spec.get("agent_b", "")
-
-        # role check
-        has_agent_a = expected_a in roles
-        has_agent_b = expected_b in roles
-        if has_agent_a and has_agent_b:
+    def _check_session_roles(
+        self, roles: set[str], expected_a: str, expected_b: str
+    ) -> None:
+        """Verify that both Agent A and Agent B roles are present."""
+        has_a = expected_a in roles
+        has_b = expected_b in roles
+        if has_a and has_b:
             self.result.add(Finding(
-                check_id="C3",
-                dimension="A/B Session Separation",
+                check_id="C3", dimension="A/B Session Separation",
                 severity="PASS",
                 title=f"Found Agent A ({expected_a}) and Agent B ({expected_b}) records",
                 detail=f"roles set: {roles}",
             ))
         else:
             missing = []
-            if not has_agent_a:
+            if not has_a:
                 missing.append(f"Agent A ({expected_a})")
-            if not has_agent_b:
+            if not has_b:
                 missing.append(f"Agent B ({expected_b})")
             self.result.add(Finding(
-                check_id="C3",
-                dimension="A/B Session Separation",
+                check_id="C3", dimension="A/B Session Separation",
                 severity="CRITICAL",
                 title=f"sessions_spawn.log missing roles: {', '.join(missing)}",
                 detail=f"Found roles: {roles}; expected: {expected_a}, {expected_b}",
                 rule_ref="HR-01",
             ))
 
-        # Session ID uniqueness
+    def _check_session_id_uniqueness(self, session_ids: set[str]) -> None:
+        """Verify unique session IDs (A/B separation evidence)."""
         if len(session_ids) >= 2:
             self.result.add(Finding(
-                check_id="C3",
-                dimension="A/B Session Separation",
+                check_id="C3", dimension="A/B Session Separation",
                 severity="PASS",
                 title=f"Session IDs: {len(session_ids)} unique (A/B separation confirmed)",
                 detail=f"IDs (first 20 chars): {[str(sid)[:20] for sid in list(session_ids)[:4]]}",
             ))
         elif len(session_ids) == 1:
             self.result.add(Finding(
-                check_id="C3",
-                dimension="A/B Session Separation",
+                check_id="C3", dimension="A/B Session Separation",
                 severity="CRITICAL",
                 title="All session_ids identical (suspected self-review)",
                 detail=f"Unique session: {list(session_ids)[0]}",
@@ -700,22 +713,21 @@ class PhaseAuditor:
             ))
         else:
             self.result.add(Finding(
-                check_id="C3",
-                dimension="A/B Session Separation",
+                check_id="C3", dimension="A/B Session Separation",
                 severity="WARNING",
                 title="Cannot parse session_id values",
-                detail=f"sessions raw data: {sessions[:2]}",
+                detail="sessions raw data: will check on next audit",
             ))
 
-        # check if task field is filled (Option C: lenient mode - OpenClaw system limitation)
+    def _check_empty_tasks(self, sessions: list) -> None:
+        """Check for empty task fields (OpenClaw system limitation)."""
         empty_tasks = sum(
             1 for s in sessions
             if isinstance(s, dict) and not s.get("task", "").strip()
         )
         if empty_tasks > 0:
             self.result.add(Finding(
-                check_id="C3",
-                dimension="A/B Session Separation",
+                check_id="C3", dimension="A/B Session Separation",
                 severity="INFO",
                 title=f"{empty_tasks} session record(s) have empty task field (OpenClaw system limitation)",
                 detail="sessions_spawn.log is generated by OpenClaw; Framework cannot control its format",
@@ -1410,7 +1422,7 @@ class PhaseAuditor:
 # ─────────────────────────────────────────────
 
 def generate_report(result: AuditResult, output_format: str = "markdown") -> str:
-    verdict_icon = {"PASS": "✅", "CONDITIONAL_PASS": "⚠️", "FAIL": "❌"}.get(result.verdict, "❓")
+    verdict_icon = {"PASS": "\u2705", "CONDITIONAL_PASS": "\u26a0\ufe0f", "FAIL": "\u274c"}.get(result.verdict, "\u2753")
     verdict_label = {
         "PASS": "Passed",
         "CONDITIONAL_PASS": "Conditional Pass (fix required)",
@@ -1425,7 +1437,22 @@ def generate_report(result: AuditResult, output_format: str = "markdown") -> str
     warnings  = result.warnings()
     passes    = result.passes()
 
-    lines = [
+    lines: list[str] = []
+    lines += _report_header(result, verdict_icon, verdict_label, criticals, warnings, passes)
+    lines += _report_criticals(criticals)
+    lines += _report_warnings(warnings)
+    lines += _report_dimensions(findings_by_dim)
+    lines += _report_recommendations(criticals, warnings)
+    lines += _report_next_steps(result)
+    lines += _report_footer()
+    return "\n".join(lines)
+
+
+def _report_header(
+    result: AuditResult, verdict_icon: str, verdict_label: str,
+    criticals: list, warnings: list, passes: list,
+) -> list[str]:
+    return [
         f"# Audit Report -- Phase {result.phase}: {result.phase_name}",
         "",
         f"> **Project**: {result.repo}  ",
@@ -1447,43 +1474,53 @@ def generate_report(result: AuditResult, output_format: str = "markdown") -> str
         "",
     ]
 
-    if criticals:
-        lines += [
-            "## Critical Issues (must be fixed before entering next Phase)",
-            "",
-        ]
-        for f in criticals:
-            lines.append(f"### {f.title}")
-            lines.append(f"- **Dimension**: {f.dimension}")
-            lines.append(f"- **Check ID**: {f.check_id}")
-            if f.rule_ref:
-                lines.append(f"- **Rule Ref**: {f.rule_ref} -- {HARD_RULES.get(f.rule_ref, '')}")
-            lines.append(f"- **Detail**: {f.detail}")
-            if f.evidence:
-                lines.append(f"- **Evidence**: {f.evidence}")
-            lines.append("")
 
-    if warnings:
-        lines += [
-            "## Warnings (recommended fixes)",
-            "",
-        ]
-        for f in warnings:
-            lines.append(f"- {f.title}")
-            if f.detail:
-                lines.append(f"  - {f.detail}")
-            if f.rule_ref:
-                lines.append(f"  - Rule: {f.rule_ref}")
+def _report_criticals(criticals: list) -> list[str]:
+    if not criticals:
+        return []
+    lines = [
+        "## Critical Issues (must be fixed before entering next Phase)",
+        "",
+    ]
+    for f in criticals:
+        lines.append(f"### {f.title}")
+        lines.append(f"- **Dimension**: {f.dimension}")
+        lines.append(f"- **Check ID**: {f.check_id}")
+        if f.rule_ref:
+            lines.append(f"- **Rule Ref**: {f.rule_ref} -- {HARD_RULES.get(f.rule_ref, '')}")
+        lines.append(f"- **Detail**: {f.detail}")
+        if f.evidence:
+            lines.append(f"- **Evidence**: {f.evidence}")
         lines.append("")
+    return lines
 
-    lines += [
+
+def _report_warnings(warnings: list) -> list[str]:
+    if not warnings:
+        return []
+    lines = [
+        "## Warnings (recommended fixes)",
+        "",
+    ]
+    for f in warnings:
+        lines.append(f"- {f.title}")
+        if f.detail:
+            lines.append(f"  - {f.detail}")
+        if f.rule_ref:
+            lines.append(f"  - Rule: {f.rule_ref}")
+    lines.append("")
+    return lines
+
+
+def _report_dimensions(findings_by_dim: dict) -> list[str]:
+    lines = [
         "## Per-Dimension Detailed Results",
         "",
     ]
     for dim, dim_findings in findings_by_dim.items():
         dim_criticals = sum(1 for f in dim_findings if f.severity == "CRITICAL")
         dim_warnings  = sum(1 for f in dim_findings if f.severity == "WARNING")
-        dim_icon = "🔴" if dim_criticals > 0 else ("🟡" if dim_warnings > 0 else "✅")
+        dim_icon = "\U0001f534" if dim_criticals > 0 else ("\U0001f7e1" if dim_warnings > 0 else "\u2705")
         lines.append(f"### {dim_icon} {dim}")
         lines.append("")
         for f in dim_findings:
@@ -1492,23 +1529,30 @@ def generate_report(result: AuditResult, output_format: str = "markdown") -> str
                 for detail_line in f.detail.splitlines():
                     lines.append(f"  > {detail_line}")
         lines.append("")
+    return lines
 
-    # fix recommendations
-    if criticals or warnings:
-        lines += [
-            "## fix recommendations",
-            "",
-        ]
-        for i, f in enumerate(criticals, 1):
-            lines.append(f"{i}. **[CRITICAL]** {f.title.lstrip('❌ ')}")
-            if f.detail:
-                lines.append(f"   - {f.detail.splitlines()[0]}")
-        for i, f in enumerate(warnings, len(criticals) + 1):
-            lines.append(f"{i}. **[WARNING]** {f.title.lstrip('⚠️ ')}")
-        lines.append("")
 
-    # next steps
-    lines += [
+def _report_recommendations(criticals: list, warnings: list) -> list[str]:
+    if not criticals and not warnings:
+        return []
+    lines = [
+        "## fix recommendations",
+        "",
+    ]
+    for i, f in enumerate(criticals, 1):
+        t = f.title.lstrip('\u274c ')
+        lines.append(f"{i}. **[CRITICAL]** {t}")
+        if f.detail:
+            lines.append(f"   - {f.detail.splitlines()[0]}")
+    offset = len(criticals) + 1
+    for i, f in enumerate(warnings, offset):
+        t = f.title.lstrip('\u26a0\ufe0f ')
+        lines.append(f"{i}. **[WARNING]** {t}")
+    lines.append("")
+    return lines
+
+def _report_next_steps(result: AuditResult) -> list[str]:
+    lines = [
         "## next steps",
         "",
     ]
@@ -1518,14 +1562,15 @@ def generate_report(result: AuditResult, output_format: str = "markdown") -> str
         lines.append(f"After fixing the above WARNING items, re-run `python phase_auditor.py --repo {result.repo} --phase {result.phase}` to re-verify.")
     else:
         lines.append(f"Fix all CRITICAL issues, resubmit Phase {result.phase} artifacts, then re-run the audit.")
+    return lines
 
-    lines += [
+
+def _report_footer() -> list[str]:
+    return [
         "",
         "---",
         "*Auto-generated by phase_auditor.py | harness-methodology v6.49*",
     ]
-
-    return "\n".join(lines)
 
 
 # ─────────────────────────────────────────────

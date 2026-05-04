@@ -58,6 +58,33 @@ class TestHarnessBridge:
                 entry = mock_log.write.call_args[0][0]
                 assert entry.decision == "REVIEWER_REJECT"
 
+    def test_load_config_returns_dict(self):
+        bridge = HarnessBridge()
+        config = bridge._load_config(gate_num=2)
+        assert isinstance(config, dict)
+        assert config["gate"] == 2
+
+    def test_run_gate_passes_with_good_score(self):
+        bridge = HarnessBridge()
+        with patch.object(bridge, "_load_config", return_value={"gate": 2, "score_gate": 80, "max_rounds": 3}), \
+             patch.object(bridge, "_invoke_harness") as mock_invoke, \
+             patch.object(bridge, "_update_quality_manifest"), \
+             patch.object(bridge, "_log"):
+            mock_invoke.return_value = GateResult(
+                gate_num=2, score=90.0, quality_complete=True,
+                dimensions=[], open_critical=0, open_high=0,
+            )
+            result = bridge.run_gate(gate_num=2, project_root=".", phase=3)
+            assert result.score == 90.0
+            assert result.quality_complete is True
+
+    def test_gate_blocked_error_attributes(self):
+        result = GateResult(gate_num=3, score=60.0, open_critical=2, open_high=3)
+        err = GateBlockedError(gate_num=3, result=result)
+        assert err.gate_num == 3
+        assert err.result.score == 60.0
+        assert "Gate 3 BLOCKED" in str(err)
+
     def test_generate_quality_manifest_creates_file(self, tmp_path):
         """Verify generation of initial quality manifest."""
         bridge = HarnessBridge()
