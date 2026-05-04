@@ -124,7 +124,6 @@ def test_create_check_fn_commit_message(generator):
         assert fn() is True
 
     # Simulate existing commit file with task ID → returns True
-    import tempfile
     with tempfile.NamedTemporaryFile(mode="w", delete=False) as tf:
         tf.write("fix: [TASK-123] do something")
         tmp_path = tf.name

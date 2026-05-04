@@ -716,7 +716,7 @@ class PhaseAuditor:
                 check_id="C3", dimension="A/B Session Separation",
                 severity="WARNING",
                 title="Cannot parse session_id values",
-                detail="sessions raw data: will check on next audit",
+                detail=f"session_ids (first 4): {[str(sid)[:20] for sid in list(session_ids)[:4]]}",
             ))
 
     def _check_empty_tasks(self, sessions: list) -> None:
