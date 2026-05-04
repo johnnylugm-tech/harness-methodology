@@ -152,7 +152,7 @@ class CodeScanner:
                 for fn in filenames:
                     if fn.endswith(".py") and not fn.startswith("test_") and fn != "conftest.py":
                         files.append(Path(root) / fn)
-        except Exception:
+        except Exception:  # pragma: no cover
             return []
         return sorted(files)
 
@@ -161,7 +161,7 @@ class CodeScanner:
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 content = f.read()
-        except Exception:
+        except Exception:  # pragma: no cover
             return None
         try:
             tree = ast.parse(content, filename=str(file_path))

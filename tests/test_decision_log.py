@@ -91,3 +91,10 @@ class TestDecisionLogWriter:
         p3_entries = writer.read_phase(phase=3)
         assert len(p3_entries) == 1
         assert p3_entries[0]["ctx"]["phase"] == 3
+
+    def test_read_phase_skips_corrupt_file(self, writer, log_dir):
+        writer.write(_entry(phase=3))
+        # Create a corrupt file that matches the glob pattern "*_3_*.yaml"
+        (log_dir / "X_3_corrupt.yaml").write_text("{{{bad yaml")
+        entries = writer.read_phase(phase=3)
+        assert len(entries) == 1  # corrupt file skipped

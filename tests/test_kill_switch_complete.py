@@ -100,6 +100,23 @@ class TestCircuitBreaker:
         assert result is False  # half-open means allow probe
         assert cb.get_state("a1") == CircuitState.HALF_OPEN
 
+    def test_is_open_false_when_state_closed(self):
+        cb = self._cb()
+        cb.initialize_circuit("a1")  # state defaults to CLOSED
+        assert cb.is_open("a1") is False
+
+    def test_is_open_true_when_open_no_cooldown(self):
+        cb = self._cb()
+        cb.initialize_circuit("a1")
+        cb._circuits["a1"].state = CircuitState.OPEN
+        cb._circuits["a1"].cooldown_end = None
+        assert cb.is_open("a1") is True
+
+    def test_get_state_known_agent(self):
+        cb = self._cb()
+        cb.initialize_circuit("a1")
+        assert cb.get_state("a1") == CircuitState.CLOSED
+
     def test_should_trigger_error_rate(self):
         from kill_switch.circuit_breaker import CircuitBreaker
         from datetime import datetime, timezone
@@ -308,6 +325,25 @@ class TestHealthMonitor:
         hm = self._hm()
         assert hm.is_monitoring("unknown") is False
 
+    def test_get_metrics_raises_when_no_buffer(self):
+        from kill_switch.exceptions import MetricsUnavailableError
+        hm = self._hm()
+        hm.start_monitoring("a1", MonitorConfig("a1"))
+        hm._metrics_buffer.pop("a1", None)  # remove buffer
+        with pytest.raises(MetricsUnavailableError):
+            hm.get_metrics("a1")
+
+    def test_record_metrics_creates_buffer_for_new_agent(self):
+        from datetime import datetime, timezone
+        hm = self._hm()
+        now = datetime.now(timezone.utc)
+        m = HealthMetrics("new_agent", error_rate=0.1, latency_p99_ms=200.0,
+                          memory_usage_percent=60.0, output_rate_kbps=50.0,
+                          last_health_check=now, timestamp=now)
+        hm.record_metrics("new_agent", m)
+        assert "new_agent" in hm._metrics_buffer
+        assert len(hm._metrics_buffer["new_agent"]) == 1
+
 
 # ===========================================================================
 # InterruptEngine
@@ -376,6 +412,33 @@ class TestInterruptEngine:
         engine = self._engine(audit_logger=audit)
         engine.trigger_interrupt("a1", "r", "op")
         assert audit.log_event.call_count >= 1
+
+    def test_audit_log_event_exception_handled(self):
+        audit = MagicMock()
+        audit.log_event = MagicMock(side_effect=RuntimeError("audit failed"))
+        engine = self._engine(audit_logger=audit)
+        # Should not raise despite audit failure
+        event = engine.trigger_interrupt("a1", "r", "op")
+        assert event.agent_id == "a1"
+
+    def test_release_lock_runtime_error_handled(self):
+        from threading import Lock
+        engine = self._engine()
+        lock = Lock()  # un-acquired lock → release raises RuntimeError
+        engine._release_lock("a1", lock)  # should not raise
+
+    def test_execute_interrupt_agent_not_found(self):
+        engine = self._engine()
+        outcome, msg = engine._execute_interrupt_sequence("unknown")
+        assert outcome is not None
+        assert msg == "Agent process not found"
+
+    def test_execute_interrupt_agent_found(self):
+        engine = self._engine()
+        with patch.object(engine, '_get_agent_pid', return_value=12345):
+            outcome, msg = engine._execute_interrupt_sequence("a1")
+        assert outcome is not None
+        assert msg is None
 
     def test_trigger_with_state_manager(self, tmp_path):
         from kill_switch.state_manager import StateManager
@@ -481,10 +544,42 @@ class TestKillSwitchFacade:
         result = ks.evaluate_and_trigger("unmonitored", MonitorConfig("unmonitored"))
         assert result is False
 
+    def test_evaluate_and_trigger_opens_circuit_on_threshold(self, tmp_path):
+        from datetime import datetime, timezone
+        from unittest.mock import patch, MagicMock
+        ks = self._ks(tmp_path)
+        ks.start_monitoring("a1", MonitorConfig("a1", failure_threshold=1))
+        ks.circuit_breaker.initialize_circuit("a1")
+        now = datetime.now(timezone.utc)
+        bad_m = HealthMetrics("a1", error_rate=0.5, latency_p99_ms=100.0,
+                              memory_usage_percent=50.0, output_rate_kbps=10.0,
+                              last_health_check=now, timestamp=now)
+        with patch.object(ks.health_monitor, 'get_metrics', return_value=bad_m):
+            with patch.object(ks.circuit_breaker, 'should_trigger', return_value=True):
+                result = ks.evaluate_and_trigger("a1", MonitorConfig("a1", failure_threshold=1))
+        assert result is True
+
     def test_start_monitoring_default_config(self, tmp_path):
         ks = self._ks(tmp_path)
         ks.start_monitoring("a1")
         assert ks.health_monitor.is_monitoring("a1") is True
+
+    def test_evaluate_and_trigger_interrupt_in_progress_handled(self, tmp_path):
+        from datetime import datetime, timezone
+        from kill_switch.exceptions import InterruptInProgressError
+        ks = self._ks(tmp_path)
+        ks.start_monitoring("a1", MonitorConfig("a1", failure_threshold=1))
+        ks.circuit_breaker.initialize_circuit("a1")
+        now = datetime.now(timezone.utc)
+        bad_m = HealthMetrics("a1", error_rate=0.5, latency_p99_ms=100.0,
+                              memory_usage_percent=50.0, output_rate_kbps=10.0,
+                              last_health_check=now, timestamp=now)
+        with patch.object(ks.health_monitor, 'get_metrics', return_value=bad_m):
+            with patch.object(ks.circuit_breaker, 'should_trigger', return_value=True):
+                with patch.object(ks.interrupt_engine, 'trigger_interrupt',
+                                  side_effect=InterruptInProgressError("in progress")):
+                    result = ks.evaluate_and_trigger("a1", MonitorConfig("a1", failure_threshold=1))
+        assert result is False
 
 
 # ===========================================================================
@@ -629,6 +724,18 @@ class TestCRGBridge:
         bridge = CRGBridge()
         data = bridge.load_metrics(str(tmp_path))
         assert data["score"] == 0.85
+
+    def test_run_reconnaissance_when_available(self, tmp_path):
+        from harness.crg_bridge import CRGBridge
+        bridge = CRGBridge()
+        bridge._available = True
+        sessi_work = tmp_path / ".sessi-work"
+        sessi_work.mkdir()
+        (sessi_work / "crg_reconnaissance.json").write_text('{"modules": 5}', encoding="utf-8")
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            result = bridge.run_reconnaissance(str(tmp_path))
+        assert result == {"modules": 5}
 
     def test_get_minimal_context_parses_json_output(self, tmp_path):
         from harness.crg_bridge import CRGBridge

@@ -53,9 +53,40 @@ class TestDriftDetector:
         """Verify drift detection when SAD points to non-existent files."""
         sad_path = tmp_path / "SAD.md"
         sad_path.write_text("| FR-01 | `missing.py` |")
-        
+
         detector = DriftDetector(str(tmp_path))
         result = detector.detect_sad_drift()
-        
+
         assert result.has_drift is True
         assert "missing.py" in result.drift_items[0].description
+
+    def test_detect_sad_drift_no_sad_file(self, tmp_path):
+        detector = DriftDetector(str(tmp_path))
+        result = detector.detect_sad_drift()
+        assert result.has_drift is False
+        assert result.score == 1.0
+
+    def test_detect_all_returns_dict(self, tmp_path):
+        detector = DriftDetector(str(tmp_path))
+        results = detector.detect_all()
+        assert "sad" in results
+        assert "spec" in results
+        assert "phase" in results
+
+    def test_drift_result_to_dict(self, tmp_path):
+        from detection.drift_detector import DriftResult
+        r = DriftResult(drift_type="phase", has_drift=True, checked=3,
+                       drifted=1, score=0.67)
+        d = r.to_dict()
+        assert d["has_drift"] is True
+        assert d["drifted"] == 1
+
+    def test_find_file_found(self, tmp_path):
+        (tmp_path / "SRS.md").write_text("test")
+        detector = DriftDetector(str(tmp_path))
+        found = detector._find_file(["SRS.md", "01-requirements/SRS.md"])
+        assert found is not None
+
+    def test_find_file_not_found(self, tmp_path):
+        detector = DriftDetector(str(tmp_path))
+        assert detector._find_file(["nonexistent.md"]) is None

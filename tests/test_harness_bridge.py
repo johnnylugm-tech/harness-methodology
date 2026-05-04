@@ -96,3 +96,29 @@ class TestHarnessBridge:
                 data = json.loads(out_path.read_text())
                 assert data["fr_ids"] == ["FR-01"]
                 assert data["architecture_constraints"] == ["C1"]
+
+    def test_generate_quality_manifest_handles_import_error(self, tmp_path):
+        bridge = HarnessBridge()
+        with patch("harness.harness_bridge.Path", side_effect=lambda *args: tmp_path / Path(*args) if ".methodology" in str(args) else Path(*args)):
+            with patch("scripts.generate_sab.parse_sad", side_effect=ImportError):
+                out_path = bridge.generate_quality_manifest(fr_ids=["FR-01"], sad_path="SAD.md")
+                assert out_path.exists()
+
+    def test_run_gate_1_dimension_threshold_fails(self):
+        bridge = HarnessBridge()
+        from harness.harness_bridge import DimResult
+        with patch.object(bridge, "_load_config", return_value={"gate": 1}), \
+             patch.object(bridge, "_invoke_harness") as mock_invoke, \
+             patch.object(bridge, "_update_quality_manifest"):
+            mock_invoke.return_value = GateResult(
+                gate_num=1, score=70.0, quality_complete=True,
+                dimensions=[DimResult(name="cov", score=50.0, threshold=80.0, issues=[])],
+            )
+            with pytest.raises(GateBlockedError):
+                bridge.run_gate(gate_num=1, project_root=".", phase=3)
+
+    def test_require_hermes_approve_init_failure(self):
+        bridge = HarnessBridge()
+        result = GateResult(gate_num=4, score=90.0, quality_complete=True)
+        with patch("harness.reviewer_router.ReviewerRouter", side_effect=ValueError):
+            bridge._require_hermes_approve(result, phase=6, fr_id=None)

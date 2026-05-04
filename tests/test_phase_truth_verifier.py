@@ -155,3 +155,18 @@ class TestCheckCoverage:
         passed, score, _ = PhaseTruthVerifier(str(tmp_path), 3).check_coverage()
         assert passed is False
         assert score == 0
+
+    @patch("subprocess.run", side_effect=FileNotFoundError)
+    def test_coverage_not_found(self, _, tmp_path):
+        passed, _, details = PhaseTruthVerifier(str(tmp_path), 3).check_coverage()
+        assert passed is False
+
+    def test_verify_method(self, tmp_path):
+        v = PhaseTruthVerifier(str(tmp_path), 3)
+        with patch.object(v, "check_session_log", return_value=(True, 100.0, "ok")):
+            with patch.object(v, "check_framework_block", return_value=(True, 100.0, "ok")):
+                result = v.verify()
+        assert isinstance(result, dict)
+        assert "passed" in result
+        assert "checks" in result
+        assert "checklist" in result

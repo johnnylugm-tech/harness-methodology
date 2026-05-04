@@ -50,6 +50,15 @@ class TestGateRemediationReport:
         s = r.to_status_string()
         assert "unit_tests" in s
 
+    def test_to_status_string_includes_gate_evidence(self):
+        r = GateRemediationReport(
+            gate_num=2, phase=3, score=70.0,
+            gate_evidence="Validator returned False"
+        )
+        s = r.to_status_string()
+        assert "Evidence:" in s
+        assert "Validator returned False" in s
+
     def test_to_dict_serialisable(self):
         import json
         r = GateRemediationReport(

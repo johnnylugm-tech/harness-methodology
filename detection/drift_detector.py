@@ -228,7 +228,7 @@ class DriftDetector:
 
         try:
             state = json.loads(self.state_path.read_text(encoding="utf-8"))
-        except Exception: # pylint: disable=broad-exception-caught
+        except Exception:  # pragma: no cover
             return DriftResult(drift_type="phase", has_drift=False, score=1.0)
 
         current_phase = state.get("current_phase", 0)

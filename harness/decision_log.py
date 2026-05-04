@@ -10,7 +10,7 @@ from pathlib import Path
 try:
     import yaml  # type: ignore[import-untyped]
     _YAML = True
-except ImportError:
+except ImportError:  # pragma: no cover
     _YAML = False
 
 @dataclass

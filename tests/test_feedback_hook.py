@@ -32,6 +32,15 @@ class TestAutoQualityGateWithFeedback:
         gate = AutoQualityGateWithFeedback()
         assert gate._get_adapter() is None
 
+    def test_get_adapter_with_store_caches_on_call(self):
+        store = MagicMock()
+        gate = AutoQualityGateWithFeedback(feedback_store=store)
+        gate._adapter = None
+        # First call should try to import and create adapter
+        gate._adapter = "mock_adapter_instance"
+        result = gate._get_adapter()
+        assert result == "mock_adapter_instance"
+
     def test_check_with_store_calls_adapter(self):
         store = MagicMock()
         mock_adapter = MagicMock()

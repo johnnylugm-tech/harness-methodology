@@ -713,6 +713,33 @@ class TestAgentProofHook:
         h = self._hook(tmp_path)
         h._try_immutable()   # should silently ignore failures
 
+    def test_try_immutable_with_lsattr(self, tmp_path):
+        h = self._hook(tmp_path)
+        with patch("os.path.exists", return_value=True):
+            with patch("subprocess.run") as mock_run:
+                h._try_immutable()
+                assert mock_run.call_count >= 2  # chattr + lsattr
+
+    def test_uninstall_chattr_exception_handled(self, tmp_path):
+        h = self._hook(tmp_path)
+        with patch.object(h, '_try_immutable'):
+            h.install()
+        with patch("subprocess.run", side_effect=OSError("permission denied")):
+            h.uninstall()
+        assert not h.core_path.exists()
+
+    def test_uninstall_restores_backup(self, tmp_path):
+        h = self._hook(tmp_path)
+        h.hook_path.write_text("original hook")
+        backup = h.hook_path.with_suffix(".backup")
+        backup.write_text("backup content")
+        h.core_path.parent.mkdir(parents=True, exist_ok=True)
+        h.core_path.write_text("def enforce(): pass")
+        with patch("subprocess.run"):
+            h.uninstall()
+        assert h.hook_path.read_text() == "backup content"
+        assert not backup.exists()
+
 
 # ─── IntegratedStagePassGenerator (stage_pass_generator.py) ───────────────────
 

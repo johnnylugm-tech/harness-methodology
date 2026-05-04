@@ -95,6 +95,17 @@ class TestFRProgressQueries:
         assert "2/5" in s
         assert "Gate1 PASS" in s
 
+    def test_summary_truncates_over_five_passed(self, tracker: FRProgressTracker):
+        tracker.record_gate1_pass("FR-001", score=80.0)
+        tracker.record_gate1_pass("FR-002", score=80.0)
+        tracker.record_gate1_pass("FR-003", score=80.0)
+        tracker.record_gate1_pass("FR-004", score=80.0)
+        tracker.record_gate1_pass("FR-005", score=80.0)
+        tracker.record_gate1_pass("FR-006", score=80.0)
+        tracker.record_gate1_pass("FR-007", score=80.0)
+        s = tracker.summary()
+        assert "…+2" in s  # 7 passed, first 5 shown, +2 truncated
+
     def test_to_status_string_includes_failed(self, tracker: FRProgressTracker):
         tracker.record_gate1_pass("FR-001", score=80.0)
         tracker.record_gate1_fail("FR-002", score=60.0)

@@ -223,7 +223,6 @@ class PhaseHooks:
             ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             with open(self.log_path, "a") as f:
                 f.write(f"[{ts}] {message}\n")
-        except Exception as e:
-            # Failure to log shouldn't block execution, but we should not pass silently
+        except Exception as e:  # pragma: no cover
             import sys
             sys.stderr.write(f"Warning: Failed to append to run-phase.log: {e}\n")

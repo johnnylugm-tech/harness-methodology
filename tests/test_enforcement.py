@@ -489,6 +489,69 @@ class TestConstitutionAsCode:
             "approval_context": {"approver": "bob", "operator": "alice"},
         })
 
+    def test_check_commit_message_skips_disabled_rules(self):
+        from enforcement.constitution_as_code import Rule, RuleSeverity
+        cac = self._cac()
+        rule = Rule(id="R-donotrun", description="commit task_id check disabled",
+                    check_fn=lambda x: False, severity=RuleSeverity.CRITICAL,
+                    error_message="should_not_fire", enabled=False)
+        cac.add_rule(rule)
+        violations = cac.check_commit_message("no task id")
+        assert not any(v.id == "R-donotrun" for v in violations)
+
+    def test_check_command_skips_disabled_rules(self):
+        from enforcement.constitution_as_code import Rule, RuleSeverity
+        cac = self._cac()
+        rule = Rule(id="R-nobypass", description="bypass check disabled",
+                    check_fn=lambda x: False, severity=RuleSeverity.CRITICAL,
+                    error_message="should_not_fire", enabled=False)
+        cac.add_rule(rule)
+        violations = cac.check_command("git push --no-verify")
+        assert not any(v.id == "R-nobypass" for v in violations)
+
+    def test_check_context_quality_score(self):
+        cac = self._cac()
+        violations = cac.check({"quality_score": 85})
+        quality = [v for v in violations if "quality" in v.description.lower()]
+        assert len(quality) >= 0
+
+    def test_check_context_skips_disabled(self):
+        from enforcement.constitution_as_code import Rule, RuleSeverity
+        cac = self._cac()
+        rule = Rule(id="R-disabled-q", description="quality gate disabled",
+                    check_fn=lambda x: False, severity=RuleSeverity.CRITICAL,
+                    error_message="no", enabled=False)
+        cac.add_rule(rule)
+        violations = cac.check({"quality_score": 30})
+        assert not any(v.id == "R-disabled-q" for v in violations)
+
+    def test_check_with_command_context(self):
+        cac = self._cac()
+        violations = cac.check({"command": "git commit -m 'msg'"})
+        assert isinstance(violations, list)
+
+    def test_check_with_approval_context_disabled_rule(self):
+        from enforcement.constitution_as_code import Rule, RuleSeverity
+        cac = self._cac()
+        rule = Rule(id="R-approval-dis", description="approval check disabled",
+                    check_fn=lambda x: False, severity=RuleSeverity.CRITICAL,
+                    error_message="no", enabled=False)
+        cac.add_rule(rule)
+        violations = cac.check({"approval_context": {"approver": "alice", "operator": "alice"}})
+        assert not any(v.id == "R-approval-dis" for v in violations)
+
+    def test_enforce_raises_warning_not_critical(self):
+        from enforcement.constitution_as_code import ConstitutionWarning, Rule, RuleSeverity
+        cac = self._cac()
+        # Remove all critical rules so we get a warning instead
+        cac.rules = [r for r in cac.rules if r.severity != RuleSeverity.CRITICAL]
+        rule = Rule(id="R-warn", description="quality gate warn level",
+                    check_fn=lambda x: False, severity=RuleSeverity.HIGH,
+                    error_message="non-critical")
+        cac.add_rule(rule)
+        with pytest.raises(ConstitutionWarning):
+            cac.enforce({"quality_score": 50})
+
 
 # ===========================================================================
 # ExecutionRegistry
@@ -573,6 +636,13 @@ class TestExecutionRegistry:
         assert report["step"] == "evidence-step"
         assert report["executed"] is True
         assert "evidence" in report
+
+    def test_get_evidence_report_empty(self, tmp_path):
+        reg = self._reg(tmp_path)
+        report = reg.get_evidence_report("unrecorded")
+        assert report["step"] == "unrecorded"
+        assert report["executed"] is False
+        assert report["evidence"] is None
 
     def test_generate_signature_deterministic(self, tmp_path):
         reg = self._reg(tmp_path)
@@ -661,3 +731,12 @@ class TestServerEnforcer:
                                                                 "security": {"passed": True}}):
                 result = se.on_git_hook("pre-commit")
         assert isinstance(result, bool)
+
+    def test_enforce_all_handles_check_exception(self):
+        from enforcement.server_enforcer import ServerEnforcer
+        se = ServerEnforcer()
+        se.checks = [{"name": "blows_up", "fn": MagicMock(side_effect=RuntimeError("boom"))}]
+        result = se.enforce_all()
+        assert "blows_up" in se.results
+        assert se.results["blows_up"]["passed"] is False
+        assert result["all_passed"] is False

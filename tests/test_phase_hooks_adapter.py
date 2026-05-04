@@ -120,3 +120,34 @@ class TestPhaseHooksAdapter:
         p = Path("/tmp/pp")
         a = PhaseHooksAdapter(str(p))
         assert a.project_path == str(p)
+
+    def test_get_current_phase_exists(self, adapter, tmp_path):
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        (method_dir / "state.json").write_text('{"current_phase": 3}')
+        adapter.project_path = str(tmp_path)
+        phase = adapter.get_current_phase()
+        assert phase == 3
+
+    def test_get_current_phase_no_state_file(self, adapter, tmp_path):
+        adapter.project_path = str(tmp_path)
+        assert adapter.get_current_phase() is None
+
+    def test_get_current_phase_corrupt_json(self, adapter, tmp_path):
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        (method_dir / "state.json").write_text("{bad json")
+        adapter.project_path = str(tmp_path)
+        assert adapter.get_current_phase() is None
+
+    def test_run_phase_lifecycle_preflight_fails(self, adapter):
+        adapter._hooks.preflight_all.return_value = {"all_passed": False}
+        result = adapter.run_phase_lifecycle([])
+        assert result["preflight"]["all_passed"] is False
+        assert result["postflight"]["success"] is False
+
+    def test_run_phase_lifecycle_success_path(self, adapter):
+        result = adapter.run_phase_lifecycle([])
+        assert "preflight" in result
+        assert "fr_outcomes" in result
+        assert "postflight" in result

@@ -42,11 +42,42 @@ def test_ab_enforcer_phase_not_found(tmp_path):
     log_file.write_text("## Phase 2\n...")
     enforcer = ABEnforcer(tmp_path)
     result = enforcer.verify_developer_reviewer_separation("phase_1")
-    # According to _extract_phase_content, if no match, it returns full content (conservative)
-    # But if no exact Phase match, it might fail to find sessions
-    # Let's adjust expectation based on code:
-    # rf"##\s*Phase\s*{phase_str.split('_')[1]}.*?(?=##\s*Phase|$)"
-    # For phase_1, this is ## Phase 1
     assert result["separated"] is False
     assert "error" in result
     assert "Phase phase_1 not found in DEVELOPMENT_LOG" in result["error"]
+
+
+def test_verify_qa_not_developer_separated(tmp_path):
+    log_file = tmp_path / "DEVELOPMENT_LOG.md"
+    content = """
+## Phase 3
+developer session: dev-123
+reviewer session: rev-456
+## Phase 4
+developer session: dev-789
+tester session: qa-999
+"""
+    log_file.write_text(content)
+    enforcer = ABEnforcer(tmp_path)
+    result = enforcer.verify_qa_not_developer()
+    assert result["separated"] is True
+
+
+def test_verify_ab_dialogue_exists(tmp_path):
+    log_file = tmp_path / "DEVELOPMENT_LOG.md"
+    content = """
+## Phase 3
+developer session: dev-123
+Reviewer raised several issues with the design.
+The Developer responded to Reviewer feedback and revised.
+"""
+    log_file.write_text(content)
+    enforcer = ABEnforcer(tmp_path)
+    result = enforcer.verify_ab_dialogue_exists("phase_3")
+    assert result["has_dialogue"] is True
+
+
+def test_verify_ab_dialogue_missing(tmp_path):
+    enforcer = ABEnforcer(tmp_path)
+    result = enforcer.verify_ab_dialogue_exists("phase_1")
+    assert result["has_dialogue"] is False

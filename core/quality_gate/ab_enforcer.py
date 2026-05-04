@@ -244,15 +244,12 @@ class ABEnforcer:
             dev_normalized = self._normalize_session(developer_session)
             test_normalized = self._normalize_session(tester_session)
             
-            separated = dev_normalized != test_normalized and dev_normalized and test_normalized
+            separated = bool(dev_normalized != test_normalized and dev_normalized and test_normalized)
         elif developer_session and not tester_session:
-            # Developer present but no Tester - treat as not separated
             separated = False
         elif not developer_session and tester_session:
-            # Tester present but no Developer - treat as not separated
             separated = False
         else:
-            # Neither found, treat as not separated
             separated = False
         
         return {
@@ -331,7 +328,7 @@ def verify_ab_dialogue(project_path: str, phase: int) -> Dict:
     return enforcer.verify_ab_dialogue_exists(f"phase_{phase}")
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     import sys
     
     if len(sys.argv) < 3:

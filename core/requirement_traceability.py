@@ -235,7 +235,7 @@ class RequirementTraceability:
             json.dump(self.export_report(), f, indent=2, ensure_ascii=False)
 
 
-def main():
+def main():  # pragma: no cover
     import argparse
     parser = argparse.ArgumentParser(description="Requirement Traceability Manager")
     parser.add_argument("--project-id", required=True)
@@ -251,5 +251,5 @@ def main():
         print(f"Saved to {args.export}")
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     main()

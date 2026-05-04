@@ -7,6 +7,8 @@ import json
 import textwrap
 from pathlib import Path
 
+from unittest.mock import patch
+
 import pytest
 
 # ---------------------------------------------------------------------------
@@ -181,6 +183,15 @@ class TestSpecParser:
         assert "E_TEST" in str(err)
         assert "test message" in str(err)
 
+    def test_load_file_raises_on_read_error(self, tmp_path):
+        from gap_detector.parser import SpecParser, SpecParseError
+        p = make_spec_md(tmp_path, SIMPLE_SPEC)
+        parser = SpecParser(p)
+        with patch("builtins.open", side_effect=OSError("disk full")):
+            with pytest.raises(SpecParseError) as exc_info:
+                parser._load_file()
+            assert exc_info.value.code == "E_PARSE_FAILED"
+
     def test_feature_line_number_set(self, tmp_path):
         from gap_detector.parser import SpecParser
         p = make_spec_md(tmp_path, SIMPLE_SPEC)
@@ -296,6 +307,28 @@ class TestCodeScanner:
         make_py_file(tmp_path, "module_a.py", SIMPLE_PY)
         result = CodeScanner(tmp_path).scan()
         assert result.scan_stats.total_items > 0
+
+    def test_scan_async_function(self, tmp_path):
+        from gap_detector.scanner import CodeScanner
+        code = "import asyncio\n\nasync def async_handler():\n    await asyncio.sleep(0)\n"
+        make_py_file(tmp_path, "async_mod.py", code)
+        result = CodeScanner(tmp_path).scan()
+        names = [item.name for mod in result.modules for item in mod.items]
+        assert "async_handler" in names
+
+    def test_scan_init_file_handled(self, tmp_path):
+        from gap_detector.scanner import CodeScanner
+        (tmp_path / "subpkg").mkdir()
+        make_py_file(tmp_path / "subpkg", "__init__.py", "X = 1")
+        result = CodeScanner(tmp_path).scan()
+        # __init__.py should be handled
+        assert result.scan_stats.total_files >= 1
+
+    def test_scan_module_name_value_error_fallback(self, tmp_path):
+        from gap_detector.scanner import CodeScanner
+        scanner = CodeScanner(str(tmp_path))
+        name = scanner._get_module_name(Path("/tmp/foo.py"))
+        assert "foo" in name  # absolute path → parts include "/" and "tmp"
 
     def test_scan_error_error_format(self):
         from gap_detector.scanner import ScanError

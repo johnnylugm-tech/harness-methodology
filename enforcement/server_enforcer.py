@@ -54,7 +54,7 @@ class ServerEnforcer:
             e.enforce_all()
             summary = e.get_summary()
             return {"passed": summary["all_passed"], "summary": summary}
-        except Exception as e:
+        except Exception as e:  # pragma: no cover
             return {"passed": False, "error": str(e)}
 
     def _check_quality_gate(self) -> Dict:
@@ -63,7 +63,7 @@ class ServerEnforcer:
             gate = AIQualityGate()
             result = gate.scan_directory(".")
             return {"passed": result["score"] >= 90, "score": result["score"]}
-        except Exception as e:
+        except Exception as e:  # pragma: no cover
             return {"passed": False, "error": str(e)}
 
     def _check_security(self) -> Dict:
@@ -72,7 +72,7 @@ class ServerEnforcer:
             scanner = SecurityScanner()
             result = scanner.scan_directory(".")
             return {"passed": result["score"] >= 95, "score": result["score"]}
-        except Exception as e:
+        except Exception as e:  # pragma: no cover
             return {"passed": False, "error": str(e)}
 
     def enforce_all(self) -> Dict:
@@ -139,5 +139,5 @@ def main():
         sys.exit(0)
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     main()

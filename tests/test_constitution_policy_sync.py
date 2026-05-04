@@ -222,6 +222,25 @@ def test_create_check_fn_security_file_below_threshold(generator):
         sf.unlink(missing_ok=True)
 
 
+def test_check_fn_quality_gate_file_missing(generator):
+    """When .quality_score doesn't exist, check_fn returns True."""
+    rule = {"check_type": "quality_gate", "threshold": 85}
+    fn = generator.create_check_fn(rule)
+    assert fn() is True  # file doesn't exist → pass
+
+def test_check_fn_coverage_file_missing(generator):
+    """When .coverage doesn't exist, check_fn returns True."""
+    rule = {"check_type": "coverage", "threshold": 80}
+    fn = generator.create_check_fn(rule)
+    assert fn() is True
+
+def test_check_fn_security_file_missing(generator):
+    """When .security_score doesn't exist, check_fn returns True."""
+    rule = {"check_type": "security", "threshold": 95}
+    fn = generator.create_check_fn(rule)
+    assert fn() is True
+
+
 def test_main_sync_command():
     with patch("enforcement.constitution_policy_sync.ConstitutionPolicyGenerator.sync") as mock_sync, \
          patch("sys.argv", ["cp_sync.py", "sync"]):
@@ -315,6 +334,10 @@ def test_main_sync_called():
 def test_main_generate_called():
     with patch("enforcement.constitution_policy_sync.ConstitutionPolicyGenerator.generate") as mock_gen, \
          patch("sys.argv", ["constitution_policy_sync.py", "generate"]):
-        mock_gen.return_value = []
+        from enforcement.policy_engine import Policy, EnforcementLevel
+        mock_gen.return_value = [
+            Policy(id="p1", description="A test policy for generate command", check_fn=lambda: True,
+                   enforcement=EnforcementLevel.BLOCK, severity="critical", metadata={})
+        ]
         main()
         mock_gen.assert_called_once()

@@ -143,3 +143,11 @@ class TestSpecTrackingParserFindEntriesWithoutStatus:
         result = SpecTrackingParser.find_entries_without_status(content)
         # "unknown-status" has no recognised marker → entry flagged
         assert isinstance(result, list)
+
+    def test_skips_header_rows(self):
+        # Lines with header markers in the spec ID column are skipped.
+        # Lines starting with "|" are excluded by the parser, so use
+        # a format where the line does NOT start with "|".
+        content = "Some text | Spec | Status | Notes\nFR-01 | Done | ok"
+        result = SpecTrackingParser.find_entries_without_status(content)
+        assert isinstance(result, list)
