@@ -113,6 +113,7 @@ Output JSON:
 }}"""
 
     def __init__(self, provider):
+        """Initialize instance with default configuration."""
         self.provider = provider
 
     def score(self, output_a: Union[Dict[str, Any], str], output_b: Union[Dict[str, Any], str]) -> Dict[str, Any]:
@@ -214,6 +215,7 @@ class SteeringLoop:
         config: Optional[SteeringConfig] = None,
         history_path: str = ".methodology/steering_history.json"
     ):
+        """Initialize instance with default configuration."""
         self.provider = provider
         self.config = config or SteeringConfig()
         self.history_path = history_path

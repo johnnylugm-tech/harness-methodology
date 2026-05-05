@@ -126,6 +126,7 @@ def run_check(name: str, cmd: list, project: str, cwd: Optional[str] = None) -> 
 
 
 def main():
+    """CLI entry point."""
     parser = argparse.ArgumentParser(description="Full quality check for each FR")
     parser.add_argument("--fr", required=True, help="FR ID (e.g., FR-01)")
     parser.add_argument("--project", default=".", help="Project path")

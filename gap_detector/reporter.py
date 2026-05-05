@@ -15,12 +15,14 @@ from gap_detector.detector import Gap, GapSummary
 
 @dataclass
 class ReportPaths:
+    """ReportPaths component."""
     json_path: str
     md_path: str
 
 
 @dataclass
 class GapReportJSON:
+    """GapReportJSON component."""
     generated_at: str
     spec_file: str
     implement_dir: str
@@ -34,12 +36,14 @@ class GapReporter:
     """Reporter for generating gap reports."""
 
     def __init__(self, gaps, spec: ParsedSpec, code: ScannedCode, output_dir: str = "reports/") -> None:
+        """Initialize instance."""
         self.gaps = gaps
         self.spec = spec
         self.code = code
         self.output_dir = output_dir
 
     def generate(self) -> ReportPaths:
+        """Generate."""
         output_path = Path(self.output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
         json_path = output_path / "gap_report.json"

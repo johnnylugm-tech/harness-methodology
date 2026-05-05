@@ -11,7 +11,9 @@ from typing import Optional
 
 
 class ScanError(Exception):
+    """ScanError component."""
     def __init__(self, code: str, message: str):
+        """Initialize instance."""
         self.code = code
         self.message = message
         super().__init__(f"[{code}] {message}")
@@ -19,6 +21,7 @@ class ScanError(Exception):
 
 @dataclass
 class ScanErrorRecord:
+    """ScanErrorRecord component."""
     file_path: str
     error_type: str
     details: str
@@ -26,6 +29,7 @@ class ScanErrorRecord:
 
 @dataclass
 class CodeItem:
+    """CodeItem component."""
     id: str
     kind: str
     name: str
@@ -40,6 +44,7 @@ class CodeItem:
 
 @dataclass
 class CodeFile:
+    """CodeFile component."""
     module_name: str
     file_path: str
     items: list = field(default_factory=list)
@@ -48,6 +53,7 @@ class CodeFile:
 
 @dataclass
 class ScanStats:
+    """ScanStats component."""
     total_files: int = 0
     scanned_files: int = 0
     skipped_files: int = 0
@@ -58,12 +64,14 @@ class ScanStats:
 
 @dataclass
 class ScannedCode:
+    """ScannedCode component."""
     modules: list
     scan_stats: ScanStats = field(default_factory=ScanStats)
 
 
 class _ASTVisitor(ast.NodeVisitor):
     def __init__(self, file_path: str, module_name: str):
+        """Initialize instance."""
         self.file_path = file_path
         self.module_name = module_name
         self.items: list = []
@@ -71,6 +79,7 @@ class _ASTVisitor(ast.NodeVisitor):
         self.current_class = ""
 
     def visit_ClassDef(self, node):
+        """Visit ClassDef."""
         self.in_class = True
         self.current_class = node.name
         docstring = ast.get_docstring(node) or ""
@@ -85,9 +94,11 @@ class _ASTVisitor(ast.NodeVisitor):
         self.current_class = ""
 
     def visit_FunctionDef(self, node):
+        """Visit FunctionDef."""
         self._visit_fn(node)
 
     def visit_AsyncFunctionDef(self, node):
+        """Visit AsyncFunctionDef."""
         self._visit_fn(node)
 
     def _visit_fn(self, node):
@@ -109,12 +120,14 @@ class CodeScanner:
     """Scanner for Python implement/ directories."""
 
     def __init__(self, implement_dir) -> None:
+        """Initialize instance."""
         self.implement_dir = str(implement_dir)
         self._errors: list[ScanErrorRecord] = []
         if not Path(self.implement_dir).exists():
             raise ScanError("E_FILE_NOT_FOUND", f"Directory not found: {self.implement_dir}")
 
     def scan(self) -> ScannedCode:
+        """Scan."""
         self._errors = []
         modules = []
         files = self._discover_files()

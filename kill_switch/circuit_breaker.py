@@ -23,10 +23,12 @@ class CircuitBreaker:
     """
 
     def __init__(self) -> None:
+        """Initialize instance."""
         self._circuits: Dict[str, CircuitBreakerState] = {}
         self._lock = Lock()
 
     def record_success(self, agent_id: str) -> None:
+        """Record success."""
         with self._lock:
             if agent_id not in self._circuits:
                 raise AgentNotFoundError(f"No circuit state for agent {agent_id}")
@@ -38,6 +40,7 @@ class CircuitBreaker:
                 state.closed_at = datetime.now(timezone.utc)
 
     def record_failure(self, agent_id: str) -> None:
+        """Record failure."""
         with self._lock:
             if agent_id not in self._circuits:
                 raise AgentNotFoundError(f"No circuit state for agent {agent_id}")
@@ -48,6 +51,7 @@ class CircuitBreaker:
                 state.state = CircuitState.OPEN
 
     def is_open(self, agent_id: str) -> bool:
+        """Is open."""
         with self._lock:
             if agent_id not in self._circuits:
                 return False
@@ -63,18 +67,21 @@ class CircuitBreaker:
             return True
 
     def get_state(self, agent_id: str) -> CircuitState:
+        """Get state."""
         with self._lock:
             if agent_id not in self._circuits:
                 return CircuitState.CLOSED
             return self._circuits[agent_id].state
 
     def get_failure_count(self, agent_id: str) -> int:
+        """Get failure count."""
         with self._lock:
             if agent_id not in self._circuits:
                 return 0
             return self._circuits[agent_id].failure_count
 
     def initialize_circuit(self, agent_id: str) -> CircuitBreakerState:
+        """Initialize circuit."""
         with self._lock:
             state = CircuitBreakerState(
                 agent_id=agent_id,
@@ -85,6 +92,7 @@ class CircuitBreaker:
             return state
 
     def open_circuit(self, agent_id: str, cooldown_seconds: int = 60) -> CircuitBreakerState:
+        """Open circuit."""
         with self._lock:
             if agent_id not in self._circuits:
                 state = CircuitBreakerState(agent_id=agent_id)
@@ -100,6 +108,7 @@ class CircuitBreaker:
             return state
 
     def should_trigger(self, agent_id: str, metrics: HealthMetrics, config: MonitorConfig) -> bool:
+        """Should trigger."""
         return (
             metrics.error_rate > config.error_rate_threshold or
             metrics.latency_p99_ms > config.latency_p99_threshold_ms or

@@ -27,6 +27,7 @@ def _levenshtein_distance(s1: str, s2: str) -> int:
 
 @dataclass
 class Match:
+    """Match component."""
     spec_item: FeatureItem
     code_item: Optional[CodeItem]
     match_type: str
@@ -35,6 +36,7 @@ class Match:
 
 @dataclass
 class Gap:
+    """Gap component."""
     gap_type: str
     spec_item: Optional[str] = None
     code_item: Optional[str] = None
@@ -48,6 +50,7 @@ class Gap:
 
 @dataclass
 class GapSummary:
+    """GapSummary component."""
     total_gaps: int = 0
     missing: int = 0
     incomplete: int = 0
@@ -61,6 +64,7 @@ class GapDetector:
     """Detector for gaps between specification and implementation."""
 
     def __init__(self, spec: ParsedSpec, code: ScannedCode, similarity_threshold: float = 0.6) -> None:
+        """Initialize instance."""
         self.spec = spec
         self.code = code
         self.similarity_threshold = similarity_threshold
@@ -68,6 +72,7 @@ class GapDetector:
         self._matches: list = []
 
     def detect(self):
+        """Detect."""
         self._gaps: list = []
         self._matches: list = []
         try:
@@ -86,6 +91,7 @@ class GapDetector:
         return self._gaps
 
     def get_summary(self) -> GapSummary:
+        """Get summary."""
         if not self._gaps:
             self.detect()
         s = GapSummary(total_gaps=len(self._gaps))

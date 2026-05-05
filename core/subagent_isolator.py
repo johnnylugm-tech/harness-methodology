@@ -28,6 +28,7 @@ class ArtifactSpec:
     description: str = ""
 
     def exists(self) -> bool:
+        """Check whether the isolated subagent worktree exists."""
         return Path(self.path).exists()
 
 

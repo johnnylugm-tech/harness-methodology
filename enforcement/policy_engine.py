@@ -16,6 +16,7 @@ import os
 
 
 class EnforcementLevel(Enum):
+    """EnforcementLevel component."""
     LOG = "log"
     WARN = "warn"
     BLOCK = "block"
@@ -66,6 +67,7 @@ class PolicyEngine:
     """
 
     def __init__(self):
+        """Initialize instance."""
         self.policies: List[Policy] = []
         self.results: List[PolicyResult] = []
         self._setup_default_policies()
@@ -202,17 +204,21 @@ class PolicyEngine:
             return True
 
     def add_policy(self, policy: Policy):
+        """Add policy."""
         self.policies.append(policy)
 
     def remove_policy(self, policy_id: str):
+        """Remove policy."""
         self.policies = [p for p in self.policies if p.id != policy_id]
 
     def enable(self, policy_id: str):
+        """Enable."""
         for p in self.policies:
             if p.id == policy_id:
                 p.enabled = True
 
     def disable(self, policy_id: str):
+        """Disable."""
         import warnings
         warnings.warn(
             f"Disabling policy '{policy_id}' is not recommended. "
@@ -302,6 +308,7 @@ class PolicyEngine:
         return engine
 
     def check(self, policy_id: str) -> PolicyResult:
+        """Check."""
         policy = next((p for p in self.policies if p.id == policy_id), None)
         if not policy:
             return PolicyResult(
@@ -345,6 +352,7 @@ class PolicyEngine:
         return results
 
     def get_summary(self) -> Dict:
+        """Get summary."""
         total = len(self.results)
         passed = sum(1 for r in self.results if r.passed)
         blocked = sum(1 for r in self.results if r.blocked)
@@ -358,6 +366,7 @@ class PolicyEngine:
         }
 
     def raise_on_block(self, results: Optional[List[PolicyResult]] = None):
+        """Raise on block."""
         results = results or self.results
         blocked = [r for r in results if r.blocked]
         if blocked:

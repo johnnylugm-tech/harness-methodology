@@ -31,6 +31,7 @@ class AuditLogger:
     """
 
     def __init__(self, log_dir: Optional[str] = None):
+        """Initialize instance with default configuration."""
         if log_dir is None:
             log_dir = os.path.join(tempfile.gettempdir(), "kill_switch_logs")
         self.log_dir = log_dir

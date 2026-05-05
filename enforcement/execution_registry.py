@@ -50,6 +50,7 @@ class ExecutionRegistry:
     """
 
     def __init__(self, db_path: str = ".methodology/execution_registry.db"):
+        """Initialize instance with default configuration."""
         self.db_path = db_path
         self._ensure_db()
 

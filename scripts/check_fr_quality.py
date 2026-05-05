@@ -88,6 +88,7 @@ def run_check(fr_id: str, project: Path) -> tuple:
 
 
 def main():
+    """CLI entry point."""
     parser = argparse.ArgumentParser(description="Quick FR quality check")
     parser.add_argument("--fr", required=True, help="FR ID (e.g., FR-01)")
     parser.add_argument("--project", default=".", help="Project path")

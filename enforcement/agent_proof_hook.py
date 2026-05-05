@@ -62,6 +62,7 @@ except Exception as e:
 '''
 
     def __init__(self, project_root: Optional[str] = None):
+        """Initialize instance with default configuration."""
         self.project_root = Path(project_root) if project_root else Path.cwd()
         self.hook_path = self.project_root / ".git" / "hooks" / "pre-commit"
         self.core_path = self.project_root / self.HOOK_FILE

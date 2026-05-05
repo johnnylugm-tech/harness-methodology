@@ -20,6 +20,7 @@ from orchestration import create_feedback_store  # noqa: E402
 
 
 def main():
+    """Cron entry point: run drift monitor and log results."""
     project_path = os.environ.get("DRIFT_PROJECT_PATH", str(project_root))
     logs_dir = project_root / "logs"
     logs_dir.mkdir(exist_ok=True)
@@ -41,6 +42,7 @@ def main():
 
 
 def _run_monitor(project_path: str):
+    """Execute drift detection and emit alert if threshold exceeded."""
     store = create_feedback_store()
     monitor = DriftMonitor(project_path=project_path, feedback_store=store)
     alert = monitor.run_and_alert()

@@ -39,6 +39,7 @@ class ConstitutionPolicyGenerator:
     ]
 
     def __init__(self):
+        """Initialize instance."""
         self.rules: List[Dict[str, Any]] = []
 
     def find_constitution(self) -> Optional[str]:
@@ -126,6 +127,7 @@ class ConstitutionPolicyGenerator:
 
         if check_type == "commit_message":
             def check_fn():
+                """Run check fn validation."""
                 commit_file = os.environ.get("COMMIT_MSG_FILE", ".git/COMMIT_EDITMSG")
                 if os.path.exists(commit_file):
                     with open(commit_file, "r") as f:
@@ -136,6 +138,7 @@ class ConstitutionPolicyGenerator:
 
         if check_type == "quality_gate":
             def check_fn():
+                """Run check fn validation."""
                 score_file = ".methodology/.quality_score"
                 if os.path.exists(score_file):
                     with open(score_file, "r") as f:
@@ -145,6 +148,7 @@ class ConstitutionPolicyGenerator:
 
         if check_type == "coverage":
             def check_fn():
+                """Run check fn validation."""
                 coverage_file = ".methodology/.coverage"
                 if os.path.exists(coverage_file):
                     with open(coverage_file, "r") as f:
@@ -154,6 +158,7 @@ class ConstitutionPolicyGenerator:
 
         if check_type == "security":
             def check_fn():
+                """Run check fn validation."""
                 score_file = ".methodology/.security_score"
                 if os.path.exists(score_file):
                     with open(score_file, "r") as f:

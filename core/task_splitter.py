@@ -10,6 +10,7 @@ from datetime import datetime
 
 
 class TaskStatus(Enum):
+    """Task lifecycle: pending→running→completed/failed/blocked."""
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -18,6 +19,7 @@ class TaskStatus(Enum):
 
 
 class TaskPriority(Enum):
+    """Task priority levels for scheduling order."""
     LOW = 1
     MEDIUM = 2
     HIGH = 3
@@ -51,6 +53,7 @@ class TaskSplitter:
     def create_task(self, name: str, description: str,
                     priority: TaskPriority = TaskPriority.MEDIUM,
                     estimated_hours: float = 1.0) -> Task:
+        """Create a new task and add it to the task list."""
         self.task_counter += 1
         task = Task(id=f"task-{self.task_counter:03d}", name=name,
                     description=description, priority=priority,
@@ -59,6 +62,7 @@ class TaskSplitter:
         return task
 
     def add_dependency(self, task_id: str, depends_on: str) -> None:
+        """Register a blocking dependency between two tasks."""
         if task_id in self.tasks and depends_on in self.tasks:
             self.tasks[task_id].dependencies.append(depends_on)
 

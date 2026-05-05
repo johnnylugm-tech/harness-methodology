@@ -97,6 +97,7 @@ def scan_for_keywords(project: Path, fr_id: str, keywords: list) -> list:
 
 
 def main():
+    """CLI entry point."""
     parser = argparse.ArgumentParser(description="Generate FR -> Code mapping")
     parser.add_argument("--project", required=True, help="Project path")
     parser.add_argument("--output", default=".methodology/fr_mapping.json", help="Output path")

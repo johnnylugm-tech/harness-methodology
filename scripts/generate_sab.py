@@ -50,6 +50,7 @@ def parse_sad(sad_path: str) -> dict:
 
 
 def main():
+    """CLI entry point."""
     parser = argparse.ArgumentParser(description="Generate SAB from SAD.md")
     parser.add_argument("--project", default=".", help="Project path")
     parser.add_argument("--output", default=".methodology/SAB.json", help="Output path")

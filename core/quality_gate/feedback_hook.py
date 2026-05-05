@@ -28,6 +28,7 @@ class AutoQualityGateWithFeedback(AutoQualityGate):
         return self._adapter
 
     def check(self, *args, **kwargs) -> dict:
+        """Run gate feedback check against current phase context."""
         result = super().check(*args, **kwargs)
         adapter = self._get_adapter()
         if adapter and result.get("phase") is not None:
@@ -38,4 +39,5 @@ class AutoQualityGateWithFeedback(AutoQualityGate):
         return result
 
     def run(self, *args, **kwargs) -> dict:
+        """Execute feedback hook and return structured results."""
         return self.check(*args, **kwargs)

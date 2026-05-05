@@ -24,6 +24,7 @@ class StateManager:
     """Persist circuit breaker state across agent restarts."""
 
     def __init__(self, state_path: Optional[Path] = None) -> None:
+        """Initialize instance."""
         self._state_path = state_path or DEFAULT_STATE_PATH
         self._state_cache: Dict[str, CircuitBreakerState] = {}
         self._lock = Lock()
@@ -36,6 +37,7 @@ class StateManager:
             logger.warning(f"Could not create state directory {self._state_path}: {e}")
 
     def save_state(self, agent_id: str, state: CircuitBreakerState) -> None:
+        """Save state."""
         with self._lock:
             self._state_cache[agent_id] = state
             state_file = self._state_path / f"{agent_id}.json"
@@ -46,6 +48,7 @@ class StateManager:
                 raise StatePersistenceError(f"Could not save state for {agent_id}: {e}")
 
     def load_state(self, agent_id: str) -> Optional[CircuitBreakerState]:
+        """Load state."""
         with self._lock:
             if agent_id in self._state_cache:
                 return self._state_cache[agent_id]
@@ -69,6 +72,7 @@ class StateManager:
                 raise StatePersistenceError(f"Could not load state for {agent_id}: {e}")
 
     def clear_state(self, agent_id: str) -> None:
+        """Clear state."""
         with self._lock:
             self._state_cache.pop(agent_id, None)
             state_file = self._state_path / f"{agent_id}.json"
@@ -79,6 +83,7 @@ class StateManager:
                 logger.warning(f"Could not clear state for {agent_id}: {e}")
 
     def is_agent_killed(self, agent_id: str) -> bool:
+        """Is agent killed."""
         state = self.load_state(agent_id)
         if state is None:
             return False
@@ -100,6 +105,7 @@ class StateManager:
         from datetime import datetime
 
         def parse_dt(value: Optional[str]) -> Optional[datetime]:
+            """Parse dt."""
             if value is None:
                 return None
             if value.endswith('Z'):

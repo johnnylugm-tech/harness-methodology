@@ -87,6 +87,7 @@ class SteeringBVSIntegrator:
         bvs_runner,      # BVSRunner instance
         phase: int = 3
     ):
+        """Initialize instance."""
         self.project_path = Path(project_path)
         self.bvs_runner = bvs_runner
         self.phase = phase
@@ -165,6 +166,7 @@ class SteeringConstitutionIntegrator:
         constitution_checker,  # ConstitutionChecker instance
         citation_parser        # CitationParser instance
     ):
+        """Initialize instance."""
         self.checker = constitution_checker
         self.citation_parser = citation_parser
 
@@ -431,6 +433,7 @@ class SteeringIntegrator:
         config: Optional["SteeringConfig"] = None,
         hr_constraints: Optional[HRConstraints] = None
     ):
+        """Initialize instance."""
 
         self.steering = SteeringLoop(provider, config)
         self.hr = hr_constraints or HRConstraints()
@@ -445,6 +448,7 @@ class SteeringIntegrator:
 
     @property
     def bvs_integrator(self) -> SteeringBVSIntegrator:
+        """Bvs integrator."""
         if self._bvs_integrator is None:
             from constitution.bvs_runner import BVSRunner
             runner = BVSRunner(str(self.project_path), phase=self.phase)

@@ -132,6 +132,7 @@ def send_telegram_alert(state: dict, alerts: list):
 
 
 def main():
+    """CLI entry point."""
     parser = argparse.ArgumentParser(description="Runtime Metrics State Monitor")
     parser.add_argument("--check-trends", action="store_true", help="Run trend check")
     parser.add_argument("--project-path", type=str, default=".", help="Project path (default: .)")

@@ -26,6 +26,7 @@ class InterruptEngine:
     """
 
     def __init__(self, audit_logger=None, state_manager=None) -> None:
+        """Initialize instance."""
         self._state_manager = state_manager
         self._active_interrupts: Dict[str, InterruptEvent] = {}
         self._interrupt_history: List[InterruptEvent] = []
@@ -50,6 +51,7 @@ class InterruptEngine:
 
     def trigger_interrupt(self, agent_id: str, reason: str, triggered_by: str,
                           reason_type: KillReason = KillReason.MANUAL_TRIGGER) -> InterruptEvent:
+        """Trigger interrupt."""
         event_id = str(uuid.uuid4())
         triggered_at = datetime.now(timezone.utc)
 
@@ -95,11 +97,13 @@ class InterruptEngine:
             self._release_lock(agent_id, interrupt_lock)
 
     def is_interrupt_in_progress(self, agent_id: str) -> bool:
+        """Is interrupt in progress."""
         with self._lock:
             return agent_id in self._active_interrupts
 
     def get_interrupt_history(self, agent_id: Optional[str] = None,
                                limit: int = 100) -> List[InterruptEvent]:
+        """Get interrupt history."""
         with self._lock:
             events = self._interrupt_history
             if agent_id is not None:

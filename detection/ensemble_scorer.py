@@ -42,6 +42,7 @@ class EnsembleScore:
     details: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
+        """To dict."""
         return {
             "citation_score": round(self.citation_score, 3),
             "coverage_score": round(self.coverage_score, 3),
@@ -64,6 +65,7 @@ class AggregateScore:
     threshold: float
 
     def to_dict(self) -> Dict[str, Any]:
+        """To dict."""
         return {
             "mean_confidence": round(self.mean_confidence, 3),
             "min_confidence": round(self.min_confidence, 3),
@@ -85,6 +87,7 @@ class _CitationScorer:
     LINE_REF_PATTERN = re.compile(r'#L\d+')
 
     def score(self, result: Dict[str, Any]) -> float:
+        """Score."""
         citations = result.get("citations", [])
         if not citations:
             return 0.0
@@ -108,6 +111,7 @@ class _CoverageScorer:
     FR_PATTERN = re.compile(r'FR-\d+')
 
     def score(self, result: Dict[str, Any], expected_fr: Optional[str] = None) -> float:
+        """Score."""
         citations = result.get("citations", [])
         summary = result.get("summary", "")
         result_text = result.get("result", "")
@@ -129,6 +133,7 @@ class _ConsistencyScorer:
     VALID_STATUSES = {"success", "error", "unable_to_proceed"}
 
     def score(self, result: Dict[str, Any]) -> float:
+        """Score."""
         score = 0.0
         if not isinstance(result, dict):
             return 0.0
@@ -158,6 +163,7 @@ class _ConfidenceScorer:
     """Normalize agent-stated confidence (1-10 scale) to 0.0-1.0."""
 
     def score(self, result: Dict[str, Any]) -> float:
+        """Score."""
         raw = result.get("confidence", 0)
         try:
             val = float(raw)
@@ -197,6 +203,7 @@ class EnsembleScorer:
         weights: Optional[Dict[str, float]] = None,
         threshold: float = DEFAULT_THRESHOLD,
     ):
+        """Initialize instance."""
         self.weights = weights or self.DEFAULT_WEIGHTS
         self.threshold = threshold
         self._citation = _CitationScorer()

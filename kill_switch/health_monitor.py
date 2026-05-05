@@ -17,12 +17,14 @@ class HealthMonitor:
     """Continuously collect and buffer agent health metrics."""
 
     def __init__(self) -> None:
+        """Initialize instance."""
         self._metrics_buffer: Dict[str, List[HealthMetrics]] = {}
         self._monitoring_config: Dict[str, MonitorConfig] = {}
         self._active_monitors: set = set()
         self._lock = Lock()
 
     def start_monitoring(self, agent_id: str, config: MonitorConfig) -> None:
+        """Start monitoring."""
         if not agent_id:
             raise AgentNotFoundError("Agent ID cannot be empty")
         with self._lock:
@@ -32,11 +34,13 @@ class HealthMonitor:
                 self._metrics_buffer[agent_id] = []
 
     def stop_monitoring(self, agent_id: str) -> None:
+        """Stop monitoring."""
         with self._lock:
             self._active_monitors.discard(agent_id)
             self._monitoring_config.pop(agent_id, None)
 
     def get_metrics(self, agent_id: str) -> HealthMetrics:
+        """Get metrics."""
         if agent_id not in self._active_monitors:
             raise AgentNotFoundError(f"Agent {agent_id} is not being monitored")
         if agent_id not in self._metrics_buffer:
@@ -44,6 +48,7 @@ class HealthMonitor:
         return self._generate_simulated_metrics(agent_id)
 
     def is_monitoring(self, agent_id: str) -> bool:
+        """Is monitoring."""
         return agent_id in self._active_monitors
 
     def _generate_simulated_metrics(self, agent_id: str) -> HealthMetrics:
@@ -59,6 +64,7 @@ class HealthMonitor:
         )
 
     def record_metrics(self, agent_id: str, metrics: HealthMetrics) -> None:
+        """Record metrics."""
         with self._lock:
             if agent_id not in self._metrics_buffer:
                 self._metrics_buffer[agent_id] = []

@@ -158,58 +158,73 @@ def render_summary(registry_report: dict) -> str:
 """
 
 
-def render_trajectory(rounds: list) -> str:
-    if not rounds:
-        return "## 2. Score Trajectory\n\n_No round data._\n"
+def _get_breakdown(r: dict) -> dict:
+    """Normalize the score breakdown key across round formats."""
+    return r["data"].get("breakdown") or r["data"].get("dimensions") or {}
 
-    # Collect all dimensions across all rounds
-    all_dims = set()
+
+def _collect_dimensions(rounds: list) -> list:
+    """Collect sorted unique dimension names across all rounds."""
+    all_dims: set = set()
     for r in rounds:
-        bd = r["data"].get("breakdown") or r["data"].get("dimensions") or {}
-        all_dims.update(bd.keys())
-    all_dims = sorted(all_dims)
+        all_dims.update(_get_breakdown(r).keys())
+    return sorted(all_dims)
 
-    header = "| Dimension | " + " | ".join(f"R{r['round']}" for r in rounds) + " | Δ |"
-    sep = "|" + "---|" * (len(rounds) + 2)
-    rows = []
-    for dim in all_dims:
-        cells = []
-        first_score = last_score = None
-        for r in rounds:
-            bd = r["data"].get("breakdown") or r["data"].get("dimensions") or {}
-            score = None
-            if dim in bd:
-                score = bd[dim].get("score")
-            cells.append(f"{score:.0f}" if isinstance(score, (int, float)) else "—")
-            if isinstance(score, (int, float)):
-                if first_score is None:
-                    first_score = score
-                last_score = score
-        delta = ""
-        if first_score is not None and last_score is not None:
-            d = last_score - first_score
-            delta = f"{'+' if d >= 0 else ''}{d:.0f}"
-        rows.append(f"| {dim} | " + " | ".join(cells) + f" | {delta} |")
 
-    # Overall row
-    overall_cells = []
+def _score_cell(val) -> str:
+    """Format a score value for table display."""
+    return f"{val:.0f}" if isinstance(val, (int, float)) else "—"
+
+
+def _delta_str(first, last) -> str:
+    """Format signed delta between first and last score."""
+    if first is None or last is None:
+        return ""
+    d = last - first
+    return f"{'+' if d >= 0 else ''}{d:.0f}"
+
+
+def _render_dimension_row(dim: str, rounds: list) -> str:
+    """Render one table row for a dimension across all rounds."""
+    cells = []
+    first_score = last_score = None
+    for r in rounds:
+        bd = _get_breakdown(r)
+        score = bd[dim].get("score") if dim in bd else None
+        cells.append(_score_cell(score))
+        if isinstance(score, (int, float)):
+            if first_score is None:
+                first_score = score
+            last_score = score
+    return f"| {dim} | " + " | ".join(cells) + f" | {_delta_str(first_score, last_score)} |"
+
+
+def _render_overall_row(rounds: list) -> str:
+    """Render the overall-score summary row."""
+    cells = []
     first_ov = last_ov = None
     for r in rounds:
         o = r["data"].get("overall_score")
-        overall_cells.append(f"{o:.1f}" if isinstance(o, (int, float)) else "—")
+        cells.append(f"{o:.1f}" if isinstance(o, (int, float)) else "—")
         if isinstance(o, (int, float)):
             if first_ov is None:
                 first_ov = o
             last_ov = o
-    d_overall = ""
-    if first_ov is not None and last_ov is not None:
-        do = last_ov - first_ov
-        d_overall = f"**{'+' if do >= 0 else ''}{do:.1f}**"
-    overall_row = (
-        "| **Overall** | "
-        + " | ".join(f"**{c}**" for c in overall_cells)
-        + f" | {d_overall} |"
-    )
+    d_str = _delta_str(first_ov, last_ov)
+    d_fmt = f"**{d_str}**" if d_str else ""
+    return "| **Overall** | " + " | ".join(f"**{c}**" for c in cells) + f" | {d_fmt} |"
+
+
+def render_trajectory(rounds: list) -> str:
+    """Render a markdown score trajectory table across rounds."""
+    if not rounds:
+        return "## 2. Score Trajectory\n\n_No round data._\n"
+
+    all_dims = _collect_dimensions(rounds)
+    header = "| Dimension | " + " | ".join(f"R{r['round']}" for r in rounds) + " | Δ |"
+    sep = "|" + "---|" * (len(rounds) + 2)
+    rows = [_render_dimension_row(dim, rounds) for dim in all_dims]
+    overall_row = _render_overall_row(rounds)
 
     return f"""## 2. Score Trajectory
 

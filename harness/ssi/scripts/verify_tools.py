@@ -83,7 +83,7 @@ def check_command(cmd):
     """Return True if command exists and works."""
     try:
         result = subprocess.run(
-            cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5
+            [cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5
         )
         return result.returncode == 0
     except Exception:

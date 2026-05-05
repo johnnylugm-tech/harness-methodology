@@ -66,6 +66,7 @@ class SpecLogicChecker:
     }
 
     def __init__(self, project_path: str):
+        """Initialize checker with project root path."""
         self.project_path = Path(project_path)
         self.issues: List[LogicIssue] = []
 
@@ -149,6 +150,7 @@ class SpecLogicChecker:
         return issues
 
     def _get_function_name(self, lines: List[str], current_line: int) -> str:
+        """Walk backwards from current_line to find the enclosing function name."""
         for i in range(current_line - 1, -1, -1):
             match = re.match(r'def\s+(\w+)', lines[i])
             if match:
@@ -156,6 +158,7 @@ class SpecLogicChecker:
         return "unknown"
 
     def _calculate_score(self, issue_count: int, function_count: int) -> float:
+        """Compute 0-100 score from high/medium issue counts."""
         if function_count == 0:
             return 100
 
@@ -168,6 +171,7 @@ class SpecLogicChecker:
         return score
 
     def print_report(self, result: SpecLogicCheckResult):
+        """Print formatted check results to stdout."""
         print("\n" + "="*60)
         print("Spec Logic Checker Report")
         print("="*60)
@@ -195,10 +199,12 @@ class SemanticValidator:
     """Semantic Validator - validates logic correctness against SRS"""
 
     def __init__(self, srs_path: str):
+        """Initialize validator and parse SRS for requirement contracts."""
         self.srs_path = srs_path
         self.requirements = self._parse_srs()
 
     def _parse_srs(self) -> Dict[str, Any]:
+        """Extract FR requirements and inferred verification rules from SRS."""
         requirements: Dict[str, Any] = {}
 
         try:
@@ -219,6 +225,7 @@ class SemanticValidator:
         return requirements
 
     def _infer_verification(self, description: str) -> str:
+        """Map requirement description keywords to verification strategies."""
         desc = description.lower()
 
         # Note: conditions match Chinese SRS content intentionally
@@ -238,6 +245,7 @@ class SemanticValidator:
             return "manual_verification_required"
 
     def verify(self, code: str, fr_id: str) -> Tuple[bool, str]:
+        """Check if code conforms to the SRS requirement contract."""
         if fr_id not in self.requirements:
             return True, f"Requirement {fr_id} not found"
 
@@ -256,6 +264,7 @@ class SemanticValidator:
 
 
 def main():
+    """CLI entry point: scan project for logic issues, optionally validate against SRS."""
     parser = argparse.ArgumentParser(description="Spec Logic Checker")
     parser.add_argument("project_path", help="Project path")
     parser.add_argument("--srs", help="SRS.md path for semantic validation")

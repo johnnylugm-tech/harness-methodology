@@ -10,6 +10,7 @@ from datetime import datetime
 
 
 class GateStatus(Enum):
+    """Gate lifecycle states: not_reached → passed/failed/bypassed."""
     NOT_REACHED = "not_reached"
     PASSED = "passed"
     FAILED = "failed"
@@ -30,6 +31,7 @@ class Gate:
         self.evidence: Optional[Any] = None
 
     def check(self, context: dict) -> bool:
+        """Evaluate gate: auto_pass → validator → required_output check."""
         if self.auto_pass:
             self.status = GateStatus.PASSED
             self.verified_at = datetime.now()
@@ -58,6 +60,7 @@ class Gate:
         return False
 
     def bypass(self, reason: Optional[str] = None):
+        """Mark gate as bypassed with optional reason for audit trail."""
         self.status = GateStatus.BYPASSED
         self.verified_at = datetime.now()
         self.evidence = {"bypass_reason": reason or "manual_bypass"}
@@ -125,6 +128,8 @@ class VerificationGates:
 
 
 class HITLGates(VerificationGates):
+    """Human-In-The-Loop gate sequence: task→output→approval→complete."""
+
     def __init__(self):
         super().__init__()
         self.gate_sequence = ["task_created", "output_generated", "human_approved", "completed"]
@@ -132,6 +137,8 @@ class HITLGates(VerificationGates):
 
 
 class AutonomousGates(VerificationGates):
+    """Autonomous (non-HITL) gate sequence: task→output→verify→complete."""
+
     def __init__(self):
         super().__init__()
         self.gate_sequence = ["task_created", "agent_assigned", "output_generated",

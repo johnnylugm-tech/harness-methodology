@@ -49,6 +49,7 @@ def find_tested_frs(tests_dir: str) -> set[str]:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    """CLI entry point."""
     args = argv or sys.argv[1:]
     if len(args) < 2:
         print("Usage: check_spec_trace.py <SAD.md> <tests_dir>")

@@ -42,6 +42,7 @@ PHASE_ARTIFACTS = {
 
 
 def extract_paths_from_tool(filepath: str) -> Dict[int, Set[str]]:
+    """Parse a tool output file for phase-specific path references."""
     paths: dict[int, set[str]] = {5: set(), 6: set(), 7: set(), 8: set()}
     try:
         content = Path(filepath).read_text(encoding="utf-8")
@@ -56,6 +57,7 @@ def extract_paths_from_tool(filepath: str) -> Dict[int, Set[str]]:
 
 
 def extract_paths_from_plan(phase: int) -> Set[str]:
+    """Extract WHERE field path from a phase plan document."""
     plan_file = Path(f"docs/Phase{phase}_Plan_5W1H_AB.md")
     if not plan_file.exists():
         return set()
@@ -65,6 +67,7 @@ def extract_paths_from_plan(phase: int) -> Set[str]:
 
 
 def main():
+    """CLI entry point: verify path consistency between plans and tool config."""
     print("=" * 60)
     print("PATH CONSISTENCY VERIFIER")
     print("=" * 60)

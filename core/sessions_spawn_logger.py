@@ -47,6 +47,7 @@ class SessionsSpawnLogger:
     def log_spawn(self, role: str, task: str, session_id: str,
                   confidence: Optional[int] = None, status: str = "SPAWNED",
                   **kwargs) -> Dict[str, Any]:
+        """Record a new agent spawn event with role and task attribution."""
         self._ensure_initialized()
         entry: dict[str, Any] = {"timestamp": datetime.now().isoformat(), "role": role,
                                 "task": task, "session_id": session_id, "status": status}
@@ -69,6 +70,7 @@ class SessionsSpawnLogger:
         return None
 
     def validate(self) -> Dict[str, Any]:
+        """Validate all session records for consistency (ID uniqueness, task gaps)."""
         if not self.log_path.exists():
             return {"valid": True, "count": 0, "errors": []}
         content = self.log_path.read_text().strip()
@@ -88,6 +90,7 @@ class SessionsSpawnLogger:
         return {"valid": len(errors) == 0, "count": count, "errors": errors}
 
     def get_summary(self) -> Dict[str, Any]:
+        """Return aggregate session stats: counts, FR tasks, status distribution."""
         result = self.validate()
         role_counts: dict[str, int] = {}
         fr_tasks: set[str] = set()

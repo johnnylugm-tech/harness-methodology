@@ -298,15 +298,19 @@ class AuditResult:
     verdict: str = "PENDING"  # PASS / CONDITIONAL_PASS / FAIL
 
     def add(self, finding: Finding):
+        """Record a finding in the audit result."""
         self.findings.append(finding)
 
     def criticals(self):
+        """Return all CRITICAL severity findings."""
         return [f for f in self.findings if f.severity == "CRITICAL"]
 
     def warnings(self):
+        """Return all WARNING severity findings."""
         return [f for f in self.findings if f.severity == "WARNING"]
 
     def passes(self):
+        """Return all PASS/INFO findings."""
         return [f for f in self.findings if f.severity == "PASS"]
 
 
@@ -318,6 +322,7 @@ class GitHubFetcher:
     """Access GitHub Repo via gh CLI (no token env var required)"""
 
     def __init__(self, repo: str, branch: str = "main"):
+        """Initialize fetcher for a GitHub repo and branch."""
         self.repo = repo
         self.branch = branch
         self._tree: Optional[list[dict]] = None
@@ -398,6 +403,12 @@ class GitHubFetcher:
 # ─────────────────────────────────────────────
 
 class PhaseAuditor:
+    """Audits a single development phase against its deliverable/process spec.
+
+    Validates 8 dimensions per phase: deliverables, stage-pass, session
+    separation, dev log, content depth, commit timeline, claims crosscheck,
+    and integrity. Produces an AuditResult with scored findings."""
+
     def __init__(self, fetcher: GitHubFetcher, phase: int):
         self.gh = fetcher
         self.phase = phase
@@ -412,12 +423,14 @@ class PhaseAuditor:
         self._resolved: dict[str, Optional[str]] = {}
 
     def _resolve(self, candidates: list[str]) -> Optional[str]:
+        """Resolve first-existing path from candidate list, cached."""
         key = candidates[0]
         if key not in self._resolved:
             self._resolved[key] = self.gh.resolve_path(candidates)
         return self._resolved[key]
 
     def _content(self, candidates: list[str]) -> Optional[str]:
+        """Resolve path and fetch file content, cached."""
         path = self._resolve(candidates)
         if not path:
             return None
@@ -1370,6 +1383,7 @@ class PhaseAuditor:
 
     # -- Run all checks -------------------------------------------────
     def run_all_checks(self) -> AuditResult:
+        """Execute all C1-C8 checks and compute final audit score."""
         print(f"\n{'='*60}")
         print(f"Auditing {self.gh.repo} -- Phase {self.phase}: {self.spec.get('name','')}")
         print(f"{'='*60}")
@@ -1422,6 +1436,7 @@ class PhaseAuditor:
 # ─────────────────────────────────────────────
 
 def generate_report(result: AuditResult, output_format: str = "markdown") -> str:
+    """Render audit results as markdown or JSON report."""
     verdict_icon = {"PASS": "\u2705", "CONDITIONAL_PASS": "\u26a0\ufe0f", "FAIL": "\u274c"}.get(result.verdict, "\u2753")
     verdict_label = {
         "PASS": "Passed",
@@ -1452,6 +1467,7 @@ def _report_header(
     result: AuditResult, verdict_icon: str, verdict_label: str,
     criticals: list, warnings: list, passes: list,
 ) -> list[str]:
+    """Render audit report header with repo/phase/verdict metadata."""
     return [
         f"# Audit Report -- Phase {result.phase}: {result.phase_name}",
         "",
@@ -1476,6 +1492,7 @@ def _report_header(
 
 
 def _report_criticals(criticals: list) -> list[str]:
+    """Format critical findings as markdown list items."""
     if not criticals:
         return []
     lines = [
@@ -1496,6 +1513,7 @@ def _report_criticals(criticals: list) -> list[str]:
 
 
 def _report_warnings(warnings: list) -> list[str]:
+    """Format warning findings as markdown list items."""
     if not warnings:
         return []
     lines = [
@@ -1513,6 +1531,7 @@ def _report_warnings(warnings: list) -> list[str]:
 
 
 def _report_dimensions(findings_by_dim: dict) -> list[str]:
+    """Render per-dimension finding counts in markdown table."""
     lines = [
         "## Per-Dimension Detailed Results",
         "",
@@ -1533,6 +1552,7 @@ def _report_dimensions(findings_by_dim: dict) -> list[str]:
 
 
 def _report_recommendations(criticals: list, warnings: list) -> list[str]:
+    """Generate actionable fix recommendations from findings."""
     if not criticals and not warnings:
         return []
     lines = [
@@ -1552,6 +1572,7 @@ def _report_recommendations(criticals: list, warnings: list) -> list[str]:
     return lines
 
 def _report_next_steps(result: AuditResult) -> list[str]:
+    """Generate next-step actions based on audit verdict."""
     lines = [
         "## next steps",
         "",
@@ -1566,6 +1587,7 @@ def _report_next_steps(result: AuditResult) -> list[str]:
 
 
 def _report_footer() -> list[str]:
+    """Render audit report footer with generation metadata."""
     return [
         "",
         "---",

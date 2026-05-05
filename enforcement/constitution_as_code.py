@@ -17,6 +17,7 @@ import re
 
 
 class RuleSeverity(Enum):
+    """RuleSeverity component."""
     CRITICAL = "critical"  # Immediate block
     HIGH = "high"          # Warn and block
     MEDIUM = "medium"      # Warn only
@@ -59,6 +60,7 @@ class ConstitutionAsCode:
     """
 
     def __init__(self):
+        """Initialize instance."""
         self.rules: List[Rule] = []
         self._setup_default_rules()
 
@@ -122,12 +124,15 @@ class ConstitutionAsCode:
         ))
 
     def add_rule(self, rule: Rule):
+        """Add rule."""
         self.rules.append(rule)
 
     def remove_rule(self, rule_id: str):
+        """Remove rule."""
         self.rules = [r for r in self.rules if r.id != rule_id]
 
     def check_commit_message(self, message: str) -> List[Rule]:
+        """Run check commit message validation."""
         violations = []
         for rule in self.rules:
             if not rule.enabled:
@@ -138,6 +143,7 @@ class ConstitutionAsCode:
         return violations
 
     def check_command(self, command: str) -> List[Rule]:
+        """Run check command validation."""
         violations = []
         for rule in self.rules:
             if not rule.enabled:
@@ -200,6 +206,7 @@ class ConstitutionAsCode:
                 raise ConstitutionWarning(error_msg)
 
     def get_rules_summary(self) -> Dict:
+        """Get rules summary."""
         return {
             "total": len(self.rules),
             "enabled": len([r for r in self.rules if r.enabled]),

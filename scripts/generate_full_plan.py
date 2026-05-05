@@ -530,7 +530,10 @@ def _load_manifest_fr_ids(repo_path: Path) -> List[str]:
         try:
             return json.loads(manifest_path.read_text(encoding="utf-8")).get("fr_ids", [])
         except Exception:  # pylint: disable=broad-exception-caught
-            pass
+            import logging
+            logging.getLogger(__name__).warning(
+                "Failed to parse quality_manifest.json for FR IDs", exc_info=True
+            )
     return []
 
 
@@ -1140,6 +1143,7 @@ def generate_full_plan(phase: int, repo_path: Path, output_path: Optional[Path] 
 
 
 def main():
+    """CLI entry point."""
     parser = argparse.ArgumentParser(
         description='Generate full plan with phase-specific detailed tasks',
         formatter_class=argparse.RawDescriptionHelpFormatter,

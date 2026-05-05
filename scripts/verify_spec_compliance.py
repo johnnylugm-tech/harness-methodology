@@ -21,6 +21,7 @@ class SpecComplianceChecker:
     """Spec compliance checker."""
 
     def __init__(self, project_path: str):
+        """Initialize instance with default configuration."""
         self.project_path = Path(project_path)
         self.issues: list[str] = []
         self.passed: list[str] = []
@@ -132,6 +133,7 @@ class SpecComplianceChecker:
 
 
 def main():
+    """CLI entry point."""
     parser = argparse.ArgumentParser(description="Spec compliance verification")
     parser.add_argument("project_path", help="Project path")
     parser.add_argument("--fix", action="store_true", help="Attempt auto-fix")

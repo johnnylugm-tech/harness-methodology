@@ -29,6 +29,7 @@ class ServerEnforcer:
     """
 
     def __init__(self):
+        """Initialize instance."""
         self.checks = []
         self.results = {}
         self._setup_checks()
@@ -76,6 +77,7 @@ class ServerEnforcer:
             return {"passed": False, "error": str(e)}
 
     def enforce_all(self) -> Dict:
+        """Enforce all."""
         self.results = {}
         for check in self.checks:
             name = check["name"]
@@ -95,6 +97,7 @@ class ServerEnforcer:
         }
 
     def report_failure(self, results: Dict):
+        """Report failure."""
         print("=" * 60)
         print("SERVER-SIDE ENFORCEMENT FAILED")
         print("=" * 60)

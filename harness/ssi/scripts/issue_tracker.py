@@ -27,7 +27,7 @@ VALID_STATUS = {"open", "fixed", "deferred", "wontfix"}
 def _issue_id(dimension: str, file: str, line, message: str) -> str:
     """Deterministic ID so repeat findings don't duplicate."""
     key = f"{dimension}|{file or ''}|{line or ''}|{message[:80]}"
-    return hashlib.sha1(key.encode()).hexdigest()[:10]
+    return hashlib.sha256(key.encode()).hexdigest()[:10]
 
 
 def load(registry_path: str) -> dict:

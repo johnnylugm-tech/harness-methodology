@@ -54,6 +54,7 @@ def bump_version(new_version: str):
 
 
 def main():
+    """CLI entry point."""
     if len(sys.argv) > 1:
         new_version = sys.argv[1]
         if not re.match(r'^\d+\.\d+\.\d+$', new_version):

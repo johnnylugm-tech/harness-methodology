@@ -26,6 +26,7 @@ class EnforcementResult:
     """Container for enforcement run results."""
 
     def __init__(self):
+        """Initialize instance."""
         self.violations: List[Tuple[str, Optional[str]]] = []  # (message, fix_command)
         self.warnings: List[Tuple[str, Optional[str]]] = []
         self.passed = False
@@ -33,18 +34,23 @@ class EnforcementResult:
         self.warn_checks: Dict[str, bool] = {}
 
     def add_violation(self, message: str, fix: Optional[str] = None):
+        """Add violation."""
         self.violations.append((message, fix))
 
     def add_warning(self, message: str, fix: Optional[str] = None):
+        """Add warning."""
         self.warnings.append((message, fix))
 
     def add_block_check(self, name: str, passed: bool):
+        """Add block check."""
         self.block_checks[name] = passed
 
     def add_warn_check(self, name: str, passed: bool):
+        """Add warn check."""
         self.warn_checks[name] = passed
 
     def summary(self) -> str:
+        """Summary."""
         return (
             f"Passed: {self.passed}\n"
             f"BLOCK Violations: {len(self.violations)}\n"
@@ -77,21 +83,25 @@ class FrameworkEnforcer:
     ]
 
     def __init__(self, project_root: Optional[str] = None, phase: int = 1):
+        """Initialize instance."""
         self.project_root = Path(project_root) if project_root else Path.cwd()
         self.phase = phase
         self._spec_checker = None
 
     @property
     def spec_checker(self):
+        """Spec checker."""
         if self._spec_checker is None:
             from quality_gate.spec_tracking_checker import SpecTrackingChecker
             self._spec_checker = SpecTrackingChecker(str(self.project_root))
         return self._spec_checker
 
     def check_spec_tracking(self) -> Dict:
+        """Run check spec tracking validation."""
         return self.spec_checker.run_enforcement()
 
     def check_constitution(self) -> Dict:
+        """Run check constitution validation."""
         try:
             from quality_gate.constitution.runner import run_constitution_check
             phase_info_map = {
@@ -118,10 +128,12 @@ class FrameworkEnforcer:
             return {"score": 0, "passed": False, "error": str(e)}
 
     def check_decision_framework(self) -> Dict:
+        """Run check decision framework validation."""
         framework_file = self.project_root / "DECISION_FRAMEWORK.md"
         return {"exists": framework_file.exists(), "path": str(framework_file)}
 
     def check_enhanced_checklist(self) -> Dict:
+        """Run check enhanced checklist validation."""
         if self.phase < 5:
             return {"exists": True, "path": "N/A (Phase < 5)", "skipped": True}
         for candidate in [
@@ -134,6 +146,7 @@ class FrameworkEnforcer:
         return {"exists": False, "path": str(self.project_root / "CHECKLIST.md")}
 
     def check_coverage_threshold(self) -> Dict:
+        """Run check coverage threshold validation."""
         DEFAULT_THRESHOLD = 70
         for candidate in [
             self.project_root / "coverage.xml",
@@ -160,6 +173,7 @@ class FrameworkEnforcer:
         }
 
     def check_traceability_matrix(self) -> Dict:
+        """Run check traceability matrix validation."""
         trace_file = None
         for candidate in [
             self.project_root / "TRACEABILITY_MATRIX.md",
@@ -193,6 +207,7 @@ class FrameworkEnforcer:
         }
 
     def check_phase_traceability(self) -> Dict:
+        """Run check phase traceability validation."""
         from quality_gate.phase_artifact_enforcer import PhaseArtifactRegistry, Phase
         registry = PhaseArtifactRegistry(str(self.project_root))
         phase_map = {
@@ -220,6 +235,7 @@ class FrameworkEnforcer:
         }
 
     def check_aspice_completeness(self) -> Dict:
+        """Run check aspice completeness validation."""
         required_by_phase = {
             1: {"Phase 1 (SPECIFY)":     ["01-requirements/SRS.md", "01-requirements/SPEC_TRACKING.md", "01-requirements/TRACEABILITY_MATRIX.md"]},
             2: {"Phase 2 (PLAN)":        ["02-architecture/SAD.md"]},
@@ -255,6 +271,7 @@ class FrameworkEnforcer:
         }
 
     def generate_aspice_report(self) -> str:
+        """Generate aspice report."""
         lines = ["=" * 60, "ASPICE TRACEABILITY REPORT", "=" * 60, ""]
         trace = self.check_phase_traceability()
         lines += [

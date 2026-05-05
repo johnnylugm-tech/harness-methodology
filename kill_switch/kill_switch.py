@@ -22,6 +22,7 @@ class KillSwitch:
     """Main Kill-Switch facade class."""
 
     def __init__(self, audit_logger=None, state_manager: Optional[StateManager] = None) -> None:
+        """Initialize instance."""
         self.health_monitor = HealthMonitor()
         self.circuit_breaker = CircuitBreaker()
         self.state_manager = state_manager or StateManager()
@@ -31,26 +32,32 @@ class KillSwitch:
         )
 
     def start_monitoring(self, agent_id: str, config: Optional[MonitorConfig] = None) -> None:
+        """Start monitoring."""
         if config is None:
             config = MonitorConfig(agent_id=agent_id)
         self.health_monitor.start_monitoring(agent_id, config)
         self.circuit_breaker.initialize_circuit(agent_id)
 
     def stop_monitoring(self, agent_id: str) -> None:
+        """Stop monitoring."""
         self.health_monitor.stop_monitoring(agent_id)
 
     def get_agent_health(self, agent_id: str):
+        """Get agent health."""
         return self.health_monitor.get_metrics(agent_id)
 
     def is_agent_circuit_open(self, agent_id: str) -> bool:
+        """Is agent circuit open."""
         if self.state_manager.is_agent_killed(agent_id):
             return True
         return self.circuit_breaker.is_open(agent_id)
 
     def get_agent_state(self, agent_id: str) -> CircuitState:
+        """Get agent state."""
         return self.circuit_breaker.get_state(agent_id)
 
     def manual_trigger(self, agent_id: str, reason: str, operator_id: str) -> InterruptEvent:
+        """Manual trigger."""
         logger.info(f"Manual Kill-Switch triggered for {agent_id} by {operator_id}: {reason}")
         return self.interrupt_engine.trigger_interrupt(
             agent_id=agent_id, reason=reason,
@@ -58,6 +65,7 @@ class KillSwitch:
         )
 
     def re_enable(self, agent_id: str, operator_id: str, acknowledgment: str) -> bool:
+        """Re enable."""
         if not self.is_agent_circuit_open(agent_id):
             return True
         logger.info(f"Re-enabling agent {agent_id} by {operator_id}. Ack: {acknowledgment}")
@@ -68,6 +76,7 @@ class KillSwitch:
 
     def get_interrupt_history(self, agent_id: Optional[str] = None,
                                limit: int = 100) -> List[InterruptEvent]:
+        """Get interrupt history."""
         return self.interrupt_engine.get_interrupt_history(agent_id=agent_id, limit=limit)
 
     def check(self, agent_id: str, config: MonitorConfig) -> bool:
@@ -75,6 +84,7 @@ class KillSwitch:
         return self.evaluate_and_trigger(agent_id, config)
 
     def evaluate_and_trigger(self, agent_id: str, config: MonitorConfig) -> bool:
+        """Evaluate and trigger."""
         try:
             metrics = self.health_monitor.get_metrics(agent_id)
         except Exception as e:

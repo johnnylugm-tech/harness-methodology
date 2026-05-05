@@ -14,6 +14,7 @@ from pathlib import Path
 class SpecParseError(Exception):
     """Exception raised when SPEC.md parsing fails."""
     def __init__(self, code: str, message: str):
+        """Initialize instance."""
         self.code = code
         self.message = message
         super().__init__(f"[{code}] {message}")
@@ -21,6 +22,7 @@ class SpecParseError(Exception):
 
 @dataclass
 class ParseError:
+    """ParseError component."""
     line_number: int
     error_type: str
     details: str
@@ -28,6 +30,7 @@ class ParseError:
 
 @dataclass
 class FeatureItem:
+    """FeatureItem component."""
     id: str
     name: str
     description: str = ""
@@ -40,6 +43,7 @@ class FeatureItem:
 
 @dataclass
 class SpecMetadata:
+    """SpecMetadata component."""
     title: str = ""
     version: str = ""
     created_date: str = ""
@@ -47,6 +51,7 @@ class SpecMetadata:
 
 @dataclass
 class ParseStats:
+    """ParseStats component."""
     total_lines: int = 0
     parsed_features: int = 0
     parse_success_rate: float = 1.0
@@ -55,6 +60,7 @@ class ParseStats:
 
 @dataclass
 class ParsedSpec:
+    """ParsedSpec component."""
     feature_items: list
     metadata: SpecMetadata = field(default_factory=SpecMetadata)
     parse_stats: ParseStats = field(default_factory=ParseStats)
@@ -69,6 +75,7 @@ class SpecParser:
     CRITERIA_PATTERN = re.compile(r"\*\*[Aa]cceptance [Cc]riteria:\*\*\s*(.+?)(?:\n|$)")
 
     def __init__(self, spec_path) -> None:
+        """Initialize instance."""
         self.spec_path = str(spec_path)
         self._errors: list[ParseError] = []
         if not Path(self.spec_path).exists():
@@ -77,6 +84,7 @@ class SpecParser:
             raise SpecParseError("E_NOT_MARKDOWN", f"File is not a Markdown file: {self.spec_path}")
 
     def parse(self) -> ParsedSpec:
+        """Parse."""
         self._errors = []
         content = self._load_file()
         lines = content.replace("\r\n", "\n").replace("\r", "\n").split("\n")
@@ -94,6 +102,7 @@ class SpecParser:
         )
 
     def get_error_log(self):
+        """Get error log."""
         return self._errors.copy()
 
     def _load_file(self) -> str:
