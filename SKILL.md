@@ -127,6 +127,15 @@ from agent_personas import get_persona
 prompt = get_persona("DEVELOPER").to_prompt(task="FR-01 implementation")
 ```
 
+### constitution/
+HR compliance checkers (Hard Rules enforcement). Integrates with `steering/` for A/B iteration safeguards.
+
+| Module | Purpose |
+|--------|---------|
+| `bvs_runner.py` | HR-03 phase-order checker: reads `.methodology/state.json`, validates phase prerequisites and FSM state |
+| `citation_parser.py` | HR-07/09: extracts citation markers (`[FR-01]`, `[§3.2]`) and verifies traceability keywords |
+| `verification_constitution_checker.py` | Bridges `steering/integrations.py` to `enforcement.constitution_as_code` (R001-R007) |
+
 ---
 
 ## 4. Hard Rules (HR)

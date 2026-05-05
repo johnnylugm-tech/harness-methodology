@@ -1,5 +1,6 @@
-# Gate 1: P3/P5/P7/P8 per-FR check. Replaces check_fr_full.py Layer 3.
+# Gate 1: P3/P4/P5/P7/P8 per-FR check. Replaces check_fr_full.py Layer 3.
 # No auto-iteration: failure -> developer fixes -> manual re-run.
+# P6 has no per-FR Gate 1 — it uses a single Gate 4 (12-dim full audit) at phase exit.
 gate: 1
 trigger: per_fr_completion
 scope: single_fr

@@ -1,0 +1,513 @@
+[
+  {
+    "iteration": 1,
+    "timestamp": "2026-05-04T05:25:41.181726",
+    "dimensions": {
+      "D1_Linting": {
+        "name": "Linting",
+        "score": 95,
+        "weight": 0.1,
+        "issues": [
+          "Found 1 error."
+        ],
+        "tool_driven": true,
+        "tool_name": "ruff"
+      },
+      "D2_TypeSafety": {
+        "name": "Type Safety",
+        "score": 100,
+        "weight": 0.15,
+        "issues": [],
+        "tool_driven": true,
+        "tool_name": "mypy"
+      },
+      "D3_TestCoverage": {
+        "name": "Test Coverage",
+        "score": 0.0,
+        "weight": 0.2,
+        "issues": [
+          "Coverage 0% < 70%"
+        ],
+        "tool_driven": true,
+        "tool_name": "pytest-cov"
+      },
+      "D4_Security": {
+        "name": "Security",
+        "score": 100,
+        "weight": 0.15,
+        "issues": [
+          "HIGH: 0",
+          "MEDIUM: 0"
+        ],
+        "tool_driven": true,
+        "tool_name": "bandit"
+      },
+      "D5_Complexity": {
+        "name": "Complexity",
+        "score": 100,
+        "weight": 0.1,
+        "issues": [],
+        "tool_driven": false,
+        "tool_name": "lizard"
+      },
+      "D6_Architecture": {
+        "name": "Architecture",
+        "score": 100,
+        "weight": 0.1,
+        "issues": [
+          "No major issues"
+        ],
+        "tool_driven": false,
+        "tool_name": "radon"
+      },
+      "D7_Readability": {
+        "name": "Readability",
+        "score": 100,
+        "weight": 0.1,
+        "issues": [
+          "2042/212 files with docstrings (estimate)"
+        ],
+        "tool_driven": false,
+        "tool_name": "agent"
+      },
+      "D8_ErrorHandling": {
+        "name": "Error Handling",
+        "score": 100,
+        "weight": 0.05,
+        "issues": [
+          "471 try-except blocks found"
+        ],
+        "tool_driven": false,
+        "tool_name": "agent"
+      },
+      "D9_Documentation": {
+        "name": "Documentation",
+        "score": 91.98113207547169,
+        "weight": 0.05,
+        "issues": [
+          "195/212 files with docstrings"
+        ],
+        "tool_driven": false,
+        "tool_name": "agent"
+      }
+    },
+    "total_score": 79.09905660377359,
+    "technical_debt": 20.90094339622641,
+    "hotspots": {},
+    "improvements": [],
+    "agent_actions": []
+  },
+  {
+    "iteration": 2,
+    "timestamp": "2026-05-04T16:39:03.071788",
+    "dimensions": {
+      "D1_Linting": {
+        "name": "Linting",
+        "score": 100,
+        "weight": 0.1,
+        "issues": [],
+        "tool_driven": true,
+        "tool_name": "ruff"
+      },
+      "D2_TypeSafety": {
+        "name": "Type Safety",
+        "score": 100,
+        "weight": 0.12,
+        "issues": [],
+        "tool_driven": true,
+        "tool_name": "mypy"
+      },
+      "D3_TestCoverage": {
+        "name": "Test Coverage",
+        "score": 90.0,
+        "weight": 0.15,
+        "issues": [],
+        "tool_driven": true,
+        "tool_name": "pytest-cov"
+      },
+      "D4_Security": {
+        "name": "Security",
+        "score": 100,
+        "weight": 0.12,
+        "issues": [
+          "No issues found"
+        ],
+        "tool_driven": true,
+        "tool_name": "bandit"
+      },
+      "D5_Complexity": {
+        "name": "Complexity",
+        "score": 15.714285714285708,
+        "weight": 0.08,
+        "issues": [
+          "CC>15: phase_truth_verifier.py=17",
+          "CC>15: framework_enforcer.py=18",
+          "CC>15: constitution_policy_sync.py=16",
+          "CC>15: parser.py=16",
+          "CC>15: verify_spec_compliance.py=16"
+        ],
+        "tool_driven": false,
+        "tool_name": "lizard"
+      },
+      "D6_Architecture": {
+        "name": "Architecture",
+        "score": 0,
+        "weight": 0.08,
+        "issues": [
+          "M 45:4 HybridWorkflow.analyze_change - C",
+          "M 71:4 PhaseTruthVerifier.check_session_log - C",
+          "M 206:4 ABEnforcer.verify_qa_not_developer - C",
+          "M 153:4 IntegratedStagePassGenerator.run_step2b_confidence_format - C",
+          "M 28:4 SpecTrackingParser.find_entries_without_status - C"
+        ],
+        "tool_driven": false,
+        "tool_name": "radon-cc"
+      },
+      "D7_Maintainability": {
+        "name": "Maintainability",
+        "score": 95,
+        "weight": 0.08,
+        "issues": [
+          "Avg MI: 95.0 (healthy)"
+        ],
+        "tool_driven": false,
+        "tool_name": "radon-mi"
+      },
+      "D8_Readability": {
+        "name": "Readability",
+        "score": 64.67181765834604,
+        "weight": 0.06,
+        "issues": [
+          "Avg file: 232 lines",
+          "Comment ratio: 7.8%"
+        ],
+        "tool_driven": false,
+        "tool_name": "agent"
+      },
+      "D9_ErrorHandling": {
+        "name": "Error Handling",
+        "score": 100,
+        "weight": 0.05,
+        "issues": [
+          "try blocks: 114",
+          "bare excepts: 0",
+          "broad excepts: 74"
+        ],
+        "tool_driven": false,
+        "tool_name": "agent"
+      },
+      "D10_Documentation": {
+        "name": "Documentation",
+        "score": 64.50704225352112,
+        "weight": 0.05,
+        "issues": [
+          "Module docstrings: 29/71",
+          "Any docstring: 71/71"
+        ],
+        "tool_driven": false,
+        "tool_name": "agent"
+      },
+      "D11_TestQuality": {
+        "name": "Test Quality",
+        "score": 54.94370522006142,
+        "weight": 0.06,
+        "issues": [
+          "Tests: 977",
+          "Asserts: 1342",
+          "Asserts/test: 1.4"
+        ],
+        "tool_driven": false,
+        "tool_name": "agent"
+      },
+      "D12_CodeHygiene": {
+        "name": "Code Hygiene",
+        "score": 100,
+        "weight": 0.05,
+        "issues": [
+          "TODOs: 0",
+          "FIXMEs: 0",
+          "Files w/ trailing ws: 9"
+        ],
+        "tool_driven": false,
+        "tool_name": "agent"
+      }
+    },
+    "total_score": 76.75942634252335,
+    "technical_debt": 23.240573657476645,
+    "hotspots": {},
+    "improvements": [],
+    "agent_actions": []
+  },
+  {
+    "iteration": 2,
+    "timestamp": "2026-05-04T16:41:41.627669",
+    "dimensions": {
+      "D1_Linting": {
+        "name": "Linting",
+        "score": 100,
+        "weight": 0.1,
+        "issues": [],
+        "tool_driven": true,
+        "tool_name": "ruff"
+      },
+      "D2_TypeSafety": {
+        "name": "Type Safety",
+        "score": 100,
+        "weight": 0.12,
+        "issues": [],
+        "tool_driven": true,
+        "tool_name": "mypy"
+      },
+      "D3_TestCoverage": {
+        "name": "Test Coverage",
+        "score": 90.0,
+        "weight": 0.15,
+        "issues": [],
+        "tool_driven": true,
+        "tool_name": "pytest-cov"
+      },
+      "D4_Security": {
+        "name": "Security",
+        "score": 100,
+        "weight": 0.12,
+        "issues": [
+          "No issues found"
+        ],
+        "tool_driven": true,
+        "tool_name": "bandit"
+      },
+      "D5_Complexity": {
+        "name": "Complexity",
+        "score": 100,
+        "weight": 0.08,
+        "issues": [
+          "Avg CCN: 0.0 across 0 functions",
+          "CCN > 15 warnings: 0/0"
+        ],
+        "tool_driven": false,
+        "tool_name": "lizard"
+      },
+      "D6_Architecture": {
+        "name": "Architecture",
+        "score": 96.49334945586457,
+        "weight": 0.08,
+        "issues": [
+          "M 45:4 HybridWorkflow.analyze_change - C",
+          "M 71:4 PhaseTruthVerifier.check_session_log - C",
+          "M 206:4 ABEnforcer.verify_qa_not_developer - C"
+        ],
+        "tool_driven": false,
+        "tool_name": "radon-cc"
+      },
+      "D7_Maintainability": {
+        "name": "Maintainability",
+        "score": 95,
+        "weight": 0.08,
+        "issues": [
+          "Avg MI: 95.0 (healthy)"
+        ],
+        "tool_driven": false,
+        "tool_name": "radon-mi"
+      },
+      "D8_Readability": {
+        "name": "Readability",
+        "score": 64.67181765834604,
+        "weight": 0.06,
+        "issues": [
+          "Avg file: 232 lines",
+          "Comment ratio: 7.8%"
+        ],
+        "tool_driven": false,
+        "tool_name": "agent"
+      },
+      "D9_ErrorHandling": {
+        "name": "Error Handling",
+        "score": 100,
+        "weight": 0.05,
+        "issues": [
+          "try blocks: 114",
+          "bare excepts: 0",
+          "broad excepts: 74"
+        ],
+        "tool_driven": false,
+        "tool_name": "agent"
+      },
+      "D10_Documentation": {
+        "name": "Documentation",
+        "score": 64.50704225352112,
+        "weight": 0.05,
+        "issues": [
+          "Module docstrings: 29/71",
+          "Any docstring: 71/71"
+        ],
+        "tool_driven": false,
+        "tool_name": "agent"
+      },
+      "D11_TestQuality": {
+        "name": "Test Quality",
+        "score": 54.94370522006142,
+        "weight": 0.06,
+        "issues": [
+          "Tests: 977",
+          "Asserts: 1342",
+          "Asserts/test: 1.4"
+        ],
+        "tool_driven": false,
+        "tool_name": "agent"
+      },
+      "D12_CodeHygiene": {
+        "name": "Code Hygiene",
+        "score": 100,
+        "weight": 0.05,
+        "issues": [
+          "TODOs: 0",
+          "FIXMEs: 0",
+          "Files w/ trailing ws: 9"
+        ],
+        "tool_driven": false,
+        "tool_name": "agent"
+      }
+    },
+    "total_score": 91.22175144184966,
+    "technical_debt": 8.778248558150338,
+    "hotspots": {},
+    "improvements": [],
+    "agent_actions": []
+  },
+  {
+    "iteration": 2,
+    "timestamp": "2026-05-04T16:42:29.585446",
+    "dimensions": {
+      "D1_Linting": {
+        "name": "Linting",
+        "score": 100,
+        "weight": 0.1,
+        "issues": [],
+        "tool_driven": true,
+        "tool_name": "ruff"
+      },
+      "D2_TypeSafety": {
+        "name": "Type Safety",
+        "score": 100,
+        "weight": 0.12,
+        "issues": [],
+        "tool_driven": true,
+        "tool_name": "mypy"
+      },
+      "D3_TestCoverage": {
+        "name": "Test Coverage",
+        "score": 90.0,
+        "weight": 0.15,
+        "issues": [],
+        "tool_driven": true,
+        "tool_name": "pytest-cov"
+      },
+      "D4_Security": {
+        "name": "Security",
+        "score": 100,
+        "weight": 0.12,
+        "issues": [
+          "No issues found"
+        ],
+        "tool_driven": true,
+        "tool_name": "bandit"
+      },
+      "D5_Complexity": {
+        "name": "Complexity",
+        "score": 70.4,
+        "weight": 0.08,
+        "issues": [
+          "Avg CCN: 3.7 across 660 functions",
+          "CCN > 15 warnings: 8/660"
+        ],
+        "tool_driven": false,
+        "tool_name": "lizard"
+      },
+      "D6_Architecture": {
+        "name": "Architecture",
+        "score": 96.49334945586457,
+        "weight": 0.08,
+        "issues": [
+          "M 45:4 HybridWorkflow.analyze_change - C",
+          "M 71:4 PhaseTruthVerifier.check_session_log - C",
+          "M 206:4 ABEnforcer.verify_qa_not_developer - C"
+        ],
+        "tool_driven": false,
+        "tool_name": "radon-cc"
+      },
+      "D7_Maintainability": {
+        "name": "Maintainability",
+        "score": 95,
+        "weight": 0.08,
+        "issues": [
+          "Avg MI: 95.0 (healthy)"
+        ],
+        "tool_driven": false,
+        "tool_name": "radon-mi"
+      },
+      "D8_Readability": {
+        "name": "Readability",
+        "score": 64.67181765834604,
+        "weight": 0.06,
+        "issues": [
+          "Avg file: 232 lines",
+          "Comment ratio: 7.8%"
+        ],
+        "tool_driven": false,
+        "tool_name": "agent"
+      },
+      "D9_ErrorHandling": {
+        "name": "Error Handling",
+        "score": 100,
+        "weight": 0.05,
+        "issues": [
+          "try blocks: 114",
+          "bare excepts: 0",
+          "broad excepts: 74"
+        ],
+        "tool_driven": false,
+        "tool_name": "agent"
+      },
+      "D10_Documentation": {
+        "name": "Documentation",
+        "score": 64.50704225352112,
+        "weight": 0.05,
+        "issues": [
+          "Module docstrings: 29/71",
+          "Any docstring: 71/71"
+        ],
+        "tool_driven": false,
+        "tool_name": "agent"
+      },
+      "D11_TestQuality": {
+        "name": "Test Quality",
+        "score": 54.94370522006142,
+        "weight": 0.06,
+        "issues": [
+          "Tests: 977",
+          "Asserts: 1342",
+          "Asserts/test: 1.4"
+        ],
+        "tool_driven": false,
+        "tool_name": "agent"
+      },
+      "D12_CodeHygiene": {
+        "name": "Code Hygiene",
+        "score": 100,
+        "weight": 0.05,
+        "issues": [
+          "TODOs: 0",
+          "FIXMEs: 0",
+          "Files w/ trailing ws: 9"
+        ],
+        "tool_driven": false,
+        "tool_name": "agent"
+      }
+    },
+    "total_score": 88.85375144184967,
+    "technical_debt": 11.146248558150333,
+    "hotspots": {},
+    "improvements": [],
+    "agent_actions": []
+  }
+]

@@ -9,8 +9,8 @@ Design Score: **92/100** Academic Benchmark
 | Layer | Name | Description |
 |-------|------|-------------|
 | Part 1 | 乾淨版 (Clean) | 30+ ported modules from methodology-v2, adapted for Claude Code |
-| Part 2 | 整合版 (Integrated) | 4-Gate quality harness embedded across 8 Phases |
-| Part 3 | 優化版 (Optimized) | 6 structural gap fixes (G1–G6) |
+| Part 2 | 整合版 (Integrated) | 4-Gate quality harness + constitution HR enforcement across 8 Phases |
+| Part 3 | 優化版 (Optimized) | 6 structural gap fixes (G1–G6) + constitution/ module (bvs_runner, citation_parser, verification_constitution_checker) |
 
 ## 8-Phase Gate Map
 

@@ -42,7 +42,7 @@ The system uses this macro architecture:
 
 - **Pipe**: 8 software development phases (P1–P8) form the main pipeline.
 - **Filter**: 4 quality gates intercept at specific phase exits:
-  - **Gate 1**: Per-FR check at P3/P5/P7/P8 (trigger: `per_fr_completion`)
+  - **Gate 1**: Per-FR check at P3/P4/P5/P7/P8 (trigger: `per_fr_completion`)
   - **Gate 2**: Phase exit at P3 end (trigger: `phase_exit`, phase: 3)
   - **Gate 3**: Phase exit at P4 end (trigger: `phase_exit`, phase: 4)
   - **Gate 4**: Phase exit at P6 end (trigger: `phase_exit`, phase: 6)
@@ -70,18 +70,18 @@ The system uses this macro architecture:
 
 `cli.py` is retained as-is because it is the entrypoint for the full parent system that contains harness-methodology as a sub-component. Any work purely within harness-methodology should use `harness_cli.py`.
 
-**`harness_cli.py` commands** (8 total):
+**`harness_cli.py` commands** (10 total):
 ```
-python harness_cli.py plan-phase     --phase 3 [--repo .] [--output plan.md]
-python harness_cli.py run-phase      --phase 3 [--project .] [--force]
-python harness_cli.py run-gate       --gate 2  --phase 3 [--project .] [--fr-id FR-01]
-                                     [--auto-fix-rounds N] [--no-git]
-python harness_cli.py run-pipeline   [--phase-from 1] [--phase-to 8] [--project .]
-                                     [--auto-fix-rounds 3] [--force] [--no-git]
-python harness_cli.py manifest       --fr-ids FR-01 FR-02 [--sad SAD.md] [--no-git]
-python harness_cli.py status         [--project .]
-python harness_cli.py effort         [--phase 3]
-python harness_cli.py reload-policy  [--policy-file enforcement/enforcement.json]
+python harness_cli.py plan-phase        --phase 3 [--repo .] [--output plan.md]
+python harness_cli.py run-phase         --phase 3 [--project .] [--force]
+python harness_cli.py run-gate          --gate 2 --phase 3 [--project .] [--fr-id FR-01] [--no-git]
+python harness_cli.py finalize-gate     --gate 2 --phase 3 [--project .] [--fr-id FR-01] [--no-git]
+python harness_cli.py generate-next-plan [--project .] [--phase N]
+python harness_cli.py run-pipeline      [--phase-from 1] [--phase-to 8] [--project .] [--force] [--no-git]
+python harness_cli.py manifest          --fr-ids FR-01 FR-02 [--sad SAD.md] [--no-git]
+python harness_cli.py status            [--project .]
+python harness_cli.py effort            [--phase 3] [--project .]
+python harness_cli.py reload-policy     [--policy-file enforcement/enforcement.json]
 ```
 
 **Gate evaluation (two-phase)**: `run-gate` prepares context and prints evaluation instructions; Claude evaluates inline and writes `.sessi-work/gate{N}_result.json`; `finalize-gate` reads the result and checks thresholds. SSI assets are embedded in `harness/ssi/`.
@@ -1329,7 +1329,7 @@ Four files: `gate1_per_fr.yaml`, `gate2_p3_exit.yaml`, `gate3_p4_exit.yaml`, `ga
 
 **Actual gate configurations**:
 
-**Gate 1** — `gate1_per_fr.yaml` (per-FR at P3/P5/P7/P8):
+**Gate 1** — `gate1_per_fr.yaml` (per-FR at P3/P4/P5/P7/P8):
 ```yaml
 gate: 1
 trigger: per_fr_completion
