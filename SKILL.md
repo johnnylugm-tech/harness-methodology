@@ -37,14 +37,15 @@ Key capabilities:
 | P8 | Configuration Management | Gate4 | Gate4 (85) | CONFIG_RECORDS.md |
 
 > ¹ **Human¹** = human peer review of deliverables (reviewer reads + APPROVE/REJECT). This is NOT
-> `harness run-gate --gate 1`. `run-gate --gate 1` only applies to code phases (P3, P5, P7, P8)
-> where linting/type_safety/test_coverage can be measured. P1/P2 produce documents, not code.
+> `harness run-gate --gate 1`. `run-gate --gate 1` only applies to code phases (P3, P4, P5, P7, P8)
+> where linting/type_safety/test_coverage can be measured. P1/P2 produce documents, not code. P6 has
+> no per-FR Gate 1 — it uses a single Gate 4 (12-dim full audit) at phase exit.
 
 ### Gate Definitions
 
 | Gate | Phases | score_gate | Blocking |
 |------|--------|------------|----------|
-| Gate1 | P3, P5, P7, P8 per-FR | 75 (each dim) | yes |
+| Gate1 | P3, P4, P5, P7, P8 per-FR | 75 (each dim) | yes |
 | Gate2 | P3 exit | 75 | yes |
 | Gate3 | P4 exit | 80 | yes |
 | Gate4 | P6 full | 85 | yes |
@@ -447,11 +448,21 @@ python harness_cli.py generate-next-plan --project $PROJECT --phase $N
 
 Output: exact checklist of `run-gate → evaluate → finalize-gate → push → next-plan` steps.
 
-### Mandatory Human Checkpoints (3 only)
+### Mandatory Human Checkpoints
+
+**Manual mode** (§11 plan checklist — 3 human checkpoints):
+
+| # | Phase | When | Required Action |
+|---|---|---|---|
+| 1 | P1 exit | SRS.md ready | Human reads SRS.md → APPROVE / REJECT |
+| 2 | P2 exit | SAD.md + ADR.md ready | Human reads deliverables → APPROVE / REJECT |
+| 3 | P6 exit | Gate 4 evaluation done | Click APPROVE on Telegram (Hermes MCP) |
+
+**Automated pipeline mode** (`run-pipeline` — the pipeline treats P1+P2 outputs as preconditions):
 
 | Checkpoint | When | Required Action |
 |---|---|---|
-| P1 — Requirements | Before pipeline can plan P3+ | Provide `SRS.md` with `### FR-XX:` sections |
+| P1+P2 outputs | Before pipeline can plan P3+ | Provide `SRS.md` with `### FR-XX:` sections and `SAD.md` |
 | Gate 4 — Final APPROVE | P6 exit | Click APPROVE on Telegram (Hermes MCP) |
 | PAUSE (exit code 10) | Result file missing | Run `run-gate`, evaluate, then `finalize-gate` |
 
