@@ -1,0 +1,67 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "HarnessGateResult",
+  "description": "Output written by Claude to .sessi-work/gate{N}_result.json after inline gate evaluation.",
+  "type": "object",
+  "required": ["overall_score", "meets_target", "quality_complete", "open_critical_count", "open_high_count", "breakdown"],
+  "properties": {
+    "overall_score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Weighted composite score across all dimensions."
+    },
+    "meets_target": {
+      "type": "boolean",
+      "description": "True when overall_score >= score_gate threshold."
+    },
+    "quality_complete": {
+      "type": "boolean",
+      "description": "True when meets_target AND open_critical_count==0 AND open_high_count==0."
+    },
+    "open_critical_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of unresolved critical severity issues."
+    },
+    "open_high_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of unresolved high severity issues."
+    },
+    "breakdown": {
+      "type": "object",
+      "description": "Per-dimension score detail keyed by dimension name.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["score", "threshold", "passed"],
+        "properties": {
+          "score": {"type": "number", "minimum": 0, "maximum": 100},
+          "threshold": {"type": "number", "minimum": 0, "maximum": 100},
+          "passed": {"type": "boolean"},
+          "issues": {
+            "type": "array",
+            "items": {"type": "string"}
+          }
+        }
+      }
+    },
+    "failing_dimensions": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Names of dimensions that did not meet their individual thresholds."
+    },
+    "gate_num": {
+      "type": "integer",
+      "description": "Gate number this result belongs to."
+    },
+    "phase": {
+      "type": "integer",
+      "description": "Harness phase number."
+    },
+    "fr_id": {
+      "type": ["string", "null"],
+      "description": "Functional requirement ID if gate is FR-scoped."
+    }
+  }
+}
