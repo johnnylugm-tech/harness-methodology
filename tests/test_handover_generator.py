@@ -216,3 +216,120 @@ class TestGitStrategyHandover:
         gs = self._make_strategy(tmp_path)
         gs.commit_and_push_final(phases=[7])
         assert "P7-exit" in (tmp_path / "HANDOVER.md").read_text()
+
+
+class TestGitStrategyGitOps:
+    """Tests that hit the actual git subprocess paths (_commit, _run_git, etc.)."""
+
+    def test_has_changes_true(self, tmp_path: Path):
+        gs = GitStrategy(project=tmp_path, enabled=True, push=False)
+        with patch.object(gs, "_run_git") as mock_git:
+            mock_git.return_value = MagicMock(stdout="M file.py", returncode=0)
+            assert gs._has_changes() is True
+            mock_git.assert_called_once_with("status", "--porcelain")
+
+    def test_has_changes_false(self, tmp_path: Path):
+        gs = GitStrategy(project=tmp_path, enabled=True, push=False)
+        with patch.object(gs, "_run_git") as mock_git:
+            mock_git.return_value = MagicMock(stdout="", returncode=0)
+            assert gs._has_changes() is False
+
+    def test_commit_no_changes(self, tmp_path: Path):
+        gs = GitStrategy(project=tmp_path, enabled=True, push=False)
+        with patch.object(gs, "_has_changes", return_value=False):
+            assert gs._commit("msg") is True
+
+    def test_commit_add_fails(self, tmp_path: Path):
+        gs = GitStrategy(project=tmp_path, enabled=True, push=False)
+        with patch.object(gs, "_has_changes", return_value=True), \
+             patch.object(gs, "_run_git") as mock_git:
+            mock_git.return_value = MagicMock(returncode=1, stderr="add failed")
+            assert gs._commit("msg") is False
+
+    def test_commit_commit_fails(self, tmp_path: Path):
+        gs = GitStrategy(project=tmp_path, enabled=True, push=False)
+        with patch.object(gs, "_has_changes", return_value=True), \
+             patch.object(gs, "_run_git") as mock_git:
+            mock_git.side_effect = [
+                MagicMock(returncode=0),  # git add OK
+                MagicMock(returncode=1, stderr="commit failed"),  # git commit FAIL
+            ]
+            assert gs._commit("msg") is False
+
+    def test_commit_success(self, tmp_path: Path):
+        gs = GitStrategy(project=tmp_path, enabled=True, push=False)
+        with patch.object(gs, "_has_changes", return_value=True), \
+             patch.object(gs, "_run_git") as mock_git:
+            mock_git.side_effect = [
+                MagicMock(returncode=0),  # git add OK
+                MagicMock(returncode=0),  # git commit OK
+                MagicMock(stdout="abc1234\n", returncode=0),  # git rev-parse
+            ]
+            assert gs._commit("feat: something") is True
+
+    def test_commit_and_push_no_push(self, tmp_path: Path):
+        gs = GitStrategy(project=tmp_path, enabled=True, push=False)
+        with patch.object(gs, "_commit", return_value=True):
+            assert gs._commit_and_push("msg") is True
+
+    def test_commit_and_push_commit_fails(self, tmp_path: Path):
+        gs = GitStrategy(project=tmp_path, enabled=True, push=True)
+        with patch.object(gs, "_commit", return_value=False):
+            assert gs._commit_and_push("msg") is False
+
+    def test_commit_and_push_push_fails(self, tmp_path: Path):
+        gs = GitStrategy(project=tmp_path, enabled=True, push=True)
+        with patch.object(gs, "_commit", return_value=True), \
+             patch.object(gs, "_run_git") as mock_git:
+            mock_git.return_value = MagicMock(returncode=1, stderr="push rejected")
+            assert gs._commit_and_push("msg") is False
+
+    def test_commit_and_push_success(self, tmp_path: Path):
+        gs = GitStrategy(project=tmp_path, enabled=True, push=True)
+        with patch.object(gs, "_commit", return_value=True), \
+             patch.object(gs, "_run_git") as mock_git:
+            mock_git.return_value = MagicMock(returncode=0)
+            assert gs._commit_and_push("msg") is True
+
+    def test_tag_release_success(self, tmp_path: Path):
+        gs = GitStrategy(project=tmp_path, enabled=True, push=True)
+        with patch.object(gs, "_run_git") as mock_git:
+            mock_git.return_value = MagicMock(returncode=0)
+            gs._tag_release(87.5)
+            assert mock_git.call_count >= 1
+
+    def test_tag_release_fails(self, tmp_path: Path):
+        gs = GitStrategy(project=tmp_path, enabled=True, push=True)
+        with patch.object(gs, "_run_git") as mock_git:
+            mock_git.return_value = MagicMock(returncode=1, stderr="tag exists")
+            gs._tag_release(85.0)  # should not raise
+
+    def test_run_git_exception(self, tmp_path: Path):
+        gs = GitStrategy(project=tmp_path, enabled=True, push=True)
+        with patch("subprocess.run", side_effect=OSError("git not found")):
+            result = gs._run_git("status")
+            assert result.returncode == 1
+            assert "git not found" in result.stderr
+
+    def test_commit_fr_gate1_fr_progress_exception(self, tmp_path: Path):
+        gs = GitStrategy(project=tmp_path, enabled=True, push=False)
+        with patch.object(gs, "_commit", return_value=True), \
+             patch("harness.git_strategy.FRProgressTracker") as mock_tracker:
+            mock_tracker.return_value.record_gate1_pass.side_effect = ValueError("boom")
+            result = gs.commit_fr_gate1("FR-001", 75.0, 3)
+            assert result is True  # still succeeds despite tracker error
+
+    def test_ensure_gitignore_adds_entries(self, tmp_path: Path):
+        gs = GitStrategy(project=tmp_path, enabled=True, push=False)
+        gs.ensure_gitignore()
+        gi = tmp_path / ".gitignore"
+        assert gi.exists()
+        content = gi.read_text()
+        assert ".sessi-work/" in content
+
+    def test_ensure_gitignore_no_duplicates(self, tmp_path: Path):
+        gi = tmp_path / ".gitignore"
+        gi.write_text(".sessi-work/\n")
+        gs = GitStrategy(project=tmp_path, enabled=True, push=False)
+        gs.ensure_gitignore()
+        assert gi.read_text().count(".sessi-work/") == 1

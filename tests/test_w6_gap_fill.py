@@ -919,6 +919,96 @@ class TestIntegratedStagePassGenerator:
         passed = gen.run_step2_session_log()
         assert passed is False
 
+    def test_generate_markdown_with_violations(self, tmp_path):
+        gen = self._patched_gen(tmp_path)
+        gen.results["confidence_score"] = 60
+        gen.results["framework_results"]["BLOCK"] = {
+            "passed": False,
+            "violations": [("Missing SRS.md", "generate SRS"), ("Low coverage", "add tests")],
+        }
+        gen.results["framework_results"]["CONSTITUTION"] = {"score": 55.0, "passed": False}
+        gen.results["session_log_results"] = {"passed": False}
+        gen.results["test_evidence"] = {}
+        md = gen.generate_markdown()
+        assert "Missing SRS.md" in md
+        assert "Low coverage" in md
+        assert "BLOCKED" in md
+
+    def test_generate_markdown_all_sections_present(self, tmp_path):
+        gen = self._patched_gen(tmp_path)
+        gen.results["confidence_score"] = 90
+        gen.results["framework_results"]["BLOCK"] = {"passed": True, "violations": []}
+        gen.results["framework_results"]["CONSTITUTION"] = {"score": 95.0, "passed": True}
+        gen.results["session_log_results"] = {"passed": True}
+        gen.results["test_evidence"] = {"pytest_passed": True, "coverage_passed": True}
+        md = gen.generate_markdown()
+        assert "STAGE_PASS" in md
+        assert "5W1H Compliance Check" in md
+        assert "Agent A Self-Assessment" in md
+        assert "Agent B Review" in md
+        assert "SIGN-OFF" in md
+        assert "Appendix: Actual Tool Results" in md
+
+    def test_log_to_development_log_writes(self, tmp_path):
+        gen = self._patched_gen(tmp_path)
+        gen.results["framework_results"]["CONSTITUTION"] = {"score": 85.0}
+        gen.results["framework_results"]["BLOCK"] = {"passed": True, "violations": []}
+        gen.results["confidence_score"] = 90
+        gen._log_to_development_log()
+        log = tmp_path / "DEVELOPMENT_LOG.md"
+        assert log.exists()
+        content = log.read_text()
+        assert "STAGE_PASS" in content
+
+    def test_run_step5_no_trace_file(self, tmp_path):
+        gen = self._patched_gen(tmp_path)
+        result = gen.run_step5_traceability()
+        assert result is True  # no trace file → not blocking
+
+    def test_run_step5_with_trace_file(self, tmp_path):
+        gen = self._patched_gen(tmp_path)
+        (tmp_path / "traceability_report.json").write_text(
+            '{"overall_completeness": "95%", "srs_coverage": 100, "code_coverage": 90, "test_coverage": 95}'
+        )
+        with patch("core.quality_gate.stage_pass_generator.RequirementTraceability", create=True) as mock_rt:
+            mock_rt.load.return_value.verify_completeness.return_value = {
+                "overall_completeness": "95%",
+                "srs_coverage": 100, "code_coverage": 90, "test_coverage": 95,
+            }
+            result = gen.run_step5_traceability()
+        assert result is True
+
+    def test_run_step6_script_not_found(self, tmp_path):
+        gen = self._patched_gen(tmp_path)
+        result = gen.run_step6_sab_generation()
+        assert result is True  # script not found → not blocking
+
+    def test_run_returns_true_when_score_high(self, tmp_path):
+        gen = self._patched_gen(tmp_path)
+        gen.run_step1_5w1h_scan = MagicMock(return_value=True)
+        gen.run_step2_session_log = MagicMock(return_value=True)
+        gen.run_step2b_confidence_format = MagicMock(return_value={"passed": True})
+        gen.run_step3_pytest_evidence = MagicMock(return_value={"pytest_passed": True})
+        gen.run_step4_confidence = MagicMock(return_value=85)
+        gen.run_step5_traceability = MagicMock(return_value=True)
+        gen.generate_markdown = MagicMock(return_value="# STAGE_PASS")
+        gen.git_push = MagicMock(return_value="abc1234")
+        gen._log_to_development_log = MagicMock()
+        assert gen.run() is True
+
+    def test_run_returns_false_when_score_low(self, tmp_path):
+        gen = self._patched_gen(tmp_path)
+        gen.run_step1_5w1h_scan = MagicMock(return_value=True)
+        gen.run_step2_session_log = MagicMock(return_value=True)
+        gen.run_step2b_confidence_format = MagicMock(return_value={"passed": True})
+        gen.run_step3_pytest_evidence = MagicMock(return_value={"pytest_passed": False})
+        gen.run_step4_confidence = MagicMock(return_value=55)
+        gen.run_step5_traceability = MagicMock(return_value=True)
+        gen.generate_markdown = MagicMock(return_value="# STAGE_PASS")
+        gen.git_push = MagicMock(return_value="abc1234")
+        gen._log_to_development_log = MagicMock()
+        assert gen.run() is False
+
 
 # ─── SubagentIsolator ─────────────────────────────────────────────────────────
 
