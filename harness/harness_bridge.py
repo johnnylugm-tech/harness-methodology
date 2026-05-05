@@ -50,6 +50,54 @@ class GateBlockedError(Exception):
         )
 
 
+@dataclass
+class GateContext:
+    """
+    Context object returned by prepare_gate().
+
+    Contains everything Claude needs to perform an inline gate evaluation:
+    - configuration loaded from the gate YAML
+    - paths to embedded SSI scripts, prompts, and schemas
+    - a work directory for writing gate{N}_result.json
+
+    After evaluation Claude writes gate{N}_result.json to work_dir and calls
+    finalize_gate(ctx) to complete threshold checks and manifest updates.
+    """
+    gate_num: int
+    config: dict
+    project_root: str
+    phase: int
+    fr_id: str | None
+    ssi_scripts_dir: str
+    ssi_prompts_dir: str
+    ssi_schemas_dir: str
+    work_dir: str
+
+    def evaluation_prompt(self) -> str:
+        """Return a human-readable evaluation instruction for Claude."""
+        dims = [d["name"] for d in self.config.get("dimensions", [])]
+        score_gate = self.config.get("score_gate", "n/a")
+        max_rounds = self.config.get("max_rounds", 3)
+        result_path = str(Path(self.work_dir) / f"gate{self.gate_num}_result.json")
+        return (
+            f"Gate {self.gate_num} evaluation ready.\n"
+            f"  project   : {self.project_root}\n"
+            f"  phase     : {self.phase}\n"
+            f"  fr_id     : {self.fr_id or 'n/a'}\n"
+            f"  dimensions: {', '.join(dims) if dims else 'see gate config'}\n"
+            f"  score_gate: {score_gate}\n"
+            f"  max_rounds: {max_rounds}\n"
+            f"\nFollow  : {self.ssi_prompts_dir}/evaluate_dimension.md\n"
+            f"Scripts : {self.ssi_scripts_dir}/\n"
+            f"Write result to: {result_path}\n"
+            f"\nAfter writing result.json, run:\n"
+            f"  python3 harness_cli.py finalize-gate {self.gate_num} "
+            f"--project-root {self.project_root} --phase {self.phase}"
+            + (f" --fr-id {self.fr_id}" if self.fr_id else "")
+            + "\n"
+        )
+
+
 class HarnessBridge:
     """
     Bridge layer between software_self_improvement and harness-methodology.
@@ -132,6 +180,55 @@ class HarnessBridge:
             self._require_hermes_approve(result, phase, fr_id)
 
         return result
+
+    def prepare_gate(
+        self,
+        gate_num: int,
+        project_root: str,
+        phase: int,
+        fr_id: str | None = None,
+    ) -> GateContext:
+        """
+        Phase 1 of the two-phase gate evaluation API.
+
+        Loads gate configuration, optionally triggers CRG reconnaissance,
+        and returns a GateContext that Claude uses to perform inline evaluation.
+
+        The caller (Claude) should:
+        1. Read ctx.evaluation_prompt() for instructions.
+        2. Evaluate all dimensions, writing ctx.work_dir/gate{N}_result.json.
+        3. Call finalize_gate(ctx) to complete threshold checks + manifest update.
+
+        Args:
+            gate_num: Gate ID (1–4).
+            project_root: Absolute path to the target project.
+            phase: Current methodology phase.
+            fr_id: Functional requirement ID (Gate 1 per-FR only).
+
+        Returns:
+            GateContext with all paths and config Claude needs.
+        """
+        config = self._load_config(gate_num)
+
+        # CRG reconnaissance for gates that require it (e.g. Gate 3/4)
+        if config.get("crg", {}).get("reconnaissance"):
+            self.crg.run_reconnaissance(project_root)
+
+        ssi_dir = Path(__file__).parent / "ssi"
+        work_dir = Path(project_root) / ".sessi-work"
+        work_dir.mkdir(parents=True, exist_ok=True)
+
+        return GateContext(
+            gate_num=gate_num,
+            config=config,
+            project_root=project_root,
+            phase=phase,
+            fr_id=fr_id,
+            ssi_scripts_dir=str(ssi_dir / "scripts"),
+            ssi_prompts_dir=str(ssi_dir / "prompts"),
+            ssi_schemas_dir=str(ssi_dir / "schemas"),
+            work_dir=str(work_dir),
+        )
 
     def generate_quality_manifest(self, fr_ids: list[str], sad_path: str) -> Path:
         """Called at P2 exit. Parses SAD.md -> constraints + high_risk_modules."""

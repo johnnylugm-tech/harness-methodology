@@ -2,10 +2,11 @@
 Unit tests for HarnessBridge.
 """
 
+import json
 import pytest
 from unittest.mock import patch, MagicMock
 from pathlib import Path
-from harness.harness_bridge import HarnessBridge, GateResult, GateBlockedError
+from harness.harness_bridge import HarnessBridge, GateResult, GateBlockedError, GateContext
 
 
 class TestHarnessBridge:
@@ -122,3 +123,101 @@ class TestHarnessBridge:
         result = GateResult(gate_num=4, score=90.0, quality_complete=True)
         with patch("harness.reviewer_router.ReviewerRouter", side_effect=ValueError):
             bridge._require_hermes_approve(result, phase=6, fr_id=None)
+
+
+class TestGateContext:
+    """Tests for GateContext dataclass and evaluation_prompt()."""
+
+    def _make_context(self, **kwargs):
+        defaults = dict(
+            gate_num=2,
+            config={"gate": 2, "score_gate": 80, "dimensions": [{"name": "coverage"}, {"name": "lint"}]},
+            project_root="/some/project",
+            phase=3,
+            fr_id=None,
+            ssi_scripts_dir="/harness/ssi/scripts",
+            ssi_prompts_dir="/harness/ssi/prompts",
+            ssi_schemas_dir="/harness/ssi/schemas",
+            work_dir="/some/project/.sessi-work",
+        )
+        defaults.update(kwargs)
+        return GateContext(**defaults)
+
+    def test_gate_context_attributes(self):
+        ctx = self._make_context()
+        assert ctx.gate_num == 2
+        assert ctx.phase == 3
+        assert ctx.fr_id is None
+
+    def test_evaluation_prompt_contains_gate_num(self):
+        ctx = self._make_context()
+        prompt = ctx.evaluation_prompt()
+        assert "Gate 2" in prompt
+
+    def test_evaluation_prompt_contains_dimensions(self):
+        ctx = self._make_context()
+        prompt = ctx.evaluation_prompt()
+        assert "coverage" in prompt
+        assert "lint" in prompt
+
+    def test_evaluation_prompt_contains_work_dir(self):
+        ctx = self._make_context()
+        prompt = ctx.evaluation_prompt()
+        assert ".sessi-work" in prompt
+
+    def test_evaluation_prompt_contains_score_gate(self):
+        ctx = self._make_context()
+        prompt = ctx.evaluation_prompt()
+        assert "80" in prompt
+
+    def test_evaluation_prompt_with_fr_id(self):
+        ctx = self._make_context(fr_id="FR-03")
+        prompt = ctx.evaluation_prompt()
+        assert "FR-03" in prompt
+
+
+class TestPrepareGate:
+    """Tests for HarnessBridge.prepare_gate()."""
+
+    def test_prepare_gate_returns_gate_context(self, tmp_path):
+        bridge = HarnessBridge()
+        with patch.object(bridge, "_load_config", return_value={"gate": 2, "score_gate": 80}):
+            ctx = bridge.prepare_gate(gate_num=2, project_root=str(tmp_path), phase=3)
+        assert isinstance(ctx, GateContext)
+        assert ctx.gate_num == 2
+        assert ctx.project_root == str(tmp_path)
+        assert ctx.phase == 3
+
+    def test_prepare_gate_sets_ssi_dirs(self, tmp_path):
+        bridge = HarnessBridge()
+        with patch.object(bridge, "_load_config", return_value={"gate": 2}):
+            ctx = bridge.prepare_gate(gate_num=2, project_root=str(tmp_path), phase=3)
+        assert "ssi" in ctx.ssi_scripts_dir
+        assert "ssi" in ctx.ssi_prompts_dir
+
+    def test_prepare_gate_triggers_crg_reconnaissance(self, tmp_path):
+        bridge = HarnessBridge()
+        config_with_crg = {"gate": 3, "crg": {"reconnaissance": True}}
+        with patch.object(bridge, "_load_config", return_value=config_with_crg):
+            with patch.object(bridge.crg, "run_reconnaissance") as mock_recon:
+                bridge.prepare_gate(gate_num=3, project_root=str(tmp_path), phase=4)
+        mock_recon.assert_called_once_with(str(tmp_path))
+
+    def test_prepare_gate_skips_crg_when_not_configured(self, tmp_path):
+        bridge = HarnessBridge()
+        with patch.object(bridge, "_load_config", return_value={"gate": 2}):
+            with patch.object(bridge.crg, "run_reconnaissance") as mock_recon:
+                bridge.prepare_gate(gate_num=2, project_root=str(tmp_path), phase=3)
+        mock_recon.assert_not_called()
+
+    def test_prepare_gate_passes_fr_id(self, tmp_path):
+        bridge = HarnessBridge()
+        with patch.object(bridge, "_load_config", return_value={"gate": 1}):
+            ctx = bridge.prepare_gate(gate_num=1, project_root=str(tmp_path), phase=2, fr_id="FR-01")
+        assert ctx.fr_id == "FR-01"
+
+    def test_prepare_gate_creates_work_dir(self, tmp_path):
+        bridge = HarnessBridge()
+        with patch.object(bridge, "_load_config", return_value={"gate": 2}):
+            ctx = bridge.prepare_gate(gate_num=2, project_root=str(tmp_path), phase=3)
+        assert Path(ctx.work_dir).exists()
