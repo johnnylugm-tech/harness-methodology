@@ -256,10 +256,10 @@ def cmd_generate_next_plan(args: argparse.Namespace) -> int:
     plan_file = project / ".methodology" / f"phase{current_phase}_plan.md"
     if plan_file.exists():
         print(f"Plan file  : {plan_file}")
-        print(f"             → Open this file and follow from the next checkpoint")
+        print("             → Open this file and follow from the next checkpoint")
     else:
         print(f"Plan file  : *** NOT FOUND ***  ({plan_file})")
-        print(f"\n[ACTION] Generate the phase plan first:")
+        print("\n[ACTION] Generate the phase plan first:")
         print(f"  python harness_cli.py plan-phase --phase {current_phase} "
               f"--project {project}")
         print(f"  python scripts/generate_full_plan.py --phase {current_phase} "
@@ -269,8 +269,8 @@ def cmd_generate_next_plan(args: argparse.Namespace) -> int:
 
     # ── Read manifest ────────────────────────────────────────────────────────
     if not manifest_path.exists():
-        print(f"\n[WARN] quality_manifest.json not found — cannot determine checkpoints.")
-        print(f"  Run: python harness_cli.py manifest --fr-ids FR-01 ... --sad SAD.md")
+        print("\n[WARN] quality_manifest.json not found — cannot determine checkpoints.")
+        print("  Run: python harness_cli.py manifest --fr-ids FR-01 ... --sad SAD.md")
         print(f"\n{'='*W}")
         return 0
 
@@ -766,7 +766,7 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
                 if not result_path.exists():
                     print("PAUSE — evaluation needed")
                     print(ctx.evaluation_prompt())
-                    print(f"\n  After evaluating, run:")
+                    print("\n  After evaluating, run:")
                     print(f"  python harness_cli.py finalize-gate --gate 1 "
                           f"--phase {phase} --project {project} --fr-id {fr_id}")
                     print(f"  Then re-run: python harness_cli.py run-pipeline "
@@ -793,7 +793,7 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
             if not result_path.exists():
                 print("PAUSE — evaluation needed")
                 print(ctx.evaluation_prompt())
-                print(f"\n  After evaluating, run:")
+                print("\n  After evaluating, run:")
                 print(f"  python harness_cli.py finalize-gate --gate {gate_num} "
                       f"--phase {phase} --project {project}")
                 print(f"  Then re-run: python harness_cli.py run-pipeline "

@@ -24,8 +24,13 @@ from generate_full_plan import (
     _checkpoint_index,
     _load_manifest_fr_ids,
     _preflight_steps,
+    _entry_gate_check,
+    _human_checkpoint,
     _fr_dev_steps,
     _phase_advance_step,
+    _GATE_META,
+    generate_phase1_tasks,
+    generate_phase2_tasks,
     generate_phase3_tasks,
     generate_phase4_tasks,
     generate_phase5_tasks,
@@ -460,6 +465,280 @@ class TestPhase8GateInjection:
     def test_has_pipeline_complete(self, project: Path):
         joined = "\n".join(generate_phase8_tasks(project))
         assert "Pipeline Complete" in joined or "complete" in joined.lower()
+
+
+# ─── _entry_gate_check ───────────────────────────────────────────────────────
+
+class TestEntryGateCheck:
+    def test_phase3_references_p2_human_approve(self):
+        """GAP-M fix: P3 entry requires P2 human review (not harness gate)."""
+        joined = "\n".join(_entry_gate_check(3))
+        assert "ENTRY-CHECK" in joined
+        assert "Phase 2" in joined
+        assert "human" in joined.lower() or "Human" in joined
+
+    def test_phase4_references_gate2(self):
+        """GAP-M fix: P4 entry requires Gate 2 PASS from P3."""
+        joined = "\n".join(_entry_gate_check(4))
+        assert "Gate 2" in joined
+        assert "Phase 3" in joined
+        assert "quality_manifest.json" in joined
+
+    def test_phase5_references_gate3(self):
+        joined = "\n".join(_entry_gate_check(5))
+        assert "Gate 3" in joined
+        assert "Phase 4" in joined
+
+    def test_phase6_references_gate3(self):
+        joined = "\n".join(_entry_gate_check(6))
+        assert "Gate 3" in joined
+        assert "Phase 5" in joined
+
+    def test_phase7_references_gate4(self):
+        joined = "\n".join(_entry_gate_check(7))
+        assert "Gate 4" in joined
+        assert "Phase 6" in joined
+
+    def test_phase8_references_gate4(self):
+        joined = "\n".join(_entry_gate_check(8))
+        assert "Gate 4" in joined
+        assert "Phase 7" in joined
+
+    def test_phase1_returns_empty(self):
+        """P1 has no entry gate."""
+        assert _entry_gate_check(1) == []
+
+    def test_phase2_references_p1_human_approve(self):
+        """P2 entry check confirms P1 human review APPROVE."""
+        joined = "\n".join(_entry_gate_check(2))
+        assert "ENTRY-CHECK" in joined
+        assert "Phase 1" in joined
+
+    def test_contains_hr03_reference(self):
+        joined = "\n".join(_entry_gate_check(4))
+        assert "HR-03" in joined or "no phase skips" in joined.lower()
+
+    def test_contains_return_instruction(self):
+        """Agent must know to return to previous phase if check fails."""
+        for phase in [4, 5, 6, 7, 8]:
+            joined = "\n".join(_entry_gate_check(phase))
+            assert "return to Phase" in joined or "return" in joined.lower()
+
+
+# ─── _human_checkpoint ───────────────────────────────────────────────────────
+
+class TestHumanCheckpoint:
+    def test_phase1_lists_srs_deliverables(self):
+        """GAP-K3 fix: P1 human checkpoint lists SRS deliverables."""
+        joined = "\n".join(_human_checkpoint(1, 1))
+        assert "SRS.md" in joined
+        assert "CHECKPOINT-1" in joined
+
+    def test_phase2_lists_sad_deliverables(self):
+        """GAP-K3 fix: P2 human checkpoint lists SAD/ADR deliverables."""
+        joined = "\n".join(_human_checkpoint(2, 1))
+        assert "SAD.md" in joined
+        assert "ADR.md" in joined
+
+    def test_contains_approve_reject(self):
+        joined = "\n".join(_human_checkpoint(1, 1))
+        assert "APPROVE" in joined
+        assert "REJECT" in joined
+
+    def test_contains_git_push(self):
+        joined = "\n".join(_human_checkpoint(2, 1))
+        assert "git push" in joined
+
+    def test_heading_h3(self):
+        lines = _human_checkpoint(1, 1)
+        assert any(l.startswith("### 🔒 CHECKPOINT-1") for l in lines)
+
+    def test_not_harness_gate(self):
+        """GAP-K fix: P1/P2 checkpoint must clarify it's NOT harness run-gate."""
+        joined = "\n".join(_human_checkpoint(1, 1))
+        assert "NOT" in joined
+        assert "run-gate" in joined
+
+    def test_hr12_max_rounds(self):
+        """HR-12: max 5 rounds applies to human review loop too."""
+        joined = "\n".join(_human_checkpoint(2, 1))
+        assert "5 rounds" in joined or "HR-12" in joined
+
+
+# ─── _GATE_META dim names (GAP-Q) ─────────────────────────────────────────────
+
+class TestGateMetaDimNames:
+    def test_gate1_has_named_dims(self):
+        """GAP-Q fix: Gate 1 dim names must be explicit."""
+        assert "linting" in _GATE_META[1][2]
+        assert "type_safety" in _GATE_META[1][2]
+        assert "test_coverage" in _GATE_META[1][2]
+
+    def test_gate2_has_all_7_dims_named(self):
+        meta = _GATE_META[2][2]
+        for dim in ["linting", "type_safety", "test_coverage",
+                    "security", "secrets_scanning", "license_compliance", "mutation_testing"]:
+            assert dim in meta, f"Gate 2 missing dim: {dim}"
+
+    def test_gate3_has_all_12_dims_named(self):
+        meta = _GATE_META[3][2]
+        for dim in ["linting", "type_safety", "test_coverage", "security",
+                    "secrets_scanning", "license_compliance", "mutation_testing",
+                    "architecture", "readability", "error_handling", "documentation", "performance"]:
+            assert dim in meta, f"Gate 3 missing dim: {dim}"
+
+    def test_gate4_references_gate3_dims(self):
+        """Gate 4 uses same 12 dims — must say so."""
+        meta = _GATE_META[4][2]
+        assert "12" in meta or "Gate 3" in meta or "same" in meta.lower()
+
+
+# ─── _phase_advance_step: P1/P2 labels ───────────────────────────────────────
+
+class TestPhaseAdvanceStep12:
+    def test_phase1_points_to_phase2(self):
+        """GAP-K fix: P1 advance must reference Phase 2 Architecture Design."""
+        joined = "\n".join(_phase_advance_step(1))
+        assert "Phase 2" in joined
+        assert "plan-phase --phase 2" in joined
+
+    def test_phase2_points_to_phase3(self):
+        joined = "\n".join(_phase_advance_step(2))
+        assert "Phase 3" in joined
+        assert "plan-phase --phase 3" in joined
+
+
+# ─── Phase 1 generator ───────────────────────────────────────────────────────
+
+class TestPhase1Generator:
+    def test_has_preflight(self, project: Path):
+        """GAP-K fix: P1 plan must include preflight."""
+        joined = "\n".join(generate_phase1_tasks(project, project / "SRS.md"))
+        assert "run-phase --phase 1" in joined
+
+    def test_has_ab_steps(self, project: Path):
+        """GAP-K fix: P1 plan must include A/B authoring steps."""
+        joined = "\n".join(generate_phase1_tasks(project, project / "SRS.md"))
+        assert "REQUIREMENTS_ENGINEER" in joined
+        assert "BUSINESS_ANALYST" in joined
+        assert "sessions_spawn.log" in joined
+
+    def test_has_human_checkpoint(self, project: Path):
+        """GAP-K3 fix: P1 plan must end with human review checkpoint."""
+        joined = "\n".join(generate_phase1_tasks(project, project / "SRS.md"))
+        assert "Human Peer Review" in joined
+        assert "APPROVE" in joined
+
+    def test_has_phase_advance_to_p2(self, project: Path):
+        """GAP-K fix: P1 plan must advance to Phase 2."""
+        joined = "\n".join(generate_phase1_tasks(project, project / "SRS.md"))
+        assert "plan-phase --phase 2" in joined
+
+    def test_exit_gate_clarification(self, project: Path):
+        """GAP-K2 fix: P1 must clarify exit gate is human review not harness."""
+        joined = "\n".join(generate_phase1_tasks(project, project / "SRS.md"))
+        assert "human" in joined.lower() or "Human" in joined
+        assert "NOT" in joined or "not" in joined.lower()
+
+    def test_no_harness_run_gate(self, project: Path):
+        """P1 must NOT call harness run-gate --gate 1."""
+        joined = "\n".join(generate_phase1_tasks(project, project / "SRS.md"))
+        assert "run-gate --gate 1 --phase 1" not in joined
+
+
+# ─── Phase 2 generator ───────────────────────────────────────────────────────
+
+class TestPhase2Generator:
+    def test_has_entry_gate_check(self, project: Path):
+        """GAP-M fix: P2 checks P1 human approval before starting."""
+        joined = "\n".join(generate_phase2_tasks(project, project / "SRS.md"))
+        assert "ENTRY-CHECK" in joined
+        assert "Phase 1" in joined
+
+    def test_has_preflight(self, project: Path):
+        """GAP-K fix: P2 plan must include preflight."""
+        joined = "\n".join(generate_phase2_tasks(project, project / "SRS.md"))
+        assert "run-phase --phase 2" in joined
+
+    def test_has_ab_steps(self, project: Path):
+        """GAP-K fix: P2 plan must include A/B architecture steps."""
+        joined = "\n".join(generate_phase2_tasks(project, project / "SRS.md"))
+        assert "ARCHITECT" in joined
+        assert "TECH_LEAD" in joined
+        assert "sessions_spawn.log" in joined
+
+    def test_has_human_checkpoint(self, project: Path):
+        """GAP-K3 fix: P2 plan must end with human review checkpoint."""
+        joined = "\n".join(generate_phase2_tasks(project, project / "SRS.md"))
+        assert "Human Peer Review" in joined
+        assert "SAD.md" in joined
+
+    def test_has_phase_advance_to_p3(self, project: Path):
+        """GAP-K fix: P2 plan must advance to Phase 3."""
+        joined = "\n".join(generate_phase2_tasks(project, project / "SRS.md"))
+        assert "plan-phase --phase 3" in joined
+
+    def test_no_harness_run_gate(self, project: Path):
+        """P2 must NOT call harness run-gate --gate 1."""
+        joined = "\n".join(generate_phase2_tasks(project, project / "SRS.md"))
+        assert "run-gate --gate 1 --phase 2" not in joined
+
+
+# ─── Entry gate check in P3-P8 generators ─────────────────────────────────────
+
+class TestEntryGateInGenerators:
+    def test_phase3_has_entry_check(self, project: Path):
+        """GAP-M: P3 must verify P2 human APPROVE before preflight."""
+        joined = "\n".join(generate_phase3_tasks(project, project / "SRS.md"))
+        assert "ENTRY-CHECK" in joined
+
+    def test_phase4_has_entry_check(self, project: Path):
+        """GAP-M: P4 must verify Gate 2 PASS."""
+        joined = "\n".join(generate_phase4_tasks(project, project / "SRS.md"))
+        assert "ENTRY-CHECK" in joined
+        assert "Gate 2" in joined
+
+    def test_phase5_has_entry_check(self, project: Path):
+        joined = "\n".join(generate_phase5_tasks(project))
+        assert "ENTRY-CHECK" in joined
+        assert "Gate 3" in joined
+
+    def test_phase6_has_entry_check(self, project: Path):
+        joined = "\n".join(generate_phase6_tasks(project))
+        assert "ENTRY-CHECK" in joined
+        assert "Gate 3" in joined
+
+    def test_phase7_has_entry_check(self, project: Path):
+        joined = "\n".join(generate_phase7_tasks(project))
+        assert "ENTRY-CHECK" in joined
+        assert "Gate 4" in joined
+
+    def test_phase8_has_entry_check(self, project: Path):
+        joined = "\n".join(generate_phase8_tasks(project))
+        assert "ENTRY-CHECK" in joined
+        assert "Gate 4" in joined
+
+    def test_entry_check_before_preflight_p4(self, project: Path):
+        """GAP-M: entry check must appear BEFORE preflight in plan."""
+        lines = generate_phase4_tasks(project, project / "SRS.md")
+        joined = "\n".join(lines)
+        idx_entry = joined.find("ENTRY-CHECK")
+        idx_preflight = joined.find("[PREFLIGHT]")
+        assert idx_entry < idx_preflight, "Entry check must precede preflight"
+
+
+# ─── GAP-N: test_plans cross-reference note in P4 ─────────────────────────────
+
+class TestPhase4TestPlanCrossRef:
+    def test_cross_ref_note_when_no_test_plan(self, project: Path):
+        """Even without TEST_PLAN.md, A/B task hint references TEST_PLAN.md."""
+        joined = "\n".join(generate_phase4_tasks(project, project / "SRS.md"))
+        assert "TEST_PLAN.md" in joined
+
+    def test_phase4_ab_role_references_test_plan(self, project: Path):
+        """GAP-L fix: QA_ENGINEER task hint must reference TEST_PLAN.md."""
+        joined = "\n".join(generate_phase4_tasks(project, project / "SRS.md"))
+        assert "TEST_PLAN.md" in joined
 
 
 # ─── generate_full_plan integration ──────────────────────────────────────────

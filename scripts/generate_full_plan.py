@@ -269,19 +269,21 @@ _PHASE_EXIT_GATES: dict = {3: 2, 4: 3, 6: 4}                  # phase → exit g
 
 # Gate metadata: (score_gate, dim_count, notes)
 _GATE_META: dict = {
-    1: (None, 3,  "linting(90) + type_safety(85) + test_coverage(80)"),
-    2: (75,   7,  "7 dims, score_gate ≥ 75"),
-    3: (80,   12, "12 dims, score_gate ≥ 80  [CRG recon triggered inside run-gate]"),
-    4: (85,   12, "12 dims, score_gate ≥ 85  [CRG recon inside run-gate, Hermes APPROVE required]"),
+    1: (None, 3,  "linting(90) · type_safety(85) · test_coverage(80)"),
+    2: (75,   7,  "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70)"),
+    3: (80,   12, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · performance(75)  [CRG recon inside run-gate]"),
+    4: (85,   12, "same 12 dims as Gate 3, score_gate ≥ 85  [CRG recon inside run-gate · Hermes APPROVE required]"),
 }
 
 # A/B agent roles per phase: (Agent-A role, Agent-B role, task hint)
 _PHASE_ROLES: dict = {
-    3: ("DEVELOPER",   "REVIEWER",  "TDD: write failing test → implement → refactor (RED→GREEN→IMPROVE)"),
-    4: ("QA_ENGINEER", "ARCHITECT", "Write integration/edge cases → execute → record results → verify ≥80% coverage"),
-    5: ("DEVELOPER",   "REVIEWER",  "Verify FR acceptance criteria → confirm results match SRS → sign off"),
-    7: ("DEVOPS",      "ARCHITECT", "Identify risks → document likelihood/impact → define mitigations"),
-    8: ("DEVOPS",      "ARCHITECT", "Document config items → verify env vars/secrets → update CONFIG_RECORDS.md"),
+    1: ("REQUIREMENTS_ENGINEER", "BUSINESS_ANALYST", "Elicit requirements → write FRs/NFRs in SRS.md (### FR-XX: format) → validate completeness"),
+    2: ("ARCHITECT",   "TECH_LEAD",   "Design system architecture → write SAD.md + ADR.md → validate every FR has a module mapping"),
+    3: ("DEVELOPER",   "REVIEWER",    "TDD: write failing test → implement → refactor (RED→GREEN→IMPROVE)"),
+    4: ("QA_ENGINEER", "ARCHITECT",   "Execute TEST_PLAN.md test cases for this FR → record results in TEST_RESULTS.md → verify ≥80% branch coverage"),
+    5: ("DEVELOPER",   "REVIEWER",    "Verify FR acceptance criteria → confirm results match SRS → sign off"),
+    7: ("DEVOPS",      "ARCHITECT",   "Identify risks → document likelihood/impact → define mitigations"),
+    8: ("DEVOPS",      "ARCHITECT",   "Document config items → verify env vars/secrets → update CONFIG_RECORDS.md"),
 }
 
 
@@ -295,6 +297,68 @@ def _preflight_steps(phase: int) -> List[str]:
         f"  python harness_cli.py run-phase --phase {phase} --project $REPO",
         "  ```",
         "  If FAILED non-critically: use `--force`. If BLOCKED: fix FSM/Constitution first.",
+        "",
+    ]
+
+
+def _entry_gate_check(phase: int) -> List[str]:
+    """Entry condition check — confirm previous phase exit gate before starting any work."""
+    _ENTRY_MAP: dict = {
+        2: ("P1 human APPROVE",
+            "git log contains commit 'phase1(human-review): Phase 1 deliverables APPROVED'"),
+        3: ("P2 human APPROVE",
+            "git log contains commit 'phase2(human-review): Phase 2 deliverables APPROVED'"),
+        4: ("Gate 2 PASS",
+            ".methodology/quality_manifest.json records Gate 2 PASS from P3"),
+        5: ("Gate 3 PASS",
+            ".methodology/quality_manifest.json records Gate 3 PASS from P4"),
+        6: ("Gate 3 PASS",
+            ".methodology/quality_manifest.json records Gate 3 PASS from P5"),
+        7: ("Gate 4 PASS",
+            ".methodology/quality_manifest.json records Gate 4 PASS from P6"),
+        8: ("Gate 4 PASS",
+            ".methodology/quality_manifest.json records Gate 4 PASS from P7"),
+    }
+    if phase not in _ENTRY_MAP:
+        return []
+    gate_label, proof = _ENTRY_MAP[phase]
+    prev_phase = phase - 1
+    return [
+        "### Entry Gate Verification",
+        "",
+        f"- [ ] **[ENTRY-CHECK]** Confirm Phase {prev_phase} exit ({gate_label}) before proceeding (HR-03 — no phase skips):",
+        f"  Proof: {proof}.",
+        f"  If NOT confirmed: return to Phase {prev_phase} and complete exit gate first.",
+        "",
+    ]
+
+
+def _human_checkpoint(phase: int, checkpoint_n: int) -> List[str]:
+    """Human peer-review checkpoint for P1/P2 (deliverable review — NOT harness run-gate)."""
+    _DELIVERABLES: dict = {
+        1: ["SRS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md"],
+        2: ["SAD.md", "ADR.md", "ARCHITECTURE_DIAGRAM.md"],
+    }
+    artifacts = _DELIVERABLES.get(phase, [])
+    return [
+        "",
+        f"### 🔒 CHECKPOINT-{checkpoint_n}: Human Peer Review — Phase {phase} Exit",
+        "> Phase 1/2 exit gate = human document review (NOT `harness run-gate --gate 1`).",
+        "> APPROVE criteria: all FRs addressed, no critical gaps, terminology consistent.",
+        "",
+        "- [ ] **[HR-READ]** Reviewer reads all deliverables:",
+        *([f"  - `{a}`" for a in artifacts]),
+        "  - Checklist: All FRs covered? No contradictions? Each item testable/traceable?",
+        "- [ ] **[HR-DECIDE]** Reviewer records decision:",
+        "  ```json",
+        f'  {{"phase": {phase}, "reviewer": "XXXX", "status": "APPROVE", "reason": "..."}}',
+        "  ```",
+        "  - If REJECT → author fixes → re-review. Max 5 rounds (HR-12).",
+        f"- [ ] **[HR-PUSH]** ✅ Push to GitHub (CHECKPOINT-{checkpoint_n} saved):",
+        "  ```bash",
+        f"  git add -A && git commit -m 'phase{phase}(human-review): Phase {phase} deliverables APPROVED'",
+        "  git push",
+        "  ```",
         "",
     ]
 
@@ -333,6 +397,7 @@ def _phase_advance_step(phase: int) -> List[str]:
         ]
     next_phase = phase + 1
     next_names = {
+        2: "Architecture Design", 3: "Implementation",
         4: "Testing", 5: "Verification & Delivery", 6: "Quality Assurance",
         7: "Risk Management", 8: "Configuration Management",
     }
@@ -474,14 +539,46 @@ def _load_manifest_fr_ids(repo_path: Path) -> List[str]:
 # ============================================================================
 
 def generate_phase1_tasks(repo_path: Path, srs_path: Path) -> List[str]:
-    """Generate Phase 1 detailed tasks (Requirements Specification)"""
+    """Generate Phase 1 detailed tasks (Requirements Specification).
+
+    Exit gate = human peer review (NOT harness run-gate).
+    """
     _ = repo_path  # reserved for future use (e.g. reading .methodology/state.json)
     lines = []
     lines.append("## Phase 1 Tasks: Requirements Specification")
     lines.append("")
     lines.append("### Phase 1 Overview")
-    lines.append("Phase 1 is the project starting point. Main task: define complete Software Requirements Specification (SRS).")
+    lines.append("Phase 1 is the project starting point. Define complete SRS.")
+    lines.append("**Exit gate = human peer review of deliverables** (not `harness run-gate --gate 1`).")
     lines.append("")
+
+    # P1 has exactly one checkpoint: human sign-off at phase end
+    lines.append("> **Checkpoint Index** (push to GitHub = checkpoint saved):")
+    lines.append("> - CHECKPOINT-1: Human Peer Review (Phase 1 Exit)")
+    lines.append("")
+
+    lines.extend(_preflight_steps(1))
+
+    role_a, role_b, task_hint = _PHASE_ROLES[1]
+    lines.extend([
+        "### Requirements Authoring",
+        "",
+        "**A/B Work** (HR-01: A≠B · HR-04: HybridWorkflow ON · HR-10: log required):",
+        f"- [ ] **[A-1]** Agent A ({role_a}): {task_hint}",
+        "  - Format: `### FR-XX: <title>` with Description, Acceptance Criteria, Test Cases",
+        "  - FORBIDDEN: vague/non-testable acceptance criteria",
+        "- [ ] **[A-2]** Agent A returns `{status, files, confidence, citations, summary}`",
+        f"- [ ] **[B-1]** Agent B ({role_b}): Review vs project charter / stakeholder inputs  ← DIFFERENT agent (HR-01)",
+        "  - Check: All FRs testable? NFRs measurable? No contradictions?",
+        "- [ ] **[B-2]** Agent B returns `{status, review_status, reason, confidence, citations}`",
+        "  - If REJECT → Agent A fixes → repeat. Max 5 rounds (HR-12).",
+        "- [ ] **[LOG]** Append to `sessions_spawn.log` (HR-10 — 2 entries):",
+        "  ```json",
+        '  {"fr_id":"P1","role":"requirements_engineer","session_id":"dev-XXXX","status":"success","confidence":8}',
+        '  {"fr_id":"P1","role":"business_analyst","session_id":"rev-XXXX","review_status":"APPROVE"}',
+        "  ```",
+        "",
+    ])
 
     frs = parse_srs_fr_sections(srs_path)
     nfrs = parse_srs_nfr_sections(srs_path)
@@ -512,17 +609,53 @@ def generate_phase1_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("- [ ] `TRACEABILITY_MATRIX.md` - Requirements Traceability Matrix")
     lines.append("")
 
+    lines.extend(_human_checkpoint(1, checkpoint_n=1))
+    lines.extend(_phase_advance_step(1))
     return lines
 
 
 def generate_phase2_tasks(repo_path: Path, srs_path: Path) -> List[str]:
-    """Generate Phase 2 detailed tasks (Architecture Design)"""
+    """Generate Phase 2 detailed tasks (Architecture Design).
+
+    Entry = P1 human APPROVE.  Exit gate = human peer review of SAD + ADR (NOT harness run-gate).
+    """
     lines = []
     lines.append("## Phase 2 Tasks: Architecture Design")
     lines.append("")
     lines.append("### Phase 2 Overview")
     lines.append("Phase 2 designs the system architecture based on SRS, producing SAD and ADR.")
+    lines.append("**Exit gate = human peer review of deliverables** (not `harness run-gate --gate 1`).")
     lines.append("")
+
+    # P2 has exactly one checkpoint: human sign-off at phase end
+    lines.append("> **Checkpoint Index** (push to GitHub = checkpoint saved):")
+    lines.append("> - CHECKPOINT-1: Human Peer Review (Phase 2 Exit)")
+    lines.append("")
+
+    lines.extend(_entry_gate_check(2))  # confirm P1 human APPROVE
+    lines.extend(_preflight_steps(2))
+
+    role_a, role_b, task_hint = _PHASE_ROLES[2]
+    lines.extend([
+        "### Architecture Design (A/B Work)",
+        "",
+        "**A/B Work** (HR-01: A≠B · HR-04: HybridWorkflow ON · HR-10: log required):",
+        f"- [ ] **[A-1]** Agent A ({role_a}): {task_hint}",
+        "  - SAD.md: components, interfaces, FR→module mapping, data flows, deployment topology",
+        "  - ADR.md: key decisions with context, options considered, rationale",
+        "  - FORBIDDEN: FR without module mapping / circular dependencies undocumented",
+        "- [ ] **[A-2]** Agent A returns `{status, files, confidence, citations, summary}`",
+        f"- [ ] **[B-1]** Agent B ({role_b}): Review architecture vs SRS.md  ← DIFFERENT agent (HR-01)",
+        "  - Check: Every FR has a module? NFRs addressed (latency/security)? No circular deps?",
+        "- [ ] **[B-2]** Agent B returns `{status, review_status, reason, confidence, citations}`",
+        "  - If REJECT → Agent A fixes → repeat. Max 5 rounds (HR-12).",
+        "- [ ] **[LOG]** Append to `sessions_spawn.log` (HR-10 — 2 entries):",
+        "  ```json",
+        '  {"fr_id":"P2","role":"architect","session_id":"dev-XXXX","status":"success","confidence":8}',
+        '  {"fr_id":"P2","role":"tech_lead","session_id":"rev-XXXX","review_status":"APPROVE"}',
+        "  ```",
+        "",
+    ])
 
     frs = parse_srs_fr_sections(srs_path)
     modules = parse_sad_modules(repo_path)
@@ -542,11 +675,14 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path) -> List[str]:
             lines.append("")
 
     lines.append("### Phase 2 Deliverables")
-    lines.append("- [ ] `SAD.md` - Software Architecture Document")
+    lines.append("- [ ] `SAD.md` - Software Architecture Document (every FR has module mapping)")
     lines.append("- [ ] `ADR.md` - Architecture Decision Records")
     lines.append("- [ ] `ARCHITECTURE_DIAGRAM.md` - Architecture diagram")
+    lines.append("- [ ] `sessions_spawn.log` - 2 entries for P2 A/B work (HR-10)")
     lines.append("")
 
+    lines.extend(_human_checkpoint(2, checkpoint_n=1))
+    lines.extend(_phase_advance_step(2))
     return lines
 
 
@@ -568,6 +704,7 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     fr_ids = manifest_fr_ids if manifest_fr_ids else [fr['fr'] for fr in frs]
 
     lines.extend(_checkpoint_index(fr_ids, phase=3))
+    lines.extend(_entry_gate_check(3))
     lines.extend(_preflight_steps(3))
 
     if frs:
@@ -649,6 +786,7 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     fr_ids = manifest_fr_ids if manifest_fr_ids else [fr['fr'] for fr in frs]
 
     lines.extend(_checkpoint_index(fr_ids, phase=4))
+    lines.extend(_entry_gate_check(4))
     lines.extend(_preflight_steps(4))
 
     checkpoint_n = 1
@@ -662,6 +800,8 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path) -> List[str]:
             lines.append("")
         if fr_ids:
             lines.append("### FR Gate 1 Evaluations ({} FRs from manifest)".format(len(fr_ids)))
+            lines.append("> **Cross-reference**: Agent A's test scope for each FR = TEST_PLAN.md items above.")
+            lines.append("> Match TEST_PLAN.md items to this FR's module before writing/executing tests.")
             lines.append("")
             for fr_id in fr_ids:
                 lines.append(f"#### {fr_id}: Test Execution")
@@ -720,6 +860,7 @@ def generate_phase5_tasks(repo_path: Path) -> List[str]:
 
     manifest_fr_ids = _load_manifest_fr_ids(repo_path)
     lines.extend(_checkpoint_index(manifest_fr_ids, phase=5))
+    lines.extend(_entry_gate_check(5))
     lines.extend(_preflight_steps(5))
 
     if manifest_fr_ids:
@@ -772,6 +913,7 @@ def generate_phase6_tasks(repo_path: Path) -> List[str]:
     lines.append("> - CHECKPOINT-1: Gate 4 (Full Project — 12 dims, Hermes APPROVE)")
     lines.append("")
 
+    lines.extend(_entry_gate_check(6))
     lines.extend(_preflight_steps(6))
 
     qr = parse_quality_report(repo_path)
@@ -815,6 +957,7 @@ def generate_phase7_tasks(repo_path: Path) -> List[str]:
 
     manifest_fr_ids = _load_manifest_fr_ids(repo_path)
     lines.extend(_checkpoint_index(manifest_fr_ids, phase=7))
+    lines.extend(_entry_gate_check(7))
     lines.extend(_preflight_steps(7))
 
     risks = parse_risk_register(repo_path)
@@ -873,6 +1016,7 @@ def generate_phase8_tasks(repo_path: Path) -> List[str]:
 
     manifest_fr_ids = _load_manifest_fr_ids(repo_path)
     lines.extend(_checkpoint_index(manifest_fr_ids, phase=8))
+    lines.extend(_entry_gate_check(8))
     lines.extend(_preflight_steps(8))
 
     configs = parse_config_records(repo_path)

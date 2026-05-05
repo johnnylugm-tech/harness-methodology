@@ -27,20 +27,24 @@ Key capabilities:
 
 | Phase | Name | Entry Score | Exit Gate | Key Artifact |
 |-------|------|-------------|-----------|---------------|
-| P1 | Requirements Specification | — | Gate1 (75) | SRS.md |
-| P2 | Architecture Design | Gate1 | Gate1 (75) | SAD.md, ADR.md |
-| P3 | Implementation | Gate1 | Gate2 (75) | code + tests |
+| P1 | Requirements Specification | — | Human¹ | SRS.md |
+| P2 | Architecture Design | Human¹ | Human¹ | SAD.md, ADR.md |
+| P3 | Implementation | Human¹ | Gate2 (75) | code + tests |
 | P4 | Testing | Gate2 | Gate3 (80) | TEST_RESULTS.md |
 | P5 | Verification & Delivery | Gate3 | Gate3 (80) | BASELINE.md |
 | P6 | Quality Assurance | Gate3 | Gate4 (85) | QUALITY_REPORT.md |
 | P7 | Risk Management | Gate4 | Gate4 (85) | RISK_REGISTER.md |
 | P8 | Configuration Management | Gate4 | Gate4 (85) | CONFIG_RECORDS.md |
 
+> ¹ **Human¹** = human peer review of deliverables (reviewer reads + APPROVE/REJECT). This is NOT
+> `harness run-gate --gate 1`. `run-gate --gate 1` only applies to code phases (P3, P5, P7, P8)
+> where linting/type_safety/test_coverage can be measured. P1/P2 produce documents, not code.
+
 ### Gate Definitions
 
 | Gate | Phases | score_gate | Blocking |
 |------|--------|------------|----------|
-| Gate1 | P3, P5, P7, P8 entry | 75 | yes |
+| Gate1 | P3, P5, P7, P8 per-FR | 75 (each dim) | yes |
 | Gate2 | P3 exit | 75 | yes |
 | Gate3 | P4 exit | 80 | yes |
 | Gate4 | P6 full | 85 | yes |
