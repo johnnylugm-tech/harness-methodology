@@ -118,5 +118,13 @@ class CRGBridge:
         return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
 
     def _ssi_root(self) -> str:
-        """Resolve the SSI toolchain root directory."""
-        return os.environ.get("SSI_ROOT", "software_self_improvement")
+        """Resolve the SSI toolchain root directory.
+
+        Priority:
+        1. SSI_ROOT environment variable (explicit override).
+        2. Embedded harness/ssi/ directory beside this file (default).
+        """
+        ssi_env = os.environ.get("SSI_ROOT")
+        if ssi_env:
+            return ssi_env
+        return str(Path(__file__).parent / "ssi")
