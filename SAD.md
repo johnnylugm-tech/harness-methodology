@@ -84,7 +84,7 @@ python harness_cli.py effort         [--phase 3]
 python harness_cli.py reload-policy  [--policy-file enforcement/enforcement.json]
 ```
 
-**`--auto-fix-rounds N`** (run-gate / run-pipeline): Overrides `max_rounds` in the gate YAML config, passing `N` to the SSI runner subprocess. Higher values allow more internal self-repair cycles before SSI reports BLOCKED.
+**Gate evaluation (two-phase)**: `run-gate` prepares context and prints evaluation instructions; Claude evaluates inline and writes `.sessi-work/gate{N}_result.json`; `finalize-gate` reads the result and checks thresholds. SSI assets are embedded in `harness/ssi/`.
 
 **`run-pipeline`** exit codes:
 - `0` — all phases complete
@@ -124,7 +124,9 @@ Full integration guide: **[INTEGRATION.md](INTEGRATION.md)**. Summary:
 
 ### 3.1 `harness/harness_bridge.py` — Gate Controller & Bridge
 
-**Responsibility**: Manages quality gate lifecycle. Core bridge between the methodology workflow and the `software_self_improvement` (SSI) framework.
+**Responsibility**: Manages quality gate lifecycle. Core bridge between the methodology workflow and the embedded SSI evaluation skill.
+
+**Architectural note**: SSI is a Claude Code skill — Claude IS the evaluation engine. Gates use a two-phase API instead of subprocess IPC. SSI assets are embedded in `harness/ssi/`.
 
 **Data structures** (all in this file):
 
@@ -146,12 +148,18 @@ class GateResult:
     quality_complete: bool = False
     rounds_used: int = 0
 
+@dataclass
+class GateContext:
+    gate_num: int; config: dict; project_root: str; phase: int; fr_id: str | None
+    ssi_scripts_dir: str; ssi_prompts_dir: str; ssi_schemas_dir: str; work_dir: str
+    def evaluation_prompt(self) -> str: ...  # Returns evaluation instructions for Claude
+
 class GateBlockedError(Exception):
     def __init__(self, gate_num: int, result: GateResult): ...
     # message: "Gate {n} BLOCKED — score={:.1f}, critical={c}, high={h}"
 ```
 
-**Public API**:
+**Public API** (two-phase gate evaluation):
 
 ```python
 class HarnessBridge:
@@ -160,57 +168,57 @@ class HarnessBridge:
         self._log = DecisionLogWriter()
         self._effort = EffortTracker()
 
-    def run_gate(
+    def prepare_gate(
         self,
         gate_num: int,
         project_root: str,
         phase: int,
         fr_id: str | None = None,
-        max_rounds_override: int | None = None,  # overrides gate config max_rounds → SSI
-    ) -> GateResult: ...
+    ) -> GateContext:
+        """Phase 1: load config, CRG recon, return context for Claude evaluation."""
 
-    def generate_quality_manifest(
-        self,
-        fr_ids: list[str],
-        sad_path: str,
-    ) -> Path: ...
+    def finalize_gate(self, ctx: GateContext) -> GateResult:
+        """Phase 2: read gate{N}_result.json, check thresholds, update manifest."""
+
+    def run_gate(self, ...) -> GateResult:
+        """DEPRECATED — raises NotImplementedError. Use prepare_gate + finalize_gate."""
+
+    def generate_quality_manifest(self, fr_ids: list[str], sad_path: str) -> Path: ...
 ```
 
-**`run_gate` execution order**:
+**`prepare_gate` execution order**:
 1. `_load_config(gate_num)` — loads `harness/gate_configs/gate{n}_*.yaml` via PyYAML
-2. Record `t0 = time.time()`
-3. If `config["crg"]["reconnaissance"]` is set → `self.crg.run_reconnaissance(project_root)`
-4. `result = self._invoke_harness(config, project_root, fr_id)` — calls SSI runner subprocess (see below)
-5. `self._update_quality_manifest(gate_num, fr_id, result)` — writes to `.methodology/quality_manifest.json`
-6. `self._effort.record(EffortRecord(phase, gate_num, "GATE", "gate_run", duration_s=time.time()-t0))`
-7. `self._log.write(DecisionLogEntry(ctx=DecisionContext(agent_id="GATE", phase=phase, fr_id=fr_id), decision="GATE_PASS"|"GATE_BLOCK", reasoning=..., scores={"gate_score": result.score}))`
-8. **Blocking logic**:
+2. If `config["crg"]["reconnaissance"]` is set → `self.crg.run_reconnaissance(project_root)`
+3. Resolves `ssi_dir = Path(__file__).parent / "ssi"` (embedded assets)
+4. Creates `.sessi-work/` work directory
+5. Returns `GateContext` with all paths and config
+
+**`finalize_gate` execution order**:
+1. Reads `.sessi-work/gate{N}_result.json` (raises `FileNotFoundError` if missing)
+2. Parses JSON into `GateResult` (accepts both `overall_score`/`score` and `open_critical_count`/`open_critical` field names)
+3. `self._update_quality_manifest(gate_num, fr_id, result)` — writes to `.methodology/quality_manifest.json`
+4. `self._effort.record(EffortRecord(phase, gate_num, "GATE", "gate_finalize", ...))`
+5. `self._log.write(DecisionLogEntry(... decision="GATE_PASS"|"GATE_BLOCK" ...))`
+6. **Blocking logic**:
    - Gate 1: `raise GateBlockedError` if any `d.score < d.threshold` in `result.dimensions`
    - Gate 2/3/4: `raise GateBlockedError` if `result.score < config["score_gate"]` OR `not result.quality_complete`
-9. Gate 4 only: `_require_hermes_approve(result, phase, fr_id)` — Hermes reviewer must APPROVE
-10. Return `GateResult`
+7. Gate 4 only: `_require_hermes_approve(result, phase, fr_id)` — Hermes reviewer must APPROVE
+8. Return `GateResult`
 
-**`_invoke_harness` implementation**:
-- Writes gate config to `.sessi-work/gate{n}_config.yaml`
-- Clears `.sessi-work/gate{n}_result.json`
-- Runs: `python3 -m software_self_improvement.runner --config <path> --root <root> --output <result_path> [--fr-id <fr_id>]`
-- Timeout: `config["max_rounds"] * 300` seconds
-- On completion: reads and parses `.sessi-work/gate{n}_result.json` → `GateResult`
-- **Runtime prerequisite**: `software_self_improvement` package must be installed and on `PYTHONPATH`
-
-**Expected SSI runner output JSON** (`.sessi-work/gate{n}_result.json`):
+**Result file contract** (`.sessi-work/gate{N}_result.json`):
 ```json
 {
-  "score": 85.5,
+  "overall_score": 85.5,
+  "meets_target": true,
   "quality_complete": true,
-  "rounds_used": 2,
-  "open_critical": 0,
-  "open_high": 1,
-  "dimensions": [
-    {"name": "linting", "score": 92.0, "threshold": 90, "issues": []}
-  ]
+  "open_critical_count": 0,
+  "open_high_count": 0,
+  "breakdown": {
+    "linting": {"score": 92.0, "threshold": 90.0, "passed": true, "issues": []}
+  }
 }
 ```
+Schema: `harness/ssi/schemas/harness_gate_result.schema.json`
 
 **`_require_hermes_approve(result, phase, fr_id)`** (Gate 4 only):
 - Instantiates `ReviewerRouter()` — silently skips if `HERMES_REVIEWER_TARGET` not set
@@ -423,7 +431,8 @@ class CRGBridge:
 | `load_metrics(project_root) -> dict` | reads `.sessi-work/crg_metrics.json` | full metrics dict (6 formula-driven signals) |
 
 **Environment dependency**:
-- `SSI_ROOT` env var (default: `"software_self_improvement"`) — used as `cwd` for all subprocess calls via `_ssi_root()`.
+- `SSI_ROOT` env var (default: `harness/ssi` — the embedded directory) — used as `cwd` for CRG subprocess calls via `_ssi_root()`.
+- Priority: `SSI_ROOT` env var → embedded `harness/ssi/` (set by `Path(__file__).parent / "ssi"`).
 
 **Graceful degradation**: If `is_available()` is `False`, all methods return `{}` or `False` immediately.
 
@@ -1133,7 +1142,7 @@ python3 harness/scripts/check_spec_trace.py SAD.md tests/
 - Reports: `FRs: N | Tested: M | Untested: K`
 - Exit 0 = Gate 3 may proceed | Exit 1 = Gate 3 blocked until `test_fr_XXX.py` files created
 
-**Integration**: `harness_bridge.run_gate(gate_num=3)` calls this script before `_invoke_harness()`.
+**Integration**: `harness_bridge.prepare_gate(gate_num=3)` triggers this check at Gate 3 entry.
 Failure raises `GateBlockedError(3, ...)` listing untested FRs. The script is in `scripts/` alongside
 `check_fr_full.py` and `verify_spec_compliance.py`.
 
@@ -1142,36 +1151,38 @@ Failure raises `GateBlockedError(3, ...)` listing untested FRs. The script is in
 
 ## 4. Core Workflow Sequences
 
-### 4.1 Gate Run (e.g. Gate 2, P3 exit)
+### 4.1 Gate Run (e.g. Gate 2, P3 exit) — Two-Phase Flow
 
 ```
-Operator -> HarnessBridge.run_gate(gate_num=2, project_root, phase=3, fr_id=None)
-  │
-  ├─ 1. _load_config(2) → reads harness/gate_configs/gate2_p3_exit.yaml
-  │
-  ├─ 2. t0 = time.time()
-  │
-  ├─ 3. [gate2: crg.impact_check=true but no crg.reconnaissance — no recon step here]
-  │
-  ├─ 4. _invoke_harness(config, project_root, None)
-  │      ├─ writes .sessi-work/gate2_config.yaml
-  │      ├─ subprocess.run(["python3", "-m", "software_self_improvement.runner",
-  │      │                  "--config", ..., "--root", ..., "--output", ...])
-  │      │   timeout = max_rounds(3) * 300 = 900s
-  │      └─ reads .sessi-work/gate2_result.json → GateResult
-  │         [RuntimeError if result file missing after subprocess exits]
-  │
-  ├─ 5. _update_quality_manifest(2, None, result)
-  ├─ 6. EffortTracker.record(...)
-  ├─ 7. DecisionLogWriter.write(decision="GATE_PASS|GATE_BLOCK")
-  ├─ 8. if result.score < 75 or not result.quality_complete → raise GateBlockedError
-  │      [CLI layer catches GateBlockedError → _format_block_diagnostic() →
-  │       structured stdout + writes .methodology/last_block.md]
-  └─ 9. return GateResult
-  [Gate 4 only: step 9 = _require_hermes_approve() before return]
-```
+Phase 1 — Prepare:
+  Operator -> HarnessBridge.prepare_gate(gate_num=2, project_root, phase=3)
+    │
+    ├─ 1. _load_config(2) → reads harness/gate_configs/gate2_p3_exit.yaml
+    ├─ 2. [gate2: no crg.reconnaissance configured — skipped]
+    ├─ 3. ssi_dir = harness/ssi/  (embedded, no external repo needed)
+    ├─ 4. work_dir = project_root/.sessi-work/  (created if absent)
+    └─ 5. return GateContext(gate_num=2, config=..., ssi_scripts_dir=..., ...)
+    [GateContext.evaluation_prompt() prints full evaluation instructions for Claude]
 
-> **Runtime prerequisite**: `software_self_improvement` package must be installed. The subprocess interface is wired; the external package is the remaining dependency.
+Phase 2 — Claude Evaluation (not a subprocess, Claude IS the engine):
+  Claude reads harness/ssi/prompts/evaluate_dimension.md
+  Claude uses harness/ssi/scripts/ for static analysis
+  Claude writes project_root/.sessi-work/gate2_result.json
+
+Phase 3 — Finalize:
+  Operator -> HarnessBridge.finalize_gate(ctx)
+    │
+    ├─ 1. reads .sessi-work/gate2_result.json → GateResult
+    │      [FileNotFoundError if Claude did not write result file]
+    ├─ 2. _update_quality_manifest(2, None, result)
+    ├─ 3. EffortTracker.record(...)
+    ├─ 4. DecisionLogWriter.write(decision="GATE_PASS|GATE_BLOCK")
+    ├─ 5. if result.score < 75 or not result.quality_complete → raise GateBlockedError
+    │      [CLI layer catches GateBlockedError → _format_block_diagnostic() →
+    │       structured stdout + writes .methodology/last_block.md]
+    └─ 6. return GateResult
+    [Gate 4 only: step 6 = _require_hermes_approve() before return]
+```
 
 ### 4.2 A/B Review via Hermes MCP (v2.1 — Sequential + Dep-Ordered)
 

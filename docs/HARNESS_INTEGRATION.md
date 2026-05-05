@@ -15,6 +15,24 @@ No new Phases are added — Gates replace specific existing steps.
 | Gate 3 | `cli.py auto-research --phase 4` | P4 | phase exit |
 | Gate 4 | Entire P6 SOP | P6 | phase exit |
 
+## Gate Evaluation Model
+
+SSI is a Claude Code skill — Claude IS the evaluation engine. The subprocess-based
+`run_gate()` is deprecated. All gates now use a two-phase API:
+
+```
+1. harness_bridge.prepare_gate(gate_num, project_root, phase, fr_id)
+   → loads config, triggers CRG recon, returns GateContext
+
+2. Claude evaluates inline using harness/ssi/prompts/evaluate_dimension.md
+   → writes $PROJECT/.sessi-work/gate{N}_result.json
+
+3. harness_bridge.finalize_gate(ctx)
+   → reads result, checks thresholds, updates manifest, raises GateBlockedError
+```
+
+SSI assets are embedded at `harness/ssi/` — no external repo needed.
+
 ## P3 SOP Changes
 
 ### Before
@@ -25,30 +43,37 @@ POST-FLIGHT: cli.py auto-research --project {REPO} --phase 3
 
 ### After
 ```
-Layer 3 (per-FR): harness_bridge.run_gate(gate_num=1, fr_id=FR-XXX, phase=3)
-  → 3 dims: linting (90), type_safety (85), test_coverage (80)
+Layer 3 (per-FR):
+  python harness_cli.py run-gate --gate 1 --phase 3 --fr-id FR-XXX
+  (Claude evaluates: 3 dims — linting (90), type_safety (85), test_coverage (80))
+  python harness_cli.py finalize-gate --gate 1 --phase 3 --fr-id FR-XXX
   → Blocking: any dim < threshold → developer fixes → re-run
 
-POST-FLIGHT (phase exit): harness_bridge.run_gate(gate_num=2, phase=3)
-  → 7 dims (Tier 1+2), score_gate=75, max_rounds=3, early_stop=true
-  → Blocking: score < 75 → issue-driven improvement plan → iterate
+POST-FLIGHT (phase exit):
+  python harness_cli.py run-gate --gate 2 --phase 3
+  (Claude evaluates: 7 dims, score_gate=75)
+  python harness_cli.py finalize-gate --gate 2 --phase 3
+  → Blocking: score < 75 OR not quality_complete
 ```
 
 ## P4 SOP Changes
 
 ### After
 ```
-POST-FLIGHT (phase exit): harness_bridge.run_gate(gate_num=3, phase=4)
-  → 12 dims (Tier 1+2+3), score_gate=80, max_rounds=3
-  → CRG: reconnaissance + tier3_guidance + impact_check + drift_check
+POST-FLIGHT (phase exit):
+  python harness_cli.py run-gate --gate 3 --phase 4
+  (Claude evaluates: 12 dims, score_gate=80, CRG recon triggered automatically)
+  python harness_cli.py finalize-gate --gate 3 --phase 4
 ```
 
 ## P5 SOP Changes
 
 ### After
 ```
-Layer 3 (per-FR): harness_bridge.run_gate(gate_num=1, fr_id=FR-XXX, phase=5)
-  → Same as P3 Gate 1 (per-FR delivery verification)
+Layer 3 (per-FR):
+  python harness_cli.py run-gate --gate 1 --phase 5 --fr-id FR-XXX
+  (same 3 dims as P3 Gate 1)
+  python harness_cli.py finalize-gate --gate 1 --phase 5 --fr-id FR-XXX
 ```
 
 ## P6 SOP — Complete Replacement
@@ -62,17 +87,16 @@ Exit: TH-02 ≥80% + TH-07 ≥90
 
 ### After
 ```
-Step 6.1: harness_bridge.run_gate(gate_num=4, phase=6)
-         → 12 dims, All Tiers, score_gate=85, max_rounds=3
-         → CRG: full (reconnaissance + tier3 guidance + impact + drift)
-         → mutation_testing median_runs=3
+Step 6.1:
+  python harness_cli.py run-gate --gate 4 --phase 6
+  (Claude evaluates: 12 dims, score_gate=85, CRG full recon)
+  python harness_cli.py finalize-gate --gate 4 --phase 6
 
-Step 6.2: AgentSpawner.spawn(role="reviewer", model="hermes", phase=6)
-         → Hermes MCP send→wait→read
-         → Reviewer persona from agent_personas/REVIEWER.md
+Step 6.2: Hermes MCP APPROVE (wired in finalize_gate → _require_hermes_approve)
+         → Hermes MCP send→wait→read from reviewer_router.py
          → Prompt: Gate 4 score + dim breakdown + open issues
 
-Exit: Gate 4 score ≥ 85 AND critical_open == 0 AND Hermes APPROVE
+Exit: Gate 4 score ≥ 85 AND critical_open == 0 AND quality_complete AND Hermes APPROVE
 ```
 
 ## P7 / P8 SOP Changes
@@ -119,4 +143,4 @@ Score reconciliation: final_score = min(tool_score, llm_score)
 |----------|----------|---------|-------------|
 | `HERMES_REVIEWER_TARGET` | Yes | — | e.g. `telegram:6308981865` |
 | `HERMES_TIMEOUT_MS` | No | `120000` | Hermes reviewer response timeout (ms, default 2 min). Wired in both `reviewer_router.py` (module-level constant) and `HarnessBridge.GATE4_HERMES_TIMEOUT_MS` (class constant). |
-| `SSI_ROOT` | No | `software_self_improvement` | Path to SSI installation |
+| `SSI_ROOT` | No | `harness/ssi` | Path to SSI installation (default: embedded `harness/ssi/`) |

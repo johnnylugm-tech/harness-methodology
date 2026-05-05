@@ -152,9 +152,12 @@ prompt = get_persona("DEVELOPER").to_prompt(task="FR-01 implementation")
 > For standalone harness operations, use `harness_cli.py` — see §2.3 in SAD.md.
 
 ```bash
-# Harness-standalone equivalents (harness_cli.py)
-python harness_cli.py run-gate  --gate 1 --phase 3 --fr-id FR-01
-python harness_cli.py run-gate  --gate 2 --phase 3
+# Harness-standalone equivalents (harness_cli.py) — two-phase gate evaluation
+# Phase 1: prepare + print evaluation instructions
+python harness_cli.py run-gate --gate 1 --phase 3 --fr-id FR-01
+# (Claude evaluates and writes .sessi-work/gate1_result.json)
+# Phase 2: check thresholds and commit
+python harness_cli.py finalize-gate --gate 1 --phase 3 --fr-id FR-01
 python harness_cli.py status
 
 # Full parent-system CLI (requires 30+ external modules, not standalone)
@@ -303,10 +306,10 @@ Gate 4 needs my Telegram APPROVE — handle everything else."
 
 ```bash
 # P3+ plan is generated dynamically after SAD.md exists (P2 output)
+# Pipeline pauses (exit 10) when a gate result is missing — evaluate then resume
 python harness_cli.py run-pipeline \
   --phase-from 1 --phase-to 8 \
-  --project /path/to/project \
-  --auto-fix-rounds 3
+  --project /path/to/project
 
 # Resume after human provides SRS.md (P1) or SAD.md (P2)
 python harness_cli.py run-pipeline --phase-from 3 --project /path/to/project
@@ -323,23 +326,47 @@ python harness_cli.py plan-phase --phase $N --repo $PROJECT \
 python harness_cli.py run-phase --phase $N --project $PROJECT
 
 # 3. Per-FR Gate 1 (P3/P4/P5/P7/P8) — FR IDs come from quality_manifest.json
-python harness_cli.py run-gate --gate 1 --phase $N --project $PROJECT \
-  --fr-id FR-XX --auto-fix-rounds 3
+python harness_cli.py run-gate --gate 1 --phase $N --project $PROJECT --fr-id FR-XX
+# (Claude evaluates, then:)
+python harness_cli.py finalize-gate --gate 1 --phase $N --project $PROJECT --fr-id FR-XX
 
 # 4. Phase exit gate (P3→Gate2, P4→Gate3, P6→Gate4)
-python harness_cli.py run-gate --gate $G --phase $N --project $PROJECT \
-  --auto-fix-rounds 3
+python harness_cli.py run-gate --gate $G --phase $N --project $PROJECT
+# (Claude evaluates, then:)
+python harness_cli.py finalize-gate --gate $G --phase $N --project $PROJECT
 
-# 5. Confirm
+# 5. Checkpoint: generate next plan
+python harness_cli.py generate-next-plan --project $PROJECT --phase $N
+
+# 6. Confirm
 python harness_cli.py status --project $PROJECT
 ```
 
-### `--auto-fix-rounds N`
+### Step-by-Step: Two-Phase Gate Evaluation
 
-Passes `max_rounds=N` to SSI runner, controlling how many internal
-self-repair cycles SSI performs before reporting BLOCKED.
-- Gate 1 default: 1 (override to 3 for harder FRs)
-- Gates 2–4 default: 3 (override to 5 for complex phases)
+SSI is a Claude Code skill — Claude IS the evaluation engine. Each gate uses a two-step CLI flow:
+
+```bash
+# Step 1: Prepare (loads config, triggers CRG recon, prints evaluation instructions)
+python harness_cli.py run-gate --gate $G --phase $N --project $PROJECT [--fr-id FR-XX]
+
+# Step 2: Evaluate (Claude reads the prompt, evaluates dimensions, writes result JSON)
+#   → Claude writes: $PROJECT/.sessi-work/gate${G}_result.json
+#   → Schema: harness/ssi/schemas/harness_gate_result.schema.json
+
+# Step 3: Finalize (reads result, checks thresholds, updates manifest, commits)
+python harness_cli.py finalize-gate --gate $G --phase $N --project $PROJECT [--fr-id FR-XX]
+```
+
+### Checkpoint-Based Planning
+
+After each GitHub push, generate the next tactical plan:
+
+```bash
+python harness_cli.py generate-next-plan --project $PROJECT --phase $N
+```
+
+Output: exact checklist of `run-gate → evaluate → finalize-gate → push → next-plan` steps.
 
 ### Mandatory Human Checkpoints (3 only)
 
@@ -347,16 +374,77 @@ self-repair cycles SSI performs before reporting BLOCKED.
 |---|---|---|
 | P1 — Requirements | Before pipeline can plan P3+ | Provide `SRS.md` with `### FR-XX:` sections |
 | Gate 4 — Final APPROVE | P6 exit | Click APPROVE on Telegram (Hermes MCP) |
-| PAUSE (exit code 10) | Gate blocked after max rounds | Fix root cause; re-run `--phase-from N` |
+| PAUSE (exit code 10) | Result file missing | Run `run-gate`, evaluate, then `finalize-gate` |
 
 ### Pipeline Exit Codes
 
 | Code | Meaning | Action |
 |---|---|---|
 | 0 | All phases complete | Done |
-| 1 | Hard error (SSI unavailable, manifest missing) | Diagnose |
-| 10 | PAUSE — human intervention needed | Fix → `--phase-from N` |
+| 1 | Hard error (manifest missing) | Diagnose |
+| 10 | PAUSE — evaluation needed | Run-gate → evaluate → finalize-gate → re-run pipeline |
 
 ---
 
-*harness-methodology v6.49.0 — Academic Benchmark 91/100*
+## §12. Gate Evaluation Protocol
+
+SSI is a Claude Code skill. Gates are evaluated inline by Claude — not via subprocess.
+
+### Two-Phase CLI Flow
+
+| Phase | Command | What Claude does |
+|---|---|---|
+| **1. Prepare** | `run-gate --gate N --phase P` | Loads config, CRG recon (if needed), prints evaluation prompt |
+| **2. Evaluate** | *(Claude work)* | Reads prompt, analyzes code against each dimension, writes result JSON |
+| **3. Finalize** | `finalize-gate --gate N --phase P` | Reads result, checks thresholds, updates manifest, commits |
+
+### Evaluation Loop (per dimension)
+
+| Round | Action |
+|---|---|
+| 1 | Read `harness/ssi/prompts/evaluate_dimension.md` |
+| 2 | Use `harness/ssi/scripts/` tools (score.py, issue_tracker.py, etc.) for static analysis |
+| 3 | Score each dimension (0–100) against its threshold |
+| 4 | Write `.sessi-work/gate{N}_result.json` using schema |
+
+### Result File Contract
+
+**Location**: `$PROJECT/.sessi-work/gate{N}_result.json`
+
+**Schema**: `harness/ssi/schemas/harness_gate_result.schema.json`
+
+Required fields:
+```json
+{
+  "overall_score": 85.0,
+  "meets_target": true,
+  "quality_complete": true,
+  "open_critical_count": 0,
+  "open_high_count": 0,
+  "breakdown": {
+    "dimension_name": {"score": 90.0, "threshold": 80.0, "passed": true, "issues": []}
+  }
+}
+```
+
+### SSI Assets Location
+
+| Asset type | Path |
+|---|---|
+| Evaluation prompts | `harness/ssi/prompts/evaluate_dimension.md` |
+| Verification prompts | `harness/ssi/prompts/verify_round.md` |
+| Scripts | `harness/ssi/scripts/` (score.py, issue_tracker.py, etc.) |
+| Schema | `harness/ssi/schemas/harness_gate_result.schema.json` |
+
+### Gate Thresholds
+
+| Gate | Trigger | Threshold logic |
+|---|---|---|
+| Gate 1 | Per-FR completion | Each dimension ≥ its individual threshold |
+| Gate 2 | P3 phase exit | composite ≥ 75 AND quality_complete=True |
+| Gate 3 | P4 phase exit | composite ≥ 80 AND quality_complete=True |
+| Gate 4 | P6 full project | composite ≥ 85 AND quality_complete=True AND Hermes APPROVE |
+
+---
+
+*harness-methodology v6.50.0 — Academic Benchmark 91/100*
