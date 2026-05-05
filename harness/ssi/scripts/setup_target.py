@@ -132,31 +132,10 @@ def init_crg(repo_path: str, work_dir: str) -> dict:
     if _HAS_CRG_MODULE:
         status = _crg_ensure_ready(repo_path)
     else:
-        # Fallback: try CLI directly
-        try:
-            result = subprocess.run(
-                [
-                    "python3",
-                    Path(__file__).parent / "crg_integration.py",
-                    "ensure",
-                    repo_path,
-                ],
-                capture_output=True,
-                text=True,
-                timeout=360,
-            )
-            import json as _json
-
-            status = (
-                _json.loads(result.stdout)
-                if result.stdout.strip()
-                else {
-                    "available": False,
-                    "reason": "crg_integration.py returned no output",
-                }
-            )
-        except Exception as e:
-            status = {"available": False, "reason": str(e)[:120]}
+        status = {
+            "available": False,
+            "reason": "CRG MCP tools not available — running outside Claude Code",
+        }
 
     # Write status to work_dir for downstream steps
     work_path = Path(work_dir)

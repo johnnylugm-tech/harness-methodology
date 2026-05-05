@@ -767,13 +767,12 @@ class TestCRGBridgeExtra:
             result = b.get_minimal_context(str(tmp_path), "correctness")
         assert result == {}
 
-    def test_get_minimal_context_bad_json(self, tmp_path):
+    def test_get_minimal_context_handles_mcp_error(self, tmp_path):
         from harness.crg_bridge import CRGBridge
-        b = CRGBridge()
-        with patch.object(b, "is_available", return_value=True), \
-             patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(stdout="not-json")
-            result = b.get_minimal_context(str(tmp_path), "correctness")
+        with patch("harness.crg_bridge._CRG_MCP_AVAILABLE", True), \
+             patch("harness.crg_bridge._crg_minimal_context", create=True,
+                   side_effect=RuntimeError("boom")):
+            result = CRGBridge().get_minimal_context(str(tmp_path), "correctness")
         assert result == {}
 
 

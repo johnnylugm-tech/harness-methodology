@@ -2,110 +2,79 @@
 CRG Bridge: Interface for the Code Review Graph (CRG) analysis tools.
 
 Provides methods for structural reconnaissance, context retrieval, impact analysis,
-and structural drift verification using the SSI toolchain.
+and structural drift verification using CRG MCP tools directly.
 """
 
 from __future__ import annotations
+
 import json
-import os
-import subprocess  # nosec B404
 from pathlib import Path
+
+# CRG MCP tools are injected by Claude Code runtime — only available inside CC
+try:
+    from mcp_tools import (  # type: ignore[import-untyped]
+        mcp__code_review_graph__build_or_update_graph_tool as _crg_build,
+        mcp__code_review_graph__get_minimal_context_tool as _crg_minimal_context,
+        mcp__code_review_graph__detect_changes_tool as _crg_detect_changes,
+    )
+
+    _CRG_MCP_AVAILABLE = True
+except ImportError:
+    _CRG_MCP_AVAILABLE = False
 
 
 class CRGBridge:
-    """Wraps software_self_improvement crg_integration.py + crg_analysis.py."""
-
-    _available: bool | None = None
+    """Wraps CRG MCP tools for structural analysis of the target project."""
 
     def is_available(self) -> bool:
-        """Check if the CRG MCP tools and required libraries are available."""
-        if self._available is None:
-            r = subprocess.run(  # nosec B603 B607
-                ["python3", "-c", "import mcp__code_review_graph"],
-                capture_output=True,
-                check=False
-            )
-            self._available = r.returncode == 0
-        return self._available
+        """Check if CRG MCP tools are available in this runtime."""
+        return _CRG_MCP_AVAILABLE
 
     def run_reconnaissance(self, project_root: str) -> dict:
         """
         Execute full structural reconnaissance to seed the issue registry.
-        
-        Args:
-            project_root: Path to the target project.
 
-        Returns:
-            A dictionary containing reconnaissance data.
+        Returns reconnaissance data dict, or empty dict if CRG unavailable.
         """
-        if not self.is_available():
+        if not _CRG_MCP_AVAILABLE:
             return {}
-        subprocess.run(  # nosec B603 B607
-            ["python3", "scripts/crg_integration.py", "ensure", project_root],
-            capture_output=True, text=True, cwd=self._ssi_root(),
-            check=False
-        )
+        try:
+            _crg_build(repo_root=project_root, full_rebuild=True)
+        except Exception:
+            return {}
         p = Path(project_root) / ".sessi-work" / "crg_reconnaissance.json"
         return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
 
     def get_minimal_context(self, project_root: str, dimension: str) -> dict:
         """
         Retrieve minimal CRG context for a specific quality dimension.
-        
-        Args:
-            project_root: Path to the target project.
-            dimension: The quality dimension being evaluated.
-
-        Returns:
-            A dictionary containing structural context hints.
         """
-        if not self.is_available():
+        if not _CRG_MCP_AVAILABLE:
             return {}
-        r = subprocess.run(  # nosec B603 B607
-            ["python3", "scripts/crg_integration.py", "context", project_root, dimension],
-            capture_output=True, text=True, cwd=self._ssi_root(),
-            check=False
-        )
         try:
-            return json.loads(r.stdout)
+            return _crg_minimal_context(task=dimension, repo_root=project_root)
         except Exception:
             return {}
 
     def check_impact(self, project_root: str, ref: str = "HEAD", threshold: float = 0.7) -> bool:
         """
         Check if changes since 'ref' are risky based on structural impact.
-        
-        Args:
-            project_root: Path to the target project.
-            ref: Git reference to compare against.
-            threshold: Risk score threshold (0.0 - 1.0).
 
-        Returns:
-            True if the impact exceeds the threshold or touches hub nodes.
+        Returns True if risk_score >= threshold.
         """
-        if not self.is_available():
+        if not _CRG_MCP_AVAILABLE:
             return False
-        r = subprocess.run(  # nosec B603 B607
-            ["python3", "scripts/crg_integration.py", "risky",
-             project_root, ref, str(threshold)],
-            capture_output=True, cwd=self._ssi_root(),
-            check=False
-        )
-        return r.returncode == 1   # convention: 1=risky, 0=safe
+        try:
+            data = _crg_detect_changes(
+                base=ref, repo_root=project_root, detail_level="standard"
+            )
+            rs = data.get("risk_score", 0)
+            return float(rs) >= threshold if rs is not None else False
+        except Exception:
+            return False
 
     def check_drift(self, project_root: str, threshold: float = 0.4) -> bool:
-        """
-        Verify structural drift after an improvement round.
-        
-        Args:
-            project_root: Path to the target project.
-            threshold: Maximum allowed structural drift.
-
-        Returns:
-            True if drift exceeds the threshold.
-        """
-        if not self.is_available():
-            return False
+        """Verify structural drift after an improvement round."""
         p = Path(project_root) / ".sessi-work" / "crg_metrics.json"
         if not p.exists():
             return False
@@ -116,15 +85,3 @@ class CRGBridge:
         """Load calculated CRG metrics from the work directory."""
         p = Path(project_root) / ".sessi-work" / "crg_metrics.json"
         return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
-
-    def _ssi_root(self) -> str:
-        """Resolve the SSI toolchain root directory.
-
-        Priority:
-        1. SSI_ROOT environment variable (explicit override).
-        2. Embedded harness/ssi/ directory beside this file (default).
-        """
-        ssi_env = os.environ.get("SSI_ROOT")
-        if ssi_env:
-            return ssi_env
-        return str(Path(__file__).parent / "ssi")
