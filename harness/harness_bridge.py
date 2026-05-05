@@ -7,8 +7,6 @@ Handles gate execution, results parsing, and quality manifest updates.
 from __future__ import annotations
 import json
 import os
-import subprocess  # nosec B404
-import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -123,63 +121,18 @@ class HarnessBridge:
         max_rounds_override: int | None = None,
     ) -> GateResult:
         """
-        Execute a quality gate and persist its results.
+        DEPRECATED — use prepare_gate() + Claude inline evaluation + finalize_gate().
 
-        Args:
-            gate_num: The gate ID (1-4).
-            project_root: Absolute path to the target project.
-            phase: Current methodology phase.
-            fr_id: Optional Functional Requirement ID (Gate 1 only).
-            max_rounds_override: Override SSI max_rounds in gate config.
-                                 Used by --auto-fix-rounds CLI flag and run-pipeline.
-
-        Returns:
-            The resulting GateResult object.
+        The subprocess-based SSI runner is removed. SSI is a Claude Code skill,
+        not a standalone process. Claude IS the evaluation engine.
 
         Raises:
-            GateBlockedError: If the gate fails its quality targets.
+            NotImplementedError: Always. This method is intentionally broken.
         """
-        config = self._load_config(gate_num)
-        if max_rounds_override is not None:
-            config["max_rounds"] = max_rounds_override
-        t0 = time.time()
-
-        # §6.5 Point 1 — CRG Reconnaissance at Gate 3/4 entry
-        if config.get("crg", {}).get("reconnaissance"):
-            self.crg.run_reconnaissance(project_root)
-
-        result = self._invoke_harness(config, project_root, fr_id)
-        self._update_quality_manifest(gate_num, fr_id, result)
-
-        self._effort.record(EffortRecord(
-            phase=phase, gate_num=gate_num, agent_id="GATE",
-            operation="gate_run", duration_s=time.time() - t0,
-        ))
-        self._log.write(DecisionLogEntry(
-            ctx=DecisionContext(agent_id="GATE", phase=phase, fr_id=fr_id),
-            decision="GATE_PASS" if result.quality_complete else "GATE_BLOCK",
-            reasoning=(
-                f"Gate {gate_num}: score={result.score:.1f}, "
-                f"critical={result.open_critical}, high={result.open_high}, "
-                f"rounds={result.rounds_used}"
-            ),
-            scores={"gate_score": result.score},
-        ))
-
-        # Gate 1: per-dim threshold (no composite score_gate)
-        if gate_num == 1:
-            if any(d.score < d.threshold for d in result.dimensions):
-                raise GateBlockedError(gate_num, result)
-        else:
-            # Gates 2/3/4: composite score < score_gate OR not quality_complete
-            if result.score < config.get("score_gate", 0) or not result.quality_complete:
-                raise GateBlockedError(gate_num, result)
-
-        # Fix ④ — Gate 4 requires explicit Hermes reviewer APPROVE
-        if gate_num == 4:
-            self._require_hermes_approve(result, phase, fr_id)
-
-        return result
+        raise NotImplementedError(
+            "run_gate() is deprecated. Use prepare_gate() + Claude inline evaluation + finalize_gate().\n"
+            "See harness_cli.py run-gate / finalize-gate subcommands."
+        )
 
     def prepare_gate(
         self,
@@ -341,59 +294,6 @@ class HarnessBridge:
         config_path = Path(__file__).parent / "gate_configs" / names[gate_num]
         with open(config_path, "r", encoding="utf-8") as f:
             return yaml.safe_load(f)
-
-    def _invoke_harness(self, config: dict, project_root: str, fr_id: str | None) -> GateResult:
-        """Invoke the SSI runner subprocess."""
-        import yaml
-
-        gate_num = config["gate"]
-        work_dir = Path(".sessi-work")
-        work_dir.mkdir(parents=True, exist_ok=True)
-
-        config_path = work_dir / f"gate{gate_num}_config.yaml"
-        result_path = work_dir / f"gate{gate_num}_result.json"
-        result_path.unlink(missing_ok=True)
-
-        with open(config_path, "w", encoding="utf-8") as f:
-            yaml.dump(config, f)
-
-        cmd = [
-            "python3", "-m", "software_self_improvement.runner",
-            "--config", str(config_path),
-            "--root", project_root,
-            "--output", str(result_path),
-        ]
-        if fr_id:
-            cmd += ["--fr-id", fr_id]
-
-        timeout_s = config.get("max_rounds", 3) * 300
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_s, check=False)  # nosec B603 B607
-
-        if not result_path.exists():
-            raise RuntimeError(
-                f"SSI runner exited (rc={proc.returncode}) but wrote no result file.\n"
-                f"stderr: {proc.stderr[:500]}"
-            )
-
-        raw = json.loads(result_path.read_text(encoding="utf-8"))
-        dims = [
-            DimResult(
-                name=d["name"], score=d["score"],
-                threshold=d["threshold"], issues=d.get("issues", []),
-            )
-            for d in raw.get("dimensions", [])
-        ]
-        return GateResult(
-            gate_num=gate_num,
-            score=raw["score"],
-            dimensions=dims,
-            # §8.2 fix: SSI score.py emits open_critical_count / open_high_count;
-            # runner may rename to open_critical / open_high — accept both.
-            open_critical=raw.get("open_critical", raw.get("open_critical_count", 0)),
-            open_high=raw.get("open_high", raw.get("open_high_count", 0)),
-            quality_complete=raw.get("quality_complete", False),
-            rounds_used=raw.get("rounds_used", 0),
-        )
 
     def _require_hermes_approve(
         self, result: GateResult, phase: int, fr_id: str | None,

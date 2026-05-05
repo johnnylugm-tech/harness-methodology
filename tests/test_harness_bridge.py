@@ -32,16 +32,10 @@ class TestHarnessBridge:
             assert updated["gate_results"]["gate2"]["quality_complete"] is True
 
     def test_run_gate_raises_blocked_error(self):
-        """Verify GateBlockedError when score is below threshold."""
+        """run_gate() is deprecated — must raise NotImplementedError."""
         bridge = HarnessBridge()
-        # Mock config and harness invocation
-        with patch.object(bridge, "_load_config", return_value={"gate": 2, "score_gate": 80}):
-            with patch.object(bridge, "_invoke_harness") as mock_invoke:
-                # Score 70 < threshold 80
-                mock_invoke.return_value = GateResult(gate_num=2, score=70.0, quality_complete=True)
-                with patch.object(bridge, "_update_quality_manifest"):
-                    with pytest.raises(GateBlockedError, match="Gate 2 BLOCKED"):
-                        bridge.run_gate(gate_num=2, project_root=".", phase=3)
+        with pytest.raises(NotImplementedError):
+            bridge.run_gate(gate_num=2, project_root=".", phase=3)
 
     def test_require_hermes_approve_blocks_on_reject(self):
         """Verify Gate 4 blocks if Hermes returns REJECT."""
@@ -66,18 +60,10 @@ class TestHarnessBridge:
         assert config["gate"] == 2
 
     def test_run_gate_passes_with_good_score(self):
+        """run_gate() is deprecated — always raises NotImplementedError."""
         bridge = HarnessBridge()
-        with patch.object(bridge, "_load_config", return_value={"gate": 2, "score_gate": 80, "max_rounds": 3}), \
-             patch.object(bridge, "_invoke_harness") as mock_invoke, \
-             patch.object(bridge, "_update_quality_manifest"), \
-             patch.object(bridge, "_log"):
-            mock_invoke.return_value = GateResult(
-                gate_num=2, score=90.0, quality_complete=True,
-                dimensions=[], open_critical=0, open_high=0,
-            )
-            result = bridge.run_gate(gate_num=2, project_root=".", phase=3)
-            assert result.score == 90.0
-            assert result.quality_complete is True
+        with pytest.raises(NotImplementedError):
+            bridge.run_gate(gate_num=2, project_root=".", phase=3)
 
     def test_gate_blocked_error_attributes(self):
         result = GateResult(gate_num=3, score=60.0, open_critical=2, open_high=3)
@@ -85,6 +71,15 @@ class TestHarnessBridge:
         assert err.gate_num == 3
         assert err.result.score == 60.0
         assert "Gate 3 BLOCKED" in str(err)
+
+
+class TestRunGateDeprecated:
+    """run_gate() should raise NotImplementedError — use prepare+finalize instead."""
+
+    def test_run_gate_raises_not_implemented(self):
+        bridge = HarnessBridge()
+        with pytest.raises(NotImplementedError, match="prepare_gate"):
+            bridge.run_gate(gate_num=2, project_root=".", phase=3)
 
     def test_generate_quality_manifest_creates_file(self, tmp_path):
         """Verify generation of initial quality manifest."""
@@ -106,17 +101,10 @@ class TestHarnessBridge:
                 assert out_path.exists()
 
     def test_run_gate_1_dimension_threshold_fails(self):
+        """run_gate() is deprecated — always raises NotImplementedError."""
         bridge = HarnessBridge()
-        from harness.harness_bridge import DimResult
-        with patch.object(bridge, "_load_config", return_value={"gate": 1}), \
-             patch.object(bridge, "_invoke_harness") as mock_invoke, \
-             patch.object(bridge, "_update_quality_manifest"):
-            mock_invoke.return_value = GateResult(
-                gate_num=1, score=70.0, quality_complete=True,
-                dimensions=[DimResult(name="cov", score=50.0, threshold=80.0, issues=[])],
-            )
-            with pytest.raises(GateBlockedError):
-                bridge.run_gate(gate_num=1, project_root=".", phase=3)
+        with pytest.raises(NotImplementedError):
+            bridge.run_gate(gate_num=1, project_root=".", phase=3)
 
     def test_require_hermes_approve_init_failure(self):
         bridge = HarnessBridge()
