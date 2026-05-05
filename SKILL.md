@@ -299,29 +299,40 @@ The main agent has **exactly one source of truth at any moment**:
 | Inside a phase | **phase plan file** | Follow the plan step-by-step (do NOT re-read SKILL.md for task details) |
 | After a crash / context reset | **`generate-next-plan`** | Get position report, then resume plan |
 
-### Execution Loop (per phase)
+### Two Execution Modes — Pick One Per Phase, Never Mix
+
+| Mode | Command | When to use |
+|------|---------|-------------|
+| **Manual (default)** | Follow `phaseN_plan.md` checklist top-to-bottom | Normal autonomous execution |
+| **Automated** | `harness_cli.py run-pipeline` | Pipeline automation; pauses (exit 10) when gate result missing |
+
+> **Rule**: choose one mode per phase. Running `run-pipeline` while also manually executing a phase plan checklist creates double-execution and duplicate gate evaluations.
+
+### Execution Loop (per phase) — Manual Mode
 
 ```
 1. ENTER PHASE
-   python harness_cli.py plan-phase --phase N --project $REPO
-   python scripts/generate_full_plan.py --phase N --repo $REPO \
+   python harness_cli.py plan-phase --phase N --repo $REPO \
        --output $REPO/.methodology/phaseN_plan.md
-   → Plan is THE complete authority for phase N (dev tasks + gate steps)
+   → ONE command. `plan-phase` calls generate_full_plan.py internally.
+   → Plan is THE complete authority for phase N (preflight + A/B dev + gates + advance)
 
 2. FOLLOW PLAN
-   Execute checklist items top-to-bottom.
-   Each CHECKPOINT-K block = one atomic unit:
-     a. run-gate   (prepare — prints evaluation prompt)
-     b. evaluate   (Claude inline → writes gate{G}_result.json)
-     c. finalize-gate  (check thresholds, update manifest)
-     d. git push   (CHECKPOINT-K saved to GitHub)
+   Execute checklist items top-to-bottom. Key block types:
+     [PREFLIGHT]    run-phase --phase N   (FSM + Constitution check)
+     [A/B Work]     Agent A develops → Agent B reviews → sessions_spawn.log
+     [CHECKPOINT-K] run-gate → evaluate inline → finalize-gate → git push
 
-3. CHECKPOINT SAVED
-   After every git push: continue to next checklist item in the plan.
+3. GATE FAIL?
+   Gate 1: fix failing dim(s) → repeat G1a→G1b→G1c until PASS → then G1d push
+   Gate 2/3/4: fix → repeat G{N}a until CASE 1 PASS or CASE 3 PLATEAU
+
+4. CHECKPOINT SAVED
+   After every git push: continue to next checklist item.
    Do NOT call generate-next-plan unless recovering from a crash.
 
-4. PHASE COMPLETE
-   All checkpoints in plan ✓ → advance to next phase (back to step 1).
+5. PHASE COMPLETE
+   Follow "Phase N → Phase N+1" section at end of plan (back to step 1).
 ```
 
 ### Recovery (after crash or context reset)
@@ -332,12 +343,12 @@ python harness_cli.py generate-next-plan --project $REPO
 
 # Output example:
 #   Phase      : 3 (Implementation)
-#   Plan file  : $REPO/.methodology/phase3_plan.md  ← open and follow
+#   Plan file  : .methodology/phase3_plan.md  ← open this file
 #   Last ckpt  : CHECKPOINT-2 (Gate 1 / FR-02) ✓ PASS
 #   Next ckpt  : CHECKPOINT-3 (Gate 1 / FR-03)
-#   [ACTION]     open plan → go to CHECKPOINT-3
+#   [ACTION]     search plan for "CHECKPOINT-3", resume from there
 
-# Then: open plan file, find CHECKPOINT-3, resume from there.
+# Then: open plan file, search "### 🔒 CHECKPOINT-3", follow from there.
 ```
 
 ### Decision Rules
@@ -346,6 +357,7 @@ python harness_cli.py generate-next-plan --project $REPO
 - **Plan governs**: task sequence within a phase; specific file paths; CLI commands.
 - **Conflict**: SKILL.md wins on rules; plan wins on task order / phase-specific steps.
 - **Never skip checkpoints**: If a gate fails, fix and re-run — never advance without PASS.
+- **A/B is mandatory**: HR-01 (A≠B), HR-04 (HybridWorkflow ON), HR-10 (sessions_spawn.log) apply to every FR in every phase.
 
 ---
 
@@ -375,27 +387,30 @@ python harness_cli.py run-pipeline \
 python harness_cli.py run-pipeline --phase-from 3 --project /path/to/project
 ```
 
-### Step-by-Step (Claude Bash tool pattern)
+### Step-by-Step — Automated Mode (run-pipeline)
+
+> **Note**: prefer the Manual Mode (§11 plan checklist). Use run-pipeline only for pipeline
+> automation. The phase plan is self-contained — it includes preflight, A/B steps, and all gates.
 
 ```bash
-# 1. Dynamic plan — P3+ REQUIRES SAD.md from P2 to know FR list
+# 1. Generate plan (plan-phase calls generate_full_plan.py internally — ONE command only)
 python harness_cli.py plan-phase --phase $N --repo $PROJECT \
   --output $PROJECT/.methodology/phase${N}_plan.md
 
-# 2. Preflight
+# 2. Preflight (included in plan checklist as [PREFLIGHT] step)
 python harness_cli.py run-phase --phase $N --project $PROJECT
 
-# 3. Per-FR Gate 1 (P3/P4/P5/P7/P8) — FR IDs come from quality_manifest.json
+# 3. Per-FR Gate 1 (P3/P4/P5/P7/P8) — FR IDs from quality_manifest.json
 python harness_cli.py run-gate --gate 1 --phase $N --project $PROJECT --fr-id FR-XX
-# (Claude evaluates, then:)
+# (Claude evaluates inline — writes gate1_result.json, then:)
 python harness_cli.py finalize-gate --gate 1 --phase $N --project $PROJECT --fr-id FR-XX
 
 # 4. Phase exit gate (P3→Gate2, P4→Gate3, P6→Gate4)
 python harness_cli.py run-gate --gate $G --phase $N --project $PROJECT
-# (Claude evaluates, then:)
+# (Claude evaluates inline, then:)
 python harness_cli.py finalize-gate --gate $G --phase $N --project $PROJECT
 
-# 5. Checkpoint: generate next plan
+# 5. Recovery only — position report (not a next-step generator)
 python harness_cli.py generate-next-plan --project $PROJECT --phase $N
 
 # 6. Confirm

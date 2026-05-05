@@ -271,9 +271,84 @@ _PHASE_EXIT_GATES: dict = {3: 2, 4: 3, 6: 4}                  # phase → exit g
 _GATE_META: dict = {
     1: (None, 3,  "linting(90) + type_safety(85) + test_coverage(80)"),
     2: (75,   7,  "7 dims, score_gate ≥ 75"),
-    3: (80,   12, "12 dims, score_gate ≥ 80, CRG recon auto-triggered"),
-    4: (85,   12, "12 dims, score_gate ≥ 85, Hermes APPROVE required"),
+    3: (80,   12, "12 dims, score_gate ≥ 80  [CRG recon triggered inside run-gate]"),
+    4: (85,   12, "12 dims, score_gate ≥ 85  [CRG recon inside run-gate, Hermes APPROVE required]"),
 }
+
+# A/B agent roles per phase: (Agent-A role, Agent-B role, task hint)
+_PHASE_ROLES: dict = {
+    3: ("DEVELOPER",   "REVIEWER",  "TDD: write failing test → implement → refactor (RED→GREEN→IMPROVE)"),
+    4: ("QA_ENGINEER", "ARCHITECT", "Write integration/edge cases → execute → record results → verify ≥80% coverage"),
+    5: ("DEVELOPER",   "REVIEWER",  "Verify FR acceptance criteria → confirm results match SRS → sign off"),
+    7: ("DEVOPS",      "ARCHITECT", "Identify risks → document likelihood/impact → define mitigations"),
+    8: ("DEVOPS",      "ARCHITECT", "Document config items → verify env vars/secrets → update CONFIG_RECORDS.md"),
+}
+
+
+def _preflight_steps(phase: int) -> List[str]:
+    """Preflight hook step — run before the FR development loop (FSM + Constitution check)."""
+    return [
+        "### Pre-Phase Preflight",
+        "",
+        "- [ ] **[PREFLIGHT]** Run phase hooks (FSM state, Constitution, ToolRegistry):",
+        "  ```bash",
+        f"  python harness_cli.py run-phase --phase {phase} --project $REPO",
+        "  ```",
+        "  If FAILED non-critically: use `--force`. If BLOCKED: fix FSM/Constitution first.",
+        "",
+    ]
+
+
+def _fr_dev_steps(fr_id: str, phase: int) -> List[str]:
+    """A/B development steps for one FR — must appear BEFORE Gate 1 checkpoint."""
+    role_a, role_b, task_hint = _PHASE_ROLES.get(
+        phase, ("DEVELOPER", "REVIEWER", "Implement per SRS + SAD")
+    )
+    return [
+        f"**A/B Work — {fr_id}** (HR-01: A≠B · HR-04: HybridWorkflow ON · HR-10: log required):",
+        f"- [ ] **[A-1]** Agent A ({role_a}): {task_hint}",
+        f"  - Docstrings: `[{fr_id}]` tag + `Citations:` with line numbers (HR-15)",
+        "  - FORBIDDEN: `app/infrastructure/` · `@covers: L1 Error` · `@type: edge`",
+        "- [ ] **[A-2]** Agent A returns `{status, files, confidence, citations, summary}`",
+        f"- [ ] **[B-1]** Agent B ({role_b}): Review vs SRS.md + SAD.md  ← DIFFERENT agent (HR-01)",
+        "- [ ] **[B-2]** Agent B returns `{status, review_status, reason, confidence, citations}`",
+        "  - If REJECT → Agent A fixes → repeat. Max 5 rounds (HR-12).",
+        "- [ ] **[LOG]** Append to `sessions_spawn.log` (HR-10 — 2 entries per FR):",
+        "  ```json",
+        f'  {{"fr_id":"{fr_id}","role":"developer","session_id":"dev-XXXX","status":"success","confidence":8}}',
+        f'  {{"fr_id":"{fr_id}","role":"reviewer","session_id":"rev-XXXX","review_status":"APPROVE"}}',
+        "  ```",
+        "",
+    ]
+
+
+def _phase_advance_step(phase: int) -> List[str]:
+    """Instruction to advance to the next phase after all checkpoints PASS."""
+    if phase >= 8:
+        return [
+            "### 🎉 Pipeline Complete",
+            "",
+            "- [ ] All 8 phases complete. Archive `.methodology/` for the audit trail.",
+            "",
+        ]
+    next_phase = phase + 1
+    next_names = {
+        4: "Testing", 5: "Verification & Delivery", 6: "Quality Assurance",
+        7: "Risk Management", 8: "Configuration Management",
+    }
+    next_name = next_names.get(next_phase, f"Phase {next_phase}")
+    return [
+        f"### Phase {phase} → Phase {next_phase}: {next_name}",
+        "",
+        "- [ ] Confirm ALL checkpoints in this plan are ✓  (no skips — HR-03)",
+        f"- [ ] Generate Phase {next_phase} plan:",
+        "  ```bash",
+        f"  python harness_cli.py plan-phase --phase {next_phase} --repo $REPO \\",
+        f"    --output $REPO/.methodology/phase{next_phase}_plan.md",
+        "  ```",
+        f"- [ ] Open `phase{next_phase}_plan.md` and follow from the top.",
+        "",
+    ]
 
 
 def _gate1_checkpoint(fr_id: str, phase: int, checkpoint_n: int) -> List[str]:
@@ -281,8 +356,9 @@ def _gate1_checkpoint(fr_id: str, phase: int, checkpoint_n: int) -> List[str]:
     meta = _GATE_META[1]
     return [
         "",
-        f"##### 🔒 CHECKPOINT-{checkpoint_n}: Gate 1 — {fr_id}",
+        f"### 🔒 CHECKPOINT-{checkpoint_n}: Gate 1 — {fr_id}",
         f"> Dimensions: {meta[2]}",
+        "> `gate1_result.json` is overwritten each FR — `finalize-gate` reads it immediately.",
         "",
         f"- [ ] **G1a** Prepare Gate 1 for {fr_id}:",
         "  ```bash",
@@ -299,6 +375,8 @@ def _gate1_checkpoint(fr_id: str, phase: int, checkpoint_n: int) -> List[str]:
         "  ```bash",
         f"  python harness_cli.py finalize-gate --gate 1 --phase {phase} --fr-id {fr_id}",
         "  ```",
+        "  **If FAIL** (any dim below threshold): fix code → repeat G1a→G1b→G1c until PASS.",
+        "  **Do NOT proceed to G1d until all dims PASS.**",
         "",
         f"- [ ] **G1d** ✅ Push to GitHub (CHECKPOINT-{checkpoint_n} saved):",
         "  ```bash",
@@ -312,7 +390,21 @@ def _gate1_checkpoint(fr_id: str, phase: int, checkpoint_n: int) -> List[str]:
 def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[str]:
     """Phase-exit gate evaluation steps (two-phase + push checkpoint)."""
     meta = _GATE_META[gate_num]
-    hermes_note = "  - Requires Hermes APPROVE via Telegram after finalize-gate succeeds" if gate_num == 4 else ""
+    crg_note = (
+        "  (CRG recon triggered inside run-gate automatically — no separate action needed)"
+        if gate_num in (3, 4) else ""
+    )
+    hermes_note = (
+        f"  - **Hermes APPROVE required**: wait for reviewer APPROVE on Telegram before G{gate_num}d."
+        if gate_num == 4 else ""
+    )
+    early_stop = [
+        f"  **Early-stop cases after G{gate_num}c:**",
+        f"  - CASE 1 PASS:     score ≥ score_gate AND critical==0 → `quality_complete=True` → G{gate_num}d",
+        f"  - CASE 2 CONTINUE: score ≥ score_gate BUT issues remain → fix → repeat G{gate_num}a",
+        "  - CASE 3 PLATEAU:  3 consecutive rounds, no new issues → `deferred_fixes.md` → proceed to push",
+        "  - CASE 4 BLOCKED:  max_rounds exhausted, not PASS → `GateBlockedError` → escalate to human",
+    ]
     return [
         "",
         f"### 🔒 CHECKPOINT-{checkpoint_n}: Gate {gate_num} — Phase {phase} Exit",
@@ -323,21 +415,23 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
         f"  python harness_cli.py run-gate --gate {gate_num} --phase {phase}",
         "  ```",
         "  Read the evaluation prompt printed above.",
+        *([crg_note] if crg_note else []),
         "",
         f"- [ ] **G{gate_num}b** Evaluate all Gate {gate_num} dimensions inline:",
         "  - Follow `harness/ssi/prompts/evaluate_dimension.md`",
         f"  - Write result to `.sessi-work/gate{gate_num}_result.json`",
-        *((["  - For each failing dimension: fix code → re-evaluate → re-score"]) if gate_num > 1 else []),
+        *(["  - Failing dim: fix code → re-evaluate → re-score"] if gate_num > 1 else []),
         "",
         f"- [ ] **G{gate_num}c** Finalize Gate {gate_num}:",
         "  ```bash",
         f"  python harness_cli.py finalize-gate --gate {gate_num} --phase {phase}",
         "  ```",
-        *(([hermes_note]) if hermes_note else []),
+        *([hermes_note] if hermes_note else []),
+        *early_stop,
         "",
         f"- [ ] **G{gate_num}d** ✅ Push to GitHub (CHECKPOINT-{checkpoint_n} = phase exit saved):",
         "  ```bash",
-        f"  git add -A && git commit -m 'gate{gate_num}(p{phase}): Phase {phase} exit Gate {gate_num} PASS'",
+        f"  git add -A && git commit -m 'gate{gate_num}(p{phase}): Phase {phase} Gate {gate_num} PASS'",
         "  git push",
         "  ```",
         "",
@@ -473,8 +567,8 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     manifest_fr_ids = _load_manifest_fr_ids(repo_path)
     fr_ids = manifest_fr_ids if manifest_fr_ids else [fr['fr'] for fr in frs]
 
-    # Emit checkpoint index header lines (returned to caller for plan header)
     lines.extend(_checkpoint_index(fr_ids, phase=3))
+    lines.extend(_preflight_steps(3))
 
     if frs:
         lines.append("### FR Implementation Tasks ({} total)".format(len(frs)))
@@ -504,37 +598,38 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path) -> List[str]:
             lines.append("- app/infrastructure/ (deprecated)")
             lines.append("- @covers: L1 Error")
             lines.append("- @type: edge")
+            lines.append("")
 
-            # Gate 1 checkpoint after each FR
+            # A/B protocol then Gate 1
+            lines.extend(_fr_dev_steps(fr['fr'], phase=3))
             lines.extend(_gate1_checkpoint(fr['fr'], phase=3, checkpoint_n=checkpoint_n))
             checkpoint_n += 1
 
     elif fr_ids:
-        # Manifest has FR IDs but SRS parsing failed — emit minimal dev placeholder + gates
         lines.append("### FR Implementation Tasks ({} total)".format(len(fr_ids)))
-        lines.append("(SRS.md not parsed — add development steps per FR based on SAD.md)")
         lines.append("")
         checkpoint_n = 1
         for fr_id in fr_ids:
-            lines.append(f"#### {fr_id}: [See SRS.md and SAD.md for details]")
-            lines.append("- [ ] Implement module per SAD.md mapping")
-            lines.append("- [ ] Write unit tests (RED → GREEN → IMPROVE)")
+            lines.append(f"#### {fr_id}: [See SRS.md and SAD.md for implementation details]")
+            lines.append("")
+            lines.extend(_fr_dev_steps(fr_id, phase=3))
             lines.extend(_gate1_checkpoint(fr_id, phase=3, checkpoint_n=checkpoint_n))
             checkpoint_n += 1
 
     else:
         checkpoint_n = 1
 
-    # Gate 2 phase exit
     lines.extend(_gate_exit_checkpoint(gate_num=2, phase=3, checkpoint_n=checkpoint_n))
 
     lines.append("### Phase 3 Deliverables")
     lines.append("- [ ] `03-development/src/` - All FR modules implemented")
     lines.append("- [ ] `tests/` - Unit tests (≥80% coverage per FR)")
+    lines.append("- [ ] `sessions_spawn.log` - 2 entries per FR (HR-10)")
     lines.append("- [ ] Gate 1 PASS for every FR")
     lines.append("- [ ] Gate 2 PASS (phase exit, composite ≥ 75)")
     lines.append("")
 
+    lines.extend(_phase_advance_step(3))
     return lines
 
 
@@ -554,15 +649,26 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     fr_ids = manifest_fr_ids if manifest_fr_ids else [fr['fr'] for fr in frs]
 
     lines.extend(_checkpoint_index(fr_ids, phase=4))
+    lines.extend(_preflight_steps(4))
 
     checkpoint_n = 1
     if test_plans:
-        lines.append("### Test Items ({} total)".format(len(test_plans)))
+        # Test plan exists — show items; Gate 1 still runs per FR from manifest
+        lines.append("### Test Plan Items ({} total from TEST_PLAN.md)".format(len(test_plans)))
         lines.append("")
         for tp in test_plans:
             lines.append(f"#### {tp['title']}")
             lines.append(f"**Content**: {tp['details'][:200]}")
             lines.append("")
+        if fr_ids:
+            lines.append("### FR Gate 1 Evaluations ({} FRs from manifest)".format(len(fr_ids)))
+            lines.append("")
+            for fr_id in fr_ids:
+                lines.append(f"#### {fr_id}: Test Execution")
+                lines.append("")
+                lines.extend(_fr_dev_steps(fr_id, phase=4))
+                lines.extend(_gate1_checkpoint(fr_id, phase=4, checkpoint_n=checkpoint_n))
+                checkpoint_n += 1
     elif frs:
         lines.append("### FR Test Coverage")
         lines.append("")
@@ -573,6 +679,8 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path) -> List[str]:
                 lines.append("**Test Cases**:")
                 for inp, out in fr['test_cases']:
                     lines.append(f"- Input [{inp}] -> Output [{out}]")
+            lines.append("")
+            lines.extend(_fr_dev_steps(fr['fr'], phase=4))
             lines.extend(_gate1_checkpoint(fr['fr'], phase=4, checkpoint_n=checkpoint_n))
             checkpoint_n += 1
     elif fr_ids:
@@ -580,22 +688,23 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path) -> List[str]:
         lines.append("")
         for fr_id in fr_ids:
             lines.append(f"#### {fr_id}: [See SRS.md for test targets]")
-            lines.append("- [ ] Integration tests")
-            lines.append("- [ ] Edge case tests")
+            lines.append("")
+            lines.extend(_fr_dev_steps(fr_id, phase=4))
             lines.extend(_gate1_checkpoint(fr_id, phase=4, checkpoint_n=checkpoint_n))
             checkpoint_n += 1
 
-    # Gate 3 phase exit
     lines.extend(_gate_exit_checkpoint(gate_num=3, phase=4, checkpoint_n=checkpoint_n))
 
     lines.append("### Phase 4 Deliverables")
     lines.append("- [ ] `TEST_PLAN.md` - Test plan")
     lines.append("- [ ] `TEST_RESULTS.md` - Test results")
     lines.append("- [ ] `COVERAGE_REPORT.md` - Coverage report")
+    lines.append("- [ ] `sessions_spawn.log` - 2 entries per FR (HR-10)")
     lines.append("- [ ] Gate 1 PASS for every FR")
     lines.append("- [ ] Gate 3 PASS (phase exit, composite ≥ 80, 12 dims)")
     lines.append("")
 
+    lines.extend(_phase_advance_step(4))
     return lines
 
 
@@ -611,6 +720,7 @@ def generate_phase5_tasks(repo_path: Path) -> List[str]:
 
     manifest_fr_ids = _load_manifest_fr_ids(repo_path)
     lines.extend(_checkpoint_index(manifest_fr_ids, phase=5))
+    lines.extend(_preflight_steps(5))
 
     if manifest_fr_ids:
         lines.append("### FR Verification Tasks ({} total)".format(len(manifest_fr_ids)))
@@ -618,10 +728,12 @@ def generate_phase5_tasks(repo_path: Path) -> List[str]:
         checkpoint_n = 1
         for fr_id in manifest_fr_ids:
             lines.append(f"#### {fr_id}: Verification")
-            lines.append("- [ ] Confirm all acceptance criteria from SRS.md are met")
+            lines.append(f"- [ ] Confirm all acceptance criteria from SRS.md are met for {fr_id}")
             lines.append(f"- [ ] Run integration tests for {fr_id}")
             lines.append("- [ ] Verify edge cases and error paths")
             lines.append("- [ ] Confirm ≥80% branch coverage")
+            lines.append("")
+            lines.extend(_fr_dev_steps(fr_id, phase=5))
             lines.extend(_gate1_checkpoint(fr_id, phase=5, checkpoint_n=checkpoint_n))
             checkpoint_n += 1
     else:
@@ -637,9 +749,11 @@ def generate_phase5_tasks(repo_path: Path) -> List[str]:
     lines.append("- [ ] `BASELINE.md` - System baseline")
     lines.append("- [ ] `MONITORING_PLAN.md` - Monitoring plan")
     lines.append("- [ ] `VERIFICATION_REPORT.md` - Verification report")
+    lines.append("- [ ] `sessions_spawn.log` - 2 entries per FR (HR-10)")
     lines.append("- [ ] Gate 1 PASS for every FR")
     lines.append("")
 
+    lines.extend(_phase_advance_step(5))
     return lines
 
 
@@ -658,6 +772,8 @@ def generate_phase6_tasks(repo_path: Path) -> List[str]:
     lines.append("> - CHECKPOINT-1: Gate 4 (Full Project — 12 dims, Hermes APPROVE)")
     lines.append("")
 
+    lines.extend(_preflight_steps(6))
+
     qr = parse_quality_report(repo_path)
     if qr.get('metrics'):
         lines.append("### Existing Quality Metrics (from QUALITY_REPORT.md)")
@@ -669,10 +785,10 @@ def generate_phase6_tasks(repo_path: Path) -> List[str]:
     lines.append("### Pre-Gate Preparation")
     lines.append("- [ ] Confirm all FRs are merged to main branch")
     lines.append("- [ ] Confirm no open critical or high issues from Gate 3")
-    lines.append("- [ ] Confirm `HERMES_REVIEWER_TARGET` is set (e.g. `telegram:6308981865`)")
+    lines.append("- [ ] Confirm `HERMES_REVIEWER_TARGET` env var is set (e.g. `telegram:6308981865`)")
+    lines.append("- [ ] Confirm `HERMES_TIMEOUT_MS=90000` is set")
     lines.append("")
 
-    # Gate 4 is the single checkpoint for P6
     lines.extend(_gate_exit_checkpoint(gate_num=4, phase=6, checkpoint_n=1))
 
     lines.append("### Phase 6 Deliverables")
@@ -683,6 +799,7 @@ def generate_phase6_tasks(repo_path: Path) -> List[str]:
     lines.append("- [ ] `FINAL_SIGN_OFF.md` - Final sign-off")
     lines.append("")
 
+    lines.extend(_phase_advance_step(6))
     return lines
 
 
@@ -698,6 +815,7 @@ def generate_phase7_tasks(repo_path: Path) -> List[str]:
 
     manifest_fr_ids = _load_manifest_fr_ids(repo_path)
     lines.extend(_checkpoint_index(manifest_fr_ids, phase=7))
+    lines.extend(_preflight_steps(7))
 
     risks = parse_risk_register(repo_path)
     if risks:
@@ -721,8 +839,10 @@ def generate_phase7_tasks(repo_path: Path) -> List[str]:
         for fr_id in manifest_fr_ids:
             lines.append(f"#### {fr_id}: Risk Assessment")
             lines.append(f"- [ ] Review open issues from previous gates for {fr_id}")
-            lines.append(f"- [ ] Check deferred_fixes.md for {fr_id} if it exists")
+            lines.append(f"- [ ] Check `deferred_fixes.md` for {fr_id} entries")
             lines.append("- [ ] Confirm no new defects introduced")
+            lines.append("")
+            lines.extend(_fr_dev_steps(fr_id, phase=7))
             lines.extend(_gate1_checkpoint(fr_id, phase=7, checkpoint_n=checkpoint_n))
             checkpoint_n += 1
     else:
@@ -733,9 +853,11 @@ def generate_phase7_tasks(repo_path: Path) -> List[str]:
     lines.append("- [ ] `RISK_REGISTER.md` - Risk register")
     lines.append("- [ ] `RISK_MITIGATION_PLANS.md` - Mitigation plans")
     lines.append("- [ ] `RISK_STATUS_REPORT.md` - Risk status report")
+    lines.append("- [ ] `sessions_spawn.log` - 2 entries per FR (HR-10)")
     lines.append("- [ ] Gate 1 PASS for every FR")
     lines.append("")
 
+    lines.extend(_phase_advance_step(7))
     return lines
 
 
@@ -751,6 +873,7 @@ def generate_phase8_tasks(repo_path: Path) -> List[str]:
 
     manifest_fr_ids = _load_manifest_fr_ids(repo_path)
     lines.extend(_checkpoint_index(manifest_fr_ids, phase=8))
+    lines.extend(_preflight_steps(8))
 
     configs = parse_config_records(repo_path)
     if configs:
@@ -773,9 +896,11 @@ def generate_phase8_tasks(repo_path: Path) -> List[str]:
         checkpoint_n = 1
         for fr_id in manifest_fr_ids:
             lines.append(f"#### {fr_id}: Configuration Record")
-            lines.append(f"- [ ] Confirm {fr_id} configuration items are documented")
-            lines.append("- [ ] Confirm environment variables / secrets are managed")
+            lines.append(f"- [ ] Confirm {fr_id} configuration items are documented in CONFIG_RECORDS.md")
+            lines.append("- [ ] Confirm environment variables / secrets are managed (not hardcoded)")
             lines.append(f"- [ ] Confirm deployment checklist entries for {fr_id}")
+            lines.append("")
+            lines.extend(_fr_dev_steps(fr_id, phase=8))
             lines.extend(_gate1_checkpoint(fr_id, phase=8, checkpoint_n=checkpoint_n))
             checkpoint_n += 1
     else:
@@ -786,9 +911,11 @@ def generate_phase8_tasks(repo_path: Path) -> List[str]:
     lines.append("- [ ] `CONFIG_RECORDS.md` - Configuration records")
     lines.append("- [ ] `DEPLOYMENT_CHECKLIST.md` - Deployment checklist")
     lines.append("- [ ] `ENVIRONMENT_SPEC.md` - Environment specification")
+    lines.append("- [ ] `sessions_spawn.log` - 2 entries per FR (HR-10)")
     lines.append("- [ ] Gate 1 PASS for every FR")
     lines.append("")
 
+    lines.extend(_phase_advance_step(8))
     return lines
 
 

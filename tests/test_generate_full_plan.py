@@ -23,6 +23,9 @@ from generate_full_plan import (
     _gate_exit_checkpoint,
     _checkpoint_index,
     _load_manifest_fr_ids,
+    _preflight_steps,
+    _fr_dev_steps,
+    _phase_advance_step,
     generate_phase3_tasks,
     generate_phase4_tasks,
     generate_phase5_tasks,
@@ -62,6 +65,12 @@ class TestGate1Checkpoint:
         assert "Gate 1" in joined
         assert "FR-01" in joined
 
+    def test_heading_level_h3(self):
+        """GAP-G fix: Gate 1 must use ### heading (not #####)."""
+        lines = _gate1_checkpoint("FR-01", 3, 1)
+        assert any(l.startswith("### 🔒 CHECKPOINT-1") for l in lines)
+        assert not any(l.startswith("#####") for l in lines)
+
     def test_contains_run_gate_command(self):
         lines = _gate1_checkpoint("FR-02", 4, 2)
         joined = "\n".join(lines)
@@ -86,6 +95,19 @@ class TestGate1Checkpoint:
         lines = _gate1_checkpoint("FR-01", 3, 1)
         joined = "\n".join(lines)
         assert "gate1_result.json" in joined
+
+    def test_fail_retry_instruction(self):
+        """GAP-C fix: FAIL retry loop must appear in Gate 1 checklist."""
+        lines = _gate1_checkpoint("FR-01", 3, 1)
+        joined = "\n".join(lines)
+        assert "FAIL" in joined
+        assert "repeat" in joined.lower() or "G1a" in joined
+
+    def test_result_json_overwrite_note(self):
+        """GAP-B fix: note about gate1_result.json being overwritten per FR."""
+        lines = _gate1_checkpoint("FR-01", 3, 1)
+        joined = "\n".join(lines)
+        assert "overwritten" in joined or "overwrite" in joined
 
 
 # ─── _gate_exit_checkpoint ────────────────────────────────────────────────────
@@ -114,6 +136,30 @@ class TestGateExitCheckpoint:
         joined = "\n".join(lines)
         assert "gate4_result.json" in joined
 
+    def test_early_stop_cases_present(self):
+        """GAP-E fix: early-stop cases must appear in exit gate checklist."""
+        for gate_num, phase in [(2, 3), (3, 4), (4, 6)]:
+            lines = _gate_exit_checkpoint(gate_num, phase, 1)
+            joined = "\n".join(lines)
+            assert "CASE 1" in joined, f"Gate {gate_num} missing CASE 1"
+            assert "CASE 2" in joined, f"Gate {gate_num} missing CASE 2"
+            assert "CASE 3" in joined, f"Gate {gate_num} missing CASE 3"
+            assert "CASE 4" in joined, f"Gate {gate_num} missing CASE 4"
+            assert "BLOCKED" in joined, f"Gate {gate_num} missing BLOCKED"
+
+    def test_crg_note_for_gates_3_and_4(self):
+        """GAP-D fix: CRG recon is automatic — noted as inside run-gate."""
+        for gate_num, phase in [(3, 4), (4, 6)]:
+            lines = _gate_exit_checkpoint(gate_num, phase, 1)
+            joined = "\n".join(lines)
+            assert "CRG" in joined
+            assert "inside run-gate" in joined or "automatically" in joined
+
+    def test_no_crg_note_for_gate_2(self):
+        lines = _gate_exit_checkpoint(2, 3, 1)
+        joined = "\n".join(lines)
+        assert "CRG" not in joined
+
 
 # ─── _checkpoint_index ────────────────────────────────────────────────────────
 
@@ -141,6 +187,81 @@ class TestCheckpointIndex:
         assert "Gate 1 / FR-01" in joined
         assert "Gate 2" not in joined
         assert "Gate 3" not in joined
+
+
+# ─── _preflight_steps ────────────────────────────────────────────────────────
+
+class TestPreflightSteps:
+    def test_contains_run_phase_command(self):
+        """GAP-J fix: preflight step must include run-phase command."""
+        lines = _preflight_steps(3)
+        joined = "\n".join(lines)
+        assert "run-phase --phase 3" in joined
+
+    def test_contains_preflight_label(self):
+        lines = _preflight_steps(5)
+        joined = "\n".join(lines)
+        assert "[PREFLIGHT]" in joined
+
+    def test_phase_number_injected(self):
+        for phase in [3, 4, 5, 6, 7, 8]:
+            joined = "\n".join(_preflight_steps(phase))
+            assert f"--phase {phase}" in joined
+
+
+# ─── _fr_dev_steps ───────────────────────────────────────────────────────────
+
+class TestFrDevSteps:
+    def test_contains_agent_a_and_b(self):
+        """GAP-A fix: A/B steps must appear in FR development."""
+        lines = _fr_dev_steps("FR-01", 3)
+        joined = "\n".join(lines)
+        assert "Agent A" in joined
+        assert "Agent B" in joined
+
+    def test_contains_sessions_spawn_log(self):
+        """GAP-A / HR-10: sessions_spawn.log entries must be in steps."""
+        joined = "\n".join(_fr_dev_steps("FR-01", 3))
+        assert "sessions_spawn.log" in joined
+
+    def test_contains_fr_id_in_log_entry(self):
+        joined = "\n".join(_fr_dev_steps("FR-02", 3))
+        assert "FR-02" in joined
+
+    def test_roles_differ_by_phase(self):
+        p3 = "\n".join(_fr_dev_steps("FR-01", 3))
+        p4 = "\n".join(_fr_dev_steps("FR-01", 4))
+        assert "DEVELOPER" in p3
+        assert "QA_ENGINEER" in p4
+
+    def test_hr01_note_present(self):
+        """HR-01: A≠B must be called out."""
+        joined = "\n".join(_fr_dev_steps("FR-01", 3))
+        assert "HR-01" in joined or "DIFFERENT agent" in joined
+
+    def test_hr12_reject_loop_present(self):
+        """HR-12: max 5 rounds guard."""
+        joined = "\n".join(_fr_dev_steps("FR-01", 3))
+        assert "HR-12" in joined or "5 rounds" in joined
+
+
+# ─── _phase_advance_step ─────────────────────────────────────────────────────
+
+class TestPhaseAdvanceStep:
+    def test_phase3_points_to_phase4(self):
+        """GAP-F fix: phase advance step must reference next phase."""
+        joined = "\n".join(_phase_advance_step(3))
+        assert "Phase 4" in joined
+        assert "plan-phase --phase 4" in joined
+
+    def test_phase8_pipeline_complete(self):
+        joined = "\n".join(_phase_advance_step(8))
+        assert "Pipeline Complete" in joined or "complete" in joined.lower()
+
+    def test_hr03_no_skip_warning(self):
+        """HR-03: phase order must be sequential."""
+        joined = "\n".join(_phase_advance_step(5))
+        assert "HR-03" in joined or "no skips" in joined.lower() or "skip" in joined.lower()
 
 
 # ─── _load_manifest_fr_ids ───────────────────────────────────────────────────
@@ -189,82 +310,156 @@ class TestPhase3GateInjection:
         idx_g2 = joined.find("run-gate --gate 2 --phase 3")
         assert idx_g1_fr02 < idx_g2, "Gate 2 must appear after all Gate 1 per-FR steps"
 
+    def test_has_preflight(self, project: Path):
+        """GAP-J fix: preflight step must appear before FR development."""
+        joined = "\n".join(generate_phase3_tasks(project, project / "SRS.md"))
+        assert "run-phase --phase 3" in joined
+
+    def test_has_ab_dev_steps(self, project: Path):
+        """GAP-A fix: A/B protocol must appear before Gate 1."""
+        joined = "\n".join(generate_phase3_tasks(project, project / "SRS.md"))
+        assert "Agent A" in joined
+        assert "sessions_spawn.log" in joined
+
+    def test_has_phase_advance(self, project: Path):
+        """GAP-F fix: phase advance instruction at end."""
+        joined = "\n".join(generate_phase3_tasks(project, project / "SRS.md"))
+        assert "Phase 4" in joined
+        assert "plan-phase --phase 4" in joined
+
+    def test_early_stop_in_gate2(self, project: Path):
+        """GAP-E fix: early-stop cases in Gate 2."""
+        joined = "\n".join(generate_phase3_tasks(project, project / "SRS.md"))
+        assert "CASE 1" in joined
+        assert "CASE 4" in joined
+
 
 class TestPhase4GateInjection:
     def test_has_gate1_per_fr(self, project: Path):
-        lines = generate_phase4_tasks(project, project / "SRS.md")
-        joined = "\n".join(lines)
+        joined = "\n".join(generate_phase4_tasks(project, project / "SRS.md"))
         assert "run-gate --gate 1 --phase 4 --fr-id FR-01" in joined
 
     def test_has_gate3_exit(self, project: Path):
-        lines = generate_phase4_tasks(project, project / "SRS.md")
-        joined = "\n".join(lines)
+        joined = "\n".join(generate_phase4_tasks(project, project / "SRS.md"))
         assert "run-gate --gate 3 --phase 4" in joined
         assert "finalize-gate --gate 3 --phase 4" in joined
+
+    def test_has_preflight(self, project: Path):
+        joined = "\n".join(generate_phase4_tasks(project, project / "SRS.md"))
+        assert "run-phase --phase 4" in joined
+
+    def test_has_ab_dev_steps(self, project: Path):
+        joined = "\n".join(generate_phase4_tasks(project, project / "SRS.md"))
+        assert "QA_ENGINEER" in joined
+        assert "sessions_spawn.log" in joined
+
+    def test_has_phase_advance(self, project: Path):
+        joined = "\n".join(generate_phase4_tasks(project, project / "SRS.md"))
+        assert "Phase 5" in joined
 
 
 class TestPhase5GateInjection:
     def test_has_gate1_per_fr(self, project: Path):
-        lines = generate_phase5_tasks(project)
-        joined = "\n".join(lines)
+        joined = "\n".join(generate_phase5_tasks(project))
         assert "run-gate --gate 1 --phase 5 --fr-id FR-01" in joined
         assert "run-gate --gate 1 --phase 5 --fr-id FR-02" in joined
 
     def test_no_exit_gate(self, project: Path):
-        lines = generate_phase5_tasks(project)
-        joined = "\n".join(lines)
-        # P5 has no phase-exit gate
+        joined = "\n".join(generate_phase5_tasks(project))
         assert "run-gate --gate 3 --phase 5" not in joined
         assert "run-gate --gate 2 --phase 5" not in joined
+
+    def test_has_preflight(self, project: Path):
+        joined = "\n".join(generate_phase5_tasks(project))
+        assert "run-phase --phase 5" in joined
+
+    def test_has_ab_dev_steps(self, project: Path):
+        joined = "\n".join(generate_phase5_tasks(project))
+        assert "sessions_spawn.log" in joined
+
+    def test_has_phase_advance(self, project: Path):
+        joined = "\n".join(generate_phase5_tasks(project))
+        assert "Phase 6" in joined
 
 
 class TestPhase6GateInjection:
     def test_gate4_only_no_fr_loop(self, project: Path):
-        lines = generate_phase6_tasks(project)
-        joined = "\n".join(lines)
+        joined = "\n".join(generate_phase6_tasks(project))
         assert "run-gate --gate 4 --phase 6" in joined
         assert "finalize-gate --gate 4 --phase 6" in joined
 
     def test_no_per_fr_gate1(self, project: Path):
-        lines = generate_phase6_tasks(project)
-        joined = "\n".join(lines)
+        joined = "\n".join(generate_phase6_tasks(project))
         assert "run-gate --gate 1 --phase 6" not in joined
 
     def test_hermes_approve_note(self, project: Path):
-        lines = generate_phase6_tasks(project)
-        joined = "\n".join(lines)
+        joined = "\n".join(generate_phase6_tasks(project))
         assert "Hermes" in joined
 
     def test_single_checkpoint(self, project: Path):
-        lines = generate_phase6_tasks(project)
-        joined = "\n".join(lines)
+        joined = "\n".join(generate_phase6_tasks(project))
         assert "CHECKPOINT-1" in joined
         assert "CHECKPOINT-2" not in joined
+
+    def test_has_preflight(self, project: Path):
+        joined = "\n".join(generate_phase6_tasks(project))
+        assert "run-phase --phase 6" in joined
+
+    def test_has_early_stop_cases(self, project: Path):
+        joined = "\n".join(generate_phase6_tasks(project))
+        assert "CASE 1" in joined
+        assert "CASE 4" in joined
+
+    def test_has_phase_advance(self, project: Path):
+        joined = "\n".join(generate_phase6_tasks(project))
+        assert "Phase 7" in joined
 
 
 class TestPhase7GateInjection:
     def test_has_gate1_per_fr(self, project: Path):
-        lines = generate_phase7_tasks(project)
-        joined = "\n".join(lines)
+        joined = "\n".join(generate_phase7_tasks(project))
         assert "run-gate --gate 1 --phase 7 --fr-id FR-01" in joined
 
     def test_no_exit_gate(self, project: Path):
-        lines = generate_phase7_tasks(project)
-        joined = "\n".join(lines)
+        joined = "\n".join(generate_phase7_tasks(project))
         assert "run-gate --gate 2 --phase 7" not in joined
         assert "run-gate --gate 3 --phase 7" not in joined
+
+    def test_has_preflight(self, project: Path):
+        joined = "\n".join(generate_phase7_tasks(project))
+        assert "run-phase --phase 7" in joined
+
+    def test_has_ab_dev_steps(self, project: Path):
+        joined = "\n".join(generate_phase7_tasks(project))
+        assert "DEVOPS" in joined
+        assert "sessions_spawn.log" in joined
+
+    def test_has_phase_advance(self, project: Path):
+        joined = "\n".join(generate_phase7_tasks(project))
+        assert "Phase 8" in joined
 
 
 class TestPhase8GateInjection:
     def test_has_gate1_per_fr(self, project: Path):
-        lines = generate_phase8_tasks(project)
-        joined = "\n".join(lines)
+        joined = "\n".join(generate_phase8_tasks(project))
         assert "run-gate --gate 1 --phase 8 --fr-id FR-02" in joined
 
     def test_no_exit_gate(self, project: Path):
-        lines = generate_phase8_tasks(project)
-        joined = "\n".join(lines)
+        joined = "\n".join(generate_phase8_tasks(project))
         assert "run-gate --gate 4 --phase 8" not in joined
+
+    def test_has_preflight(self, project: Path):
+        joined = "\n".join(generate_phase8_tasks(project))
+        assert "run-phase --phase 8" in joined
+
+    def test_has_ab_dev_steps(self, project: Path):
+        joined = "\n".join(generate_phase8_tasks(project))
+        assert "DEVOPS" in joined
+        assert "sessions_spawn.log" in joined
+
+    def test_has_pipeline_complete(self, project: Path):
+        joined = "\n".join(generate_phase8_tasks(project))
+        assert "Pipeline Complete" in joined or "complete" in joined.lower()
 
 
 # ─── generate_full_plan integration ──────────────────────────────────────────
