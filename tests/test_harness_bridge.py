@@ -221,3 +221,120 @@ class TestPrepareGate:
         with patch.object(bridge, "_load_config", return_value={"gate": 2}):
             ctx = bridge.prepare_gate(gate_num=2, project_root=str(tmp_path), phase=3)
         assert Path(ctx.work_dir).exists()
+
+
+class TestFinalizeGate:
+    """Tests for HarnessBridge.finalize_gate()."""
+
+    def _make_context(self, tmp_path, gate_num=2, config=None, fr_id=None):
+        if config is None:
+            config = {"gate": gate_num, "score_gate": 80, "max_rounds": 3}
+        ssi_dir = Path(__file__).parent.parent / "harness" / "ssi"
+        work_dir = tmp_path / ".sessi-work"
+        work_dir.mkdir()
+        return GateContext(
+            gate_num=gate_num, config=config,
+            project_root=str(tmp_path), phase=3, fr_id=fr_id,
+            ssi_scripts_dir=str(ssi_dir / "scripts"),
+            ssi_prompts_dir=str(ssi_dir / "prompts"),
+            ssi_schemas_dir=str(ssi_dir / "schemas"),
+            work_dir=str(work_dir),
+        )
+
+    def _write_result(self, ctx, data):
+        result_path = Path(ctx.work_dir) / f"gate{ctx.gate_num}_result.json"
+        result_path.write_text(json.dumps(data), encoding="utf-8")
+
+    def test_finalize_gate_returns_gate_result_on_pass(self, tmp_path):
+        bridge = HarnessBridge()
+        ctx = self._make_context(tmp_path, gate_num=2)
+        self._write_result(ctx, {
+            "overall_score": 85.0, "meets_target": True, "quality_complete": True,
+            "open_critical_count": 0, "open_high_count": 0, "breakdown": {},
+        })
+        with patch.object(bridge, "_update_quality_manifest"):
+            with patch.object(bridge, "_log"):
+                with patch.object(bridge, "_effort"):
+                    result = bridge.finalize_gate(ctx)
+        assert isinstance(result, GateResult)
+        assert result.score == 85.0
+        assert result.quality_complete is True
+
+    def test_finalize_gate_raises_when_result_file_missing(self, tmp_path):
+        bridge = HarnessBridge()
+        ctx = self._make_context(tmp_path, gate_num=2)
+        # No result file written
+        with pytest.raises(FileNotFoundError, match="gate2_result.json"):
+            bridge.finalize_gate(ctx)
+
+    def test_finalize_gate_raises_blocked_on_low_score(self, tmp_path):
+        bridge = HarnessBridge()
+        ctx = self._make_context(tmp_path, gate_num=2)
+        self._write_result(ctx, {
+            "overall_score": 70.0, "meets_target": False, "quality_complete": False,
+            "open_critical_count": 0, "open_high_count": 0, "breakdown": {},
+        })
+        with patch.object(bridge, "_update_quality_manifest"):
+            with patch.object(bridge, "_log"):
+                with patch.object(bridge, "_effort"):
+                    with pytest.raises(GateBlockedError, match="Gate 2 BLOCKED"):
+                        bridge.finalize_gate(ctx)
+
+    def test_finalize_gate_raises_blocked_on_open_critical(self, tmp_path):
+        bridge = HarnessBridge()
+        ctx = self._make_context(tmp_path, gate_num=2)
+        self._write_result(ctx, {
+            "overall_score": 90.0, "meets_target": True, "quality_complete": False,
+            "open_critical_count": 2, "open_high_count": 0, "breakdown": {},
+        })
+        with patch.object(bridge, "_update_quality_manifest"):
+            with patch.object(bridge, "_log"):
+                with patch.object(bridge, "_effort"):
+                    with pytest.raises(GateBlockedError):
+                        bridge.finalize_gate(ctx)
+
+    def test_finalize_gate_updates_manifest(self, tmp_path):
+        bridge = HarnessBridge()
+        ctx = self._make_context(tmp_path, gate_num=2)
+        self._write_result(ctx, {
+            "overall_score": 85.0, "meets_target": True, "quality_complete": True,
+            "open_critical_count": 0, "open_high_count": 0, "breakdown": {},
+        })
+        with patch.object(bridge, "_update_quality_manifest") as mock_update:
+            with patch.object(bridge, "_log"):
+                with patch.object(bridge, "_effort"):
+                    bridge.finalize_gate(ctx)
+        mock_update.assert_called_once()
+        call_args = mock_update.call_args[1] if mock_update.call_args[1] else mock_update.call_args[0]
+
+    def test_finalize_gate_gate1_dimension_threshold(self, tmp_path):
+        """Gate 1 uses per-dimension thresholds, not composite score_gate."""
+        bridge = HarnessBridge()
+        config = {"gate": 1, "dimensions": [{"name": "cov", "threshold": 80}]}
+        ctx = self._make_context(tmp_path, gate_num=1, config=config)
+        self._write_result(ctx, {
+            "overall_score": 70.0, "meets_target": False, "quality_complete": True,
+            "open_critical_count": 0, "open_high_count": 0,
+            "breakdown": {"cov": {"score": 50.0, "threshold": 80.0, "passed": False}},
+        })
+        with patch.object(bridge, "_update_quality_manifest"):
+            with patch.object(bridge, "_log"):
+                with patch.object(bridge, "_effort"):
+                    with pytest.raises(GateBlockedError):
+                        bridge.finalize_gate(ctx)
+
+    def test_finalize_gate_gate4_calls_hermes(self, tmp_path):
+        """Gate 4 must call _require_hermes_approve when passing."""
+        bridge = HarnessBridge()
+        ctx = self._make_context(tmp_path, gate_num=4,
+                                  config={"gate": 4, "score_gate": 85})
+        self._write_result(ctx, {
+            "overall_score": 90.0, "meets_target": True, "quality_complete": True,
+            "open_critical_count": 0, "open_high_count": 0, "breakdown": {},
+        })
+        with patch.object(bridge, "_update_quality_manifest"):
+            with patch.object(bridge, "_log"):
+                with patch.object(bridge, "_effort"):
+                    with patch.object(bridge, "_require_hermes_approve") as mock_hermes:
+                        bridge.finalize_gate(ctx)
+        mock_hermes.assert_called_once()

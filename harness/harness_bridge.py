@@ -230,6 +230,86 @@ class HarnessBridge:
             work_dir=str(work_dir),
         )
 
+    def finalize_gate(self, ctx: GateContext) -> GateResult:
+        """
+        Phase 2 of the two-phase gate evaluation API.
+
+        Reads gate{N}_result.json written by Claude's inline evaluation,
+        checks thresholds, updates the quality manifest, and records decisions.
+
+        Args:
+            ctx: The GateContext returned by prepare_gate().
+
+        Returns:
+            GateResult if gate passes all thresholds.
+
+        Raises:
+            FileNotFoundError: If Claude did not write gate{N}_result.json.
+            GateBlockedError: If the gate fails its quality targets.
+        """
+        import time
+
+        result_path = Path(ctx.work_dir) / f"gate{ctx.gate_num}_result.json"
+        if not result_path.exists():
+            raise FileNotFoundError(
+                f"gate{ctx.gate_num}_result.json not found in {ctx.work_dir}. "
+                f"Claude must evaluate and write results before calling finalize_gate()."
+            )
+
+        t0 = time.time()
+        raw = json.loads(result_path.read_text(encoding="utf-8"))
+
+        # Build per-dimension results from breakdown if provided
+        dims: list[DimResult] = []
+        for dim_name, dim_data in raw.get("breakdown", {}).items():
+            dims.append(DimResult(
+                name=dim_name,
+                score=dim_data.get("score", 0.0),
+                threshold=dim_data.get("threshold", 0.0),
+                issues=dim_data.get("issues", []),
+            ))
+
+        result = GateResult(
+            gate_num=ctx.gate_num,
+            score=raw.get("overall_score", raw.get("score", 0.0)),
+            dimensions=dims,
+            open_critical=raw.get("open_critical_count", raw.get("open_critical", 0)),
+            open_high=raw.get("open_high_count", raw.get("open_high", 0)),
+            quality_complete=raw.get("quality_complete", False),
+            rounds_used=raw.get("rounds_used", 0),
+        )
+
+        self._update_quality_manifest(ctx.gate_num, ctx.fr_id, result)
+
+        self._effort.record(EffortRecord(
+            phase=ctx.phase, gate_num=ctx.gate_num, agent_id="GATE",
+            operation="gate_finalize", duration_s=time.time() - t0,
+        ))
+        self._log.write(DecisionLogEntry(
+            ctx=DecisionContext(agent_id="GATE", phase=ctx.phase, fr_id=ctx.fr_id),
+            decision="GATE_PASS" if result.quality_complete else "GATE_BLOCK",
+            reasoning=(
+                f"Gate {ctx.gate_num}: score={result.score:.1f}, "
+                f"critical={result.open_critical}, high={result.open_high}"
+            ),
+            scores={"gate_score": result.score},
+        ))
+
+        # Gate 1: per-dimension threshold check
+        if ctx.gate_num == 1:
+            if any(d.score < d.threshold for d in result.dimensions):
+                raise GateBlockedError(ctx.gate_num, result)
+        else:
+            score_gate = ctx.config.get("score_gate", 0)
+            if result.score < score_gate or not result.quality_complete:
+                raise GateBlockedError(ctx.gate_num, result)
+
+        # Gate 4: require explicit Hermes reviewer APPROVE
+        if ctx.gate_num == 4:
+            self._require_hermes_approve(result, ctx.phase, ctx.fr_id)
+
+        return result
+
     def generate_quality_manifest(self, fr_ids: list[str], sad_path: str) -> Path:
         """Called at P2 exit. Parses SAD.md -> constraints + high_risk_modules."""
         try:
