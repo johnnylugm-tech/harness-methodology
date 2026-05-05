@@ -6,16 +6,22 @@ Standalone entrypoint for the harness-methodology repo.
 Does NOT require the full parent system (cli.py needs 30+ external modules).
 
 Usage:
-    python harness_cli.py plan-phase     --phase 3 [--repo .] [--output plan.md]
-    python harness_cli.py run-phase      --phase 3 [--project .] [--force]
-    python harness_cli.py run-gate       --gate 2  --phase 3 [--project .] [--fr-id FR-01]
-                                         [--auto-fix-rounds 3]
-    python harness_cli.py run-pipeline   [--phase-from 1] [--phase-to 8] [--project .]
-                                         [--auto-fix-rounds 3] [--force]
-    python harness_cli.py manifest       --fr-ids FR-01 FR-02 [--sad SAD.md]
-    python harness_cli.py status         [--project .]
-    python harness_cli.py effort         [--phase 3] [--project .]
-    python harness_cli.py reload-policy  [--policy-file enforcement/enforcement.json]
+    python harness_cli.py plan-phase       --phase 3 [--repo .] [--output plan.md]
+    python harness_cli.py run-phase        --phase 3 [--project .] [--force]
+    python harness_cli.py run-gate         --gate 2  --phase 3 [--project .] [--fr-id FR-01]
+    python harness_cli.py finalize-gate    --gate 2  --phase 3 [--project .] [--fr-id FR-01]
+    python harness_cli.py generate-next-plan [--project .] [--phase 3]
+    python harness_cli.py run-pipeline     [--phase-from 1] [--phase-to 8] [--project .]
+                                           [--force]
+    python harness_cli.py manifest         --fr-ids FR-01 FR-02 [--sad SAD.md]
+    python harness_cli.py status           [--project .]
+    python harness_cli.py effort           [--phase 3] [--project .]
+    python harness_cli.py reload-policy    [--policy-file enforcement/enforcement.json]
+
+Gate Evaluation (two-phase flow):
+    1. run-gate    → prints evaluation prompt for Claude; exits 0
+    2. Claude evaluates inline, writes .sessi-work/gate{N}_result.json
+    3. finalize-gate → reads result, checks thresholds, commits
 
 Available gates:
     Gate 1  per-FR check       (P3/P4/P5/P7/P8, trigger: per_fr_completion)
@@ -26,7 +32,7 @@ Available gates:
 Exit codes (run-pipeline):
     0   All phases complete
     1   Hard failure (investigate error)
-    10  PAUSE — human intervention needed; fix then re-run with --phase-from N
+    10  PAUSE — Claude must evaluate gate; run finalize-gate then re-run pipeline
 """
 from __future__ import annotations
 
@@ -100,36 +106,77 @@ def cmd_run_phase(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
-# run-gate
+# run-gate  (Phase 1 of two-phase evaluation)
 # ---------------------------------------------------------------------------
 
 def cmd_run_gate(args: argparse.Namespace) -> int:
-    """Execute a quality gate."""
+    """
+    Phase 1: prepare gate context and print evaluation instructions for Claude.
+
+    Claude must evaluate inline and write .sessi-work/gate{N}_result.json,
+    then call `finalize-gate` to complete threshold checks and git operations.
+    """
+    from harness.harness_bridge import HarnessBridge
+
+    project = str(Path(args.project).resolve())
+    bridge = HarnessBridge()
+    fr_id = getattr(args, "fr_id", None) or None
+
+    print(f"\n{'='*60}\nrun-gate: Gate {args.gate} | Phase {args.phase}\n{'='*60}")
+
+    ctx = bridge.prepare_gate(
+        gate_num=args.gate,
+        project_root=project,
+        phase=args.phase,
+        fr_id=fr_id,
+    )
+
+    print(ctx.evaluation_prompt())
+    print("\n" + "─" * 60)
+    print("NEXT STEP: Evaluate the dimensions above, then run:")
+    fr_flag = f" --fr-id {fr_id}" if fr_id else ""
+    print(
+        f"  python harness_cli.py finalize-gate --gate {args.gate} "
+        f"--phase {args.phase} --project {args.project}{fr_flag}"
+    )
+    print("─" * 60)
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# finalize-gate  (Phase 2 of two-phase evaluation)
+# ---------------------------------------------------------------------------
+
+def cmd_finalize_gate(args: argparse.Namespace) -> int:
+    """
+    Phase 2: read gate{N}_result.json, check thresholds, update manifest, git.
+
+    Called after Claude has completed inline evaluation and written the result file.
+    """
     from harness.harness_bridge import HarnessBridge, GateBlockedError
 
     project = str(Path(args.project).resolve())
     bridge = HarnessBridge()
-    auto_fix_rounds = getattr(args, "auto_fix_rounds", None)
+    fr_id = getattr(args, "fr_id", None) or None
 
-    print(f"\n{'='*60}\nrun-gate: Gate {args.gate} | Phase {args.phase}\n{'='*60}")
-    if auto_fix_rounds is not None:
-        print(f"  max SSI rounds : {auto_fix_rounds} (--auto-fix-rounds override)")
+    print(f"\n{'='*60}\nfinalize-gate: Gate {args.gate} | Phase {args.phase}\n{'='*60}")
 
-    fr_id = args.fr_id or None
+    # Rebuild context (loads config; skips CRG recon second time since recon file already exists)
+    ctx = bridge.prepare_gate(
+        gate_num=args.gate,
+        project_root=project,
+        phase=args.phase,
+        fr_id=fr_id,
+    )
+
     try:
-        result = bridge.run_gate(
-            gate_num=args.gate,
-            project_root=project,
-            phase=args.phase,
-            fr_id=fr_id,
-            max_rounds_override=auto_fix_rounds,
-        )
+        result = bridge.finalize_gate(ctx)
         print(f"\nGATE {args.gate} PASSED")
-        print(f"  score         : {result.score:.1f}")
+        print(f"  score           : {result.score:.1f}")
         print(f"  quality_complete: {result.quality_complete}")
-        print(f"  rounds_used   : {result.rounds_used}")
-        print(f"  open_critical : {result.open_critical}")
-        print(f"  open_high     : {result.open_high}")
+        print(f"  open_critical   : {result.open_critical}")
+        print(f"  open_high       : {result.open_high}")
+
         git = _make_git(args, Path(args.project).resolve())
         git.ensure_gitignore()
         if args.gate == 1:
@@ -138,23 +185,157 @@ def cmd_run_gate(args: argparse.Namespace) -> int:
             git.commit_and_push_gate(args.gate, args.phase, result.score)
         return 0
 
+    except FileNotFoundError as e:
+        print(f"\n[ERROR] {e}")
+        print(
+            f"  Run `python harness_cli.py run-gate --gate {args.gate} "
+            f"--phase {args.phase} --project {args.project}` first,\n"
+            "  then evaluate the dimensions and write the result file."
+        )
+        return 2
+
     except GateBlockedError as e:
         project_path = Path(args.project).resolve()
         print(_format_block_diagnostic(
-            e, args.gate, args.phase, fr_id,
-            auto_fix_rounds if auto_fix_rounds is not None else 3, project_path,
+            e, args.gate, args.phase, fr_id, 3, project_path,
         ))
         return 1
 
-    except NotImplementedError as e:
-        print(f"\n[ERROR] {e}")
-        print("  Install software_self_improvement and set PYTHONPATH to enable gate runs.")
-        print("  See: docs/HARNESS_INTEGRATION.md (in software_self_improvement repo)")
-        return 2
 
-    except RuntimeError as e:
-        print(f"\n[RUNTIME ERROR] {e}")
-        return 2
+# ---------------------------------------------------------------------------
+# generate-next-plan
+# ---------------------------------------------------------------------------
+
+def cmd_generate_next_plan(args: argparse.Namespace) -> int:
+    """
+    Read quality_manifest.json and emit a concrete tactical plan for the next step.
+
+    Determines the next incomplete FR gate (Gate 1) or phase exit gate that Claude
+    should execute, and emits exact CLI commands to follow 100%.
+
+    This is called after each GitHub push as a checkpoint to generate the next plan.
+    """
+    project = Path(getattr(args, "project", ".")).resolve()
+    phase_hint = getattr(args, "phase", None)
+    manifest_path = project / ".methodology" / "quality_manifest.json"
+
+    print(f"\n{'='*60}\ngenerate-next-plan\n{'='*60}")
+
+    if not manifest_path.exists():
+        print("\n[ERROR] quality_manifest.json not found.")
+        print(f"  Expected: {manifest_path}")
+        print("  Run:  python harness_cli.py manifest --fr-ids FR-01 ... --sad SAD.md")
+        return 1
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    fr_ids: list[str] = manifest.get("fr_ids", [])
+    gate_results: dict = manifest.get("gate_results", {})
+
+    # ── Determine current phase from FSM state ──────────────────────────────
+    state_path = project / ".methodology" / "state.json"
+    current_phase = phase_hint or 3
+    if state_path.exists():
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            current_phase = phase_hint or state.get("current_phase", 3)
+        except Exception:  # pylint: disable=broad-exception-caught
+            pass
+
+    # ── Check for incomplete Gate 1 per-FR results ──────────────────────────
+    gate1_results = gate_results.get("gate1", {})
+    if isinstance(gate1_results, dict) and current_phase in _PER_FR_GATE1_PHASES:
+        for fr_id in fr_ids:
+            fr_result = gate1_results.get(fr_id)
+            if not fr_result or not fr_result.get("quality_complete"):
+                _emit_gate1_plan(fr_id, current_phase, project)
+                return 0
+
+    # ── Check for incomplete phase exit gates ────────────────────────────────
+    for ph, gate_num in sorted(_PHASE_EXIT_GATES.items()):
+        if ph < current_phase:
+            continue
+        key = f"gate{gate_num}"
+        g_result = gate_results.get(key)
+        if not g_result or not g_result.get("quality_complete"):
+            _emit_gate_exit_plan(gate_num, ph, project)
+            return 0
+
+    # ── All gates complete ───────────────────────────────────────────────────
+    print("\n✓ All gate results in manifest show quality_complete=True.")
+    print("  Proceed to the next phase or run-pipeline to advance.")
+    print(f"\n  python harness_cli.py run-pipeline --phase-from {current_phase}"
+          f" --project {project}")
+    return 0
+
+
+def _emit_gate1_plan(fr_id: str, phase: int, project: Path) -> None:
+    """Print concrete Gate 1 evaluation plan for a specific FR."""
+    print(f"\nNext step: Gate 1 evaluation for {fr_id} (Phase {phase})")
+    print("─" * 60)
+    print("\n## Step-by-step plan\n")
+    print(f"- [ ] **Step 1: Prepare Gate 1 for {fr_id}**")
+    print(f"  ```bash")
+    print(f"  python harness_cli.py run-gate --gate 1 --phase {phase} "
+          f"--project {project} --fr-id {fr_id}")
+    print(f"  ```")
+    print(f"  Read the evaluation prompt printed above.")
+    print()
+    print(f"- [ ] **Step 2: Evaluate all Gate 1 dimensions for {fr_id}**")
+    print(f"  Follow harness/ssi/prompts/evaluate_dimension.md")
+    print(f"  Write results to: {project}/.sessi-work/gate1_result.json")
+    print(f"  Schema: harness/ssi/schemas/harness_gate_result.schema.json")
+    print()
+    print(f"- [ ] **Step 3: Finalize Gate 1 for {fr_id}**")
+    print(f"  ```bash")
+    print(f"  python harness_cli.py finalize-gate --gate 1 --phase {phase} "
+          f"--project {project} --fr-id {fr_id}")
+    print(f"  ```")
+    print()
+    print(f"- [ ] **Step 4: Push to GitHub**")
+    print(f"  ```bash")
+    print(f"  git push")
+    print(f"  ```")
+    print()
+    print(f"- [ ] **Step 5: Generate next plan**")
+    print(f"  ```bash")
+    print(f"  python harness_cli.py generate-next-plan --project {project} --phase {phase}")
+    print(f"  ```")
+    print("─" * 60)
+
+
+def _emit_gate_exit_plan(gate_num: int, phase: int, project: Path) -> None:
+    """Print concrete phase-exit gate evaluation plan."""
+    print(f"\nNext step: Gate {gate_num} phase-exit evaluation (Phase {phase})")
+    print("─" * 60)
+    print("\n## Step-by-step plan\n")
+    print(f"- [ ] **Step 1: Prepare Gate {gate_num}**")
+    print(f"  ```bash")
+    print(f"  python harness_cli.py run-gate --gate {gate_num} --phase {phase} "
+          f"--project {project}")
+    print(f"  ```")
+    print(f"  Read the evaluation prompt printed above.")
+    print()
+    print(f"- [ ] **Step 2: Evaluate all Gate {gate_num} dimensions**")
+    print(f"  Follow harness/ssi/prompts/evaluate_dimension.md")
+    print(f"  Write results to: {project}/.sessi-work/gate{gate_num}_result.json")
+    print(f"  Schema: harness/ssi/schemas/harness_gate_result.schema.json")
+    print()
+    print(f"- [ ] **Step 3: Finalize Gate {gate_num}**")
+    print(f"  ```bash")
+    print(f"  python harness_cli.py finalize-gate --gate {gate_num} "
+          f"--phase {phase} --project {project}")
+    print(f"  ```")
+    print()
+    print(f"- [ ] **Step 4: Push to GitHub**")
+    print(f"  ```bash")
+    print(f"  git push")
+    print(f"  ```")
+    print()
+    print(f"- [ ] **Step 5: Generate next plan**")
+    print(f"  ```bash")
+    print(f"  python harness_cli.py generate-next-plan --project {project} --phase {phase}")
+    print(f"  ```")
+    print("─" * 60)
 
 
 # ---------------------------------------------------------------------------
@@ -483,14 +664,13 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
     project = Path(args.project).resolve()
     phase_from = args.phase_from
     phase_to = args.phase_to
-    max_rounds = args.auto_fix_rounds
     bridge = HarnessBridge()
     git = _make_git(args, project)
     git.ensure_gitignore()
 
     print(f"\n{'='*60}")
     print(f"run-pipeline  P{phase_from}→P{phase_to}  project={project}")
-    print(f"auto-fix-rounds={max_rounds}  force={args.force}")
+    print(f"force={args.force}")
     print(f"{'='*60}")
 
     for phase in range(phase_from, phase_to + 1):
@@ -565,43 +745,55 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
             print(f"\n[{phase}.3] Gate 1 for {len(fr_ids)} FR(s): {fr_ids}")
             for fr_id in fr_ids:
                 print(f"  [{fr_id}] Gate 1 …", end=" ", flush=True)
+                ctx = bridge.prepare_gate(
+                    gate_num=1, project_root=str(project),
+                    phase=phase, fr_id=fr_id,
+                )
+                result_path = Path(ctx.work_dir) / "gate1_result.json"
+                if not result_path.exists():
+                    print("PAUSE — evaluation needed")
+                    print(ctx.evaluation_prompt())
+                    print(f"\n  After evaluating, run:")
+                    print(f"  python harness_cli.py finalize-gate --gate 1 "
+                          f"--phase {phase} --project {project} --fr-id {fr_id}")
+                    print(f"  Then re-run: python harness_cli.py run-pipeline "
+                          f"--phase-from {phase} --project {project}")
+                    return 10
                 try:
-                    g1_result = bridge.run_gate(
-                        gate_num=1, project_root=str(project),
-                        phase=phase, fr_id=fr_id,
-                        max_rounds_override=max_rounds,
-                    )
-                    print("PASSED")
-                    git.commit_fr_gate1(fr_id, g1_result.score, phase)  # local commit
+                    g1_result = bridge.finalize_gate(ctx)
+                    print(f"PASSED  score={g1_result.score:.1f}")
+                    git.commit_fr_gate1(fr_id, g1_result.score, phase)
                 except GateBlockedError as exc:
                     print("BLOCKED")
-                    print(_format_block_diagnostic(exc, 1, phase, fr_id, max_rounds, project))
+                    print(_format_block_diagnostic(exc, 1, phase, fr_id, 3, project))
                     return 10
-                except (NotImplementedError, RuntimeError) as exc:
-                    print(f"\n[ERROR] Gate 1 / {fr_id}: {exc}")
-                    return 1
 
         # ── Step 4: Phase exit gate ───────────────────────────────────────
         if phase in _PHASE_EXIT_GATES:
             gate_num = _PHASE_EXIT_GATES[phase]
             print(f"\n[{phase}.4] Gate {gate_num} (phase exit) …", end=" ", flush=True)
+            ctx = bridge.prepare_gate(
+                gate_num=gate_num, project_root=str(project),
+                phase=phase, fr_id=None,
+            )
+            result_path = Path(ctx.work_dir) / f"gate{gate_num}_result.json"
+            if not result_path.exists():
+                print("PAUSE — evaluation needed")
+                print(ctx.evaluation_prompt())
+                print(f"\n  After evaluating, run:")
+                print(f"  python harness_cli.py finalize-gate --gate {gate_num} "
+                      f"--phase {phase} --project {project}")
+                print(f"  Then re-run: python harness_cli.py run-pipeline "
+                      f"--phase-from {phase} --project {project}")
+                return 10
             try:
-                result = bridge.run_gate(
-                    gate_num=gate_num, project_root=str(project),
-                    phase=phase, fr_id=None,
-                    max_rounds_override=max_rounds,
-                )
+                result = bridge.finalize_gate(ctx)
                 print(f"PASSED  score={result.score:.1f}")
-                git.commit_and_push_gate(  # PUSH ②③⑤
-                    gate_num, phase, result.score, n_frs=len(fr_ids),
-                )
+                git.commit_and_push_gate(gate_num, phase, result.score, n_frs=len(fr_ids))
             except GateBlockedError as exc:
                 print("BLOCKED")
-                print(_format_block_diagnostic(exc, gate_num, phase, None, max_rounds, project))
+                print(_format_block_diagnostic(exc, gate_num, phase, None, 3, project))
                 return 10
-            except (NotImplementedError, RuntimeError) as exc:
-                print(f"\n[ERROR] Gate {gate_num}: {exc}")
-                return 1
 
         # ── Advance FSM state ─────────────────────────────────────────────
         _advance_fsm(project, phase)
@@ -647,34 +839,46 @@ def build_parser() -> argparse.ArgumentParser:
     rp.add_argument("--force",   action="store_true", help="Ignore preflight failures")
     rp.set_defaults(func=cmd_run_phase)
 
-    # run-gate
-    rg = sub.add_parser("run-gate", help="Execute a quality gate (requires SSI installed)")
+    # run-gate (Phase 1: prepare + print evaluation prompt)
+    rg = sub.add_parser("run-gate", help="Prepare gate evaluation; print prompt for Claude")
     rg.add_argument("--gate",    type=int, required=True, choices=[1, 2, 3, 4])
     rg.add_argument("--phase",   type=int, required=True, help="Current phase number")
     rg.add_argument("--project", default=".", help="Project root (default: .)")
-    rg.add_argument("--fr-id",   default=None, help="FR ID (Gate 1 only)")
-    rg.add_argument(
-        "--auto-fix-rounds", type=int, default=None, metavar="N", dest="auto_fix_rounds",
-        help="Override SSI max_rounds (default: use gate config value)",
-    )
-    rg.add_argument("--no-git", action="store_true", dest="no_git",
-                    help="Disable git commit/push after gate pass")
+    rg.add_argument("--fr-id",   default=None, help="FR ID (Gate 1 only)", dest="fr_id")
     rg.set_defaults(func=cmd_run_gate)
+
+    # finalize-gate (Phase 2: read result.json, check thresholds, git)
+    fg = sub.add_parser(
+        "finalize-gate",
+        help="Finalize gate after Claude evaluation; checks thresholds and commits",
+    )
+    fg.add_argument("--gate",    type=int, required=True, choices=[1, 2, 3, 4])
+    fg.add_argument("--phase",   type=int, required=True, help="Current phase number")
+    fg.add_argument("--project", default=".", help="Project root (default: .)")
+    fg.add_argument("--fr-id",   default=None, help="FR ID (Gate 1 only)", dest="fr_id")
+    fg.add_argument("--no-git",  action="store_true", dest="no_git",
+                    help="Disable git commit/push after gate pass")
+    fg.set_defaults(func=cmd_finalize_gate)
+
+    # generate-next-plan (checkpoint-based tactical plan generator)
+    gnp = sub.add_parser(
+        "generate-next-plan",
+        help="Read manifest state and emit the next concrete gate evaluation plan",
+    )
+    gnp.add_argument("--project", default=".", help="Project root (default: .)")
+    gnp.add_argument("--phase",   type=int, default=None, help="Override current phase")
+    gnp.set_defaults(func=cmd_generate_next_plan)
 
     # run-pipeline
     rpl = sub.add_parser(
         "run-pipeline",
-        help="Full autonomous pipeline P{from}→P{to} with dynamic phase planning",
+        help="Full autonomous pipeline P{from}→P{to} with checkpoint-based gate evaluation",
     )
     rpl.add_argument("--phase-from", type=int, default=1, metavar="N", dest="phase_from",
                      help="Start phase (default: 1)")
     rpl.add_argument("--phase-to",   type=int, default=8, metavar="N", dest="phase_to",
                      help="End phase (default: 8)")
     rpl.add_argument("--project",    default=".", help="Project root (default: .)")
-    rpl.add_argument(
-        "--auto-fix-rounds", type=int, default=3, metavar="N", dest="auto_fix_rounds",
-        help="SSI max_rounds per gate — controls self-repair depth (default: 3)",
-    )
     rpl.add_argument("--force", action="store_true", help="Ignore preflight failures")
     rpl.add_argument("--no-git", action="store_true", dest="no_git",
                      help="Disable all git commit/push operations")

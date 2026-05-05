@@ -1,0 +1,8 @@
+# ruff.toml — Ruff linting configuration for harness-methodology
+# harness/ssi/scripts/ are vendor-copied assets from software_self_improvement
+# and are excluded from linting to avoid modifying upstream code.
+extend-exclude = [
+    "harness/ssi/scripts",
+    "harness/ssi/prompts",
+    ".quality_dashboard",
+]

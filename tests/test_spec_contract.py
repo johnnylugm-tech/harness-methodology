@@ -5,7 +5,10 @@ SOURCES = [
     "core", "harness", "detection", "enforcement",
     "gap_detector", "kill_switch", "steering", "scripts",
 ]
-SRC_EXCLUDE_PATTERN = "tests|quality_dashboard|__init__\\.py|cli\\.py|harness_cli\\.py"
+SRC_EXCLUDE_PATTERN = (
+    "tests|quality_dashboard|harness/ssi/scripts|harness/ssi/prompts"
+    "|__init__\\.py|cli\\.py|harness_cli\\.py"
+)
 
 
 @pytest.mark.contract
