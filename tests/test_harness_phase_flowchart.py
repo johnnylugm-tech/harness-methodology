@@ -127,11 +127,13 @@ def get_code_phase_routing() -> Dict[int, Dict]:
             exit_gate_type = "Gate 4"
             exit_score = gate_meta.get(4, {}).get('score_gate_min')
         elif phase == 7:
-            exit_gate_type = "Gate 3"
-            exit_score = gate_meta.get(3, {}).get('score_gate_min')
+            # P7 exit: "Cleared by P6 Gate 4" (no separate eval) — use Gate 4 as reference
+            exit_gate_type = "Gate 4"
+            exit_score = gate_meta.get(4, {}).get('score_gate_min')
         elif phase == 8:
-            exit_gate_type = None
-            exit_score = None
+            # P8 exit: "Cleared by P6 Gate 4" (no separate eval) — use Gate 4 as reference
+            exit_gate_type = "Gate 4"
+            exit_score = gate_meta.get(4, {}).get('score_gate_min')
         else:
             exit_gate_type = None
             exit_score = None
@@ -157,9 +159,9 @@ def get_diagram_phase_routing() -> Dict[int, Dict]:
     )
     content = flowchart_path.read_text(encoding='utf-8')
 
-    # Extract the matrix table
+    # Extract the matrix table (now has 6 columns: Phase, Entry, Exit Gate, Exit Score, Structure, Artifacts)
     matrix_match = re.search(
-        r'\| \*\*P1\*\*.*?\n\| \*\*P8\*\*.*?\|.*?\|.*?\|.*?\|.*?\|',
+        r'\| Phase \| Entry.*?\n\| \*\*P8\*\*.*?\|.*?\|.*?\|.*?\|.*?\|.*?\|',
         content,
         re.DOTALL
     )
@@ -169,7 +171,7 @@ def get_diagram_phase_routing() -> Dict[int, Dict]:
         matrix_text = matrix_match.group(0)
         for line in matrix_text.split('\n'):
             m = re.match(
-                r'\|\s*\*\*P(\d+)\*\*\s*\|\s*([^|]+)\s*\|\s*([^|]+)\s*\|\s*([^|]+)\s*\|\s*([^|]+)',
+                r'\|\s*\*\*P(\d+)\*\*\s*\|\s*([^|]+)\s*\|\s*([^|]+)\s*\|\s*([^|]+)\s*\|\s*([^|]+)\s*\|\s*([^|]+)',
                 line
             )
             if m:
@@ -177,12 +179,14 @@ def get_diagram_phase_routing() -> Dict[int, Dict]:
                 entry = m.group(2).strip()
                 exit_gate = m.group(3).strip()
                 exit_score = m.group(4).strip()
-                artifacts = m.group(5).strip()
+                structure = m.group(5).strip()
+                artifacts = m.group(6).strip()
 
                 routing[phase] = {
                     'entry': entry,
                     'exit_gate': exit_gate,
                     'exit_score': exit_score,
+                    'structure': structure,
                     'artifacts': artifacts,
                 }
 
@@ -241,12 +245,14 @@ class TestFlowchartVsCode:
         code_routing = get_code_phase_routing()
         diagram_routing = get_diagram_phase_routing()
 
+        # Per SKILL.md Phase Routing table
         gate_phase_map = {
             3: "Gate 2",
             4: "Gate 3",
             5: "Gate 3",
             6: "Gate 4",
-            7: "Gate 3",
+            7: "Gate 4",  # Fixed: P7 exit is Gate 4 (85), not Gate 3
+            8: "Gate 4",  # Fixed: P8 exit is Gate 4 (85) via P6 Gate 4
         }
 
         for phase, expected_gate in gate_phase_map.items():
@@ -257,7 +263,8 @@ class TestFlowchartVsCode:
                 f"Phase {phase} exit gate mismatch: code={code_exit}, "
                 f"expected={expected_gate}"
             )
-            assert expected_gate in diagram_exit or diagram_exit == expected_gate, (
+            # Diagram may have footnotes like "Gate 4****", so check prefix
+            assert expected_gate in diagram_exit or diagram_exit.startswith(expected_gate), (
                 f"Phase {phase} exit gate mismatch in diagram: "
                 f"expected '{expected_gate}', got '{diagram_exit}'"
             )
@@ -267,13 +274,14 @@ class TestFlowchartVsCode:
         code_routing = get_code_phase_routing()
         diagram_routing = get_diagram_phase_routing()
 
-        # Map phase to expected exit score
+        # Map phase to expected exit score (per SKILL.md and code)
         expected_scores = {
             3: 75,  # Gate 2 score_gate
             4: 80,  # Gate 3 score_gate
             5: 80,  # Gate 3 score_gate
             6: 85,  # Gate 4 score_gate
-            7: 80,  # Gate 3 score_gate
+            7: 85,  # Fixed: Gate 4 score_gate (cleared by P6)
+            8: 85,  # Fixed: Gate 4 score_gate (cleared by P6)
         }
 
         for phase, expected_score in expected_scores.items():
