@@ -375,6 +375,56 @@ def cmd_manifest(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# push-checkpoint  (P1/P2 human review checkpoint push + HANDOVER.md)
+# ---------------------------------------------------------------------------
+
+def cmd_push_checkpoint(args: argparse.Namespace) -> int:
+    """Push P1/P2 human-review checkpoint with HANDOVER.md generation.
+
+    Unlike raw git push, this calls GitStrategy which:
+    - Writes HANDOVER.md (crash-recovery checkpoint)
+    - Stages all changes
+    - Commits with conventional commit message
+    - Pushes to origin
+
+    Usage:
+      python harness_cli.py push-checkpoint --phase 1 --project . --fr-ids FR-01,FR-02,FR-03
+      python harness_cli.py push-checkpoint --phase 2 --project . --fr-ids FR-01,FR-02
+    """
+    project = Path(args.project).resolve()
+    fr_ids = [f.strip() for f in args.fr_ids.split(",") if f.strip()]
+    if not fr_ids:
+        print("[WARN] No --fr-ids provided; HANDOVER.md will show empty FR list.")
+        print("  Try: --fr-ids FR-01,FR-02,FR-03")
+
+    git = _make_git(args, project)
+    git.ensure_gitignore()
+    phase = args.phase
+    if phase not in (1, 2):
+        print(f"[ERROR] push-checkpoint only supports P1/P2 (got phase {phase}).")
+        print("  P3+ use: python harness_cli.py run-pipeline --phase-from {phase}")
+        return 1
+    if phase == 1:
+        ok = git.commit_and_push_p1(
+            fr_ids=fr_ids,
+            background=f"P1 human review APPROVED — {len(fr_ids)} FR(s) defined.",
+            notes=["Human peer review passed", "All deliverables reviewed and approved"],
+        )
+    else:
+        ok = git.commit_and_push_p2(
+            fr_ids=fr_ids,
+            background=f"P2 human review APPROVED — {len(fr_ids)} FR(s) in manifest.",
+            notes=["Human peer review passed", "SAD/ADR reviewed and approved"],
+        )
+    if ok:
+        handover = project / "HANDOVER.md"
+        if handover.exists():
+            print(f"  HANDOVER.md → {handover}")
+        print("  [git] pushed → remote ✓")
+    return 0 if ok else 1
+
+
+# ---------------------------------------------------------------------------
 # status
 # ---------------------------------------------------------------------------
 
@@ -851,6 +901,20 @@ def build_parser() -> argparse.ArgumentParser:
     rp.add_argument("--project", default=".", help="Project root (default: .)")
     rp.add_argument("--force",   action="store_true", help="Ignore preflight failures")
     rp.set_defaults(func=cmd_run_phase)
+
+    # push-checkpoint (P1/P2 human review → git push + HANDOVER.md)
+    pc = sub.add_parser(
+        "push-checkpoint",
+        help="Push P1/P2 human-review checkpoint (writes HANDOVER.md, commits, pushes)",
+    )
+    pc.add_argument("--phase",   type=int, required=True, choices=[1, 2],
+                    help="Phase number (1 or 2)")
+    pc.add_argument("--project", default=".", help="Project root (default: .)")
+    pc.add_argument("--fr-ids",  default="", dest="fr_ids",
+                    help="Comma-separated FR IDs (e.g., FR-01,FR-02)")
+    pc.add_argument("--no-git", action="store_true", dest="no_git",
+                    help="Disable git commit/push (HANDOVER.md still written)")
+    pc.set_defaults(func=cmd_push_checkpoint)
 
     # run-gate (Phase 1: prepare + print evaluation prompt)
     rg = sub.add_parser("run-gate", help="Prepare gate evaluation; print prompt for Claude")

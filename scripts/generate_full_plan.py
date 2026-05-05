@@ -355,11 +355,14 @@ def _human_checkpoint(phase: int, checkpoint_n: int) -> List[str]:
         f'  {{"phase": {phase}, "reviewer": "XXXX", "status": "APPROVE", "reason": "..."}}',
         "  ```",
         "  - If REJECT → author fixes → re-review. Max 5 rounds (HR-12).",
-        f"- [ ] **[HR-PUSH]** ✅ Push to GitHub (CHECKPOINT-{checkpoint_n} saved):",
+        f"- [ ] **[HR-PUSH]** ✅ Push to GitHub + HANDOVER.md (CHECKPOINT-{checkpoint_n} saved):",
         "  ```bash",
-        f"  git add -A && git commit -m 'phase{phase}(human-review): Phase {phase} deliverables APPROVED'",
-        "  git push",
+        f"  python harness_cli.py push-checkpoint --phase {phase} --project . \\",
+        "    --fr-ids FR-01,FR-02,FR-03",
         "  ```",
+        "  > This writes `HANDOVER.md` (crash-recovery checkpoint) to project root,",
+        "  > then commits + pushes all changes to origin.",
+        "  > After a crash, read HANDOVER.md first — it tells you where you were.",
         "",
     ]
 
@@ -407,12 +410,14 @@ def _phase_advance_step(phase: int) -> List[str]:
         f"### Phase {phase} → Phase {next_phase}: {next_name}",
         "",
         "- [ ] Confirm ALL checkpoints in this plan are ✓  (no skips — HR-03)",
+        "- [ ] Verify `HANDOVER.md` exists at project root (written by `push-checkpoint`)",
         f"- [ ] Generate Phase {next_phase} plan:",
         "  ```bash",
         f"  python harness_cli.py plan-phase --phase {next_phase} --repo $REPO \\",
         f"    --output $REPO/.methodology/phase{next_phase}_plan.md",
         "  ```",
         f"- [ ] Open `phase{next_phase}_plan.md` and follow from the top.",
+        f"- [ ] If session crashes during Phase {next_phase}: read `HANDOVER.md` or run `generate-next-plan`",
         "",
     ]
 
@@ -555,10 +560,13 @@ def generate_phase1_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("Phase 1 is the project starting point. Define complete SRS.")
     lines.append("**Exit gate = human peer review of deliverables** (not `harness run-gate --gate 1`).")
     lines.append("")
+    lines.append("> **Crash Recovery**: after each push, `HANDOVER.md` is written to project root.")
+    lines.append("> If context is lost, read `HANDOVER.md` first — it contains phase, status, and next steps.")
+    lines.append("")
 
     # P1 has exactly one checkpoint: human sign-off at phase end
-    lines.append("> **Checkpoint Index** (push to GitHub = checkpoint saved):")
-    lines.append("> - CHECKPOINT-1: Human Peer Review (Phase 1 Exit)")
+    lines.append("> **Checkpoint Index** (push to GitHub = checkpoint + HANDOVER.md saved):")
+    lines.append("> - CHECKPOINT-1: Human Peer Review (Phase 1 Exit) → `push-checkpoint --phase 1`")
     lines.append("")
 
     lines.extend(_preflight_steps(1))
@@ -630,10 +638,13 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("Phase 2 designs the system architecture based on SRS, producing SAD and ADR.")
     lines.append("**Exit gate = human peer review of deliverables** (not `harness run-gate --gate 1`).")
     lines.append("")
+    lines.append("> **Crash Recovery**: after each push, `HANDOVER.md` is written to project root.")
+    lines.append("> If context is lost, read `HANDOVER.md` first — it contains phase, status, and next steps.")
+    lines.append("")
 
     # P2 has exactly one checkpoint: human sign-off at phase end
-    lines.append("> **Checkpoint Index** (push to GitHub = checkpoint saved):")
-    lines.append("> - CHECKPOINT-1: Human Peer Review (Phase 2 Exit)")
+    lines.append("> **Checkpoint Index** (push to GitHub = checkpoint + HANDOVER.md saved):")
+    lines.append("> - CHECKPOINT-1: Human Peer Review (Phase 2 Exit) → `push-checkpoint --phase 2`")
     lines.append("")
 
     lines.extend(_entry_gate_check(2))  # confirm P1 human APPROVE

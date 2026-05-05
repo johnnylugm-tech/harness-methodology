@@ -547,7 +547,8 @@ class TestHumanCheckpoint:
 
     def test_contains_git_push(self):
         joined = "\n".join(_human_checkpoint(2, 1))
-        assert "git push" in joined
+        assert "push-checkpoint" in joined
+        assert "HANDOVER.md" in joined
 
     def test_heading_h3(self):
         lines = _human_checkpoint(1, 1)

@@ -349,6 +349,24 @@ The main agent has **exactly one source of truth at any moment**:
    Follow "Phase N → Phase N+1" section at end of plan (back to step 1).
 ```
 
+### Phase Completion Checklist (Mandatory — Every Phase)
+
+Before advancing to the next phase, the agent MUST confirm ALL of the following:
+
+| # | Step | How | Applies to |
+|---|------|-----|------------|
+| 1 | All checkpoints ✓ | Review plan — every `CHECKPOINT-K` marked done | All phases |
+| 2 | HANDOVER.md written | `harness_cli.py` writes it automatically via GitStrategy on push | All phases |
+| 3 | Git pushed to remote | Confirmed push output (no "push skipped" message) | All phases |
+| 4 | Next phase plan exists | `plan-phase --phase N+1` must have been run | P1–P7 |
+| 5 | state.json updated | Phase advanced in `.methodology/state.json` | All phases |
+| 6 | Git tag (Gate 4 only) | `harness-v4-YYYYMMDD-scoreXX` pushed to origin | P6 exit |
+
+> **HANDOVER.md** is written to the project root at every phase-boundary push.
+> It contains: checkpoint_id, phase, background, current status, next steps.
+> After a crash, read HANDOVER.md first — it tells you where you were and what to do next.
+> `generate-next-plan` reads HANDOVER.md + state.json to produce the recovery position report.
+
 ### Recovery (after crash or context reset)
 
 ```bash
@@ -447,15 +465,16 @@ python harness_cli.py run-gate --gate $G --phase $N --project $PROJECT [--fr-id 
 python harness_cli.py finalize-gate --gate $G --phase $N --project $PROJECT [--fr-id FR-XX]
 ```
 
-### Checkpoint-Based Planning
+### Recovery Position Report (crash / context reset only)
 
-After each GitHub push, generate the next tactical plan:
+After a crash or context reset, use this to find your position:
 
 ```bash
 python harness_cli.py generate-next-plan --project $PROJECT --phase $N
 ```
 
-Output: exact checklist of `run-gate → evaluate → finalize-gate → push → next-plan` steps.
+Output: current phase, plan file path, last completed checkpoint, next checkpoint to resume from.
+**Do NOT call this during normal execution** — the phase plan's advance section already tells you what to do next.
 
 ### Mandatory Human Checkpoints
 
