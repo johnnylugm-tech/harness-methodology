@@ -289,7 +289,67 @@ result = adapter.run_phase_lifecycle(fr_results_list)
 
 ---
 
-## 11. Autonomous Execution Protocol (Claude Code)
+## 11. Agent Execution Loop
+
+The main agent has **exactly one source of truth at any moment**:
+
+| Moment | Source of truth | What the agent does |
+|--------|----------------|---------------------|
+| Session start / phase entry | **SKILL.md** | Read framework rules, phase routing, gate protocol |
+| Inside a phase | **phase plan file** | Follow the plan step-by-step (do NOT re-read SKILL.md for task details) |
+| After a crash / context reset | **`generate-next-plan`** | Get position report, then resume plan |
+
+### Execution Loop (per phase)
+
+```
+1. ENTER PHASE
+   python harness_cli.py plan-phase --phase N --project $REPO
+   python scripts/generate_full_plan.py --phase N --repo $REPO \
+       --output $REPO/.methodology/phaseN_plan.md
+   → Plan is THE complete authority for phase N (dev tasks + gate steps)
+
+2. FOLLOW PLAN
+   Execute checklist items top-to-bottom.
+   Each CHECKPOINT-K block = one atomic unit:
+     a. run-gate   (prepare — prints evaluation prompt)
+     b. evaluate   (Claude inline → writes gate{G}_result.json)
+     c. finalize-gate  (check thresholds, update manifest)
+     d. git push   (CHECKPOINT-K saved to GitHub)
+
+3. CHECKPOINT SAVED
+   After every git push: continue to next checklist item in the plan.
+   Do NOT call generate-next-plan unless recovering from a crash.
+
+4. PHASE COMPLETE
+   All checkpoints in plan ✓ → advance to next phase (back to step 1).
+```
+
+### Recovery (after crash or context reset)
+
+```bash
+# Where am I?
+python harness_cli.py generate-next-plan --project $REPO
+
+# Output example:
+#   Phase      : 3 (Implementation)
+#   Plan file  : $REPO/.methodology/phase3_plan.md  ← open and follow
+#   Last ckpt  : CHECKPOINT-2 (Gate 1 / FR-02) ✓ PASS
+#   Next ckpt  : CHECKPOINT-3 (Gate 1 / FR-03)
+#   [ACTION]     open plan → go to CHECKPOINT-3
+
+# Then: open plan file, find CHECKPOINT-3, resume from there.
+```
+
+### Decision Rules
+
+- **SKILL.md governs**: phase order, gate thresholds, hard rules (HR-01–HR-15), A/B protocol.
+- **Plan governs**: task sequence within a phase; specific file paths; CLI commands.
+- **Conflict**: SKILL.md wins on rules; plan wins on task order / phase-specific steps.
+- **Never skip checkpoints**: If a gate fails, fix and re-run — never advance without PASS.
+
+---
+
+## 12. Autonomous Execution Protocol (Claude Code)
 
 Claude Code can run the **full P1→P8 pipeline autonomously** using the Bash tool.
 Humans are required at only **3 checkpoints**.
@@ -386,7 +446,7 @@ Output: exact checklist of `run-gate → evaluate → finalize-gate → push →
 
 ---
 
-## §12. Gate Evaluation Protocol
+## §13. Gate Evaluation Protocol
 
 SSI is a Claude Code skill. Gates are evaluated inline by Claude — not via subprocess.
 

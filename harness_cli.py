@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -208,134 +209,146 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
 
 def cmd_generate_next_plan(args: argparse.Namespace) -> int:
     """
-    Read quality_manifest.json and emit a concrete tactical plan for the next step.
+    Recovery / position reporter.
 
-    Determines the next incomplete FR gate (Gate 1) or phase exit gate that Claude
-    should execute, and emits exact CLI commands to follow 100%.
+    Reports WHERE the main agent currently is in the phase plan so it can
+    resume execution without re-reading the full SKILL.md.
 
-    This is called after each GitHub push as a checkpoint to generate the next plan.
+    Output (always):
+      Phase      : N (Name)
+      Plan file  : path/to/phase{N}_plan.md   ← open and follow this
+      Last ckpt  : CHECKPOINT-K (Gate X / FR-YY) PASS  (or "none")
+      Next ckpt  : CHECKPOINT-K+1 (Gate X / ...)
+      Action     : exact single command to run next
+
+    If no plan file exists for the current phase, instructs the agent to
+    generate it first.  If all checkpoints in the current phase are done,
+    reports the next phase to start.
     """
     project = Path(getattr(args, "project", ".")).resolve()
     phase_hint = getattr(args, "phase", None)
     manifest_path = project / ".methodology" / "quality_manifest.json"
 
-    print(f"\n{'='*60}\ngenerate-next-plan\n{'='*60}")
+    W = 62
+    print(f"\n{'='*W}")
+    print("POSITION REPORT  (generate-next-plan)")
+    print(f"{'='*W}")
 
+    # ── Read state.json ──────────────────────────────────────────────────────
+    state_path = project / ".methodology" / "state.json"
+    current_phase: int = phase_hint or 3
+    if state_path.exists():
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            current_phase = phase_hint or int(state.get("current_phase", 3))
+        except Exception:  # pylint: disable=broad-exception-caught
+            pass
+
+    phase_names = {
+        1: "Requirements Specification", 2: "Architecture Design",
+        3: "Implementation",            4: "Testing",
+        5: "Verification & Delivery",   6: "Quality Assurance",
+        7: "Risk Management",           8: "Configuration Management",
+    }
+    print(f"\nPhase      : {current_phase} ({phase_names.get(current_phase, '?')})")
+
+    # ── Resolve plan file ────────────────────────────────────────────────────
+    plan_file = project / ".methodology" / f"phase{current_phase}_plan.md"
+    if plan_file.exists():
+        print(f"Plan file  : {plan_file}")
+        print(f"             → Open this file and follow from the next checkpoint")
+    else:
+        print(f"Plan file  : *** NOT FOUND ***  ({plan_file})")
+        print(f"\n[ACTION] Generate the phase plan first:")
+        print(f"  python harness_cli.py plan-phase --phase {current_phase} "
+              f"--project {project}")
+        print(f"  python scripts/generate_full_plan.py --phase {current_phase} "
+              f"--repo {project} --output {plan_file}")
+        print(f"\n{'='*W}")
+        return 0
+
+    # ── Read manifest ────────────────────────────────────────────────────────
     if not manifest_path.exists():
-        print("\n[ERROR] quality_manifest.json not found.")
-        print(f"  Expected: {manifest_path}")
-        print("  Run:  python harness_cli.py manifest --fr-ids FR-01 ... --sad SAD.md")
-        return 1
+        print(f"\n[WARN] quality_manifest.json not found — cannot determine checkpoints.")
+        print(f"  Run: python harness_cli.py manifest --fr-ids FR-01 ... --sad SAD.md")
+        print(f"\n{'='*W}")
+        return 0
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     fr_ids: list[str] = manifest.get("fr_ids", [])
     gate_results: dict = manifest.get("gate_results", {})
+    gate1_results: dict = gate_results.get("gate1", {})
 
-    # ── Determine current phase from FSM state ──────────────────────────────
-    state_path = project / ".methodology" / "state.json"
-    current_phase = phase_hint or 3
-    if state_path.exists():
-        try:
-            state = json.loads(state_path.read_text(encoding="utf-8"))
-            current_phase = phase_hint or state.get("current_phase", 3)
-        except Exception:  # pylint: disable=broad-exception-caught
-            pass
+    # ── Build ordered checkpoint list for current phase ──────────────────────
+    # Each entry: (label, is_complete_fn)
+    checkpoints: list[tuple[str, bool]] = []
 
-    # ── Check for incomplete Gate 1 per-FR results ──────────────────────────
-    gate1_results = gate_results.get("gate1", {})
-    if isinstance(gate1_results, dict) and current_phase in _PER_FR_GATE1_PHASES:
+    if current_phase in _PER_FR_GATE1_PHASES:
         for fr_id in fr_ids:
-            fr_result = gate1_results.get(fr_id)
-            if not fr_result or not fr_result.get("quality_complete"):
-                _emit_gate1_plan(fr_id, current_phase, project)
-                return 0
+            fr_res = gate1_results.get(fr_id) if isinstance(gate1_results, dict) else None
+            done = bool(fr_res and fr_res.get("quality_complete"))
+            checkpoints.append((f"Gate 1 / {fr_id}", done))
 
-    # ── Check for incomplete phase exit gates ────────────────────────────────
-    for ph, gate_num in sorted(_PHASE_EXIT_GATES.items()):
-        if ph < current_phase:
-            continue
-        key = f"gate{gate_num}"
-        g_result = gate_results.get(key)
-        if not g_result or not g_result.get("quality_complete"):
-            _emit_gate_exit_plan(gate_num, ph, project)
-            return 0
+    if current_phase in _PHASE_EXIT_GATES:
+        gate_num = _PHASE_EXIT_GATES[current_phase]
+        g_res = gate_results.get(f"gate{gate_num}")
+        done = bool(g_res and g_res.get("quality_complete"))
+        checkpoints.append((f"Gate {gate_num} — Phase {current_phase} Exit", done))
+    elif current_phase == 6:
+        g_res = gate_results.get("gate4")
+        done = bool(g_res and g_res.get("quality_complete"))
+        checkpoints.append(("Gate 4 — Full Project (Hermes APPROVE)", done))
 
-    # ── All gates complete ───────────────────────────────────────────────────
-    print("\n✓ All gate results in manifest show quality_complete=True.")
-    print("  Proceed to the next phase or run-pipeline to advance.")
-    print(f"\n  python harness_cli.py run-pipeline --phase-from {current_phase}"
-          f" --project {project}")
+    # ── Find last complete and first incomplete ──────────────────────────────
+    last_done_idx = -1
+    for i, (_, done) in enumerate(checkpoints):
+        if done:
+            last_done_idx = i
+
+    next_idx = last_done_idx + 1
+
+    if last_done_idx < 0:
+        print("Last ckpt  : (none — starting from the beginning)")
+    else:
+        label, _ = checkpoints[last_done_idx]
+        print(f"Last ckpt  : CHECKPOINT-{last_done_idx + 1} ({label}) ✓ PASS")
+
+    if next_idx >= len(checkpoints):
+        # All done in current phase
+        next_phase = current_phase + 1
+        print("Next ckpt  : (all checkpoints complete in this phase)")
+        print(f"\n✓ Phase {current_phase} complete — start Phase {next_phase}:")
+        print(f"  python harness_cli.py run-phase --phase {next_phase} "
+              f"--project {project}")
+        print(f"  python scripts/generate_full_plan.py --phase {next_phase} "
+              f"--repo {project} --output "
+              f"{project}/.methodology/phase{next_phase}_plan.md")
+        print(f"\n{'='*W}")
+        return 0
+
+    next_label, _ = checkpoints[next_idx]
+    print(f"Next ckpt  : CHECKPOINT-{next_idx + 1} ({next_label})")
+
+    # ── Emit single action command ───────────────────────────────────────────
+    print(f"\n[ACTION] Open plan and execute from CHECKPOINT-{next_idx + 1}:")
+    print(f"  Plan: {plan_file}")
+
+    # Also emit the run-gate command as a quick-start shortcut
+    if "Gate 1 /" in next_label:
+        fr_id_next = next_label.split("Gate 1 / ")[-1].strip()
+        print(f"\n  Quick-start Gate 1 for {fr_id_next}:")
+        print(f"  python harness_cli.py run-gate --gate 1 --phase {current_phase} "
+              f"--project {project} --fr-id {fr_id_next}")
+    elif "Gate" in next_label:
+        m = re.search(r"Gate (\d+)", next_label)
+        if m:
+            g = m.group(1)
+            print(f"\n  Quick-start Gate {g}:")
+            print(f"  python harness_cli.py run-gate --gate {g} "
+                  f"--phase {current_phase} --project {project}")
+
+    print(f"\n{'='*W}")
     return 0
-
-
-def _emit_gate1_plan(fr_id: str, phase: int, project: Path) -> None:
-    """Print concrete Gate 1 evaluation plan for a specific FR."""
-    print(f"\nNext step: Gate 1 evaluation for {fr_id} (Phase {phase})")
-    print("─" * 60)
-    print("\n## Step-by-step plan\n")
-    print(f"- [ ] **Step 1: Prepare Gate 1 for {fr_id}**")
-    print(f"  ```bash")
-    print(f"  python harness_cli.py run-gate --gate 1 --phase {phase} "
-          f"--project {project} --fr-id {fr_id}")
-    print(f"  ```")
-    print(f"  Read the evaluation prompt printed above.")
-    print()
-    print(f"- [ ] **Step 2: Evaluate all Gate 1 dimensions for {fr_id}**")
-    print(f"  Follow harness/ssi/prompts/evaluate_dimension.md")
-    print(f"  Write results to: {project}/.sessi-work/gate1_result.json")
-    print(f"  Schema: harness/ssi/schemas/harness_gate_result.schema.json")
-    print()
-    print(f"- [ ] **Step 3: Finalize Gate 1 for {fr_id}**")
-    print(f"  ```bash")
-    print(f"  python harness_cli.py finalize-gate --gate 1 --phase {phase} "
-          f"--project {project} --fr-id {fr_id}")
-    print(f"  ```")
-    print()
-    print(f"- [ ] **Step 4: Push to GitHub**")
-    print(f"  ```bash")
-    print(f"  git push")
-    print(f"  ```")
-    print()
-    print(f"- [ ] **Step 5: Generate next plan**")
-    print(f"  ```bash")
-    print(f"  python harness_cli.py generate-next-plan --project {project} --phase {phase}")
-    print(f"  ```")
-    print("─" * 60)
-
-
-def _emit_gate_exit_plan(gate_num: int, phase: int, project: Path) -> None:
-    """Print concrete phase-exit gate evaluation plan."""
-    print(f"\nNext step: Gate {gate_num} phase-exit evaluation (Phase {phase})")
-    print("─" * 60)
-    print("\n## Step-by-step plan\n")
-    print(f"- [ ] **Step 1: Prepare Gate {gate_num}**")
-    print(f"  ```bash")
-    print(f"  python harness_cli.py run-gate --gate {gate_num} --phase {phase} "
-          f"--project {project}")
-    print(f"  ```")
-    print(f"  Read the evaluation prompt printed above.")
-    print()
-    print(f"- [ ] **Step 2: Evaluate all Gate {gate_num} dimensions**")
-    print(f"  Follow harness/ssi/prompts/evaluate_dimension.md")
-    print(f"  Write results to: {project}/.sessi-work/gate{gate_num}_result.json")
-    print(f"  Schema: harness/ssi/schemas/harness_gate_result.schema.json")
-    print()
-    print(f"- [ ] **Step 3: Finalize Gate {gate_num}**")
-    print(f"  ```bash")
-    print(f"  python harness_cli.py finalize-gate --gate {gate_num} "
-          f"--phase {phase} --project {project}")
-    print(f"  ```")
-    print()
-    print(f"- [ ] **Step 4: Push to GitHub**")
-    print(f"  ```bash")
-    print(f"  git push")
-    print(f"  ```")
-    print()
-    print(f"- [ ] **Step 5: Generate next plan**")
-    print(f"  ```bash")
-    print(f"  python harness_cli.py generate-next-plan --project {project} --phase {phase}")
-    print(f"  ```")
-    print("─" * 60)
 
 
 # ---------------------------------------------------------------------------
