@@ -121,19 +121,19 @@ def get_code_phase_routing() -> Dict[int, Dict]:
             exit_gate_type = "Gate 3"
             exit_score = gate_meta.get(3, {}).get('score_gate_min')
         elif phase == 5:
-            exit_gate_type = "Gate 3"
-            exit_score = gate_meta.get(3, {}).get('score_gate_min')
+            exit_gate_type = None
+            exit_score = None
         elif phase == 6:
             exit_gate_type = "Gate 4"
             exit_score = gate_meta.get(4, {}).get('score_gate_min')
         elif phase == 7:
-            # P7 exit: "Cleared by P6 Gate 4" (no separate eval) — use Gate 4 as reference
-            exit_gate_type = "Gate 4"
-            exit_score = gate_meta.get(4, {}).get('score_gate_min')
+            # P7 exit: "Cleared by P6 Gate 4" (no separate eval) — no exit gate
+            exit_gate_type = None
+            exit_score = None
         elif phase == 8:
-            # P8 exit: "Cleared by P6 Gate 4" (no separate eval) — use Gate 4 as reference
-            exit_gate_type = "Gate 4"
-            exit_score = gate_meta.get(4, {}).get('score_gate_min')
+            # P8 exit: "Cleared by P6 Gate 4" (no separate eval) — no exit gate
+            exit_gate_type = None
+            exit_score = None
         else:
             exit_gate_type = None
             exit_score = None
@@ -245,14 +245,12 @@ class TestFlowchartVsCode:
         code_routing = get_code_phase_routing()
         diagram_routing = get_diagram_phase_routing()
 
-        # Per SKILL.md Phase Routing table
+        # Per code _PHASE_EXIT_GATES = {3: 2, 4: 3, 6: 4}
+        # P5/P7/P8 have no exit gate (Phase Truth only)
         gate_phase_map = {
             3: "Gate 2",
             4: "Gate 3",
-            5: "Gate 3",
             6: "Gate 4",
-            7: "Gate 4",  # Fixed: P7 exit is Gate 4 (85), not Gate 3
-            8: "Gate 4",  # Fixed: P8 exit is Gate 4 (85) via P6 Gate 4
         }
 
         for phase, expected_gate in gate_phase_map.items():
@@ -274,14 +272,11 @@ class TestFlowchartVsCode:
         code_routing = get_code_phase_routing()
         diagram_routing = get_diagram_phase_routing()
 
-        # Map phase to expected exit score (per SKILL.md and code)
+        # Map phase to expected exit score (per code _PHASE_EXIT_GATES + YAML score_gate)
         expected_scores = {
             3: 75,  # Gate 2 score_gate
             4: 80,  # Gate 3 score_gate
-            5: 80,  # Gate 3 score_gate
             6: 85,  # Gate 4 score_gate
-            7: 85,  # Fixed: Gate 4 score_gate (cleared by P6)
-            8: 85,  # Fixed: Gate 4 score_gate (cleared by P6)
         }
 
         for phase, expected_score in expected_scores.items():
@@ -317,7 +312,7 @@ class TestFlowchartVsCode:
             5: "Gate 3 PASS (from P4)",
             6: "Gate 3 PASS (from P5)",
             7: "Gate 4 PASS (from P6)",
-            8: "Gate 3 PASS (from P7)",
+            8: "Gate 4 PASS (from P6)",
         }
 
         for phase, expected in expected_entries.items():

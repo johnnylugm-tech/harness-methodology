@@ -2427,14 +2427,19 @@ Full Mermaid diagram: [`docs/superpowers/plans/harness_phase_flowchart.md`](docs
 | **P2** | Human (P1 APPROVE) | Human peer review | N/A | Static | SAD.md, ADR.md, quality_manifest.json + sessions_spawn.log |
 | **P3** | Human (P2 APPROVE) | Gate 2 | ≥ 75 | Per-FR Loop | Code + sessions_spawn.log |
 | **P4** | Gate 2 (P3) | Gate 3 | ≥ 80 | Per-FR Loop | TEST_RESULTS.md + sessions_spawn.log |
-| **P5** | Gate 3 (P4) | Gate 3 | ≥ 80 | Per-FR Loop | BASELINE.md + sessions_spawn.log |
+| **P5** | Gate 3 (P4) | None¹ | N/A | Per-FR Loop | BASELINE.md + sessions_spawn.log |
 | **P6** | Gate 3 (P5) | **Gate 4** | ≥ 85 | **No FR loop** | QUALITY_REPORT.md, RELEASE_NOTES.md + sessions_spawn.log |
-| **P7** | Gate 4 (P6) | Gate 4 (cleared by P6) | ≥ 85 | Per-FR Loop | RISK_REGISTER.md + sessions_spawn.log |
-| **P8** | Gate 4 (P6) | Gate 4 (cleared by P6) | ≥ 85 | Per-FR Loop | CONFIG_RECORDS.md + sessions_spawn.log |
+| **P7** | Gate 4 (P6) | None² | N/A | Per-FR Loop | RISK_REGISTER.md + sessions_spawn.log |
+| **P8** | Gate 4 (P6) | None² | N/A | Per-FR Loop | CONFIG_RECORDS.md + sessions_spawn.log |
 
-> P7/P8 exit: "Cleared by P6 Gate 4" — no separate gate evaluation; Phase Truth check only (HR-11: ≥ 70%).
+> ¹ P5: Phase Truth check only (HR-11 ≥ 70%); no separate gate evaluation.
+>
+> ² P7/P8: "Cleared by P6 Gate 4" — no separate gate evaluation; Phase Truth check only (HR-11: ≥ 70%).
 
 ### Critical Notes
+
+**P5: Phase Truth Only**
+P5 has NO exit gate evaluation. `_PHASE_EXIT_GATES = {3: 2, 4: 3, 6: 4}` — P5 is not in the map. Exit is governed solely by Phase Truth (HR-11 ≥ 70%).
 
 **P6: No Per-FR Loop**
 P6 does NOT have a per-FR loop. Gate 4 evaluates all 12 dimensions across the entire project at once.

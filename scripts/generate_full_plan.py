@@ -409,7 +409,7 @@ def _entry_gate_check(phase: int) -> List[str]:
         7: ("Gate 4 PASS",
             ".methodology/quality_manifest.json records Gate 4 PASS from P6"),
         8: ("Gate 4 PASS",
-            ".methodology/quality_manifest.json records Gate 4 PASS from P7"),
+            ".methodology/quality_manifest.json records Gate 4 PASS from P6"),
     }
     if phase not in _ENTRY_MAP:
         return []

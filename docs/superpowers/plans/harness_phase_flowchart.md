@@ -94,17 +94,13 @@ flowchart TD
     
     P5_PUSH1 --> P5_NEXT_FR{All FRs<br/>complete?}
     P5_NEXT_FR -->|No| P5_WORK
-    P5_NEXT_FR -->|Yes| P5_G3["🔒 Gate 3: Phase Exit<br/>12 dims<br/>score_gate ≥ 80"]
+    P5_NEXT_FR -->|Yes| P5_NOTE["⚠️ Phase Truth Check<br/>(HR-11: ≥70% required)"]
     
-    P5_G3 -->|PASS| P5_TRUTH["⚠️ Phase Truth<br/>HR-11 ≥70%"]
-    P5_G3 -->|CONTINUE| P5_FIX2["🔧 Fix"]
-    P5_G3 -->|PLATEAU| P5_DEFER["📌 deferred_fixes.md"]
+    P5_NOTE --> P5_EXIT["🔒 Phase Exit<br/>Phase Truth only<br/>(no separate Gate evaluation)"]
     
-    P5_TRUTH -->|PASS| P5_G3D["✅ git push<br/>BASELINE.md<br/>phase5 COMPLETE"]
-    P5_TRUTH -->|FAIL| P5_ESCALATE["⚠️ escalate"]
+    P5_EXIT -->|PASS| P5_G3D["✅ git push<br/>BASELINE.md<br/>phase5 COMPLETE"]
+    P5_EXIT -->|FAIL| P5_ESCALATE["⚠️ escalate<br/>Phase Truth < 70%"]
     
-    P5_FIX2 --> P5_G3
-    P5_DEFER --> P5_G3D
     P5_ESCALATE --> P5_G3D
     
     P5_G3D --> P6_START["📋 Next: Phase 6<br/>plan-phase --phase 6"]
@@ -149,7 +145,7 @@ flowchart TD
     
     P7_G4 --> P7_G4D["✅ git push<br/>RISK_REGISTER.md<br/>RISK_STATUS_REPORT.md<br/>phase7 COMPLETE"]
     
-    P7_G3D --> P8_START["📋 Next: Phase 8<br/>plan-phase --phase 8"]
+    P7_G4D --> P8_START["📋 Next: Phase 8<br/>plan-phase --phase 8"]
     
     P8_START --> P8[<b>Phase 8: Config Mgmt</b><br/>Per-FR Gate 1]
     
@@ -190,11 +186,9 @@ flowchart TD
     style P4_G1 fill:#ffb74d
     style P4_G3 fill:#ff5722
     style P5_G1 fill:#ffb74d
-    style P5_G3 fill:#ff8a65
     style P6_G1 fill:#ffb74d
     style P6_G4 fill:#c62828
     style P7_G1 fill:#ffb74d
-    style P7_G3 fill:#ff8a65
     style P8_G1 fill:#ffb74d
 ```
 
@@ -224,20 +218,27 @@ flowchart TD
 | **P2** | Human¹ (P1) | Human¹ | N/A | Static | SAD.md, ADR.md, quality_manifest.json + sessions_spawn.log |
 | **P3** | Human¹ (P2)* | Gate 2 | ≥ 75 | Per-FR Loop | Code + sessions_spawn.log |
 | **P4** | Gate 2 (P3)* | Gate 3 | ≥ 80 | Per-FR Loop | TEST_RESULTS.md + sessions_spawn.log |
-| **P5** | Gate 3 (P4)* | Gate 3 | ≥ 80 | Per-FR Loop | BASELINE.md + sessions_spawn.log |
+| **P5** | Gate 3 (P4)* | None¹ | N/A | Per-FR Loop | BASELINE.md + sessions_spawn.log |
 | **P6** | Gate 3 (P5)* | **Gate 4** | ≥ 85 | **NO FR Loop** | QUALITY_REPORT.md, RELEASE_NOTES.md + sessions_spawn.log |
-| **P7** | **Gate 4 (P6)*** | Gate 4**** | ≥ 85 | Per-FR Loop | RISK_REGISTER.md + sessions_spawn.log |
-| **P8** | **Gate 4 (P6)*** | Gate 4**** | ≥ 85 | Per-FR Loop | CONFIG_RECORDS.md + sessions_spawn.log |
+| **P7** | **Gate 4 (P6)*** | None² | N/A | Per-FR Loop | RISK_REGISTER.md + sessions_spawn.log |
+| **P8** | **Gate 4 (P6)*** | None² | N/A | Per-FR Loop | CONFIG_RECORDS.md + sessions_spawn.log |
 
 > \* Entry checks via git log verification (`_entry_gate_check`)
 > 
 > \*\* P7/P8: Entry verified to be Gate 4 from P6 (not P7 itself)
 >
-> \*\*\*\* Phase exit: "Cleared by P6 Gate 4" — no separate exit gate evaluation; Phase Truth check only (HR-11: ≥70%)
+> ¹ P5: Phase Truth check only (HR-11 ≥70%); no separate exit gate evaluation
+>
+> ² P7/P8: Cleared by P6 Gate 4; Phase Truth check only (HR-11 ≥70%); no separate exit gate evaluation
 
 ---
 
 ## Critical Notes for Agent Execution
+
+### Gate 1: Per-Dimension Thresholds
+- **IMPORTANT**: Gate 1 uses per-dimension thresholds as primary gate criteria (linting≥90, type_safety≥85, coverage≥80).
+- The composite "score ≥ 75" shown in flowcharts is an informational summary — the YAML config (`gate1_per_fr.yaml`) has no `score_gate` field.
+- A dimension below its individual threshold fails Gate 1 regardless of the composite score.
 
 ### P6: No Per-FR Loop
 - **IMPORTANT**: P6 does NOT have a per-FR loop. It is a single Gate 4 evaluation of the entire project.
@@ -294,6 +295,6 @@ Before each phase's work loop, `run-phase` executes:
 
 - Source: `scripts/generate_full_plan.py`
 - Format: Mermaid Flowchart (machine-readable)
-- Last Updated: 2026-05-06 (Phase Truth expanded to P3–P8 + sessions_spawn.log P1–P8)
+- Last Updated: 2026-05-07 (P5 exit gate corrected, P7_G3D→P7_G4D, Gate 1 per-dim note, Matrix table fixed)
 - Validation: See `tests/test_harness_phase_flowchart.py` (12 test cases)
-- **Audit Result**: sessions_spawn.log coverage unified across all 8 phases
+- **Audit Result**: Full audit vs codebase — P5 exit gate removed, P8 entry corrected, Gate 1 clarified
