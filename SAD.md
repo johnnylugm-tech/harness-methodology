@@ -70,7 +70,7 @@ The system uses this macro architecture:
 
 `cli.py` is retained as-is because it is the entrypoint for the full parent system that contains harness-methodology as a sub-component. Any work purely within harness-methodology should use `harness_cli.py`.
 
-**`harness_cli.py` commands** (10 total):
+**`harness_cli.py` commands** (11 total):
 ```
 python harness_cli.py plan-phase        --phase 3 [--repo .] [--output plan.md]
 python harness_cli.py run-phase         --phase 3 [--project .] [--force]
@@ -78,6 +78,7 @@ python harness_cli.py run-gate          --gate 2 --phase 3 [--project .] [--fr-i
 python harness_cli.py finalize-gate     --gate 2 --phase 3 [--project .] [--fr-id FR-01] [--no-git]
 python harness_cli.py generate-next-plan [--project .] [--phase N]
 python harness_cli.py run-pipeline      [--phase-from 1] [--phase-to 8] [--project .] [--force] [--no-git]
+python harness_cli.py push-checkpoint   --phase 1|2 [--project .] [--fr-ids FR-01,FR-02] [--no-git]
 python harness_cli.py manifest          --fr-ids FR-01 FR-02 [--sad SAD.md] [--no-git]
 python harness_cli.py status            [--project .]
 python harness_cli.py effort            [--phase 3] [--project .]
@@ -1945,16 +1946,20 @@ Env override: `HARNESS_NO_GIT=1` disables git across all commands without a flag
 
 **Responsibility**: Renders `HANDOVER.md` at the project root after each significant push checkpoint. Provides the next Claude session with task background, current execution status, next steps, and notes (including `/compact` prompt).
 
+**Module-level constants**:
+
+```python
+DEFAULT_NOTES: list[str] = [
+    "100% follow SKILL.md",
+    "Do NOT commit .sessi-work/ or .methodology/ runtime artifacts",
+    "Git failures are warnings — never block the pipeline",
+]
+```
+
 **Public API**:
 
 ```python
 class HandoverGenerator:
-    DEFAULT_NOTES = [
-        "100% follow SKILL.md",
-        "Do NOT commit .sessi-work/ or .methodology/ runtime artifacts",
-        "Git failures are warnings — never block the pipeline",
-    ]
-
     def __init__(self, project: Path)
 
     def write(
