@@ -151,6 +151,29 @@ class PhaseHooks:
             print(f"   Drift detection error: {e}")
             return {"passed": True, "skipped": True, "error": str(e)}
 
+    def preflight_ci_readiness(self) -> Dict[str, Any]:
+        """Check target project CI wiring (Context B only — advisory, non-blocking)."""
+        print("\n[PRE-FLIGHT] CI Readiness Check")
+        checks: Dict[str, bool] = {}
+        workflow_path = self.project_path / ".github" / "workflows" / "harness_gate.yml"
+        checks["ci_workflow"] = workflow_path.exists()
+        hooks_dir = self.project_path / ".git" / "hooks"
+        checks["git_hooks"] = (hooks_dir / "prepare-commit-msg").exists()
+        checks["harness_importable"] = (
+            (self.project_path / "harness" / "core" / "quality_gate" / "__init__.py").exists()
+            or (self.project_path / "core" / "quality_gate" / "__init__.py").exists()
+            or (self.project_path / "harness_cli.py").exists()
+        )
+        missing = [k for k, v in checks.items() if not v]
+        if missing:
+            print(f"   WARNING: Missing CI components: {missing}")
+            print(f"   Run: python3 harness_cli.py init-project --project {self.project_path}")
+        else:
+            print("   All CI wiring present")
+        return {"passed": True, "checks": checks,
+                "missing": missing,
+                "message": "All CI wiring present" if not missing else f"Missing: {missing}"}
+
     def preflight_all(self) -> Dict[str, Any]:
         """Run all pre-flight checks."""
         print(f"\n{'='*60}\nPRE-FLIGHT: Phase {self.phase}\n{'='*60}")
@@ -160,6 +183,7 @@ class PhaseHooks:
             "kill_switch": self.preflight_kill_switch(),
             "drift_detection": self.preflight_drift_detection(),
             "tool_registry": self.preflight_tool_registry(),
+            "ci_readiness": self.preflight_ci_readiness(),
         }
         all_passed = all(r.get("passed", False) for r in results.values())
         print(f"\nPRE-FLIGHT: {'PASS' if all_passed else 'FAIL'}")

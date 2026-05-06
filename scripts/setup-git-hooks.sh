@@ -59,7 +59,7 @@ set -e
 
 # Get project root directory
 GIT_DIR=$(git rev-parse --show-toplevel)
-QUALITY_CLI="$GIT_DIR/quality_gate/cli/quality.py"
+HARNESS_CLI="$GIT_DIR/harness_cli.py"
 
 # Get current Phase (from git config or default to 1)
 PHASE=$(git config --local --get quality.phase 2>/dev/null || echo "1")
@@ -70,9 +70,9 @@ if ! command -v python3 &> /dev/null; then
     exit 0
 fi
 
-# Check if quality CLI exists
-if [ ! -f "$QUALITY_CLI" ]; then
-    echo "Warning: quality CLI not found, skipping quality gate check"
+# Check if harness CLI exists
+if [ ! -f "$HARNESS_CLI" ]; then
+    echo "Warning: harness_cli.py not found, skipping quality gate check"
     exit 0
 fi
 
@@ -80,7 +80,7 @@ fi
 echo "Running Phase $PHASE Quality Gate check..."
 
 cd "$GIT_DIR"
-python3 -m quality_gate.cli quality check-phase "$PHASE" --block
+python3 "$HARNESS_CLI" run-gate --phase "$PHASE"
 
 RESULT=$?
 
@@ -129,7 +129,7 @@ set -e
 
 # Get project root directory
 GIT_DIR=$(git rev-parse --show-toplevel)
-QUALITY_CLI="$GIT_DIR/quality_gate/cli/quality.py"
+HARNESS_CLI="$GIT_DIR/harness_cli.py"
 
 # Get current Phase (from git config or default to 1)
 PHASE=$(git config --local --get quality.phase 2>/dev/null || echo "1")
@@ -140,9 +140,9 @@ if ! command -v python3 &> /dev/null; then
     exit 0
 fi
 
-# Check if quality CLI exists
-if [ ! -f "$QUALITY_CLI" ]; then
-    echo "Warning: quality CLI not found, skipping quality gate check"
+# Check if harness CLI exists
+if [ ! -f "$HARNESS_CLI" ]; then
+    echo "Warning: harness_cli.py not found, skipping quality gate check"
     exit 0
 fi
 
@@ -152,7 +152,7 @@ echo "Running Phase $PHASE Quality Gate check after merge..."
 echo ""
 
 cd "$GIT_DIR"
-python3 -m quality_gate.cli quality check-phase "$PHASE" --strict || true
+python3 "$HARNESS_CLI" run-gate --phase "$PHASE" || true
 
 echo ""
 echo "Post-merge quality check completed."
@@ -185,7 +185,7 @@ set -e
 
 # Get project root directory
 GIT_DIR=$(git rev-parse --show-toplevel)
-QUALITY_CLI="$GIT_DIR/quality_gate/cli/quality.py"
+HARNESS_CLI="$GIT_DIR/harness_cli.py"
 
 # Get current Phase (from git config or default to 1)
 PHASE=$(git config --local --get quality.phase 2>/dev/null || echo "1")
@@ -196,9 +196,9 @@ if ! command -v python3 &> /dev/null; then
     exit 0
 fi
 
-# Check if quality CLI exists
-if [ ! -f "$QUALITY_CLI" ]; then
-    echo "Warning: quality CLI not found, skipping quality gate check"
+# Check if harness CLI exists
+if [ ! -f "$HARNESS_CLI" ]; then
+    echo "Warning: harness_cli.py not found, skipping quality gate check"
     exit 0
 fi
 
@@ -215,7 +215,7 @@ if [[ "$LAST_COMMIT_MSG" == *"STAGE_PASS"* ]]; then
 fi
 
 # Run check
-python3 -m quality_gate.cli quality check-phase "$PHASE" --block
+python3 "$HARNESS_CLI" run-gate --phase "$PHASE"
 
 RESULT=$?
 
@@ -290,5 +290,5 @@ echo "To change Phase:"
 echo "  git config quality.phase <phase_number>"
 echo ""
 echo "To check Phase status manually:"
-echo "  python -m quality_gate.cli quality check-phase $PHASE"
+echo "  python3 harness_cli.py run-gate --phase $PHASE"
 echo ""

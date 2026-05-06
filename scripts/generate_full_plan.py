@@ -373,15 +373,22 @@ def _agent_b_dispatch_block(phase: int, role_b: str, fr_id: str = "") -> List[st
 
 
 def _preflight_steps(phase: int) -> List[str]:
-    """Preflight hook step — run before the FR development loop (FSM + Constitution check)."""
+    """Preflight hook step — run before the FR development loop (FSM + Constitution check + CI readiness)."""
     return [
         "### Pre-Phase Preflight",
         "",
-        "- [ ] **[PREFLIGHT]** Run phase hooks (FSM state, Constitution, ToolRegistry):",
+        "- [ ] **[PREFLIGHT]** Run phase hooks (FSM, Constitution, Kill-Switch, Drift, CI Readiness):",
         "  ```bash",
         f"  python3 harness_cli.py run-phase --phase {phase} --project $REPO",
         "  ```",
         "  If FAILED non-critically: use `--force`. If BLOCKED: fix FSM/Constitution first.",
+        "",
+        "- [ ] **[PREFLIGHT-CI]** Confirm target project CI wiring:",
+        "  1. `.github/workflows/harness_gate.yml` exists in project root",
+        "  2. Git hooks installed (`ls .git/hooks/prepare-commit-msg`)",
+        "  3. harness importable (submodule, PYTHONPATH, or vendored `quality_gate/`)",
+        f"  4. GitHub repo variable `CURRENT_PHASE` set to {phase}",
+        f"  > If any missing: run `python3 harness_cli.py init-project --phase {phase} --project $REPO`",
         "",
     ]
 

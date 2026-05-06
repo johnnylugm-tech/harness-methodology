@@ -1,6 +1,8 @@
 # Integration Guide — harness-methodology
 
 > **Scope**: How to maintain the framework itself, and how to wire it into a target development project.
+>
+> **Last verified**: 2026-05-06 &nbsp;|&nbsp; **Synced with**: SAD.md v2.3
 
 ---
 
@@ -10,7 +12,7 @@
 harness-methodology (this repo)          Your Target Project (any repo)
 ──────────────────────────────────       ─────────────────────────────────
 Framework source + CI self-tests         Your code + harness installed as dep
-.github/workflows/harness_ci.yml  ←→    .github/workflows/your_ci.yml
+.github/workflows/harness_ci.yml  ←→    .github/workflows/harness_gate.yml
 scripts/ (tools to run elsewhere)  →     .git/hooks/ (installed via setup.sh)
                                     →    scripts/cron_drift_monitor.py (pointed at project)
 ```
@@ -27,10 +29,10 @@ Triggers on push/PR to `main`.
 
 | Job | What it does | Pass threshold |
 |---|---|---|
-| `mutation-testing-median3` | Runs `mutmut` 3×, takes median mutation score | ≥ 70 |
+| `mutation-testing-median3` | Runs `mutmut` 3x, takes median mutation score | >= 70 |
 | `gate-unit-tests` | `pytest tests/` — framework unit tests | non-blocking (`\|\| true`) |
 
-> ⚠️ `gate-unit-tests` is currently non-blocking. Promote to blocking once test coverage is stable.
+> **Warning**: `gate-unit-tests` is currently non-blocking. Promote to blocking once test coverage is stable.
 
 ### 2.2 Release Scripts
 
@@ -49,9 +51,9 @@ python scripts/generate_sab.py --sad SAD.md --output .methodology/sab.json
 
 ## 3. Context B — Target Project Integration
 
-### 3.1 Step 1: Make `quality_gate/` Available in Target Repo
+### 3.1 Step 1: Make harness Importable in Target Repo
 
-The git hooks and analysis scripts call `quality_gate.cli` — this module must be importable from the target project root. Three options:
+The git hooks and CI workflow call `harness_cli.py` — the `core/` and `harness/` packages must be importable. Three options:
 
 **Option A — Git submodule (recommended for teams)**
 ```bash
@@ -59,19 +61,22 @@ cd your-project
 git submodule add https://github.com/johnnylugm-tech/harness-methodology harness
 pip install -r harness/requirements.txt
 ```
-Hooks will resolve `quality_gate` via `harness/quality_gate/`.
+Entry point: `harness/harness_cli.py`. Python path: `harness/` root on `sys.path`.
 
 **Option B — Direct clone alongside project**
 ```bash
 git clone https://github.com/johnnylugm-tech/harness-methodology /opt/harness
 export PYTHONPATH="/opt/harness:$PYTHONPATH"
 ```
+Entry point: `/opt/harness/harness_cli.py`.
 
-**Option C — Copy `quality_gate/` into project**
+**Option C — Copy `core/` and `harness/` into project**
 ```bash
-cp -r harness-methodology/quality_gate your-project/quality_gate
+cp -r harness-methodology/core your-project/core
+cp -r harness-methodology/harness your-project/harness
+cp harness-methodology/harness_cli.py your-project/
 ```
-Simplest for single-developer setups; requires manual updates.
+Simplest for single-developer setups; requires manual updates when framework changes.
 
 ### 3.2 Step 2: Install Git Hooks
 
@@ -82,14 +87,14 @@ bash /path/to/harness-methodology/scripts/setup-git-hooks.sh
 ```
 
 Interactive prompts:
-- Current phase (1–8) → stored in `git config quality.phase`
+- Current phase (1-8) -> stored in `git config quality.phase`
 - Enable block on failure? (y/n)
 
 Installed hooks:
 
 | Hook | Trigger | Behavior |
 |---|---|---|
-| `prepare-commit-msg` | `git commit` | **Blocks** if `quality check-phase $PHASE --block` fails |
+| `prepare-commit-msg` | `git commit` | **Blocks** if `harness_cli.py run-gate --phase $PHASE` fails |
 | `post-merge` | `git merge` | Warns only (non-blocking) |
 | `pre-push` | `git push` | **Blocks** unless last commit message contains `STAGE_PASS` |
 
@@ -127,42 +132,41 @@ crontab -e
   >> /your/project/logs/drift_monitor.log 2>&1
 ```
 
-**Notification channels** (configure in `cron_drift_monitor.py` or env):
-```python
-# Log only (default)
-DriftMonitor(project_path=..., feedback_store=store)
-
-# Email alerts
-from quality_gate.drift_notifier import DriftNotifier, EmailChannel
-notifier = DriftNotifier(channels=[EmailChannel(smtp_host=..., from_addr=..., to_addrs=[...])])
-
-# Slack
-from quality_gate.drift_notifier import DriftNotifier, SlackChannel
-notifier = DriftNotifier(channels=[SlackChannel(webhook_url="https://hooks.slack.com/...")])
-```
+> **Note**: Email/Slack notification channels (`drift_notifier`, `EmailChannel`, `SlackChannel`) are planned but not yet implemented. Currently log-only.
 
 ### 3.4 Step 4 (Optional): On-Demand Analysis Scripts
 
-Run these from your target project root with `PYTHONPATH` pointing to harness:
+Run from target project root with harness on `PYTHONPATH` (or via submodule).
 
-| Script | When to run | Command |
+| Task | CLI command (preferred) | Direct script |
 |---|---|---|
-| `check_fr_full.py` | Phase exit audit | `python harness/scripts/check_fr_full.py --phase 3` |
-| `check_fr_quality.py` | FR completeness check | `python harness/scripts/check_fr_quality.py` |
-| `generate_fr_mapping.py` | Build FR→code trace matrix | `python harness/scripts/generate_fr_mapping.py` |
-| `generate_full_plan.py` | Generate phase plan doc | `python harness/scripts/generate_full_plan.py --phase 3` |
-| `phase_auditor.py` | Deep phase completeness audit | `python harness/scripts/phase_auditor.py --phase 3` |
-| `spec_logic_checker.py` | Validate spec consistency | `python harness/scripts/spec_logic_checker.py` |
-| `verify_spec_compliance.py` | ASPICE compliance check | `python harness/scripts/verify_spec_compliance.py` |
-| `verify_path_consistency.py` | Check all file references valid | `python harness/scripts/verify_path_consistency.py` |
-| `state_monitor.py` | Inspect `.methodology/state.json` | `python harness/scripts/state_monitor.py` |
-| `dev_log_checker.py` | Validate dev log entries | `python harness/scripts/dev_log_checker.py` |
+| Phase exit audit | `python harness_cli.py audit-phase --phase 3 --repo owner/repo` | `python harness/scripts/phase_auditor.py --phase 3` |
+| FR completeness check | — | `python harness/scripts/check_fr_full.py --phase 3` |
+| FR quality check | — | `python harness/scripts/check_fr_quality.py` |
+| FR -> code trace matrix | — | `python harness/scripts/generate_fr_mapping.py` |
+| Generate phase plan | `python harness_cli.py plan-phase --phase 3` | `python harness/scripts/generate_full_plan.py --phase 3` |
+| Spec compliance (ASPICE) | `python harness_cli.py verify-spec` | `python harness/scripts/verify_spec_compliance.py` |
+| Logic correctness check | `python harness_cli.py check-logic --srs SRS.md` | `python harness/scripts/spec_logic_checker.py` |
+| M3 gap analysis | `python harness_cli.py run-gap-analysis` | — |
+| Path consistency | — | `python harness/scripts/verify_path_consistency.py` |
+| State inspection | `python harness_cli.py status` | `python harness/scripts/state_monitor.py` |
+| Dev log check | — | `python harness/scripts/dev_log_checker.py` |
+
+**Full pipeline execution**:
+```bash
+python harness_cli.py run-pipeline --phase-from 1 --phase-to 8 --project .
+```
+
+**One-shot project initialization** (automates Steps 1-4 above):
+```bash
+python harness_cli.py init-project --project /path/to/target --phase 3
+```
 
 ---
 
 ## 4. Target Project CI (Recommended GitHub Actions)
 
-Add this to your project's `.github/workflows/harness_gate.yml`:
+Add this to your project's `.github/workflows/harness_gate.yml` (or run `harness_cli.py init-project` to auto-generate):
 
 ```yaml
 name: Harness Quality Gate
@@ -192,14 +196,14 @@ jobs:
         env:
           PHASE: ${{ vars.CURRENT_PHASE || '3' }}
         run: |
-          python -m quality_gate.cli quality check-phase $PHASE --block
+          python harness/harness_cli.py run-gate --phase $PHASE
 
       - name: FR Traceability Check
         run: python harness/scripts/check_fr_full.py --phase ${{ vars.CURRENT_PHASE || '3' }}
         continue-on-error: true   # advisory only until FR coverage is complete
 ```
 
-Set `vars.CURRENT_PHASE` in GitHub repo → Settings → Variables.
+Set `vars.CURRENT_PHASE` in GitHub repo -> Settings -> Variables.
 
 ---
 
@@ -207,30 +211,40 @@ Set `vars.CURRENT_PHASE` in GitHub repo → Settings → Variables.
 
 | Variable | Used by | Default | Purpose |
 |---|---|---|---|
-| `HERMES_REVIEWER_TARGET` | `harness_bridge.py`, `reviewer_router.py` | — | External reviewer target (e.g. `telegram:CHAT_ID`) |
-| `HERMES_TIMEOUT_MS` | `reviewer_router.py` | `120000` | Global Hermes call timeout (ms) |
 | `DRIFT_PROJECT_PATH` | `cron_drift_monitor.py` | cwd | Path to target project for drift analysis |
-| `PYTHONPATH` | All scripts | — | Must include harness-methodology root if not submodule |
+| `PYTHONPATH` | All scripts | — | Must include harness-methodology root if not using submodule |
 | `ANTHROPIC_API_KEY` | SSI runner, agent_spawner | — | Required for LLM-based gate evaluation |
+
+> **Note**: `HERMES_REVIEWER_TARGET` and `HERMES_TIMEOUT_MS` are reserved for future Hermes bridge integration (`harness_bridge.py`, `reviewer_router.py` — not yet implemented).
 
 ---
 
 ## 6. Phase Transition Checklist
 
-When moving to next phase in target project:
+When moving to the next phase in a target project:
 
 ```bash
-# 1. Verify current phase gate passes
+# 1. Run preflight checks (includes CI readiness)
+python harness_cli.py run-phase --phase <current> --project .
+
+# 2. Verify current phase gate passes
 python harness_cli.py run-gate --gate <N> --phase <current>
 
-# 2. Update local git config
+# 3. (P3+) Run M3 gap analysis
+python harness_cli.py run-gap-analysis --project .
+
+# 4. (Optional) Run full 8-dimension audit
+python harness_cli.py audit-phase --phase <current> --repo owner/repo
+
+# 5. (Optional) Verify spec compliance + logic
+python harness_cli.py verify-spec --project .
+python harness_cli.py check-logic --project .
+
+# 6. Update local git config
 git config quality.phase <next>
 
-# 3. Generate plan for next phase
+# 7. Generate plan for next phase
 python harness_cli.py plan-phase --phase <next>
-
-# 4. (Optional) Run full audit
-python harness/scripts/phase_auditor.py --phase <current>
 ```
 
 ---
