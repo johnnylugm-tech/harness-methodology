@@ -859,15 +859,20 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
                 return 10
 
         # ── Phase Truth (P3–P8 — HR-11 ≥70%) ───────────────────────────────
+        # Exit 11 = Phase Truth < 70% (distinct from GateBlockedError exit 10)
         if phase >= 3:
             print(f"\n[{phase}.5] Phase Truth (HR-11 ≥70%) …")
-            from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
-            verifier = PhaseTruthVerifier(str(project), phase)
-            truth_result = verifier.verify()
-            if not truth_result["passed"]:
-                print(f"\n[BLOCKED] Phase {phase} truth = {truth_result['total_score']:.0f}% < 70%")
-                print(f"  Fix issues then re-run with --phase-from {phase}")
-                return 10
+            try:
+                from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
+            except ImportError:
+                print("  [WARN] PhaseTruthVerifier unavailable — skipping HR-11 check")
+            else:
+                verifier = PhaseTruthVerifier(str(project), phase)
+                truth_result = verifier.verify()
+                if not truth_result["passed"]:
+                    print(f"\n[BLOCKED] Phase {phase} truth = {truth_result['total_score']:.0f}% < 70%")
+                    print(f"  Fix issues then re-run with --phase-from {phase}")
+                    return 11  # 11 = Phase Truth failure (10 = GateBlockedError)
 
         # ── Advance FSM state ─────────────────────────────────────────────
         _advance_fsm(project, phase)

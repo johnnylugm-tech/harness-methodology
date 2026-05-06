@@ -288,7 +288,7 @@ _PHASE_ROLES: dict = {
 }
 
 # Agent B embed doc list per phase — ALL must be pasted verbatim into the prompt (no file paths)
-_AGENT_B_EMBED_DOCS: dict = {
+_AGENT_B_EMBED_DOCS: Dict[int, List[str]] = {
     1: ["Project description / stakeholder brief", "draft docs/SRS.md (full content)"],
     2: ["docs/SRS.md (full)", "docs/CONSTRAINTS.md (full)", "draft docs/SAD.md (full)", "draft docs/ADR.md (full)"],
     3: ["docs/SRS.md §FR-XX section", "docs/SAD.md module spec for FR-XX", "src/…/fr_xx.py (implemented code + tests)"],
@@ -300,7 +300,7 @@ _AGENT_B_EMBED_DOCS: dict = {
 }
 
 # Agent B review checklist per phase
-_AGENT_B_CHECKS: dict = {
+_AGENT_B_CHECKS: Dict[int, List[str]] = {
     1: ["All FRs testable? (no vague criteria)", "NFRs measurable?", "No contradictions between FRs?", "Every stakeholder need covered?"],
     2: ["Every FR maps to ≥1 module?", "NFRs addressed (latency/security/cost)?", "No circular dependencies?", "ADR covers all major decisions?"],
     3: ["Code matches SRS acceptance criteria?", "Tests actually test the spec (not the impl)?", "No forbidden patterns (app/infrastructure/, @covers: L1 Error)?", "Docstrings have [FR-XX] tag + Citations?"],
@@ -344,12 +344,15 @@ def _agent_b_dispatch_block(phase: int, role_b: str, fr_id: str = "") -> List[st
         f"  You are {role_b}. Your task: review the following deliverable{fr_suffix}.",
         "  You have NO access to any files — all context is provided below.",
         "",
-        "  === [DOC 1: paste title] ===",
-        "  {paste full document content here}",
-        "",
-        "  === [DOC 2: paste title] ===",
-        "  {paste full document content here}",
-        "",
+    ]
+    # Auto-enumerate actual doc titles so the agent doesn't have to map them manually
+    for i, doc in enumerate(embed_docs, 1):
+        lines += [
+            f"  === [DOC {i}: {doc}] ===",
+            "  {paste full content here}",
+            "",
+        ]
+    lines += [
         "  Review checklist:",
     ]
     for check in checks:
