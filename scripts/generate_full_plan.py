@@ -287,6 +287,87 @@ _PHASE_ROLES: dict = {
     8: ("DEVOPS",      "ARCHITECT",   "Document config items → verify env vars/secrets → update CONFIG_RECORDS.md"),
 }
 
+# Agent B embed doc list per phase — ALL must be pasted verbatim into the prompt (no file paths)
+_AGENT_B_EMBED_DOCS: dict = {
+    1: ["Project description / stakeholder brief", "draft docs/SRS.md (full content)"],
+    2: ["docs/SRS.md (full)", "docs/CONSTRAINTS.md (full)", "draft docs/SAD.md (full)", "draft docs/ADR.md (full)"],
+    3: ["docs/SRS.md §FR-XX section", "docs/SAD.md module spec for FR-XX", "src/…/fr_xx.py (implemented code + tests)"],
+    4: ["docs/SRS.md §FR-XX section", "docs/SAD.md module spec", "src/…/fr_xx.py", "tests/…/test_fr_xx.py", "TEST_PLAN.md entry for FR-XX"],
+    5: ["docs/SRS.md acceptance criteria for FR-XX", "src/…/fr_xx.py", "tests/…/test_fr_xx.py", "TEST_RESULTS.md entry"],
+    6: ["docs/SRS.md", "docs/SAD.md", "QUALITY_REPORT.md (draft)", "relevant src/ sections"],
+    7: ["docs/SRS.md", "RISK_REGISTER.md (draft)"],
+    8: ["docs/SRS.md", "CONFIG_RECORDS.md (draft)", "ops/ relevant configs"],
+}
+
+# Agent B review checklist per phase
+_AGENT_B_CHECKS: dict = {
+    1: ["All FRs testable? (no vague criteria)", "NFRs measurable?", "No contradictions between FRs?", "Every stakeholder need covered?"],
+    2: ["Every FR maps to ≥1 module?", "NFRs addressed (latency/security/cost)?", "No circular dependencies?", "ADR covers all major decisions?"],
+    3: ["Code matches SRS acceptance criteria?", "Tests actually test the spec (not the impl)?", "No forbidden patterns (app/infrastructure/, @covers: L1 Error)?", "Docstrings have [FR-XX] tag + Citations?"],
+    4: ["Test coverage ≥80% for this FR?", "Edge cases covered?", "Results match TEST_PLAN.md expected outcomes?"],
+    5: ["Acceptance criteria fully met?", "No regressions in related FRs?"],
+    6: ["All 12 Gate 4 dimensions addressed?", "Critical issues count = 0?", "Score ≥85 achievable?"],
+    7: ["All high-risk items have mitigations?", "Likelihood/impact scores justified?"],
+    8: ["All config items documented?", "Secrets correctly externalized?", "No hardcoded credentials?"],
+}
+
+
+def _agent_b_dispatch_block(phase: int, role_b: str, fr_id: str = "") -> List[str]:
+    """
+    Generate the full Agent B stateless dispatch block for a given phase.
+
+    Key principle: Agent B = completely fresh MCP sandbox with ZERO filesystem access.
+    Every document must be embedded verbatim in the prompt — never use file paths.
+    This is the #1 lesson from P1 Rounds 2-3 failures.
+    """
+    embed_docs = _AGENT_B_EMBED_DOCS.get(phase, ["relevant documents"])
+    checks = _AGENT_B_CHECKS.get(phase, ["Review for correctness and completeness"])
+    fr_suffix = f" for {fr_id}" if fr_id else ""
+
+    lines: List[str] = [
+        f"- [ ] **[B-1]** Agent B ({role_b}){fr_suffix} — dispatch as **STATELESS** subagent:",
+        "  > ⚠️  **STATELESS SANDBOX**: Agent B has ZERO access to local files or /tmp.",
+        "  > NEVER write 'read docs/SRS.md' in the prompt — it will fail silently.",
+        "  > ALL context must be pasted verbatim into the prompt text. This is mandatory.",
+        "  >",
+        "  > **P1 lesson**: Rounds 2-3 failed because prompts used file paths. Round 4 succeeded",
+        "  > only after embedding full document content directly. Always assume stateless.",
+        "",
+        "  **Embed these documents in full** (copy content, not paths):",
+    ]
+    for doc in embed_docs:
+        lines.append(f"  - `{doc}`")
+    lines += [
+        "",
+        "  **Agent B prompt structure** (use this template verbatim):",
+        "  ```",
+        f"  You are {role_b}. Your task: review the following deliverable{fr_suffix}.",
+        "  You have NO access to any files — all context is provided below.",
+        "",
+        "  === [DOC 1: paste title] ===",
+        "  {paste full document content here}",
+        "",
+        "  === [DOC 2: paste title] ===",
+        "  {paste full document content here}",
+        "",
+        "  Review checklist:",
+    ]
+    for check in checks:
+        lines.append(f"  - {check}")
+    lines += [
+        "",
+        "  Return JSON only:",
+        '  {"status":"STAGE_PASS"|"REJECT","review_status":"APPROVE"|"REJECT",',
+        '   "reason":"...","confidence":1-10,"citations":["file:line"],"gaps":[...]}',
+        "  ```",
+        "",
+        "- [ ] **[B-2]** Agent B returns JSON — parse `review_status`:",
+        "  - `APPROVE` → continue to next step",
+        "  - `REJECT` → Agent A fixes gaps → re-dispatch B. Max 5 rounds (HR-12).",
+        "",
+    ]
+    return lines
+
 
 def _preflight_steps(phase: int) -> List[str]:
     """Preflight hook step — run before the FR development loop (FSM + Constitution check)."""
@@ -295,7 +376,7 @@ def _preflight_steps(phase: int) -> List[str]:
         "",
         "- [ ] **[PREFLIGHT]** Run phase hooks (FSM state, Constitution, ToolRegistry):",
         "  ```bash",
-        f"  python harness_cli.py run-phase --phase {phase} --project $REPO",
+        f"  python3 harness_cli.py run-phase --phase {phase} --project $REPO",
         "  ```",
         "  If FAILED non-critically: use `--force`. If BLOCKED: fix FSM/Constitution first.",
         "",
@@ -357,7 +438,7 @@ def _human_checkpoint(phase: int, checkpoint_n: int) -> List[str]:
         "  - If REJECT → author fixes → re-review. Max 5 rounds (HR-12).",
         f"- [ ] **[HR-PUSH]** ✅ Push to GitHub + HANDOVER.md (CHECKPOINT-{checkpoint_n} saved):",
         "  ```bash",
-        f"  python harness_cli.py push-checkpoint --phase {phase} --project . \\",
+        f"  python3 harness_cli.py push-checkpoint --phase {phase} --project . \\",
         "    --fr-ids FR-01,FR-02,FR-03",
         "  ```",
         "  > This writes `HANDOVER.md` (crash-recovery checkpoint) to project root,",
@@ -372,22 +453,23 @@ def _fr_dev_steps(fr_id: str, phase: int) -> List[str]:
     role_a, role_b, task_hint = _PHASE_ROLES.get(
         phase, ("DEVELOPER", "REVIEWER", "Implement per SRS + SAD")
     )
-    return [
+    lines = [
         f"**A/B Work — {fr_id}** (HR-01: A≠B · HR-04: HybridWorkflow ON · HR-10: log required):",
         f"- [ ] **[A-1]** Agent A ({role_a}): {task_hint}",
         f"  - Docstrings: `[{fr_id}]` tag + `Citations:` with line numbers (HR-15)",
         "  - FORBIDDEN: `app/infrastructure/` · `@covers: L1 Error` · `@type: edge`",
         "- [ ] **[A-2]** Agent A returns `{status, files, confidence, citations, summary}`",
-        f"- [ ] **[B-1]** Agent B ({role_b}): Review vs SRS.md + SAD.md  ← DIFFERENT agent (HR-01)",
-        "- [ ] **[B-2]** Agent B returns `{status, review_status, reason, confidence, citations}`",
-        "  - If REJECT → Agent A fixes → repeat. Max 5 rounds (HR-12).",
+    ]
+    lines.extend(_agent_b_dispatch_block(phase, role_b, fr_id=fr_id))
+    lines.extend([
         "- [ ] **[LOG]** Append to `sessions_spawn.log` (HR-10 — 2 entries per FR):",
         "  ```json",
         f'  {{"fr_id":"{fr_id}","role":"developer","session_id":"dev-XXXX","status":"success","confidence":8}}',
         f'  {{"fr_id":"{fr_id}","role":"reviewer","session_id":"rev-XXXX","review_status":"APPROVE"}}',
         "  ```",
         "",
-    ]
+    ])
+    return lines
 
 
 def _phase_advance_step(phase: int) -> List[str]:
@@ -413,7 +495,7 @@ def _phase_advance_step(phase: int) -> List[str]:
         "- [ ] Verify `HANDOVER.md` exists at project root (written by `push-checkpoint`)",
         f"- [ ] Generate Phase {next_phase} plan:",
         "  ```bash",
-        f"  python harness_cli.py plan-phase --phase {next_phase} --repo $REPO \\",
+        f"  python3 harness_cli.py plan-phase --phase {next_phase} --repo $REPO \\",
         f"    --output $REPO/.methodology/phase{next_phase}_plan.md",
         "  ```",
         f"- [ ] Open `phase{next_phase}_plan.md` and follow from the top.",
@@ -433,7 +515,7 @@ def _gate1_checkpoint(fr_id: str, phase: int, checkpoint_n: int) -> List[str]:
         "",
         f"- [ ] **G1a** Prepare Gate 1 for {fr_id}:",
         "  ```bash",
-        f"  python harness_cli.py run-gate --gate 1 --phase {phase} --fr-id {fr_id}",
+        f"  python3 harness_cli.py run-gate --gate 1 --phase {phase} --fr-id {fr_id}",
         "  ```",
         "  Read the evaluation prompt printed above.",
         "",
@@ -444,7 +526,7 @@ def _gate1_checkpoint(fr_id: str, phase: int, checkpoint_n: int) -> List[str]:
         "",
         f"- [ ] **G1c** Finalize Gate 1 for {fr_id}:",
         "  ```bash",
-        f"  python harness_cli.py finalize-gate --gate 1 --phase {phase} --fr-id {fr_id}",
+        f"  python3 harness_cli.py finalize-gate --gate 1 --phase {phase} --fr-id {fr_id}",
         "  ```",
         "  **If FAIL** (any dim below threshold): fix code → repeat G1a→G1b→G1c until PASS.",
         "  **Do NOT proceed to G1d until all dims PASS.**",
@@ -483,7 +565,7 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
         "",
         f"- [ ] **G{gate_num}a** Prepare Gate {gate_num}:",
         "  ```bash",
-        f"  python harness_cli.py run-gate --gate {gate_num} --phase {phase}",
+        f"  python3 harness_cli.py run-gate --gate {gate_num} --phase {phase}",
         "  ```",
         "  Read the evaluation prompt printed above.",
         *([crg_note] if crg_note else []),
@@ -495,7 +577,7 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
         "",
         f"- [ ] **G{gate_num}c** Finalize Gate {gate_num}:",
         "  ```bash",
-        f"  python harness_cli.py finalize-gate --gate {gate_num} --phase {phase}",
+        f"  python3 harness_cli.py finalize-gate --gate {gate_num} --phase {phase}",
         "  ```",
         *([hermes_note] if hermes_note else []),
         *early_stop,
@@ -588,10 +670,9 @@ def generate_phase1_tasks(repo_path: Path, srs_path: Path) -> List[str]:
         "  - Format: `### FR-XX: <title>` with Description, Acceptance Criteria, Test Cases",
         "  - FORBIDDEN: vague/non-testable acceptance criteria",
         "- [ ] **[A-2]** Agent A returns `{status, files, confidence, citations, summary}`",
-        f"- [ ] **[B-1]** Agent B ({role_b}): Review vs project charter / stakeholder inputs  ← DIFFERENT agent (HR-01)",
-        "  - Check: All FRs testable? NFRs measurable? No contradictions?",
-        "- [ ] **[B-2]** Agent B returns `{status, review_status, reason, confidence, citations}`",
-        "  - If REJECT → Agent A fixes → repeat. Max 5 rounds (HR-12).",
+    ])
+    lines.extend(_agent_b_dispatch_block(1, role_b))
+    lines.extend([
         "- [ ] **[LOG]** Append to `sessions_spawn.log` (HR-10 — 2 entries):",
         "  ```json",
         '  {"fr_id":"P1","role":"requirements_engineer","session_id":"dev-XXXX","status":"success","confidence":8}',
@@ -668,10 +749,9 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path) -> List[str]:
         "  - ADR.md: key decisions with context, options considered, rationale",
         "  - FORBIDDEN: FR without module mapping / circular dependencies undocumented",
         "- [ ] **[A-2]** Agent A returns `{status, files, confidence, citations, summary}`",
-        f"- [ ] **[B-1]** Agent B ({role_b}): Review architecture vs SRS.md  ← DIFFERENT agent (HR-01)",
-        "  - Check: Every FR has a module? NFRs addressed (latency/security)? No circular deps?",
-        "- [ ] **[B-2]** Agent B returns `{status, review_status, reason, confidence, citations}`",
-        "  - If REJECT → Agent A fixes → repeat. Max 5 rounds (HR-12).",
+    ])
+    lines.extend(_agent_b_dispatch_block(2, role_b))
+    lines.extend([
         "- [ ] **[LOG]** Append to `sessions_spawn.log` (HR-10 — 2 entries):",
         "  ```json",
         '  {"fr_id":"P2","role":"architect","session_id":"dev-XXXX","status":"success","confidence":8}',
