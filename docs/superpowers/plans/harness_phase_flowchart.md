@@ -103,7 +103,7 @@ flowchart TD
     
     P6 --> P6_ENTRY["Entry: Gate 3 PASS<br/>(from P5)"]
     P6_ENTRY --> P6_PRE["🔧 Preflight<br/>FSM state, Constitution<br/>Drift detection init"]
-    P6_PRE --> P6_WORK["📝 Prepare quality report<br/>Confirm all FRs merged<br/>Set HERMES env vars"]
+    P6_PRE --> P6_WORK["💼 A/B Work:<br/>QA_ENGINEER<br/>ARCHITECT<br/><br/>📝 Prepare quality report<br/>📝 sessions_spawn.log (2 entries)"]
     P6_WORK --> P6_G4["🔒 Gate 4 ONLY<br/>Full project (12 dims)<br/>score_gate ≥ 85<br/>[CRG recon]<br/>[Hermes APPROVE ⏱90s]"]
     
     P6_G4 -->|PASS| P6_G4D["✅ git push<br/>QUALITY_REPORT.md<br/>RELEASE_NOTES.md<br/>phase6 COMPLETE"]
@@ -122,7 +122,7 @@ flowchart TD
     P7 --> P7_ENTRY["Entry: Gate 4 PASS<br/>(from P6)"]
     P7_ENTRY --> P7_CHECK["🔍 Entry gate check<br/>Confirm P6 Gate 4 PASSED"]
     P7_CHECK --> P7_PRE["🔧 Preflight<br/>FSM state, Constitution<br/>Drift detection"]
-    P7_PRE --> P7_WORK["💼 A/B Loop (per FR):<br/>DEVOPS<br/>ARCHITECT<br/><br/>📝 Risk assessment<br/>📝 Mitigation plans"]
+    P7_PRE --> P7_WORK["💼 A/B Loop (per FR):<br/>DEVOPS<br/>ARCHITECT<br/><br/>📝 Risk assessment<br/>📝 Mitigation plans<br/>📝 sessions_spawn.log (2 entries)"]
     P7_WORK --> P7_G1["🔒 Gate 1 (per FR)<br/>score ≥ 75"]
     P7_G1 -->|PASS| P7_PUSH1["✅ git push<br/>CHECKPOINT-K"]
     P7_G1 -->|FAIL| P7_FIX["🔧 Fix"]
@@ -143,7 +143,7 @@ flowchart TD
     P8 --> P8_ENTRY["Entry: Gate 4 PASS<br/>(from P7)"]
     P8_ENTRY --> P8_CHECK["🔍 Entry gate check<br/>Confirm P6 Gate 4 PASSED"]
     P8_CHECK --> P8_PRE["🔧 Preflight<br/>FSM state, Constitution<br/>Drift detection"]
-    P8_PRE --> P8_WORK["💼 A/B Loop (per FR):<br/>DEVOPS<br/>ARCHITECT<br/><br/>📝 Config management<br/>📝 Environment setup"]
+    P8_PRE --> P8_WORK["💼 A/B Loop (per FR):<br/>DEVOPS<br/>ARCHITECT<br/><br/>📝 Config management<br/>📝 Environment setup<br/>📝 sessions_spawn.log (2 entries)"]
     P8_WORK --> P8_G1["🔒 Gate 1 (per FR)<br/>score ≥ 75"]
     P8_G1 -->|PASS| P8_PUSH1["✅ git push<br/>CHECKPOINT-K"]
     P8_G1 -->|FAIL| P8_FIX["🔧 Fix"]
@@ -207,12 +207,12 @@ flowchart TD
 
 | Phase | Entry Check | Exit Gate | Exit Score | Structure | Artifacts |
 |-------|---|---|---|---|---|
-| **P1** | None | Human¹ | N/A | Static | SRS.md |
-| **P2** | Human¹ (P1) | Human¹ | N/A | Static | SAD.md, ADR.md, quality_manifest.json |
+| **P1** | None | Human¹ | N/A | Static | SRS.md + sessions_spawn.log |
+| **P2** | Human¹ (P1) | Human¹ | N/A | Static | SAD.md, ADR.md, quality_manifest.json + sessions_spawn.log |
 | **P3** | Human¹ (P2)* | Gate 2 | ≥ 75 | Per-FR Loop | Code + sessions_spawn.log |
 | **P4** | Gate 2 (P3)* | Gate 3 | ≥ 80 | Per-FR Loop | TEST_RESULTS.md + sessions_spawn.log |
 | **P5** | Gate 3 (P4)* | Gate 3 | ≥ 80 | Per-FR Loop | BASELINE.md + sessions_spawn.log |
-| **P6** | Gate 3 (P5)* | **Gate 4** | ≥ 85 | **NO FR Loop** | QUALITY_REPORT.md, RELEASE_NOTES.md |
+| **P6** | Gate 3 (P5)* | **Gate 4** | ≥ 85 | **NO FR Loop** | QUALITY_REPORT.md, RELEASE_NOTES.md + sessions_spawn.log |
 | **P7** | **Gate 4 (P6)*** | Gate 4**** | ≥ 85 | Per-FR Loop | RISK_REGISTER.md + sessions_spawn.log |
 | **P8** | **Gate 4 (P6)*** | Gate 4**** | ≥ 85 | Per-FR Loop | CONFIG_RECORDS.md + sessions_spawn.log |
 
@@ -229,7 +229,7 @@ flowchart TD
 ### P6: No Per-FR Loop
 - **IMPORTANT**: P6 does NOT have a per-FR loop. It is a single Gate 4 evaluation of the entire project.
 - Gate 4 evaluates all 12 dimensions across all FRs at once (not per-FR).
-- No `sessions_spawn.log` for P6 (only P3/P4/P5/P7/P8).
+- `sessions_spawn.log` required (2 entries: QA_ENGINEER + ARCHITECT per phase).
 
 ### Hermes APPROVE (P6 Gate 4)
 - **Trigger**: `messages_send` to HERMES_REVIEWER_TARGET env var (e.g., `telegram:user_id`)
@@ -263,11 +263,10 @@ Before each phase's work loop, `run-phase` executes:
 - GapDetector initialization (P4+)
 
 ### sessions_spawn.log
-**Required for P3/P4/P5/P7/P8 per-FR loops** (HR-10):
-- 2 entries per FR (Agent A dev + Agent B review)
+**Required for all phases P1–P8** (HR-10):
+- 2 entries per phase (Agent A + Agent B)
 - Format: JSON with role, status, citations, confidence
 - Commit at each CHECKPOINT push
-- **NOT required for P1/P2 (static) or P6 (no FR loop)**
 
 ---
 
@@ -275,6 +274,6 @@ Before each phase's work loop, `run-phase` executes:
 
 - Source: `scripts/generate_full_plan.py`
 - Format: Mermaid Flowchart (machine-readable)
-- Last Updated: 2026-05-06 (revised for P6-P8 accuracy)
+- Last Updated: 2026-05-06 (sessions_spawn.log now required P1–P8)
 - Validation: See `tests/test_harness_phase_flowchart.py` (12 test cases)
-- **Audit Result**: All 7 gaps fixed (GAP-A1 through GAP-E1)
+- **Audit Result**: sessions_spawn.log coverage unified across all 8 phases
