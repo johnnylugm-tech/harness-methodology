@@ -858,6 +858,17 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
                 print(_format_block_diagnostic(exc, gate_num, phase, None, 3, project))
                 return 10
 
+        # ── Phase Truth (P7/P8 — HR-11 ≥70%) ───────────────────────────────
+        if phase in (7, 8):
+            print(f"\n[{phase}.5] Phase Truth (HR-11 ≥70%) …")
+            from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
+            verifier = PhaseTruthVerifier(str(project), phase)
+            truth_result = verifier.verify()
+            if not truth_result["passed"]:
+                print(f"\n[BLOCKED] Phase {phase} truth = {truth_result['total_score']:.0f}% < 70%")
+                print(f"  Fix issues then re-run with --phase-from {phase}")
+                return 10
+
         # ── Advance FSM state ─────────────────────────────────────────────
         _advance_fsm(project, phase)
         print(f"\n[Phase {phase}] ✓ Complete")

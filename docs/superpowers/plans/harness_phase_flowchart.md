@@ -233,15 +233,18 @@ flowchart TD
 
 ### Hermes APPROVE (P6 Gate 4)
 - **Trigger**: `messages_send` to HERMES_REVIEWER_TARGET env var (e.g., `telegram:user_id`)
-- **Timeout**: 90 seconds (`HERMES_TIMEOUT_MS=90000`, per CLAUDE.md §工具特定規範)
+- **Timeout**: 120 seconds (`GATE4_HERMES_TIMEOUT_MS=120000`; ReviewerRouter.HERMES_TIMEOUT_MS defaults to 90s for general Hermes ops)
 - **Approval**: Reviewer sends "APPROVE" reply → Gate 4 proceeds
-- **Timeout Fallback**: If no reply in 90s, code does cold-read (`messages_read`) and checks for latest message
+- **Timeout Fallback**: If no reply in 120s, code does cold-read (`messages_read`) and checks for latest message
 - **Failure**: If Hermes unavailable or reviewer rejects, escalate to human
 
 ### P7/P8: Phase Truth Check Only
 - **Entry**: Verified to be Gate 4 from P6 (not P7 itself)
 - **Exit**: "Cleared by P6 Gate 4" — **no separate exit gate evaluation**
-- **Phase Truth**: HR-11 check only (≥70% required): `FrameworkEnforcer(40%) + Sessions_spawn(20%) + pytest(20%) + coverage(20%)`
+- **Phase Truth**: HR-11 check (≥70% required). Weights vary by phase:
+  - **P1–P2**: `FrameworkEnforcer(60%) + Sessions_spawn(40%)`
+  - **P3–P4**: `FrameworkEnforcer(35%) + Sessions_spawn(25%) + pytest(25%) + coverage(15%)`
+  - **P5–P8**: `FrameworkEnforcer(60%) + Sessions_spawn(40%)`
 - **If Truth < 70%**: Phase advance BLOCKED; manual intervention required
 
 ### Entry Gate Checks (P2-P8)
