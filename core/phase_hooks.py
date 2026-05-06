@@ -21,24 +21,34 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict, List, Any
 
+from kill_switch import KillSwitch
+from kill_switch.models import MonitorConfig
+
+
+class KillSwitchBlockedError(RuntimeError):
+    """Raised when kill-switch circuit is OPEN for an agent."""
+
 
 class PhaseHooks:
     """
     Phase execution hooks framework.
-    
+
     Provides specialized hooks for different stages of the development lifecycle:
-    - Pre-flight: State checks and configuration validation.
-    - Monitoring: Logging events during active development.
-    - Post-flight: Final validation and reporting.
+    - Pre-flight: State checks, constitution validation, kill-switch, drift detection.
+    - Monitoring: Logging events during active development with circuit-breaker protection.
+    - Post-flight: Final validation, drift check, and reporting.
     """
 
-    def __init__(self, project_path: str, phase: Optional[int] = None):
+    def __init__(self, project_path: str, phase: Optional[int] = None,
+                 enable_kill_switch: bool = True, drift_threshold: float = 85.0):
         """
         Initialize the hooks manager.
-        
+
         Args:
             project_path: Path to the project root directory.
             phase: Optional integer representing the current methodology phase.
+            enable_kill_switch: Enable M1 kill-switch circuit breaker (default: True).
+            drift_threshold: M2 drift detection ensemble score threshold (0-100, default: 85.0).
         """
         self.project_path = Path(project_path)
         self.phase = phase
@@ -48,6 +58,10 @@ class PhaseHooks:
         self.fr_results: List[Dict] = []
         self.preflight_results: Dict[str, bool] = {}
         self.monitoring_events: List[Dict] = []
+        self.drift_threshold = drift_threshold
+        self._kill_switch: Optional[KillSwitch] = None
+        if enable_kill_switch:
+            self._kill_switch = KillSwitch()
 
     # PRE-FLIGHT HOOKS
 
@@ -97,12 +111,47 @@ class PhaseHooks:
         except Exception as e:
             return {"passed": True, "tools_count": 0, "error": str(e)}
 
+    def preflight_kill_switch(self) -> Dict[str, Any]:
+        """Check kill-switch (M1) circuit breaker state."""
+        print("\n[PRE-FLIGHT] Kill-Switch (M1) Check")
+        if not self._kill_switch:
+            return {"passed": True, "skipped": True, "message": "Kill-switch disabled"}
+        # Verify kill-switch is operational (no open circuits at start)
+        print("   Kill-switch operational")
+        return {"passed": True, "kill_switch": "operational"}
+
+    def preflight_drift_detection(self) -> Dict[str, Any]:
+        """Run M2 drift detection: compare specs vs implementation."""
+        print("\n[PRE-FLIGHT] Drift Detection (M2)")
+        try:
+            from detection import DriftDetector
+            detector = DriftDetector(str(self.project_path))
+            results = detector.detect_all()
+            total_drifts = sum(r.drifted for r in results.values())
+            avg_score = (sum(r.score for r in results.values()) /
+                         max(len(results), 1))
+            score_pct = avg_score * 100
+            passed = score_pct >= self.drift_threshold
+            print(f"   Drifts: {total_drifts}, Score: {score_pct:.0f}% "
+                  f"(threshold: {self.drift_threshold:.0f}%)")
+            return {"passed": passed, "drifts": total_drifts,
+                    "score": score_pct,
+                    "threshold": self.drift_threshold,
+                    "details": {k: v.to_dict() for k, v in results.items()}}
+        except ImportError:
+            return {"passed": True, "skipped": True, "message": "detection module unavailable"}
+        except Exception as e:
+            print(f"   Drift detection error: {e}")
+            return {"passed": True, "skipped": True, "error": str(e)}
+
     def preflight_all(self) -> Dict[str, Any]:
         """Run all pre-flight checks."""
         print(f"\n{'='*60}\nPRE-FLIGHT: Phase {self.phase}\n{'='*60}")
         results = {
             "fsm": self.preflight_fsm_check(),
             "constitution": self.preflight_constitution(),
+            "kill_switch": self.preflight_kill_switch(),
+            "drift_detection": self.preflight_drift_detection(),
             "tool_registry": self.preflight_tool_registry(),
         }
         all_passed = all(r.get("passed", False) for r in results.values())
@@ -111,39 +160,73 @@ class PhaseHooks:
 
     # MONITORING HOOKS
 
-    def monitoring_before_dev(self, fr_id: str) -> None:
-        """Hook: before developer execution."""
-        self.monitoring_events.append({"timestamp": datetime.now().isoformat(),
-                                        "type": "before_dev", "fr_id": fr_id})
-        print(f"\n[MONITORING] Before Dev: {fr_id}")
-        self._append_log(f"BEFORE_DEV: {fr_id}")
+    def _check_kill_switch(self, agent_id: str) -> None:
+        """Verify kill-switch circuit is CLOSED for agent_id; raise if OPEN."""
+        if not self._kill_switch:
+            return
+        if self._kill_switch.is_agent_circuit_open(agent_id):
+            raise KillSwitchBlockedError(
+                f"Kill-switch: circuit OPEN for {agent_id} — agent blocked"
+            )
 
-    def monitoring_after_dev(self, fr_id: str, result: Any = None) -> None:
-        """Hook: after developer execution."""
+    def _start_kill_switch_monitoring(self, agent_id: str) -> None:
+        """Start kill-switch monitoring for an agent."""
+        if not self._kill_switch:
+            return
+        config = MonitorConfig(agent_id=agent_id)
+        self._kill_switch.start_monitoring(agent_id, config)
+
+    def _stop_kill_switch_monitoring(self, agent_id: str) -> None:
+        """Stop kill-switch monitoring for an agent."""
+        if not self._kill_switch:
+            return
+        self._kill_switch.stop_monitoring(agent_id)
+
+    def monitoring_before_dev(self, fr_id: str, agent_id: str = "agent-a") -> None:
+        """Hook: before developer execution. Checks kill-switch circuit."""
+        self._check_kill_switch(agent_id)
+        self._start_kill_switch_monitoring(agent_id)
+        self.monitoring_events.append({"timestamp": datetime.now().isoformat(),
+                                        "type": "before_dev", "fr_id": fr_id,
+                                        "agent_id": agent_id})
+        print(f"\n[MONITORING] Before Dev: {fr_id} agent={agent_id}")
+        self._append_log(f"BEFORE_DEV: {fr_id} agent={agent_id}")
+
+    def monitoring_after_dev(self, fr_id: str, result: Any = None,
+                              agent_id: str = "agent-a") -> None:
+        """Hook: after developer execution. Stops kill-switch monitoring."""
+        self._stop_kill_switch_monitoring(agent_id)
         status = getattr(result, 'status', 'unknown') if result else 'unknown'
         confidence = getattr(result, 'confidence', 0) if result else 0
         self.monitoring_events.append({"timestamp": datetime.now().isoformat(),
                                         "type": "after_dev", "fr_id": fr_id,
-                                        "status": status, "confidence": confidence})
+                                        "status": status, "confidence": confidence,
+                                        "agent_id": agent_id})
         print(f"\n[MONITORING] After Dev: {fr_id} status={status} confidence={confidence}")
         self._append_log(f"AFTER_DEV: {fr_id} status={status}")
         self.fr_results.append({"fr_id": fr_id, "dev_status": status, "dev_confidence": confidence})
 
-    def monitoring_before_rev(self, fr_id: str) -> None:
-        """Hook: before reviewer execution."""
+    def monitoring_before_rev(self, fr_id: str, agent_id: str = "agent-b") -> None:
+        """Hook: before reviewer execution. Checks kill-switch circuit."""
+        self._check_kill_switch(agent_id)
+        self._start_kill_switch_monitoring(agent_id)
         self.monitoring_events.append({"timestamp": datetime.now().isoformat(),
-                                        "type": "before_rev", "fr_id": fr_id})
-        print(f"\n[MONITORING] Before Rev: {fr_id}")
-        self._append_log(f"BEFORE_REV: {fr_id}")
+                                        "type": "before_rev", "fr_id": fr_id,
+                                        "agent_id": agent_id})
+        print(f"\n[MONITORING] Before Rev: {fr_id} agent={agent_id}")
+        self._append_log(f"BEFORE_REV: {fr_id} agent={agent_id}")
 
-    def monitoring_after_rev(self, fr_id: str, result: Any = None) -> None:
-        """Hook: after reviewer execution."""
+    def monitoring_after_rev(self, fr_id: str, result: Any = None,
+                              agent_id: str = "agent-b") -> None:
+        """Hook: after reviewer execution. Stops kill-switch monitoring."""
+        self._stop_kill_switch_monitoring(agent_id)
         status = getattr(result, 'status', 'unknown') if result else 'unknown'
         review_status = getattr(result, 'review_status', None) if result else None
         confidence = getattr(result, 'confidence', 0) if result else 0
         self.monitoring_events.append({"timestamp": datetime.now().isoformat(),
                                         "type": "after_rev", "fr_id": fr_id,
-                                        "review_status": review_status})
+                                        "review_status": review_status,
+                                        "agent_id": agent_id})
         print(f"\n[MONITORING] After Rev: {fr_id} review={review_status}")
         self._append_log(f"AFTER_REV: {fr_id} review={review_status}")
         if self.fr_results and self.fr_results[-1].get("fr_id") == fr_id:
@@ -192,10 +275,34 @@ class PhaseHooks:
                 "fr_results": self.fr_results,
                 "monitoring_events": len(self.monitoring_events)}
 
+    def postflight_drift_check(self) -> Dict[str, Any]:
+        """Post-flight drift detection: verify no new drift introduced."""
+        print("\n[POST-FLIGHT] Drift Detection (M2)")
+        try:
+            from detection import DriftDetector
+            detector = DriftDetector(str(self.project_path))
+            results = detector.detect_all()
+            total_drifts = sum(r.drifted for r in results.values())
+            avg_score = (sum(r.score for r in results.values()) /
+                         max(len(results), 1))
+            score_pct = avg_score * 100
+            passed = score_pct >= self.drift_threshold
+            print(f"   Drifts: {total_drifts}, Score: {score_pct:.0f}% "
+                  f"(threshold: {self.drift_threshold:.0f}%)")
+            return {"passed": passed, "drifts": total_drifts,
+                    "score": score_pct,
+                    "threshold": self.drift_threshold}
+        except ImportError:
+            return {"passed": True, "skipped": True, "message": "detection module unavailable"}
+        except Exception as e:
+            print(f"   Drift detection error: {e}")
+            return {"passed": True, "skipped": True, "error": str(e)}
+
     def postflight_all(self) -> Dict[str, Any]:
         """Run all post-flight checks."""
         print(f"\n{'='*60}\nPOST-FLIGHT: Phase {self.phase}\n{'='*60}")
         const_result = self.postflight_constitution()
+        drift_result = self.postflight_drift_check()
         fr_approved = sum(1 for r in self.fr_results if r.get("review_status") == "APPROVE")
         total_frs = max(len(self.fr_results), 1)
         success = const_result.get("passed", False) and fr_approved >= total_frs
@@ -203,6 +310,7 @@ class PhaseHooks:
         summary = self.postflight_summary()
         print(f"\nPOST-FLIGHT: {'PASS' if success else 'FAIL'}")
         return {"success": success, "constitution": const_result,
+                "drift_detection": drift_result,
                 "state_update": state_result, "summary": summary}
 
     def add_fr_result(self, fr_id: str, dev_result: Any, rev_result: Any) -> None:

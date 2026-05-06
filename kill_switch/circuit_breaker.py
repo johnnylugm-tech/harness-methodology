@@ -10,7 +10,7 @@ from threading import Lock
 from typing import Dict
 
 from .enums import CircuitState
-from .exceptions import AgentNotFoundError
+from .exceptions import AgentNotFoundError, CircuitBreakerError
 from .models import CircuitBreakerState, HealthMetrics, MonitorConfig
 
 
@@ -22,10 +22,11 @@ class CircuitBreaker:
     (triggers Kill-Switch) when thresholds are exceeded.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, failure_threshold: int = 5) -> None:
         """Initialize instance."""
         self._circuits: Dict[str, CircuitBreakerState] = {}
         self._lock = Lock()
+        self.failure_threshold = failure_threshold
 
     def record_success(self, agent_id: str) -> None:
         """Record success."""
@@ -40,13 +41,21 @@ class CircuitBreaker:
                 state.closed_at = datetime.now(timezone.utc)
 
     def record_failure(self, agent_id: str) -> None:
-        """Record failure."""
+        """Record failure. Raises CircuitBreakerError when threshold exceeded."""
         with self._lock:
             if agent_id not in self._circuits:
                 raise AgentNotFoundError(f"No circuit state for agent {agent_id}")
             state = self._circuits[agent_id]
             state.failure_count += 1
             state.last_failure_time = datetime.now(timezone.utc)
+            if state.failure_count >= self.failure_threshold:
+                state.state = CircuitState.OPEN
+                state.opened_at = datetime.now(timezone.utc)
+                raise CircuitBreakerError(
+                    f"Circuit OPEN for {agent_id}: "
+                    f"failure_count={state.failure_count} >= "
+                    f"threshold={self.failure_threshold}"
+                )
             if state.state == CircuitState.HALF_OPEN:
                 state.state = CircuitState.OPEN
 

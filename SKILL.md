@@ -1,6 +1,6 @@
 # SKILL.md — harness-methodology
 
-> **Version**: v6.49.0
+> **Version**: v6.50.0
 > **Framework**: harness-methodology
 > **Academic Benchmark**: 91/100
 > **Architecture**: 3-layer (clean / integrated / optimized)
@@ -55,13 +55,18 @@ Key capabilities:
 ## 3. Modules
 
 ### M1: kill_switch
-Circuit breaker protecting all phase transitions.
+Circuit breaker protecting all phase transitions. Integrated into PhaseHooks monitoring and pipeline preflight.
 
 ```python
 from kill_switch import KillSwitch, CircuitState
+from kill_switch.models import MonitorConfig
+
 ks = KillSwitch()
-ks.record_failure("quality_gate")   # triggers OPEN after threshold
-state = ks.get_state()               # CLOSED | OPEN | HALF_OPEN
+ks.start_monitoring("agent-a", MonitorConfig(agent_id="agent-a"))
+if ks.is_agent_circuit_open("agent-a"):   # check circuit breaker state
+    raise RuntimeError("Circuit OPEN")
+state = ks.get_agent_state("agent-a")     # CLOSED | OPEN | HALF_OPEN
+ks.stop_monitoring("agent-a")
 ```
 
 ### M2: detection (UQLM EnsembleScorer)
@@ -84,12 +89,18 @@ match = matcher.match_text(code_text)
 ```
 
 ### M3: gap_detector
-Parses SPEC.md + scans AST to find requirement-implementation gaps.
+Parses SPEC.md + scans AST to find requirement-implementation gaps. Integrated into pipeline Step 2.5 (P3+).
 
 ```python
-from gap_detector import GapDetector
-gd = GapDetector("/path/to/project")
-report = gd.run()
+from gap_detector.parser import SpecParser
+from gap_detector.scanner import CodeScanner
+from gap_detector.detector import GapDetector
+
+spec = SpecParser("SPEC.md").parse()
+code = CodeScanner("/path/to/project").scan()
+detector = GapDetector(spec, code, similarity_threshold=0.6)
+gaps = detector.detect()
+summary = detector.get_summary()  # GapSummary: total, missing, incomplete, orphaned, critical, major, minor
 ```
 
 ### core/
@@ -173,6 +184,12 @@ python harness_cli.py run-gate --gate 1 --phase 3 --fr-id FR-01
 # Phase 2: check thresholds and commit
 python harness_cli.py finalize-gate --gate 1 --phase 3 --fr-id FR-01
 python harness_cli.py status
+
+# Additional harness_cli.py audit & analysis commands
+python harness_cli.py run-gap-analysis  # M3: SPEC.md ↔ codebase gap detection
+python harness_cli.py audit-phase       # 8-dimension phase audit (PhaseAuditor)
+python harness_cli.py verify-spec       # 6-dimension spec compliance check
+python harness_cli.py check-logic       # Logic correctness (output/branch/lazy-init/semantic)
 
 # Full parent-system CLI (requires 30+ external modules, not standalone)
 python cli.py quality-gate --phase <N>
@@ -439,8 +456,11 @@ python harness_cli.py run-pipeline --phase-from 3 --project /path/to/project
 python harness_cli.py plan-phase --phase $N --repo $PROJECT \
   --output $PROJECT/.methodology/phase${N}_plan.md
 
-# 2. Preflight (included in plan checklist as [PREFLIGHT] step)
+# 2. Preflight (FSM + Constitution + M1 kill-switch + M2 drift detection)
 python harness_cli.py run-phase --phase $N --project $PROJECT
+
+# 2.5. M3 Gap Analysis (P3+ — SPEC.md ↔ codebase, writes .methodology/gap_report.json)
+python harness_cli.py run-gap-analysis --project $PROJECT
 
 # 3. Per-FR Gate 1 (P3/P4/P5/P7/P8) — FR IDs from quality_manifest.json
 python harness_cli.py run-gate --gate 1 --phase $N --project $PROJECT --fr-id FR-XX
@@ -452,7 +472,7 @@ python harness_cli.py run-gate --gate $G --phase $N --project $PROJECT
 # (Claude evaluates inline, then:)
 python harness_cli.py finalize-gate --gate $G --phase $N --project $PROJECT
 
-# 5. Recovery only — position report (not a next-step generator)
+# 5. Phase Truth (P3–P8 — HR-11 ≥ 70%) + Recovery position report
 python harness_cli.py generate-next-plan --project $PROJECT --phase $N
 
 # 6. Confirm

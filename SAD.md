@@ -1,4 +1,4 @@
-# SAD — Harness Methodology v2.2 (As-Built — Audit: 100% SAD↔code consistency, 2026-05-04)
+# SAD — Harness Methodology v2.3 (As-Built — Audit: 100% SAD↔code consistency, 2026-05-06)
 
 > **Sync guarantee**: This document is reverse-engineered from the live codebase.
 > Any change to the code **must** be reflected here, and vice-versa.
@@ -70,19 +70,25 @@ The system uses this macro architecture:
 
 `cli.py` is retained as-is because it is the entrypoint for the full parent system that contains harness-methodology as a sub-component. Any work purely within harness-methodology should use `harness_cli.py`.
 
-**`harness_cli.py` commands** (11 total):
+**`harness_cli.py` commands** (15 total):
 ```
 python harness_cli.py plan-phase        --phase 3 [--repo .] [--output plan.md]
 python harness_cli.py run-phase         --phase 3 [--project .] [--force]
 python harness_cli.py run-gate          --gate 2 --phase 3 [--project .] [--fr-id FR-01] [--no-git]
 python harness_cli.py finalize-gate     --gate 2 --phase 3 [--project .] [--fr-id FR-01] [--no-git]
 python harness_cli.py generate-next-plan [--project .] [--phase N]
-python harness_cli.py run-pipeline      [--phase-from 1] [--phase-to 8] [--project .] [--force] [--no-git]
+python harness_cli.py run-pipeline      [--phase-from 1] [--phase-to 8] [--project .] [--force]
+                                        [--no-git] [--no-kill-switch] [--drift-threshold 85.0]
 python harness_cli.py push-checkpoint   --phase 1|2 [--project .] [--fr-ids FR-01,FR-02] [--no-git]
 python harness_cli.py manifest          --fr-ids FR-01 FR-02 [--sad SAD.md] [--no-git]
 python harness_cli.py status            [--project .]
 python harness_cli.py effort            [--phase 3] [--project .]
 python harness_cli.py reload-policy     [--policy-file enforcement/enforcement.json]
+python harness_cli.py run-gap-analysis  [--project .] [--spec SPEC.md] [--similarity 0.6]
+python harness_cli.py audit-phase       --phase 3 --repo owner/repo [--branch main]
+                                        [--output markdown|json] [--save FILE]
+python harness_cli.py verify-spec       [--project .] [--fix]
+python harness_cli.py check-logic       [--project .] [--srs SRS.md]
 ```
 
 **Gate evaluation (two-phase)**: `run-gate` prepares context and prints evaluation instructions; Claude evaluates inline and writes `.sessi-work/gate{N}_result.json`; `finalize-gate` reads the result and checks thresholds. SSI assets are embedded in `harness/ssi/`.
@@ -91,6 +97,18 @@ python harness_cli.py reload-policy     [--policy-file enforcement/enforcement.j
 - `0` — all phases complete
 - `1` — hard error (SSI unavailable, manifest missing)
 - `10` — PAUSE: human intervention needed; resume with `--phase-from N`
+- `11` — Phase Truth failure (HR-11 score < 70%); fix issues and re-run
+
+**Pipeline step flow per phase (P3+)**:
+```
+[phase.1]   plan-phase        — Generate execution plan from SAD.md
+[phase.2]   preflight          — FSM + constitution + kill-switch (M1) + drift detection (M2)
+[phase.2.5] M3 gap analysis    — GapDetector: SPEC.md ↔ codebase gap report (saved to .methodology/gap_report.json)
+[phase.3]   Gate 1 per-FR      — Per-FR quality gate evaluation (phases 3,4,5,7,8)
+[phase.4]   Phase exit gate    — Composite gate evaluation (G2 at P3, G3 at P4, G4 at P6)
+[phase.5]   Phase Truth        — HR-11 ≥ 70% verification (P3-P8)
+```
+M1 kill-switch circuit state is checked before each phase. M3 gap analysis runs for phases ≥ 3.
 
 **P3+ dynamic planning**: `run-pipeline` generates each phase plan dynamically at phase start. Phases P3+ read FR IDs from `quality_manifest.json` (written at P2 exit from SAD.md), so SAD.md must exist before the pipeline can plan any FR-level work.
 
@@ -666,40 +684,43 @@ model == "claude" (or P7/P8 auto-routed):
 
 **Responsibility**: Pre-flight, monitoring, and post-flight hooks for agent phase execution.
 
-**`PhaseHooks(project_path: str, phase: int = None)`**:
+**`PhaseHooks(project_path: str, phase: int = None, enable_kill_switch: bool = True, drift_threshold: float = 85.0)`**:
 
 File paths used:
 - `.methodology/state.json` — FSM state
 - `.methodology/run-phase.log` — append-only run log
 - `docs/` — for constitution checks
 
-**Pre-flight hooks** (`preflight_all() -> dict` calls all three):
+**Pre-flight hooks** (`preflight_all() -> dict` calls all five):
 
 | Method | Check | Blocks if |
 |---|---|---|
 | `preflight_fsm_check()` | reads `state.json` | state in `{"FREEZE", "PAUSED"}` or phase regression |
 | `preflight_constitution(check_mode="preflight")` | calls `quality_gate.constitution.run_constitution_check` | violations found |
+| `preflight_kill_switch()` | verifies M1 kill-switch is operational | skipped if `enable_kill_switch=False` |
+| `preflight_drift_detection()` | runs M2 `DriftDetector.detect_all()` | ensemble score < `drift_threshold` |
 | `preflight_tool_registry()` | checks `ToolRegistry.list_tools()` | skipped if not installed |
 
-**Monitoring hooks** (append to `self.monitoring_events` + write to `run-phase.log`):
+**Monitoring hooks** (append to `self.monitoring_events` + write to `run-phase.log`; M1 kill-switch circuit check on before_* calls):
 
 | Method | Signature | Records |
 |---|---|---|
-| `monitoring_before_dev` | `(fr_id)` | `{"type": "before_dev", "fr_id": ...}` |
-| `monitoring_after_dev` | `(fr_id, result=None)` | `status`, `confidence` from result |
-| `monitoring_before_rev` | `(fr_id)` | `{"type": "before_rev", "fr_id": ...}` |
-| `monitoring_after_rev` | `(fr_id, result=None)` | `review_status`, `status`, `confidence` |
+| `monitoring_before_dev` | `(fr_id, agent_id="agent-a")` | `{"type": "before_dev", "fr_id": ..., "agent_id": ...}` |
+| `monitoring_after_dev` | `(fr_id, result=None, agent_id="agent-a")` | `status`, `confidence` from result |
+| `monitoring_before_rev` | `(fr_id, agent_id="agent-b")` | `{"type": "before_rev", "fr_id": ..., "agent_id": ...}` |
+| `monitoring_after_rev` | `(fr_id, result=None, agent_id="agent-b")` | `review_status`, `status`, `confidence` |
 | `monitoring_hr12_check` | `(fr_id, iteration, max_iterations=5)` | Returns `False` if `iteration >= max_iterations` |
 
-**Post-flight hooks** (`postflight_all() -> dict` calls all three):
+**Post-flight hooks** (`postflight_all() -> dict` calls all four):
 
 | Method | Action |
 |---|---|
 | `postflight_constitution()` | Re-runs constitution check with `check_mode="postflight"` |
+| `postflight_drift_check()` | Re-runs M2 drift detection; blocks if score < `drift_threshold` |
 | `postflight_update_state(success=True)` | Advances `state.json` current_phase if `self.phase > old_phase` |
 | `postflight_summary()` | Returns `{total_frs, approved, fr_results, monitoring_events}` |
 
-**Success condition for `postflight_all`**: `constitution.passed AND all FR results have review_status == "APPROVE"`.
+**Success condition for `postflight_all`**: `constitution.passed AND drift check passed AND all FR results have review_status == "APPROVE"`.
 
 ---
 
@@ -1272,21 +1293,24 @@ HarnessBridge.generate_quality_manifest(fr_ids=["FR-01","FR-02"], sad_path="SAD.
 PhaseHooks("/path/to/project", phase=3)
   │
   ├─ preflight_all()
-  │    ├─ preflight_fsm_check()     → reads .methodology/state.json
-  │    ├─ preflight_constitution()  → quality_gate.constitution.run_constitution_check(...)
-  │    └─ preflight_tool_registry() → ToolRegistry.list_tools() (skipped if not installed)
+  │    ├─ preflight_fsm_check()        → reads .methodology/state.json
+  │    ├─ preflight_constitution()     → quality_gate.constitution.run_constitution_check(...)
+  │    ├─ preflight_kill_switch()      → verifies M1 circuit breaker operational
+  │    ├─ preflight_drift_detection()  → M2 DriftDetector.detect_all() (score ≥ drift_threshold)
+  │    └─ preflight_tool_registry()    → ToolRegistry.list_tools() (skipped if not installed)
   │
   ├─ [per-FR development loop]
-  │    ├─ monitoring_before_dev(fr_id)
+  │    ├─ monitoring_before_dev(fr_id, agent_id="agent-a")   → M1 circuit check + start monitoring
   │    ├─ [developer executes]
-  │    ├─ monitoring_after_dev(fr_id, result)
-  │    ├─ monitoring_before_rev(fr_id)
+  │    ├─ monitoring_after_dev(fr_id, result, agent_id="agent-a")   → M1 stop monitoring
+  │    ├─ monitoring_before_rev(fr_id, agent_id="agent-b")   → M1 circuit check + start monitoring
   │    ├─ [reviewer executes]
-  │    ├─ monitoring_after_rev(fr_id, result)
+  │    ├─ monitoring_after_rev(fr_id, result, agent_id="agent-b")   → M1 stop monitoring
   │    └─ monitoring_hr12_check(fr_id, iteration)  → False if iteration >= 5
   │
   └─ postflight_all()
        ├─ postflight_constitution()          → re-check with check_mode="postflight"
+       ├─ postflight_drift_check()           → M2 re-check; blocks if score < drift_threshold
        ├─ postflight_update_state(success)   → advance state.json current_phase
        └─ postflight_summary()               → {total_frs, approved, fr_results, ...}
 ```
@@ -1634,9 +1658,9 @@ Full inventory of the `scripts/` directory (21 items). Grouped by role:
 | `generate_fr_mapping.py` | 6KB | Builds an FR→file mapping from SAD.md and codebase scan; consumed by `phase_auditor.py` and gate pre-flight |
 | `generate_sab.py` | 3KB | CLI wrapper around `sab_parser.extract_sab_from_sad`; also exposes `parse_sad()` called by `HarnessBridge.generate_quality_manifest()` |
 
-**`phase_auditor.py` usage**:
+**`phase_auditor.py` usage** (via `harness_cli.py audit-phase`):
 ```bash
-python /path/to/harness/scripts/phase_auditor.py --phase 3 [--project .] [--report audit_p3.md]
+python harness_cli.py audit-phase --phase 3 --repo owner/repo [--branch main] [--output markdown|json] [--save FILE]
 ```
 
 **`generate_full_plan.py` usage** (called by `harness_cli.py plan-phase`):
@@ -1668,9 +1692,9 @@ python scripts/generate_full_plan.py --phase 3 --repo /path/to/project \
 
 | Script | Size | Purpose |
 |---|---|---|
-| `spec_logic_checker.py` | 10KB | Validates spec logic consistency (no contradictory requirements, all FRs have priorities) |
+| `spec_logic_checker.py` | 10KB | Validates spec logic consistency (no contradictory requirements, all FRs have priorities). Also invocable via `harness_cli.py check-logic`. |
 | `dev_log_checker.py` | 12KB | Validates `DEVELOPMENT_LOG.md` format and HR-07 session_id presence |
-| `verify_spec_compliance.py` | 7KB | End-to-end spec compliance: code must implement every FR declared in SAD.md |
+| `verify_spec_compliance.py` | 7KB | End-to-end spec compliance: code must implement every FR declared in SAD.md. Also invocable via `harness_cli.py verify-spec`. |
 | `verify_path_consistency.py` | 3KB | Confirms all path references in SAD.md and manifest match actual filesystem |
 | `state_monitor.py` | 6KB | Reads `.methodology/state.json`; reports FSM state, phase, timestamps |
 

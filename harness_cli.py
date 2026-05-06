@@ -546,11 +546,15 @@ def _plan_phase_silent(phase: int, repo: Path, output: Path) -> None:
         print(f"  [WARN] plan-phase error: {exc} — continuing without plan")
 
 
-def _preflight(phase: int, project: Path, force: bool) -> int:
+def _preflight(phase: int, project: Path, force: bool,
+               enable_kill_switch: bool = True,
+               drift_threshold: float = 85.0) -> int:
     """Run phase pre-flight hooks. Returns 0 on pass."""
     try:
         from core.phase_hooks import PhaseHooks
-        hooks = PhaseHooks(str(project), phase=phase)
+        hooks = PhaseHooks(str(project), phase=phase,
+                           enable_kill_switch=enable_kill_switch,
+                           drift_threshold=drift_threshold)
         pre = hooks.preflight_all()
         if not pre.get("all_passed") and not force:
             print(f"  [PREFLIGHT FAIL] {pre.get('details', '')}")
@@ -559,6 +563,50 @@ def _preflight(phase: int, project: Path, force: bool) -> int:
     except Exception as exc:  # pylint: disable=broad-exception-caught
         print(f"  [WARN] Phase hooks unavailable: {exc}")
         return 0 if force else 1
+
+
+def _run_gap_analysis(project: Path, similarity: float = 0.6) -> dict:
+    """Run M3 gap analysis. Returns gap report dict; warns on failure."""
+    try:
+        from gap_detector.parser import SpecParser
+        from gap_detector.scanner import CodeScanner
+        from gap_detector.detector import GapDetector
+
+        spec_path = project / "SPEC.md"
+        if not spec_path.exists():
+            print("  [M3] SPEC.md not found — skipping gap analysis")
+            return {"skipped": True, "reason": "SPEC.md not found"}
+
+        spec = SpecParser(str(spec_path)).parse()
+        scanner = CodeScanner(str(project))
+        code = scanner.scan()
+        detector = GapDetector(spec, code, similarity_threshold=similarity)
+        gaps = detector.detect()
+        summary = detector.get_summary()
+
+        report = {
+            "summary": {
+                "total": summary.total_gaps, "missing": summary.missing,
+                "incomplete": summary.incomplete, "orphaned": summary.orphaned,
+                "critical": summary.critical, "major": summary.major,
+                "minor": summary.minor,
+            },
+            "gaps": [{"type": g.gap_type, "severity": g.severity,
+                       "reason": g.reason, "action": g.recommended_action}
+                      for g in gaps],
+        }
+        report_path = project / ".methodology" / "gap_report.json"
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps(report, indent=2))
+        print(f"  [M3] Gap report → {report_path}  "
+              f"(total={summary.total_gaps}, critical={summary.critical})")
+        return report
+    except ImportError:
+        print("  [M3] gap_detector unavailable — skipping gap analysis")
+        return {"skipped": True, "reason": "gap_detector unavailable"}
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        print(f"  [M3] Gap analysis error: {exc}")
+        return {"skipped": True, "error": str(exc)}
 
 
 def _make_git(args: argparse.Namespace, project: Path) -> "GitStrategy":  # noqa: F821 — lazy import
@@ -706,6 +754,77 @@ def _format_block_diagnostic(
 
 
 # ---------------------------------------------------------------------------
+# run-gap-analysis (M3)
+# ---------------------------------------------------------------------------
+
+def cmd_run_gap_analysis(args: argparse.Namespace) -> int:
+    """Run M3 gap analysis: detect gaps between SPEC.md and codebase."""
+    from gap_detector.parser import SpecParser
+    from gap_detector.scanner import CodeScanner
+    from gap_detector.detector import GapDetector
+
+    project = Path(args.project).resolve()
+    spec_path = project / (args.spec or "SPEC.md")
+
+    print(f"\n{'='*60}\nrun-gap-analysis (M3)  project={project}\n{'='*60}")
+
+    if not spec_path.exists():
+        print(f"[ERROR] Spec file not found: {spec_path}")
+        return 1
+
+    # Parse spec and scan code
+    print(f"\nParsing spec: {spec_path}")
+    spec = SpecParser(str(spec_path)).parse()
+    print(f"  Features found: {len(spec.feature_items)}")
+
+    print("\nScanning codebase…")
+    scanner = CodeScanner(str(project))
+    code = scanner.scan()
+    print(f"  Modules: {len(code.modules)}, Items: "
+          f"{sum(len(m.items) for m in code.modules)}")
+
+    # Detect gaps
+    print("\nDetecting gaps…")
+    detector = GapDetector(spec, code, similarity_threshold=args.similarity)
+    gaps = detector.detect()
+    summary = detector.get_summary()
+
+    print(f"\n{'─'*60}")
+    print("Gap Analysis Results")
+    print(f"{'─'*60}")
+    print(f"  Total gaps : {summary.total_gaps}")
+    print(f"  Missing    : {summary.missing}")
+    print(f"  Incomplete : {summary.incomplete}")
+    print(f"  Orphaned   : {summary.orphaned}")
+    print(f"  Critical   : {summary.critical}")
+    print(f"  Major      : {summary.major}")
+    print(f"  Minor      : {summary.minor}")
+
+    # Write report
+    report_path = project / ".methodology" / "gap_report.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report = {
+        "summary": {
+            "total": summary.total_gaps, "missing": summary.missing,
+            "incomplete": summary.incomplete, "orphaned": summary.orphaned,
+            "critical": summary.critical, "major": summary.major,
+            "minor": summary.minor,
+        },
+        "gaps": [{"type": g.gap_type, "severity": g.severity,
+                   "reason": g.reason, "action": g.recommended_action}
+                  for g in gaps],
+    }
+    report_path.write_text(json.dumps(report, indent=2))
+    print(f"\nReport written → {report_path}")
+
+    # Exit code: 0 if no critical gaps, 1 otherwise
+    if summary.critical > 0:
+        print(f"\n[WARN] {summary.critical} critical gap(s) detected")
+        return 1
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # run-pipeline
 # ---------------------------------------------------------------------------
 
@@ -727,17 +846,38 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
     project = Path(args.project).resolve()
     phase_from = args.phase_from
     phase_to = args.phase_to
+    enable_kill_switch = not getattr(args, "no_kill_switch", False)
+    drift_threshold = getattr(args, "drift_threshold", 85.0)
     bridge = HarnessBridge()
     git = _make_git(args, project)
     git.ensure_gitignore()
 
     print(f"\n{'='*60}")
     print(f"run-pipeline  P{phase_from}→P{phase_to}  project={project}")
-    print(f"force={args.force}")
+    print(f"force={args.force}  kill_switch={enable_kill_switch}  "
+          f"drift_threshold={drift_threshold}")
     print(f"{'='*60}")
+
+    # Optional M1 kill-switch: check circuit state before first phase
+    _ks = None
+    if enable_kill_switch:
+        try:
+            from kill_switch import KillSwitch
+            _ks = KillSwitch()
+            print("[M1] Kill-switch initialized")
+        except ImportError:
+            print("[M1] Kill-switch unavailable — continuing without circuit breaker")
 
     for phase in range(phase_from, phase_to + 1):
         print(f"\n{'─'*60}\n[Phase {phase}]\n{'─'*60}")
+
+        # M1: Check kill-switch circuit before each phase
+        if _ks is not None:
+            for _agent in ("agent-a", "agent-b"):
+                if _ks.is_agent_circuit_open(_agent):
+                    print(f"[M1] BLOCKED: circuit OPEN for {_agent} — "
+                          f"pipeline paused at Phase {phase}")
+                    return 10
 
         # ── P1: SRS.md must exist (human writes it) ──────────────────────
         if phase == 1:
@@ -795,10 +935,17 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
 
         # ── Step 2: Preflight ─────────────────────────────────────────────
         print(f"\n[{phase}.2] preflight")
-        if _preflight(phase, project, force=args.force) != 0:
+        if _preflight(phase, project, force=args.force,
+                      enable_kill_switch=enable_kill_switch,
+                      drift_threshold=drift_threshold) != 0:
             print(f"[BLOCKED] Preflight failed for Phase {phase}.")
             print(f"  Fix constitution/FSM issues, then re-run with --phase-from {phase}")
             return 10
+
+        # ── Step 2.5: M3 Gap Analysis ─────────────────────────────────────
+        if phase >= 3:
+            print(f"\n[{phase}.2.5] M3 gap analysis")
+            _run_gap_analysis(project)
 
         # ── Step 3: Per-FR Gate 1 ─────────────────────────────────────────
         if phase in _PER_FR_GATE1_PHASES:
@@ -889,6 +1036,112 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# audit-phase
+# ---------------------------------------------------------------------------
+
+def cmd_audit_phase(args: argparse.Namespace) -> int:
+    """Audit a phase against GitHub artifacts using PhaseAuditor (8-dimension check)."""
+    from scripts.phase_auditor import PhaseAuditor, GitHubFetcher
+
+    print(f"\n{'='*60}\naudit-phase: Phase {args.phase} | repo={args.repo}\n{'='*60}")
+
+    fetcher = GitHubFetcher(repo=args.repo, branch=args.branch)
+    repo_info = fetcher.get_repo_info()
+    if not repo_info:
+        print(f"[ERROR] Cannot access repo: {args.repo} (check gh auth status)")
+        return 1
+
+    auditor = PhaseAuditor(fetcher=fetcher, phase=args.phase)
+    result = auditor.run_all_checks()
+
+    print(f"\n{'─'*60}")
+    print(f"Audit Results — Phase {args.phase}")
+    print(f"{'─'*60}")
+    print(f"  Score        : {result.score:.0f}%")
+    print(f"  Verdict      : {result.verdict}")
+    print(f"  Critical     : {len(result.criticals())}")
+    print(f"  Warnings     : {len(result.warnings())}")
+
+    if args.save:
+        save_path = Path(args.save)
+        if args.output == "json":
+            import json as _json
+            save_path.write_text(_json.dumps({
+                "phase": args.phase, "score": result.score,
+                "verdict": result.verdict,
+                "criticals": len(result.criticals()),
+                "warnings": len(result.warnings()),
+                "findings": [{"severity": f.severity, "check": f.check,
+                              "detail": f.detail}
+                             for f in result.findings],
+            }, indent=2))
+        else:
+            save_path.write_text(str(result))
+        print(f"\nReport saved → {save_path}")
+
+    return 0 if result.verdict != "FAIL" else 1
+
+
+# ---------------------------------------------------------------------------
+# verify-spec
+# ---------------------------------------------------------------------------
+
+def cmd_verify_spec(args: argparse.Namespace) -> int:
+    """Verify implementation complies with spec requirements (6-dimension check)."""
+    from scripts.verify_spec_compliance import SpecComplianceChecker
+
+    project = str(Path(args.project).resolve())
+    print(f"\n{'='*60}\nverify-spec  project={project}\n{'='*60}")
+
+    checker = SpecComplianceChecker(project)
+    result = checker.check_all()
+
+    print(f"\n{'─'*60}")
+    print("Spec Compliance Report")
+    print(f"{'─'*60}")
+    print(f"  Score : {result['score']}")
+
+    if result["passed"]:
+        print("\n  PASSED:")
+        for p in result["passed"]:
+            print(f"    + {p}")
+
+    if result["issues"]:
+        print("\n  ISSUES:")
+        for issue in result["issues"]:
+            print(f"    - {issue}")
+
+    return 0 if not result["issues"] else 1
+
+
+# ---------------------------------------------------------------------------
+# check-logic
+# ---------------------------------------------------------------------------
+
+def cmd_check_logic(args: argparse.Namespace) -> int:
+    """Check code for logic correctness issues (output/branch/lazy-init/semantic)."""
+    from scripts.spec_logic_checker import SpecLogicChecker, SemanticValidator
+
+    project = str(Path(args.project).resolve())
+    print(f"\n{'='*60}\ncheck-logic  project={project}\n{'='*60}")
+
+    checker = SpecLogicChecker(project)
+    result = checker.scan_python_files()
+    checker.print_report(result)
+
+    if args.srs and Path(args.srs).exists():
+        print(f"\n{'─'*60}")
+        print("Semantic Validation (SRS)")
+        print(f"{'─'*60}")
+        validator = SemanticValidator(args.srs)
+        print(f"  Requirements: {len(validator.requirements)}")
+        for fr_id, req in list(validator.requirements.items())[:5]:
+            print(f"  {fr_id}: {req.get('description', '?')[:60]}...")
+
+    return 0 if result.passed else 1
+
+
+# ---------------------------------------------------------------------------
 # CLI wiring
 # ---------------------------------------------------------------------------
 
@@ -962,6 +1215,17 @@ def build_parser() -> argparse.ArgumentParser:
     gnp.add_argument("--phase",   type=int, default=None, help="Override current phase")
     gnp.set_defaults(func=cmd_generate_next_plan)
 
+    # run-gap-analysis (M3)
+    ga = sub.add_parser(
+        "run-gap-analysis",
+        help="M3: Detect gaps between SPEC.md and codebase implementation",
+    )
+    ga.add_argument("--project",    default=".", help="Project root (default: .)")
+    ga.add_argument("--spec",       default="SPEC.md", help="Path to SPEC.md")
+    ga.add_argument("--similarity", type=float, default=0.6,
+                    help="Similarity threshold for matching (default: 0.6)")
+    ga.set_defaults(func=cmd_run_gap_analysis)
+
     # run-pipeline
     rpl = sub.add_parser(
         "run-pipeline",
@@ -975,6 +1239,10 @@ def build_parser() -> argparse.ArgumentParser:
     rpl.add_argument("--force", action="store_true", help="Ignore preflight failures")
     rpl.add_argument("--no-git", action="store_true", dest="no_git",
                      help="Disable all git commit/push operations")
+    rpl.add_argument("--no-kill-switch", action="store_true", dest="no_kill_switch",
+                     help="Disable M1 kill-switch circuit breaker")
+    rpl.add_argument("--drift-threshold", type=float, default=85.0, dest="drift_threshold",
+                     help="M2 drift detection ensemble score threshold (default: 85.0)")
     rpl.set_defaults(func=cmd_run_pipeline)
 
     # manifest
@@ -1004,6 +1272,39 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to enforcement.json (default: enforcement/enforcement.json)",
     )
     rl.set_defaults(func=cmd_reload_policy)
+
+    # audit-phase
+    ap = sub.add_parser(
+        "audit-phase",
+        help="Audit a phase against GitHub artifacts (8-dimension PhaseAuditor check)",
+    )
+    ap.add_argument("--phase",  type=int, required=True, help="Phase number to audit (1-8)")
+    ap.add_argument("--repo",   required=True,
+                    help="GitHub repo in owner/repo format (e.g. johnnylugm-tech/my-project)")
+    ap.add_argument("--branch", default="main", help="Target branch (default: main)")
+    ap.add_argument("--output", choices=["markdown", "json"], default="markdown",
+                    help="Output format (default: markdown)")
+    ap.add_argument("--save",   default=None, metavar="FILE",
+                    help="Save report to file")
+    ap.set_defaults(func=cmd_audit_phase)
+
+    # verify-spec
+    vs = sub.add_parser(
+        "verify-spec",
+        help="Verify implementation complies with spec requirements (6-dimension check)",
+    )
+    vs.add_argument("--project", default=".", help="Project root (default: .)")
+    vs.add_argument("--fix",     action="store_true", help="Attempt auto-fix")
+    vs.set_defaults(func=cmd_verify_spec)
+
+    # check-logic
+    cl = sub.add_parser(
+        "check-logic",
+        help="Check code for logic correctness (output/branch/lazy-init/semantic)",
+    )
+    cl.add_argument("--project", default=".", help="Project root (default: .)")
+    cl.add_argument("--srs",     default=None, help="SRS.md path for semantic validation")
+    cl.set_defaults(func=cmd_check_logic)
 
     return p
 

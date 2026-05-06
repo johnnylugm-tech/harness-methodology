@@ -37,7 +37,7 @@ def _crg_available() -> bool:
 
 def _graph_node_count(repo: str) -> int:
     """Return number of nodes in graph, or 0 if unbuilt / unavailable."""
-    if not _CRG_MCP_AVAILABLE:
+    if not _crg_available():
         return -1
     try:
         stats = _crg_stats(repo_root=repo)
@@ -53,7 +53,7 @@ def ensure_ready(repo: str) -> dict:
     Returns a status dict written to .sessi-work/crg_status.json by
     setup_target.py so downstream steps can read it without re-checking.
     """
-    if not _CRG_MCP_AVAILABLE:
+    if not _crg_available():
         return {
             "available": False,
             "reason": "CRG MCP tools not available — running outside Claude Code",
@@ -97,7 +97,7 @@ def context(repo: str) -> dict:
     Returns a dict with hub_nodes, bridge_nodes, large_functions, stats, etc.
     Feed this to the LLM as pre-compressed context instead of full codebase reads.
     """
-    if not _CRG_MCP_AVAILABLE:
+    if not _crg_available():
         return {
             "error": "CRG MCP tools not available; falling back to full code read"
         }
@@ -130,7 +130,7 @@ def blast_radius(repo: str, base: str = "HEAD") -> dict:
       - test_gaps: changed functions lacking test coverage
       - affected_flows: execution flows impacted
     """
-    if not _CRG_MCP_AVAILABLE:
+    if not _crg_available():
         return {"risk_score": None, "error": "CRG MCP tools not available"}
 
     try:
@@ -159,7 +159,7 @@ def is_risky(radius: dict, threshold: float = 0.7) -> bool:
 
 def update(repo: str) -> dict:
     """Incremental graph refresh after a commit (seconds)."""
-    if not _CRG_MCP_AVAILABLE:
+    if not _crg_available():
         return {"error": "CRG MCP tools not available"}
     try:
         _crg_build(repo_root=repo, full_rebuild=False)
