@@ -163,6 +163,7 @@ class PhaseHooks:
             (self.project_path / "harness" / "core" / "quality_gate" / "__init__.py").exists()
             or (self.project_path / "core" / "quality_gate" / "__init__.py").exists()
             or (self.project_path / "harness_cli.py").exists()
+            or (self.project_path / "harness" / "harness_cli.py").exists()
         )
         missing = [k for k, v in checks.items() if not v]
         if missing:

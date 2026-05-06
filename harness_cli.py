@@ -1159,7 +1159,7 @@ jobs:
         env:
           PHASE: ${{{{ vars.CURRENT_PHASE || '{phase}' }}}}
         run: |
-          python harness_cli.py run-gate --phase $PHASE
+          python harness/harness_cli.py run-gate --phase $PHASE
 
       - name: FR Traceability Check
         run: python harness/scripts/check_fr_full.py --phase ${{{{ vars.CURRENT_PHASE || '{phase}' }}}}
@@ -1178,6 +1178,8 @@ def cmd_init_project(args: argparse.Namespace) -> int:
       4. Set git config quality.phase
       5. Print drift monitor crontab suggestion
     """
+    import subprocess  # imported here (not at module level) to keep startup cost low
+
     project = Path(args.project).resolve()
     phase = args.phase
     harness_root = Path(__file__).parent.resolve()
@@ -1226,7 +1228,6 @@ def cmd_init_project(args: argparse.Namespace) -> int:
         if (hooks_dir / "prepare-commit-msg").exists() and not args.force:
             print("   SKIP: hooks already installed (use --force to reinstall)")
         else:
-            import subprocess
             result = subprocess.run(
                 ["bash", str(hooks_script)],
                 cwd=str(project),
@@ -1241,11 +1242,15 @@ def cmd_init_project(args: argparse.Namespace) -> int:
 
     # 4. Set git config
     print("\n[4/4] Git config...")
-    subprocess.run(
+    gc = subprocess.run(
         ["git", "-C", str(project), "config", "--local", "quality.phase", str(phase)],
         capture_output=True,
+        text=True,
     )
-    print(f"   OK — quality.phase = {phase}")
+    if gc.returncode == 0:
+        print(f"   OK — quality.phase = {phase}")
+    else:
+        print(f"   WARNING: git config failed (rc={gc.returncode}): {gc.stderr.strip()}")
 
     # 5. Drift monitor hint
     print(f"\n{'─'*60}")
