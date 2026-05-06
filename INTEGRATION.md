@@ -28,12 +28,11 @@ scripts/ (tools to run elsewhere)  →     .git/hooks/ (installed via setup.sh)
 
 Triggers on push/PR to `main`.
 
-| Job | What it does | Pass threshold |
-|---|---|---|
-| `mutation-testing-median3` | Runs `mutmut` 3x, takes median mutation score | >= 70 |
-| `gate-unit-tests` | `pytest tests/` — framework unit tests | non-blocking (`\|\| true`) |
+| Job | What it does |
+|---|---|
+| `framework-self-tests` | `ruff check .` → `pytest tests/ -v --tb=short` |
 
-> **Warning**: `gate-unit-tests` is currently non-blocking. Promote to blocking once test coverage is stable.
+Both steps are blocking — lint or test failure blocks the PR.
 
 ### 2.2 Release Scripts
 

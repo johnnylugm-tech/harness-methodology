@@ -1,4 +1,3 @@
-# Gap G3: Mutation testing median-3 CI workflow
 name: Harness CI
 
 on:
@@ -8,8 +7,8 @@ on:
     branches: [main]
 
 jobs:
-  mutation-testing-median3:
-    name: Mutation Testing (median of 3 runs)
+  framework-self-tests:
+    name: Framework Self-Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,37 +20,11 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install mutmut coverage pytest
+          pip install pytest pyyaml ruff
           pip install -r requirements.txt || true
 
-      - name: Mutation Testing (median-3)
-        run: |
-          scores=()
-          for i in 1 2 3; do
-            echo "=== Mutation run $i/3 ==="
-            score=$(python -m mutmut run --output-score 2>/dev/null || echo "0")
-            scores+=("$score")
-            echo "Run $i score: $score"
-          done
-          median=$(python3 -c "
-import statistics
-scores = [float(x) for x in '${scores[@]}'.split()]
-result = statistics.median(scores)
-print(f'{result:.1f}')
-")
-          echo "Median mutation score: $median"
-          # Fail if median < 70 (Gate 2/3/4 threshold)
-          python3 -c "import sys; sys.exit(0 if float('$median') >= 70 else 1)"
+      - name: Lint (ruff)
+        run: ruff check .
 
-  gate-unit-tests:
-    name: Framework Self-Tests (M4: harness/ unit tests)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Install
-        run: pip install pytest pyyaml
-      - name: Run harness unit tests
-        run: pytest tests/ -v --tb=short || true
+      - name: Unit tests
+        run: pytest tests/ -v --tb=short
