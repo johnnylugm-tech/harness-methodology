@@ -20,6 +20,21 @@ crg_status.json
 # NOTE: .methodology/enforcement.json and quality_manifest.example.json are
 #       intentional source artifacts — do NOT add them here.
 
+# ── Coverage artifacts ──────────────────────────────────────────────────────
+coverage.json
+
+# ── Code Review Graph runtime artifacts ─────────────────────────────────────
+.code-review-graph/
+.crg_dead_code_report.md
+
+# ── Quality dashboard runtime artifacts ─────────────────────────────────────
+.quality_dashboard/
+
+# ── Tool caches ─────────────────────────────────────────────────────────────
+.ruff_cache/
+.mypy_cache/
+.benchmarks/
+
 # ── Python build/test artifacts ────────────────────────────────────────────
 __pycache__/
 *.pyc
@@ -28,3 +43,6 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+
+# ── OS metadata ─────────────────────────────────────────────────────────────
+.DS_Store

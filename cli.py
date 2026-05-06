@@ -11,6 +11,23 @@ Usage:
     python cli.py status
 """
 
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║  PARENT-SYSTEM CLI — NOT RUNNABLE IN THIS REPO                             ║
+# ║                                                                             ║
+# ║  This file is the full-system CLI that requires 30+ external modules        ║
+# ║  (progress_dashboard, gantt_chart, sprint_planner, enterprise_hub,          ║
+# ║  steering, etc.) from the parent system. It is NOT runnable standalone      ║
+# ║  in harness-methodology.                                                    ║
+# ║                                                                             ║
+# ║  For standalone harness operations, use:                                    ║
+# ║      python harness_cli.py --help                                           ║
+# ║                                                                             ║
+# ║  This file is kept for:                                                     ║
+# ║  1. Reference — documents the full parent-system command surface            ║
+# ║  2. Parent-system integration — the parent system imports this file         ║
+# ║  3. Version tracking — scripts/bump_version.py reads VERSION from here      ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+
 import sys
 import os
 import argparse

@@ -1,6 +1,7 @@
 # Integration Guide — harness-methodology
 
 > **Scope**: How to maintain the framework itself, and how to wire it into a target development project.
+> For gate embedding and SSI evaluation model, see [`docs/HARNESS_INTEGRATION.md`](docs/HARNESS_INTEGRATION.md).
 >
 > **Last verified**: 2026-05-06 &nbsp;|&nbsp; **Synced with**: SAD.md v2.3
 

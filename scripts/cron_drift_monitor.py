@@ -15,8 +15,8 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from quality_gate.drift_monitor import DriftMonitor  # noqa: E402
-from orchestration import create_feedback_store  # noqa: E402
+from detection import DriftDetector  # noqa: E402
+from detection.drift_detector import DriftResult, DriftSeverity  # noqa: E402
 
 
 def main():
@@ -43,20 +43,20 @@ def main():
 
 def _run_monitor(project_path: str):
     """Execute drift detection and emit alert if threshold exceeded."""
-    store = create_feedback_store()
-    monitor = DriftMonitor(project_path=project_path, feedback_store=store)
-    alert = monitor.run_and_alert()
+    detector = DriftDetector(project_path)
+    results = detector.detect_all()
 
-    if alert:
-        print(f"[{alert.timestamp}] DRIFT ALERT: {alert.severity.upper()} - {alert.message}")
-        print(f"  Drift score: {alert.drift_score}")
-        print(f"  Artifacts: {', '.join(alert.artifacts)}")
-        print(f"  Recommended action: {alert.recommended_action}")
-        print(f"  Alert ID: {alert.id}")
-        raise SystemExit(1)
-    else:
+    drifts = {k: v for k, v in results.items() if v.drifted}
+    if not drifts:
         import datetime
         print(f"[{datetime.datetime.now().isoformat()}] No drift detected.")
+        return
+
+    avg_score = sum(r.score for r in drifts.values()) / len(drifts) * 100
+    for key, result in drifts.items():
+        print(f"[DRIFT] {key}: score={result.score:.2f} severity={result.severity}")
+    print(f"  Total drifts: {len(drifts)}, Avg score: {avg_score:.0f}%")
+    raise SystemExit(1)
 
 
 if __name__ == "__main__":

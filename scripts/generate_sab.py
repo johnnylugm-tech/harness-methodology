@@ -34,7 +34,13 @@ def parse_sad(sad_path: str) -> dict:
     try:
         from quality_gate.sab_parser import extract_sab_from_sad
     except ImportError:
-        from sab_parser import extract_sab_from_sad
+        try:
+            from sab_parser import extract_sab_from_sad
+        except ImportError:
+            raise ImportError(
+                "sab_parser module not found. The SAB parser has not been implemented yet. "
+                "See SAD.md §6 for the SAB block format."
+            )
 
     sab_spec = extract_sab_from_sad(sad_path)
     if sab_spec is None:
@@ -74,7 +80,13 @@ def main():
     try:
         from quality_gate.sab_parser import extract_sab_from_sad
     except ImportError:
-        from sab_parser import extract_sab_from_sad
+        try:
+            from sab_parser import extract_sab_from_sad
+        except ImportError:
+            raise ImportError(
+                "sab_parser module not found. The SAB parser has not been implemented yet. "
+                "See SAD.md §6 for the SAB block format."
+            )
 
     sab_spec = extract_sab_from_sad(sad_file)
     if sab_spec is None:

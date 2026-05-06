@@ -1,6 +1,9 @@
 # HARNESS_INTEGRATION.md
 # Gate Embedding: methodology-v2 × software_self_improvement
 
+> **Scope**: How gates embed into the 8-phase ASPICE workflow (SSI model, per-phase SOP changes, CRG integration).
+> For installation/wiring/setup, see [`INTEGRATION.md`](../INTEGRATION.md) at repo root.
+
 ## Overview
 
 The harness-methodology embeds 4 quality Gates into the existing 8-Phase ASPICE workflow.

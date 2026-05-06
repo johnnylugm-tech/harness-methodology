@@ -37,51 +37,25 @@ tail -f logs/drift_monitor.log
 
 ## Notification Setup
 
+> **Note**: Email/Slack notification channels (`drift_notifier`, `EmailChannel`, `SlackChannel`) are **planned but not yet implemented**. Currently log-only via `cron_drift_monitor.py` → `detection.DriftDetector`.
+
 ### Default (Log)
 
-Script uses `LogChannel` by default, writing alerts to `logs/drift_alerts.log`.
-
-### Email
-
-```python
-from quality_gate.drift_notifier import DriftNotifier, EmailChannel
-
-notifier = DriftNotifier(channels=[
-    EmailChannel(
-        smtp_host="smtp.gmail.com",
-        smtp_port=587,
-        from_addr="alerts@yourdomain.com",
-        to_addrs=["admin@yourdomain.com"],
-    ),
-])
-```
-
-### Slack
-
-```python
-from quality_gate.drift_notifier import DriftNotifier, SlackChannel
-
-notifier = DriftNotifier(channels=[
-    SlackChannel(webhook_url="https://hooks.slack.com/services/YOUR/WEBHOOK/URL"),
-])
-```
+Script writes drift alerts to `logs/drift_monitor.log`.
 
 ## File Structure
 
 ```
 scripts/
-+-- cron_drift_monitor.py      # Cron runner
-+-- drift_crontab.example      # Crontab example
++-- cron_drift_monitor.py      # Cron runner (uses detection.DriftDetector)
 +-- DRIFT_CRON_SETUP.md        # This file
 
-quality_gate/
-+-- drift_monitor.py           # Updated: supports notifier param
-+-- drift_notifier.py          # Notification system (log, email, slack)
+detection/
++-- drift_detector.py          # Drift detection engine (DriftDetector)
 ```
 
 ## Acceptance Criteria
 
 - [x] `cron_drift_monitor.py` runs standalone
-- [x] `drift_crontab.example` contains full crontab config
-- [x] `DriftNotifier` supports multiple channels (log, email, slack)
-- [x] `DriftMonitor` integrates `notifier`
+- [ ] `DriftNotifier` supports multiple channels (log, email, slack) — **planned**
+- [ ] `DriftMonitor` integrates `notifier` — **planned**

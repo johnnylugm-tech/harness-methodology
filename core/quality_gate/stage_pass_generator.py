@@ -51,8 +51,8 @@ sys.path.insert(0, str(_parent_dir))
 
 from enforcement.framework_enforcer import FrameworkEnforcer  # noqa: E402
 from pathlib import Path  # noqa: E402
-from quality_gate.claims_verifier import ClaimsVerifier  # noqa: E402
-from quality_gate.phase_config import PHASE_CONFIG  # noqa: E402
+from core.quality_gate.claims_verifier import ClaimsVerifier  # noqa: E402
+from core.quality_gate.phase_config import PHASE_CONFIG  # noqa: E402
 
 VERSION = "1.1.0"
 SKILL_REF = "methodology-v2 v6.13"

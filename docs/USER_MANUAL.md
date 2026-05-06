@@ -707,7 +707,7 @@ Claude 策略：
 請幫我套用 harness-methodology 的 GitHub 整合。
 
 Claude 會依序確認並執行：
-1. quality_gate/ 可 import（submodule / clone+PYTHONPATH / 直接複製）
+1. harness 可 import（submodule / clone+PYTHONPATH / 直接複製）
 2. setup-git-hooks.sh 安裝 hooks 到目標專案 .git/hooks/
 3. git config quality.phase 3
 4. 建立 CI workflow（.github/workflows/harness_quality_gate.yml）
@@ -972,7 +972,7 @@ python harness_cli.py run-phase --phase 3 --project /project --force
 
 ### 12.1 One-Time Setup (Idempotent)
 
-**Step 0 — install `quality_gate/` module** (once per machine, not per project):
+**Step 0 — install harness** (once per machine, not per project):
 
 ```bash
 # Option A — git submodule (recommended)
@@ -983,8 +983,9 @@ git submodule add https://github.com/johnnylugm-tech/harness-methodology harness
 git clone https://github.com/johnnylugm-tech/harness-methodology ~/.harness
 echo 'export PYTHONPATH=~/.harness:$PYTHONPATH' >> ~/.zshrc
 
-# Option C — copy quality_gate/ into project
-cp -r /path/to/harness-methodology/quality_gate /your/target/project/
+# Option C — copy harness/ into project
+cp -r /path/to/harness-methodology/harness /your/target/project/
+cp /path/to/harness-methodology/harness_cli.py /your/target/project/
 ```
 
 **Steps 1–3 — run the init script** (idempotent, safe to re-run):
@@ -1023,7 +1024,7 @@ bash "$(dirname "$0")/harness/scripts/harness-init.sh" --phase 1
 ```bash
 git config quality.phase                              # → current phase number
 ls .git/hooks/prepare-commit-msg .git/hooks/pre-push  # → both should exist
-python3 -c "import quality_gate.cli; print('OK')"    # → OK
+python3 harness/harness_cli.py --help                            # → shows commands
 ```
 
 ### 12.3 Phase Transition

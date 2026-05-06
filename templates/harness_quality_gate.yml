@@ -8,6 +8,8 @@ name: Harness Quality Gate
 on:
   pull_request:
     branches: [main, master]
+  push:
+    branches: [main, master]
 
 jobs:
   gate-check:
@@ -15,16 +17,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: true   # required if quality_gate/ is installed as a submodule
+          submodules: true
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
-        run: pip install pyyaml
+      - name: Install harness dependencies
+        run: |
+          pip install pyyaml
+          pip install -r harness/requirements.txt || true
 
       - name: Run Quality Gate (current phase)
         env:
           PHASE: ${{ vars.CURRENT_PHASE || '3' }}
-        run: python -m quality_gate.cli quality check-phase $PHASE --block
+        run: |
+          python harness/harness_cli.py run-gate --phase $PHASE
+
+      - name: FR Traceability Check
+        run: python harness/scripts/check_fr_full.py --phase ${{ vars.CURRENT_PHASE || '3' }}
+        continue-on-error: true
