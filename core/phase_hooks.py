@@ -165,28 +165,27 @@ class PhaseHooks:
                 return {"passed": True, "skipped": True, "message": "SAB not required before P3"}
 
         try:
-            import json as _json
-            sab = _json.loads(sab_json.read_text(encoding="utf-8"))
+            sab = json.loads(sab_json.read_text(encoding="utf-8"))
         except Exception as e:
             return {"passed": False, "message": f"Failed to parse SAB.json: {e}"}
 
         layers = sab.get("layers", [])
-        deps = sab.get("dependencies", {})
+        allowed_deps = sab.get("dependencies", {})
         violations: list[str] = []
 
         if not layers:
             return {"passed": True, "skipped": True, "message": "SAB has no layer definitions"}
 
-        print(f"   Layers: {len(layers)}, Dependencies: {len(deps)}")
+        layer_names = {layer.get("name", "") for layer in layers}
+        print(f"   Layers: {len(layers)}, Dependencies: {len(allowed_deps)}")
         for layer in layers:
             layer_name = layer.get("name", "?")
             modules = layer.get("modules", [])
-            allowed = layer.get("allowed_dependencies", [])
-            actual_deps = deps.get(layer_name, [])
-            extra_deps = set(actual_deps) - set(allowed)
-            if extra_deps:
+            declared_deps = allowed_deps.get(layer_name, [])
+            invalid_deps = [d for d in declared_deps if d not in layer_names]
+            if invalid_deps:
                 violations.append(
-                    f"Layer {layer_name}: deps {sorted(extra_deps)} not in allowed {sorted(allowed)}"
+                    f"Layer {layer_name}: deps {invalid_deps} reference unknown layers"
                 )
             missing_modules = [
                 m for m in modules

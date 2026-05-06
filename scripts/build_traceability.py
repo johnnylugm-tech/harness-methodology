@@ -105,12 +105,15 @@ def scan_sad_fr_modules(sad_path: Path) -> Dict[str, List[str]]:
     if not sad_path.exists():
         return fr_to_modules
     text = sad_path.read_text(encoding="utf-8", errors="replace")
-    # Pattern: FR-XX followed by backtick-quoted .py file on same line
-    for m in re.finditer(r'FR-(\d+)[^\n]*?`([^`]+\.py)`', text):
-        fr_id = _norm_fr(m.group(1))
-        module = m.group(2)
-        if module not in fr_to_modules.get(fr_id, []):
-            fr_to_modules.setdefault(fr_id, []).append(module)
+    # Pattern: FR-XX and backtick-quoted .py file on same table row
+    for line in text.splitlines():
+        if "|" not in line:
+            continue
+        for m in re.finditer(r'FR-(\d+)[^\n]*?`([^`]+\.py)`', line):
+            fr_id = _norm_fr(m.group(1))
+            module = m.group(2)
+            if module not in fr_to_modules.get(fr_id, []):
+                fr_to_modules.setdefault(fr_id, []).append(module)
     return fr_to_modules
 
 
@@ -118,9 +121,11 @@ def _skip_path(p: Path) -> bool:
     """Exclude virtualenvs, caches, and harness internals."""
     skip_tokens = {"venv", "__pycache__", ".sessi-work", ".methodology",
                    ".git", "node_modules", ".mypy_cache", ".pytest_cache",
-                   ".ruff_cache", "dist", "build", "*.egg-info"}
+                   ".ruff_cache", "dist", "build"}
     parts = set(p.parts)
-    return bool(parts & skip_tokens)
+    if parts & skip_tokens:
+        return True
+    return any(part.endswith(".egg-info") for part in p.parts)
 
 
 # ---------------------------------------------------------------------------

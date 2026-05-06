@@ -232,8 +232,11 @@ def _find_sad(project: Path) -> Optional[Path]:
 def _skip_path(p: Path) -> bool:
     skip_tokens = {"venv", "__pycache__", ".sessi-work", ".methodology",
                    ".git", "node_modules", ".mypy_cache", ".pytest_cache",
-                   ".ruff_cache", "dist", "build", "*.egg-info"}
-    return bool(set(p.parts) & skip_tokens)
+                   ".ruff_cache", "dist", "build"}
+    parts = set(p.parts)
+    if parts & skip_tokens:
+        return True
+    return any(part.endswith(".egg-info") for part in p.parts)
 
 
 if __name__ == "__main__":
