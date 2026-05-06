@@ -222,7 +222,7 @@ class FrameworkEnforcer:
     def check_phase_traceability(self) -> Dict:
         """Run check phase traceability validation."""
         try:
-            from core.quality_gate.phase_artifact_enforcer import PhaseArtifactRegistry, Phase  # noqa: F401
+            from core.quality_gate.phase_artifact_enforcer import PhaseArtifactRegistry, Phase
         except ImportError:
             return {
                 "all_verified": True,

@@ -2255,3 +2255,270 @@ python3 -m software_self_improvement.runner
 | `cli.py` standalone boundary | `cli.py` (288KB, v6.102.0) | Requires 30+ external modules; cannot run in harness-only mode. Intentional design boundary — add explicit note in README that `harness_cli.py` is the standalone entry point |
 | `phase_auditor.py` | `scripts/phase_auditor.py` | ✅ Documented in §3.20 |
 | `EnsembleScorer` threshold calibration | `detection/ensemble_scorer.py` | `PASS_THRESHOLD = 0.65` is arbitrary; recalibrate against real project runs once empirical data is available (targeted after first P2 project run) |
+
+---
+
+## 9. Agent Execution Loop
+
+The agent has **exactly one source of truth at any moment**:
+
+| Moment | Source of truth | What the agent does |
+|--------|----------------|---------------------|
+| Session start / phase entry | **SKILL.md** | Read framework rules, phase routing, gate protocol |
+| Inside a phase | **phase plan file** | Follow the plan step-by-step (do NOT re-read SKILL.md for task details) |
+| After a crash / context reset | **`generate-next-plan`** | Get position report, then resume plan |
+
+### Two Execution Modes — Pick One Per Phase, Never Mix
+
+| Mode | Command | When to use |
+|------|---------|-------------|
+| **Manual (default)** | Follow `phaseN_plan.md` checklist top-to-bottom | Normal autonomous execution |
+| **Automated** | `harness_cli.py run-pipeline` | Pipeline automation; pauses (exit 10) when gate result missing |
+
+> **Rule**: choose one mode per phase. Running `run-pipeline` while also manually executing a phase plan checklist creates double-execution and duplicate gate evaluations.
+
+### Execution Loop (per phase) — Manual Mode
+
+```
+1. ENTER PHASE
+   python harness_cli.py plan-phase --phase N --repo $REPO \
+       --output $REPO/.methodology/phaseN_plan.md
+   → ONE command. plan-phase calls generate_full_plan.py internally.
+   → Plan is THE complete authority for phase N (preflight + A/B dev + gates + advance)
+
+2. FOLLOW PLAN
+   Execute checklist items top-to-bottom. Key block types:
+     [PREFLIGHT]    run-phase --phase N   (FSM + Constitution + kill-switch + drift)
+     [A/B Work]     Agent A develops → Agent B reviews → sessions_spawn.log
+     [CHECKPOINT-K] run-gate → evaluate inline → finalize-gate → git push
+
+3. GATE FAIL?
+   Gate 1: fix failing dim(s) → repeat G1a→G1b→G1c until PASS → then G1d push
+   Gate 2/3/4: fix → repeat G{N}a until CASE 1 PASS or CASE 3 PLATEAU
+
+4. CHECKPOINT SAVED
+   After every git push: continue to next checklist item.
+   Do NOT call generate-next-plan unless recovering from a crash.
+
+5. PHASE COMPLETE
+   Follow "Phase N → Phase N+1" section at end of plan (back to step 1).
+```
+
+### Phase Completion Checklist (Mandatory — Every Phase)
+
+Before advancing to the next phase, the agent MUST confirm ALL of the following:
+
+| # | Step | How | Applies to |
+|---|------|-----|------------|
+| 1 | All checkpoints ✓ | Review plan — every `CHECKPOINT-K` marked done | All phases |
+| 2 | HANDOVER.md written | `harness_cli.py` writes it automatically via GitStrategy on push | All phases |
+| 3 | Git pushed to remote | Confirmed push output (no "push skipped" message) | All phases |
+| 4 | Next phase plan exists | `plan-phase --phase N+1` must have been run | P1–P7 |
+| 5 | state.json updated | Phase advanced in `.methodology/state.json` | All phases |
+| 6 | Git tag (Gate 4 only) | `harness-v4-YYYYMMDD-scoreXX` pushed to origin | P6 exit |
+
+> **HANDOVER.md** is written to the project root at every phase-boundary push.
+> It contains: checkpoint_id, phase, background, current status, next steps.
+> After a crash, read HANDOVER.md first — it tells you where you were and what to do next.
+
+### Recovery (after crash or context reset)
+
+```bash
+# Where am I?
+python harness_cli.py generate-next-plan --project $REPO
+
+# Output example:
+#   Phase      : 3 (Implementation)
+#   Plan file  : .methodology/phase3_plan.md  <- open this file
+#   Last ckpt  : CHECKPOINT-2 (Gate 1 / FR-02) PASS
+#   Next ckpt  : CHECKPOINT-3 (Gate 1 / FR-03)
+#   [ACTION]     search plan for "CHECKPOINT-3", resume from there
+
+# Then: open plan file, search "### CHECKPOINT-3", follow from there.
+```
+
+### Decision Rules
+
+- **SKILL.md governs**: phase order, gate thresholds, hard rules (HR-01–HR-15), A/B protocol.
+- **Plan governs**: task sequence within a phase; specific file paths; CLI commands.
+- **Conflict resolution**: SKILL.md wins on rules; plan wins on task sequence.
+- **Do NOT re-read SKILL.md** mid-phase for task details — the plan is the authority.
+- **generate-next-plan** is for recovery only; do not call it during normal execution.
+
+---
+
+## 10. Autonomous Execution Protocol
+
+Claude Code can run the **full P1→P8 pipeline autonomously** using the Bash tool.
+Humans are required at only **3 checkpoints**.
+
+### One-Prompt Launch
+
+> **Prerequisite**: SRS.md must exist with `### FR-XX:` sections defining each functional requirement.
+> SAD.md must document architecture decisions. Both are **human-provided preconditions** —
+> the pipeline pauses at P1/P2 exit (code 10) until these files are present.
+> P1/P2 are NOT auto-generated by the agent; the human creates or provides them,
+> then re-runs `run-pipeline --phase-from 1` to proceed.
+
+```
+"Build [description]. Repo: [path]. Tech: [stack].
+Run harness-methodology P1→P8 autonomously.
+Gate 4 needs my Telegram APPROVE — handle everything else."
+```
+
+### Full Pipeline Command
+
+```bash
+# P3+ plan is generated dynamically after SAD.md exists (P2 output)
+# Pipeline pauses (exit 10) when a gate result is missing — evaluate then resume
+python harness_cli.py run-pipeline \
+  --phase-from 1 --phase-to 8 \
+  --project /path/to/project
+
+# Resume after human provides SRS.md (P1) or SAD.md (P2)
+python harness_cli.py run-pipeline --phase-from 3 --project /path/to/project
+```
+
+### Per-Phase A/B Work Content
+
+| Phase | Agent A Role | Agent B Role | Agent A Task | Agent B Task |
+|-------|------------|------------|--------------|--------------|
+| **P1** | REQUIREMENTS_ENGINEER | BUSINESS_ANALYST | Draft SRS.md with `### FR-XX:` sections per requirement | Review SRS.md against business goals; verify all FR-IDs are traceable |
+| **P2** | ARCHITECT | TECH_LEAD | Design architecture (SAD.md); write ADR.md for key decisions | Review SAD.md for feasibility, consistency, and SRS alignment |
+| **P3** | DEVELOPER | REVIEWER | TDD: RED (write failing test) → GREEN (implement FR) → REFACTOR | Review code against SRS/SAD; verify tests pass; check citations |
+| **P4** | QA_ENGINEER | ARCHITECT | Execute TEST_PLAN.md per FR; verify branch coverage ≥ 80%; run regression suite | Review test results; confirm coverage gaps are documented; validate test traceability to FRs |
+| **P5** | DEVELOPER | REVIEWER | Verify each FR's acceptance criteria against SRS.md; confirm deliverable completeness | Review acceptance verification; cross-check BASELINE.md against SRS + Gate 2/3 results |
+| **P6** | QA_ENGINEER | ARCHITECT | Generate QUALITY_REPORT.md (12-dim audit); prepare RELEASE_NOTES.md | Review quality report; confirm all FRs are merged and Gate 4 score ≥ 85 |
+| **P7** | DEVOPS | ARCHITECT | Assess risk per FR (impact × likelihood); draft mitigation plans; populate RISK_REGISTER.md | Review risk assessments; verify mitigation plans are actionable; check RISK_STATUS_REPORT.md |
+| **P8** | DEVOPS | ARCHITECT | Document config per FR (env vars, feature flags, secrets); populate CONFIG_RECORDS.md | Review config records; verify environment parity (dev/staging/prod); confirm no secret leaks |
+
+> All phases: Agent A ≠ Agent B (HR-01). Both write to `sessions_spawn.log` (HR-10).
+> P3/P4/P5/P7/P8: 2 entries per FR. P1/P2/P6: 2 entries per phase.
+
+### Mandatory Human Checkpoints
+
+| # | Phase | When | Required Action |
+|---|---|---|---|
+| 1 | P1 exit | SRS.md ready | Human reads SRS.md → APPROVE / REJECT |
+| 2 | P2 exit | SAD.md + ADR.md ready | Human reads deliverables → APPROVE / REJECT |
+| 3 | P6 exit | Gate 4 evaluation done | Click APPROVE on Telegram (Hermes MCP) |
+
+### Pipeline Exit Codes
+
+| Code | Meaning | Action |
+|---|---|---|
+| 0 | All phases complete | Done |
+| 1 | Hard error | Diagnose |
+| 2 | Critical gaps detected (M3 run-gap-analysis) | Fix gaps, re-run |
+| 10 | PAUSE — gate evaluation needed | Run-gate → evaluate → finalize-gate → re-run pipeline |
+| 11 | Phase Truth < 70% (HR-11) | Fix and re-run with `--phase-from N` |
+
+---
+
+## 11. Phase E2E Flow
+
+Full Mermaid diagram: [`docs/superpowers/plans/harness_phase_flowchart.md`](docs/superpowers/plans/harness_phase_flowchart.md)
+
+### Phase Entry/Exit Matrix
+
+| Phase | Entry Check | Exit Gate | Exit Score | Structure | Key Artifacts |
+|-------|---|---|---|---|---|
+| **P1** | None | Human peer review | N/A | Static | SRS.md + sessions_spawn.log |
+| **P2** | Human (P1 APPROVE) | Human peer review | N/A | Static | SAD.md, ADR.md, quality_manifest.json + sessions_spawn.log |
+| **P3** | Human (P2 APPROVE) | Gate 2 | ≥ 75 | Per-FR Loop | Code + sessions_spawn.log |
+| **P4** | Gate 2 (P3) | Gate 3 | ≥ 80 | Per-FR Loop | TEST_RESULTS.md + sessions_spawn.log |
+| **P5** | Gate 3 (P4) | Gate 3 | ≥ 80 | Per-FR Loop | BASELINE.md + sessions_spawn.log |
+| **P6** | Gate 3 (P5) | **Gate 4** | ≥ 85 | **No FR loop** | QUALITY_REPORT.md, RELEASE_NOTES.md + sessions_spawn.log |
+| **P7** | Gate 4 (P6) | Gate 4 (cleared by P6) | ≥ 85 | Per-FR Loop | RISK_REGISTER.md + sessions_spawn.log |
+| **P8** | Gate 4 (P6) | Gate 4 (cleared by P6) | ≥ 85 | Per-FR Loop | CONFIG_RECORDS.md + sessions_spawn.log |
+
+> P7/P8 exit: "Cleared by P6 Gate 4" — no separate gate evaluation; Phase Truth check only (HR-11: ≥ 70%).
+
+### Critical Notes
+
+**P6: No Per-FR Loop**
+P6 does NOT have a per-FR loop. Gate 4 evaluates all 12 dimensions across the entire project at once.
+
+**Hermes APPROVE (P6 Gate 4)**
+- Trigger: `messages_send` to `HERMES_REVIEWER_TARGET` env var (e.g. `telegram:USER_ID`)
+- Timeout: 120 s (`GATE4_HERMES_TIMEOUT_MS=120000`; env-overridable via `HERMES_TIMEOUT_MS`)
+- Fallback: cold-read (`messages_read`) if no reply within timeout
+- Failure: Hermes unavailable or reviewer rejects → escalate to human
+
+**Phase Truth (HR-11, P3–P8)**
+`PhaseTruthVerifier` runs automatically after each phase exit gate. Requires ≥ 70%:
+
+| Phase range | FrameworkEnforcer | sessions_spawn.log | pytest pass | coverage |
+|---|---|---|---|---|
+| P1–P2 | 60% | 40% | — | — |
+| P3–P4 | 35% | 25% | 25% | 15% |
+| P5–P8 | 60% | 40% | — | — |
+
+**Preflight Hooks (all phases)**
+`run-phase` runs before each phase work loop: FSM state check → KillSwitch status → Constitution validation → CI readiness → Tool registry → DriftDetector (P3+) → GapDetector (P4+).
+
+**Entry Gate Checks (P2–P8)**
+- P2: git log contains `phase1(human-review): Phase 1 deliverables APPROVED`
+- P3–P5: `quality_manifest.json` exists + predecessor Gate PASS
+- P6–P8: `quality_manifest.json` exists + P6 Gate 4 PASS
+
+---
+
+## 12. Gate Evaluation Protocol
+
+SSI is a Claude Code skill — Claude IS the evaluation engine. Gates are evaluated inline, not via subprocess.
+
+### Two-Phase CLI Flow
+
+| Step | Command | What happens |
+|---|---|---|
+| **1. Prepare** | `run-gate --gate N --phase P [--fr-id FR-XX]` | Loads config, triggers CRG recon if available, prints evaluation prompt to stdout |
+| **2. Evaluate** | *(Claude reads stdout)* | Claude evaluates each dimension → writes result JSON to `.sessi-work/gate{N}_result.json` |
+| **3. Finalize** | `finalize-gate --gate N --phase P [--fr-id FR-XX]` | Reads result JSON, checks thresholds, updates manifest, commits |
+
+```bash
+python harness_cli.py run-gate     --gate 2 --phase 3 --project .
+# (Claude evaluates inline)
+python harness_cli.py finalize-gate --gate 2 --phase 3 --project .
+```
+
+### Result File Contract
+
+**Location**: `$PROJECT/.sessi-work/gate{N}_result.json`
+
+**Schema**: `harness/ssi/schemas/harness_gate_result.schema.json`
+
+```json
+{
+  "overall_score": 85.0,
+  "meets_target": true,
+  "quality_complete": true,
+  "open_critical_count": 0,
+  "open_high_count": 0,
+  "breakdown": {
+    "dimension_name": {"score": 90.0, "threshold": 80.0, "passed": true, "issues": []}
+  }
+}
+```
+
+> Note: `_parse_result()` accepts both `open_critical_count` and `open_critical` (dual-fallback) — see §8.2.
+
+### SSI Assets Location
+
+| Asset | Path (submodule) | Purpose |
+|---|---|---|
+| Evaluation prompt | `harness/ssi/prompts/evaluate_dimension.md` | Per-dimension scoring instructions |
+| Verification prompt | `harness/ssi/prompts/verify_round.md` | Round verification |
+| Scripts | `harness/ssi/scripts/` | `score.py`, `issue_tracker.py`, etc. |
+| Schema | `harness/ssi/schemas/harness_gate_result.schema.json` | Result validation |
+
+### Gate Thresholds
+
+| Gate | Trigger | Composite threshold | Blocking condition |
+|---|---|---|---|
+| Gate 1 | Per-FR completion (P3/P4/P5/P7/P8) | Each dimension ≥ individual threshold | Any dimension below threshold |
+| Gate 2 | P3 phase exit | ≥ 75 AND `quality_complete=True` | Score or completeness fail |
+| Gate 3 | P4/P5 phase exit | ≥ 80 AND `quality_complete=True` | Score or completeness fail |
+| Gate 4 | P6 full project | ≥ 85 AND `quality_complete=True` AND Hermes APPROVE | Score, completeness, or no APPROVE |
+
+> Authoritative threshold source: `constitution/CONSTITUTION.md` §2.

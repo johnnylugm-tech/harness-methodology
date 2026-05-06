@@ -139,14 +139,16 @@ State stored in `.methodology/state.json`:
 
 | Need | Where |
 |------|-------|
-| Module API (kill_switch, detection, gap_detector, core/, enforcement/) | `SAD.md` §3–§4 |
+| Module API (kill_switch, detection, gap_detector, core/, enforcement/) | `SAD.md` §3–§6 |
+| Agent execution loop, modes, phase completion checklist, recovery | `SAD.md` §9 |
+| Autonomous pipeline, per-phase A/B roles table (P1–P8), human checkpoints | `SAD.md` §10 |
+| Phase E2E flow, entry/exit matrix, preflight hooks, Phase Truth weights | `SAD.md` §11 |
+| Gate evaluation CLI flow, result file schema, SSI assets | `SAD.md` §12 |
 | CLI commands (plan-phase, run-gate, run-pipeline, etc.) | `harness_cli.py --help` |
 | Gate thresholds & quality dimensions | `constitution/CONSTITUTION.md` §2 |
-| SSI evaluation prompts & scripts | `harness/ssi/prompts/`, `harness/ssi/scripts/` |
+| Full Mermaid phase flowchart | `docs/superpowers/plans/harness_phase_flowchart.md` |
+| Integration setup (git hooks, CI, submodule, init-project) | `INTEGRATION.md` |
 | Crash recovery position | `python harness_cli.py generate-next-plan` |
-| E2E phase flowchart (all 8 phases, gates, A/B roles) | `docs/superpowers/plans/harness_phase_flowchart.md` |
-| Integration setup (git hooks, CI, submodule) | `INTEGRATION.md` |
-| Phase Truth weights & verifier | `core/quality_gate/phase_truth_verifier.py` |
 | Constitution rule parser & HR compliance | `constitution/` directory |
 | A/B agent personas | `agent_personas/` directory |
 

@@ -18,6 +18,24 @@ import sys
 from pathlib import Path
 
 
+def _import_extract_sab_from_sad():
+    """Import extract_sab_from_sad, trying both package locations."""
+    try:
+        from quality_gate.sab_parser import extract_sab_from_sad
+        return extract_sab_from_sad
+    except ImportError:
+        pass
+    try:
+        from sab_parser import extract_sab_from_sad
+        return extract_sab_from_sad
+    except ImportError:
+        raise ImportError(
+            "sab_parser module not found in quality_gate.sab_parser or sab_parser. "
+            "Check PYTHONPATH includes the harness-methodology root. "
+            "See SAD.md §6 for the SAB block format."
+        )
+
+
 def parse_sad(sad_path: str) -> dict:
     """
     Parse SAD.md and return SAB dict keyed for harness_bridge compatibility.
@@ -31,16 +49,7 @@ def parse_sad(sad_path: str) -> dict:
     Raises:
         RuntimeError if SAD.md has no SAB block or cannot be parsed.
     """
-    try:
-        from quality_gate.sab_parser import extract_sab_from_sad
-    except ImportError:
-        try:
-            from sab_parser import extract_sab_from_sad
-        except ImportError:
-            raise ImportError(
-                "sab_parser module not found. The SAB parser has not been implemented yet. "
-                "See SAD.md §6 for the SAB block format."
-            )
+    extract_sab_from_sad = _import_extract_sab_from_sad()
 
     sab_spec = extract_sab_from_sad(sad_path)
     if sab_spec is None:
@@ -77,16 +86,7 @@ def main():
     print(f"Output: {output_file}")
 
     sys.path.insert(0, str(project))
-    try:
-        from quality_gate.sab_parser import extract_sab_from_sad
-    except ImportError:
-        try:
-            from sab_parser import extract_sab_from_sad
-        except ImportError:
-            raise ImportError(
-                "sab_parser module not found. The SAB parser has not been implemented yet. "
-                "See SAD.md §6 for the SAB block format."
-            )
+    extract_sab_from_sad = _import_extract_sab_from_sad()
 
     sab_spec = extract_sab_from_sad(sad_file)
     if sab_spec is None:

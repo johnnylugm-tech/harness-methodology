@@ -25,8 +25,12 @@ jobs:
 
       - name: Install harness dependencies
         run: |
-          pip install pyyaml
+          pip install pyyaml ruff
           pip install -r harness/requirements.txt || true
+
+      - name: Lint (ruff — advisory)
+        run: ruff check .
+        continue-on-error: true
 
       - name: Run Quality Gate (current phase)
         env:

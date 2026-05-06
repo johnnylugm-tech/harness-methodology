@@ -16,7 +16,6 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from detection import DriftDetector  # noqa: E402
-from detection.drift_detector import DriftResult, DriftSeverity  # noqa: E402
 
 
 def main():
@@ -54,7 +53,9 @@ def _run_monitor(project_path: str):
 
     avg_score = sum(r.score for r in drifts.values()) / len(drifts) * 100
     for key, result in drifts.items():
-        print(f"[DRIFT] {key}: score={result.score:.2f} severity={result.severity}")
+        severities = [item.severity.value for item in result.drift_items] if result.drift_items else []
+        worst = max(severities, default="UNKNOWN")
+        print(f"[DRIFT] {key}: score={result.score:.2f} items={len(result.drift_items)} worst={worst}")
     print(f"  Total drifts: {len(drifts)}, Avg score: {avg_score:.0f}%")
     raise SystemExit(1)
 
