@@ -362,10 +362,35 @@ def cmd_generate_next_plan(args: argparse.Namespace) -> int:
 # manifest
 # ---------------------------------------------------------------------------
 
+def _generate_sab_json(project: Path) -> bool:
+    """Run scripts/generate_sab.py to produce .methodology/SAB.json. Returns True on success."""
+    import subprocess  # nosec B404
+    sab_script = Path(__file__).parent / "scripts" / "generate_sab.py"
+    if not sab_script.exists():
+        print("  [SAB] generate_sab.py not found — skipping SAB.json generation")
+        return False
+    try:
+        result = subprocess.run(  # nosec B603 B607
+            ["python3", str(sab_script), "--project", str(project)],
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode == 0:
+            sab_path = project / ".methodology" / "SAB.json"
+            print(f"  [SAB] SAB.json written → {sab_path}")
+            return True
+        else:
+            print(f"  [SAB] WARNING: generate_sab.py failed: {result.stderr[:200]}")
+            return False
+    except Exception as exc:
+        print(f"  [SAB] WARNING: SAB generation error: {exc}")
+        return False
+
+
 def cmd_manifest(args: argparse.Namespace) -> int:
     """Generate quality_manifest.json at P2 exit."""
     from harness.harness_bridge import HarnessBridge
 
+    project = Path(args.sad).resolve().parent
     bridge = HarnessBridge()
     out = bridge.generate_quality_manifest(
         fr_ids=args.fr_ids,
@@ -375,7 +400,8 @@ def cmd_manifest(args: argparse.Namespace) -> int:
     manifest = json.loads(out.read_text(encoding="utf-8"))
     print(f"  fr_ids        : {manifest['fr_ids']}")
     print(f"  generated_at  : phase {manifest['generated_at_phase']}")
-    git = _make_git(args, Path(args.sad).resolve().parent)
+    _generate_sab_json(project)
+    git = _make_git(args, project)
     git.ensure_gitignore()
     git.commit_and_push_p2(args.fr_ids)
     return 0
@@ -896,6 +922,7 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
                     return 1
                 bridge.generate_quality_manifest(fr_ids, str(sad))
                 print(f"[P2] quality_manifest.json created  fr_ids={fr_ids}")
+                _generate_sab_json(project)
                 git.commit_and_push_p2(fr_ids)  # PUSH ②
             continue
 
@@ -1256,7 +1283,7 @@ def cmd_init_project(args: argparse.Namespace) -> int:
     print(f"\n{'─'*60}")
     print("Optional: Drift Monitor (hourly cron)")
     print(f"{'─'*60}")
-    print(f"  Add this crontab entry (edit with: crontab -e):")
+    print("  Add this crontab entry (edit with: crontab -e):")
     print(f"  0 * * * * DRIFT_PROJECT_PATH={project} \\")
     print(f"    python3 {harness_root}/scripts/cron_drift_monitor.py \\")
     print(f"    >> {project}/logs/drift_monitor.log 2>&1")

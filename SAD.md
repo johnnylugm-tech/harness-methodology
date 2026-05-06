@@ -2460,7 +2460,18 @@ P6 does NOT have a per-FR loop. Gate 4 evaluates all 12 dimensions across the en
 | P5–P8 | 60% | 40% | — | — |
 
 **Preflight Hooks (all phases)**
-`run-phase` runs before each phase work loop: FSM state check → KillSwitch status → Constitution validation → CI readiness → Tool registry → DriftDetector (P3+) → GapDetector (P4+).
+`run-phase` runs before each phase work loop: FSM state check → KillSwitch status → Constitution validation → SAB check (P3+) → CI readiness → Tool registry → DriftDetector (P3+, now includes SAB drift) → GapDetector (P4+).
+
+**SAB Architecture Baseline (P2 → P3–P8)**
+The SAB (Software Architecture Baseline) is a machine-readable architecture contract generated at P2 exit from SAD.md §6. It flows through four integration lines:
+
+| Line | Mechanism | Phase | What it does |
+|------|-----------|-------|-------------|
+| SAB.json generation | `scripts/generate_sab.py --project .` | P2 exit | Extracts layers, modules, dependencies, quality_targets from SAD.md §6 → `.methodology/SAB.json` |
+| Manifest embedding | `harness_bridge.generate_quality_manifest()` | P2 exit | Inline SAB fields (`nfr_dimension_mapping`, `architecture_constraints`, `high_risk_modules`) written to `quality_manifest.json` |
+| Gate architecture dimension | `harness_bridge.prepare_gate()` | P3–P8 | SAB data injected into `GateContext.sab_data`; appears in `evaluation_prompt()` for architecture dimension validation |
+| SAB drift detection | `DriftDetector.detect_sab_drift()` | P3–P8 preflight | Compares actual import dependencies against SAB `allowed_dependencies`; flags new files not in SAB layers; flags missing SAB-registered files |
+| SAB constitution check | `PhaseHooks.preflight_sab_check()` | P3–P8 preflight | Validates SAB.json existence, layer integrity, module presence; blocks if critical violations found |
 
 **Entry Gate Checks (P2–P8)**
 - P2: git log contains `phase1(human-review): Phase 1 deliverables APPROVED`

@@ -55,6 +55,7 @@ class GateContext:
 
     Contains everything Claude needs to perform an inline gate evaluation:
     - configuration loaded from the gate YAML
+    - SAB baseline data from quality_manifest.json (architecture_constraints, high_risk_modules)
     - paths to embedded SSI scripts, prompts, and schemas
     - a work directory for writing gate{N}_result.json
 
@@ -70,6 +71,7 @@ class GateContext:
     ssi_prompts_dir: str
     ssi_schemas_dir: str
     work_dir: str
+    sab_data: dict = field(default_factory=dict)
 
     def evaluation_prompt(self) -> str:
         """Return a human-readable evaluation instruction for Claude."""
@@ -77,6 +79,25 @@ class GateContext:
         score_gate = self.config.get("score_gate", "n/a")
         max_rounds = self.config.get("max_rounds", 3)
         result_path = str(Path(self.work_dir) / f"gate{self.gate_num}_result.json")
+
+        sab_lines = ""
+        if self.sab_data:
+            constraints = self.sab_data.get("architecture_constraints", [])
+            high_risk = self.sab_data.get("high_risk_modules", [])
+            nfr_map = self.sab_data.get("nfr_dimension_mapping", {})
+            sab_lines = "\n[SAB Baseline — from quality_manifest.json]\n"
+            if constraints:
+                sab_lines += f"  architecture_constraints: {constraints}\n"
+            if high_risk:
+                sab_lines += f"  high_risk_modules: {high_risk}\n"
+            if nfr_map:
+                sab_lines += f"  nfr_dimension_mapping: {nfr_map}\n"
+            sab_lines += (
+                "  > When evaluating the `architecture` dimension, validate code "
+                "against these constraints.\n"
+                "  > high_risk_modules deserve extra scrutiny in all dimensions.\n"
+            )
+
         return (
             f"Gate {self.gate_num} evaluation ready.\n"
             f"  project   : {self.project_root}\n"
@@ -85,6 +106,7 @@ class GateContext:
             f"  dimensions: {', '.join(dims) if dims else 'see gate config'}\n"
             f"  score_gate: {score_gate}\n"
             f"  max_rounds: {max_rounds}\n"
+            f"{sab_lines}"
             f"\nFollow  : {self.ssi_prompts_dir}/evaluate_dimension.md\n"
             f"Scripts : {self.ssi_scripts_dir}/\n"
             f"Write result to: {result_path}\n"
@@ -134,6 +156,21 @@ class HarnessBridge:
             "See harness_cli.py run-gate / finalize-gate subcommands."
         )
 
+    def _load_manifest_sab(self, project_root: str) -> dict:
+        """Read SAB-derived fields from quality_manifest.json. Returns empty dict on failure."""
+        manifest_path = Path(project_root) / ".methodology" / "quality_manifest.json"
+        if not manifest_path.exists():
+            return {}
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            return {
+                "nfr_dimension_mapping": manifest.get("nfr_dimension_mapping", {}),
+                "architecture_constraints": manifest.get("architecture_constraints", []),
+                "high_risk_modules": manifest.get("high_risk_modules", []),
+            }
+        except Exception:
+            return {}
+
     def prepare_gate(
         self,
         gate_num: int,
@@ -145,7 +182,8 @@ class HarnessBridge:
         Phase 1 of the two-phase gate evaluation API.
 
         Loads gate configuration, optionally triggers CRG reconnaissance,
-        and returns a GateContext that Claude uses to perform inline evaluation.
+        reads SAB baseline from quality_manifest.json, and returns a GateContext
+        that Claude uses to perform inline evaluation.
 
         The caller (Claude) should:
         1. Read ctx.evaluation_prompt() for instructions.
@@ -171,6 +209,8 @@ class HarnessBridge:
         work_dir = Path(project_root) / ".sessi-work"
         work_dir.mkdir(parents=True, exist_ok=True)
 
+        sab_data = self._load_manifest_sab(project_root)
+
         return GateContext(
             gate_num=gate_num,
             config=config,
@@ -181,6 +221,7 @@ class HarnessBridge:
             ssi_prompts_dir=str(ssi_dir / "prompts"),
             ssi_schemas_dir=str(ssi_dir / "schemas"),
             work_dir=str(work_dir),
+            sab_data=sab_data,
         )
 
     def finalize_gate(self, ctx: GateContext) -> GateResult:

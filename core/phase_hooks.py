@@ -151,6 +151,62 @@ class PhaseHooks:
             print(f"   Drift detection error: {e}")
             return {"passed": True, "skipped": True, "error": str(e)}
 
+    def preflight_sab_check(self) -> Dict[str, Any]:
+        """Check SAB constitution compliance (P3+ only — architecture baseline drift)."""
+        print("\n[PRE-FLIGHT] SAB Constitution Check (M2+)")
+        sab_json = self.project_path / ".methodology" / "SAB.json"
+        if not sab_json.exists():
+            if self.phase and self.phase >= 3:
+                print("   WARNING: .methodology/SAB.json not found — SAB baseline missing")
+                print("   Run: python3 scripts/generate_sab.py --project .")
+                return {"passed": False, "message": "SAB.json not found — generate from SAD.md §6"}
+            else:
+                print("   SAB.json not yet generated (P1/P2 — expected)")
+                return {"passed": True, "skipped": True, "message": "SAB not required before P3"}
+
+        try:
+            import json as _json
+            sab = _json.loads(sab_json.read_text(encoding="utf-8"))
+        except Exception as e:
+            return {"passed": False, "message": f"Failed to parse SAB.json: {e}"}
+
+        layers = sab.get("layers", [])
+        deps = sab.get("dependencies", {})
+        violations: list[str] = []
+
+        if not layers:
+            return {"passed": True, "skipped": True, "message": "SAB has no layer definitions"}
+
+        print(f"   Layers: {len(layers)}, Dependencies: {len(deps)}")
+        for layer in layers:
+            layer_name = layer.get("name", "?")
+            modules = layer.get("modules", [])
+            allowed = layer.get("allowed_dependencies", [])
+            actual_deps = deps.get(layer_name, [])
+            extra_deps = set(actual_deps) - set(allowed)
+            if extra_deps:
+                violations.append(
+                    f"Layer {layer_name}: deps {sorted(extra_deps)} not in allowed {sorted(allowed)}"
+                )
+            missing_modules = [
+                m for m in modules
+                if not m.endswith("/") and not (self.project_path / m).exists()
+            ]
+            if missing_modules:
+                violations.append(
+                    f"Layer {layer_name}: {len(missing_modules)} modules missing from codebase"
+                )
+
+        passed = len(violations) == 0
+        if violations:
+            print(f"   FAIL: {len(violations)} SAB violation(s)")
+            for v in violations[:5]:
+                print(f"     - {v}")
+        else:
+            print("   All SAB layers valid")
+
+        return {"passed": passed, "violations": violations, "layers": len(layers)}
+
     def preflight_ci_readiness(self) -> Dict[str, Any]:
         """Check target project CI wiring (Context B only — advisory, non-blocking)."""
         print("\n[PRE-FLIGHT] CI Readiness Check")
@@ -183,6 +239,7 @@ class PhaseHooks:
             "constitution": self.preflight_constitution(),
             "kill_switch": self.preflight_kill_switch(),
             "drift_detection": self.preflight_drift_detection(),
+            "sab": self.preflight_sab_check(),
             "tool_registry": self.preflight_tool_registry(),
             "ci_readiness": self.preflight_ci_readiness(),
         }

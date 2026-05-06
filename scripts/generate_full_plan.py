@@ -787,10 +787,24 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path) -> List[str]:
                 lines.append(f"- File:   `{mod.get('file', 'N/A')}`")
             lines.append("")
 
+    lines.extend([
+        "### SAB Generation (Machine-Readable Architecture Baseline)",
+        "",
+        "- [ ] **[SAB]** Generate `.methodology/SAB.json` from SAD.md §6 SAB block:",
+        "  ```bash",
+        "  python3 scripts/generate_sab.py --project $REPO",
+        "  ```",
+        "  - SAB.json contains: layers, modules, allowed_dependencies, quality_targets",
+        "  - Used by: drift detector (M2), gate architecture dimension, constitution check",
+        "  - Also embedded inline in `quality_manifest.json` via `harness_bridge`",
+        "",
+    ])
     lines.append("### Phase 2 Deliverables")
     lines.append("- [ ] `SAD.md` - Software Architecture Document (every FR has module mapping)")
     lines.append("- [ ] `ADR.md` - Architecture Decision Records")
     lines.append("- [ ] `ARCHITECTURE_DIAGRAM.md` - Architecture diagram")
+    lines.append("- [ ] `.methodology/quality_manifest.json` — Quality manifest (FR list + SAB data)")
+    lines.append("- [ ] `.methodology/SAB.json` — Machine-readable architecture baseline")
     lines.append("- [ ] `sessions_spawn.log` - 2 entries for P2 A/B work (HR-10)")
     lines.append("")
 
