@@ -858,8 +858,8 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
                 print(_format_block_diagnostic(exc, gate_num, phase, None, 3, project))
                 return 10
 
-        # ── Phase Truth (P7/P8 — HR-11 ≥70%) ───────────────────────────────
-        if phase in (7, 8):
+        # ── Phase Truth (P3–P8 — HR-11 ≥70%) ───────────────────────────────
+        if phase >= 3:
             print(f"\n[{phase}.5] Phase Truth (HR-11 ≥70%) …")
             from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
             verifier = PhaseTruthVerifier(str(project), phase)

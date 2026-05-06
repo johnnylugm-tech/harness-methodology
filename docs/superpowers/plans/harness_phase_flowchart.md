@@ -38,10 +38,13 @@ flowchart TD
     P3_NEXT_FR -->|No| P3_WORK
     P3_NEXT_FR -->|Yes| P3_G2["🔒 Gate 2: Phase Exit<br/>7 dims<br/>score_gate ≥ 75"]
     
-    P3_G2 -->|PASS| P3_G2D["✅ git push<br/>phase3 COMPLETE<br/>[FSM] → DONE"]
+    P3_G2 -->|PASS| P3_TRUTH["⚠️ Phase Truth<br/>HR-11 ≥70%"]
     P3_G2 -->|CONTINUE| P3_FIX2["🔧 Fix"]
     P3_G2 -->|PLATEAU| P3_DEFER["📌 deferred_fixes.md"]
     P3_G2 -->|BLOCKED| P3_ESCALATE["⚠️ GateBlockedError<br/>escalate to human"]
+    
+    P3_TRUTH -->|PASS| P3_G2D["✅ git push<br/>phase3 COMPLETE<br/>[FSM] → DONE"]
+    P3_TRUTH -->|FAIL| P3_ESCALATE
     
     P3_FIX2 --> P3_G2
     P3_DEFER --> P3_G2D
@@ -64,10 +67,13 @@ flowchart TD
     P4_NEXT_FR -->|No| P4_WORK
     P4_NEXT_FR -->|Yes| P4_G3["🔒 Gate 3: Phase Exit<br/>12 dims<br/>score_gate ≥ 80<br/>[CRG recon]"]
     
-    P4_G3 -->|PASS| P4_G3D["✅ git push<br/>TEST_RESULTS.md<br/>phase4 COMPLETE"]
+    P4_G3 -->|PASS| P4_TRUTH["⚠️ Phase Truth<br/>HR-11 ≥70%"]
     P4_G3 -->|CONTINUE| P4_FIX2["🔧 Fix"]
     P4_G3 -->|PLATEAU| P4_DEFER["📌 deferred_fixes.md"]
     P4_G3 -->|BLOCKED| P4_ESCALATE["⚠️ escalate"]
+    
+    P4_TRUTH -->|PASS| P4_G3D["✅ git push<br/>TEST_RESULTS.md<br/>phase4 COMPLETE"]
+    P4_TRUTH -->|FAIL| P4_ESCALATE
     
     P4_FIX2 --> P4_G3
     P4_DEFER --> P4_G3D
@@ -90,12 +96,16 @@ flowchart TD
     P5_NEXT_FR -->|No| P5_WORK
     P5_NEXT_FR -->|Yes| P5_G3["🔒 Gate 3: Phase Exit<br/>12 dims<br/>score_gate ≥ 80"]
     
-    P5_G3 -->|PASS| P5_G3D["✅ git push<br/>BASELINE.md<br/>phase5 COMPLETE"]
+    P5_G3 -->|PASS| P5_TRUTH["⚠️ Phase Truth<br/>HR-11 ≥70%"]
     P5_G3 -->|CONTINUE| P5_FIX2["🔧 Fix"]
     P5_G3 -->|PLATEAU| P5_DEFER["📌 deferred_fixes.md"]
     
+    P5_TRUTH -->|PASS| P5_G3D["✅ git push<br/>BASELINE.md<br/>phase5 COMPLETE"]
+    P5_TRUTH -->|FAIL| P5_ESCALATE["⚠️ escalate"]
+    
     P5_FIX2 --> P5_G3
     P5_DEFER --> P5_G3D
+    P5_ESCALATE --> P5_G3D
     
     P5_G3D --> P6_START["📋 Next: Phase 6<br/>plan-phase --phase 6"]
     
@@ -106,10 +116,13 @@ flowchart TD
     P6_PRE --> P6_WORK["💼 A/B Work:<br/>QA_ENGINEER<br/>ARCHITECT<br/><br/>📝 Prepare quality report<br/>📝 sessions_spawn.log (2 entries)"]
     P6_WORK --> P6_G4["🔒 Gate 4 ONLY<br/>Full project (12 dims)<br/>score_gate ≥ 85<br/>[CRG recon]<br/>[Hermes APPROVE ⏱90s]"]
     
-    P6_G4 -->|PASS| P6_G4D["✅ git push<br/>QUALITY_REPORT.md<br/>RELEASE_NOTES.md<br/>phase6 COMPLETE"]
+    P6_G4 -->|PASS| P6_TRUTH["⚠️ Phase Truth<br/>HR-11 ≥70%"]
     P6_G4 -->|CONTINUE| P6_FIX["🔧 Fix dimension<br/>re-run G4a"]
     P6_G4 -->|PLATEAU| P6_DEFER["📌 deferred_fixes.md<br/>escalate"]
     P6_G4 -->|BLOCKED| P6_ESCALATE["⚠️ GateBlockedError<br/>manual review"]
+    
+    P6_TRUTH -->|PASS| P6_G4D["✅ git push<br/>QUALITY_REPORT.md<br/>RELEASE_NOTES.md<br/>phase6 COMPLETE"]
+    P6_TRUTH -->|FAIL| P6_ESCALATE
     
     P6_FIX --> P6_G4
     P6_DEFER --> P6_G4D
@@ -238,14 +251,21 @@ flowchart TD
 - **Timeout Fallback**: If no reply in 120s, code does cold-read (`messages_read`) and checks for latest message
 - **Failure**: If Hermes unavailable or reviewer rejects, escalate to human
 
-### P7/P8: Phase Truth Check Only
+### Phase Truth Check (P3–P8)
+
+After each phase exit gate (Gate 2/3/4), `PhaseTruthVerifier` runs automatically (HR-11 ≥70% required).
+Weights vary by phase:
+
+- **P1–P2**: `FrameworkEnforcer(60%) + Sessions_spawn(40%)`
+- **P3–P4**: `FrameworkEnforcer(35%) + Sessions_spawn(25%) + pytest(25%) + coverage(15%)`
+- **P5–P8**: `FrameworkEnforcer(60%) + Sessions_spawn(40%)`
+
+- **If Truth ≥ 70%**: Phase advance proceeds
+- **If Truth < 70%**: Phase advance BLOCKED (exit code 10); manual intervention required
+
+### P7/P8: Entry/Exit Notes
 - **Entry**: Verified to be Gate 4 from P6 (not P7 itself)
 - **Exit**: "Cleared by P6 Gate 4" — **no separate exit gate evaluation**
-- **Phase Truth**: HR-11 check (≥70% required). Weights vary by phase:
-  - **P1–P2**: `FrameworkEnforcer(60%) + Sessions_spawn(40%)`
-  - **P3–P4**: `FrameworkEnforcer(35%) + Sessions_spawn(25%) + pytest(25%) + coverage(15%)`
-  - **P5–P8**: `FrameworkEnforcer(60%) + Sessions_spawn(40%)`
-- **If Truth < 70%**: Phase advance BLOCKED; manual intervention required
 
 ### Entry Gate Checks (P2-P8)
 Each phase verifies predecessor completion before starting work:
@@ -274,6 +294,6 @@ Before each phase's work loop, `run-phase` executes:
 
 - Source: `scripts/generate_full_plan.py`
 - Format: Mermaid Flowchart (machine-readable)
-- Last Updated: 2026-05-06 (sessions_spawn.log now required P1–P8)
+- Last Updated: 2026-05-06 (Phase Truth expanded to P3–P8 + sessions_spawn.log P1–P8)
 - Validation: See `tests/test_harness_phase_flowchart.py` (12 test cases)
 - **Audit Result**: sessions_spawn.log coverage unified across all 8 phases
