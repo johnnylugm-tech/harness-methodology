@@ -777,7 +777,7 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
                     return 1
                 bridge.generate_quality_manifest(fr_ids, str(sad))
                 print(f"[P2] quality_manifest.json created  fr_ids={fr_ids}")
-                git.commit_and_push_p2(fr_ids)  # PUSH ①
+                git.commit_and_push_p2(fr_ids)  # PUSH ②
             continue
 
         # ── P3+: SAD.md + manifest required for FR-level gate planning ────

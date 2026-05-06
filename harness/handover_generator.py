@@ -22,6 +22,8 @@ Example::
 """
 from __future__ import annotations
 
+import json
+import subprocess  # nosec B404
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -81,6 +83,56 @@ class HandoverGenerator:
         self.project = project
 
     # ------------------------------------------------------------------
+    # Git metadata helpers
+    # ------------------------------------------------------------------
+
+    def _git_remote(self) -> str:
+        """Return origin remote URL, or empty string on failure."""
+        try:
+            result = subprocess.run(  # nosec B603 B607
+                ["git", "-C", str(self.project), "remote", "get-url", "origin"],
+                capture_output=True, text=True, timeout=5,
+            )
+            return result.stdout.strip() if result.returncode == 0 else ""
+        except Exception:  # pylint: disable=broad-exception-caught
+            return ""
+
+    def _git_branch(self) -> str:
+        """Return current branch name, or empty string on failure."""
+        try:
+            result = subprocess.run(  # nosec B603 B607
+                ["git", "-C", str(self.project), "rev-parse", "--abbrev-ref", "HEAD"],
+                capture_output=True, text=True, timeout=5,
+            )
+            return result.stdout.strip() if result.returncode == 0 else ""
+        except Exception:  # pylint: disable=broad-exception-caught
+            return ""
+
+    def _git_sha(self) -> str:
+        """Return last commit short SHA, or empty string on failure."""
+        try:
+            result = subprocess.run(  # nosec B603 B607
+                ["git", "-C", str(self.project), "rev-parse", "--short", "HEAD"],
+                capture_output=True, text=True, timeout=5,
+            )
+            return result.stdout.strip() if result.returncode == 0 else ""
+        except Exception:  # pylint: disable=broad-exception-caught
+            return ""
+
+    def _state_snapshot(self) -> str:
+        """Return condensed state.json content, or empty string if missing."""
+        state_path = self.project / ".methodology" / "state.json"
+        try:
+            data = json.loads(state_path.read_text(encoding="utf-8"))
+            return (
+                f"phase={data.get('current_phase', '?')} "
+                f"state={data.get('state', '?')} "
+                f"checkpoint={data.get('checkpoint', '?')}"
+            )
+        except Exception:  # pylint: disable=broad-exception-caught
+            return ""
+
+    # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
@@ -123,6 +175,14 @@ class HandoverGenerator:
             Path of the written file (``<project>/HANDOVER.md``).
         """
         all_notes = list(DEFAULT_NOTES) + list(notes or [])
+        # Gather git metadata at write-time for maximum accuracy
+        git_info = {
+            "remote": self._git_remote(),
+            "branch": self._git_branch(),
+            "sha": self._git_sha(),
+            "state": self._state_snapshot(),
+            "plan": f".methodology/phase{phase}_plan.md",
+        }
         content = self._render(
             checkpoint_id=checkpoint_id,
             phase=phase,
@@ -131,6 +191,7 @@ class HandoverGenerator:
             next_steps=next_steps,
             notes=all_notes,
             extra=extra or {},
+            git_info=git_info,
         )
         path = self.project / "HANDOVER.md"
         path.write_text(content, encoding="utf-8")
@@ -149,6 +210,7 @@ class HandoverGenerator:
         next_steps: list[str],
         notes: list[str],
         extra: dict[str, str],
+        git_info: dict[str, str] | None = None,
     ) -> str:
         phase_name = _PHASE_NAMES.get(phase, f"Phase {phase}")
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -163,12 +225,43 @@ class HandoverGenerator:
             rows = "\n".join(f"- **{k}**: {v}" for k, v in extra.items())
             extra_section = f"\n## 附加資訊\n\n{rows}\n"
 
+        # Git recovery block — critical for new session clone + resume
+        gi = git_info or {}
+        remote = gi.get("remote", "")
+        branch = gi.get("branch", "")
+        sha = gi.get("sha", "")
+        state = gi.get("state", "")
+        plan = gi.get("plan", "")
+        git_section = (
+            f"## 快速接手指令\n\n"
+            f"```bash\n"
+            f"# 1. Clone repo (if /tmp cleared)\n"
+            f"git clone {remote or '<repo-url>'} /tmp/$(basename {remote or 'project'} .git)\n"
+            f"\n"
+            f"# 2. Confirm state\n"
+            f"cat .methodology/state.json   "
+            f"# expected: {state or 'phase=? state=? checkpoint=?'}\n"
+            f"\n"
+            f"# 3. Read active plan\n"
+            f"cat {plan or '.methodology/phaseN_plan.md'}\n"
+            f"```\n\n"
+            f"| 欄位 | 值 |\n"
+            f"|------|----|\n"
+            f"| Remote | `{remote or '(unknown)'}` |\n"
+            f"| Branch | `{branch or '(unknown)'}` |\n"
+            f"| Last SHA | `{sha or '(unknown)'}` |\n"
+            f"| State | `{state or '(unknown)'}` |\n"
+            f"| Plan | `{plan or '(unknown)'}` |\n"
+        )
+
         return (
             f"# Harness Methodology — Session Handover\n\n"
             f"**Checkpoint**: `{checkpoint_id}`  \n"
             f"**Phase**: P{phase} — {phase_name}  \n"
             f"**Generated**: {ts}\n\n"
             f"{_COMPACT_NOTICE}\n\n"
+            f"---\n\n"
+            f"{git_section}\n"
             f"---\n\n"
             f"## 任務背景\n\n"
             f"{task_background}\n\n"

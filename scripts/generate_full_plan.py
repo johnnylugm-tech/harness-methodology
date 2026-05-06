@@ -500,19 +500,27 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
         *([hermes_note] if hermes_note else []),
         *early_stop,
         "",
-        f"- [ ] **G{gate_num}d** ✅ Push to GitHub (CHECKPOINT-{checkpoint_n} = phase exit saved):",
+        f"- [ ] **G{gate_num}d** ✅ Verify checkpoint saved (finalize-gate above already pushed + wrote HANDOVER.md):",
         "  ```bash",
-        f"  git add -A && git commit -m 'gate{gate_num}(p{phase}): Phase {phase} Gate {gate_num} PASS'",
-        "  git push",
+        "  # Confirm HANDOVER.md exists at project root (written by finalize-gate → commit_and_push_gate)",
+        "  ls -la HANDOVER.md",
+        "  git log --oneline -1",
         "  ```",
+        f"  > `finalize-gate --gate {gate_num}` (G{gate_num}c) calls `commit_and_push_gate()` which writes",
+        "  > `HANDOVER.md` **before** committing + pushing. No separate push needed here.",
+        "  > If HANDOVER.md is missing, re-run `finalize-gate` (do **not** raw-push).",
         "",
     ]
 
 
 def _checkpoint_index(fr_ids: List[str], phase: int) -> List[str]:
-    """Generate a checkpoint index header for the plan."""
+    """Generate a checkpoint index header for the plan (P3-P8)."""
     lines = [
-        "> **Checkpoint Index** (push to GitHub = checkpoint saved):",
+        "> **Crash Recovery**: after each gate push, `HANDOVER.md` is written to project root.",
+        "> If context is lost, read `HANDOVER.md` first — it contains phase, status, and next steps.",
+        "> `finalize-gate` handles commit + push + HANDOVER in one call — do **not** raw-push at gate exits.",
+        "",
+        "> **Checkpoint Index** (push to GitHub = HANDOVER.md saved):",
     ]
     cp = 1
     if phase in _PHASE_GATE1_PHASES:
