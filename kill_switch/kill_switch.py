@@ -9,7 +9,7 @@ from typing import List, Optional
 
 from .circuit_breaker import CircuitBreaker
 from .enums import CircuitState, KillReason
-from .exceptions import InterruptInProgressError
+from .exceptions import CircuitBreakerError, InterruptInProgressError
 from .health_monitor import HealthMonitor
 from .interrupt_engine import InterruptEngine
 from .models import InterruptEvent, MonitorConfig
@@ -56,6 +56,10 @@ class KillSwitch:
         """Get agent state."""
         return self.circuit_breaker.get_state(agent_id)
 
+    def get_registered_agents(self) -> list[str]:
+        """Return list of registered agent IDs."""
+        return self.circuit_breaker.list_circuits()
+
     def manual_trigger(self, agent_id: str, reason: str, operator_id: str) -> InterruptEvent:
         """Manual trigger."""
         logger.info(f"Manual Kill-Switch triggered for {agent_id} by {operator_id}: {reason}")
@@ -92,7 +96,10 @@ class KillSwitch:
             return False
 
         if self.circuit_breaker.should_trigger(agent_id, metrics, config):
-            self.circuit_breaker.record_failure(agent_id)
+            try:
+                self.circuit_breaker.record_failure(agent_id)
+            except CircuitBreakerError:
+                pass  # threshold exceeded; circuit already OPEN
             if self.circuit_breaker.get_failure_count(agent_id) >= config.failure_threshold:
                 self.circuit_breaker.open_circuit(agent_id, cooldown_seconds=config.cooldown_seconds)
                 try:

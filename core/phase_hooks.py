@@ -116,7 +116,14 @@ class PhaseHooks:
         print("\n[PRE-FLIGHT] Kill-Switch (M1) Check")
         if not self._kill_switch:
             return {"passed": True, "skipped": True, "message": "Kill-switch disabled"}
-        # Verify kill-switch is operational (no open circuits at start)
+        open_agents = [
+            agent_id for agent_id in self._kill_switch.get_registered_agents()
+            if self._kill_switch.is_agent_circuit_open(agent_id)
+        ]
+        if open_agents:
+            print(f"   Kill-switch BLOCKED: open circuits = {open_agents}")
+            return {"passed": False, "open_agents": open_agents,
+                    "message": f"Circuit OPEN for agents: {open_agents}"}
         print("   Kill-switch operational")
         return {"passed": True, "kill_switch": "operational"}
 
@@ -305,7 +312,11 @@ class PhaseHooks:
         drift_result = self.postflight_drift_check()
         fr_approved = sum(1 for r in self.fr_results if r.get("review_status") == "APPROVE")
         total_frs = max(len(self.fr_results), 1)
-        success = const_result.get("passed", False) and fr_approved >= total_frs
+        success = (
+            const_result.get("passed", False)
+            and fr_approved >= total_frs
+            and drift_result.get("passed", True)
+        )
         state_result = self.postflight_update_state(success=success)
         summary = self.postflight_summary()
         print(f"\nPOST-FLIGHT: {'PASS' if success else 'FAIL'}")

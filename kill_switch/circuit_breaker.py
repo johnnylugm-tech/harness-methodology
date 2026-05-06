@@ -48,6 +48,9 @@ class CircuitBreaker:
             state = self._circuits[agent_id]
             state.failure_count += 1
             state.last_failure_time = datetime.now(timezone.utc)
+            # Check HALF_OPEN before threshold so both branches are reachable
+            if state.state == CircuitState.HALF_OPEN:
+                state.state = CircuitState.OPEN
             if state.failure_count >= self.failure_threshold:
                 state.state = CircuitState.OPEN
                 state.opened_at = datetime.now(timezone.utc)
@@ -56,8 +59,6 @@ class CircuitBreaker:
                     f"failure_count={state.failure_count} >= "
                     f"threshold={self.failure_threshold}"
                 )
-            if state.state == CircuitState.HALF_OPEN:
-                state.state = CircuitState.OPEN
 
     def is_open(self, agent_id: str) -> bool:
         """Is open."""
@@ -115,6 +116,11 @@ class CircuitBreaker:
                 tz=timezone.utc
             )
             return state
+
+    def list_circuits(self) -> list[str]:
+        """Return list of registered agent IDs."""
+        with self._lock:
+            return list(self._circuits.keys())
 
     def should_trigger(self, agent_id: str, metrics: HealthMetrics, config: MonitorConfig) -> bool:
         """Should trigger."""

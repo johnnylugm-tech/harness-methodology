@@ -29,10 +29,12 @@ Available gates:
     Gate 3  P4 phase-exit      (score_gate: 80, 12 dims, full CRG)
     Gate 4  P6 full-project    (score_gate: 85, 12 dims, Hermes APPROVE required)
 
-Exit codes (run-pipeline):
+Exit codes:
     0   All phases complete
     1   Hard failure (investigate error)
+    2   run-gap-analysis: critical gaps detected (distinct from hard error)
     10  PAUSE — Claude must evaluate gate; run finalize-gate then re-run pipeline
+    11  Phase Truth < 70% (HR-11); fix and re-run with --phase-from N
 """
 from __future__ import annotations
 
@@ -565,17 +567,17 @@ def _preflight(phase: int, project: Path, force: bool,
         return 0 if force else 1
 
 
-def _run_gap_analysis(project: Path, similarity: float = 0.6) -> dict:
+def _run_gap_analysis(project: Path, similarity: float = 0.6, spec: str = "SPEC.md") -> dict:
     """Run M3 gap analysis. Returns gap report dict; warns on failure."""
     try:
         from gap_detector.parser import SpecParser
         from gap_detector.scanner import CodeScanner
         from gap_detector.detector import GapDetector
 
-        spec_path = project / "SPEC.md"
+        spec_path = project / spec
         if not spec_path.exists():
-            print("  [M3] SPEC.md not found — skipping gap analysis")
-            return {"skipped": True, "reason": "SPEC.md not found"}
+            print(f"  [M3] {spec} not found — skipping gap analysis")
+            return {"skipped": True, "reason": f"{spec} not found"}
 
         spec = SpecParser(str(spec_path)).parse()
         scanner = CodeScanner(str(project))
@@ -759,68 +761,40 @@ def _format_block_diagnostic(
 
 def cmd_run_gap_analysis(args: argparse.Namespace) -> int:
     """Run M3 gap analysis: detect gaps between SPEC.md and codebase."""
-    from gap_detector.parser import SpecParser
-    from gap_detector.scanner import CodeScanner
-    from gap_detector.detector import GapDetector
-
     project = Path(args.project).resolve()
-    spec_path = project / (args.spec or "SPEC.md")
+    spec = args.spec or "SPEC.md"
 
     print(f"\n{'='*60}\nrun-gap-analysis (M3)  project={project}\n{'='*60}")
 
+    # Fail fast if the spec file is missing (explicit user invocation — not a pipeline skip)
+    spec_path = project / spec
     if not spec_path.exists():
         print(f"[ERROR] Spec file not found: {spec_path}")
         return 1
 
-    # Parse spec and scan code
-    print(f"\nParsing spec: {spec_path}")
-    spec = SpecParser(str(spec_path)).parse()
-    print(f"  Features found: {len(spec.feature_items)}")
+    report = _run_gap_analysis(project, similarity=args.similarity, spec=spec)
 
-    print("\nScanning codebase…")
-    scanner = CodeScanner(str(project))
-    code = scanner.scan()
-    print(f"  Modules: {len(code.modules)}, Items: "
-          f"{sum(len(m.items) for m in code.modules)}")
+    if report.get("skipped"):
+        reason = report.get("reason") or report.get("error", "unknown")
+        print(f"  Skipped: {reason}")
+        return 0
 
-    # Detect gaps
-    print("\nDetecting gaps…")
-    detector = GapDetector(spec, code, similarity_threshold=args.similarity)
-    gaps = detector.detect()
-    summary = detector.get_summary()
-
+    summary = report.get("summary", {})
     print(f"\n{'─'*60}")
     print("Gap Analysis Results")
     print(f"{'─'*60}")
-    print(f"  Total gaps : {summary.total_gaps}")
-    print(f"  Missing    : {summary.missing}")
-    print(f"  Incomplete : {summary.incomplete}")
-    print(f"  Orphaned   : {summary.orphaned}")
-    print(f"  Critical   : {summary.critical}")
-    print(f"  Major      : {summary.major}")
-    print(f"  Minor      : {summary.minor}")
+    print(f"  Total gaps : {summary.get('total', 0)}")
+    print(f"  Missing    : {summary.get('missing', 0)}")
+    print(f"  Incomplete : {summary.get('incomplete', 0)}")
+    print(f"  Orphaned   : {summary.get('orphaned', 0)}")
+    print(f"  Critical   : {summary.get('critical', 0)}")
+    print(f"  Major      : {summary.get('major', 0)}")
+    print(f"  Minor      : {summary.get('minor', 0)}")
 
-    # Write report
-    report_path = project / ".methodology" / "gap_report.json"
-    report_path.parent.mkdir(parents=True, exist_ok=True)
-    report = {
-        "summary": {
-            "total": summary.total_gaps, "missing": summary.missing,
-            "incomplete": summary.incomplete, "orphaned": summary.orphaned,
-            "critical": summary.critical, "major": summary.major,
-            "minor": summary.minor,
-        },
-        "gaps": [{"type": g.gap_type, "severity": g.severity,
-                   "reason": g.reason, "action": g.recommended_action}
-                  for g in gaps],
-    }
-    report_path.write_text(json.dumps(report, indent=2))
-    print(f"\nReport written → {report_path}")
-
-    # Exit code: 0 if no critical gaps, 1 otherwise
-    if summary.critical > 0:
-        print(f"\n[WARN] {summary.critical} critical gap(s) detected")
-        return 1
+    critical = summary.get("critical", 0)
+    if critical > 0:
+        print(f"\n[WARN] {critical} critical gap(s) detected")
+        return 2  # 2 = critical gaps (distinct from hard error = 1)
     return 0
 
 
@@ -873,7 +847,7 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
 
         # M1: Check kill-switch circuit before each phase
         if _ks is not None:
-            for _agent in ("agent-a", "agent-b"):
+            for _agent in _ks.get_registered_agents():
                 if _ks.is_agent_circuit_open(_agent):
                     print(f"[M1] BLOCKED: circuit OPEN for {_agent} — "
                           f"pipeline paused at Phase {phase}")
@@ -1294,7 +1268,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Verify implementation complies with spec requirements (6-dimension check)",
     )
     vs.add_argument("--project", default=".", help="Project root (default: .)")
-    vs.add_argument("--fix",     action="store_true", help="Attempt auto-fix")
     vs.set_defaults(func=cmd_verify_spec)
 
     # check-logic
