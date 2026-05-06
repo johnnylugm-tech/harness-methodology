@@ -79,7 +79,7 @@ class TestGateRemediationReport:
         assert any("Gate 9" in item for item in items)
 
     @pytest.mark.parametrize("gate_num,expected_threshold", [
-        (1, 70.0), (2, 75.0), (3, 80.0), (4, 85.0)
+        (1, 75.0), (2, 75.0), (3, 80.0), (4, 85.0)
     ])
     def test_all_gate_thresholds(self, gate_num, expected_threshold):
         r = GateRemediationReport(gate_num=gate_num, phase=gate_num + 1, score=0.0)

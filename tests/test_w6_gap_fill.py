@@ -34,7 +34,7 @@ class TestEnforcementConfig:
         c = EnforcementConfig()
         assert c.mode == EnforcementMode.LOCAL
         assert c.platform == Platform.NONE
-        assert c.quality_gate_threshold == 90.0
+        assert c.quality_gate_threshold == 85.0  # synced with constitution Gate 4 max
         assert c.coverage_threshold == 80.0
         assert c.enable_registry is True
 

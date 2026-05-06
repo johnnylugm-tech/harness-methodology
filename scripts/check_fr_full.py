@@ -171,7 +171,7 @@ def main():
         if not args.skip_constitution:
             passed, _ = run_check(
                 "Layer 2: Constitution (BVS + HR-09)",
-                ["python3", "-m", "quality_gate.constitution.runner",
+                ["python3", "-m", "core.quality_gate.constitution.runner",
                  "--type", "implementation", "--project", project],
                 project
             )

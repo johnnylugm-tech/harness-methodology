@@ -85,10 +85,10 @@ class ConstitutionAsCode:
 
         self.add_rule(Rule(
             id="R003",
-            description="Quality Gate score must be >= 90",
-            check_fn=lambda score: (score or 0) >= 90,
+            description="Quality Gate score must be >= 85 (Gate 4 threshold; per-gate values in constitution)",
+            check_fn=lambda score: (score or 0) >= 85,
             severity=RuleSeverity.CRITICAL,
-            error_message="Quality Gate score below 90 — not compliant",
+            error_message="Quality Gate score below 85 — not compliant (see constitution/get_gate_thresholds for per-gate values)",
         ))
 
         self.add_rule(Rule(

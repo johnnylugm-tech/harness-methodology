@@ -151,7 +151,8 @@ class AutonomousGates(VerificationGates):
 # ---------------------------------------------------------------------------
 
 #: Per-gate default thresholds (score 0–100).
-_GATE_THRESHOLDS: Dict[int, float] = {1: 70.0, 2: 75.0, 3: 80.0, 4: 85.0}
+# Canonical gate thresholds — synced with constitution/get_gate_thresholds()
+_GATE_THRESHOLDS: Dict[int, float] = {1: 75.0, 2: 75.0, 3: 80.0, 4: 85.0}
 
 #: Per-gate generic action templates when score is below threshold.
 _GATE_ACTION_TEMPLATES: Dict[int, List[str]] = {

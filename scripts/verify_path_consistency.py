@@ -19,11 +19,11 @@ from pathlib import Path
 from typing import Dict, Set
 
 TOOL_FILES = [
-    "quality_gate/phase_paths.py",
-    "quality_gate/phase_artifact_enforcer.py",
-    "quality_gate/phase_aware_constitution.py",
-    "quality_gate/constitution/phase_prerequisite_checker.py",
-    "quality_gate/constitution/__init__.py",
+    "core/quality_gate/phase_paths.py",
+    "core/quality_gate/phase_artifact_enforcer.py",
+    "core/quality_gate/phase_aware_constitution.py",
+    "core/quality_gate/constitution/phase_prerequisite_checker.py",
+    "core/quality_gate/constitution/__init__.py",
 ]
 
 PHASE_WHERE_PATTERNS = {

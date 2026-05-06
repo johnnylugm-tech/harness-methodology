@@ -35,7 +35,7 @@ class EnforcementConfig:
     enforce_on_merge: bool = True
     strict_mode: bool = True
     allow_bypass: bool = False
-    quality_gate_threshold: float = 90.0
+    quality_gate_threshold: float = 85.0  # max Gate threshold; see constitution.get_gate_thresholds() for per-gate values
     security_threshold: float = 95.0
     coverage_threshold: float = 80.0
     platform_config: Dict[str, Any] = field(default_factory=dict)
@@ -64,7 +64,7 @@ class EnforcementConfig:
             enforce_on_merge=data.get('enforce_on_merge', True),
             strict_mode=data.get('strict_mode', True),
             allow_bypass=data.get('allow_bypass', False),
-            quality_gate_threshold=data.get('quality_gate_threshold', 90.0),
+            quality_gate_threshold=data.get('quality_gate_threshold', 85.0),
             security_threshold=data.get('security_threshold', 95.0),
             coverage_threshold=data.get('coverage_threshold', 80.0),
             platform_config=data.get('platform_config', {}),

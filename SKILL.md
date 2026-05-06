@@ -14,7 +14,7 @@ for AI-assisted projects using A/B agent collaboration.
 
 Key capabilities:
 - **8-phase execution pipeline** (P1 Requirements → P8 Configuration)
-- **4-gate quality architecture** with score thresholds (75/80/85)
+- **4-gate quality architecture** with score thresholds (75/75/80/85)
 - **A/B agent collaboration** enforced via HybridWorkflow (HR-04)
 - **Constitution-as-Code** policy enforcement
 - **Automated drift detection** (M2: UQLM EnsembleScorer)

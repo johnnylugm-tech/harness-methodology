@@ -66,7 +66,7 @@ class FrameworkEnforcer:
 
     BLOCK level (must pass, otherwise blocked):
     - SPEC_TRACKING: spec completeness >= 90%
-    - CONSTITUTION_SCORE: Constitution Score >= 60
+    - CONSTITUTION_SCORE: Constitution Score >= 60 (P1-P4) or >= 80 (P5-P8)
 
     WARN level (warning, non-blocking):
     - DECISION_FRAMEWORK: Decision Framework established
@@ -101,16 +101,23 @@ class FrameworkEnforcer:
         return self.spec_checker.run_enforcement()
 
     def check_constitution(self) -> Dict:
-        """Run check constitution validation."""
+        """Run check constitution validation.
+
+        Uses the canonical threshold from constitution.get_constitution_threshold(phase):
+        - P1-P4: ≥ 60 (basic framework compliance)
+        - P5-P8: ≥ 80 (full constitution compliance)
+        """
         try:
-            from quality_gate.constitution.runner import run_constitution_check
+            from core.quality_gate.constitution.runner import run_constitution_check
+            from constitution import get_constitution_threshold
+
             phase_info_map = {
                 1: {"type": "srs",            "dir": "01-requirements"},
                 2: {"type": "sad",            "dir": "02-architecture"},
                 3: {"type": "implementation", "dir": "03-development"},
                 4: {"type": "test_plan",      "dir": "04-testing"},
                 5: {"type": "verification",   "dir": "05-verify"},
-                6: {"type": "srs",            "dir": "06-quality"},
+                6: {"type": "quality_report", "dir": "06-quality"},
                 7: {"type": "risk_management","dir": "07-risk"},
                 8: {"type": "configuration",  "dir": "08-config"},
             }
@@ -118,10 +125,16 @@ class FrameworkEnforcer:
             docs_path = self.project_root / "docs"
             if not docs_path.exists():
                 return {"score": 0, "passed": False, "error": "docs/ directory not found"}
-            result = run_constitution_check(phase_info["type"], str(docs_path))
+
+            result = run_constitution_check(
+                phase_info["type"], str(docs_path), current_phase=self.phase
+            )
+            threshold = get_constitution_threshold(self.phase)
+            passed = result.score >= threshold
             return {
                 "score": result.score,
-                "passed": result.passed,
+                "passed": passed,
+                "threshold": threshold,
                 "violations": len(result.violations) if hasattr(result, "violations") else 0,
             }
         except Exception as e:
@@ -294,7 +307,7 @@ class FrameworkEnforcer:
         lines += [
             "",
             "## Constitution Score",
-            f"Score: {const.get('score', 0)}%  Threshold: 60%  Status: {'PASS' if const.get('passed') else 'FAIL'}",
+            f"Score: {const.get('score', 0)}%  Threshold: {const.get('threshold', 60)}%  Status: {'PASS' if const.get('passed') else 'FAIL'}",
         ]
         spec = self.check_spec_tracking()
         lines += [
@@ -322,11 +335,11 @@ class FrameworkEnforcer:
 
             # 2. CONSTITUTION_SCORE
             const = self.check_constitution()
-            const_passed = const.get("score", 0) >= 60
+            const_passed = const.get("passed", False)
             result.add_block_check("CONSTITUTION_SCORE", const_passed)
             if not const_passed:
                 result.add_violation(
-                    f"Constitution Score {const.get('score', 0)}% < 60%",
+                    f"Constitution Score {const.get('score', 0)}% < {const.get('threshold', 60)}%",
                     "methodology constitution check"
                 )
 

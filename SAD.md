@@ -117,7 +117,7 @@ Full integration guide: **[INTEGRATION.md](INTEGRATION.md)**. Summary:
 | **Drift Monitor cron** | `scripts/cron_drift_monitor.py` | Target project (crontab) | Hourly architecture drift detection; alert via log / email / Slack. Path via `DRIFT_PROJECT_PATH` env var |
 | **On-demand scripts** | `scripts/*.py` | Target project | FR audit, phase audit, spec compliance, FR mapping — see INTEGRATION.md §3.4 |
 
-**Key rule**: `setup-git-hooks.sh` must run inside the target project (not inside this repo). Hooks call `quality_gate.cli` — the `quality_gate/` module must be importable from the target project root (submodule, pip, or copy).
+**Key rule**: `setup-git-hooks.sh` must run inside the target project (not inside this repo). Hooks call `core.quality_gate` — the `core/quality_gate/` module must be importable from the target project root (submodule, pip, or copy).
 
 ---
 
@@ -849,7 +849,7 @@ class AutonomousGates(VerificationGates):
 **Module-level constants** (gate remediation support):
 
 ```python
-_GATE_THRESHOLDS: Dict[int, float] = {1: 70.0, 2: 75.0, 3: 80.0, 4: 85.0}
+_GATE_THRESHOLDS: Dict[int, float] = {1: 75.0, 2: 75.0, 3: 80.0, 4: 85.0}
 _GATE_ACTION_TEMPLATES: Dict[int, List[str]]  # per-gate ordered fix hints (Gates 1–4)
 ```
 
@@ -951,7 +951,7 @@ def run_until_converge(get_next_pair_fn, max_rounds=None) -> IterationResult:
 | `HR12Resolution` | HR-12 conflict resolver | `should_stop(current_round, score_delta) -> (bool, reason)` |
 | `SteeringIntegrator` | Unified facade | `iterate_with_full_check(output_a, output_b) -> (IterationResult, [IntegrationResult])` |
 
-**Import behavior**: Constitution module imports (`from constitution.bvs_runner`, `from constitution.citation_parser`, `from constitution.verification_constitution_checker`) are lazy-loaded inside try/except blocks. `constitution/` is not present in this repo as a top-level package — these calls gracefully degrade to warnings when the full-system constitution module is absent.
+**Import behavior**: Constitution module imports (`from constitution.bvs_runner`, `from constitution.citation_parser`, `from constitution.verification_constitution_checker`) are available directly. The top-level `constitution/` package (v2.0.0) provides the full API including BVS, claims verification, invariant engine, and compiled constitution. Graceful degradation via try/except is preserved for environments where optional BVS dependencies are unavailable.
 
 **HR-12 Resolution**:
 - HR-12 says "no >5 rounds of ineffective iteration" (negative constraint)

@@ -72,10 +72,10 @@ class PhaseHooks:
         """Run constitution quality gate check."""
         print(f"\n[PRE-FLIGHT] Constitution Check ({check_mode})")
         try:
-            from quality_gate.constitution import run_constitution_check
+            from core.quality_gate.constitution import run_constitution_check
             result = run_constitution_check(
                 check_type="all", docs_path=str(self.docs_path),
-                current_phase=self.phase, check_mode=check_mode
+                current_phase=self.phase or 1, check_mode=check_mode
             )
             print(f"   Score: {result.score:.0f}%, Violations: {len(result.violations)}")
             return {"passed": result.passed, "score": result.score,
