@@ -102,7 +102,7 @@ python harness_cli.py check-logic       [--project .] [--srs SRS.md]
 **Pipeline step flow per phase (P3+)**:
 ```
 [phase.1]   plan-phase        — Generate execution plan from SAD.md
-[phase.2]   preflight          — FSM + constitution + kill-switch (M1) + drift detection (M2)
+[phase.2]   preflight          — FSM + constitution + kill-switch (M1) + drift (M2) + SAB (P3+) + traceability (P3+) + CI readiness
 [phase.2.5] M3 gap analysis    — GapDetector: SPEC.md ↔ codebase gap report (saved to .methodology/gap_report.json)
 [phase.3]   Gate 1 per-FR      — Per-FR quality gate evaluation (phases 3,4,5,7,8)
 [phase.4]   Phase exit gate    — Composite gate evaluation (G2 at P3, G3 at P4, G4 at P6)
@@ -691,15 +691,18 @@ File paths used:
 - `.methodology/run-phase.log` — append-only run log
 - `docs/` — for constitution checks
 
-**Pre-flight hooks** (`preflight_all() -> dict` calls all five):
+**Pre-flight hooks** (`preflight_all() -> dict` calls all eight):
 
 | Method | Check | Blocks if |
 |---|---|---|
 | `preflight_fsm_check()` | reads `state.json` | state in `{"FREEZE", "PAUSED"}` or phase regression |
 | `preflight_constitution(check_mode="preflight")` | calls `quality_gate.constitution.run_constitution_check` | violations found |
 | `preflight_kill_switch()` | verifies M1 kill-switch is operational | skipped if `enable_kill_switch=False` |
-| `preflight_drift_detection()` | runs M2 `DriftDetector.detect_all()` | ensemble score < `drift_threshold` |
+| `preflight_drift_detection()` | runs M2 `DriftDetector.detect_all()` (SAD + spec + phase + SAB) | ensemble score < `drift_threshold` |
+| `preflight_sab_check()` | validates SAB.json layer integrity, module presence | P3+ only; blocks if SAB.json missing or violations found |
+| `preflight_traceability()` | runs `check_spec_trace.check_traceability()` for FR→code→test coverage | P3 info-only, P4+ blocks if gaps exist |
 | `preflight_tool_registry()` | checks `ToolRegistry.list_tools()` | skipped if not installed |
+| `preflight_ci_readiness()` | checks CI workflow, git hooks, harness import path | never blocks (warning only) |
 
 **Monitoring hooks** (append to `self.monitoring_events` + write to `run-phase.log`; M1 kill-switch circuit check on before_* calls):
 
@@ -1144,29 +1147,49 @@ class KillSwitch:
 | `reporter.py` | `GapReporter` | Formats gap findings for reporting |
 | `scanner.py` | `CodeScanner` | Scans codebase for coverage evidence |
 
-### §3.21 — `scripts/check_spec_trace.py` — FR Spec Trace Validator
+### §3.21 — `scripts/check_spec_trace.py` — FR Spec Trace Validator (v2 Content-Level)
 
-**Responsibility**: Validates that every FR-XXX ID found in SAD.md has a corresponding
-test file in the target project's `tests/` directory. Called at P4 Gate 3 entry (before SSI runner)
-to enforce 100% SPEC trace coverage. Implements the P3 TDD scaffolding contract — ensuring
-tests written in P3 Step 0 are present before P4 quality evaluation begins.
+**Responsibility**: Validates bidirectional FR→code→test traceability using the `RequirementTraceability` model populated from live artifacts. Upgraded from v1 (file-existence-only) to v2 (content-level `[FR-XX]` annotation scanning). Called at P4 Gate 3 entry to enforce 100% trace coverage.
 
-**Usage** (called by `harness_bridge.run_gate(gate_num=3)` pre-flight):
+**Usage**:
 ```bash
-python3 harness/scripts/check_spec_trace.py SAD.md tests/
-# Exit 0: all FRs traced → Gate 3 proceeds
-# Exit 1: untested FRs found → GateBlockedError raised before SSI runner
+python3 scripts/check_spec_trace.py --project . [--sad SAD.md] [--block] [--json] [--export report.json]
+# --block: exit 1 if untraced FRs found (for CI/gate use)
+# --json:  output report as JSON
 ```
 
-**Logic**:
+**Checks**:
 - Extracts all `\bFR-\d+\b` IDs from SAD.md
-- Scans `tests/test_fr_*.py` files for FR references (filename + content)
-- Reports: `FRs: N | Tested: M | Untested: K`
-- Exit 0 = Gate 3 may proceed | Exit 1 = Gate 3 blocked until `test_fr_XXX.py` files created
+- Scans Python source for `[FR-XX]` docstring annotations (code coverage)
+- Scans `tests/test_*.py` files for FR references in filename + content (test coverage)
+- Reports untested AND uncoded FRs
+- Populates `RequirementTraceability` model with bidirectional links
 
-**Integration**: `harness_bridge.prepare_gate(gate_num=3)` triggers this check at Gate 3 entry.
-Failure raises `GateBlockedError(3, ...)` listing untested FRs. The script is in `scripts/` alongside
-`check_fr_full.py` and `verify_spec_compliance.py`.
+**Integration**: `PhaseHooks.preflight_traceability()` calls `check_traceability()` at preflight (P3 info, P4+ blocking). `harness_bridge.prepare_gate(gate_num=3)` triggers the `--block` variant at Gate 3 entry.
+
+---
+
+### §3.31 — `scripts/build_traceability.py` — ASPICE Traceability Matrix Builder
+
+**Responsibility**: Populates the `RequirementTraceability` model from live artifacts (SAD.md, `[FR-XX]` annotations, test files) and auto-generates `TRACEABILITY_MATRIX.md` with ASPICE SWE.3 compliance reporting.
+
+**Usage**:
+```bash
+python3 scripts/build_traceability.py --project . [--sad SAD.md] [--json] [--export report.json]
+```
+
+**Scan pipeline**:
+1. Extract FR IDs from SAD.md (source of truth)
+2. Scan Python source for `[FR-XX]` docstring annotations → FR→code mapping
+3. Scan test files for FR references (filename + content) → FR→test mapping
+4. Populate `RequirementTraceability` model with status per FR (VERIFIED / IN_PROGRESS / PENDING)
+5. Generate `TRACEABILITY_MATRIX.md` with ASPICE SWE.3 BP1-BP3 compliance table
+
+**Output**: `TRACEABILITY_MATRIX.md` in project root, containing:
+- ASPICE compliance summary (code/test coverage %)
+- SWE.3 BP1/BP2/BP3 pass/fail status
+- Detailed per-FR matrix (status, code files, test files, SAD modules)
+- Gap report (FRs without code, FRs without test)
 
 
 ---
@@ -1297,7 +1320,10 @@ PhaseHooks("/path/to/project", phase=3)
   │    ├─ preflight_constitution()     → quality_gate.constitution.run_constitution_check(...)
   │    ├─ preflight_kill_switch()      → verifies M1 circuit breaker operational
   │    ├─ preflight_drift_detection()  → M2 DriftDetector.detect_all() (score ≥ drift_threshold)
-  │    └─ preflight_tool_registry()    → ToolRegistry.list_tools() (skipped if not installed)
+  │    ├─ preflight_sab_check()        → validates SAB.json layers + deps (P3+ only)
+  │    ├─ preflight_tool_registry()    → ToolRegistry.list_tools() (skipped if not installed)
+  │    ├─ preflight_traceability()     → check_spec_trace.check_traceability() (P3 info, P4+ block)
+  │    └─ preflight_ci_readiness()     → CI workflow + git hooks presence (warning only)
   │
   ├─ [per-FR development loop]
   │    ├─ monitoring_before_dev(fr_id, agent_id="agent-a")   → M1 circuit check + start monitoring
@@ -1675,7 +1701,8 @@ python scripts/generate_full_plan.py --phase 3 --repo /path/to/project \
 |---|---|---|
 | `check_fr_full.py` | 7KB | Full bidirectional FR audit: SRS → SAD → code → test chain completeness |
 | `check_fr_quality.py` | 4KB | FR-level quality scoring: docstring coverage, citation format, `[FR-XX]` tag presence |
-| `check_spec_trace.py` | 3KB | Validates every FR-ID in SAD.md has a matching `tests/test_fr_*.py`; Gate 3 pre-flight |
+| `check_spec_trace.py` | 9KB | Content-level FR→code→test traceability validator; populates RequirementTraceability model; Gate 3 pre-flight |
+| `build_traceability.py` | 10KB | ASPICE traceability matrix builder: scans SAD.md + `[FR-XX]` + tests → auto-generates TRACEABILITY_MATRIX.md |
 
 #### Integration & Automation
 
@@ -1800,6 +1827,19 @@ def log_spawn_event(repo_path, role, task, session_id, **kwargs) -> Dict
 ### §3.24 — `core/requirement_traceability.py` — ASPICE Traceability Manager
 
 **Responsibility**: FR → SRS → Code → Test bidirectional traceability. ASPICE SWE.3/SYS.4 compliant. Tracks which requirements are implemented, which code components satisfy them, and which test files verify the implementation.
+
+**Population**: The model is populated from live artifacts by two scripts:
+- `scripts/build_traceability.py` — full scan: SAD.md → `[FR-XX]` annotations → test files → model → `TRACEABILITY_MATRIX.md`
+- `scripts/check_spec_trace.py` — preflight scan: populates model and returns gap report for Gate 3
+
+**CLI usage**:
+```bash
+# Populate from artifacts (recommended):
+python3 scripts/build_traceability.py --project . [--json] [--export report.json]
+
+# Direct CLI (manual population):
+python core/requirement_traceability.py --project-id <id> [--verify] [--export report.json] [--format aspice]
+```
 
 **Key dataclasses**:
 
@@ -2186,7 +2226,7 @@ python3 -m software_self_improvement.runner
 | **P1** | ~~`constitution/` package stub or real impl~~ | ✅ Done (v2.0.1) | `constitution/` implemented — `BVSRunner`, `CitationParser`, `VerificationConstitutionChecker` all deployed. | A |
 | **P2** | `harness_bridge` empirical project validation | **+1 -> 93** | First full run against a real project. Confirms Tier 1 deterministic scoring is stable and subprocess call chain works end-to-end | A (20->21) |
 | **P2** | CRG activation + empirical data | **+1 -> 94** | First real project run with CRG MCP available. Validates `min(tool, llm)` floor and `crg_metrics.json` structural signals. Currently `CRGBridge.is_available()` returns `False` in standalone mode | E (10->11) |
-| **P3** | ASPICE full traceability matrix (Phase E docs) | **+1 -> 95** | `scripts/check_spec_trace.py` now automates FR→test traceability (partial). Complete `TRACEABILITY_MATRIX.md` linking FR-01..FR-N to code modules, test cases, and gate results for full ASPICE Level 2 alignment | C (15->16) |
+| **P3** | ASPICE full traceability matrix (Phase E docs) | ✅ **DONE** | `scripts/build_traceability.py` populates `RequirementTraceability` model from SAD.md + `[FR-XX]` annotations + test files, auto-generates `TRACEABILITY_MATRIX.md` with ASPICE SWE.3 compliance. `scripts/check_spec_trace.py` upgraded to v2 content-level. `PhaseHooks.preflight_traceability()` blocks at P4+. | C (15→16) |
 | **P4** | Developer-side deterministic tooling | **+1-2 -> 96** | Replace or augment Claude developer agent with static analysis pipeline (mypy strict, semgrep, complexity checker). Reduces D-dimension LLM dependency from 13/15 to 15/15 | D (13->15) |
 
 ### 8.2 Open Integration Items (Ready, No External Blockers)
@@ -2460,7 +2500,7 @@ P6 does NOT have a per-FR loop. Gate 4 evaluates all 12 dimensions across the en
 | P5–P8 | 60% | 40% | — | — |
 
 **Preflight Hooks (all phases)**
-`run-phase` runs before each phase work loop: FSM state check → KillSwitch status → Constitution validation → SAB check (P3+) → CI readiness → Tool registry → DriftDetector (P3+, now includes SAB drift) → GapDetector (P4+).
+`run-phase` runs before each phase work loop: FSM state check → KillSwitch status → Constitution validation → SAB check (P3+) → Traceability check (P3 info, P4+ block) → CI readiness → Tool registry → DriftDetector (P3+, now includes SAB drift) → GapDetector (P4+).
 
 **SAB Architecture Baseline (P2 → P3–P8)**
 The SAB (Software Architecture Baseline) is a machine-readable architecture contract generated at P2 exit from SAD.md §6. It flows through four integration lines:

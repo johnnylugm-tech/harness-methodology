@@ -207,6 +207,49 @@ class PhaseHooks:
 
         return {"passed": passed, "violations": violations, "layers": len(layers)}
 
+    def preflight_traceability(self) -> Dict[str, Any]:
+        """Check ASPICE traceability: FR→code→test bidirectional links (P3+)."""
+        print("\n[PRE-FLIGHT] ASPICE Traceability Check")
+        if self.phase and self.phase < 3:
+            print("   Skipped: traceability matrix not required before P3")
+            return {"passed": True, "skipped": True, "message": "Traceability not required before P3"}
+
+        try:
+            from scripts.check_spec_trace import check_traceability
+            _, report = check_traceability(self.project_path)
+        except Exception as e:
+            print(f"   Traceability check error: {e}")
+            return {"passed": True, "skipped": True, "error": str(e)}
+
+        total = report["total"]
+        untested = len(report["untested"])
+        uncoded = len(report["uncoded"])
+        complete = report["complete"]
+
+        # P3: informational only (matrix is being built)
+        # P4+: blocking (Gate 3 requires full traceability)
+        blocking = self.phase is not None and self.phase >= 4
+        passed = complete if blocking else True
+
+        c = report["completeness"]
+        print(f"   FRs: {total} | Code: {c['code_coverage']} | "
+              f"Test: {c['test_coverage']} | "
+              f"{'BLOCKING' if blocking else 'INFO'}")
+        if untested:
+            print(f"   Untested FRs: {', '.join(report['untested'])}")
+        if uncoded:
+            print(f"   Uncoded FRs: {', '.join(report['uncoded'])}")
+
+        return {
+            "passed": passed,
+            "skipped": False,
+            "total_frs": total,
+            "untested": report["untested"],
+            "uncoded": report["uncoded"],
+            "completeness": c,
+            "blocking": blocking,
+        }
+
     def preflight_ci_readiness(self) -> Dict[str, Any]:
         """Check target project CI wiring (Context B only — advisory, non-blocking)."""
         print("\n[PRE-FLIGHT] CI Readiness Check")
@@ -241,6 +284,7 @@ class PhaseHooks:
             "drift_detection": self.preflight_drift_detection(),
             "sab": self.preflight_sab_check(),
             "tool_registry": self.preflight_tool_registry(),
+            "traceability": self.preflight_traceability(),
             "ci_readiness": self.preflight_ci_readiness(),
         }
         all_passed = all(r.get("passed", False) for r in results.values())
