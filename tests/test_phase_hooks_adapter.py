@@ -151,3 +151,108 @@ class TestPhaseHooksAdapter:
         assert "preflight" in result
         assert "fr_outcomes" in result
         assert "postflight" in result
+
+
+class TestSabConstitutionCheck:
+    """Tests for SAB constitution validation in PhaseHooks."""
+
+    @pytest.fixture
+    def phase_hooks_cls(self):
+        from core.phase_hooks import PhaseHooks
+        return PhaseHooks
+
+    def test_p1_skips_sab_check(self, tmp_path, phase_hooks_cls):
+        """P1 has no SAB requirement — passes with skipped=True."""
+        hooks = phase_hooks_cls(str(tmp_path), phase=1)
+        result = hooks.preflight_sab_check()
+        assert result["passed"] is True
+        assert result.get("skipped") is True
+
+    def test_p2_skips_sab_check(self, tmp_path, phase_hooks_cls):
+        """P2 may not have SAB.json yet — passes with skipped=True."""
+        hooks = phase_hooks_cls(str(tmp_path), phase=2)
+        result = hooks.preflight_sab_check()
+        assert result["passed"] is True
+        assert result.get("skipped") is True
+
+    def test_p3_fails_without_sab_json(self, tmp_path, phase_hooks_cls):
+        """P3+ requires SAB.json — fails if missing."""
+        hooks = phase_hooks_cls(str(tmp_path), phase=3)
+        result = hooks.preflight_sab_check()
+        assert result["passed"] is False
+        assert "SAB.json not found" in result.get("message", "")
+
+    def test_p3_passes_with_valid_sab(self, tmp_path, phase_hooks_cls):
+        """P3 with valid SAB.json and all modules present passes."""
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        sab_json = {
+            "layers": [
+                {"name": "L1", "modules": ["mod.py"], "allowed_dependencies": []},
+            ],
+            "dependencies": {"L1": []},
+        }
+        (method_dir / "SAB.json").write_text(
+            __import__("json").dumps(sab_json)
+        )
+        (tmp_path / "mod.py").write_text("# mod")
+
+        hooks = phase_hooks_cls(str(tmp_path), phase=3)
+        result = hooks.preflight_sab_check()
+        assert result["passed"] is True
+        assert result["layers"] == 1
+
+    def test_sab_check_extra_deps_flagged(self, tmp_path, phase_hooks_cls):
+        """Dependencies not in allowed list cause violations."""
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        sab_json = {
+            "layers": [
+                {"name": "L1", "modules": ["mod.py"], "allowed_dependencies": []},
+            ],
+            "dependencies": {"L1": ["L2"]},
+        }
+        (method_dir / "SAB.json").write_text(
+            __import__("json").dumps(sab_json)
+        )
+        (tmp_path / "mod.py").write_text("# mod")
+
+        hooks = phase_hooks_cls(str(tmp_path), phase=3)
+        result = hooks.preflight_sab_check()
+        assert result["passed"] is False
+        assert len(result["violations"]) >= 1
+        assert any("L2" in v for v in result["violations"])
+
+    def test_sab_check_missing_modules(self, tmp_path, phase_hooks_cls):
+        """Modules declared in SAB but missing on disk cause violations."""
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        sab_json = {
+            "layers": [
+                {"name": "L1", "modules": ["nonexistent.py"], "allowed_dependencies": []},
+            ],
+            "dependencies": {"L1": []},
+        }
+        (method_dir / "SAB.json").write_text(
+            __import__("json").dumps(sab_json)
+        )
+
+        hooks = phase_hooks_cls(str(tmp_path), phase=3)
+        result = hooks.preflight_sab_check()
+        assert result["passed"] is False
+        assert any("missing" in v for v in result["violations"])
+
+    def test_preflight_all_includes_sab(self, tmp_path, phase_hooks_cls):
+        """preflight_all() result dict includes 'sab' key."""
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        # Minimal setup: state.json so FSM doesn't fail
+        (method_dir / "state.json").write_text('{"state": "ACTIVE", "current_phase": 3}')
+
+        hooks = phase_hooks_cls(str(tmp_path), phase=3, enable_kill_switch=False)
+        result = hooks.preflight_all()
+        assert "sab" in result["details"]
+        # P3 without SAB.json → sab check fails but preflight_all may still pass
+        # (SAB is not a BLOCK-level check yet)
+        sab_result = result["details"]["sab"]
+        assert "passed" in sab_result

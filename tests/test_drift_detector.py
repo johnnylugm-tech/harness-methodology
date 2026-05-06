@@ -3,6 +3,7 @@ Unit tests for DriftDetector.
 """
 
 from detection.drift_detector import DriftDetector
+from unittest.mock import patch
 
 
 class TestDriftDetector:
@@ -90,3 +91,174 @@ class TestDriftDetector:
     def test_find_file_not_found(self, tmp_path):
         detector = DriftDetector(str(tmp_path))
         assert detector._find_file(["nonexistent.md"]) is None
+
+
+class TestSabDriftDetection:
+    """Tests for SAB architecture baseline drift detection."""
+
+    def test_detect_sab_drift_no_baseline(self, tmp_path):
+        """No SAB.json and no SAD.md → graceful empty result."""
+        detector = DriftDetector(str(tmp_path))
+        result = detector.detect_sab_drift()
+        assert result.has_drift is False
+        assert result.score == 1.0
+        assert result.checked == 0
+
+    def test_detect_sab_drift_missing_files(self, tmp_path):
+        """SAB declares files that don't exist on disk."""
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        sab_json = {
+            "layers": [
+                {"name": "L1", "modules": ["missing_one.py", "missing_two.py"],
+                 "allowed_dependencies": []},
+            ],
+            "dependencies": {"L1": []},
+        }
+        (method_dir / "SAB.json").write_text(
+            __import__("json").dumps(sab_json)
+        )
+        detector = DriftDetector(str(tmp_path))
+        result = detector.detect_sab_drift()
+        assert result.has_drift is True
+        assert result.drifted >= 2
+        assert any("missing_one.py" in i.description for i in result.drift_items)
+
+    def test_detect_sab_drift_unregistered_file(self, tmp_path):
+        """New Python file not in any SAB layer is flagged."""
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        sab_json = {
+            "layers": [
+                {"name": "L1", "modules": ["known.py"], "allowed_dependencies": []},
+            ],
+            "dependencies": {"L1": []},
+        }
+        (method_dir / "SAB.json").write_text(
+            __import__("json").dumps(sab_json)
+        )
+        (tmp_path / "known.py").write_text("# known")
+        (tmp_path / "unregistered.py").write_text("# unknown")
+
+        detector = DriftDetector(str(tmp_path))
+        result = detector.detect_sab_drift()
+        assert result.has_drift is True
+        assert any("unregistered.py" in i.location for i in result.drift_items)
+
+    def test_detect_sab_drift_import_violation(self, tmp_path):
+        """Cross-layer import where dependency is not allowed."""
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        sab_json = {
+            "layers": [
+                {"name": "L1", "modules": ["layer1_mod.py"],
+                 "allowed_dependencies": []},
+                {"name": "L2", "modules": ["layer2_mod.py"],
+                 "allowed_dependencies": []},
+            ],
+            "dependencies": {"L1": [], "L2": ["L1"]},
+        }
+        (method_dir / "SAB.json").write_text(
+            __import__("json").dumps(sab_json)
+        )
+        (tmp_path / "layer1_mod.py").write_text("import layer2_mod\n# violates: L1→L2 not allowed")
+        (tmp_path / "layer2_mod.py").write_text("import layer1_mod\n# allowed: L2→L1")
+
+        detector = DriftDetector(str(tmp_path))
+        result = detector.detect_sab_drift()
+        # layer1_mod imports layer2_mod which is disallowed
+        critical_items = [i for i in result.drift_items if i.severity.value == "CRITICAL"]
+        assert len(critical_items) >= 1
+        assert any("layer1_mod" in i.location for i in critical_items)
+
+    def test_detect_sab_drift_clean(self, tmp_path):
+        """All files match SAB — no drift."""
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        sab_json = {
+            "layers": [
+                {"name": "L1", "modules": ["mod_a.py"], "allowed_dependencies": []},
+            ],
+            "dependencies": {"L1": []},
+        }
+        (method_dir / "SAB.json").write_text(
+            __import__("json").dumps(sab_json)
+        )
+        (tmp_path / "mod_a.py").write_text("# part of L1")
+
+        detector = DriftDetector(str(tmp_path))
+        result = detector.detect_sab_drift()
+        assert result.has_drift is False
+        assert result.score == 1.0
+
+    def test_resolve_import_layer_dotted(self, tmp_path):
+        """Dotted import path resolves to correct layer."""
+        detector = DriftDetector(str(tmp_path))
+        layer_map = {
+            "Core": {"core/phase_hooks", "core/agent_spawner"},
+            "Bridge": {"harness/harness_bridge", "harness"},
+        }
+        assert detector._resolve_import_layer("core.phase_hooks", layer_map) == "Core"
+        assert detector._resolve_import_layer("harness.harness_bridge", layer_map) == "Bridge"
+
+    def test_resolve_import_layer_directory(self, tmp_path):
+        """Import under a directory-registered path resolves correctly."""
+        detector = DriftDetector(str(tmp_path))
+        layer_map = {"Bridge": {"harness"}}
+        assert detector._resolve_import_layer("harness.git_strategy", layer_map) == "Bridge"
+        assert detector._resolve_import_layer("harness.crg_bridge", layer_map) == "Bridge"
+
+    def test_resolve_import_layer_unmatched(self, tmp_path):
+        """Unknown import returns None."""
+        detector = DriftDetector(str(tmp_path))
+        layer_map = {"Core": {"core/phase_hooks"}}
+        assert detector._resolve_import_layer("nonexistent.module", layer_map) is None
+
+    def test_detect_all_includes_sab(self, tmp_path):
+        """detect_all returns 'sab' key in results dict."""
+        detector = DriftDetector(str(tmp_path))
+        results = detector.detect_all()
+        assert "sab" in results
+        assert results["sab"].drift_type == "sab"
+
+    def test_load_sab_baseline_from_sad_fallback(self, tmp_path):
+        """Falls back to parsing SAD.md §6 SAB block when SAB.json missing."""
+        sad = tmp_path / "SAD.md"
+        sad.write_text("""<!-- SAB:START -->
+```json
+{"layers": [{"name": "L0", "modules": ["main.py"], "allowed_dependencies": []}],
+ "dependencies": {"L0": []}, "version": "1.0", "project": "test"}
+```
+<!-- SAB:END -->""")
+        (tmp_path / "main.py").write_text("# main")
+
+        detector = DriftDetector(str(tmp_path))
+        with patch("scripts.generate_sab.parse_sad") as mock_parse:
+            mock_parse.return_value = {
+                "layers": [{"name": "L0", "modules": ["main.py"],
+                            "allowed_dependencies": []}],
+                "dependencies": {"L0": []},
+            }
+            result = detector.detect_sab_drift()
+            assert result.has_drift is False
+
+    def test_sab_drift_skips_venv_and_pycache(self, tmp_path):
+        """venv and __pycache__ files are excluded from SAB drift checks."""
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        sab_json = {"layers": [], "dependencies": {}}
+        (method_dir / "SAB.json").write_text(
+            __import__("json").dumps(sab_json)
+        )
+        venv = tmp_path / "venv" / "lib"
+        venv.mkdir(parents=True)
+        (venv / "third_party.py").write_text("# venv")
+        pycache = tmp_path / "__pycache__"
+        pycache.mkdir()
+        (tmp_path / "real_module.py").write_text("# real")
+
+        detector = DriftDetector(str(tmp_path))
+        result = detector.detect_sab_drift()
+        # real_module.py is flagged, venv/__pycache__ files are not
+        flagged = [i for i in result.drift_items if "venv" in i.location or "__pycache__" in i.location]
+        assert len(flagged) == 0

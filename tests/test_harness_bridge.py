@@ -326,3 +326,79 @@ class TestFinalizeGate:
                     with patch.object(bridge, "_require_hermes_approve") as mock_hermes:
                         bridge.finalize_gate(ctx)
         mock_hermes.assert_called_once()
+
+
+class TestSabManifestIntegration:
+    """Tests for SAB data loading and injection into gate evaluation context."""
+
+    def test_load_manifest_sab_empty(self, tmp_path):
+        """Returns empty dict when quality_manifest.json doesn't exist."""
+        bridge = HarnessBridge()
+        # No .methodology dir at all
+        sab = bridge._load_manifest_sab(str(tmp_path))
+        assert sab == {}
+
+    def test_load_manifest_sab_valid(self, tmp_path):
+        """Returns SAB-derived fields from a valid manifest."""
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        manifest = {
+            "fr_ids": ["FR-01"],
+            "nfr_dimension_mapping": {"NFR-1": "security"},
+            "architecture_constraints": ["no-circular-deps"],
+            "high_risk_modules": ["core/auth.py"],
+        }
+        (method_dir / "quality_manifest.json").write_text(json.dumps(manifest))
+
+        bridge = HarnessBridge()
+        sab = bridge._load_manifest_sab(str(tmp_path))
+        assert sab["nfr_dimension_mapping"] == {"NFR-1": "security"}
+        assert sab["architecture_constraints"] == ["no-circular-deps"]
+        assert sab["high_risk_modules"] == ["core/auth.py"]
+
+    def test_load_manifest_sab_partial(self, tmp_path):
+        """Manifest without SAB fields returns empty lists/dicts."""
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        (method_dir / "quality_manifest.json").write_text(
+            '{"fr_ids": ["FR-01"], "gate_results": {}}'
+        )
+        bridge = HarnessBridge()
+        sab = bridge._load_manifest_sab(str(tmp_path))
+        assert sab["nfr_dimension_mapping"] == {}
+        assert sab["architecture_constraints"] == []
+        assert sab["high_risk_modules"] == []
+
+    def test_evaluation_prompt_includes_sab_data(self):
+        """GateContext.evaluation_prompt() renders SAB baseline when present."""
+        ctx = GateContext(
+            gate_num=3, config={"dimensions": [{"name": "architecture"}],
+                                "score_gate": 80},
+            project_root="/tmp/test", phase=4, fr_id=None,
+            ssi_scripts_dir="/tmp/ssi/scripts",
+            ssi_prompts_dir="/tmp/ssi/prompts",
+            ssi_schemas_dir="/tmp/ssi/schemas",
+            work_dir="/tmp/.sessi-work",
+            sab_data={
+                "architecture_constraints": ["no-circular-deps"],
+                "high_risk_modules": ["core/auth.py"],
+                "nfr_dimension_mapping": {"NFR-1": "security"},
+            },
+        )
+        prompt = ctx.evaluation_prompt()
+        assert "SAB Baseline" in prompt
+        assert "no-circular-deps" in prompt
+        assert "core/auth.py" in prompt
+        assert "architecture" in prompt
+
+    def test_evaluation_prompt_without_sab_data(self):
+        """GateContext.evaluation_prompt() renders cleanly without SAB data."""
+        ctx = GateContext(
+            gate_num=1, config={"dimensions": [{"name": "linting"}]}, project_root="/t",
+            phase=3, fr_id="FR-01",
+            ssi_scripts_dir="/t/ssi/scripts", ssi_prompts_dir="/t/ssi/prompts",
+            ssi_schemas_dir="/t/ssi/schemas", work_dir="/t/.sessi-work",
+            sab_data={},
+        )
+        prompt = ctx.evaluation_prompt()
+        assert "SAB Baseline" not in prompt
