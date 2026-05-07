@@ -1,7 +1,6 @@
 # TEST_RESULTS.md - {Project Name}
 
 > On-demand Lazy Load template.
-> Source: SKILL_TEMPLATES.md SS T4.2
 
 ## Execution Summary
 - Total Tests: {N}

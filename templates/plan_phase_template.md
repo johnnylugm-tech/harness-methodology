@@ -11,7 +11,7 @@
 ## 0. Execution Protocol (§0)
 
 ```
-[Step 0] READ state.json → current_phase={PHASE}
+[Step 0] READ .methodology/state.json → current_phase={PHASE}
 [Step 1] LOAD SKILL.md §4 Phase routing
 [Step 2] CHECK entry conditions → blocker → STOP
 [Step 3] EXECUTE SOP → LAZY LOAD docs/P{PHASE}_SOP.md
@@ -22,10 +22,10 @@
 
 **CLI Commands**:
 ```bash
-python3 cli.py update-step --step N
-python3 cli.py end-phase --phase {PHASE}
-python3 cli.py stage-pass --phase {PHASE}
-python3 cli.py run-phase --phase {PHASE} --goal "{GOAL}"
+python3 harness_cli.py run-phase --phase {PHASE} --project .
+python3 harness_cli.py push-checkpoint --phase {PHASE}
+python3 harness_cli.py run-gate --gate 1 --phase {PHASE} --fr-id FR-XX
+python3 harness_cli.py generate-next-plan --phase {PHASE}
 ```
 
 ---
@@ -283,22 +283,16 @@ pytest --cov=app/ --cov-report=term -q
 
 | Tool | Trigger Timing | Invocation |
 |------|----------------|------------|
-| **SubagentIsolator** | Before dispatching Sub-agent | `si.spawn(role=AgentRole.{AGENT_A_UPPER}, task="...")` |
-| **PermissionGuard** | Before exec/rm operations | `pg.check(Operation(type="exec", ...))` |
-| **ContextManager** | context > 50 messages | `cm.compress_if_needed()` |
-| **SessionManager** | Task > 30 minutes | `sm.save("task-id", state)` |
-| **KnowledgeCurator** | Verify coverage before dispatch | `kc.verify_coverage(fr_list=["FR-01"])` |
-| **ToolRegistry** | When new tool is introduced | `tr.register("Tool", handler)` |
+| **SubagentIsolator** | Before dispatching Sub-agent | `si.spawn(role="DEVELOPER", task="...")` |
+| **ContextManager** | context > 50 messages | Parent system only |
+| **SessionManager** | Task > 30 minutes | Parent system only |
 
 ### On Demand Trigger Conditions
 
 ```
 - SubagentIsolator → before each dispatch (HR-01)
-- PermissionGuard → before exec/rm (security check)
-- ContextManager → auto-compress when context > 50
-- SessionManager → on task start + auto-save after 30 min
-- KnowledgeCurator → verify before Phase start
-- ToolRegistry → register when new tool is discovered
+- ContextManager → auto-compress when context > 50 (parent system)
+- SessionManager → on task start + auto-save after 30 min (parent system)
 ```
 
 {subagent_mgmt}
@@ -319,15 +313,13 @@ pytest --cov=app/ --cov-report=term -q
 
 | Feature | Version | Enable | Description |
 |---------|---------|--------|-------------|
-| **BVS** | v6.62 | Auto (Constitution runner) | Validates agent behavior against Constitution |
-| **HR-09 Claims Verifier** | v6.63 | Auto (Constitution runner) | Validates citations have artifact backing |
-| **CQG** | v6.61 | `python cli.py quality-gate` | Linter + Complexity + Coverage auto-check |
-| **AutoResearch** | IMPROVEMENT_P1-3 | Standalone Skill | Auto-generate test cases (standalone Skill, integrate when mature) |
-| **Feedback Loop** | v6.29 | Auto (if enabled) | Collect and feed back execution results |
-| **Steering Loop** | v6.67 | `steering run --phase N` | Auto-adjust strategy based on feedback |
-| **Self-Correction Engine** | v6.67 | Auto (if enabled) | Auto-correct code based on errors |
-| **Verify_Agent** | v6.21 | `cli.py verify-artifact --phase {PHASE}` | Third-party independent audit (when Agent B exceeds 20 rounds) |
-| **SAB Drift Detection** | IMPROVEMENT_P0-3 | `python cli.py trace-check` or UnifiedGate | Validate code<->SAD consistency |
+| **BVS** | v2.3 | Auto (Constitution runner) | Validates agent behavior against Constitution |
+| **HR-09 Claims Verifier** | v2.3 | Auto (Constitution runner) | Validates citations have artifact backing |
+| **CQG** | v2.3 | `harness_cli.py run-gate --gate 1` | Per-FR quality auto-check |
+| **AutoResearch** | v2.3 | `harness_cli.py run-gate` | Phase-aware quality improvement |
+| **SAB Drift Detection** | v2.0 | `cli.py trace-check` * | Validate code<->SAD consistency |
+| **Feedback Loop** | v2.3 | Auto (if enabled) | Collect and feed back execution results |
+| **Steering Loop** | v2.3 | `cli.py steering run` * | Auto-adjust strategy based on feedback |
 
 ### Recommended automation flow (Phase 3+)
 
@@ -342,18 +334,10 @@ done
 python harness_cli.py run-phase --phase {PHASE}
 
 # 3. SAB Drift Detection (code<->SAD consistency)
-python cli.py trace-check --from phase1 --to phase{PHASE}
+python3 harness_cli.py run-gap-analysis --project .
 
-# 4. AutoResearch auto-generate tests (standalone Skill)
-# See: skills/auto_research/SKILL.md
-
-# 5. Feedback Loop collect feedback
-steering run --phase {PHASE}
-
-# 6. Verify_Agent (if needed)
-if [ $AGENT_B_ROUNDS -gt 20 ]; then
-    python cli.py verify-artifact --phase {PHASE}
-fi
+# 4. Feedback Loop collect feedback
+python3 harness_cli.py run-phase --phase {PHASE}
 ```
 
 ### SAB Drift Detection Description
@@ -418,45 +402,18 @@ Test coverage meets threshold (weight 20%)
 
 ### SubagentIsolator
 ```python
-from subagent_isolator import SubagentIsolator, AgentRole
+from core.subagent_isolator import SubagentIsolator
 si = SubagentIsolator()
-result = si.spawn(role=AgentRole.DEVELOPER, task="FR-{FR_NUM}", artifact_paths=["SRS.md"])
-```
-
-### PermissionGuard
-```python
-from permission_guard import PermissionGuard
-pg = PermissionGuard()
-pg.check(Operation(type="exec", permission="EXEC_BASH", target="rm -rf /tmp"))
-```
-
-### KnowledgeCurator
-```python
-from knowledge_curator import KnowledgeCurator
-kc = KnowledgeCurator()
-kc.verify_coverage(fr_list=["FR-01", "FR-02"])
+result = si.spawn(role="DEVELOPER", task="FR-{FR_NUM}", artifact_paths=["SRS.md"])
 ```
 
 ### ContextManager (3-layer compression)
-```python
-from context_manager import ContextManager
-cm = ContextManager()
-cm.compress_if_needed()  # L1>50, L2>100, L3>200
-```
+> Note: ContextManager is available in the parent system (`software_self_improvement`).
+> Not available standalone in harness-methodology.
 
 ### SessionManager
-```python
-from checkpoint_manager import SessionManager
-sm = SessionManager()
-sm.save("fr{FN}-impl", state_dict)
-```
-
-### ToolRegistry
-```python
-from tool_registry import ToolRegistry
-tr = ToolRegistry()
-tr.register("NewTool", handler)
-```
+> Note: SessionManager is available in the parent system (`software_self_improvement`).
+> Not available standalone in harness-methodology.
 
 ---
 
@@ -559,7 +516,7 @@ def run_cmd(cmd: list, cwd: Path = PROJECT_PATH) -> subprocess.CompletedProcess:
 # PRE-FLIGHT
 # ==========================================
 print("PRE-FLIGHT")
-run_cmd(["python3", "cli.py", "run-phase", "--phase", str(PHASE)])
+run_cmd(["python3", "harness_cli.py", "run-phase", "--phase", str(PHASE), "--project", str(PROJECT_PATH)])
 
 # ==========================================
 # FR Execution Loop
@@ -604,6 +561,8 @@ Tasks:
 - docstring missing Citations (with line numbers)
 """
 
+        # NOTE: sessions_spawn() is an OpenClaw runtime tool — callable only in parent system.
+        # In standalone harness-methodology, invoke developer via Claude inline evaluation instead.
         dev_result = sessions_spawn(task=dev_task, mode="run", runtime="subagent")
 
         # 2. Parse JSON and write files
@@ -650,16 +609,17 @@ Tasks:
 - missing citations or citations lack line numbers -> REJECT (HR-15)
 """
 
+        # NOTE: sessions_spawn() is an OpenClaw runtime tool — callable only in parent system.
         rev_result = sessions_spawn(task=rev_task, mode="run", runtime="subagent")
 
         # 4. Constitution Check (includes BVS + HR-09)
         print(f"\n[BVS + HR-09] Constitution Check")
-        result = run_cmd(["python3", "core/quality_gate/constitution/runner.py", "--type", "implementation"])
+        result = run_cmd(["python3", "-m", "core.quality_gate.constitution.runner"])
         print(f"   {'OK' if result.returncode == 0 else 'WARN'} Constitution {'PASS' if result.returncode == 0 else 'WARN'}")
 
         # 5. CQG (Linter + Complexity + Coverage)
         print(f"\n[CQG] Quality Gate Check")
-        result = run_cmd(["python3", "cli.py", "quality-gate", "--phase", str(PHASE)])
+        result = run_cmd(["python3", "harness_cli.py", "run-gate", "--gate", "1", "--phase", str(PHASE), "--fr-id", fr_id])
         print(f"   {'OK' if result.returncode == 0 else 'WARN'} CQG {'PASS' if result.returncode == 0 else 'WARN'}")
 
         # 6. Iteration decision
@@ -693,24 +653,18 @@ print(f"\n{'='*60}")
 print("POST-FLIGHT")
 print(f"{'='*60}")
 
-print(f"\n[SAB Drift] Code<->SAD consistency check")
-result = run_cmd(["python3", "cli.py", "trace-check", "--from", "phase1", "--to", f"phase{PHASE}"])
-print(f"   {'OK' if result.returncode == 0 else 'WARN'} SAB Drift {'PASS' if result.returncode == 0 else 'WARN'}")
-
-print(f"\n[Steering] Steering Loop")
-result = run_cmd(["python3", "cli.py", "steering", "run", "--phase", str(PHASE)])
-print(f"   {'OK' if result.returncode == 0 else 'INFO'} Steering {'complete' if result.returncode == 0 else 'not enabled'}")
+# Parent-system POST-FLIGHT commands (commented out for standalone harness-methodology).
+# Un-comment if using software_self_improvement as parent system.
+# run_cmd(["python3", "cli.py", "trace-check", "--from", "phase1", "--to", f"phase{PHASE}"])
+# run_cmd(["python3", "cli.py", "steering", "run", "--phase", str(PHASE)])
 
 print(f"\n[Phase Truth] Phase Truth validation")
-result = run_cmd(["python3", "cli.py", "phase-verify", "--phase", str(PHASE)])
-print(f"   {'OK' if result.returncode == 0 else 'FAIL'} Phase Truth {'>90%' if result.returncode == 0 else '<70% -> PAUSE'}")
+result = run_cmd(["python3", "harness_cli.py", "audit-phase", "--phase", str(PHASE), "--project", str(PROJECT_PATH)])
+print(f"   {'OK' if result.returncode == 0 else 'FAIL'} Phase Truth {'PASS' if result.returncode == 0 else '<70% -> PAUSE'}")
 
-print(f"\n[AutoResearch] Phase-aware quality improvement ({PHASE})")
-result = run_cmd(["python3", "cli.py", "auto-research", "--project", str(PROJECT_PATH), "--phase", str(PHASE)])
-print(f"   {'OK' if result.returncode == 0 else 'SKIP'} AutoResearch {'complete' if result.returncode == 0 else 'skipped'}")
-
-print(f"\n[STAGE_PASS] Running stage-pass")
-run_cmd(["python3", "cli.py", "stage-pass", "--phase", str(PHASE)])
+print(f"\n[Final Checkpoint] Saving phase state")
+result = run_cmd(["python3", "harness_cli.py", "push-checkpoint", "--phase", str(PHASE), "--project", str(PROJECT_PATH)])
+print(f"   {'OK' if result.returncode == 0 else 'WARN'} Checkpoint {'saved' if result.returncode == 0 else 'skipped'}")
 
 print(f"\nPhase {PHASE} complete!")
 ```
@@ -719,17 +673,19 @@ print(f"\nPhase {PHASE} complete!")
 
 | Timing | Call | Purpose |
 |--------|------|---------|
-| PRE-FLIGHT | `cli.py run-phase --phase {PHASE}` | FSM + Constitution |
-| After Dev execution | `sessions_spawn(dev)` | Implement code |
-| After Rev execution | `sessions_spawn(rev)` | Review code |
-| **Constitution** | `runner.py --type implementation` | **BVS + HR-09** |
-| **CQG** | `cli.py quality-gate` | **Linter + Complexity** |
+| PRE-FLIGHT | `harness_cli.py run-phase --phase {PHASE}` | FSM + Constitution |
+| After Dev execution | `sessions_spawn(dev)` * | Implement code |
+| After Rev execution | `sessions_spawn(rev)` * | Review code |
+| **Constitution** | `python3 -m core.quality_gate.constitution.runner` | **BVS + HR-09** |
+| **CQG** | `harness_cli.py run-gate --gate 1` | **Per-FR quality check** |
 | HR-12 | `monitoring_hr12_check()` | PAUSE at >=5 rounds |
-| **SAB Drift** | `cli.py trace-check` | **code<->SAD** |
-| **Steering** | `cli.py steering run` | **Workflow control** |
-| **Phase Truth** | `cli.py phase-verify` | **>90% validation** |
-| **AutoResearch** | `cli.py auto-research` | **Phase-aware quality improvement** |
-| POST-FLIGHT | `cli.py run-phase --resume` | Final State |
+| **SAB Drift** | `cli.py trace-check` * | **code<->SAD** |
+| **Steering** | `cli.py steering run` * | **Workflow control** |
+| **Phase Truth** | `cli.py phase-verify` * | **>90% validation** |
+| **AutoResearch** | `cli.py auto-research` * | **Phase-aware quality improvement** |
+| POST-FLIGHT | `harness_cli.py run-phase --phase {PHASE}` | Final State |
+
+> \* Parent system only (`software_self_improvement`). Not available standalone.
 
 ### sessions_spawn Call Method
 

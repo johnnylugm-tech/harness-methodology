@@ -21,10 +21,10 @@
 
 **CLI Commands**:
 ```bash
-python3 cli.py update-step --step N
-python3 cli.py end-phase --phase 6
-python3 cli.py stage-pass --phase 6
-python3 cli.py run-phase --phase 6 --goal "{GOAL}"
+python3 harness_cli.py run-phase --phase 6 --project .
+python3 harness_cli.py push-checkpoint --phase 6
+python3 harness_cli.py run-gate --gate 4 --phase 6
+python3 harness_cli.py generate-next-plan --phase 6
 ```
 
 ---
@@ -210,13 +210,13 @@ OUTPUT_FORMAT:
 
 ```bash
 # 1. Constitution Check
-python3 core/quality_gate/constitution/runner.py --type all --docs-path {PROJECT_PATH}/docs
+python3 -m core.quality_gate.constitution.runner
 
 # 2. Logic Verification
-python3 cli.py phase-verify --phase 6 --project {PROJECT_PATH}
+python3 harness_cli.py check-logic --project {PROJECT_PATH}
 
 # 3. Coverage Check
-pytest {PROJECT_PATH}/tests/ --cov --cov-report=term -q
+pytest {PROJECT_PATH}/tests/ --cov={SOURCE_DIR} --cov-report=term -q
 ```
 
 ---

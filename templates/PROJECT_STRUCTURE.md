@@ -35,7 +35,7 @@ project/
 
 ## Functional Requirements
 
-### FR-001: [Feature Name]
+### FR-01: [Feature Name]
 - **Priority**: P0 / P1 / P2
 - **Acceptance Criteria**: [testable criteria]
 ```

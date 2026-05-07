@@ -1,7 +1,6 @@
 # SAD - {Project Name}
 
 > On-demand Lazy Load template.
-> Source: SKILL_TEMPLATES.md SS T2.1
 
 ## 1. Architecture Overview
 {High-level architecture description}

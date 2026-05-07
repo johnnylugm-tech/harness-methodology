@@ -1,7 +1,6 @@
 # CONFIG_RECORDS.md - {Project Name}
 
 > On-demand Lazy Load template.
-> Source: SKILL_TEMPLATES.md SS T8.1
 
 ## 1. Version Information
 - Version: v{version}
@@ -32,7 +31,7 @@
 ## 6. Configuration Change Log
 | Phase | Change | Rationale |
 |-------|--------|----------|
-| Phase 5 | {change} | {reason} |
+| Phase 8 | {change} | {reason} |
 
 ## 7. Rollback SOP
 **Trigger Condition**: {condition}

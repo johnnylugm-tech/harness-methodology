@@ -1,7 +1,6 @@
 # ADR-{ID}: {Title}
 
 > On-demand Lazy Load template.
-> Source: SKILL_TEMPLATES.md SS T2.2
 
 ## Status
 {Proposed / Accepted / Deprecated}

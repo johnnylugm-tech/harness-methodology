@@ -1,7 +1,6 @@
 # BASELINE.md - {Project Name}
 
 > On-demand Lazy Load template.
-> Source: SKILL_TEMPLATES.md SS T5.1
 
 ## 1. Baseline Overview
 - Author: {name}
@@ -19,9 +18,9 @@
 
 | Metric | Threshold | Actual | Status |
 |--------|-----------|--------|--------|
-| Constitution | >= 80% | {value} | PASS/FAIL |
+| Constitution (P5+) | >= 80% | {value} | PASS/FAIL |
 | Coverage | >= 80% | {value} | PASS/FAIL |
-| Logic Correctness | >= 90 | {value} | PASS/FAIL |
+| Logic Correctness | >= 80 | {value} | PASS/FAIL |
 
 ## 4. Performance Baseline (A/B monitoring)
 

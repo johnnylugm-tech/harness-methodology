@@ -1,7 +1,6 @@
 # MONITORING_PLAN.md
 
 > On-demand Lazy Load template.
-> Source: SKILL_TEMPLATES.md SS T5.2
 
 ## Monitoring Dimensions
 

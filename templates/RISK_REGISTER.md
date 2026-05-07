@@ -1,7 +1,6 @@
 # RISK_REGISTER.md - {Project Name}
 
 > On-demand Lazy Load template.
-> Source: SKILL_TEMPLATES.md SS T7.1
 
 ## Risk Matrix
 

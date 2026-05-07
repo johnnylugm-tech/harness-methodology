@@ -1,7 +1,6 @@
 # SRS - {Project Name}
 
 > On-demand Lazy Load template.
-> Source: SKILL_TEMPLATES.md SS T1.1
 
 ## 1. Requirements Overview
 {Brief description of project goals}

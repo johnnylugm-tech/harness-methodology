@@ -1,7 +1,6 @@
 # TEST_PLAN.md - {Project Name}
 
 > On-demand Lazy Load template.
-> Source: SKILL_TEMPLATES.md SS T4.1
 
 ## 1. Test Objectives
 {Test objective description}

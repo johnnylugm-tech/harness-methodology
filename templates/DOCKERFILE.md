@@ -6,7 +6,7 @@
 
 ```bash
 # Copy to project root
-cp .methodology/templates/DOCKERFILE.md Dockerfile
+cp templates/DOCKERFILE.md Dockerfile
 
 # Edit as needed
 vim Dockerfile

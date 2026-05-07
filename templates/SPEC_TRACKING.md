@@ -1,7 +1,6 @@
 # SPEC_TRACKING.md
 
 > On-demand Lazy Load template.
-> Source: SKILL_TEMPLATES.md SS T1.2
 
 ## Project Info
 - Project Name: {name}
