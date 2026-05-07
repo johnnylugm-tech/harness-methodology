@@ -4,7 +4,7 @@ import pytest
 import tempfile
 from pathlib import Path
 
-from core.quality_gate.constitution.runner import (
+from core.quality_gate.constitution.runner import (  # pyright: ignore[reportMissingImports]
     ConstitutionResult,
     _PHASE_DIR_MAP,
     _COMPLIANCE_KEYWORDS,
@@ -105,9 +105,16 @@ class TestScanDirectory:
         with tempfile.TemporaryDirectory() as d:
             docs = Path(d) / "docs"
             docs.mkdir()
-            (docs / "README.md").write_text("# Test\n\n## FR-01 quality gate test coverage constitution\n")
+            (docs / "README.md").write_text(
+                "# Test Document\n\n## FR-01 quality gate test coverage\n\n"
+                "This document verifies constitution compliance and traceability.\n\n"
+                "## FR-02 acceptance criteria\n\n"
+                "All requirements must pass SRS and SAD integration checks.\n\n"
+                "## NFR-01 performance\n\n"
+                "The traceability matrix ensures complete NFR coverage.\n"
+            )
             result = _scan_directory(docs, phase=1, check_type="all")
-            assert result.score >= 0
+            assert 0 < result.score <= 100  # keywords present → positive score; valid range
 
     def test_phase_directory_fallback(self, tmp_path):
         """_scan_directory should find phase dir when it exists alongside docs."""
@@ -120,16 +127,16 @@ class TestScanDirectory:
         docs = tmp_path / "docs"
         docs.mkdir()
         result = _scan_directory(docs, phase=1, check_type="srs")
-        assert result.score >= 0
+        assert result.score > 0  # phase dir found and scanned; keywords present → positive score
 
     def test_low_score_violations(self, tmp_path):
         docs = tmp_path / "docs"
         docs.mkdir()
         (docs / "empty.md").write_text("# X\n\nno keywords here at all, just filler text to exceed minimum length requirement for scanning")
         result = _scan_directory(docs, phase=5, check_type="all")
-        # Phase 5+ threshold is 80%
-        if result.score < 30:
-            assert len(result.violations) > 0
+        # No compliance keywords → low score and violations (phase 5+ threshold is 80%)
+        assert result.score < 30  # filler text has no compliance keywords
+        assert len(result.violations) > 0  # below 80% threshold → must report violations
 
 
 class TestPhaseDirMap:

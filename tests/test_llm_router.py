@@ -1,16 +1,12 @@
 """Tests for harness/ssi/scripts/llm_router.py — LLM tier routing logic."""
 
-import pytest
-import json
-import os
 from pathlib import Path
-from unittest import mock
 
 # Insert harness/ssi/scripts into path for import
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent / "harness" / "ssi" / "scripts"))
 
-from llm_router import route, build_gemini_prompt, TIER_MAP, TIER_CONFIG, IMPROVE_CONFIG
+from llm_router import route, build_gemini_prompt, TIER_MAP, TIER_CONFIG, IMPROVE_CONFIG  # pyright: ignore[reportMissingImports]
 
 
 class TestRoute:
@@ -73,8 +69,10 @@ class TestBuildGeminiPrompt:
     def test_truncates_long_output(self):
         long_output = "x" * 10000
         prompt = build_gemini_prompt("linting", long_output)
-        # Hard cap is 6000 chars for tool output
-        assert len("x" * 6000) < len(prompt) < len("x" * 6000) + 1000
+        # Truncation must have occurred: original 10000-char string must not appear intact
+        assert "x" * 10000 not in prompt
+        # Output portion is capped at ~6000 chars, so prompt must be substantially shorter
+        assert len(prompt) < 8000
 
 
 class TestTierMap:

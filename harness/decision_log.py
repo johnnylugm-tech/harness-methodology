@@ -12,7 +12,7 @@ try:
     _YAML = True
 except ImportError:  # pragma: no cover
     _YAML = False
-    yaml = None  # type: ignore[assignment]
+    yaml = None  # pyright: ignore[reportAssignmentType]
 
 @dataclass
 class DecisionContext:
@@ -50,7 +50,7 @@ class DecisionLogWriter:
         p = d / f"{entry.agent_id}_{entry.phase}_{seq:03d}.yaml"
         data = asdict(entry)
         p.write_text(
-            yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
+            yaml.safe_dump(data, allow_unicode=True, sort_keys=False)  # pyright: ignore[reportOptionalMemberAccess]
             if _YAML else __import__('json').dumps(data, indent=2, ensure_ascii=False)
         )
         return p
@@ -60,7 +60,7 @@ class DecisionLogWriter:
         for f in sorted(self.log_root.rglob(f"*_{phase}_*.yaml")):
             try:
                 entries.append(
-                    yaml.safe_load(f.read_text()) if _YAML
+                    yaml.safe_load(f.read_text()) if _YAML  # pyright: ignore[reportOptionalMemberAccess]
                     else __import__('json').loads(f.read_text())
                 )
             except Exception:  # nosec B110
