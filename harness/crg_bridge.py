@@ -21,6 +21,9 @@ try:
     _CRG_MCP_AVAILABLE = True
 except ImportError:
     _CRG_MCP_AVAILABLE = False
+    _crg_build = None  # pyright: ignore[reportAssignmentType]
+    _crg_minimal_context = None  # pyright: ignore[reportAssignmentType]
+    _crg_detect_changes = None  # pyright: ignore[reportAssignmentType]
 
 
 class CRGBridge:
@@ -36,7 +39,7 @@ class CRGBridge:
 
         Returns reconnaissance data dict, or empty dict if CRG unavailable.
         """
-        if not _CRG_MCP_AVAILABLE:
+        if not _CRG_MCP_AVAILABLE or _crg_build is None:
             return {}
         try:
             _crg_build(repo_root=project_root, full_rebuild=True)
@@ -49,7 +52,7 @@ class CRGBridge:
         """
         Retrieve minimal CRG context for a specific quality dimension.
         """
-        if not _CRG_MCP_AVAILABLE:
+        if not _CRG_MCP_AVAILABLE or _crg_minimal_context is None:
             return {}
         try:
             return _crg_minimal_context(task=dimension, repo_root=project_root)
@@ -62,7 +65,7 @@ class CRGBridge:
 
         Returns True if risk_score >= threshold.
         """
-        if not _CRG_MCP_AVAILABLE:
+        if not _CRG_MCP_AVAILABLE or _crg_detect_changes is None:
             return False
         try:
             data = _crg_detect_changes(

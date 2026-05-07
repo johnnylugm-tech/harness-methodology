@@ -222,7 +222,7 @@ class FrameworkEnforcer:
     def check_phase_traceability(self) -> Dict:
         """Run check phase traceability validation."""
         try:
-            from core.quality_gate.phase_artifact_enforcer import PhaseArtifactRegistry, Phase
+            from core.quality_gate.phase_artifact_enforcer import PhaseArtifactRegistry, Phase  # pyright: ignore[reportMissingImports]
         except ImportError:
             return {
                 "all_verified": True,

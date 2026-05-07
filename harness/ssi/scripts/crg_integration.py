@@ -29,10 +29,14 @@ try:
     _CRG_MCP_AVAILABLE = True
 except ImportError:
     _CRG_MCP_AVAILABLE = False
+    _crg_build = None  # pyright: ignore[reportAssignmentType]
+    _crg_minimal_context = None  # pyright: ignore[reportAssignmentType]
+    _crg_detect_changes = None  # pyright: ignore[reportAssignmentType]
+    _crg_stats = None  # pyright: ignore[reportAssignmentType]
 
 
 def _crg_available() -> bool:
-    return _CRG_MCP_AVAILABLE
+    return _CRG_MCP_AVAILABLE and _crg_build is not None
 
 
 def _graph_node_count(repo: str) -> int:

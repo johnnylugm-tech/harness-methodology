@@ -12,6 +12,7 @@ try:
     _YAML = True
 except ImportError:  # pragma: no cover
     _YAML = False
+    yaml = None  # type: ignore[assignment]
 
 @dataclass
 class DecisionContext:

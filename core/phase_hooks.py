@@ -102,7 +102,7 @@ class PhaseHooks:
         """Check tool registry state."""
         print("\n[PRE-FLIGHT] Tool Registry Check")
         try:
-            from tool_registry import ToolRegistry
+            from tool_registry import ToolRegistry  # pyright: ignore[reportMissingImports]
             count = len(ToolRegistry.list_tools())
             print(f"   Tools: {count}")
             return {"passed": count > 0, "tools_count": count}

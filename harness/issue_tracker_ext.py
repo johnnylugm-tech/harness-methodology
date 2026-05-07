@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 try:
-    from software_self_improvement.scripts.issue_tracker import IssueTracker
+    from software_self_improvement.scripts.issue_tracker import IssueTracker  # pyright: ignore[reportMissingImports]
 except ImportError:
     class IssueTracker:  # type: ignore[no-redef]
         def __init__(self):

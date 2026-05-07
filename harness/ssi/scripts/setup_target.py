@@ -19,6 +19,7 @@ try:
     _HAS_CRG_MODULE = True
 except ImportError:
     _HAS_CRG_MODULE = False
+    _crg_ensure_ready = None  # pyright: ignore[reportAssignmentType]
 
 
 def clone_repo(github_url):
@@ -130,7 +131,7 @@ def init_crg(repo_path: str, work_dir: str) -> dict:
     print("[CRG] Checking Code Review Graph…", file=sys.stderr)
 
     if _HAS_CRG_MODULE:
-        status = _crg_ensure_ready(repo_path)
+        status = _crg_ensure_ready(repo_path)  # pyright: ignore[reportOptionalCall]
     else:
         status = {
             "available": False,

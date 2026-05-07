@@ -15,7 +15,7 @@ from typing import Any
 # ---------------------------------------------------------------------------
 
 try:
-    from mcp_tools import (
+    from mcp_tools import (  # pyright: ignore[reportMissingImports]
         mcp__hermes__messages_send,
         mcp__hermes__events_wait,
         mcp__hermes__messages_read,
@@ -23,12 +23,16 @@ try:
     _HERMES_AVAILABLE = True
 except ImportError:
     _HERMES_AVAILABLE = False
+    mcp__hermes__messages_send = None  # pyright: ignore[reportAssignmentType]
+    mcp__hermes__events_wait = None  # pyright: ignore[reportAssignmentType]
+    mcp__hermes__messages_read = None  # pyright: ignore[reportAssignmentType]
 
 try:
-    from mcp_tools import mcp__gemini_cli__ask_gemini  # type: ignore[import]
+    from mcp_tools import mcp__gemini_cli__ask_gemini  # pyright: ignore[reportMissingImports]
     _GEMINI_AVAILABLE = True
 except ImportError:
     _GEMINI_AVAILABLE = False
+    mcp__gemini_cli__ask_gemini = None  # pyright: ignore[reportAssignmentType]
 
 # ---------------------------------------------------------------------------
 # Constants (all overridable via environment variables)
@@ -262,14 +266,14 @@ class ReviewerRouter:
         if not self.target:
             raise RuntimeError("HERMES_REVIEWER_TARGET not set")
 
-        mcp__hermes__messages_send(target=self.target, message=prompt)
+        mcp__hermes__messages_send(target=self.target, message=prompt)  # pyright: ignore[reportOptionalCall]
         try:
-            mcp__hermes__events_wait(session_key=self.target, timeout_ms=timeout_ms)
+            mcp__hermes__events_wait(session_key=self.target, timeout_ms=timeout_ms)  # pyright: ignore[reportOptionalCall]
         except Exception as exc:
             raise TimeoutError(f"events_wait failed: {exc}") from exc
 
         try:
-            msgs = mcp__hermes__messages_read(session_key=self.target, limit=1)
+            msgs = mcp__hermes__messages_read(session_key=self.target, limit=1)  # pyright: ignore[reportOptionalCall]
         except Exception as exc:
             raise TimeoutError(f"messages_read failed: {exc}") from exc  # incl. "Session database unavailable"
 
@@ -282,7 +286,7 @@ class ReviewerRouter:
         if not _GEMINI_AVAILABLE:
             raise RuntimeError("Gemini CLI MCP not imported")
         try:
-            result = mcp__gemini_cli__ask_gemini(prompt=prompt, model=_GEMINI_REVIEW_MODEL)
+            result = mcp__gemini_cli__ask_gemini(prompt=prompt, model=_GEMINI_REVIEW_MODEL)  # pyright: ignore[reportOptionalCall]
             raw = result.get("response", result.get("text", str(result)))
             return self._clean_gemini_response(raw)
         except Exception as exc:

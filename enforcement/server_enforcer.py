@@ -60,7 +60,7 @@ class ServerEnforcer:
 
     def _check_quality_gate(self) -> Dict:
         try:
-            from ai_quality_gate import AIQualityGate
+            from ai_quality_gate import AIQualityGate  # pyright: ignore[reportMissingImports]
             gate = AIQualityGate()
             result = gate.scan_directory(".")
             return {"passed": result["score"] >= 90, "score": result["score"]}
@@ -69,7 +69,7 @@ class ServerEnforcer:
 
     def _check_security(self) -> Dict:
         try:
-            from security_scanner import SecurityScanner
+            from security_scanner import SecurityScanner  # pyright: ignore[reportMissingImports]
             scanner = SecurityScanner()
             result = scanner.scan_directory(".")
             return {"passed": result["score"] >= 95, "score": result["score"]}

@@ -126,45 +126,45 @@ class ConstitutionPolicyGenerator:
         threshold = rule.get("threshold")
 
         if check_type == "commit_message":
-            def check_fn():
-                """Run check fn validation."""
+            def _check_commit_message():
+                """Run commit message validation."""
                 commit_file = os.environ.get("COMMIT_MSG_FILE", ".git/COMMIT_EDITMSG")
                 if os.path.exists(commit_file):
                     with open(commit_file, "r") as f:
                         msg = f.read()
                     return bool(re.search(r"\[[A-Z]+-\d+\]", msg))
                 return True
-            return check_fn
+            return _check_commit_message
 
         if check_type == "quality_gate":
-            def check_fn():
-                """Run check fn validation."""
+            def _check_quality_gate():
+                """Run quality gate score validation."""
                 score_file = ".methodology/.quality_score"
                 if os.path.exists(score_file):
                     with open(score_file, "r") as f:
                         return float(f.read().strip()) >= (threshold or 90)
                 return True
-            return check_fn
+            return _check_quality_gate
 
         if check_type == "coverage":
-            def check_fn():
-                """Run check fn validation."""
+            def _check_coverage():
+                """Run coverage threshold validation."""
                 coverage_file = ".methodology/.coverage"
                 if os.path.exists(coverage_file):
                     with open(coverage_file, "r") as f:
                         return float(f.read().strip()) >= (threshold or 80)
                 return True
-            return check_fn
+            return _check_coverage
 
         if check_type == "security":
-            def check_fn():
-                """Run check fn validation."""
+            def _check_security():
+                """Run security score validation."""
                 score_file = ".methodology/.security_score"
                 if os.path.exists(score_file):
                     with open(score_file, "r") as f:
                         return float(f.read().strip()) >= (threshold or 95)
                 return True
-            return check_fn
+            return _check_security
 
         return lambda: True  # Generic: always pass
 

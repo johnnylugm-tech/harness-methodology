@@ -23,7 +23,7 @@ class AutoQualityGateWithFeedback(AutoQualityGate):
             core_dir = Path(__file__).parent.parent
             if str(core_dir) not in sys.path:
                 sys.path.insert(0, str(core_dir))
-            from feedback.quality_gate_adapter import QualityGateFeedbackAdapter
+            from feedback.quality_gate_adapter import QualityGateFeedbackAdapter  # pyright: ignore[reportMissingImports]
             self._adapter = QualityGateFeedbackAdapter(self._feedback_store)
         return self._adapter
 
