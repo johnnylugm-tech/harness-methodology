@@ -72,6 +72,7 @@ class GateContext:
     ssi_schemas_dir: str
     work_dir: str
     sab_data: dict = field(default_factory=dict)
+    tier3_context: dict = field(default_factory=dict)  # CRG Point 2 — per-dim context
 
     def evaluation_prompt(self) -> str:
         """Return a human-readable evaluation instruction for Claude."""
@@ -98,6 +99,26 @@ class GateContext:
                 "  > high_risk_modules deserve extra scrutiny in all dimensions.\n"
             )
 
+        # CRG Point 2: Tier 3 guidance context
+        crg_lines = ""
+        if self.tier3_context:
+            crg_lines = "\n[CRG Tier 3 Guidance — structural context for high-cost dimensions]\n"
+            for dim_name, ctx in self.tier3_context.items():
+                if ctx:
+                    crg_lines += f"  {dim_name}: {ctx.get('task', ctx.get('summary', 'context available'))}\n"
+            crg_lines += (
+                "  > Use this structural context when evaluating Tier 3 dimensions"
+                " (architecture, error_handling, readability, documentation, performance).\n"
+            )
+
+        # CRG Points 3+4: fix-round safety hints (only if CRG is active for this gate)
+        if self.tier3_context:
+            crg_lines += (
+                "\n[CRG Fix-Round Protocol]\n"
+                "  Before each fix: call bridge.check_pre_fix_safety(project_root) — defer if unsafe.\n"
+                "  After each fix:  call bridge.check_post_round_drift(project_root) — revert if drifted.\n"
+            )
+
         return (
             f"Gate {self.gate_num} evaluation ready.\n"
             f"  project   : {self.project_root}\n"
@@ -107,6 +128,7 @@ class GateContext:
             f"  score_gate: {score_gate}\n"
             f"  max_rounds: {max_rounds}\n"
             f"{sab_lines}"
+            f"{crg_lines}"
             f"\nFollow  : {self.ssi_prompts_dir}/evaluate_dimension.md\n"
             f"Scripts : {self.ssi_scripts_dir}/\n"
             f"Write result to: {result_path}\n"
@@ -133,6 +155,7 @@ class HarnessBridge:
         self.crg = CRGBridge()        # gracefully degrades if CRG unavailable
         self._log = DecisionLogWriter()
         self._effort = EffortTracker()
+        self._last_gate_num: int | None = None
 
     def run_gate(
         self,
@@ -199,11 +222,21 @@ class HarnessBridge:
         Returns:
             GateContext with all paths and config Claude needs.
         """
+        self._last_gate_num = gate_num
         config = self._load_config(gate_num)
 
-        # CRG reconnaissance for gates that require it (e.g. Gate 3/4)
+        # CRG Point 1: structural reconnaissance for gates that require it (Gate 3/4)
         if config.get("crg", {}).get("reconnaissance"):
             self.crg.run_reconnaissance(project_root)
+
+        # CRG Point 2: Tier 3 guidance — get minimal context for each Tier 3 dimension
+        tier3_context: dict[str, dict] = {}
+        if config.get("crg", {}).get("tier3_guidance"):
+            for dim in config.get("dimensions", []):
+                if dim.get("tier") == 3:
+                    tier3_context[dim["name"]] = self.crg.get_minimal_context(
+                        project_root, dim["name"]
+                    )
 
         ssi_dir = Path(__file__).parent / "ssi"
         work_dir = Path(project_root) / ".sessi-work"
@@ -222,6 +255,7 @@ class HarnessBridge:
             ssi_schemas_dir=str(ssi_dir / "schemas"),
             work_dir=str(work_dir),
             sab_data=sab_data,
+            tier3_context=tier3_context,
         )
 
     def finalize_gate(self, ctx: GateContext) -> GateResult:
@@ -303,6 +337,45 @@ class HarnessBridge:
             self._require_hermes_approve(result, ctx.phase, ctx.fr_id)
 
         return result
+
+    def check_pre_fix_safety(self, project_root: str, ref: str = "HEAD") -> dict:
+        """
+        CRG Point 3: Pre-fix safety gate — check if pending changes are safe to modify.
+
+        Call before each improvement round. Defers fix if CRG impact check reports risky.
+        """
+        threshold = 0.7
+        if self._last_gate_num is not None:
+            config = self._load_config(self._last_gate_num)
+            threshold = config.get("crg", {}).get("impact_threshold", 0.7)
+        risky = self.crg.check_impact(project_root, ref=ref, threshold=threshold)
+        return {
+            "safe": not risky,
+            "threshold": threshold,
+            "message": "Safe to modify" if not risky else
+                       f"DEFER: risk score >= {threshold} — structural impact too high",
+        }
+
+    def check_post_round_drift(self, project_root: str) -> dict:
+        """
+        CRG Point 4: Post-round drift check — verify no structural drift introduced.
+
+        Call after each improvement round. Triggers revert protocol if drift detected.
+        """
+        threshold = 0.4
+        if self._last_gate_num is not None:
+            config = self._load_config(self._last_gate_num)
+            threshold = config.get("crg", {}).get("drift_threshold", 0.4)
+        drifted = self.crg.check_drift(project_root, threshold=threshold)
+        metrics = self.crg.load_metrics(project_root)
+        structural_drift = metrics.get("structural_drift", 0.0)
+        return {
+            "drifted": drifted,
+            "structural_drift": structural_drift,
+            "threshold": threshold,
+            "message": "No structural drift" if not drifted else
+                       f"DRIFT DETECTED: structural_drift={structural_drift} > {threshold}",
+        }
 
     def generate_quality_manifest(self, fr_ids: list[str], sad_path: str) -> Path:
         """Called at P2 exit. Parses SAD.md -> constraints + high_risk_modules."""

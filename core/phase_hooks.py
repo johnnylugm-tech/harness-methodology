@@ -249,6 +249,52 @@ class PhaseHooks:
             "blocking": blocking,
         }
 
+    def preflight_gap_analysis(self) -> Dict[str, Any]:
+        """M3 gap analysis — detect SPEC.md ↔ codebase gaps (P3+, informational)."""
+        if self.phase is not None and self.phase < 3:
+            return {"passed": True, "skipped": True, "reason": "P1/P2 — no gap analysis"}
+        print("\n[PRE-FLIGHT] M3 Gap Analysis")
+        try:
+            from gap_detector.parser import SpecParser
+            from gap_detector.scanner import CodeScanner
+            from gap_detector.detector import GapDetector
+
+            spec_path = self.project_path / "SPEC.md"
+            if not spec_path.exists():
+                print("   SPEC.md not found — skipping gap analysis")
+                return {"passed": True, "skipped": True, "reason": "SPEC.md not found"}
+
+            spec = SpecParser(str(spec_path)).parse()
+            scanner = CodeScanner(str(self.project_path))
+            code = scanner.scan()
+            detector = GapDetector(spec, code)
+            gaps = detector.detect()
+            summary = detector.get_summary()
+
+            report_path = self.project_path / ".methodology" / "gap_report.json"
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(json.dumps({
+                "summary": {
+                    "total": summary.total_gaps, "missing": summary.missing,
+                    "incomplete": summary.incomplete, "orphaned": summary.orphaned,
+                    "critical": summary.critical, "major": summary.major,
+                    "minor": summary.minor,
+                },
+                "gaps": [{"type": g.gap_type, "severity": g.severity,
+                          "reason": g.reason, "action": g.recommended_action}
+                         for g in gaps],
+            }, indent=2))
+            print(f"   Gap report → {report_path}  "
+                  f"(total={summary.total_gaps}, critical={summary.critical})")
+            return {"passed": True, "total_gaps": summary.total_gaps,
+                    "critical": summary.critical}
+        except ImportError:
+            print("   gap_detector unavailable — skipping")
+            return {"passed": True, "skipped": True, "reason": "gap_detector unavailable"}
+        except Exception as exc:
+            print(f"   Gap analysis error: {exc}")
+            return {"passed": True, "skipped": True, "error": str(exc)}
+
     def preflight_ci_readiness(self) -> Dict[str, Any]:
         """Check target project CI wiring (Context B only — advisory, non-blocking)."""
         print("\n[PRE-FLIGHT] CI Readiness Check")
@@ -284,6 +330,7 @@ class PhaseHooks:
             "sab": self.preflight_sab_check(),
             "tool_registry": self.preflight_tool_registry(),
             "traceability": self.preflight_traceability(),
+            "gap_analysis": self.preflight_gap_analysis(),
             "ci_readiness": self.preflight_ci_readiness(),
         }
         all_passed = all(r.get("passed", False) for r in results.values())

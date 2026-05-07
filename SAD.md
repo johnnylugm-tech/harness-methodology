@@ -70,7 +70,7 @@ The system uses this macro architecture:
 
 `cli.py` is retained as-is because it is the entrypoint for the full parent system that contains harness-methodology as a sub-component. Any work purely within harness-methodology should use `harness_cli.py`.
 
-**`harness_cli.py` commands** (15 total):
+**`harness_cli.py` commands** (16 total):
 ```
 python harness_cli.py plan-phase        --phase 3 [--repo .] [--output plan.md]
 python harness_cli.py run-phase         --phase 3 [--project .] [--force]
@@ -87,8 +87,9 @@ python harness_cli.py reload-policy     [--policy-file enforcement/enforcement.j
 python harness_cli.py run-gap-analysis  [--project .] [--spec SPEC.md] [--similarity 0.6]
 python harness_cli.py audit-phase       --phase 3 --repo owner/repo [--branch main]
                                         [--output markdown|json] [--save FILE]
-python harness_cli.py verify-spec       [--project .] [--fix]
+python harness_cli.py verify-spec       [--project .] [--fix]  # --fix shows suggestions (no auto-fix)
 python harness_cli.py check-logic       [--project .] [--srs SRS.md]
+python harness_cli.py init-project      --project /path/to/target [--phase 3] [--force] [--ci-only]
 ```
 
 **Gate evaluation (two-phase)**: `run-gate` prepares context and prints evaluation instructions; Claude evaluates inline and writes `.sessi-work/gate{N}_result.json`; `finalize-gate` reads the result and checks thresholds. SSI assets are embedded in `harness/ssi/`.
@@ -102,8 +103,8 @@ python harness_cli.py check-logic       [--project .] [--srs SRS.md]
 **Pipeline step flow per phase (P3+)**:
 ```
 [phase.1]   plan-phase        — Generate execution plan from SAD.md
-[phase.2]   preflight          — FSM + constitution + kill-switch (M1) + drift (M2) + SAB (P3+) + traceability (P3+) + CI readiness
-[phase.2.5] M3 gap analysis    — GapDetector: SPEC.md ↔ codebase gap report (saved to .methodology/gap_report.json)
+[phase.2]   preflight          — FSM + constitution + kill-switch (M1) + drift (M2) + SAB (P3+) + traceability (P3+) + gap analysis (M3) + CI readiness
+[phase.2.5] M3 gap analysis    — (also part of preflight_all since v2.3; explicit call retained in run-pipeline)
 [phase.3]   Gate 1 per-FR      — Per-FR quality gate evaluation (phases 3,4,5,7,8)
 [phase.4]   Phase exit gate    — Composite gate evaluation (G2 at P3, G3 at P4, G4 at P6)
 [phase.5]   Phase Truth        — HR-11 ≥ 70% verification (P3-P8)
@@ -287,7 +288,7 @@ before the next starts) and graceful degradation with full audit trail.
 | Constant | Env Var | Default | Purpose |
 |---|---|---|---|
 | `HERMES_TARGET` | `HERMES_REVIEWER_TARGET` | `""` | Hermes channel (e.g. `telegram:6308981865`) |
-| `HERMES_TIMEOUT_MS` | `HERMES_TIMEOUT_MS` | `90000` | Hermes wait timeout (ms) — per CLAUDE.md protocol |
+| `HERMES_TIMEOUT_MS` | `HERMES_TIMEOUT_MS` | `120000` | Hermes wait timeout (ms) — per CLAUDE.md protocol; shared with HarnessBridge.GATE4_HERMES_TIMEOUT_MS |
 | `GEMINI_TIMEOUT_MS` | `GEMINI_TIMEOUT_MS` | `60000` | Gemini CLI MCP timeout (ms) |
 | `TASK_SIZE_THRESHOLD` | `TASK_SIZE_THRESHOLD` | `2000` | Chars above which task is auto-decomposed |
 | `SUBTASK_MAX_SIZE` | `SUBTASK_MAX_SIZE` | `800` | Target chars per subtask (paragraph fallback) |
@@ -430,22 +431,21 @@ except ImportError:
 
 ### 3.3 `harness/crg_bridge.py` — Deterministic Analysis Bridge
 
-**Responsibility**: Wraps `software_self_improvement`'s `crg_integration.py` and `crg_analysis.py`. All interaction is via `subprocess.run`. Gracefully degrades if CRG not installed.
+**Responsibility**: Wraps CRG MCP tools (`mcp__code_review_graph__*`) for structural analysis. All interaction via direct MCP tool calls. Gracefully degrades if MCP tools not available in runtime (returns empty dicts / False).
 
-**Class-level cache**:
+**Module-level availability** (set at import time):
 ```python
-class CRGBridge:
-    _available: bool | None = None  # lazy singleton, cached after first check
+_CRG_MCP_AVAILABLE = True  # True if mcp__code_review_graph__* imports succeed
 ```
 
 **Public API**:
 
-| Method | Subprocess Command | Return |
+| Method | Implementation | Return |
 |---|---|---|
-| `is_available() -> bool` | `python3 -c "import mcp__code_review_graph"` | cached bool |
-| `run_reconnaissance(project_root) -> dict` | `scripts/crg_integration.py ensure {root}` | reads `.sessi-work/crg_reconnaissance.json` |
-| `get_minimal_context(project_root, dimension) -> dict` | `scripts/crg_integration.py context {root} {dim}` | parsed stdout JSON |
-| `check_impact(project_root, ref="HEAD", threshold=0.7) -> bool` | `scripts/crg_integration.py risky {root} {ref} {threshold}` | `returncode == 1` means risky |
+| `is_available() -> bool` | Returns module-level `_CRG_MCP_AVAILABLE` | cached bool |
+| `run_reconnaissance(project_root) -> dict` | `_crg_build(full_rebuild=True)` + reads `.sessi-work/crg_reconnaissance.json` | dict or {} |
+| `get_minimal_context(project_root, dimension) -> dict` | `_crg_minimal_context(task=dimension)` | dict or {} |
+| `check_impact(project_root, ref="HEAD", threshold=0.7) -> bool` | `_crg_detect_changes()` — `risk_score >= threshold` | bool |
 | `check_drift(project_root, threshold=0.4) -> bool` | reads `.sessi-work/crg_metrics.json` | `structural_drift > threshold` |
 | `load_metrics(project_root) -> dict` | reads `.sessi-work/crg_metrics.json` | full metrics dict (6 formula-driven signals) |
 
@@ -456,10 +456,10 @@ class CRGBridge:
 **Graceful degradation**: If `is_available()` is `False`, all methods return `{}` or `False` immediately.
 
 **CRG integration points** (§6.5):
-1. **Point 1 — Structural Reconnaissance** (Gate 3/4 entry): `run_reconnaissance` — 9 CRG queries, seeds issue registry, ~3,900 tokens, once per session.
-2. **Point 2 — Tier 3 Guidance** (before each Tier 3 eval): `get_minimal_context` — reduces Tier 3 eval tokens 30–50%.
-3. **Point 3 — Pre-fix Safety Gate** (before each improvement round): `check_impact` — defers fix if risky.
-4. **Point 4 — Post-round Drift Check** (after each improvement round): `check_drift` — triggers revert protocol if structural drift > threshold.
+1. **Point 1 — Structural Reconnaissance** (Gate 3/4 entry): `prepare_gate()` calls `run_reconnaissance` — builds CRG graph, seeds structural data.
+2. **Point 2 — Tier 3 Guidance** (before each Tier 3 eval): `prepare_gate()` calls `get_minimal_context` for each Tier 3 dimension; results exposed via `GateContext.tier3_context` and surfaced in `evaluation_prompt()`.
+3. **Point 3 — Pre-fix Safety Gate** (before each improvement round): `HarnessBridge.check_pre_fix_safety()` — calls `check_impact`; defers fix if risky.
+4. **Point 4 — Post-round Drift Check** (after each improvement round): `HarnessBridge.check_post_round_drift()` — calls `check_drift`; triggers revert protocol if structural drift > threshold.
 
 ---
 
@@ -691,7 +691,7 @@ File paths used:
 - `.methodology/run-phase.log` — append-only run log
 - `docs/` — for constitution checks
 
-**Pre-flight hooks** (`preflight_all() -> dict` calls all eight):
+**Pre-flight hooks** (`preflight_all() -> dict` calls all nine):
 
 | Method | Check | Blocks if |
 |---|---|---|
@@ -702,6 +702,7 @@ File paths used:
 | `preflight_sab_check()` | validates SAB.json layer integrity, module presence | P3+ only; blocks if SAB.json missing or violations found |
 | `preflight_traceability()` | runs `check_spec_trace.check_traceability()` for FR→code→test coverage | P3 info-only, P4+ blocks if gaps exist |
 | `preflight_tool_registry()` | checks `ToolRegistry.list_tools()` | skipped if not installed |
+| `preflight_gap_analysis()` | runs M3 `GapDetector` for SPEC.md↔codebase gaps (P3+ only) | never blocks (advisory only) |
 | `preflight_ci_readiness()` | checks CI workflow, git hooks, harness import path | never blocks (warning only) |
 
 **Monitoring hooks** (append to `self.monitoring_events` + write to `run-phase.log`; M1 kill-switch circuit check on before_* calls):
@@ -1323,6 +1324,7 @@ PhaseHooks("/path/to/project", phase=3)
   │    ├─ preflight_sab_check()        → validates SAB.json layers + deps (P3+ only)
   │    ├─ preflight_tool_registry()    → ToolRegistry.list_tools() (skipped if not installed)
   │    ├─ preflight_traceability()     → check_spec_trace.check_traceability() (P3 info, P4+ block)
+  │    ├─ preflight_gap_analysis()     → M3 GapDetector SPEC.md↔codebase gap scan (P3+ advisory)
   │    └─ preflight_ci_readiness()     → CI workflow + git hooks presence (warning only)
   │
   ├─ [per-FR development loop]
@@ -1680,7 +1682,7 @@ Full inventory of the `scripts/` directory (21 items). Grouped by role:
 | Script | Size | Purpose |
 |---|---|---|
 | `phase_auditor.py` | 65KB | Deep-audit a completed phase: validates artifacts, gate results, FR coverage; produces ASPICE-grade Markdown report |
-| `generate_full_plan.py` | 22KB | Generates a full FR-level execution plan for a phase from SAD.md; outputs `.methodology/phase{N}_plan.md` |
+| `generate_full_plan.py` | 56KB | Generates a full FR-level execution plan for a phase from SAD.md; outputs `.methodology/phase{N}_plan.md` |
 | `generate_fr_mapping.py` | 6KB | Builds an FR→file mapping from SAD.md and codebase scan; consumed by `phase_auditor.py` and gate pre-flight |
 | `generate_sab.py` | 3KB | CLI wrapper around `sab_parser.extract_sab_from_sad`; also exposes `parse_sad()` called by `HarnessBridge.generate_quality_manifest()` |
 
@@ -1709,7 +1711,7 @@ python scripts/generate_full_plan.py --phase 3 --repo /path/to/project \
 | Script | Size | Purpose |
 |---|---|---|
 | `setup-git-hooks.sh` | 9KB | Installs `prepare-commit-msg` / `post-merge` / `pre-push` hooks in a **target project** |
-| `cron_drift_monitor.py` | 2KB | Hourly drift detection cron; reads `DRIFT_PROJECT_PATH` env var; alerts via log/email/Slack |
+| `cron_drift_monitor.py` | 5KB | Hourly drift detection cron; reads `DRIFT_PROJECT_PATH` env var; alerts via log + optional Slack webhook / SMTP email (both env-var configurable) |
 | `cron_docs_optimizer.py` | 9KB | Scheduled docs quality optimizer; runs against stale documentation |
 | `drift_crontab.example` | 780B | Example crontab configuration for `cron_drift_monitor.py` |
 | `DRIFT_CRON_SETUP.md` | 2KB | Setup guide for drift cron monitoring |

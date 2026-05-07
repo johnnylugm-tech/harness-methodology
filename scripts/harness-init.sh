@@ -52,11 +52,14 @@ else
 # harness-methodology
 PHASE=$(git config --local --get quality.phase 2>/dev/null || echo "1")
 command -v python3 &>/dev/null || exit 0
-python3 -c "import quality_gate.cli" 2>/dev/null || exit 0
-cd "$(git rev-parse --show-toplevel)"
-python3 -m quality_gate.cli quality check-phase "$PHASE" --block || {
+GIT_DIR=$(git rev-parse --show-toplevel)
+HARNESS_CLI="$GIT_DIR/harness_cli.py"
+[ -f "$HARNESS_CLI" ] || HARNESS_CLI="$GIT_DIR/harness/harness_cli.py"
+[ -f "$HARNESS_CLI" ] || { echo "harness_cli.py not found — skipping quality check"; exit 0; }
+cd "$GIT_DIR"
+python3 "$HARNESS_CLI" run-phase --phase "$PHASE" --project "$GIT_DIR" --fast || {
     echo ""
-    echo "QUALITY GATE FAILED (Phase $PHASE)"
+    echo "PREFLIGHT FAILED (Phase $PHASE)"
     echo "Fix issues or bypass: git commit --no-verify"
     exit 1
 }
@@ -69,9 +72,12 @@ HOOK
 # harness-methodology
 PHASE=$(git config --local --get quality.phase 2>/dev/null || echo "1")
 command -v python3 &>/dev/null || exit 0
-python3 -c "import quality_gate.cli" 2>/dev/null || exit 0
-cd "$(git rev-parse --show-toplevel)"
-python3 -m quality_gate.cli quality check-phase "$PHASE" --strict || true
+GIT_DIR=$(git rev-parse --show-toplevel)
+HARNESS_CLI="$GIT_DIR/harness_cli.py"
+[ -f "$HARNESS_CLI" ] || HARNESS_CLI="$GIT_DIR/harness/harness_cli.py"
+[ -f "$HARNESS_CLI" ] || { echo "harness_cli.py not found — skipping quality check"; exit 0; }
+cd "$GIT_DIR"
+python3 "$HARNESS_CLI" run-phase --phase "$PHASE" --project "$GIT_DIR" --fast || true
 HOOK
     chmod +x "$HOOKS_DIR/post-merge"
 
@@ -81,14 +87,17 @@ HOOK
 # harness-methodology
 PHASE=$(git config --local --get quality.phase 2>/dev/null || echo "1")
 command -v python3 &>/dev/null || exit 0
-python3 -c "import quality_gate.cli" 2>/dev/null || exit 0
 [[ "${STAGE_PASS:-}" == "1" ]] && exit 0
 LAST_MSG=$(git log -1 --pretty=%B 2>/dev/null | head -n1 || true)
 [[ "$LAST_MSG" == *"STAGE_PASS"* ]] && exit 0
-cd "$(git rev-parse --show-toplevel)"
-python3 -m quality_gate.cli quality check-phase "$PHASE" --block || {
+GIT_DIR=$(git rev-parse --show-toplevel)
+HARNESS_CLI="$GIT_DIR/harness_cli.py"
+[ -f "$HARNESS_CLI" ] || HARNESS_CLI="$GIT_DIR/harness/harness_cli.py"
+[ -f "$HARNESS_CLI" ] || { echo "harness_cli.py not found — skipping quality check"; exit 0; }
+cd "$GIT_DIR"
+python3 "$HARNESS_CLI" run-phase --phase "$PHASE" --project "$GIT_DIR" || {
     echo ""
-    echo "PRE-PUSH GATE FAILED (Phase $PHASE)"
+    echo "PRE-PUSH PREFLIGHT FAILED (Phase $PHASE)"
     echo "Fix issues or bypass: STAGE_PASS=1 git push"
     exit 1
 }

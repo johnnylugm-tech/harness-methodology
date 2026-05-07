@@ -402,3 +402,83 @@ class TestSabManifestIntegration:
         )
         prompt = ctx.evaluation_prompt()
         assert "SAB Baseline" not in prompt
+
+    def test_crg_tier3_guidance_wired_in_prepare_gate(self, tmp_path):
+        """prepare_gate() retrieves tier3_context when tier3_guidance is enabled."""
+        bridge = HarnessBridge()
+        bridge.crg.is_available = MagicMock(return_value=True)
+        bridge.crg.get_minimal_context = MagicMock(return_value={
+            "task": "architecture", "summary": "12 modules, 3 communities",
+        })
+        bridge.crg.run_reconnaissance = MagicMock()
+
+        # Create minimal gate config with tier3_guidance
+        gate_config_dir = Path(__file__).parent.parent / "harness" / "gate_configs"
+        yaml_path = tmp_path / "test_gate.yaml"
+        yaml_path.parent.mkdir(parents=True, exist_ok=True)
+        import yaml
+        yaml_path.write_text(yaml.dump({
+            "gate": 3, "trigger": "phase_exit", "phase": 4, "scope": "full_phase",
+            "dimensions": [
+                {"name": "linting", "tier": 1, "model": "gemini-flash", "threshold": 90, "weight": 0.5},
+                {"name": "architecture", "tier": 3, "model": "claude", "threshold": 80, "weight": 0.5},
+            ],
+            "blocking": True, "score_gate": 80, "max_rounds": 3,
+            "crg": {"enabled": True, "tier3_guidance": True, "impact_threshold": 0.7},
+            "replaces": "test",
+        }))
+        with patch.object(bridge, '_load_config', return_value=yaml.safe_load(yaml_path.read_text())):
+            ctx = bridge.prepare_gate(gate_num=3, project_root=str(tmp_path), phase=4)
+
+        assert "architecture" in ctx.tier3_context
+        assert bridge.crg.get_minimal_context.called
+        # linting is tier 1, should NOT trigger get_minimal_context
+        assert "linting" not in ctx.tier3_context
+
+    def test_crg_tier3_context_in_evaluation_prompt(self):
+        """evaluation_prompt() surfaces tier3_context when available."""
+        ctx = GateContext(
+            gate_num=3, config={
+                "dimensions": [{"name": "architecture", "tier": 3, "model": "claude", "threshold": 80, "weight": 1.0}],
+                "score_gate": 80, "max_rounds": 3,
+            },
+            project_root="/t", phase=4, fr_id=None,
+            ssi_scripts_dir="/t/ssi", ssi_prompts_dir="/t/ssi",
+            ssi_schemas_dir="/t/ssi", work_dir="/t/.sessi-work",
+            tier3_context={"architecture": {"task": "architecture", "summary": "high coupling detected"}},
+        )
+        prompt = ctx.evaluation_prompt()
+        assert "CRG Tier 3 Guidance" in prompt
+        assert "architecture" in prompt
+        assert "CRG Fix-Round Protocol" in prompt
+        assert "check_pre_fix_safety" in prompt
+        assert "check_post_round_drift" in prompt
+
+    def test_check_pre_fix_safety_delegates_to_crg(self, tmp_path):
+        """check_pre_fix_safety() calls CRG and returns structured result."""
+        bridge = HarnessBridge()
+        bridge.crg.check_impact = MagicMock(return_value=False)  # not risky
+
+        result = bridge.check_pre_fix_safety(str(tmp_path))
+        assert result["safe"] is True
+        assert "threshold" in result
+        bridge.crg.check_impact.assert_called_once()
+
+    def test_check_pre_fix_safety_defers_when_risky(self, tmp_path):
+        """check_pre_fix_safety() reports unsafe when CRG detects risk."""
+        bridge = HarnessBridge()
+        bridge.crg.check_impact = MagicMock(return_value=True)  # risky
+
+        result = bridge.check_pre_fix_safety(str(tmp_path))
+        assert result["safe"] is False
+        assert "DEFER" in result["message"]
+
+    def test_check_post_round_drift_handles_missing_metrics(self, tmp_path):
+        """check_post_round_drift() handles missing crg_metrics.json gracefully."""
+        bridge = HarnessBridge()
+        bridge.crg.check_drift = MagicMock(return_value=False)
+        bridge.crg.load_metrics = MagicMock(return_value={})
+
+        result = bridge.check_post_round_drift(str(tmp_path))
+        assert result["drifted"] is False
+        assert result["structural_drift"] == 0.0

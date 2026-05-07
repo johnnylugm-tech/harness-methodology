@@ -80,17 +80,17 @@ fi
 echo "Running Phase $PHASE Quality Gate check..."
 
 cd "$GIT_DIR"
-python3 "$HARNESS_CLI" run-gate --phase "$PHASE"
+python3 "$HARNESS_CLI" run-phase --phase "$PHASE" --project "$GIT_DIR" --fast
 
 RESULT=$?
 
 if [ $RESULT -ne 0 ]; then
     echo ""
     echo "=============================================="
-    echo "QUALITY GATE FAILED"
+    echo "PREFLIGHT FAILED"
     echo "=============================================="
     echo ""
-    echo "Phase $PHASE has not passed Quality Gate."
+    echo "Phase $PHASE preflight checks failed."
     echo "Please fix the issues before committing."
     echo ""
     echo "To update the current Phase, run:"
@@ -99,7 +99,7 @@ if [ $RESULT -ne 0 ]; then
     exit 1
 fi
 
-echo "Phase $PHASE Quality Gate passed!"
+echo "Phase $PHASE preflight passed!"
 exit 0
 HOOK_SCRIPT
 
@@ -152,7 +152,7 @@ echo "Running Phase $PHASE Quality Gate check after merge..."
 echo ""
 
 cd "$GIT_DIR"
-python3 "$HARNESS_CLI" run-gate --phase "$PHASE" || true
+python3 "$HARNESS_CLI" run-phase --phase "$PHASE" --project "$GIT_DIR" --fast || true
 
 echo ""
 echo "Post-merge quality check completed."
@@ -215,14 +215,14 @@ if [[ "$LAST_COMMIT_MSG" == *"STAGE_PASS"* ]]; then
 fi
 
 # Run check
-python3 "$HARNESS_CLI" run-gate --phase "$PHASE"
+python3 "$HARNESS_CLI" run-phase --phase "$PHASE" --project "$GIT_DIR" --fast
 
 RESULT=$?
 
 if [ $RESULT -ne 0 ]; then
     echo ""
     echo "=============================================="
-    echo "PRE-PUSH QUALITY GATE FAILED"
+    echo "PRE-PUSH PREFLIGHT FAILED"
     echo "=============================================="
     echo ""
     echo "Last commit did not pass Quality Gate."
@@ -290,5 +290,5 @@ echo "To change Phase:"
 echo "  git config quality.phase <phase_number>"
 echo ""
 echo "To check Phase status manually:"
-echo "  python3 harness_cli.py run-gate --phase $PHASE"
+echo "  python3 harness_cli.py run-phase --phase $PHASE --project .  # add --fast for quick check"
 echo ""

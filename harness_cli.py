@@ -58,6 +58,12 @@ if TYPE_CHECKING:
 _REPO_ROOT = Path(__file__).parent
 sys.path.insert(0, str(_REPO_ROOT))
 
+# Phases where Gate 1 runs per-FR
+_PER_FR_GATE1_PHASES: frozenset[int] = frozenset({3, 4, 5, 7, 8})
+
+# Phase → composite exit gate number
+_PHASE_EXIT_GATES: dict[int, int] = {3: 2, 4: 3, 6: 4}
+
 
 # ---------------------------------------------------------------------------
 # plan-phase
@@ -89,28 +95,63 @@ def cmd_plan_phase(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 def cmd_run_phase(args: argparse.Namespace) -> int:
-    """Run pre/post-flight hooks for a phase."""
+    """Run pre/post-flight hooks for a phase. Use --fast for commit-hook lightweight checks."""
     from core.phase_hooks import PhaseHooks
 
     project = Path(args.project).resolve()
     hooks = PhaseHooks(str(project), phase=args.phase)
+    fast = getattr(args, "fast", False)
 
-    print(f"\n{'='*60}\nrun-phase: Phase {args.phase}\n{'='*60}")
+    print(f"\n{'='*60}\nrun-phase: Phase {args.phase}{' (fast)' if fast else ''}\n{'='*60}")
 
-    pre = hooks.preflight_all()
+    if fast:
+        pre = _run_fast_preflight(hooks)
+    else:
+        pre = hooks.preflight_all()
+
     if not pre["all_passed"] and not args.force:
         print(f"\nPRE-FLIGHT FAILED: {pre['details']}")
         print("Use --force to override preflight failures.")
         return 1
 
-    print("\n[INFO] Phase execution hooks ready.")
-    print("[INFO] Spawn your developer/reviewer agents and call:")
-    print("       hooks.monitoring_before_dev(fr_id)")
-    print("       hooks.monitoring_after_dev(fr_id, result)")
-    print("       hooks.monitoring_before_rev(fr_id)")
-    print("       hooks.monitoring_after_rev(fr_id, result)")
-    print("       hooks.postflight_all()")
+    print("\n[INFO] Preflight passed. Phase execution hooks ready.")
+    if fast:
+        print("[INFO] Fast mode: skipped drift, traceability, gap analysis, CI readiness.")
+        print("[INFO] Run without --fast for full preflight before push.")
+    print("[INFO] Next steps:")
+    if args.phase in _PER_FR_GATE1_PHASES:
+        manifest_path = project / ".methodology" / "quality_manifest.json"
+        fr_ids = []
+        if manifest_path.exists():
+            try:
+                fr_ids = json.loads(manifest_path.read_text()).get("fr_ids", [])
+            except Exception:
+                pass
+        if fr_ids:
+            print(f"        Per-FR Gate 1 ({len(fr_ids)} FRs): {', '.join(fr_ids)}")
+            for fr_id in fr_ids:
+                print(f"          python harness_cli.py run-gate --gate 1 --phase {args.phase} --project {project} --fr-id {fr_id}")
+        else:
+            print(f"        python harness_cli.py run-gate --gate 1 --phase {args.phase} --project {project} --fr-id FR-XX")
+            print(f"        (quality_manifest.json not found — run 'plan-phase' first to populate FR IDs)")
+    print(f"        python harness_cli.py run-pipeline --phase-from {args.phase} --project {project}")
+    print("        hooks.monitoring_before_dev(fr_id)")
+    print("        hooks.monitoring_after_dev(fr_id, result)")
+    print("        hooks.monitoring_before_rev(fr_id)")
+    print("        hooks.monitoring_after_rev(fr_id, result)")
+    print("        hooks.postflight_all()")
     return 0
+
+
+def _run_fast_preflight(hooks) -> dict:
+    """Lightweight preflight: FSM, constitution, kill-switch only. For commit hooks."""
+    results = {
+        "fsm": hooks.preflight_fsm_check(),
+        "constitution": hooks.preflight_constitution(),
+        "kill_switch": hooks.preflight_kill_switch(),
+    }
+    all_passed = all(r.get("passed", False) for r in results.values())
+    return {"all_passed": all_passed, "details": results}
 
 
 # ---------------------------------------------------------------------------
@@ -554,13 +595,6 @@ def cmd_reload_policy(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 # run-pipeline helpers
 # ---------------------------------------------------------------------------
-
-# Phases where Gate 1 runs per-FR
-_PER_FR_GATE1_PHASES: frozenset[int] = frozenset({3, 4, 5, 7, 8})
-
-# Phase → composite exit gate number
-_PHASE_EXIT_GATES: dict[int, int] = {3: 2, 4: 3, 6: 4}
-
 
 def _parse_fr_ids(text: str) -> list[str]:
     """Extract sorted unique FR-XX IDs from arbitrary markdown text."""
@@ -1116,6 +1150,11 @@ def cmd_verify_spec(args: argparse.Namespace) -> int:
         print("\n  ISSUES:")
         for issue in result["issues"]:
             print(f"    - {issue}")
+        if getattr(args, "fix", False):
+            print("\n  FIX SUGGESTIONS:")
+            for hint in checker.suggest_fixes(result["issues"]):
+                print(f"    → {hint}")
+            print("\n  [INFO] --fix shows suggestions only. Apply fixes manually.")
 
     return 0 if not result["issues"] else 1
 
@@ -1186,7 +1225,7 @@ jobs:
         env:
           PHASE: ${{{{ vars.CURRENT_PHASE || '{phase}' }}}}
         run: |
-          python harness/harness_cli.py run-gate --phase $PHASE
+          python harness/harness_cli.py run-phase --phase $PHASE --project .
 
       - name: FR Traceability Check
         run: python harness/scripts/check_fr_full.py --phase ${{{{ vars.CURRENT_PHASE || '{phase}' }}}}
@@ -1324,6 +1363,7 @@ def build_parser() -> argparse.ArgumentParser:
     rp.add_argument("--phase",   type=int, required=True, help="Phase number (1-8)")
     rp.add_argument("--project", default=".", help="Project root (default: .)")
     rp.add_argument("--force",   action="store_true", help="Ignore preflight failures")
+    rp.add_argument("--fast",    action="store_true", help="Lightweight preflight (skip drift/traceability/gap/CI)")
     rp.set_defaults(func=cmd_run_phase)
 
     # push-checkpoint (P1/P2 human review → git push + HANDOVER.md)
@@ -1449,6 +1489,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Verify implementation complies with spec requirements (6-dimension check)",
     )
     vs.add_argument("--project", default=".", help="Project root (default: .)")
+    vs.add_argument("--fix", action="store_true",
+                    help="Show fix suggestions for each issue (no auto-fix)")
     vs.set_defaults(func=cmd_verify_spec)
 
     # check-logic

@@ -20,11 +20,27 @@ from typing import Dict
 class SpecComplianceChecker:
     """Spec compliance checker."""
 
+    # Hooks for project-specific fix hints — add entries via check_* methods at runtime.
+    # Framework ships empty; target projects populate via SpecComplianceChecker subclass or config.
+    _FIX_HINTS: dict[str, str] = {}
+
     def __init__(self, project_path: str):
         """Initialize instance with default configuration."""
         self.project_path = Path(project_path)
         self.issues: list[str] = []
         self.passed: list[str] = []
+
+    def suggest_fixes(self, issues: list[str]) -> list[str]:
+        """Return actionable fix suggestions for the given issues."""
+        hints: list[str] = []
+        for issue in issues:
+            for pattern, hint in self._FIX_HINTS.items():
+                if pattern in issue:
+                    hints.append(f"{issue}\n    → {hint}")
+                    break
+            else:
+                hints.append(f"{issue}\n    → Manual inspection required")
+        return hints
 
     def check_all(self) -> Dict:
         """Run all checks."""
@@ -166,6 +182,12 @@ def main():
             for issue in result["issues"]:
                 print(f"  - {issue}")
             print()
+            if args.fix:
+                print("FIX SUGGESTIONS:")
+                for hint in checker.suggest_fixes(result["issues"]):
+                    print(f"  {hint}")
+                print()
+                print("[INFO] --fix shows suggestions only. Apply fixes manually.")
 
     sys.exit(0 if not result["issues"] else 1)
 
