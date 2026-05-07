@@ -283,6 +283,28 @@ class TestRunConstitutionCheck:
         assert result.check_mode == "preflight"
         assert result.phase == 1
 
+    def test_phase1_sparse_srs_fails_constitution(self, tmp_path):
+        """P1-P2 threshold=100%: sparse SRS without all security keywords fails.
+
+        Documents the strict P1-P2 design: TH-03=100% + TH-04=100% means documents
+        must include comprehensive correctness AND security content to pass.
+        _aggregate_score uses min-of-dimensions, so both must reach 100%.
+        """
+        docs = tmp_path / "docs"
+        docs.mkdir()
+        (docs / "SRS.md").write_text(
+            "# SRS\n\n## FR-01 Quality Gate\nTest coverage and traceability.\n"
+            "Acceptance criteria defined. Constitution compliance verified.\n"
+        )
+        result = run_constitution_check("srs", str(docs), current_phase=1)
+        assert result.phase == 1
+        # P1 threshold=100% (TH-03+TH-04 via bottleneck min); sparse SRS without
+        # full security keywords (e.g. hmac, tls, compare_digest) scores << 100%
+        assert not result.passed, (
+            "P1 constitution check requires comprehensive security content "
+            "(TH-04=100% needs all security keywords present)"
+        )
+
     def test_phase4_uses_all_dimensions(self, tmp_path):
         docs = tmp_path / "docs"
         docs.mkdir()

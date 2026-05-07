@@ -104,8 +104,9 @@ class FrameworkEnforcer:
         """Run check constitution validation.
 
         Uses the canonical threshold from constitution.get_constitution_threshold(phase):
-        - P1-P4: ≥ 60 (basic framework compliance)
-        - P5-P8: ≥ 80 (full constitution compliance)
+        - P1-P2: =100 (TH-03 correctness + TH-04 security, both must be 100%)
+        - P3-P4: ≥90 (TH-03/TH-04 =100% + TH-05/TH-06 >90%)
+        - P5-P8: ≥80 (TH-02 full constitution compliance)
         """
         try:
             from core.quality_gate.constitution.runner import run_constitution_check
@@ -317,7 +318,7 @@ class FrameworkEnforcer:
         lines += [
             "",
             "## Constitution Score",
-            f"Score: {const.get('score', 0)}%  Threshold: {const.get('threshold', 60)}%  Status: {'PASS' if const.get('passed') else 'FAIL'}",
+            f"Score: {const.get('score', 0)}%  Threshold: {const.get('threshold', 100)}%  Status: {'PASS' if const.get('passed') else 'FAIL'}",
         ]
         spec = self.check_spec_tracking()
         lines += [

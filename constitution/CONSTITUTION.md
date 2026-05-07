@@ -89,7 +89,8 @@
 | Phase Range | 適用 TH | 維度 | 門檻 |
 |-------------|---------|------|------|
 | P1–P2 | TH-03, TH-04 | correctness + security | =100% (FrameworkEnforcer BLOCK) |
-| P3–P4 | TH-03, TH-04, TH-05, TH-06 | correctness + security + maintainability + coverage | =100% / >90% / >90% (FrameworkEnforcer BLOCK) |
+| P3 | TH-03, TH-04 | correctness + security | =100% (FrameworkEnforcer BLOCK) |
+| P4 | TH-03, TH-04, TH-05, TH-06 | correctness + security + maintainability + coverage | =100% / >90% / >90% (FrameworkEnforcer BLOCK) |
 | P5–P8 | TH-02 | constitution 綜合 | ≥80% (FrameworkEnforcer BLOCK + Constitution) |
 
 ### 2.5 Threshold Rules (TH-01 ~ TH-17)
@@ -119,8 +120,8 @@
 > **Phase → TH mapping**:
 > P1: TH-01, TH-03, TH-04, TH-08, TH-14, TH-15
 > P2: TH-01, TH-03, TH-04, TH-05, TH-08, TH-15
-> P3: TH-06, TH-08, TH-09, TH-10, TH-11, TH-15, TH-16
-> P4: TH-01, TH-03, TH-04, TH-06, TH-10, TH-12, TH-13, TH-15, TH-17
+> P3: TH-03, TH-04, TH-08, TH-09, TH-10, TH-11, TH-15, TH-16
+> P4: TH-01, TH-03, TH-04, TH-05, TH-06, TH-10, TH-12, TH-13, TH-15, TH-17
 > P5: TH-02, TH-07, TH-15
 > P6: TH-02, TH-07, TH-15
 > P7: TH-07, TH-15
