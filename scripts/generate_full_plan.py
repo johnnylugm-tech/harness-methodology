@@ -234,7 +234,7 @@ def parse_config_records(repo_path: Path) -> List[Dict]:
     return []
 
 
-def parse_srs_nfr_sections(srs_path: Path) -> List[Dict]:
+def parse_srs_nfr_sections(srs_path: Optional[Path]) -> List[Dict]:
     """Parse SRS.md to extract NFR sections"""
     if srs_path is None:
         return []
@@ -1210,7 +1210,7 @@ def generate_full_plan(phase: int, repo_path: Path, output_path: Optional[Path] 
     if srs_path is None and phase in (2, 3, 4):
         print(f"[ERROR] SRS.md not found for phase {phase}")
         return None
-    _srs = cast(Path, srs_path)  # safe: phases 5-8 don't use srs_path
+    _srs = cast(Path, srs_path)  # safe: phases 1 and 5-8 don't use srs_path
 
     generators = {
         1: lambda: generate_phase1_tasks(repo_path, _srs),
