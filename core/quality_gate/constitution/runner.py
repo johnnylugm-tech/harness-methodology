@@ -9,7 +9,13 @@ Called by:
 
 Provides:
     run_constitution_check(check_type, docs_path, current_phase=1, check_mode="preflight")
-    → ConstitutionResult(score, passed, violations)
+    → ConstitutionResult(score, passed, violations, dimensions)
+
+Multi-dimensional scoring (aligned with methodology-v2 TH-03~TH-06):
+    - correctness: FR-ID format, acceptance criteria, test cases, section structure
+    - security: auth/validation/encryption/sanitize keywords, no hardcoded secrets
+    - maintainability: docstring, module structure, naming conventions
+    - coverage: test coverage references, FR↔test traceability
 """
 
 from __future__ import annotations
@@ -17,6 +23,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Dict
+
+from constitution import get_constitution_threshold
 
 
 @dataclass
@@ -29,6 +37,7 @@ class ConstitutionResult:
     check_type: str = ""
     phase: int = 1
     check_mode: str = "preflight"
+    dimensions: Dict[str, float] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -38,6 +47,7 @@ class ConstitutionResult:
             "violation_details": self.violations,
             "check_type": self.check_type,
             "phase": self.phase,
+            "dimensions": self.dimensions,
         }
 
 
@@ -54,55 +64,153 @@ _PHASE_DIR_MAP: Dict[int, str] = {
     8: "08-config",
 }
 
-# Keywords that indicate constitution compliance in artifacts
-_COMPLIANCE_KEYWORDS: List[str] = [
-    "quality gate",
-    "test coverage",
-    "constitution",
-    "traceability",
-    "srs",
-    "sad",
-    "fr-",
-    "nfr-",
-    "acceptance criteria",
+# ── Dimension-specific keyword sets ──────────────────────────────────────────
+
+_CORRECTNESS_KEYWORDS: List[str] = [
+    "fr-", "nfr-", "acceptance criteria", "test case",
+    "### fr-", "## fr-", "requirement", "specification",
+    "traceability matrix", "srs", "sad",
+]
+
+_SECURITY_KEYWORDS: List[str] = [
+    "auth", "validation", "sanitize", "encrypt", "hmac",
+    "signature", "verify", "rbac", "permission", "token",
+    "pii", "mask", "secret", "whitelist", "tls",
+    "compare_digest", "input sanitizer", "rate limit",
+    "security", "vulnerability",
+]
+
+_MAINTAINABILITY_KEYWORDS: List[str] = [
+    "docstring", "type hint", "dataclass", "abc",
+    "interface", "module", "class ", "def ",
+    "import ", "from ", "snake_case", "PascalCase",
+]
+
+_COVERAGE_KEYWORDS: List[str] = [
+    "test coverage", "pytest", "unit test", "integration test",
+    "mock", "fixture", "assert", "coverage report",
+    "test plan", "regression",
+]
+
+# Patterns that indicate hardcoded secrets (security violation)
+_SECRET_PATTERNS: List[str] = [
+    "password = \"", "password = '",
+    "secret_key = \"", "secret_key = '",
+    "api_key = \"", "api_key = '",
+    "token = \"", "token = '",
 ]
 
 
-def _scan_file_compliance(file_path: Path) -> float:
-    """Scan a single file for constitution compliance signals.
+def _keyword_density(content: str, keywords: List[str]) -> float:
+    """Compute keyword density score 0-100 for a set of keywords."""
+    if not keywords:
+        return 100.0
+    hits = sum(1 for kw in keywords if kw in content)
+    return min(hits / len(keywords), 1.0) * 100.0
 
-    Returns a score 0-100 based on keyword density and structural completeness.
+
+def _has_hardcoded_secrets(content: str) -> bool:
+    """Check for hardcoded secret patterns in content."""
+    content_lower = content.lower()
+    for pattern in _SECRET_PATTERNS:
+        if pattern in content_lower:
+            return True
+    return False
+
+
+def _scan_file_compliance(file_path: Path) -> Dict[str, float]:
+    """Scan a single file for constitution compliance across 4 dimensions.
+
+    Returns a dict with keys: correctness, security, maintainability, coverage.
+    Each value is 0-100.
     """
+    empty = {"correctness": 0.0, "security": 0.0,
+             "maintainability": 0.0, "coverage": 0.0}
+
     if not file_path.exists() or not file_path.is_file():
-        return 0.0
+        return empty
 
     try:
         content = file_path.read_text(encoding="utf-8").lower()
     except Exception:
-        return 0.0
+        return empty
 
     if len(content) < 100:
-        return 0.0
+        return empty
 
-    score = 0.0
-
-    # 1. Keyword presence (40%)
-    kw_hits = sum(1 for kw in _COMPLIANCE_KEYWORDS if kw in content)
-    kw_score = min(kw_hits / max(len(_COMPLIANCE_KEYWORDS), 1), 1.0) * 40
-
-    # 2. Structural completeness — check for sections (30%)
+    # ── Correctness (40% keyword density + 30% structure + 30% FR refs) ──
+    c_kw = _keyword_density(content, _CORRECTNESS_KEYWORDS)
     section_count = content.count("\n## ") + content.count("\n# ")
-    structure_score = min(section_count / 5.0, 1.0) * 30
+    c_structure = min(section_count / 5.0, 1.0) * 100.0
+    has_fr = "fr-" in content
+    has_nfr = "nfr-" in content
+    has_ac = "acceptance criteria" in content
+    c_refs = ((1 if has_fr else 0) + (1 if has_nfr else 0) + (1 if has_ac else 0)) / 3.0 * 100.0
+    correctness = c_kw * 0.4 + c_structure * 0.3 + c_refs * 0.3
 
-    # 3. FR/NFR/ task reference presence (30%)
-    has_fr = "fr-" in content or "fr_" in content
-    has_nfr = "nfr-" in content or "nfr_" in content
-    has_trace = "trace" in content or "matrix" in content
-    ref_score = (0.1 if has_fr else 0) + (0.1 if has_nfr else 0) + (0.1 if has_trace else 0)
-    ref_score *= 100
+    # ── Security (keyword density + no hardcoded secrets) ──
+    s_kw = _keyword_density(content, _SECURITY_KEYWORDS)
+    s_secrets = 0.0 if _has_hardcoded_secrets(content) else 100.0
+    security = s_kw * 0.6 + s_secrets * 0.4
 
-    score = min(kw_score + structure_score + ref_score, 100.0)
-    return score
+    # ── Maintainability (keyword density + structure signals) ──
+    m_kw = _keyword_density(content, _MAINTAINABILITY_KEYWORDS)
+    maintainability = m_kw * 0.7 + c_structure * 0.3
+
+    # ── Coverage (keyword density) ──
+    cov_kw = _keyword_density(content, _COVERAGE_KEYWORDS)
+    coverage = cov_kw
+
+    return {
+        "correctness": round(correctness, 1),
+        "security": round(security, 1),
+        "maintainability": round(maintainability, 1),
+        "coverage": round(coverage, 1),
+    }
+
+
+def _dimensions_for_phase(phase: int) -> List[str]:
+    """Return the active constitution dimensions for a given phase.
+
+    P1-P2: correctness + security (TH-03=100%, TH-04=100%)
+    P3-P4: correctness + security + maintainability + coverage (TH-03~TH-06)
+    P5-P8: all 4 dimensions composite (TH-02 ≥80%)
+    """
+    if phase <= 2:
+        return ["correctness", "security"]
+    return ["correctness", "security", "maintainability", "coverage"]
+
+
+def _threshold_for_dimension(dim: str, phase: int) -> float:
+    """Return the per-dimension threshold for a given phase.
+
+    TH-03 correctness: =100% (P1-P4)
+    TH-04 security: =100% (P1-P4)
+    TH-05 maintainability: >90% (P2-P4)
+    TH-06 coverage: >90% (P3-P4)
+    TH-02 composite: ≥80% (P5-P8)
+    """
+    if phase <= 4:
+        thresholds = {
+            "correctness": 100.0,
+            "security": 100.0,
+            "maintainability": 90.0,
+            "coverage": 90.0,
+        }
+        return thresholds.get(dim, 80.0)
+    return 80.0
+
+
+def _aggregate_score(dim_scores: Dict[str, float], active_dims: List[str]) -> float:
+    """Compute aggregate constitution score from dimension scores.
+
+    Uses minimum-of-dimensions (bottleneck principle):
+    a chain is only as strong as its weakest link.
+    """
+    if not active_dims:
+        return 100.0
+    relevant = [dim_scores.get(d, 0.0) for d in active_dims]
+    return min(relevant)
 
 
 def _scan_directory(docs_path: Path, phase: int, check_type: str) -> ConstitutionResult:
@@ -114,15 +222,16 @@ def _scan_directory(docs_path: Path, phase: int, check_type: str) -> Constitutio
         check_type: One of "all", "srs", "sad", "implementation", etc.
 
     Returns:
-        ConstitutionResult with score, passed, and violations.
+        ConstitutionResult with score, passed, violations, and per-dimension scores.
     """
     violations: List[Dict] = []
-    scores: List[float] = []
+    all_dim_scores: Dict[str, List[float]] = {
+        "correctness": [], "security": [], "maintainability": [], "coverage": [],
+    }
 
     phase_dir = _PHASE_DIR_MAP.get(phase, "docs")
     target_dirs = [docs_path]
 
-    # If a numbered phase directory exists, scan it too
     numbered_dir = docs_path.parent / phase_dir if docs_path.name == "docs" else docs_path
     if numbered_dir.exists():
         target_dirs.append(numbered_dir)
@@ -134,18 +243,12 @@ def _scan_directory(docs_path: Path, phase: int, check_type: str) -> Constitutio
         for item in directory.rglob("*.md"):
             if item.name.startswith("."):
                 continue
-            file_score = _scan_file_compliance(item)
-            scores.append(file_score)
+            dims = _scan_file_compliance(item)
+            for d, v in dims.items():
+                all_dim_scores[d].append(v)
             files_scanned += 1
-            if file_score < 30:
-                violations.append({
-                    "file": str(item.relative_to(docs_path.parent)),
-                    "score": round(file_score, 1),
-                    "message": f"Low constitution compliance ({file_score:.0f}%)",
-                    "rule": "TH-02",
-                })
 
-    if not scores:
+    if files_scanned == 0:
         if phase <= 2:
             return ConstitutionResult(
                 score=100.0,
@@ -153,6 +256,8 @@ def _scan_directory(docs_path: Path, phase: int, check_type: str) -> Constitutio
                 violations=[],
                 check_type=check_type,
                 phase=phase,
+                dimensions={"correctness": 100.0, "security": 100.0,
+                           "maintainability": 100.0, "coverage": 100.0},
             )
         return ConstitutionResult(
             score=0.0,
@@ -165,18 +270,56 @@ def _scan_directory(docs_path: Path, phase: int, check_type: str) -> Constitutio
             }],
             check_type=check_type,
             phase=phase,
+            dimensions={"correctness": 0.0, "security": 0.0,
+                       "maintainability": 0.0, "coverage": 0.0},
         )
 
-    avg_score = sum(scores) / len(scores)
-    const_threshold = 60.0 if phase <= 4 else 80.0
-    passed = avg_score >= const_threshold
+    # Aggregate per-dimension averages
+    agg_dims: Dict[str, float] = {}
+    for d, scores in all_dim_scores.items():
+        agg_dims[d] = round(sum(scores) / len(scores), 1) if scores else 0.0
+
+    active_dims = _dimensions_for_phase(phase)
+    score = _aggregate_score(agg_dims, active_dims)
+    const_threshold = get_constitution_threshold(phase)
+    passed = score >= const_threshold
+
+    # Generate per-dimension violations
+    _DIM_RULE_MAP = {
+        "correctness": "TH-03", "security": "TH-04",
+        "maintainability": "TH-05", "coverage": "TH-06",
+    }
+    for dim in active_dims:
+        dim_threshold = _threshold_for_dimension(dim, phase)
+        dim_score = agg_dims.get(dim, 0.0)
+        if dim_score < dim_threshold:
+            violations.append({
+                "dimension": dim,
+                "score": dim_score,
+                "threshold": dim_threshold,
+                "message": f"{dim} score {dim_score:.0f}% < {dim_threshold:.0f}% threshold",
+                "rule": _DIM_RULE_MAP.get(dim, "TH-02"),
+            })
+
+    # Low file-level scores as additional violations
+    for dim in active_dims:
+        dim_scores = all_dim_scores.get(dim, [])
+        for fs in dim_scores:
+            if fs < 30:
+                violations.append({
+                    "dimension": dim,
+                    "score": round(fs, 1),
+                    "message": f"Low {dim} score ({fs:.0f}%) in scanned file",
+                    "rule": "TH-02",
+                })
 
     return ConstitutionResult(
-        score=round(avg_score, 1),
+        score=round(score, 1),
         passed=passed,
         violations=violations,
         check_type=check_type,
         phase=phase,
+        dimensions=agg_dims,
     )
 
 
@@ -203,16 +346,14 @@ def run_constitution_check(
         strict: If True, raise on critical violations instead of returning.
 
     Returns:
-        ConstitutionResult with .score, .passed, .violations.
+        ConstitutionResult with .score, .passed, .violations, .dimensions.
 
     Raises:
         RuntimeError: If strict=True and check fails.
     """
     path = Path(docs_path)
 
-    # If docs_path doesn't exist, try to infer from project root
     if not path.exists():
-        # Try looking for phase-named directories
         phase_dir_name = _PHASE_DIR_MAP.get(current_phase, "")
         alt_path = path.parent / phase_dir_name if path.name == "docs" else path
         if alt_path.exists():
@@ -227,6 +368,8 @@ def run_constitution_check(
                 check_type=check_type,
                 phase=current_phase,
                 check_mode=check_mode,
+                dimensions={"correctness": 100.0, "security": 100.0,
+                           "maintainability": 100.0, "coverage": 100.0},
             )
         result = ConstitutionResult(
             score=0.0,
@@ -240,6 +383,8 @@ def run_constitution_check(
             check_type=check_type,
             phase=current_phase,
             check_mode=check_mode,
+            dimensions={"correctness": 0.0, "security": 0.0,
+                       "maintainability": 0.0, "coverage": 0.0},
         )
         if strict:
             raise RuntimeError(f"Constitution check failed: directory not found: {path}")
@@ -251,8 +396,9 @@ def run_constitution_check(
     if strict and not result.passed:
         raise RuntimeError(
             f"Constitution check FAILED: score={result.score:.0f}% "
-            f"(threshold={60 if current_phase <= 4 else 80}%), "
-            f"violations={len(result.violations)}"
+            f"(threshold={get_constitution_threshold(current_phase)}%), "
+            f"violations={len(result.violations)}, "
+            f"dims={result.dimensions}"
         )
 
     return result

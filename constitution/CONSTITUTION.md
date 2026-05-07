@@ -84,12 +84,47 @@
 
 > ¹ **Human¹** = human peer review of deliverables (P1/P2 produce documents, not code).
 
-### 2.4 Constitution Score 門檻 (TH-02)
+### 2.4 Constitution Score 門檻
 
-| Phase Range | Constitution 總分門檻 |
-|-------------|---------------------|
-| P1–P4 | ≥ 60% (FrameworkEnforcer BLOCK) |
-| P5–P8 | ≥ 80% (FrameworkEnforcer BLOCK + Constitution) |
+| Phase Range | 適用 TH | 維度 | 門檻 |
+|-------------|---------|------|------|
+| P1–P2 | TH-03, TH-04 | correctness + security | =100% (FrameworkEnforcer BLOCK) |
+| P3–P4 | TH-03, TH-04, TH-05, TH-06 | correctness + security + maintainability + coverage | =100% / >90% / >90% (FrameworkEnforcer BLOCK) |
+| P5–P8 | TH-02 | constitution 綜合 | ≥80% (FrameworkEnforcer BLOCK + Constitution) |
+
+### 2.5 Threshold Rules (TH-01 ~ TH-17)
+
+全專案品質閾值權威來源，對齊 methodology-v2 v9.1。
+
+| ID | Metric | Threshold | Applicable Phases | Verify Method |
+|----|--------|-----------|-------------------|---------------|
+| TH-01 | ASPICE Compliance Rate | >80% | 1–8 | `trace-check` |
+| TH-02 | Constitution Total Score | ≥80% | 5–8 | `run-gate` D12 |
+| TH-03 | Constitution — Correctness | =100% | 1–4 | `run-constitution` |
+| TH-04 | Constitution — Security | =100% | 1–4 | `run-constitution` |
+| TH-05 | Constitution — Maintainability | >90% | 2–4 | `run-constitution` |
+| TH-06 | Constitution — Test Coverage | >90% | 3–4 | `run-constitution` |
+| TH-07 | Logic Correctness Score | ≥90 | 5–8 | `phase-verify` |
+| TH-08 | AgentEvaluator Standard | ≥80 | 1–2 | `evaluate` |
+| TH-09 | AgentEvaluator Strict | ≥90 | 3–8 | `evaluate --strict` |
+| TH-10 | Test Pass Rate | =100% | 3–8 | `pytest` |
+| TH-11 | Unit Test Coverage | ≥70% | 3 | `coverage` |
+| TH-12 | Unit Test Coverage | ≥80% | 4–8 | `coverage` |
+| TH-13 | SRS FR Coverage | =100% | 4–8 | `trace-check` |
+| TH-14 | Specification Completeness | =100% | 1 | `verify-spec` |
+| TH-15 | Phase Truth | >90% | 1–8 | `phase-verify` |
+| TH-16 | Code-to-SAD Mapping Rate | =100% | 3 | `trace-check` |
+| TH-17 | FR-to-Test Mapping Rate | ≥90% | 4 | `trace-check` |
+
+> **Phase → TH mapping**:
+> P1: TH-01, TH-03, TH-04, TH-08, TH-14, TH-15
+> P2: TH-01, TH-03, TH-04, TH-05, TH-08, TH-15
+> P3: TH-06, TH-08, TH-09, TH-10, TH-11, TH-15, TH-16
+> P4: TH-01, TH-03, TH-04, TH-06, TH-10, TH-12, TH-13, TH-15, TH-17
+> P5: TH-02, TH-07, TH-15
+> P6: TH-02, TH-07, TH-15
+> P7: TH-07, TH-15
+> P8: TH-02, TH-15
 
 ---
 
@@ -137,7 +172,7 @@
 | HR-08 | Phase 結束需執行 Quality Gate | 終止 -10 |
 | HR-09 | Claims Verifier 驗證需通過 | 終止 -20 |
 | HR-10 | sessions_spawn.log 需有 A/B 記錄 | 終止 -15 |
-| HR-11 | Phase Truth < 70% 禁進入下一 Phase | 終止 |
+| HR-11 | Phase Truth < 90% 禁進入下一 Phase | 終止 |
 | HR-12 | A/B 審查 > 5 輪 → PAUSE | — |
 | HR-13 | Phase 執行 > 預估 ×3 → PAUSE | — |
 | HR-14 | Integrity < 40 → FREEZE 全面審計 | — |
@@ -155,7 +190,7 @@
 
 ### 6.2 Gate Check（每個 Gate 評估時）
 - [ ] All dimensions score ≥ per-gate threshold
-- [ ] Constitution score ≥ 60 (P1-P4) / ≥ 80 (P5-P8)
+- [ ] Constitution score ≥ 100 (P1-P2) / ≥ 90 (P3-P4) / ≥ 80 (P5-P8)
 - [ ] No CRITICAL constitution violations (R001-R007)
 - [ ] sessions_spawn.log has 2 entries (Agent A + Agent B)
 
@@ -175,6 +210,6 @@
 
 ---
 
-*本文檔最後更新：2026-05-06*
-*版本：2.3.0*
+*本文檔最後更新：2026-05-08*
+*版本：2.4.0*
 *此為 harness-methodology 的編譯後 artifact，源自 methodology-v2 v9.1*

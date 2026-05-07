@@ -38,7 +38,7 @@ flowchart TD
     P3_NEXT_FR -->|No| P3_WORK
     P3_NEXT_FR -->|Yes| P3_G2["🔒 Gate 2: Phase Exit<br/>7 dims<br/>score_gate ≥ 75"]
     
-    P3_G2 -->|PASS| P3_TRUTH["⚠️ Phase Truth<br/>HR-11 ≥70%"]
+    P3_G2 -->|PASS| P3_TRUTH["⚠️ Phase Truth<br/>HR-11 ≥90%"]
     P3_G2 -->|CONTINUE| P3_FIX2["🔧 Fix"]
     P3_G2 -->|PLATEAU| P3_DEFER["📌 deferred_fixes.md"]
     P3_G2 -->|BLOCKED| P3_ESCALATE["⚠️ GateBlockedError<br/>escalate to human"]
@@ -67,7 +67,7 @@ flowchart TD
     P4_NEXT_FR -->|No| P4_WORK
     P4_NEXT_FR -->|Yes| P4_G3["🔒 Gate 3: Phase Exit<br/>12 dims<br/>score_gate ≥ 80<br/>[CRG recon]"]
     
-    P4_G3 -->|PASS| P4_TRUTH["⚠️ Phase Truth<br/>HR-11 ≥70%"]
+    P4_G3 -->|PASS| P4_TRUTH["⚠️ Phase Truth<br/>HR-11 ≥90%"]
     P4_G3 -->|CONTINUE| P4_FIX2["🔧 Fix"]
     P4_G3 -->|PLATEAU| P4_DEFER["📌 deferred_fixes.md"]
     P4_G3 -->|BLOCKED| P4_ESCALATE["⚠️ escalate"]
@@ -94,12 +94,12 @@ flowchart TD
     
     P5_PUSH1 --> P5_NEXT_FR{All FRs<br/>complete?}
     P5_NEXT_FR -->|No| P5_WORK
-    P5_NEXT_FR -->|Yes| P5_NOTE["⚠️ Phase Truth Check<br/>(HR-11: ≥70% required)"]
+    P5_NEXT_FR -->|Yes| P5_NOTE["⚠️ Phase Truth Check<br/>(HR-11: ≥90% required)"]
     
     P5_NOTE --> P5_EXIT["🔒 Phase Exit<br/>Phase Truth only<br/>(no separate Gate evaluation)"]
     
     P5_EXIT -->|PASS| P5_G3D["✅ git push<br/>BASELINE.md<br/>phase5 COMPLETE"]
-    P5_EXIT -->|FAIL| P5_ESCALATE["⚠️ escalate<br/>Phase Truth < 70%"]
+    P5_EXIT -->|FAIL| P5_ESCALATE["⚠️ escalate<br/>Phase Truth < 90%"]
     
     P5_ESCALATE --> P5_G3D
     
@@ -112,7 +112,7 @@ flowchart TD
     P6_PRE --> P6_WORK["💼 A/B Work:<br/>QA_ENGINEER<br/>ARCHITECT<br/><br/>📝 Prepare quality report<br/>📝 sessions_spawn.log (2 entries)"]
     P6_WORK --> P6_G4["🔒 Gate 4 ONLY<br/>Full project (12 dims)<br/>score_gate ≥ 85<br/>[CRG recon]<br/>[Hermes APPROVE ⏱120s]"]
     
-    P6_G4 -->|PASS| P6_TRUTH["⚠️ Phase Truth<br/>HR-11 ≥70%"]
+    P6_G4 -->|PASS| P6_TRUTH["⚠️ Phase Truth<br/>HR-11 ≥90%"]
     P6_G4 -->|CONTINUE| P6_FIX["🔧 Fix dimension<br/>re-run G4a"]
     P6_G4 -->|PLATEAU| P6_DEFER["📌 deferred_fixes.md<br/>escalate"]
     P6_G4 -->|BLOCKED| P6_ESCALATE["⚠️ GateBlockedError<br/>manual review"]
@@ -139,7 +139,7 @@ flowchart TD
     
     P7_PUSH1 --> P7_NEXT_FR{All FRs<br/>complete?}
     P7_NEXT_FR -->|No| P7_WORK
-    P7_NEXT_FR -->|Yes| P7_NOTE["⚠️ Phase Truth Check<br/>(HR-11: ≥70% required)"]
+    P7_NEXT_FR -->|Yes| P7_NOTE["⚠️ Phase Truth Check<br/>(HR-11: ≥90% required)"]
     
     P7_NOTE --> P7_G4["🔒 Phase Exit<br/>Cleared by P6 Gate 4<br/>No re-evaluation"]
     
@@ -160,7 +160,7 @@ flowchart TD
     
     P8_PUSH1 --> P8_NEXT_FR{All FRs<br/>complete?}
     P8_NEXT_FR -->|No| P8_WORK
-    P8_NEXT_FR -->|Yes| P8_NOTE["⚠️ Phase Truth Check<br/>(HR-11: ≥70% required)"]
+    P8_NEXT_FR -->|Yes| P8_NOTE["⚠️ Phase Truth Check<br/>(HR-11: ≥90% required)"]
     
     P8_NOTE --> P8_G4["🔒 Phase Exit<br/>Cleared by P6 Gate 4<br/>No re-evaluation"]
     
@@ -227,9 +227,9 @@ flowchart TD
 > 
 > \*\* P7/P8: Entry verified to be Gate 4 from P6 (not P7 itself)
 >
-> ¹ P5: Phase Truth check only (HR-11 ≥70%); no separate exit gate evaluation
+> ¹ P5: Phase Truth check only (HR-11 ≥90%); no separate exit gate evaluation
 >
-> ² P7/P8: Cleared by P6 Gate 4; Phase Truth check only (HR-11 ≥70%); no separate exit gate evaluation
+> ² P7/P8: Cleared by P6 Gate 4; Phase Truth check only (HR-11 ≥90%); no separate exit gate evaluation
 
 ---
 
@@ -254,15 +254,15 @@ flowchart TD
 
 ### Phase Truth Check (P3–P8)
 
-After each phase exit gate (Gate 2/3/4), `PhaseTruthVerifier` runs automatically (HR-11 ≥70% required).
+After each phase exit gate (Gate 2/3/4), `PhaseTruthVerifier` runs automatically (HR-11 ≥90% required).
 Weights vary by phase:
 
 - **P1–P2**: `FrameworkEnforcer(60%) + Sessions_spawn(40%)`
 - **P3–P4**: `FrameworkEnforcer(35%) + Sessions_spawn(25%) + pytest(25%) + coverage(15%)`
 - **P5–P8**: `FrameworkEnforcer(60%) + Sessions_spawn(40%)`
 
-- **If Truth ≥ 70%**: Phase advance proceeds
-- **If Truth < 70%**: Phase advance BLOCKED (exit code 10); manual intervention required
+- **If Truth ≥ 90%**: Phase advance proceeds
+- **If Truth < 90%**: Phase advance BLOCKED (exit code 11); manual intervention required
 
 ### P7/P8: Entry/Exit Notes
 - **Entry**: Verified to be Gate 4 from P6 (not P7 itself)

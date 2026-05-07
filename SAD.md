@@ -98,7 +98,7 @@ python harness_cli.py init-project      --project /path/to/target [--phase 3] [-
 - `0` — all phases complete
 - `1` — hard error (SSI unavailable, manifest missing)
 - `10` — PAUSE: human intervention needed; resume with `--phase-from N`
-- `11` — Phase Truth failure (HR-11 score < 70%); fix issues and re-run
+- `11` — Phase Truth failure (HR-11 score < 90%); fix issues and re-run
 
 **Pipeline step flow per phase (P3+)**:
 ```
@@ -107,7 +107,7 @@ python harness_cli.py init-project      --project /path/to/target [--phase 3] [-
 [phase.2.5] M3 gap analysis    — (also part of preflight_all since v2.3; explicit call retained in run-pipeline)
 [phase.3]   Gate 1 per-FR      — Per-FR quality gate evaluation (phases 3,4,5,7,8)
 [phase.4]   Phase exit gate    — Composite gate evaluation (G2 at P3, G3 at P4, G4 at P6)
-[phase.5]   Phase Truth        — HR-11 ≥ 70% verification (P3-P8)
+[phase.5]   Phase Truth        — HR-11 ≥ 90% verification (P3-P8)
 ```
 M1 kill-switch circuit state is checked before each phase. M3 gap analysis runs for phases ≥ 3.
 
@@ -2453,7 +2453,7 @@ python harness_cli.py run-pipeline --phase-from 3 --project /path/to/project
 | 1 | Hard error | Diagnose |
 | 2 | Critical gaps detected (M3 run-gap-analysis) | Fix gaps, re-run |
 | 10 | PAUSE — gate evaluation needed | Run-gate → evaluate → finalize-gate → re-run pipeline |
-| 11 | Phase Truth < 70% (HR-11) | Fix and re-run with `--phase-from N` |
+| 11 | Phase Truth < 90% (HR-11) | Fix and re-run with `--phase-from N` |
 
 ---
 
@@ -2474,14 +2474,14 @@ Full Mermaid diagram: [`docs/superpowers/plans/harness_phase_flowchart.md`](docs
 | **P7** | Gate 4 (P6) | None² | N/A | Per-FR Loop | RISK_REGISTER.md + sessions_spawn.log |
 | **P8** | Gate 4 (P6) | None² | N/A | Per-FR Loop | CONFIG_RECORDS.md + sessions_spawn.log |
 
-> ¹ P5: Phase Truth check only (HR-11 ≥ 70%); no separate gate evaluation.
+> ¹ P5: Phase Truth check only (HR-11 ≥ 90%); no separate gate evaluation.
 >
-> ² P7/P8: "Cleared by P6 Gate 4" — no separate gate evaluation; Phase Truth check only (HR-11: ≥ 70%).
+> ² P7/P8: "Cleared by P6 Gate 4" — no separate gate evaluation; Phase Truth check only (HR-11: ≥ 90%).
 
 ### Critical Notes
 
 **P5: Phase Truth Only**
-P5 has NO exit gate evaluation. `_PHASE_EXIT_GATES = {3: 2, 4: 3, 6: 4}` — P5 is not in the map. Exit is governed solely by Phase Truth (HR-11 ≥ 70%).
+P5 has NO exit gate evaluation. `_PHASE_EXIT_GATES = {3: 2, 4: 3, 6: 4}` — P5 is not in the map. Exit is governed solely by Phase Truth (HR-11 ≥ 90%).
 
 **P6: No Per-FR Loop**
 P6 does NOT have a per-FR loop. Gate 4 evaluates all 12 dimensions across the entire project at once.
@@ -2493,7 +2493,7 @@ P6 does NOT have a per-FR loop. Gate 4 evaluates all 12 dimensions across the en
 - Failure: Hermes unavailable or reviewer rejects → escalate to human
 
 **Phase Truth (HR-11, P3–P8)**
-`PhaseTruthVerifier` runs automatically after each phase exit gate. Requires ≥ 70%:
+`PhaseTruthVerifier` runs automatically after each phase exit gate. Requires ≥ 90%:
 
 | Phase range | FrameworkEnforcer | sessions_spawn.log | pytest pass | coverage |
 |---|---|---|---|---|

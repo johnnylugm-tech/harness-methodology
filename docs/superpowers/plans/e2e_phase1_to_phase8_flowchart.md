@@ -369,7 +369,7 @@ SESSION START (P3 entry — Human¹ APPROVE from P2 is precondition)
     ║    Sessions_spawn.log         20%                       ║
     ║    pytest actual pass         20%                       ║
     ║    Test coverage threshold    20%                       ║
-    ║    → < 70% blocks phase advance                         ║
+    ║    → < 90% blocks phase advance                         ║
     ║                                                          ║
     ║  G2d: git push → CHECKPOINT saved ✅                   ║
     ║    → DEVELOPMENT_LOG updated with session_id            ║
@@ -465,7 +465,7 @@ SESSION START (Gate2 from P3 PASS is precondition)
     ║    CASE 3 PLATEAU → deferred_fixes.md → push ✅     ║
     ║    CASE 4 BLOCKED → GateBlockedError → escalate ✅  ║
     ║  G3d: git push → CHECKPOINT-N+1 = phase exit saved  ║
-    ║  [Phase Truth] HR-11 (≥70% required)                ║
+    ║  [Phase Truth] HR-11 (≥90% required)                ║
     ║  OUTPUT: TEST_RESULTS.md ✅                          ║
     ╚══════════════════════════════════════════════════════╝
                    │ (PASS)
@@ -548,10 +548,10 @@ SESSION START (Gate3 from P4 PASS is precondition)
     ╔══════════════════════════════════════════════════════════╗
     ║  ### 🔒 Phase 5 Exit — Phase Truth Only                 ║
     ║                                                          ║
-    ║  [Phase Truth] HR-11 (≥70% required)                    ║
+    ║  [Phase Truth] HR-11 (≥90% required)                    ║
     ║                                                          ║
     ║  No separate exit gate evaluation.                      ║
-    ║  P5 exit is cleared by Phase Truth ≥70%.                ║
+    ║  P5 exit is cleared by Phase Truth ≥90%.                ║
     ║                                                          ║
     ║  Phase Truth PASS → BASELINE.md generated               ║
     ║  Phase Truth FAIL → escalate                            ║
@@ -680,7 +680,7 @@ SESSION START (Phase Truth from P5 PASS is precondition)
     ║  │  (pipeline waits at exit 10 if no response)       │ ║
     ║  └───────────────────────────────────────────────────┘ ║
     ║                                                          ║
-    ║  [Phase Truth] HR-11 (≥70% required)                    ║
+    ║  [Phase Truth] HR-11 (≥90% required)                    ║
     ║                                                          ║
     ║  G4d: git push → CHECKPOINT saved ✅                   ║
     ║    → QUALITY_REPORT.md generated                        ║
@@ -775,7 +775,7 @@ SESSION START (Gate4 from P6 PASS is precondition)
     ╔══════════════════════════════════════════════════════════╗
     ║  ### 🔒 Phase 7 Exit — Phase Truth Only                 ║
     ║                                                          ║
-    ║  [Phase Truth] HR-11 (≥70% required)                    ║
+    ║  [Phase Truth] HR-11 (≥90% required)                    ║
     ║  [M1] KillSwitch state check before exit                ║
     ║    → OPEN state blocks phase advance                    ║
     ║                                                          ║
@@ -873,7 +873,7 @@ SESSION START (Gate4 from P6 PASS is precondition)
     ╔══════════════════════════════════════════════════════════╗
     ║  ### 🔒 Phase 8 Exit — Phase Truth Only (FINAL)        ║
     ║                                                          ║
-    ║  [Phase Truth] HR-11 (≥70% required) — FINAL           ║
+    ║  [Phase Truth] HR-11 (≥90% required) — FINAL           ║
     ║  [M1] KillSwitch final state: must be CLOSED            ║
     ║  [M2] Final drift check: all drift scores < threshold   ║
     ║  [M3] Final gap check: 0 critical gaps                  ║
@@ -944,7 +944,7 @@ SESSION START (Gate4 from P6 PASS is precondition)
 │  ├─ HR-01: A≠B (self-review forbidden)                      │
 │  ├─ HR-04: HybridWorkflow mode=ON                            │
 │  ├─ HR-10: sessions_spawn.log A/B entries                   │
-│  ├─ HR-11: Phase Truth ≥ 70% to advance                     │
+│  ├─ HR-11: Phase Truth ≥ 90% to advance                     │
 │  ├─ HR-12: Max 5 A/B review rounds → PAUSE                  │
 │  └─ HR-14: Integrity < 40 → FREEZE                          │
 ├─────────────────────────────────────────────────────────────┤

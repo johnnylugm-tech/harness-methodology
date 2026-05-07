@@ -458,12 +458,12 @@ class TestPhaseTruthVerifier:
         assert result["passed"] is False
 
     def test_verify_total_score_threshold(self, tmp_path):
-        """Score >=70 → passed, <70 → failed."""
+        """Score >=90 → passed, <90 → failed."""
         v = self._make_verifier(tmp_path, phase=1)
         with patch.object(v, "check_framework_block", return_value=(True, 100.0, "ok")), \
              patch.object(v, "check_session_log", return_value=(False, 0.0, "fail")):
             result = v.verify()
-        # total_score = 100*0.60 + 0*0.40 = 60 → <70 → not passed
+        # total_score = 100*0.60 + 0*0.40 = 60 → <90 → not passed
         assert result["passed"] is False
 
 

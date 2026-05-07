@@ -308,7 +308,7 @@ class PhaseTruthVerifier:
 
         print()
         print("=" * 60)
-        verdict = "✅ likely genuine" if total_score >= 70 else "❌ highly suspicious"
+        verdict = "✅ likely genuine" if total_score >= 90 else "❌ highly suspicious"
         print(f"Total score: {total_score:.0f}% - {verdict}")
         print("=" * 60)
         print()
@@ -327,7 +327,7 @@ class PhaseTruthVerifier:
         return {
             "phase": self.phase,
             "total_score": total_score,
-            "passed": total_score >= 70,
+            "passed": total_score >= 90,
             "checks": results,
             "checklist": checklist,
         }

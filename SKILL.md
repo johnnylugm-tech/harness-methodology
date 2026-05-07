@@ -55,7 +55,7 @@ When the user says "execute Phase N", "start P3", "implement FR-X", or any phase
 |----------|---------------|-----|
 | Before any phase work | FSM state, constitution, kill-switch, drift, SAB, traceability, gap analysis, CI readiness | `run-phase --phase N` |
 | After each FR (P3/P4/P5/P7/P8) | Gate 1 per-FR (each dim ≥ 75) | `run-gate --gate 1 --fr-id FR-XX` + evaluate + `finalize-gate` |
-| Phase exit (P3→Gate2, P4→Gate3, P6→Gate4) | Gate score ≥ threshold + Phase Truth ≥ 70% (HR-11) | `run-gate --gate N` + evaluate + `finalize-gate` |
+| Phase exit (P3→Gate2, P4→Gate3, P6→Gate4) | Gate score ≥ threshold + Phase Truth ≥ 90% (HR-11) | `run-gate --gate N` + evaluate + `finalize-gate` |
 | P1/P2 exit | Human peer review (no automated gate) | Deliverables: SRS.md / SAD.md + ADR.md |
 | After crash | Current position + next checkpoint | `generate-next-plan` |
 
@@ -113,9 +113,9 @@ Before advancing to Phase N+1, confirm ALL:
 
 > ¹ **Human¹** = human peer review of deliverables. NOT `run-gate --gate 1`. Gate 1 only applies to code phases (P3–P5, P7, P8) where linting/type_safety/test_coverage can be measured. P1/P2 produce documents, not code. P6 has no per-FR Gate 1 — it uses a single Gate 4 (12-dim full audit) at phase exit.
 >
-> ¹ **None¹** (P5) = Phase Truth check only (HR-11: ≥70%); no separate exit gate evaluation.
+> ¹ **None¹** (P5) = Phase Truth check only (HR-11: ≥90%); no separate exit gate evaluation.
 >
-> ² **None²** (P7/P8) = Cleared by P6 Gate 4; Phase Truth check only (HR-11: ≥70%); no re-evaluation.
+> ² **None²** (P7/P8) = Cleared by P6 Gate 4; Phase Truth check only (HR-11: ≥90%); no re-evaluation.
 
 ### Gate Definitions
 
@@ -142,7 +142,7 @@ Before advancing to Phase N+1, confirm ALL:
 | HR-08 | Phase end requires Quality Gate pass | -10 / Terminate |
 | HR-09 | Claims Verifier citations must pass | -20 / Terminate |
 | HR-10 | sessions_spawn.log must have A/B entries | -15 / Terminate |
-| HR-11 | Phase Truth < 70% blocks phase advance (P3–P8) | Terminate |
+| HR-11 | Phase Truth < 90% blocks phase advance (P3–P8) | Terminate |
 | HR-12 | A/B review > 5 rounds triggers PAUSE | — |
 | HR-13 | Phase execution > 3× estimate triggers PAUSE | — |
 | HR-14 | Integrity < 40 triggers FREEZE | — |

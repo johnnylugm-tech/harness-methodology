@@ -989,7 +989,7 @@ class TestIntegratedStagePassGenerator:
         gen.run_step2_session_log = MagicMock(return_value=True)
         gen.run_step2b_confidence_format = MagicMock(return_value={"passed": True})
         gen.run_step3_pytest_evidence = MagicMock(return_value={"pytest_passed": True})
-        gen.run_step4_confidence = MagicMock(return_value=85)
+        gen.run_step4_confidence = MagicMock(return_value=92)
         gen.run_step5_traceability = MagicMock(return_value=True)
         gen.generate_markdown = MagicMock(return_value="# STAGE_PASS")
         gen.git_push = MagicMock(return_value="abc1234")

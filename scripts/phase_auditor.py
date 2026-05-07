@@ -41,7 +41,7 @@ HARD_RULES = {
     "HR-08": "Quality Gate must be executed at the end of every Phase",
     "HR-09": "Claims Verifier verification must pass",
     "HR-10": "sessions_spawn.log must exist and contain A/B records",
-    "HR-11": "Phase Truth score < 70% blocks entry to next Phase",
+    "HR-11": "Phase Truth score < 90% blocks entry to next Phase",
 }
 
 # Phase specifications (per SKILL.md v6.13 Phase routing table)
@@ -578,7 +578,7 @@ class PhaseAuditor:
                 check_id="C2", dimension="STAGE_PASS Certificate",
                 severity=sev,
                 title=f"{icon} STAGE_PASS Confidence Score: {score}/100",
-                detail="Threshold: >=70 (HR-11)", rule_ref="HR-11",
+                detail="Threshold: >=90 (HR-11)", rule_ref="HR-11",
             ))
         else:
             self.result.add(Finding(

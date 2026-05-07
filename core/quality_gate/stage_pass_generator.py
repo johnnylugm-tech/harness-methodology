@@ -24,9 +24,8 @@ Agent B Review Principles (Critical):
 
 Score Role:
 - 95-100: quick confirmation
-- 80-94: careful review
-- 70-79: special attention
-- <70: 🔴 Flag, blocked from next Phase
+- 90-94: careful review
+- <90: blocked from next Phase (TH-15 >90%)
 
 Usage:
     python quality_gate/stage_pass_generator.py --phase 3 --project-dir /path/to/project
@@ -603,7 +602,7 @@ class IntegratedStagePassGenerator:
         print(f"Confidence score: {score}/100")
         print(f"{'='*60}")
         
-        return score >= 70  # >=70 counts as pass
+        return score >= 90  # >=90 counts as pass (TH-15)
 
     def run_step6_sab_generation(self) -> bool:
         """SAB Generation (Phase 2 only)"""

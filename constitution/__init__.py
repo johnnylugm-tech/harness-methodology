@@ -8,6 +8,8 @@ Modules:
 Public API:
 - load_constitution() → str
 - get_quality_thresholds() → dict
+- get_th_rules() → dict (TH-01~TH-17)
+- get_phase_thresholds(phase) → dict
 - check_quality_gate(code_metrics) → dict
 - validate_constitution_compliance(project_path) → dict
 - compile_constitution(path) → CompiledConstitution
@@ -36,6 +38,8 @@ __all__ = [
     "get_quality_thresholds",
     "get_gate_thresholds",
     "get_constitution_threshold",
+    "get_th_rules",
+    "get_phase_thresholds",
     "get_error_levels",
     "check_quality_gate",
     "validate_constitution_compliance",
@@ -66,13 +70,16 @@ def get_quality_thresholds() -> dict:
     These are the canonical thresholds; all downstream consumers
     (enforcement_config, verification_gate, framework_enforcer)
     should derive their values from here.
+
+    Aligned with TH-03 (correctness=100%), TH-04 (security=100%),
+    TH-05 (maintainability>90%), TH-06 (coverage>90%).
     """
     return {
-        "correctness": 80,
+        "correctness": 100,
         "security": 100,
-        "maintainability": 70,
+        "maintainability": 90,
         "performance": 80,
-        "coverage": 80,
+        "coverage": 90,
     }
 
 
@@ -90,10 +97,59 @@ def get_gate_thresholds() -> dict:
 def get_constitution_threshold(phase: int) -> float:
     """Return constitution score threshold for a given phase.
 
-    P1-P4: ≥60 (basic framework compliance)
-    P5-P8: ≥80 (full constitution compliance)
+    P1-P2: =100 (TH-03 correctness + TH-04 security, both must be 100%)
+    P3-P4: ≥90 (TH-03/TH-04 =100% + TH-05/TH-06 >90%)
+    P5-P8: ≥80 (TH-02 full constitution compliance)
     """
-    return 60.0 if phase <= 4 else 80.0
+    if phase <= 2:
+        return 100.0
+    if phase <= 4:
+        return 90.0
+    return 80.0
+
+
+def get_th_rules() -> dict:
+    """Return all TH-01 ~ TH-17 threshold rules.
+
+    Canonical source aligned with methodology-v2 v9.1.
+    Each entry: (metric, threshold, phases, verify_method).
+    """
+    return {
+        "TH-01": ("ASPICE Compliance Rate", ">80%", (1, 2, 3, 4, 5, 6, 7, 8), "trace-check"),
+        "TH-02": ("Constitution Total Score", ">=80%", (5, 6, 7, 8), "run-gate D12"),
+        "TH-03": ("Constitution Correctness", "=100%", (1, 2, 3, 4), "run-constitution"),
+        "TH-04": ("Constitution Security", "=100%", (1, 2, 3, 4), "run-constitution"),
+        "TH-05": ("Constitution Maintainability", ">90%", (2, 3, 4), "run-constitution"),
+        "TH-06": ("Constitution Test Coverage", ">90%", (3, 4), "run-constitution"),
+        "TH-07": ("Logic Correctness Score", ">=90", (5, 6, 7, 8), "phase-verify"),
+        "TH-08": ("AgentEvaluator Standard", ">=80", (1, 2), "evaluate"),
+        "TH-09": ("AgentEvaluator Strict", ">=90", (3, 4, 5, 6, 7, 8), "evaluate --strict"),
+        "TH-10": ("Test Pass Rate", "=100%", (3, 4, 5, 6, 7, 8), "pytest"),
+        "TH-11": ("Unit Test Coverage", ">=70%", (3,), "coverage"),
+        "TH-12": ("Unit Test Coverage", ">=80%", (4, 5, 6, 7, 8), "coverage"),
+        "TH-13": ("SRS FR Coverage", "=100%", (4, 5, 6, 7, 8), "trace-check"),
+        "TH-14": ("Specification Completeness", "=100%", (1,), "verify-spec"),
+        "TH-15": ("Phase Truth", ">90%", (1, 2, 3, 4, 5, 6, 7, 8), "phase-verify"),
+        "TH-16": ("Code-to-SAD Mapping Rate", "=100%", (3,), "trace-check"),
+        "TH-17": ("FR-to-Test Mapping Rate", ">=90%", (4,), "trace-check"),
+    }
+
+
+def get_phase_thresholds(phase: int) -> dict:
+    """Return the subset of TH rules applicable to a given phase.
+
+    Args:
+        phase: Pipeline phase number (1-8).
+
+    Returns:
+        Dict of TH-ID → (metric, threshold, phases, verify_method).
+    """
+    all_rules = get_th_rules()
+    return {
+        th_id: rule
+        for th_id, rule in all_rules.items()
+        if phase in rule[2]
+    }
 
 
 def get_error_levels() -> dict:

@@ -66,7 +66,7 @@ class FrameworkEnforcer:
 
     BLOCK level (must pass, otherwise blocked):
     - SPEC_TRACKING: spec completeness >= 90%
-    - CONSTITUTION_SCORE: Constitution Score >= 60 (P1-P4) or >= 80 (P5-P8)
+    - CONSTITUTION_SCORE: Constitution Score >= 100 (P1-P2), >= 90 (P3-P4), or >= 80 (P5-P8)
 
     WARN level (warning, non-blocking):
     - DECISION_FRAMEWORK: Decision Framework established
@@ -75,7 +75,7 @@ class FrameworkEnforcer:
 
     BLOCK_CHECKS = [
         {"name": "SPEC_TRACKING", "threshold": 90},
-        {"name": "CONSTITUTION_SCORE", "threshold": 60},
+        {"name": "CONSTITUTION_SCORE", "threshold": 100},
     ]
     WARN_CHECKS = [
         {"name": "DECISION_FRAMEWORK"},
@@ -349,7 +349,7 @@ class FrameworkEnforcer:
             result.add_block_check("CONSTITUTION_SCORE", const_passed)
             if not const_passed:
                 result.add_violation(
-                    f"Constitution Score {const.get('score', 0)}% < {const.get('threshold', 60)}%",
+                    f"Constitution Score {const.get('score', 0)}% < {const.get('threshold', 100)}%",
                     "methodology constitution check"
                 )
 

@@ -44,7 +44,7 @@ python3 harness_cli.py generate-next-plan --phase {PHASE}
 | HR-08 | Phase end requires Quality Gate execution | Terminate -10 | stage-pass --phase {PHASE} |
 | HR-09 | Claims Verifier must pass | Terminate -20 | citations cross-check |
 | HR-10 | sessions_spawn.log must have A/B records | Terminate -15 | 2 entries per step |
-| HR-11 | Phase Truth < 70% blocks next Phase entry | Terminate | <70% → PAUSE |
+| HR-11 | Phase Truth < 90% blocks next Phase entry | Terminate | <90% → PAUSE |
 | HR-12 | A/B review > 5 rounds → PAUSE | — | Stop proactively at round 5 |
 | HR-13 | Phase execution > 3x estimate → PAUSE | — | Record start_time |
 | HR-14 | Integrity < 40 → FREEZE | — | Check Integrity after QG |
@@ -659,11 +659,11 @@ print(f"{'='*60}")
 # run_cmd(["python3", "cli.py", "steering", "run", "--phase", str(PHASE)])
 
 print(f"\n[Phase Truth] Phase Truth validation")
-# NOTE: phase-verify (HR-11 ≥70%) is a parent-system tool.
+# NOTE: phase-verify (HR-11 ≥90%) is a parent-system tool.
 # audit-phase is a deep ASPICE audit requiring --repo owner/repo, not a Phase Truth check.
 # Un-comment if using software_self_improvement as parent system:
 # result = run_cmd(["python3", "cli.py", "phase-verify", "--phase", str(PHASE)])
-# print(f"   {'OK' if result.returncode == 0 else 'FAIL'} Phase Truth {'PASS' if result.returncode == 0 else '<70% -> PAUSE'}")
+# print(f"   {'OK' if result.returncode == 0 else 'FAIL'} Phase Truth {'PASS' if result.returncode == 0 else '<90% -> PAUSE'}")
 print("   Phase Truth validation requires parent system (cli.py phase-verify). Skip in standalone mode.")
 
 print(f"\n[Final Checkpoint] Saving phase state")
