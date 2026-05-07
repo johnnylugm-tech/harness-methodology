@@ -64,9 +64,8 @@ git commit -m "test: TDD stubs [RED] for all FRs + TEST_PLAN.md"
 
 ## Gate 1 — Per-FR (replaces check_fr_full Layer 3)
 
-```python
-from harness.harness_bridge import HarnessBridge
-HarnessBridge().run_gate(gate_num=1, project_root=".", phase=3, fr_id="FR-001")
+```bash
+python harness_cli.py run-gate --gate 1 --phase 3 --fr-id FR-001
 # 3 dims: linting(90) / type_safety(85) / test_coverage(80)
 # test_coverage(80) 語義更新: TDD tests 需覆蓋此 FR 的 AC，非僅 line coverage
 # Blocking: any dim < threshold -> developer fixes -> re-run
@@ -79,8 +78,8 @@ HarnessBridge().run_gate(gate_num=1, project_root=".", phase=3, fr_id="FR-001")
 
 ## Gate 2 — Phase Exit (replaces auto-research P3)
 
-```python
-HarnessBridge().run_gate(gate_num=2, project_root=".", phase=3)
+```bash
+python harness_cli.py run-gate --gate 2 --phase 3
 # 7 dims, score_gate=75, max_rounds=3, early_stop=true
 # 額外 check: 所有 test_fr_*.py 存在且為 GREEN state
 # Blocking: score < 75 OR any FR still RED -> issue-driven plan -> iterate

@@ -4,9 +4,8 @@
 <!-- Output: Gate 4 report + Hermes APPROVE -->
 
 ## Step 6.1 — Gate 4 (12-dim full harness)
-```python
-from harness.harness_bridge import HarnessBridge
-result = HarnessBridge().run_gate(gate_num=4, project_root=".", phase=6)
+```bash
+python harness_cli.py run-gate --gate 4 --phase 6
 # 12 dims, All Tiers, score_gate=85, max_rounds=3
 # CRG: full integration (Point 1-4)
 # mutation_testing: median_runs=3

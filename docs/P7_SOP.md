@@ -3,9 +3,8 @@
 <!-- Gate 1 applies to check_fr_full Layer 3 per-FR checks -->
 
 ## Gate 1 (P7 per-FR, same as P3)
-```python
-from harness.harness_bridge import HarnessBridge
-HarnessBridge().run_gate(gate_num=1, project_root=".", phase=7, fr_id="FR-001")
+```bash
+python harness_cli.py run-gate --gate 1 --phase 7 --fr-id FR-001
 ```
 
 ## Steering Loop (unchanged)

@@ -47,7 +47,7 @@
 |------|-------|---------|--------|------|
 | Gate 1 | P3/P4/P5/P7/P8 (per FR) | **≥ 75** | 3 (lint/type/cov) | FR 級別檢查 |
 | Gate 2 | P3 exit | **≥ 75** | 7 | Phase 級別 SSI |
-| Gate 3 | P4/P5 exit | **≥ 80** | 12 | 完整 CRG recon |
+| Gate 3 | P4 exit | **≥ 80** | 12 | 完整 CRG recon |
 | Gate 4 | P6 exit | **≥ 85** | 12 | 全專案 + Hermes APPROVE |
 
 ### 2.2 品質維度權重
@@ -67,7 +67,24 @@
 | D11_Compliance | — | — | 5% | 5% |
 | D12_Constitution | — | 15% | 10% | 10% |
 
-### 2.3 Constitution Score 門檻 (TH-02)
+### 2.3 Entry Gate 前提條件
+
+每個 Phase 進入前必須驗證前置條件：
+
+| Phase | Entry Gate | 驗證方式 |
+|-------|-----------|----------|
+| P1 | None | 無前置 Phase |
+| P2 | Human¹ (P1) | `git log` 確認 P1 APPROVE |
+| P3 | Human¹ (P2) | `git log` 確認 P2 APPROVE |
+| P4 | Gate 2 (P3) | `git log` 確認 P3 Gate 2 PASS |
+| P5 | Gate 3 (P4) | `git log` 確認 P4 Gate 3 PASS |
+| P6 | Gate 3 (P5) | `git log` 確認 P5 Phase Truth PASS |
+| P7 | Gate 4 (P6) | `git log` 確認 P6 Gate 4 PASS |
+| P8 | Gate 4 (P6) | `git log` 確認 P6 Gate 4 PASS |
+
+> ¹ **Human¹** = human peer review of deliverables (P1/P2 produce documents, not code).
+
+### 2.4 Constitution Score 門檻 (TH-02)
 
 | Phase Range | Constitution 總分門檻 |
 |-------------|---------------------|
@@ -159,5 +176,5 @@
 ---
 
 *本文檔最後更新：2026-05-06*
-*版本：2.0.0*
+*版本：2.3.0*
 *此為 harness-methodology 的編譯後 artifact，源自 methodology-v2 v9.1*

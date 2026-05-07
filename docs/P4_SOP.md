@@ -55,9 +55,8 @@ python3 harness/scripts/check_spec_trace.py SAD.md tests/
 
 ## Gate 3 — Phase Exit (replaces auto-research P4)
 
-```python
-from harness.harness_bridge import HarnessBridge
-HarnessBridge().run_gate(gate_num=3, project_root=".", phase=4)
+```bash
+python harness_cli.py run-gate --gate 3 --phase 4
 # 12 dims (all tiers), score_gate=80, max_rounds=3
 # CRG: reconnaissance + tier3_guidance + impact_check + drift_check
 # 新增 pre-gate check: spec_trace_coverage = 100%

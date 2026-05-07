@@ -354,6 +354,8 @@ python harness_cli.py run-phase --phase 5 --project /project
 
 **Goal**: Final full-project quality check. Gate 4 (score≥85 + Hermes APPROVE).
 
+**A/B Roles**: QA_ENGINEER (Agent A) + ARCHITECT (Agent B)
+
 **Interactive prompt to Claude**:
 ```
 Phase 6：品質保證。

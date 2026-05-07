@@ -3,9 +3,8 @@
 <!-- Output: BASELINE.md + delivery package -->
 
 ## Gate 1 (P5 per-FR, same as P3)
-```python
-from harness.harness_bridge import HarnessBridge
-HarnessBridge().run_gate(gate_num=1, project_root=".", phase=5, fr_id="FR-001")
+```bash
+python harness_cli.py run-gate --gate 1 --phase 5 --fr-id FR-001
 ```
 
 > **TODO**: Populate full SOP from methodology-v2.

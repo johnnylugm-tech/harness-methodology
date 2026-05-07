@@ -1,6 +1,6 @@
 # SKILL.md — harness-methodology
 
-> **Version**: v6.50.0 | **Framework**: harness-methodology | **Academic Benchmark**: 91/100
+> **Version**: v2.3.0 | **Framework**: harness-methodology | **Academic Benchmark**: 91/100
 
 ---
 
@@ -12,12 +12,16 @@
 | P2 | Architecture Design | Human¹ | Human¹ | SAD.md, ADR.md |
 | P3 | Implementation | Human¹ | Gate2 (75) | code + tests |
 | P4 | Testing | Gate2 | Gate3 (80) | TEST_RESULTS.md |
-| P5 | Verification & Delivery | Gate3 | Gate3 (80) | BASELINE.md |
+| P5 | Verification & Delivery | Gate3 | None¹ | BASELINE.md |
 | P6 | Quality Assurance | Gate3 | Gate4 (85) | QUALITY_REPORT.md |
-| P7 | Risk Management | Gate4 | Gate4 (85) | RISK_REGISTER.md |
-| P8 | Configuration Management | Gate4 | Gate4 (85) | CONFIG_RECORDS.md |
+| P7 | Risk Management | Gate4 | None² | RISK_REGISTER.md |
+| P8 | Configuration Management | Gate4 | None² | CONFIG_RECORDS.md |
 
 > ¹ **Human¹** = human peer review of deliverables. NOT `run-gate --gate 1`. Gate 1 only applies to code phases (P3–P5, P7, P8) where linting/type_safety/test_coverage can be measured. P1/P2 produce documents, not code. P6 has no per-FR Gate 1 — it uses a single Gate 4 (12-dim full audit) at phase exit.
+>
+> ¹ **None¹** (P5) = Phase Truth check only (HR-11: ≥70%); no separate exit gate evaluation.
+>
+> ² **None²** (P7/P8) = Cleared by P6 Gate 4; Phase Truth check only (HR-11: ≥70%); no re-evaluation.
 
 ### Gate Definitions
 
