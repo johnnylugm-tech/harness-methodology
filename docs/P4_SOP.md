@@ -46,7 +46,7 @@ def test_fr001_output_feeds_fr002():
 SAD.md 每個 FR 必須對應到 TEST_RESULTS.md 的一行。自動化驗證：
 
 ```bash
-python3 harness/scripts/scripts/check_spec_trace.py SAD.md tests/
+python3 scripts/check_spec_trace.py SAD.md tests/
 # Exit 0: all FRs traced (Gate 3 可繼續)
 # Exit 1: untested FRs found (Gate 3 blocked — 必須先補齊 test_fr_XXX.py)
 ```

@@ -342,7 +342,7 @@ done
 python harness_cli.py run-phase --phase {PHASE}
 
 # 3. SAB Drift Detection (code<->SAD consistency)
-python cli.py trace-check --from phase1 --to phase3
+python cli.py trace-check --from phase1 --to phase{PHASE}
 
 # 4. AutoResearch auto-generate tests (standalone Skill)
 # See: skills/auto_research/SKILL.md
@@ -494,7 +494,7 @@ cli.py cannot import it, but **Agent can call it directly**.
 | **HR-09 Claims Verifier** | After each FR review | `core/quality_gate/constitution/runner.py --type implementation` (auto) |
 | **check_fr_full.py** | After each FR APPROVE | `scripts/check_fr_full.py --fr {fr_id} --project /path --loop` |
 | **CQG** | After each FR APPROVE | `cli.py quality-gate --phase {PHASE}` |
-| **SAB Drift Detection** | POST-FLIGHT | `cli.py trace-check --from phase1 --to phase3` |
+| **SAB Drift Detection** | POST-FLIGHT | `cli.py trace-check --from phase1 --to phase{PHASE}` |
 | **Steering Loop** | POST-FLIGHT | `cli.py steering run --phase {PHASE}` |
 | **Phase Truth** | POST-FLIGHT | `cli.py phase-verify --phase {PHASE}` |
 | **AutoResearch** | POST-FLIGHT | `cli.py auto-research --project /path --phase {PHASE}` |
@@ -694,7 +694,7 @@ print("POST-FLIGHT")
 print(f"{'='*60}")
 
 print(f"\n[SAB Drift] Code<->SAD consistency check")
-result = run_cmd(["python3", "cli.py", "trace-check", "--from", "phase1", "--to", "phase3"])
+result = run_cmd(["python3", "cli.py", "trace-check", "--from", "phase1", "--to", f"phase{PHASE}"])
 print(f"   {'OK' if result.returncode == 0 else 'WARN'} SAB Drift {'PASS' if result.returncode == 0 else 'WARN'}")
 
 print(f"\n[Steering] Steering Loop")

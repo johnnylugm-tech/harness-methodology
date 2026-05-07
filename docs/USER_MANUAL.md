@@ -727,7 +727,7 @@ Claude 會依序確認並執行：
 ```bash
 cd /your/target/project
 git submodule add https://github.com/johnnylugm-tech/harness-methodology harness
-bash scripts/harness-init.sh --phase 1   # idempotent — safe to re-run
+bash harness/scripts/harness-init.sh --phase 1   # idempotent — safe to re-run
 ```
 
 ---
@@ -995,7 +995,7 @@ cp /path/to/harness-methodology/harness_cli.py /your/target/project/
 bash /path/to/harness-methodology/scripts/harness-init.sh --phase 1
 
 # If using submodule (Option A above):
-bash scripts/harness-init.sh --phase 1
+bash harness/scripts/harness-init.sh --phase 1
 
 # Output (first run):
 #   ✓  git hooks installed (prepare-commit-msg | post-merge | pre-push)
@@ -1012,7 +1012,7 @@ bash scripts/harness-init.sh --phase 1
 ```makefile
 # Makefile
 init:
-	bash scripts/harness-init.sh --phase 1
+	bash harness/scripts/harness-init.sh --phase 1
 ```
 ```bash
 # setup.sh
@@ -1024,7 +1024,7 @@ bash "$(dirname "$0")/harness/scripts/harness-init.sh" --phase 1
 ```bash
 git config quality.phase                              # → current phase number
 ls .git/hooks/prepare-commit-msg .git/hooks/pre-push  # → both should exist
-python3 harness_cli.py --help                            # → shows commands
+python3 harness/harness_cli.py --help                   # → shows commands
 ```
 
 ### 12.3 Phase Transition
