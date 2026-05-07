@@ -59,7 +59,14 @@ set -e
 
 # Get project root directory
 GIT_DIR=$(git rev-parse --show-toplevel)
-HARNESS_CLI="$GIT_DIR/harness_cli.py"
+# Auto-detect harness_cli.py: root first, then harness/ submodule
+if [ -f "$GIT_DIR/harness_cli.py" ]; then
+    HARNESS_CLI="$GIT_DIR/harness_cli.py"
+elif [ -f "$GIT_DIR/harness/harness_cli.py" ]; then
+    HARNESS_CLI="$GIT_DIR/harness/harness_cli.py"
+else
+    HARNESS_CLI=""
+fi
 
 # Get current Phase (from git config or default to 1)
 PHASE=$(git config --local --get quality.phase 2>/dev/null || echo "1")
@@ -129,7 +136,14 @@ set -e
 
 # Get project root directory
 GIT_DIR=$(git rev-parse --show-toplevel)
-HARNESS_CLI="$GIT_DIR/harness_cli.py"
+# Auto-detect harness_cli.py: root first, then harness/ submodule
+if [ -f "$GIT_DIR/harness_cli.py" ]; then
+    HARNESS_CLI="$GIT_DIR/harness_cli.py"
+elif [ -f "$GIT_DIR/harness/harness_cli.py" ]; then
+    HARNESS_CLI="$GIT_DIR/harness/harness_cli.py"
+else
+    HARNESS_CLI=""
+fi
 
 # Get current Phase (from git config or default to 1)
 PHASE=$(git config --local --get quality.phase 2>/dev/null || echo "1")
@@ -185,7 +199,14 @@ set -e
 
 # Get project root directory
 GIT_DIR=$(git rev-parse --show-toplevel)
-HARNESS_CLI="$GIT_DIR/harness_cli.py"
+# Auto-detect harness_cli.py: root first, then harness/ submodule
+if [ -f "$GIT_DIR/harness_cli.py" ]; then
+    HARNESS_CLI="$GIT_DIR/harness_cli.py"
+elif [ -f "$GIT_DIR/harness/harness_cli.py" ]; then
+    HARNESS_CLI="$GIT_DIR/harness/harness_cli.py"
+else
+    HARNESS_CLI=""
+fi
 
 # Get current Phase (from git config or default to 1)
 PHASE=$(git config --local --get quality.phase 2>/dev/null || echo "1")
@@ -250,22 +271,37 @@ echo "Configuration"
 echo "=============================================="
 echo
 
-# Set default Phase
-read -p "Enter current Phase (1-8) [default: 1]: " PHASE
-PHASE=${PHASE:-1}
+# Set default Phase (CLI arg, env, or interactive; default 1)
+if [ -n "$1" ] && [[ "$1" =~ ^[1-8]$ ]]; then
+    PHASE="$1"
+elif [ -n "$HARNESS_PHASE" ] && [[ "$HARNESS_PHASE" =~ ^[1-8]$ ]]; then
+    PHASE="$HARNESS_PHASE"
+elif [ -t 0 ]; then
+    read -p "Enter current Phase (1-8) [default: 1]: " PHASE
+    PHASE=${PHASE:-1}
+else
+    PHASE=1
+fi
 
 git config --local quality.phase "$PHASE"
 echo -e "${GREEN}OK${NC} Set quality.phase to $PHASE"
 
 # Ask whether to enable automatic block
-read -p "Enable automatic block on Quality Gate failure? (y/n) [default: y]: " ENABLE_BLOCK
-ENABLE_BLOCK=${ENABLE_BLOCK:-y}
+ENABLE_BLOCK=""
+if [ -n "$HARNESS_BLOCK" ]; then
+    ENABLE_BLOCK="$HARNESS_BLOCK"
+elif [ -t 0 ]; then
+    read -p "Enable automatic block on Quality Gate failure? (y/n) [default: y]: " ENABLE_BLOCK
+    ENABLE_BLOCK=${ENABLE_BLOCK:-y}
+else
+    ENABLE_BLOCK="y"
+fi
 
 if [ "$ENABLE_BLOCK" = "y" ]; then
-    git config --local quality.block_on_failure true
+    git config --local quality.block-on-failure true
     echo -e "${GREEN}OK${NC} Enabled block on failure"
 else
-    git config --local quality.block_on_failure false
+    git config --local quality.block-on-failure false
     echo -e "${GREEN}OK${NC} Disabled block on failure"
 fi
 
@@ -290,5 +326,5 @@ echo "To change Phase:"
 echo "  git config quality.phase <phase_number>"
 echo ""
 echo "To check Phase status manually:"
-echo "  python3 harness_cli.py run-phase --phase $PHASE --project .  # add --fast for quick check"
+echo "  python3 harness_cli.py run-phase --phase $PHASE --project .  # or harness/harness_cli.py for submodule"
 echo ""
