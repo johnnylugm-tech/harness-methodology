@@ -236,6 +236,8 @@ def parse_config_records(repo_path: Path) -> List[Dict]:
 
 def parse_srs_nfr_sections(srs_path: Path) -> List[Dict]:
     """Parse SRS.md to extract NFR sections"""
+    if srs_path is None:
+        return []
     if not srs_path.exists():
         return []
 
