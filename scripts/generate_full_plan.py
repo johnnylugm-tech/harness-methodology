@@ -1204,8 +1204,8 @@ def generate_full_plan(phase: int, repo_path: Path, output_path: Optional[Path] 
     ]
     srs_path = next((p for p in srs_paths if p.exists()), None)
 
-    # Phase 1-4 need SRS; 5-8 are implementation phases
-    if srs_path is None and phase <= 4:
+    # Phase 2-4 need existing SRS; Phase 1 CREATES SRS, 5-8 use other artifacts
+    if srs_path is None and phase in (2, 3, 4):
         print(f"[ERROR] SRS.md not found for phase {phase}")
         return None
     _srs = cast(Path, srs_path)  # safe: phases 5-8 don't use srs_path
