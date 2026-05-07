@@ -43,8 +43,9 @@ class TestPhaseHooksEdge:
 
     def test_preflight_constitution_import_error(self, tmp_path):
         from core.phase_hooks import PhaseHooks
-        hooks = PhaseHooks(str(tmp_path), phase=1)
-        with patch.dict("sys.modules", {"quality_gate.constitution": None}):
+        (tmp_path / "docs").mkdir()
+        hooks = PhaseHooks(str(tmp_path), phase=5)
+        with patch.dict("sys.modules", {"core.quality_gate.constitution": None}):
             result = hooks.preflight_constitution()
         assert result["passed"] is False
 

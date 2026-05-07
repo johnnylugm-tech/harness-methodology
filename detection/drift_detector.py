@@ -236,7 +236,7 @@ class DriftDetector:
         checked = 0
         drifted = 0
 
-        for phase in range(1, min(current_phase + 1, 9)):
+        for phase in range(1, current_phase):
             expected = self.PHASE_ARTIFACTS.get(phase, [])
             for artifact in expected:
                 checked += 1

@@ -146,6 +146,14 @@ def _scan_directory(docs_path: Path, phase: int, check_type: str) -> Constitutio
                 })
 
     if not scores:
+        if phase <= 2:
+            return ConstitutionResult(
+                score=100.0,
+                passed=True,
+                violations=[],
+                check_type=check_type,
+                phase=phase,
+            )
         return ConstitutionResult(
             score=0.0,
             passed=False,
@@ -211,6 +219,15 @@ def run_constitution_check(
             path = alt_path
 
     if not path.exists():
+        if current_phase <= 2:
+            return ConstitutionResult(
+                score=100.0,
+                passed=True,
+                violations=[],
+                check_type=check_type,
+                phase=current_phase,
+                check_mode=check_mode,
+            )
         result = ConstitutionResult(
             score=0.0,
             passed=False,

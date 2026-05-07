@@ -17,20 +17,20 @@ class TestDriftDetector:
         assert result.score == 1.0
 
     def test_detect_phase_drift_with_missing_artifacts(self, tmp_path):
-        """Verify drift detection when expected artifacts are missing."""
+        """Verify drift detection for previously-completed phases only."""
         # Setup methodology state
         method_dir = tmp_path / ".methodology"
         method_dir.mkdir()
         state_path = method_dir / "state.json"
-        # Phase 2 expects SAD.md and ADR.md
-        state_path.write_text('{"current_phase": 2}')
-        
+        # Phase 3: checks P1 (SRS.md, TRACEABILITY_MATRIX.md) + P2 (SAD.md, ADR.md)
+        state_path.write_text('{"current_phase": 3}')
+
         detector = DriftDetector(str(tmp_path))
         result = detector.detect_phase_drift()
-        
+
         assert result.has_drift is True
-        # At least 2 artifacts checked for phase 1 and 2
-        assert result.checked > 0
+        # At least 4 artifacts checked (P1: 2 + P2: 2)
+        assert result.checked >= 4
         assert any("SAD.md" in i.description for i in result.drift_items)
 
     def test_detect_spec_drift_finds_missing_frs(self, tmp_path):

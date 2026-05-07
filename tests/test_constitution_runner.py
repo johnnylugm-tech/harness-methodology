@@ -92,11 +92,20 @@ The trace matrix ensures all FR and NFR items are covered.
 
 
 class TestScanDirectory:
-    def test_empty_directory(self):
+    def test_empty_directory_phase1_skips(self):
         with tempfile.TemporaryDirectory() as d:
             docs = Path(d) / "docs"
             docs.mkdir()
             result = _scan_directory(docs, phase=1, check_type="all")
+            assert result.score == 100.0
+            assert result.passed is True
+            assert len(result.violations) == 0
+
+    def test_empty_directory_phase5_fails(self):
+        with tempfile.TemporaryDirectory() as d:
+            docs = Path(d) / "docs"
+            docs.mkdir()
+            result = _scan_directory(docs, phase=5, check_type="all")
             assert result.score == 0.0
             assert result.passed is False
             assert len(result.violations) == 1
@@ -159,14 +168,19 @@ class TestComplianceKeywords:
 
 
 class TestRunConstitutionCheck:
-    def test_missing_directory(self):
+    def test_missing_directory_phase1_skips(self):
         result = run_constitution_check("all", "/nonexistent/path", current_phase=1)
+        assert result.passed is True
+        assert result.score == 100.0
+
+    def test_missing_directory_phase3_fails(self):
+        result = run_constitution_check("all", "/nonexistent/path", current_phase=3)
         assert result.passed is False
         assert result.score == 0.0
 
     def test_strict_mode_raises_on_missing_dir(self):
         with pytest.raises(RuntimeError, match="directory not found"):
-            run_constitution_check("all", "/nonexistent/path", current_phase=1, strict=True)
+            run_constitution_check("all", "/nonexistent/path", current_phase=3, strict=True)
 
     def test_strict_mode_raises_on_failure(self, tmp_path):
         docs = tmp_path / "docs"
