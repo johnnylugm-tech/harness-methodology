@@ -3,7 +3,7 @@
 Docs Optimizer - Automated documentation optimization script
 
 Features:
-1. Check version consistency (README badge vs cli.py VERSION)
+1. Check version consistency (README badge vs __init__.py __version__)
 2. Update README command count
 3. Sync case index (docs/cases/README.md)
 4. Check TODO/FIXME comments
@@ -23,7 +23,8 @@ from datetime import datetime
 # Settings
 WORKSPACE = Path(__file__).parent.parent
 README = WORKSPACE / "README.md"
-CLI_PY = WORKSPACE / "cli.py"
+INIT_PY = WORKSPACE / "__init__.py"
+HARNESS_CLI = WORKSPACE / "harness_cli.py"
 CASES_README = WORKSPACE / "docs" / "cases" / "README.md"
 DOCS_DIR = WORKSPACE / "docs"
 
@@ -72,52 +73,52 @@ class DocsOptimizer:
         badge_match = re.search(badge_pattern, readme_content)
         readme_version = badge_match.group(1) if badge_match else None
 
-        version_pattern = r'VERSION\s*=\s*["\']([^"\']+)["\']'
-        with open(CLI_PY, 'r', encoding='utf-8') as f:
-            cli_content = f.read()
+        version_pattern = r'__version__\s*=\s*["\']([^"\']+)["\']'
+        with open(INIT_PY, 'r', encoding='utf-8') as f:
+            init_content = f.read()
 
-        cli_match = re.search(version_pattern, cli_content)
-        cli_version = cli_match.group(1) if cli_match else None
+        init_match = re.search(version_pattern, init_content)
+        init_version = init_match.group(1) if init_match else None
 
         # Compare (normalize: ensure v prefix on both)
-        if readme_version and cli_version:
+        if readme_version and init_version:
             readme_normalized = readme_version if readme_version.startswith('v') else f'v{readme_version}'
-            cli_normalized = cli_version if cli_version.startswith('v') else f'v{cli_version}'
+            init_normalized = init_version if init_version.startswith('v') else f'v{init_version}'
 
-            if readme_normalized == cli_normalized:
+            if readme_normalized == init_normalized:
                 print(f"   OK Version consistent: {readme_normalized}")
             else:
-                self.warnings.append(f"Version inconsistent: README={readme_version}, cli.py={cli_version}")
-                print(f"   WARN Version inconsistent: README={readme_version}, cli.py={cli_version}")
+                self.warnings.append(f"Version inconsistent: README={readme_version}, __init__.py={init_version}")
+                print(f"   WARN Version inconsistent: README={readme_version}, __init__.py={init_version}")
                 if not self.dry_run:
-                    self.fix_version_consistency(readme_version, cli_version)
+                    self.fix_version_consistency(readme_version, init_version)
         else:
             self.warnings.append("Unable to read version info")
             print("   ERR Unable to read version info")
 
-    def fix_version_consistency(self, readme_version, cli_version):
+    def fix_version_consistency(self, readme_version, init_version):
         """Fix version consistency"""
-        with open(CLI_PY, 'r', encoding='utf-8') as f:
+        with open(INIT_PY, 'r', encoding='utf-8') as f:
             content = f.read()
 
         new_content = re.sub(
-            r'VERSION\s*=\s*["\'][^"\']+["\']',
-            f'VERSION = "{readme_version}"',
+            r'__version__\s*=\s*["\'][^"\']+["\']',
+            f'__version__ = "{readme_version}"',
             content
         )
 
-        with open(CLI_PY, 'w', encoding='utf-8') as f:
+        with open(INIT_PY, 'w', encoding='utf-8') as f:
             f.write(new_content)
 
-        self.fixes.append(f"Updated cli.py VERSION: {cli_version} -> {readme_version}")
-        print(f"   FIXED: cli.py {cli_version} -> {readme_version}")
+        self.fixes.append(f"Updated __init__.py __version__: {init_version} -> {readme_version}")
+        print(f"   FIXED: __init__.py {init_version} -> {readme_version}")
 
     def check_command_count(self):
         """Check README command count"""
         print("\n[2/5] Command count check...")
 
         cmd_pattern = r'def cmd_(\w+)\('
-        with open(CLI_PY, 'r', encoding='utf-8') as f:
+        with open(HARNESS_CLI, 'r', encoding='utf-8') as f:
             content = f.read()
 
         commands = re.findall(cmd_pattern, content)
@@ -197,7 +198,7 @@ class DocsOptimizer:
 
         required_files = [
             "README.md",
-            "cli.py",
+            "harness_cli.py",
             "SKILL.md",
             "docs/cases/README.md",
         ]

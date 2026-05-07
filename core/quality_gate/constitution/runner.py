@@ -5,7 +5,7 @@ Constitution Runner — executable quality gate constitution check.
 Called by:
 - phase_hooks.py: preflight_constitution() / postflight_constitution()
 - framework_enforcer.py: check_constitution()
-- cli.py: cmd_constitution() / run-phase integration
+- harness_cli.py / run-phase integration
 
 Provides:
     run_constitution_check(check_type, docs_path, current_phase=1, check_mode="preflight")

@@ -30,7 +30,7 @@ The architecture is driven by five strict non-functional requirements defined in
 
 ### Driver 5 — Maintainability (NFR-5)
 - **Requirement**: The framework itself must be easy to understand, extend, and maintain.
-- **Decision**: Lazy-Loading Factory (in `cli.py`) and Bridge pattern (in `harness/`). Lazy loading decouples subsystems; Bridge separates core workflow from quality-gate implementations and CRG tooling.
+- **Decision**: Lazy-Loading Factory (in parent-system CLI) and Bridge pattern (in `harness/`). Lazy loading decouples subsystems; Bridge separates core workflow from quality-gate implementations and CRG tooling.
 
 ---
 
@@ -52,7 +52,7 @@ The system uses this macro architecture:
 
 | Pattern | Applied In | Purpose |
 |---|---|---|
-| Lazy-Loading Factory | `cli.py` (full system) | Deferred subsystem init across 30+ modules |
+| Lazy-Loading Factory | parent-system CLI | Deferred subsystem init across 30+ modules |
 | Strategy Pattern | `core/agent_spawner.py` | Switch between Task tool vs Hermes reviewer |
 | Bridge Pattern | `harness/` directory | Decouple methodology flow from quality tools |
 | Façade Pattern | `harness_cli.py` (standalone) | Minimal harness-only CLI facade |
@@ -61,14 +61,13 @@ The system uses this macro architecture:
 | Graceful Degradation | `harness/crg_bridge.py` | All CRG methods no-op if CRG not installed |
 | LLM-as-Judge | `steering/steering_loop.py` | Objective A/B output evaluation via LLM |
 
-### 2.3 CLI Architecture: Two-Entry-Point Design
+### 2.3 CLI Architecture: Single Entry Point
 
 | Entry Point | File | Scope | Runnable Standalone |
 |---|---|---|---|
-| **Full system CLI** | `cli.py` | Requires 30+ external modules (`progress_dashboard`, `gantt_chart`, `sprint_planner`, `enterprise_hub`, `steering`, etc.) — belongs to the parent system | ❌ Not runnable in this repo alone |
 | **Harness CLI** | `harness_cli.py` | Only uses modules present in this repo (`core/`, `harness/`) | ✅ Runnable standalone |
 
-`cli.py` is retained as-is because it is the entrypoint for the full parent system that contains harness-methodology as a sub-component. Any work purely within harness-methodology should use `harness_cli.py`.
+The full-system CLI (`cli.py`) lives in the parent system that contains harness-methodology as a sub-component. It requires 30+ external modules (`progress_dashboard`, `gantt_chart`, `sprint_planner`, `enterprise_hub`, `steering`, etc.) and is not part of this repository. Any work within harness-methodology uses `harness_cli.py`.
 
 **`harness_cli.py` commands** (16 total):
 ```
@@ -906,7 +905,7 @@ class GateRemediationReport:
 
 ### 3.12 `steering/` — AB Workflow Steering Engine
 
-**Responsibility**: LLM-as-judge A/B iteration control. Drives the AB Workflow component referenced by the full-system `cli.py`. Used when two candidate outputs must be compared and converged toward a winner.
+**Responsibility**: LLM-as-judge A/B iteration control. Drives the AB Workflow component referenced by the full-system CLI. Used when two candidate outputs must be compared and converged toward a winner.
 
 #### `steering/steering_loop.py` — Core Iteration Engine
 

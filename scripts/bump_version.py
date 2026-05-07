@@ -28,7 +28,6 @@ def bump_version(new_version: str):
     """Update version across all project files."""
     files_patterns = {
         "__init__.py": (r'__version__\s*=\s*"[^"]+"', f'__version__ = "{new_version}"'),
-        "cli.py": (r'VERSION\s*=\s*"[^"]+"', f'VERSION = "{new_version}"'),
         "pyproject.toml": (r'version\s*=\s*"[^"]+"', f'version = "{new_version}"'),
         "README.md": (r'v\d+\.\d+\.\d+', f"v{new_version}"),
     }

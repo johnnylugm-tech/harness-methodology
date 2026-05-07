@@ -22,7 +22,7 @@ def run_constitution_check_with_feedback(
 ) -> "ConstitutionResult":
     """Run constitution check with automatic retry and feedback.
 
-    Called by cli.py:cmd_constitution() and the run-pipeline flow.
+    Called by harness_cli.py and the run-pipeline flow.
 
     On failure, suggests fix commands and retries up to max_retries times.
     If auto_fix is True, attempts to auto-generate missing artifacts.

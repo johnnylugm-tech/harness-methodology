@@ -41,7 +41,7 @@ SSI assets are embedded at `harness/ssi/` — no external repo needed.
 ### Before
 ```
 Layer 3 (per-FR): CQG linter + complexity (~1 min)
-POST-FLIGHT: cli.py auto-research --project {REPO} --phase 3
+POST-FLIGHT: (parent-system) auto-research --project {REPO} --phase 3
 ```
 
 ### After
@@ -106,8 +106,8 @@ Exit: Gate 4 score ≥ 85 AND critical_open == 0 AND quality_complete AND Hermes
 
 ```
 check_fr_full Layer 3: same as Gate 1 (per-FR, 3 dims)
-auto-research: unchanged (cli.py auto-research, not gate-specific)
-steering: unchanged (cli.py steering, P7/P8 only)
+auto-research: unchanged (parent-system only, not gate-specific)
+steering: unchanged (parent-system only, P7/P8 only)
 ```
 
 ## Early-Stop Logic (Gates 2–4)

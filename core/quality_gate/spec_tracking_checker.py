@@ -145,7 +145,7 @@ class SpecTrackingChecker:
         """Print specification tracking report"""
         if not self.check_exists():
             print("❌ SPEC_TRACKING.md not found")
-            print("   Run 'python3 cli.py spec-track init' to initialize")
+            print("   Run spec-track init (parent-system CLI) to initialize")
             return
         
         completeness = self.check_completeness()

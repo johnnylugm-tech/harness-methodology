@@ -7,9 +7,9 @@
 python harness_cli.py run-gate --gate 1 --phase 8 --fr-id FR-001
 ```
 
-## Steering Loop (unchanged)
+## Steering Loop (parent-system only)
 ```bash
-python cli.py steering run --phase 8
+# python cli.py steering run --phase 8  ← requires parent-system CLI, not in this repo
 ```
 
 > **TODO**: Populate full SOP from methodology-v2.

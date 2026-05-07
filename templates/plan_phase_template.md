@@ -317,9 +317,9 @@ pytest --cov=app/ --cov-report=term -q
 | **HR-09 Claims Verifier** | v2.3 | Auto (Constitution runner) | Validates citations have artifact backing |
 | **CQG** | v2.3 | `harness_cli.py run-gate --gate 1` | Per-FR quality auto-check |
 | **AutoResearch** | v2.3 | `harness_cli.py run-gate` | Phase-aware quality improvement |
-| **SAB Drift Detection** | v2.0 | `cli.py trace-check` * | Validate code<->SAD consistency |
+| **SAB Drift Detection** | v2.0 | parent-system CLI * | Validate code<->SAD consistency |
 | **Feedback Loop** | v2.3 | Auto (if enabled) | Collect and feed back execution results |
-| **Steering Loop** | v2.3 | `cli.py steering run` * | Auto-adjust strategy based on feedback |
+| **Steering Loop** | v2.3 | parent-system CLI * | Auto-adjust strategy based on feedback |
 
 ### Recommended automation flow (Phase 3+)
 
@@ -337,7 +337,7 @@ python harness_cli.py run-phase --phase {PHASE}
 python3 harness_cli.py run-gap-analysis --project .
 
 # 4. Feedback Loop collect feedback (parent system only — comment out for standalone harness)
-# python3 cli.py feedback-loop --phase {PHASE}
+# python3 cli.py feedback-loop --phase {PHASE}  ← parent-system only
 ```
 
 ### SAB Drift Detection Description
@@ -445,7 +445,7 @@ result = si.spawn(role="DEVELOPER", task="FR-{FR_NUM}", artifact_paths=["SRS.md"
 ### IMPORTANT: sessions_spawn is called directly by Agent
 
 `sessions_spawn` is an OpenClaw runtime tool, **not a Python module**.
-cli.py cannot import it, but **Agent can call it directly**.
+The harness CLI cannot import it, but **Agent can call it directly**.
 
 ### Enhanced Feature Integration (Section 10.5)
 
@@ -454,17 +454,17 @@ cli.py cannot import it, but **Agent can call it directly**.
 | **BVS** | After each FR review | `core/quality_gate/constitution/runner.py --type implementation` |
 | **HR-09 Claims Verifier** | After each FR review | `core/quality_gate/constitution/runner.py --type implementation` (auto) |
 | **check_fr_full.py** | After each FR APPROVE | `scripts/check_fr_full.py --fr {fr_id} --project /path --loop` |
-| **CQG** | After each FR APPROVE | `cli.py quality-gate --phase {PHASE}` |
-| **SAB Drift Detection** | POST-FLIGHT | `cli.py trace-check --from phase1 --to phase{PHASE}` |
-| **Steering Loop** | POST-FLIGHT | `cli.py steering run --phase {PHASE}` |
-| **Phase Truth** | POST-FLIGHT | `cli.py phase-verify --phase {PHASE}` |
-| **AutoResearch** | POST-FLIGHT | `cli.py auto-research --project /path --phase {PHASE}` |
+| **CQG** | After each FR APPROVE | `harness_cli.py run-gate --gate 1` |
+| **SAB Drift Detection** | POST-FLIGHT | parent-system CLI * |
+| **Steering Loop** | POST-FLIGHT | parent-system CLI * |
+| **Phase Truth** | POST-FLIGHT | `harness_cli.py audit-phase` * |
+| **AutoResearch** | POST-FLIGHT | parent-system CLI * |
 
 ### Agent Execution Workflow (with enhancements)
 
 ```
 +-------------------------------------------------------------+
-| Agent: python cli.py run-phase --phase {PHASE}              |
+| Agent: python harness_cli.py run-phase --phase {PHASE}              |
 |   -> PRE-FLIGHT (FSM, Constitution, Kill-Switch, Previous Phase Artifacts, Drift, SAB, Tool Registry, Traceability, Gap, CI)          |
 +-------------------------------------------------------------+
                               |
@@ -664,11 +664,10 @@ print(f"{'='*60}")
 
 print(f"\n[Phase Truth] Phase Truth validation")
 # NOTE: phase-verify (HR-11 ≥90%) is a parent-system tool.
-# audit-phase is a deep ASPICE audit requiring --repo owner/repo, not a Phase Truth check.
 # Un-comment if using software_self_improvement as parent system:
 # result = run_cmd(["python3", "cli.py", "phase-verify", "--phase", str(PHASE)])
 # print(f"   {'OK' if result.returncode == 0 else 'FAIL'} Phase Truth {'PASS' if result.returncode == 0 else '<90% -> PAUSE'}")
-print("   Phase Truth validation requires parent system (cli.py phase-verify). Skip in standalone mode.")
+print("   Phase Truth validation: use PhaseTruthVerifier (core/quality_gate/phase_truth_verifier.py) in standalone mode.")
 
 print(f"\n[Final Checkpoint] Saving phase state")
 # NOTE: push-checkpoint only supports P1/P2. For P3+, commit and push directly.
@@ -691,10 +690,10 @@ print(f"\nPhase {PHASE} complete!")
 | **Constitution** | `python3 -m core.quality_gate.constitution.runner` | **BVS + HR-09** |
 | **CQG** | `harness_cli.py run-gate --gate 1` | **Per-FR quality check** |
 | HR-12 | `monitoring_hr12_check()` | PAUSE at >=5 rounds |
-| **SAB Drift** | `cli.py trace-check` * | **code<->SAD** |
-| **Steering** | `cli.py steering run` * | **Workflow control** |
-| **Phase Truth** | `cli.py phase-verify` * | **>90% validation** |
-| **AutoResearch** | `cli.py auto-research` * | **Phase-aware quality improvement** |
+| **SAB Drift** | parent-system CLI * | **code<->SAD** |
+| **Steering** | parent-system CLI * | **Workflow control** |
+| **Phase Truth** | `harness_cli.py audit-phase` * | **>90% validation** |
+| **AutoResearch** | parent-system CLI * | **Phase-aware quality improvement** |
 | POST-FLIGHT | `harness_cli.py run-phase --phase {PHASE}` | Final State |
 
 > \* Parent system only (`software_self_improvement`). Not available standalone.
@@ -746,10 +745,10 @@ sessions_spawn(
 
 ```bash
 # After Johnny review, run:
-python3 cli.py run-phase --phase {PHASE} --goal "{GOAL}"
+python3 harness_cli.py run-phase --phase {PHASE} --goal "{GOAL}"
 
 # Or repair a specific step:
-python3 cli.py plan-phase --phase {PHASE} --repair --step {PHASE}.2 --goal "{GOAL}"
+python3 harness_cli.py plan-phase --phase {PHASE} --repair --step {PHASE}.2 --goal "{GOAL}"
 
 # Generate complete FR detailed tasks (requires SRS.md):
 python3 scripts/generate_full_plan.py --phase {PHASE} --repo /path/to/project
