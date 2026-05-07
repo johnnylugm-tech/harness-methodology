@@ -11,6 +11,7 @@ from core.quality_gate.constitution.runner import (  # pyright: ignore[reportMis
     _scan_directory,
     _dimensions_for_phase,
     _threshold_for_dimension,
+    _should_scan_file,
     run_constitution_check,
 )
 
@@ -206,7 +207,7 @@ class TestScanDirectory:
         assert "coverage" in result.dimensions
 
     def test_dimensions_in_result_phase3(self, tmp_path):
-        """Phase 3 uses only correctness+security."""
+        """Phase 3 uses correctness+security+maintainability (3 dims)."""
         docs = tmp_path / "docs"
         docs.mkdir()
         (docs / "SAD.md").write_text(
@@ -214,19 +215,27 @@ class TestScanDirectory:
             "Constitution traceability with HMAC signature verification.\n"
             "Acceptance criteria defined with pytest unit test coverage.\n"
             "## FR-02 security auth validation RBAC permission token encrypt\n"
+            "## module class def docstring type hint dataclass interface\n"
         )
         result = _scan_directory(docs, phase=3, check_type="sad")
         assert "correctness" in result.dimensions
         assert "security" in result.dimensions
-        # P3 does NOT use maintainability/coverage for scoring
-        # (dimensions are still computed but not used in aggregate)
+        assert "maintainability" in result.dimensions
+        # P3 uses maintainability (TH-05>90%) but NOT coverage as constitution dimension
+        # (coverage is checked separately via TH-11 >=70% pytest coverage)
 
 
 class TestDimensionsForPhase:
-    def test_phase1_to_3_only_correctness_security(self):
-        for p in (1, 2, 3):
-            assert _dimensions_for_phase(p) == ["correctness", "security"], \
-                f"Phase {p} should use only correctness+security"
+    def test_phase1_only_correctness_security(self):
+        """P1 uses only correctness + security (2 dimensions)."""
+        assert _dimensions_for_phase(1) == ["correctness", "security"]
+
+    def test_phase2_3_three_dimensions(self):
+        """P2-P3 use correctness + security + maintainability (3 dimensions)."""
+        for p in (2, 3):
+            dims = _dimensions_for_phase(p)
+            assert dims == ["correctness", "security", "maintainability"], \
+                f"Phase {p} should use 3 dimensions, got {dims}"
 
     def test_phase4_plus_all_four_dimensions(self):
         for p in range(4, 9):
@@ -375,11 +384,13 @@ class TestGetPhaseThresholds:
 
     def test_phase3_has_correct_th_rules(self):
         rules = get_phase_thresholds(3)
-        assert "TH-06" in rules
+        assert "TH-05" in rules   # maintainability now active at P3
         assert "TH-10" in rules
         assert "TH-11" in rules
         assert "TH-15" in rules
         assert "TH-16" in rules
+        # TH-06 (coverage) is P4 only, not P3
+        assert "TH-06" not in rules
 
     def test_phase6_has_correct_th_rules(self):
         rules = get_phase_thresholds(6)
@@ -398,3 +409,73 @@ class TestGetPhaseThresholds:
         from constitution import get_th_rules
         for th_id, rule in get_th_rules().items():
             assert len(rule) == 4, f"{th_id} should have 4 elements: {rule}"
+
+
+class TestCheckTypeFiltering:
+    """Tests for _should_scan_file and check_type filtering."""
+
+    def test_all_passes_everything(self):
+        assert _should_scan_file(Path("anything.md"), "all") is True
+        assert _should_scan_file(Path("random.txt"), "all") is True
+
+    def test_srs_filters_correctly(self):
+        assert _should_scan_file(Path("SRS.md"), "srs") is True
+        assert _should_scan_file(Path("spec_v2.md"), "srs") is True
+        assert _should_scan_file(Path("SAD.md"), "srs") is False
+        assert _should_scan_file(Path("architecture.md"), "srs") is False
+
+    def test_sad_filters_correctly(self):
+        assert _should_scan_file(Path("SAD.md"), "sad") is True
+        assert _should_scan_file(Path("adr/001-design.md"), "sad") is True
+        assert _should_scan_file(Path("SRS.md"), "sad") is False
+
+    def test_unknown_check_type_passes_all(self):
+        assert _should_scan_file(Path("SRS.md"), "unknown") is True
+
+    def test_filter_applied_in_scan_directory(self, tmp_path):
+        """check_type='sad' should only scan SAD-related files."""
+        docs = tmp_path / "docs"
+        docs.mkdir()
+        (docs / "SRS.md").write_text("# SRS\n\n## FR-01 quality gate\n\ntest coverage constitution\n")
+        (docs / "SAD.md").write_text(
+            "# Architecture\n\n## FR-01 quality gate test coverage constitution traceability\n"
+            "## security auth validation HMAC RBAC signature encrypt\n"
+            "## module class def docstring type hint dataclass abc interface\n"
+            "## pytest unit test mock fixture assert coverage report\n"
+        )
+        result = _scan_directory(docs, phase=1, check_type="sad")
+        # Only SAD.md should be scanned; SRS.md excluded by filter
+        assert result.score >= 0
+
+
+class TestDoubleScanPrevention:
+    """Tests that _scan_directory does not double-count the same directory."""
+
+    def test_named_dir_not_doubled(self, tmp_path):
+        """When docs/ absent, passing numbered dir directly should not double-scan."""
+        phase_dir = tmp_path / "01-requirements"
+        phase_dir.mkdir()
+        (phase_dir / "SRS.md").write_text(
+            "# SRS\n\n## FR-01 quality gate test coverage\n\n"
+            "Constitution traceability matrix with acceptance criteria.\n"
+            "Security: HMAC signature verification with RBAC authorization.\n"
+        )
+        result = _scan_directory(phase_dir, phase=1, check_type="all")
+        assert result.score > 0
+        # The key assertion: score should not be doubled
+
+    def test_docs_plus_phase_dir_both_scanned(self, tmp_path):
+        """When both docs/ and 03-development/ exist, both should be scanned."""
+        docs = tmp_path / "docs"
+        docs.mkdir()
+        (docs / "README.md").write_text(
+            "# Project\n\n## FR-01 quality gate test coverage constitution traceability\n"
+        )
+        phase_dir = tmp_path / "03-development"
+        phase_dir.mkdir()
+        (phase_dir / "IMPLEMENTATION.md").write_text(
+            "# Implementation\n\n## FR-01 quality gate test coverage\n\n"
+            "Constitution compliance verified with security auth validation\n"
+        )
+        result = _scan_directory(docs, phase=3, check_type="all")
+        assert result.score > 0

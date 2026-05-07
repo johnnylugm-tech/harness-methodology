@@ -145,9 +145,24 @@ class PhaseTruthVerifier:
         except Exception as e:
             return False, 0.0, f"Error: {e}"
 
+    def _get_coverage_threshold(self) -> int:
+        """Return the coverage threshold for the current phase.
+
+        TH-11: >=70% for P3
+        TH-12: >=80% for P4+
+        P1-P2: N/A (no coverage check)
+        """
+        if self.phase <= 2:
+            return 0
+        if self.phase == 3:
+            return 70
+        return 80
+
     def check_coverage(self) -> Tuple[bool, float, str]:
-        """Check coverage"""
-        threshold = 70
+        """Check coverage against phase-dependent threshold."""
+        threshold = self._get_coverage_threshold()
+        if threshold == 0:
+            return True, 100.0, "No coverage requirement for P1-P2"
 
         try:
             result = subprocess.run(  # nosec B603 B607
@@ -175,6 +190,53 @@ class PhaseTruthVerifier:
             return passed, score, details
         except Exception as e:
             return False, 0.0, f"Error: {e}"
+
+    def check_previous_phase_artifacts(self) -> Tuple[bool, float, str]:
+        """Check that the previous phase produced required deliverables.
+
+        Uses PhaseArtifactRegistry to verify the ASPICE chain is intact
+        before proceeding with the current phase.
+        """
+        if self.phase <= 1:
+            return True, 100.0, "P1 has no previous phase"
+
+        from core.quality_gate.phase_artifact_enforcer import PhaseArtifactRegistry  # pyright: ignore[reportMissingImports]
+
+        registry = PhaseArtifactRegistry(str(self.project_root))
+        result = registry.verify_phase_chain(self.phase)
+
+        if result["all_verified"]:
+            return True, 100.0, f"All {result['stats']['verified']} phase links verified"
+        return False, 0.0, (
+            f"{result['stats']['missing']} broken phase link(s): "
+            + "; ".join(result["missing_links"][:3])
+        )
+
+    def _check_artifact_content_quality(self, artifact_path: Path) -> Dict[str, Any]:
+        """Perform basic automated content quality check on an artifact.
+
+        Detects hollow templates that exist but have no real content.
+        """
+        if not artifact_path.exists() or not artifact_path.is_file():
+            return {"quality": "missing", "issues": ["file not found"]}
+
+        try:
+            content = artifact_path.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            return {"quality": "unreadable", "issues": ["cannot read file"]}
+
+        issues = []
+        if len(content.strip()) < 200:
+            issues.append("Content <200 chars — may be hollow template")
+        section_count = content.count("\n## ") + content.count("\n# ")
+        if section_count < 2:
+            issues.append("Fewer than 2 markdown sections — may lack structure")
+        has_ref = bool(re.search(r"\[(TASK|FR|NFR)-\d+\]", content, re.IGNORECASE))
+        if not has_ref:
+            issues.append("No task/FR/NFR references found")
+
+        quality = "good" if not issues else "suspicious"
+        return {"quality": quality, "issues": issues}
 
     def get_manual_checklist(self) -> List[Dict]:
         """Generate items requiring manual confirmation"""
@@ -222,6 +284,7 @@ class PhaseTruthVerifier:
             for artifact in phase_artifacts[self.phase]:
                 exists = False
                 found_path = artifact
+                quality = {"quality": "missing", "issues": []}
                 
                 for dir_prefix in dirs_to_check:
                     if dir_prefix:
@@ -232,11 +295,14 @@ class PhaseTruthVerifier:
                     if path.exists():
                         exists = True
                         found_path = f"{dir_prefix}/{artifact}" if dir_prefix else artifact
+                        quality = self._check_artifact_content_quality(path)
                         break
-                
+
+
                 checklist.append({
                     "item": found_path,
                     "status": "✅ present" if exists else "❌ missing",
+                    "content_quality": quality,
                     "action": "Pick 1 at random, confirm content is not a hollow template"
                 })
 
@@ -265,25 +331,33 @@ class PhaseTruthVerifier:
         print()
 
         # Execute checks (adjust weights based on Phase)
-        # Phase 1-2: only BLOCK + session_log, weights adjusted
-        if self.phase < 3:
+        # Phase 1-2: BLOCK + session_log, no previous phase artifacts
+        if self.phase <= 1:
             checks = [
                 ("FrameworkEnforcer BLOCK", self.check_framework_block, 0.60),
                 ("Sessions_spawn.log", self.check_session_log, 0.40),
             ]
-        # Phase 3-4: 4 checks (includes pytest/coverage)
+        elif self.phase <= 2:
+            checks = [
+                ("FrameworkEnforcer BLOCK", self.check_framework_block, 0.50),
+                ("Sessions_spawn.log", self.check_session_log, 0.35),
+                ("Previous phase artifacts", self.check_previous_phase_artifacts, 0.15),
+            ]
+        # Phase 3-4: 5 checks (includes pytest/coverage + previous phase)
         elif self.phase <= 4:
             checks = [
-                ("FrameworkEnforcer BLOCK", self.check_framework_block, 0.35),
-                ("Sessions_spawn.log", self.check_session_log, 0.25),
-                ("pytest actually passes", self.check_pytest, 0.25),
-                ("test coverage meets threshold", self.check_coverage, 0.15),
+                ("FrameworkEnforcer BLOCK", self.check_framework_block, 0.30),
+                ("Sessions_spawn.log", self.check_session_log, 0.22),
+                ("pytest actually passes", self.check_pytest, 0.22),
+                ("test coverage meets threshold", self.check_coverage, 0.13),
+                ("Previous phase artifacts", self.check_previous_phase_artifacts, 0.13),
             ]
-        # Phase 5-8: only BLOCK + session_log (non-code phases)
+        # Phase 5-8: BLOCK + session_log + previous phase (non-code phases)
         else:
             checks = [
-                ("FrameworkEnforcer BLOCK", self.check_framework_block, 0.60),
-                ("Sessions_spawn.log", self.check_session_log, 0.40),
+                ("FrameworkEnforcer BLOCK", self.check_framework_block, 0.50),
+                ("Sessions_spawn.log", self.check_session_log, 0.35),
+                ("Previous phase artifacts", self.check_previous_phase_artifacts, 0.15),
             ]
 
         total_score = 0.0

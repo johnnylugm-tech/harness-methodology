@@ -61,6 +61,9 @@ sys.path.insert(0, str(_REPO_ROOT))
 # Phases where Gate 1 runs per-FR
 _PER_FR_GATE1_PHASES: frozenset[int] = frozenset({3, 4, 5, 7, 8})
 
+# Entry gate required per phase (CONSTITUTION.md §2.3)
+_ENTRY_GATE_MAP: dict[int, int] = {4: 2, 5: 3, 6: 3, 7: 4, 8: 4}
+
 # Phase → composite exit gate number
 _PHASE_EXIT_GATES: dict[int, int] = {3: 2, 4: 3, 6: 4}
 
@@ -94,6 +97,57 @@ def cmd_plan_phase(args: argparse.Namespace) -> int:
 # run-phase
 # ---------------------------------------------------------------------------
 
+def _verify_entry_gate(project: Path, phase: int) -> dict:
+    """Automatically verify entry gate conditions before phase execution.
+
+    CONSTITUTION.md SS2.3 defines:
+    - P1: None
+    - P2: Human1 (P1) — git log APPROVE
+    - P3: Human1 (P2) — git log APPROVE
+    - P4-P8: quality_manifest.json gate PASS
+    """
+    if phase <= 1:
+        return {"passed": True, "gate": "None", "reason": "P1 has no entry gate"}
+
+    if phase in (2, 3):
+        import subprocess as sp
+        try:
+            commit_marker = f"phase{phase - 1}(human-review)"
+            result = sp.run(
+                ["git", "-C", str(project), "log", "--oneline", "--grep", commit_marker, "-1"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.stdout.strip():
+                return {"passed": True, "gate": f"Human1 (P{phase - 1})",
+                        "reason": f"Found human APPROVE commit for P{phase - 1}"}
+            return {"passed": False, "gate": f"Human1 (P{phase - 1})",
+                    "reason": f"No human APPROVE commit found for P{phase - 1}"}
+        except Exception as e:
+            return {"passed": False, "gate": f"Human1 (P{phase - 1})",
+                    "reason": f"Git log check failed: {e}"}
+
+    manifest_path = project / ".methodology" / "quality_manifest.json"
+    if not manifest_path.exists():
+        return {"passed": False, "gate": f"Gate {_ENTRY_GATE_MAP.get(phase)}",
+                "reason": "quality_manifest.json not found"}
+
+    try:
+        manifest = json.loads(manifest_path.read_text())
+        gates = manifest.get("gates", {})
+        prev_gate = _ENTRY_GATE_MAP.get(phase)
+        if prev_gate:
+            gate_status = gates.get(str(prev_gate), {})
+            if gate_status.get("passed"):
+                return {"passed": True, "gate": f"Gate {prev_gate}",
+                        "reason": f"Gate {prev_gate} PASS confirmed"}
+            return {"passed": False, "gate": f"Gate {prev_gate}",
+                    "reason": f"Gate {prev_gate} not PASS in manifest"}
+    except Exception as e:
+        return {"passed": False, "reason": f"Manifest parse error: {e}"}
+
+    return {"passed": True, "gate": "Unknown"}
+
+
 def cmd_run_phase(args: argparse.Namespace) -> int:
     """Run pre/post-flight hooks for a phase. Use --fast for commit-hook lightweight checks."""
     from core.phase_hooks import PhaseHooks
@@ -103,6 +157,14 @@ def cmd_run_phase(args: argparse.Namespace) -> int:
     fast = getattr(args, "fast", False)
 
     print(f"\n{'='*60}\nrun-phase: Phase {args.phase}{' (fast)' if fast else ''}\n{'='*60}")
+
+    # Entry gate check (CONSTITUTION.md SS2.3)
+    entry_gate = _verify_entry_gate(project, args.phase)
+    if not entry_gate["passed"] and not args.force:
+        print(f"\n[ENTRY GATE FAILED] {entry_gate['gate']} — {entry_gate['reason']}")
+        print("Use --force to skip entry gate verification.")
+        return 10
+    print(f"\n[ENTRY GATE] {entry_gate['gate']}: {entry_gate['reason']}")
 
     if fast:
         pre = _run_fast_preflight(hooks)

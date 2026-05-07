@@ -20,6 +20,7 @@ Multi-dimensional scoring (aligned with methodology-v2 TH-03~TH-06):
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Dict
@@ -108,6 +109,38 @@ _SECRET_PATTERNS: List[str] = [
     "token = \"", "token = '",
 ]
 
+# ── check_type → file name keyword filtering ──────────────────────────────────
+
+_CHECK_TYPE_FILTERS: Dict[str, List[str]] = {
+    "srs": ["srs", "spec", "requirement", "fr-", "nfr-"],
+    "sad": ["sad", "architecture", "adr", "design"],
+    "implementation": ["implementation", "compliance", "source"],
+    "test_plan": ["test_plan", "test_report", "test_result"],
+    "verification": ["verify", "verification", "baseline"],
+    "quality_report": ["quality_report", "quality", "monitoring"],
+    "risk_management": ["risk", "assessment", "risk_register"],
+    "configuration": ["config", "release", "configuration"],
+    "all": [],
+}
+
+
+def _should_scan_file(file_path: Path, check_type: str) -> bool:
+    """Determine if a file should be scanned based on check_type filter.
+
+    When check_type is "all" or has no matching filter, all files pass.
+    Unknown check_type values emit a warning.
+    """
+    if check_type == "all" or not check_type:
+        return True
+    keywords = _CHECK_TYPE_FILTERS.get(check_type)
+    if keywords is None:
+        warnings.warn(f"Unknown constitution check_type: {check_type!r} — scanning all files")
+        return True
+    if not keywords:
+        return True
+    file_lower = file_path.name.lower()
+    return any(kw in file_lower for kw in keywords)
+
 
 def _keyword_density(content: str, keywords: List[str]) -> float:
     """Compute keyword density score 0-100 for a set of keywords."""
@@ -180,16 +213,18 @@ def _scan_file_compliance(file_path: Path) -> Dict[str, float]:
 def _dimensions_for_phase(phase: int) -> List[str]:
     """Return the active constitution dimensions for a given phase.
 
-    P1-P3: correctness + security (TH-03=100%, TH-04=100%)
-    P4:    correctness + security + maintainability + coverage (TH-03~TH-06)
-    P5-P8: all 4 dimensions composite (TH-02 ≥80%)
+    P1:      correctness + security (TH-03=100%, TH-04=100%)
+    P2-P3:   correctness + security + maintainability (TH-03/TH-04=100%, TH-05>90%)
+    P4:      correctness + security + maintainability + coverage (TH-03~TH-06)
+    P5-P8:   all 4 dimensions composite (TH-02 >=80%)
 
-    Note: P3 uses only correctness+security despite TH-06 (coverage>90%)
-    applying to P3-P4, because TH-11 only requires coverage ≥70% for P3.
-    The per-dimension coverage threshold of 90% kicks in at P4.
+    P3 uses maintainability but NOT coverage as a constitution dimension.
+    Coverage for P3 is checked via TH-11 (>=70% pytest coverage) separately.
     """
-    if phase <= 3:
+    if phase <= 1:
         return ["correctness", "security"]
+    if phase <= 3:
+        return ["correctness", "security", "maintainability"]
     return ["correctness", "security", "maintainability", "coverage"]
 
 
@@ -199,7 +234,7 @@ def _threshold_for_dimension(dim: str, phase: int) -> float:
     TH-03 correctness: =100% (P1-P4)
     TH-04 security: =100% (P1-P4)
     TH-05 maintainability: >90% (P2-P4)
-    TH-06 coverage: >90% (P3-P4)
+    TH-06 coverage: >90% (P4)
     TH-02 composite: ≥80% (P5-P8)
     """
     if phase <= 4:
@@ -244,9 +279,13 @@ def _scan_directory(docs_path: Path, phase: int, check_type: str) -> Constitutio
     phase_dir = _PHASE_DIR_MAP.get(phase, "docs")
     target_dirs = [docs_path]
 
-    numbered_dir = docs_path.parent / phase_dir if docs_path.name == "docs" else docs_path
-    if numbered_dir.exists():
-        target_dirs.append(numbered_dir)
+    # Only add the numbered phase dir when docs_path is the canonical "docs/"
+    # directory. When docs/ is absent and run_constitution_check() fallback
+    # redirects to the numbered dir itself, avoid appending it again (double-scan).
+    if docs_path.name == "docs":
+        numbered_dir = docs_path.parent / phase_dir
+        if numbered_dir.exists() and numbered_dir.resolve() != docs_path.resolve():
+            target_dirs.append(numbered_dir)
 
     files_scanned = 0
     for directory in target_dirs:
@@ -254,6 +293,8 @@ def _scan_directory(docs_path: Path, phase: int, check_type: str) -> Constitutio
             continue
         for item in directory.rglob("*.md"):
             if item.name.startswith("."):
+                continue
+            if not _should_scan_file(item, check_type):
                 continue
             dims = _scan_file_compliance(item)
             for d, v in dims.items():

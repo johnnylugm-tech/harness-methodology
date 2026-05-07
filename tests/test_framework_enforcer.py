@@ -39,9 +39,10 @@ class TestFrameworkEnforcer:
         assert "score" in result
 
     def test_check_coverage_threshold_not_found(self, tmp_path):
-        fe = FrameworkEnforcer(project_root=str(tmp_path), phase=1)
+        fe = FrameworkEnforcer(project_root=str(tmp_path), phase=3)
         result = fe.check_coverage_threshold()
         assert result["passed"] is False
+        assert result["threshold"] == 70
 
     def test_run_warn_level(self, tmp_path):
         fe = FrameworkEnforcer(project_root=str(tmp_path), phase=1)
@@ -99,7 +100,7 @@ class TestFrameworkEnforcer:
 
     def test_check_coverage_threshold_parse_error(self, tmp_path):
         (tmp_path / "coverage.xml").write_text("<not-xml>")
-        fe = FrameworkEnforcer(project_root=str(tmp_path), phase=1)
+        fe = FrameworkEnforcer(project_root=str(tmp_path), phase=3)
         result = fe.check_coverage_threshold()
         assert result["passed"] is False
 
@@ -107,10 +108,11 @@ class TestFrameworkEnforcer:
         (tmp_path / "coverage.xml").write_text(
             '<?xml version="1.0"?><coverage line-rate="0.85"></coverage>'
         )
-        fe = FrameworkEnforcer(project_root=str(tmp_path), phase=1)
+        fe = FrameworkEnforcer(project_root=str(tmp_path), phase=3)
         result = fe.check_coverage_threshold()
         assert result["passed"] is True
         assert result["coverage"] == pytest.approx(85.0)
+        assert result["threshold"] == 70
 
     def test_check_traceability_not_found(self, tmp_path):
         fe = FrameworkEnforcer(project_root=str(tmp_path), phase=1)

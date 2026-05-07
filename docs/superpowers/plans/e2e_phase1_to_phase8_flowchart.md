@@ -238,12 +238,12 @@ SESSION START (P2 entry — Human¹ APPROVE from P1 is precondition)
 ## Phase 3 — Implementation
 
 ```
-SESSION START (P3 entry — Human¹ APPROVE from P2 is precondition)
+SESSION START (P3 entry — automated preflight, Human¹ APPROVE from P2 is precondition)
     │
     ▼
 ┌─────────────────────────────────────────────────────────────┐
 │  Read SKILL.md                                               │
-│  P3 routing: Entry=Human¹, Exit=Gate2(75), artifact=code    │
+│  P3 routing: Entry=Automated preflight, Exit=Gate2(75), artifact=code    │
 │  quality_manifest.json MUST exist (FR IDs from SAD.md)      │
 │  Gate 1 applies per-FR; Gate 2 is phase exit                │
 └──────────────────┬──────────────────────────────────────────┘
@@ -387,7 +387,7 @@ SESSION START (P3 entry — Human¹ APPROVE from P2 is precondition)
 ## Phase 4 — Testing
 
 ```
-SESSION START (Gate2 from P3 PASS is precondition)
+SESSION START (P4 entry — automated preflight, Gate2 from P3 PASS is precondition)
     │
     ▼
 ┌─────────────────────────────────────────────────────────────┐
@@ -480,7 +480,7 @@ SESSION START (Gate2 from P3 PASS is precondition)
 ## Phase 5 — Verification & Delivery
 
 ```
-SESSION START (Gate3 from P4 PASS is precondition)
+SESSION START (P5 entry — automated preflight, Gate3 from P4 PASS is precondition)
     │
     ▼
 ┌─────────────────────────────────────────────────────────────┐
@@ -571,7 +571,7 @@ SESSION START (Gate3 from P4 PASS is precondition)
 ## Phase 6 — Quality Assurance
 
 ```
-SESSION START (Phase Truth from P5 PASS is precondition)
+SESSION START (P6 entry — automated preflight, Phase Truth from P5 PASS is precondition)
     │
     ▼
 ┌─────────────────────────────────────────────────────────────┐
@@ -698,7 +698,7 @@ SESSION START (Phase Truth from P5 PASS is precondition)
 ## Phase 7 — Risk Management
 
 ```
-SESSION START (Gate4 from P6 PASS is precondition)
+SESSION START (P7/P8 entry — automated preflight, Gate4 from P6 PASS is precondition)
     │
     ▼
 ┌─────────────────────────────────────────────────────────────┐
@@ -798,7 +798,7 @@ SESSION START (Gate4 from P6 PASS is precondition)
 ## Phase 8 — Configuration Management
 
 ```
-SESSION START (Gate4 from P6 PASS is precondition)
+SESSION START (P7/P8 entry — automated preflight, Gate4 from P6 PASS is precondition)
     │
     ▼
 ┌─────────────────────────────────────────────────────────────┐

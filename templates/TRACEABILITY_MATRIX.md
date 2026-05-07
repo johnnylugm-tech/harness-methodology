@@ -50,7 +50,7 @@ Provides complete **FR -> SRS -> Code -> Test** bidirectional traceability suppo
 | FR -> SRS mapping | 100% | % | |
 | SRS -> Code mapping | 100% | % | |
 | Code -> Test mapping | 100% | % | |
-| Test coverage | >=80% | % | |
+| Test coverage | >=80% (P3: >=70%) | % | |
 
 ---
 

@@ -98,7 +98,8 @@ def get_constitution_threshold(phase: int) -> float:
     """Return constitution score threshold for a given phase.
 
     P1-P2: =100 (TH-03 correctness + TH-04 security, both must be 100%)
-    P3-P4: ≥90 (TH-03/TH-04 =100% + TH-05/TH-06 >90%)
+    P3:    ≥90 (TH-03/TH-04 =100% + TH-05 >90%)  [3 dims: c+s+m]
+    P4:    ≥90 (adds TH-06 coverage >90%)         [4 dims: c+s+m+cov]
     P5-P8: ≥80 (TH-02 full constitution compliance)
     """
     if phase <= 2:
@@ -120,7 +121,7 @@ def get_th_rules() -> dict:
         "TH-03": ("Constitution Correctness", "=100%", (1, 2, 3, 4), "run-constitution"),
         "TH-04": ("Constitution Security", "=100%", (1, 2, 3, 4), "run-constitution"),
         "TH-05": ("Constitution Maintainability", ">90%", (2, 3, 4), "run-constitution"),
-        "TH-06": ("Constitution Test Coverage", ">90%", (3, 4), "run-constitution"),
+        "TH-06": ("Constitution Test Coverage", ">90%", (4,), "run-constitution"),
         "TH-07": ("Logic Correctness Score", ">=90", (5, 6, 7, 8), "phase-verify"),
         "TH-08": ("AgentEvaluator Standard", ">=80", (1, 2), "evaluate"),
         "TH-09": ("AgentEvaluator Strict", ">=90", (3, 4, 5, 6, 7, 8), "evaluate --strict"),

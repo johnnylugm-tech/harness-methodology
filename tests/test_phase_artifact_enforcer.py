@@ -1,0 +1,210 @@
+"""Tests for core/quality_gate/phase_artifact_enforcer.py — ASPICE traceability chain."""
+
+from core.quality_gate.phase_artifact_enforcer import (  # pyright: ignore[reportMissingImports]
+    Phase,
+    PhaseArtifactRegistry,
+    PhaseLinkResult,
+)
+
+
+class TestPhase:
+    def test_all_phases_exist(self):
+        assert len(list(Phase)) == 9
+        assert Phase.CONSTITUTION.value == 0
+        assert Phase.SPECIFY.value == 1
+        assert Phase.PLAN.value == 2
+        assert Phase.IMPLEMENT.value == 3
+        assert Phase.VERIFY.value == 4
+        assert Phase.SYSTEM_TEST.value == 5
+        assert Phase.QUALITY.value == 6
+        assert Phase.RISK.value == 7
+        assert Phase.CONFIG.value == 8
+
+    def test_phase_values_are_sequential(self):
+        values = [p.value for p in Phase]
+        assert values == list(range(9))
+
+
+class TestPhaseArtifactRegistry:
+    def test_all_phases_in_registry(self):
+        """PHASE_ARTIFACTS covers SPECIFY through CONFIG (8 phases)."""
+        registry = PhaseArtifactRegistry.PHASE_ARTIFACTS
+        for p in list(Phase)[1:]:  # Skip CONSTITUTION (pre-phase)
+            assert p in registry, f"Phase {p.name} missing from PHASE_ARTIFACTS"
+
+    def test_depends_on_chain_no_cycles(self):
+        """Verify the ASPICE dependency chain has no cycles."""
+        registry = PhaseArtifactRegistry.PHASE_ARTIFACTS
+        for phase, info in registry.items():
+            for dep in info.get("depends_on", []):
+                # Each dependency must point to a phase that exists
+                assert dep in registry, f"{phase.name} depends on {dep.name} which is not in registry"
+                # The dependency's own depends_on should NOT include the dependent
+                dep_info = registry.get(dep, {})
+                assert phase not in dep_info.get("depends_on", []), \
+                    f"Cycle detected: {phase.name} <-> {dep.name}"
+
+    def test_depends_on_chain_is_linear(self):
+        """Each phase (except P1) should depend on the previous phase."""
+        phases = [Phase.SPECIFY, Phase.PLAN, Phase.IMPLEMENT, Phase.VERIFY,
+                  Phase.SYSTEM_TEST, Phase.QUALITY, Phase.RISK, Phase.CONFIG]
+        for i in range(1, len(phases)):
+            current = phases[i]
+            prev = phases[i - 1]
+            deps = PhaseArtifactRegistry.PHASE_ARTIFACTS.get(current, {}).get("depends_on", [])
+            assert prev in deps, f"{current.name} should depend on {prev.name}, deps={[d.name for d in deps]}"
+
+    def test_specify_has_no_dependencies(self):
+        deps = PhaseArtifactRegistry.PHASE_ARTIFACTS[Phase.SPECIFY]["depends_on"]
+        assert deps == []
+
+    def test_implement_depends_on_specify_and_plan(self):
+        deps = PhaseArtifactRegistry.PHASE_ARTIFACTS[Phase.IMPLEMENT]["depends_on"]
+        assert Phase.SPECIFY in deps
+        assert Phase.PLAN in deps
+
+
+class TestVerifyPhaseLink:
+    def test_missing_both_phases_fails(self, tmp_path):
+        registry = PhaseArtifactRegistry(str(tmp_path))
+        result = registry.verify_phase_link(Phase.SPECIFY, Phase.PLAN)
+        assert result.passed is False
+        assert "missing" in result.reason.lower()
+
+    def test_existing_artifacts_with_reference_passes(self, tmp_path):
+        # Create SPECIFY artifacts
+        req_dir = tmp_path / "01-requirements"
+        req_dir.mkdir()
+        (req_dir / "SRS.md").write_text("# SRS\n\nRequirements specification for the project.\n")
+        (req_dir / "SPEC_TRACKING.md").write_text("# Spec Tracking\n\nTracking FR items.\n")
+        (req_dir / "TRACEABILITY_MATRIX.md").write_text("# Traceability\n\nMatrix.\n")
+
+        # Create PLAN artifact that references SRS
+        arch_dir = tmp_path / "02-architecture"
+        arch_dir.mkdir()
+        (arch_dir / "SAD.md").write_text(
+            "# Architecture\n\nBased on the SRS requirements, this document defines...\n"
+            "References SPEC_TRACKING for traceability.\n"
+        )
+
+        registry = PhaseArtifactRegistry(str(tmp_path))
+        result = registry.verify_phase_link(Phase.SPECIFY, Phase.PLAN)
+        assert result.passed is True, f"Expected pass, got: {result.reason}"
+        assert "verified" in result.reason.lower()
+
+    def test_existing_artifacts_no_reference_fails(self, tmp_path):
+        """Phase link fails if the dependent artifact doesn't reference the predecessor."""
+        req_dir = tmp_path / "01-requirements"
+        req_dir.mkdir()
+        (req_dir / "SRS.md").write_text("# SRS\n\nRequirements.\n")
+
+        arch_dir = tmp_path / "02-architecture"
+        arch_dir.mkdir()
+        (arch_dir / "SAD.md").write_text(
+            "# Architecture\n\nDesign document with no references to requirements.\n"
+        )
+
+        registry = PhaseArtifactRegistry(str(tmp_path))
+        result = registry.verify_phase_link(Phase.SPECIFY, Phase.PLAN)
+        assert result.passed is False
+        assert "traceability" in result.reason.lower()
+
+    def test_specify_to_nonexistent_specify_fails_missing_artifacts(self, tmp_path):
+        """SPECIFY->SPECIFY self-link fails when P1 artifacts don't exist."""
+        registry = PhaseArtifactRegistry(str(tmp_path))
+        result = registry.verify_phase_link(Phase.SPECIFY, Phase.SPECIFY)
+        assert result.passed is False
+        assert "missing artifacts" in result.reason.lower()
+
+    def test_specify_with_artifacts_self_link_passes(self, tmp_path):
+        """SPECIFY->SPECIFY self-link passes when artifacts exist with references."""
+        req_dir = tmp_path / "01-requirements"
+        req_dir.mkdir()
+        (req_dir / "SRS.md").write_text("# SRS\n\nRequirements with SRS references.\n")
+        (req_dir / "SPEC_TRACKING.md").write_text("# Tracking\n\nTracks SRS items.\n")
+        (req_dir / "TRACEABILITY_MATRIX.md").write_text("# Matrix\n\nMaps SRS.\n")
+
+        registry = PhaseArtifactRegistry(str(tmp_path))
+        result = registry.verify_phase_link(Phase.SPECIFY, Phase.SPECIFY)
+        assert result.passed is True
+
+
+class TestVerifyPhaseChain:
+    def test_phase1_chain_all_verified(self, tmp_path):
+        """P1 has no dependencies, so chain should be trivially verified."""
+        # Create P1 artifacts
+        req_dir = tmp_path / "01-requirements"
+        req_dir.mkdir()
+        (req_dir / "SRS.md").write_text("# SRS\n\nRequirements.\n")
+
+        registry = PhaseArtifactRegistry(str(tmp_path))
+        result = registry.verify_phase_chain(current_phase=1)
+        assert result["all_verified"] is True
+
+    def test_phase2_chain_with_missing_p1_fails(self, tmp_path):
+        """P2 chain should fail if P1 artifacts are missing."""
+        registry = PhaseArtifactRegistry(str(tmp_path))
+        result = registry.verify_phase_chain(current_phase=2)
+        assert result["all_verified"] is False
+        assert len(result["missing_links"]) > 0
+
+    def test_phase4_chain_with_all_artifacts_passes(self, tmp_path):
+        """Full P1-P4 chain should pass when all artifacts exist with references."""
+        # P1: SPECIFY
+        (tmp_path / "01-requirements").mkdir()
+        (tmp_path / "01-requirements" / "SRS.md").write_text("# SRS\n\nRequirements spec.\n")
+        (tmp_path / "01-requirements" / "SPEC_TRACKING.md").write_text("# Tracking\n")
+        (tmp_path / "01-requirements" / "TRACEABILITY_MATRIX.md").write_text("# Matrix\n")
+
+        # P2: PLAN (references SRS)
+        (tmp_path / "02-architecture").mkdir()
+        (tmp_path / "02-architecture" / "SAD.md").write_text(
+            "# Architecture\n\nBased on SRS and SPEC_TRACKING.\n"
+        )
+
+        # P3: IMPLEMENT (references both)
+        (tmp_path / "03-implementation").mkdir()
+        (tmp_path / "03-implementation" / "COMPLIANCE_MATRIX.md").write_text(
+            "# Compliance\n\nMaps SRS requirements to SAD components.\n"
+        )
+
+        # P4: VERIFY (references IMPLEMENT)
+        (tmp_path / "04-testing").mkdir()
+        (tmp_path / "04-testing" / "TEST_PLAN.md").write_text(
+            "# Test Plan\n\nVerifies COMPLIANCE_MATRIX implementation.\n"
+        )
+        (tmp_path / "04-testing" / "TEST_RESULTS.md").write_text("# Results\n\nTests passed.\n")
+
+        registry = PhaseArtifactRegistry(str(tmp_path))
+        result = registry.verify_phase_chain(current_phase=4)
+        assert result["all_verified"] is True, f"Missing: {result['missing_links']}"
+        assert result["stats"]["missing"] == 0
+
+
+class TestPhaseLinkResult:
+    def test_dataclass_fields(self):
+        r = PhaseLinkResult(
+            from_phase=Phase.SPECIFY,
+            to_phase=Phase.PLAN,
+            passed=True,
+            reason="verified",
+        )
+        assert r.from_phase == Phase.SPECIFY
+        assert r.to_phase == Phase.PLAN
+        assert r.passed is True
+        assert r.reason == "verified"
+        assert r.expected_artifacts == []
+        assert r.found_artifacts == []
+
+    def test_dataclass_with_artifacts(self):
+        r = PhaseLinkResult(
+            from_phase=Phase.SPECIFY,
+            to_phase=Phase.PLAN,
+            passed=True,
+            reason="ok",
+            expected_artifacts=["SRS.md", "SAD.md"],
+            found_artifacts=["SRS.md"],
+            missing_artifacts=["SAD.md"],
+        )
+        assert r.expected_artifacts == ["SRS.md", "SAD.md"]
+        assert r.missing_artifacts == ["SAD.md"]

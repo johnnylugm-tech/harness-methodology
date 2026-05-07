@@ -5001,8 +5001,9 @@ Full execution script is in templates/plan_phase_template.md Section 17.
                 ("TH-15", "Phase Truth", ">90%", "phase-verify"),
             ],
             3: [
+                ("TH-03", "Constitution Correctness", "=100%", "constitution/runner.py --type implementation"),
                 ("TH-04", "Constitution Safety", "=100%", "constitution/runner.py --type implementation"),
-                ("TH-06", "Constitution Test Coverage", ">90%", "constitution/runner.py --type implementation"),
+                ("TH-05", "Constitution Maintainability", ">90%", "constitution/runner.py --type implementation"),
                 ("TH-08", "AgentEvaluator Strict", ">=90", "phase-verify"),
                 ("TH-10", "Test Pass Rate", "=100%", "pytest tests/ -v"),
                 ("TH-11", "Unit Test Coverage", ">=70%", "pytest --cov=app/ -v"),
@@ -5148,7 +5149,7 @@ Full execution script is in templates/plan_phase_template.md Section 17.
         """Generate Quality Gate commands for given Phase"""
         commands = {
             3: [
-                ("# 1. TH-06 Constitution test coverage >90%", "python3 core/quality_gate/constitution/runner.py --type implementation"),
+                ("# 1. TH-03/TH-04/TH-05 Constitution (correctness+security+maintainability)", "python3 core/quality_gate/constitution/runner.py --type implementation"),
                 ("# 2. TH-10 test pass rate =100%", "pytest tests/ -v"),
                 ("# 3. TH-11 coverage >=70%", "pytest --cov=app/ -v"),
                 ("# 4. TH-16 code<->SAD =100%", "python3 cli.py trace-check"),
@@ -5433,12 +5434,12 @@ Full execution script is in templates/plan_phase_template.md Section 17.
         th_map = {
             1: ["TH-01", "TH-03", "TH-04", "TH-08", "TH-14", "TH-15"],
             2: ["TH-01", "TH-03", "TH-04", "TH-05", "TH-08", "TH-15"],
-            3: ["TH-06", "TH-08", "TH-09", "TH-10", "TH-11", "TH-15", "TH-16"],
-            4: ["TH-01", "TH-03", "TH-04", "TH-06", "TH-10", "TH-12", "TH-13", "TH-15", "TH-17"],
-            5: ["TH-02", "TH-07"],
-            6: ["TH-02", "TH-07"],
-            7: ["TH-07"],
-            8: ["TH-02"],
+            3: ["TH-01", "TH-03", "TH-04", "TH-05", "TH-08", "TH-09", "TH-10", "TH-11", "TH-15", "TH-16"],
+            4: ["TH-01", "TH-03", "TH-04", "TH-05", "TH-06", "TH-10", "TH-12", "TH-13", "TH-15", "TH-17"],
+            5: ["TH-02", "TH-07", "TH-15"],
+            6: ["TH-02", "TH-07", "TH-15"],
+            7: ["TH-07", "TH-15"],
+            8: ["TH-02", "TH-15"],
         }
         role_map = {
             1: ("architect", "reviewer"),

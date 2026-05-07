@@ -282,7 +282,7 @@ Spec reference:
 3. Test coverage >=70%
 4. pytest 100% pass
 5. No logic errors or security vulnerabilities
-6. Constitution test coverage >90% (TH-06)
+6. Constitution maintainability >90% (TH-05)
 
 [REJECT_IF]
 - docstring missing [FR-XX] tag -> REJECT

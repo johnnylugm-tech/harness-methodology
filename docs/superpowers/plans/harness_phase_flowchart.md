@@ -25,7 +25,7 @@ flowchart TD
     
     P3_START --> P3[<b>Phase 3: Implementation</b><br/>Per-FR TDD loop]
     
-    P3 --> P3_ENTRY["Entry: Human¹ APPROVE<br/>(from P2)"]
+    P3 --> P3_ENTRY["Entry: Automated preflight<br/>(git log human APPROVE from P2)"]
     P3_ENTRY --> P3_CHECK["🔍 Entry gate check<br/>Confirm P2 human approval<br/>via git log"]
     P3_CHECK --> P3_PRE["🔧 Preflight<br/>FSM→RUNNING, KillSwitch<br/>Constitution, DriftDetector init"]
     P3_PRE --> P3_WORK["💼 A/B Loop (per FR):<br/>DEVELOPER<br/>REVIEWER<br/><br/>📝 TDD: RED → GREEN<br/>📝 sessions_spawn.log (2 entries)"]
@@ -54,7 +54,7 @@ flowchart TD
     
     P4_START --> P4[<b>Phase 4: Testing</b><br/>Per-FR test execution]
     
-    P4 --> P4_ENTRY["Entry: Gate 2 PASS<br/>(from P3)"]
+    P4 --> P4_ENTRY["Entry: Automated preflight<br/>(Gate 2 PASS from P3)"]
     P4_ENTRY --> P4_CHECK["🔍 Entry gate check<br/>Verify P3 Gate 2 ≥75"]
     P4_CHECK --> P4_PRE["🔧 Preflight<br/>FSM, KillSwitch, Constitution<br/>DriftDetector, GapDetector init"]
     P4_PRE --> P4_WORK["💼 A/B Loop (per FR):<br/>QA_ENGINEER<br/>ARCHITECT<br/><br/>📝 Execute TEST_PLAN.md<br/>📝 Branch coverage ≥80%<br/>📝 sessions_spawn.log (2 entries)"]
@@ -257,9 +257,10 @@ flowchart TD
 After each phase exit gate (Gate 2/3/4), `PhaseTruthVerifier` runs automatically (HR-11 ≥90% required).
 Weights vary by phase:
 
-- **P1–P2**: `FrameworkEnforcer(60%) + Sessions_spawn(40%)`
-- **P3–P4**: `FrameworkEnforcer(35%) + Sessions_spawn(25%) + pytest(25%) + coverage(15%)`
-- **P5–P8**: `FrameworkEnforcer(60%) + Sessions_spawn(40%)`
+- **P1**: `FrameworkEnforcer(60%) + Sessions_spawn(40%)`
+- **P2**: `FrameworkEnforcer(50%) + Sessions_spawn(35%) + PreviousPhaseArtifacts(15%)`
+- **P3–P4**: `FrameworkEnforcer(30%) + Sessions_spawn(22%) + pytest(22%) + coverage(13%) + PreviousPhaseArtifacts(13%)`
+- **P5–P8**: `FrameworkEnforcer(50%) + Sessions_spawn(35%) + PreviousPhaseArtifacts(15%)`
 
 - **If Truth ≥ 90%**: Phase advance proceeds
 - **If Truth < 90%**: Phase advance BLOCKED (exit code 11); manual intervention required
@@ -278,10 +279,14 @@ Each phase verifies predecessor completion before starting work:
 Before each phase's work loop, `run-phase` executes:
 - FSM state check (INIT→RUNNING)
 - KillSwitch status (must be CLOSED, not OPEN)
-- Constitution validation
+- Previous phase artifacts (ASPICE chain, P2+)
+- Constitution validation (phase-appropriate check_type)
+- SAB check (P3+)
+- Traceability check (P3 info, P4+ block)
 - Tool registry verification
 - DriftDetector initialization (P3+)
-- GapDetector initialization (P4+)
+- GapDetector initialization (P3+)
+- CI readiness (advisory)
 
 ### sessions_spawn.log
 **Required for all phases P1–P8** (HR-10):

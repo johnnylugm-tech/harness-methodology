@@ -105,7 +105,8 @@ class FrameworkEnforcer:
 
         Uses the canonical threshold from constitution.get_constitution_threshold(phase):
         - P1-P2: =100 (TH-03 correctness + TH-04 security, both must be 100%)
-        - P3-P4: ≥90 (TH-03/TH-04 =100% + TH-05/TH-06 >90%)
+        - P3:    ≥90 (TH-03/TH-04 =100% + TH-05 >90%)  [3 dims]
+        - P4:    ≥90 (adds TH-06 coverage >90%)         [4 dims]
         - P5-P8: ≥80 (TH-02 full constitution compliance)
         """
         try:
@@ -160,8 +161,14 @@ class FrameworkEnforcer:
         return {"exists": False, "path": str(self.project_root / "CHECKLIST.md")}
 
     def check_coverage_threshold(self) -> Dict:
-        """Run check coverage threshold validation."""
-        DEFAULT_THRESHOLD = 70
+        """Run check coverage threshold validation.
+
+        TH-11: >=70% for P3
+        TH-12: >=80% for P4+
+        """
+        if self.phase <= 2:
+            return {"passed": True, "coverage": 100, "threshold": 0, "message": "No coverage requirement for P1-P2"}
+        threshold = 70 if self.phase == 3 else 80
         for candidate in [
             self.project_root / "coverage.xml",
             self.project_root / "03-development" / "coverage.xml",
@@ -171,19 +178,19 @@ class FrameworkEnforcer:
                 coverage_file = candidate
                 break
         else:
-            return {"passed": False, "coverage": 0, "threshold": DEFAULT_THRESHOLD, "message": "coverage report not found"}
+            return {"passed": False, "coverage": 0, "threshold": threshold, "message": "coverage report not found"}
         import xml.etree.ElementTree as ET  # nosec B405
         try:
             tree = ET.parse(coverage_file)  # nosec B314 — trusted local coverage.xml from pytest-cov
             coverage = float(tree.getroot().attrib.get("line-rate", 0)) * 100
         except Exception:
-            return {"passed": False, "coverage": 0, "threshold": DEFAULT_THRESHOLD, "message": "failed to parse coverage report"}
-        passed = coverage >= DEFAULT_THRESHOLD
+            return {"passed": False, "coverage": 0, "threshold": threshold, "message": "failed to parse coverage report"}
+        passed = coverage >= threshold
         return {
             "passed": passed,
             "coverage": coverage,
-            "threshold": DEFAULT_THRESHOLD,
-            "message": f"Coverage {coverage:.1f}% {'>=' if passed else '<'} {DEFAULT_THRESHOLD}%",
+            "threshold": threshold,
+            "message": f"Coverage {coverage:.1f}% {'>=' if passed else '<'} {threshold}%",
         }
 
     def check_traceability_matrix(self) -> Dict:
@@ -222,17 +229,7 @@ class FrameworkEnforcer:
 
     def check_phase_traceability(self) -> Dict:
         """Run check phase traceability validation."""
-        try:
-            from core.quality_gate.phase_artifact_enforcer import PhaseArtifactRegistry, Phase  # pyright: ignore[reportMissingImports]
-        except ImportError:
-            return {
-                "all_verified": True,
-                "verified_phases": [],
-                "missing_links": [],
-                "stats": {"total": 0, "verified": 0, "missing": 0},
-                "skipped": True,
-                "reason": "phase_artifact_enforcer module not available",
-            }
+        from core.quality_gate.phase_artifact_enforcer import PhaseArtifactRegistry, Phase  # pyright: ignore[reportMissingImports]
         registry = PhaseArtifactRegistry(str(self.project_root))
         phase_map = {
             Phase.CONSTITUTION: 0, Phase.SPECIFY: 1, Phase.PLAN: 2,

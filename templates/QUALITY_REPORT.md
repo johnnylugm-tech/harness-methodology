@@ -23,7 +23,7 @@
 |------|-----------|-----------|-------|--------|
 | 1 | D1_Linting | ≥ 90 | {value} | PASS/FAIL |
 | 1 | D2_TypeSafety | ≥ 85 | {value} | PASS/FAIL |
-| 1 | D3_TestCoverage | ≥ 80 | {value} | PASS/FAIL |
+| 1 | D3_TestCoverage | ≥ 80 (P3: ≥70) | {value} | PASS/FAIL |
 | 1 | D5_SecretsScanning | = 100 | {value} | PASS/FAIL |
 | 1 | D6_LicenseCompliance | = 100 | {value} | PASS/FAIL |
 | 1 | D7_MutationTesting | ≥ 70 | {value} | PASS/FAIL |

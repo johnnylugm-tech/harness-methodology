@@ -255,7 +255,7 @@ HR-13 >3x estimated time → PAUSE (checkpoint)
 | **Spec Compliance** | `grep -c '\[FR-' app/**/*.py` | citations >= 1 per function |
 | **A/B Collaboration** | `sessions_spawn.log` fully recorded | 1 entry each for developer + reviewer |
 | **Sub-agent Management** | `SubagentIsolator` used correctly | `fresh_messages` isolation |
-| **Test Coverage** | `pytest --cov=app/ --cov-report=term` | >=80% |
+| **Test Coverage** | `pytest --cov=app/ --cov-report=term` | >=80% (P3: >=70%) |
 
 ### 4-Dimension Evaluation Commands
 
@@ -389,12 +389,16 @@ Example:
 
 ## 14. Phase Truth Composition
 
-```
-FrameworkEnforcer BLOCK (weight 40%)
-Sessions_spawn.log (weight 20%)
-pytest actual pass (weight 20%)
-Test coverage meets threshold (weight 20%)
-```
+Weights vary by phase (see `PhaseTruthVerifier.verify()`):
+
+| Phase | FrameworkEnforcer | Sessions_spawn | pytest pass | coverage | Previous Phase Artifacts |
+|-------|-------------------|----------------|-------------|----------|--------------------------|
+| P1 | 60% | 40% | — | — | — |
+| P2 | 50% | 35% | — | — | 15% |
+| P3–P4 | 30% | 22% | 22% | 13% | 13% |
+| P5–P8 | 50% | 35% | — | — | 15% |
+
+Threshold: >=90% for all phases (HR-11/TH-15).
 
 ---
 
@@ -461,7 +465,7 @@ cli.py cannot import it, but **Agent can call it directly**.
 ```
 +-------------------------------------------------------------+
 | Agent: python cli.py run-phase --phase {PHASE}              |
-|   -> PRE-FLIGHT (FSM, Constitution, Tool Registry)          |
+|   -> PRE-FLIGHT (FSM, Constitution, Kill-Switch, Previous Phase Artifacts, Drift, SAB, Tool Registry, Traceability, Gap, CI)          |
 +-------------------------------------------------------------+
                               |
                               v

@@ -116,10 +116,20 @@ class TestFrameworkEnforcer:
         assert result["total"] >= 2
 
     def test_check_coverage_threshold_no_file(self, tmp_path):
+        """P1-P2 have no coverage requirement, so missing file still passes."""
         fe = self._fe(tmp_path)
+        result = fe.check_coverage_threshold()
+        # P1 has no coverage requirement, auto-passes
+        assert result["passed"] is True
+
+    def test_check_coverage_threshold_no_file_phase3(self, tmp_path):
+        """P3 requires coverage report to exist."""
+        from enforcement.framework_enforcer import FrameworkEnforcer
+        fe = FrameworkEnforcer(str(tmp_path), phase=3)
         result = fe.check_coverage_threshold()
         assert result["passed"] is False
         assert "not found" in result["message"]
+        assert result["threshold"] == 70
 
     def test_check_coverage_threshold_with_xml(self, tmp_path):
         xml_content = '''<?xml version="1.0" ?>
@@ -127,7 +137,8 @@ class TestFrameworkEnforcer:
   <packages/>
 </coverage>'''
         (tmp_path / "coverage.xml").write_text(xml_content)
-        fe = self._fe(tmp_path)
+        from enforcement.framework_enforcer import FrameworkEnforcer
+        fe = FrameworkEnforcer(str(tmp_path), phase=3)
         result = fe.check_coverage_threshold()
         assert result["passed"] is True
         assert result["coverage"] == pytest.approx(85.0, 0.1)

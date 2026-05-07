@@ -20,7 +20,7 @@
 |--------|-----------|--------|--------|
 | Constitution (P5+) | >= 80% | {value} | PASS/FAIL |
 | Coverage | >= 80% | {value} | PASS/FAIL |
-| Logic Correctness | >= 80 | {value} | PASS/FAIL |
+| Logic Correctness | >= 90 | {value} | PASS/FAIL |
 
 ## 4. Performance Baseline (A/B monitoring)
 

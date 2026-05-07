@@ -519,7 +519,8 @@ class TestPhaseTruthVerifierEdge:
         from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
         verifier = PhaseTruthVerifier(str(tmp_path), phase=6)
         with patch.object(verifier, "check_framework_block", return_value=(True, 100.0, "ok")), \
-             patch.object(verifier, "check_session_log", return_value=(True, 100.0, "ok")):
+             patch.object(verifier, "check_session_log", return_value=(True, 100.0, "ok")), \
+             patch.object(verifier, "check_previous_phase_artifacts", return_value=(True, 100.0, "ok")):
             result = verifier.verify()
         assert result["passed"] is True
 
@@ -620,3 +621,132 @@ class TestStateManagerEdge:
         state = sm._dict_to_state(data)
         assert state.agent_id == "agent-1"
         assert state.last_failure_time is not None
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# _verify_entry_gate (harness_cli.py)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestVerifyEntryGate:
+    """Direct tests for _verify_entry_gate covering all three code paths."""
+
+    @staticmethod
+    def _import():
+        from harness_cli import _verify_entry_gate
+        return _verify_entry_gate
+
+    def test_p1_no_entry_gate(self, tmp_path):
+        """P1 has no entry gate — always passes."""
+        _verify_entry_gate = self._import()
+        result = _verify_entry_gate(tmp_path, phase=1)
+        assert result["passed"] is True
+        assert result["gate"] == "None"
+
+    def test_p2_git_log_found(self, tmp_path, monkeypatch):
+        """P2 entry gate passes when git log finds human-approve commit."""
+        import subprocess as sp
+
+        class FakeCompleted:
+            stdout = "abc123 phase1(human-review): Phase 1 deliverables APPROVED\n"
+            stderr = ""
+
+        def fake_run(*args, **kwargs):
+            return FakeCompleted()
+
+        monkeypatch.setattr(sp, "run", fake_run)
+
+        _verify_entry_gate = self._import()
+        result = _verify_entry_gate(tmp_path, phase=2)
+        assert result["passed"] is True
+        assert "Human1 (P1)" in result["gate"]
+        assert "Found human APPROVE" in result["reason"]
+
+    def test_p3_git_log_not_found(self, tmp_path, monkeypatch):
+        """P3 entry gate fails when git log finds no human-approve commit."""
+        import subprocess as sp
+
+        class FakeCompleted:
+            stdout = ""
+            stderr = ""
+
+        def fake_run(*args, **kwargs):
+            return FakeCompleted()
+
+        monkeypatch.setattr(sp, "run", fake_run)
+
+        _verify_entry_gate = self._import()
+        result = _verify_entry_gate(tmp_path, phase=3)
+        assert result["passed"] is False
+        assert "Human1 (P2)" in result["gate"]
+        assert "No human APPROVE" in result["reason"]
+
+    def test_p2_git_log_error(self, tmp_path, monkeypatch):
+        """P2 entry gate handles git command failure gracefully."""
+        import subprocess as sp
+
+        def fake_run(*args, **kwargs):
+            raise sp.SubprocessError("git not found")
+
+        monkeypatch.setattr(sp, "run", fake_run)
+
+        _verify_entry_gate = self._import()
+        result = _verify_entry_gate(tmp_path, phase=2)
+        assert result["passed"] is False
+        assert "Git log check failed" in result["reason"]
+
+    def test_p4_manifest_not_found(self, tmp_path):
+        """P4 entry gate fails when quality_manifest.json is absent."""
+        _verify_entry_gate = self._import()
+        result = _verify_entry_gate(tmp_path, phase=4)
+        assert result["passed"] is False
+        assert "quality_manifest.json not found" in result["reason"]
+
+    def test_p4_manifest_gate_pass(self, tmp_path):
+        """P4 entry gate passes when manifest records Gate 2 PASS."""
+        manifest_dir = tmp_path / ".methodology"
+        manifest_dir.mkdir()
+        import json
+        manifest = {"gates": {"2": {"passed": True, "score": 80.0}}}
+        (manifest_dir / "quality_manifest.json").write_text(json.dumps(manifest))
+
+        _verify_entry_gate = self._import()
+        result = _verify_entry_gate(tmp_path, phase=4)
+        assert result["passed"] is True
+        assert "Gate 2 PASS confirmed" in result["reason"]
+
+    def test_p5_manifest_gate_not_pass(self, tmp_path):
+        """P5 entry gate fails when manifest shows Gate 3 not passed."""
+        manifest_dir = tmp_path / ".methodology"
+        manifest_dir.mkdir()
+        import json
+        manifest = {"gates": {"3": {"passed": False, "score": 65.0}}}
+        (manifest_dir / "quality_manifest.json").write_text(json.dumps(manifest))
+
+        _verify_entry_gate = self._import()
+        result = _verify_entry_gate(tmp_path, phase=5)
+        assert result["passed"] is False
+        assert "not PASS" in result["reason"]
+
+    def test_p6_manifest_gate_pass(self, tmp_path):
+        """P6 entry gate passes when manifest records Gate 3 PASS."""
+        manifest_dir = tmp_path / ".methodology"
+        manifest_dir.mkdir()
+        import json
+        manifest = {"gates": {"3": {"passed": True, "score": 85.0}}}
+        (manifest_dir / "quality_manifest.json").write_text(json.dumps(manifest))
+
+        _verify_entry_gate = self._import()
+        result = _verify_entry_gate(tmp_path, phase=6)
+        assert result["passed"] is True
+        assert "Gate 3 PASS confirmed" in result["reason"]
+
+    def test_p8_manifest_corrupt(self, tmp_path):
+        """Corrupt manifest is handled gracefully."""
+        manifest_dir = tmp_path / ".methodology"
+        manifest_dir.mkdir()
+        (manifest_dir / "quality_manifest.json").write_text("{not valid json")
+
+        _verify_entry_gate = self._import()
+        result = _verify_entry_gate(tmp_path, phase=8)
+        assert result["passed"] is False
+        assert "Manifest parse error" in result["reason"]

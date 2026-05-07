@@ -29,6 +29,18 @@ class KillSwitchBlockedError(RuntimeError):
     """Raised when kill-switch circuit is OPEN for an agent."""
 
 
+_PHASE_CHECK_TYPES: Dict[int, str] = {
+    1: "srs",
+    2: "sad",
+    3: "implementation",
+    4: "test_plan",
+    5: "verification",
+    6: "quality_report",
+    7: "risk_management",
+    8: "configuration",
+}
+
+
 class PhaseHooks:
     """
     Phase execution hooks framework.
@@ -87,8 +99,9 @@ class PhaseHooks:
         print(f"\n[PRE-FLIGHT] Constitution Check ({check_mode})")
         try:
             from core.quality_gate.constitution import run_constitution_check
+            check_type = _PHASE_CHECK_TYPES.get(self.phase or 1, "all")
             result = run_constitution_check(
-                check_type="all", docs_path=str(self.docs_path),
+                check_type=check_type, docs_path=str(self.docs_path),
                 current_phase=self.phase or 1, check_mode=check_mode
             )
             print(f"   Score: {result.score:.0f}%, Violations: {len(result.violations)}")
@@ -319,6 +332,37 @@ class PhaseHooks:
                 "missing": missing,
                 "message": "All CI wiring present" if not missing else f"Missing: {missing}"}
 
+    def preflight_previous_phase_artifacts(self) -> Dict[str, Any]:
+        """Check that previous phase's required deliverables exist (ASPICE traceability).
+
+        Ensures the ASPICE chain is intact before starting the current phase.
+        P1 is exempt (no previous phase).
+        """
+        print("\n[PRE-FLIGHT] Previous Phase Artifact Check")
+        if self.phase is None or self.phase <= 1:
+            return {"passed": True, "skipped": True, "message": "P1 has no previous phase"}
+
+        from core.quality_gate.phase_artifact_enforcer import PhaseArtifactRegistry  # pyright: ignore[reportMissingImports]
+
+        registry = PhaseArtifactRegistry(str(self.project_path))
+        result = registry.verify_phase_chain(self.phase)
+
+        all_ok = result["all_verified"]
+        if not all_ok:
+            missing = result["missing_links"]
+            print(f"   FAIL: {len(missing)} phase artifact link(s) broken")
+            for m in missing[:5]:
+                print(f"     - {m}")
+        else:
+            print(f"   All {result['stats']['verified']} phase artifact links verified")
+
+        return {
+            "passed": all_ok,
+            "verified": result["verified_links"],
+            "missing": result["missing_links"],
+            "stats": result["stats"],
+        }
+
     def preflight_all(self) -> Dict[str, Any]:
         """Run all pre-flight checks."""
         print(f"\n{'='*60}\nPRE-FLIGHT: Phase {self.phase}\n{'='*60}")
@@ -326,6 +370,7 @@ class PhaseHooks:
             "fsm": self.preflight_fsm_check(),
             "constitution": self.preflight_constitution(),
             "kill_switch": self.preflight_kill_switch(),
+            "previous_phase_artifacts": self.preflight_previous_phase_artifacts(),
             "drift_detection": self.preflight_drift_detection(),
             "sab": self.preflight_sab_check(),
             "tool_registry": self.preflight_tool_registry(),

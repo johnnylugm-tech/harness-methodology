@@ -53,7 +53,7 @@ When the user says "execute Phase N", "start P3", "implement FR-X", or any phase
 
 | Boundary | What to verify | CLI |
 |----------|---------------|-----|
-| Before any phase work | FSM state, constitution, kill-switch, drift, SAB, traceability, gap analysis, CI readiness | `run-phase --phase N` |
+| Before any phase work | Entry gate verify, FSM state, previous phase artifacts, constitution, kill-switch, drift, SAB, traceability, gap analysis, CI readiness | `run-phase --phase N` |
 | After each FR (P3/P4/P5/P7/P8) | Gate 1 per-FR (each dim ≥ 75) | `run-gate --gate 1 --fr-id FR-XX` + evaluate + `finalize-gate` |
 | Phase exit (P3→Gate2, P4→Gate3, P6→Gate4) | Gate score ≥ threshold + Phase Truth ≥ 90% (HR-11) | `run-gate --gate N` + evaluate + `finalize-gate` |
 | P1/P2 exit | Human peer review (no automated gate) | Deliverables: SRS.md / SAD.md + ADR.md |
@@ -103,8 +103,8 @@ Before advancing to Phase N+1, confirm ALL:
 | Phase | Name | Entry Score | Exit Gate | Key Artifact |
 |-------|------|-------------|-----------|---------------|
 | P1 | Requirements Specification | — | Human¹ | SRS.md |
-| P2 | Architecture Design | Human¹ | Human¹ | SAD.md, ADR.md |
-| P3 | Implementation | Human¹ | Gate2 (75) | code + tests |
+| P2 | Architecture Design | Auto (git log)† | Human¹ | SAD.md, ADR.md |
+| P3 | Implementation | Auto (git log)† | Gate2 (75) | code + tests |
 | P4 | Testing | Gate2 | Gate3 (80) | TEST_RESULTS.md |
 | P5 | Verification & Delivery | Gate3 | None¹ | BASELINE.md |
 | P6 | Quality Assurance | Gate3 | Gate4 (85) | QUALITY_REPORT.md |
@@ -116,6 +116,8 @@ Before advancing to Phase N+1, confirm ALL:
 > ¹ **None¹** (P5) = Phase Truth check only (HR-11: ≥90%); no separate exit gate evaluation.
 >
 > ² **None²** (P7/P8) = Cleared by P6 Gate 4; Phase Truth check only (HR-11: ≥90%); no re-evaluation.
+>
+> † Entry gate: `_verify_entry_gate()` in `harness_cli.py` checks git log for human APPROVE (P2/P3) or `quality_manifest.json` gate PASS (P4+).
 
 ### Gate Definitions
 

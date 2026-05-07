@@ -103,11 +103,11 @@ python harness_cli.py init-project      --project /path/to/target [--phase 3] [-
 **Pipeline step flow per phase (P3+)**:
 ```
 [phase.1]   plan-phase        — Generate execution plan from SAD.md
-[phase.2]   preflight          — FSM + constitution + kill-switch (M1) + drift (M2) + SAB (P3+) + traceability (P3+) + gap analysis (M3) + CI readiness
+[phase.2]   preflight          — FSM + constitution + kill-switch (M1) + previous_phase_artifacts (ASPICE chain) + drift (M2) + SAB (P3+) + traceability (P3+) + gap analysis (M3) + CI readiness
 [phase.2.5] M3 gap analysis    — (also part of preflight_all since v2.3; explicit call retained in run-pipeline)
 [phase.3]   Gate 1 per-FR      — Per-FR quality gate evaluation (phases 3,4,5,7,8)
 [phase.4]   Phase exit gate    — Composite gate evaluation (G2 at P3, G3 at P4, G4 at P6)
-[phase.5]   Phase Truth        — HR-11 ≥ 90% verification (P3-P8)
+[phase.5]   Phase Truth        — HR-11 ≥ 90% verification (P1-P8)
 ```
 M1 kill-switch circuit state is checked before each phase. M3 gap analysis runs for phases ≥ 3.
 
@@ -691,13 +691,14 @@ File paths used:
 - `.methodology/run-phase.log` — append-only run log
 - `docs/` — for constitution checks
 
-**Pre-flight hooks** (`preflight_all() -> dict` calls all nine):
+**Pre-flight hooks** (`preflight_all() -> dict` calls all ten):
 
 | Method | Check | Blocks if |
 |---|---|---|
 | `preflight_fsm_check()` | reads `state.json` | state in `{"FREEZE", "PAUSED"}` or phase regression |
 | `preflight_constitution(check_mode="preflight")` | calls `quality_gate.constitution.run_constitution_check` | violations found |
 | `preflight_kill_switch()` | verifies M1 kill-switch is operational | skipped if `enable_kill_switch=False` |
+| `preflight_previous_phase_artifacts()` | runs `PhaseArtifactRegistry.verify_phase_chain()` for ASPICE traceability | P2+ only; blocks if previous phase artifacts missing |
 | `preflight_drift_detection()` | runs M2 `DriftDetector.detect_all()` (SAD + spec + phase + SAB) | ensemble score < `drift_threshold` |
 | `preflight_sab_check()` | validates SAB.json layer integrity, module presence | P3+ only; blocks if SAB.json missing or violations found |
 | `preflight_traceability()` | runs `check_spec_trace.check_traceability()` for FR→code→test coverage | P3 info-only, P4+ blocks if gaps exist |
@@ -1101,6 +1102,7 @@ class KillSwitch:
 |---|---|---|
 | `ab_enforcer.py` | `ABEnforcer` | A/B enforcement; HR-12 compliance checking. Delegates parsing to `parsers.DevelopmentLogParser` |
 | `phase_truth_verifier.py` | `PhaseTruthVerifier` | Verifies phase completion truth via sessions_spawn.log, pytest, coverage, framework BLOCK |
+| `phase_artifact_enforcer.py` | `PhaseArtifactRegistry`, `Phase` | ASPICE traceability chain enforcement; validates phase artifact dependencies (P2+) |
 | `spec_tracking_checker.py` | `SpecTrackingChecker` | Tracks SPEC_TRACKING.md completeness. Delegates parsing to `parsers.SpecTrackingParser` |
 | `stage_pass_generator.py` | `IntegratedStagePassGenerator` | Generates stage pass certificates; integrates FrameworkEnforcer + ClaimsVerifier |
 | `feedback_hook.py` | `AutoQualityGateWithFeedback` | AutoQualityGate subclass that submits feedback on gate completion |
@@ -1320,6 +1322,7 @@ PhaseHooks("/path/to/project", phase=3)
   │    ├─ preflight_fsm_check()        → reads .methodology/state.json
   │    ├─ preflight_constitution()     → quality_gate.constitution.run_constitution_check(...)
   │    ├─ preflight_kill_switch()      → verifies M1 circuit breaker operational
+  │    ├─ preflight_previous_phase_artifacts() → PhaseArtifactRegistry.verify_phase_chain() (P2+)
   │    ├─ preflight_drift_detection()  → M2 DriftDetector.detect_all() (score ≥ drift_threshold)
   │    ├─ preflight_sab_check()        → validates SAB.json layers + deps (P3+ only)
   │    ├─ preflight_tool_registry()    → ToolRegistry.list_tools() (skipped if not installed)
@@ -2492,17 +2495,18 @@ P6 does NOT have a per-FR loop. Gate 4 evaluates all 12 dimensions across the en
 - Fallback: cold-read (`messages_read`) if no reply within timeout
 - Failure: Hermes unavailable or reviewer rejects → escalate to human
 
-**Phase Truth (HR-11, P3–P8)**
+**Phase Truth (HR-11/TH-15, P1–P8)**
 `PhaseTruthVerifier` runs automatically after each phase exit gate. Requires ≥ 90%:
 
-| Phase range | FrameworkEnforcer | sessions_spawn.log | pytest pass | coverage |
-|---|---|---|---|---|
-| P1–P2 | 60% | 40% | — | — |
-| P3–P4 | 35% | 25% | 25% | 15% |
-| P5–P8 | 60% | 40% | — | — |
+| Phase | FrameworkEnforcer | sessions_spawn.log | pytest pass | coverage | previous_phase_artifacts |
+|---|----|----|----|----|----|
+| P1 | 60% | 40% | — | — | — |
+| P2 | 50% | 35% | — | — | 15% |
+| P3–P4 | 30% | 22% | 22% | 13% | 13% |
+| P5–P8 | 50% | 35% | — | — | 15% |
 
 **Preflight Hooks (all phases)**
-`run-phase` runs before each phase work loop: FSM state check → KillSwitch status → Constitution validation → SAB check (P3+) → Traceability check (P3 info, P4+ block) → CI readiness → Tool registry → DriftDetector (P3+, now includes SAB drift) → GapDetector (P4+).
+`run-phase` runs before each phase work loop: FSM state check → KillSwitch status → Previous phase artifacts (ASPICE chain, P2+) → Constitution validation → SAB check (P3+) → Traceability check (P3 info, P4+ block) → CI readiness → Tool registry → DriftDetector (P3+, now includes SAB drift) → GapDetector (P4+).
 
 **SAB Architecture Baseline (P2 → P3–P8)**
 The SAB (Software Architecture Baseline) is a machine-readable architecture contract generated at P2 exit from SAD.md §6. It flows through four integration lines:
@@ -2517,8 +2521,9 @@ The SAB (Software Architecture Baseline) is a machine-readable architecture cont
 
 **Entry Gate Checks (P2–P8)**
 - P2: git log contains `phase1(human-review): Phase 1 deliverables APPROVED`
-- P3–P5: `quality_manifest.json` exists + predecessor Gate PASS
-- P6–P8: `quality_manifest.json` exists + P6 Gate 4 PASS
+- P3: git log contains `phase2(human-review): Phase 2 deliverables APPROVED`
+- P4–P5: `quality_manifest.json` exists + predecessor Gate PASS
+- P6–P8: `quality_manifest.json` exists + Gate 4 PASS
 
 ---
 

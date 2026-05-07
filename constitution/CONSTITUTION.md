@@ -14,7 +14,7 @@
 ```
 
 - 任何交付物必須通過對應 Quality Gate 才能進入下一 Phase
-- 測試覆蓋率必須 >= 80%（Phase 3+）
+- 測試覆蓋率必須 >= 70%（Phase 3）, >= 80%（Phase 4+）
 - 安全掃描必須通過（Phase 3+）
 
 ### 1.2 可維護性
@@ -89,7 +89,7 @@
 | Phase Range | 適用 TH | 維度 | 門檻 |
 |-------------|---------|------|------|
 | P1–P2 | TH-03, TH-04 | correctness + security | =100% (FrameworkEnforcer BLOCK) |
-| P3 | TH-03, TH-04 | correctness + security | =100% (FrameworkEnforcer BLOCK) |
+| P3 | TH-03, TH-04, TH-05 | correctness + security + maintainability | correctness=100%, security=100%, maintainability>90% |
 | P4 | TH-03, TH-04, TH-05, TH-06 | correctness + security + maintainability + coverage | =100% / >90% / >90% (FrameworkEnforcer BLOCK) |
 | P5–P8 | TH-02 | constitution 綜合 | ≥80% (FrameworkEnforcer BLOCK + Constitution) |
 
@@ -104,7 +104,7 @@
 | TH-03 | Constitution — Correctness | =100% | 1–4 | `run-constitution` |
 | TH-04 | Constitution — Security | =100% | 1–4 | `run-constitution` |
 | TH-05 | Constitution — Maintainability | >90% | 2–4 | `run-constitution` |
-| TH-06 | Constitution — Test Coverage | >90% | 3–4 | `run-constitution` |
+| TH-06 | Constitution — Test Coverage | >90% | 4 | `run-constitution` |
 | TH-07 | Logic Correctness Score | ≥90 | 5–8 | `phase-verify` |
 | TH-08 | AgentEvaluator Standard | ≥80 | 1–2 | `evaluate` |
 | TH-09 | AgentEvaluator Strict | ≥90 | 3–8 | `evaluate --strict` |
@@ -120,7 +120,7 @@
 > **Phase → TH mapping**:
 > P1: TH-01, TH-03, TH-04, TH-08, TH-14, TH-15
 > P2: TH-01, TH-03, TH-04, TH-05, TH-08, TH-15
-> P3: TH-03, TH-04, TH-08, TH-09, TH-10, TH-11, TH-15, TH-16
+> P3: TH-03, TH-04, TH-05, TH-08, TH-09, TH-10, TH-11, TH-15, TH-16
 > P4: TH-01, TH-03, TH-04, TH-05, TH-06, TH-10, TH-12, TH-13, TH-15, TH-17
 > P5: TH-02, TH-07, TH-15
 > P6: TH-02, TH-07, TH-15
