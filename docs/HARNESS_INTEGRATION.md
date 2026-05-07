@@ -13,10 +13,10 @@ No new Phases are added — Gates replace specific existing steps.
 
 | Gate | Replaces | Phase | Trigger |
 |------|----------|-------|---------|
-| Gate 1 | `check_fr_full.py` Layer 3 | P3, P5, P7, P8 | per-FR completion |
-| Gate 2 | `cli.py auto-research --phase 3` | P3 | phase exit |
-| Gate 3 | `cli.py auto-research --phase 4` | P4 | phase exit |
-| Gate 4 | Entire P6 SOP | P6 | phase exit |
+| Gate 1 | `harness_cli.py run-gate --gate 1` | P3, P4, P5, P7, P8 | per-FR completion |
+| Gate 2 | `harness_cli.py run-gate --gate 2` | P3 | phase exit |
+| Gate 3 | `harness_cli.py run-gate --gate 3` | P4 | phase exit |
+| Gate 4 | `harness_cli.py run-gate --gate 4` | P6 | phase exit |
 
 ## Gate Evaluation Model
 

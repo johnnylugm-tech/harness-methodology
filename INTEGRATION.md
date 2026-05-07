@@ -13,7 +13,7 @@
 harness-methodology (this repo)          Your Target Project (any repo)
 ──────────────────────────────────       ─────────────────────────────────
 Framework source + CI self-tests         Your code + harness installed as dep
-.github/workflows/harness_ci.yml  ←→    .github/workflows/harness_gate.yml
+.github/workflows/harness_ci.yml  ←→    .github/workflows/harness_quality_gate.yml
 scripts/ (tools to run elsewhere)  →     .git/hooks/ (installed via setup.sh)
                                     →    scripts/cron_drift_monitor.py (pointed at project)
 ```
@@ -166,7 +166,7 @@ python harness_cli.py init-project --project /path/to/target --phase 3
 
 ## 4. Target Project CI (Recommended GitHub Actions)
 
-Add this to your project's `.github/workflows/harness_gate.yml` (or run `harness_cli.py init-project` to auto-generate):
+Add this to your project's `.github/workflows/harness_quality_gate.yml` (or run `harness_cli.py init-project` to auto-generate):
 
 ```yaml
 name: Harness Quality Gate

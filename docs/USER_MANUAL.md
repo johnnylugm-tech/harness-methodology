@@ -67,9 +67,7 @@ cd harness-methodology
 ### 2.2 Optional but Recommended
 
 ```bash
-# software_self_improvement — required for Gate runs
-# Without it, plan-phase / run-phase / status / effort work, but run-gate will error
-pip install -e path/to/software_self_improvement
+# SSI is embedded at harness/ssi/ — no external install needed for gate runs
 
 # Hermes MCP — required for Gate 4 human review
 export HERMES_REVIEWER_TARGET=telegram:YOUR_CHAT_ID   # or other target
@@ -135,7 +133,7 @@ Set DRIFT_PROJECT_PATH       →  drift alert every hour (log / email / Slack)
 | P2 | Architecture Design | `SAD.md`, `quality_manifest.json` | — |
 | P3 | Implementation | Code + unit tests | Gate 1 (per-FR), Gate 2 (exit) |
 | P4 | Testing | Test plan + results | Gate 1 (per-FR), Gate 3 (exit) |
-| P5 | Verification & Delivery | Baseline, monitoring plan | — |
+| P5 | Verification & Delivery | Baseline, monitoring plan | Gate 1 (per-FR) |
 | P6 | Quality Assurance | Quality report | Gate 4 (exit, full project) |
 | P7 | Risk Management | Risk register | Gate 1 (per-FR) |
 | P8 | Configuration Management | Config records | Gate 1 (per-FR) |
@@ -151,7 +149,7 @@ Each phase works on a list of FRs (e.g. `FR-01`, `FR-02`). Each FR is an atomic 
 
 | Gate | When | Scope | Blocking threshold |
 |---|---|---|---|
-| Gate 1 | Per-FR at P3/P5/P7/P8 | Single FR | Per-dimension (linting≥90, type≥85, coverage≥80) |
+| Gate 1 | Per-FR at P3/P4/P5/P7/P8 | Single FR | Per-dimension (linting≥90, type≥85, coverage≥80) |
 | Gate 2 | P3 exit | Full phase | Composite score ≥ 75 |
 | Gate 3 | P4 exit | Full phase | Composite score ≥ 80, all 12 dims |
 | Gate 4 | P6 exit | Full project | Composite score ≥ 85 + Hermes human APPROVE |
@@ -729,7 +727,7 @@ Claude 會依序確認並執行：
 ```bash
 cd /your/target/project
 git submodule add https://github.com/johnnylugm-tech/harness-methodology harness
-bash harness/scripts/harness-init.sh --phase 1   # idempotent — safe to re-run
+bash scripts/harness-init.sh --phase 1   # idempotent — safe to re-run
 ```
 
 ---
@@ -897,8 +895,8 @@ python harness_cli.py effort \
 |---|---|---|
 | `HERMES_REVIEWER_TARGET` | `""` | Hermes review target (e.g. `telegram:6308981865`). Required for Gate 4. |
 | `HERMES_TIMEOUT_MS` | `120000` | Hermes long-poll timeout in ms (default: 2 minutes) |
-| `SSI_ROOT` | `software_self_improvement` | Path to SSI package root (used as subprocess cwd) |
-| `PYTHONPATH` | — | Must include SSI package directory for `run-gate` to work |
+| `SSI_ROOT` | `harness/ssi` | Path to embedded SSI package (auto-detected from harness_cli.py) |
+| `PYTHONPATH` | — | Must include harness-methodology repo root for imports |
 
 **Setup example**:
 ```bash
@@ -997,7 +995,7 @@ cp /path/to/harness-methodology/harness_cli.py /your/target/project/
 bash /path/to/harness-methodology/scripts/harness-init.sh --phase 1
 
 # If using submodule (Option A above):
-bash harness/scripts/harness-init.sh --phase 1
+bash scripts/harness-init.sh --phase 1
 
 # Output (first run):
 #   ✓  git hooks installed (prepare-commit-msg | post-merge | pre-push)
@@ -1014,7 +1012,7 @@ bash harness/scripts/harness-init.sh --phase 1
 ```makefile
 # Makefile
 init:
-	bash harness/scripts/harness-init.sh --phase 1
+	bash scripts/harness-init.sh --phase 1
 ```
 ```bash
 # setup.sh
@@ -1026,7 +1024,7 @@ bash "$(dirname "$0")/harness/scripts/harness-init.sh" --phase 1
 ```bash
 git config quality.phase                              # → current phase number
 ls .git/hooks/prepare-commit-msg .git/hooks/pre-push  # → both should exist
-python3 harness/harness_cli.py --help                            # → shows commands
+python3 harness_cli.py --help                            # → shows commands
 ```
 
 ### 12.3 Phase Transition

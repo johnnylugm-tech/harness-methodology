@@ -44,7 +44,7 @@ git add tests/test_fr_*.py TEST_PLAN.md
 git commit -m "test: TDD stubs [RED] for all FRs + TEST_PLAN.md"
 ```
 
-> SPEC trace 驗證: `python3 harness/scripts/check_spec_trace.py SAD.md tests/`
+> SPEC trace 驗證: `python3 scripts/check_spec_trace.py SAD.md tests/`
 > 應回傳 Exit 0 (所有 FRs 有對應測試檔案)。
 
 ---

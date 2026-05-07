@@ -339,10 +339,10 @@ for FR in FR-01 FR-02 ... FR-09; do
 done
 
 # 2. Automated quality check
-python cli.py quality-gate --phase {PHASE}
+python harness_cli.py run-phase --phase {PHASE}
 
 # 3. SAB Drift Detection (code<->SAD consistency)
-python cli.py trace-check --phase {PHASE}
+python cli.py trace-check --from phase1 --to phase3
 
 # 4. AutoResearch auto-generate tests (standalone Skill)
 # See: skills/auto_research/SKILL.md
@@ -490,11 +490,11 @@ cli.py cannot import it, but **Agent can call it directly**.
 
 | Feature | Integration Timing | Invocation |
 |---------|--------------------|------------|
-| **BVS** | After each FR review | `constitution/runner.py --type implementation` |
-| **HR-09 Claims Verifier** | After each FR review | `constitution/runner.py --type implementation` (auto) |
-| **check_fr_full.py** | After each FR APPROVE | `check_fr_full.py --fr {fr_id} --project /path --loop` |
+| **BVS** | After each FR review | `core/quality_gate/constitution/runner.py --type implementation` |
+| **HR-09 Claims Verifier** | After each FR review | `core/quality_gate/constitution/runner.py --type implementation` (auto) |
+| **check_fr_full.py** | After each FR APPROVE | `scripts/check_fr_full.py --fr {fr_id} --project /path --loop` |
 | **CQG** | After each FR APPROVE | `cli.py quality-gate --phase {PHASE}` |
-| **SAB Drift Detection** | POST-FLIGHT | `cli.py trace-check --phase {PHASE}` |
+| **SAB Drift Detection** | POST-FLIGHT | `cli.py trace-check --from phase1 --to phase3` |
 | **Steering Loop** | POST-FLIGHT | `cli.py steering run --phase {PHASE}` |
 | **Phase Truth** | POST-FLIGHT | `cli.py phase-verify --phase {PHASE}` |
 | **AutoResearch** | POST-FLIGHT | `cli.py auto-research --project /path --phase {PHASE}` |
@@ -654,7 +654,7 @@ Tasks:
 
         # 4. Constitution Check (includes BVS + HR-09)
         print(f"\n[BVS + HR-09] Constitution Check")
-        result = run_cmd(["python3", "quality_gate/constitution/runner.py", "--type", "implementation"])
+        result = run_cmd(["python3", "core/quality_gate/constitution/runner.py", "--type", "implementation"])
         print(f"   {'OK' if result.returncode == 0 else 'WARN'} Constitution {'PASS' if result.returncode == 0 else 'WARN'}")
 
         # 5. CQG (Linter + Complexity + Coverage)
@@ -669,10 +669,9 @@ Tasks:
 
             # Layer 1-3 check
             print(f"\n[Layer 1-3] FR Quality Check")
-            METHODOLOGY_V2 = Path("/path/to/methodology-v2")
             result = run_cmd([
                 "python3",
-                str(METHODOLOGY_V2 / "scripts" / "check_fr_full.py"),
+                "scripts/check_fr_full.py",
                 "--fr", fr_id,
                 "--project", str(PROJECT_PATH),
                 "--loop"
@@ -695,7 +694,7 @@ print("POST-FLIGHT")
 print(f"{'='*60}")
 
 print(f"\n[SAB Drift] Code<->SAD consistency check")
-result = run_cmd(["python3", "cli.py", "trace-check", "--phase", str(PHASE)])
+result = run_cmd(["python3", "cli.py", "trace-check", "--from", "phase1", "--to", "phase3"])
 print(f"   {'OK' if result.returncode == 0 else 'WARN'} SAB Drift {'PASS' if result.returncode == 0 else 'WARN'}")
 
 print(f"\n[Steering] Steering Loop")
@@ -707,7 +706,7 @@ result = run_cmd(["python3", "cli.py", "phase-verify", "--phase", str(PHASE)])
 print(f"   {'OK' if result.returncode == 0 else 'FAIL'} Phase Truth {'>90%' if result.returncode == 0 else '<70% -> PAUSE'}")
 
 print(f"\n[AutoResearch] Phase-aware quality improvement ({PHASE})")
-result = run_cmd(["python3", "cli.py", "auto-research", "--project", str(REPO), "--phase", str(PHASE)])
+result = run_cmd(["python3", "cli.py", "auto-research", "--project", str(PROJECT_PATH), "--phase", str(PHASE)])
 print(f"   {'OK' if result.returncode == 0 else 'SKIP'} AutoResearch {'complete' if result.returncode == 0 else 'skipped'}")
 
 print(f"\n[STAGE_PASS] Running stage-pass")

@@ -1,17 +1,23 @@
 #!/bin/bash
-# pre-commit hook - Auto-run Enforcement
+# harness-methodology pre-commit hook
+# Installed by: scripts/setup-git-hooks.sh or scripts/harness-init.sh
 #
-# Usage:
-#   cp .methodology/templates/pre-commit-hook.sh .git/hooks/pre-commit
-#   chmod +x .git/hooks/pre-commit
+# Usage (manual install):
+#   cp templates/pre-commit-hook.sh .git/hooks/prepare-commit-msg
+#   chmod +x .git/hooks/prepare-commit-msg
 
-echo "Running Framework Enforcement..."
+PHASE=$(git config --local --get quality.phase 2>/dev/null || echo "1")
+command -v python3 &>/dev/null || exit 0
 
-methodology enforce --level BLOCK
-if [ $? -ne 0 ]; then
-    echo "Enforcement failed. Commit blocked."
+GIT_DIR=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+HARNESS_CLI="$GIT_DIR/harness_cli.py"
+[ -f "$HARNESS_CLI" ] || HARNESS_CLI="$GIT_DIR/harness/harness_cli.py"
+[ -f "$HARNESS_CLI" ] || { echo "harness_cli.py not found — skipping quality check"; exit 0; }
+
+cd "$GIT_DIR"
+python3 "$HARNESS_CLI" run-phase --phase "$PHASE" --project "$GIT_DIR" --fast || {
+    echo ""
+    echo "PREFLIGHT FAILED (Phase $PHASE)"
+    echo "Fix issues or bypass: git commit --no-verify"
     exit 1
-fi
-
-echo "Enforcement passed"
-exit 0
+}

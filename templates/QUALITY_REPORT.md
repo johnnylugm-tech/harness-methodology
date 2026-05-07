@@ -5,10 +5,10 @@
 
 ## 1. Quality Metrics Overview
 
-| Metric | Phase 5 Baseline | Phase 6 Actual | Delta |
-|--------|------------------|----------------|-------|
-| Constitution | {v5} | {v6} | {delta} |
-| Coverage | {v5} | {v6} | {delta} |
+| Metric | Phase {N-1} Baseline | Phase {N} Actual | Delta |
+|--------|----------------------|-----------------|-------|
+| Constitution | {previous} | {current} | {delta} |
+| Coverage | {previous} | {current} | {delta} |
 
 ## 2. ASPICE Compliance
 | Phase | Status |

@@ -350,7 +350,7 @@ SESSION START (P3 entry — Human¹ APPROVE from P2 is precondition)
     ║    → Prints evaluation instructions                     ║
     ║                                                          ║
     ║  G2b: EVALUATE (Claude inline)                          ║
-    ║    DIMENSIONS: all 12 dims                              ║
+    ║    DIMENSIONS: 7 dims                                    ║
     ║    score_gate ≥ 75                         ║
     ║    quality_complete must be true                        ║
     ║    Claude writes: .sessi-work/gate2_result.json         ║
@@ -485,9 +485,9 @@ SESSION START (Gate3 from P4 PASS is precondition)
     ▼
 ┌─────────────────────────────────────────────────────────────┐
 │  Read SKILL.md                                               │
-│  P5 routing: Entry=Gate3, Exit=Gate3(80), artifact=         │
-│  BASELINE.md                                                │
-│  Gate 1 applies per-FR; Gate 3 is phase exit (same as P4)   │
+│  P5 routing: Entry=Gate3, Exit=None (Phase Truth only),     │
+│  artifact=BASELINE.md                                       │
+│  Gate 1 applies per-FR; no exit gate evaluation              │
 └──────────────────┬──────────────────────────────────────────┘
                    │
                    ▼
@@ -503,7 +503,7 @@ SESSION START (Gate3 from P4 PASS is precondition)
 ║  > Checkpoint Index:                                        ║
 ║  > - CHECKPOINT-1: Gate 1 / FR-01 (verification)           ║
 ║  > - CHECKPOINT-N: Gate 1 / FR-NN                          ║
-║  > - CHECKPOINT-N+1: Gate 3 (Phase 5 Exit)                 ║
+║  > - CHECKPOINT-N+1: Phase 5 Exit (Phase Truth only)      ║
 ║                                                             ║
 ║  ### Pre-Phase Preflight ✅                                 ║
 ║  python harness_cli.py run-phase --phase 5 --project $REPO  ║
@@ -546,25 +546,17 @@ SESSION START (Gate3 from P4 PASS is precondition)
                    │ (all FRs verified)
                    ▼
     ╔══════════════════════════════════════════════════════════╗
-    ║  ### 🔒 CHECKPOINT-N+1: Gate 3 — Phase 5 Exit         ║
-    ║                                                          ║
-    ║  G3a: run-gate --gate 3 --phase 5 --project $REPO      ║
-    ║    → 12 dim evaluation with score_gate ≥ 80             ║
-    ║    → [CRG] detect_changes(base=HEAD~1)                  ║
-    ║                                                          ║
-    ║  G3b: EVALUATE (Claude inline)                          ║
-    ║    Claude writes: .sessi-work/gate3_result.json         ║
-    ║                                                          ║
-    ║  G3c: finalize-gate --gate 3 --phase 5                 ║
-    ║    CASE 1 PASS → G3d ✅                                ║
-    ║    CASE 2 CONTINUE → fix → repeat G3a                  ║
-    ║    CASE 3 PLATEAU → deferred_fixes.md → push           ║
-    ║    CASE 4 BLOCKED → escalate                            ║
+    ║  ### 🔒 Phase 5 Exit — Phase Truth Only                 ║
     ║                                                          ║
     ║  [Phase Truth] HR-11 (≥70% required)                    ║
     ║                                                          ║
-    ║  G3d: git push → CHECKPOINT saved ✅                   ║
-    ║    → BASELINE.md generated (snapshot of all artifacts)  ║
+    ║  No separate exit gate evaluation.                      ║
+    ║  P5 exit is cleared by Phase Truth ≥70%.                ║
+    ║                                                          ║
+    ║  Phase Truth PASS → BASELINE.md generated               ║
+    ║  Phase Truth FAIL → escalate                            ║
+    ║                                                          ║
+    ║  git push → CHECKPOINT saved ✅                         ║
     ║    → [FSM] Phase 5 → DONE                               ║
     ╚══════════════════════════════════════════════════════════╝
                    │ (PASS)
@@ -579,7 +571,7 @@ SESSION START (Gate3 from P4 PASS is precondition)
 ## Phase 6 — Quality Assurance
 
 ```
-SESSION START (Gate3 from P5 PASS is precondition)
+SESSION START (Phase Truth from P5 PASS is precondition)
     │
     ▼
 ┌─────────────────────────────────────────────────────────────┐
@@ -711,9 +703,9 @@ SESSION START (Gate4 from P6 PASS is precondition)
     ▼
 ┌─────────────────────────────────────────────────────────────┐
 │  Read SKILL.md                                               │
-│  P7 routing: Entry=Gate4, Exit=Gate4(85), artifact=         │
-│  RISK_REGISTER.md                                           │
-│  Gate 1 applies per-FR; Gate 4 is phase exit                │
+│  P7 routing: Entry=Gate4 (from P6), Exit=None (Phase Truth  │
+│  only), artifact=RISK_REGISTER.md                           │
+│  Gate 1 applies per-FR; cleared by P6 Gate 4                │
 └──────────────────┬──────────────────────────────────────────┘
                    │
                    ▼
@@ -730,7 +722,7 @@ SESSION START (Gate4 from P6 PASS is precondition)
 ║  > - CHECKPOINT-1: Gate 1 / RISK-01 (security audit)       ║
 ║  > - CHECKPOINT-2: Gate 1 / RISK-02 (dependency audit)     ║
 ║  > - CHECKPOINT-N: Gate 1 / RISK-NN                        ║
-║  > - CHECKPOINT-N+1: Gate 4 (Phase 7 Exit)                 ║
+║  > - CHECKPOINT-N+1: Phase 7 Exit (Phase Truth only)       ║
 ║                                                             ║
 ║  ### Pre-Phase Preflight ✅                                 ║
 ║  python harness_cli.py run-phase --phase 7 --project $REPO  ║
@@ -781,26 +773,16 @@ SESSION START (Gate4 from P6 PASS is precondition)
                    │ (all risk categories assessed)
                    ▼
     ╔══════════════════════════════════════════════════════════╗
-    ║  ### 🔒 CHECKPOINT-N+1: Gate 4 — Phase 7 Exit         ║
-    ║                                                          ║
-    ║  G4a: run-gate --gate 4 --phase 7 --project $REPO      ║
-    ║    → 12 dim evaluation with score ≥ 85                  ║
-    ║    → [CRG] impact analysis for all changes              ║
-    ║                                                          ║
-    ║  G4b: EVALUATE (Claude inline)                          ║
-    ║    Claude writes: .sessi-work/gate4_result.json         ║
-    ║                                                          ║
-    ║  G4c: finalize-gate --gate 4 --phase 7                 ║
-    ║    CASE 1 PASS → G4d ✅                                ║
-    ║    CASE 2 CONTINUE → fix → repeat G4a                  ║
-    ║    CASE 3 PLATEAU → deferred_fixes.md → push           ║
-    ║    CASE 4 BLOCKED → escalate                            ║
+    ║  ### 🔒 Phase 7 Exit — Phase Truth Only                 ║
     ║                                                          ║
     ║  [Phase Truth] HR-11 (≥70% required)                    ║
     ║  [M1] KillSwitch state check before exit                ║
     ║    → OPEN state blocks phase advance                    ║
     ║                                                          ║
-    ║  G4d: git push → CHECKPOINT saved ✅                   ║
+    ║  No separate exit gate evaluation.                      ║
+    ║  P7 exit is cleared by P6 Gate 4 + Phase Truth.         ║
+    ║                                                          ║
+    ║  Phase Truth PASS → git push ✅                         ║
     ║    → RISK_REGISTER.md generated                         ║
     ║    → [FSM] Phase 7 → DONE                               ║
     ╚══════════════════════════════════════════════════════════╝
@@ -816,14 +798,14 @@ SESSION START (Gate4 from P6 PASS is precondition)
 ## Phase 8 — Configuration Management
 
 ```
-SESSION START (Gate4 from P7 PASS is precondition)
+SESSION START (Gate4 from P6 PASS is precondition)
     │
     ▼
 ┌─────────────────────────────────────────────────────────────┐
 │  Read SKILL.md                                               │
-│  P8 routing: Entry=Gate4, Exit=Gate4(85), artifact=         │
-│  CONFIG_RECORDS.md                                          │
-│  Gate 1 applies per-FR; Gate 4 is phase exit                │
+│  P8 routing: Entry=Gate4 (from P6), Exit=None (Phase Truth  │
+│  only), artifact=CONFIG_RECORDS.md                          │
+│  Gate 1 applies per-FR; cleared by P6 Gate 4                │
 │  FINAL PHASE — pipeline completion on PASS                  │
 └──────────────────┬──────────────────────────────────────────┘
                    │
@@ -841,7 +823,7 @@ SESSION START (Gate4 from P7 PASS is precondition)
 ║  > - CHECKPOINT-1: Gate 1 / CFG-01 (env verification)      ║
 ║  > - CHECKPOINT-2: Gate 1 / CFG-02 (CI/CD audit)           ║
 ║  > - CHECKPOINT-N: Gate 1 / CFG-NN                         ║
-║  > - CHECKPOINT-N+1: Gate 4 (Phase 8 Exit — FINAL)        ║
+║  > - CHECKPOINT-N+1: Phase 8 Exit (Phase Truth only — FINAL) ║
 ║                                                             ║
 ║  ### Pre-Phase Preflight ✅                                 ║
 ║  python harness_cli.py run-phase --phase 8 --project $REPO  ║
@@ -889,27 +871,17 @@ SESSION START (Gate4 from P7 PASS is precondition)
                    │ (all config categories audited)
                    ▼
     ╔══════════════════════════════════════════════════════════╗
-    ║  ### 🔒 CHECKPOINT-N+1: Gate 4 — Phase 8 Exit (FINAL) ║
-    ║                                                          ║
-    ║  G4a: run-gate --gate 4 --phase 8 --project $REPO      ║
-    ║    → 12 dim evaluation with score ≥ 85                  ║
-    ║    → [CRG] final full-graph impact analysis              ║
-    ║                                                          ║
-    ║  G4b: EVALUATE (Claude inline)                          ║
-    ║    Claude writes: .sessi-work/gate4_result.json         ║
-    ║                                                          ║
-    ║  G4c: finalize-gate --gate 4 --phase 8                 ║
-    ║    CASE 1 PASS → G4d ✅                                ║
-    ║    CASE 2 CONTINUE → fix → repeat G4a                  ║
-    ║    CASE 3 PLATEAU → deferred_fixes.md → push           ║
-    ║    CASE 4 BLOCKED → escalate                            ║
+    ║  ### 🔒 Phase 8 Exit — Phase Truth Only (FINAL)        ║
     ║                                                          ║
     ║  [Phase Truth] HR-11 (≥70% required) — FINAL           ║
     ║  [M1] KillSwitch final state: must be CLOSED            ║
     ║  [M2] Final drift check: all drift scores < threshold   ║
     ║  [M3] Final gap check: 0 critical gaps                  ║
     ║                                                          ║
-    ║  G4d: git push → FINAL CHECKPOINT saved ✅             ║
+    ║  No separate exit gate evaluation.                      ║
+    ║  P8 exit is cleared by P6 Gate 4 + Phase Truth.         ║
+    ║                                                          ║
+    ║  Phase Truth PASS → git push ✅                         ║
     ║    → CONFIG_RECORDS.md generated                        ║
     ║    → Git tag: release-v<score> (via _tag_release)       ║
     ║    → [FSM] RUNNING → DONE                               ║
@@ -990,10 +962,10 @@ SESSION START (Gate4 from P7 PASS is precondition)
 
 | Gate | Trigger | Phases | Threshold | Dimensions | Human? |
 |------|---------|--------|-----------|------------|--------|
-| **Gate 1** | per-FR completion | P3, P4, P5, P7, P8 | Each dim ≥ 75 | linting, type_safety, test_coverage | No |
-| **Gate 2** | P3 phase exit | P3 | score_gate ≥ 75 + quality_complete | All 12 dims | No |
-| **Gate 3** | P4 phase exit | P4, P5 | score_gate ≥ 80 + quality_complete | All 12 dims | No |
-| **Gate 4** | P6, P7, P8 phase exit | P6, P7, P8 | score_gate ≥ 85 + quality_complete | All 12 dims | **Yes** — Hermes APPROVE (P6 only) |
+| **Gate 1** | per-FR completion | P3, P4, P5, P7, P8 | linting≥90, type_safety≥85, coverage≥80 | 3 dims (lint/type/cov) | No |
+| **Gate 2** | P3 phase exit | P3 | score_gate ≥ 75 + quality_complete | 7 dims | No |
+| **Gate 3** | P4 phase exit | P4 | score_gate ≥ 80 + quality_complete | 12 dims | No |
+| **Gate 4** | P6 phase exit | P6 | score_gate ≥ 85 + quality_complete | 12 dims | **Yes** — Hermes APPROVE |
 
 ---
 

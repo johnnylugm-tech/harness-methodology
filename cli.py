@@ -5148,7 +5148,7 @@ Full execution script is in templates/plan_phase_template.md Section 17.
         """Generate Quality Gate commands for given Phase"""
         commands = {
             3: [
-                ("# 1. TH-06 Constitution test coverage >90%", "python3 quality_gate/constitution/runner.py --type implementation"),
+                ("# 1. TH-06 Constitution test coverage >90%", "python3 core/quality_gate/constitution/runner.py --type implementation"),
                 ("# 2. TH-10 test pass rate =100%", "pytest tests/ -v"),
                 ("# 3. TH-11 coverage >=70%", "pytest --cov=app/ -v"),
                 ("# 4. TH-16 code<->SAD =100%", "python3 cli.py trace-check"),
@@ -5163,14 +5163,14 @@ Full execution script is in templates/plan_phase_template.md Section 17.
                 ("# 4. TH-17 FR<->test >=90%", "python3 cli.py phase-verify --phase 4"),
             ],
             1: [
-                ("# 1. TH-03 Constitution correctness =100%", "python3 quality_gate/constitution/runner.py --type srs"),
-                ("# 2. TH-04 Constitution safety =100%", "python3 quality_gate/constitution/runner.py --type srs"),
-                ("# 3. TH-14 specification completeness =100%", "python3 quality_gate/doc_checker.py"),
+                ("# 1. TH-03 Constitution correctness =100%", "python3 core/quality_gate/constitution/runner.py --type srs"),
+                ("# 2. TH-04 Constitution safety =100%", "python3 core/quality_gate/constitution/runner.py --type srs"),
+                ("# 3. TH-14 specification completeness =100%", "python3 scripts/check_spec_trace.py SAD.md tests/"),
             ],
             2: [
-                ("# 1. TH-03 Constitution correctness =100%", "python3 quality_gate/constitution/runner.py --type sad"),
-                ("# 2. TH-04 Constitution safety =100%", "python3 quality_gate/constitution/runner.py --type sad"),
-                ("# 3. TH-05 Constitution maintainability >90%", "python3 quality_gate/constitution/runner.py --type sad"),
+                ("# 1. TH-03 Constitution correctness =100%", "python3 core/quality_gate/constitution/runner.py --type sad"),
+                ("# 2. TH-04 Constitution safety =100%", "python3 core/quality_gate/constitution/runner.py --type sad"),
+                ("# 3. TH-05 Constitution maintainability >90%", "python3 core/quality_gate/constitution/runner.py --type sad"),
             ],
         }
         

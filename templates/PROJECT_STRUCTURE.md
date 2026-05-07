@@ -14,9 +14,11 @@ project/
 +-- 03-development/src/     # Phase 3: Implementation
 +-- 03-development/tests/   # Phase 3: Tests
 +-- 04-testing/             # Phase 4: Test verification
-+-- 05-deployment/          # Phase 5: Deployment
-+-- 06-maintenance/         # Phase 6+: Operations
-+-- .methodology/           # Framework state tracking
++-- 05-verify/               # Phase 5: Verification & Delivery
++-- 06-quality/              # Phase 6: Quality Assurance
++-- 07-risk/                 # Phase 7: Risk Management
++-- 08-config/               # Phase 8: Configuration Management
++-- .methodology/            # Framework state tracking
 ```
 
 > Note: Phase number aligns with directory prefix (Phase N -> 0N-xxx/)

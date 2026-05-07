@@ -68,7 +68,7 @@ HR-01 | HR-07 | HR-08 | HR-10
 
 | TH | Metric | Threshold | Verification |
 |----|--------|-----------|-------------|
-| TH-02 | Constitution total score | >=80% | `constitution/runner.py --type all` |
+| TH-02 | Constitution total score | >=80% | `core/quality_gate/constitution/runner.py --type all` |
 | TH-07 | Logic correctness | >=90 | `phase-verify` |
 | TH-15 | Phase Truth | >90% | `phase-verify` |
 
@@ -142,7 +142,7 @@ GOAL: Comprehensive quality assessment to ensure system meets release standards.
 
 ON DEMAND READS (read only necessary sections):
 - 04-testing/TEST_RESULTS.md (failed cases)
-- 05-verify/BASELINE.md (performance data)
+- 05-verify/BASELINE.md (performance baseline data)
 - 06-quality/QUALITY_REPORT.md (existing version if any)
 
 OUTPUT:
@@ -210,7 +210,7 @@ OUTPUT_FORMAT:
 
 ```bash
 # 1. Constitution Check
-python3 quality_gate/constitution/runner.py --type all --docs-path {PROJECT_PATH}/docs
+python3 core/quality_gate/constitution/runner.py --type all --docs-path {PROJECT_PATH}/docs
 
 # 2. Logic Verification
 python3 cli.py phase-verify --phase 6 --project {PROJECT_PATH}

@@ -46,7 +46,7 @@ def test_fr001_output_feeds_fr002():
 SAD.md 每個 FR 必須對應到 TEST_RESULTS.md 的一行。自動化驗證：
 
 ```bash
-python3 harness/scripts/check_spec_trace.py SAD.md tests/
+python3 harness/scripts/scripts/check_spec_trace.py SAD.md tests/
 # Exit 0: all FRs traced (Gate 3 可繼續)
 # Exit 1: untested FRs found (Gate 3 blocked — 必須先補齊 test_fr_XXX.py)
 ```
@@ -60,7 +60,7 @@ python harness_cli.py run-gate --gate 3 --phase 4
 # 12 dims (all tiers), score_gate=80, max_rounds=3
 # CRG: reconnaissance + tier3_guidance + impact_check + drift_check
 # 新增 pre-gate check: spec_trace_coverage = 100%
-#   → check_spec_trace.py 回傳 Exit 1 時直接 raise GateBlockedError，不進入 SSI runner
+#   → scripts/check_spec_trace.py 回傳 Exit 1 時直接 raise GateBlockedError，不進入 SSI runner
 # Blocking: score < 80 OR spec_trace_coverage < 100%
 ```
 
@@ -69,6 +69,6 @@ python harness_cli.py run-gate --gate 3 --phase 4
 ## P4 Exit Checklist
 
 - [ ] `TEST_RESULTS.md` 已生成
-- [ ] `check_spec_trace.py SAD.md tests/` 回傳 Exit 0 (100% FRs traced)
+- [ ] `scripts/check_spec_trace.py SAD.md tests/` 回傳 Exit 0 (100% FRs traced)
 - [ ] Integration tests 已涵蓋 FR 互動關係
 - [ ] Gate 3 通過 (score ≥ 80 AND spec_trace = 100%)
