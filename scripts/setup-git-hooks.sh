@@ -22,17 +22,20 @@ echo "Git Hooks Setup for harness-methodology"
 echo "=============================================="
 echo
 
-# Get project root directory
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-HOOKS_DIR="$PROJECT_ROOT/.git/hooks"
-
-# Check if this is a Git repository
-if [ ! -d "$PROJECT_ROOT/.git" ]; then
+# Resolve git working tree and actual .git dir (handles submodule gitdir files)
+PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [ -z "$PROJECT_ROOT" ]; then
     echo -e "${RED}Error: Not a Git repository${NC}"
-    echo "Please run this script from the project root."
+    echo "Please run this script from within a Git repository."
     exit 1
 fi
+
+GIT_DIR_RESULT="$(git rev-parse --git-dir 2>/dev/null)"
+case "$GIT_DIR_RESULT" in
+    /*) GIT_DIR="$GIT_DIR_RESULT" ;;
+    *)  GIT_DIR="$PROJECT_ROOT/$GIT_DIR_RESULT" ;;
+esac
+HOOKS_DIR="$GIT_DIR/hooks"
 
 # Ensure hooks directory exists
 mkdir -p "$HOOKS_DIR"
