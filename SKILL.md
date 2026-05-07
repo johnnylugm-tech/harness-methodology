@@ -23,9 +23,13 @@ When the user says "execute Phase N", "start P3", "implement FR-X", or any phase
 3. WAIT for user confirmation ("confirm", "execute", "proceed", "開始", "確認").
    NEVER start work without explicit user confirmation.
 
-4. EXECUTE plan top-to-bottom:
-   [PREFLIGHT]     → run-phase --phase N (FSM + Constitution + kill-switch + drift + SAB + traceability)
-   [A/B Work]      → Agent A develops → Agent B reviews → sessions_spawn.log (HR-01, HR-10)
+4. EXECUTE plan top-to-bottom. You are the ORCHESTRATOR, not Agent A or B:
+
+   [PREFLIGHT]     → python harness_cli.py run-phase --phase N
+   [A/B Work]      → Agent A: dispatch via sessions_spawn / sub-agent to develop
+                   → Agent B: dispatch as STATELESS sub-agent to review (embed all content in prompt)
+                   → Log both entries to sessions_spawn.log (HR-01, HR-10)
+                   → NEVER role-play A or B yourself — they MUST be separate sessions (HR-01: A≠B)
    [CHECKPOINT-K]  → run-gate → Claude evaluates inline → finalize-gate → git push
 
 5. GATE FAIL? → fix → re-run gate. NEVER advance past a failing gate (HR-08).
@@ -75,6 +79,8 @@ Before advancing to Phase N+1, confirm ALL:
 - Mix manual mode and `run-pipeline` in the same phase
 - Re-read SKILL.md for task details mid-phase (use plan file)
 - Skip `sessions_spawn.log` entries (HR-10)
+- **Role-play both Agent A and Agent B in the same session (HR-01)**
+- **Send Agent B file paths as input — Agent B is stateless, embed content in prompt**
 
 ### 0.6 Quick Reference — CLI Entry Points
 
