@@ -457,7 +457,7 @@ The harness CLI cannot import it, but **Agent can call it directly**.
 | **CQG** | After each FR APPROVE | `harness_cli.py run-gate --gate 1` |
 | **SAB Drift Detection** | POST-FLIGHT | parent-system CLI * |
 | **Steering Loop** | POST-FLIGHT | parent-system CLI * |
-| **Phase Truth** | POST-FLIGHT | `harness_cli.py audit-phase` * |
+| **Phase Truth** | POST-FLIGHT | `run-pipeline` (auto at step phase.5) or parent-system CLI * |
 | **AutoResearch** | POST-FLIGHT | parent-system CLI * |
 
 ### Agent Execution Workflow (with enhancements)
@@ -692,7 +692,7 @@ print(f"\nPhase {PHASE} complete!")
 | HR-12 | `monitoring_hr12_check()` | PAUSE at >=5 rounds |
 | **SAB Drift** | parent-system CLI * | **code<->SAD** |
 | **Steering** | parent-system CLI * | **Workflow control** |
-| **Phase Truth** | `harness_cli.py audit-phase` * | **>90% validation** |
+| **Phase Truth** | `run-pipeline` (auto at step phase.5) or parent-system CLI * | **>90% validation** |
 | **AutoResearch** | parent-system CLI * | **Phase-aware quality improvement** |
 | POST-FLIGHT | `harness_cli.py run-phase --phase {PHASE}` | Final State |
 
