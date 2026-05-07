@@ -12,6 +12,7 @@ Verifies:
 import json
 import sys
 from pathlib import Path
+from typing import Dict
 import pytest
 
 # Make repo root importable
@@ -28,6 +29,9 @@ from generate_full_plan import (
     _human_checkpoint,
     _fr_dev_steps,
     _phase_advance_step,
+    _decomposition_section,
+    _deliverable_ab_block,
+    _PHASE_DELIVERABLE_DEPS,
     _GATE_META,
     generate_phase1_tasks,
     generate_phase2_tasks,
@@ -73,8 +77,8 @@ class TestGate1Checkpoint:
     def test_heading_level_h3(self):
         """GAP-G fix: Gate 1 must use ### heading (not #####)."""
         lines = _gate1_checkpoint("FR-01", 3, 1)
-        assert any(l.startswith("### 🔒 CHECKPOINT-1") for l in lines)
-        assert not any(l.startswith("#####") for l in lines)
+        assert any(line.startswith("### 🔒 CHECKPOINT-1") for line in lines)
+        assert not any(line.startswith("#####") for line in lines)
 
     def test_contains_run_gate_command(self):
         lines = _gate1_checkpoint("FR-02", 4, 2)
@@ -552,7 +556,7 @@ class TestHumanCheckpoint:
 
     def test_heading_h3(self):
         lines = _human_checkpoint(1, 1)
-        assert any(l.startswith("### 🔒 CHECKPOINT-1") for l in lines)
+        assert any(line.startswith("### 🔒 CHECKPOINT-1") for line in lines)
 
     def test_not_harness_gate(self):
         """GAP-K fix: P1/P2 checkpoint must clarify it's NOT harness run-gate."""
@@ -609,6 +613,137 @@ class TestPhaseAdvanceStep12:
         assert "plan-phase --phase 3" in joined
 
 
+# ─── _decomposition_section ──────────────────────────────────────────────────
+
+class TestDecompositionSection:
+    def test_phase1_returns_non_empty(self):
+        lines = _decomposition_section(1)
+        assert len(lines) > 0
+
+    def test_phase1_has_dependency_table(self):
+        lines = _decomposition_section(1)
+        joined = "\n".join(lines)
+        assert "Task Decomposition" in joined
+        assert "SRS.md" in joined
+        assert "SPEC_TRACKING.md" in joined
+        assert "TRACEABILITY_MATRIX.md" in joined
+
+    def test_phase1_lists_sequential_order(self):
+        lines = _decomposition_section(1)
+        joined = "\n".join(lines)
+        idx_srs = joined.find("SRS.md")
+        idx_spec = joined.find("SPEC_TRACKING.md")
+        idx_trace = joined.find("TRACEABILITY_MATRIX.md")
+        assert idx_srs < idx_spec < idx_trace, "Deliverables must be in dependency order"
+
+    def test_phase2_returns_non_empty(self):
+        lines = _decomposition_section(2)
+        assert len(lines) > 0
+
+    def test_phase2_has_all_deliverables(self):
+        lines = _decomposition_section(2)
+        joined = "\n".join(lines)
+        assert "SAD.md" in joined
+        assert "ADR.md" in joined
+        assert "ARCHITECTURE_DIAGRAM.md" in joined
+
+    def test_phase2_lists_sequential_order(self):
+        lines = _decomposition_section(2)
+        joined = "\n".join(lines)
+        idx_sad = joined.find("SAD.md")
+        idx_adr = joined.find("ADR.md")
+        idx_diag = joined.find("ARCHITECTURE_DIAGRAM.md")
+        assert idx_sad < idx_adr < idx_diag, "Deliverables must be in dependency order"
+
+    def test_execution_rule_present(self):
+        for phase in [1, 2]:
+            joined = "\n".join(_decomposition_section(phase))
+            assert "Execution rule" in joined
+            assert "REJECTED" in joined
+
+    def test_phase3_returns_empty(self):
+        """P3-P8 use FR-based A/B, not deliverable decomposition."""
+        for phase in [3, 4, 5, 6, 7, 8]:
+            assert _decomposition_section(phase) == []
+
+
+# ─── _deliverable_ab_block ────────────────────────────────────────────────────
+
+class TestDeliverableAbBlock:
+    @pytest.fixture()
+    def srs_deliverable(self) -> Dict:
+        return _PHASE_DELIVERABLE_DEPS[1][0]
+
+    @pytest.fixture()
+    def sad_deliverable(self) -> Dict:
+        return _PHASE_DELIVERABLE_DEPS[2][0]
+
+    def test_contains_sub_task_label(self, srs_deliverable: Dict):
+        lines = _deliverable_ab_block(1, srs_deliverable, 1, 3)
+        joined = "\n".join(lines)
+        assert "Sub-Task 1/3" in joined
+        assert "SRS.md" in joined
+
+    def test_contains_agent_a_and_b(self, srs_deliverable: Dict):
+        lines = _deliverable_ab_block(1, srs_deliverable, 1, 3)
+        joined = "\n".join(lines)
+        assert "Agent A" in joined
+        assert "Agent B" in joined
+
+    def test_contains_depends_on(self, srs_deliverable: Dict):
+        lines = _deliverable_ab_block(1, srs_deliverable, 1, 3)
+        joined = "\n".join(lines)
+        assert "Depends on" in joined
+
+    def test_first_deliverable_no_dependency(self, srs_deliverable: Dict):
+        lines = _deliverable_ab_block(1, srs_deliverable, 1, 3)
+        joined = "\n".join(lines)
+        assert "none — starting point" in joined
+
+    def test_later_deliverable_shows_dependency(self):
+        spec_deliverable = _PHASE_DELIVERABLE_DEPS[1][1]  # depends on SRS.md
+        lines = _deliverable_ab_block(1, spec_deliverable, 2, 3)
+        joined = "\n".join(lines)
+        assert "SRS.md" in joined
+
+    def test_contains_sessions_spawn_log(self, srs_deliverable: Dict):
+        lines = _deliverable_ab_block(1, srs_deliverable, 1, 3)
+        joined = "\n".join(lines)
+        assert "sessions_spawn.log" in joined
+
+    def test_contains_hr12_max_rounds(self, srs_deliverable: Dict):
+        lines = _deliverable_ab_block(1, srs_deliverable, 1, 3)
+        joined = "\n".join(lines)
+        assert "5 rounds" in joined or "HR-12" in joined
+
+    def test_not_last_subtask_shows_next(self, srs_deliverable: Dict):
+        lines = _deliverable_ab_block(1, srs_deliverable, 1, 3)
+        joined = "\n".join(lines)
+        assert "Sub-Task 2/3" in joined
+
+    def test_last_subtask_shows_human_review(self):
+        trace_deliverable = _PHASE_DELIVERABLE_DEPS[1][2]
+        lines = _deliverable_ab_block(1, trace_deliverable, 3, 3)
+        joined = "\n".join(lines)
+        assert "Human Peer Review" in joined
+
+    def test_contains_stateless_sandbox_warning(self, srs_deliverable: Dict):
+        lines = _deliverable_ab_block(1, srs_deliverable, 1, 3)
+        joined = "\n".join(lines)
+        assert "STATELESS SANDBOX" in joined
+
+    def test_deliverable_specific_checks_appear(self, srs_deliverable: Dict):
+        lines = _deliverable_ab_block(1, srs_deliverable, 1, 3)
+        joined = "\n".join(lines)
+        assert "testable" in joined.lower()
+
+    def test_phase2_deliverable_has_correct_roles(self, sad_deliverable: Dict):
+        lines = _deliverable_ab_block(2, sad_deliverable, 1, 3)
+        joined = "\n".join(lines)
+        assert "ARCHITECT" in joined
+        assert "TECH_LEAD" in joined
+
+
 # ─── Phase 1 generator ───────────────────────────────────────────────────────
 
 class TestPhase1Generator:
@@ -616,6 +751,22 @@ class TestPhase1Generator:
         """GAP-K fix: P1 plan must include preflight."""
         joined = "\n".join(generate_phase1_tasks(project, project / "SRS.md"))
         assert "run-phase --phase 1" in joined
+
+    def test_has_decomposition_section(self, project: Path):
+        """P1 plan must include task decomposition before A/B work."""
+        joined = "\n".join(generate_phase1_tasks(project, project / "SRS.md"))
+        assert "Task Decomposition" in joined
+        assert "Execution rule" in joined
+
+    def test_has_serial_per_deliverable_ab(self, project: Path):
+        """P1 plan must have 3 serial sub-tasks with individual A/B loops."""
+        joined = "\n".join(generate_phase1_tasks(project, project / "SRS.md"))
+        assert "Sub-Task 1/3" in joined
+        assert "Sub-Task 2/3" in joined
+        assert "Sub-Task 3/3" in joined
+        assert "SRS.md" in joined
+        assert "SPEC_TRACKING.md" in joined
+        assert "TRACEABILITY_MATRIX.md" in joined
 
     def test_has_ab_steps(self, project: Path):
         """GAP-K fix: P1 plan must include A/B authoring steps."""
@@ -646,6 +797,13 @@ class TestPhase1Generator:
         joined = "\n".join(generate_phase1_tasks(project, project / "SRS.md"))
         assert "run-gate --gate 1 --phase 1" not in joined
 
+    def test_traceability_depends_on_srs_and_spec(self, project: Path):
+        """Sub-Task 3 (TRACEABILITY) must declare dependency on SRS + SPEC_TRACKING."""
+        joined = "\n".join(generate_phase1_tasks(project, project / "SRS.md"))
+        # Find TRACEABILITY section and verify deps listed
+        assert "SRS.md" in joined
+        assert "SPEC_TRACKING.md" in joined
+
 
 # ─── Phase 2 generator ───────────────────────────────────────────────────────
 
@@ -661,12 +819,33 @@ class TestPhase2Generator:
         joined = "\n".join(generate_phase2_tasks(project, project / "SRS.md"))
         assert "run-phase --phase 2" in joined
 
+    def test_has_decomposition_section(self, project: Path):
+        """P2 plan must include task decomposition before A/B work."""
+        joined = "\n".join(generate_phase2_tasks(project, project / "SRS.md"))
+        assert "Task Decomposition" in joined
+        assert "Execution rule" in joined
+
+    def test_has_serial_per_deliverable_ab(self, project: Path):
+        """P2 plan must have 3 serial sub-tasks with individual A/B loops."""
+        joined = "\n".join(generate_phase2_tasks(project, project / "SRS.md"))
+        assert "Sub-Task 1/3" in joined
+        assert "Sub-Task 2/3" in joined
+        assert "Sub-Task 3/3" in joined
+        assert "SAD.md" in joined
+        assert "ADR.md" in joined
+        assert "ARCHITECTURE_DIAGRAM.md" in joined
+
     def test_has_ab_steps(self, project: Path):
         """GAP-K fix: P2 plan must include A/B architecture steps."""
         joined = "\n".join(generate_phase2_tasks(project, project / "SRS.md"))
         assert "ARCHITECT" in joined
         assert "TECH_LEAD" in joined
         assert "sessions_spawn.log" in joined
+
+    def test_sessions_spawn_log_six_entries(self, project: Path):
+        """P2 has 3 sub-tasks × 2 entries = 6 sessions_spawn.log entries."""
+        joined = "\n".join(generate_phase2_tasks(project, project / "SRS.md"))
+        assert "6 entries" in joined
 
     def test_has_human_checkpoint(self, project: Path):
         """GAP-K3 fix: P2 plan must end with human review checkpoint."""

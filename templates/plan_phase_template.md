@@ -81,6 +81,26 @@ python3 harness_cli.py generate-next-plan --phase {PHASE}
 
 ---
 
+## 2.5 Task Decomposition (Dependency Analysis)
+
+> **Phases 1-2**: Deliverables have sequential dependencies. Each must pass Agent B review
+> before the next one starts. REJECT only backtracks one step — earlier APPROVED deliverables
+> are not re-opened.
+
+**Decomposition rules**:
+1. List all phase deliverables before starting any work
+2. Identify dependencies: which deliverables require others as input?
+3. Order by dependency (topological sort) — no circular dependencies allowed
+4. If a deliverable is complex (>2000 characters estimated output), split into sub-parts
+5. Execute serial A/B per deliverable in dependency order
+
+**Execution contract**:
+- Sub-Task N/Total: deliverable → Agent A writes → Agent B reviews → APPROVE → next
+- REJECT on Sub-Task N → fix ONLY that deliverable → re-dispatch Agent B (max 5 rounds, HR-12)
+- Earlier APPROVED deliverables are locked — no cascade rework
+
+---
+
 ## 3. FR-by-FR Task Table ({FR_COUNT} total)
 
 {FR_TABLE_ROWS}

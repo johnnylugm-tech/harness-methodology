@@ -314,6 +314,81 @@ _AGENT_B_CHECKS: Dict[int, List[str]] = {
 }
 
 
+# Per-phase deliverable dependency chains for task decomposition.
+# Each entry: (label, description, depends_on, task_hint, b_checks, b_embed_docs)
+# depends_on lists deliverable labels within the same phase that must be APPROVED first.
+_PHASE_DELIVERABLE_DEPS: Dict[int, List[Dict]] = {
+    1: [
+        {
+            "label": "SRS.md",
+            "desc": "Software Requirements Specification — functional + non-functional requirements",
+            "depends_on": [],
+            "task_hint": "Elicit requirements → write FRs/NFRs in SRS.md (### FR-XX: format) → validate completeness",
+            "checks": ["All FRs testable? (no vague criteria)", "NFRs measurable?",
+                       "No contradictions between FRs?", "Every stakeholder need covered?"],
+            "embed_docs": ["Project description / stakeholder brief", "draft docs/SRS.md (full content)"],
+        },
+        {
+            "label": "SPEC_TRACKING.md",
+            "desc": "Spec Tracking Matrix — maps every FR to its current status, owner, and acceptance state",
+            "depends_on": ["SRS.md"],
+            "task_hint": "Build spec tracking matrix from SRS.md FRs → assign status/owner per FR → validate completeness",
+            "checks": ["Every FR from SRS.md listed?", "Status field populated per FR?",
+                       "Owner assigned per FR?", "No orphan FRs (in SRS but not tracked)?"],
+            "embed_docs": ["docs/SRS.md (APPROVED — full content)",
+                           "draft docs/SPEC_TRACKING.md (full content)"],
+        },
+        {
+            "label": "TRACEABILITY_MATRIX.md",
+            "desc": "Requirements Traceability Matrix — bidirectional traceability from FRs through design to tests",
+            "depends_on": ["SRS.md", "SPEC_TRACKING.md"],
+            "task_hint": "Build bidirectional traceability matrix → link FRs → design elements → test cases → validate coverage",
+            "checks": ["Bidirectional traceability established? (FR→design→test and back)",
+                       "Every FR has ≥1 downstream link?", "No orphan requirements?",
+                       "Coverage complete (all FRs traceable)?"],
+            "embed_docs": ["docs/SRS.md (APPROVED — full content)",
+                           "docs/SPEC_TRACKING.md (APPROVED — full content)",
+                           "draft docs/TRACEABILITY_MATRIX.md (full content)"],
+        },
+    ],
+    2: [
+        {
+            "label": "SAD.md",
+            "desc": "Software Architecture Document — components, interfaces, FR→module mapping, data flows",
+            "depends_on": [],
+            "task_hint": "Design system architecture → write SAD.md → validate every FR has a module mapping",
+            "checks": ["Every FR maps to ≥1 module?", "NFRs addressed (latency/security/cost)?",
+                       "No circular dependencies?", "Data flow diagrams consistent?"],
+            "embed_docs": ["docs/SRS.md (full)", "docs/CONSTRAINTS.md (full)",
+                           "draft docs/SAD.md (full)"],
+        },
+        {
+            "label": "ADR.md",
+            "desc": "Architecture Decision Records — key decisions with context, options, rationale",
+            "depends_on": ["SAD.md"],
+            "task_hint": "Document key architecture decisions → write ADR.md → validate each decision references SAD context",
+            "checks": ["ADR covers all major decisions from SAD.md?",
+                       "Each ADR has context + options + rationale?",
+                       "No decisions contradict SAD.md module mapping?"],
+            "embed_docs": ["docs/SRS.md (full)", "docs/SAD.md (APPROVED — full content)",
+                           "draft docs/ADR.md (full)"],
+        },
+        {
+            "label": "ARCHITECTURE_DIAGRAM.md",
+            "desc": "Architecture diagram — system topology, deployment view, data flow visualization",
+            "depends_on": ["SAD.md", "ADR.md"],
+            "task_hint": "Create architecture diagrams → system topology + deployment + data flow → validate against SAD/ADR",
+            "checks": ["Topology matches SAD.md component layout?",
+                       "Deployment view consistent with ADR infrastructure decisions?",
+                       "Data flows match SAD.md interface definitions?"],
+            "embed_docs": ["docs/SAD.md (APPROVED — full content)",
+                           "docs/ADR.md (APPROVED — full content)",
+                           "draft docs/ARCHITECTURE_DIAGRAM.md (full content)"],
+        },
+    ],
+}
+
+
 def _agent_b_dispatch_block(phase: int, role_b: str, fr_id: str = "") -> List[str]:
     """
     Generate the full Agent B stateless dispatch block for a given phase.
@@ -369,6 +444,138 @@ def _agent_b_dispatch_block(phase: int, role_b: str, fr_id: str = "") -> List[st
         "- [ ] **[B-2]** Agent B returns JSON — parse `review_status`:",
         "  - `APPROVE` → continue to next step",
         "  - `REJECT` → Agent A fixes gaps → re-dispatch B. Max 5 rounds (HR-12).",
+        "",
+    ]
+    return lines
+
+
+def _decomposition_section(phase: int) -> List[str]:
+    """Generate the task decomposition + dependency analysis section for a phase.
+
+    Lists all deliverables in dependency order and declares the execution rule:
+    each deliverable must pass Agent B review before the next one starts.
+    """
+    deliverables = _PHASE_DELIVERABLE_DEPS.get(phase, [])
+    if not deliverables:
+        return []
+
+    role_a, role_b, _ = _PHASE_ROLES.get(phase, ("DEVELOPER", "REVIEWER", ""))
+    total = len(deliverables)
+
+    lines = [
+        "### Task Decomposition (Dependency Analysis)",
+        "",
+        f"**Phase {phase} has {total} deliverables with sequential dependencies:**",
+        "",
+        "| Order | Deliverable | Depends On | Agent A | Agent B |",
+        "|-------|------------|------------|---------|---------|",
+    ]
+    for i, d in enumerate(deliverables, 1):
+        deps = ", ".join(d["depends_on"]) if d["depends_on"] else "(none — starting point)"
+        lines.append(f"| {i} | `{d['label']}` | {deps} | {role_a} | {role_b} |")
+
+    lines += [
+        "",
+        "**Execution rule**: Each deliverable must pass Agent B review BEFORE starting the next.",
+        "If a deliverable is REJECTED, fix only that deliverable — earlier APPROVED deliverables",
+        "are not re-opened. This bounds backtracking to a single step.",
+        "",
+    ]
+    return lines
+
+
+def _deliverable_ab_block(phase: int, deliverable: Dict, sub_n: int, total: int) -> List[str]:
+    """Generate the A/B collaboration block for a single deliverable.
+
+    Produces A-1/A-2/B-1/B-2/LOG steps with deliverable-specific checks and embed docs.
+    """
+    role_a, role_b, _ = _PHASE_ROLES.get(phase, ("DEVELOPER", "REVIEWER", ""))
+    label = deliverable["label"]
+    desc = deliverable["desc"]
+    deps = ", ".join(deliverable["depends_on"]) if deliverable["depends_on"] else "none — starting point"
+    checks = list(deliverable.get("checks", _AGENT_B_CHECKS.get(phase, ["Review for correctness"])))
+    embed_docs = list(deliverable.get("embed_docs", _AGENT_B_EMBED_DOCS.get(phase, ["relevant documents"])))
+    task_hint = deliverable["task_hint"]
+    is_first = sub_n == 1
+    is_last = sub_n == total
+
+    # Non-first sub-tasks: embed previous B-2 review JSON so downstream Agent B
+    # sees upstream caveats (gaps that weren't blockers but may affect this deliverable).
+    if not is_first:
+        embed_docs.insert(0, f"Previous Sub-Task B-2 review JSON (gaps field may contain non-blocking caveats)")
+        checks.insert(0, "Upstream deliverable review caveats addressed? (check previous B-2 gaps field)")
+
+    # Final sub-task: integration consistency check across all upstream deliverables.
+    if is_last and total > 1:
+        checks.append("All upstream deliverables consistent with each other? No contradictory decisions?")
+
+    lines = [
+        f"### Sub-Task {sub_n}/{total}: {label} — {desc}",
+        "",
+        f"**Depends on**: {deps}",
+        f"**Agent A**: {role_a}",
+        f"**Agent B**: {role_b}",
+        "",
+        "**A/B Work** (HR-01: A≠B · HR-04: HybridWorkflow ON · HR-10: log required):",
+        f"- [ ] **[A-1]** Agent A ({role_a}): {task_hint}",
+        "  - FORBIDDEN: vague/non-testable acceptance criteria",
+        "- [ ] **[A-2]** Agent A returns `{status, files, confidence, citations, summary}`",
+    ]
+
+    # Agent B stateless dispatch block (customized per deliverable)
+    lines += [
+        f"- [ ] **[B-1]** Agent B ({role_b}) — dispatch as **STATELESS** subagent:",
+        "  > ⚠️  **STATELESS SANDBOX**: Agent B has ZERO access to local files or /tmp.",
+        "  > NEVER write 'read docs/SRS.md' in the prompt — it will fail silently.",
+        "  > ALL context must be pasted verbatim into the prompt text. This is mandatory.",
+        "  >",
+        "  > **P1 lesson**: Rounds 2-3 failed because prompts used file paths. Round 4 succeeded",
+        "  > only after embedding full document content directly. Always assume stateless.",
+        "",
+        "  **Embed these documents in full** (copy content, not paths):",
+    ]
+    for doc in embed_docs:
+        lines.append(f"  - `{doc}`")
+    lines += [
+        "",
+        "  **Agent B prompt structure** (use this template verbatim):",
+        "  ```",
+        f"  You are {role_b}. Your task: review the following deliverable ({label}).",
+        "  You have NO access to any files — all context is provided below.",
+        "",
+    ]
+    for i, doc in enumerate(embed_docs, 1):
+        lines += [
+            f"  === [DOC {i}: {doc}] ===",
+            "  {paste full content here}",
+            "",
+        ]
+    lines += [
+        "  Review checklist:",
+    ]
+    for check in checks:
+        lines.append(f"  - {check}")
+    lines += [
+        "",
+        "  Return JSON only:",
+        '  {"status":"STAGE_PASS"|"REJECT","review_status":"APPROVE"|"REJECT",',
+        '   "reason":"...","confidence":1-10,"citations":["file:line"],"gaps":[...]}',
+        "  ```",
+        "",
+        "- [ ] **[B-2]** Agent B returns JSON — parse `review_status`:",
+    ]
+    if sub_n < total:
+        lines.append(f"  - `APPROVE` → continue to Sub-Task {sub_n + 1}/{total}")
+    else:
+        lines.append("  - `APPROVE` → all deliverables complete; proceed to Human Peer Review")
+    lines += [
+        "  - `REJECT` → Agent A fixes gaps → re-dispatch B. Max 5 rounds (HR-12).",
+        "",
+        "- [ ] **[LOG]** Append to `sessions_spawn.log` (HR-10 — 2 entries per sub-task):",
+        "  ```json",
+        f'  {{"fr_id":"P{phase}","sub_task":"{label}","role":"{role_a.lower()}","session_id":"dev-XXXX","status":"success","confidence":8}}',
+        f'  {{"fr_id":"P{phase}","sub_task":"{label}","role":"{role_b.lower()}","session_id":"rev-XXXX","review_status":"APPROVE"}}',
+        "  ```",
         "",
     ]
     return lines
@@ -653,6 +860,8 @@ def generate_phase1_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     """Generate Phase 1 detailed tasks (Requirements Specification).
 
     Exit gate = human peer review (NOT harness run-gate).
+    A/B is serial per-deliverable: SRS → SPEC_TRACKING → TRACEABILITY.
+    Each deliverable has its own A/B loop; REJECT only backtracks one step.
     """
     _ = repo_path  # reserved for future use (e.g. reading .methodology/state.json)
     lines = []
@@ -662,6 +871,7 @@ def generate_phase1_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("Phase 1 is the project starting point. Define complete SRS.")
     lines.append("**Exit gate = human peer review of deliverables** (not `harness run-gate --gate 1`).")
     lines.append("")
+
     lines.append("> **Crash Recovery**: after each push, `HANDOVER.md` is written to project root.")
     lines.append("> If context is lost, read `HANDOVER.md` first — it contains phase, status, and next steps.")
     lines.append("")
@@ -673,26 +883,18 @@ def generate_phase1_tasks(repo_path: Path, srs_path: Path) -> List[str]:
 
     lines.extend(_preflight_steps(1))
 
-    role_a, role_b, task_hint = _PHASE_ROLES[1]
-    lines.extend([
-        "### Requirements Authoring",
-        "",
-        "**A/B Work** (HR-01: A≠B · HR-04: HybridWorkflow ON · HR-10: log required):",
-        f"- [ ] **[A-1]** Agent A ({role_a}): {task_hint}",
-        "  - Format: `### FR-XX: <title>` with Description, Acceptance Criteria, Test Cases",
-        "  - FORBIDDEN: vague/non-testable acceptance criteria",
-        "- [ ] **[A-2]** Agent A returns `{status, files, confidence, citations, summary}`",
-    ])
-    lines.extend(_agent_b_dispatch_block(1, role_b))
-    lines.extend([
-        "- [ ] **[LOG]** Append to `sessions_spawn.log` (HR-10 — 2 entries):",
-        "  ```json",
-        '  {"fr_id":"P1","role":"requirements_engineer","session_id":"dev-XXXX","status":"success","confidence":8}',
-        '  {"fr_id":"P1","role":"business_analyst","session_id":"rev-XXXX","review_status":"APPROVE"}',
-        "  ```",
-        "",
-    ])
+    # Task decomposition: 3 deliverables with sequential dependencies
+    lines.extend(_decomposition_section(1))
 
+    # Serial per-deliverable A/B blocks
+    deliverables = _PHASE_DELIVERABLE_DEPS.get(1, [])
+    total = len(deliverables)
+    lines.append("### Requirements Authoring (Serial A/B per Deliverable)")
+    lines.append("")
+    for i, d in enumerate(deliverables, 1):
+        lines.extend(_deliverable_ab_block(1, d, i, total))
+
+    # FR/NFR summary (informational — parsed from already-APPROVED SRS.md if exists)
     frs = parse_srs_fr_sections(srs_path)
     nfrs = parse_srs_nfr_sections(srs_path)
 
@@ -715,12 +917,6 @@ def generate_phase1_tasks(repo_path: Path, srs_path: Path) -> List[str]:
             lines.append(f"#### {nfr['nfr']}: {nfr['title']}")
             lines.append(f"**Requirement**: {nfr['details'][:200]}")
             lines.append("")
-
-    lines.append("### Phase 1 Deliverables")
-    lines.append("- [ ] `SRS.md` - Software Requirements Specification")
-    lines.append("- [ ] `SPEC_TRACKING.md` - Spec Tracking Matrix")
-    lines.append("- [ ] `TRACEABILITY_MATRIX.md` - Requirements Traceability Matrix")
-    lines.append("")
 
     lines.extend(_human_checkpoint(1, checkpoint_n=1))
     lines.extend(_phase_advance_step(1))
@@ -751,26 +947,16 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.extend(_entry_gate_check(2))  # confirm P1 human APPROVE
     lines.extend(_preflight_steps(2))
 
-    role_a, role_b, task_hint = _PHASE_ROLES[2]
-    lines.extend([
-        "### Architecture Design (A/B Work)",
-        "",
-        "**A/B Work** (HR-01: A≠B · HR-04: HybridWorkflow ON · HR-10: log required):",
-        f"- [ ] **[A-1]** Agent A ({role_a}): {task_hint}",
-        "  - SAD.md: components, interfaces, FR→module mapping, data flows, deployment topology",
-        "  - ADR.md: key decisions with context, options considered, rationale",
-        "  - FORBIDDEN: FR without module mapping / circular dependencies undocumented",
-        "- [ ] **[A-2]** Agent A returns `{status, files, confidence, citations, summary}`",
-    ])
-    lines.extend(_agent_b_dispatch_block(2, role_b))
-    lines.extend([
-        "- [ ] **[LOG]** Append to `sessions_spawn.log` (HR-10 — 2 entries):",
-        "  ```json",
-        '  {"fr_id":"P2","role":"architect","session_id":"dev-XXXX","status":"success","confidence":8}',
-        '  {"fr_id":"P2","role":"tech_lead","session_id":"rev-XXXX","review_status":"APPROVE"}',
-        "  ```",
-        "",
-    ])
+    # Task decomposition: 3 deliverables with sequential dependencies
+    lines.extend(_decomposition_section(2))
+
+    # Serial per-deliverable A/B blocks
+    deliverables = _PHASE_DELIVERABLE_DEPS.get(2, [])
+    total = len(deliverables)
+    lines.append("### Architecture Design (Serial A/B per Deliverable)")
+    lines.append("")
+    for i, d in enumerate(deliverables, 1):
+        lines.extend(_deliverable_ab_block(2, d, i, total))
 
     frs = parse_srs_fr_sections(srs_path)
     modules = parse_sad_modules(repo_path)
@@ -807,7 +993,7 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("- [ ] `ARCHITECTURE_DIAGRAM.md` - Architecture diagram")
     lines.append("- [ ] `.methodology/quality_manifest.json` — Quality manifest (FR list + SAB data)")
     lines.append("- [ ] `.methodology/SAB.json` — Machine-readable architecture baseline")
-    lines.append("- [ ] `sessions_spawn.log` - 2 entries for P2 A/B work (HR-10)")
+    lines.append("- [ ] `sessions_spawn.log` - 3 sub-tasks × 2 entries = 6 entries for P2 A/B work (HR-10)")
     lines.append("")
 
     lines.extend(_human_checkpoint(2, checkpoint_n=1))
