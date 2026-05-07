@@ -23,7 +23,7 @@
 **CLI Commands**:
 ```bash
 python3 harness_cli.py run-phase --phase {PHASE} --project .
-python3 harness_cli.py push-checkpoint --phase {PHASE}
+python3 harness_cli.py push-checkpoint --phase {PHASE}  # P1/P2 only (P3+: git push)
 python3 harness_cli.py run-gate --gate 1 --phase {PHASE} --fr-id FR-XX
 python3 harness_cli.py generate-next-plan --phase {PHASE}
 ```
@@ -336,8 +336,8 @@ python harness_cli.py run-phase --phase {PHASE}
 # 3. SAB Drift Detection (code<->SAD consistency)
 python3 harness_cli.py run-gap-analysis --project .
 
-# 4. Feedback Loop collect feedback
-python3 harness_cli.py run-phase --phase {PHASE}
+# 4. Feedback Loop collect feedback (parent system only — comment out for standalone harness)
+# python3 cli.py feedback-loop --phase {PHASE}
 ```
 
 ### SAB Drift Detection Description
@@ -659,11 +659,19 @@ print(f"{'='*60}")
 # run_cmd(["python3", "cli.py", "steering", "run", "--phase", str(PHASE)])
 
 print(f"\n[Phase Truth] Phase Truth validation")
-result = run_cmd(["python3", "harness_cli.py", "audit-phase", "--phase", str(PHASE), "--project", str(PROJECT_PATH)])
-print(f"   {'OK' if result.returncode == 0 else 'FAIL'} Phase Truth {'PASS' if result.returncode == 0 else '<70% -> PAUSE'}")
+# NOTE: phase-verify (HR-11 ≥70%) is a parent-system tool.
+# audit-phase is a deep ASPICE audit requiring --repo owner/repo, not a Phase Truth check.
+# Un-comment if using software_self_improvement as parent system:
+# result = run_cmd(["python3", "cli.py", "phase-verify", "--phase", str(PHASE)])
+# print(f"   {'OK' if result.returncode == 0 else 'FAIL'} Phase Truth {'PASS' if result.returncode == 0 else '<70% -> PAUSE'}")
+print("   Phase Truth validation requires parent system (cli.py phase-verify). Skip in standalone mode.")
 
 print(f"\n[Final Checkpoint] Saving phase state")
-result = run_cmd(["python3", "harness_cli.py", "push-checkpoint", "--phase", str(PHASE), "--project", str(PROJECT_PATH)])
+# NOTE: push-checkpoint only supports P1/P2. For P3+, commit and push directly.
+if PHASE <= 2:
+    result = run_cmd(["python3", "harness_cli.py", "push-checkpoint", "--phase", str(PHASE), "--project", str(PROJECT_PATH)])
+else:
+    result = run_cmd(["git", "push"])
 print(f"   {'OK' if result.returncode == 0 else 'WARN'} Checkpoint {'saved' if result.returncode == 0 else 'skipped'}")
 
 print(f"\nPhase {PHASE} complete!")
