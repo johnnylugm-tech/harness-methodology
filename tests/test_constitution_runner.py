@@ -10,8 +10,11 @@ from core.quality_gate.constitution.runner import (  # pyright: ignore[reportMis
     _scan_file_compliance,
     _scan_directory,
     _dimensions_for_phase,
+    _threshold_for_dimension,
     run_constitution_check,
 )
+
+from constitution import get_phase_thresholds  # pyright: ignore[reportMissingImports]
 
 
 class TestConstitutionResult:
@@ -186,7 +189,24 @@ class TestScanDirectory:
         assert result.score < 30
         assert len(result.violations) > 0
 
-    def test_dimensions_in_result(self, tmp_path):
+    def test_dimensions_in_result_phase4(self, tmp_path):
+        """Phase 4 uses all 4 dimensions."""
+        docs = tmp_path / "docs"
+        docs.mkdir()
+        (docs / "SAD.md").write_text(
+            "# Architecture\n\n## FR-01 quality gate test coverage\n\n"
+            "Constitution traceability with HMAC signature verification.\n"
+            "Acceptance criteria defined with pytest unit test coverage.\n"
+            "## FR-02 security auth validation RBAC permission token encrypt\n"
+        )
+        result = _scan_directory(docs, phase=4, check_type="sad")
+        assert "correctness" in result.dimensions
+        assert "security" in result.dimensions
+        assert "maintainability" in result.dimensions
+        assert "coverage" in result.dimensions
+
+    def test_dimensions_in_result_phase3(self, tmp_path):
+        """Phase 3 uses only correctness+security."""
         docs = tmp_path / "docs"
         docs.mkdir()
         (docs / "SAD.md").write_text(
@@ -198,17 +218,18 @@ class TestScanDirectory:
         result = _scan_directory(docs, phase=3, check_type="sad")
         assert "correctness" in result.dimensions
         assert "security" in result.dimensions
-        assert "maintainability" in result.dimensions
-        assert "coverage" in result.dimensions
+        # P3 does NOT use maintainability/coverage for scoring
+        # (dimensions are still computed but not used in aggregate)
 
 
 class TestDimensionsForPhase:
-    def test_phase1_2_only_correctness_security(self):
-        assert _dimensions_for_phase(1) == ["correctness", "security"]
-        assert _dimensions_for_phase(2) == ["correctness", "security"]
+    def test_phase1_to_3_only_correctness_security(self):
+        for p in (1, 2, 3):
+            assert _dimensions_for_phase(p) == ["correctness", "security"], \
+                f"Phase {p} should use only correctness+security"
 
-    def test_phase3_plus_all_four_dimensions(self):
-        for p in range(3, 9):
+    def test_phase4_plus_all_four_dimensions(self):
+        for p in range(4, 9):
             dims = _dimensions_for_phase(p)
             assert "correctness" in dims
             assert "security" in dims
@@ -262,7 +283,7 @@ class TestRunConstitutionCheck:
         assert result.check_mode == "preflight"
         assert result.phase == 1
 
-    def test_phase3_uses_all_dimensions(self, tmp_path):
+    def test_phase4_uses_all_dimensions(self, tmp_path):
         docs = tmp_path / "docs"
         docs.mkdir()
         (docs / "SAD.md").write_text(
@@ -271,8 +292,8 @@ class TestRunConstitutionCheck:
             "## security auth validation RBAC HMAC signature encrypt\n"
             "## pytest unit test mock fixture assert coverage report\n"
         )
-        result = run_constitution_check("sad", str(docs), current_phase=3)
-        assert result.phase == 3
+        result = run_constitution_check("sad", str(docs), current_phase=4)
+        assert result.phase == 4
         assert "correctness" in result.dimensions
         assert "security" in result.dimensions
         assert "maintainability" in result.dimensions
@@ -288,3 +309,70 @@ class TestRunConstitutionCheck:
         result = run_constitution_check("quality_report", str(docs), current_phase=6)
         assert result.phase == 6
         assert result.check_type == "quality_report"
+
+
+class TestThresholdForDimension:
+    def test_correctness_threshold_p1_to_p4(self):
+        for p in (1, 2, 3, 4):
+            assert _threshold_for_dimension("correctness", p) == 100.0
+
+    def test_security_threshold_p1_to_p4(self):
+        for p in (1, 2, 3, 4):
+            assert _threshold_for_dimension("security", p) == 100.0
+
+    def test_maintainability_threshold_p1_to_p4(self):
+        for p in (1, 2, 3, 4):
+            assert _threshold_for_dimension("maintainability", p) == 90.0
+
+    def test_coverage_threshold_p1_to_p4(self):
+        for p in (1, 2, 3, 4):
+            assert _threshold_for_dimension("coverage", p) == 90.0
+
+    def test_all_dimensions_p5_plus_use_80(self):
+        for p in (5, 6, 7, 8):
+            for dim in ("correctness", "security", "maintainability", "coverage"):
+                assert _threshold_for_dimension(dim, p) == 80.0, \
+                    f"{dim} at phase {p} should be 80.0"
+
+    def test_unknown_dimension_fallback(self):
+        assert _threshold_for_dimension("unknown", 3) == 80.0
+
+
+class TestGetPhaseThresholds:
+    def test_phase1_has_correct_th_rules(self):
+        rules = get_phase_thresholds(1)
+        assert "TH-01" in rules
+        assert "TH-03" in rules
+        assert "TH-04" in rules
+        assert "TH-08" in rules
+        assert "TH-14" in rules
+        assert "TH-15" in rules
+        # P1 should NOT have TH-05/TH-06
+        assert "TH-05" not in rules
+        assert "TH-06" not in rules
+
+    def test_phase3_has_correct_th_rules(self):
+        rules = get_phase_thresholds(3)
+        assert "TH-06" in rules
+        assert "TH-10" in rules
+        assert "TH-11" in rules
+        assert "TH-15" in rules
+        assert "TH-16" in rules
+
+    def test_phase6_has_correct_th_rules(self):
+        rules = get_phase_thresholds(6)
+        assert "TH-02" in rules
+        assert "TH-07" in rules
+        assert "TH-15" in rules
+
+    def test_all_17_rules_exist(self):
+        from constitution import get_th_rules
+        all_rules = get_th_rules()
+        assert len(all_rules) == 17
+        for th_id in [f"TH-{i:02d}" for i in range(1, 18)]:
+            assert th_id in all_rules, f"{th_id} missing from get_th_rules()"
+
+    def test_each_rule_has_4_tuple_elements(self):
+        from constitution import get_th_rules
+        for th_id, rule in get_th_rules().items():
+            assert len(rule) == 4, f"{th_id} should have 4 elements: {rule}"

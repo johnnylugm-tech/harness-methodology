@@ -82,8 +82,8 @@ _SECURITY_KEYWORDS: List[str] = [
 
 _MAINTAINABILITY_KEYWORDS: List[str] = [
     "docstring", "type hint", "dataclass", "abc",
-    "interface", "module", "class ", "def ",
-    "import ", "from ", "snake_case", "PascalCase",
+    "interface", "module", "class", "def",
+    "import", "from", "snake_case", "PascalCase",
 ]
 
 _COVERAGE_KEYWORDS: List[str] = [
@@ -91,6 +91,14 @@ _COVERAGE_KEYWORDS: List[str] = [
     "mock", "fixture", "assert", "coverage report",
     "test plan", "regression",
 ]
+
+# Per-dimension rule mapping for violation reporting
+_DIM_RULE_MAP: Dict[str, str] = {
+    "correctness": "TH-03",
+    "security": "TH-04",
+    "maintainability": "TH-05",
+    "coverage": "TH-06",
+}
 
 # Patterns that indicate hardcoded secrets (security violation)
 _SECRET_PATTERNS: List[str] = [
@@ -172,11 +180,15 @@ def _scan_file_compliance(file_path: Path) -> Dict[str, float]:
 def _dimensions_for_phase(phase: int) -> List[str]:
     """Return the active constitution dimensions for a given phase.
 
-    P1-P2: correctness + security (TH-03=100%, TH-04=100%)
-    P3-P4: correctness + security + maintainability + coverage (TH-03~TH-06)
+    P1-P3: correctness + security (TH-03=100%, TH-04=100%)
+    P4:    correctness + security + maintainability + coverage (TH-03~TH-06)
     P5-P8: all 4 dimensions composite (TH-02 ≥80%)
+
+    Note: P3 uses only correctness+security despite TH-06 (coverage>90%)
+    applying to P3-P4, because TH-11 only requires coverage ≥70% for P3.
+    The per-dimension coverage threshold of 90% kicks in at P4.
     """
-    if phase <= 2:
+    if phase <= 3:
         return ["correctness", "security"]
     return ["correctness", "security", "maintainability", "coverage"]
 
@@ -285,10 +297,6 @@ def _scan_directory(docs_path: Path, phase: int, check_type: str) -> Constitutio
     passed = score >= const_threshold
 
     # Generate per-dimension violations
-    _DIM_RULE_MAP = {
-        "correctness": "TH-03", "security": "TH-04",
-        "maintainability": "TH-05", "coverage": "TH-06",
-    }
     for dim in active_dims:
         dim_threshold = _threshold_for_dimension(dim, phase)
         dim_score = agg_dims.get(dim, 0.0)
