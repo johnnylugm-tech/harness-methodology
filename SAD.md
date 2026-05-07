@@ -2523,7 +2523,8 @@ The SAB (Software Architecture Baseline) is a machine-readable architecture cont
 - P2: git log contains `phase1(human-review): Phase 1 deliverables APPROVED`
 - P3: git log contains `phase2(human-review): Phase 2 deliverables APPROVED`
 - P4–P5: `quality_manifest.json` exists + predecessor Gate PASS
-- P6–P8: `quality_manifest.json` exists + Gate 4 PASS
+- P6: `quality_manifest.json` exists + Gate 3 PASS
+- P7–P8: `quality_manifest.json` exists + Gate 4 PASS
 
 ---
 

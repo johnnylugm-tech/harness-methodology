@@ -145,7 +145,7 @@ def _verify_entry_gate(project: Path, phase: int) -> dict:
     except Exception as e:
         return {"passed": False, "reason": f"Manifest parse error: {e}"}
 
-    return {"passed": True, "gate": "Unknown"}
+    return {"passed": False, "gate": "Unknown", "reason": f"No entry gate defined for phase {phase}"}
 
 
 def cmd_run_phase(args: argparse.Namespace) -> int:

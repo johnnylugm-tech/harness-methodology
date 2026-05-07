@@ -88,7 +88,8 @@
 
 | Phase Range | 適用 TH | 維度 | 門檻 |
 |-------------|---------|------|------|
-| P1–P2 | TH-03, TH-04 | correctness + security | =100% (FrameworkEnforcer BLOCK) |
+| P1 | TH-03, TH-04 | correctness + security | =100% (FrameworkEnforcer BLOCK) |
+| P2 | TH-03, TH-04, TH-05 | correctness + security + maintainability | correctness=100%, security=100%, maintainability>90% |
 | P3 | TH-03, TH-04, TH-05 | correctness + security + maintainability | correctness=100%, security=100%, maintainability>90% |
 | P4 | TH-03, TH-04, TH-05, TH-06 | correctness + security + maintainability + coverage | =100% / >90% / >90% (FrameworkEnforcer BLOCK) |
 | P5–P8 | TH-02 | constitution 綜合 | ≥80% (FrameworkEnforcer BLOCK + Constitution) |
