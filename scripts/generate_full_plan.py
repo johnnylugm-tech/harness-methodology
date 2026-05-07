@@ -407,7 +407,7 @@ def _entry_gate_check(phase: int) -> List[str]:
         5: ("Gate 3 PASS",
             ".methodology/quality_manifest.json records Gate 3 PASS from P4"),
         6: ("Gate 3 PASS",
-            ".methodology/quality_manifest.json records Gate 3 PASS from P5"),
+            ".methodology/quality_manifest.json records Gate 3 PASS from P4"),
         7: ("Gate 4 PASS",
             ".methodology/quality_manifest.json records Gate 4 PASS from P6"),
         8: ("Gate 4 PASS",
