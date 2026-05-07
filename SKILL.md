@@ -4,6 +4,94 @@
 
 ---
 
+## 0. Agent Behavioral Contract (READ FIRST — NOT Reference)
+
+This section is **procedural, not descriptive**. It tells you (the main agent) what to DO when the user asks you to perform phase work. Reference material starts at §1.
+
+### 0.1 Entry Procedure — Mandatory First Actions
+
+When the user says "execute Phase N", "start P3", "implement FR-X", or any phase-work request:
+
+```
+1. GENERATE PLAN (always first action for a new phase):
+   python harness_cli.py plan-phase --phase N --repo . --output .methodology/phaseN_plan.md
+   → Internally calls generate_full_plan.py. Produces the authoritative task list for this phase.
+
+2. PRESENT PLAN to user. Summarize: phase, FR count, preflight checks, checkpoints, estimated effort.
+   Do NOT execute any work yet.
+
+3. WAIT for user confirmation ("confirm", "execute", "proceed", "開始", "確認").
+   NEVER start work without explicit user confirmation.
+
+4. EXECUTE plan top-to-bottom:
+   [PREFLIGHT]     → run-phase --phase N (FSM + Constitution + kill-switch + drift + SAB + traceability)
+   [A/B Work]      → Agent A develops → Agent B reviews → sessions_spawn.log (HR-01, HR-10)
+   [CHECKPOINT-K]  → run-gate → Claude evaluates inline → finalize-gate → git push
+
+5. GATE FAIL? → fix → re-run gate. NEVER advance past a failing gate (HR-08).
+
+6. PHASE COMPLETE → Verify Phase Completion Checklist (§0.4) → advance to Phase N+1 (back to step 1).
+```
+
+**Crash recovery**: `python harness_cli.py generate-next-plan --project .` → open plan file → resume from next unchecked item.
+
+### 0.2 Source of Truth — One Authority Per Moment
+
+| Moment | Authority | Action |
+|--------|-----------|--------|
+| Phase entry (new phase) | SKILL.md §1–§2 | Check routing, gates, hard rules |
+| Inside a phase | `.methodology/phaseN_plan.md` | Follow checklist top-to-bottom |
+| After crash / context reset | `generate-next-plan` | Get position report, then resume plan |
+
+> Do NOT re-read SKILL.md mid-phase for task details — the plan file is the authority.
+
+### 0.3 Verify At Each Boundary
+
+| Boundary | What to verify | CLI |
+|----------|---------------|-----|
+| Before any phase work | FSM state, constitution, kill-switch, drift, SAB, traceability, gap analysis, CI readiness | `run-phase --phase N` |
+| After each FR (P3/P4/P5/P7/P8) | Gate 1 per-FR (each dim ≥ 75) | `run-gate --gate 1 --fr-id FR-XX` + evaluate + `finalize-gate` |
+| Phase exit (P3→Gate2, P4→Gate3, P6→Gate4) | Gate score ≥ threshold + Phase Truth ≥ 70% (HR-11) | `run-gate --gate N` + evaluate + `finalize-gate` |
+| P1/P2 exit | Human peer review (no automated gate) | Deliverables: SRS.md / SAD.md + ADR.md |
+| After crash | Current position + next checkpoint | `generate-next-plan` |
+
+### 0.4 Phase Completion Checklist (Mandatory — Every Phase)
+
+Before advancing to Phase N+1, confirm ALL:
+
+- [ ] All checkpoints in plan marked done
+- [ ] HANDOVER.md written (auto on git push via GitStrategy)
+- [ ] Git pushed to remote (confirmed push output, no "push skipped")
+- [ ] Next phase plan exists (`plan-phase --phase N+1` completed)
+- [ ] state.json updated (phase advanced in `.methodology/state.json`)
+- [ ] Git tag pushed (Gate 4 only): `harness-v4-YYYYMMDD-scoreXX`
+
+### 0.5 NEVER
+
+- Start coding without `plan-phase` output
+- Execute before user confirms the plan
+- Skip preflight (`run-phase`)
+- Advance phase after gate failure (HR-08)
+- Mix manual mode and `run-pipeline` in the same phase
+- Re-read SKILL.md for task details mid-phase (use plan file)
+- Skip `sessions_spawn.log` entries (HR-10)
+
+### 0.6 Quick Reference — CLI Entry Points
+
+| Intent | Command |
+|--------|---------|
+| Plan a new phase | `python harness_cli.py plan-phase --phase N --repo . --output .methodology/phaseN_plan.md` |
+| Run preflight for a phase | `python harness_cli.py run-phase --phase N` |
+| Run a gate evaluation | `python harness_cli.py run-gate --gate N --phase P [--fr-id FR-XX]` |
+| Finalize a gate | `python harness_cli.py finalize-gate --gate N --phase P` |
+| Recover from crash | `python harness_cli.py generate-next-plan --project .` |
+| Audit a completed phase | `python harness_cli.py audit-phase --phase N --repo .` |
+| Full autonomous pipeline | `python harness_cli.py run-pipeline --phase-from N` |
+
+> Full execution loop details: SAD.md §9. Phase E2E flow + entry/exit matrix: SAD.md §11.
+
+---
+
 ## 1. Phase Routing
 
 | Phase | Name | Entry Score | Exit Gate | Key Artifact |
