@@ -152,6 +152,26 @@ class TestMerge:
         merged = base.merge(override)
         assert merged.phase_directory(1) == "custom-phase-1"
 
+    def test_merge_only_active_dims_preserves_threshold(self):
+        """Partial phase override (active_dims only) must not reset composite_threshold."""
+        base = defaults()
+        override = ConstitutionProfile.from_dict({
+            "phases": {"1": {"active_dimensions": ["correctness", "security", "maintainability"]}}
+        })
+        merged = base.merge(override)
+        assert merged.composite_threshold(1) == 100.0
+        assert merged.active_dimensions(1) == ["correctness", "security", "maintainability"]
+
+    def test_merge_only_keywords_preserves_dimension_threshold(self):
+        """Partial dimension override (keywords only) must not reset threshold."""
+        base = defaults()
+        override = ConstitutionProfile.from_dict({
+            "dimensions": {"correctness": {"keywords": ["my-fr"]}}
+        })
+        merged = base.merge(override)
+        assert merged.dimension_threshold("correctness") == 100.0
+        assert merged.dimension_keywords("correctness") == ["my-fr"]
+
 
 class TestLoadProfile:
     def setup_method(self):

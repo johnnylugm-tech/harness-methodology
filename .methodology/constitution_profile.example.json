@@ -4,7 +4,7 @@
   "_docs": {
     "description": "This file controls how the constitution checker evaluates your project artifacts.",
     "load_order": "1. Built-in defaults (shown here)  2. .methodology/constitution_profile.json  3. METHODOLOGY_CONSTITUTION_PROFILE env var (JSON string)",
-    "merge_rules": "Lists are replaced (not appended). Dicts are merged key-by-key. Omitted keys keep defaults.",
+    "merge_rules": "Non-empty lists replace defaults. Empty list ([]) means 'keep existing'. Dicts are merged key-by-key. Omitted keys keep defaults. Omitted numeric thresholds keep existing values (not reset to defaults).",
     "quick_start": "To change the coverage threshold for Phase 4: set dimensions.coverage.threshold to your value. To add custom keywords for security: set dimensions.security.keywords to your full list."
   },
 

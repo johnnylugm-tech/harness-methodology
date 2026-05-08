@@ -37,7 +37,7 @@ from typing import Dict, List, Optional
 class DimensionProfile:
     """Per-dimension configuration: keywords, threshold, and rule reference."""
 
-    threshold: float = 90.0
+    threshold: Optional[float] = None
     keywords: List[str] = field(default_factory=list)
     rule: str = "TH-02"
     hardcoded_secret_patterns: List[str] = field(default_factory=list)
@@ -53,7 +53,7 @@ class DimensionProfile:
     @classmethod
     def from_dict(cls, d: dict) -> "DimensionProfile":
         return cls(
-            threshold=d.get("threshold", 90.0),
+            threshold=d.get("threshold"),
             keywords=d.get("keywords", []),
             rule=d.get("rule", "TH-02"),
             hardcoded_secret_patterns=d.get("hardcoded_secret_patterns", []),
@@ -65,7 +65,7 @@ class PhaseProfile:
     """Per-phase configuration: which dimensions are active and the composite threshold."""
 
     active_dimensions: List[str] = field(default_factory=list)
-    composite_threshold: float = 80.0
+    composite_threshold: Optional[float] = None
 
     def to_dict(self) -> dict:
         return {
@@ -77,7 +77,7 @@ class PhaseProfile:
     def from_dict(cls, d: dict) -> "PhaseProfile":
         return cls(
             active_dimensions=d.get("active_dimensions", []),
-            composite_threshold=d.get("composite_threshold", 80.0),
+            composite_threshold=d.get("composite_threshold"),
         )
 
 
@@ -119,7 +119,9 @@ class ConstitutionProfile:
     def composite_threshold(self, phase: int) -> float:
         """Return the composite constitution score threshold for a phase."""
         p = self.phases.get(phase)
-        return p.composite_threshold if p else 80.0
+        if p and p.composite_threshold is not None:
+            return p.composite_threshold
+        return 80.0
 
     def dimension_threshold(self, dim: str, _phase: int = 1) -> float:
         """Return the per-dimension threshold.
@@ -129,7 +131,9 @@ class ConstitutionProfile:
         accepted for caller convenience but does not affect the result.
         """
         d = self.dimensions.get(dim)
-        return d.threshold if d else 80.0
+        if d and d.threshold is not None:
+            return d.threshold
+        return 80.0
 
     def dimension_keywords(self, dim: str) -> List[str]:
         """Return the keyword set for a dimension."""
@@ -211,7 +215,7 @@ class ConstitutionProfile:
                 existing = result.phases[pk]
                 result.phases[pk] = PhaseProfile(
                     active_dimensions=pv.active_dimensions or existing.active_dimensions,
-                    composite_threshold=pv.composite_threshold,
+                    composite_threshold=pv.composite_threshold if pv.composite_threshold is not None else existing.composite_threshold,
                 )
             else:
                 result.phases[pk] = pv
@@ -220,7 +224,7 @@ class ConstitutionProfile:
             if dk in result.dimensions:
                 existing = result.dimensions[dk]
                 result.dimensions[dk] = DimensionProfile(
-                    threshold=dv.threshold,
+                    threshold=dv.threshold if dv.threshold is not None else existing.threshold,
                     keywords=dv.keywords or existing.keywords,
                     rule=dv.rule or existing.rule,
                     hardcoded_secret_patterns=dv.hardcoded_secret_patterns or existing.hardcoded_secret_patterns,
@@ -361,7 +365,7 @@ def load_profile(
     resolved_path = path or ".methodology/constitution_profile.json"
     if os.path.exists(resolved_path):
         try:
-            with open(resolved_path, "r") as f:
+            with open(resolved_path, "r", encoding="utf-8") as f:
                 profile = profile.merge(ConstitutionProfile.from_dict(json.load(f)))
         except Exception:
             import warnings
@@ -371,7 +375,7 @@ def load_profile(
     enforcement_path = ".methodology/enforcement.json"
     if os.path.exists(enforcement_path):
         try:
-            with open(enforcement_path, "r") as f:
+            with open(enforcement_path, "r", encoding="utf-8") as f:
                 enforcement_data = json.load(f)
             constitution_override = enforcement_data.get("constitution")
             if constitution_override:
