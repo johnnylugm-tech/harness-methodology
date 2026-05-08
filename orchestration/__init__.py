@@ -144,6 +144,7 @@ def run_policy_check_with_feedback(
                     results = engine.enforce_all()
                     return results
                 except PolicyViolationException as e2:
+                    e = e2
                     if retry >= max_retries:
                         raise
             else:

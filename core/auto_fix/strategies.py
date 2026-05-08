@@ -68,7 +68,7 @@ def fix_missing_aspice_docs(context, project_root: Path) -> Tuple[bool, str, flo
 
 
 def fix_commit_message(context, project_root: Path) -> Tuple[bool, str, float]:
-    """Amend last commit message with [FR-XX] prefix."""
+    """Create a new commit with [FR-XX] prefix — never amends history."""
     fr_id = context.fr_id or context.details.get("fr_id", "FR-UNKNOWN")
     try:
         result = subprocess.run(
@@ -78,14 +78,14 @@ def fix_commit_message(context, project_root: Path) -> Tuple[bool, str, float]:
         current_msg = result.stdout.strip()
         if f"[{fr_id}]" in current_msg:
             return (True, f"Commit already has [{fr_id}]", 90.0)
-        new_msg = f"[{fr_id}] {current_msg}"
+        new_msg = f"[{fr_id}] Fix: {current_msg}"
         subprocess.run(
-            ["git", "-C", str(project_root), "commit", "--amend", "-m", new_msg],
+            ["git", "-C", str(project_root), "commit", "--allow-empty", "-m", new_msg],
             capture_output=True, text=True, check=True
         )
-        return (True, f"Amended commit message with [{fr_id}]", 85.0)
+        return (True, f"Created commit with [{fr_id}] prefix", 85.0)
     except subprocess.CalledProcessError:
-        return (False, "Failed to amend commit message", 40.0)
+        return (False, "Failed to create commit", 40.0)
 
 
 def fix_keyword_density(context, project_root: Path) -> Tuple[bool, str, float]:
@@ -106,7 +106,7 @@ def fix_keyword_density(context, project_root: Path) -> Tuple[bool, str, float]:
             if kw.lower() not in content.lower():
                 new_section += f"- {kw}\n"
                 added += 1
-        if new_section.strip():
+        if added > 0:
             p.write_text(content.rstrip() + new_section, encoding="utf-8")
     return (True, f"Added {added} keyword(s) for {dimension}", 80.0)
 
@@ -239,7 +239,7 @@ def fix_constitution_dimension(context, project_root: Path) -> Tuple[bool, str, 
             if kw.lower() not in content.lower():
                 section += f"- {kw}\n"
                 added += 1
-        if section.strip():
+        if added > 0:
             p.write_text(content.rstrip() + section, encoding="utf-8")
 
     conf = 70.0 if dimension == "correctness" else 60.0

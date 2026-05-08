@@ -691,7 +691,7 @@ def _auto_fix_loop(hooks, pre: dict, phase: int, project: Path,
     """
     from core.auto_fix import AutoFixEngine, FixContext
 
-    engine = AutoFixEngine(project_root=project, phase=phase, max_rounds=5)
+    engine = AutoFixEngine(project_root=project, phase=phase, max_rounds=max_rounds)
     engine.start_phase_timer(estimate_seconds=max_rounds * 180.0)  # HR-13: 3 min per fix round
 
     fix_ctx_data = pre.get("details", {}).get("_fix_context", {})

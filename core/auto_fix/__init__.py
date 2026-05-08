@@ -206,7 +206,7 @@ class AutoFixEngine:
         rounds = self._round_counters.get(round_key, context.retry_count)
 
         # HR-12: max rounds exceeded
-        if rounds > self.max_rounds:
+        if rounds >= self.max_rounds:
             return EscalationCondition.HR12_MAX_ROUNDS
 
         # HR-14: integrity freeze
