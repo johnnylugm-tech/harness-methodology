@@ -9,7 +9,6 @@ Each strategy function:
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 from typing import Callable, Dict, Tuple
 
@@ -20,9 +19,9 @@ def fix_missing_artifact(context, project_root: Path) -> Tuple[bool, str, float]
     """Generate missing artifact stub with phase-appropriate boilerplate."""
     artifact_name = context.details.get("artifact_name", context.details.get("name", "unknown"))
     phase = context.phase
-    phase_dir = _phase_directory(phase, project_root)
-    phase_dir.mkdir(parents=True, exist_ok=True)
-    file_path = phase_dir / f"{artifact_name}.md"
+    docs_dir = project_root / "docs"
+    docs_dir.mkdir(parents=True, exist_ok=True)
+    file_path = docs_dir / f"{artifact_name}.md"
     if file_path.exists():
         return (True, f"Artifact {artifact_name} already exists", 95.0)
     _write_stub(file_path, artifact_name, phase)
@@ -65,27 +64,6 @@ def fix_missing_aspice_docs(context, project_root: Path) -> Tuple[bool, str, flo
         encoding="utf-8",
     )
     return (True, f"Generated ASPICE stub: {file_path}", 85.0)
-
-
-def fix_commit_message(context, project_root: Path) -> Tuple[bool, str, float]:
-    """Create a new commit with [FR-XX] prefix — never amends history."""
-    fr_id = context.fr_id or context.details.get("fr_id", "FR-UNKNOWN")
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(project_root), "log", "-1", "--format=%s"],
-            capture_output=True, text=True
-        )
-        current_msg = result.stdout.strip()
-        if f"[{fr_id}]" in current_msg:
-            return (True, f"Commit already has [{fr_id}]", 90.0)
-        new_msg = f"[{fr_id}] Fix: {current_msg}"
-        subprocess.run(
-            ["git", "-C", str(project_root), "commit", "--allow-empty", "-m", new_msg],
-            capture_output=True, text=True, check=True
-        )
-        return (True, f"Created commit with [{fr_id}] prefix", 85.0)
-    except subprocess.CalledProcessError:
-        return (False, "Failed to create commit", 40.0)
 
 
 def fix_keyword_density(context, project_root: Path) -> Tuple[bool, str, float]:
@@ -292,7 +270,6 @@ STRATEGY_REGISTRY: Dict[str, Callable] = {
     "missing_spec_tracking": fix_missing_spec_tracking,
     "missing_traceability": fix_missing_traceability,
     "missing_aspice_docs": fix_missing_aspice_docs,
-    "missing_commit_task_id": fix_commit_message,
     "low_keyword_density": fix_keyword_density,
     "missing_section_headers": fix_section_headers,
     "hollow_content": fix_hollow_content,
@@ -304,13 +281,6 @@ STRATEGY_REGISTRY: Dict[str, Callable] = {
 }
 
 # ── Internal helpers ─────────────────────────────────────────────────────────
-
-
-def _phase_directory(phase: int, project_root: Path) -> Path:
-    from core.quality_gate.constitution.profile import get_profile
-    profile = get_profile()
-    dir_name = profile.phase_directory(phase)
-    return project_root / dir_name
 
 
 def _load_fr_ids(project_root: Path) -> list:

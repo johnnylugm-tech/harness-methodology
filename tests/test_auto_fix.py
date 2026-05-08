@@ -86,6 +86,14 @@ class TestClassifier:
         )
         assert strat == FixStrategy.HUMAN_REQUIRED
 
+    def test_missing_commit_task_id_is_human_required(self):
+        strat, conf, max_r, pt = classify(
+            "policy_engine/missing_commit_task_id",
+            {"problem_type": "missing_commit_task_id"},
+        )
+        assert strat == FixStrategy.HUMAN_REQUIRED
+        assert max_r == 0
+
     def test_dimension_confidence_modifies_security(self):
         _, conf, _, _ = classify(
             "constitution/low_score",
@@ -146,10 +154,12 @@ class TestStrategies:
         success, action, conf = fix_missing_artifact(context, tmp_path)
         assert success
         assert conf == 95.0
+        assert (tmp_path / "docs" / "TEST_ARTIFACT.md").exists()
+        assert "docs" in action
 
     def test_fix_missing_artifact_skips_existing(self, tmp_path: Path):
-        (tmp_path / "01-requirements").mkdir(parents=True)
-        existing = tmp_path / "01-requirements" / "EXISTING.md"
+        (tmp_path / "docs").mkdir(parents=True)
+        existing = tmp_path / "docs" / "EXISTING.md"
         existing.write_text("# Existing")
 
         context = FixContext(

@@ -90,10 +90,10 @@ CLASSIFICATION_TABLE: Dict[str, Dict[str, Any]] = {
 
     # ── enforcement/policy_engine.py ──
     "policy_engine/missing_commit_task_id": {
-        "strategy": FixStrategy.AUTO_FIX,
-        "confidence": 90.0,
-        "max_rounds": 1,
-        "problem_type": "missing_commit_task_id",
+        "strategy": FixStrategy.HUMAN_REQUIRED,
+        "confidence": 0.0,
+        "max_rounds": 0,
+        "problem_type": "hard_rule_violation",
     },
     "policy_engine/quality_gate_low": {
         "strategy": FixStrategy.AUTO_FIX_WITH_VERIFICATION,
