@@ -675,21 +675,87 @@ def _plan_phase_silent(phase: int, repo: Path, output: Path) -> None:
         print(f"  [WARN] plan-phase error: {exc} — continuing without plan")
 
 
+def _auto_fix_loop(hooks, pre: dict, phase: int, project: Path,
+                   max_rounds: int = 3) -> dict:
+    """Core auto-fix loop: fix -> verify -> repeat or escalate.
+
+    Args:
+        hooks: PhaseHooks instance.
+        pre: Preflight results dict.
+        phase: Current phase number.
+        project: Project root path.
+        max_rounds: Maximum auto-fix rounds.
+
+    Returns:
+        Updated results dict with possible "escalation" key.
+    """
+    from core.auto_fix import AutoFixEngine, FixContext
+
+    engine = AutoFixEngine(project_root=project, phase=phase, max_rounds=5)
+    engine.start_phase_timer(estimate_seconds=max_rounds * 180.0)  # HR-13: 3 min per fix round
+
+    fix_ctx_data = pre.get("details", {}).get("_fix_context", {})
+    if not fix_ctx_data:
+        return pre
+
+    context = FixContext(
+        source=fix_ctx_data.get("source", "phase_hooks"),
+        problem_type=fix_ctx_data.get("problem_type", "preflight_failure"),
+        severity=fix_ctx_data.get("severity", "high"),
+        phase=phase,
+        project_root=project,
+        details=fix_ctx_data,
+    )
+
+    for round_num in range(1, max_rounds + 1):
+        context.retry_count = round_num
+        result = engine.fix(context)
+
+        if result.escalation:
+            print(f"[AUTO-FIX] ESCALATED: {result.escalation.value} — human intervention required")
+            return {"all_passed": False, "escalation": result.escalation.value}
+
+        # Re-run preflight
+        check_result = hooks.preflight_all()
+        if check_result.get("all_passed"):
+            print(f"[AUTO-FIX] SUCCESS after {round_num} round(s)")
+            return check_result
+
+        print(f"[AUTO-FIX] Round {round_num}: fix applied but preflight still failing. "
+              f"Confidence: {result.confidence:.0f}%")
+
+    print(f"[AUTO-FIX] HR-12: max rounds ({max_rounds}) exceeded → PAUSE")
+    return {"all_passed": False, "escalation": "hr12_max_rounds_exceeded"}
+
+
 def _preflight(phase: int, project: Path, force: bool,
                enable_kill_switch: bool = True,
-               drift_threshold: float = 85.0) -> int:
+               drift_threshold: float = 85.0,
+               auto_fix: bool = True,
+               auto_fix_rounds: int = 3) -> int:
     """Run phase pre-flight hooks. Returns 0 on pass."""
     try:
         from core.phase_hooks import PhaseHooks
         hooks = PhaseHooks(str(project), phase=phase,
                            enable_kill_switch=enable_kill_switch,
-                           drift_threshold=drift_threshold)
+                           drift_threshold=drift_threshold,
+                           auto_fix_enabled=auto_fix)
         pre = hooks.preflight_all()
-        if not pre.get("all_passed") and not force:
-            print(f"  [PREFLIGHT FAIL] {pre.get('details', '')}")
+        if not pre.get("all_passed"):
+            if force:
+                print("  [PREFLIGHT FAIL] --force: continuing despite failures")
+                return 0
+            if auto_fix:
+                print("  [PREFLIGHT FAIL] Attempting auto-fix...")
+                pre = _auto_fix_loop(hooks, pre, phase, project, auto_fix_rounds)
+                if pre.get("all_passed"):
+                    print("  [PREFLIGHT] Auto-fix succeeded")
+                    return 0
+                if pre.get("escalation"):
+                    print(f"  [PREFLIGHT] Auto-fix escalated: {pre['escalation']}")
             return 1
         return 0
-    except Exception as exc:  # pylint: disable=broad-exception-caught
+    except Exception as exc:
         print(f"  [WARN] Phase hooks unavailable: {exc}")
         return 0 if force else 1
 
@@ -957,6 +1023,9 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
     print(f"run-pipeline  P{phase_from}→P{phase_to}  project={project}")
     print(f"force={args.force}  kill_switch={enable_kill_switch}  "
           f"drift_threshold={drift_threshold}")
+    auto_fix = not getattr(args, "no_auto_fix", False)
+    auto_fix_rounds = min(getattr(args, "auto_fix_rounds", 3), 5)
+    print(f"auto_fix={auto_fix}  auto_fix_rounds={auto_fix_rounds}")
     print(f"{'='*60}")
 
     # Optional M1 kill-switch: check circuit state before first phase
@@ -1037,9 +1106,12 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
 
         # ── Step 2: Preflight ─────────────────────────────────────────────
         print(f"\n[{phase}.2] preflight")
-        if _preflight(phase, project, force=args.force,
-                      enable_kill_switch=enable_kill_switch,
-                      drift_threshold=drift_threshold) != 0:
+        pf_result = _preflight(phase, project, force=args.force,
+                               enable_kill_switch=enable_kill_switch,
+                               drift_threshold=drift_threshold,
+                               auto_fix=auto_fix,
+                               auto_fix_rounds=auto_fix_rounds)
+        if pf_result != 0:
             print(f"[BLOCKED] Preflight failed for Phase {phase}.")
             print(f"  Fix constitution/FSM issues, then re-run with --phase-from {phase}")
             return 10
@@ -1500,6 +1572,10 @@ def build_parser() -> argparse.ArgumentParser:
                      help="Disable M1 kill-switch circuit breaker")
     rpl.add_argument("--drift-threshold", type=float, default=85.0, dest="drift_threshold",
                      help="M2 drift detection ensemble score threshold (default: 85.0)")
+    rpl.add_argument("--auto-fix-rounds", type=int, default=3, dest="auto_fix_rounds",
+                     help="Max auto-fix rounds per problem (default: 3, max: 5)")
+    rpl.add_argument("--no-auto-fix", action="store_true", dest="no_auto_fix",
+                     help="Disable all auto-fix; fall back to detect→block→wait_for_human")
     rpl.set_defaults(func=cmd_run_pipeline)
 
     # manifest

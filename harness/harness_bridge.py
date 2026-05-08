@@ -73,6 +73,7 @@ class GateContext:
     work_dir: str
     sab_data: dict = field(default_factory=dict)
     tier3_context: dict = field(default_factory=dict)  # CRG Point 2 — per-dim context
+    auto_fix_rounds: int = 0
 
     def evaluation_prompt(self) -> str:
         """Return a human-readable evaluation instruction for Claude."""
@@ -200,6 +201,7 @@ class HarnessBridge:
         project_root: str,
         phase: int,
         fr_id: str | None = None,
+        auto_fix_rounds: int = 0,
     ) -> GateContext:
         """
         Phase 1 of the two-phase gate evaluation API.
@@ -224,6 +226,9 @@ class HarnessBridge:
         """
         self._last_gate_num = gate_num
         config = self._load_config(gate_num)
+        if auto_fix_rounds:
+            config = dict(config)
+            config["auto_fix_rounds"] = auto_fix_rounds
 
         # CRG Point 1: structural reconnaissance for gates that require it (Gate 3/4)
         if config.get("crg", {}).get("reconnaissance"):
@@ -256,6 +261,7 @@ class HarnessBridge:
             work_dir=str(work_dir),
             sab_data=sab_data,
             tier3_context=tier3_context,
+            auto_fix_rounds=auto_fix_rounds,
         )
 
     def finalize_gate(self, ctx: GateContext) -> GateResult:

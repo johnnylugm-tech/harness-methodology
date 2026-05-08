@@ -52,7 +52,8 @@ class PhaseHooks:
     """
 
     def __init__(self, project_path: str, phase: Optional[int] = None,
-                 enable_kill_switch: bool = True, drift_threshold: float = 85.0):
+                 enable_kill_switch: bool = True, drift_threshold: float = 85.0,
+                 auto_fix_enabled: bool = True):
         """
         Initialize the hooks manager.
 
@@ -61,6 +62,7 @@ class PhaseHooks:
             phase: Optional integer representing the current methodology phase.
             enable_kill_switch: Enable M1 kill-switch circuit breaker (default: True).
             drift_threshold: M2 drift detection ensemble score threshold (0-100, default: 85.0).
+            auto_fix_enabled: Enable auto-fix integration (default: True).
         """
         self.project_path = Path(project_path)
         self.phase = phase
@@ -71,6 +73,7 @@ class PhaseHooks:
         self.preflight_results: Dict[str, bool] = {}
         self.monitoring_events: List[Dict] = []
         self.drift_threshold = drift_threshold
+        self.auto_fix_enabled = auto_fix_enabled
         self._kill_switch: Optional[KillSwitch] = None
         if enable_kill_switch:
             self._kill_switch = KillSwitch()
@@ -379,8 +382,37 @@ class PhaseHooks:
             "ci_readiness": self.preflight_ci_readiness(),
         }
         all_passed = all(r.get("passed", False) for r in results.values())
+
+        if not all_passed and self.auto_fix_enabled:
+            results["_fix_context"] = {
+                "source": "phase_hooks",
+                "problem_type": "preflight_failure",
+                "severity": "high",
+                "phase": self.phase,
+                "failing_checks": [
+                    name for name, r in results.items()
+                    if not r.get("passed", False) and not name.startswith("_")
+                ],
+                "project_root": str(self.project_path),
+            }
+
         print(f"\nPRE-FLIGHT: {'PASS' if all_passed else 'FAIL'}")
         return {"all_passed": all_passed, "details": results}
+
+    def to_fix_context(self) -> dict:
+        """Serialize preflight failures for AutoFixEngine consumption."""
+        failing = {
+            name: r for name, r in self.preflight_results.items()
+            if not r and not name.startswith("_")
+        }
+        return {
+            "source": "phase_hooks",
+            "problem_type": "preflight_failure" if len(failing) > 1 else "low_constitution_score",
+            "severity": "high",
+            "phase": self.phase,
+            "failing_checks": list(failing.keys()),
+            "project_root": str(self.project_path),
+        }
 
     # MONITORING HOOKS
 

@@ -39,6 +39,7 @@ class ConstitutionResult:
     phase: int = 1
     check_mode: str = "preflight"
     dimensions: Dict[str, float] = field(default_factory=dict)
+    violation_problem_types: List[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -49,6 +50,21 @@ class ConstitutionResult:
             "check_type": self.check_type,
             "phase": self.phase,
             "dimensions": self.dimensions,
+        }
+
+    def to_fix_context(self) -> dict:
+        """Serialize for AutoFixEngine consumption."""
+        problem_type = "missing_artifact" if self.score == 0.0 else "low_constitution_score"
+        severity = "critical" if self.score < 80.0 else "high"
+        return {
+            "source": "constitution/runner",
+            "problem_type": problem_type,
+            "severity": severity,
+            "phase": self.phase,
+            "dimensions": dict(self.dimensions),
+            "score": self.score,
+            "violations": self.violations,
+            "files": [v.get("file", "") for v in self.violations if v.get("file")],
         }
 
 

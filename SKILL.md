@@ -32,7 +32,9 @@ When the user says "execute Phase N", "start P3", "implement FR-X", or any phase
                    → NEVER role-play A or B yourself — they MUST be separate sessions (HR-01: A≠B)
    [CHECKPOINT-K]  → run-gate → Claude evaluates inline → finalize-gate → git push
 
-5. GATE FAIL? → fix → re-run gate. NEVER advance past a failing gate (HR-08).
+5. GATE FAIL? → auto-fix (up to `--auto-fix-rounds` attempts) → re-run gate. NEVER advance past a failing gate (HR-08).
+   If auto-fix exhausts all rounds → escalated to human (see SAD.md §3.19 for 9 escalation conditions).
+   Use `--no-auto-fix` to fall back to detect→block→wait_for_human.
 
 6. PHASE COMPLETE → Verify Phase Completion Checklist (§0.4) → advance to Phase N+1 (back to step 1).
 ```
@@ -92,7 +94,7 @@ Before advancing to Phase N+1, confirm ALL:
 | Finalize a gate | `python harness_cli.py finalize-gate --gate N --phase P` |
 | Recover from crash | `python harness_cli.py generate-next-plan --project .` |
 | Audit a completed phase | `python harness_cli.py audit-phase --phase N --repo .` |
-| Full autonomous pipeline | `python harness_cli.py run-pipeline --phase-from N` |
+| Full autonomous pipeline | `python harness_cli.py run-pipeline --phase-from N [--auto-fix-rounds 3] [--no-auto-fix]` |
 
 > Full execution loop details: SAD.md §9. Phase E2E flow + entry/exit matrix: SAD.md §11.
 

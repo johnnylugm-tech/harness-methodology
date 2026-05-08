@@ -49,6 +49,8 @@ python harness_cli.py run-pipeline --phase-from N --project /path/to/project
 ```
 
 人類僅需介入 3 次：提供 SRS.md (P1)、提供 SAD.md (P2)、Gate 4 Telegram APPROVE。
+其餘所有品質問題由 AutoFixEngine 自動修復（最多 `--auto-fix-rounds` 輪，預設 3）。
+9 項嚴格的人類介入條件見 SAD.md §3.19。
 
 ### 手動分步
 

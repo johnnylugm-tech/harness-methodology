@@ -5,6 +5,8 @@ Provides retry-aware wrappers around constitution, enforcement, and gate runners
 
 Exports:
     run_constitution_check_with_feedback: constitution check with retry/fix loop.
+    run_enforcement_check_with_feedback: enforcement check with retry/fix loop.
+    run_policy_check_with_feedback: policy engine check with retry/fix loop.
 """
 
 from __future__ import annotations
@@ -22,10 +24,7 @@ def run_constitution_check_with_feedback(
 ) -> "ConstitutionResult":
     """Run constitution check with automatic retry and feedback.
 
-    Called by harness_cli.py and the run-pipeline flow.
-
-    On failure, suggests fix commands and retries up to max_retries times.
-    If auto_fix is True, attempts to auto-generate missing artifacts.
+    On failure, delegates auto-fix to AutoFixEngine.
 
     Args:
         check_type: Artifact type ("srs", "sad", "implementation", etc.).
@@ -37,7 +36,7 @@ def run_constitution_check_with_feedback(
     Returns:
         ConstitutionResult with .score, .passed, .violations.
     """
-    from core.quality_gate.constitution.runner import run_constitution_check
+    from core.quality_gate.constitution.runner import run_constitution_check, ConstitutionResult
 
     result = run_constitution_check(
         check_type=check_type,
@@ -47,16 +46,17 @@ def run_constitution_check_with_feedback(
         strict=False,
     )
 
+    if not auto_fix:
+        return result
+
     retry = 0
     while not result.passed and retry < max_retries:
         retry += 1
         print(f"\n[orchestration] Constitution check retry {retry}/{max_retries} — "
               f"score={result.score:.0f}%")
 
-        if auto_fix:
-            _attempt_auto_fix(result, docs_path, current_phase)
+        _attempt_auto_fix_with_engine(result, docs_path, current_phase, retry)
 
-        # Re-run after fix attempt
         result = run_constitution_check(
             check_type=check_type,
             docs_path=docs_path,
@@ -68,67 +68,145 @@ def run_constitution_check_with_feedback(
     return result
 
 
-def _attempt_auto_fix(
+def run_enforcement_check_with_feedback(
+    project_root: str,
+    phase: int = 1,
+    *,
+    max_retries: int = 3,
+    auto_fix: bool = False,
+) -> "EnforcementResult":
+    """Run enforcement check with retry and auto-fix loop.
+
+    Args:
+        project_root: Project root path.
+        phase: Current pipeline phase.
+        max_retries: Maximum fix-retry cycles.
+        auto_fix: Whether to attempt auto-fix on violations.
+
+    Returns:
+        EnforcementResult with .passed, .violations.
+    """
+    from enforcement.framework_enforcer import FrameworkEnforcer, EnforcementResult
+
+    enforcer = FrameworkEnforcer(project_root, phase=phase)
+    result = enforcer.run(level="BLOCK")
+
+    if not auto_fix:
+        return result
+
+    retry = 0
+    while not result.passed and retry < max_retries:
+        retry += 1
+        print(f"\n[orchestration] Enforcement check retry {retry}/{max_retries}")
+
+        fix_ctx = result.to_fix_context()
+        if _apply_fix(fix_ctx, project_root, phase, retry):
+            result = enforcer.run(level="BLOCK")
+        else:
+            break
+
+    return result
+
+
+def run_policy_check_with_feedback(
+    project_root: str = "",
+    *,
+    max_retries: int = 3,
+    auto_fix: bool = False,
+) -> "list":
+    """Run policy engine check with retry and auto-fix loop.
+
+    Args:
+        project_root: Project root path.
+        max_retries: Maximum fix-retry cycles.
+        auto_fix: Whether to attempt auto-fix on violations.
+
+    Returns:
+        List of PolicyResult objects.
+    """
+    from enforcement.policy_engine import PolicyEngine, PolicyViolationException
+
+    engine = PolicyEngine()
+
+    try:
+        results = engine.enforce_all()
+        return results
+    except PolicyViolationException as e:
+        if not auto_fix:
+            raise
+        retry = 0
+        while retry < max_retries:
+            retry += 1
+            print(f"\n[orchestration] Policy check retry {retry}/{max_retries}")
+            fix_ctx = e.to_fix_context()
+            if _apply_fix(fix_ctx, project_root, 1, retry):
+                try:
+                    results = engine.enforce_all()
+                    return results
+                except PolicyViolationException as e2:
+                    if retry >= max_retries:
+                        raise
+            else:
+                break
+        raise
+
+
+# ── Internal helpers ─────────────────────────────────────────────────────────
+
+
+def _attempt_auto_fix_with_engine(
     result,
     docs_path: str,
     current_phase: int,
+    retry_count: int,
 ) -> None:
-    """Attempt to auto-fix common constitution violations.
+    """Delegate auto-fix to AutoFixEngine."""
+    from core.auto_fix import AutoFixEngine, FixContext
 
-    Handles:
-    - Missing artifact stubs (generates minimal template)
-    - Low compliance (adds boilerplate section headers)
-    """
     path = Path(docs_path)
-    from core.quality_gate.constitution.runner import _PHASE_DIR_MAP
+    project_root = path.parent if path.name == "docs" else path
 
-    phase_dir_name = _PHASE_DIR_MAP.get(current_phase, "")
-    if not phase_dir_name:
-        return
+    engine = AutoFixEngine(project_root=project_root, phase=current_phase)
+    context = FixContext(
+        source="constitution/runner",
+        problem_type="missing_artifact" if result.score == 0.0 else "low_constitution_score",
+        severity="critical" if result.score < 80.0 else "high",
+        phase=current_phase,
+        project_root=project_root,
+        details={
+            "files": [str(project_root / v.get("file", "")) for v in result.violations if v.get("file")],
+            "score": result.score,
+            "dimensions": dict(result.dimensions),
+        },
+        retry_count=retry_count,
+    )
+    engine.fix(context)
 
-    artifact_dir = path.parent / phase_dir_name if path.name == "docs" else path
-    artifact_dir.mkdir(parents=True, exist_ok=True)
 
-    for violation in result.violations:
-        file_path = path.parent / violation.get("file", "")
-        if not file_path.parent.exists():
-            file_path.parent.mkdir(parents=True, exist_ok=True)
+def _apply_fix(fix_ctx: dict, project_root: str, phase: int, retry_count: int) -> bool:
+    """Apply a fix using AutoFixEngine. Returns True if fix was attempted."""
+    from core.auto_fix import AutoFixEngine, FixContext
 
-        if not file_path.exists():
-            _generate_stub(file_path, current_phase)
-
-
-def _generate_stub(file_path: Path, phase: int) -> None:
-    """Generate a minimal artifact stub with constitution-compliance boilerplate."""
-    stub_content = f"""# Phase {phase} Artifact — Auto-Generated Stub
-
-> ⚠️ This stub was auto-generated by orchestration.
-> Replace with actual artifact content before Gate evaluation.
-
-## Overview
-
-## Functional Requirements
-
-### FR-01:
-
-## Non-Functional Requirements
-
-## Quality Gate Compliance
-
-- Test Coverage: TBD
-- Security: TBD
-- Maintainability: TBD
-
-## Traceability
-
-| FR | Source | Implementation | Test |
-|----|--------|---------------|------|
-"""
-    file_path.write_text(stub_content, encoding="utf-8")
-    print(f"   [auto-fix] Generated stub: {file_path}")
+    engine = AutoFixEngine(project_root=project_root, phase=phase)
+    context = FixContext(
+        source=fix_ctx.get("source", "framework_enforcer"),
+        problem_type=fix_ctx.get("problem_type", "low_constitution_score"),
+        severity=fix_ctx.get("severity", "high"),
+        phase=phase,
+        project_root=Path(project_root),
+        details=fix_ctx,
+        retry_count=retry_count,
+    )
+    result = engine.fix(context)
+    return result.success
 
 
 # Re-export for external consumers
 from core.quality_gate.constitution.runner import ConstitutionResult  # noqa: E402, F401
 
-__all__ = ["run_constitution_check_with_feedback", "ConstitutionResult"]
+__all__ = [
+    "run_constitution_check_with_feedback",
+    "run_enforcement_check_with_feedback",
+    "run_policy_check_with_feedback",
+    "ConstitutionResult",
+]

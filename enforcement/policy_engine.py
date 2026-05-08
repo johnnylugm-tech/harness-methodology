@@ -80,6 +80,7 @@ class PolicyEngine:
             check_fn=lambda: self._check_commit_message(),
             enforcement=EnforcementLevel.BLOCK,
             severity="critical",
+            metadata={"problem_type": "missing_commit_task_id"},
         ))
         self.add_policy(Policy(
             id="quality-gate-90",
@@ -87,6 +88,7 @@ class PolicyEngine:
             check_fn=lambda: self._check_quality_score(),
             enforcement=EnforcementLevel.BLOCK,
             severity="critical",
+            metadata={"problem_type": "low_constitution_score"},
         ))
         self.add_policy(Policy(
             id="no-bypass-commands",
@@ -94,6 +96,7 @@ class PolicyEngine:
             check_fn=lambda: self._check_no_bypass(),
             enforcement=EnforcementLevel.BLOCK,
             severity="critical",
+            metadata={"problem_type": "hard_rule_violation"},
         ))
         self.add_policy(Policy(
             id="test-coverage-80",
@@ -101,6 +104,7 @@ class PolicyEngine:
             check_fn=lambda: self._check_test_coverage(),
             enforcement=EnforcementLevel.BLOCK,
             severity="high",
+            metadata={"problem_type": "low_coverage"},
         ))
         self.add_policy(Policy(
             id="security-score-95",
@@ -108,6 +112,7 @@ class PolicyEngine:
             check_fn=lambda: self._check_security_score(),
             enforcement=EnforcementLevel.BLOCK,
             severity="high",
+            metadata={"problem_type": "low_constitution_score"},
         ))
         self.add_policy(Policy(
             id="aspice-docs-required",
@@ -115,7 +120,7 @@ class PolicyEngine:
             check_fn=lambda: self._check_aspice_docs(),
             enforcement=EnforcementLevel.BLOCK,
             severity="critical",
-            metadata={"category": "documentation"},
+            metadata={"category": "documentation", "problem_type": "missing_aspice_docs"},
         ))
         self.add_policy(Policy(
             id="phase-artifact-reference",
@@ -123,7 +128,7 @@ class PolicyEngine:
             check_fn=lambda: self._check_phase_artifacts(),
             enforcement=EnforcementLevel.BLOCK,
             severity="critical",
-            metadata={"category": "phase", "requires_config": True},
+            metadata={"category": "phase", "requires_config": True, "problem_type": "missing_aspice_docs"},
         ))
 
     def _check_commit_message(self) -> bool:
@@ -347,7 +352,9 @@ class PolicyEngine:
                     f"Policy violation: {policy.description}\n"
                     f"Policy ID: {policy.id}\n"
                     f"Enforcement: {policy.enforcement.value}\n"
-                    f"This is a REQUIRED policy and cannot be bypassed."
+                    f"This is a REQUIRED policy and cannot be bypassed.",
+                    policy_id=policy.id,
+                    problem_type=policy.metadata.get("problem_type", ""),
                 )
         return results
 
@@ -378,7 +385,20 @@ class PolicyEngine:
 
 class PolicyViolationException(Exception):
     """Raised when a BLOCK-level policy is violated."""
-    pass
+
+    def __init__(self, message: str, policy_id: str = "", problem_type: str = ""):
+        super().__init__(message)
+        self.policy_id = policy_id
+        self.problem_type = problem_type
+
+    def to_fix_context(self) -> dict:
+        """Serialize for AutoFixEngine consumption."""
+        return {
+            "source": "policy_engine",
+            "problem_type": self.problem_type or "low_constitution_score",
+            "severity": "critical",
+            "policy_id": self.policy_id,
+        }
 
 
 def create_hard_block_engine() -> PolicyEngine:

@@ -32,10 +32,13 @@ class EnforcementResult:
         self.passed = False
         self.block_checks: Dict[str, bool] = {}
         self.warn_checks: Dict[str, bool] = {}
+        self._problem_types: List[str] = []
 
-    def add_violation(self, message: str, fix: Optional[str] = None):
-        """Add violation."""
+    def add_violation(self, message: str, fix: Optional[str] = None, problem_type: str = ""):
+        """Add violation with optional problem_type for auto-fix classification."""
         self.violations.append((message, fix))
+        if problem_type:
+            self._problem_types.append(problem_type)
 
     def add_warning(self, message: str, fix: Optional[str] = None):
         """Add warning."""
@@ -56,6 +59,18 @@ class EnforcementResult:
             f"BLOCK Violations: {len(self.violations)}\n"
             f"WARN Warnings: {len(self.warnings)}"
         )
+
+    def to_fix_context(self) -> dict:
+        """Serialize for AutoFixEngine consumption."""
+        problem_type = self._problem_types[0] if self._problem_types else "low_constitution_score"
+        severity = "critical" if self.violations else "medium"
+        return {
+            "source": "framework_enforcer",
+            "problem_type": problem_type,
+            "severity": severity,
+            "violations": [{"message": v[0], "fix": v[1]} for v in self.violations],
+            "block_checks": dict(self.block_checks),
+        }
 
 
 class FrameworkEnforcer:

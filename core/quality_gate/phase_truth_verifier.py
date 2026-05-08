@@ -45,6 +45,20 @@ class PhaseTruthVerifier:
         self.phase = phase
         self.results: dict[str, Any] = {}
 
+    def to_fix_context(self) -> dict:
+        """Serialize verify failures for AutoFixEngine consumption."""
+        failing = {k: v for k, v in self.results.items() if not v.get("passed", True)}
+        problem_type = "phase_truth_low" if len(failing) > 1 else "low_constitution_score"
+        return {
+            "source": "phase_truth_verifier",
+            "problem_type": problem_type,
+            "severity": "critical",
+            "phase": self.phase,
+            "failing_checks": list(failing.keys()),
+            "results": {k: {"passed": v.get("passed", True), "score": v.get("score", 0)}
+                       for k, v in self.results.items()},
+        }
+
     def check_framework_block(self) -> Tuple[bool, float, str]:
         """Check FrameworkEnforcer BLOCK"""
         try:

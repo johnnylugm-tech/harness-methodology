@@ -60,6 +60,7 @@ The system uses this macro architecture:
 | Circuit Breaker | `kill_switch/` | Safety backstop independent of main flow |
 | Graceful Degradation | `harness/crg_bridge.py` | All CRG methods no-op if CRG not installed |
 | LLM-as-Judge | `steering/steering_loop.py` | Objective A/B output evaluation via LLM |
+| Auto-Fix Engine | `core/auto_fix/` | Proactive detect→classify→auto_fix→verify→loop with human escalation guardrails |
 
 ### 2.3 CLI Architecture: Single Entry Point
 
@@ -78,6 +79,7 @@ python harness_cli.py finalize-gate     --gate 2 --phase 3 [--project .] [--fr-i
 python harness_cli.py generate-next-plan [--project .] [--phase N]
 python harness_cli.py run-pipeline      [--phase-from 1] [--phase-to 8] [--project .] [--force]
                                         [--no-git] [--no-kill-switch] [--drift-threshold 85.0]
+                                        [--auto-fix-rounds 3] [--no-auto-fix]
 python harness_cli.py push-checkpoint   --phase 1|2 [--project .] [--fr-ids FR-01,FR-02] [--no-git]
 python harness_cli.py manifest          --fr-ids FR-01 FR-02 [--sad SAD.md] [--no-git]
 python harness_cli.py status            [--project .]
@@ -96,8 +98,8 @@ python harness_cli.py init-project      --project /path/to/target [--phase 3] [-
 **`run-pipeline`** exit codes:
 - `0` — all phases complete
 - `1` — hard error (SSI unavailable, manifest missing)
-- `10` — PAUSE: human intervention needed; resume with `--phase-from N`
-- `11` — Phase Truth failure (HR-11 score < 90%); fix issues and re-run
+- `10` — PAUSE: auto-fix escalation; human intervention needed (see 9 escalation conditions in `core/auto_fix/__init__.py`); resume with `--phase-from N`
+- `11` — Phase Truth failure (HR-11 score < 90%); auto-fix attempts resolution; escalates after max rounds
 
 **Pipeline step flow per phase (P3+)**:
 ```
@@ -112,7 +114,7 @@ M1 kill-switch circuit state is checked before each phase. M3 gap analysis runs 
 
 **P3+ dynamic planning**: `run-pipeline` generates each phase plan dynamically at phase start. Phases P3+ read FR IDs from `quality_manifest.json` (written at P2 exit from SAD.md), so SAD.md must exist before the pipeline can plan any FR-level work.
 
-**Gate BLOCKED diagnostic** (`run-gate` exit 1 / `run-pipeline` exit 10): Both commands emit a structured per-dimension diagnosis on block. Output includes: composite score, open_critical/high counts, per-failing-dimension score/threshold/gap and a fix hint, passing dimension summary, and copy-pasteable resume commands. Full report written to `.methodology/last_block.md`. Fix hints cover all 12 dimension names: `linting`, `type_safety`, `test_coverage`, `security`, `secrets_scanning`, `license_compliance`, `mutation_testing`, `architecture`, `readability`, `error_handling`, `documentation`, `performance`. Implemented in `_format_block_diagnostic()` (module-level helper in `harness_cli.py`); the dict `_DIMENSION_HINTS` maps dimension name → actionable fix string.
+**Gate BLOCKED diagnostic** (`run-gate` exit 1 / `run-pipeline` exit 10): Both commands emit a structured per-dimension diagnosis on block. Output includes: composite score, open_critical/high counts, per-failing-dimension score/threshold/gap and a fix hint, passing dimension summary, auto-fix round count (if `--auto-fix-rounds > 0`), and copy-pasteable resume commands. Full report written to `.methodology/last_block.md`. Fix hints cover all 12 dimension names: `linting`, `type_safety`, `test_coverage`, `security`, `secrets_scanning`, `license_compliance`, `mutation_testing`, `architecture`, `readability`, `error_handling`, `documentation`, `performance`. Implemented in `_format_block_diagnostic()` (module-level helper in `harness_cli.py`); the dict `_DIMENSION_HINTS` maps dimension name → actionable fix string. When `--auto-fix-rounds > 0` is active, the pipeline attempts `AutoFixEngine.fix()` before emitting the diagnostic; the diagnostic is only shown after all auto-fix rounds are exhausted or a human escalation condition is triggered.
 
 **ECC hooks (globally active)**: `~/.claude/hooks/hooks.json` runs ECC (everything-claude-code) hooks across all Claude Code sessions. Relevant to harness:
 - `pre:bash:dispatcher` — blocks `git --no-verify` (prevents HR violation from bypassing hooks), push reminders
@@ -171,6 +173,7 @@ class GateResult:
 class GateContext:
     gate_num: int; config: dict; project_root: str; phase: int; fr_id: str | None
     ssi_scripts_dir: str; ssi_prompts_dir: str; ssi_schemas_dir: str; work_dir: str
+    auto_fix_rounds: int = 0
     def evaluation_prompt(self) -> str: ...  # Returns evaluation instructions for Claude
 
 class GateBlockedError(Exception):
@@ -193,6 +196,7 @@ class HarnessBridge:
         project_root: str,
         phase: int,
         fr_id: str | None = None,
+        auto_fix_rounds: int = 0,
     ) -> GateContext:
         """Phase 1: load config, CRG recon, return context for Claude evaluation."""
 
@@ -1148,6 +1152,54 @@ class KillSwitch:
 | `parser.py` | `SpecParser` | Parses spec documents to extract expected coverage |
 | `reporter.py` | `GapReporter` | Formats gap findings for reporting |
 | `scanner.py` | `CodeScanner` | Scans codebase for coverage evidence |
+
+### 3.19 `core/auto_fix/` — Proactive Auto-Repair Engine (v2.4)
+
+**Responsibility**: Transforms the system from detect→block→wait_for_human into detect→classify→auto_fix→verify→loop. Provides a unified AutoFixEngine that sits between detection modules and the pipeline loop. Reference: methodology-v2 SKILL.md "fail → FIX + RETRY" execution protocol.
+
+**Design pattern**: Strategy + Circuit Breaker. Each problem type maps to a FixStrategy (AUTO_FIX / AUTO_FIX_WITH_VERIFICATION / HUMAN_REQUIRED). The engine applies fixes and re-checks, escalating to human only when 9 strict conditions are met.
+
+| File | Class / Purpose |
+|------|----------------|
+| `__init__.py` | `AutoFixEngine`, `FixResult`, `FixStrategy`, `FixContext`, `EscalationCondition` |
+| `classifier.py` | 31-entry classification table; `classify()` → (strategy, confidence, max_rounds, problem_type) |
+| `strategies.py` | 13 strategy functions in `STRATEGY_REGISTRY` (stub generation, keyword injection, test scaffolding, etc.) |
+| `guardrails.py` | `pre_fix_safety_check()`, `post_fix_drift_check()`, `regression_check()`, `rollback_if_unsafe()` |
+
+**FixStrategy enum**:
+- `AUTO_FIX` — fully automatic, no verification needed (e.g., missing stub generation, keyword density)
+- `AUTO_FIX_WITH_VERIFICATION` — fix then re-check (e.g., constitution score, coverage, gate failures)
+- `HUMAN_REQUIRED` — never auto-fix; escalate immediately (e.g., hardcoded secrets, kill-switch OPEN, Gate 4)
+
+**Human escalation — 9 exact conditions** (all others auto-fix):
+1. HR-12: >5 fix rounds exhausted
+2. HR-13: Phase runs >3× estimate timeout
+3. HR-14: Integrity drops below 40
+4. Actual hardcoded secrets found
+5. Gate score < 60 after 3 auto-fix rounds
+6. Hard Rule violations (R001-R007)
+7. Auto-fix confidence < 70% after 3 attempts
+8. Kill-switch circuit OPEN (M1)
+9. Gate 4 BLOCKED (requires Hermes APPROVE)
+
+**Integration points**:
+- `harness_cli.py`: `--auto-fix-rounds N` (default 3, max 5), `--no-auto-fix` flags
+- `orchestration/__init__.py`: delegates to AutoFixEngine
+- `core/phase_hooks.py`: `auto_fix_enabled` parameter, `to_fix_context()` method
+- `harness/harness_bridge.py`: `GateContext.auto_fix_rounds`, `prepare_gate(auto_fix_rounds=...)`
+
+**Pipeline integration** (in `cmd_run_pipeline`):
+```
+preflight fail → AutoFixEngine.fix() → re-check → loop (up to N rounds)
+Gate BLOCKED  → AutoFixEngine.fix() → re-evaluate → loop
+Phase Truth < 90% → AutoFixEngine.fix() → re-verify → loop
+```
+
+**CLI usage**:
+```bash
+python harness_cli.py run-pipeline --auto-fix-rounds 3          # default: enabled
+python harness_cli.py run-pipeline --no-auto-fix                # fall back to detect→block→wait
+```
 
 ### §3.21 — `scripts/check_spec_trace.py` — FR Spec Trace Validator (v2 Content-Level)
 
