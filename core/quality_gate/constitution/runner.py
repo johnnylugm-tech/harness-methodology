@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Dict
 
-from constitution import get_constitution_threshold
+from core.quality_gate.constitution.profile import get_profile
 
 
 @dataclass
@@ -52,76 +52,11 @@ class ConstitutionResult:
         }
 
 
-# ── Per-phase directory mapping ──────────────────────────────────────────────
-
-_PHASE_DIR_MAP: Dict[int, str] = {
-    1: "01-requirements",
-    2: "02-architecture",
-    3: "03-development",
-    4: "04-testing",
-    5: "05-verify",
-    6: "06-quality",
-    7: "07-risk",
-    8: "08-config",
-}
-
-# ── Dimension-specific keyword sets ──────────────────────────────────────────
-
-_CORRECTNESS_KEYWORDS: List[str] = [
-    "fr-", "nfr-", "acceptance criteria", "test case",
-    "### fr-", "## fr-", "requirement", "specification",
-    "traceability matrix", "srs", "sad",
-]
-
-_SECURITY_KEYWORDS: List[str] = [
-    "auth", "validation", "sanitize", "encrypt", "hmac",
-    "signature", "verify", "rbac", "permission", "token",
-    "pii", "mask", "secret", "whitelist", "tls",
-    "compare_digest", "input sanitizer", "rate limit",
-    "security", "vulnerability",
-]
-
-_MAINTAINABILITY_KEYWORDS: List[str] = [
-    "docstring", "type hint", "dataclass", "abc",
-    "interface", "module", "class", "def",
-    "import", "from", "snake_case", "PascalCase",
-]
-
-_COVERAGE_KEYWORDS: List[str] = [
-    "test coverage", "pytest", "unit test", "integration test",
-    "mock", "fixture", "assert", "coverage report",
-    "test plan", "regression",
-]
-
-# Per-dimension rule mapping for violation reporting
-_DIM_RULE_MAP: Dict[str, str] = {
-    "correctness": "TH-03",
-    "security": "TH-04",
-    "maintainability": "TH-05",
-    "coverage": "TH-06",
-}
-
-# Patterns that indicate hardcoded secrets (security violation)
-_SECRET_PATTERNS: List[str] = [
-    "password = \"", "password = '",
-    "secret_key = \"", "secret_key = '",
-    "api_key = \"", "api_key = '",
-    "token = \"", "token = '",
-]
-
-# ── check_type → file name keyword filtering ──────────────────────────────────
-
-_CHECK_TYPE_FILTERS: Dict[str, List[str]] = {
-    "srs": ["srs", "spec", "requirement", "fr-", "nfr-"],
-    "sad": ["sad", "architecture", "adr", "design"],
-    "implementation": ["implementation", "compliance", "source"],
-    "test_plan": ["test_plan", "test_report", "test_result"],
-    "verification": ["verify", "verification", "baseline"],
-    "quality_report": ["quality_report", "quality", "monitoring"],
-    "risk_management": ["risk", "assessment", "risk_register"],
-    "configuration": ["config", "release", "configuration"],
-    "all": [],
-}
+# ── All configurable values now live in ConstitutionProfile ──────────────────
+# (core/quality_gate/constitution/profile.py). The module-level constants below
+# have been replaced by profile lookups via get_profile().
+#
+# To customize: create .methodology/constitution_profile.json in your project.
 
 
 def _should_scan_file(file_path: Path, check_type: str) -> bool:
@@ -132,7 +67,8 @@ def _should_scan_file(file_path: Path, check_type: str) -> bool:
     """
     if check_type == "all" or not check_type:
         return True
-    keywords = _CHECK_TYPE_FILTERS.get(check_type)
+    profile = get_profile()
+    keywords = profile.file_filter_keywords(check_type)
     if keywords is None:
         warnings.warn(f"Unknown constitution check_type: {check_type!r} — scanning all files")
         return True
@@ -153,7 +89,7 @@ def _keyword_density(content: str, keywords: List[str]) -> float:
 def _has_hardcoded_secrets(content: str) -> bool:
     """Check for hardcoded secret patterns in content."""
     content_lower = content.lower()
-    for pattern in _SECRET_PATTERNS:
+    for pattern in get_profile().secret_patterns():
         if pattern in content_lower:
             return True
     return False
@@ -179,8 +115,10 @@ def _scan_file_compliance(file_path: Path) -> Dict[str, float]:
     if len(content) < 100:
         return empty
 
+    profile = get_profile()
+
     # ── Correctness (40% keyword density + 30% structure + 30% FR refs) ──
-    c_kw = _keyword_density(content, _CORRECTNESS_KEYWORDS)
+    c_kw = _keyword_density(content, profile.dimension_keywords("correctness"))
     section_count = content.count("\n## ") + content.count("\n# ")
     c_structure = min(section_count / 5.0, 1.0) * 100.0
     has_fr = "fr-" in content
@@ -190,16 +128,16 @@ def _scan_file_compliance(file_path: Path) -> Dict[str, float]:
     correctness = c_kw * 0.4 + c_structure * 0.3 + c_refs * 0.3
 
     # ── Security (keyword density + no hardcoded secrets) ──
-    s_kw = _keyword_density(content, _SECURITY_KEYWORDS)
+    s_kw = _keyword_density(content, profile.dimension_keywords("security"))
     s_secrets = 0.0 if _has_hardcoded_secrets(content) else 100.0
     security = s_kw * 0.6 + s_secrets * 0.4
 
     # ── Maintainability (keyword density + structure signals) ──
-    m_kw = _keyword_density(content, _MAINTAINABILITY_KEYWORDS)
+    m_kw = _keyword_density(content, profile.dimension_keywords("maintainability"))
     maintainability = m_kw * 0.7 + c_structure * 0.3
 
     # ── Coverage (keyword density) ──
-    cov_kw = _keyword_density(content, _COVERAGE_KEYWORDS)
+    cov_kw = _keyword_density(content, profile.dimension_keywords("coverage"))
     coverage = cov_kw
 
     return {
@@ -213,38 +151,22 @@ def _scan_file_compliance(file_path: Path) -> Dict[str, float]:
 def _dimensions_for_phase(phase: int) -> List[str]:
     """Return the active constitution dimensions for a given phase.
 
-    P1:      correctness + security (TH-03=100%, TH-04=100%)
-    P2-P3:   correctness + security + maintainability (TH-03/TH-04=100%, TH-05>90%)
-    P4:      correctness + security + maintainability + coverage (TH-03~TH-06)
-    P5-P8:   all 4 dimensions composite (TH-02 >=80%)
-
-    P3 uses maintainability but NOT coverage as a constitution dimension.
-    Coverage for P3 is checked via TH-11 (>=70% pytest coverage) separately.
+    Delegates to ConstitutionProfile.active_dimensions(phase).
+    Customizable via .methodology/constitution_profile.json → phases.N.active_dimensions.
     """
-    if phase <= 1:
-        return ["correctness", "security"]
-    if phase <= 3:
-        return ["correctness", "security", "maintainability"]
-    return ["correctness", "security", "maintainability", "coverage"]
+    return get_profile().active_dimensions(phase)
 
 
 def _threshold_for_dimension(dim: str, phase: int) -> float:
     """Return the per-dimension threshold for a given phase.
 
-    TH-03 correctness: =100% (P1-P4)
-    TH-04 security: =100% (P1-P4)
-    TH-05 maintainability: >90% (P2-P4)
-    TH-06 coverage: >90% (P4)
-    TH-02 composite: ≥80% (P5-P8)
+    P1-P4: per-dimension thresholds from profile (correctness=100, security=100, etc.)
+    P5-P8: composite baseline of 80.0 (TH-02 composite threshold takes over)
+
+    Customizable via .methodology/constitution_profile.json → dimensions.D.threshold.
     """
     if phase <= 4:
-        thresholds = {
-            "correctness": 100.0,
-            "security": 100.0,
-            "maintainability": 90.0,
-            "coverage": 90.0,
-        }
-        return thresholds.get(dim, 80.0)
+        return get_profile().dimension_threshold(dim, phase)
     return 80.0
 
 
@@ -276,7 +198,7 @@ def _scan_directory(docs_path: Path, phase: int, check_type: str) -> Constitutio
         "correctness": [], "security": [], "maintainability": [], "coverage": [],
     }
 
-    phase_dir = _PHASE_DIR_MAP.get(phase, "docs")
+    phase_dir = get_profile().phase_directory(phase)
     target_dirs = [docs_path]
 
     # Only add the numbered phase dir when docs_path is the canonical "docs/"
@@ -334,7 +256,7 @@ def _scan_directory(docs_path: Path, phase: int, check_type: str) -> Constitutio
 
     active_dims = _dimensions_for_phase(phase)
     score = _aggregate_score(agg_dims, active_dims)
-    const_threshold = get_constitution_threshold(phase)
+    const_threshold = get_profile().composite_threshold(phase)
     passed = score >= const_threshold
 
     # Generate per-dimension violations
@@ -347,7 +269,7 @@ def _scan_directory(docs_path: Path, phase: int, check_type: str) -> Constitutio
                 "score": dim_score,
                 "threshold": dim_threshold,
                 "message": f"{dim} score {dim_score:.0f}% < {dim_threshold:.0f}% threshold",
-                "rule": _DIM_RULE_MAP.get(dim, "TH-02"),
+                "rule": get_profile().dimension_rule(dim),
             })
 
     # Low file-level scores as additional violations
@@ -403,7 +325,7 @@ def run_constitution_check(
     path = Path(docs_path)
 
     if not path.exists():
-        phase_dir_name = _PHASE_DIR_MAP.get(current_phase, "")
+        phase_dir_name = get_profile().phase_directory(current_phase)
         alt_path = path.parent / phase_dir_name if path.name == "docs" else path
         if alt_path.exists():
             path = alt_path
@@ -445,7 +367,7 @@ def run_constitution_check(
     if strict and not result.passed:
         raise RuntimeError(
             f"Constitution check FAILED: score={result.score:.0f}% "
-            f"(threshold={get_constitution_threshold(current_phase)}%), "
+            f"(threshold={get_profile().composite_threshold(current_phase)}%), "
             f"violations={len(result.violations)}, "
             f"dims={result.dimensions}"
         )

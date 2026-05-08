@@ -42,6 +42,8 @@ class EnforcementConfig:
     enable_registry: bool = True
     enable_constitution_check: bool = True
     enable_policy_engine: bool = True
+    constitution: Dict[str, Any] = field(default_factory=dict)
+    hr_overrides: Dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def load(cls, config_path: str = ".methodology/enforcement.json") -> "EnforcementConfig":
@@ -71,6 +73,8 @@ class EnforcementConfig:
             enable_registry=data.get('enable_registry', True),
             enable_constitution_check=data.get('enable_constitution_check', True),
             enable_policy_engine=data.get('enable_policy_engine', True),
+            constitution=data.get('constitution', {}),
+            hr_overrides=data.get('hr_overrides', {}),
         )
 
     @classmethod
@@ -92,6 +96,8 @@ class EnforcementConfig:
             'enable_registry': self.enable_registry,
             'enable_constitution_check': self.enable_constitution_check,
             'enable_policy_engine': self.enable_policy_engine,
+            'constitution': self.constitution,
+            'hr_overrides': self.hr_overrides,
         }
 
     def to_json(self) -> str:

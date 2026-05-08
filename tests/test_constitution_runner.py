@@ -6,7 +6,6 @@ from pathlib import Path
 
 from core.quality_gate.constitution.runner import (  # pyright: ignore[reportMissingImports]
     ConstitutionResult,
-    _PHASE_DIR_MAP,
     _scan_file_compliance,
     _scan_directory,
     _dimensions_for_phase,
@@ -14,6 +13,7 @@ from core.quality_gate.constitution.runner import (  # pyright: ignore[reportMis
     _should_scan_file,
     run_constitution_check,
 )
+from core.quality_gate.constitution.profile import defaults
 
 from constitution import get_phase_thresholds  # pyright: ignore[reportMissingImports]
 
@@ -248,14 +248,16 @@ class TestDimensionsForPhase:
 
 class TestPhaseDirMap:
     def test_all_phases_mapped(self):
-        for p in range(1, 9):
-            assert p in _PHASE_DIR_MAP, f"Phase {p} missing from _PHASE_DIR_MAP"
+        p = defaults()
+        for phase in range(1, 9):
+            assert p.phase_directory(phase) != "docs", f"Phase {phase} missing from phase_dir_map"
 
     def test_phase_dirs_match_standard(self):
-        assert _PHASE_DIR_MAP[1] == "01-requirements"
-        assert _PHASE_DIR_MAP[4] == "04-testing"
-        assert _PHASE_DIR_MAP[6] == "06-quality"
-        assert _PHASE_DIR_MAP[8] == "08-config"
+        p = defaults()
+        assert p.phase_directory(1) == "01-requirements"
+        assert p.phase_directory(4) == "04-testing"
+        assert p.phase_directory(6) == "06-quality"
+        assert p.phase_directory(8) == "08-config"
 
 
 class TestRunConstitutionCheck:

@@ -67,19 +67,20 @@ def load_constitution() -> str:
 def get_quality_thresholds() -> dict:
     """Return quality gate thresholds per dimension.
 
-    These are the canonical thresholds; all downstream consumers
-    (enforcement_config, verification_gate, framework_enforcer)
-    should derive their values from here.
+    Proxies through ConstitutionProfile — customizable via
+    .methodology/constitution_profile.json → dimensions.
 
     Aligned with TH-03 (correctness=100%), TH-04 (security=100%),
     TH-05 (maintainability>90%), TH-06 (coverage>90%).
     """
+    from core.quality_gate.constitution.profile import get_profile
+    p = get_profile()
     return {
-        "correctness": 100,
-        "security": 100,
-        "maintainability": 90,
-        "performance": 80,
-        "coverage": 90,
+        "correctness": p.dimension_threshold("correctness"),
+        "security": p.dimension_threshold("security"),
+        "maintainability": p.dimension_threshold("maintainability"),
+        "performance": 80,  # not a constitution dimension — hardware/platform metric
+        "coverage": p.dimension_threshold("coverage"),
     }
 
 
@@ -97,16 +98,11 @@ def get_gate_thresholds() -> dict:
 def get_constitution_threshold(phase: int) -> float:
     """Return constitution score threshold for a given phase.
 
-    P1-P2: =100 (TH-03 correctness + TH-04 security, both must be 100%)
-    P3:    ≥90 (TH-03/TH-04 =100% + TH-05 >90%)  [3 dims: c+s+m]
-    P4:    ≥90 (adds TH-06 coverage >90%)         [4 dims: c+s+m+cov]
-    P5-P8: ≥80 (TH-02 full constitution compliance)
+    Proxies through ConstitutionProfile — customizable via
+    .methodology/constitution_profile.json → phases.N.composite_threshold.
     """
-    if phase <= 2:
-        return 100.0
-    if phase <= 4:
-        return 90.0
-    return 80.0
+    from core.quality_gate.constitution.profile import get_profile
+    return get_profile().composite_threshold(phase)
 
 
 def get_th_rules() -> dict:

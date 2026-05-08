@@ -1,0 +1,76 @@
+{
+  "_comment": "Constitution Profile Example — copy to .methodology/constitution_profile.json and customize",
+
+  "_docs": {
+    "description": "This file controls how the constitution checker evaluates your project artifacts.",
+    "load_order": "1. Built-in defaults (shown here)  2. .methodology/constitution_profile.json  3. METHODOLOGY_CONSTITUTION_PROFILE env var (JSON string)",
+    "merge_rules": "Lists are replaced (not appended). Dicts are merged key-by-key. Omitted keys keep defaults.",
+    "quick_start": "To change the coverage threshold for Phase 4: set dimensions.coverage.threshold to your value. To add custom keywords for security: set dimensions.security.keywords to your full list."
+  },
+
+  "scoring": {
+    "method": "min_of_dimensions",
+    "_description": "Aggregate score = minimum across all active dimensions (bottleneck principle). Currently only 'min_of_dimensions' is supported."
+  },
+
+  "phases": {
+    "_description": "Per-phase active dimensions and composite score threshold. active_dimensions: which of the 4 dimensions are checked. composite_threshold: minimum overall score to pass.",
+    "1": { "active_dimensions": ["correctness", "security"], "composite_threshold": 100 },
+    "2": { "active_dimensions": ["correctness", "security", "maintainability"], "composite_threshold": 100 },
+    "3": { "active_dimensions": ["correctness", "security", "maintainability"], "composite_threshold": 90 },
+    "4": { "active_dimensions": ["correctness", "security", "maintainability", "coverage"], "composite_threshold": 90 },
+    "5": { "active_dimensions": ["correctness", "security", "maintainability", "coverage"], "composite_threshold": 80 },
+    "6": { "active_dimensions": ["correctness", "security", "maintainability", "coverage"], "composite_threshold": 80 },
+    "7": { "active_dimensions": ["correctness", "security", "maintainability", "coverage"], "composite_threshold": 80 },
+    "8": { "active_dimensions": ["correctness", "security", "maintainability", "coverage"], "composite_threshold": 80 }
+  },
+
+  "dimensions": {
+    "_description": "Each dimension has: threshold (0-100), keywords (used for density scoring), rule (TH reference for violation reporting), hardcoded_secret_patterns (only for security).",
+    "correctness": {
+      "threshold": 100,
+      "rule": "TH-03",
+      "keywords": ["fr-", "nfr-", "acceptance criteria", "test case", "### fr-", "## fr-", "requirement", "specification", "traceability matrix", "srs", "sad"]
+    },
+    "security": {
+      "threshold": 100,
+      "rule": "TH-04",
+      "keywords": ["auth", "validation", "sanitize", "encrypt", "hmac", "signature", "verify", "rbac", "permission", "token", "pii", "mask", "secret", "whitelist", "tls", "compare_digest", "input sanitizer", "rate limit", "security", "vulnerability"],
+      "hardcoded_secret_patterns": ["password = \"", "password = '", "secret_key = \"", "secret_key = '", "api_key = \"", "api_key = '", "token = \"", "token = '"]
+    },
+    "maintainability": {
+      "threshold": 90,
+      "rule": "TH-05",
+      "keywords": ["docstring", "type hint", "dataclass", "abc", "interface", "module", "class", "def", "import", "from", "snake_case", "PascalCase"]
+    },
+    "coverage": {
+      "threshold": 90,
+      "rule": "TH-06",
+      "keywords": ["test coverage", "pytest", "unit test", "integration test", "mock", "fixture", "assert", "coverage report", "test plan", "regression"]
+    }
+  },
+
+  "file_filters": {
+    "_description": "Maps check_type → filename keywords. When constitution check is run with a specific check_type, only files whose names contain one of these keywords are scanned. 'all' check_type scans everything.",
+    "srs": ["srs", "spec", "requirement", "fr-", "nfr-"],
+    "sad": ["sad", "architecture", "adr", "design"],
+    "implementation": ["implementation", "compliance", "source"],
+    "test_plan": ["test_plan", "test_report", "test_result"],
+    "verification": ["verify", "verification", "baseline"],
+    "quality_report": ["quality_report", "quality", "monitoring"],
+    "risk_management": ["risk", "assessment", "risk_register"],
+    "configuration": ["config", "release", "configuration"]
+  },
+
+  "phase_dir_map": {
+    "_description": "Maps phase number → project directory name. Used to locate phase-specific artifacts during scanning.",
+    "1": "01-requirements",
+    "2": "02-architecture",
+    "3": "03-development",
+    "4": "04-testing",
+    "5": "05-verify",
+    "6": "06-quality",
+    "7": "07-risk",
+    "8": "08-config"
+  }
+}
