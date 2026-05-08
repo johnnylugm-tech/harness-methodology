@@ -315,7 +315,7 @@ _AGENT_B_CHECKS: Dict[int, List[str]] = {
 
 
 # Per-phase deliverable dependency chains for task decomposition.
-# Each entry: (label, description, depends_on, task_hint, b_checks, b_embed_docs)
+# Keys: label, desc, depends_on, task_hint, checks, embed_docs
 # depends_on lists deliverable labels within the same phase that must be APPROVED first.
 _PHASE_DELIVERABLE_DEPS: Dict[int, List[Dict]] = {
     1: [
@@ -327,6 +327,16 @@ _PHASE_DELIVERABLE_DEPS: Dict[int, List[Dict]] = {
             "checks": ["All FRs testable? (no vague criteria)", "NFRs measurable?",
                        "No contradictions between FRs?", "Every stakeholder need covered?"],
             "embed_docs": ["Project description / stakeholder brief", "draft docs/SRS.md (full content)"],
+        },
+        {
+            "label": "CONSTRAINTS.md",
+            "desc": "Technical Constraints — technology stack, SLA targets, cost model, regulatory requirements",
+            "depends_on": ["SRS.md"],
+            "task_hint": "Analyze constraints from SRS → document tech stack, SLA, cost model, compliance → validate completeness",
+            "checks": ["All technical constraints documented?", "SLA targets defined and measurable?",
+                       "Cost model complete?", "Constraints consistent with SRS requirements?"],
+            "embed_docs": ["docs/SRS.md (APPROVED — full content)",
+                           "draft docs/CONSTRAINTS.md (full content)"],
         },
         {
             "label": "SPEC_TRACKING.md",
@@ -407,8 +417,8 @@ def _agent_b_dispatch_block(phase: int, role_b: str, fr_id: str = "") -> List[st
         "  > NEVER write 'read docs/SRS.md' in the prompt — it will fail silently.",
         "  > ALL context must be pasted verbatim into the prompt text. This is mandatory.",
         "  >",
-        "  > **P1 lesson**: Rounds 2-3 failed because prompts used file paths. Round 4 succeeded",
-        "  > only after embedding full document content directly. Always assume stateless.",
+        "  > **Lesson (stateless agent)**: Rounds 2-3 failed because prompts used file paths.",
+        "  > Round 4 succeeded only after embedding full document content directly.",
         "",
         "  **Embed these documents in full** (copy content, not paths):",
     ]
@@ -502,7 +512,7 @@ def _deliverable_ab_block(phase: int, deliverable: Dict, sub_n: int, total: int)
     # Non-first sub-tasks: embed previous B-2 review JSON so downstream Agent B
     # sees upstream caveats (gaps that weren't blockers but may affect this deliverable).
     if not is_first:
-        embed_docs.insert(0, f"Previous Sub-Task B-2 review JSON (gaps field may contain non-blocking caveats)")
+        embed_docs.insert(0, "Previous Sub-Task B-2 review JSON (gaps field may contain non-blocking caveats)")
         checks.insert(0, "Upstream deliverable review caveats addressed? (check previous B-2 gaps field)")
 
     # Final sub-task: integration consistency check across all upstream deliverables.
@@ -529,8 +539,8 @@ def _deliverable_ab_block(phase: int, deliverable: Dict, sub_n: int, total: int)
         "  > NEVER write 'read docs/SRS.md' in the prompt — it will fail silently.",
         "  > ALL context must be pasted verbatim into the prompt text. This is mandatory.",
         "  >",
-        "  > **P1 lesson**: Rounds 2-3 failed because prompts used file paths. Round 4 succeeded",
-        "  > only after embedding full document content directly. Always assume stateless.",
+        "  > **Lesson (stateless agent)**: Rounds 2-3 failed because prompts used file paths.",
+        "  > Round 4 succeeded only after embedding full document content directly.",
         "",
         "  **Embed these documents in full** (copy content, not paths):",
     ]
@@ -637,7 +647,7 @@ def _entry_gate_check(phase: int) -> List[str]:
 def _human_checkpoint(phase: int, checkpoint_n: int) -> List[str]:
     """Human peer-review checkpoint for P1/P2 (deliverable review — NOT harness run-gate)."""
     _DELIVERABLES: dict = {
-        1: ["SRS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md"],
+        1: ["SRS.md", "CONSTRAINTS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md"],
         2: ["SAD.md", "ADR.md", "ARCHITECTURE_DIAGRAM.md"],
     }
     artifacts = _DELIVERABLES.get(phase, [])
@@ -917,6 +927,14 @@ def generate_phase1_tasks(repo_path: Path, srs_path: Path) -> List[str]:
             lines.append(f"#### {nfr['nfr']}: {nfr['title']}")
             lines.append(f"**Requirement**: {nfr['details'][:200]}")
             lines.append("")
+
+    lines.append("### Phase 1 Deliverables")
+    lines.append("- [ ] `SRS.md` - Software Requirements Specification (FRs + NFRs)")
+    lines.append("- [ ] `CONSTRAINTS.md` - Technical constraints, SLA, cost model")
+    lines.append("- [ ] `SPEC_TRACKING.md` - Spec tracking matrix")
+    lines.append("- [ ] `TRACEABILITY_MATRIX.md` - Requirements traceability matrix")
+    lines.append("- [ ] `sessions_spawn.log` - 4 sub-tasks × 2 entries = 8 entries for P1 A/B work (HR-10)")
+    lines.append("")
 
     lines.extend(_human_checkpoint(1, checkpoint_n=1))
     lines.extend(_phase_advance_step(1))

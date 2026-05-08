@@ -625,6 +625,7 @@ class TestDecompositionSection:
         joined = "\n".join(lines)
         assert "Task Decomposition" in joined
         assert "SRS.md" in joined
+        assert "CONSTRAINTS.md" in joined
         assert "SPEC_TRACKING.md" in joined
         assert "TRACEABILITY_MATRIX.md" in joined
 
@@ -632,9 +633,10 @@ class TestDecompositionSection:
         lines = _decomposition_section(1)
         joined = "\n".join(lines)
         idx_srs = joined.find("SRS.md")
+        idx_constraints = joined.find("CONSTRAINTS.md")
         idx_spec = joined.find("SPEC_TRACKING.md")
         idx_trace = joined.find("TRACEABILITY_MATRIX.md")
-        assert idx_srs < idx_spec < idx_trace, "Deliverables must be in dependency order"
+        assert idx_srs < idx_constraints < idx_spec < idx_trace, "Deliverables must be in dependency order"
 
     def test_phase2_returns_non_empty(self):
         lines = _decomposition_section(2)
@@ -679,61 +681,61 @@ class TestDeliverableAbBlock:
         return _PHASE_DELIVERABLE_DEPS[2][0]
 
     def test_contains_sub_task_label(self, srs_deliverable: Dict):
-        lines = _deliverable_ab_block(1, srs_deliverable, 1, 3)
+        lines = _deliverable_ab_block(1, srs_deliverable, 1, 4)
         joined = "\n".join(lines)
-        assert "Sub-Task 1/3" in joined
+        assert "Sub-Task 1/4" in joined
         assert "SRS.md" in joined
 
     def test_contains_agent_a_and_b(self, srs_deliverable: Dict):
-        lines = _deliverable_ab_block(1, srs_deliverable, 1, 3)
+        lines = _deliverable_ab_block(1, srs_deliverable, 1, 4)
         joined = "\n".join(lines)
         assert "Agent A" in joined
         assert "Agent B" in joined
 
     def test_contains_depends_on(self, srs_deliverable: Dict):
-        lines = _deliverable_ab_block(1, srs_deliverable, 1, 3)
+        lines = _deliverable_ab_block(1, srs_deliverable, 1, 4)
         joined = "\n".join(lines)
         assert "Depends on" in joined
 
     def test_first_deliverable_no_dependency(self, srs_deliverable: Dict):
-        lines = _deliverable_ab_block(1, srs_deliverable, 1, 3)
+        lines = _deliverable_ab_block(1, srs_deliverable, 1, 4)
         joined = "\n".join(lines)
         assert "none — starting point" in joined
 
     def test_later_deliverable_shows_dependency(self):
-        spec_deliverable = _PHASE_DELIVERABLE_DEPS[1][1]  # depends on SRS.md
-        lines = _deliverable_ab_block(1, spec_deliverable, 2, 3)
+        spec_deliverable = _PHASE_DELIVERABLE_DEPS[1][2]  # depends on SRS.md
+        lines = _deliverable_ab_block(1, spec_deliverable, 3, 4)
         joined = "\n".join(lines)
         assert "SRS.md" in joined
 
     def test_contains_sessions_spawn_log(self, srs_deliverable: Dict):
-        lines = _deliverable_ab_block(1, srs_deliverable, 1, 3)
+        lines = _deliverable_ab_block(1, srs_deliverable, 1, 4)
         joined = "\n".join(lines)
         assert "sessions_spawn.log" in joined
 
     def test_contains_hr12_max_rounds(self, srs_deliverable: Dict):
-        lines = _deliverable_ab_block(1, srs_deliverable, 1, 3)
+        lines = _deliverable_ab_block(1, srs_deliverable, 1, 4)
         joined = "\n".join(lines)
         assert "5 rounds" in joined or "HR-12" in joined
 
     def test_not_last_subtask_shows_next(self, srs_deliverable: Dict):
-        lines = _deliverable_ab_block(1, srs_deliverable, 1, 3)
+        lines = _deliverable_ab_block(1, srs_deliverable, 1, 4)
         joined = "\n".join(lines)
-        assert "Sub-Task 2/3" in joined
+        assert "Sub-Task 2/4" in joined
 
     def test_last_subtask_shows_human_review(self):
-        trace_deliverable = _PHASE_DELIVERABLE_DEPS[1][2]
-        lines = _deliverable_ab_block(1, trace_deliverable, 3, 3)
+        trace_deliverable = _PHASE_DELIVERABLE_DEPS[1][3]
+        lines = _deliverable_ab_block(1, trace_deliverable, 4, 4)
         joined = "\n".join(lines)
         assert "Human Peer Review" in joined
 
     def test_contains_stateless_sandbox_warning(self, srs_deliverable: Dict):
-        lines = _deliverable_ab_block(1, srs_deliverable, 1, 3)
+        lines = _deliverable_ab_block(1, srs_deliverable, 1, 4)
         joined = "\n".join(lines)
         assert "STATELESS SANDBOX" in joined
 
     def test_deliverable_specific_checks_appear(self, srs_deliverable: Dict):
-        lines = _deliverable_ab_block(1, srs_deliverable, 1, 3)
+        lines = _deliverable_ab_block(1, srs_deliverable, 1, 4)
         joined = "\n".join(lines)
         assert "testable" in joined.lower()
 
@@ -759,12 +761,14 @@ class TestPhase1Generator:
         assert "Execution rule" in joined
 
     def test_has_serial_per_deliverable_ab(self, project: Path):
-        """P1 plan must have 3 serial sub-tasks with individual A/B loops."""
+        """P1 plan must have 4 serial sub-tasks with individual A/B loops."""
         joined = "\n".join(generate_phase1_tasks(project, project / "SRS.md"))
-        assert "Sub-Task 1/3" in joined
-        assert "Sub-Task 2/3" in joined
-        assert "Sub-Task 3/3" in joined
+        assert "Sub-Task 1/4" in joined
+        assert "Sub-Task 2/4" in joined
+        assert "Sub-Task 3/4" in joined
+        assert "Sub-Task 4/4" in joined
         assert "SRS.md" in joined
+        assert "CONSTRAINTS.md" in joined
         assert "SPEC_TRACKING.md" in joined
         assert "TRACEABILITY_MATRIX.md" in joined
 
@@ -800,9 +804,11 @@ class TestPhase1Generator:
     def test_traceability_depends_on_srs_and_spec(self, project: Path):
         """Sub-Task 3 (TRACEABILITY) must declare dependency on SRS + SPEC_TRACKING."""
         joined = "\n".join(generate_phase1_tasks(project, project / "SRS.md"))
-        # Find TRACEABILITY section and verify deps listed
-        assert "SRS.md" in joined
-        assert "SPEC_TRACKING.md" in joined
+        idx_trace = joined.find("Sub-Task 4/4: TRACEABILITY_MATRIX.md")
+        assert idx_trace != -1, "TRACEABILITY sub-task heading not found"
+        section = joined[idx_trace:idx_trace + 600]
+        assert "SRS.md" in section, "SRS.md not referenced in TRACEABILITY section"
+        assert "SPEC_TRACKING.md" in section, "SPEC_TRACKING.md not referenced in TRACEABILITY section"
 
 
 # ─── Phase 2 generator ───────────────────────────────────────────────────────
