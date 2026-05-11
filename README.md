@@ -25,11 +25,15 @@ Design Score: **92/100** Academic Benchmark
 
 | File | Purpose |
 |------|---------|
-| `SKILL.md` | Framework spec (HR rules, thresholds, phase SOPs) |
+| `SKILL.md` | Framework spec (YAML frontmatter + HR rules, thresholds, phase SOPs) |
+| `CONTRIBUTING.md` | Maintainer SOP: module structure, versioning, release flow, troubleshooting |
+| `harness_cli.py` | Standalone CLI entry point (plan-phase, run-gate, run-pipeline, etc.) |
 | `harness/harness_bridge.py` | Gate trigger + CRG integration |
 | `harness/gate_configs/` | 4 Gate YAML configurations |
-| `.methodology/enforcement.json` | Team constitution (configurable thresholds) |
-| `core/agent_spawner.py` | Task tool + Hermes MCP reviewer routing |
+| `core/auto_fix/` | AutoFixEngine: classify → fix → verify → loop (13 strategies, 9 escalation conditions) |
+| `scripts/list-modules.py` | Module manifest inventory + validation (`--validate` in CI) |
+| `scripts/validate_cross_refs.py` | Cross-reference checker (CLASSIFICATION_TABLE ↔ STRATEGY_REGISTRY) |
+| `.github/workflows/` | CI: `harness_ci.yml` (PR gate) + `release.yml` (tag-driven release) |
 
 ## Quick Start
 

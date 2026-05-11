@@ -1,0 +1,11 @@
+{
+  "name": "enforcement",
+  "version": "1.0.0",
+  "category": "detection",
+  "description": "Policy engine, framework enforcer, constitution-as-code (R001-R007), server enforcer, and execution registry",
+  "depends_on": ["quality_gate"],
+  "compat": {
+    "python": ">=3.10",
+    "harness-methodology": ">=2.3.0"
+  }
+}

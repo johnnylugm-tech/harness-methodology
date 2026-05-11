@@ -1,3 +1,12 @@
+---
+name: harness-methodology
+version: 2.3.0
+description: |
+  全流程軟體開發管線編排與品質門禁。Phase 1-8、A/B 協作、12 維度品質憲章。
+  Use when: user asks to execute a phase, plan work, run quality gates, or implement FRs.
+  Not applicable: one-shot scripts, quick fixes, non-software tasks.
+---
+
 # SKILL.md — harness-methodology
 
 > **Version**: v2.3.0 | **Framework**: harness-methodology | **Academic Benchmark**: 91/100
@@ -31,6 +40,19 @@ When the user says "execute Phase N", "start P3", "implement FR-X", or any phase
                    → Log both entries to sessions_spawn.log (HR-01, HR-10)
                    → NEVER role-play A or B yourself — they MUST be separate sessions (HR-01: A≠B)
    [CHECKPOINT-K]  → run-gate → Claude evaluates inline → finalize-gate → git push
+
+### 0.1a Pre-Execution Mandatory Checklist (Learn-Before-Process)
+
+Before executing any phase work, Agent MUST confirm the following.
+This mirrors garden-skills' "learn before you process" constraint —
+do NOT start work until every item is checked.
+
+- [ ] 已讀取 `constitution/CONSTITUTION.md` §2 了解當前 phase 的 gate threshold 與維度權重
+- [ ] 已讀取 `core/quality_gate/constitution/profile.py` 了解當前 profile 的 dimension keywords
+- [ ] 已讀取 `core/auto_fix/classifier.py` 了解 CLASSIFICATION_TABLE 的策略分類（31 entries）
+- [ ] 已確認 phase 對應的 gate 編號、最低分數、所需維度數
+- [ ] 已確認 `templates/plan_phase_template.md` 中的 CHECKPOINT 標記位置
+- [ ] ⏭️ 以上全部確認後，才能開始執行
 
 5. GATE FAIL? → auto-fix (up to `--auto-fix-rounds` attempts) → re-run gate. NEVER advance past a failing gate (HR-08).
    If auto-fix exhausts all rounds → escalated to human (see SAD.md §3.19 for 9 escalation conditions).

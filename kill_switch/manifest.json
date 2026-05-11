@@ -1,0 +1,11 @@
+{
+  "name": "kill_switch",
+  "version": "1.0.0",
+  "category": "safety",
+  "description": "Kill-switch circuit breaker (M1) with health monitoring, audit logging, and interrupt engine for systemic failure detection",
+  "depends_on": [],
+  "compat": {
+    "python": ">=3.10",
+    "harness-methodology": ">=2.3.0"
+  }
+}

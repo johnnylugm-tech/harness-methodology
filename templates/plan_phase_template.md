@@ -30,6 +30,46 @@ python3 harness_cli.py generate-next-plan --phase {PHASE}
 
 ---
 
+## ⛔ [CHECKPOINT-0] Entry Gate — Pre-flight Verification
+
+Agent MUST stop here and verify before any work begins.
+
+- [ ] 執行 `python3 harness_cli.py run-phase --phase {PHASE} --project .`
+- [ ] 確認 entry gate PASS（kill-switch 關閉、FSM 狀態正確、前置 phase artifacts 存在）
+- [ ] 確認 `.methodology/state.json` current_phase={PHASE}
+- [ ] ⛔ 未經用戶明確確認，不得開始任何開發工作
+
+---
+
+## ⛔ [CHECKPOINT-1] Per-FR Gate 1 Evaluation
+
+For each FR, Agent MUST stop at the gate evaluation point. DO NOT advance past
+a failing gate.
+
+- [ ] 執行 `python3 harness_cli.py run-gate --gate 1 --phase {PHASE} --fr-id FR-XX`
+- [ ] Claude 評估 gate 結果並寫入 `.sessi-work/gate1_result.json`
+- [ ] 執行 `python3 harness_cli.py finalize-gate --gate 1 --phase {PHASE} --fr-id FR-XX`
+- [ ] 確認 gate PASS（each dimension ≥ threshold per SKILL.md §2）
+- [ ] Gate FAIL → AutoFixEngine retry (up to `--auto-fix-rounds`) → re-check
+- [ ] Auto-fix exhausted → escalate to human (see SAD.md §3.19 for 9 escalation conditions)
+- [ ] ⛔ 未經用戶明確確認，不得繼續下一個 FR
+
+---
+
+## ⛔ [CHECKPOINT-2] Phase Exit Gate Evaluation
+
+Agent MUST stop here. DO NOT advance phase without exit gate PASS.
+
+- [ ] 執行 `python3 harness_cli.py run-gate --gate {EXIT_GATE_NUM} --phase {PHASE}`
+- [ ] Claude 評估 gate 結果並寫入 `.sessi-work/gate{EXIT_GATE_NUM}_result.json`
+- [ ] 執行 `python3 harness_cli.py finalize-gate --gate {EXIT_GATE_NUM} --phase {PHASE}`
+- [ ] 確認 gate PASS（score ≥ threshold per SKILL.md §1）
+- [ ] Gate FAIL → 修復 → 重新評估（HR-08: 不得跳過失敗的 gate）
+- [ ] Phase Truth ≥ 90%（HR-11）
+- [ ] ⛔ 未經用戶明確確認，不得更新 state.json 進入下一 Phase
+
+---
+
 ## 1. Hard Rules (HR-01~HR-15)
 
 | HR | Rule | Consequence | Action |

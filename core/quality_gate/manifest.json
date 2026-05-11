@@ -1,0 +1,11 @@
+{
+  "name": "quality_gate",
+  "version": "1.0.0",
+  "category": "core",
+  "description": "12-dimension quality gate scoring engine with constitution profiles, phase truth verification, and gate evaluation",
+  "depends_on": [],
+  "compat": {
+    "python": ">=3.10",
+    "harness-methodology": ">=2.3.0"
+  }
+}

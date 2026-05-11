@@ -1,0 +1,11 @@
+{
+  "name": "detection",
+  "version": "1.0.0",
+  "category": "detection",
+  "description": "Drift detection, ensemble scoring, and pattern matching for spec-code divergence",
+  "depends_on": [],
+  "compat": {
+    "python": ">=3.10",
+    "harness-methodology": ">=2.3.0"
+  }
+}

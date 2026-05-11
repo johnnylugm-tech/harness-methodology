@@ -28,3 +28,37 @@ jobs:
 
       - name: Unit tests
         run: pytest tests/ -v --tb=short
+
+  validate-manifests:
+    name: Validate Module Manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Validate manifests + SKILL.md frontmatter
+        run: python scripts/list-modules.py --validate
+
+  validate-cross-refs:
+    name: Validate Cross-References
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install project (for imports)
+        run: pip install -r requirements.txt || true
+
+      - name: Validate CLASSIFICATION_TABLE ↔ STRATEGY_REGISTRY
+        run: python scripts/validate_cross_refs.py

@@ -37,11 +37,16 @@ Both steps are blocking — lint or test failure blocks the PR.
 ### 2.2 Release Scripts
 
 ```bash
-# Bump version in relevant files
-python scripts/bump_version.py --part minor
+# Run pre-release validation
+python scripts/list-modules.py --validate
+python scripts/validate_cross_refs.py
 
-# Create GitHub release with notes
-bash scripts/create_release.sh v2.1
+# Run full test suite
+python -m pytest tests/ -v --tb=short
+
+# Tag and push (CI takes over — see .github/workflows/release.yml)
+git tag v2.4.0
+git push origin v2.4.0
 
 # Regenerate machine-readable SAD block
 python scripts/generate_sab.py --sad SAD.md --output .methodology/sab.json

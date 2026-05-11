@@ -1,0 +1,11 @@
+{
+  "name": "adapters",
+  "version": "1.0.0",
+  "category": "core",
+  "description": "Phase hook adapters bridging quality gate checks with pipeline orchestration",
+  "depends_on": ["quality_gate"],
+  "compat": {
+    "python": ">=3.10",
+    "harness-methodology": ">=2.3.0"
+  }
+}

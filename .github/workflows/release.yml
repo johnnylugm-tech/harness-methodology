@@ -1,0 +1,125 @@
+name: Release
+
+# Tag-driven release workflow.
+#
+#   git tag v2.4.0
+#   git push origin v2.4.0
+#
+# This workflow:
+#   1. Validates all manifests and cross-references
+#   2. Runs the full test suite
+#   3. Builds a wheel via pip wheel
+#   4. Generates SHA-256 checksum
+#   5. Creates a GitHub Release with wheel + checksum attached
+#   6. Generates release notes from git log since previous tag
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history for changelog)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install pyyaml build
+          pip install -r requirements.txt || true
+
+      - name: Validate manifests
+        run: python scripts/list-modules.py --validate
+
+      - name: Validate cross-references
+        run: python scripts/validate_cross_refs.py
+
+      - name: Run tests
+        run: python -m pytest tests/ -v --tb=short
+
+      - name: Build wheel
+        run: pip wheel . -w dist/
+
+      - name: Generate checksum
+        run: |
+          cd dist
+          sha256sum *.whl > harness-methodology.sha256
+
+      - name: Parse tag
+        id: parse
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          if [ -z "$VERSION" ]; then
+            echo "::error title=Invalid tag::Tag '$TAG' does not match v<semver>"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Generate release notes
+        id: notes
+        env:
+          VERSION: ${{ steps.parse.outputs.version }}
+          TAG: ${{ steps.parse.outputs.tag }}
+        run: |
+          # Find previous tag
+          PREV_TAG=$(git tag --list 'v*' --sort=-v:refname \
+            | grep -v "^${TAG}$" \
+            | head -n 1 || true)
+
+          {
+            echo "## harness-methodology v${VERSION}"
+            echo
+            if [ -n "$PREV_TAG" ]; then
+              echo "Changes since [\`${PREV_TAG}\`](https://github.com/${GITHUB_REPOSITORY}/releases/tag/${PREV_TAG}):"
+              echo
+              git log --pretty=format:"- %s (%h)" "${PREV_TAG}..${TAG}" || true
+            else
+              echo "Initial release."
+              echo
+              git log --pretty=format:"- %s (%h)" "${TAG}" | head -n 30 || true
+            fi
+            echo
+            echo
+            echo "### Install"
+            echo
+            echo '```bash'
+            echo "pip install harness-methodology==${VERSION}"
+            echo
+            echo "# or download the pinned wheel directly"
+            echo "curl -fsSL -o harness-methodology-${VERSION}-py3-none-any.whl \\"
+            echo "  https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/harness-methodology-${VERSION}-py3-none-any.whl"
+            echo "pip install ./harness-methodology-${VERSION}-py3-none-any.whl"
+            echo '```'
+            echo
+            SHA=$(awk '{print $1}' dist/harness-methodology.sha256)
+            echo "**SHA-256:** \`${SHA}\`"
+          } > release-notes.md
+
+          echo "notes_path=release-notes.md" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.parse.outputs.version }}
+          TAG: ${{ steps.parse.outputs.tag }}
+        run: |
+          WHEEL=$(ls dist/*.whl | head -1)
+          gh release create "$TAG" \
+            --title "harness-methodology v${VERSION}" \
+            --notes-file release-notes.md \
+            "$WHEEL" \
+            "dist/harness-methodology.sha256"

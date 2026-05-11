@@ -1,0 +1,11 @@
+{
+  "name": "auto_fix",
+  "version": "1.0.0",
+  "category": "core",
+  "description": "Proactive auto-repair engine with classification, 13 fix strategies, and 9 human escalation conditions",
+  "depends_on": ["quality_gate"],
+  "compat": {
+    "python": ">=3.10",
+    "harness-methodology": ">=2.3.0"
+  }
+}

@@ -1785,8 +1785,10 @@ python scripts/generate_full_plan.py --phase 3 --repo /path/to/project \
 
 | Script | Size | Purpose |
 |---|---|---|
-| `bump_version.py` | 2KB | Semantic version bump: updates `SKILL.md` + `SAD.md` version headers |
-| `create_release.sh` | 1KB | Creates a GitHub release tag from current version |
+| `pyproject.toml` | 1KB | Build configuration for `pip wheel`; declares project metadata, dependencies, and tool settings |
+| `.github/workflows/release.yml` | 2KB | Tag-driven (`v*`) release workflow: validate → test → build wheel → sha256 → GitHub Release |
+| `scripts/list-modules.py` | 4KB | Module inventory scanner; `--validate` flag checks all manifest.json + SKILL.md frontmatter integrity |
+| `scripts/validate_cross_refs.py` | 3KB | Cross-reference integrity checker: CLASSIFICATION_TABLE ↔ STRATEGY_REGISTRY consistency, dead code detection |
 
 ---
 
