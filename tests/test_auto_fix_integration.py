@@ -2,9 +2,10 @@
 
 import json
 import os
+import pytest
 from pathlib import Path
 
-import pytest
+pytestmark = [pytest.mark.auto_fix, pytest.mark.integration]
 
 from core.auto_fix import AutoFixEngine, FixContext, FixStrategy, EscalationCondition
 from core.auto_fix.classifier import classify, CLASSIFICATION_TABLE

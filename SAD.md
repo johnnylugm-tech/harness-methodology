@@ -126,7 +126,63 @@ These hooks operate at the Claude Code session layer, independently of the harne
 
 ---
 
-### 2.4 GitHub Integration & Automation Layer
+### 2.4 Conformance Matrix (RFC 2119)
+
+This section uses normative language per **RFC 2119**:
+
+| Keyword | Meaning |
+|---------|---------|
+| **MUST** / **SHALL** | Absolute requirement. Violation = conformance failure. |
+| **SHOULD** / **RECOMMENDED** | Expected behavior. May be violated with documented rationale. |
+| **MAY** / **OPTIONAL** | Truly optional; implementation may choose either way. |
+
+#### 2.4.1 Hard Rules (HR-01 ~ HR-15)
+
+| Rule | RFC 2119 | Enforcement Module | Verification |
+|------|----------|--------------------|-------------|
+| HR-01: A≠B (separate sessions) | **MUST** | `core/quality_gate/ab_enforcer.py` | `sessions_spawn.log` ≥2 distinct roles |
+| HR-02: Cannot skip phases | **MUST** | `harness_cli.py` FSM | `state.json` phase ordering |
+| HR-03: Kill switch blocks dispatch | **MUST** | `kill_switch/kill_switch.py` | `kill_switch.status()` check before dispatch |
+| HR-04: HybridWorkflow mode=ON for P2+ | **MUST** | `core/hybrid_workflow.py` | `HybridWorkflow.is_active()` |
+| HR-05: P2 must exist before P3+ | **MUST** | `core/quality_gate/phase_artifact_enforcer.py` | `quality_manifest.json` existence |
+| HR-06: No secrets in codebase | **MUST** | `enforcement/framework_enforcer.py` | `detect-secrets` scan |
+| HR-07: Constitution score ≥ phase threshold | **MUST** | `core/quality_gate/constitution/runner.py` | `run_constitution_check()` |
+| HR-08: Gate must pass before phase advance | **MUST** | `harness/harness_bridge.py` | `finalize_gate()` threshold check |
+| HR-09: Claims verifier checks A/B authenticity | **MUST** | `core/quality_gate/claims_verifier.py` | `verify_sessions_spawn_log()` |
+| HR-10: sessions_spawn.log entries required | **MUST** | `core/sessions_spawn_logger.py` | ≥2 records per FR |
+| HR-11: Phase Truth ≥90% | **MUST** | `core/quality_gate/phase_truth_verifier.py` | `PhaseTruthVerifier.verify()` |
+| HR-12: A/B review ≤5 rounds | **MUST** | `steering/steering_loop.py` | Round counter in iteration loop |
+| HR-13: Auto-fix timeout enforcement | **MUST** | `core/auto_fix/__init__.py` | `check_escalation()` HR-13 condition |
+| HR-14: No integrity violations after auto-fix | **MUST** | `core/auto_fix/guardrails.py` | `post_fix_drift_check()` |
+| HR-15: Citations must include line numbers | **MUST** | `core/quality_gate/claims_verifier.py` | Grep confirmation in review |
+
+#### 2.4.2 Gate Pass Criteria
+
+| Gate | Phase | Score Threshold | Dimensions | RFC 2119 |
+|------|-------|----------------|------------|----------|
+| Gate 1 (per-FR) | P3+ | Each dim ≥75 (per-dim check) | 3 (linting, type_safety, test_coverage) | **MUST** pass for each FR |
+| Gate 2 (P3 exit) | P3 | ≥75 (composite) | 7 dimensions | **MUST** pass before P4 |
+| Gate 3 (P4 exit) | P4 | ≥80 (composite) | 12 dimensions (incl. 4 tier3) | **MUST** pass before P5 |
+| Gate 4 (P6 full) | P6 | ≥85 (composite) + Hermes APPROVE | 12 dimensions | **MUST** pass before release |
+
+#### 2.4.3 Phase Entry / Exit Conformance
+
+| Transition | RFC 2119 | Condition |
+|------------|----------|-----------|
+| P1 → P2 | **MUST** | SRS.md + SPEC_TRACKING.md + TRACEABILITY_MATRIX.md exist |
+| P2 → P3 | **MUST** | SAD.md + quality_manifest.json exist; `plan-phase --phase 3` succeeds |
+| P3 → P4 | **MUST** | Gate 2 ≥75 + Phase Truth ≥90% + all FRs have Gate 1 PASS |
+| P4 → P5 | **MUST** | Gate 3 ≥80 + coverage ≥80% + TEST_RESULTS.md |
+| P5 → P6 | **MUST** | VERIFICATION_REPORT.md + MONITORING_PLAN.md |
+| P6 → P7 | **MUST** | Gate 4 ≥85 + QUALITY_REPORT.md |
+| P7 → P8 | **SHOULD** | RISK_ASSESSMENT.md + RISK_REGISTER.md |
+| Phase advance | **SHALL NOT** | Skip phases; each phase MUST complete before next |
+
+#### 2.4.4 Auto-Fix Escalation Conditions
+
+Per SAD.md §3.18, the AutoFixEngine **MUST** escalate to human (HUMAN_REQUIRED) when any of 9 conditions trigger. These are defined in `core/auto_fix/__init__.py:check_escalation()`. The conditions are **MUST**-level normative requirements for safe autonomous operation.
+
+### 2.5 GitHub Integration & Automation Layer
 
 Full integration guide: **[INTEGRATION.md](INTEGRATION.md)**. Summary:
 

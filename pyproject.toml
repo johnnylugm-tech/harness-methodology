@@ -36,3 +36,18 @@ select = ["E", "F", "W", "I", "N", "UP"]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = "-v --tb=short"
+markers = [
+    "core: Core pipeline tests (fast, always run)",
+    "extended: Extended integration tests (medium, run on PR)",
+    "integration: Full integration tests (slow, run on merge to main)",
+    "gate: Gate evaluation tests (critical path)",
+    "slow: Tests that take >10 seconds",
+    "constitution: Constitution compliance tests",
+    "auto_fix: Auto-fix engine tests",
+    "smoke: Quick smoke tests (run on every commit)",
+    "contract: Spec contract compliance tests",
+    "quality: Quality gate dimension tests",
+]
+
+[project.optional-dependencies]
+watch = ["watchdog>=3.0"]

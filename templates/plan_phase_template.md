@@ -70,6 +70,36 @@ Agent MUST stop here. DO NOT advance phase without exit gate PASS.
 
 ---
 
+## Hook Definitions (v2.4+)
+
+Lifecycle hooks are optional shell/Python commands that execute at specific phase/gate/FR events.
+Hooks are defined in `.methodology/hooks.json` and executed by `core/lifecycle_hooks.HookRunner`.
+
+**Supported events**: `before_phase`, `after_gate_pass`, `on_gate_fail`, `on_escalate`, `after_fr_complete`, `before_phase_advance`
+
+**Failure semantics**:
+| Event | Hook failure behavior |
+|-------|----------------------|
+| `before_phase` | Fatal — abort phase start |
+| `after_gate_pass` | Logged and ignored |
+| `on_gate_fail` | Logged and ignored |
+| `on_escalate` | Logged and ignored |
+| `after_fr_complete` | Logged and ignored |
+| `before_phase_advance` | Fatal — block phase advance |
+
+**Example `.methodology/hooks.json`**:
+```json
+{
+  "hooks": [
+    {"name": "lint-check", "event": "before_phase", "command": "ruff check .", "timeout": 30, "required": true},
+    {"name": "coverage-report", "event": "after_fr_complete", "command": "python -m pytest --cov=app/ --cov-report=term -q", "timeout": 120},
+    {"name": "notify-gate-fail", "event": "on_gate_fail", "command": "echo 'Gate failed' >> .methodology/alerts.log"}
+  ]
+}
+```
+
+---
+
 ## 1. Hard Rules (HR-01~HR-15)
 
 | HR | Rule | Consequence | Action |
@@ -294,6 +324,28 @@ graph TD
     I -->|Yes| J[APPROVE]
     I -->|No| K[Round 6+: Continuous improvement]
     K -->|HR-12 5 rounds| L[PAUSE]
+```
+
+### Turn-Based Continuation (v2.4+, Item 7)
+
+Symphony-inspired turn loop for Phase 3 Agent A dispatch:
+
+| Turn | Prompt Type | Content |
+|------|------------|---------|
+| Turn 1 | Full prompt | SRS FR-XX + SAD relevant sections + complete task spec |
+| Turn 2..N | Continuation guidance | Delta from previous turn (state_changes), remaining checklist items, NO re-reading of SRS/SAD |
+
+**Continuation rules**:
+- Same `thread_id` across all turns within one FR worker session
+- Each turn re-checks FR state (test pass/fail, coverage, constitution score) before deciding to continue
+- `TurnBasedExecutor.should_terminate()` enforces HR-12 (5 turns max)
+- `SessionsSpawnLogger.log_turn()` records per-turn entries in JSONL
+
+**Turn prompt format**:
+```
+[Turn {N}/{max_turns}] Continuation guidance — do NOT re-execute completed work.
+Previous changes: {state_changes}
+Remaining items: {remaining_items}
 ```
 
 ### Per-Round Targets

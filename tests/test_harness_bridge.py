@@ -4,6 +4,8 @@ Unit tests for HarnessBridge.
 
 import json
 import pytest
+
+pytestmark = pytest.mark.core
 from unittest.mock import patch, MagicMock
 from pathlib import Path
 from harness.harness_bridge import HarnessBridge, GateResult, GateBlockedError, GateContext
@@ -47,11 +49,14 @@ class TestHarnessBridge:
                 entry = mock_log.write.call_args[0][0]
                 assert entry.decision == "REVIEWER_REJECT"
 
-    def test_load_config_returns_dict(self):
+    def test_load_config_returns_gate_config(self):
+        from core.quality_gate.constitution.profile import GateConfig
         bridge = HarnessBridge()
         config = bridge._load_config(gate_num=2)
-        assert isinstance(config, dict)
-        assert config["gate"] == 2
+        assert isinstance(config, GateConfig)
+        assert config.gate_num == 2
+        assert config.score_gate == 75.0
+        assert len(config.dimensions) == 7
 
     def test_gate_blocked_error_attributes(self):
         result = GateResult(gate_num=3, score=60.0, open_critical=2, open_high=3)
@@ -144,9 +149,19 @@ class TestGateContext:
 class TestPrepareGate:
     """Tests for HarnessBridge.prepare_gate()."""
 
+    @staticmethod
+    def _mock_config(gate_num=2, **kw):
+        from core.quality_gate.constitution.profile import GateConfig, DimensionConfig
+        return GateConfig(
+            gate_num=gate_num,
+            score_gate=float(kw.get("score_gate", 80.0)),
+            dimensions=kw.get("dimensions", [DimensionConfig(name="coverage", threshold=75.0)]),
+            crg=kw.get("crg", {}),
+        )
+
     def test_prepare_gate_returns_gate_context(self, tmp_path):
         bridge = HarnessBridge()
-        with patch.object(bridge, "_load_config", return_value={"gate": 2, "score_gate": 80}):
+        with patch.object(bridge, "_load_config", return_value=self._mock_config(2)):
             ctx = bridge.prepare_gate(gate_num=2, project_root=str(tmp_path), phase=3)
         assert isinstance(ctx, GateContext)
         assert ctx.gate_num == 2
@@ -155,14 +170,14 @@ class TestPrepareGate:
 
     def test_prepare_gate_sets_ssi_dirs(self, tmp_path):
         bridge = HarnessBridge()
-        with patch.object(bridge, "_load_config", return_value={"gate": 2}):
+        with patch.object(bridge, "_load_config", return_value=self._mock_config(2)):
             ctx = bridge.prepare_gate(gate_num=2, project_root=str(tmp_path), phase=3)
         assert "ssi" in ctx.ssi_scripts_dir
         assert "ssi" in ctx.ssi_prompts_dir
 
     def test_prepare_gate_triggers_crg_reconnaissance(self, tmp_path):
         bridge = HarnessBridge()
-        config_with_crg = {"gate": 3, "crg": {"reconnaissance": True}}
+        config_with_crg = self._mock_config(3, crg={"reconnaissance": True})
         with patch.object(bridge, "_load_config", return_value=config_with_crg):
             with patch.object(bridge.crg, "run_reconnaissance") as mock_recon:
                 bridge.prepare_gate(gate_num=3, project_root=str(tmp_path), phase=4)
@@ -170,20 +185,20 @@ class TestPrepareGate:
 
     def test_prepare_gate_skips_crg_when_not_configured(self, tmp_path):
         bridge = HarnessBridge()
-        with patch.object(bridge, "_load_config", return_value={"gate": 2}):
+        with patch.object(bridge, "_load_config", return_value=self._mock_config(2)):
             with patch.object(bridge.crg, "run_reconnaissance") as mock_recon:
                 bridge.prepare_gate(gate_num=2, project_root=str(tmp_path), phase=3)
         mock_recon.assert_not_called()
 
     def test_prepare_gate_passes_fr_id(self, tmp_path):
         bridge = HarnessBridge()
-        with patch.object(bridge, "_load_config", return_value={"gate": 1}):
+        with patch.object(bridge, "_load_config", return_value=self._mock_config(1)):
             ctx = bridge.prepare_gate(gate_num=1, project_root=str(tmp_path), phase=2, fr_id="FR-01")
         assert ctx.fr_id == "FR-01"
 
     def test_prepare_gate_creates_work_dir(self, tmp_path):
         bridge = HarnessBridge()
-        with patch.object(bridge, "_load_config", return_value={"gate": 2}):
+        with patch.object(bridge, "_load_config", return_value=self._mock_config(2)):
             ctx = bridge.prepare_gate(gate_num=2, project_root=str(tmp_path), phase=3)
         assert Path(ctx.work_dir).exists()
 
@@ -193,7 +208,12 @@ class TestFinalizeGate:
 
     def _make_context(self, tmp_path, gate_num=2, config=None, fr_id=None):
         if config is None:
-            config = {"gate": gate_num, "score_gate": 80, "max_rounds": 3}
+            from core.quality_gate.constitution.profile import GateConfig, DimensionConfig
+            config = GateConfig(
+                gate_num=gate_num, score_gate=80.0, max_rounds=3,
+                dimensions=[DimensionConfig(name="coverage", threshold=75.0),
+                            DimensionConfig(name="linting", threshold=75.0)],
+            )
         ssi_dir = Path(__file__).parent.parent / "harness" / "ssi"
         work_dir = tmp_path / ".sessi-work"
         work_dir.mkdir()
@@ -404,7 +424,9 @@ class TestSabManifestIntegration:
             "crg": {"enabled": True, "tier3_guidance": True, "impact_threshold": 0.7},
             "replaces": "test",
         }))
-        with patch.object(bridge, '_load_config', return_value=yaml.safe_load(yaml_path.read_text())):
+        from core.quality_gate.constitution.profile import GateConfig
+        raw_config = yaml.safe_load(yaml_path.read_text())
+        with patch.object(bridge, '_load_config', return_value=GateConfig.from_dict(raw_config, 3)):
             ctx = bridge.prepare_gate(gate_num=3, project_root=str(tmp_path), phase=4)
 
         assert "architecture" in ctx.tier3_context

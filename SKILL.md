@@ -36,7 +36,7 @@ When the user says "execute Phase N", "start P3", "implement FR-X", or any phase
 4. EXECUTE plan top-to-bottom. You are the ORCHESTRATOR, not Agent A or B:
 
    [PREFLIGHT]     → python harness_cli.py run-phase --phase N
-   [A/B Work]      → Agent A: dispatch via sessions_spawn / sub-agent to develop
+   [A/B Work]      → Agent A: dispatch via turn-based executor (Turn 1: full prompt, Turn 2..N: continuation guidance only)
                    → Agent B: dispatch as STATELESS sub-agent to review (embed all content in prompt)
                    → Log both entries to sessions_spawn.log (HR-01, HR-10)
                    → NEVER role-play A or B yourself — they MUST be separate sessions (HR-01: A≠B)
@@ -53,10 +53,11 @@ do NOT start work until every item is checked.
 - [ ] 已讀取 `core/auto_fix/classifier.py` 了解 CLASSIFICATION_TABLE 的策略分類（31 entries）
 - [ ] 已確認 phase 對應的 gate 編號、最低分數、所需維度數
 - [ ] 已確認 `templates/plan_phase_template.md` 中的 CHECKPOINT 標記位置
+- [ ] 已確認 WorkspaceManager 為每個 FR 建立了隔離的工作區（`.methodology/workspaces/phase_{N}/FR-XX/`）
 - [ ] ⏭️ 以上全部確認後，才能開始執行
 
 5. GATE FAIL? → auto-fix (up to `--auto-fix-rounds` attempts) → re-run gate. NEVER advance past a failing gate (HR-08).
-   If auto-fix exhausts all rounds → escalated to human (see SAD.md §3.19 for 9 escalation conditions).
+   If auto-fix exhausts all rounds → escalated to human (see SAD.md §3.18 for 9 escalation conditions).
    Use `--no-auto-fix` to fall back to detect→block→wait_for_human.
 
 6. PHASE COMPLETE → Verify Phase Completion Checklist (§0.4) → advance to Phase N+1 (back to step 1).

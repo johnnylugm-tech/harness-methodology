@@ -75,3 +75,30 @@ class IssueTrackerExt(IssueTracker):
             for fr_id in issue.get("fr_ids", []):
                 summary[fr_id] = summary.get(fr_id, 0) + 1
         return summary
+
+    # ── FR Saturation Detection ───────────────────────────────────────────
+
+    def record_round_findings(self, fr_id: str) -> None:
+        """Snapshot current finding IDs for *fr_id* at end of an auto-fix round."""
+        current_ids = {
+            issue["id"] for issue in self.open_issues()
+            if fr_id in issue.get("fr_ids", [])
+        }
+        prev_ids = self._round_findings.get(fr_id, set())
+        if prev_ids and current_ids:
+            overlap = len(current_ids & prev_ids)
+            total = max(len(current_ids | prev_ids), 1)
+            if overlap / total >= 0.5:
+                self._saturation_counters[fr_id] = self._saturation_counters.get(fr_id, 0) + 1
+            else:
+                self._saturation_counters[fr_id] = 0
+        self._round_findings[fr_id] = current_ids
+
+    def fr_saturation_check(self, fr_id: str, threshold: int = 3) -> bool:
+        """True when the same findings have persisted for ≥ *threshold* rounds."""
+        return self._saturation_counters.get(fr_id, 0) >= threshold
+
+    def reset_saturation(self, fr_id: str) -> None:
+        """Reset saturation counter for *fr_id* (e.g. after manual fix)."""
+        self._saturation_counters.pop(fr_id, None)
+        self._round_findings.pop(fr_id, None)

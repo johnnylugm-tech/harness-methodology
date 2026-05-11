@@ -109,6 +109,20 @@ class SessionsSpawnLogger:
                 "valid": result["valid"]}
 
 
+    def log_turn(self, fr_id: str, turn_number: int, session_id: str,
+                 status: str = "COMPLETED", **kwargs) -> Dict[str, Any]:
+        """Record a turn-based execution entry (Item 7)."""
+        return self.log_spawn(
+            role="developer",
+            task=f"{fr_id} turn {turn_number}",
+            session_id=session_id,
+            status=status,
+            fr_id=fr_id,
+            turn_number=turn_number,
+            **kwargs,
+        )
+
+
 def log_spawn_event(repo_path: Path, role: str, task: str,
                     session_id: str, **kwargs) -> Dict[str, Any]:
     """Convenience function: directly record one dispatch"""

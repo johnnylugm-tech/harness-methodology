@@ -15,6 +15,10 @@ Exports:
 """
 
 from __future__ import annotations
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from core.auto_fix.error_class import ErrorClass
 
 import time
 from dataclasses import dataclass, field
@@ -111,8 +115,8 @@ class AutoFixEngine:
 
     # ── classification ────────────────────────────────────────────────────
 
-    def classify(self, context: FixContext) -> tuple[FixStrategy, float, int, str]:
-        """Classify severity and return (strategy, confidence, max_rounds, problem_type)."""
+    def classify(self, context: FixContext) -> tuple[FixStrategy, float, int, str, "ErrorClass"]:
+        """Classify severity and return (strategy, confidence, max_rounds, problem_type, error_class)."""
         from core.auto_fix.classifier import classify
 
         return classify(context.source, context.details)
@@ -121,7 +125,7 @@ class AutoFixEngine:
 
     def fix(self, context: FixContext) -> FixResult:
         """Main entry: classify -> guard -> fix -> verify. Returns FixResult or escalates."""
-        strategy, confidence, max_rounds, problem_type = self.classify(context)
+        strategy, confidence, max_rounds, problem_type, error_class = self.classify(context)
         context.problem_type = problem_type
 
         # HUMAN_REQUIRED → escalate immediately

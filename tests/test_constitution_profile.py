@@ -2,8 +2,11 @@
 
 import json
 import os
+import pytest
 import tempfile
 from pathlib import Path
+
+pytestmark = pytest.mark.constitution
 
 from core.quality_gate.constitution.profile import (
     ConstitutionProfile,

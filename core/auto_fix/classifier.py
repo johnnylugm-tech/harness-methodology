@@ -254,29 +254,31 @@ ACTUAL_SECRET_PATTERNS = [
 
 def classify(
     source: str, details: Dict[str, Any]
-) -> Tuple[FixStrategy, float, int, str]:
+) -> Tuple[FixStrategy, float, int, str, Any]:
     """Classify a detection result.
 
     Args:
-        source: Module that detected the problem (e.g. "constitution/runner", "framework_enforcer")
+        source: Module that detected the problem
         details: Raw detection data for context-specific classification
 
     Returns:
-        (FixStrategy, confidence_pct, max_rounds, problem_type_string)
+        (FixStrategy, confidence_pct, max_rounds, problem_type_string, ErrorClass)
     """
+    from core.auto_fix.error_class import ErrorClass, get_error_class  # pyright: ignore[reportMissingImports]
+
     # Check for hard rule violations first
     if is_hard_rule_violation(details):
-        return (FixStrategy.HUMAN_REQUIRED, 0.0, 0, "hard_rule_violation")
+        return (FixStrategy.HUMAN_REQUIRED, 0.0, 0, "hard_rule_violation", ErrorClass.HARD_VIOLATION)
 
     # Check for actual secrets
     content = details.get("content", "")
     if content and is_actual_secret(content):
-        return (FixStrategy.HUMAN_REQUIRED, 0.0, 0, "hardcoded_secrets")
+        return (FixStrategy.HUMAN_REQUIRED, 0.0, 0, "hardcoded_secrets", ErrorClass.HARD_VIOLATION)
 
     # Special case: gate 4 always human-required
     gate_num = details.get("gate_num")
     if gate_num == 4:
-        return (FixStrategy.HUMAN_REQUIRED, 0.0, 0, "hard_rule_violation")
+        return (FixStrategy.HUMAN_REQUIRED, 0.0, 0, "hard_rule_violation", ErrorClass.GATE_FAILURE)
 
     # Look up in classification table
     problem_type = details.get("problem_type", "")
@@ -298,8 +300,8 @@ def classify(
                 break
 
     if entry is None:
-        # Sensible default: auto-fix with verification
-        return (FixStrategy.AUTO_FIX_WITH_VERIFICATION, 65.0, 3, "low_constitution_score")
+        return (FixStrategy.AUTO_FIX_WITH_VERIFICATION, 65.0, 3, "low_constitution_score",
+                ErrorClass.QUALITY_DEFICIT)
 
     strategy = entry["strategy"]
     confidence = entry["confidence"]
@@ -311,7 +313,8 @@ def classify(
     if dimension in DIMENSION_CONFIDENCE:
         confidence = DIMENSION_CONFIDENCE[dimension]
 
-    return (strategy, confidence, max_rounds, resolved_type)
+    error_class = get_error_class(source, resolved_type)
+    return (strategy, confidence, max_rounds, resolved_type, error_class)
 
 
 def is_hard_rule_violation(details: Dict[str, Any]) -> bool:

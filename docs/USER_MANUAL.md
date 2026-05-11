@@ -1,7 +1,7 @@
 # Harness Methodology — User Manual v2.0
 
 > **Audience**: Engineers using Claude (AI agent) + harness-methodology to execute software development projects.
-> **Framework version**: v2.2 | **Document date**: 2026-05-04
+> **Framework version**: v2.4 | **Document date**: 2026-05-11
 
 ---
 
@@ -94,6 +94,9 @@ your-project/
     quality_manifest.json   ← Gate results (created at P2 exit)
     decision_logs/          ← Per-gate YAML audit entries
     effort_metrics.db       ← SQLite effort tracking
+    hooks.json              ← Optional lifecycle hooks (v2.4+)
+    hooks.log               ← Hook execution log (auto-created, v2.4+)
+    workspaces/             ← Per-FR isolation workspaces (auto-created, v2.4+)
   .sessi-work/              ← SSI gate workspace (auto-created)
 ```
 
@@ -141,9 +144,10 @@ Set DRIFT_PROJECT_PATH       →  drift alert every hour (log / email / Slack)
 ### 3.2 Functional Requirements (FRs)
 
 Each phase works on a list of FRs (e.g. `FR-01`, `FR-02`). Each FR is an atomic unit of work:
-- Developer agent builds/tests it
-- Reviewer agent reviews it
+- Developer agent builds/tests it in an **isolated workspace** (`.methodology/workspaces/phase_{N}/FR-XX/`)
+- Reviewer agent reviews it (stateless, embed content in prompt)
 - Gate 1 checks it before marking it done
+- Workspace is cleaned up after Gate 1 passes
 
 ### 3.3 Quality Gates
 
@@ -153,6 +157,8 @@ Each phase works on a list of FRs (e.g. `FR-01`, `FR-02`). Each FR is an atomic 
 | Gate 2 | P3 exit | Full phase | Composite score ≥ 75 |
 | Gate 3 | P4 exit | Full phase | Composite score ≥ 80, all 12 dims |
 | Gate 4 | P6 exit | Full project | Composite score ≥ 85 + Hermes human APPROVE |
+
+> **Normative reference**: Gate pass criteria are **MUST**-level requirements per RFC 2119. See [SAD.md §2.4 Conformance Matrix](../SAD.md#24-conformance-matrix-rfc-2119) for the full conformance specification.
 
 ### 3.4 FSM States
 
@@ -490,6 +496,9 @@ run-phase → "PRE-FLIGHT FAILED"
   ├─ Force override (if you understand the failure):
   │    python harness_cli.py run-phase --phase N --project /project --force
   │
+  ├─ Skip preflight for run-gate (v2.4+):
+  │    python harness_cli.py run-gate --gate N --phase N --project /project --skip-preflight
+  │
   └─ Fix constitution violations:
        Tell Claude: "Pre-flight constitution check failed. Review docs/ for
        HR violations and fix them before I re-run."
@@ -754,7 +763,8 @@ Gate 4 需要我在 Telegram APPROVE，其餘你全權處理。
 python harness_cli.py run-pipeline \
   --phase-from 1 --phase-to 8 \
   --project /path/to/project \
-  --auto-fix-rounds 3
+  --auto-fix-rounds 3 \
+  --watch                    # v2.4+: hot-reload SKILL.md YAML frontmatter changes
 ```
 
 > **關鍵設計**：P3+ 的計劃（FR 清單）從 P2 產出的 `SAD.md` 動態讀取。
@@ -844,11 +854,14 @@ python harness_cli.py run-gate \
   --gate    2          \  # Gate 編號 1-4（必填）
   --phase   3          \  # 當前 Phase（必填）
   --project /project   \  # 專案路徑（預設：.）
-  --fr-id   FR-01        # FR ID（Gate 1 必填）
+  --fr-id   FR-01      \  # FR ID（Gate 1 必填）
+  --auto-fix-rounds 3  \  # Auto-fix 最大輪數（預設：3, 上限 5）
+  --skip-preflight        # v2.4+: 跳過 preflight 驗證（預設：啟用 preflight）
 ```
 
 **返回碼**：0=通過；1=阻塞（Gate Blocked）；2=錯誤（SSI 未安裝等）  
-**需要**：SSI 已安裝；Gate 4 額外需要 `HERMES_REVIEWER_TARGET`
+**需要**：SSI 已安裝；Gate 4 額外需要 `HERMES_REVIEWER_TARGET`  
+**v2.4+**：`run-gate` 預設在 gate 評估前先執行 preflight 驗證。使用 `--skip-preflight` 跳過。
 
 ---
 
@@ -869,10 +882,14 @@ python harness_cli.py manifest \
 
 ```bash
 python harness_cli.py status \
-  --project /project   # 專案路徑（預設：.）
+  --project /project   \  # 專案路徑（預設：.）
+  --json               \  # v2.4+: 機器可讀 JSON 輸出
+  --full                  # v2.4+: 包含 test stats + auto-fix round 資訊
 ```
 
-**顯示**：FSM 狀態 + quality_manifest 中所有 gate 結果摘要
+**顯示**：FSM 狀態 + Phase 進度表（8 phases）+ quality_manifest 中所有 gate 結果摘要  
+**`--json`**：輸出 JSON 格式，適合 CI/CD pipeline 或自動化腳本  
+**`--full`**：額外顯示 test 數量、coverage %、auto-fix 使用輪數
 
 ---
 
@@ -886,6 +903,36 @@ python harness_cli.py effort \
 
 **顯示**：Gate 執行次數、平均耗時、各 Phase/Gate 細分  
 **資料來源**：`.methodology/effort_metrics.db`（SQLite）
+
+---
+
+### Lifecycle Hooks（v2.4+）
+
+Hooks 是可選的 shell/Python 指令，在特定 phase/gate/FR 事件自動執行。定義檔：`.methodology/hooks.json`
+
+**支援的事件**：
+
+| Event | 觸發時機 | 失敗行為 |
+|-------|---------|---------|
+| `before_phase` | Phase 開始前 | Fatal — 中止 phase |
+| `after_gate_pass` | Gate 通過後 | 記錄並忽略 |
+| `on_gate_fail` | Gate 失敗後 | 記錄並忽略 |
+| `on_escalate` | Auto-fix 升級至人類時 | 記錄並忽略 |
+| `after_fr_complete` | FR 完成後 | 記錄並忽略 |
+| `before_phase_advance` | Phase 推進前 | Fatal — 阻擋推進 |
+
+**範例 `.methodology/hooks.json`**：
+```json
+{
+  "hooks": [
+    {"name": "lint-check", "event": "before_phase", "command": "ruff check .", "timeout": 30, "required": true},
+    {"name": "coverage-report", "event": "after_fr_complete", "command": "pytest --cov=app/ --cov-report=term -q", "timeout": 120},
+    {"name": "notify-gate-fail", "event": "on_gate_fail", "command": "echo 'Gate failed' >> .methodology/alerts.log"}
+  ]
+}
+```
+
+**執行記錄**：所有 hook 執行結果寫入 `.methodology/hooks.log`（JSONL 格式）。
 
 ---
 
@@ -962,6 +1009,28 @@ python harness_cli.py run-phase --phase 3 --project /project --force
 # Or fix the constitution violation:
 # Tell Claude: "Pre-flight constitution check found violations. 
 # Please review docs/ and fix HR policy violations."
+```
+
+### `hook failed — required hook blocked phase start`
+```bash
+# Check which hook failed and why:
+cat .methodology/hooks.log | python3 -m json.tool
+
+# Common causes:
+#   - Command not found (missing CLI tool)
+#   - Timeout (increase "timeout" in hooks.json)
+#   - Non-zero exit code (check hook output in hooks.log)
+
+# Fix the hook command or remove the failed hook from hooks.json, then re-run.
+```
+
+### `Gate 1 preflight check blocked — use --skip-preflight`
+```bash
+# If preflight blocks a gate evaluation (v2.4+):
+python harness_cli.py run-gate --gate 1 --phase 3 --project /project --fr-id FR-01 --skip-preflight
+
+# Preflight runs automatically before each gate evaluation.
+# Use --skip-preflight only when you've already verified preflight separately.
 ```
 
 ---

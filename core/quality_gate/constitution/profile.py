@@ -241,6 +241,98 @@ class ConstitutionProfile:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Typed Config Schemas — dataclass-based gate/phase/dimension configuration
+# ══════════════════════════════════════════════════════════════════════════════
+
+@dataclass
+class PhaseConfig:
+    """Typed configuration for a single phase."""
+    phase_num: int
+    name: str
+    entry_score: int | None = None
+    exit_gate: int | None = None
+    key_artifact: str = ""
+    per_fr_gate1: bool = False
+
+
+@dataclass
+class DimensionConfig:
+    """Typed configuration for a single quality dimension."""
+    name: str
+    threshold: float
+    tier: int = 1
+    weight: float = 1.0
+
+
+@dataclass
+class GateConfig:
+    """Typed configuration for a quality gate, loaded from YAML."""
+    gate_num: int
+    score_gate: float
+    dimensions: list[DimensionConfig]
+    per_dim_min: float | None = None
+    max_rounds: int = 3
+    blocking: bool = True
+    trigger: str = ""
+    scope: str = ""
+    crg: dict = field(default_factory=dict)
+
+    def to_dict(self) -> dict:
+        """Backward-compatible dict representation."""
+        return {
+            "gate_num": self.gate_num,
+            "score_gate": self.score_gate,
+            "dimensions": [
+                {"name": d.name, "threshold": d.threshold, "tier": d.tier, "weight": d.weight}
+                for d in self.dimensions
+            ],
+            "per_dim_min": self.per_dim_min,
+            "max_rounds": self.max_rounds,
+            "blocking": self.blocking,
+            "trigger": self.trigger,
+            "scope": self.scope,
+            "crg": self.crg,
+        }
+
+    @classmethod
+    def from_dict(cls, raw: dict, gate_num: int) -> "GateConfig":
+        """Parse a GateConfig from a raw YAML dict."""
+        dims = []
+        for d in raw.get("dimensions", []):
+            dims.append(DimensionConfig(
+                name=d.get("name", ""),
+                threshold=float(d.get("threshold", 75)),
+                tier=int(d.get("tier", 1)),
+                weight=float(d.get("weight", 1.0)),
+            ))
+        return cls(
+            gate_num=gate_num,
+            score_gate=float(raw.get("score_gate", raw.get("gate", 75))),
+            dimensions=dims,
+            per_dim_min=float(raw["per_dim_min"]) if raw.get("per_dim_min") is not None else None,
+            max_rounds=int(raw.get("max_rounds", 3)),
+            blocking=bool(raw.get("blocking", True)),
+            trigger=str(raw.get("trigger", "")),
+            scope=str(raw.get("scope", "")),
+            crg=dict(raw.get("crg", {})),
+        )
+
+
+def _phase_configs() -> dict[int, PhaseConfig]:
+    """Built-in per-phase configurations."""
+    return {
+        1: PhaseConfig(phase_num=1, name="Requirements", entry_score=None, exit_gate=None, key_artifact="SRS.md", per_fr_gate1=False),
+        2: PhaseConfig(phase_num=2, name="Architecture", entry_score=None, exit_gate=None, key_artifact="SAD.md", per_fr_gate1=False),
+        3: PhaseConfig(phase_num=3, name="Implementation", entry_score=75, exit_gate=2, key_artifact="03-implementation/src/", per_fr_gate1=True),
+        4: PhaseConfig(phase_num=4, name="Testing", entry_score=75, exit_gate=3, key_artifact="TEST_RESULTS.md", per_fr_gate1=True),
+        5: PhaseConfig(phase_num=5, name="Verification", entry_score=80, exit_gate=None, key_artifact="VERIFICATION_REPORT.md", per_fr_gate1=True),
+        6: PhaseConfig(phase_num=6, name="Quality", entry_score=85, exit_gate=4, key_artifact="QUALITY_REPORT.md", per_fr_gate1=False),
+        7: PhaseConfig(phase_num=7, name="Risk", entry_score=85, exit_gate=None, key_artifact="RISK_ASSESSMENT.md", per_fr_gate1=True),
+        8: PhaseConfig(phase_num=8, name="Configuration", entry_score=85, exit_gate=None, key_artifact="CONFIG_RECORDS.md", per_fr_gate1=True),
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Defaults — match current hardcoded values in runner.py + constitution/__init__.py
 # ══════════════════════════════════════════════════════════════════════════════
 

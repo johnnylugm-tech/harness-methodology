@@ -14,6 +14,7 @@ from typing import Any
 from harness.crg_bridge import CRGBridge
 from harness.decision_log import DecisionLogWriter, DecisionLogEntry, DecisionContext
 from harness.effort_tracker import EffortTracker, EffortRecord
+from core.quality_gate.constitution.profile import GateConfig
 
 
 @dataclass
@@ -48,6 +49,18 @@ class GateBlockedError(Exception):
         )
 
 
+class PreflightBlockedError(Exception):
+    """Raised when preflight validation fails before gate evaluation (Item 9)."""
+
+    def __init__(self, preflight_result: dict):
+        self.preflight_result = preflight_result
+        failing = [
+            k for k, v in preflight_result.get("details", {}).items()
+            if isinstance(v, dict) and not v.get("passed", False)
+        ]
+        super().__init__(f"Preflight BLOCKED — failing checks: {failing}")
+
+
 @dataclass
 class GateContext:
     """
@@ -63,7 +76,7 @@ class GateContext:
     finalize_gate(ctx) to complete threshold checks and manifest updates.
     """
     gate_num: int
-    config: dict
+    config: GateConfig | dict
     project_root: str
     phase: int
     fr_id: str | None
@@ -77,9 +90,14 @@ class GateContext:
 
     def evaluation_prompt(self) -> str:
         """Return a human-readable evaluation instruction for Claude."""
-        dims = [d["name"] for d in self.config.get("dimensions", [])]
-        score_gate = self.config.get("score_gate", "n/a")
-        max_rounds = self.config.get("max_rounds", 3)
+        if isinstance(self.config, GateConfig):
+            dims = [d.name for d in self.config.dimensions]
+            score_gate = self.config.score_gate
+            max_rounds = self.config.max_rounds
+        else:
+            dims = [d["name"] for d in self.config.get("dimensions", [])]
+            score_gate = self.config.get("score_gate", "n/a")
+            max_rounds = self.config.get("max_rounds", 3)
         result_path = str(Path(self.work_dir) / f"gate{self.gate_num}_result.json")
 
         sab_lines = ""
@@ -205,20 +223,24 @@ class HarnessBridge:
         self._last_gate_num = gate_num
         config = self._load_config(gate_num)
         if auto_fix_rounds:
-            config = dict(config)
-            config["auto_fix_rounds"] = auto_fix_rounds
+            config = GateConfig(
+                gate_num=config.gate_num, score_gate=config.score_gate,
+                dimensions=config.dimensions, per_dim_min=config.per_dim_min,
+                max_rounds=auto_fix_rounds, blocking=config.blocking,
+                trigger=config.trigger, scope=config.scope, crg=config.crg,
+            )
 
         # CRG Point 1: structural reconnaissance for gates that require it (Gate 3/4)
-        if config.get("crg", {}).get("reconnaissance"):
+        if config.crg.get("reconnaissance"):
             self.crg.run_reconnaissance(project_root)
 
         # CRG Point 2: Tier 3 guidance — get minimal context for each Tier 3 dimension
         tier3_context: dict[str, dict] = {}
-        if config.get("crg", {}).get("tier3_guidance"):
-            for dim in config.get("dimensions", []):
-                if dim.get("tier") == 3:
-                    tier3_context[dim["name"]] = self.crg.get_minimal_context(
-                        project_root, dim["name"]
+        if config.crg.get("tier3_guidance"):
+            for dim in config.dimensions:
+                if dim.tier == 3:
+                    tier3_context[dim.name] = self.crg.get_minimal_context(
+                        project_root, dim.name
                     )
 
         ssi_dir = Path(__file__).parent / "ssi"
@@ -310,11 +332,18 @@ class HarnessBridge:
         # Gate 1: per-dimension threshold check
         if ctx.gate_num == 1:
             if any(d.score < d.threshold for d in result.dimensions):
+                self._trigger_hooks(ctx, "on_gate_fail")
                 raise GateBlockedError(ctx.gate_num, result)
         else:
-            score_gate = ctx.config.get("score_gate", 0)
+            if isinstance(ctx.config, GateConfig):
+                score_gate = ctx.config.score_gate
+            else:
+                score_gate = ctx.config.get("score_gate", 0)
             if result.score < score_gate or not result.quality_complete:
+                self._trigger_hooks(ctx, "on_gate_fail")
                 raise GateBlockedError(ctx.gate_num, result)
+
+        self._trigger_hooks(ctx, "after_gate_pass")
 
         # Gate 4: require explicit Hermes reviewer APPROVE
         if ctx.gate_num == 4:
@@ -331,7 +360,7 @@ class HarnessBridge:
         threshold = 0.7
         if self._last_gate_num is not None:
             config = self._load_config(self._last_gate_num)
-            threshold = config.get("crg", {}).get("impact_threshold", 0.7)
+            threshold = config.crg.get("impact_threshold", 0.7)
         risky = self.crg.check_impact(project_root, ref=ref, threshold=threshold)
         return {
             "safe": not risky,
@@ -349,7 +378,7 @@ class HarnessBridge:
         threshold = 0.4
         if self._last_gate_num is not None:
             config = self._load_config(self._last_gate_num)
-            threshold = config.get("crg", {}).get("drift_threshold", 0.4)
+            threshold = config.crg.get("drift_threshold", 0.4)
         drifted = self.crg.check_drift(project_root, threshold=threshold)
         metrics = self.crg.load_metrics(project_root)
         structural_drift = metrics.get("structural_drift", 0.0)
@@ -384,14 +413,25 @@ class HarnessBridge:
         out.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
         return out
 
-    def _load_config(self, gate_num: int) -> dict:
+    def _trigger_hooks(self, ctx: GateContext, event_name: str) -> None:
+        """Trigger lifecycle hooks for gate events (non-fatal)."""
+        try:
+            from core.lifecycle_hooks import HookRunner, HookEvent
+            event = HookEvent(event_name)
+            runner = HookRunner(Path(ctx.project_root))
+            runner.run_hooks(event, {"gate_num": str(ctx.gate_num), "phase": str(ctx.phase)})
+        except Exception:
+            pass  # hooks are non-fatal
+
+    def _load_config(self, gate_num: int) -> GateConfig:
         """Load the YAML configuration for a specific gate."""
         import yaml  # type: ignore[import-untyped]
         names = {1: "gate1_per_fr.yaml", 2: "gate2_p3_exit.yaml",
                  3: "gate3_p4_exit.yaml", 4: "gate4_p6_full.yaml"}
         config_path = Path(__file__).parent / "gate_configs" / names[gate_num]
         with open(config_path, "r", encoding="utf-8") as f:
-            return yaml.safe_load(f)
+            raw = yaml.safe_load(f)
+        return GateConfig.from_dict(raw, gate_num)
 
     def _require_hermes_approve(
         self, result: GateResult, phase: int, fr_id: str | None,

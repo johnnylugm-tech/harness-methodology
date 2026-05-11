@@ -4,6 +4,8 @@ import pytest
 import tempfile
 from pathlib import Path
 
+pytestmark = pytest.mark.constitution
+
 from core.quality_gate.constitution.runner import (  # pyright: ignore[reportMissingImports]
     ConstitutionResult,
     _scan_file_compliance,

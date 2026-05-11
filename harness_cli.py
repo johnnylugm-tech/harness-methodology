@@ -587,39 +587,141 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 def cmd_status(args: argparse.Namespace) -> int:
-    """Show current manifest + FSM state."""
+    """Show current manifest + FSM state, phase progress, and optionally test stats."""
     project = Path(args.project).resolve()
     manifest_path = project / ".methodology" / "quality_manifest.json"
     state_path    = project / ".methodology" / "state.json"
+    json_out = getattr(args, "json", False)
+    full = getattr(args, "full", False)
 
-    print(f"\n{'='*60}\nHarness Status: {project}\n{'='*60}")
-
+    # Gather state
+    state = {}
     if state_path.exists():
         state = json.loads(state_path.read_text(encoding="utf-8"))
+
+    manifest = {}
+    if manifest_path.exists():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    current_phase = state.get("current_phase", 0)
+    fr_ids = manifest.get("fr_ids", [])
+    gates = manifest.get("gate_results", {})
+
+    # Phase progress table
+    phase_names = {1: "Requirements", 2: "Architecture", 3: "Implementation",
+                   4: "Testing", 5: "Verification", 6: "Quality", 7: "Risk", 8: "Config"}
+    phase_status = {}
+    for p in range(1, 9):
+        if p < current_phase:
+            phase_status[p] = "COMPLETE"
+        elif p == current_phase:
+            phase_status[p] = "IN_PROGRESS"
+        else:
+            phase_status[p] = "NOT_STARTED"
+
+    # FR gate status for current phase
+    fr_status = {}
+    if current_phase >= 3 and gates.get("gate1"):
+        for fr_id in fr_ids:
+            fr_result = gates["gate1"].get(fr_id)
+            if fr_result and isinstance(fr_result, dict):
+                fr_status[fr_id] = {"score": fr_result.get("score", 0), "complete": fr_result.get("quality_complete", False)}
+            else:
+                fr_status[fr_id] = {"score": None, "complete": False}
+
+    # Test stats (only when --full)
+    test_count = None
+    coverage_pct = None
+    if full:
+        import subprocess  # nosec B404
+        try:
+            r = subprocess.run(["pytest", "--collect-only", "-q", "--no-header"],
+                             cwd=project, capture_output=True, text=True, timeout=30)
+            m = re.search(r"(\d+) tests? collected", r.stdout + r.stderr)
+            if m:
+                test_count = int(m.group(1))
+        except Exception:
+            pass
+        try:
+            r = subprocess.run(["pytest", "--cov=.", "--cov-report=term", "--tb=no", "-q"],
+                             cwd=project, capture_output=True, text=True, timeout=120)
+            m = re.search(r"TOTAL\s+\d+\s+\d+\s+(\d+)%", r.stdout + r.stderr)
+            if m:
+                coverage_pct = int(m.group(1))
+        except Exception:
+            pass
+
+    # Auto-fix rounds
+    auto_fix_rounds_used = 0
+    if full and gates:
+        for gate_name in ["gate1", "gate2", "gate3", "gate4"]:
+            gv = gates.get(gate_name)
+            if isinstance(gv, dict) and "rounds_used" in gv:
+                auto_fix_rounds_used = max(auto_fix_rounds_used, gv.get("rounds_used", 0))
+
+    if json_out:
+        result = {
+            "project": str(project),
+            "fsm": {"state": state.get("state", "UNKNOWN"), "current_phase": current_phase,
+                    "last_update": state.get("last_update", "-")},
+            "phase_progress": {str(p): phase_status[p] for p in range(1, 9)},
+            "fr_ids": fr_ids,
+            "gates": gates,
+        }
+        if full:
+            result["test_count"] = test_count
+            result["coverage_pct"] = coverage_pct
+            result["auto_fix_rounds_used"] = auto_fix_rounds_used
+        print(json.dumps(result, indent=2, default=str))
+        return 0
+
+    # Text output
+    print(f"\n{'='*60}\nHarness Status: {project}\n{'='*60}")
+
+    if state:
         print("\n[FSM State]")
         print(f"  state         : {state.get('state', 'UNKNOWN')}")
-        print(f"  current_phase : {state.get('current_phase', 0)}")
+        print(f"  current_phase : {current_phase}")
         print(f"  last_update   : {state.get('last_update', '-')}")
     else:
         print("\n[FSM State] .methodology/state.json not found (project not initialised)")
 
-    if manifest_path.exists():
-        m = json.loads(manifest_path.read_text(encoding="utf-8"))
+    # Phase progress table
+    print("\n[Phase Progress]")
+    for p in range(1, 9):
+        icon = {"COMPLETE": "✅", "IN_PROGRESS": "🔄", "NOT_STARTED": "⬜"}.get(phase_status[p], "⬜")
+        print(f"  {icon} P{p} {phase_names.get(p, 'Unknown'):<16} {phase_status[p]}")
+
+    if manifest:
         print("\n[Quality Manifest]")
-        print(f"  schema_version: {m.get('schema_version')}")
-        print(f"  fr_ids        : {m.get('fr_ids')}")
-        gates = m.get("gate_results", {})
+        print(f"  schema_version: {manifest.get('schema_version')}")
+        print(f"  fr_ids        : {fr_ids}")
         for g, v in gates.items():
             if v is None:
                 print(f"  {g}           : not run")
             elif isinstance(v, dict) and "score" in v:
                 print(f"  {g}           : score={v['score']} complete={v['quality_complete']}")
             elif isinstance(v, dict):
-                # Gate 1: per-FR dict
                 for fr, r in v.items():
                     print(f"  {g}/{fr}  : score={r['score']} complete={r['quality_complete']}")
     else:
         print("\n[Quality Manifest] Not found — run `harness_cli.py manifest` first")
+
+    # FR detail for current phase
+    if fr_status:
+        print(f"\n[FR Gate 1 Status — Phase {current_phase}]")
+        for fr_id, fs in fr_status.items():
+            if fs["score"] is not None:
+                print(f"  {fr_id}: score={fs['score']} complete={fs['complete']}")
+            else:
+                print(f"  {fr_id}: not run")
+
+    if full:
+        print(f"\n[Test Stats]")
+        print(f"  tests collected: {test_count if test_count is not None else 'N/A'}")
+        print(f"  coverage       : {coverage_pct}%" if coverage_pct is not None else "  coverage       : N/A")
+        print(f"\n[Auto-Fix]")
+        print(f"  rounds_used    : {auto_fix_rounds_used}")
 
     return 0
 
@@ -1561,6 +1663,7 @@ def build_parser() -> argparse.ArgumentParser:
     rg.add_argument("--phase",   type=int, required=True, help="Current phase number")
     rg.add_argument("--project", default=".", help="Project root (default: .)")
     rg.add_argument("--fr-id",   default=None, help="FR ID (Gate 1 only)", dest="fr_id")
+    rg.add_argument("--skip-preflight", action="store_true", help="Skip preflight validation before gate (Item 9)")
     rg.set_defaults(func=cmd_run_gate)
 
     # finalize-gate (Phase 2: read result.json, check thresholds, git)
@@ -1617,6 +1720,8 @@ def build_parser() -> argparse.ArgumentParser:
                      help="Max auto-fix rounds per problem (default: 3, max: 5)")
     rpl.add_argument("--no-auto-fix", action="store_true", dest="no_auto_fix",
                      help="Disable all auto-fix; fall back to detect→block→wait_for_human")
+    rpl.add_argument("--watch", action="store_true",
+                     help="Enable config hot-reload: watch SKILL.md for YAML frontmatter changes (Item 2)")
     rpl.set_defaults(func=cmd_run_pipeline)
 
     # manifest
@@ -1630,6 +1735,8 @@ def build_parser() -> argparse.ArgumentParser:
     # status
     st = sub.add_parser("status", help="Show current manifest + FSM state")
     st.add_argument("--project", default=".", help="Project root (default: .)")
+    st.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+    st.add_argument("--full", action="store_true", help="Include test stats and auto-fix rounds")
     st.set_defaults(func=cmd_status)
 
     # effort

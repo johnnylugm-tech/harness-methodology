@@ -1,6 +1,9 @@
 """Unit tests for core/auto_fix/ — AutoFixEngine, classifier, strategies, guardrails."""
 
+import pytest
 from pathlib import Path
+
+pytestmark = pytest.mark.auto_fix
 
 from core.auto_fix import (
     AutoFixEngine,
@@ -51,21 +54,21 @@ class TestClassifier:
                 assert pt in STRATEGY_REGISTRY, f"{pt} missing from STRATEGY_REGISTRY"
 
     def test_classify_hardcoded_secrets_human_required(self):
-        strat, conf, max_r, pt = classify(
+        strat, conf, max_r, pt, *_ = classify(
             "constitution/hardcoded_secrets",
             {"content": 'password = "secret123"', "problem_type": "hardcoded_secrets"},
         )
         assert strat == FixStrategy.HUMAN_REQUIRED
 
     def test_classify_missing_keyword_auto_fix(self):
-        strat, conf, max_r, pt = classify(
+        strat, conf, max_r, pt, *_ = classify(
             "constitution/low_keyword_density",
             {"problem_type": "low_keyword_density"},
         )
         assert strat == FixStrategy.AUTO_FIX
 
     def test_classify_constitution_low_score_auto_fix_verify(self):
-        strat, conf, max_r, pt = classify(
+        strat, conf, max_r, pt, *_ = classify(
             "constitution/low_score",
             {"problem_type": "low_constitution_score"},
         )
@@ -73,21 +76,21 @@ class TestClassifier:
         assert 0 <= conf <= 100
 
     def test_classify_gate4_human_required(self):
-        strat, conf, max_r, pt = classify(
+        strat, conf, max_r, pt, *_ = classify(
             "gate/gate4_blocked",
             {"gate_num": 4, "problem_type": "hard_rule_violation"},
         )
         assert strat == FixStrategy.HUMAN_REQUIRED
 
     def test_classify_hard_rule_never_auto_fix(self):
-        strat, conf, max_r, pt = classify(
+        strat, conf, max_r, pt, *_ = classify(
             "constitution_as_code/hard_rule_violation",
             {"rule_id": "R001", "hard_rule": True},
         )
         assert strat == FixStrategy.HUMAN_REQUIRED
 
     def test_missing_commit_task_id_is_human_required(self):
-        strat, conf, max_r, pt = classify(
+        strat, conf, max_r, pt, *_ = classify(
             "policy_engine/missing_commit_task_id",
             {"problem_type": "missing_commit_task_id"},
         )
@@ -95,21 +98,21 @@ class TestClassifier:
         assert max_r == 0
 
     def test_dimension_confidence_modifies_security(self):
-        _, conf, _, _ = classify(
+        _, conf, _, _, _ = classify(
             "constitution/low_score",
             {"dimension": "security", "problem_type": "low_constitution_score"},
         )
         assert conf == DIMENSION_CONFIDENCE["security"]
 
     def test_dimension_confidence_modifies_coverage(self):
-        _, conf, _, _ = classify(
+        _, conf, _, _, _ = classify(
             "constitution/low_score",
             {"dimension": "coverage", "problem_type": "low_constitution_score"},
         )
         assert conf == DIMENSION_CONFIDENCE["coverage"]
 
     def test_classify_unknown_source_returns_sensible_default(self):
-        strat, conf, max_r, pt = classify(
+        strat, conf, max_r, pt, *_ = classify(
             "completely/unknown_source",
             {},
         )

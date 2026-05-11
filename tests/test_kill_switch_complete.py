@@ -608,10 +608,39 @@ class TestIssueTrackerExt:
         assert tracker.get_findings_by_fr("FR-99") == []
 
     def test_fr_saturation_check_false_on_new_findings(self):
-        pytest.skip("fr_saturation_check removed in quality-improvement-round-3 refactor")
+        """New findings → saturation counter stays at 0."""
+        from harness.issue_tracker_ext import IssueTrackerExt
+        tracker = IssueTrackerExt()
+        # Round 1: add findings for FR-01
+        tracker.add_finding("q", "h", "f1.py", 1, "m", "e", fr_id="FR-01")
+        tracker.add_finding("q", "h", "f2.py", 2, "m", "e", fr_id="FR-01")
+        tracker.record_round_findings("FR-01")
+        assert not tracker.fr_saturation_check("FR-01")
+        assert not tracker.fr_saturation_check("FR-01", threshold=1)
+
+        # Round 2: add a different finding → overlap < 50% → counter resets
+        tracker.add_finding("q", "h", "f3.py", 3, "m", "e", fr_id="FR-01")
+        tracker.record_round_findings("FR-01")
+        assert not tracker.fr_saturation_check("FR-01")
 
     def test_fr_saturation_check_true_after_threshold(self):
-        pytest.skip("fr_saturation_check removed in quality-improvement-round-3 refactor")
+        """Same findings across 3 rounds → saturation triggered."""
+        from harness.issue_tracker_ext import IssueTrackerExt
+        tracker = IssueTrackerExt()
+        # Add the same 2 findings and record for 4 consecutive rounds.
+        # Each round accumulates findings (status stays "open"), so overlap
+        # with the previous round grows → saturation counter increments.
+        for _ in range(4):
+            tracker.add_finding("q", "h", "f1.py", 1, "m", "e", fr_id="FR-01")
+            tracker.add_finding("q", "h", "f2.py", 2, "m", "e", fr_id="FR-01")
+            tracker.record_round_findings("FR-01")
+
+        assert tracker.fr_saturation_check("FR-01", threshold=3)
+        assert tracker.fr_saturation_check("FR-01")  # default threshold=3
+
+        # Reset and verify counter cleared
+        tracker.reset_saturation("FR-01")
+        assert not tracker.fr_saturation_check("FR-01")
 
     def test_fr_coverage_summary(self):
         from harness.issue_tracker_ext import IssueTrackerExt

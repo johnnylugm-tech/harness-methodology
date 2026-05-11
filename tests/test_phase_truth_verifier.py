@@ -4,9 +4,12 @@ tests/test_phase_truth_verifier.py — Unit tests for PhaseTruthVerifier (crg-00
 Tests cover: check_session_log, get_manual_checklist, check_pytest, check_coverage.
 check_framework_block is excluded (requires full FrameworkEnforcer env).
 """
+
 import json
 import pytest
 from unittest.mock import MagicMock, patch
+
+pytestmark = pytest.mark.gate
 
 from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
 
