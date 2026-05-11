@@ -1,6 +1,7 @@
 ---
 name: harness-methodology
 version: 2.3.0
+constitution_version: 2.3
 description: |
   全流程軟體開發管線編排與品質門禁。Phase 1-8、A/B 協作、12 維度品質憲章。
   Use when: user asks to execute a phase, plan work, run quality gates, or implement FRs.
