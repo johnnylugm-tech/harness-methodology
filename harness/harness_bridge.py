@@ -158,28 +158,6 @@ class HarnessBridge:
         self._effort = EffortTracker()
         self._last_gate_num: int | None = None
 
-    def run_gate(
-        self,
-        gate_num: int,
-        project_root: str,
-        phase: int,
-        fr_id: str | None = None,
-        max_rounds_override: int | None = None,
-    ) -> GateResult:
-        """
-        DEPRECATED — use prepare_gate() + Claude inline evaluation + finalize_gate().
-
-        The subprocess-based SSI runner is removed. SSI is a Claude Code skill,
-        not a standalone process. Claude IS the evaluation engine.
-
-        Raises:
-            NotImplementedError: Always. This method is intentionally broken.
-        """
-        raise NotImplementedError(
-            "run_gate() is deprecated. Use prepare_gate() + Claude inline evaluation + finalize_gate().\n"
-            "See harness_cli.py run-gate / finalize-gate subcommands."
-        )
-
     def _load_manifest_sab(self, project_root: str) -> dict:
         """Read SAB-derived fields from quality_manifest.json. Returns empty dict on failure."""
         manifest_path = Path(project_root) / ".methodology" / "quality_manifest.json"

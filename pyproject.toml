@@ -23,7 +23,7 @@ classifiers = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["core*", "harness*", "enforcement*", "detection*", "gap_detector*", "kill_switch*", "steering*", "orchestration*", "constitution*", "quality_dashboard*"]
+include = ["core*", "harness*", "enforcement*", "detection*", "gap_detector*", "kill_switch*", "steering*", "orchestration*", "constitution*"]
 
 [tool.ruff]
 line-length = 100

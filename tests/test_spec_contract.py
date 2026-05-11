@@ -6,7 +6,7 @@ SOURCES = [
     "gap_detector", "kill_switch", "steering", "scripts",
 ]
 SRC_EXCLUDE_PATTERN = (
-    "tests|quality_dashboard|harness/ssi/scripts|harness/ssi/prompts"
+    "tests|harness/ssi/scripts|harness/ssi/prompts"
     "|__init__\\.py|cli\\.py|harness_cli\\.py"
 )
 

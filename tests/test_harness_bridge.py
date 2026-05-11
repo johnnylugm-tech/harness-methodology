@@ -31,12 +31,6 @@ class TestHarnessBridge:
             assert updated["gate_results"]["gate2"]["score"] == 85.0
             assert updated["gate_results"]["gate2"]["quality_complete"] is True
 
-    def test_run_gate_raises_blocked_error(self):
-        """run_gate() is deprecated — must raise NotImplementedError."""
-        bridge = HarnessBridge()
-        with pytest.raises(NotImplementedError):
-            bridge.run_gate(gate_num=2, project_root=".", phase=3)
-
     def test_require_hermes_approve_blocks_on_reject(self):
         """Verify Gate 4 blocks if Hermes returns REJECT."""
         bridge = HarnessBridge()
@@ -59,12 +53,6 @@ class TestHarnessBridge:
         assert isinstance(config, dict)
         assert config["gate"] == 2
 
-    def test_run_gate_passes_with_good_score(self):
-        """run_gate() is deprecated — always raises NotImplementedError."""
-        bridge = HarnessBridge()
-        with pytest.raises(NotImplementedError):
-            bridge.run_gate(gate_num=2, project_root=".", phase=3)
-
     def test_gate_blocked_error_attributes(self):
         result = GateResult(gate_num=3, score=60.0, open_critical=2, open_high=3)
         err = GateBlockedError(gate_num=3, result=result)
@@ -73,13 +61,8 @@ class TestHarnessBridge:
         assert "Gate 3 BLOCKED" in str(err)
 
 
-class TestRunGateDeprecated:
-    """run_gate() should raise NotImplementedError — use prepare+finalize instead."""
-
-    def test_run_gate_raises_not_implemented(self):
-        bridge = HarnessBridge()
-        with pytest.raises(NotImplementedError, match="prepare_gate"):
-            bridge.run_gate(gate_num=2, project_root=".", phase=3)
+class TestHarnessBridgeIntegration:
+    """Integration tests for HarnessBridge artifact generation and Hermes integration."""
 
     def test_generate_quality_manifest_creates_file(self, tmp_path):
         """Verify generation of initial quality manifest."""
@@ -99,12 +82,6 @@ class TestRunGateDeprecated:
             with patch("scripts.generate_sab.parse_sad", side_effect=ImportError):
                 out_path = bridge.generate_quality_manifest(fr_ids=["FR-01"], sad_path="SAD.md")
                 assert out_path.exists()
-
-    def test_run_gate_1_dimension_threshold_fails(self):
-        """run_gate() is deprecated — always raises NotImplementedError."""
-        bridge = HarnessBridge()
-        with pytest.raises(NotImplementedError):
-            bridge.run_gate(gate_num=1, project_root=".", phase=3)
 
     def test_require_hermes_approve_init_failure(self):
         bridge = HarnessBridge()

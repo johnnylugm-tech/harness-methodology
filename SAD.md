@@ -1081,21 +1081,7 @@ class KillSwitch:
 
 ---
 
-### 3.15 `quality_dashboard/` — Quality Research & Dashboard
-
-**Responsibility**: Auto-research loop and quality metrics dashboard. Used by the full-system CLI to provide ongoing quality monitoring.
-
-| File | Class | Purpose |
-|---|---|---|
-| `dashboard.py` (24KB) | `QualityDashboard` | Main dashboard aggregating all quality metrics |
-| `agent_auto_research.py` (34KB) | `AgentDrivenAutoResearch` | AI-driven automated research and quality investigation |
-| `auto_research_loop.py` (17KB) | `AutoResearchLoop` | Orchestrates iterative research rounds |
-
-**Relationship to Gate 2**: `gate2_p3_exit.yaml` declares `replaces: auto_research_p3` — the Gate 2 automated evaluation replaces what was previously the `auto_research_p3` component from this dashboard.
-
----
-
-### 3.16 `core/quality_gate/` — Quality Gate Implementations
+### 3.15 `core/quality_gate/` — Quality Gate Implementations
 
 **Responsibility**: Concrete quality check implementations used by the gate evaluation pipeline. Subdirectory of `core/`.
 
@@ -1130,7 +1116,7 @@ class KillSwitch:
 
 ---
 
-### 3.17 `detection/` — Anomaly & Drift Detection
+### 3.16 `detection/` — Anomaly & Drift Detection
 
 **Responsibility**: Detects code drift, scoring anomalies, and suspicious patterns across evaluation rounds.
 
@@ -1142,7 +1128,7 @@ class KillSwitch:
 
 ---
 
-### 3.18 `gap_detector/` — Specification Gap Detection
+### 3.17 `gap_detector/` — Specification Gap Detection
 
 **Responsibility**: Detects gaps between requirements specification and implementation. Used to surface uncovered FRs or missing artifacts.
 
@@ -1153,7 +1139,7 @@ class KillSwitch:
 | `reporter.py` | `GapReporter` | Formats gap findings for reporting |
 | `scanner.py` | `CodeScanner` | Scans codebase for coverage evidence |
 
-### 3.19 `core/auto_fix/` — Proactive Auto-Repair Engine (v2.4)
+### 3.18 `core/auto_fix/` — Proactive Auto-Repair Engine (v2.4)
 
 **Responsibility**: Transforms the system from detect→block→wait_for_human into detect→classify→auto_fix→verify→loop. Provides a unified AutoFixEngine that sits between detection modules and the pipeline loop. Reference: methodology-v2 SKILL.md "fail → FIX + RETRY" execution protocol.
 
@@ -1678,8 +1664,7 @@ CREATE TABLE IF NOT EXISTS effort (
         "gap_detector/",
         "kill_switch/",
         "enforcement/",
-        "quality_dashboard/"
-      ],
+              ],
       "allowed_dependencies": ["4_Base_Utilities"]
     },
     {
@@ -2181,7 +2166,7 @@ class FRProgressTracker:
 
 ### §3.30 — `harness/retry_utils.py` — Exponential Backoff Utility
 
-**Responsibility**: Generic retry decorator / wrapper with configurable exponential backoff + jitter. Used by `quality_dashboard/agent_auto_research.py` to wrap the SSI subprocess call.
+**Responsibility**: Generic retry decorator / wrapper with configurable exponential backoff + jitter.
 
 **Public API**:
 
@@ -2210,7 +2195,7 @@ def _compute_delay(attempt: int, base: float, cap: float, jitter: float) -> floa
 - Exhausted all attempts → re-raises the last exception.
 - `on_retry` is `None` → prints `"Retry {attempt}/{max_attempts} after {wait:.1f}s: {exc}"`.
 
-**Integration**: `quality_dashboard/agent_auto_research.py` wraps `_evaluate_all_dimensions()` inner subprocess call with `retry_with_backoff(max_attempts=3, base_delay=2.0, retryable=lambda exc: isinstance(exc, (OSError, subprocess.TimeoutExpired)))`. Falls back to `_fallback_evaluation()` if all retries exhausted.
+**Integration**: Used by `AgentDrivenAutoResearch` to wrap subprocess calls with retry logic and fallback.
 
 ---
 

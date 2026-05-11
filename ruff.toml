@@ -4,5 +4,4 @@
 extend-exclude = [
     "harness/ssi/scripts",
     "harness/ssi/prompts",
-    ".quality_dashboard",
 ]

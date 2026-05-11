@@ -137,10 +137,10 @@ class PhaseTruthVerifier:
             return False, 0.0, f"Error: {e}"
 
     def check_pytest(self) -> Tuple[bool, float, str]:
-        """Check pytest actually passes"""
+        """Check pytest actually passes; capture structured failure output."""
         try:
             result = subprocess.run(  # nosec B603 B607
-                ["pytest", "--tb=no", "-q"],
+                ["pytest", "--tb=line", "-q", "--no-header"],
                 cwd=self.project_root,
                 capture_output=True,
                 text=True,
@@ -149,7 +149,12 @@ class PhaseTruthVerifier:
 
             passed = result.returncode == 0
             score = 100.0 if passed else 0.0
-            details = "pytest all passed" if passed else "pytest has failures"
+
+            if passed:
+                details = "pytest all passed"
+            else:
+                failures = _parse_failure_count(result.stdout + result.stderr)
+                details = f"pytest has {failures} failure(s)"
 
             return passed, score, details
         except subprocess.TimeoutExpired:
@@ -419,6 +424,12 @@ class PhaseTruthVerifier:
             "checks": results,
             "checklist": checklist,
         }
+
+
+def _parse_failure_count(output: str) -> int:
+    """Count FAILED lines in pytest output."""
+    import re
+    return len(re.findall(r"^FAILED\s+", output, re.MULTILINE))
 
 
 if __name__ == "__main__":  # pragma: no cover

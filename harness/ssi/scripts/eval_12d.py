@@ -11,8 +11,8 @@ from typing import List, Dict, Any, Optional, Tuple
 PROJECT = Path(__file__).resolve().parent.parent
 SRC_DIRS = ["core", "harness", "detection", "enforcement", "gap_detector", "kill_switch", "steering", "scripts"]
 EXCLUDE_FILES = {"cli.py", "harness_cli.py", "__init__.py"}
-EXCLUDE_DIRS = {"quality_dashboard", "tests", "__pycache__", ".git", "venv", "node_modules"}
-HISTORY_FILE = PROJECT / ".quality_dashboard" / "history.json"
+EXCLUDE_DIRS = {"tests", "__pycache__", ".git", "venv", "node_modules"}
+HISTORY_FILE = PROJECT / ".methodology" / "quality_history.json"
 
 # ———————————————————————————————————————————— helpers ————————————————————————————————————————————
 
