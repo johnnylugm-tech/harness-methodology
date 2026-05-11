@@ -1,15 +1,159 @@
-# Phase 7 — Risk Assessment (P7 SOP)
-<!-- steering loop + auto-research (unchanged from methodology-v2) -->
-<!-- Gate 1 applies to check_fr_full Layer 3 per-FR checks -->
+# Phase 7 — Risk Management (P7 SOP)
 
-## Gate 1 (P7 per-FR, same as P3)
+<!-- Role A: DEVOPS | Role B: ARCHITECT -->
+<!-- Input: all P1-P6 artifacts + quality_manifest.json -->
+<!-- Output: RISK_REGISTER.md -->
+<!-- Exit: Phase Truth ≥ 90% (HR-11) — cleared by P6 Gate 4 -->
+
+## P7 前提
+
+P7 對每個 FR 進行風險評估。P7 沒有獨立 exit gate — 由 P6 Gate 4 背書，
+以 Phase Truth ≥ 90% (HR-11) 為退出條件。
+
+---
+
+## Step 1 — Risk Identification（Agent A: DEVOPS, 逐 FR）
+
+針對每個 FR，從三個維度識別風險：
+
+### 1.1 Technical Risks
+- 相依性風險：FR 依賴的外部模組/服務是否穩定？
+- 複雜度風險：實作是否超出 SAD 定義的 max_complexity？
+- 技術債風險：是否有 known workaround 或 shortcut？
+
+### 1.2 Operational Risks
+- 部署風險：FR 變更是否需要 migration / downtime？
+- 監控風險：是否有對應的 monitoring/metrics/alert？
+- 恢復風險：failure 場景的 rollback 方案是否明確？
+
+### 1.3 Security Risks
+- 資料風險：FR 是否處理 PII / credentials？
+- 攻擊面風險：FR 是否新增 public-facing endpoint？
+- 合規風險：是否涉及 GDPR / SOC2 / 內部合規要求？
+
+每項風險評估：
+- **Likelihood**: 1 (rare) – 5 (almost certain)
+- **Impact**: 1 (negligible) – 5 (critical)
+- **Risk Score**: Likelihood × Impact
+- **Mitigation**: 具體緩解措施（非「monitor」或「be careful」）
+
+---
+
+## Step 2 — RISK_REGISTER.md 生成
+
+使用 `templates/RISK_REGISTER.md`：
+
+```markdown
+# RISK_REGISTER.md — {Project Name}
+
+| Risk ID | FR ID | Category | Description | Likelihood | Impact | Score | Mitigation | Owner |
+|---------|-------|----------|-------------|------------|--------|-------|------------|-------|
+| RSK-001 | FR-01 | technical | ... | 3 | 4 | 12 | ... | ... |
+```
+
+Risk threshold:
+- Score ≥ 15 → CRITICAL（需在交付前解決）
+- Score 10–14 → HIGH（需 mitigation plan + 追蹤）
+- Score 5–9 → MEDIUM（記錄並定期 review）
+- Score < 5 → LOW（接受）
+
+---
+
+## Step 3 — Gate 1 (per-FR)
+
 ```bash
 python harness_cli.py run-gate --gate 1 --phase 7 --fr-id FR-001
+# 3 dims: linting(90) / type_safety(85) / test_coverage(80)
 ```
 
-## Steering Loop (parent-system only)
+---
+
+## Step 4 — Phase Truth 計算
+
 ```bash
-# python cli.py steering run --phase 7  ← requires parent-system CLI, not in this repo
+python harness_cli.py run-phase --phase 7
+# Checks: Phase Truth ≥ 90% (HR-11)
+#   - RISK_REGISTER.md 涵蓋所有 FR
+#   - 每個 risk 有具體 mitigation（非 placeholder）
+#   - CRITICAL risks 有對應的 action item
+#   - sessions_spawn.log 記錄完整
 ```
 
-> **TODO**: Populate full SOP from methodology-v2.
+---
+
+## P7 Exit Checklist
+
+- [ ] `RISK_REGISTER.md` 已生成，涵蓋所有 FR
+- [ ] 每個 risk 有 likelihood × impact 評估 + concrete mitigation
+- [ ] 無 unresolved CRITICAL risks（score ≥ 15）
+- [ ] 每個 FR 的 Gate 1 通過
+- [ ] Phase Truth ≥ 90% (HR-11)
+- [ ] `sessions_spawn.log` 有每個 FR 的 A/B 記錄（HR-10）
+- [ ] HANDOVER.md 已寫入（P7 摘要 + 下一步 P8 提示）
+
+---
+
+## P7 → P8 交接
+
+```bash
+git add RISK_REGISTER.md .methodology/sessions_spawn.log HANDOVER.md
+git commit -m "feat(P7): RISK_REGISTER.md complete — {N} risks across {M} FRs"
+python harness_cli.py plan-phase --phase 8 --repo .
+```
+
+---
+
+## Agent A Dispatch Template (P7 — per FR)
+
+Orchestrator: copy this when spawning Agent A for a specific FR.
+
+```
+[TASK]
+Phase: 7 — Risk Management | FR-ID: {fr_id} | Role: DEVOPS
+
+SRS requirement:
+> {paste FR-XX section from docs/SRS.md — embed, not file path}
+
+SAD architecture context:
+> {paste relevant module + dependency info from docs/SAD.md — embed}
+
+Task:
+1. Identify risks for this FR (technical, operational, security)
+2. Assess likelihood × impact per risk
+3. Draft mitigation plan with concrete actions
+4. Populate RISK_REGISTER.md entry for {fr_id}
+
+Expected output:
+- RISK_REGISTER.md row for {fr_id}
+- JSON: {"status": "success", "files": ["RISK_REGISTER.md"],
+         "confidence": N, "risk_count": N,
+         "risks": [{"id": "...", "likelihood": N, "impact": N,
+                    "mitigation": "..."}],
+         "citations": [...], "summary": "..."}
+```
+
+## Agent B Dispatch Template (P7 — per FR)
+
+Orchestrator: copy this when spawning Agent B for a specific FR.
+
+```
+[TASK]
+Phase: 7 — Risk Management | FR-ID: {fr_id} | Role: ARCHITECT (reviewer)
+
+SRS requirement:
+> {paste FR-XX section from docs/SRS.md — embed, not file path}
+
+Agent A risk assessment:
+> {paste RISK_REGISTER.md entry + risk details — embed, not file path}
+
+Review criteria:
+1. Risk identification complete? (technical + operational + security covered)
+2. Likelihood × impact assessments realistic? (not all "low")
+3. Mitigation plans actionable? (concrete steps, not "monitor")
+4. Any high-impact risks missed? (cross-reference with SAD high_risk_modules)
+
+Expected output:
+- JSON: {"status": "success", "review_status": "APPROVE|REJECT",
+         "confidence": N, "violations": [...], "citations": [...],
+         "summary": "..."}
+```

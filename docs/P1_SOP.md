@@ -1,8 +1,126 @@
-# Phase 1 — Requirements (P1 SOP)
-<!-- Port from methodology-v2 docs/ or SKILL.md Phase 1 section -->
-<!-- Role A: Product Manager | Role B: Reviewer (Hermes) -->
-<!-- Input: User requirements specification -->
-<!-- Output: SRS.md -->
-<!-- Exit: TH-01 ASPICE>80% + TH-03 FR completeness + Hermes APPROVE -->
+# Phase 1 — Requirements Specification (P1 SOP)
 
-> **TODO**: Populate from methodology-v2 P1 SOP. Template: `templates/SRS.md`
+<!-- Role A: REQUIREMENTS_ENGINEER | Role B: BUSINESS_ANALYST -->
+<!-- Input: project charter / user needs -->
+<!-- Output: SRS.md -->
+<!-- Exit: Human¹ peer review — no automated gate -->
+
+## P1 前提
+
+P1 是整個管線的基礎。SRS.md 是所有下游 phase 的單一真相來源。
+每個 FR 必須有唯一 ID（FR-01, FR-02, ...）、可驗證的 acceptance criteria、和至少一個 NFR 關聯。
+
+---
+
+## Step 1 — FR Elicitation（Agent A: REQUIREMENTS_ENGINEER）
+
+1. 從專案需求文件或使用者描述中提取 functional requirements
+2. 每個 FR 使用 `### FR-XX: {title}` 格式寫入 SRS.md
+3. 每個 FR 必須包含：
+   - Acceptance criteria（至少 1 條可測試的驗收條件）
+   - 關聯的 NFR（performance/security/reliability 至少擇一）
+   - 預估實作函數名稱（供 P3 TDD 使用）
+4. 填寫 `templates/SRS.md` 中的 FR Block（machine-readable JSON）
+
+**FR 品質基準**（Agent B 審查用）：
+- 每個 FR 的 acceptance criteria 必須是可客觀驗證的（不是主觀描述）
+- FR 之間不得有隱含依賴（每個 FR 必須可獨立實作和測試）
+- NFR 覆蓋率 ≥ 50%（NFR 類型數 / FR 總數）
+
+---
+
+## Step 2 — NFR Mapping（Agent A）
+
+從 `constitution/CONSTITUTION.md` §2 提取 quality dimensions，對應到 NFR：
+
+| NFR Type | Quality Dimension | Example |
+|----------|------------------|---------|
+| Performance | performance | response_time < 200ms |
+| Security | security | input validation on all endpoints |
+| Reliability | error_handling | graceful degradation on L3 |
+| Maintainability | readability | max cyclomatic complexity 15 |
+
+---
+
+## Step 3 — Agent B Review（BUSINESS_ANALYST）
+
+Agent B 審查重點：
+1. FR 是否完整覆蓋業務目標（無遺漏）
+2. FR-ID 是否連續且唯一（無跳號、重複）
+3. 每個 FR 的 acceptance criteria 是否可測試
+4. FR Block JSON 是否與正文一致
+5. NFR 類型是否涵蓋所有 quality dimensions
+
+---
+
+## P1 Exit Checklist
+
+- [ ] SRS.md 已生成（含 `### FR-XX:` 章節 + machine-readable FR Block）
+- [ ] 所有 FR 有 acceptance criteria + NFR 關聯
+- [ ] Agent B 審查通過（review_status: APPROVE）
+- [ ] `sessions_spawn.log` 有 A/B 各 1 筆記錄（HR-10）
+- [ ] HANDOVER.md 已寫入（P1 摘要 + 下一步 P2 提示）
+
+---
+
+## P1 → P2 交接
+
+```bash
+git add docs/SRS.md .methodology/sessions_spawn.log HANDOVER.md
+git commit -m "feat(P1): SRS.md complete — {N} FRs defined"
+python harness_cli.py plan-phase --phase 2 --repo .
+```
+
+---
+
+## Agent A Dispatch Template (P1)
+
+Orchestrator: copy this when spawning Agent A for P1.
+
+```
+[TASK]
+Phase: 1 — Requirements Specification
+FR-ID: n/a (per-phase task)
+Deliverable: SRS.md (based on templates/SRS.md)
+
+Business context:
+> {paste project charter or user needs — embed, not file path}
+
+Constitution quality dimensions:
+> {paste relevant section from constitution/CONSTITUTION.md §2}
+
+Expected output:
+- SRS.md with ### FR-XX: sections (each with acceptance criteria + NFR)
+- Machine-readable FR Block (JSON in <!-- FR:START -->…<!-- FR:END -->)
+- JSON: {"status": "success", "files": ["docs/SRS.md"], "fr_count": N,
+         "confidence": N, "citations": [...], "summary": "..."}
+```
+
+## Agent B Dispatch Template (P1)
+
+Orchestrator: copy this when spawning Agent B for P1.
+
+```
+[TASK]
+Phase: 1 — Requirements Specification
+Role: BUSINESS_ANALYST — review SRS.md
+FR-ID: n/a (per-phase task)
+
+SRS to review:
+> {paste full SRS.md content — embed, not file path. Agent B is stateless (§0.5)}
+
+Business goals:
+> {paste project charter or success criteria — embed, not file path}
+
+Review criteria:
+1. All business goals covered by ≥1 FR? (no gaps)
+2. Every FR has testable acceptance criteria? (objective, not subjective)
+3. FR-IDs contiguous and unique?
+4. FR Block JSON matches prose sections?
+5. NFR types cover all constitution quality dimensions?
+
+Expected output:
+- JSON: {"status": "success", "review_status": "APPROVE|REJECT",
+         "confidence": N, "violations": [...], "citations": [...],
+         "summary": "..."}
+```

@@ -96,3 +96,64 @@ python harness_cli.py run-gate --gate 2 --phase 3
 - [ ] 所有 TDD tests 為 GREEN state
 - [ ] 每個 FR 的 Gate 1 通過
 - [ ] Gate 2 通過 (score ≥ 75)
+
+---
+
+## Agent A Dispatch Template (P3 — per FR)
+
+Orchestrator: copy this when spawning Agent A for a specific FR.
+
+```
+[TASK]
+Phase: 3 — Implementation | FR-ID: {fr_id} | TDD step: {RED|GREEN|REFACTOR}
+
+SRS requirement:
+> {paste FR-XX section from docs/SRS.md — embed, not file path}
+
+SAD constraint:
+> {paste relevant module spec + dependency constraints from docs/SAD.md — embed}
+
+TDD contract:
+- RED:   write failing test in tests/test_fr_{id}.py
+- GREEN: implement until test passes
+- REFACTOR: clean up without breaking tests
+
+Expected output:
+- tests/test_fr_{id}.py (pytest, 1+ test functions)
+- implementation file at {module_path}
+- pytest tests/test_fr_{id}.py -v → ALL PASS
+- JSON: {"status": "success", "files": [...], "confidence": N,
+         "citations": [{"file": "...", "line": N, "content": "..."}],
+         "summary": "..."}
+```
+
+## Agent B Dispatch Template (P3 — per FR)
+
+Orchestrator: copy this when spawning Agent B for a specific FR.
+
+```
+[TASK]
+Phase: 3 — Implementation | FR-ID: {fr_id} | Role: REVIEWER
+
+SRS requirement:
+> {paste FR-XX section from docs/SRS.md — embed, not file path}
+
+Code to review (Agent A output):
+> {paste all files Agent A produced — embed, not file path.
+   Agent B is STATELESS (§0.5). NEVER pass file paths to Agent B.}
+
+SAD constraint:
+> {paste relevant module spec from docs/SAD.md — embed}
+
+Review criteria:
+1. Does implementation satisfy FR acceptance criteria? (SRS)
+2. Does implementation follow module design? (SAD)
+3. Are TDD tests meaningful (not just assert True)?
+4. Code style: SOLID, no dead code, no magic numbers?
+5. Citations: do line numbers in Agent A's citations match actual code?
+
+Expected output:
+- JSON: {"status": "success", "review_status": "APPROVE|REJECT",
+         "confidence": N, "violations": [...], "citations": [...],
+         "summary": "..."}
+```

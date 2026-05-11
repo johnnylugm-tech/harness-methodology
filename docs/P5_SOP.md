@@ -1,10 +1,139 @@
 # Phase 5 — Verification & Delivery (P5 SOP)
-<!-- Input: TEST_RESULTS.md -->
-<!-- Output: BASELINE.md + delivery package -->
 
-## Gate 1 (P5 per-FR, same as P3)
-```bash
-python harness_cli.py run-gate --gate 1 --phase 5 --fr-id FR-001
+<!-- Role A: DEVELOPER | Role B: REVIEWER -->
+<!-- Input: TEST_RESULTS.md + P4 test artifacts -->
+<!-- Output: BASELINE.md + delivery package -->
+<!-- Exit: Phase Truth ≥ 90% (HR-11) — no separate exit gate -->
+
+## P5 前提
+
+P5 驗證每個 FR 的實作是否滿足 SRS.md 中的 acceptance criteria，並建立交付基準線。
+P5 沒有獨立的 exit gate — 以 Phase Truth ≥ 90% (HR-11) 作為退出條件。
+
+---
+
+## Step 1 — Acceptance Criteria Verification（Agent A: DEVELOPER, 逐 FR）
+
+每個 FR 按 SRS.md 中的 acceptance criteria 逐一驗證：
+
+1. 讀取 `docs/SRS.md` 中 FR-XX 的 acceptance criteria
+2. 確認 P4 的 `TEST_RESULTS.md` 中對應 FR 的測試全部 PASS
+3. 手動驗證每個 AC（不能只依賴自動化測試結果）：
+   - UI-facing AC → 實際操作驗證
+   - API-facing AC → curl/Postman 合約驗證
+   - Performance AC → 對照 NFR 基準值
+4. 記錄驗證結果到 `BASELINE.md`
+
+---
+
+## Step 2 — BASELINE.md 生成
+
+使用 `templates/BASELINE.md`：
+
+```markdown
+# BASELINE.md — {Project Name} v{version}
+
+| FR ID | Acceptance Criteria | Test Result | Manual Verification | Status |
+|-------|--------------------|-------------|--------------------|--------|
+| FR-01 | AC1: ...           | PASS        | ✅ confirmed       | ✅     |
+| FR-02 | AC1: ...           | PASS        | ✅ confirmed       | ✅     |
+| **Phase Truth** | | | | XX% |
 ```
 
-> **TODO**: Populate full SOP from methodology-v2.
+---
+
+## Step 3 — Phase Truth 計算
+
+```bash
+python harness_cli.py run-phase --phase 5
+# Checks: Phase Truth ≥ 90% (HR-11)
+#   - sessions_spawn.log 完整性 (HR-10)
+#   - BASELINE.md FR 覆蓋率
+#   - 所有 P4 tests PASS
+#   - 所有 FR 的 Gate 1 PASS
+```
+
+---
+
+## Step 4 — Gate 1 (per-FR)
+
+```bash
+python harness_cli.py run-gate --gate 1 --phase 5 --fr-id FR-001
+# 3 dims: linting(90) / type_safety(85) / test_coverage(80)
+# Blocking: any dim < threshold → auto-fix → re-run gate
+```
+
+---
+
+## P5 Exit Checklist
+
+- [ ] `BASELINE.md` 已生成，涵蓋所有 FR
+- [ ] 每個 FR 的 acceptance criteria 全部手動驗證通過
+- [ ] 每個 FR 的 Gate 1 通過
+- [ ] Phase Truth ≥ 90% (HR-11)
+- [ ] `sessions_spawn.log` 有每個 FR 的 A/B 記錄（HR-10）
+- [ ] HANDOVER.md 已寫入（P5 摘要 + 下一步 P6 提示）
+
+---
+
+## P5 → P6 交接
+
+```bash
+git add BASELINE.md .methodology/sessions_spawn.log HANDOVER.md
+git commit -m "feat(P5): BASELINE.md complete — {N} FRs verified"
+python harness_cli.py plan-phase --phase 6 --repo .
+```
+
+---
+
+## Agent A Dispatch Template (P5 — per FR)
+
+Orchestrator: copy this when spawning Agent A for a specific FR.
+
+```
+[TASK]
+Phase: 5 — Verification & Delivery | FR-ID: {fr_id} | Role: DEVELOPER
+
+SRS acceptance criteria:
+> {paste FR-XX acceptance criteria from docs/SRS.md — embed, not file path}
+
+BASELINE.md context:
+> {paste relevant baseline entry — embed}
+
+Verification task:
+- Verify the FR implementation satisfies ALL acceptance criteria
+- Cross-check against SRS.md (no regression)
+- Update BASELINE.md with verification result for this FR
+
+Expected output:
+- BASELINE.md updated with verification status for {fr_id}
+- JSON: {"status": "success", "files": ["BASELINE.md"],
+         "confidence": N, "acceptance_criteria_met": [true|false, ...],
+         "citations": [...], "summary": "..."}
+```
+
+## Agent B Dispatch Template (P5 — per FR)
+
+Orchestrator: copy this when spawning Agent B for a specific FR.
+
+```
+[TASK]
+Phase: 5 — Verification & Delivery | FR-ID: {fr_id} | Role: REVIEWER
+
+SRS acceptance criteria:
+> {paste FR-XX section from docs/SRS.md — embed, not file path}
+
+Agent A verification output:
+> {paste verification result + BASELINE.md entry — embed, not file path}
+
+Review criteria:
+1. Every acceptance criterion verified? (no skipped criteria)
+2. Verification method per criterion is objective? (not "looks good")
+3. Cross-reference against SRS — no contradiction?
+4. BASELINE.md format correct and complete?
+
+Expected output:
+- JSON: {"status": "success", "review_status": "APPROVE|REJECT",
+         "confidence": N, "violations": [...], "citations": [...],
+         "summary": "..."}
+```

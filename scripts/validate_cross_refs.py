@@ -91,7 +91,7 @@ def main() -> int:
         print(f"Unique problem_types:         {len(all_problem_types)}")
         return 1
 
-    print(f"[OK] Cross-references consistent.")
+    print("[OK] Cross-references consistent.")
     print(f"     CLASSIFICATION_TABLE: {len(CLASSIFICATION_TABLE)} entries")
     print(f"     STRATEGY_REGISTRY:    {len(STRATEGY_REGISTRY)} entries")
     print(f"     Unique problem_types:  {len(all_problem_types)}")

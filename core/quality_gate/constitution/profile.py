@@ -222,12 +222,12 @@ class ConstitutionProfile:
         # merge dimensions
         for dk, dv in overrides.dimensions.items():
             if dk in result.dimensions:
-                existing = result.dimensions[dk]
+                existing_dim = result.dimensions[dk]
                 result.dimensions[dk] = DimensionProfile(
-                    threshold=dv.threshold if dv.threshold is not None else existing.threshold,
-                    keywords=dv.keywords or existing.keywords,
-                    rule=dv.rule or existing.rule,
-                    hardcoded_secret_patterns=dv.hardcoded_secret_patterns or existing.hardcoded_secret_patterns,
+                    threshold=dv.threshold if dv.threshold is not None else existing_dim.threshold,
+                    keywords=dv.keywords or existing_dim.keywords,
+                    rule=dv.rule or existing_dim.rule,
+                    hardcoded_secret_patterns=dv.hardcoded_secret_patterns or existing_dim.hardcoded_secret_patterns,
                 )
             else:
                 result.dimensions[dk] = dv
@@ -235,8 +235,8 @@ class ConstitutionProfile:
         for fk, fv in overrides.file_filters.items():
             result.file_filters[fk] = fv
         # merge phase_dir_map
-        for pk, pv in overrides.phase_dir_map.items():
-            result.phase_dir_map[pk] = pv
+        for dir_key, dir_val in overrides.phase_dir_map.items():
+            result.phase_dir_map[dir_key] = dir_val
         return result
 
 

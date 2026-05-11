@@ -72,3 +72,67 @@ python harness_cli.py run-gate --gate 3 --phase 4
 - [ ] `scripts/check_spec_trace.py SAD.md tests/` 回傳 Exit 0 (100% FRs traced)
 - [ ] Integration tests 已涵蓋 FR 互動關係
 - [ ] Gate 3 通過 (score ≥ 80 AND spec_trace = 100%)
+
+---
+
+## Agent A Dispatch Template (P4 — per FR)
+
+Orchestrator: copy this when spawning Agent A for a specific FR.
+
+```
+[TASK]
+Phase: 4 — Testing | FR-ID: {fr_id} | Role: QA_ENGINEER
+
+SRS requirement:
+> {paste FR-XX section from docs/SRS.md — embed, not file path}
+
+TEST_PLAN entry for this FR:
+> {paste relevant row from TEST_PLAN.md — embed}
+
+Implementation to test:
+> {paste the FR's implementation code — embed, not file path}
+
+Test types to execute:
+1. Unit: verify function-level correctness per acceptance criteria
+2. Integration: verify FR interacts correctly with dependent FRs
+3. Regression: verify edge cases and boundary conditions
+4. (if NFR-performance) Load: verify response time / throughput
+
+Expected output:
+- test results (PASS/FAIL per test case)
+- coverage report (≥ 80%)
+- updated TEST_RESULTS.md row for this FR
+- JSON: {"status": "success", "files": ["TEST_RESULTS.md"],
+         "confidence": N, "test_count": N, "pass_count": N,
+         "coverage": N, "citations": [...], "summary": "..."}
+```
+
+## Agent B Dispatch Template (P4 — per FR)
+
+Orchestrator: copy this when spawning Agent B for a specific FR.
+
+```
+[TASK]
+Phase: 4 — Testing | FR-ID: {fr_id} | Role: ARCHITECT (reviewer)
+
+SRS requirement:
+> {paste FR-XX section from docs/SRS.md — embed, not file path}
+
+SAD constraint:
+> {paste relevant module spec from docs/SAD.md — embed}
+
+Agent A test output:
+> {paste full test results + TEST_RESULTS.md row — embed, not file path}
+
+Review criteria:
+1. Do tests cover ALL acceptance criteria for this FR? (SRS trace)
+2. Do integration tests cover FR interaction contracts? (SAD)
+3. Are edge cases tested, not just happy path?
+4. Coverage ≥ 80%? If not, are gaps documented?
+5. Are test assertions meaningful (verifying behavior, not placeholders)?
+
+Expected output:
+- JSON: {"status": "success", "review_status": "APPROVE|REJECT",
+         "confidence": N, "violations": [...], "citations": [...],
+         "summary": "..."}
+```
