@@ -288,6 +288,8 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
         print(f"  open_critical   : {result.open_critical}")
         print(f"  open_high       : {result.open_high}")
 
+        _update_state_checkpoint(Path(args.project).resolve(), args.gate, fr_id)
+
         git = _make_git(args, Path(args.project).resolve())
         git.ensure_gitignore()
         if args.gate == 1:
@@ -347,10 +349,14 @@ def cmd_generate_next_plan(args: argparse.Namespace) -> int:
     # ── Read state.json ──────────────────────────────────────────────────────
     state_path = project / ".methodology" / "state.json"
     current_phase: int = phase_hint or 3
+    last_gate: int | None = None
+    last_fr: str | None = None
     if state_path.exists():
         try:
             state = json.loads(state_path.read_text(encoding="utf-8"))
             current_phase = phase_hint or int(state.get("current_phase", 3))
+            last_gate = state.get("last_gate")
+            last_fr = state.get("last_fr")
         except Exception:  # pylint: disable=broad-exception-caught
             pass
 
@@ -395,18 +401,34 @@ def cmd_generate_next_plan(args: argparse.Namespace) -> int:
 
     if current_phase in _PER_FR_GATE1_PHASES:
         for fr_id in fr_ids:
-            fr_res = gate1_results.get(fr_id) if isinstance(gate1_results, dict) else None
-            done = bool(fr_res and fr_res.get("quality_complete"))
+            # Prefer state.json's last_gate/last_fr for completion signal;
+            # fall back to manifest gate_results scan.
+            if last_gate is not None:
+                # A per-FR gate is complete if we've passed it (last_gate > 1)
+                # or if it matches last_gate=1, last_fr
+                done = (last_gate > 1
+                        or (last_gate == 1 and last_fr is not None
+                            and last_fr in fr_ids
+                            and fr_ids.index(fr_id) <= fr_ids.index(last_fr)))
+            else:
+                fr_res = gate1_results.get(fr_id) if isinstance(gate1_results, dict) else None
+                done = bool(fr_res and fr_res.get("quality_complete"))
             checkpoints.append((f"Gate 1 / {fr_id}", done))
 
     if current_phase in _PHASE_EXIT_GATES:
         gate_num = _PHASE_EXIT_GATES[current_phase]
-        g_res = gate_results.get(f"gate{gate_num}")
-        done = bool(g_res and g_res.get("quality_complete"))
+        if last_gate is not None:
+            done = last_gate >= gate_num
+        else:
+            g_res = gate_results.get(f"gate{gate_num}")
+            done = bool(g_res and g_res.get("quality_complete"))
         checkpoints.append((f"Gate {gate_num} — Phase {current_phase} Exit", done))
     elif current_phase == 6:
-        g_res = gate_results.get("gate4")
-        done = bool(g_res and g_res.get("quality_complete"))
+        if last_gate is not None:
+            done = last_gate >= 4
+        else:
+            g_res = gate_results.get("gate4")
+            done = bool(g_res and g_res.get("quality_complete"))
         checkpoints.append(("Gate 4 — Full Project (Hermes APPROVE)", done))
 
     # ── Find last complete and first incomplete ──────────────────────────────
@@ -811,6 +833,23 @@ def _make_git(args: argparse.Namespace, project: Path) -> "GitStrategy":  # noqa
     return GitStrategy(project=project, enabled=not no_git)
 
 
+def _update_state_checkpoint(project: Path, gate_num: int, fr_id: str | None) -> None:
+    """Write last_gate / last_fr to .methodology/state.json after a gate passes."""
+    from datetime import datetime, timezone
+    state_path = project / ".methodology" / "state.json"
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    existing: dict = {}
+    if state_path.exists():
+        try:
+            existing = json.loads(state_path.read_text(encoding="utf-8"))
+        except Exception:  # pylint: disable=broad-exception-caught
+            pass
+    existing["last_gate"] = gate_num
+    existing["last_fr"] = fr_id
+    existing["last_update"] = datetime.now(timezone.utc).isoformat()
+    state_path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
+
+
 def _advance_fsm(project: Path, completed_phase: int) -> None:
     """Write .methodology/state.json to record phase completion."""
     from datetime import datetime, timezone
@@ -827,6 +866,8 @@ def _advance_fsm(project: Path, completed_phase: int) -> None:
         json.dumps({
             "state": existing_state,
             "current_phase": completed_phase + 1,
+            "last_gate": None,
+            "last_fr": None,
             "last_update": datetime.now(timezone.utc).isoformat(),
         }, indent=2),
         encoding="utf-8",

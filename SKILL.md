@@ -244,7 +244,8 @@ OPEN    -> HALF_OPEN -> CLOSED  (recovery)
 
 State stored in `.methodology/state.json`:
 ```json
-{"current_phase": 3, "state": "RUNNING", "last_update": "2026-04-26T10:00:00"}
+{"current_phase": 3, "state": "RUNNING", "last_gate": 1, "last_fr": "FR-03",
+ "last_update": "2026-04-26T10:00:00"}
 ```
 
 ---
