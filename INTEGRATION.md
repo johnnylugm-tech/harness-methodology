@@ -104,9 +104,9 @@ Installed hooks:
 
 | Hook | Trigger | Behavior |
 |---|---|---|
-| `prepare-commit-msg` | `git commit` | **Blocks** if `harness_cli.py run-gate --phase $PHASE` fails |
-| `post-merge` | `git merge` | Warns only (non-blocking) |
-| `pre-push` | `git push` | **Blocks** unless last commit message contains `STAGE_PASS` |
+| `prepare-commit-msg` | `git commit` | **Blocks** if `harness_cli.py run-phase --phase $PHASE --fast` fails |
+| `post-merge` | `git merge` | Warns only — runs `run-phase --phase $PHASE --fast` (non-blocking) |
+| `pre-push` | `git push` | **Blocks** unless `STAGE_PASS=1` env var OR last commit message contains `STAGE_PASS` |
 
 **Phase management**:
 ```bash
@@ -210,11 +210,15 @@ jobs:
           pip install -r harness/requirements.txt || true
 
       - name: Run Quality Gate (current phase)
-        # What this runs: the PHASE-EXIT gate (Gate 2 at P3, Gate 3 at P4).
+        # What this runs: run-phase, which automatically selects the correct
+        # phase-exit gate (Gate 2 at P3, Gate 3 at P4) and handles auto-fix loops.
+        # Equivalent to what the git pre-push hook runs (without --fast).
+        #
         # Gate 1 is per-FR and requires --fr-id FR-XX — it cannot be automated over
         # all FRs in CI because FR IDs are dynamic. Gate 1 must be run locally by the
         # developer after completing each FR:
         #   python harness/harness_cli.py run-gate --gate 1 --phase $PHASE --fr-id FR-XX
+        #   python harness/harness_cli.py finalize-gate --gate 1 --phase $PHASE --fr-id FR-XX
         #
         # Gate 4 (P6 exit) requires human Hermes APPROVE — headless CI will always
         # time out. Skip the gate step when CURRENT_PHASE is 6; run Gate 4 locally.
@@ -222,7 +226,7 @@ jobs:
         env:
           PHASE: ${{ vars.CURRENT_PHASE || '3' }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: python harness/harness_cli.py run-gate --phase $PHASE
+        run: python harness/harness_cli.py run-phase --phase $PHASE --project .
 
       - name: FR Traceability Check
         # Advisory only (continue-on-error: true) — traceability gaps surface as warnings,
@@ -249,7 +253,7 @@ jobs:
           PHASE: ${{ vars.CURRENT_PHASE || '3' }}
           PYTHONPATH: /opt/harness
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: python /opt/harness/harness_cli.py run-gate --phase $PHASE
+        run: python /opt/harness/harness_cli.py run-phase --phase $PHASE --project .
 
       - name: FR Traceability Check
         env:
@@ -269,7 +273,7 @@ jobs:
         env:
           PHASE: ${{ vars.CURRENT_PHASE || '3' }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: python harness_cli.py run-gate --phase $PHASE
+        run: python harness_cli.py run-phase --phase $PHASE --project .
 
       - name: FR Traceability Check
         env:
@@ -292,6 +296,7 @@ Set `secrets.ANTHROPIC_API_KEY` in GitHub repo → Settings → Secrets → Acti
 | `HERMES_TIMEOUT_MS` | `harness_bridge.py`, `reviewer_router.py` | `120000` | Hermes long-poll timeout in ms (default: 2 min) |
 | `DRIFT_PROJECT_PATH` | `cron_drift_monitor.py` | cwd | Path to target project for drift analysis |
 | `PYTHONPATH` | All scripts | — | Must include harness-methodology root if not using submodule |
+| `SSI_ROOT` | All scripts | `harness/ssi` | Path to embedded SSI package (auto-detected from harness_cli.py location) |
 
 > **Note**: `HERMES_REVIEWER_TARGET` requires the `mcp_tools` package to be importable at runtime (`harness/reviewer_router.py` degrades gracefully if MCP is unavailable — Gate 4 will block rather than crash). Email/Slack notification channels (`drift_notifier`) are planned but not yet implemented.
 
@@ -318,8 +323,10 @@ python harness_cli.py audit-phase --phase <current> --repo owner/repo
 python harness_cli.py verify-spec --project .
 python harness_cli.py check-logic --project .
 
-# 6. Update local git config
+# 6. Update local git config AND GitHub CI variable (keep in sync)
 git config quality.phase <next>
+# Then update GitHub repo → Settings → Variables → Actions → CURRENT_PHASE = <next>
+# Divergence causes CI and local hooks to enforce different gates silently.
 
 # 7. Generate plan for next phase
 python harness_cli.py plan-phase --phase <next>

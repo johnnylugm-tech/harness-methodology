@@ -114,7 +114,7 @@ M1 kill-switch circuit state is checked before each phase. M3 gap analysis runs 
 
 **P3+ dynamic planning**: `run-pipeline` generates each phase plan dynamically at phase start. Phases P3+ read FR IDs from `quality_manifest.json` (written at P2 exit from SAD.md), so SAD.md must exist before the pipeline can plan any FR-level work.
 
-**Gate BLOCKED diagnostic** (`run-gate` exit 1 / `run-pipeline` exit 10): Both commands emit a structured per-dimension diagnosis on block. Output includes: composite score, open_critical/high counts, per-failing-dimension score/threshold/gap and a fix hint, passing dimension summary, auto-fix round count (if `--auto-fix-rounds > 0`), and copy-pasteable resume commands. Full report written to `.methodology/last_block.md`. Fix hints cover all 12 dimension names: `linting`, `type_safety`, `test_coverage`, `security`, `secrets_scanning`, `license_compliance`, `mutation_testing`, `architecture`, `readability`, `error_handling`, `documentation`, `performance`. Implemented in `_format_block_diagnostic()` (module-level helper in `harness_cli.py`); the dict `_DIMENSION_HINTS` maps dimension name → actionable fix string. When `--auto-fix-rounds > 0` is active, the pipeline attempts `AutoFixEngine.fix()` before emitting the diagnostic; the diagnostic is only shown after all auto-fix rounds are exhausted or a human escalation condition is triggered.
+**Gate BLOCKED diagnostic** (`finalize-gate` exit 1 / `run-pipeline` exit 10): Both commands emit a structured per-dimension diagnosis on block. Output includes: composite score, open_critical/high counts, per-failing-dimension score/threshold/gap and a fix hint, passing dimension summary, auto-fix round count (if `--auto-fix-rounds > 0`), and copy-pasteable resume commands. Full report written to `.methodology/last_block.md`. Fix hints cover all 12 dimension names: `linting`, `type_safety`, `test_coverage`, `security`, `secrets_scanning`, `license_compliance`, `mutation_testing`, `architecture`, `readability`, `error_handling`, `documentation`, `performance`. Implemented in `_format_block_diagnostic()` (module-level helper in `harness_cli.py`); the dict `_DIMENSION_HINTS` maps dimension name → actionable fix string. When `--auto-fix-rounds > 0` is active, the pipeline attempts `AutoFixEngine.fix()` before emitting the diagnostic; the diagnostic is only shown after all auto-fix rounds are exhausted or a human escalation condition is triggered.
 
 **ECC hooks (globally active)**: `~/.claude/hooks/hooks.json` runs ECC (everything-claude-code) hooks across all Claude Code sessions. Relevant to harness:
 - `pre:bash:dispatcher` — blocks `git --no-verify` (prevents HR violation from bypassing hooks), push reminders
@@ -160,7 +160,7 @@ This section uses normative language per **RFC 2119**:
 
 | Gate | Phase | Score Threshold | Dimensions | RFC 2119 |
 |------|-------|----------------|------------|----------|
-| Gate 1 (per-FR) | P3+ | Each dim ≥75 (per-dim check) | 3 (linting, type_safety, test_coverage) | **MUST** pass for each FR |
+| Gate 1 (per-FR) | P3+ | Per-dim: linting ≥90, type_safety ≥85, test_coverage ≥80 | 3 (linting, type_safety, test_coverage) | **MUST** pass for each FR |
 | Gate 2 (P3 exit) | P3 | ≥75 (composite) | 7 dimensions | **MUST** pass before P4 |
 | Gate 3 (P4 exit) | P4 | ≥80 (composite) | 12 dimensions (incl. 4 tier3) | **MUST** pass before P5 |
 | Gate 4 (P6 full) | P6 | ≥85 (composite) + Hermes APPROVE | 12 dimensions | **MUST** pass before release |

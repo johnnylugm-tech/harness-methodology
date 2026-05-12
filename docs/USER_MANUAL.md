@@ -82,8 +82,8 @@ bash harness/scripts/harness-init.sh --phase 1   # recommended: idempotent, CI-e
 
 > **Three init entry points** (from lowest to highest level):
 > - `setup-git-hooks.sh` — installs git hooks only, interactive prompts for phase
-> - `harness-init.sh --phase N` — idempotent superset: hooks + state.json + CI YAML; safe to re-run
-> - `harness_cli.py init-project` — CLI wrapper around harness-init.sh, also prints post-setup checklist
+> - `harness-init.sh --phase N` — idempotent superset: hooks + quality.phase + CI YAML; safe to re-run
+> - `harness_cli.py init-project` — upper-layer orchestrator: checks harness importability, generates CI workflow, calls `setup-git-hooks.sh`, sets `git config quality.phase`
 >
 > If you ran `setup-git-hooks.sh` earlier, running `harness-init.sh` is safe — it detects already-installed hooks and skips them.
 
@@ -815,6 +815,7 @@ python harness_cli.py status --project $PROJECT
 | `0` | 所有 phase 完成 | Done ✓ |
 | `1` | 硬錯誤（SSI 未安裝、manifest 遺失等） | 診斷錯誤訊息 |
 | `10` | PAUSE — 需人類介入 | 修復後 `--phase-from N` 重跑 |
+| `11` | Phase Truth < 90%（HR-11 驗證失敗） | 修復品質問題後 `--phase-from N` 重跑 |
 
 ---
 
@@ -861,15 +862,44 @@ python harness_cli.py run-gate \
   --phase   3          \  # 當前 Phase（必填）
   --project /project   \  # 專案路徑（預設：.）
   --fr-id   FR-01      \  # FR ID（Gate 1 必填）
-  --auto-fix-rounds 3  \  # Auto-fix 最大輪數（預設：3, 上限 5）
   --skip-preflight        # v2.4+: 跳過 preflight 驗證（預設：啟用 preflight）
 ```
 
-**返回碼**：0=通過；1=阻塞（Gate Blocked）；2=錯誤（SSI 未安裝等）  
+**返回碼**：永遠為 `0` — `run-gate` 只準備評估上下文並印出提示，不做閾值判斷。  
+閾值判斷與阻塞（exit 1）由 `finalize-gate` 負責（見下節）。  
 **需要**：SSI 已安裝；Gate 4 額外需要 `HERMES_REVIEWER_TARGET`  
 **v2.4+**：`run-gate` 預設在 gate 評估前先執行 preflight 驗證。使用 `--skip-preflight` 跳過。
 
-> **Gate 1 vs CI**: Gate 1 需要 `--fr-id FR-XX`，必須由開發者在本地逐 FR 執行。CI 中的 `run-gate --phase $PHASE`（不帶 `--fr-id`）只執行 phase-level gate（P3→Gate 2、P4→Gate 3）。Gate 1 **不**在 CI 中自動對所有 FR 執行。
+> **Gate 1 vs CI**: Gate 1 需要 `--fr-id FR-XX`，必須由開發者在本地逐 FR 執行。  
+> CI 使用 `run-phase --phase $PHASE --project .`（**非** `run-gate`）——`run-phase` 自動選擇正確的 phase-exit gate（P3→Gate 2、P4→Gate 3）並處理 auto-fix loop。  
+> Gate 1 **不**在 CI 中自動對所有 FR 執行。
+
+---
+
+### `finalize-gate` — 完成品質門評估
+
+```bash
+python harness_cli.py finalize-gate \
+  --gate    2          \  # Gate 編號 1-4（必填）
+  --phase   3          \  # 當前 Phase（必填）
+  --project /project   \  # 專案路徑（預設：.）
+  --fr-id   FR-01      \  # FR ID（Gate 1 必填）
+  --no-git               # 停用 gate 通過後的 git commit/push（測試用）
+```
+
+**時機**：`run-gate` 印出評估提示後，Claude 完成評估並寫入 `.sessi-work/gate{N}_result.json`，再執行此命令。  
+**返回碼**：0=gate 通過；1=Gate Blocked（分數或閾值未達標）；2=錯誤（result.json 不存在等）  
+**Gate 4**：額外等待 `HERMES_REVIEWER_TARGET` 的人工 APPROVE（預設 2 分鐘 timeout，由 `HERMES_TIMEOUT_MS` 控制）。
+
+> **完整兩步手動流程**（`run-pipeline` 自動執行，此處供手動或 debug 使用）：
+> ```bash
+> # Step 1 — 準備評估上下文，Claude 評估後寫入 result.json
+> python harness_cli.py run-gate --gate 2 --phase 3 --project /project
+> # Claude 評估 → 寫 .sessi-work/gate2_result.json
+>
+> # Step 2 — 讀取結果，檢查閾值，更新 manifest
+> python harness_cli.py finalize-gate --gate 2 --phase 3 --project /project
+> ```
 
 ---
 
@@ -911,17 +941,17 @@ python harness_cli.py init-project \
 ```
 
 **自動執行步驟**：
-1. 建立 `.methodology/` 目錄與 `state.json`（FSM 初始狀態）
+1. 確認 harness 可匯入（`harness_cli.py` 與 `core/`/`harness/` 存在於目標路徑）
 2. 生成 `.github/workflows/harness_quality_gate.yml`（CI 配置）
-3. 可選執行 `setup-git-hooks.sh`（互動式，可略過）
-4. 可選安裝 `cron_drift_monitor.py`（可略過）
+3. 執行 `setup-git-hooks.sh`（互動式；用 `--ci-only` 略過）
+4. 設定 `git config quality.phase <N>`
 
 > **與其他初始化入口的關係**：
 > - `setup-git-hooks.sh` — 僅安裝 git hooks，互動式提問 phase
 > - `harness-init.sh --phase N` — 冪等初始化，自動跳過已完成步驟（適合 Makefile/CI 嵌入）
-> - `init-project`（此命令）— 上層封裝，自動化以上兩個腳本 + 生成 CI workflow
+> - `init-project`（此命令）— 生成 CI workflow + 呼叫 `setup-git-hooks.sh` + 設定 `git config quality.phase`；適合新專案一鍵初始化
 >
-> **推薦流程**：新專案用 `init-project`；已有 `.methodology/` 的存量專案用 `harness-init.sh`（冪等安全）。
+> **推薦流程**：新專案用 `init-project`；已有配置的存量專案用 `harness-init.sh`（冪等安全）。
 
 **返回碼**：0=成功；1=目標路徑不存在或無寫入權限
 
@@ -1247,7 +1277,7 @@ echo "--- 5. ANTHROPIC_API_KEY ---"
   || echo "FAIL: export ANTHROPIC_API_KEY=sk-ant-..."
 
 echo "--- 6. SSI embedded ---"
-python3 -c "import sys; sys.path.insert(0,'$HARNESS_DIR'); from ssi import __version__; print(f'OK: ssi {__version__}')" \
+python3 -c "import sys; sys.path.insert(0,'$HARNESS_DIR'); import ssi; print('OK: ssi importable')" \
   2>/dev/null || echo "WARN: SSI not importable — gate evaluation will fall back to static scoring"
 
 echo "--- 7. HERMES_REVIEWER_TARGET (Gate 4) ---"
@@ -1266,7 +1296,7 @@ OK: harness_cli.py found (./harness/harness_cli.py)
 OK: pyyaml
 OK: gate config
 OK: ANTHROPIC_API_KEY set (sk-ant-ap...)
-OK: ssi 2.x.x
+OK: ssi importable
 OK: HERMES_REVIEWER_TARGET=telegram:6308981865
 ```
 
