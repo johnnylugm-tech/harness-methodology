@@ -171,7 +171,9 @@ python harness_cli.py init-project --project /path/to/target --phase 3
 
 ## 4. Target Project CI (Recommended GitHub Actions)
 
-Add this to your project's `.github/workflows/harness_quality_gate.yml` (or run `harness_cli.py init-project` to auto-generate):
+> **The YAML below targets Option A (submodule).** For Option B (global clone) and Option C (copy), see the variant blocks at the end of this section. Running `harness_cli.py init-project` auto-generates the correct YAML for your install option.
+
+### Option A — Submodule (recommended)
 
 ```yaml
 name: Harness Quality Gate
@@ -186,7 +188,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: true   # if using submodule option
+          submodules: true          # required — fetches harness/ submodule
 
       - uses: actions/setup-python@v5
         with:
@@ -200,15 +202,45 @@ jobs:
       - name: Run Quality Gate (current phase)
         env:
           PHASE: ${{ vars.CURRENT_PHASE || '3' }}
-        run: |
-          python harness/harness_cli.py run-gate --phase $PHASE
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python harness/harness_cli.py run-gate --phase $PHASE
 
       - name: FR Traceability Check
         run: python harness/scripts/check_fr_full.py --phase ${{ vars.CURRENT_PHASE || '3' }}
-        continue-on-error: true   # advisory only until FR coverage is complete
+        continue-on-error: true
 ```
 
-Set `vars.CURRENT_PHASE` in GitHub repo -> Settings -> Variables.
+### Option B — Global clone
+
+```yaml
+      - name: Install harness
+        run: |
+          git clone --depth 1 https://github.com/johnnylugm-tech/harness-methodology /opt/harness
+          pip install pyyaml
+          pip install -r /opt/harness/requirements.txt || true
+
+      - name: Run Quality Gate (current phase)
+        env:
+          PHASE: ${{ vars.CURRENT_PHASE || '3' }}
+          PYTHONPATH: /opt/harness
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python /opt/harness/harness_cli.py run-gate --phase $PHASE
+```
+
+### Option C — Copy into project
+
+```yaml
+      # harness_cli.py and harness/ are already in repo root — no extra install step
+
+      - name: Run Quality Gate (current phase)
+        env:
+          PHASE: ${{ vars.CURRENT_PHASE || '3' }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python harness_cli.py run-gate --phase $PHASE
+```
+
+Set `vars.CURRENT_PHASE` in GitHub repo → Settings → Variables → Actions variables.  
+Set `secrets.ANTHROPIC_API_KEY` in GitHub repo → Settings → Secrets → Actions secrets.
 
 ---
 

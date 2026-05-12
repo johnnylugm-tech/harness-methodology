@@ -970,12 +970,15 @@ Hooks 是可選的 shell/Python 指令，在特定 phase/gate/FR 事件自動執
 | `HERMES_REVIEWER_TARGET` | `""` | Hermes review target (e.g. `telegram:6308981865`). Required for Gate 4 human-approval step. |
 | `HERMES_TIMEOUT_MS` | `120000` | Hermes long-poll timeout in ms (default: 2 minutes) |
 | `SSI_ROOT` | `harness/ssi` | Path to embedded SSI package (auto-detected from harness_cli.py) |
-| `PYTHONPATH` | — | Must include harness-methodology repo root for imports |
+| `DRIFT_PROJECT_PATH` | cwd | **Required for drift monitor** — absolute path to target project. Without this, `cron_drift_monitor.py` silently analyses the cron job's working directory instead of your project. |
+| `PYTHONPATH` | — | Must include harness-methodology repo root for imports. **Only needed for Option B (global clone)** — not required for Option A (submodule) or Option C (copy). |
 
 **Setup example**:
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
 export HERMES_REVIEWER_TARGET=telegram:1234567890
+export DRIFT_PROJECT_PATH=/path/to/your/project
+# Option B (global clone) only:
 export PYTHONPATH=/path/to/harness-methodology:$PYTHONPATH
 ```
 
@@ -1084,6 +1087,27 @@ echo 'export PYTHONPATH=~/.harness:$PYTHONPATH' >> ~/.zshrc
 cp -r /path/to/harness-methodology/harness /your/target/project/
 cp /path/to/harness-methodology/harness_cli.py /your/target/project/
 ```
+
+**How git hooks find `harness_cli.py`** — each installed hook auto-detects the CLI at runtime:
+
+```
+Priority 1: $PROJECT_ROOT/harness_cli.py       ← Option C (copy)
+Priority 2: $PROJECT_ROOT/harness/harness_cli.py ← Option A (submodule)
+Not found:  warning printed, hook exits 0 (non-blocking) ← Option B needs manual fix
+```
+
+| Install option | Hook behaviour | PYTHONPATH needed? |
+|---|---|---|
+| A (submodule) | Auto-detected at `harness/harness_cli.py` ✅ | No — hook `cd`s to project root where `harness/` is a subdir |
+| B (global clone) | **Not auto-detected** — hook skips silently ⚠️ | Yes — add `export PYTHONPATH=/opt/harness:$PYTHONPATH` to shell profile AND symlink or set `HARNESS_CLI` in hook |
+| C (copy) | Auto-detected at `./harness_cli.py` ✅ | No |
+
+> **Option B workaround**: After running `setup-git-hooks.sh`, open `.git/hooks/prepare-commit-msg` and add before the `HARNESS_CLI=""` fallback:
+> ```bash
+> elif [ -f "/opt/harness/harness_cli.py" ]; then
+>     HARNESS_CLI="/opt/harness/harness_cli.py"
+> ```
+> Apply the same patch to `pre-push` and `post-merge`. This is a known limitation of Option B with git hooks.
 
 **Steps 1–3 — run the init script** (idempotent, safe to re-run):
 
