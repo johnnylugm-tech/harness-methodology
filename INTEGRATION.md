@@ -295,13 +295,13 @@ Set `secrets.ANTHROPIC_API_KEY` in GitHub repo → Settings → Secrets → Acti
 | Variable | Used by | Default | Purpose |
 |---|---|---|---|
 | `ANTHROPIC_API_KEY` | SSI runner, agent_spawner | — | **Required** — Claude API key for all LLM-based gate evaluation (Gates 1–4) |
-| `HERMES_REVIEWER_TARGET` | `harness_bridge.py`, `reviewer_router.py` | — | Hermes reviewer target (e.g. `telegram:6308981865`). Required for Gate 4 human-approval step. |
+| `HERMES_REVIEWER_TARGET` | `harness_bridge.py`, `reviewer_router.py` | — | Hermes reviewer target (e.g. `telegram:6308981865`). **Two uses**: (1) Agent B A/B collaboration (`reviewer_router.py`) — from P1, fallback chain Hermes→Gemini→Claude sub-agent if unset; (2) Gate 4 human APPROVE (`harness_bridge.py`) — P6 exit only, strictly required, no fallback. Set from project start. |
 | `HERMES_TIMEOUT_MS` | `harness_bridge.py`, `reviewer_router.py` | `120000` | Hermes long-poll timeout in ms (default: 2 min) |
 | `DRIFT_PROJECT_PATH` | `cron_drift_monitor.py` | cwd | Path to target project for drift analysis |
 | `PYTHONPATH` | All scripts | — | Must include harness-methodology root if not using submodule |
 | `SSI_ROOT` | All scripts | `harness/ssi` | Path to embedded SSI package (auto-detected from harness_cli.py location) |
 
-> **Note**: `HERMES_REVIEWER_TARGET` requires the `mcp_tools` package to be importable at runtime (`harness/reviewer_router.py` degrades gracefully if MCP is unavailable — Gate 4 will block rather than crash). Email/Slack notification channels (`drift_notifier`) are planned but not yet implemented.
+> **Note**: `HERMES_REVIEWER_TARGET` requires the `mcp_tools` package to be importable at runtime. `harness/reviewer_router.py` degrades gracefully if MCP is unavailable (falls back to Gemini→Claude sub-agent for A/B reviews). Gate 4 (`harness_bridge.py`) will block rather than crash if the target is unreachable. Email/Slack notification channels (`drift_notifier`) are planned but not yet implemented.
 
 ---
 

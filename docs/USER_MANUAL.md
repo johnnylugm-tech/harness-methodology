@@ -1005,7 +1005,7 @@ Hooks 是可選的 shell/Python 指令，在特定 phase/gate/FR 事件自動執
 | Variable | Default | Purpose |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | — | **Required** — Claude API key used by SSI runner and agent_spawner for all LLM-based gate evaluation (Gates 1–4). Missing key causes gate evaluation to fail with an authentication error. |
-| `HERMES_REVIEWER_TARGET` | `""` | Hermes review target (e.g. `telegram:6308981865`). Required for Gate 4 human-approval step. |
+| `HERMES_REVIEWER_TARGET` | `""` | Hermes reviewer target (e.g. `telegram:6308981865`). **Two uses**: (1) Agent B reviewer for A/B collaboration (`reviewer_router.py`) — active from P1, degrades gracefully to Gemini→Claude sub-agent if unset; (2) Gate 4 human APPROVE (`harness_bridge.py`) — P6 exit only, strictly required, no fallback. Recommended: set from project start for best review quality. |
 | `HERMES_TIMEOUT_MS` | `120000` | Hermes long-poll timeout in ms (default: 2 minutes) |
 | `SSI_ROOT` | `harness/ssi` | Path to embedded SSI package (auto-detected from harness_cli.py) |
 | `DRIFT_PROJECT_PATH` | cwd | **Required for drift monitor** — absolute path to target project. Without this, `cron_drift_monitor.py` silently analyses the cron job's working directory instead of your project. |
@@ -1280,10 +1280,10 @@ echo "--- 6. SSI embedded ---"
 python3 -c "import sys; sys.path.insert(0,'$HARNESS_DIR'); import ssi; print('OK: ssi importable')" \
   2>/dev/null || echo "WARN: SSI not importable — gate evaluation will fall back to static scoring"
 
-echo "--- 7. HERMES_REVIEWER_TARGET (Gate 4) ---"
+echo "--- 7. HERMES_REVIEWER_TARGET ---"
 [ -n "$HERMES_REVIEWER_TARGET" ] \
   && echo "OK: HERMES_REVIEWER_TARGET=$HERMES_REVIEWER_TARGET" \
-  || echo "WARN: not set — Gate 4 (P6 exit) will block. export HERMES_REVIEWER_TARGET=telegram:YOUR_ID"
+  || echo "WARN: not set — A/B Agent B reviews degrade to Gemini/Claude fallback (P1+); Gate 4 (P6 exit) will block. export HERMES_REVIEWER_TARGET=telegram:YOUR_ID"
 
 echo "--- done ---"
 ```

@@ -146,6 +146,6 @@ Score reconciliation: final_score = min(tool_score, llm_score)
 |----------|----------|---------|-------------|
 | `ANTHROPIC_API_KEY` | Yes | — | Claude API key for all LLM-based gate evaluation (Gates 1–4). Required in both local and CI contexts. |
 | `PYTHONPATH` | Option B only | — | Must include harness-methodology repo root (e.g. `/opt/harness`). Not needed for Option A (submodule) or Option C (copy). |
-| `HERMES_REVIEWER_TARGET` | Yes | — | e.g. `telegram:6308981865` |
+| `HERMES_REVIEWER_TARGET` | See note | — | e.g. `telegram:6308981865`. **Two uses**: (1) Agent B A/B reviewer (`reviewer_router.py`) — from P1, optional but degrades to Gemini→Claude fallback if unset; (2) Gate 4 human APPROVE (`harness_bridge.py`) — P6 exit, strictly required. Recommended: set from project start. |
 | `HERMES_TIMEOUT_MS` | No | `120000` | Hermes reviewer response timeout (ms, default 2 min). Wired in both `reviewer_router.py` (module-level constant) and `HarnessBridge.GATE4_HERMES_TIMEOUT_MS` (class constant). |
 | `SSI_ROOT` | No | `harness/ssi` | Path to SSI installation (default: embedded `harness/ssi/`) |
