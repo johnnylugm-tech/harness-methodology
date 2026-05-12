@@ -75,11 +75,17 @@ export HERMES_REVIEWER_TARGET=telegram:YOUR_CHAT_ID   # or other target
 # CRG (Code Review Graph) — optional, enhances Gate 3/4 scoring
 # Gracefully skipped if not installed
 
-# Git hooks (target-project integration) — run ONCE in your target project root
-bash /path/to/harness-methodology/scripts/setup-git-hooks.sh
-git config quality.phase 3   # update each time you advance a phase
+# Git hooks (target-project integration) — run ONCE in your target project root:
+bash harness/scripts/harness-init.sh --phase 1   # recommended: idempotent, CI-embeddable
 # After this: git commit / push / PR all trigger harness checks automatically
 ```
+
+> **Three init entry points** (from lowest to highest level):
+> - `setup-git-hooks.sh` — installs git hooks only, interactive prompts for phase
+> - `harness-init.sh --phase N` — idempotent superset: hooks + state.json + CI YAML; safe to re-run
+> - `harness_cli.py init-project` — CLI wrapper around harness-init.sh, also prints post-setup checklist
+>
+> If you ran `setup-git-hooks.sh` earlier, running `harness-init.sh` is safe — it detects already-installed hooks and skips them.
 
 ### 2.3 Project Directory Structure
 
@@ -1198,11 +1204,55 @@ bash "$(dirname "$0")/harness/scripts/harness-init.sh" --phase 1
 
 ### 12.2 Verify Setup
 
+Run this end-to-end smoke-test after setup to confirm the full chain is healthy:
+
 ```bash
-git config quality.phase                              # → current phase number
-ls .git/hooks/prepare-commit-msg .git/hooks/pre-push  # → both should exist
-python3 harness/harness_cli.py --help                   # → shows commands
+#!/usr/bin/env bash
+# Run from your target project root (where harness/ is submodule or copy).
+# Exit 0 = all checks pass. Non-zero lines indicate what's broken.
+
+echo "--- 1. git hooks ---"
+ls .git/hooks/prepare-commit-msg .git/hooks/pre-push .git/hooks/post-merge \
+  && echo "OK: hooks installed" || echo "FAIL: hooks missing — re-run harness-init.sh"
+
+echo "--- 2. phase config ---"
+git config quality.phase \
+  && echo "OK: quality.phase set" || echo "FAIL: run git config quality.phase 1"
+
+echo "--- 3. harness_cli.py reachable ---"
+python3 harness/harness_cli.py --help > /dev/null 2>&1 \
+  && echo "OK: harness_cli.py found" || echo "FAIL: check install option (§12.1)"
+
+echo "--- 4. Python deps ---"
+python3 -c "import yaml; print('OK: pyyaml')" 2>/dev/null \
+  || echo "FAIL: pip install pyyaml"
+python3 -c "from core.quality_gate.constitution.profile import GateConfig; print('OK: gate config')" \
+  2>/dev/null || echo "FAIL: core/ not on path — check PYTHONPATH / submodule init"
+
+echo "--- 5. ANTHROPIC_API_KEY ---"
+[ -n "$ANTHROPIC_API_KEY" ] \
+  && echo "OK: ANTHROPIC_API_KEY set ($(echo $ANTHROPIC_API_KEY | cut -c1-8)...)" \
+  || echo "FAIL: export ANTHROPIC_API_KEY=sk-ant-..."
+
+echo "--- 6. SSI embedded ---"
+python3 -c "import sys; sys.path.insert(0,'harness'); from ssi import __version__; print(f'OK: ssi {__version__}')" \
+  2>/dev/null || echo "WARN: SSI not importable — gate evaluation will fall back to static scoring"
+
+echo "--- done ---"
 ```
+
+**Expected healthy output**:
+```
+OK: hooks installed
+OK: quality.phase set
+OK: harness_cli.py found
+OK: pyyaml
+OK: gate config
+OK: ANTHROPIC_API_KEY set (sk-ant-ap...)
+OK: ssi 2.x.x
+```
+
+Any `FAIL` line is a blocking issue. `WARN: SSI` is non-blocking (gates still run with reduced scoring).
 
 ### 12.3 Phase Transition
 

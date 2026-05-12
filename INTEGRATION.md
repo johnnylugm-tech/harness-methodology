@@ -222,6 +222,11 @@ jobs:
         run: python harness/harness_cli.py run-gate --phase $PHASE
 
       - name: FR Traceability Check
+        # Advisory only (continue-on-error: true) — traceability gaps surface as warnings,
+        # they do not block the PR. ANTHROPIC_API_KEY provided in case constitution
+        # sub-checks invoke LLM analysis; harmless if the script runs statically.
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python harness/scripts/check_fr_full.py --phase ${{ vars.CURRENT_PHASE || '3' }}
         continue-on-error: true
 ```
@@ -242,6 +247,13 @@ jobs:
           PYTHONPATH: /opt/harness
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python /opt/harness/harness_cli.py run-gate --phase $PHASE
+
+      - name: FR Traceability Check
+        env:
+          PYTHONPATH: /opt/harness
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python /opt/harness/scripts/check_fr_full.py --phase ${{ vars.CURRENT_PHASE || '3' }}
+        continue-on-error: true
 ```
 
 ### Option C — Copy into project
@@ -255,6 +267,12 @@ jobs:
           PHASE: ${{ vars.CURRENT_PHASE || '3' }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python harness_cli.py run-gate --phase $PHASE
+
+      - name: FR Traceability Check
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python scripts/check_fr_full.py --phase ${{ vars.CURRENT_PHASE || '3' }}
+        continue-on-error: true
 ```
 
 Set `vars.CURRENT_PHASE` in GitHub repo → Settings → Variables → Actions variables. **Keep this in sync with local `git config quality.phase`** — divergence causes CI and local hooks to enforce different gates silently.  
