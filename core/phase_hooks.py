@@ -84,6 +84,24 @@ class PhaseHooks:
         """Check FSM state; FREEZE/PAUSED blocks execution."""
         print("\n[PRE-FLIGHT] FSM State Check")
         if not self.state_path.exists():
+            # Phase 1 with no state.json = fresh project, auto-initialize.
+            # Safety net: init-project is the canonical path; this handles bare
+            # `run-phase --phase 1` invocations that skipped init-project.
+            if self.phase == 1:
+                from datetime import datetime, timezone
+                self.state_path.parent.mkdir(parents=True, exist_ok=True)
+                self.state_path.write_text(
+                    json.dumps({
+                        "state": "ACTIVE",
+                        "current_phase": 1,
+                        "last_gate": None,
+                        "last_fr": None,
+                        "last_update": datetime.now(timezone.utc).isoformat(),
+                    }, indent=2),
+                    encoding="utf-8",
+                )
+                print("   Auto-initialized state.json (fresh P1 project)")
+                return {"passed": True, "state": "ACTIVE", "message": "Auto-initialized for P1"}
             return {"passed": False, "state": "UNKNOWN", "message": "state.json not found"}
         state = json.loads(self.state_path.read_text())
         current_state = state.get("state", "UNKNOWN")
@@ -315,7 +333,7 @@ class PhaseHooks:
         """Check target project CI wiring (Context B only — advisory, non-blocking)."""
         print("\n[PRE-FLIGHT] CI Readiness Check")
         checks: Dict[str, bool] = {}
-        workflow_path = self.project_path / ".github" / "workflows" / "harness_gate.yml"
+        workflow_path = self.project_path / ".github" / "workflows" / "harness_quality_gate.yml"
         checks["ci_workflow"] = workflow_path.exists()
         hooks_dir = self.project_path / ".git" / "hooks"
         checks["git_hooks"] = (hooks_dir / "prepare-commit-msg").exists()

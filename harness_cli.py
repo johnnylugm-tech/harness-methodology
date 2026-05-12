@@ -1656,10 +1656,28 @@ def cmd_init_project(args: argparse.Namespace) -> int:
     else:
         print(f"   WARNING: git config failed (rc={gc.returncode}): {gc.stderr.strip()}")
 
-    # 5. Drift monitor hint
-    print(f"\n{'─'*60}")
-    print("Optional: Drift Monitor (hourly cron)")
-    print(f"{'─'*60}")
+    # 5. Initialize FSM state.json (required by run-phase preflight)
+    print("\n[5/6] Initializing FSM state...")
+    from datetime import datetime, timezone
+    state_path = project / ".methodology" / "state.json"
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    if state_path.exists() and not args.force:
+        print(f"   SKIP: {state_path} already exists (use --force to overwrite)")
+    else:
+        state_path.write_text(
+            json.dumps({
+                "state": "ACTIVE",
+                "current_phase": phase,
+                "last_gate": None,
+                "last_fr": None,
+                "last_update": datetime.now(timezone.utc).isoformat(),
+            }, indent=2),
+            encoding="utf-8",
+        )
+        print(f"   OK — state.json initialized (phase={phase})")
+
+    # 6. Drift monitor hint
+    print(f"\n[6/6] Drift Monitor hint (optional cronjob)")
     print("  Add this crontab entry (edit with: crontab -e):")
     print(f"  0 * * * * DRIFT_PROJECT_PATH={project} \\")
     print(f"    python3 {harness_root}/scripts/cron_drift_monitor.py \\")

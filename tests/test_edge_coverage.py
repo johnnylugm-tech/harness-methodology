@@ -34,9 +34,19 @@ class TestPhaseHooksEdge:
         assert result["passed"] is False
         assert "Cannot go backwards" in result["message"]
 
-    def test_preflight_fsm_no_state_file(self, tmp_path):
+    def test_preflight_fsm_no_state_file_p1_auto_init(self, tmp_path):
+        """P1 auto-initializes state.json when missing (fresh project)."""
         from core.phase_hooks import PhaseHooks
         hooks = PhaseHooks(str(tmp_path), phase=1)
+        result = hooks.preflight_fsm_check()
+        assert result["passed"] is True
+        assert "Auto-initialized" in result["message"]
+        assert (tmp_path / ".methodology" / "state.json").exists()
+
+    def test_preflight_fsm_no_state_file_p2_fails(self, tmp_path):
+        """P2+ must have state.json — missing is a hard failure."""
+        from core.phase_hooks import PhaseHooks
+        hooks = PhaseHooks(str(tmp_path), phase=2)
         result = hooks.preflight_fsm_check()
         assert result["passed"] is False
         assert "not found" in result["message"]
