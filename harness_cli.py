@@ -197,11 +197,13 @@ def cmd_run_phase(args: argparse.Namespace) -> int:
             print(f"        python harness_cli.py run-gate --gate 1 --phase {args.phase} --project {project} --fr-id FR-XX")
             print(f"        (quality_manifest.json not found — run 'plan-phase' first to populate FR IDs)")
     print(f"        python harness_cli.py run-pipeline --phase-from {args.phase} --project {project}")
-    print("        hooks.monitoring_before_dev(fr_id)")
-    print("        hooks.monitoring_after_dev(fr_id, result)")
-    print("        hooks.monitoring_before_rev(fr_id)")
-    print("        hooks.monitoring_after_rev(fr_id, result)")
-    print("        hooks.postflight_all()")
+    if not fast:
+        # POST-FLIGHT: constitution re-check, BVS invariants, drift check, FSM advance
+        post = hooks.postflight_all()
+        if not post["success"] and not args.force:
+            print(f"\n[POST-FLIGHT FAILED]")
+            return 1
+        print(f"\n[POST-FLIGHT] {'PASS' if post['success'] else 'FAIL (--force)'}")
     return 0
 
 
@@ -209,6 +211,7 @@ def _run_fast_preflight(hooks) -> dict:
     """Lightweight preflight: FSM, constitution, kill-switch only. For commit hooks."""
     results = {
         "fsm": hooks.preflight_fsm_check(),
+        "bvs_phase_order": hooks.preflight_bvs_phase_order(),
         "constitution": hooks.preflight_constitution(),
         "kill_switch": hooks.preflight_kill_switch(),
     }
@@ -551,9 +554,8 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
     """
     project = Path(args.project).resolve()
     fr_ids = [f.strip() for f in args.fr_ids.split(",") if f.strip()]
-    if not fr_ids:
-        print("[WARN] No --fr-ids provided; HANDOVER.md will show empty FR list.")
-        print("  Try: --fr-ids FR-01,FR-02,FR-03")
+    # Note: if fr_ids is empty here, GitStrategy.commit_and_push_p1/p2 will
+    # auto-detect from SRS.md — no need to block here.
 
     git = _make_git(args, project)
     git.ensure_gitignore()
@@ -565,13 +567,13 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
     if phase == 1:
         ok = git.commit_and_push_p1(
             fr_ids=fr_ids,
-            background=f"P1 human review APPROVED — {len(fr_ids)} FR(s) defined.",
+            background="P1 human review APPROVED — SRS + deliverables complete.",
             notes=["Human peer review passed", "All deliverables reviewed and approved"],
         )
     else:
         ok = git.commit_and_push_p2(
             fr_ids=fr_ids,
-            background=f"P2 human review APPROVED — {len(fr_ids)} FR(s) in manifest.",
+            background="P2 human review APPROVED — SAD + ADR + quality manifest complete.",
             notes=["Human peer review passed", "SAD/ADR reviewed and approved"],
         )
     if ok:
@@ -1394,6 +1396,20 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
                     print(f"\n[BLOCKED] Phase {phase} truth = {truth_result['total_score']:.0f}% < 90%")
                     print(f"  Fix issues then re-run with --phase-from {phase}")
                     return 11  # 11 = Phase Truth failure (10 = GateBlockedError)
+
+        # ── Postflight validation (constitution re-check, drift, BVS invariants, Steering) ──
+        print(f"\n[{phase}.6] Postflight validation")
+        from core.phase_hooks import PhaseHooks
+        post_hooks = PhaseHooks(str(project), phase=phase,
+                               enable_kill_switch=enable_kill_switch,
+                               drift_threshold=drift_threshold,
+                               auto_fix_enabled=auto_fix)
+        post_result = post_hooks.postflight_all()
+        if not post_result["success"] and not args.force:
+            print(f"[BLOCKED] Postflight failed for Phase {phase}.")
+            print(f"  Fix issues then re-run with --phase-from {phase}")
+            return 10
+        print(f"[{phase}.6] Postflight {'PASS' if post_result['success'] else 'FAIL (--force)'}")
 
         # ── Advance FSM state ─────────────────────────────────────────────
         _advance_fsm(project, phase)

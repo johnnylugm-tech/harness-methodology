@@ -619,16 +619,9 @@ def _deliverable_ab_block(phase: int, deliverable: Dict, sub_n: int, total: int,
         "  - `REJECT` → Agent A fixes gaps → re-dispatch B. Max 5 rounds (HR-12).",
         "",
         "  > ⚠️ **BLOCKING**: Do NOT start the next Sub-Task until this sub-task's current",
-        "  > round is fully APPROVED (including any required round 2). Log the round-2 entry",
-        "  > to `sessions_spawn.log` before proceeding to the next sub-task (HR-10).",
+        "  > round is fully APPROVED (including any required round 2).",
+        "  > AgentSpawner auto-logs round-2 re-dispatch to `sessions_spawn.log` (HR-10).",
         "",
-        "- [ ] **[LOG]** Append to `sessions_spawn.log` (HR-10 — 2 entries per sub-task; +1 if round 2 needed):",
-        "  ```json",
-        f'  {{"fr_id":"P{phase}","sub_task":"{label}","role":"{role_a.lower()}","session_id":"dev-XXXX","status":"success","confidence":8}}',
-        f'  {{"fr_id":"P{phase}","sub_task":"{label}","role":"{role_b.lower()}","session_id":"rev-XXXX","review_status":"APPROVE"}}',
-        "  // If round 2 was required (medium+ gap fixed and re-reviewed):",
-        f'  {{"fr_id":"P{phase}","sub_task":"{label}","role":"{role_b.lower()}","session_id":"rev-XXXX","round":2,"review_status":"APPROVE","note":"re-review: GAP-XX fixes verified"}}',
-        "  ```",
         f"  > fr_id uses P{phase} as phase-level placeholder; replace with FR-XX for FR-specific plans.",
         "",
     ]
@@ -749,11 +742,7 @@ def _fr_dev_steps(fr_id: str, phase: int) -> List[str]:
     ]
     lines.extend(_agent_b_dispatch_block(phase, role_b, fr_id=fr_id))
     lines.extend([
-        "- [ ] **[LOG]** Append to `sessions_spawn.log` (HR-10 — 2 entries per FR):",
-        "  ```json",
-        f'  {{"fr_id":"{fr_id}","role":"developer","session_id":"dev-XXXX","status":"success","confidence":8}}',
-        f'  {{"fr_id":"{fr_id}","role":"reviewer","session_id":"rev-XXXX","review_status":"APPROVE"}}',
-        "  ```",
+        "  > ℹ️ `sessions_spawn.log` auto-populated by AgentSpawner on dispatch (HR-10).",
         "",
     ])
     return lines
@@ -992,7 +981,7 @@ def generate_phase1_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("- [ ] `CONSTRAINTS.md` - Technical constraints, SLA, cost model")
     lines.append("- [ ] `SPEC_TRACKING.md` - Spec tracking matrix")
     lines.append("- [ ] `TRACEABILITY_MATRIX.md` - Requirements traceability matrix")
-    lines.append("- [ ] `sessions_spawn.log` - 4 sub-tasks × 2 entries = 8 entries for P1 A/B work (HR-10)")
+    lines.append("- [x] `sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
     lines.append("")
 
     lines.extend(_human_checkpoint(1, checkpoint_n=1))
@@ -1071,7 +1060,7 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("- [ ] `ARCHITECTURE_DIAGRAM.md` - Architecture diagram")
     lines.append("- [ ] `.methodology/quality_manifest.json` — Quality manifest (FR list + SAB data)")
     lines.append("- [ ] `.methodology/SAB.json` — Machine-readable architecture baseline")
-    lines.append("- [ ] `sessions_spawn.log` - 3 sub-tasks × 2 entries = 6 entries for P2 A/B work (HR-10)")
+    lines.append("- [x] `sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
     lines.append("")
 
     lines.extend(_human_checkpoint(2, checkpoint_n=1))
@@ -1154,7 +1143,7 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("### Phase 3 Deliverables")
     lines.append("- [ ] `03-development/src/` - All FR modules implemented")
     lines.append("- [ ] `tests/` - Unit tests (≥80% coverage per FR)")
-    lines.append("- [ ] `sessions_spawn.log` - 2 entries per FR (HR-10)")
+    lines.append("- [x] `sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
     lines.append("- [ ] Gate 1 PASS for every FR")
     lines.append("- [ ] Gate 2 PASS (phase exit, composite ≥ 75)")
     lines.append("")
@@ -1232,7 +1221,7 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("- [ ] `TEST_PLAN.md` - Test plan")
     lines.append("- [ ] `TEST_RESULTS.md` - Test results")
     lines.append("- [ ] `COVERAGE_REPORT.md` - Coverage report")
-    lines.append("- [ ] `sessions_spawn.log` - 2 entries per FR (HR-10)")
+    lines.append("- [x] `sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
     lines.append("- [ ] Gate 1 PASS for every FR")
     lines.append("- [ ] Gate 3 PASS (phase exit, composite ≥ 80, 12 dims)")
     lines.append("")
@@ -1283,7 +1272,7 @@ def generate_phase5_tasks(repo_path: Path) -> List[str]:
     lines.append("- [ ] `BASELINE.md` - System baseline")
     lines.append("- [ ] `MONITORING_PLAN.md` - Monitoring plan")
     lines.append("- [ ] `VERIFICATION_REPORT.md` - Verification report")
-    lines.append("- [ ] `sessions_spawn.log` - 2 entries per FR (HR-10)")
+    lines.append("- [x] `sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
     lines.append("- [ ] Gate 1 PASS for every FR")
     lines.append("")
 
@@ -1389,7 +1378,7 @@ def generate_phase7_tasks(repo_path: Path) -> List[str]:
     lines.append("- [ ] `RISK_REGISTER.md` - Risk register")
     lines.append("- [ ] `RISK_MITIGATION_PLANS.md` - Mitigation plans")
     lines.append("- [ ] `RISK_STATUS_REPORT.md` - Risk status report")
-    lines.append("- [ ] `sessions_spawn.log` - 2 entries per FR (HR-10)")
+    lines.append("- [x] `sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
     lines.append("- [ ] Gate 1 PASS for every FR")
     lines.append("")
 
@@ -1448,7 +1437,7 @@ def generate_phase8_tasks(repo_path: Path) -> List[str]:
     lines.append("- [ ] `CONFIG_RECORDS.md` - Configuration records")
     lines.append("- [ ] `DEPLOYMENT_CHECKLIST.md` - Deployment checklist")
     lines.append("- [ ] `ENVIRONMENT_SPEC.md` - Environment specification")
-    lines.append("- [ ] `sessions_spawn.log` - 2 entries per FR (HR-10)")
+    lines.append("- [x] `sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
     lines.append("- [ ] Gate 1 PASS for every FR")
     lines.append("")
 

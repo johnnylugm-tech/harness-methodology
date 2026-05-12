@@ -7,7 +7,7 @@ reviewing, adhering to the 'Need-to-know' principle for prompt construction.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 from pathlib import Path
 
@@ -38,11 +38,14 @@ class AgentSpawner:
 
     _reviewer = None   # lazy-init: avoids crash when HERMES env not set
 
+    def __init__(self, project_path: Optional[Path] = None):
+        self.project_path = Path(project_path) if project_path else None
+
     def _get_reviewer(self):
         """Lazy-initialize the ReviewerRouter."""
         if self._reviewer is None:
             from harness.reviewer_router import ReviewerRouter
-            self._reviewer = ReviewerRouter()
+            self._reviewer = ReviewerRouter(project_path=self.project_path)
         return self._reviewer
 
     def spawn(
@@ -86,6 +89,7 @@ class AgentSpawner:
                     parsed["_degraded"] = True
                     parsed["_reviewer_used"] = result.get("_reviewer_used", "unknown")
                     parsed["_degradation_note"] = result.get("_degradation_note")
+                self._log_dispatch(role, prompt, parsed, phase, fr_id)
                 return parsed
             # effective == "claude" for P7/P8 — fall through to Task tool
 
@@ -103,7 +107,27 @@ class AgentSpawner:
                 "Ensure running inside Claude Code environment."
             )
 
-        return self._parse_result(result)
+        parsed = self._parse_result(result)
+        self._log_dispatch(role, prompt, parsed, phase, fr_id)
+        return parsed
+
+    def _log_dispatch(self, role: str, task: str, result: dict,
+                      phase: int, fr_id: str | None) -> None:
+        """Auto-record agent dispatch to sessions_spawn.log (HR-10)."""
+        if not self.project_path:
+            return
+        try:
+            from core.sessions_spawn_logger import SessionsSpawnLogger
+            logger = SessionsSpawnLogger(self.project_path)
+            session_id = result.get("session_id", "")
+            logger.log_spawn(
+                role=role, task=task[:200], session_id=session_id,
+                status=result.get("status", "SPAWNED"),
+                phase=phase, fr_id=fr_id,
+            )
+        except Exception as e:
+            import sys
+            sys.stderr.write(f"[AgentSpawner] log_dispatch failed: {e}\n")
 
     def _build_prompt(self, role: str, prompt: str, context: dict, phase: int) -> str:
         """Construct the prompt following the need-to-know principle."""

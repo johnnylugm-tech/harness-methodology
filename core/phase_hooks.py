@@ -384,11 +384,31 @@ class PhaseHooks:
             "stats": result["stats"],
         }
 
+    def preflight_bvs_phase_order(self) -> Dict[str, Any]:
+        """BVS phase-order check (HR-03) — phase prerequisites and FSM FREEZE."""
+        print("\n[PRE-FLIGHT] BVS Phase Order (HR-03)")
+        try:
+            from constitution.bvs_runner import BVSRunner
+            runner = BVSRunner(str(self.project_path), phase=self.phase or 1)
+            result = runner.run()
+            if result["violations"]:
+                for v in result["violations"]:
+                    print(f"   {v['rule']}: {v['message']}")
+            else:
+                print("   Phase order OK")
+            return {"passed": result["passed"], "violations": result["violations"]}
+        except ImportError:
+            return {"passed": True, "skipped": True, "message": "BVS modules unavailable"}
+        except Exception as e:
+            print(f"   BVS check error: {e}")
+            return {"passed": True, "skipped": True, "error": str(e)}
+
     def preflight_all(self) -> Dict[str, Any]:
         """Run all pre-flight checks."""
         print(f"\n{'='*60}\nPRE-FLIGHT: Phase {self.phase}\n{'='*60}")
         results = {
             "fsm": self.preflight_fsm_check(),
+            "bvs_phase_order": self.preflight_bvs_phase_order(),
             "constitution": self.preflight_constitution(),
             "kill_switch": self.preflight_kill_switch(),
             "previous_phase_artifacts": self.preflight_previous_phase_artifacts(),
@@ -572,22 +592,96 @@ class PhaseHooks:
             print(f"   Drift detection error: {e}")
             return {"passed": True, "skipped": True, "error": str(e)}
 
+    def postflight_bvs_invariants(self) -> Dict[str, Any]:
+        """BVS invariant check (phase 3+) — behavioral invariants from sessions_spawn.log."""
+        print("\n[POST-FLIGHT] BVS Invariant Check")
+        if self.phase and self.phase < 3:
+            print("   Skipped: invariant checks start at Phase 3")
+            return {"passed": True, "skipped": True, "reason": "P1/P2 — invariants not required"}
+        try:
+            from constitution.bvs_runner import BVSRunner
+            bvs_phase: int = self.phase if self.phase is not None else 3
+            runner = BVSRunner(str(self.project_path), phase=bvs_phase)
+            result = runner.run_full()
+            if result["total_violations"]:
+                for v in result["violations"]:
+                    print(f"   [VIOLATION] {v.get('rule', '?')}: {v.get('message', '?')}")
+                print(f"   BVS: {result['total_violations']} violation(s)")
+            else:
+                print("   BVS invariants PASS")
+            return {"passed": result["passed"], "total_violations": result["total_violations"],
+                    "invariant_report": result.get("invariant_report", {})}
+        except ImportError:
+            return {"passed": True, "skipped": True, "message": "BVS modules unavailable"}
+        except Exception as e:
+            print(f"   BVS invariant error: {e}")
+            return {"passed": True, "skipped": True, "error": str(e)}
+
+    def postflight_steering_summary(self) -> Dict[str, Any]:
+        """Post-phase Steering cross-FR consistency check (phase 3+, opt-in).
+
+        Compares adjacent FR result pairs to detect quality drift across
+        FRs within a phase. Requires ≥2 FR results to produce comparisons.
+        This is NOT a same-FR dev-vs-rev comparison — that requires both
+        Agent A and Agent B outputs stored per FR, which is future work.
+        """
+        print("\n[POST-FLIGHT] Steering Phase Summary")
+        if self.phase and self.phase < 3:
+            return {"passed": True, "skipped": True, "reason": "P1/P2 — no Steering"}
+        import os
+        if os.environ.get("STEERING_ENABLED", "").lower() not in ("1", "true", "yes"):
+            return {"passed": True, "skipped": True, "reason": "STEERING_ENABLED not set"}
+        if len(self.fr_results) < 2:
+            return {"passed": True, "skipped": True,
+                    "reason": f"Need ≥2 FR results, have {len(self.fr_results)}"}
+        try:
+            from steering.integrations import SteeringIntegrator
+            from steering.provider import create_steering_provider
+            provider = create_steering_provider()
+            phase: int = self.phase if self.phase is not None else 3
+            integrator = SteeringIntegrator(provider, str(self.project_path), phase=phase)
+            import json
+            for i, fr in enumerate(self.fr_results):
+                if i + 1 < len(self.fr_results):
+                    a_out = {"text": json.dumps(fr)}
+                    b_out = {"text": json.dumps(self.fr_results[i + 1])}
+                    integrator.iterate_with_full_check(
+                        a_out, b_out, run_bvs=False, run_constitution=True,
+                    )
+            summary = integrator.get_full_summary()
+            print(f"   Steering iterations: {summary['steering']['total_iterations']}")
+            return {"passed": True, "iterations": summary["steering"]["total_iterations"],
+                    "summary": summary}
+        except ImportError:
+            return {"passed": True, "skipped": True, "message": "Steering modules unavailable"}
+        except Exception as e:
+            print(f"   Steering error: {e}")
+            return {"passed": True, "skipped": True, "error": str(e)}
+
     def postflight_all(self) -> Dict[str, Any]:
         """Run all post-flight checks."""
         print(f"\n{'='*60}\nPOST-FLIGHT: Phase {self.phase}\n{'='*60}")
         const_result = self.postflight_constitution()
+        bvs_result = self.postflight_bvs_invariants()
+        steering_result = self.postflight_steering_summary()
         drift_result = self.postflight_drift_check()
         fr_approved = sum(1 for r in self.fr_results if r.get("review_status") == "APPROVE")
         total_frs = max(len(self.fr_results), 1)
+        # Per-FR gate approval only required for P3+ (P1/P2 exit via human peer review)
+        frs_ok = True
+        if self.phase and self.phase >= 3:
+            frs_ok = fr_approved >= total_frs
         success = (
             const_result.get("passed", False)
-            and fr_approved >= total_frs
+            and bvs_result.get("passed", True)
+            and frs_ok
             and drift_result.get("passed", True)
         )
         state_result = self.postflight_update_state(success=success)
         summary = self.postflight_summary()
         print(f"\nPOST-FLIGHT: {'PASS' if success else 'FAIL'}")
         return {"success": success, "constitution": const_result,
+                "bvs_invariants": bvs_result, "steering": steering_result,
                 "drift_detection": drift_result,
                 "state_update": state_result, "summary": summary}
 

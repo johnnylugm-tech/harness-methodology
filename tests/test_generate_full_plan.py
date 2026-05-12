@@ -766,14 +766,14 @@ class TestDeliverableAbBlock:
         lines = _deliverable_ab_block(1, srs_deliverable, 1, 4)
         joined = "\n".join(lines)
         assert "BLOCKING" in joined, "Missing BLOCKING enforcement note"
-        assert "before proceeding" in joined.lower(), "Must say to log before proceeding"
+        assert "do not start the next sub-task" in joined.lower(), "Must block early advance"
 
     def test_b2_log_includes_round2_example(self, srs_deliverable: Dict):
-        """[LOG] must show round-2 entry example for when medium gap is fixed."""
+        """[LOG] section notes sessions_spawn.log is auto-populated by AgentSpawner."""
         lines = _deliverable_ab_block(1, srs_deliverable, 1, 4)
         joined = "\n".join(lines)
-        assert '"round":2' in joined, "Missing round-2 entry in LOG example"
-        assert "GAP-XX fixes verified" in joined, "Round-2 note field example missing"
+        assert "auto-logs round-2 re-dispatch" in joined, "Missing auto-logging note"
+        assert "sessions_spawn.log" in joined, "Missing log reference"
 
     def test_b2_last_subtask_three_branches(self):
         """Last sub-task [B-2] also has three branches (not just APPROVE → Human Review)."""
@@ -953,9 +953,9 @@ class TestPhase2Generator:
         assert "sessions_spawn.log" in joined
 
     def test_sessions_spawn_log_six_entries(self, project: Path):
-        """P2 has 3 sub-tasks × 2 entries = 6 sessions_spawn.log entries."""
+        """P2 sessions_spawn.log is auto-populated by AgentSpawner (HR-10)."""
         joined = "\n".join(generate_phase2_tasks(project, project / "SRS.md"))
-        assert "6 entries" in joined
+        assert "auto-populated by AgentSpawner" in joined
 
     def test_has_human_checkpoint(self, project: Path):
         """GAP-K3 fix: P2 plan must end with human review checkpoint."""

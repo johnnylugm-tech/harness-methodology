@@ -630,6 +630,39 @@ class TestPhaseHooks:
         assert h.fr_results[-1]["fr_id"] == "FR-01"
         assert h.fr_results[-1]["review_status"] == "APPROVE"
 
+    # ── BVS postflight ─────────────────────────────────────────────────────
+    def test_postflight_bvs_invariants_skips_p1(self, tmp_path):
+        """BVS invariant check skips P1/P2."""
+        h = self._hooks(tmp_path, phase=1)
+        result = h.postflight_bvs_invariants()
+        assert result["passed"] is True
+        assert result.get("skipped") is True
+
+    def test_postflight_bvs_invariants_runs_p3(self, tmp_path):
+        """BVS invariant check runs for P3+ (graceful degrade when no log)."""
+        h = self._hooks(tmp_path, phase=3)
+        result = h.postflight_bvs_invariants()
+        assert result["passed"] is True  # graceful when sessions_spawn.log absent
+
+    def test_postflight_all_includes_bvs(self, tmp_path):
+        """postflight_all() result includes bvs_invariants and steering keys."""
+        self._write_state(tmp_path, current_phase=2)
+        h = self._hooks(tmp_path, phase=3)
+        h.postflight_constitution = MagicMock(return_value={"passed": True, "score": 90})
+        h.postflight_drift_check = MagicMock(return_value={"passed": True})
+        h.postflight_update_state = MagicMock(return_value={"updated": True})
+        h.postflight_summary = MagicMock(return_value={"total_frs": 0, "approved": 0})
+        result = h.postflight_all()
+        assert "bvs_invariants" in result
+        assert "steering" in result
+
+    def test_postflight_steering_skips_when_disabled(self, tmp_path):
+        """Steering postflight skips when STEERING_ENABLED not set."""
+        h = self._hooks(tmp_path, phase=3)
+        result = h.postflight_steering_summary()
+        assert result.get("skipped") is True
+        assert "STEERING_ENABLED" in result.get("reason", "")
+
 
 # ─── AgentProofHook ────────────────────────────────────────────────────────────
 

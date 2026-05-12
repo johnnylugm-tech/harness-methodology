@@ -142,6 +142,53 @@ class TestPhaseHooksEdge:
         hooks.add_fr_result("FR-01", dev, rev)
         assert hooks.fr_results[-1]["review_status"] == "APPROVE"
 
+    # ── BVS preflight ────────────────────────────────────────────────────────
+    def test_preflight_bvs_phase_order_passes_no_state(self, tmp_path):
+        """BVS returns passed=True when state.json is absent."""
+        from core.phase_hooks import PhaseHooks
+        hooks = PhaseHooks(str(tmp_path), phase=3)
+        result = hooks.preflight_bvs_phase_order()
+        assert result["passed"] is True
+
+    def test_preflight_bvs_phase_order_detects_skip(self, tmp_path):
+        """BVS detects phase-order violation (skipping prerequisite)."""
+        from core.phase_hooks import PhaseHooks
+        (tmp_path / ".methodology").mkdir()
+        (tmp_path / ".methodology" / "state.json").write_text(
+            json.dumps({"state": "ACTIVE", "current_phase": 1})
+        )
+        hooks = PhaseHooks(str(tmp_path), phase=3)
+        result = hooks.preflight_bvs_phase_order()
+        assert result["passed"] is False
+
+    def test_preflight_bvs_phase_order_passes_valid(self, tmp_path):
+        """BVS passes when prerequisites are satisfied."""
+        from core.phase_hooks import PhaseHooks
+        (tmp_path / ".methodology").mkdir()
+        (tmp_path / ".methodology" / "state.json").write_text(
+            json.dumps({"state": "ACTIVE", "current_phase": 2})
+        )
+        hooks = PhaseHooks(str(tmp_path), phase=3)
+        result = hooks.preflight_bvs_phase_order()
+        assert result["passed"] is True
+
+    def test_preflight_all_includes_bvs(self, tmp_path):
+        """preflight_all() results include bvs_phase_order key."""
+        from core.phase_hooks import PhaseHooks
+        hooks = PhaseHooks(str(tmp_path), phase=1)
+        # Mock heavier checks to keep test fast
+        hooks.preflight_constitution = MagicMock(return_value={"passed": True})
+        hooks.preflight_kill_switch = MagicMock(return_value={"passed": True})
+        hooks.preflight_drift_detection = MagicMock(return_value={"passed": True})
+        hooks.preflight_sab_check = MagicMock(return_value={"passed": True})
+        hooks.preflight_tool_registry = MagicMock(return_value={"passed": True})
+        hooks.preflight_traceability = MagicMock(return_value={"passed": True})
+        hooks.preflight_gap_analysis = MagicMock(return_value={"passed": True})
+        hooks.preflight_ci_readiness = MagicMock(return_value={"passed": True})
+        hooks.preflight_previous_phase_artifacts = MagicMock(return_value={"passed": True})
+        result = hooks.preflight_all()
+        assert "bvs_phase_order" in result["details"]
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # policy_engine

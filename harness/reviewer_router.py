@@ -8,6 +8,7 @@ import json
 import os
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 # ---------------------------------------------------------------------------
@@ -130,12 +131,14 @@ class ReviewerRouter:
         self,
         target: str = HERMES_TARGET,
         chain_config: str = REVIEWER_CHAIN_CONFIG,
+        project_path: "Path | None" = None,
     ):
         if not target:
             raise ValueError(
                 "HERMES_REVIEWER_TARGET env var not set or target is empty"
             )
         self.target = target
+        self.project_path = Path(project_path) if project_path else None
         self._chain: list[ReviewerSpec] = _parse_chain(chain_config)
 
     # ------------------------------------------------------------------
@@ -306,7 +309,7 @@ class ReviewerRouter:
         """Graceful degradation to current-model sub-agent. Never fails."""
         try:
             from core.agent_spawner import AgentSpawner  # lazy import — avoids circular dep
-            spawner = AgentSpawner()
+            spawner = AgentSpawner(project_path=self.project_path)
             result = spawner.spawn(
                 role=role, prompt=prompt,
                 context={"degraded": True, "reason": "reviewer_chain_exhausted"},

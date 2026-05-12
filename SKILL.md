@@ -52,7 +52,7 @@ When the user says "execute Phase N", "start P3", "implement FR-X", or any phase
    [PREFLIGHT]     → python harness_cli.py run-phase --phase N
    [A/B Work]      → Agent A: dispatch via turn-based executor (Turn 1: full prompt, Turn 2..N: continuation guidance only)
                    → Agent B: dispatch as STATELESS sub-agent to review (embed all content in prompt)
-                   → Log both entries to sessions_spawn.log (HR-01, HR-10)
+                   → sessions_spawn.log auto-written by AgentSpawner (HR-01, HR-10)
                    → NEVER role-play A or B yourself — they MUST be separate sessions (HR-01: A≠B)
    [CHECKPOINT-K]  → run-gate → Claude evaluates inline → finalize-gate → git push
 
