@@ -2311,7 +2311,7 @@ python3 -m software_self_improvement.runner
 | ① SSI runner stub | `harness_bridge._invoke_harness()` | Replaced `NotImplementedError` with subprocess call + JSON result parsing |
 | ② `parse_sad` import failure | `harness_bridge.generate_quality_manifest()` | Fixed by adding `parse_sad()` to `scripts/generate_sab.py` |
 | ③ P7/P8 Claude routing not wired | `core/agent_spawner.spawn()` | `get_reviewer_model(phase, role)` now checked before Hermes dispatch; P7/P8 auto-route to Claude |
-| ④ Gate 4 Hermes APPROVE not enforced | `harness_bridge.run_gate()` | Added `_require_hermes_approve()` called after score check passes |
+| ④ ~~Gate 4 Hermes APPROVE not enforced~~ | ~~`harness_bridge.run_gate()`~~ | **REMOVED in v2.4** — `run_gate()` deleted; Hermes approval now enforced via `finalize_gate()` → `_require_hermes_approve()` |
 | ⑤ `parse_sad` alias missing | `scripts/generate_sab.py` | Added `parse_sad()` function wrapping `extract_sab_from_sad`, with correct key mapping |
 
 
