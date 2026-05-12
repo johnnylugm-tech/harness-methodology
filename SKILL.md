@@ -28,11 +28,12 @@ When the user says "execute Phase N", "start P3", "implement FR-X", or any phase
    If EMPTY (fresh project) → run:
      python harness_cli.py init-project --phase 1 --project .
      → Installs: git hooks, .github/workflows/harness_quality_gate.yml, quality.phase=1
-   Then confirm these three items manually (cannot be automated — required before any phase work):
-     a. GitHub repo → Settings → Variables → CURRENT_PHASE = 1
+   Then confirm these items manually:
+     a. [optional] GitHub repo → Settings → Variables → CURRENT_PHASE = 1
+        CI fallback is '1' so this is not an immediate blocker; advance-phase sets it
+        automatically on every phase transition. Set now for explicitness.
         (or: gh variable set CURRENT_PHASE --body "1")
-     b. GitHub repo → Settings → Secrets → ANTHROPIC_API_KEY = sk-ant-...
-     c. export HERMES_REVIEWER_TARGET=telegram:YOUR_CHAT_ID
+     b. [required] export HERMES_REVIEWER_TARGET=telegram:YOUR_CHAT_ID
         (A/B Agent B uses this from P1; strictly required at P6. Set now for full quality.)
    If quality.phase IS set → skip to step 1. Setup already done.
 
