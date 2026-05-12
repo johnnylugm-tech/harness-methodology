@@ -68,6 +68,8 @@ pip install -r harness/requirements.txt
 ```
 Entry point: `harness/harness_cli.py`. Python path: `harness/` root on `sys.path`.
 
+> **`requirements.txt` contents** (repo-bundled, not generated): `pyyaml>=6.0` (gate config loading — required), `pytest>=7.0` (framework self-tests). The `anthropic` SDK is **not** included — it is installed as part of `software_self_improvement`. If `requirements.txt` is missing (e.g. Option C copy forgot to include it), `pip install -r ... || true` in CI will silently succeed, and `run-gate` will later fail with `ModuleNotFoundError: No module named 'yaml'`.
+
 **Option B — Direct clone alongside project**
 ```bash
 git clone https://github.com/johnnylugm-tech/harness-methodology /opt/harness
@@ -198,10 +200,19 @@ jobs:
 
       - name: Install harness dependencies
         run: |
-          pip install pyyaml
+          # requirements.txt bundles pyyaml>=6.0 and pytest>=7.0.
+          # '|| true' is intentional — tolerates machines that already have deps installed
+          # via system Python. If the file is missing entirely (Option C without copy),
+          # the next step will fail loudly on ModuleNotFoundError rather than silently here.
           pip install -r harness/requirements.txt || true
 
       - name: Run Quality Gate (current phase)
+        # What this runs: the PHASE-EXIT gate (Gate 2 at P3, Gate 3 at P4).
+        # Gate 1 is per-FR and requires --fr-id FR-XX — it cannot be automated over
+        # all FRs in CI because FR IDs are dynamic. Gate 1 must be run locally by the
+        # developer after completing each FR:
+        #   python harness/harness_cli.py run-gate --gate 1 --phase $PHASE --fr-id FR-XX
+        #
         # Gate 4 (P6 exit) requires human Hermes APPROVE — headless CI will always
         # time out. Skip the gate step when CURRENT_PHASE is 6; run Gate 4 locally.
         if: vars.CURRENT_PHASE != '6'

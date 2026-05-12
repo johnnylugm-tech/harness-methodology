@@ -863,6 +863,8 @@ python harness_cli.py run-gate \
 **需要**：SSI 已安裝；Gate 4 額外需要 `HERMES_REVIEWER_TARGET`  
 **v2.4+**：`run-gate` 預設在 gate 評估前先執行 preflight 驗證。使用 `--skip-preflight` 跳過。
 
+> **Gate 1 vs CI**: Gate 1 需要 `--fr-id FR-XX`，必須由開發者在本地逐 FR 執行。CI 中的 `run-gate --phase $PHASE`（不帶 `--fr-id`）只執行 phase-level gate（P3→Gate 2、P4→Gate 3）。Gate 1 **不**在 CI 中自動對所有 FR 執行。
+
 ---
 
 ### `manifest` — 生成 Quality Manifest（P2 exit）
@@ -981,6 +983,12 @@ export DRIFT_PROJECT_PATH=/path/to/your/project
 # Option B (global clone) only:
 export PYTHONPATH=/path/to/harness-methodology:$PYTHONPATH
 ```
+
+**Hook-internal variable** (not an env var — do not `export`):
+
+| Variable | Scope | Purpose |
+|---|---|---|
+| `HARNESS_CLI` | Shell-local inside each `.git/hooks/*` script | Auto-detected path to `harness_cli.py`. Visible in `bash -x` hook output. Set to `""` when auto-detection fails (Option B). **Override by patching the hook file**, not by exporting this variable — `export HARNESS_CLI=...` has no effect because the hook re-assigns it unconditionally. |
 
 ---
 
