@@ -511,7 +511,7 @@ def _decomposition_section(phase: int) -> List[str]:
 
 
 def _deliverable_ab_block(phase: int, deliverable: Dict, sub_n: int, total: int,
-                          label_to_sub_n: Dict[str, int] | None = None) -> List[str]:
+                          label_to_sub_n: Optional[Dict[str, int]] = None) -> List[str]:
     """Generate the A/B collaboration block for a single deliverable.
 
     Produces A-1/A-2/B-1/B-2/LOG steps with deliverable-specific checks and embed docs.
