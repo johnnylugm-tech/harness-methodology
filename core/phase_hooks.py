@@ -400,7 +400,7 @@ class PhaseHooks:
                 print("   Phase order OK")
             return {"passed": result["passed"], "violations": result["violations"]}
         except ImportError:
-            sys.stderr.write("[WARN] BVS modules unavailable — skipping phase-order check\n")
+            print("[WARN] BVS modules unavailable — skipping phase-order check", file=sys.stderr)
             return {"passed": True, "skipped": True, "message": "BVS modules unavailable"}
         except Exception as e:
             print(f"   BVS check error: {e}")
@@ -616,7 +616,7 @@ class PhaseHooks:
             return {"passed": result["passed"], "total_violations": result["total_violations"],
                     "invariant_report": result.get("invariant_report", {})}
         except ImportError:
-            sys.stderr.write("[WARN] BVS modules unavailable — skipping invariant check\n")
+            print("[WARN] BVS modules unavailable — skipping invariant check", file=sys.stderr)
             return {"passed": True, "skipped": True, "message": "BVS modules unavailable"}
         except Exception as e:
             print(f"   BVS invariant error: {e}")
@@ -658,7 +658,7 @@ class PhaseHooks:
             return {"passed": True, "iterations": summary["steering"]["total_iterations"],
                     "summary": summary}
         except ImportError:
-            sys.stderr.write("[WARN] Steering modules unavailable — skipping phase summary\n")
+            print("[WARN] Steering modules unavailable — skipping phase summary", file=sys.stderr)
             return {"passed": True, "skipped": True, "message": "Steering modules unavailable"}
         except Exception as e:
             print(f"   Steering error: {e}")
@@ -727,4 +727,4 @@ class PhaseHooks:
                 f.write(f"[{ts}] {message}\n")
         except Exception as e:  # pragma: no cover
             import sys
-            sys.stderr.write(f"Warning: Failed to append to run-phase.log: {e}\n")
+            print(f"Warning: Failed to append to run-phase.log: {e}", file=sys.stderr)
