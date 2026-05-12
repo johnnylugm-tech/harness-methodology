@@ -602,3 +602,87 @@ class TestHandoverGeneratorFixes:
         content = (tmp_path / "HANDOVER.md").read_text()
         assert "Review Gaps" in content
         assert "GAP-01" in content
+
+    # ── New improvements (feedback) ───────────────────────────────────────────
+
+    def test_handover_contains_recurse_submodules(self, tmp_path: Path):
+        """Clone command in HANDOVER.md must include --recurse-submodules."""
+        gs = self._make_strategy(tmp_path)
+        gs.commit_and_push_p1(fr_ids=["FR-01"])
+        content = (tmp_path / "HANDOVER.md").read_text()
+        assert "--recurse-submodules" in content
+
+    def test_handover_contains_startup_section(self, tmp_path: Path):
+        """HANDOVER.md must include '▶ 立即開始' three-step section."""
+        gs = self._make_strategy(tmp_path)
+        gs.commit_and_push_p1(fr_ids=["FR-01"])
+        content = (tmp_path / "HANDOVER.md").read_text()
+        assert "▶ 立即開始" in content
+
+    def test_deliverable_files_p1_all_exist(self, tmp_path: Path):
+        """_deliverable_files(1) returns ✅ for all 4 P1 files when present."""
+        for name in ["SRS.md", "CONSTRAINTS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md"]:
+            (tmp_path / name).write_text("# content\n" * 10, encoding="utf-8")
+        gs = GitStrategy(tmp_path, enabled=False)
+        items = gs._deliverable_files(1)
+        assert len(items) == 4
+        assert all("✅" in item for item in items)
+        assert any("10L" in item or "L)" in item for item in items)  # line count included
+
+    def test_deliverable_files_p1_missing(self, tmp_path: Path):
+        """_deliverable_files(1) marks absent files as ❌ missing."""
+        (tmp_path / "SRS.md").write_text("# SRS\n", encoding="utf-8")
+        # CONSTRAINTS.md, SPEC_TRACKING.md, TRACEABILITY_MATRIX.md absent
+        gs = GitStrategy(tmp_path, enabled=False)
+        items = gs._deliverable_files(1)
+        assert len(items) == 4
+        assert any("✅" in item and "SRS.md" in item for item in items)
+        assert sum("❌ missing" in item for item in items) == 3
+
+    def test_deliverable_files_p2(self, tmp_path: Path):
+        """_deliverable_files(2) covers SAD.md, ADR.md, ARCHITECTURE_DIAGRAM.md."""
+        (tmp_path / "SAD.md").write_text("# SAD\n", encoding="utf-8")
+        gs = GitStrategy(tmp_path, enabled=False)
+        items = gs._deliverable_files(2)
+        assert len(items) == 3
+        assert any("SAD.md" in item and "✅" in item for item in items)
+        assert any("ADR.md" in item and "❌" in item for item in items)
+
+    def test_deliverable_files_unknown_phase(self, tmp_path: Path):
+        """_deliverable_files() returns [] for phases without a hardcoded list."""
+        gs = GitStrategy(tmp_path, enabled=False)
+        assert gs._deliverable_files(5) == []
+
+    def test_p1_handover_contains_deliverable_section(self, tmp_path: Path):
+        """P1 HANDOVER.md includes '交付物清單' section listing deliverables."""
+        for name in ["SRS.md", "CONSTRAINTS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md"]:
+            (tmp_path / name).write_text("# content\n", encoding="utf-8")
+        gs = self._make_strategy(tmp_path)
+        gs.commit_and_push_p1(fr_ids=["FR-01"])
+        content = (tmp_path / "HANDOVER.md").read_text()
+        assert "交付物清單" in content
+        assert "SRS.md" in content
+        assert "CONSTRAINTS.md" in content
+
+    def test_gap_register_rich_table_with_disposition(self, tmp_path: Path):
+        """_gap_register_summary() returns a markdown table with disposition column."""
+        (tmp_path / "SPEC_TRACKING.md").write_text(
+            "| GAP-01 | B-1/4 | NFR-04 | security_logs fix | P3 |\n"
+            "| M-GAP-01 | B-2/4 | Cost model | Clarify budget | P2 |\n",
+            encoding="utf-8",
+        )
+        gs = GitStrategy(tmp_path, enabled=False)
+        summary = gs._gap_register_summary()
+        assert "GAP-01" in summary
+        assert "security_logs fix" in summary   # disposition column
+        assert "P3" in summary                  # target column
+        assert "⚠️" in summary                  # medium-priority flag on M-GAP-01
+        assert "| Gap ID |" in summary          # markdown table header
+
+    def test_recently_committed_files_deduplicates(self, tmp_path: Path):
+        """_recently_committed_files() returns deduplicated file list (no repeated entries)."""
+        gs = GitStrategy(tmp_path, enabled=False)
+        # When git is unavailable, returns [] — just verify no crash
+        files = gs._recently_committed_files()
+        assert isinstance(files, list)
+        assert len(files) == len(set(files))   # no duplicates

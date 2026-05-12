@@ -135,21 +135,23 @@ class GitStrategy:
         # Enrich HANDOVER.md with actual project state
         ab = self._ab_session_summary()
         gaps = self._gap_register_summary()
-        changed = self._changed_files()
+        committed = self._recently_committed_files()
+        deliverables = self._deliverable_files(1)
         hermes = os.environ.get("HERMES_REVIEWER_TARGET", "")
         hermes_status = f"✅ set ({hermes})" if hermes else "❌ not set (required before P6)"
 
+        p1_deliverable_count = sum(1 for d in deliverables if "✅" in d)
         status_parts = [
             f"{len(fr_ids)} FR(s) defined in SRS [{fr_list}]. "
-            f"4 deliverables produced and Agent-B APPROVED.",
+            f"{p1_deliverable_count}/4 deliverables present, Agent-B APPROVED.",
         ]
         if ab:
             status_parts.append(f"\n**A/B Session Results:**\n{ab}")
         if gaps:
             status_parts.append(f"\n**Review Gaps (carry-forward to P2+):**\n{gaps}")
-        if changed:
-            file_md = "\n".join(f"  - `{f}`" for f in changed)
-            status_parts.append(f"\n**Changed Files:**\n{file_md}")
+        if committed:
+            file_md = "\n".join(f"  - `{f}`" for f in committed)
+            status_parts.append(f"\n**Recently Committed Files:**\n{file_md}")
 
         if self._next_phase_plan_exists(1):
             p2_step = "Open `.methodology/phase2_plan.md` and follow from the top"
@@ -167,7 +169,7 @@ class GitStrategy:
             steps=[
                 p2_step,
                 "Follow SKILL.md §0.1 for P2 entry",
-                "Review carry-forward gaps before P2 (see SPEC_TRACKING.md gap register)",
+                "Review carry-forward gaps before starting P2 (SPEC_TRACKING.md gap register)",
                 "Confirm HERMES_REVIEWER_TARGET is exported in shell",
             ],
             notes=notes,
@@ -176,6 +178,7 @@ class GitStrategy:
                 "HERMES_REVIEWER_TARGET": hermes_status,
             },
             plan_override=".methodology/phase2_plan.md" if self._next_phase_plan_exists(1) else None,
+            deliverables=deliverables,
         )
         msg = f"docs(P1): SRS + P1 deliverables; {len(fr_ids)} FR(s) [{fr_list}]"
         return self._commit_and_push(msg)
@@ -200,17 +203,19 @@ class GitStrategy:
         fr_list = self._fr_summary(fr_ids)
 
         ab = self._ab_session_summary()
-        changed = self._changed_files()
+        committed = self._recently_committed_files()
+        deliverables = self._deliverable_files(2)
 
+        p2_deliverable_count = sum(1 for d in deliverables if "✅" in d)
         status_parts = [
             f"{len(fr_ids)} FR(s) in quality manifest [{fr_list}]. "
-            "SAD.md + ADR.md complete, Agent-B APPROVED.",
+            f"{p2_deliverable_count}/3 P2 deliverables present, Agent-B APPROVED.",
         ]
         if ab:
             status_parts.append(f"\n**A/B Session Results:**\n{ab}")
-        if changed:
-            file_md = "\n".join(f"  - `{f}`" for f in changed)
-            status_parts.append(f"\n**Changed Files:**\n{file_md}")
+        if committed:
+            file_md = "\n".join(f"  - `{f}`" for f in committed)
+            status_parts.append(f"\n**Recently Committed Files:**\n{file_md}")
 
         if self._next_phase_plan_exists(2):
             p3_step = "Open `.methodology/phase3_plan.md` and follow from the top"
@@ -234,6 +239,7 @@ class GitStrategy:
             notes=notes,
             extra={"fr_count": str(len(fr_ids))},
             plan_override=".methodology/phase3_plan.md" if self._next_phase_plan_exists(2) else None,
+            deliverables=deliverables,
         )
         msg = f"docs(P2): finalize SAD + ADR; generate quality manifest [fr_ids={fr_list}]"
         return self._commit_and_push(msg)
@@ -512,15 +518,20 @@ class GitStrategy:
                 return []
         return []
 
-    def _changed_files(self) -> list[str]:
-        """Return list of uncommitted changed/new files from git status."""
-        r = self._run_git("status", "--short")
-        files = []
+    def _recently_committed_files(self, n: int = 20) -> list[str]:
+        """Return files changed in the last *n* commits (phase artifacts).
+
+        Uses ``git log --name-only`` instead of ``git status`` so it captures
+        deliverables that were committed earlier in the session (e.g. SRS.md
+        committed during A/B review), not just files that are currently dirty.
+        """
+        r = self._run_git("log", f"--max-count={n}", "--name-only", "--pretty=format:")
+        seen: dict[str, None] = {}  # insertion-ordered deduplication
         for line in r.stdout.splitlines():
-            parts = line.strip().split()
-            if parts:
-                files.append(parts[-1])
-        return files[:20]
+            f = line.strip()
+            if f:
+                seen[f] = None
+        return list(seen.keys())[:20]
 
     def _ab_session_summary(self) -> str:
         """Read sessions_spawn.log → markdown bullet list of A/B results."""
@@ -553,7 +564,14 @@ class GitStrategy:
         return "\n".join(lines)
 
     def _gap_register_summary(self) -> str:
-        """Extract gap IDs from Review Gap Register table in SPEC_TRACKING.md."""
+        """Parse Review Gap Register table in SPEC_TRACKING.md.
+
+        Returns a compact markdown table with Gap ID, Area, Disposition, and
+        Target Phase so the next session knows exactly what carry-forward work
+        remains and which gaps are deferred vs. in-scope.
+
+        Table column order assumed: Gap ID | Source | Area | Disposition | Target Phase
+        """
         for path in (
             self.project / "SPEC_TRACKING.md",
             self.project / "docs" / "SPEC_TRACKING.md",
@@ -564,20 +582,80 @@ class GitStrategy:
                 text = path.read_text(encoding="utf-8", errors="replace")
             except Exception:  # pylint: disable=broad-exception-caught
                 return ""
-            # Match | GAP-01 | or | M-GAP-01 | or | TM-GAP-01 | etc.
-            # (?:[A-Z]+-)* matches zero or more prefix segments (M-, TM-, T-, …)
-            gaps = _re.findall(r"\|\s*((?:[A-Z]+-)*GAP-\d+)\s*\|", text)
-            if not gaps:
+
+            _GAP_RE = _re.compile(r"^((?:[A-Z]+-)*GAP-\d+)$")
+            rows: list[dict[str, str]] = []
+            for line in text.splitlines():
+                parts = [p.strip() for p in line.split("|")]
+                parts = [p for p in parts if p]  # drop empty leading/trailing
+                if len(parts) < 2:
+                    continue
+                if not _GAP_RE.match(parts[0]):
+                    continue  # header or non-gap row
+                # Column layout: Gap ID | Source | Area | Disposition | Target Phase
+                # Accept 2-5 columns; shorter rows leave trailing fields empty.
+                rows.append({
+                    "id":          parts[0],
+                    # 3+ cols: parts[1]=Source, parts[2]=Area; 2 cols: parts[1]=Area
+                    "area":        parts[2] if len(parts) > 2 else parts[1],
+                    "disposition": parts[3] if len(parts) > 3 else "",
+                    "target":      parts[4] if len(parts) > 4 else "",
+                })
+
+            if not rows:
                 return ""
-            unique = list(dict.fromkeys(gaps))
-            medium = [g for g in unique if "M-GAP-" in g or "TM-GAP-" in g]
-            summary = f"  {len(unique)} gap(s): {', '.join(unique[:10])}"
-            if len(unique) > 10:
-                summary += f" …+{len(unique) - 10}"
-            if medium:
-                summary += f"\n  ⚠️ medium-priority: {', '.join(medium)}"
-            return summary
+
+            medium = [r for r in rows if "M-GAP-" in r["id"] or "TM-GAP-" in r["id"]]
+            total = len(rows)
+
+            table_rows = []
+            for r in rows:
+                flag = " ⚠️" if r in medium else ""
+                disp = r["disposition"]
+                if len(disp) > 55:
+                    disp = disp[:52] + "…"
+                table_rows.append(
+                    f"| `{r['id']}`{flag} | {r['area']} | {disp} | {r['target']} |"
+                )
+
+            header = (
+                f"  {total} gap(s)"
+                + (f" — ⚠️ {len(medium)} medium-priority" if medium else "")
+                + "\n\n"
+                "| Gap ID | Area | Disposition | Target |\n"
+                "|--------|------|-------------|--------|\n"
+                + "\n".join(table_rows)
+            )
+            return header
         return ""
+
+    # Map of known phase deliverable filenames (P1 and P2 are well-defined by
+    # the methodology; other phases have project-specific outputs).
+    _DELIVERABLE_NAMES: dict[int, list[str]] = {
+        1: ["SRS.md", "CONSTRAINTS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md"],
+        2: ["SAD.md", "ADR.md", "ARCHITECTURE_DIAGRAM.md"],
+    }
+
+    def _deliverable_files(self, phase: int) -> list[str]:
+        """Return formatted deliverable lines for ``HandoverGenerator``.
+
+        Each line is a markdown-ready string like `` `SRS.md` ✅ (312L) `` or
+        `` ~~`SAD.md`~~ ❌ missing ``.  Only P1/P2 are enumerated; other phases
+        return an empty list.
+        """
+        names = self._DELIVERABLE_NAMES.get(phase, [])
+        items: list[str] = []
+        for name in names:
+            p = self.project / name
+            if p.exists():
+                try:
+                    lines = len(p.read_text(encoding="utf-8", errors="replace").splitlines())
+                    items.append(f"`{name}` ✅ ({lines}L)")
+                except Exception:  # pylint: disable=broad-exception-caught
+                    items.append(f"`{name}` ✅")
+            else:
+                items.append(f"~~`{name}`~~ ❌ missing")
+        return items
 
     def _next_phase_plan_exists(self, current_phase: int) -> bool:
         """Return True if the next-phase plan file already exists on disk."""
@@ -597,6 +675,7 @@ class GitStrategy:
         notes: list[str] | None,
         extra: dict[str, str] | None = None,
         plan_override: str | None = None,
+        deliverables: list[str] | None = None,
     ) -> None:
         """Write HANDOVER.md to project root. Never raises."""
         try:
@@ -609,6 +688,7 @@ class GitStrategy:
                 notes=notes,
                 extra=extra,
                 plan_override=plan_override,
+                deliverables=deliverables,
             )
             print(f"  [git] HANDOVER.md written: {checkpoint_id}")
         except Exception as exc:  # pylint: disable=broad-exception-caught

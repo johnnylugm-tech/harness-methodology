@@ -152,6 +152,7 @@ class HandoverGenerator:
         notes: list[str] | None = None,
         extra: dict[str, str] | None = None,
         plan_override: str | None = None,
+        deliverables: list[str] | None = None,
     ) -> Path:
         """
         Render the handover document and write it to ``<project>/HANDOVER.md``.
@@ -175,6 +176,9 @@ class HandoverGenerator:
         extra:
             Optional key/value pairs rendered as an "附加資訊" section
             (e.g. ``{"gate2_score": "76.4", "fr_count": "12"}``).
+        deliverables:
+            Optional list of deliverable lines (e.g. ``["`SRS.md` ✅ (312L)", ...]``)
+            rendered as a "交付物清單" section for easy handover verification.
 
         Returns
         -------
@@ -200,6 +204,7 @@ class HandoverGenerator:
             notes=all_notes,
             extra=extra or {},
             git_info=git_info,
+            deliverables=list(deliverables) if deliverables else [],
         )
         path = self.project / "HANDOVER.md"
         path.write_text(content, encoding="utf-8")
@@ -219,6 +224,7 @@ class HandoverGenerator:
         notes: list[str],
         extra: dict[str, str],
         git_info: dict[str, str] | None = None,
+        deliverables: list[str] | None = None,
     ) -> str:
         phase_name = _PHASE_NAMES.get(phase, f"Phase {phase}")
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -233,26 +239,54 @@ class HandoverGenerator:
             rows = "\n".join(f"- **{k}**: {v}" for k, v in extra.items())
             extra_section = f"\n## 附加資訊\n\n{rows}\n"
 
+        deliverables_section = ""
+        if deliverables:
+            items_md = "\n".join(f"- {d}" for d in deliverables)
+            deliverables_section = f"\n## 交付物清單\n\n{items_md}\n"
+
         # Git recovery block — critical for new session clone + resume
         gi = git_info or {}
         remote = gi.get("remote", "")
         branch = gi.get("branch", "")
         state = gi.get("state", "")
         plan = gi.get("plan", "")
-        git_section = (
-            f"## 快速接手指令\n\n"
+
+        # Derive bare repo name for the cd command
+        _repo_name = (remote.rstrip("/").split("/")[-1].removesuffix(".git")
+                      if remote else "project")
+
+        # Three-step startup sequence — visible to a new session immediately
+        _next_phase = phase + 1
+        resume_section = (
+            f"## ▶ 立即開始（三步）\n\n"
             f"```bash\n"
-            f"# 1. Clone repo (if working directory cleared)\n"
-            f"git clone {remote or '<repo-url>'} /tmp/$(basename {remote or 'project'} .git)\n"
+            f"# 1. Clone (if working directory cleared)\n"
+            f"git clone --recurse-submodules {remote or '<repo-url>'} && cd {_repo_name}\n"
             f"\n"
-            f"# 2. Confirm latest commits\n"
+            f"# 2. Set required env vars\n"
+            f"export HERMES_REVIEWER_TARGET=<value>   # see 附加資訊\n"
+            f"\n"
+            f"# 3. Read plan and start Phase {_next_phase}\n"
+            f"cat {plan or f'.methodology/phase{_next_phase}_plan.md'}\n"
+            f"# Follow SKILL.md §0.1 Phase {_next_phase} entry check, then execute\n"
+            f"```\n"
+        )
+
+        git_section = (
+            f"## 快速接手指令（詳細）\n\n"
+            f"```bash\n"
+            f"# Clone (--recurse-submodules required for harness submodule)\n"
+            f"git clone --recurse-submodules {remote or '<repo-url>'} /tmp/{_repo_name} "
+            f"&& cd /tmp/{_repo_name}\n"
+            f"\n"
+            f"# Confirm latest commits\n"
             f"git log --oneline -3\n"
             f"\n"
-            f"# 3. Confirm FSM state\n"
+            f"# Confirm FSM state\n"
             f"cat .methodology/state.json   "
             f"# expected: {state or 'phase=? state=?'}\n"
             f"\n"
-            f"# 4. Read active plan\n"
+            f"# Read active plan\n"
             f"cat {plan or '.methodology/phaseN_plan.md'}\n"
             f"```\n\n"
             f"| 欄位 | 值 |\n"
@@ -270,10 +304,13 @@ class HandoverGenerator:
             f"**Generated**: {ts}\n\n"
             f"{_COMPACT_NOTICE}\n\n"
             f"---\n\n"
+            f"{resume_section}\n"
+            f"---\n\n"
             f"{git_section}\n"
             f"---\n\n"
             f"## 任務背景\n\n"
             f"{task_background}\n\n"
+            f"{deliverables_section}"
             f"## 目前執行狀況\n\n"
             f"{current_status}\n\n"
             f"## 接下來的工作\n\n"
