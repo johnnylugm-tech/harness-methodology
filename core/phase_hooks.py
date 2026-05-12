@@ -17,6 +17,7 @@ Usage:
 """
 
 import json
+import sys
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict, List, Any
@@ -120,10 +121,11 @@ class PhaseHooks:
         print(f"\n[PRE-FLIGHT] Constitution Check ({check_mode})")
         try:
             from core.quality_gate.constitution import run_constitution_check
-            check_type = _PHASE_CHECK_TYPES.get(self.phase or 1, "all")
+            _phase = self.phase if self.phase is not None else 1
+            check_type = _PHASE_CHECK_TYPES.get(_phase, "all")
             result = run_constitution_check(
                 check_type=check_type, docs_path=str(self.docs_path),
-                current_phase=self.phase or 1, check_mode=check_mode
+                current_phase=_phase, check_mode=check_mode
             )
             print(f"   Score: {result.score:.0f}%, Violations: {len(result.violations)}")
             return {"passed": result.passed, "score": result.score,
@@ -389,7 +391,7 @@ class PhaseHooks:
         print("\n[PRE-FLIGHT] BVS Phase Order (HR-03)")
         try:
             from constitution.bvs_runner import BVSRunner
-            runner = BVSRunner(str(self.project_path), phase=self.phase or 1)
+            runner = BVSRunner(str(self.project_path), phase=self.phase if self.phase is not None else 1)
             result = runner.run()
             if result["violations"]:
                 for v in result["violations"]:
@@ -398,6 +400,7 @@ class PhaseHooks:
                 print("   Phase order OK")
             return {"passed": result["passed"], "violations": result["violations"]}
         except ImportError:
+            sys.stderr.write("[WARN] BVS modules unavailable — skipping phase-order check\n")
             return {"passed": True, "skipped": True, "message": "BVS modules unavailable"}
         except Exception as e:
             print(f"   BVS check error: {e}")
@@ -613,6 +616,7 @@ class PhaseHooks:
             return {"passed": result["passed"], "total_violations": result["total_violations"],
                     "invariant_report": result.get("invariant_report", {})}
         except ImportError:
+            sys.stderr.write("[WARN] BVS modules unavailable — skipping invariant check\n")
             return {"passed": True, "skipped": True, "message": "BVS modules unavailable"}
         except Exception as e:
             print(f"   BVS invariant error: {e}")
@@ -654,6 +658,7 @@ class PhaseHooks:
             return {"passed": True, "iterations": summary["steering"]["total_iterations"],
                     "summary": summary}
         except ImportError:
+            sys.stderr.write("[WARN] Steering modules unavailable — skipping phase summary\n")
             return {"passed": True, "skipped": True, "message": "Steering modules unavailable"}
         except Exception as e:
             print(f"   Steering error: {e}")
@@ -667,10 +672,11 @@ class PhaseHooks:
         steering_result = self.postflight_steering_summary()
         drift_result = self.postflight_drift_check()
         fr_approved = sum(1 for r in self.fr_results if r.get("review_status") == "APPROVE")
-        total_frs = max(len(self.fr_results), 1)
-        # Per-FR gate approval only required for P3+ (P1/P2 exit via human peer review)
+        total_frs = len(self.fr_results)
+        # Per-FR gate approval only required for P3+ phases that run per-FR Gate 1.
+        # Phases without FR-level gates (e.g. P6 Gate 4) have total_frs=0 → skip FR check.
         frs_ok = True
-        if self.phase and self.phase >= 3:
+        if self.phase and self.phase >= 3 and total_frs > 0:
             frs_ok = fr_approved >= total_frs
         success = (
             const_result.get("passed", False)
@@ -695,6 +701,21 @@ class PhaseHooks:
             "rev_status": getattr(rev_result, 'status', 'unknown'),
             "review_status": getattr(rev_result, 'review_status', None),
             "rev_confidence": getattr(rev_result, 'confidence', 0),
+        })
+
+    def add_gate1_pass(self, fr_id: str, score: float) -> None:
+        """Record a confirmed Gate 1 PASS for postflight FR approval accounting.
+
+        Use this instead of ``add_fr_result`` with synthetic SimpleNamespace objects.
+        The Gate 1 score is stored as both dev and rev confidence.
+        """
+        self.fr_results.append({
+            "fr_id": fr_id,
+            "dev_status": "complete",
+            "dev_confidence": score,
+            "rev_status": "complete",
+            "review_status": "APPROVE",
+            "rev_confidence": score,
         })
 
     def _append_log(self, message: str) -> None:

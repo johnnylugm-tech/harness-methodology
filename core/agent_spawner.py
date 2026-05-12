@@ -36,10 +36,9 @@ class AgentSpawner:
     - All others  -> Hermes (default).
     """
 
-    _reviewer = None   # lazy-init: avoids crash when HERMES env not set
-
     def __init__(self, project_path: Optional[Path] = None):
         self.project_path = Path(project_path) if project_path else None
+        self._reviewer = None  # lazy-init: avoids crash when HERMES env not set
 
     def _get_reviewer(self):
         """Lazy-initialize the ReviewerRouter."""

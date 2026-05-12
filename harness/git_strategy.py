@@ -493,7 +493,12 @@ class GitStrategy:
     # ── Project-state auto-detection ─────────────────────────────────────────
 
     def _auto_fr_ids(self) -> list[str]:
-        """Parse SRS.md at repo root or docs/SRS.md for ### FR-XX: IDs."""
+        """Parse SRS.md (repo root or docs/) for FR IDs.
+
+        Only recognises headings of the exact form ``### FR-XX:`` (three ``#``,
+        numeric suffix, colon terminator).  Non-standard heading levels or
+        missing colons are silently skipped.
+        """
         for srs_path in (
             self.project / "SRS.md",
             self.project / "docs" / "SRS.md",
@@ -565,7 +570,7 @@ class GitStrategy:
             if not gaps:
                 return ""
             unique = list(dict.fromkeys(gaps))
-            medium = [g for g in unique if "-M-GAP-" in g or "M-GAP-" in g or "TM-GAP-" in g]
+            medium = [g for g in unique if "M-GAP-" in g or "TM-GAP-" in g]
             summary = f"  {len(unique)} gap(s): {', '.join(unique[:10])}"
             if len(unique) > 10:
                 summary += f" …+{len(unique) - 10}"

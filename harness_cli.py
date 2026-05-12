@@ -1257,21 +1257,41 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
         if phase == 1:
             print(f"\n[1.1] SRS check + checkpoint")
             srs = project / "SRS.md"
-            if srs.exists():
-                print("[1.1] SRS.md exists — committing checkpoint")
-                fr_ids = _parse_fr_ids(srs.read_text(encoding="utf-8", errors="ignore"))
-                git.commit_and_push_p1(
-                    fr_ids=fr_ids,
-                    background="P1 human review APPROVED — SRS + deliverables complete.",
-                    notes=["Human peer review passed", "All deliverables reviewed and approved"],
-                )
-            else:
+            if not srs.exists():
                 print(f"[1.1] PAUSE: SRS.md not found at {srs}")
                 print("     Create SRS.md (### FR-XX: ... sections required),")
                 print("     then re-run:")
                 print(f"     python harness_cli.py run-pipeline --phase-from 1 "
                       f"--project {project}")
                 return 10
+            # Guard: at least one P1 A/B session must be logged before committing
+            # the P1 checkpoint — prevents committing an unreviewed SRS shell.
+            spawn_log = project / ".methodology" / "sessions_spawn.log"
+            p1_reviewed = False
+            if spawn_log.exists():
+                for _raw in spawn_log.read_text(encoding="utf-8", errors="ignore").splitlines():
+                    try:
+                        _entry = json.loads(_raw)
+                        if _entry.get("phase") == 1:
+                            p1_reviewed = True
+                            break
+                    except Exception:
+                        continue
+            if not p1_reviewed:
+                print("[1.1] PAUSE: sessions_spawn.log has no Phase 1 entry — "
+                      "A/B review not started or not logged")
+                print("     Complete P1 A/B review (run generate-plan --phase 1 and follow steps),")
+                print("     then re-run:")
+                print(f"     python harness_cli.py run-pipeline --phase-from 1 "
+                      f"--project {project}")
+                return 10
+            print("[1.1] SRS.md + A/B review verified — committing P1 checkpoint")
+            fr_ids = _parse_fr_ids(srs.read_text(encoding="utf-8", errors="ignore"))
+            git.commit_and_push_p1(
+                fr_ids=fr_ids,
+                background="P1 human review APPROVED — SRS + deliverables complete.",
+                notes=["Human peer review passed", "All deliverables reviewed and approved"],
+            )
             continue
 
         # ── P2: SAD.md must exist; generate manifest if missing ──────────
@@ -1421,15 +1441,12 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
         # ── Postflight validation (constitution re-check, drift, BVS invariants, Steering) ──
         print(f"\n[{phase}.6] Postflight validation")
         from core.phase_hooks import PhaseHooks
-        import types
         post_hooks = PhaseHooks(str(project), phase=phase,
                                enable_kill_switch=enable_kill_switch,
                                drift_threshold=drift_threshold,
                                auto_fix_enabled=auto_fix)
         for fr in fr_pass_results:
-            dev = types.SimpleNamespace(status="complete", confidence=8)
-            rev = types.SimpleNamespace(status="complete", review_status="APPROVE", confidence=8)
-            post_hooks.add_fr_result(fr["fr_id"], dev, rev)
+            post_hooks.add_gate1_pass(fr["fr_id"], fr["score"])
         post_result = post_hooks.postflight_all()
         if not post_result["success"] and not args.force:
             print(f"[BLOCKED] Postflight failed for Phase {phase}.")
