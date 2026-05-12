@@ -1500,8 +1500,10 @@ jobs:
       - name: Install harness dependencies
         run: pip install -r harness/requirements.txt || true
 
-      - name: Run Quality Gate (current phase)
-        # Gate 4 (P6 exit) requires human Hermes APPROVE — run locally, not in CI.
+      - name: Run Phase Preflight (FSM / drift / constitution)
+        # Structural enforcement only (FSM state, constitution, drift, traceability).
+        # Gate score evaluation requires an interactive Claude session — always local.
+        # Gate 4 (P6 exit) also requires human Hermes APPROVE — run locally, not in CI.
         if: vars.CURRENT_PHASE != '6'
         env:
           PHASE: ${{{{ vars.CURRENT_PHASE || '{phase}' }}}}

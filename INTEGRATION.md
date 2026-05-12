@@ -178,6 +178,8 @@ python harness_cli.py init-project --project /path/to/target --phase 3
 
 > **The YAML below targets Option A (submodule).** For Option B (global clone) and Option C (copy), see the variant blocks at the end of this section. Running `harness_cli.py init-project` auto-generates the correct YAML for your install option.
 >
+> **CI scope — structural enforcement only**: CI runs `run-phase` (FSM / constitution / drift / traceability). Gate score evaluation (LLM-based, `run-gate` → Claude → `finalize-gate`) requires an interactive Claude session and is **always local**. Developers run gates locally; CI blocks PRs with broken structure, not low gate scores.
+>
 > **Single source of truth**: The Option A YAML below is kept in sync with `templates/harness_quality_gate.yml` (copied by `harness-init.sh`) and `_harness_workflow_template()` in `harness_cli.py` (used by `init-project`). All three generate identical content.
 
 > **Gate 4 is a local-only gate.** It requires a human Hermes APPROVE within a 2-minute window — CI runners are headless and will always time out. All three YAML variants below skip the gate-check step when `CURRENT_PHASE == 6`. Run Gate 4 manually at P6 exit: `python harness_cli.py run-gate --gate 4 --phase 6 --project .`
@@ -211,19 +213,18 @@ jobs:
           # the next step will fail loudly on ModuleNotFoundError rather than silently here.
           pip install -r harness/requirements.txt || true
 
-      - name: Run Quality Gate (current phase)
-        # What this runs: run-phase, which automatically selects the correct
-        # phase-exit gate (Gate 2 at P3, Gate 3 at P4) and handles auto-fix loops.
-        # Equivalent to what the git pre-push hook runs (without --fast).
+      - name: Run Phase Preflight (FSM / drift / constitution)
+        # What this runs: run-phase — FSM state, constitution compliance, drift,
+        # traceability. Structural enforcement only; NOT gate score evaluation.
         #
-        # Gate 1 is per-FR and requires --fr-id FR-XX — it cannot be automated over
-        # all FRs in CI because FR IDs are dynamic. Gate 1 must be run locally by the
-        # developer after completing each FR:
+        # Gate score evaluation (LLM-based, run-gate → Claude → finalize-gate) requires
+        # an interactive Claude session and is always local. CI blocks structurally
+        # invalid PRs; developers run gates locally after completing each FR/phase:
         #   python harness/harness_cli.py run-gate --gate 1 --phase $PHASE --fr-id FR-XX
         #   python harness/harness_cli.py finalize-gate --gate 1 --phase $PHASE --fr-id FR-XX
         #
         # Gate 4 (P6 exit) requires human Hermes APPROVE — headless CI will always
-        # time out. Skip the gate step when CURRENT_PHASE is 6; run Gate 4 locally.
+        # time out. Skip this step when CURRENT_PHASE is 6; run Gate 4 locally.
         if: vars.CURRENT_PHASE != '6'
         env:
           PHASE: ${{ vars.CURRENT_PHASE || '3' }}
