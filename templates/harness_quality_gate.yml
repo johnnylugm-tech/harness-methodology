@@ -32,12 +32,12 @@ jobs:
         # Gate 4 (P6 exit) also requires human Hermes APPROVE — run locally, not in CI.
         if: vars.CURRENT_PHASE != '6'
         env:
-          PHASE: ${{ vars.CURRENT_PHASE || '3' }}
+          PHASE: ${{ vars.CURRENT_PHASE || '1' }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python harness/harness_cli.py run-phase --phase $PHASE --project .
 
       - name: FR Traceability Check
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: python harness/scripts/check_fr_full.py --phase ${{ vars.CURRENT_PHASE || '3' }}
+        run: python harness/scripts/check_fr_full.py --phase ${{ vars.CURRENT_PHASE || '1' }}
         continue-on-error: true

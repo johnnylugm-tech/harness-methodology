@@ -227,7 +227,7 @@ jobs:
         # time out. Skip this step when CURRENT_PHASE is 6; run Gate 4 locally.
         if: vars.CURRENT_PHASE != '6'
         env:
-          PHASE: ${{ vars.CURRENT_PHASE || '3' }}
+          PHASE: ${{ vars.CURRENT_PHASE || '1' }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python harness/harness_cli.py run-phase --phase $PHASE --project .
 
@@ -237,7 +237,7 @@ jobs:
         # sub-checks invoke LLM analysis; harmless if the script runs statically.
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: python harness/scripts/check_fr_full.py --phase ${{ vars.CURRENT_PHASE || '3' }}
+        run: python harness/scripts/check_fr_full.py --phase ${{ vars.CURRENT_PHASE || '1' }}
         continue-on-error: true
 ```
 
@@ -253,7 +253,7 @@ jobs:
       - name: Run Quality Gate (current phase)
         if: vars.CURRENT_PHASE != '6'   # Gate 4 is local-only (Hermes human APPROVE)
         env:
-          PHASE: ${{ vars.CURRENT_PHASE || '3' }}
+          PHASE: ${{ vars.CURRENT_PHASE || '1' }}
           PYTHONPATH: /opt/harness
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python /opt/harness/harness_cli.py run-phase --phase $PHASE --project .
@@ -262,7 +262,7 @@ jobs:
         env:
           PYTHONPATH: /opt/harness
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: python /opt/harness/scripts/check_fr_full.py --phase ${{ vars.CURRENT_PHASE || '3' }}
+        run: python /opt/harness/scripts/check_fr_full.py --phase ${{ vars.CURRENT_PHASE || '1' }}
         continue-on-error: true
 ```
 
@@ -274,14 +274,14 @@ jobs:
       - name: Run Quality Gate (current phase)
         if: vars.CURRENT_PHASE != '6'   # Gate 4 is local-only (Hermes human APPROVE)
         env:
-          PHASE: ${{ vars.CURRENT_PHASE || '3' }}
+          PHASE: ${{ vars.CURRENT_PHASE || '1' }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python harness_cli.py run-phase --phase $PHASE --project .
 
       - name: FR Traceability Check
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: python scripts/check_fr_full.py --phase ${{ vars.CURRENT_PHASE || '3' }}
+        run: python scripts/check_fr_full.py --phase ${{ vars.CURRENT_PHASE || '1' }}
         continue-on-error: true
 ```
 
