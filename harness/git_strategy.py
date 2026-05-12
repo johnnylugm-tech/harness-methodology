@@ -31,7 +31,9 @@ Git failures are warnings — they never block the pipeline.
 """
 from __future__ import annotations
 
+import json as _json
 import os
+import re as _re
 import subprocess  # nosec B404
 from datetime import datetime, timezone
 from pathlib import Path
@@ -113,29 +115,69 @@ class GitStrategy:
         notes: list[str] | None = None,
     ) -> bool:
         """
-        Commit + push at P1 exit (SRS/SAD draft complete).  PUSH ①
+        Commit + push at P1 exit (SRS + P1 deliverables complete).  PUSH ①
 
         Args:
             fr_ids:     Functional requirement IDs captured in the SRS.
+                        If empty, auto-detected from SRS.md.
             background: Optional project context for HANDOVER.md.
             notes:      Extra notes appended after DEFAULT_NOTES.
         """
         if not self.enabled:
             return True
+        # Auto-detect FR IDs from SRS.md when caller omits --fr-ids
+        if not fr_ids:
+            fr_ids = self._auto_fr_ids()
+            if fr_ids:
+                print(f"  [git] auto-detected {len(fr_ids)} FR(s) from SRS.md")
         fr_list = self._fr_summary(fr_ids)
+
+        # Enrich HANDOVER.md with actual project state
+        ab = self._ab_session_summary()
+        gaps = self._gap_register_summary()
+        changed = self._changed_files()
+        hermes = os.environ.get("HERMES_REVIEWER_TARGET", "")
+        hermes_status = f"✅ set ({hermes})" if hermes else "❌ not set (required before P6)"
+
+        status_parts = [
+            f"{len(fr_ids)} FR(s) defined in SRS [{fr_list}]. "
+            f"4 deliverables produced and Agent-B APPROVED.",
+        ]
+        if ab:
+            status_parts.append(f"\n**A/B Session Results:**\n{ab}")
+        if gaps:
+            status_parts.append(f"\n**Review Gaps (carry-forward to P2+):**\n{gaps}")
+        if changed:
+            file_md = "\n".join(f"  - `{f}`" for f in changed)
+            status_parts.append(f"\n**Changed Files:**\n{file_md}")
+
+        if self._next_phase_plan_exists(1):
+            p2_step = "Open `.methodology/phase2_plan.md` and follow from the top"
+        else:
+            p2_step = (
+                "Generate Phase 2 plan: "
+                "`python3 harness_cli.py plan-phase --phase 2 --project .`"
+            )
+
         self._write_handover(
             checkpoint_id=self._cp("P1-exit"),
             phase=1,
-            background=background or "P1 Spec & Discovery: SRS and SAD draft complete.",
-            status=f"{len(fr_ids)} FR(s) defined in SRS [{fr_list}].",
+            background=background or "P1 Spec & Discovery: SRS + 4 deliverables complete.",
+            status="\n".join(status_parts),
             steps=[
-                "Proceed to P2: Architecture & Design",
-                "Generate quality_manifest.json from SRS",
-                "Confirm FR traceability matrix",
+                p2_step,
+                "Follow SKILL.md §0.1 for P2 entry",
+                "Review carry-forward gaps before P2 (see SPEC_TRACKING.md gap register)",
+                "Confirm HERMES_REVIEWER_TARGET is exported in shell",
             ],
             notes=notes,
+            extra={
+                "fr_count": str(len(fr_ids)),
+                "HERMES_REVIEWER_TARGET": hermes_status,
+            },
+            plan_override=".methodology/phase2_plan.md" if self._next_phase_plan_exists(1) else None,
         )
-        msg = f"docs(P1): SRS + SAD draft; {len(fr_ids)} FR(s) [{fr_list}]"
+        msg = f"docs(P1): SRS + P1 deliverables; {len(fr_ids)} FR(s) [{fr_list}]"
         return self._commit_and_push(msg)
 
     # ── Push ② — P2 exit ────────────────────────────────────────────────────
@@ -151,21 +193,49 @@ class GitStrategy:
         """
         if not self.enabled:
             return True
+        if not fr_ids:
+            fr_ids = self._auto_fr_ids()
+            if fr_ids:
+                print(f"  [git] auto-detected {len(fr_ids)} FR(s) from SRS.md")
         fr_list = self._fr_summary(fr_ids)
+
+        ab = self._ab_session_summary()
+        changed = self._changed_files()
+
+        status_parts = [
+            f"{len(fr_ids)} FR(s) in quality manifest [{fr_list}]. "
+            "SAD.md + ADR.md complete, Agent-B APPROVED.",
+        ]
+        if ab:
+            status_parts.append(f"\n**A/B Session Results:**\n{ab}")
+        if changed:
+            file_md = "\n".join(f"  - `{f}`" for f in changed)
+            status_parts.append(f"\n**Changed Files:**\n{file_md}")
+
+        if self._next_phase_plan_exists(2):
+            p3_step = "Open `.methodology/phase3_plan.md` and follow from the top"
+        else:
+            p3_step = (
+                "Generate Phase 3 plan: "
+                "`python3 harness_cli.py plan-phase --phase 3 --project .`"
+            )
+
         self._write_handover(
             checkpoint_id=self._cp("P2-exit"),
             phase=2,
-            background=background or "P2 Architecture & Design: quality_manifest.json generated.",
-            status=f"{len(fr_ids)} FR(s) defined in quality manifest [{fr_list}].",
+            background=background or "P2 Architecture & Design: SAD.md + ADR.md + quality_manifest.json complete.",
+            status="\n".join(status_parts),
             steps=[
-                "Proceed to P3: Implementation",
-                "Implement each FR with TDD (Gate 1 target per FR)",
+                p3_step,
+                "Implement each FR with TDD (Gate 1 target per FR ≥75)",
                 "Push P3-mid checkpoint at ≥50 % FR Gate 1 PASS",
                 "Push P3-pre-ssi checkpoint when all FRs done",
             ],
             notes=notes,
+            extra={"fr_count": str(len(fr_ids))},
+            plan_override=".methodology/phase3_plan.md" if self._next_phase_plan_exists(2) else None,
         )
-        msg = f"docs(P2): finalize SRS + SAD; generate quality manifest [fr_ids={fr_list}]"
+        msg = f"docs(P2): finalize SAD + ADR; generate quality manifest [fr_ids={fr_list}]"
         return self._commit_and_push(msg)
 
     # ── Push ③ — P3 mid ─────────────────────────────────────────────────────
@@ -420,6 +490,98 @@ class GitStrategy:
 
     # ── Private helpers ──────────────────────────────────────────────────────
 
+    # ── Project-state auto-detection ─────────────────────────────────────────
+
+    def _auto_fr_ids(self) -> list[str]:
+        """Parse SRS.md at repo root or docs/SRS.md for ### FR-XX: IDs."""
+        for srs_path in (
+            self.project / "SRS.md",
+            self.project / "docs" / "SRS.md",
+        ):
+            if not srs_path.exists():
+                continue
+            try:
+                text = srs_path.read_text(encoding="utf-8", errors="replace")
+                return sorted(set(_re.findall(r"###\s+(FR-\d+)\s*:", text)))
+            except Exception:  # pylint: disable=broad-exception-caught
+                return []
+        return []
+
+    def _changed_files(self) -> list[str]:
+        """Return list of uncommitted changed/new files from git status."""
+        r = self._run_git("status", "--short")
+        files = []
+        for line in r.stdout.splitlines():
+            parts = line.strip().split()
+            if parts:
+                files.append(parts[-1])
+        return files[:20]
+
+    def _ab_session_summary(self) -> str:
+        """Read sessions_spawn.log → markdown bullet list of A/B results."""
+        log_path = self.project / ".methodology" / "sessions_spawn.log"
+        if not log_path.exists():
+            return ""
+        lines: list[str] = []
+        seen: set[tuple] = set()
+        try:
+            for raw in log_path.read_text(encoding="utf-8").splitlines():
+                raw = raw.strip()
+                if not raw:
+                    continue
+                try:
+                    e = _json.loads(raw)
+                except ValueError:
+                    continue
+                sub = e.get("sub_task") or e.get("fr_id", "?")
+                role = e.get("role", "?")
+                verdict = e.get("review_status") or e.get("status", "?")
+                rnd = e.get("round", 1)
+                key = (sub, role, rnd)
+                if key in seen:
+                    continue
+                seen.add(key)
+                round_str = f" r{rnd}" if rnd > 1 else ""
+                lines.append(f"  - {sub} / {role}{round_str}: **{verdict}**")
+        except Exception:  # pylint: disable=broad-exception-caught
+            return ""
+        return "\n".join(lines)
+
+    def _gap_register_summary(self) -> str:
+        """Extract gap IDs from Review Gap Register table in SPEC_TRACKING.md."""
+        for path in (
+            self.project / "SPEC_TRACKING.md",
+            self.project / "docs" / "SPEC_TRACKING.md",
+        ):
+            if not path.exists():
+                continue
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except Exception:  # pylint: disable=broad-exception-caught
+                return ""
+            # Match | GAP-01 | or | M-GAP-01 | or | TM-GAP-01 | etc.
+            # (?:[A-Z]+-)* matches zero or more prefix segments (M-, TM-, T-, …)
+            gaps = _re.findall(r"\|\s*((?:[A-Z]+-)*GAP-\d+)\s*\|", text)
+            if not gaps:
+                return ""
+            unique = list(dict.fromkeys(gaps))
+            medium = [g for g in unique if "-M-GAP-" in g or "M-GAP-" in g or "TM-GAP-" in g]
+            summary = f"  {len(unique)} gap(s): {', '.join(unique[:10])}"
+            if len(unique) > 10:
+                summary += f" …+{len(unique) - 10}"
+            if medium:
+                summary += f"\n  ⚠️ medium-priority: {', '.join(medium)}"
+            return summary
+        return ""
+
+    def _next_phase_plan_exists(self, current_phase: int) -> bool:
+        """Return True if the next-phase plan file already exists on disk."""
+        return (
+            self.project / ".methodology" / f"phase{current_phase + 1}_plan.md"
+        ).exists()
+
+    # ── Handover writer ───────────────────────────────────────────────────────
+
     def _write_handover(
         self,
         checkpoint_id: str,
@@ -429,6 +591,7 @@ class GitStrategy:
         steps: list[str],
         notes: list[str] | None,
         extra: dict[str, str] | None = None,
+        plan_override: str | None = None,
     ) -> None:
         """Write HANDOVER.md to project root. Never raises."""
         try:
@@ -440,6 +603,7 @@ class GitStrategy:
                 next_steps=steps,
                 notes=notes,
                 extra=extra,
+                plan_override=plan_override,
             )
             print(f"  [git] HANDOVER.md written: {checkpoint_id}")
         except Exception as exc:  # pylint: disable=broad-exception-caught

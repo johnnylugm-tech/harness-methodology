@@ -333,3 +333,272 @@ class TestGitStrategyGitOps:
         gs = GitStrategy(project=tmp_path, enabled=True, push=False)
         gs.ensure_gitignore()
         assert gi.read_text().count(".sessi-work/") == 1
+
+
+# ── HandoverGenerator fix tests ─────────────────────────────────────────────
+
+class TestHandoverGeneratorFixes:
+    """Verify the HandoverGenerator enrichment fixes."""
+
+    def _make_strategy(self, tmp_path: Path) -> "GitStrategy":
+        gs = GitStrategy(project=tmp_path, enabled=True, push=False)
+        gs._commit = MagicMock(return_value=True)  # type: ignore[method-assign]
+        return gs
+
+    # ── _state_snapshot ──────────────────────────────────────────────────────
+
+    def test_state_snapshot_no_checkpoint_field(self, tmp_path: Path):
+        """state.json has no 'checkpoint' key — must not show 'checkpoint=?'."""
+        (tmp_path / ".methodology").mkdir()
+        (tmp_path / ".methodology" / "state.json").write_text(
+            '{"current_phase": 1, "state": "ACTIVE", "last_gate": null, "last_fr": null}',
+            encoding="utf-8",
+        )
+        gen = HandoverGenerator(tmp_path)
+        snapshot = gen._state_snapshot()
+        assert "checkpoint=" not in snapshot, "Must not emit checkpoint=? for missing key"
+        assert "phase=1" in snapshot
+        assert "state=ACTIVE" in snapshot
+
+    def test_state_snapshot_includes_last_gate_when_set(self, tmp_path: Path):
+        """last_gate appears in snapshot only when non-null."""
+        (tmp_path / ".methodology").mkdir()
+        (tmp_path / ".methodology" / "state.json").write_text(
+            '{"current_phase": 3, "state": "RUNNING", "last_gate": 1, "last_fr": "FR-05"}',
+            encoding="utf-8",
+        )
+        gen = HandoverGenerator(tmp_path)
+        snapshot = gen._state_snapshot()
+        assert "last_gate=1" in snapshot
+        assert "last_fr=FR-05" in snapshot
+
+    def test_state_snapshot_omits_null_last_gate(self, tmp_path: Path):
+        """Null last_gate must not appear in snapshot."""
+        (tmp_path / ".methodology").mkdir()
+        (tmp_path / ".methodology" / "state.json").write_text(
+            '{"current_phase": 1, "state": "ACTIVE", "last_gate": null, "last_fr": null}',
+            encoding="utf-8",
+        )
+        gen = HandoverGenerator(tmp_path)
+        snapshot = gen._state_snapshot()
+        assert "last_gate" not in snapshot
+
+    # ── plan_override ─────────────────────────────────────────────────────────
+
+    def test_plan_override_appears_in_handover(self, tmp_path: Path):
+        """plan_override replaces default phase{N}_plan.md in quick-resume."""
+        gen = HandoverGenerator(tmp_path)
+        gen.write(
+            checkpoint_id="P1-exit-test",
+            phase=1,
+            task_background="bg",
+            current_status="status",
+            next_steps=["step 1"],
+            plan_override=".methodology/phase2_plan.md",
+        )
+        content = (tmp_path / "HANDOVER.md").read_text()
+        assert ".methodology/phase2_plan.md" in content
+        assert ".methodology/phase1_plan.md" not in content
+
+    def test_no_plan_override_uses_phase_default(self, tmp_path: Path):
+        """Without plan_override, defaults to phase{N}_plan.md."""
+        gen = HandoverGenerator(tmp_path)
+        gen.write(
+            checkpoint_id="P3-test",
+            phase=3,
+            task_background="bg",
+            current_status="status",
+            next_steps=["step 1"],
+        )
+        content = (tmp_path / "HANDOVER.md").read_text()
+        assert ".methodology/phase3_plan.md" in content
+
+    # ── SHA removed, git log added ────────────────────────────────────────────
+
+    def test_no_last_sha_row_in_table(self, tmp_path: Path):
+        """SHA row must not appear (it was stale pre-commit SHA)."""
+        gen = HandoverGenerator(tmp_path)
+        gen.write(
+            checkpoint_id="P1-test",
+            phase=1,
+            task_background="bg",
+            current_status="status",
+            next_steps=["step 1"],
+        )
+        content = (tmp_path / "HANDOVER.md").read_text()
+        assert "Last SHA" not in content
+
+    def test_git_log_command_in_quick_resume(self, tmp_path: Path):
+        """git log --oneline -3 must appear in quick-resume block."""
+        gen = HandoverGenerator(tmp_path)
+        gen.write(
+            checkpoint_id="P1-test",
+            phase=1,
+            task_background="bg",
+            current_status="status",
+            next_steps=["step 1"],
+        )
+        content = (tmp_path / "HANDOVER.md").read_text()
+        assert "git log --oneline -3" in content
+
+    # ── GitStrategy auto-detection helpers ───────────────────────────────────
+
+    def test_auto_fr_ids_from_srs_root(self, tmp_path: Path):
+        """_auto_fr_ids() parses ### FR-XX: at repo root."""
+        (tmp_path / "SRS.md").write_text(
+            "### FR-01: Title One\n### FR-02: Title Two\n### FR-13: Title Thirteen\n",
+            encoding="utf-8",
+        )
+        gs = GitStrategy(tmp_path, enabled=False)
+        ids = gs._auto_fr_ids()
+        assert ids == ["FR-01", "FR-02", "FR-13"]
+
+    def test_auto_fr_ids_no_srs(self, tmp_path: Path):
+        """Returns empty list when SRS.md is absent."""
+        gs = GitStrategy(tmp_path, enabled=False)
+        assert gs._auto_fr_ids() == []
+
+    def test_auto_fr_ids_deduplication(self, tmp_path: Path):
+        """Duplicate FR-IDs in SRS.md are deduplicated."""
+        (tmp_path / "SRS.md").write_text(
+            "### FR-01: Title\n### FR-01: Duplicate\n### FR-02: Other\n",
+            encoding="utf-8",
+        )
+        gs = GitStrategy(tmp_path, enabled=False)
+        ids = gs._auto_fr_ids()
+        assert ids.count("FR-01") == 1
+
+    def test_ab_session_summary_parses_log(self, tmp_path: Path):
+        """_ab_session_summary() returns markdown from sessions_spawn.log."""
+        (tmp_path / ".methodology").mkdir()
+        (tmp_path / ".methodology" / "sessions_spawn.log").write_text(
+            '{"sub_task":"SRS.md","role":"requirements_engineer","status":"success","confidence":9}\n'
+            '{"sub_task":"SRS.md","role":"business_analyst","review_status":"APPROVE"}\n',
+            encoding="utf-8",
+        )
+        gs = GitStrategy(tmp_path, enabled=False)
+        summary = gs._ab_session_summary()
+        assert "SRS.md" in summary
+        assert "APPROVE" in summary
+
+    def test_ab_session_summary_round2_labeled(self, tmp_path: Path):
+        """Round-2 entries show r2 label in summary."""
+        (tmp_path / ".methodology").mkdir()
+        (tmp_path / ".methodology" / "sessions_spawn.log").write_text(
+            '{"sub_task":"SPEC_TRACKING.md","role":"business_analyst","review_status":"APPROVE","round":2}\n',
+            encoding="utf-8",
+        )
+        gs = GitStrategy(tmp_path, enabled=False)
+        summary = gs._ab_session_summary()
+        assert "r2" in summary
+
+    def test_ab_session_summary_missing_log(self, tmp_path: Path):
+        """Returns empty string when sessions_spawn.log absent."""
+        gs = GitStrategy(tmp_path, enabled=False)
+        assert gs._ab_session_summary() == ""
+
+    def test_gap_register_summary_finds_gaps(self, tmp_path: Path):
+        """_gap_register_summary() extracts GAP-XX and M-GAP-XX entries."""
+        (tmp_path / "SPEC_TRACKING.md").write_text(
+            "| GAP-01 | B-1/4 | some gap |\n"
+            "| GAP-02 | B-1/4 | other |\n"
+            "| M-GAP-01 | B-2/4 | medium |\n",
+            encoding="utf-8",
+        )
+        gs = GitStrategy(tmp_path, enabled=False)
+        summary = gs._gap_register_summary()
+        assert "GAP-01" in summary
+        assert "3 gap(s)" in summary
+
+    def test_gap_register_summary_highlights_medium(self, tmp_path: Path):
+        """Medium-priority gaps (M-GAP-XX) are highlighted."""
+        (tmp_path / "SPEC_TRACKING.md").write_text(
+            "| GAP-01 | low |\n| M-GAP-01 | medium |\n",
+            encoding="utf-8",
+        )
+        gs = GitStrategy(tmp_path, enabled=False)
+        summary = gs._gap_register_summary()
+        assert "medium-priority" in summary
+        assert "M-GAP-01" in summary
+
+    def test_gap_register_summary_no_file(self, tmp_path: Path):
+        """Returns empty string when SPEC_TRACKING.md absent."""
+        gs = GitStrategy(tmp_path, enabled=False)
+        assert gs._gap_register_summary() == ""
+
+    def test_next_phase_plan_exists_true(self, tmp_path: Path):
+        """Returns True when next-phase plan file exists."""
+        (tmp_path / ".methodology").mkdir()
+        (tmp_path / ".methodology" / "phase2_plan.md").write_text("# P2", encoding="utf-8")
+        gs = GitStrategy(tmp_path, enabled=False)
+        assert gs._next_phase_plan_exists(1) is True
+
+    def test_next_phase_plan_exists_false(self, tmp_path: Path):
+        """Returns False when next-phase plan file absent."""
+        gs = GitStrategy(tmp_path, enabled=False)
+        assert gs._next_phase_plan_exists(1) is False
+
+    # ── P1 enriched HANDOVER content ─────────────────────────────────────────
+
+    def test_p1_handover_auto_detects_frs(self, tmp_path: Path):
+        """commit_and_push_p1 with empty fr_ids auto-detects from SRS.md."""
+        (tmp_path / "SRS.md").write_text(
+            "### FR-01: Platform Adapter\n### FR-02: Signature Verify\n",
+            encoding="utf-8",
+        )
+        gs = self._make_strategy(tmp_path)
+        gs.commit_and_push_p1(fr_ids=[])
+        content = (tmp_path / "HANDOVER.md").read_text()
+        assert "FR-01" in content
+        assert "2 FR(s)" in content
+
+    def test_p1_handover_includes_ab_summary(self, tmp_path: Path):
+        """P1 HANDOVER contains A/B session results when log exists."""
+        (tmp_path / ".methodology").mkdir()
+        (tmp_path / ".methodology" / "sessions_spawn.log").write_text(
+            '{"sub_task":"SRS.md","role":"business_analyst","review_status":"APPROVE"}\n',
+            encoding="utf-8",
+        )
+        gs = self._make_strategy(tmp_path)
+        gs.commit_and_push_p1(fr_ids=["FR-01"])
+        content = (tmp_path / "HANDOVER.md").read_text()
+        assert "A/B Session Results" in content
+        assert "APPROVE" in content
+
+    def test_p1_handover_uses_phase2_plan_when_exists(self, tmp_path: Path):
+        """P1 HANDOVER next-steps reference phase2_plan.md when it already exists."""
+        (tmp_path / ".methodology").mkdir()
+        (tmp_path / ".methodology" / "phase2_plan.md").write_text("# P2", encoding="utf-8")
+        gs = self._make_strategy(tmp_path)
+        gs.commit_and_push_p1(fr_ids=["FR-01"])
+        content = (tmp_path / "HANDOVER.md").read_text()
+        assert "phase2_plan.md" in content
+
+    def test_p1_handover_includes_hermes_status(self, tmp_path: Path, monkeypatch):
+        """P1 HANDOVER 附加資訊 includes HERMES_REVIEWER_TARGET status."""
+        monkeypatch.setenv("HERMES_REVIEWER_TARGET", "telegram:123456")
+        gs = self._make_strategy(tmp_path)
+        gs.commit_and_push_p1(fr_ids=["FR-01"])
+        content = (tmp_path / "HANDOVER.md").read_text()
+        assert "HERMES_REVIEWER_TARGET" in content
+        assert "✅ set" in content
+
+    def test_p1_handover_hermes_not_set(self, tmp_path: Path, monkeypatch):
+        """P1 HANDOVER flags HERMES_REVIEWER_TARGET as not set when absent."""
+        monkeypatch.delenv("HERMES_REVIEWER_TARGET", raising=False)
+        gs = self._make_strategy(tmp_path)
+        gs.commit_and_push_p1(fr_ids=["FR-01"])
+        content = (tmp_path / "HANDOVER.md").read_text()
+        assert "❌ not set" in content
+
+    def test_p1_handover_includes_gap_register(self, tmp_path: Path):
+        """P1 HANDOVER includes gap register summary when SPEC_TRACKING.md exists."""
+        (tmp_path / "SPEC_TRACKING.md").write_text(
+            "| GAP-01 | B-1/4 | low |\n| M-GAP-01 | B-2/4 | medium |\n",
+            encoding="utf-8",
+        )
+        gs = self._make_strategy(tmp_path)
+        gs.commit_and_push_p1(fr_ids=["FR-01"])
+        content = (tmp_path / "HANDOVER.md").read_text()
+        assert "Review Gaps" in content
+        assert "GAP-01" in content

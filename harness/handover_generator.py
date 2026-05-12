@@ -124,11 +124,17 @@ class HandoverGenerator:
         state_path = self.project / ".methodology" / "state.json"
         try:
             data = json.loads(state_path.read_text(encoding="utf-8"))
-            return (
-                f"phase={data.get('current_phase', '?')} "
-                f"state={data.get('state', '?')} "
-                f"checkpoint={data.get('checkpoint', '?')}"
-            )
+            parts = [
+                f"phase={data.get('current_phase', '?')}",
+                f"state={data.get('state', '?')}",
+            ]
+            last_gate = data.get("last_gate")
+            last_fr = data.get("last_fr")
+            if last_gate is not None:
+                parts.append(f"last_gate={last_gate}")
+            if last_fr is not None:
+                parts.append(f"last_fr={last_fr}")
+            return " ".join(parts)
         except Exception:  # pylint: disable=broad-exception-caught
             return ""
 
@@ -145,6 +151,7 @@ class HandoverGenerator:
         next_steps: list[str],
         notes: list[str] | None = None,
         extra: dict[str, str] | None = None,
+        plan_override: str | None = None,
     ) -> Path:
         """
         Render the handover document and write it to ``<project>/HANDOVER.md``.
@@ -175,13 +182,14 @@ class HandoverGenerator:
             Path of the written file (``<project>/HANDOVER.md``).
         """
         all_notes = list(DEFAULT_NOTES) + list(notes or [])
-        # Gather git metadata at write-time for maximum accuracy
+        plan_path = plan_override or f".methodology/phase{phase}_plan.md"
+        # Gather git metadata at write-time for maximum accuracy.
+        # SHA is captured pre-commit; use `git log --oneline -3` for latest.
         git_info = {
             "remote": self._git_remote(),
             "branch": self._git_branch(),
-            "sha": self._git_sha(),
             "state": self._state_snapshot(),
-            "plan": f".methodology/phase{phase}_plan.md",
+            "plan": plan_path,
         }
         content = self._render(
             checkpoint_id=checkpoint_id,
@@ -229,27 +237,28 @@ class HandoverGenerator:
         gi = git_info or {}
         remote = gi.get("remote", "")
         branch = gi.get("branch", "")
-        sha = gi.get("sha", "")
         state = gi.get("state", "")
         plan = gi.get("plan", "")
         git_section = (
             f"## 快速接手指令\n\n"
             f"```bash\n"
-            f"# 1. Clone repo (if /tmp cleared)\n"
+            f"# 1. Clone repo (if working directory cleared)\n"
             f"git clone {remote or '<repo-url>'} /tmp/$(basename {remote or 'project'} .git)\n"
             f"\n"
-            f"# 2. Confirm state\n"
-            f"cat .methodology/state.json   "
-            f"# expected: {state or 'phase=? state=? checkpoint=?'}\n"
+            f"# 2. Confirm latest commits\n"
+            f"git log --oneline -3\n"
             f"\n"
-            f"# 3. Read active plan\n"
+            f"# 3. Confirm FSM state\n"
+            f"cat .methodology/state.json   "
+            f"# expected: {state or 'phase=? state=?'}\n"
+            f"\n"
+            f"# 4. Read active plan\n"
             f"cat {plan or '.methodology/phaseN_plan.md'}\n"
             f"```\n\n"
             f"| 欄位 | 值 |\n"
             f"|------|----|\n"
             f"| Remote | `{remote or '(unknown)'}` |\n"
             f"| Branch | `{branch or '(unknown)'}` |\n"
-            f"| Last SHA | `{sha or '(unknown)'}` |\n"
             f"| State | `{state or '(unknown)'}` |\n"
             f"| Plan | `{plan or '(unknown)'}` |\n"
         )
