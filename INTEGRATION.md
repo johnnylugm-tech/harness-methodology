@@ -177,6 +177,8 @@ python harness_cli.py init-project --project /path/to/target --phase 3
 ## 4. Target Project CI (Recommended GitHub Actions)
 
 > **The YAML below targets Option A (submodule).** For Option B (global clone) and Option C (copy), see the variant blocks at the end of this section. Running `harness_cli.py init-project` auto-generates the correct YAML for your install option.
+>
+> **Single source of truth**: The Option A YAML below is kept in sync with `templates/harness_quality_gate.yml` (copied by `harness-init.sh`) and `_harness_workflow_template()` in `harness_cli.py` (used by `init-project`). All three generate identical content.
 
 > **Gate 4 is a local-only gate.** It requires a human Hermes APPROVE within a 2-minute window — CI runners are headless and will always time out. All three YAML variants below skip the gate-check step when `CURRENT_PHASE == 6`. Run Gate 4 manually at P6 exit: `python harness_cli.py run-gate --gate 4 --phase 6 --project .`
 

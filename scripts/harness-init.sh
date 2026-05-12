@@ -121,14 +121,19 @@ fi
 CI_DEST="$TARGET_DIR/.github/workflows/harness_quality_gate.yml"
 CI_TEMPLATE="$HARNESS_DIR/templates/harness_quality_gate.yml"
 
-if [[ -f "$CI_DEST" ]]; then
-    skip ".github/workflows/harness_quality_gate.yml"
-elif [[ ! -f "$CI_TEMPLATE" ]]; then
+if [[ ! -f "$CI_TEMPLATE" ]]; then
     echo -e "  ${YELLOW}↷${NC}  CI workflow (template not found — skipped)"
-else
+elif [[ ! -f "$CI_DEST" ]]; then
     mkdir -p "$TARGET_DIR/.github/workflows"
     cp "$CI_TEMPLATE" "$CI_DEST"
     ok "CI workflow → .github/workflows/harness_quality_gate.yml"
+elif diff -q "$CI_DEST" "$CI_TEMPLATE" > /dev/null 2>&1; then
+    skip ".github/workflows/harness_quality_gate.yml"
+else
+    echo -e "  ${YELLOW}~${NC}  CI workflow outdated — updating (diff below):"
+    diff --unified=2 "$CI_DEST" "$CI_TEMPLATE" | head -40 || true
+    cp "$CI_TEMPLATE" "$CI_DEST"
+    ok "CI workflow updated → .github/workflows/harness_quality_gate.yml"
 fi
 
 echo
