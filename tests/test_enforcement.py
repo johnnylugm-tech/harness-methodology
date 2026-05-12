@@ -2,8 +2,7 @@
 tests/test_enforcement.py — enforcement/ package coverage (W4).
 
 Covers: EnforcementResult, FrameworkEnforcer (mocked checks), PolicyEngine,
-        ConstitutionAsCode, ExecutionRegistry, ConstitutionPolicySync (partial),
-        ServerEnforcer (partial).
+        ConstitutionAsCode, ExecutionRegistry, ConstitutionPolicySync (partial).
 """
 import json
 import os
@@ -703,51 +702,3 @@ class TestConstitutionPolicySync:
         assert isinstance(engine, PolicyEngine)
 
 
-# ===========================================================================
-# ServerEnforcer
-# ===========================================================================
-
-class TestServerEnforcer:
-    def test_init_creates_enforcer(self):
-        from enforcement.server_enforcer import ServerEnforcer
-        se = ServerEnforcer()
-        assert se is not None
-
-    def test_enforce_all_returns_dict(self):
-        from enforcement.server_enforcer import ServerEnforcer
-        se = ServerEnforcer()
-        with patch.object(se, "_check_constitution", return_value={"passed": True}):
-            with patch.object(se, "_check_policy", return_value={"passed": True}):
-                with patch.object(se, "_check_quality_gate", return_value={"passed": True}):
-                    with patch.object(se, "_check_security", return_value={"passed": True}):
-                        result = se.enforce_all()
-        assert isinstance(result, dict)
-
-    def test_on_git_hook_returns_bool(self):
-        from enforcement.server_enforcer import ServerEnforcer
-        from enforcement.framework_enforcer import EnforcementResult
-        se = ServerEnforcer()
-        mock_result = EnforcementResult()
-        mock_result.passed = True
-        # FrameworkEnforcer is lazy-imported inside on_git_hook
-        mock_fe = MagicMock()
-        mock_fe.run.return_value = mock_result
-        mock_fe_cls = MagicMock(return_value=mock_fe)
-        mock_module = MagicMock()
-        mock_module.FrameworkEnforcer = mock_fe_cls
-        with patch.dict("sys.modules", {"enforcement.framework_enforcer": mock_module}):
-            with patch.object(se, "enforce_all", return_value={"constitution": {"passed": True},
-                                                                "policy": {"passed": True},
-                                                                "quality_gate": {"passed": True},
-                                                                "security": {"passed": True}}):
-                result = se.on_git_hook("pre-commit")
-        assert isinstance(result, bool)
-
-    def test_enforce_all_handles_check_exception(self):
-        from enforcement.server_enforcer import ServerEnforcer
-        se = ServerEnforcer()
-        se.checks = [{"name": "blows_up", "fn": MagicMock(side_effect=RuntimeError("boom"))}]
-        result = se.enforce_all()
-        assert "blows_up" in se.results
-        assert se.results["blows_up"]["passed"] is False
-        assert result["all_passed"] is False

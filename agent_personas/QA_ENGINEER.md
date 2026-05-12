@@ -34,8 +34,5 @@ When asked to test:
 ```
 
 ## Integration
-```python
-from agent_personas import generate_persona_prompt
 
-prompt = generate_persona_prompt("qa", task="test registration flow")
-```
+Loaded by ``AgentSpawner._load_persona("QA_ENGINEER")`` — reads this file directly.

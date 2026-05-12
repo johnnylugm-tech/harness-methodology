@@ -891,44 +891,11 @@ def create_isolated_spawn(task, role, input_paths, output_paths, persona_prompt)
 
 ---
 
-### 3.11 `core/verification_gate.py` — Task Verification Gates
+### 3.11 `core/verification_gate.py` — Gate Remediation Report
 
-**Responsibility**: Generic verification gate manager for task lifecycle state tracking. Distinct from quality gates (§3.1) — these track agent task state (created → assigned → generated → approved → completed). Also contains `GateRemediationReport` (structured gate-failure diagnosis for HANDOVER.md).
+**Responsibility**: Structured gate-failure diagnosis for HANDOVER.md crash recovery. Generates per-gate action items with score/gap analysis.
 
-**Key classes**:
-
-```python
-class GateStatus(Enum):
-    NOT_REACHED = "not_reached"
-    PASSED = "passed"
-    FAILED = "failed"
-    BYPASSED = "bypassed"
-
-class Gate:
-    def __init__(name, required_output=None, validator=None, auto_pass=False): ...
-    def check(context: dict) -> bool: ...
-    def bypass(reason: str = None): ...
-    def reset(): ...
-
-class VerificationGates:
-    DEFAULT_GATES = {
-        "task_created", "agent_assigned", "output_generated",
-        "quality_check", "human_approved", "completed"
-    }
-    def register_gate(gate_id, gate): ...
-    def execute_sequence(context) -> dict: ...
-    def get_status() -> dict: ...
-    def get_passed_count() -> int: ...
-    def reset_all(): ...
-
-class HITLGates(VerificationGates):
-    # Sequence: task_created → output_generated → human_approved → completed
-
-class AutonomousGates(VerificationGates):
-    # Sequence: task_created → agent_assigned → output_generated → quality_check → completed
-```
-
-**Module-level constants** (gate remediation support):
+**Module-level constants**:
 
 ```python
 _GATE_THRESHOLDS: Dict[int, float] = {1: 75.0, 2: 75.0, 3: 80.0, 4: 85.0}
@@ -945,7 +912,12 @@ class GateRemediationReport:
     score: float
     threshold: Optional[float] = None       # None → uses _GATE_THRESHOLDS[gate_num]
     failing_checks: List[str] = []          # e.g. ["D3_Coverage", "D5_Security"]
-    gate_evidence: Optional[Dict] = None    # raw Gate.evidence dict
+    gate_evidence: Optional[Dict] = None    # raw evidence dict
+    def effective_threshold -> float
+    def gap -> float                         # how many points below threshold
+    def action_items() -> List[str]          # failing-check items first, then generic
+    def to_status_string() -> str            # one-paragraph HANDOVER summary
+    def to_dict() -> Dict[str, Any]
 
     @property
     def effective_threshold(self) -> float: ...   # override or default
@@ -1124,7 +1096,6 @@ class KillSwitch:
 | `execution_registry.py` | `ExecutionRegistry` | Registry tracking all executed enforcement actions |
 | `framework_enforcer.py` | `FrameworkEnforcer` | Main enforcement orchestrator; coordinates all enforcement subsystems |
 | `policy_engine.py` | `PolicyEngine` | Evaluates named policies against runtime context |
-| `server_enforcer.py` | `ServerEnforcer` | Server-side enforcement for remote agent actions |
 
 **`AgentProofHook` key behavior**:
 - Installs to `.git/hooks/pre-commit` (thin wrapper) + `.methodology/agent_hook_core.py` (core logic)
@@ -1702,7 +1673,6 @@ CREATE TABLE IF NOT EXISTS effort (
         "core/task_splitter.py",
         "core/sessions_spawn_logger.py",
         "core/subagent_isolator.py",
-        "core/verification_gate.py",
         "steering/"
       ],
       "allowed_dependencies": ["3_Quality_Features", "4_Base_Utilities"]
@@ -1997,14 +1967,13 @@ python core/requirement_traceability.py --project-id <id> [--verify] [--export r
 
 ### §3.25 — `agent_personas/` — Role Persona Library
 
-**Responsibility**: Provides preset agent personas loaded by `AgentSpawner._load_persona()`. Each persona supplies a role description and personality traits injected into the agent prompt `[PERSONA]` block.
+**Responsibility**: Provides preset agent persona documents loaded by `AgentSpawner._load_persona(role)`. Each ``.md`` file supplies a role description and personality traits injected into the agent prompt ``[PERSONA]`` block.
 
 **Package structure**:
 
 | File | Purpose |
 |---|---|
-| `persona.py` | `Persona` class + `generate_persona_prompt(persona_type, task)` |
-| `__init__.py` | Re-exports `Persona`, `generate_persona_prompt`, `get_persona`, `PERSONAS` dict |
+| `__init__.py` | Package docstring — documents available persona files |
 | `ARCHITECT.md` | Narrative persona document (read by `_load_persona("ARCHITECT")`) |
 | `DEVELOPER.md` | Developer persona |
 | `REVIEWER.md` | Reviewer persona |
@@ -2012,26 +1981,9 @@ python core/requirement_traceability.py --project-id <id> [--verify] [--export r
 | `DEVOPS.md` | DevOps persona |
 | `PRODUCT_MANAGER.md` | Product Manager persona |
 
-**`get_persona(persona_type: str) -> Persona`** (6 presets):
-- `architect` — Strategic, big-picture thinker, prioritizes scalability
-- `developer` — Practical, efficiency-focused, follows best practices
-- `reviewer` — Detail-oriented, critical thinker, focuses on quality
-- `qa` — Thorough, systematic, prioritizes test coverage and edge cases
-- `pm` — User-centric, data-driven, balances business and technical needs
-- `devops` — Automation-first, reliability-focused, prioritizes CI/CD
+**Persona types**: architect, developer, reviewer, qa, pm, devops
 
-**Usage**:
-```python
-from agent_personas import get_persona, generate_persona_prompt
-
-# Object-oriented
-persona = get_persona("developer")
-
-# String prompt (called by AgentSpawner._load_persona)
-prompt = generate_persona_prompt("developer", task="implement FR-01 login feature")
-```
-
-**Note**: `AgentSpawner._load_persona(role)` reads `agent_personas/{ROLE.upper()}.md` — the Markdown files are the authoritative persona source; `persona.py` provides the programmatic wrapper.
+**Note**: `AgentSpawner._load_persona(role)` reads `agent_personas/{ROLE.upper()}.md` directly — the Markdown files are the sole authoritative persona source.
 
 ---
 

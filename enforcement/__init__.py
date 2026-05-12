@@ -29,7 +29,6 @@ from .constitution_as_code import (
     ConstitutionWarning,
 )
 
-from .server_enforcer import ServerEnforcer
 from .framework_enforcer import FrameworkEnforcer, EnforcementResult
 
 __all__ = [
@@ -50,8 +49,6 @@ __all__ = [
     "RuleSeverity",
     "ConstitutionViolation",
     "ConstitutionWarning",
-    # Server-Side Enforcer
-    "ServerEnforcer",
     # Framework Enforcer
     "FrameworkEnforcer",
     "EnforcementResult",

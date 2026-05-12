@@ -34,8 +34,5 @@ When designing deployment:
 ```
 
 ## Integration
-```python
-from agent_personas import generate_persona_prompt
 
-prompt = generate_persona_prompt("devops", task="setup CI/CD pipeline")
-```
+Loaded by ``AgentSpawner._load_persona("DEVOPS")`` — reads this file directly.
