@@ -686,3 +686,24 @@ class TestHandoverGeneratorFixes:
         files = gs._recently_committed_files()
         assert isinstance(files, list)
         assert len(files) == len(set(files))   # no duplicates
+
+    def test_hermes_value_substituted_in_startup_section(self, tmp_path: Path, monkeypatch):
+        """HERMES_REVIEWER_TARGET real value appears in ▶ 立即開始 (not <value> placeholder)."""
+        monkeypatch.setenv("HERMES_REVIEWER_TARGET", "telegram:12345")
+        gs = self._make_strategy(tmp_path)
+        gs.commit_and_push_p1(fr_ids=["FR-01"])
+        content = (tmp_path / "HANDOVER.md").read_text()
+        # real value must appear in the startup block
+        assert "telegram:12345" in content
+        # generic placeholder must NOT appear
+        assert "=<value>" not in content
+
+    def test_deliverables_section_has_blank_line_before_status(self, tmp_path: Path):
+        """交付物清單 section must be followed by a blank line before ## 目前執行狀況."""
+        for name in ["SRS.md", "CONSTRAINTS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md"]:
+            (tmp_path / name).write_text("# x\n", encoding="utf-8")
+        gs = self._make_strategy(tmp_path)
+        gs.commit_and_push_p1(fr_ids=["FR-01"])
+        content = (tmp_path / "HANDOVER.md").read_text()
+        # There must be a blank line (double newline) between last list item and next heading
+        assert "\n\n## 目前執行狀況" in content

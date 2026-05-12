@@ -242,7 +242,7 @@ class HandoverGenerator:
         deliverables_section = ""
         if deliverables:
             items_md = "\n".join(f"- {d}" for d in deliverables)
-            deliverables_section = f"\n## 交付物清單\n\n{items_md}\n"
+            deliverables_section = f"\n## 交付物清單\n\n{items_md}\n\n"
 
         # Git recovery block — critical for new session clone + resume
         gi = git_info or {}
@@ -255,6 +255,14 @@ class HandoverGenerator:
         _repo_name = (remote.rstrip("/").split("/")[-1].removesuffix(".git")
                       if remote else "project")
 
+        # Extract real HERMES value from extra dict if present so the startup
+        # snippet shows the actual target instead of a generic <value> placeholder.
+        _hermes_entry = extra.get("HERMES_REVIEWER_TARGET", "")
+        if _hermes_entry.startswith("✅ set (") and _hermes_entry.endswith(")"):
+            _hermes_val = _hermes_entry[len("✅ set ("):-1]
+        else:
+            _hermes_val = "<value>"   # not set or unknown format
+
         # Three-step startup sequence — visible to a new session immediately
         _next_phase = phase + 1
         resume_section = (
@@ -264,7 +272,7 @@ class HandoverGenerator:
             f"git clone --recurse-submodules {remote or '<repo-url>'} && cd {_repo_name}\n"
             f"\n"
             f"# 2. Set required env vars\n"
-            f"export HERMES_REVIEWER_TARGET=<value>   # see 附加資訊\n"
+            f"export HERMES_REVIEWER_TARGET={_hermes_val}\n"
             f"\n"
             f"# 3. Read plan and start Phase {_next_phase}\n"
             f"cat {plan or f'.methodology/phase{_next_phase}_plan.md'}\n"
