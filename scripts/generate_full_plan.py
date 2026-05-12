@@ -605,19 +605,29 @@ def _deliverable_ab_block(phase: int, deliverable: Dict, sub_n: int, total: int,
         '   "reason":"...","confidence":1-10,"citations":["file:line"],"gaps":[...]}',
         "  ```",
         "",
-        "- [ ] **[B-2]** Agent B returns JSON — parse `review_status`:",
+        "- [ ] **[B-2]** Agent B returns JSON — parse `review_status` **AND** `gaps` severity:",
     ]
     if sub_n < total:
-        lines.append(f"  - `APPROVE` → continue to Sub-Task {sub_n + 1}/{total}")
+        next_action = f"continue to Sub-Task {sub_n + 1}/{total}"
     else:
-        lines.append("  - `APPROVE` → all deliverables complete; proceed to Human Peer Review")
+        next_action = "all deliverables complete; proceed to Human Peer Review"
     lines += [
+        f"  - `APPROVE` + all gaps are `low` → {next_action}",
+        "  - `APPROVE` + any gap is `medium` or `high` → fix gaps → **re-dispatch B as round 2**",
+        f"    (embed same docs as B-1 above, replacing `{label}` with its updated content)",
+        f"    → {next_action} only after round-2 APPROVE",
         "  - `REJECT` → Agent A fixes gaps → re-dispatch B. Max 5 rounds (HR-12).",
         "",
-        "- [ ] **[LOG]** Append to `sessions_spawn.log` (HR-10 — 2 entries per sub-task):",
+        "  > ⚠️ **BLOCKING**: Do NOT start the next Sub-Task until this sub-task's current",
+        "  > round is fully APPROVED (including any required round 2). Log the round-2 entry",
+        "  > to `sessions_spawn.log` before proceeding to the next sub-task (HR-10).",
+        "",
+        "- [ ] **[LOG]** Append to `sessions_spawn.log` (HR-10 — 2 entries per sub-task; +1 if round 2 needed):",
         "  ```json",
         f'  {{"fr_id":"P{phase}","sub_task":"{label}","role":"{role_a.lower()}","session_id":"dev-XXXX","status":"success","confidence":8}}',
         f'  {{"fr_id":"P{phase}","sub_task":"{label}","role":"{role_b.lower()}","session_id":"rev-XXXX","review_status":"APPROVE"}}',
+        "  // If round 2 was required (medium+ gap fixed and re-reviewed):",
+        f'  {{"fr_id":"P{phase}","sub_task":"{label}","role":"{role_b.lower()}","session_id":"rev-XXXX","round":2,"review_status":"APPROVE","note":"re-review: GAP-XX fixes verified"}}',
         "  ```",
         f"  > fr_id uses P{phase} as phase-level placeholder; replace with FR-XX for FR-specific plans.",
         "",

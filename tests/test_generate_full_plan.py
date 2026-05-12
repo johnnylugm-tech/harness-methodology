@@ -746,6 +746,61 @@ class TestDeliverableAbBlock:
         assert "ARCHITECT" in joined
         assert "TECH_LEAD" in joined
 
+    def test_b2_three_branch_low_gap_approve(self, srs_deliverable: Dict):
+        """[B-2] first branch: APPROVE + all gaps low → continue."""
+        lines = _deliverable_ab_block(1, srs_deliverable, 1, 4)
+        joined = "\n".join(lines)
+        assert "all gaps are `low`" in joined, "Missing low-gap APPROVE branch"
+        assert "Sub-Task 2/4" in joined, "Low-gap branch must reference next sub-task"
+
+    def test_b2_three_branch_medium_gap_redispatch(self, srs_deliverable: Dict):
+        """[B-2] second branch: APPROVE + medium+ gap → fix → re-dispatch B as round 2."""
+        lines = _deliverable_ab_block(1, srs_deliverable, 1, 4)
+        joined = "\n".join(lines)
+        assert "medium" in joined, "Missing medium-gap re-dispatch branch"
+        assert "re-dispatch B as round 2" in joined, "Missing round-2 re-dispatch instruction"
+        assert "round-2 APPROVE" in joined, "Must require round-2 APPROVE before continuing"
+
+    def test_b2_blocking_note_present(self, srs_deliverable: Dict):
+        """[B-2] must include BLOCKING note preventing early advance to next sub-task."""
+        lines = _deliverable_ab_block(1, srs_deliverable, 1, 4)
+        joined = "\n".join(lines)
+        assert "BLOCKING" in joined, "Missing BLOCKING enforcement note"
+        assert "before proceeding" in joined.lower(), "Must say to log before proceeding"
+
+    def test_b2_log_includes_round2_example(self, srs_deliverable: Dict):
+        """[LOG] must show round-2 entry example for when medium gap is fixed."""
+        lines = _deliverable_ab_block(1, srs_deliverable, 1, 4)
+        joined = "\n".join(lines)
+        assert '"round":2' in joined, "Missing round-2 entry in LOG example"
+        assert "GAP-XX fixes verified" in joined, "Round-2 note field example missing"
+
+    def test_b2_last_subtask_three_branches(self):
+        """Last sub-task [B-2] also has three branches (not just APPROVE → Human Review)."""
+        trace_deliverable = _PHASE_DELIVERABLE_DEPS[1][3]
+        lines = _deliverable_ab_block(1, trace_deliverable, 4, 4)
+        joined = "\n".join(lines)
+        assert "all gaps are `low`" in joined
+        assert "re-dispatch B as round 2" in joined
+        # APPROVE branch still references human review
+        assert "Human Peer Review" in joined
+
+    def test_b2_three_branch_phase2(self, sad_deliverable: Dict):
+        """Phase 2 deliverables also get three-branch [B-2] (not just phase 1)."""
+        lines = _deliverable_ab_block(2, sad_deliverable, 1, 3)
+        joined = "\n".join(lines)
+        assert "all gaps are `low`" in joined
+        assert "re-dispatch B as round 2" in joined
+        assert "BLOCKING" in joined
+
+    def test_b2_round2_embed_instruction_references_b1(self, srs_deliverable: Dict):
+        """Round-2 re-dispatch embed instruction reuses B-1 docs (not a bespoke list)."""
+        lines = _deliverable_ab_block(1, srs_deliverable, 1, 4)
+        joined = "\n".join(lines)
+        assert "same docs as B-1" in joined, (
+            "Round-2 embed instruction must say 'same docs as B-1' to avoid context drift"
+        )
+
 
 # ─── Phase 1 generator ───────────────────────────────────────────────────────
 
