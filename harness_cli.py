@@ -22,6 +22,8 @@ Usage:
     python harness_cli.py verify-spec       [--project .]
     python harness_cli.py check-logic       [--project .] [--srs SRS.md]
     python harness_cli.py init-project      --project /path/to/target [--phase 3] [--force]
+    python harness_cli.py push-checkpoint   --phase 1|2 --project . [--fr-ids FR-01,FR-02]
+    python harness_cli.py advance-phase     --completed-phase 3 [--project .]
 
 Gate Evaluation (two-phase flow):
     1. run-gate    → prints evaluation prompt for Claude; exits 0
@@ -1253,9 +1255,10 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
 
         # ── P1: SRS.md must exist (human writes it); checkpoint if valid ────
         if phase == 1:
+            print(f"\n[1.1] SRS check + checkpoint")
             srs = project / "SRS.md"
             if srs.exists():
-                print("[P1] SRS.md exists — committing checkpoint")
+                print("[1.1] SRS.md exists — committing checkpoint")
                 fr_ids = _parse_fr_ids(srs.read_text(encoding="utf-8", errors="ignore"))
                 git.commit_and_push_p1(
                     fr_ids=fr_ids,
@@ -1263,7 +1266,7 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
                     notes=["Human peer review passed", "All deliverables reviewed and approved"],
                 )
             else:
-                print(f"[P1] PAUSE: SRS.md not found at {srs}")
+                print(f"[1.1] PAUSE: SRS.md not found at {srs}")
                 print("     Create SRS.md (### FR-XX: ... sections required),")
                 print("     then re-run:")
                 print(f"     python harness_cli.py run-pipeline --phase-from 1 "
@@ -1273,28 +1276,30 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
 
         # ── P2: SAD.md must exist; generate manifest if missing ──────────
         if phase == 2:
+            print(f"\n[2.1] SAD check")
             sad = project / "SAD.md"
             manifest_path = project / ".methodology" / "quality_manifest.json"
             if not sad.exists():
-                print(f"[P2] PAUSE: SAD.md not found at {sad}")
+                print(f"[2.1] PAUSE: SAD.md not found at {sad}")
                 print("     Generate SAD.md, then re-run:")
                 print(f"     python harness_cli.py run-pipeline --phase-from 2 "
                       f"--project {project}")
                 return 10
             if manifest_path.exists():
-                print("[P2] quality_manifest.json exists — skipping manifest generation")
+                print("[2.2] quality_manifest.json exists — skipping manifest generation")
             else:
+                print(f"\n[2.2] Manifest + SAB generation")
                 fr_ids = _parse_fr_ids(sad.read_text(encoding="utf-8", errors="ignore"))
                 if not fr_ids:
                     srs = project / "SRS.md"
                     if srs.exists():
                         fr_ids = _parse_fr_ids(srs.read_text(encoding="utf-8", errors="ignore"))
                 if not fr_ids:
-                    print("[P2] ERROR: No FR-XX IDs found in SAD.md or SRS.md.")
+                    print("[2.2] ERROR: No FR-XX IDs found in SAD.md or SRS.md.")
                     print("     Add '### FR-01: ...' sections and re-run.")
                     return 1
                 bridge.generate_quality_manifest(fr_ids, str(sad))
-                print(f"[P2] quality_manifest.json created  fr_ids={fr_ids}")
+                print(f"[2.2] quality_manifest.json created  fr_ids={fr_ids}")
                 _generate_sab_json(project)
                 git.commit_and_push_p2(fr_ids)  # PUSH ②
             continue
@@ -1630,7 +1635,7 @@ def cmd_init_project(args: argparse.Namespace) -> int:
     print(f"{'='*60}")
 
     # 1. Verify harness is importable
-    print("\n[1/4] Checking harness importability...")
+    print("\n[1/6] Checking harness importability...")
     importable = (
         (project / "harness" / "core" / "quality_gate" / "__init__.py").exists()
         or (project / "core" / "quality_gate" / "__init__.py").exists()
@@ -1647,7 +1652,7 @@ def cmd_init_project(args: argparse.Namespace) -> int:
             return 1
 
     # 2. Write CI workflow
-    print("\n[2/4] Writing CI workflow...")
+    print("\n[2/6] Writing CI workflow...")
     workflows_dir = project / ".github" / "workflows"
     workflows_dir.mkdir(parents=True, exist_ok=True)
     workflow_path = workflows_dir / "harness_quality_gate.yml"
@@ -1658,7 +1663,7 @@ def cmd_init_project(args: argparse.Namespace) -> int:
         print(f"   OK — wrote {workflow_path}")
 
     # 3. Git hooks
-    print("\n[3/4] Git hooks...")
+    print("\n[3/6] Git hooks...")
     hooks_script = harness_root / "scripts" / "setup-git-hooks.sh"
     if args.ci_only:
         print("   SKIP: --ci-only flag set (hooks not installed)")
@@ -1682,7 +1687,7 @@ def cmd_init_project(args: argparse.Namespace) -> int:
                 print(f"   WARNING: hook install failed:\n{result.stderr[-500:]}")
 
     # 4. Set git config
-    print("\n[4/4] Git config...")
+    print("\n[4/6] Git config...")
     gc = subprocess.run(
         ["git", "-C", str(project), "config", "--local", "quality.phase", str(phase)],
         capture_output=True,
