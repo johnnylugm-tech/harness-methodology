@@ -38,7 +38,7 @@ When the user says "execute Phase N", "start P3", "implement FR-X", or any phase
    If quality.phase IS set → skip to step 1. Setup already done.
 
 1. GENERATE PLAN (always first action for a new phase):
-   python harness_cli.py plan-phase --phase N --repo . --output .methodology/phaseN_plan.md
+   python harness_cli.py plan-phase --phase N --project . --output .methodology/phaseN_plan.md
    → Internally calls generate_full_plan.py. Produces the authoritative task list for this phase.
 
 2. PRESENT PLAN to user. Summarize: phase, FR count, preflight checks, checkpoints, estimated effort.
@@ -126,7 +126,7 @@ Before advancing to Phase N+1, confirm ALL:
 
 | Intent | Command |
 |--------|---------|
-| Plan a new phase | `python harness_cli.py plan-phase --phase N --repo . --output .methodology/phaseN_plan.md` |
+| Plan a new phase | `python harness_cli.py plan-phase --phase N --project . --output .methodology/phaseN_plan.md` |
 | Run preflight for a phase | `python harness_cli.py run-phase --phase N` |
 | Run a gate evaluation | `python harness_cli.py run-gate --gate N --phase P [--fr-id FR-XX]` |
 | Finalize a gate | `python harness_cli.py finalize-gate --gate N --phase P` |

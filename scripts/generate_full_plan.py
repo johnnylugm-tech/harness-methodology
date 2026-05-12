@@ -510,10 +510,12 @@ def _decomposition_section(phase: int) -> List[str]:
     return lines
 
 
-def _deliverable_ab_block(phase: int, deliverable: Dict, sub_n: int, total: int) -> List[str]:
+def _deliverable_ab_block(phase: int, deliverable: Dict, sub_n: int, total: int,
+                          label_to_sub_n: Dict[str, int] | None = None) -> List[str]:
     """Generate the A/B collaboration block for a single deliverable.
 
     Produces A-1/A-2/B-1/B-2/LOG steps with deliverable-specific checks and embed docs.
+    label_to_sub_n maps deliverable label → sub-task number for correct B-2 review chaining.
     """
     role_a, role_b, _ = _PHASE_ROLES.get(phase, ("DEVELOPER", "REVIEWER", ""))
     label = deliverable["label"]
@@ -524,11 +526,20 @@ def _deliverable_ab_block(phase: int, deliverable: Dict, sub_n: int, total: int)
     task_hint = deliverable["task_hint"]
     is_first = sub_n == 1
     is_last = sub_n == total
+    lmap = label_to_sub_n or {}
 
-    # Non-first sub-tasks: embed previous B-2 review JSON so downstream Agent B
-    # sees upstream caveats (gaps that weren't blockers but may affect this deliverable).
+    # Non-first sub-tasks: embed B-2 reviews from the deliverables this one
+    # actually depends_on (not just the immediately preceding sub-task).
     if not is_first:
-        embed_docs.insert(0, "Previous Sub-Task B-2 review JSON (gaps field may contain non-blocking caveats)")
+        dep_entries = [(lmap[dep], dep) for dep in deliverable["depends_on"] if dep in lmap]
+        dep_entries.sort(key=lambda x: x[0])
+        # Insert in reverse order so earliest sub-task ends up at position 0
+        for sub_n_dep, dep_label in reversed(dep_entries):
+            embed_docs.insert(
+                0,
+                f"Previous Sub-Task B-2 review JSON — {dep_label} "
+                f"(Sub-Task {sub_n_dep}/{total}, gaps field may contain non-blocking caveats)",
+            )
         checks.insert(0, "Upstream deliverable review caveats addressed? (check previous B-2 gaps field)")
 
     # Final sub-task: integration consistency check across all upstream deliverables.
@@ -537,8 +548,10 @@ def _deliverable_ab_block(phase: int, deliverable: Dict, sub_n: int, total: int)
 
     dep_note = ""
     if not is_first:
-        prev_n = sub_n - 1
-        dep_note = f" (+ Sub-Task {prev_n}/{total} review: previous review gaps carry forward)"
+        dep_nums = [lmap[dep] for dep in deliverable["depends_on"] if dep in lmap]
+        if dep_nums:
+            dep_refs = ", ".join(f"{n}/{total}" for n in sorted(dep_nums))
+            dep_note = f" (+ Sub-Task {dep_refs} review: previous review gaps carry forward)"
     lines = [
         f"### Sub-Task {sub_n}/{total}: {label} — {desc}",
         "",
@@ -620,10 +633,9 @@ def _preflight_steps(phase: int) -> List[str]:
             "  1. `git config quality.phase` returns `1`  ← set by `init-project`",
             "  2. `.github/workflows/harness_quality_gate.yml` exists in project root  ← set by `init-project`",
             "  3. Git hooks installed (`ls .git/hooks/prepare-commit-msg`)  ← set by `init-project`",
-            "  4. GitHub repo variable `CURRENT_PHASE = 1` (Settings → Variables)  ← manual",
-            "  5. `ANTHROPIC_API_KEY` secret set in GitHub repo (Settings → Secrets)  ← manual",
-            "  6. `HERMES_REVIEWER_TARGET` exported in shell  ← manual (required before P6, recommended now)",
-            "  If any missing: stop, run `python3 harness_cli.py init-project --phase 1 --project $REPO`, then set manual items.",
+            "  4. GitHub repo variable `CURRENT_PHASE = 1` (Settings → Variables)  ← optional (fallback '1')",
+            "  5. `HERMES_REVIEWER_TARGET` exported in shell  ← required",
+            "  If any required item (1-3, 5) is missing: stop, run `python3 harness_cli.py init-project --phase 1 --project $REPO`, then set manual items.",
         ]
     else:
         ci_check = [
@@ -760,7 +772,7 @@ def _phase_advance_step(phase: int) -> List[str]:
         "- [ ] Verify `HANDOVER.md` exists at project root (written by `push-checkpoint`)",
         f"- [ ] Generate Phase {next_phase} plan:",
         "  ```bash",
-        f"  python3 harness_cli.py plan-phase --phase {next_phase} --repo $REPO \\",
+        f"  python3 harness_cli.py plan-phase --phase {next_phase} --project $REPO \\",
         f"    --output $REPO/.methodology/phase{next_phase}_plan.md",
         "  ```",
         f"- [ ] Open `phase{next_phase}_plan.md` and follow from the top.",
@@ -935,10 +947,11 @@ def generate_phase1_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     # Serial per-deliverable A/B blocks
     deliverables = _PHASE_DELIVERABLE_DEPS.get(1, [])
     total = len(deliverables)
+    label_to_sub_n = {d["label"]: i for i, d in enumerate(deliverables, 1)}
     lines.append("### Requirements Authoring (Serial A/B per Deliverable)")
     lines.append("")
     for i, d in enumerate(deliverables, 1):
-        lines.extend(_deliverable_ab_block(1, d, i, total))
+        lines.extend(_deliverable_ab_block(1, d, i, total, label_to_sub_n))
 
     # FR/NFR summary (informational — parsed from already-APPROVED SRS.md if exists)
     frs = parse_srs_fr_sections(srs_path)
@@ -1007,10 +1020,11 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     # Serial per-deliverable A/B blocks
     deliverables = _PHASE_DELIVERABLE_DEPS.get(2, [])
     total = len(deliverables)
+    label_to_sub_n = {d["label"]: i for i, d in enumerate(deliverables, 1)}
     lines.append("### Architecture Design (Serial A/B per Deliverable)")
     lines.append("")
     for i, d in enumerate(deliverables, 1):
-        lines.extend(_deliverable_ab_block(2, d, i, total))
+        lines.extend(_deliverable_ab_block(2, d, i, total, label_to_sub_n))
 
     frs = parse_srs_fr_sections(srs_path)
     modules = parse_sad_modules(repo_path)

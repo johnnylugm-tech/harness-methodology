@@ -190,7 +190,7 @@ INITIAL → ACTIVE → (phase-by-phase) → COMPLETE
             ↓
 ┌─────────────────────────────────────────────────────────────┐
 │  EACH PHASE (repeat for P3–P8)                             │
-│  1. plan-phase  --phase N --repo /project                  │
+│  1. plan-phase  --phase N --project /project                  │
 │  2. [Claude] Execute phase tasks per plan                  │
 │  3. run-phase   --phase N --project /project               │  ← pre-flight
 │  4. [Claude] Per-FR dev + review loop                      │
@@ -204,7 +204,7 @@ INITIAL → ACTIVE → (phase-by-phase) → COMPLETE
 
 ```bash
 # 1. Generate plan
-python harness_cli.py plan-phase --phase 3 --repo /project --output /project/phase3_plan.md
+python harness_cli.py plan-phase --phase 3 --project /project --output /project/phase3_plan.md
 
 # 2. Pre-flight check
 python harness_cli.py run-phase --phase 3 --project /project
@@ -244,7 +244,7 @@ python harness_cli.py status --project /project
 
 **harness command**:
 ```bash
-python harness_cli.py plan-phase --phase 1 --repo /project
+python harness_cli.py plan-phase --phase 1 --project /project
 # (No gate for P1 — output is purely documentary)
 ```
 
@@ -604,7 +604,7 @@ plan-phase outputs empty or incorrect tasks
   │    Must have: ### NFR-01: [title] sections
   │
   ├─ Check repo path:
-  │    python harness_cli.py plan-phase --phase 3 --repo /path/to/PROJECT
+  │    python harness_cli.py plan-phase --phase 3 --project /path/to/PROJECT
   │    (not harness-methodology repo itself)
   │
   └─ Fallback: use plan as a starting point and supplement with manual tasks
@@ -780,7 +780,7 @@ python harness_cli.py run-pipeline \
 
 ```bash
 # 每 Phase 開始先產計劃（P3+ 必須等 SAD.md 存在）
-python harness_cli.py plan-phase --phase $N --repo $PROJECT
+python harness_cli.py plan-phase --phase $N --project $PROJECT
 
 # Preflight
 python harness_cli.py run-phase --phase $N --project $PROJECT

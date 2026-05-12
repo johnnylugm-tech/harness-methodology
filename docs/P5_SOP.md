@@ -81,7 +81,7 @@ python harness_cli.py run-gate --gate 1 --phase 5 --fr-id FR-001
 ```bash
 git add BASELINE.md .methodology/sessions_spawn.log HANDOVER.md
 git commit -m "feat(P5): BASELINE.md complete — {N} FRs verified"
-python harness_cli.py plan-phase --phase 6 --repo .
+python harness_cli.py plan-phase --phase 6 --project .
 ```
 
 ---

@@ -72,7 +72,7 @@ The full-system CLI (`cli.py`) lives in the parent system that contains harness-
 
 **`harness_cli.py` commands** (16 total):
 ```
-python harness_cli.py plan-phase        --phase 3 [--repo .] [--output plan.md]
+python harness_cli.py plan-phase        --phase 3 [--project .] [--output plan.md]
 python harness_cli.py run-phase         --phase 3 [--project .] [--force]
 python harness_cli.py run-gate          --gate 2 --phase 3 [--project .] [--fr-id FR-01] [--no-git]
 python harness_cli.py finalize-gate     --gate 2 --phase 3 [--project .] [--fr-id FR-01] [--no-git]
@@ -2426,7 +2426,7 @@ The agent has **exactly one source of truth at any moment**:
 
 ```
 1. ENTER PHASE
-   python harness_cli.py plan-phase --phase N --repo $REPO \
+   python harness_cli.py plan-phase --phase N --project $REPO \
        --output $REPO/.methodology/phaseN_plan.md
    → ONE command. plan-phase calls generate_full_plan.py internally.
    → Plan is THE complete authority for phase N (preflight + A/B dev + gates + advance)

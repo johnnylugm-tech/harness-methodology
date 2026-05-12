@@ -811,6 +811,54 @@ class TestPhase1Generator:
         assert "SRS.md" in section, "SRS.md not referenced in TRACEABILITY section"
         assert "SPEC_TRACKING.md" in section, "SPEC_TRACKING.md not referenced in TRACEABILITY section"
 
+    def test_b2_review_chain_follows_depends_on(self, project: Path):
+        """Sub-Task 2 (CONSTRAINTS) depends on SRS.md → dep_note references Sub-Task 1/4."""
+        joined = "\n".join(generate_phase1_tasks(project, project / "SRS.md"))
+        idx = joined.find("Sub-Task 2/4: CONSTRAINTS.md")
+        assert idx != -1, "CONSTRAINTS sub-task heading not found"
+        section = joined[idx:idx + 400]
+        assert "+ Sub-Task 1/4 review" in section, (
+            "CONSTRAINTS dep_note must reference SRS.md review (Sub-Task 1/4), "
+            "got: " + section[section.find("Depends on"):section.find("Depends on") + 100]
+        )
+
+    def test_b2_review_chain_spec_tracking_not_constraints(self, project: Path):
+        """Sub-Task 3 (SPEC_TRACKING) depends on SRS.md, NOT CONSTRAINTS → references 1/4 not 2/4."""
+        joined = "\n".join(generate_phase1_tasks(project, project / "SRS.md"))
+        idx = joined.find("Sub-Task 3/4: SPEC_TRACKING.md")
+        assert idx != -1, "SPEC_TRACKING sub-task heading not found"
+        section = joined[idx:idx + 2000]
+        # Must reference the SRS.md review (Sub-Task 1/4), not CONSTRAINTS (2/4)
+        assert "Sub-Task 1/4" in section, (
+            "SPEC_TRACKING dep_note/embed_docs must reference SRS.md (Sub-Task 1/4)"
+        )
+        assert "Sub-Task 2/4" not in section, (
+            "SPEC_TRACKING must NOT reference CONSTRAINTS review (Sub-Task 2/4) — "
+            "it does not depend on CONSTRAINTS.md"
+        )
+        # embed_docs should reference SRS.md B-2 review, not CONSTRAINTS
+        assert "SRS.md (Sub-Task 1/4" in section, (
+            "SPEC_TRACKING embed_docs must include SRS.md B-2 review"
+        )
+
+    def test_b2_review_chain_traceability_multi_dep(self, project: Path):
+        """Sub-Task 4 (TRACEABILITY) depends on SRS.md + SPEC_TRACKING → references both."""
+        joined = "\n".join(generate_phase1_tasks(project, project / "SRS.md"))
+        idx = joined.find("Sub-Task 4/4: TRACEABILITY_MATRIX.md")
+        assert idx != -1, "TRACEABILITY sub-task heading not found"
+        section = joined[idx:idx + 2500]
+        assert "Sub-Task 1/4" in section, (
+            "TRACEABILITY dep_note/embed_docs must reference SRS.md (Sub-Task 1/4)"
+        )
+        assert "Sub-Task 3/4" in section, (
+            "TRACEABILITY dep_note/embed_docs must reference SPEC_TRACKING.md (Sub-Task 3/4)"
+        )
+        # Must NOT reference CONSTRAINTS (Sub-Task 2/4) — TRACEABILITY doesn't depend on it
+        assert "Sub-Task 2/4" not in section, (
+            "TRACEABILITY must NOT reference CONSTRAINTS (Sub-Task 2/4) — "
+            "it does not depend on CONSTRAINTS.md"
+        )
+
 
 # ─── Phase 2 generator ───────────────────────────────────────────────────────
 

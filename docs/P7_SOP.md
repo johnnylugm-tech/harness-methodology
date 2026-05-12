@@ -98,7 +98,7 @@ python harness_cli.py run-phase --phase 7
 ```bash
 git add RISK_REGISTER.md .methodology/sessions_spawn.log HANDOVER.md
 git commit -m "feat(P7): RISK_REGISTER.md complete — {N} risks across {M} FRs"
-python harness_cli.py plan-phase --phase 8 --repo .
+python harness_cli.py plan-phase --phase 8 --project .
 ```
 
 ---

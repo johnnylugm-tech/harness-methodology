@@ -68,7 +68,7 @@ Agent B 審查重點：
 ```bash
 git add docs/SRS.md .methodology/sessions_spawn.log HANDOVER.md
 git commit -m "feat(P1): SRS.md complete — {N} FRs defined"
-python harness_cli.py plan-phase --phase 2 --repo .
+python harness_cli.py plan-phase --phase 2 --project .
 ```
 
 ---

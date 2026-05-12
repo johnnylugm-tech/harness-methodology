@@ -127,7 +127,7 @@ Agent B 審查重點：
 git add docs/SAD.md docs/adr/ .methodology/quality_manifest.json \
         .methodology/sessions_spawn.log HANDOVER.md
 git commit -m "feat(P2): SAD.md + ADR complete — {N} modules, {M} FRs traced"
-python harness_cli.py plan-phase --phase 3 --repo .
+python harness_cli.py plan-phase --phase 3 --project .
 ```
 
 ---

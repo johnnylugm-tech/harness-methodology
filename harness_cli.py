@@ -6,7 +6,7 @@ Standalone entrypoint for the harness-methodology repo.
 Does NOT require the full parent system (cli.py needs 30+ external modules).
 
 Usage:
-    python harness_cli.py plan-phase       --phase 3 [--repo .] [--output plan.md]
+    python harness_cli.py plan-phase       --phase 3 [--project .] [--output plan.md]
     python harness_cli.py run-phase        --phase 3 [--project .] [--force]
     python harness_cli.py run-gate         --gate 2  --phase 3 [--project .] [--fr-id FR-01]
     python harness_cli.py finalize-gate    --gate 2  --phase 3 [--project .] [--fr-id FR-01]
@@ -76,7 +76,7 @@ def cmd_plan_phase(args: argparse.Namespace) -> int:
     """Generate phase execution plan from SRS/SAD artifacts."""
     from scripts.generate_full_plan import generate_full_plan
 
-    repo_path = Path(args.repo).resolve()
+    repo_path = Path(args.project).resolve()
     output_path = Path(args.output) if args.output else None
 
     print(f"\n{'='*60}\nplan-phase: Phase {args.phase} | repo={repo_path}\n{'='*60}")
@@ -1692,7 +1692,7 @@ def build_parser() -> argparse.ArgumentParser:
     help_plan = "Generate phase execution plan from SRS/SAD artifacts (stdlib only)"
     pp = sub.add_parser("plan-phase", help=help_plan)
     pp.add_argument("--phase",  type=int, required=True, help="Phase number (1-8)")
-    pp.add_argument("--repo",   default=".", help="Project repository path (default: .)")
+    pp.add_argument("--project", default=".", help="Project root path (default: .)")
     pp.add_argument("--output", default=None, help="Output file path (default: stdout)")
     pp.set_defaults(func=cmd_plan_phase)
 
