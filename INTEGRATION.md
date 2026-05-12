@@ -3,7 +3,7 @@
 > **Scope**: How to maintain the framework itself, and how to wire it into a target development project.
 > For gate embedding and SSI evaluation model, see [`docs/HARNESS_INTEGRATION.md`](docs/HARNESS_INTEGRATION.md).
 >
-> **Last verified**: 2026-05-06 &nbsp;|&nbsp; **Synced with**: SAD.md v2.3
+> **Last verified**: 2026-05-12 &nbsp;|&nbsp; **Synced with**: SAD.md v2.4
 
 ---
 
@@ -216,11 +216,13 @@ Set `vars.CURRENT_PHASE` in GitHub repo -> Settings -> Variables.
 
 | Variable | Used by | Default | Purpose |
 |---|---|---|---|
+| `ANTHROPIC_API_KEY` | SSI runner, agent_spawner | — | **Required** — Claude API key for all LLM-based gate evaluation (Gates 1–4) |
+| `HERMES_REVIEWER_TARGET` | `harness_bridge.py`, `reviewer_router.py` | — | Hermes reviewer target (e.g. `telegram:6308981865`). Required for Gate 4 human-approval step. |
+| `HERMES_TIMEOUT_MS` | `harness_bridge.py`, `reviewer_router.py` | `120000` | Hermes long-poll timeout in ms (default: 2 min) |
 | `DRIFT_PROJECT_PATH` | `cron_drift_monitor.py` | cwd | Path to target project for drift analysis |
 | `PYTHONPATH` | All scripts | — | Must include harness-methodology root if not using submodule |
-| `ANTHROPIC_API_KEY` | SSI runner, agent_spawner | — | Required for LLM-based gate evaluation |
 
-> **Note**: `HERMES_REVIEWER_TARGET` and `HERMES_TIMEOUT_MS` are reserved for future Hermes bridge integration (`harness_bridge.py`, `reviewer_router.py` — not yet implemented).
+> **Note**: `HERMES_REVIEWER_TARGET` requires the `mcp_tools` package to be importable at runtime (`harness/reviewer_router.py` degrades gracefully if MCP is unavailable — Gate 4 will block rather than crash). Email/Slack notification channels (`drift_notifier`) are planned but not yet implemented.
 
 ---
 

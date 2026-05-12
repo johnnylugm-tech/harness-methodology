@@ -893,6 +893,32 @@ python harness_cli.py status \
 
 ---
 
+### `init-project` — 一鍵初始化目標專案
+
+```bash
+python harness_cli.py init-project \
+  --project /path/to/target \  # 目標專案路徑（必填）
+  --phase   1              \   # 起始 Phase（預設：1）
+  --force                      # 強制覆寫已存在的配置檔
+```
+
+**自動執行步驟**：
+1. 建立 `.methodology/` 目錄與 `state.json`（FSM 初始狀態）
+2. 生成 `.github/workflows/harness_quality_gate.yml`（CI 配置）
+3. 可選執行 `setup-git-hooks.sh`（互動式，可略過）
+4. 可選安裝 `cron_drift_monitor.py`（可略過）
+
+> **與其他初始化入口的關係**：
+> - `setup-git-hooks.sh` — 僅安裝 git hooks，互動式提問 phase
+> - `harness-init.sh --phase N` — 冪等初始化，自動跳過已完成步驟（適合 Makefile/CI 嵌入）
+> - `init-project`（此命令）— 上層封裝，自動化以上兩個腳本 + 生成 CI workflow
+>
+> **推薦流程**：新專案用 `init-project`；已有 `.methodology/` 的存量專案用 `harness-init.sh`（冪等安全）。
+
+**返回碼**：0=成功；1=目標路徑不存在或無寫入權限
+
+---
+
 ### `effort` — 查看工時統計
 
 ```bash
@@ -940,15 +966,17 @@ Hooks 是可選的 shell/Python 指令，在特定 phase/gate/FR 事件自動執
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `HERMES_REVIEWER_TARGET` | `""` | Hermes review target (e.g. `telegram:6308981865`). Required for Gate 4. |
+| `ANTHROPIC_API_KEY` | — | **Required** — Claude API key used by SSI runner and agent_spawner for all LLM-based gate evaluation (Gates 1–4). Missing key causes gate evaluation to fail with an authentication error. |
+| `HERMES_REVIEWER_TARGET` | `""` | Hermes review target (e.g. `telegram:6308981865`). Required for Gate 4 human-approval step. |
 | `HERMES_TIMEOUT_MS` | `120000` | Hermes long-poll timeout in ms (default: 2 minutes) |
 | `SSI_ROOT` | `harness/ssi` | Path to embedded SSI package (auto-detected from harness_cli.py) |
 | `PYTHONPATH` | — | Must include harness-methodology repo root for imports |
 
 **Setup example**:
 ```bash
+export ANTHROPIC_API_KEY=sk-ant-...
 export HERMES_REVIEWER_TARGET=telegram:1234567890
-export PYTHONPATH=/path/to/software_self_improvement:$PYTHONPATH
+export PYTHONPATH=/path/to/harness-methodology:$PYTHONPATH
 ```
 
 ---
