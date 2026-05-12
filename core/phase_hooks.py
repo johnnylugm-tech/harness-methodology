@@ -70,7 +70,7 @@ class PhaseHooks:
         self.state_path = self.project_path / ".methodology" / "state.json"
         self.log_path = self.project_path / ".methodology" / "run-phase.log"
         self.fr_results: List[Dict] = []
-        self.preflight_results: Dict[str, bool] = {}
+        self.preflight_results: Dict[str, Dict[str, Any]] = {}
         self.monitoring_events: List[Dict] = []
         self.drift_threshold = drift_threshold
         self.auto_fix_enabled = auto_fix_enabled
@@ -419,6 +419,7 @@ class PhaseHooks:
             "gap_analysis": self.preflight_gap_analysis(),
             "ci_readiness": self.preflight_ci_readiness(),
         }
+        self.preflight_results = results
         all_passed = all(r.get("passed", False) for r in results.values())
 
         if not all_passed and self.auto_fix_enabled:

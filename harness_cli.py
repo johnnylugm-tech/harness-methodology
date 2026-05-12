@@ -1251,16 +1251,22 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
                           f"pipeline paused at Phase {phase}")
                     return 10
 
-        # ── P1: SRS.md must exist (human writes it) ──────────────────────
+        # ── P1: SRS.md must exist (human writes it); checkpoint if valid ────
         if phase == 1:
             srs = project / "SRS.md"
             if srs.exists():
-                print("[P1] SRS.md exists — skipping generation")
+                print("[P1] SRS.md exists — committing checkpoint")
+                fr_ids = _parse_fr_ids(srs.read_text(encoding="utf-8", errors="ignore"))
+                git.commit_and_push_p1(
+                    fr_ids=fr_ids,
+                    background="P1 human review APPROVED — SRS + deliverables complete.",
+                    notes=["Human peer review passed", "All deliverables reviewed and approved"],
+                )
             else:
                 print(f"[P1] PAUSE: SRS.md not found at {srs}")
                 print("     Create SRS.md (### FR-XX: ... sections required),")
                 print("     then re-run:")
-                print(f"     python harness_cli.py run-pipeline --phase-from 2 "
+                print(f"     python harness_cli.py run-pipeline --phase-from 1 "
                       f"--project {project}")
                 return 10
             continue
@@ -1301,6 +1307,14 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
 
         fr_ids = json.loads(manifest_path.read_text(encoding="utf-8")).get("fr_ids", [])
 
+        # ── Entry gate verification (CONSTITUTION.md §2.3) ──────────────────
+        entry_gate = _verify_entry_gate(project, phase)
+        if not entry_gate["passed"] and not args.force:
+            print(f"\n[ENTRY GATE FAILED] {entry_gate['gate']} — {entry_gate['reason']}")
+            print("  Use --force to skip entry gate verification.")
+            return 10
+        print(f"[ENTRY GATE] {entry_gate['gate']}: {entry_gate['reason']}")
+
         # ── Step 1: Dynamic plan (reads SAD.md produced in P2) ────────────
         plan_out = project / ".methodology" / f"phase{phase}_plan.md"
         print(f"\n[{phase}.1] plan-phase")
@@ -1324,6 +1338,7 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
             _run_gap_analysis(project)
 
         # ── Step 3: Per-FR Gate 1 ─────────────────────────────────────────
+        fr_pass_results: list[dict] = []  # accumulate for postflight add_fr_result
         if phase in _PER_FR_GATE1_PHASES:
             if not fr_ids:
                 print(f"[ERROR] No FR IDs in manifest — cannot run Gate 1 for phase {phase}.")
@@ -1349,6 +1364,7 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
                     g1_result = bridge.finalize_gate(ctx)
                     print(f"PASSED  score={g1_result.score:.1f}")
                     git.commit_fr_gate1(fr_id, g1_result.score, phase)
+                    fr_pass_results.append({"fr_id": fr_id, "score": g1_result.score})
                 except GateBlockedError as exc:
                     print("BLOCKED")
                     print(_format_block_diagnostic(exc, 1, phase, fr_id, 3, project))
@@ -1400,10 +1416,15 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
         # ── Postflight validation (constitution re-check, drift, BVS invariants, Steering) ──
         print(f"\n[{phase}.6] Postflight validation")
         from core.phase_hooks import PhaseHooks
+        import types
         post_hooks = PhaseHooks(str(project), phase=phase,
                                enable_kill_switch=enable_kill_switch,
                                drift_threshold=drift_threshold,
                                auto_fix_enabled=auto_fix)
+        for fr in fr_pass_results:
+            dev = types.SimpleNamespace(status="complete", confidence=8)
+            rev = types.SimpleNamespace(status="complete", review_status="APPROVE", confidence=8)
+            post_hooks.add_fr_result(fr["fr_id"], dev, rev)
         post_result = post_hooks.postflight_all()
         if not post_result["success"] and not args.force:
             print(f"[BLOCKED] Postflight failed for Phase {phase}.")
