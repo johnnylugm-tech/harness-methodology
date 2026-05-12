@@ -228,15 +228,11 @@ jobs:
         if: vars.CURRENT_PHASE != '6'
         env:
           PHASE: ${{ vars.CURRENT_PHASE || '1' }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python harness/harness_cli.py run-phase --phase $PHASE --project .
 
       - name: FR Traceability Check
         # Advisory only (continue-on-error: true) — traceability gaps surface as warnings,
-        # they do not block the PR. ANTHROPIC_API_KEY provided in case constitution
-        # sub-checks invoke LLM analysis; harmless if the script runs statically.
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        # they do not block the PR.
         run: python harness/scripts/check_fr_full.py --phase ${{ vars.CURRENT_PHASE || '1' }}
         continue-on-error: true
 ```
@@ -255,13 +251,11 @@ jobs:
         env:
           PHASE: ${{ vars.CURRENT_PHASE || '1' }}
           PYTHONPATH: /opt/harness
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python /opt/harness/harness_cli.py run-phase --phase $PHASE --project .
 
       - name: FR Traceability Check
         env:
           PYTHONPATH: /opt/harness
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python /opt/harness/scripts/check_fr_full.py --phase ${{ vars.CURRENT_PHASE || '1' }}
         continue-on-error: true
 ```
@@ -275,18 +269,14 @@ jobs:
         if: vars.CURRENT_PHASE != '6'   # Gate 4 is local-only (Hermes human APPROVE)
         env:
           PHASE: ${{ vars.CURRENT_PHASE || '1' }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python harness_cli.py run-phase --phase $PHASE --project .
 
       - name: FR Traceability Check
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python scripts/check_fr_full.py --phase ${{ vars.CURRENT_PHASE || '1' }}
         continue-on-error: true
 ```
 
-Set `vars.CURRENT_PHASE` in GitHub repo → Settings → Variables → Actions variables. **Keep this in sync with local `git config quality.phase`** — divergence causes CI and local hooks to enforce different gates silently.  
-Set `secrets.ANTHROPIC_API_KEY` in GitHub repo → Settings → Secrets → Actions secrets.
+Set `vars.CURRENT_PHASE` in GitHub repo → Settings → Variables → Actions variables. **Keep this in sync with local `git config quality.phase`** — divergence causes CI and local hooks to enforce different gates silently.
 
 ---
 

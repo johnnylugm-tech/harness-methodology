@@ -1535,7 +1535,6 @@ def _harness_workflow_template(phase: int) -> str:
 #
 # Configure (GitHub repo → Settings):
 #   CURRENT_PHASE   → Variables → Actions variables
-#   ANTHROPIC_API_KEY → Secrets → Actions secrets
 name: Harness Quality Gate
 
 on:
@@ -1564,12 +1563,9 @@ jobs:
         if: vars.CURRENT_PHASE != '6'
         env:
           PHASE: ${{{{ vars.CURRENT_PHASE || '{phase}' }}}}
-          ANTHROPIC_API_KEY: ${{{{ secrets.ANTHROPIC_API_KEY }}}}
         run: python harness/harness_cli.py run-phase --phase $PHASE --project .
 
       - name: FR Traceability Check
-        env:
-          ANTHROPIC_API_KEY: ${{{{ secrets.ANTHROPIC_API_KEY }}}}
         run: python harness/scripts/check_fr_full.py --phase ${{{{ vars.CURRENT_PHASE || '{phase}' }}}}
         continue-on-error: true
 """
