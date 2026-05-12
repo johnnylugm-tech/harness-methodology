@@ -81,9 +81,12 @@ Entry point: `/opt/harness/harness_cli.py`.
 ```bash
 cp -r harness-methodology/core your-project/core
 cp -r harness-methodology/harness your-project/harness
+cp -r harness-methodology/scripts your-project/scripts
 cp harness-methodology/harness_cli.py your-project/
 ```
 Simplest for single-developer setups; requires manual updates when framework changes.
+
+> **Why copy `scripts/`**: CI Option C YAML runs `python scripts/check_fr_full.py` for FR traceability checks. `check_fr_full.py` lives in the repo's root `scripts/` directory — it is **not** inside `harness/`. Without copying `scripts/`, the CI step silently skips (masked by `continue-on-error: true`) and FR traceability is never verified.
 
 ### 3.2 Step 2: Install Git Hooks
 

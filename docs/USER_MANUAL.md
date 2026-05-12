@@ -1208,8 +1208,15 @@ Run this end-to-end smoke-test after setup to confirm the full chain is healthy:
 
 ```bash
 #!/usr/bin/env bash
-# Run from your target project root (where harness/ is submodule or copy).
+# Run from your target project root.
 # Exit 0 = all checks pass. Non-zero lines indicate what's broken.
+
+# Auto-detect harness_cli.py (works for Option A / B / C):
+if   [ -f "./harness_cli.py" ];             then HARNESS_CLI=./harness_cli.py
+elif [ -f "./harness/harness_cli.py" ];     then HARNESS_CLI=./harness/harness_cli.py
+elif [ -f "/opt/harness/harness_cli.py" ];  then HARNESS_CLI=/opt/harness/harness_cli.py
+else HARNESS_CLI=""; fi
+HARNESS_DIR=$(dirname "${HARNESS_CLI:-harness/harness_cli.py}")
 
 echo "--- 1. git hooks ---"
 ls .git/hooks/prepare-commit-msg .git/hooks/pre-push .git/hooks/post-merge \
@@ -1220,8 +1227,13 @@ git config quality.phase \
   && echo "OK: quality.phase set" || echo "FAIL: run git config quality.phase 1"
 
 echo "--- 3. harness_cli.py reachable ---"
-python3 harness/harness_cli.py --help > /dev/null 2>&1 \
-  && echo "OK: harness_cli.py found" || echo "FAIL: check install option (§12.1)"
+if [ -n "$HARNESS_CLI" ]; then
+  python3 "$HARNESS_CLI" --help > /dev/null 2>&1 \
+    && echo "OK: harness_cli.py found ($HARNESS_CLI)" \
+    || echo "FAIL: $HARNESS_CLI exists but failed — check install option (§12.1)"
+else
+  echo "FAIL: harness_cli.py not found in ./ harness/ /opt/harness/ — check install option (§12.1)"
+fi
 
 echo "--- 4. Python deps ---"
 python3 -c "import yaml; print('OK: pyyaml')" 2>/dev/null \
@@ -1235,8 +1247,13 @@ echo "--- 5. ANTHROPIC_API_KEY ---"
   || echo "FAIL: export ANTHROPIC_API_KEY=sk-ant-..."
 
 echo "--- 6. SSI embedded ---"
-python3 -c "import sys; sys.path.insert(0,'harness'); from ssi import __version__; print(f'OK: ssi {__version__}')" \
+python3 -c "import sys; sys.path.insert(0,'$HARNESS_DIR'); from ssi import __version__; print(f'OK: ssi {__version__}')" \
   2>/dev/null || echo "WARN: SSI not importable — gate evaluation will fall back to static scoring"
+
+echo "--- 7. HERMES_REVIEWER_TARGET (Gate 4) ---"
+[ -n "$HERMES_REVIEWER_TARGET" ] \
+  && echo "OK: HERMES_REVIEWER_TARGET=$HERMES_REVIEWER_TARGET" \
+  || echo "WARN: not set — Gate 4 (P6 exit) will block. export HERMES_REVIEWER_TARGET=telegram:YOUR_ID"
 
 echo "--- done ---"
 ```
@@ -1245,11 +1262,12 @@ echo "--- done ---"
 ```
 OK: hooks installed
 OK: quality.phase set
-OK: harness_cli.py found
+OK: harness_cli.py found (./harness/harness_cli.py)
 OK: pyyaml
 OK: gate config
 OK: ANTHROPIC_API_KEY set (sk-ant-ap...)
 OK: ssi 2.x.x
+OK: HERMES_REVIEWER_TARGET=telegram:6308981865
 ```
 
 Any `FAIL` line is a blocking issue. `WARN: SSI` is non-blocking (gates still run with reduced scoring).
