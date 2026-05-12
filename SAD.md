@@ -1,4 +1,4 @@
-# SAD — Harness Methodology v2.3 (As-Built — Audit: 100% SAD↔code consistency, 2026-05-06)
+# SAD — Harness Methodology v2.4 (As-Built — Audit: 2026-05-12)
 
 > **Sync guarantee**: This document is reverse-engineered from the live codebase.
 > Any change to the code **must** be reflected here, and vice-versa.
@@ -258,9 +258,6 @@ class HarnessBridge:
 
     def finalize_gate(self, ctx: GateContext) -> GateResult:
         """Phase 2: read gate{N}_result.json, check thresholds, update manifest."""
-
-    def run_gate(self, ...) -> GateResult:
-        """DEPRECATED — raises NotImplementedError. Use prepare_gate + finalize_gate."""
 
     def generate_quality_manifest(self, fr_ids: list[str], sad_path: str) -> Path: ...
 ```
@@ -1205,7 +1202,7 @@ class KillSwitch:
 |------|----------------|
 | `__init__.py` | `AutoFixEngine`, `FixResult`, `FixStrategy`, `FixContext`, `EscalationCondition` |
 | `classifier.py` | 31-entry classification table; `classify()` → (strategy, confidence, max_rounds, problem_type) |
-| `strategies.py` | 13 strategy functions in `STRATEGY_REGISTRY` (stub generation, keyword injection, test scaffolding, etc.) |
+| `strategies.py` | 12 strategy functions in `STRATEGY_REGISTRY` (stub generation, keyword injection, test scaffolding, etc.) |
 | `guardrails.py` | `pre_fix_safety_check()`, `post_fix_drift_check()`, `regression_check()`, `rollback_if_unsafe()` |
 
 **FixStrategy enum**:
@@ -1226,7 +1223,7 @@ class KillSwitch:
 
 **Integration points**:
 - `harness_cli.py`: `--auto-fix-rounds N` (default 3, max 5), `--no-auto-fix` flags
-- `orchestration/__init__.py`: delegates to AutoFixEngine
+- `orchestration/__init__.py`: exports `run_constitution_check_with_feedback`, `run_enforcement_check_with_feedback`, `run_policy_check_with_feedback` — retry-aware wrappers that delegate auto-fix to AutoFixEngine on failure
 - `core/phase_hooks.py`: `auto_fix_enabled` parameter, `to_fix_context()` method
 - `harness/harness_bridge.py`: `GateContext.auto_fix_rounds`, `prepare_gate(auto_fix_rounds=...)`
 
@@ -1770,7 +1767,7 @@ CREATE TABLE IF NOT EXISTS effort (
 
 ### §3.20 — `scripts/` Directory Overview
 
-Full inventory of the `scripts/` directory (21 items). Grouped by role:
+Full inventory of the `scripts/` directory (25 items). Grouped by role:
 
 #### Phase Lifecycle & Planning
 
@@ -1826,10 +1823,19 @@ python scripts/generate_full_plan.py --phase 3 --repo /path/to/project \
 
 | Script | Size | Purpose |
 |---|---|---|
-| `pyproject.toml` | 1KB | Build configuration for `pip wheel`; declares project metadata, dependencies, and tool settings |
-| `.github/workflows/release.yml` | 2KB | Tag-driven (`v*`) release workflow: validate → test → build wheel → sha256 → GitHub Release |
-| `scripts/list-modules.py` | 4KB | Module inventory scanner; `--validate` flag checks all manifest.json + SKILL.md frontmatter integrity |
-| `scripts/validate_cross_refs.py` | 3KB | Cross-reference integrity checker: CLASSIFICATION_TABLE ↔ STRATEGY_REGISTRY consistency, dead code detection |
+| `bump_version.py` | 2KB | Semantic version bumper: reads/writes version across SKILL.md, CONSTITUTION.md, and manifest.json |
+| `create_release.sh` | 2KB | Release tagging script: creates annotated tag with changelog, validates version consistency |
+| `list-modules.py` | 4KB | Module inventory scanner; `--validate` flag checks all manifest.json + SKILL.md frontmatter integrity |
+| `validate_cross_refs.py` | 3KB | Cross-reference integrity checker: CLASSIFICATION_TABLE ↔ STRATEGY_REGISTRY consistency, dead code detection |
+
+#### Package & Config
+
+| File | Size | Purpose |
+|---|---|---|
+| `__init__.py` | <1KB | Package marker for `scripts/` |
+| `CLAUDE.md` | 3KB | Script-level documentation and usage notes |
+
+> **Project-level build/CI artifacts** (not in `scripts/`): `pyproject.toml` (root, pip wheel config), `.github/workflows/release.yml` (tag-driven release workflow).
 
 ---
 

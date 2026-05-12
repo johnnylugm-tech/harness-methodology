@@ -32,14 +32,6 @@ if str(_methodology_root) not in sys.path:
 class PhaseTruthVerifier:
     """Phase truth verifier"""
 
-    # Weight configuration
-    WEIGHTS = {
-        "framework_block": 0.35,      # FrameworkEnforcer BLOCK
-        "session_log": 0.25,           # Sessions_spawn.log
-        "pytest_pass": 0.25,          # pytest actually passes
-        "coverage": 0.15,             # coverage meets threshold
-    }
-
     def __init__(self, project_root: str, phase: int):
         self.project_root = Path(project_root)
         self.phase = phase
