@@ -1082,7 +1082,7 @@ python harness_cli.py run-gate --gate 1 --phase 3 --project /project --fr-id FR-
 
 **Symptom**: `setup-git-hooks.sh` ran, `.git/hooks/prepare-commit-msg` exists, but bad commits go through silently with no gate output.
 
-**Cause**: Option B (global clone at `/opt/harness` or `~/.harness`) places `harness_cli.py` at a path the hooks don't auto-detect. Hooks check only `$PROJECT_ROOT/harness_cli.py` and `$PROJECT_ROOT/harness/harness_cli.py` — neither exists for Option B.
+**Cause**: Option B (global clone at `/opt/harness`) places `harness_cli.py` at a path the hooks don't auto-detect. Hooks check only `$PROJECT_ROOT/harness_cli.py` and `$PROJECT_ROOT/harness/harness_cli.py` — neither exists for Option B.
 
 **Diagnose**:
 ```bash
@@ -1142,8 +1142,8 @@ cd /your/target/project
 git submodule add https://github.com/johnnylugm-tech/harness-methodology harness
 
 # Option B — global clone + PYTHONPATH (add to .zshrc/.bashrc)
-git clone https://github.com/johnnylugm-tech/harness-methodology ~/.harness
-echo 'export PYTHONPATH=~/.harness:$PYTHONPATH' >> ~/.zshrc
+git clone https://github.com/johnnylugm-tech/harness-methodology /opt/harness
+echo 'export PYTHONPATH=/opt/harness:$PYTHONPATH' >> ~/.zshrc
 
 # Option C — copy harness/ into project
 cp -r /path/to/harness-methodology/harness /your/target/project/
