@@ -23,6 +23,19 @@ This section is **procedural, not descriptive**. It tells you (the main agent) w
 When the user says "execute Phase N", "start P3", "implement FR-X", or any phase-work request:
 
 ```
+0. ONE-TIME PROJECT SETUP (new project only — skip if already initialized):
+   Detect: git config quality.phase 2>/dev/null
+   If EMPTY (fresh project) → run:
+     python harness_cli.py init-project --phase 1 --project .
+     → Installs: git hooks, .github/workflows/harness_quality_gate.yml, quality.phase=1
+   Then confirm these three items manually (cannot be automated — required before any phase work):
+     a. GitHub repo → Settings → Variables → CURRENT_PHASE = 1
+        (or: gh variable set CURRENT_PHASE --body "1")
+     b. GitHub repo → Settings → Secrets → ANTHROPIC_API_KEY = sk-ant-...
+     c. export HERMES_REVIEWER_TARGET=telegram:YOUR_CHAT_ID
+        (A/B Agent B uses this from P1; strictly required at P6. Set now for full quality.)
+   If quality.phase IS set → skip to step 1. Setup already done.
+
 1. GENERATE PLAN (always first action for a new phase):
    python harness_cli.py plan-phase --phase N --repo . --output .methodology/phaseN_plan.md
    → Internally calls generate_full_plan.py. Produces the authoritative task list for this phase.

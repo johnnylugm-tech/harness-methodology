@@ -614,6 +614,26 @@ def _deliverable_ab_block(phase: int, deliverable: Dict, sub_n: int, total: int)
 
 def _preflight_steps(phase: int) -> List[str]:
     """Preflight hook step — run before the FR development loop (FSM + Constitution check + CI readiness)."""
+    if phase == 1:
+        ci_check = [
+            "- [ ] **[PREFLIGHT-CI]** ⛔ HARD STOP if any item below is missing — complete SKILL.md §0.1 Step 0 first:",
+            "  1. `git config quality.phase` returns `1`  ← set by `init-project`",
+            "  2. `.github/workflows/harness_quality_gate.yml` exists in project root  ← set by `init-project`",
+            "  3. Git hooks installed (`ls .git/hooks/prepare-commit-msg`)  ← set by `init-project`",
+            "  4. GitHub repo variable `CURRENT_PHASE = 1` (Settings → Variables)  ← manual",
+            "  5. `ANTHROPIC_API_KEY` secret set in GitHub repo (Settings → Secrets)  ← manual",
+            "  6. `HERMES_REVIEWER_TARGET` exported in shell  ← manual (required before P6, recommended now)",
+            "  If any missing: stop, run `python3 harness_cli.py init-project --phase 1 --project $REPO`, then set manual items.",
+        ]
+    else:
+        ci_check = [
+            "- [ ] **[PREFLIGHT-CI]** Confirm CI wiring unchanged (should be set since P1):",
+            "  1. `.github/workflows/harness_quality_gate.yml` exists",
+            "  2. Git hooks installed (`ls .git/hooks/prepare-commit-msg`)",
+            "  3. harness importable (submodule, PYTHONPATH, or vendored `quality_gate/`)",
+            f"  4. GitHub repo variable `CURRENT_PHASE` = {phase} (updated by `advance-phase`)",
+            f"  > If stale: run `python3 harness_cli.py init-project --phase {phase} --project $REPO --force`",
+        ]
     return [
         "### Pre-Phase Preflight",
         "",
@@ -623,12 +643,7 @@ def _preflight_steps(phase: int) -> List[str]:
         "  ```",
         "  If FAILED non-critically: use `--force`. If BLOCKED: fix FSM/Constitution first.",
         "",
-        "- [ ] **[PREFLIGHT-CI]** Confirm target project CI wiring:",
-        "  1. `.github/workflows/harness_quality_gate.yml` exists in project root",
-        "  2. Git hooks installed (`ls .git/hooks/prepare-commit-msg`)",
-        "  3. harness importable (submodule, PYTHONPATH, or vendored `quality_gate/`)",
-        f"  4. GitHub repo variable `CURRENT_PHASE` set to {phase}",
-        f"  > If any missing: run `python3 harness_cli.py init-project --phase {phase} --project $REPO`",
+        *ci_check,
         "",
     ]
 
