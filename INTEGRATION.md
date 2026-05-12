@@ -173,6 +173,8 @@ python harness_cli.py init-project --project /path/to/target --phase 3
 
 > **The YAML below targets Option A (submodule).** For Option B (global clone) and Option C (copy), see the variant blocks at the end of this section. Running `harness_cli.py init-project` auto-generates the correct YAML for your install option.
 
+> **Gate 4 is a local-only gate.** It requires a human Hermes APPROVE within a 2-minute window — CI runners are headless and will always time out. All three YAML variants below skip the gate-check step when `CURRENT_PHASE == 6`. Run Gate 4 manually at P6 exit: `python harness_cli.py run-gate --gate 4 --phase 6 --project .`
+
 ### Option A — Submodule (recommended)
 
 ```yaml
@@ -200,6 +202,9 @@ jobs:
           pip install -r harness/requirements.txt || true
 
       - name: Run Quality Gate (current phase)
+        # Gate 4 (P6 exit) requires human Hermes APPROVE — headless CI will always
+        # time out. Skip the gate step when CURRENT_PHASE is 6; run Gate 4 locally.
+        if: vars.CURRENT_PHASE != '6'
         env:
           PHASE: ${{ vars.CURRENT_PHASE || '3' }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -220,6 +225,7 @@ jobs:
           pip install -r /opt/harness/requirements.txt || true
 
       - name: Run Quality Gate (current phase)
+        if: vars.CURRENT_PHASE != '6'   # Gate 4 is local-only (Hermes human APPROVE)
         env:
           PHASE: ${{ vars.CURRENT_PHASE || '3' }}
           PYTHONPATH: /opt/harness
@@ -233,13 +239,14 @@ jobs:
       # harness_cli.py and harness/ are already in repo root — no extra install step
 
       - name: Run Quality Gate (current phase)
+        if: vars.CURRENT_PHASE != '6'   # Gate 4 is local-only (Hermes human APPROVE)
         env:
           PHASE: ${{ vars.CURRENT_PHASE || '3' }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python harness_cli.py run-gate --phase $PHASE
 ```
 
-Set `vars.CURRENT_PHASE` in GitHub repo → Settings → Variables → Actions variables.  
+Set `vars.CURRENT_PHASE` in GitHub repo → Settings → Variables → Actions variables. **Keep this in sync with local `git config quality.phase`** — divergence causes CI and local hooks to enforce different gates silently.  
 Set `secrets.ANTHROPIC_API_KEY` in GitHub repo → Settings → Secrets → Actions secrets.
 
 ---

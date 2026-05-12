@@ -1064,6 +1064,54 @@ python harness_cli.py run-gate --gate 1 --phase 3 --project /project --fr-id FR-
 # Use --skip-preflight only when you've already verified preflight separately.
 ```
 
+### `git hooks installed but commits never blocked (Option B install)`
+
+**Symptom**: `setup-git-hooks.sh` ran, `.git/hooks/prepare-commit-msg` exists, but bad commits go through silently with no gate output.
+
+**Cause**: Option B (global clone at `/opt/harness` or `~/.harness`) places `harness_cli.py` at a path the hooks don't auto-detect. Hooks check only `$PROJECT_ROOT/harness_cli.py` and `$PROJECT_ROOT/harness/harness_cli.py` — neither exists for Option B.
+
+**Diagnose**:
+```bash
+bash -x .git/hooks/prepare-commit-msg /dev/null 2>&1 | grep -E "HARNESS_CLI|Warning"
+# If output shows: Warning: harness_cli.py not found → hooks are silently skipping
+```
+
+**Fix**: Apply the manual patch from §12.1 (Option B workaround) to all three hooks:
+```bash
+# Open each hook file and add your harness path:
+# .git/hooks/prepare-commit-msg, .git/hooks/pre-push, .git/hooks/post-merge
+#
+# Find the line:  else\n    HARNESS_CLI=""
+# Add before it:  elif [ -f "/opt/harness/harness_cli.py" ]; then
+#                     HARNESS_CLI="/opt/harness/harness_cli.py"
+#
+# Repeat for all three hook files. Then verify:
+bash -x .git/hooks/prepare-commit-msg /dev/null 2>&1 | grep HARNESS_CLI
+# Expected: HARNESS_CLI=/opt/harness/harness_cli.py
+```
+
+### `Gate 4 times out in CI / PR stuck waiting for Hermes APPROVE`
+
+**Cause**: Gate 4 (`finalize_gate` with `gate_num=4`) unconditionally calls `_require_hermes_approve()` with a 2-minute timeout. CI runners are headless — no one will approve the Telegram message within the window, so the job blocks for 2 minutes then fails.
+
+**Gate 4 is a local-only gate.** It must be run manually by the developer at P6 exit:
+```bash
+# Run Gate 4 locally (not in CI):
+python harness_cli.py run-gate --gate 4 --phase 6 --project /project
+# Hermes sends Telegram notification → you APPROVE → gate passes
+```
+
+**CI workflow fix**: Exclude Gate 4 from automated runs. See INTEGRATION.md §4 for the CI YAML pattern:
+```yaml
+- name: Run Quality Gate
+  env:
+    PHASE: ${{ vars.CURRENT_PHASE || '3' }}
+  # Gate 4 (P6 exit) requires human Hermes APPROVE — run locally, not in CI.
+  # Skip CI gate check when phase is 6 and gate would be 4.
+  if: vars.CURRENT_PHASE != '6'
+  run: python harness/harness_cli.py run-gate --phase $PHASE
+```
+
 ---
 
 ## 12. GitHub Integration Setup
@@ -1150,11 +1198,19 @@ python3 harness/harness_cli.py --help                   # → shows commands
 
 ### 12.3 Phase Transition
 
-After advancing from Phase N → N+1:
+After advancing from Phase N → N+1, update **both** local and CI:
 ```bash
+# 1. Local hooks (immediate effect on next commit/push):
 git config quality.phase N+1
-# hooks automatically enforce Phase N+1 gates from the next commit onward
+
+# 2. CI pipeline — update GitHub repo variable to keep CI in sync:
+#    GitHub repo → Settings → Variables → Actions → CURRENT_PHASE → set to N+1
+#
+# If you skip step 2, CI continues enforcing the old phase gate
+# while local hooks enforce the new one — results diverge silently.
 ```
+
+> **Tip**: `harness_cli.py init-project` prints a reminder with the exact GitHub URL after setup. You can also check the current CI phase with `gh variable list --repo owner/repo | grep CURRENT_PHASE`.
 
 ### 12.4 Emergency Bypass
 
