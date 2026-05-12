@@ -960,7 +960,11 @@ def generate_phase1_tasks(repo_path: Path, srs_path: Path) -> List[str]:
         lines.append("### FR Requirements ({} total)".format(len(frs)))
         lines.append("")
         for fr in frs:
-            lines.append(f"#### {fr['fr']}: {fr['title']}")
+            title = fr['title']
+            fr_prefix = f"{fr['fr']}: "
+            if title.startswith(fr_prefix):
+                title = title[len(fr_prefix):]
+            lines.append(f"#### {fr['fr']}: {title}")
             lines.append(f"**Task**: {fr['desc']}")
             if fr['requirements']:
                 lines.append("**Requirements**:")
@@ -1032,7 +1036,11 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path) -> List[str]:
         lines.append("### FR Architecture Mapping ({} total)".format(len(frs)))
         lines.append("")
         for fr in frs:
-            lines.append(f"#### {fr['fr']}: {fr['title']}")
+            title = fr['title']
+            fr_prefix = f"{fr['fr']}: "
+            if title.startswith(fr_prefix):
+                title = title[len(fr_prefix):]
+            lines.append(f"#### {fr['fr']}: {title}")
             lines.append(f"**Requirement**: {fr['desc']}")
 
             mod = modules.get(fr['fr'], {})
@@ -1094,7 +1102,11 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path) -> List[str]:
         lines.append("")
         checkpoint_n = 1
         for fr in frs:
-            lines.append(f"#### {fr['fr']}: {fr['title']}")
+            title = fr['title']
+            fr_prefix = f"{fr['fr']}: "
+            if title.startswith(fr_prefix):
+                title = title[len(fr_prefix):]
+            lines.append(f"#### {fr['fr']}: {title}")
             lines.append(f"**Task**: {fr['desc']}")
 
             if fr['requirements']:
@@ -1195,7 +1207,11 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path) -> List[str]:
         lines.append("### FR Test Coverage")
         lines.append("")
         for fr in frs:
-            lines.append(f"#### {fr['fr']}: {fr['title']}")
+            title = fr['title']
+            fr_prefix = f"{fr['fr']}: "
+            if title.startswith(fr_prefix):
+                title = title[len(fr_prefix):]
+            lines.append(f"#### {fr['fr']}: {title}")
             lines.append(f"**Test Target**: Verify {fr['desc']}")
             if fr['test_cases']:
                 lines.append("**Test Cases**:")
