@@ -745,6 +745,28 @@ def cmd_effort(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# advance-phase
+# ---------------------------------------------------------------------------
+
+def cmd_advance_phase(args: argparse.Namespace) -> int:
+    """Advance to next phase: sync quality.phase + GitHub CURRENT_PHASE atomically.
+
+    Calls _advance_fsm() which:
+      1. Writes .methodology/state.json (current_phase = completed + 1)
+      2. Updates git config quality.phase
+      3. Attempts gh variable set CURRENT_PHASE (soft-fail with manual fallback)
+
+    Usage:
+        python harness_cli.py advance-phase --completed 3   # advances to phase 4
+    """
+    project = Path(args.project).resolve()
+    print(f"\n[advance-phase] Completed phase {args.completed_phase} → advancing to {args.completed_phase + 1}")
+    _advance_fsm(project, args.completed_phase)
+    print(f"[advance-phase] Done — local hooks and CI now target phase {args.completed_phase + 1}")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # reload-policy
 # ---------------------------------------------------------------------------
 
@@ -953,8 +975,13 @@ def _update_state_checkpoint(project: Path, gate_num: int, fr_id: str | None) ->
 
 
 def _advance_fsm(project: Path, completed_phase: int) -> None:
-    """Write .methodology/state.json to record phase completion."""
+    """Write state.json, update git config quality.phase, and sync GitHub CURRENT_PHASE."""
+    import subprocess  # nosec B404
     from datetime import datetime, timezone
+
+    next_phase = completed_phase + 1
+
+    # 1. Write .methodology/state.json
     state_path = project / ".methodology" / "state.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)
     existing_state = "ACTIVE"
@@ -967,13 +994,43 @@ def _advance_fsm(project: Path, completed_phase: int) -> None:
     state_path.write_text(
         json.dumps({
             "state": existing_state,
-            "current_phase": completed_phase + 1,
+            "current_phase": next_phase,
             "last_gate": None,
             "last_fr": None,
             "last_update": datetime.now(timezone.utc).isoformat(),
         }, indent=2),
         encoding="utf-8",
     )
+
+    # 2. Update git config quality.phase (local hooks read this)
+    subprocess.run(  # nosec B603 B607
+        ["git", "-C", str(project), "config", "--local", "quality.phase", str(next_phase)],
+        capture_output=True,
+    )
+    print(f"  [FSM] quality.phase → {next_phase}")
+
+    # 3. Attempt GitHub CURRENT_PHASE sync via gh CLI (soft-fail)
+    try:
+        gh = subprocess.run(  # nosec B603 B607
+            ["gh", "variable", "set", "CURRENT_PHASE", "--body", str(next_phase)],
+            cwd=str(project),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if gh.returncode == 0:
+            print(f"  [FSM] GitHub CURRENT_PHASE → {next_phase} ✓")
+        else:
+            _warn_github_phase_sync(next_phase)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        _warn_github_phase_sync(next_phase)
+
+
+def _warn_github_phase_sync(next_phase: int) -> None:
+    """Print manual fallback instructions when gh CLI sync fails."""
+    print(f"  [WARN] GitHub CURRENT_PHASE not auto-updated (gh CLI unavailable or not authed).")
+    print(f"  Manual option A: gh variable set CURRENT_PHASE --body \"{next_phase}\"")
+    print(f"  Manual option B: GitHub repo → Settings → Variables → CURRENT_PHASE = {next_phase}")
 
 
 # ---------------------------------------------------------------------------
@@ -1752,6 +1809,18 @@ def build_parser() -> argparse.ArgumentParser:
     ef.add_argument("--phase",   type=int, default=None, help="Filter by phase")
     ef.add_argument("--project", default=".", help="Project root (default: .)")
     ef.set_defaults(func=cmd_effort)
+
+    # advance-phase
+    adv = sub.add_parser(
+        "advance-phase",
+        help="Advance to next phase: sync quality.phase + GitHub CURRENT_PHASE atomically",
+    )
+    adv.add_argument(
+        "--completed", type=int, required=True, dest="completed_phase",
+        help="Phase number that just completed (advance-phase --completed 3 → sets phase 4)",
+    )
+    adv.add_argument("--project", default=".", help="Project root (default: .)")
+    adv.set_defaults(func=cmd_advance_phase)
 
     # reload-policy
     rl = sub.add_parser("reload-policy", help="Hot-reload enforcement policies from enforcement.json")

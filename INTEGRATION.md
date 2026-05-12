@@ -326,10 +326,11 @@ python harness_cli.py audit-phase --phase <current> --repo owner/repo
 python harness_cli.py verify-spec --project .
 python harness_cli.py check-logic --project .
 
-# 6. Update local git config AND GitHub CI variable (keep in sync)
-git config quality.phase <next>
-# Then update GitHub repo → Settings → Variables → Actions → CURRENT_PHASE = <next>
-# Divergence causes CI and local hooks to enforce different gates silently.
+# 6. Advance phase — updates quality.phase + GitHub CURRENT_PHASE atomically
+python harness_cli.py advance-phase --completed <current>
+# advance-phase does: git config quality.phase, gh variable set CURRENT_PHASE,
+# and .methodology/state.json — all in one call.
+# If gh CLI is unavailable, it prints the manual fallback command.
 
 # 7. Generate plan for next phase
 python harness_cli.py plan-phase --phase <next>
