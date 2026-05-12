@@ -10,6 +10,7 @@ Verifies:
 """
 
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Dict
@@ -937,7 +938,7 @@ class TestGenerateFullPlan:
 
     def test_plan_header_contains_version(self, project: Path):
         result = generate_full_plan(3, project)
-        assert "v6.50.0" in result
+        assert re.search(r"harness-methodology v\d+\.\d+", result), f"version not found in: {result[:200]}"
 
     def test_plan_has_checkpoint_index(self, project: Path):
         result = generate_full_plan(3, project)

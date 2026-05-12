@@ -28,6 +28,22 @@ from datetime import datetime
 from typing import Dict, List, Optional, cast
 
 
+def _get_harness_version() -> str:
+    """Read harness version from pyproject.toml (stdlib only, no tomllib needed)."""
+    try:
+        pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
+        content = pyproject.read_text()
+        # Anchor to [project] table to avoid matching dependency version strings
+        m = re.search(r'\[project\]\n.*?\nversion\s*=\s*"([^"]+)"', content, re.DOTALL)
+        if not m:
+            m = re.search(r'^version\s*=\s*"([^"]+)"', content, re.MULTILINE)
+        return m.group(1) if m else "2.4.0"
+    except Exception:
+        return "2.4.0"
+
+
+_HARNESS_VERSION = _get_harness_version()
+
 # ============================================================================
 # Phase-Specific Parsers
 # ============================================================================
@@ -519,10 +535,14 @@ def _deliverable_ab_block(phase: int, deliverable: Dict, sub_n: int, total: int)
     if is_last and total > 1:
         checks.append("All upstream deliverables consistent with each other? No contradictory decisions?")
 
+    dep_note = ""
+    if not is_first:
+        prev_n = sub_n - 1
+        dep_note = f" (+ Sub-Task {prev_n}/{total} review: previous review gaps carry forward)"
     lines = [
         f"### Sub-Task {sub_n}/{total}: {label} — {desc}",
         "",
-        f"**Depends on**: {deps}",
+        f"**Depends on**: {deps}{dep_note}",
         f"**Agent A**: {role_a}",
         f"**Agent B**: {role_b}",
         "",
@@ -586,6 +606,7 @@ def _deliverable_ab_block(phase: int, deliverable: Dict, sub_n: int, total: int)
         f'  {{"fr_id":"P{phase}","sub_task":"{label}","role":"{role_a.lower()}","session_id":"dev-XXXX","status":"success","confidence":8}}',
         f'  {{"fr_id":"P{phase}","sub_task":"{label}","role":"{role_b.lower()}","session_id":"rev-XXXX","review_status":"APPROVE"}}',
         "  ```",
+        f"  > fr_id uses P{phase} as phase-level placeholder; replace with FR-XX for FR-specific plans.",
         "",
     ]
     return lines
@@ -603,7 +624,7 @@ def _preflight_steps(phase: int) -> List[str]:
         "  If FAILED non-critically: use `--force`. If BLOCKED: fix FSM/Constitution first.",
         "",
         "- [ ] **[PREFLIGHT-CI]** Confirm target project CI wiring:",
-        "  1. `.github/workflows/harness_gate.yml` exists in project root",
+        "  1. `.github/workflows/harness_quality_gate.yml` exists in project root",
         "  2. Git hooks installed (`ls .git/hooks/prepare-commit-msg`)",
         "  3. harness importable (submodule, PYTHONPATH, or vendored `quality_gate/`)",
         f"  4. GitHub repo variable `CURRENT_PHASE` set to {phase}",
@@ -1450,10 +1471,10 @@ def generate_full_plan(phase: int, repo_path: Path, output_path: Optional[Path] 
     plan_lines = [
         f"# Phase {phase} Full Execution Plan -- {repo_path.name}",
         "",
-        "> **Version**: v6.50.0",
+        f"> **Version**: v{_HARNESS_VERSION} (project plan)",
         f"> **Project**: {repo_path.name}",
         f"> **Date**: {datetime.now().strftime('%Y-%m-%d')}",
-        "> **Framework**: harness-methodology v6.49.0",
+        f"> **Framework**: harness-methodology v{_HARNESS_VERSION}",
         f"> **Phase**: {phase} - {phase_names.get(phase, 'Unknown')}",
         f"> **Status**: Full version (including Phase {phase} detailed tasks)",
         "",
