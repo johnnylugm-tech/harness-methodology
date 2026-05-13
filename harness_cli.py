@@ -23,6 +23,7 @@ Usage:
     python harness_cli.py check-logic       [--project .] [--srs SRS.md]
     python harness_cli.py init-project      --project /path/to/target [--phase 3] [--force]
     python harness_cli.py push-checkpoint   --phase 1|2 --project . [--fr-ids FR-01,FR-02]
+    python harness_cli.py push-milestone    --type p3-mid|p3-pre-ssi|p5-baseline|p7|p8 --project .
     python harness_cli.py advance-phase     --completed-phase 3 [--project .]
 
 Gate Evaluation (two-phase flow):
@@ -581,6 +582,59 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
         if handover.exists():
             print(f"  HANDOVER.md → {handover}")
         print("  [git] pushed → remote ✓")
+    return 0 if ok else 1
+
+
+# ---------------------------------------------------------------------------
+# push-milestone  (P3+ milestone push + HANDOVER.md)
+# ---------------------------------------------------------------------------
+
+def cmd_push_milestone(args: argparse.Namespace) -> int:
+    """Push milestone checkpoint with HANDOVER.md generation.
+
+    Milestone pushes are the crash-recovery points for P3+:
+      p3-mid      — ≥50% FRs have Gate 1 PASS (PUSH ③)
+      p3-pre-ssi  — all FRs Gate 1 PASS, before SSI (PUSH ④)
+      p5-baseline — BASELINE.md generated (PUSH ⑦)
+      p7          — risk register complete (PUSH ⑨)
+      p8          — config records complete (PUSH ⑩)
+
+    Usage:
+      python harness_cli.py push-milestone --type p3-mid --project . --fr-done 3 --fr-total 6 --fr-ids FR-01,FR-02,FR-03
+      python harness_cli.py push-milestone --type p3-pre-ssi --project . --fr-ids FR-01,FR-02,FR-03
+      python harness_cli.py push-milestone --type p5-baseline --project .
+    """
+    project = Path(args.project).resolve()
+    git = _make_git(args, project)
+    git.ensure_gitignore()
+    milestone_type = args.type
+    fr_ids = [f.strip() for f in args.fr_ids.split(",") if f.strip()]
+
+    ok = False
+    if milestone_type == "p3-mid":
+        fr_done = args.fr_done
+        fr_total = args.fr_total
+        if fr_done is None or fr_total is None or fr_total == 0:
+            print("[ERROR] --fr-done and --fr-total required for p3-mid (fr-total must be >0)")
+            return 1
+        ok = git.commit_and_push_p3_mid(fr_done, fr_total, fr_ids)
+    elif milestone_type == "p3-pre-ssi":
+        ok = git.commit_and_push_p3_pre_ssi(fr_ids)
+    elif milestone_type == "p5-baseline":
+        ok = git.commit_and_push_p5_baseline()
+    elif milestone_type == "p7":
+        ok = git.commit_and_push_p7()
+    elif milestone_type == "p8":
+        ok = git.commit_and_push_p8()
+    else:
+        print(f"[ERROR] Unknown milestone type: {milestone_type}")
+        return 1
+
+    if ok:
+        handover = project / "HANDOVER.md"
+        if handover.exists():
+            print(f"  HANDOVER.md → {handover}")
+        print(f"  [git] milestone {milestone_type} pushed → remote ✓")
     return 0 if ok else 1
 
 
@@ -2121,6 +2175,25 @@ def build_parser() -> argparse.ArgumentParser:
     pc.add_argument("--no-git", action="store_true", dest="no_git",
                     help="Disable git commit/push (HANDOVER.md still written)")
     pc.set_defaults(func=cmd_push_checkpoint)
+
+    # push-milestone (P3+ milestone push + HANDOVER.md)
+    pm = sub.add_parser(
+        "push-milestone",
+        help="Push milestone checkpoint with HANDOVER.md (P3+: p3-mid, p3-pre-ssi, p5-baseline, p7, p8)",
+    )
+    pm.add_argument("--type", required=True,
+                    choices=["p3-mid", "p3-pre-ssi", "p5-baseline", "p7", "p8"],
+                    help="Milestone type")
+    pm.add_argument("--project", default=".", help="Project root (default: .)")
+    pm.add_argument("--fr-ids",  default="", dest="fr_ids",
+                    help="Comma-separated FR IDs")
+    pm.add_argument("--fr-done",  type=int, default=None,
+                    help="FRs completed so far (p3-mid only)")
+    pm.add_argument("--fr-total", type=int, default=None,
+                    help="Total FR count (p3-mid only)")
+    pm.add_argument("--no-git", action="store_true", dest="no_git",
+                    help="Disable git operations")
+    pm.set_defaults(func=cmd_push_milestone)
 
     # run-gate (Phase 1: prepare + print evaluation prompt)
     rg = sub.add_parser("run-gate", help="Prepare gate evaluation; print prompt for Claude")

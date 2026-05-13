@@ -772,8 +772,46 @@ def _phase_advance_step(phase: int) -> List[str]:
     ]
 
 
+def _p3_milestone_push_steps(fr_ids: List[str]) -> List[str]:
+    """P3 milestone push instructions (PUSH ③ at ≥50% FRs, PUSH ④ pre-SSI)."""
+    if not fr_ids:
+        return []
+    total = len(fr_ids)
+    mid = max(1, total // 2)
+    mid_ids = ",".join(fr_ids[:mid])
+    full_ids = ",".join(fr_ids)
+    # Visual truncated representation for the plan text (not used in bash commands)
+    if len(fr_ids) > 5:
+        _visual = ",".join(fr_ids[:5]) + f",…+{len(fr_ids) - 5}"
+    else:
+        _visual = full_ids
+    return [
+        "### P3 Milestone Pushes (10-Push Strategy ③④)",
+        "",
+        "> Per-FR Gate 1 only commits locally. The two **milestone pushes** below",
+        "> write `HANDOVER.md` and push to origin — these are the crash-recovery checkpoints.",
+        f"> All FR IDs in this project: {_visual}",
+        "",
+        f"- [ ] **PUSH ③ — P3-mid** (trigger when ≥{mid}/{total} FRs have Gate 1 PASS):",
+        "  ```bash",
+        "  python3 harness_cli.py push-milestone --type p3-mid --project . \\",
+        f"    --fr-done {mid} --fr-total {total} --fr-ids {mid_ids}",
+        "  ```",
+        f"  > `--fr-ids` lists the FRs with Gate 1 PASS so far. Replace `{mid_ids}` with actual.",
+        "  > Writes HANDOVER.md + commits + pushes. Next session reads HANDOVER.md to resume.",
+        "",
+        f"- [ ] **PUSH ④ — P3-pre-SSI** (trigger when all {total} FRs Gate 1 PASS, before SSI):",
+        "  ```bash",
+        "  python3 harness_cli.py push-milestone --type p3-pre-ssi --project . \\",
+        f"    --fr-ids {full_ids}",
+        "  ```",
+        "  > Last stable snapshot before SSI modifies files. HANDOVER.md + push.",
+        "",
+    ]
+
+
 def _gate1_checkpoint(fr_id: str, phase: int, checkpoint_n: int) -> List[str]:
-    """Gate 1 evaluation steps for a single FR (two-phase + push checkpoint)."""
+    """Gate 1 evaluation steps for a single FR (local commit, no push)."""
     meta = _GATE_META[1]
     return [
         "",
@@ -799,11 +837,12 @@ def _gate1_checkpoint(fr_id: str, phase: int, checkpoint_n: int) -> List[str]:
         "  **If FAIL** (any dim below threshold): fix code → repeat G1a→G1b→G1c until PASS.",
         "  **Do NOT proceed to G1d until all dims PASS.**",
         "",
-        f"- [ ] **G1d** ✅ Push to GitHub (CHECKPOINT-{checkpoint_n} saved):",
+        "- [ ] **G1d** ✅ Verify local commit saved (finalize-gate above already committed):",
         "  ```bash",
-        f"  git add -A && git commit -m 'gate1({fr_id}): Phase {phase} Gate 1 PASS'",
-        "  git push",
+        "  git log --oneline -1",
         "  ```",
+        "  > `finalize-gate --gate 1` calls `commit_fr_gate1()` — **local commit only, no push**.",
+        "  > Push + HANDOVER.md happens at milestone: `push-milestone --type p3-mid` / `p3-pre-ssi` / Gate exit.",
         "",
     ]
 
@@ -866,22 +905,31 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
 def _checkpoint_index(fr_ids: List[str], phase: int) -> List[str]:
     """Generate a checkpoint index header for the plan (P3-P8)."""
     lines = [
-        "> **Crash Recovery**: after each gate push, `HANDOVER.md` is written to project root.",
+        "> **Crash Recovery**: at each **milestone push**, `HANDOVER.md` is written to project root.",
         "> If context is lost, read `HANDOVER.md` first — it contains phase, status, and next steps.",
-        "> `finalize-gate` handles commit + push + HANDOVER in one call — do **not** raw-push at gate exits.",
+        "> Per-FR Gate 1 = **local commit only** (no push, no HANDOVER). Push happens at milestones.",
         "",
-        "> **Checkpoint Index** (push to GitHub = HANDOVER.md saved):",
+        "> **Checkpoint Index**:",
     ]
     cp = 1
     if phase in _PHASE_GATE1_PHASES:
         for fr_id in fr_ids:
-            lines.append(f"> - CHECKPOINT-{cp}: Gate 1 / {fr_id}")
+            lines.append(f"> - CHECKPOINT-{cp}: Gate 1 / {fr_id} *(local commit)*")
             cp += 1
+    if phase == 3:
+        lines.append("> - MILESTONE: P3-mid push (≥50% FRs Gate 1 PASS) → **HANDOVER.md**")
+        lines.append("> - MILESTONE: P3-pre-SSI push (all FRs done) → **HANDOVER.md**")
+    if phase == 5:
+        lines.append("> - MILESTONE: P5-baseline push (BASELINE.md generated) → **HANDOVER.md**")
+    if phase == 7:
+        lines.append("> - MILESTONE: P7 exit push (risk register complete) → **HANDOVER.md**")
+    if phase == 8:
+        lines.append("> - MILESTONE: P8 exit push (config records complete) → **HANDOVER.md**")
     if phase in _PHASE_EXIT_GATES:
         gate_num = _PHASE_EXIT_GATES[phase]
-        lines.append(f"> - CHECKPOINT-{cp}: Gate {gate_num} (Phase {phase} Exit)")
+        lines.append(f"> - CHECKPOINT-{cp}: Gate {gate_num} (Phase {phase} Exit) → **push + HANDOVER.md**")
     elif phase == 6:
-        lines.append(f"> - CHECKPOINT-{cp}: Gate 4 (Full Project, Hermes APPROVE)")
+        lines.append(f"> - CHECKPOINT-{cp}: Gate 4 (Full Project, Hermes APPROVE) → **push + HANDOVER.md**")
     lines.append("")
     return lines
 
@@ -1142,6 +1190,8 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     else:
         checkpoint_n = 1
 
+    lines.extend(_p3_milestone_push_steps(fr_ids))
+
     lines.extend(_gate_exit_checkpoint(gate_num=2, phase=3, checkpoint_n=checkpoint_n))
 
     lines.append("### Phase 3 Deliverables")
@@ -1276,6 +1326,17 @@ def generate_phase5_tasks(repo_path: Path) -> List[str]:
         lines.append("- [ ] Baseline established")
         lines.append("")
 
+    lines.extend([
+        "### P5 Milestone Push (10-Push Strategy ⑦)",
+        "",
+        "- [ ] **PUSH ⑦ — P5-baseline** (after BASELINE.md is generated):",
+        "  ```bash",
+        "  python3 harness_cli.py push-milestone --type p5-baseline --project .",
+        "  ```",
+        "  > Writes HANDOVER.md + commits + pushes.",
+        "",
+    ])
+
     lines.append("### Phase 5 Deliverables")
     lines.append("- [ ] `BASELINE.md` - System baseline")
     lines.append("- [ ] `MONITORING_PLAN.md` - Monitoring plan")
@@ -1382,6 +1443,17 @@ def generate_phase7_tasks(repo_path: Path) -> List[str]:
         lines.append("(No FR list found in manifest — run Gate 1 per FR manually)")
         lines.append("")
 
+    lines.extend([
+        "### P7 Milestone Push (10-Push Strategy ⑨)",
+        "",
+        "- [ ] **PUSH ⑨ — P7 exit** (after risk register is complete):",
+        "  ```bash",
+        "  python3 harness_cli.py push-milestone --type p7 --project .",
+        "  ```",
+        "  > Writes HANDOVER.md + commits + pushes.",
+        "",
+    ])
+
     lines.append("### Phase 7 Deliverables")
     lines.append("- [ ] `RISK_REGISTER.md` - Risk register")
     lines.append("- [ ] `RISK_MITIGATION_PLANS.md` - Mitigation plans")
@@ -1440,6 +1512,17 @@ def generate_phase8_tasks(repo_path: Path) -> List[str]:
     else:
         lines.append("(No FR list found in manifest — run Gate 1 per FR manually)")
         lines.append("")
+
+    lines.extend([
+        "### P8 Milestone Push (10-Push Strategy ⑩)",
+        "",
+        "- [ ] **PUSH ⑩ — P8 exit** (after config records are complete):",
+        "  ```bash",
+        "  python3 harness_cli.py push-milestone --type p8 --project .",
+        "  ```",
+        "  > Writes HANDOVER.md + commits + pushes. Pipeline complete.",
+        "",
+    ])
 
     lines.append("### Phase 8 Deliverables")
     lines.append("- [ ] `CONFIG_RECORDS.md` - Configuration records")

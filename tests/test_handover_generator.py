@@ -722,3 +722,127 @@ class TestHandoverGeneratorFixes:
         content = (tmp_path / "HANDOVER.md").read_text()
         # There must be a blank line (double newline) between last list item and next heading
         assert "\n\n## 目前執行狀況" in content
+
+
+# ─── resume_phase ──────────────────────────────────────────────────────────
+
+class TestResumePhase:
+    def test_default_resumes_phase_plus_one(self, tmp_path: Path):
+        """Without resume_phase, resume section says start Phase N+1."""
+        gen = HandoverGenerator(tmp_path)
+        content = gen._render(
+            checkpoint_id="P3-exit-20260513",
+            phase=3,
+            task_background="test",
+            current_status="test",
+            next_steps=["Proceed to P4"],
+            notes=[],
+            extra={},
+        )
+        assert "start Phase 4" in content
+        assert "continue Phase" not in content
+        assert "Follow SKILL.md §0.1 Phase 4 entry check" in content
+
+    def test_resume_phase_same_as_phase_continues(self, tmp_path: Path):
+        """resume_phase == phase says continue Phase N."""
+        gen = HandoverGenerator(tmp_path)
+        content = gen._render(
+            checkpoint_id="P3-mid-20260513",
+            phase=3,
+            task_background="test",
+            current_status="test",
+            next_steps=["Complete remaining FRs"],
+            notes=[],
+            extra={},
+            resume_phase=3,
+        )
+        assert "continue Phase 3" in content
+        assert "start Phase" not in content
+        assert "Follow the active plan and continue from where you left off" in content
+
+    def test_resume_phase_explicit_next_is_not_same_as_phase(self, tmp_path: Path):
+        """resume_phase explicitly set to phase+1 behaves like default."""
+        gen = HandoverGenerator(tmp_path)
+        content = gen._render(
+            checkpoint_id="P3-exit-20260513",
+            phase=3,
+            task_background="test",
+            current_status="test",
+            next_steps=["Proceed to P4"],
+            notes=[],
+            extra={},
+            resume_phase=4,
+        )
+        assert "start Phase 4" in content
+
+
+# ─── cmd_push_milestone ────────────────────────────────────────────────────
+
+class TestCmdPushMilestone:
+    """Tests for harness_cli.py cmd_push_milestone branches."""
+
+    @staticmethod
+    def _call_push_milestone(monkeypatch, tmp_path, milestone_type, **kwargs):
+        """Call cmd_push_milestone with given args and return (exit_code, printed)."""
+        import sys
+        import io
+        from harness_cli import cmd_push_milestone
+
+        # Build a fake args namespace
+        class Args:
+            pass
+        a = Args()
+        a.type = milestone_type
+        a.project = str(tmp_path)
+        a.fr_ids = kwargs.get("fr_ids", "")
+        a.fr_done = kwargs.get("fr_done")
+        a.fr_total = kwargs.get("fr_total")
+        a.no_git = True
+
+        # Disable actual git operations
+        captured = io.StringIO()
+        monkeypatch.setattr("sys.stdout", captured)
+        monkeypatch.setattr("sys.exit", lambda code: code)
+        monkeypatch.setattr("harness_cli._make_git", lambda args, project: GitStrategy(project, enabled=False))
+        try:
+            exit_code = cmd_push_milestone(a)
+        except SystemExit as e:
+            exit_code = e.code
+        return exit_code, captured.getvalue()
+
+    def test_p3_mid_missing_fr_done_total(self, tmp_path, monkeypatch):
+        exit_code, output = self._call_push_milestone(monkeypatch, tmp_path, "p3-mid")
+        assert exit_code == 1
+        assert "--fr-done" in output
+
+    def test_p3_mid_with_ids(self, tmp_path, monkeypatch):
+        exit_code, _ = self._call_push_milestone(
+            monkeypatch, tmp_path, "p3-mid",
+            fr_ids="FR-01,FR-02",
+            fr_done=2, fr_total=4,
+        )
+        assert exit_code == 0
+
+    def test_p3_pre_ssi(self, tmp_path, monkeypatch):
+        exit_code, _ = self._call_push_milestone(
+            monkeypatch, tmp_path, "p3-pre-ssi",
+            fr_ids="FR-01,FR-02,FR-03",
+        )
+        assert exit_code == 0
+
+    def test_p5_baseline(self, tmp_path, monkeypatch):
+        exit_code, _ = self._call_push_milestone(monkeypatch, tmp_path, "p5-baseline")
+        assert exit_code == 0
+
+    def test_p7(self, tmp_path, monkeypatch):
+        exit_code, _ = self._call_push_milestone(monkeypatch, tmp_path, "p7")
+        assert exit_code == 0
+
+    def test_p8(self, tmp_path, monkeypatch):
+        exit_code, _ = self._call_push_milestone(monkeypatch, tmp_path, "p8")
+        assert exit_code == 0
+
+    def test_unknown_type(self, tmp_path, monkeypatch):
+        exit_code, output = self._call_push_milestone(monkeypatch, tmp_path, "unknown")
+        assert exit_code == 1
+        assert "Unknown milestone type" in output

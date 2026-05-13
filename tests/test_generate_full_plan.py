@@ -43,6 +43,7 @@ from generate_full_plan import (
     generate_phase7_tasks,
     generate_phase8_tasks,
     generate_full_plan,
+    _p3_milestone_push_steps,
 )
 
 
@@ -92,10 +93,11 @@ class TestGate1Checkpoint:
         joined = "\n".join(lines)
         assert "finalize-gate --gate 1 --phase 5 --fr-id FR-01" in joined
 
-    def test_contains_push_step(self):
+    def test_contains_local_commit_verification(self):
         lines = _gate1_checkpoint("FR-01", 3, 1)
         joined = "\n".join(lines)
-        assert "git push" in joined
+        assert "local commit only" in joined
+        assert "git push" not in joined
 
     def test_evaluate_dimension_reference(self):
         lines = _gate1_checkpoint("FR-01", 3, 1)
@@ -198,6 +200,39 @@ class TestCheckpointIndex:
         assert "Gate 1 / FR-01" in joined
         assert "Gate 2" not in joined
         assert "Gate 3" not in joined
+
+
+# ─── _p3_milestone_push_steps ─────────────────────────────────────────────────
+
+class TestP3MilestonePushSteps:
+    def test_empty_fr_ids_returns_empty(self):
+        result = _p3_milestone_push_steps([])
+        assert result == []
+
+    def test_all_fr_ids_in_pre_ssi_bash(self):
+        """PUSH ④ must use full fr_ids (no ellipsis) in bash command."""
+        lines = _p3_milestone_push_steps(["FR-01", "FR-02", "FR-03"])
+        joined = "\n".join(lines)
+        assert "--fr-ids FR-01,FR-02,FR-03" in joined
+        assert "…" not in joined
+
+    def test_mid_bash_safe_no_ellipsis(self):
+        """PUSH ③ bash command is ellipsis-free — visual truncation is separate."""
+        lines = _p3_milestone_push_steps(["FR-01", "FR-02", "FR-03", "FR-04", "FR-05", "FR-06", "FR-07"])
+        joined = "\n".join(lines)
+        # Visual truncation in the comment line
+        assert "…+2" in joined
+        # P3-mid bash command uses first {mid} IDs only — no ellipsis
+        assert "--fr-ids FR-01,FR-02,FR-03" in joined
+        # P3-pre-ssi bash command uses all IDs — no ellipsis
+        assert "--fr-ids FR-01,FR-02,FR-03,FR-04,FR-05,FR-06,FR-07" in joined
+
+    def test_contains_milestone_labels(self):
+        lines = _p3_milestone_push_steps(["FR-01"])
+        joined = "\n".join(lines)
+        assert "PUSH ③ — P3-mid" in joined
+        assert "PUSH ④ — P3-pre-SSI" in joined
+        assert "push-milestone" in joined
 
 
 # ─── _preflight_steps ────────────────────────────────────────────────────────

@@ -153,6 +153,7 @@ class HandoverGenerator:
         extra: dict[str, str] | None = None,
         plan_override: str | None = None,
         deliverables: list[str] | None = None,
+        resume_phase: int | None = None,
     ) -> Path:
         """
         Render the handover document and write it to ``<project>/HANDOVER.md``.
@@ -179,6 +180,11 @@ class HandoverGenerator:
         deliverables:
             Optional list of deliverable lines (e.g. ``["`SRS.md` ✅ (312L)", ...]``)
             rendered as a "交付物清單" section for easy handover verification.
+        resume_phase:
+            Phase to resume in the next session. Defaults to ``phase + 1``
+            (phase-exit checkpoint). Set to ``phase`` for mid-phase checkpoints
+            (e.g. P3-mid, P3-pre-SSI) where the next session should continue
+            the same phase, not advance.
 
         Returns
         -------
@@ -205,6 +211,7 @@ class HandoverGenerator:
             extra=extra or {},
             git_info=git_info,
             deliverables=list(deliverables) if deliverables else [],
+            resume_phase=resume_phase,
         )
         path = self.project / "HANDOVER.md"
         path.write_text(content, encoding="utf-8")
@@ -225,6 +232,7 @@ class HandoverGenerator:
         extra: dict[str, str],
         git_info: dict[str, str] | None = None,
         deliverables: list[str] | None = None,
+        resume_phase: int | None = None,
     ) -> str:
         phase_name = _PHASE_NAMES.get(phase, f"Phase {phase}")
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -264,7 +272,14 @@ class HandoverGenerator:
             _hermes_val = "<value>"   # not set or unknown format
 
         # Three-step startup sequence — visible to a new session immediately
-        _next_phase = phase + 1
+        _target_phase = resume_phase if resume_phase is not None else phase + 1
+        _is_continue = _target_phase == phase
+        _action = f"continue Phase {_target_phase}" if _is_continue else f"start Phase {_target_phase}"
+        _skill_step = (
+            "# Follow the active plan and continue from where you left off"
+            if _is_continue else
+            f"# Follow SKILL.md §0.1 Phase {_target_phase} entry check, then execute"
+        )
         resume_section = (
             f"## ▶ 立即開始（三步）\n\n"
             f"```bash\n"
@@ -274,9 +289,9 @@ class HandoverGenerator:
             f"# 2. Set required env vars\n"
             f"export HERMES_REVIEWER_TARGET={_hermes_val}\n"
             f"\n"
-            f"# 3. Read plan and start Phase {_next_phase}\n"
-            f"cat {plan or f'.methodology/phase{_next_phase}_plan.md'}\n"
-            f"# Follow SKILL.md §0.1 Phase {_next_phase} entry check, then execute\n"
+            f"# 3. Read plan and {_action}\n"
+            f"cat {plan or f'.methodology/phase{_target_phase}_plan.md'}\n"
+            f"{_skill_step}\n"
             f"```\n"
         )
 

@@ -267,21 +267,49 @@ class GitStrategy:
         if not self.enabled:
             return True
         fr_list = self._fr_summary(fr_ids)
+        completed_set = set(fr_ids)
+        all_ids = self._manifest_fr_ids() or self._auto_fr_ids()
+        remaining = [f for f in all_ids if f not in completed_set]
+        if remaining:
+            remaining_str = ", ".join(remaining)
+        elif all_ids:
+            remaining_str = "(all FRs Gate 1 PASS — ready for P3-pre-SSI)"
+        else:
+            remaining_str = "(manifest not found — run `python3 harness_cli.py manifest` first)"
+
+        ab = self._ab_session_summary()
+        committed = self._recently_committed_files()
+        hermes = os.environ.get("HERMES_REVIEWER_TARGET", "")
+        hermes_status = f"✅ set ({hermes})" if hermes else "❌ not set (required before P6)"
+
+        status_parts = [
+            f"{fr_done}/{fr_total} FRs Gate 1 PASS [{fr_list}]. "
+            f"TDD cycles complete for passing FRs.",
+        ]
+        if ab:
+            status_parts.append(f"\n**A/B Session Results:**\n{ab}")
+        if committed:
+            file_md = "\n".join(f"  - `{f}`" for f in committed)
+            status_parts.append(f"\n**Recently Committed Files:**\n{file_md}")
+
         self._write_handover(
             checkpoint_id=self._cp("P3-mid"),
             phase=3,
-            background=background or "P3 Implementation in progress (≥50 % milestone).",
-            status=(
-                f"{fr_done}/{fr_total} FRs Gate 1 PASS [{fr_list}]. "
-                f"TDD cycles complete for passing FRs."
-            ),
+            background=background or f"P3 Implementation in progress (≥50% milestone). {fr_done}/{fr_total} FRs done.",
+            status="\n".join(status_parts),
             steps=[
-                f"Complete remaining {fr_total - fr_done} FR(s)",
+                f"Complete remaining {fr_total - fr_done} FR(s): {remaining_str}",
                 "Ensure each FR has passing unit tests (TDD)",
-                "When all FRs done → call commit_and_push_p3_pre_ssi()",
+                "When all FRs done → `push-milestone --type p3-pre-ssi`",
             ],
             notes=notes,
-            extra={"fr_done": str(fr_done), "fr_total": str(fr_total)},
+            extra={
+                "fr_done": str(fr_done),
+                "fr_total": str(fr_total),
+                "remaining_frs": remaining_str,
+                "HERMES_REVIEWER_TARGET": hermes_status,
+            },
+            resume_phase=3,
         )
         msg = (
             f"feat(P3-mid): {fr_done}/{fr_total} FR(s) Gate1 PASS "
@@ -310,21 +338,38 @@ class GitStrategy:
         if not self.enabled:
             return True
         fr_list = self._fr_summary(fr_ids)
+
+        ab = self._ab_session_summary()
+        committed = self._recently_committed_files()
+        hermes = os.environ.get("HERMES_REVIEWER_TARGET", "")
+        hermes_status = f"✅ set ({hermes})" if hermes else "❌ not set (required before P6)"
+
+        status_parts = [
+            f"All {len(fr_ids)} FR(s) Gate 1 PASS [{fr_list}]. "
+            "SSI 3-round quality cycle not yet started.",
+        ]
+        if ab:
+            status_parts.append(f"\n**A/B Session Results:**\n{ab}")
+        if committed:
+            file_md = "\n".join(f"  - `{f}`" for f in committed)
+            status_parts.append(f"\n**Recently Committed Files:**\n{file_md}")
+
         self._write_handover(
             checkpoint_id=self._cp("P3-pre-ssi"),
             phase=3,
             background=background or "P3 Implementation complete. SSI not yet executed.",
-            status=(
-                f"All {len(fr_ids)} FR(s) Gate 1 PASS [{fr_list}]. "
-                "SSI 3-round quality cycle not yet started."
-            ),
+            status="\n".join(status_parts),
             steps=[
                 "Run SSI 3 rounds (Gate 2 target score ≥ 75)",
                 "Fix any failures between SSI rounds",
-                "On Gate 2 PASS → call commit_and_push_gate(gate_num=2, ...)",
+                "On Gate 2 PASS → `finalize-gate --gate 2` handles push + HANDOVER",
             ],
             notes=notes,
-            extra={"fr_count": str(len(fr_ids))},
+            extra={
+                "fr_count": str(len(fr_ids)),
+                "HERMES_REVIEWER_TARGET": hermes_status,
+            },
+            resume_phase=3,
         )
         msg = f"feat(P3-pre-ssi): all {len(fr_ids)} FR(s) Gate1 PASS; ready for SSI"
         return self._commit_and_push(msg)
@@ -497,6 +542,16 @@ class GitStrategy:
     # ── Private helpers ──────────────────────────────────────────────────────
 
     # ── Project-state auto-detection ─────────────────────────────────────────
+
+    def _manifest_fr_ids(self) -> list[str]:
+        """Read FR IDs from quality_manifest.json (authoritative source from P2 exit)."""
+        manifest = self.project / ".methodology" / "quality_manifest.json"
+        if not manifest.exists():
+            return []
+        try:
+            return _json.loads(manifest.read_text(encoding="utf-8")).get("fr_ids", [])
+        except Exception:  # pylint: disable=broad-exception-caught
+            return []
 
     def _auto_fr_ids(self) -> list[str]:
         """Parse SRS.md (repo root or docs/) for FR IDs.
@@ -676,6 +731,7 @@ class GitStrategy:
         extra: dict[str, str] | None = None,
         plan_override: str | None = None,
         deliverables: list[str] | None = None,
+        resume_phase: int | None = None,
     ) -> None:
         """Write HANDOVER.md to project root. Never raises."""
         try:
@@ -689,6 +745,7 @@ class GitStrategy:
                 extra=extra,
                 plan_override=plan_override,
                 deliverables=deliverables,
+                resume_phase=resume_phase,
             )
             print(f"  [git] HANDOVER.md written: {checkpoint_id}")
         except Exception as exc:  # pylint: disable=broad-exception-caught
