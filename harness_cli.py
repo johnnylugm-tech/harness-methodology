@@ -70,6 +70,8 @@ sys.path.insert(0, str(_REPO_ROOT))
 
 # Phases where Gate 1 runs per-FR
 _PER_FR_GATE1_PHASES: frozenset[int] = frozenset({3, 4, 5, 7, 8})
+# Statuses that indicate an agent dispatch failure (all others treated as success).
+_DISPATCH_ERROR_STATUSES: frozenset[str] = frozenset({"REJECT", "BLOCKED", "FAILED", "ERROR", "TIMEOUT"})
 
 # Entry gate required per phase (CONSTITUTION.md §2.3)
 _ENTRY_GATE_MAP: dict[int, int] = {4: 2, 5: 3, 6: 3, 7: 4, 8: 4}
@@ -177,8 +179,8 @@ def _audit_sessions_spawn(project: Path, phase: int) -> None:
         try:
             entries = [json.loads(line) for line in
                        log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
-        except Exception:  # pylint: disable=broad-exception-caught
-            pass
+        except Exception as _e:  # pylint: disable=broad-exception-caught
+            print(f"\n[WARN] HR-10: sessions_spawn.log parse error ({_e}) — treating as empty.")
 
     missing = []
     for fr_id in fr_ids:
@@ -344,8 +346,8 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
                       f"({distinct_roles} distinct role(s) — need ≥2 entries, ≥2 distinct roles).")
                 print(f"  Dispatch Agent A + Agent B for {fr_id}, then re-run finalize-gate.")
                 return 5
-        except Exception:  # pylint: disable=broad-exception-caught
-            pass  # corrupt log → warn but don't block (avoid deadlock)
+        except Exception as _e:  # pylint: disable=broad-exception-caught
+            print(f"\n[WARN] HR-10: sessions_spawn.log parse error ({_e}) — skipping enforcement to avoid deadlock.")
 
     # Rebuild context (loads config; skips CRG recon second time since recon file already exists)
     ctx = bridge.prepare_gate(
@@ -1033,7 +1035,7 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
     status = result.get("status", "SPAWNED")
     session_id = result.get("session_id", "")
     print(f"[dispatch] {args.fr_id or 'phase'} | {args.role} | {status} | session={session_id}")
-    if status not in ("success", "STAGE_PASS", "APPROVE"):
+    if status in _DISPATCH_ERROR_STATUSES:
         return 1
     return 0
 

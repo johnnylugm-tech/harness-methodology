@@ -1324,6 +1324,56 @@ class TestDispatch:
         exit_code = cmd_dispatch(a)
         assert exit_code == 1
 
+    def test_dispatch_complete_status_succeeds(self, tmp_path, monkeypatch):
+        """Bug #1: 'complete' status (Task tool non-dict result path) must exit 0."""
+        import io
+        from harness_cli import cmd_dispatch
+
+        def fake_spawn(self, role, prompt, context, phase, fr_id=None):
+            # AgentSpawner._parse_result wraps non-dict Task results as status="complete"
+            return {"status": "complete", "session_id": "fake-004", "output": "done"}
+
+        monkeypatch.setattr("core.agent_spawner.AgentSpawner.spawn", fake_spawn)
+
+        class Args:
+            pass
+        a = Args()
+        a.project = str(tmp_path)
+        a.fr_id = "FR-03"
+        a.role = "developer"
+        a.prompt = "Implement FR-03"
+        a.phase = 3
+
+        captured = io.StringIO()
+        monkeypatch.setattr("sys.stdout", captured)
+        exit_code = cmd_dispatch(a)
+        assert exit_code == 0
+        assert "complete" in captured.getvalue()
+
+    def test_dispatch_spawned_status_succeeds(self, tmp_path, monkeypatch):
+        """Bug #1: 'SPAWNED' default status (unknown/new status) must exit 0."""
+        import io
+        from harness_cli import cmd_dispatch
+
+        def fake_spawn(self, role, prompt, context, phase, fr_id=None):
+            return {"status": "SPAWNED", "session_id": "fake-005"}
+
+        monkeypatch.setattr("core.agent_spawner.AgentSpawner.spawn", fake_spawn)
+
+        class Args:
+            pass
+        a = Args()
+        a.project = str(tmp_path)
+        a.fr_id = "FR-04"
+        a.role = "developer"
+        a.prompt = "Implement FR-04"
+        a.phase = 3
+
+        captured = io.StringIO()
+        monkeypatch.setattr("sys.stdout", captured)
+        exit_code = cmd_dispatch(a)
+        assert exit_code == 0
+
 
 class TestAuditSessionsSpawn:
     """Tests for _audit_sessions_spawn — pre-push HR-10 warning."""
@@ -1360,6 +1410,27 @@ class TestAuditSessionsSpawn:
         _audit_sessions_spawn(tmp_path, 4)
         captured = capsys.readouterr().out
         assert "2/2 FRs OK" in captured
+
+    def test_corrupt_log_warns_and_treats_as_empty(self, tmp_path, capsys):
+        """Issue #3: corrupt JSON in sessions_spawn.log → parse error warning + all FRs missing."""
+        import json
+        manifest_dir = tmp_path / ".methodology"
+        manifest_dir.mkdir()
+        fr_ids = ["FR-01", "FR-02"]
+        (manifest_dir / "quality_manifest.json").write_text(json.dumps({"fr_ids": fr_ids}))
+        # Mix of 1 valid line + 1 corrupt line
+        (manifest_dir / "sessions_spawn.log").write_text(
+            json.dumps({"fr_id": "FR-01", "role": "developer", "session_id": "d1"}) + "\n"
+            + "NOT-VALID-JSON\n"
+        )
+
+        from harness_cli import _audit_sessions_spawn
+        _audit_sessions_spawn(tmp_path, 3)
+        captured = capsys.readouterr().out
+        assert "parse error" in captured.lower()
+        assert "HR-10" in captured
+        # corrupt log → entries empty → both FRs flagged as missing
+        assert "incomplete for 2/2 FRs" in captured
 
 
 class TestFinalizeGateHR10:
@@ -1460,3 +1531,50 @@ class TestFinalizeGateHR10:
         ])
         assert exit_code == 0
         assert "HR-10" not in output
+
+    def test_corrupt_log_warns_and_does_not_block(self, tmp_path, monkeypatch):
+        """Bug #2: corrupt sessions_spawn.log → warning printed, NOT blocked (exit != 5)."""
+        import json as _json
+        # Set up the standard directories manually (mirrors _call_finalize internals)
+        sessi = tmp_path / ".sessi-work"
+        sessi.mkdir(parents=True)
+        gate1_result = {
+            "gate": 1, "phase": 3, "fr_id": "FR-01",
+            "score": 95.0, "quality_complete": True,
+            "dimensions": {"linting": 95, "type_safety": 95, "test_coverage": 95},
+        }
+        (sessi / "gate1_result.json").write_text(_json.dumps(gate1_result))
+        manifest_dir = tmp_path / ".methodology"
+        manifest_dir.mkdir(parents=True)
+        (manifest_dir / "quality_manifest.json").write_text(_json.dumps({
+            "fr_ids": ["FR-01"],
+            "gate_results": {"gate1": {}},
+        }))
+        (manifest_dir / "state.json").write_text(_json.dumps({
+            "state": "ACTIVE", "current_phase": 3,
+        }))
+        # Write corrupt log (not valid JSON)
+        (manifest_dir / "sessions_spawn.log").write_text("NOT-VALID-JSON\n{broken\n")
+
+        import io
+        from harness_cli import cmd_finalize_gate
+        monkeypatch.setattr(
+            "harness_cli._make_git",
+            lambda args, project: __import__("harness.git_strategy").git_strategy.GitStrategy(
+                project, enabled=False),
+        )
+        captured = io.StringIO()
+        monkeypatch.setattr("sys.stdout", captured)
+        try:
+            exit_code = cmd_finalize_gate(
+                type("Args", (), {
+                    "gate": 1, "phase": 3, "project": str(tmp_path), "fr_id": "FR-01",
+                })()
+            )
+        except SystemExit as e:
+            exit_code = e.code
+
+        output = captured.getvalue()
+        assert exit_code in (0, 1), f"Expected exit 0 or 1 (not hard-block 5), got {exit_code}"
+        assert "parse error" in output.lower()
+        assert "HR-10" in output
