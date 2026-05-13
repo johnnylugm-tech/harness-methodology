@@ -76,7 +76,7 @@ class ExecutionLogger:
                     "session_id": entry.get("session_id", ""),
                     "session_key": entry.get("session_key", entry.get("session_id", "")),
                     "status": entry.get("status", "unknown"),
-                    "confidence": entry.get("confidence"),
+                    "confidence": entry.get("confidence", 0),
                     "citations": entry.get("citations", []),
                     "summary": entry.get("summary", ""),
                     "duration_seconds": entry.get("duration_seconds", 0),
