@@ -116,13 +116,23 @@ class PhaseArtifactRegistry:
     def __init__(self, project_root: str) -> None:
         self.project_root = Path(project_root)
 
-    def verify_phase_link(self, from_phase: Phase, to_phase: Phase) -> PhaseLinkResult:
+    def verify_phase_link(self, from_phase: Phase, to_phase: Phase,
+                          skip_to_side: bool = False) -> PhaseLinkResult:
         """Verify that to_phase's artifacts exist and reference from_phase.
 
+        Invariant: when *entering* to_phase, its artifacts do not yet exist
+        (they are the output of the phase we are about to execute).  Pass
+        skip_to_side=True to suppress the existence + traceability checks on
+        the "to" side while still validating that all predecessor artifacts
+        are in place.
+
         Checks:
-        1. from_phase's required artifacts exist (previous phase produced output)
-        2. to_phase's required artifacts exist (current phase has output)
-        3. At least one to_phase artifact references from_phase artifacts (traceability)
+        1. from_phase's required artifacts exist (predecessor produced output)
+        2. to_phase's required artifacts exist (unless skip_to_side —
+           the current phase has not yet produced them)
+        3. At least one to_phase artifact references from_phase artifacts
+           (skipped when to_phase artifacts don't exist yet, i.e. when
+           skip_to_side is True)
         """
         from_info = self.PHASE_ARTIFACTS.get(from_phase, {})
         to_info = self.PHASE_ARTIFACTS.get(to_phase, {})
@@ -152,14 +162,15 @@ class PhaseArtifactRegistry:
                 break
 
         from_ok = len(found_from) > 0 or len(from_artifacts) == 0
-        to_ok = len(found_to) > 0 or len(to_artifacts) == 0
-        passed = from_ok and to_ok and (ref_found or len(from_artifacts) == 0)
+        to_ok = len(found_to) > 0 or len(to_artifacts) == 0 or skip_to_side
+        ref_ok = ref_found or len(from_artifacts) == 0 or skip_to_side
+        passed = from_ok and to_ok and ref_ok
 
         if not from_ok:
             reason = f"Previous phase {from_phase.name} missing artifacts: {missing_from}"
         elif not to_ok:
             reason = f"Current phase {to_phase.name} missing artifacts: {missing_to}"
-        elif not ref_found and len(from_artifacts) > 0:
+        elif not ref_ok:
             reason = f"No traceability reference from {to_phase.name} to {from_phase.name}"
         else:
             reason = f"Phase link {from_phase.name}->{to_phase.name} verified"
@@ -190,10 +201,12 @@ class PhaseArtifactRegistry:
         for phase in Phase:
             if phase_map.get(phase, 0) > current_phase:
                 continue
+            is_current = phase_map.get(phase, 0) == current_phase
             for prev in self.PHASE_ARTIFACTS.get(phase, {}).get("depends_on", []):
                 if phase_map.get(prev, 0) >= current_phase:
                     continue
-                result = self.verify_phase_link(prev, phase)
+                result = self.verify_phase_link(prev, phase,
+                                                skip_to_side=is_current)
                 entry = f"{prev.name}->{phase.name}: {result.reason}"
                 (verified if result.passed else missing).append(entry)
 

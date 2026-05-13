@@ -128,6 +128,28 @@ class TestVerifyPhaseLink:
         result = registry.verify_phase_link(Phase.SPECIFY, Phase.SPECIFY)
         assert result.passed is True
 
+    def test_skip_to_side_skips_to_artifact_check(self, tmp_path):
+        """P1 artifacts exist, P2 not yet — flag skips P2 artifact existence."""
+        (tmp_path / "01-requirements").mkdir()
+        (tmp_path / "01-requirements" / "SRS.md").write_text("# SRS\n\nRequirements.\n")
+        (tmp_path / "01-requirements" / "SPEC_TRACKING.md").write_text("# Tracking\n")
+        (tmp_path / "01-requirements" / "TRACEABILITY_MATRIX.md").write_text("# Matrix\n")
+        # 02-architecture/SAD.md NOT created
+
+        registry = PhaseArtifactRegistry(str(tmp_path))
+
+        # Without flag → fails (requires P2 artifacts)
+        strict = registry.verify_phase_link(Phase.SPECIFY, Phase.PLAN)
+        assert strict.passed is False
+
+        # With flag → passes (P2 artifacts are the current phase's output)
+        relaxed = registry.verify_phase_link(
+            Phase.SPECIFY, Phase.PLAN, skip_to_side=True,
+        )
+        assert relaxed.passed is True, (
+            f"skip_to_side should skip P2 check: {relaxed.reason}"
+        )
+
 
 class TestVerifyPhaseChain:
     def test_phase1_chain_all_verified(self, tmp_path):
@@ -147,6 +169,80 @@ class TestVerifyPhaseChain:
         result = registry.verify_phase_chain(current_phase=2)
         assert result["all_verified"] is False
         assert len(result["missing_links"]) > 0
+
+    def test_phase2_entry_p1_exists_p2_not_yet_created(self, tmp_path):
+        """P2 entry gate: P1 artifacts exist but P2 (SAD.md) not yet created.
+
+        SAD.md is the OUTPUT of P2, so it legitimately does not exist when
+        entering P2. The check should only verify predecessor (P1) artifacts.
+        """
+        (tmp_path / "01-requirements").mkdir()
+        (tmp_path / "01-requirements" / "SRS.md").write_text("# SRS\n\nRequirements.\n")
+        (tmp_path / "01-requirements" / "SPEC_TRACKING.md").write_text("# Tracking\n")
+        (tmp_path / "01-requirements" / "TRACEABILITY_MATRIX.md").write_text("# Matrix\n")
+        # NB: 02-architecture/SAD.md does NOT exist — we're entering P2
+
+        registry = PhaseArtifactRegistry(str(tmp_path))
+        result = registry.verify_phase_chain(current_phase=2)
+        assert result["all_verified"] is True, (
+            f"P2 entry should pass with only P1 artifacts; missing: {result['missing_links']}"
+        )
+
+    def test_phase3_entry_with_p1_p2_artifacts_no_p3(self, tmp_path):
+        """P3 entry: P1+P2 artifacts exist, but P3 not yet created.
+
+        P3 (IMPLEMENT) has multi-dependency on both SPECIFY and PLAN.
+        Both SPECIFY→IMPLEMENT and PLAN→IMPLEMENT should tolerate the
+        missing P3 output simultaneously via skip_to_side.
+
+        The SPECIFY→PLAN link is also checked (not skip_to_side, since P2
+        is a completed predecessor), so P2 must exist and reference P1.
+        """
+        # P1: SPECIFY
+        (tmp_path / "01-requirements").mkdir()
+        (tmp_path / "01-requirements" / "SRS.md").write_text("# SRS\n\nRequirements.\n")
+        (tmp_path / "01-requirements" / "SPEC_TRACKING.md").write_text("# Tracking\n")
+        (tmp_path / "01-requirements" / "TRACEABILITY_MATRIX.md").write_text("# Matrix\n")
+
+        # P2: PLAN (references P1)
+        (tmp_path / "02-architecture").mkdir()
+        (tmp_path / "02-architecture" / "SAD.md").write_text(
+            "# Architecture\n\nBased on SRS and SPEC_TRACKING.\n"
+        )
+
+        # P3: NOT created — we're entering P3
+        # 03-development/ does NOT exist
+
+        registry = PhaseArtifactRegistry(str(tmp_path))
+        result = registry.verify_phase_chain(current_phase=3)
+        assert result["all_verified"] is True, (
+            f"P3 entry should pass with only P1+P2 artifacts; missing: {result['missing_links']}"
+        )
+
+    def test_phase3_entry_fails_when_p2_missing_traceability(self, tmp_path):
+        """P3 entry: P2 references P1 is checked (not skip_to_side at P3 entry).
+
+        If P2's SAD.md does not reference P1 artifacts, the SPECIFY→PLAN
+        link should fail even though the IMPLEMENT links are relaxed.
+        """
+        # P1: SPECIFY
+        (tmp_path / "01-requirements").mkdir()
+        (tmp_path / "01-requirements" / "SRS.md").write_text("# SRS\n\nRequirements.\n")
+        (tmp_path / "01-requirements" / "SPEC_TRACKING.md").write_text("# Tracking\n")
+        (tmp_path / "01-requirements" / "TRACEABILITY_MATRIX.md").write_text("# Matrix\n")
+
+        # P2: PLAN — NO reference to P1 artifacts
+        (tmp_path / "02-architecture").mkdir()
+        (tmp_path / "02-architecture" / "SAD.md").write_text(
+            "# Architecture\n\nA standalone architecture document.\n"
+        )
+
+        registry = PhaseArtifactRegistry(str(tmp_path))
+        result = registry.verify_phase_chain(current_phase=3)
+        assert result["all_verified"] is False
+        assert any("traceability" in m.lower() for m in result["missing_links"]), (
+            f"Expected traceability failure; got: {result['missing_links']}"
+        )
 
     def test_phase4_chain_with_all_artifacts_passes(self, tmp_path):
         """Full P1-P4 chain should pass when all artifacts exist with references."""
