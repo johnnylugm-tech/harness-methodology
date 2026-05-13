@@ -60,8 +60,13 @@ cat > "$PREPARE_COMMIT_MSG_HOOK" << 'HOOK_SCRIPT'
 
 set -e
 
-# Get project root directory
-PROJECT_ROOT=$(unset GIT_DIR GIT_WORK_TREE; git rev-parse --show-toplevel)
+# Unset git worktree env vars so all git commands resolve to this repo
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
+
+# Get project root directory and cd into it
+PROJECT_ROOT=$(git rev-parse --show-toplevel)
+cd "$PROJECT_ROOT" || { echo "[harness] ERROR: cannot cd to $PROJECT_ROOT"; exit 1; }
+
 # Auto-detect harness_cli.py: root first, then harness/ submodule
 if [ -f "$PROJECT_ROOT/harness_cli.py" ]; then
     HARNESS_CLI="$PROJECT_ROOT/harness_cli.py"
@@ -89,7 +94,6 @@ fi
 # Run Quality Gate check
 echo "Running Phase $PHASE Quality Gate check..."
 
-cd "$PROJECT_ROOT"
 python3 "$HARNESS_CLI" run-phase --phase "$PHASE" --project "$PROJECT_ROOT" --fast
 
 RESULT=$?
@@ -137,8 +141,13 @@ cat > "$POST_MERGE_HOOK" << 'HOOK_SCRIPT'
 
 set -e
 
-# Get project root directory
-PROJECT_ROOT=$(unset GIT_DIR GIT_WORK_TREE; git rev-parse --show-toplevel)
+# Unset git worktree env vars so all git commands resolve to this repo
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
+
+# Get project root directory and cd into it
+PROJECT_ROOT=$(git rev-parse --show-toplevel)
+cd "$PROJECT_ROOT" || { echo "[harness] ERROR: cannot cd to $PROJECT_ROOT"; exit 1; }
+
 # Auto-detect harness_cli.py: root first, then harness/ submodule
 if [ -f "$PROJECT_ROOT/harness_cli.py" ]; then
     HARNESS_CLI="$PROJECT_ROOT/harness_cli.py"
@@ -168,7 +177,6 @@ echo ""
 echo "Running Phase $PHASE Quality Gate check after merge..."
 echo ""
 
-cd "$PROJECT_ROOT"
 python3 "$HARNESS_CLI" run-phase --phase "$PHASE" --project "$PROJECT_ROOT" --fast || true
 
 echo ""
@@ -200,8 +208,13 @@ cat > "$PRE_PUSH_HOOK" << 'HOOK_SCRIPT'
 
 set -e
 
-# Get project root directory
-PROJECT_ROOT=$(unset GIT_DIR GIT_WORK_TREE; git rev-parse --show-toplevel)
+# Unset git worktree env vars so all git commands resolve to this repo
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
+
+# Get project root directory and cd into it
+PROJECT_ROOT=$(git rev-parse --show-toplevel)
+cd "$PROJECT_ROOT" || { echo "[harness] ERROR: cannot cd to $PROJECT_ROOT"; exit 1; }
+
 # Auto-detect harness_cli.py: root first, then harness/ submodule
 if [ -f "$PROJECT_ROOT/harness_cli.py" ]; then
     HARNESS_CLI="$PROJECT_ROOT/harness_cli.py"
@@ -230,7 +243,6 @@ fi
 echo ""
 echo "Checking recent commit for Quality Gate..."
 
-cd "$PROJECT_ROOT"
 LAST_COMMIT_MSG=$(git log -1 --pretty=%B | head -n 1)
 
 if [[ "$LAST_COMMIT_MSG" == *"STAGE_PASS"* ]]; then
