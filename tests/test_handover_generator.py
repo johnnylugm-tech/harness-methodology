@@ -1236,3 +1236,108 @@ class TestAdvanceFsm:
         data = json.loads((tmp_path / ".methodology" / "fr_progress.json").read_text())
         assert data["phase"] == 4
         assert data["frs"]["FR-01"]["status"] == "gate1_pass"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# HR-10 sessions_spawn.log enforcement in finalize-gate
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestFinalizeGateHR10:
+    """HR-10: finalize-gate --gate 1 must block when sessions_spawn.log is missing or incomplete."""
+
+    @staticmethod
+    def _call_finalize(monkeypatch, tmp_path, gate=1, phase=3, fr_id="FR-01",
+                       spawn_entries=None, gate1_result=None):
+        """Call cmd_finalize_gate and return (exit_code, output_str)."""
+        import io
+        from harness_cli import cmd_finalize_gate
+
+        class Args:
+            pass
+        a = Args()
+        a.gate = gate
+        a.phase = phase
+        a.project = str(tmp_path)
+        a.fr_id = fr_id
+
+        # Write gate1_result.json (needed for bridge.finalize_gate)
+        sessi = tmp_path / ".sessi-work"
+        sessi.mkdir(parents=True, exist_ok=True)
+        if gate1_result is None:
+            gate1_result = {
+                "gate": 1, "phase": phase, "fr_id": fr_id,
+                "score": 95.0, "quality_complete": True,
+                "dimensions": {"linting": 95, "type_safety": 95, "test_coverage": 95},
+            }
+        import json as _json
+        (sessi / "gate1_result.json").write_text(_json.dumps(gate1_result))
+
+        # Write quality_manifest.json
+        manifest_dir = tmp_path / ".methodology"
+        manifest_dir.mkdir(parents=True, exist_ok=True)
+        (manifest_dir / "quality_manifest.json").write_text(_json.dumps({
+            "fr_ids": [fr_id],
+            "gate_results": {"gate1": {}},
+        }))
+
+        # Write state.json
+        (manifest_dir / "state.json").write_text(_json.dumps({
+            "state": "ACTIVE", "current_phase": phase,
+        }))
+
+        # Write sessions_spawn.log
+        log_path = manifest_dir / "sessions_spawn.log"
+        if spawn_entries is not None:
+            log_path.write_text("\n".join(_json.dumps(e) for e in spawn_entries) + "\n")
+
+        # Disable git ops
+        monkeypatch.setattr("harness_cli._make_git",
+                            lambda args, project: __import__("harness.git_strategy").git_strategy.GitStrategy(project, enabled=False))
+        captured = io.StringIO()
+        monkeypatch.setattr("sys.stdout", captured)
+        try:
+            exit_code = cmd_finalize_gate(a)
+        except SystemExit as e:
+            exit_code = e.code
+        return exit_code, captured.getvalue()
+
+    def test_missing_spawn_log_blocks(self, tmp_path, monkeypatch):
+        """Exit code 5 when sessions_spawn.log doesn't exist."""
+        exit_code, output = self._call_finalize(monkeypatch, tmp_path,
+                                                spawn_entries=None)
+        assert exit_code == 5
+        assert "HR-10" in output
+        assert "not found" in output.lower()
+
+    def test_single_entry_blocks(self, tmp_path, monkeypatch):
+        """Exit code 5 when only 1 entry (no reviewer)."""
+        exit_code, output = self._call_finalize(monkeypatch, tmp_path, spawn_entries=[
+            {"fr_id": "FR-01", "role": "developer", "session_id": "d1",
+             "status": "success", "confidence": 9},
+        ])
+        assert exit_code == 5
+        assert "HR-10" in output
+        assert "1 session log" in output
+
+    def test_same_role_blocks(self, tmp_path, monkeypatch):
+        """Exit code 5 when 2 entries have same role (no distinct roles)."""
+        exit_code, output = self._call_finalize(monkeypatch, tmp_path, spawn_entries=[
+            {"fr_id": "FR-01", "role": "developer", "session_id": "d1",
+             "status": "success", "confidence": 9},
+            {"fr_id": "FR-01", "role": "developer", "session_id": "d2",
+             "status": "success", "confidence": 8},
+        ])
+        assert exit_code == 5
+        assert "HR-10" in output
+
+    def test_dev_and_reviewer_passes(self, tmp_path, monkeypatch):
+        """Gate 1 passes when 2 distinct roles exist for the FR."""
+        exit_code, output = self._call_finalize(monkeypatch, tmp_path, spawn_entries=[
+            {"fr_id": "FR-01", "role": "developer", "session_id": "d1",
+             "status": "success", "confidence": 9},
+            {"fr_id": "FR-01", "role": "reviewer", "session_id": "r1",
+             "status": "success", "review_status": "APPROVE"},
+        ])
+        assert exit_code == 0
+        assert "HR-10" not in output

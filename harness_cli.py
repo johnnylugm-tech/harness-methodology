@@ -284,6 +284,27 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
 
     print(f"\n{'='*60}\nfinalize-gate: Gate {args.gate} | Phase {args.phase}\n{'='*60}")
 
+    # HR-10 enforcement: Gate 1 requires ≥2 A/B entries per FR in sessions_spawn.log
+    if args.gate == 1 and fr_id:
+        spawn_log = Path(project) / ".methodology" / "sessions_spawn.log"
+        if not spawn_log.exists():
+            print(f"\n[BLOCKED] HR-10: sessions_spawn.log not found.")
+            print(f"  Gate 1 requires ≥2 entries (Agent A + Agent B) for {fr_id}.")
+            print(f"  Dispatch A/B via AgentSpawner, then re-run finalize-gate.")
+            return 5
+        try:
+            entries = [json.loads(line) for line in
+                       spawn_log.read_text(encoding="utf-8").splitlines() if line.strip()]
+            fr_entries = [e for e in entries if e.get("fr_id") == fr_id]
+            distinct_roles = len({e.get("role") for e in fr_entries})
+            if len(fr_entries) < 2 or distinct_roles < 2:
+                print(f"\n[BLOCKED] HR-10: {fr_id} has {len(fr_entries)} session log entries "
+                      f"({distinct_roles} distinct role(s) — need ≥2 entries, ≥2 distinct roles).")
+                print(f"  Dispatch Agent A + Agent B for {fr_id}, then re-run finalize-gate.")
+                return 5
+        except Exception:  # pylint: disable=broad-exception-caught
+            pass  # corrupt log → warn but don't block (avoid deadlock)
+
     # Rebuild context (loads config; skips CRG recon second time since recon file already exists)
     ctx = bridge.prepare_gate(
         gate_num=args.gate,
