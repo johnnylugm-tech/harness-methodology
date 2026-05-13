@@ -600,6 +600,8 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
     Milestone pushes are the crash-recovery points for P3+:
       p3-mid      — ≥50% FRs have Gate 1 PASS (PUSH ③)
       p3-pre-ssi  — all FRs Gate 1 PASS, before SSI (PUSH ④)
+      p4-mid      — ≥50% FRs Gate 1 re-eval PASS (PUSH ③ P4 variant)
+      p4-pre-ssi  — all FRs Gate 1 re-eval PASS, before Gate 3 SSI (PUSH ④ P4 variant)
       p5-baseline — BASELINE.md generated (PUSH ⑦)
       p7          — risk register complete (PUSH ⑨)
       p8          — config records complete (PUSH ⑩)
@@ -616,6 +618,16 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
     fr_ids = [f.strip() for f in args.fr_ids.split(",") if f.strip()]
 
     ok = False
+    # Auto-populate fr_ids from manifest when not provided
+    if not fr_ids:
+        manifest_path = project / ".methodology" / "quality_manifest.json"
+        if manifest_path.exists():
+            try:
+                _mf = json.loads(manifest_path.read_text(encoding="utf-8"))
+                fr_ids = _mf.get("fr_ids", [])
+            except Exception:  # pylint: disable=broad-exception-caught
+                pass
+
     if milestone_type == "p3-mid":
         fr_done = args.fr_done
         fr_total = args.fr_total
@@ -625,6 +637,15 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
         ok = git.commit_and_push_p3_mid(fr_done, fr_total, fr_ids)
     elif milestone_type == "p3-pre-ssi":
         ok = git.commit_and_push_p3_pre_ssi(fr_ids)
+    elif milestone_type == "p4-mid":
+        fr_done = args.fr_done
+        fr_total = args.fr_total
+        if fr_done is None or fr_total is None or fr_total == 0:
+            print("[ERROR] --fr-done and --fr-total required for p4-mid (fr-total must be >0)")
+            return 1
+        ok = git.commit_and_push_p4_mid(fr_done, fr_total, fr_ids)
+    elif milestone_type == "p4-pre-ssi":
+        ok = git.commit_and_push_p4_pre_ssi(fr_ids)
     elif milestone_type == "p5-baseline":
         ok = git.commit_and_push_p5_baseline()
     elif milestone_type == "p7":
@@ -826,16 +847,66 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
     """
     project = Path(args.project).resolve()
     next_phase = args.completed_phase + 1
+
+    # Look up gate/FR state from quality_manifest.json for accurate state.json
+    manifest_path = project / ".methodology" / "quality_manifest.json"
+    manifest = {}
+    last_gate_num = None
+    last_fr_id = None
+    if manifest_path.exists():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:  # pylint: disable=broad-exception-caught
+            pass
+
+    gate_results = manifest.get("gate_results", {})
+    # Find the last gate with quality_complete=True
+    for gn in (4, 3, 2, 1):
+        gv = gate_results.get(f"gate{gn}")
+        if isinstance(gv, dict) and gv.get("quality_complete"):
+            last_gate_num = gn
+            break
+
+    # Find the last FR with Gate 1 quality_complete=True
+    gate1 = gate_results.get("gate1", {})
+    if isinstance(gate1, dict):
+        for fr_id in manifest.get("fr_ids", []):
+            if isinstance(gate1.get(fr_id), dict) and gate1[fr_id].get("quality_complete"):
+                last_fr_id = fr_id
+
+    # Build rich task_background / current_status from manifest data
+    gate_score_str = ""
+    if last_gate_num and isinstance(gate_results.get(f"gate{last_gate_num}"), dict):
+        _gscore = gate_results[f"gate{last_gate_num}"].get("score", "")
+        if _gscore:
+            gate_score_str = f" (score={_gscore})"
+
+    fr_done = len([f for f in manifest.get("fr_ids", [])
+                   if isinstance(gate1.get(f), dict) and gate1[f].get("quality_complete")])
+    fr_total = len(manifest.get("fr_ids", []))
+
+    task_bg = (f"Phase transition from Phase {args.completed_phase} to Phase {next_phase}."
+               if not fr_total else
+               f"Phase {args.completed_phase} complete ({fr_done}/{fr_total} FRs Gate 1 PASS). "
+               f"Gate {last_gate_num}{gate_score_str}. Advancing to Phase {next_phase}.")
+
+    status = (f"Phase {args.completed_phase} completed. Ready to begin Phase {next_phase}."
+              if not fr_total else
+              f"Phase {args.completed_phase}: {fr_done}/{fr_total} FRs Gate 1 PASS. "
+              f"Gate {last_gate_num}{gate_score_str} — quality_complete. "
+              f"Ready to begin Phase {next_phase}.")
+
     print(f"\n[advance-phase] Completed phase {args.completed_phase} → advancing to {next_phase}")
-    _advance_fsm(project, args.completed_phase)
+    _advance_fsm(project, args.completed_phase,
+                 last_gate=last_gate_num, last_fr=last_fr_id)
 
     # Regenerate HANDOVER.md for the new phase — entry checkpoint
     gen = HandoverGenerator(project)
     gen.write(
         checkpoint_id=f"P{next_phase}-entry-{datetime.now(timezone.utc).strftime('%Y%m%d')}",
         phase=next_phase,
-        task_background=f"Phase transition from Phase {args.completed_phase}. Entering Phase {next_phase}.",
-        current_status=f"Phase {args.completed_phase} completed. Ready to begin Phase {next_phase}.",
+        task_background=task_bg,
+        current_status=status,
         next_steps=[
             f"Follow SKILL.md §0.1 Phase {next_phase} entry checklist",
             f"Read the Phase {next_phase} plan and execute",
@@ -1078,7 +1149,9 @@ def _update_state_checkpoint(project: Path, gate_num: int, fr_id: str | None) ->
     state_path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
 
 
-def _advance_fsm(project: Path, completed_phase: int) -> None:
+def _advance_fsm(project: Path, completed_phase: int,
+                 last_gate: int | None = None,
+                 last_fr: str | None = None) -> None:
     """Write state.json, update git config quality.phase, and sync GitHub CURRENT_PHASE."""
     import subprocess  # nosec B404
     from datetime import datetime, timezone
@@ -1099,8 +1172,8 @@ def _advance_fsm(project: Path, completed_phase: int) -> None:
         json.dumps({
             "state": existing_state,
             "current_phase": next_phase,
-            "last_gate": None,
-            "last_fr": None,
+            "last_gate": last_gate,
+            "last_fr": last_fr,
             "last_update": datetime.now(timezone.utc).isoformat(),
         }, indent=2),
         encoding="utf-8",
@@ -2230,7 +2303,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Push milestone checkpoint with HANDOVER.md (P3+: p3-mid, p3-pre-ssi, p5-baseline, p7, p8)",
     )
     pm.add_argument("--type", required=True,
-                    choices=["p3-mid", "p3-pre-ssi", "p5-baseline", "p7", "p8"],
+                    choices=["p3-mid", "p3-pre-ssi", "p4-mid", "p4-pre-ssi",
+                             "p5-baseline", "p7", "p8"],
                     help="Milestone type")
     pm.add_argument("--project", default=".", help="Project root (default: .)")
     pm.add_argument("--fr-ids",  default="", dest="fr_ids",

@@ -868,7 +868,7 @@ class TestCmdAdvancePhase:
 
         captured = io.StringIO()
         monkeypatch.setattr("sys.stdout", captured)
-        monkeypatch.setattr("harness_cli._advance_fsm", lambda project, phase: None)
+        monkeypatch.setattr("harness_cli._advance_fsm", lambda project, phase, **kw: None)
         monkeypatch.setattr(
             "harness.handover_generator.HandoverGenerator.write",
             lambda self, **kw: tmp_path / "HANDOVER.md",

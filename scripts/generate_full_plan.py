@@ -297,14 +297,14 @@ _PHASE_ROLES: dict = {
 
 # Agent B embed doc list per phase — ALL must be pasted verbatim into the prompt (no file paths)
 _AGENT_B_EMBED_DOCS: Dict[int, List[str]] = {
-    1: ["Project description / stakeholder brief", "draft docs/SRS.md (full content)"],
-    2: ["docs/SRS.md (full)", "docs/CONSTRAINTS.md (full)", "draft docs/SAD.md (full)", "draft docs/ADR.md (full)"],
-    3: ["docs/SRS.md §FR-XX section", "docs/SAD.md module spec for FR-XX", "src/…/fr_xx.py (implemented code + tests)"],
-    4: ["docs/SRS.md §FR-XX section", "docs/SAD.md module spec", "src/…/fr_xx.py", "tests/…/test_fr_xx.py", "TEST_PLAN.md entry for FR-XX"],
-    5: ["docs/SRS.md acceptance criteria for FR-XX", "src/…/fr_xx.py", "tests/…/test_fr_xx.py", "TEST_RESULTS.md entry"],
-    6: ["docs/SRS.md", "docs/SAD.md", "QUALITY_REPORT.md (draft)", "relevant src/ sections"],
-    7: ["docs/SRS.md", "RISK_REGISTER.md (draft)"],
-    8: ["docs/SRS.md", "CONFIG_RECORDS.md (draft)", "ops/ relevant configs"],
+    1: ["Project description / stakeholder brief", "draft 01-requirements/SRS.md (full content)"],
+    2: ["01-requirements/SRS.md (full)", "01-requirements/CONSTRAINTS.md (full)", "draft 02-architecture/SAD.md (full)", "draft 02-architecture/adr/ADR.md (full)"],
+    3: ["01-requirements/SRS.md §FR-XX section", "02-architecture/SAD.md module spec for FR-XX", "03-development/src/…/fr_xx.py (implemented code + tests)"],
+    4: ["01-requirements/SRS.md §FR-XX section", "02-architecture/SAD.md module spec", "03-development/src/…/fr_xx.py", "tests/…/test_fr_xx.py", "04-testing/TEST_PLAN.md entry for FR-XX"],
+    5: ["01-requirements/SRS.md acceptance criteria for FR-XX", "03-development/src/…/fr_xx.py", "tests/…/test_fr_xx.py", "04-testing/TEST_RESULTS.md entry"],
+    6: ["01-requirements/SRS.md", "02-architecture/SAD.md", "06-quality/QUALITY_REPORT.md (draft)", "relevant 03-development/src/ sections"],
+    7: ["01-requirements/SRS.md", "07-risk/RISK_REGISTER.md (draft)"],
+    8: ["01-requirements/SRS.md", "08-config/CONFIG_RECORDS.md (draft)", "ops/ relevant configs"],
 }
 
 # Agent B review checklist per phase
@@ -332,7 +332,7 @@ _PHASE_DELIVERABLE_DEPS: Dict[int, List[Dict]] = {
             "task_hint": "Elicit requirements → write FRs/NFRs in SRS.md (### FR-XX: format) → validate completeness",
             "checks": ["All FRs testable? (no vague criteria)", "NFRs measurable?",
                        "No contradictions between FRs?", "Every stakeholder need covered?"],
-            "embed_docs": ["Project description / stakeholder brief", "draft docs/SRS.md (full content)"],
+            "embed_docs": ["Project description / stakeholder brief", "draft 01-requirements/SRS.md (full content)"],
         },
         {
             "label": "CONSTRAINTS.md",
@@ -341,8 +341,8 @@ _PHASE_DELIVERABLE_DEPS: Dict[int, List[Dict]] = {
             "task_hint": "Analyze constraints from SRS → document tech stack, SLA, cost model, compliance → validate completeness",
             "checks": ["All technical constraints documented?", "SLA targets defined and measurable?",
                        "Cost model complete?", "Constraints consistent with SRS requirements?"],
-            "embed_docs": ["docs/SRS.md (APPROVED — full content)",
-                           "draft docs/CONSTRAINTS.md (full content)"],
+            "embed_docs": ["01-requirements/SRS.md (APPROVED — full content)",
+                           "draft 01-requirements/CONSTRAINTS.md (full content)"],
         },
         {
             "label": "SPEC_TRACKING.md",
@@ -351,8 +351,8 @@ _PHASE_DELIVERABLE_DEPS: Dict[int, List[Dict]] = {
             "task_hint": "Build spec tracking matrix from SRS.md FRs → assign status/owner per FR → validate completeness",
             "checks": ["Every FR from SRS.md listed?", "Status field populated per FR?",
                        "Owner assigned per FR?", "No orphan FRs (in SRS but not tracked)?"],
-            "embed_docs": ["docs/SRS.md (APPROVED — full content)",
-                           "draft docs/SPEC_TRACKING.md (full content)"],
+            "embed_docs": ["01-requirements/SRS.md (APPROVED — full content)",
+                           "draft 01-requirements/SPEC_TRACKING.md (full content)"],
         },
         {
             "label": "TRACEABILITY_MATRIX.md",
@@ -362,9 +362,9 @@ _PHASE_DELIVERABLE_DEPS: Dict[int, List[Dict]] = {
             "checks": ["Bidirectional traceability established? (FR→design→test and back)",
                        "Every FR has ≥1 downstream link?", "No orphan requirements?",
                        "Coverage complete (all FRs traceable)?"],
-            "embed_docs": ["docs/SRS.md (APPROVED — full content)",
-                           "docs/SPEC_TRACKING.md (APPROVED — full content)",
-                           "draft docs/TRACEABILITY_MATRIX.md (full content)"],
+            "embed_docs": ["01-requirements/SRS.md (APPROVED — full content)",
+                           "01-requirements/SPEC_TRACKING.md (APPROVED — full content)",
+                           "draft 01-requirements/TRACEABILITY_MATRIX.md (full content)"],
         },
     ],
     2: [
@@ -375,8 +375,8 @@ _PHASE_DELIVERABLE_DEPS: Dict[int, List[Dict]] = {
             "task_hint": "Design system architecture → write SAD.md → validate every FR has a module mapping",
             "checks": ["Every FR maps to ≥1 module?", "NFRs addressed (latency/security/cost)?",
                        "No circular dependencies?", "Data flow diagrams consistent?"],
-            "embed_docs": ["docs/SRS.md (full)", "docs/CONSTRAINTS.md (full)",
-                           "draft docs/SAD.md (full)"],
+            "embed_docs": ["01-requirements/SRS.md (full)", "01-requirements/CONSTRAINTS.md (full)",
+                           "draft 02-architecture/SAD.md (full)"],
         },
         {
             "label": "ADR.md",
@@ -386,8 +386,8 @@ _PHASE_DELIVERABLE_DEPS: Dict[int, List[Dict]] = {
             "checks": ["ADR covers all major decisions from SAD.md?",
                        "Each ADR has context + options + rationale?",
                        "No decisions contradict SAD.md module mapping?"],
-            "embed_docs": ["docs/SRS.md (full)", "docs/SAD.md (APPROVED — full content)",
-                           "draft docs/ADR.md (full)"],
+            "embed_docs": ["01-requirements/SRS.md (full)", "02-architecture/SAD.md (APPROVED — full content)",
+                           "draft 02-architecture/adr/ADR.md (full)"],
         },
         {
             "label": "ARCHITECTURE_DIAGRAM.md",
@@ -397,9 +397,9 @@ _PHASE_DELIVERABLE_DEPS: Dict[int, List[Dict]] = {
             "checks": ["Topology matches SAD.md component layout?",
                        "Deployment view consistent with ADR infrastructure decisions?",
                        "Data flows match SAD.md interface definitions?"],
-            "embed_docs": ["docs/SAD.md (APPROVED — full content)",
-                           "docs/ADR.md (APPROVED — full content)",
-                           "draft docs/ARCHITECTURE_DIAGRAM.md (full content)"],
+            "embed_docs": ["02-architecture/SAD.md (APPROVED — full content)",
+                           "02-architecture/adr/ADR.md (APPROVED — full content)",
+                           "draft 02-architecture/ARCHITECTURE_DIAGRAM.md (full content)"],
         },
     ],
 }
@@ -420,7 +420,7 @@ def _agent_b_dispatch_block(phase: int, role_b: str, fr_id: str = "") -> List[st
     lines: List[str] = [
         f"- [ ] **[B-1]** Agent B ({role_b}){fr_suffix} — dispatch as **STATELESS** subagent:",
         "  > ⚠️  **STATELESS SANDBOX**: Agent B has ZERO access to local files or /tmp.",
-        "  > NEVER write 'read docs/SRS.md' in the prompt — it will fail silently.",
+        "  > NEVER write 'read 01-requirements/SRS.md' in the prompt — it will fail silently.",
         "  > ALL context must be pasted verbatim into the prompt text. This is mandatory.",
         "  >",
         "  > **Lesson (stateless agent)**: Rounds 2-3 failed because prompts used file paths.",
@@ -559,7 +559,7 @@ def _deliverable_ab_block(phase: int, deliverable: Dict, sub_n: int, total: int,
     lines += [
         f"- [ ] **[B-1]** Agent B ({role_b}) — dispatch as **STATELESS** subagent:",
         "  > ⚠️  **STATELESS SANDBOX**: Agent B has ZERO access to local files or /tmp.",
-        "  > NEVER write 'read docs/SRS.md' in the prompt — it will fail silently.",
+        "  > NEVER write 'read 01-requirements/SRS.md' in the prompt — it will fail silently.",
         "  > ALL context must be pasted verbatim into the prompt text. This is mandatory.",
         "  >",
         "  > **Lesson (stateless agent)**: Rounds 2-3 failed because prompts used file paths.",
@@ -778,35 +778,40 @@ def _phase_advance_step(phase: int) -> List[str]:
 
 def _p3_milestone_push_steps(fr_ids: List[str]) -> List[str]:
     """P3 milestone push instructions (PUSH ③ at ≥50% FRs, PUSH ④ pre-SSI)."""
+    return _milestone_push_steps(fr_ids, phase=3, push_labels=("③", "④"))
+
+
+def _milestone_push_steps(fr_ids: List[str], phase: int,
+                          push_labels: tuple[str, str] = ("?", "?")) -> List[str]:
+    """Phase milestone push instructions (mid + pre-SSI push checkpoints)."""
     if not fr_ids:
         return []
     total = len(fr_ids)
     mid = max(1, total // 2)
     mid_ids = ",".join(fr_ids[:mid])
     full_ids = ",".join(fr_ids)
-    # Visual truncated representation for the plan text (not used in bash commands)
     if len(fr_ids) > 5:
         _visual = ",".join(fr_ids[:5]) + f",…+{len(fr_ids) - 5}"
     else:
         _visual = full_ids
     return [
-        "### P3 Milestone Pushes (10-Push Strategy ③④)",
+        f"### P{phase} Milestone Pushes (10-Push Strategy {push_labels[0]}{push_labels[1]})",
         "",
         "> Per-FR Gate 1 only commits locally. The two **milestone pushes** below",
         "> write `HANDOVER.md` and push to origin — these are the crash-recovery checkpoints.",
         f"> All FR IDs in this project: {_visual}",
         "",
-        f"- [ ] **PUSH ③ — P3-mid** (trigger when ≥{mid}/{total} FRs have Gate 1 PASS):",
+        f"- [ ] **PUSH {push_labels[0]} — P{phase}-mid** (trigger when ≥{mid}/{total} FRs have Gate 1 PASS):",
         "  ```bash",
-        "  python3 harness_cli.py push-milestone --type p3-mid --project . \\",
+        f"  python3 harness_cli.py push-milestone --type p{phase}-mid --project . \\",
         f"    --fr-done {mid} --fr-total {total} --fr-ids {mid_ids}",
         "  ```",
         f"  > `--fr-ids` lists the FRs with Gate 1 PASS so far. Replace `{mid_ids}` with actual.",
         "  > Writes HANDOVER.md + commits + pushes. Next session reads HANDOVER.md to resume.",
         "",
-        f"- [ ] **PUSH ④ — P3-pre-SSI** (trigger when all {total} FRs Gate 1 PASS, before SSI):",
+        f"- [ ] **PUSH {push_labels[1]} — P{phase}-pre-SSI** (trigger when all {total} FRs Gate 1 PASS, before SSI):",
         "  ```bash",
-        "  python3 harness_cli.py push-milestone --type p3-pre-ssi --project . \\",
+        f"  python3 harness_cli.py push-milestone --type p{phase}-pre-ssi --project . \\",
         f"    --fr-ids {full_ids}",
         "  ```",
         "  > Last stable snapshot before SSI modifies files. HANDOVER.md + push.",
@@ -817,6 +822,8 @@ def _p3_milestone_push_steps(fr_ids: List[str]) -> List[str]:
 def _gate1_checkpoint(fr_id: str, phase: int, checkpoint_n: int) -> List[str]:
     """Gate 1 evaluation steps for a single FR (local commit, no push)."""
     meta = _GATE_META[1]
+    # Phase-aware milestone hint
+    _ms_type = f"push-milestone --type p{phase}-mid / p{phase}-pre-ssi"
     return [
         "",
         f"### 🔒 CHECKPOINT-{checkpoint_n}: Gate 1 — {fr_id}",
@@ -846,7 +853,7 @@ def _gate1_checkpoint(fr_id: str, phase: int, checkpoint_n: int) -> List[str]:
         "  git log --oneline -1",
         "  ```",
         "  > `finalize-gate --gate 1` calls `commit_fr_gate1()` — **local commit only, no push**.",
-        "  > Push + HANDOVER.md happens at milestone: `push-milestone --type p3-mid` / `p3-pre-ssi` / Gate exit.",
+        "  > Push + HANDOVER.md happens at milestone: `push-milestone --type p{}-mid` / `p{}-pre-ssi` / Gate exit.".format(phase, phase),
         "",
     ]
 
@@ -1276,6 +1283,8 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path) -> List[str]:
             lines.extend(_fr_dev_steps(fr_id, phase=4))
             lines.extend(_gate1_checkpoint(fr_id, phase=4, checkpoint_n=checkpoint_n))
             checkpoint_n += 1
+
+    lines.extend(_milestone_push_steps(fr_ids, phase=4, push_labels=("③", "④")))
 
     lines.extend(_gate_exit_checkpoint(gate_num=3, phase=4, checkpoint_n=checkpoint_n))
 

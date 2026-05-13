@@ -374,6 +374,111 @@ class GitStrategy:
         msg = f"feat(P3-pre-ssi): all {len(fr_ids)} FR(s) Gate1 PASS; ready for SSI"
         return self._commit_and_push(msg)
 
+    # ── Push ③④ (P4 variant) — P4 mid + pre-SSI milestones ─────────────────
+
+    def commit_and_push_p4_mid(
+        self,
+        fr_done: int,
+        fr_total: int,
+        fr_ids: list[str],
+        background: str = "",
+        notes: list[str] | None = None,
+    ) -> bool:
+        """Commit + push at P4 mid-point (FR Gate 1 re-eval PASS ≥ 50%)."""
+        if not self.enabled:
+            return True
+        if not fr_ids:
+            fr_ids = self._manifest_fr_ids() or self._auto_fr_ids()
+        fr_list = self._fr_summary(fr_ids)
+        completed_set = set(fr_ids)
+        all_ids = self._manifest_fr_ids() or self._auto_fr_ids()
+        remaining = [f for f in all_ids if f not in completed_set]
+        remaining_str = ", ".join(remaining) if remaining else "(all FRs Gate 1 PASS — ready for P4-pre-SSI)"
+
+        ab = self._ab_session_summary()
+        committed = self._recently_committed_files()
+        hermes = os.environ.get("HERMES_REVIEWER_TARGET", "")
+        hermes_status = f"✅ set ({hermes})" if hermes else "❌ not set (required before P6)"
+
+        status_parts = [
+            f"{fr_done}/{fr_total} FRs Gate 1 PASS [{fr_list}]. "
+            f"Test cycles complete for passing FRs.",
+        ]
+        if ab:
+            status_parts.append(f"\n**A/B Session Results:**\n{ab}")
+        if committed:
+            file_md = "\n".join(f"  - `{f}`" for f in committed)
+            status_parts.append(f"\n**Recently Committed Files:**\n{file_md}")
+
+        self._write_handover(
+            checkpoint_id=self._cp("P4-mid"),
+            phase=4,
+            background=background or f"P4 Testing in progress (≥50% milestone). {fr_done}/{fr_total} FRs done.",
+            status="\n".join(status_parts),
+            steps=[
+                f"Complete remaining {fr_total - fr_done} FR(s): {remaining_str}",
+                "Ensure each FR has ≥80% branch coverage",
+                "When all FRs done → `push-milestone --type p4-pre-ssi`",
+            ],
+            notes=notes,
+            extra={
+                "fr_done": str(fr_done),
+                "fr_total": str(fr_total),
+                "HERMES_REVIEWER_TARGET": hermes_status,
+            },
+            resume_phase=4,
+        )
+        msg = f"feat(P4-mid): {fr_done}/{fr_total} FRs Gate1 re-eval PASS"
+        return self._commit_and_push(msg)
+
+    def commit_and_push_p4_pre_ssi(
+        self,
+        fr_ids: list[str],
+        background: str = "",
+        notes: list[str] | None = None,
+    ) -> bool:
+        """Commit + push when all P4 FRs done but Gate 3 SSI not yet run."""
+        if not self.enabled:
+            return True
+        if not fr_ids:
+            fr_ids = self._manifest_fr_ids() or self._auto_fr_ids()
+        fr_list = self._fr_summary(fr_ids)
+
+        ab = self._ab_session_summary()
+        committed = self._recently_committed_files()
+        hermes = os.environ.get("HERMES_REVIEWER_TARGET", "")
+        hermes_status = f"✅ set ({hermes})" if hermes else "❌ not set (required before P6)"
+
+        status_parts = [
+            f"All {len(fr_ids)} FR(s) Gate 1 re-eval PASS [{fr_list}]. "
+            "Gate 3 SSI (12 dims) not yet started.",
+        ]
+        if ab:
+            status_parts.append(f"\n**A/B Session Results:**\n{ab}")
+        if committed:
+            file_md = "\n".join(f"  - `{f}`" for f in committed)
+            status_parts.append(f"\n**Recently Committed Files:**\n{file_md}")
+
+        self._write_handover(
+            checkpoint_id=self._cp("P4-pre-ssi"),
+            phase=4,
+            background=background or "P4 Testing complete. Gate 3 SSI not yet executed.",
+            status="\n".join(status_parts),
+            steps=[
+                "Run Gate 3 SSI (12 dims, target score ≥ 80)",
+                "Fix any failures between SSI rounds",
+                "On Gate 3 PASS → `finalize-gate --gate 3` handles push + HANDOVER",
+            ],
+            notes=notes,
+            extra={
+                "fr_count": str(len(fr_ids)),
+                "HERMES_REVIEWER_TARGET": hermes_status,
+            },
+            resume_phase=4,
+        )
+        msg = f"feat(P4-pre-ssi): all {len(fr_ids)} FR(s) Gate1 re-eval PASS; ready for Gate 3 SSI"
+        return self._commit_and_push(msg)
+
     # ── Push ⑤⑥⑧ — Gate 2/3/4 PASS ────────────────────────────────────────
 
     def commit_and_push_gate(
