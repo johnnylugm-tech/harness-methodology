@@ -61,7 +61,7 @@ cat > "$PREPARE_COMMIT_MSG_HOOK" << 'HOOK_SCRIPT'
 set -e
 
 # Get project root directory
-GIT_DIR=$(git rev-parse --show-toplevel)
+GIT_DIR=$(unset GIT_DIR; git rev-parse --show-toplevel)
 # Auto-detect harness_cli.py: root first, then harness/ submodule
 if [ -f "$GIT_DIR/harness_cli.py" ]; then
     HARNESS_CLI="$GIT_DIR/harness_cli.py"
@@ -138,7 +138,7 @@ cat > "$POST_MERGE_HOOK" << 'HOOK_SCRIPT'
 set -e
 
 # Get project root directory
-GIT_DIR=$(git rev-parse --show-toplevel)
+GIT_DIR=$(unset GIT_DIR; git rev-parse --show-toplevel)
 # Auto-detect harness_cli.py: root first, then harness/ submodule
 if [ -f "$GIT_DIR/harness_cli.py" ]; then
     HARNESS_CLI="$GIT_DIR/harness_cli.py"
@@ -201,7 +201,7 @@ cat > "$PRE_PUSH_HOOK" << 'HOOK_SCRIPT'
 set -e
 
 # Get project root directory
-GIT_DIR=$(git rev-parse --show-toplevel)
+GIT_DIR=$(unset GIT_DIR; git rev-parse --show-toplevel)
 # Auto-detect harness_cli.py: root first, then harness/ submodule
 if [ -f "$GIT_DIR/harness_cli.py" ]; then
     HARNESS_CLI="$GIT_DIR/harness_cli.py"
