@@ -1243,6 +1243,43 @@ class TestAdvanceFsm:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
+class TestAuditSessionsSpawn:
+    """Tests for _audit_sessions_spawn — pre-push HR-10 warning."""
+
+    def test_all_missing_warns(self, tmp_path, monkeypatch, capsys):
+        """13 FRs in manifest, no log → warns for all 13."""
+        import json
+        manifest_dir = tmp_path / ".methodology"
+        manifest_dir.mkdir()
+        fr_ids = [f"FR-{i:02d}" for i in range(1, 14)]
+        (manifest_dir / "quality_manifest.json").write_text(json.dumps({"fr_ids": fr_ids}))
+
+        from harness_cli import _audit_sessions_spawn
+        _audit_sessions_spawn(tmp_path, 4)
+        captured = capsys.readouterr().out
+        assert "HR-10" in captured
+        assert "incomplete for 13/13 FRs" in captured
+
+    def test_all_ok_silent(self, tmp_path, monkeypatch, capsys):
+        """All FRs have 2 entries → prints OK."""
+        import json
+        manifest_dir = tmp_path / ".methodology"
+        manifest_dir.mkdir()
+        fr_ids = ["FR-01", "FR-02"]
+        (manifest_dir / "quality_manifest.json").write_text(json.dumps({"fr_ids": fr_ids}))
+        (manifest_dir / "sessions_spawn.log").write_text(
+            json.dumps({"fr_id": "FR-01", "role": "developer", "session_id": "d1"}) + "\n" +
+            json.dumps({"fr_id": "FR-01", "role": "reviewer", "session_id": "r1"}) + "\n" +
+            json.dumps({"fr_id": "FR-02", "role": "developer", "session_id": "d2"}) + "\n" +
+            json.dumps({"fr_id": "FR-02", "role": "reviewer", "session_id": "r2"}) + "\n"
+        )
+
+        from harness_cli import _audit_sessions_spawn
+        _audit_sessions_spawn(tmp_path, 4)
+        captured = capsys.readouterr().out
+        assert "2/2 FRs OK" in captured
+
+
 class TestFinalizeGateHR10:
     """HR-10: finalize-gate --gate 1 must block when sessions_spawn.log is missing or incomplete."""
 

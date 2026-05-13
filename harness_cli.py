@@ -157,6 +157,42 @@ def _verify_entry_gate(project: Path, phase: int) -> dict:
     return {"passed": False, "gate": "Unknown", "reason": f"No entry gate defined for phase {phase}"}
 
 
+def _audit_sessions_spawn(project: Path, phase: int) -> None:
+    """Audit sessions_spawn.log completeness against quality_manifest FR list.
+
+    Prints a WARNING (not BLOCKED) for each FR missing ≥2 A/B entries.
+    Pre-push hooks use this to surface HR-10 gaps before they reach CI.
+    """
+    manifest_path = project / ".methodology" / "quality_manifest.json"
+    log_path = project / ".methodology" / "sessions_spawn.log"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        fr_ids = manifest.get("fr_ids", [])
+    except Exception:  # pylint: disable=broad-exception-caught
+        return
+
+    entries: list[dict] = []
+    if log_path.exists():
+        try:
+            entries = [json.loads(line) for line in
+                       log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        except Exception:  # pylint: disable=broad-exception-caught
+            pass
+
+    missing = []
+    for fr_id in fr_ids:
+        fr_entries = [e for e in entries if e.get("fr_id") == fr_id]
+        distinct = len({e.get("role") for e in fr_entries})
+        if len(fr_entries) < 2 or distinct < 2:
+            missing.append(f"{fr_id}({len(fr_entries)}e/{distinct}r)")
+
+    if missing:
+        print(f"\n[WARN] HR-10: sessions_spawn.log incomplete for {len(missing)}/{len(fr_ids)} FRs: {', '.join(missing[:8])}{'...' if len(missing) > 8 else ''}")
+        print(f"  Missing A/B entries will block Gate 1 finalize-gate. Dispatch via AgentSpawner before finalizing.")
+    else:
+        print(f"\n[HR-10] sessions_spawn.log: {len(fr_ids)}/{len(fr_ids)} FRs OK")
+
+
 def cmd_run_phase(args: argparse.Namespace) -> int:
     """Run pre/post-flight hooks for a phase. Use --fast for commit-hook lightweight checks."""
     from core.phase_hooks import PhaseHooks
@@ -186,6 +222,11 @@ def cmd_run_phase(args: argparse.Namespace) -> int:
         return 1
 
     print("\n[INFO] Preflight passed. Phase execution hooks ready.")
+
+    # HR-10 audit: warn if sessions_spawn.log is missing expected FR entries
+    if args.phase in _PER_FR_GATE1_PHASES:
+        _audit_sessions_spawn(project, args.phase)
+
     if fast:
         print("[INFO] Fast mode: skipped drift, traceability, gap analysis, CI readiness.")
         print("[INFO] Run without --fast for full preflight before push.")
