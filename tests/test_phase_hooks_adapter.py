@@ -223,8 +223,27 @@ class TestSabConstitutionCheck:
         assert len(result["violations"]) >= 1
         assert any("L2" in v for v in result["violations"])
 
-    def test_sab_check_missing_modules(self, tmp_path, phase_hooks_cls):
-        """Modules declared in SAB but missing on disk cause violations."""
+    def test_sab_check_missing_modules_p4_blocks(self, tmp_path, phase_hooks_cls):
+        """Modules declared in SAB but missing on disk cause violations at P4+."""
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        sab_json = {
+            "layers": [
+                {"name": "L1", "modules": ["nonexistent.py"], "allowed_dependencies": []},
+            ],
+            "dependencies": {"L1": []},
+        }
+        (method_dir / "SAB.json").write_text(
+            __import__("json").dumps(sab_json)
+        )
+
+        hooks = phase_hooks_cls(str(tmp_path), phase=4)
+        result = hooks.preflight_sab_check()
+        assert result["passed"] is False
+        assert any("missing" in v for v in result["violations"])
+
+    def test_sab_check_missing_modules_p3_allowed(self, tmp_path, phase_hooks_cls):
+        """At P3 entry, module-existence check is skipped — implementation dirs not created yet."""
         method_dir = tmp_path / ".methodology"
         method_dir.mkdir()
         sab_json = {
@@ -239,8 +258,8 @@ class TestSabConstitutionCheck:
 
         hooks = phase_hooks_cls(str(tmp_path), phase=3)
         result = hooks.preflight_sab_check()
-        assert result["passed"] is False
-        assert any("missing" in v for v in result["violations"])
+        # P3 skips module existence — structural validation only
+        assert result["passed"] is True
 
     def test_preflight_all_includes_sab(self, tmp_path, phase_hooks_cls):
         """preflight_all() result dict includes 'sab' key."""

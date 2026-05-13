@@ -322,11 +322,18 @@ class TestPreflightTraceability:
         assert result["passed"] is True
         assert result["blocking"] is False
 
-    def test_p4_blocks_on_gaps(self, tmp_path):
-        """P4+ traceability blocks if gaps exist."""
+    def test_p4_info_not_blocking(self, tmp_path):
+        """P4 traceability is informational — passes even with gaps (tests being built)."""
         h = self._make_hooks(tmp_path, phase=4)
         result = h.preflight_traceability()
-        # FR-02 has no code and no test → should fail at P4
+        assert result["passed"] is True
+        assert result["blocking"] is False
+
+    def test_p5_blocks_on_gaps(self, tmp_path):
+        """P5+ traceability blocks if gaps exist."""
+        h = self._make_hooks(tmp_path, phase=5)
+        result = h.preflight_traceability()
+        # FR-02 has no code and no test → should fail at P5
         assert result["passed"] is False
         assert result["blocking"] is True
 

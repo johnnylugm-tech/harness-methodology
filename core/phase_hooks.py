@@ -174,9 +174,13 @@ class PhaseHooks:
             avg_score = (sum(r.score for r in results.values()) /
                          max(len(results), 1))
             score_pct = avg_score * 100
-            passed = score_pct >= self.drift_threshold
+            # P3 or phase-agnostic: informational only — no implementation
+            # exists yet at entry. P4+: blocking — drift must be within threshold.
+            blocking = self.phase is not None and self.phase >= 4
+            passed = score_pct >= self.drift_threshold if blocking else True
             print(f"   Drifts: {total_drifts}, Score: {score_pct:.0f}% "
-                  f"(threshold: {self.drift_threshold:.0f}%)")
+                  f"(threshold: {self.drift_threshold:.0f}%)"
+                  f"{' [INFO]' if not blocking else ''}")
             return {"passed": passed, "drifts": total_drifts,
                     "score": score_pct,
                     "threshold": self.drift_threshold,
@@ -223,15 +227,22 @@ class PhaseHooks:
                 violations.append(
                     f"Layer {layer_name}: deps {invalid_deps} reference unknown layers"
                 )
-            missing_modules = [
-                m for m in modules
-                if not m.endswith("/") and not (self.project_path / m).exists()
-            ]
-            if missing_modules:
-                violations.append(
-                    f"Layer {layer_name}: {len(missing_modules)} modules missing from codebase"
-                )
+            # P3 or phase-agnostic: skip module-existence check (implementation
+            # dirs not created yet). Structural violations (invalid deps) still fail.
+            # P4+: enforce that all SAB-layer modules exist on disk.
+            if self.phase is not None and self.phase >= 4:
+                missing_modules = [
+                    m for m in modules
+                    if not m.endswith("/") and not (self.project_path / m).exists()
+                ]
+                if missing_modules:
+                    violations.append(
+                        f"Layer {layer_name}: {len(missing_modules)} modules missing from codebase"
+                    )
 
+        # P3 or phase-agnostic: module-existence skipped (impl dirs not created
+        # yet); structural violations (invalid deps) still fail.
+        # P4+: module existence enforced; all violations are blocking.
         passed = len(violations) == 0
         if violations:
             print(f"   FAIL: {len(violations)} SAB violation(s)")
@@ -261,9 +272,10 @@ class PhaseHooks:
         uncoded = len(report["uncoded"])
         complete = report["complete"]
 
-        # P3: informational only (matrix is being built)
-        # P4+: blocking (Gate 3 requires full traceability)
-        blocking = self.phase is not None and self.phase >= 4
+        # P3: informational only (code being built)
+        # P4: informational only (tests being built)
+        # P5+: blocking (full FR→code→test traceability required)
+        blocking = self.phase is not None and self.phase >= 5
         passed = complete if blocking else True
 
         c = report["completeness"]
