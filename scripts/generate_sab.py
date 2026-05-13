@@ -72,7 +72,7 @@ def main():
     args = parser.parse_args()
 
     project = Path(args.project)
-    sad_file = project / "SAD.md"
+    sad_file = project / "02-architecture" / "SAD.md"
     output_file = project / args.output
 
     if not sad_file.exists():

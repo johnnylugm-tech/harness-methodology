@@ -34,10 +34,10 @@ PHASE_WHERE_PATTERNS = {
 }
 
 PHASE_ARTIFACTS = {
-    5: ["BASELINE.md", "VERIFICATION_REPORT.md"],
-    6: ["QUALITY_REPORT.md", "MONITORING_PLAN.md"],
-    7: ["RISK_ASSESSMENT.md", "RISK_REGISTER.md"],
-    8: ["CONFIG_RECORDS.md", "requirements.lock"],
+    5: ["05-verify/BASELINE.md", "05-verify/VERIFICATION_REPORT.md"],
+    6: ["06-quality/QUALITY_REPORT.md", "06-quality/MONITORING_PLAN.md"],
+    7: ["07-risk/RISK_ASSESSMENT.md", "07-risk/RISK_REGISTER.md"],
+    8: ["08-config/CONFIG_RECORDS.md", "08-config/requirements.lock"],
 }
 
 

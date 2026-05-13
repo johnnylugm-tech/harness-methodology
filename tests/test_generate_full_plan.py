@@ -61,7 +61,8 @@ def project(tmp_path: Path) -> Path:
         json.dumps(manifest), encoding="utf-8"
     )
     # Minimal SRS so phases 3/4 can parse (they'll fall back to manifest fr_ids anyway)
-    (tmp_path / "SRS.md").write_text("# SRS\n", encoding="utf-8")
+    (tmp_path / "01-requirements").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "01-requirements" / "SRS.md").write_text("# SRS\n", encoding="utf-8")
     return tmp_path
 
 

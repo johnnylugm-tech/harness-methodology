@@ -25,7 +25,8 @@ class TestBuildTraceability:
 
     def _make_project(self, tmp_path):
         """Create a minimal project with SAD.md + annotated code + tests."""
-        sad = tmp_path / "SAD.md"
+        (tmp_path / "02-architecture").mkdir(parents=True, exist_ok=True)
+        sad = tmp_path / "02-architecture" / "SAD.md"
         sad.write_text("Requirements: FR-01, FR-02, FR-03\n\n"
                        "| FR-01 | `mod_a.py` |\n"
                        "| FR-02 | `mod_b.py` |\n")
@@ -40,7 +41,8 @@ class TestBuildTraceability:
         return tmp_path
 
     def test_extract_fr_ids_from_sad(self, tmp_path):
-        sad = tmp_path / "SAD.md"
+        (tmp_path / "02-architecture").mkdir(parents=True, exist_ok=True)
+        sad = tmp_path / "02-architecture" / "SAD.md"
         sad.write_text("FR-01: something\nFR-002: another\nFR-3: third")
         from scripts.build_traceability import extract_fr_ids_from_sad
         ids = extract_fr_ids_from_sad(sad)
@@ -89,7 +91,8 @@ class TestBuildTraceability:
         assert "FR-04" in result
 
     def test_scan_sad_fr_modules(self, tmp_path):
-        sad = tmp_path / "SAD.md"
+        (tmp_path / "02-architecture").mkdir(parents=True, exist_ok=True)
+        sad = tmp_path / "02-architecture" / "SAD.md"
         sad.write_text("| FR-01 | `core/auth.py` | auth module |\n"
                        "| FR-02 | `lib/utils.py` | utility |\n")
         from scripts.build_traceability import scan_sad_fr_modules
@@ -102,7 +105,7 @@ class TestBuildTraceability:
     def test_build_traceability_populates_model(self, tmp_path):
         proj = self._make_project(tmp_path)
         from scripts.build_traceability import build_traceability
-        rt = build_traceability(proj, sad_path=proj / "SAD.md")
+        rt = build_traceability(proj, sad_path=proj / "02-architecture" / "SAD.md")
 
         assert "FR-01" in rt.requirements
         assert rt.requirements["FR-01"].status == TraceStatus.VERIFIED
@@ -115,7 +118,7 @@ class TestBuildTraceability:
     def test_build_traceability_links(self, tmp_path):
         proj = self._make_project(tmp_path)
         from scripts.build_traceability import build_traceability
-        rt = build_traceability(proj, sad_path=proj / "SAD.md")
+        rt = build_traceability(proj, sad_path=proj / "02-architecture" / "SAD.md")
 
         downstream = rt.get_downstream("FR-01")
         assert len(downstream["code"]) > 0
@@ -124,7 +127,7 @@ class TestBuildTraceability:
     def test_build_traceability_completeness(self, tmp_path):
         proj = self._make_project(tmp_path)
         from scripts.build_traceability import build_traceability
-        rt = build_traceability(proj, sad_path=proj / "SAD.md")
+        rt = build_traceability(proj, sad_path=proj / "02-architecture" / "SAD.md")
 
         c = rt.verify_completeness()
         assert c["total_requirements"] >= 2
@@ -134,7 +137,7 @@ class TestBuildTraceability:
     def test_generate_markdown_matrix(self, tmp_path):
         proj = self._make_project(tmp_path)
         from scripts.build_traceability import build_traceability, generate_markdown_matrix
-        rt = build_traceability(proj, sad_path=proj / "SAD.md")
+        rt = build_traceability(proj, sad_path=proj / "02-architecture" / "SAD.md")
 
         matrix_path = tmp_path / "TRACEABILITY_MATRIX.md"
         generate_markdown_matrix(rt, matrix_path)
@@ -168,7 +171,8 @@ class TestCheckSpecTraceUpgraded:
     """Tests for upgraded scripts/check_spec_trace.py."""
 
     def _make_project(self, tmp_path):
-        sad = tmp_path / "SAD.md"
+        (tmp_path / "02-architecture").mkdir(parents=True, exist_ok=True)
+        sad = tmp_path / "02-architecture" / "SAD.md"
         sad.write_text("FR-01: auth\nFR-02: payment\n")
         (tmp_path / "mod_a.py").write_text('""" [FR-01] Auth module """')
         tests_dir = tmp_path / "tests"
@@ -179,7 +183,7 @@ class TestCheckSpecTraceUpgraded:
     def test_check_traceability_all_covered(self, tmp_path):
         proj = self._make_project(tmp_path)
         from scripts.check_spec_trace import check_traceability
-        _, report = check_traceability(proj, sad_path=proj / "SAD.md")
+        _, report = check_traceability(proj, sad_path=proj / "02-architecture" / "SAD.md")
         assert report["sad_frs"] == 2
         assert report["coded"] == 1
         assert report["tested"] == 1
@@ -188,7 +192,8 @@ class TestCheckSpecTraceUpgraded:
 
     def test_check_traceability_complete(self, tmp_path):
         """When all FRs have code + test, complete=True."""
-        sad = tmp_path / "SAD.md"
+        (tmp_path / "02-architecture").mkdir(parents=True, exist_ok=True)
+        sad = tmp_path / "02-architecture" / "SAD.md"
         sad.write_text("FR-01\n")
         (tmp_path / "mod.py").write_text('""" [FR-01] """')
         tests = tmp_path / "tests"
@@ -216,7 +221,8 @@ class TestCheckSpecTraceUpgraded:
 
     def test_check_traceability_test_from_content(self, tmp_path):
         """Test files without FR in filename but with FR in content."""
-        sad = tmp_path / "SAD.md"
+        (tmp_path / "02-architecture").mkdir(parents=True, exist_ok=True)
+        sad = tmp_path / "02-architecture" / "SAD.md"
         sad.write_text("FR-01\n")
         tests = tmp_path / "tests"
         tests.mkdir()
@@ -227,7 +233,8 @@ class TestCheckSpecTraceUpgraded:
         assert report["tested"] >= 1
 
     def test_main_block_flag(self, tmp_path):
-        sad = tmp_path / "SAD.md"
+        (tmp_path / "02-architecture").mkdir(parents=True, exist_ok=True)
+        sad = tmp_path / "02-architecture" / "SAD.md"
         sad.write_text("FR-01\nFR-02\n")
         (tmp_path / "mod.py").write_text('""" [FR-01] """')
         tests = tmp_path / "tests"
@@ -239,7 +246,8 @@ class TestCheckSpecTraceUpgraded:
         assert rc == 1
 
     def test_main_passes_when_complete(self, tmp_path):
-        sad = tmp_path / "SAD.md"
+        (tmp_path / "02-architecture").mkdir(parents=True, exist_ok=True)
+        sad = tmp_path / "02-architecture" / "SAD.md"
         sad.write_text("FR-01\n")
         (tmp_path / "mod.py").write_text('""" [FR-01] """')
         tests = tmp_path / "tests"
@@ -250,14 +258,16 @@ class TestCheckSpecTraceUpgraded:
         assert rc == 0
 
     def test_main_json_flag(self, tmp_path):
-        sad = tmp_path / "SAD.md"
+        (tmp_path / "02-architecture").mkdir(parents=True, exist_ok=True)
+        sad = tmp_path / "02-architecture" / "SAD.md"
         sad.write_text("FR-01\n")
         from scripts.check_spec_trace import main
         rc = main(["--project", str(tmp_path), "--sad", str(sad), "--json"])
         assert rc == 0
 
     def test_export_report(self, tmp_path):
-        sad = tmp_path / "SAD.md"
+        (tmp_path / "02-architecture").mkdir(parents=True, exist_ok=True)
+        sad = tmp_path / "02-architecture" / "SAD.md"
         sad.write_text("FR-01\n")
         (tmp_path / "mod.py").write_text('""" [FR-01] """')
         export_path = tmp_path / "report.json"
@@ -283,7 +293,8 @@ class TestPreflightTraceability:
         (method_dir / "state.json").write_text(
             f'{{"state": "ACTIVE", "current_phase": {phase}}}'
         )
-        sad = tmp_path / "SAD.md"
+        (tmp_path / "02-architecture").mkdir(parents=True, exist_ok=True)
+        sad = tmp_path / "02-architecture" / "SAD.md"
         sad.write_text("FR-01: test requirement\nFR-02: another\n")
         (tmp_path / "mod_a.py").write_text('""" [FR-01] Module A """')
         tests = tmp_path / "tests"
@@ -321,7 +332,8 @@ class TestPreflightTraceability:
 
     def test_p4_passes_when_complete(self, tmp_path):
         """P4 passes when all FRs have code + test."""
-        sad = tmp_path / "SAD.md"
+        (tmp_path / "02-architecture").mkdir(parents=True, exist_ok=True)
+        sad = tmp_path / "02-architecture" / "SAD.md"
         sad.write_text("FR-01\n")
         (tmp_path / "mod.py").write_text('""" [FR-01] """')
         tests = tmp_path / "tests"

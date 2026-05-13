@@ -31,12 +31,14 @@ class TestDriftDetector:
         assert result.has_drift is True
         # At least 4 artifacts checked (P1: 2 + P2: 2)
         assert result.checked >= 4
-        assert any("SAD.md" in i.description for i in result.drift_items)
+        assert any("02-architecture/SAD.md" in i.description for i in result.drift_items)
 
     def test_detect_spec_drift_finds_missing_frs(self, tmp_path):
         """Verify drift detection when code doesn't cover all SRS FRs."""
         # Create SRS with FR-01 and FR-02
-        srs_path = tmp_path / "SRS.md"
+        req_dir = tmp_path / "01-requirements"
+        req_dir.mkdir()
+        srs_path = req_dir / "SRS.md"
         srs_path.write_text("Requirements: FR-01, FR-02")
         
         # Create implementation with only FR-01
@@ -52,7 +54,9 @@ class TestDriftDetector:
 
     def test_detect_sad_drift_finds_missing_files(self, tmp_path):
         """Verify drift detection when SAD points to non-existent files."""
-        sad_path = tmp_path / "SAD.md"
+        arch_dir = tmp_path / "02-architecture"
+        arch_dir.mkdir()
+        sad_path = arch_dir / "SAD.md"
         sad_path.write_text("| FR-01 | `missing.py` |")
 
         detector = DriftDetector(str(tmp_path))
@@ -83,9 +87,11 @@ class TestDriftDetector:
         assert d["drifted"] == 1
 
     def test_find_file_found(self, tmp_path):
-        (tmp_path / "SRS.md").write_text("test")
+        req_dir = tmp_path / "01-requirements"
+        req_dir.mkdir()
+        (req_dir / "SRS.md").write_text("test")
         detector = DriftDetector(str(tmp_path))
-        found = detector._find_file(["SRS.md", "01-requirements/SRS.md"])
+        found = detector._find_file(["01-requirements/SRS.md"])
         assert found is not None
 
     def test_find_file_not_found(self, tmp_path):
@@ -223,7 +229,9 @@ class TestSabDriftDetection:
 
     def test_load_sab_baseline_from_sad_fallback(self, tmp_path):
         """Falls back to parsing SAD.md §6 SAB block when SAB.json missing."""
-        sad = tmp_path / "SAD.md"
+        arch_dir = tmp_path / "02-architecture"
+        arch_dir.mkdir()
+        sad = arch_dir / "SAD.md"
         sad.write_text("""<!-- SAB:START -->
 ```json
 {"layers": [{"name": "L0", "modules": ["main.py"], "allowed_dependencies": []}],

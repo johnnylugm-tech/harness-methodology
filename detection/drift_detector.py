@@ -91,16 +91,16 @@ class DriftDetector:
     MODULE_PATTERN = re.compile(r'`([^`]+\.py)`')
     SAD_FR_PATTERN = re.compile(r'FR-(\d+)[^\n]*?`([^`]+\.py)`')
 
-    # Expected artifacts per phase
+    # Expected artifacts per phase (canonical 0X-name/ paths)
     PHASE_ARTIFACTS = {
-        1: ["SRS.md", "TRACEABILITY_MATRIX.md"],
-        2: ["SAD.md", "ADR.md"],
-        3: ["tests/"],
-        4: ["TEST_PLAN.md", "TEST_RESULTS.md"],
-        5: ["BASELINE.md"],
-        6: ["QUALITY_REPORT.md"],
-        7: ["RISK_REGISTER.md"],
-        8: ["CONFIG_RECORDS.md"],
+        1: ["01-requirements/SRS.md", "01-requirements/TRACEABILITY_MATRIX.md"],
+        2: ["02-architecture/SAD.md", "02-architecture/adr/ADR.md"],
+        3: ["03-development/tests/"],
+        4: ["04-testing/TEST_PLAN.md", "04-testing/TEST_RESULTS.md"],
+        5: ["05-verify/BASELINE.md"],
+        6: ["06-quality/QUALITY_REPORT.md"],
+        7: ["07-risk/RISK_REGISTER.md"],
+        8: ["08-config/CONFIG_RECORDS.md"],
     }
 
     def __init__(self, project_path: str):
@@ -114,7 +114,7 @@ class DriftDetector:
 
         Reads SAD.md FR-to-file mapping and checks if mapped files exist.
         """
-        sad_path = self._find_file(["SAD.md", "02-architecture/SAD.md", "docs/SAD.md"])
+        sad_path = self._find_file(["02-architecture/SAD.md"])
         if not sad_path:
             return DriftResult(
                 drift_type="sad", has_drift=False, checked=0, drifted=0, score=1.0,
@@ -168,7 +168,7 @@ class DriftDetector:
         Scans Python code for [FR-XX] docstring annotations and checks
         whether each SRS FR is covered by at least one implementation file.
         """
-        srs_path = self._find_file(["SRS.md", "01-requirements/SRS.md", "docs/SRS.md"])
+        srs_path = self._find_file(["01-requirements/SRS.md"])
         if not srs_path:
             return DriftResult(drift_type="spec", has_drift=False, score=1.0)
 
@@ -424,7 +424,7 @@ class DriftDetector:
         # Fallback: try parsing from SAD.md
         try:
             from scripts.generate_sab import parse_sad
-            sad_path = self._find_file(["SAD.md", "02-architecture/SAD.md", "docs/SAD.md"])
+            sad_path = self._find_file(["02-architecture/SAD.md"])
             if sad_path:
                 return parse_sad(str(sad_path))
         except Exception:

@@ -127,6 +127,59 @@ This module handles authentication and encryption with HMAC signatures.
             path.unlink()
 
 
+class TestIsStubTemplate:
+    """Tests for _is_stub_template() — detects {placeholder}-ridden template files."""
+
+    def test_five_placeholders_is_stub(self):
+        from core.quality_gate.constitution.runner import _is_stub_template
+        content = "### {Project Name}\n\n{desc}\n{module}\n{api}\n{deps}"
+        assert _is_stub_template(content) is True
+
+    def test_four_placeholders_is_not_stub(self):
+        from core.quality_gate.constitution.runner import _is_stub_template
+        content = "### {Project Name}\n\n{desc}\n{module}\n{api}"
+        assert _is_stub_template(content) is False
+
+    def test_empty_content(self):
+        from core.quality_gate.constitution.runner import _is_stub_template
+        assert _is_stub_template("") is False
+
+    def test_real_document_without_placeholders(self):
+        from core.quality_gate.constitution.runner import _is_stub_template
+        content = (
+            "# SRS\n\n## Functional Requirements\n\n"
+            "| FR-01 | User login | auth.py | Unit test |\n"
+            "| FR-02 | Payment | pay.py | Integration |\n"
+        )
+        assert _is_stub_template(content) is False
+
+    def test_json_block_not_false_positive(self):
+        """JSON with quoted keys ({"key": val}) should not count as placeholders."""
+        from core.quality_gate.constitution.runner import _is_stub_template
+        content = (
+            '<!-- SAB:START -->\n```json\n'
+            '{"version": "1.0", "layers": [{"name": "Core"}], '
+            '"dependencies": {"Core": []}}\n'
+            '```\n<!-- SAB:END -->'
+        )
+        assert _is_stub_template(content) is False
+
+    def test_fstring_like_in_code_block(self):
+        """F-string fragments {var} inside code blocks count as placeholders,
+        but a real file with only a few such fragments should not be flagged."""
+        from core.quality_gate.constitution.runner import _is_stub_template
+        content = (
+            "# Code Example\n\n```python\n"
+            "name = f\"Hello {user}\"\n"
+            "count = f\"You have {n} items\"\n"
+            "```\n\n"
+            "## Section\n\n"
+            + "Real documentation text here.\n" * 10
+        )
+        # Only 2 {user} and {n} patterns — well below threshold
+        assert _is_stub_template(content) is False
+
+
 class TestScanDirectory:
     def test_empty_directory_phase1_skips(self):
         with tempfile.TemporaryDirectory() as d:

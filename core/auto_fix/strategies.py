@@ -22,7 +22,9 @@ def fix_missing_artifact(context, project_root: Path) -> Tuple[bool, str, float]
     """Generate missing artifact stub with phase-appropriate boilerplate."""
     artifact_name = context.details.get("artifact_name", context.details.get("name", "unknown"))
     phase = context.phase
-    docs_dir = project_root / "docs"
+    from core.quality_gate.constitution.profile import get_profile
+    phase_dir = get_profile().phase_directory(phase)
+    docs_dir = project_root / phase_dir
     docs_dir.mkdir(parents=True, exist_ok=True)
     file_path = docs_dir / f"{artifact_name}.md"
     if file_path.exists():
@@ -33,7 +35,9 @@ def fix_missing_artifact(context, project_root: Path) -> Tuple[bool, str, float]
 
 def fix_missing_spec_tracking(context, project_root: Path) -> Tuple[bool, str, float]:
     """Generate SPEC_TRACKING.md from quality_manifest.json FR IDs."""
-    file_path = project_root / "docs" / "SPEC_TRACKING.md"
+    from core.quality_gate.constitution.profile import get_profile
+    phase_dir = get_profile().phase_directory(1)
+    file_path = project_root / phase_dir / "SPEC_TRACKING.md"
     if file_path.exists():
         return (True, "SPEC_TRACKING.md already exists", 95.0)
     fr_ids = _load_fr_ids(project_root)
@@ -45,7 +49,9 @@ def fix_missing_spec_tracking(context, project_root: Path) -> Tuple[bool, str, f
 
 def fix_missing_traceability(context, project_root: Path) -> Tuple[bool, str, float]:
     """Generate TRACEABILITY_MATRIX.md from existing artifacts."""
-    file_path = project_root / "docs" / "TRACEABILITY_MATRIX.md"
+    from core.quality_gate.constitution.profile import get_profile
+    phase_dir = get_profile().phase_directory(1)
+    file_path = project_root / phase_dir / "TRACEABILITY_MATRIX.md"
     if file_path.exists():
         return (True, "TRACEABILITY_MATRIX.md already exists", 90.0)
     fr_ids = _load_fr_ids(project_root)

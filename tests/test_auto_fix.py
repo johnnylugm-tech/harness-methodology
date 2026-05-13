@@ -157,12 +157,12 @@ class TestStrategies:
         success, action, conf = fix_missing_artifact(context, tmp_path)
         assert success
         assert conf == 95.0
-        assert (tmp_path / "docs" / "TEST_ARTIFACT.md").exists()
-        assert "docs" in action
+        assert (tmp_path / "01-requirements" / "TEST_ARTIFACT.md").exists()
+        assert "01-requirements" in action
 
     def test_fix_missing_artifact_skips_existing(self, tmp_path: Path):
-        (tmp_path / "docs").mkdir(parents=True)
-        existing = tmp_path / "docs" / "EXISTING.md"
+        (tmp_path / "01-requirements").mkdir(parents=True)
+        existing = tmp_path / "01-requirements" / "EXISTING.md"
         existing.write_text("# Existing")
 
         context = FixContext(
@@ -178,7 +178,7 @@ class TestStrategies:
         assert "already exists" in action
 
     def test_fix_missing_spec_tracking_generates_file(self, tmp_path: Path):
-        (tmp_path / "docs").mkdir(parents=True)
+        (tmp_path / "01-requirements").mkdir(parents=True)
         context = FixContext(
             source="framework_enforcer",
             problem_type="missing_spec_tracking",
@@ -189,10 +189,10 @@ class TestStrategies:
         )
         success, action, conf = fix_missing_spec_tracking(context, tmp_path)
         assert success
-        assert (tmp_path / "docs" / "SPEC_TRACKING.md").exists()
+        assert (tmp_path / "01-requirements" / "SPEC_TRACKING.md").exists()
 
     def test_fix_missing_traceability_generates_file(self, tmp_path: Path):
-        (tmp_path / "docs").mkdir(parents=True)
+        (tmp_path / "01-requirements").mkdir(parents=True)
         context = FixContext(
             source="framework_enforcer",
             problem_type="missing_traceability",
@@ -203,7 +203,7 @@ class TestStrategies:
         )
         success, action, conf = fix_missing_traceability(context, tmp_path)
         assert success
-        content = (tmp_path / "docs" / "TRACEABILITY_MATRIX.md").read_text()
+        content = (tmp_path / "01-requirements" / "TRACEABILITY_MATRIX.md").read_text()
         assert "TRACEABILITY" in content
 
     def test_fix_keyword_density_adds_keywords(self, tmp_path: Path):

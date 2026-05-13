@@ -222,7 +222,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 
 def _find_sad(project: Path) -> Optional[Path]:
-    for c in ["SAD.md", "02-architecture/SAD.md", "docs/SAD.md"]:
+    for c in ["02-architecture/SAD.md"]:
         p = project / c
         if p.exists():
             return p

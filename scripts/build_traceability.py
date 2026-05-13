@@ -141,9 +141,7 @@ def build_traceability(
     rt = RequirementTraceability(project_id=project_id)
 
     if sad_path is None:
-        sad_path = project / "SAD.md"
-        if not sad_path.exists():
-            sad_path = project / "02-architecture" / "SAD.md"
+        sad_path = project / "02-architecture" / "SAD.md"
 
     # 1. Extract FRs from SAD.md (source of truth)
     sad_frs = extract_fr_ids_from_sad(sad_path)

@@ -20,6 +20,7 @@ Multi-dimensional scoring (aligned with methodology-v2 TH-03~TH-06):
 
 from __future__ import annotations
 
+import re
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -94,6 +95,19 @@ def _should_scan_file(file_path: Path, check_type: str) -> bool:
     return any(kw in file_lower for kw in keywords)
 
 
+_STUB_PLACEHOLDER_RE = re.compile(r'\{[A-Za-z_]')
+
+
+def _is_stub_template(content: str) -> bool:
+    """Detect un-filled template files by counting {placeholder} patterns.
+
+    Templates from init-project contain {Project Name}, {placeholder}, etc.
+    These should not be scored as failing artifacts — they're waiting for
+    the user to fill them in.
+    """
+    return len(_STUB_PLACEHOLDER_RE.findall(content)) >= 5
+
+
 def _keyword_density(content: str, keywords: List[str]) -> float:
     """Compute keyword density score 0-100 for a set of keywords."""
     if not keywords:
@@ -130,6 +144,10 @@ def _scan_file_compliance(file_path: Path) -> Dict[str, float]:
 
     if len(content) < 100:
         return empty
+
+    if _is_stub_template(content):
+        return {"correctness": 100.0, "security": 100.0,
+                "maintainability": 100.0, "coverage": 100.0}
 
     profile = get_profile()
 

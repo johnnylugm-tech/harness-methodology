@@ -506,8 +506,7 @@ class GitStrategy:
         missing colons are silently skipped.
         """
         for srs_path in (
-            self.project / "SRS.md",
-            self.project / "docs" / "SRS.md",
+            self.project / "01-requirements" / "SRS.md",
         ):
             if not srs_path.exists():
                 continue
@@ -573,8 +572,7 @@ class GitStrategy:
         Table column order assumed: Gap ID | Source | Area | Disposition | Target Phase
         """
         for path in (
-            self.project / "SPEC_TRACKING.md",
-            self.project / "docs" / "SPEC_TRACKING.md",
+            self.project / "01-requirements" / "SPEC_TRACKING.md",
         ):
             if not path.exists():
                 continue
@@ -632,8 +630,10 @@ class GitStrategy:
     # Map of known phase deliverable filenames (P1 and P2 are well-defined by
     # the methodology; other phases have project-specific outputs).
     _DELIVERABLE_NAMES: dict[int, list[str]] = {
-        1: ["SRS.md", "CONSTRAINTS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md"],
-        2: ["SAD.md", "ADR.md", "ARCHITECTURE_DIAGRAM.md"],
+        1: ["01-requirements/SRS.md", "01-requirements/CONSTRAINTS.md",
+            "01-requirements/SPEC_TRACKING.md", "01-requirements/TRACEABILITY_MATRIX.md"],
+        2: ["02-architecture/SAD.md", "02-architecture/adr/ADR.md",
+            "02-architecture/ARCHITECTURE_DIAGRAM.md"],
     }
 
     def _deliverable_files(self, phase: int) -> list[str]:

@@ -1257,10 +1257,10 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
         # ── P1: SRS.md must exist (human writes it); checkpoint if valid ────
         if phase == 1:
             print(f"\n[1.1] SRS check + checkpoint")
-            srs = project / "SRS.md"
+            srs = project / "01-requirements" / "SRS.md"
             if not srs.exists():
                 print(f"[1.1] PAUSE: SRS.md not found at {srs}")
-                print("     Create SRS.md (### FR-XX: ... sections required),")
+                print("     Create 01-requirements/SRS.md (### FR-XX: ... sections required),")
                 print("     then re-run:")
                 print(f"     python harness_cli.py run-pipeline --phase-from 1 "
                       f"--project {project}")
@@ -1298,7 +1298,7 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
         # ── P2: SAD.md must exist; generate manifest if missing ──────────
         if phase == 2:
             print(f"\n[2.1] SAD check")
-            sad = project / "SAD.md"
+            sad = project / "02-architecture" / "SAD.md"
             manifest_path = project / ".methodology" / "quality_manifest.json"
             if not sad.exists():
                 print(f"[2.1] PAUSE: SAD.md not found at {sad}")
@@ -1312,7 +1312,7 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
                 print(f"\n[2.2] Manifest + SAB generation")
                 fr_ids = _parse_fr_ids(sad.read_text(encoding="utf-8", errors="ignore"))
                 if not fr_ids:
-                    srs = project / "SRS.md"
+                    srs = project / "01-requirements" / "SRS.md"
                     if srs.exists():
                         fr_ids = _parse_fr_ids(srs.read_text(encoding="utf-8", errors="ignore"))
                 if not fr_ids:
@@ -2195,7 +2195,7 @@ def build_parser() -> argparse.ArgumentParser:
     # manifest
     mf = sub.add_parser("manifest", help="Generate quality_manifest.json at P2 exit")
     mf.add_argument("--fr-ids", nargs="+", required=True, metavar="FR_ID")
-    mf.add_argument("--sad",    default="SAD.md", help="Path to SAD.md (default: SAD.md)")
+    mf.add_argument("--sad",    default="02-architecture/SAD.md", help="Path to SAD.md")
     mf.add_argument("--no-git", action="store_true", dest="no_git",
                     help="Disable git commit/push after manifest generation")
     mf.set_defaults(func=cmd_manifest)

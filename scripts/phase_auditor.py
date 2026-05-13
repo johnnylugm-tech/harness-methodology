@@ -886,7 +886,7 @@ class PhaseAuditor:
             self._check_config_records_depth()
 
     def _check_srs_depth(self):
-        content = self._content(["01-requirements/SRS.md", "SRS.md", "docs/SRS.md"])
+        content = self._content(["01-requirements/SRS.md"])
         if not content:
             return
 
@@ -952,8 +952,6 @@ class PhaseAuditor:
     def _check_spec_tracking_depth(self):
         content = self._content([
             "01-requirements/SPEC_TRACKING.md",
-            "SPEC_TRACKING.md",
-            "docs/SPEC_TRACKING.md",
         ])
         if not content:
             return
@@ -979,8 +977,6 @@ class PhaseAuditor:
     def _check_traceability_depth(self, phase: int):
         content = self._content([
             "01-requirements/TRACEABILITY_MATRIX.md",
-            "TRACEABILITY_MATRIX.md",
-            "docs/TRACEABILITY_MATRIX.md",
         ])
         if not content:
             return
@@ -1004,7 +1000,7 @@ class PhaseAuditor:
             ))
 
     def _check_sad_depth(self):
-        content = self._content(["02-architecture/SAD.md", "SAD.md", "docs/SAD.md"])
+        content = self._content(["02-architecture/SAD.md"])
         if not content:
             return
         required = ["Module", "Architecture", "FR-"]
@@ -1027,7 +1023,7 @@ class PhaseAuditor:
             ))
 
     def _check_test_plan_depth(self):
-        content = self._content(["04-testing/TEST_PLAN.md", "TEST_PLAN.md"])
+        content = self._content(["04-testing/TEST_PLAN.md"])
         if not content:
             return
         tc_count = len(re.findall(r"TC-\d+", content))
@@ -1049,7 +1045,7 @@ class PhaseAuditor:
             ))
 
     def _check_baseline_depth(self):
-        content = self._content(["05-verify/BASELINE.md", "BASELINE.md"])
+        content = self._content(["05-verify/BASELINE.md"])
         if not content:
             return
         h2_count = len(re.findall(r"^## ", content, re.MULTILINE))
@@ -1072,7 +1068,7 @@ class PhaseAuditor:
 
     def _check_quality_report_depth(self):
         content = self._content([
-            "06-quality/QUALITY_REPORT.md", "QUALITY_REPORT.md"
+            "06-quality/QUALITY_REPORT.md"
         ])
         if not content:
             return
@@ -1096,7 +1092,7 @@ class PhaseAuditor:
 
     def _check_risk_register_depth(self):
         content = self._content([
-            "07-risk/RISK_REGISTER.md", "RISK_REGISTER.md"
+            "07-risk/RISK_REGISTER.md"
         ])
         if not content:
             return
@@ -1120,7 +1116,7 @@ class PhaseAuditor:
 
     def _check_config_records_depth(self):
         content = self._content([
-            "08-config/CONFIG_RECORDS.md", "CONFIG_RECORDS.md"
+            "08-config/CONFIG_RECORDS.md"
         ])
         if not content:
             return

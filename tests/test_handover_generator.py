@@ -445,7 +445,8 @@ class TestHandoverGeneratorFixes:
 
     def test_auto_fr_ids_from_srs_root(self, tmp_path: Path):
         """_auto_fr_ids() parses ### FR-XX: at repo root."""
-        (tmp_path / "SRS.md").write_text(
+        (tmp_path / "01-requirements").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "01-requirements" / "SRS.md").write_text(
             "### FR-01: Title One\n### FR-02: Title Two\n### FR-13: Title Thirteen\n",
             encoding="utf-8",
         )
@@ -460,7 +461,8 @@ class TestHandoverGeneratorFixes:
 
     def test_auto_fr_ids_deduplication(self, tmp_path: Path):
         """Duplicate FR-IDs in SRS.md are deduplicated."""
-        (tmp_path / "SRS.md").write_text(
+        (tmp_path / "01-requirements").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "01-requirements" / "SRS.md").write_text(
             "### FR-01: Title\n### FR-01: Duplicate\n### FR-02: Other\n",
             encoding="utf-8",
         )
@@ -499,7 +501,8 @@ class TestHandoverGeneratorFixes:
 
     def test_gap_register_summary_finds_gaps(self, tmp_path: Path):
         """_gap_register_summary() extracts GAP-XX and M-GAP-XX entries."""
-        (tmp_path / "SPEC_TRACKING.md").write_text(
+        (tmp_path / "01-requirements").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "01-requirements" / "SPEC_TRACKING.md").write_text(
             "| GAP-01 | B-1/4 | some gap |\n"
             "| GAP-02 | B-1/4 | other |\n"
             "| M-GAP-01 | B-2/4 | medium |\n",
@@ -512,7 +515,8 @@ class TestHandoverGeneratorFixes:
 
     def test_gap_register_summary_highlights_medium(self, tmp_path: Path):
         """Medium-priority gaps (M-GAP-XX) are highlighted."""
-        (tmp_path / "SPEC_TRACKING.md").write_text(
+        (tmp_path / "01-requirements").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "01-requirements" / "SPEC_TRACKING.md").write_text(
             "| GAP-01 | low |\n| M-GAP-01 | medium |\n",
             encoding="utf-8",
         )
@@ -542,7 +546,8 @@ class TestHandoverGeneratorFixes:
 
     def test_p1_handover_auto_detects_frs(self, tmp_path: Path):
         """commit_and_push_p1 with empty fr_ids auto-detects from SRS.md."""
-        (tmp_path / "SRS.md").write_text(
+        (tmp_path / "01-requirements").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "01-requirements" / "SRS.md").write_text(
             "### FR-01: Platform Adapter\n### FR-02: Signature Verify\n",
             encoding="utf-8",
         )
@@ -593,7 +598,8 @@ class TestHandoverGeneratorFixes:
 
     def test_p1_handover_includes_gap_register(self, tmp_path: Path):
         """P1 HANDOVER includes gap register summary when SPEC_TRACKING.md exists."""
-        (tmp_path / "SPEC_TRACKING.md").write_text(
+        (tmp_path / "01-requirements").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "01-requirements" / "SPEC_TRACKING.md").write_text(
             "| GAP-01 | B-1/4 | low |\n| M-GAP-01 | B-2/4 | medium |\n",
             encoding="utf-8",
         )
@@ -621,7 +627,9 @@ class TestHandoverGeneratorFixes:
 
     def test_deliverable_files_p1_all_exist(self, tmp_path: Path):
         """_deliverable_files(1) returns ✅ for all 4 P1 files when present."""
-        for name in ["SRS.md", "CONSTRAINTS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md"]:
+        (tmp_path / "01-requirements").mkdir(parents=True, exist_ok=True)
+        for name in ["01-requirements/SRS.md", "01-requirements/CONSTRAINTS.md",
+                      "01-requirements/SPEC_TRACKING.md", "01-requirements/TRACEABILITY_MATRIX.md"]:
             (tmp_path / name).write_text("# content\n" * 10, encoding="utf-8")
         gs = GitStrategy(tmp_path, enabled=False)
         items = gs._deliverable_files(1)
@@ -631,7 +639,8 @@ class TestHandoverGeneratorFixes:
 
     def test_deliverable_files_p1_missing(self, tmp_path: Path):
         """_deliverable_files(1) marks absent files as ❌ missing."""
-        (tmp_path / "SRS.md").write_text("# SRS\n", encoding="utf-8")
+        (tmp_path / "01-requirements").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "01-requirements" / "SRS.md").write_text("# SRS\n", encoding="utf-8")
         # CONSTRAINTS.md, SPEC_TRACKING.md, TRACEABILITY_MATRIX.md absent
         gs = GitStrategy(tmp_path, enabled=False)
         items = gs._deliverable_files(1)
@@ -641,7 +650,8 @@ class TestHandoverGeneratorFixes:
 
     def test_deliverable_files_p2(self, tmp_path: Path):
         """_deliverable_files(2) covers SAD.md, ADR.md, ARCHITECTURE_DIAGRAM.md."""
-        (tmp_path / "SAD.md").write_text("# SAD\n", encoding="utf-8")
+        (tmp_path / "02-architecture").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "02-architecture" / "SAD.md").write_text("# SAD\n", encoding="utf-8")
         gs = GitStrategy(tmp_path, enabled=False)
         items = gs._deliverable_files(2)
         assert len(items) == 3
@@ -655,7 +665,9 @@ class TestHandoverGeneratorFixes:
 
     def test_p1_handover_contains_deliverable_section(self, tmp_path: Path):
         """P1 HANDOVER.md includes '交付物清單' section listing deliverables."""
-        for name in ["SRS.md", "CONSTRAINTS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md"]:
+        (tmp_path / "01-requirements").mkdir(parents=True, exist_ok=True)
+        for name in ["01-requirements/SRS.md", "01-requirements/CONSTRAINTS.md",
+                      "01-requirements/SPEC_TRACKING.md", "01-requirements/TRACEABILITY_MATRIX.md"]:
             (tmp_path / name).write_text("# content\n", encoding="utf-8")
         gs = self._make_strategy(tmp_path)
         gs.commit_and_push_p1(fr_ids=["FR-01"])
@@ -666,7 +678,8 @@ class TestHandoverGeneratorFixes:
 
     def test_gap_register_rich_table_with_disposition(self, tmp_path: Path):
         """_gap_register_summary() returns a markdown table with disposition column."""
-        (tmp_path / "SPEC_TRACKING.md").write_text(
+        (tmp_path / "01-requirements").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "01-requirements" / "SPEC_TRACKING.md").write_text(
             "| GAP-01 | B-1/4 | NFR-04 | security_logs fix | P3 |\n"
             "| M-GAP-01 | B-2/4 | Cost model | Clarify budget | P2 |\n",
             encoding="utf-8",
@@ -700,7 +713,9 @@ class TestHandoverGeneratorFixes:
 
     def test_deliverables_section_has_blank_line_before_status(self, tmp_path: Path):
         """交付物清單 section must be followed by a blank line before ## 目前執行狀況."""
-        for name in ["SRS.md", "CONSTRAINTS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md"]:
+        (tmp_path / "01-requirements").mkdir(parents=True, exist_ok=True)
+        for name in ["01-requirements/SRS.md", "01-requirements/CONSTRAINTS.md",
+                      "01-requirements/SPEC_TRACKING.md", "01-requirements/TRACEABILITY_MATRIX.md"]:
             (tmp_path / name).write_text("# x\n", encoding="utf-8")
         gs = self._make_strategy(tmp_path)
         gs.commit_and_push_p1(fr_ids=["FR-01"])

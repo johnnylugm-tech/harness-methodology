@@ -104,8 +104,6 @@ def parse_sad_modules(repo_path: Path) -> Dict:
     """Parse SAD.md to get FR -> module mapping"""
     sad_paths = [
         repo_path / "02-architecture" / "SAD.md",
-        repo_path / "SAD.md",
-        repo_path / "templates" / "SAD.md",
     ]
 
     for sad_path in sad_paths:
@@ -144,8 +142,6 @@ def parse_test_plan(repo_path: Path) -> List[Dict]:
     """Parse TEST_PLAN.md to extract test requirements"""
     test_plan_paths = [
         repo_path / "04-testing" / "TEST_PLAN.md",
-        repo_path / "TEST_PLAN.md",
-        repo_path / "docs" / "TEST_PLAN.md",
     ]
 
     for tp_path in test_plan_paths:
@@ -175,8 +171,6 @@ def parse_quality_report(repo_path: Path) -> Dict:
     """Parse QUALITY_REPORT.md"""
     qr_paths = [
         repo_path / "06-quality" / "QUALITY_REPORT.md",
-        repo_path / "QUALITY_REPORT.md",
-        repo_path / "docs" / "QUALITY_REPORT.md",
     ]
 
     for qr_path in qr_paths:
@@ -200,8 +194,6 @@ def parse_risk_register(repo_path: Path) -> List[Dict]:
     """Parse RISK_REGISTER.md"""
     rr_paths = [
         repo_path / "07-risk" / "RISK_REGISTER.md",
-        repo_path / "RISK_REGISTER.md",
-        repo_path / "docs" / "RISK_REGISTER.md",
     ]
 
     for rr_path in rr_paths:
@@ -696,8 +688,10 @@ def _entry_gate_check(phase: int) -> List[str]:
 def _human_checkpoint(phase: int, checkpoint_n: int) -> List[str]:
     """Human peer-review checkpoint for P1/P2 (deliverable review — NOT harness run-gate)."""
     _DELIVERABLES: dict = {
-        1: ["SRS.md", "CONSTRAINTS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md"],
-        2: ["SAD.md", "ADR.md", "ARCHITECTURE_DIAGRAM.md"],
+        1: ["01-requirements/SRS.md", "01-requirements/CONSTRAINTS.md",
+            "01-requirements/SPEC_TRACKING.md", "01-requirements/TRACEABILITY_MATRIX.md"],
+        2: ["02-architecture/SAD.md", "02-architecture/adr/ADR.md",
+            "02-architecture/ARCHITECTURE_DIAGRAM.md"],
     }
     artifacts = _DELIVERABLES.get(phase, [])
     return [
@@ -1467,9 +1461,7 @@ def generate_full_plan(phase: int, repo_path: Path, output_path: Optional[Path] 
     """Generate full plan with phase-specific detailed tasks"""
 
     srs_paths = [
-        repo_path / "SRS.md",
         repo_path / "01-requirements" / "SRS.md",
-        repo_path / "docs" / "SRS.md",
     ]
     srs_path = next((p for p in srs_paths if p.exists()), None)
 

@@ -147,16 +147,16 @@ class ExecutionLogger:
         artifacts = {}
 
         artifact_map: Dict[int, List[str]] = {
-            1: ["01-requirements/SRS.md", "SRS.md"],
-            2: ["02-architecture/SAD.md", "SAD.md"],
+            1: ["01-requirements/SRS.md"],
+            2: ["02-architecture/SAD.md"],
         }
 
         phase_artifacts = artifact_map.get(phase, [])
         if phase >= 3:
             phase_artifacts = [
-                "01-requirements/SRS.md", "SRS.md",
-                "02-architecture/SAD.md", "SAD.md",
-                "04-testing/TEST_PLAN.md", "TEST_PLAN.md",
+                "01-requirements/SRS.md",
+                "02-architecture/SAD.md",
+                "04-testing/TEST_PLAN.md",
             ]
 
         for artifact_path in phase_artifacts:
