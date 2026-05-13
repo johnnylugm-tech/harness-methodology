@@ -192,7 +192,8 @@ class HandoverGenerator:
             Path of the written file (``<project>/HANDOVER.md``).
         """
         all_notes = list(DEFAULT_NOTES) + list(notes or [])
-        plan_path = plan_override or f".methodology/phase{phase}_plan.md"
+        _target = resume_phase if resume_phase is not None else phase + 1
+        plan_path = plan_override or f".methodology/phase{_target}_plan.md"
         # Gather git metadata at write-time for maximum accuracy.
         # SHA is captured pre-commit; use `git log --oneline -3` for latest.
         git_info = {
@@ -212,6 +213,7 @@ class HandoverGenerator:
             git_info=git_info,
             deliverables=list(deliverables) if deliverables else [],
             resume_phase=resume_phase,
+            target_phase=_target,
         )
         path = self.project / "HANDOVER.md"
         path.write_text(content, encoding="utf-8")
@@ -233,6 +235,7 @@ class HandoverGenerator:
         git_info: dict[str, str] | None = None,
         deliverables: list[str] | None = None,
         resume_phase: int | None = None,
+        target_phase: int | None = None,
     ) -> str:
         phase_name = _PHASE_NAMES.get(phase, f"Phase {phase}")
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -272,7 +275,7 @@ class HandoverGenerator:
             _hermes_val = "<value>"   # not set or unknown format
 
         # Three-step startup sequence — visible to a new session immediately
-        _target_phase = resume_phase if resume_phase is not None else phase + 1
+        _target_phase = target_phase if target_phase is not None else (resume_phase if resume_phase is not None else phase + 1)
         _is_continue = _target_phase == phase
         _action = f"continue Phase {_target_phase}" if _is_continue else f"start Phase {_target_phase}"
         _skill_step = (

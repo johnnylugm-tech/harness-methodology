@@ -400,8 +400,8 @@ class TestHandoverGeneratorFixes:
         assert ".methodology/phase2_plan.md" in content
         assert ".methodology/phase1_plan.md" not in content
 
-    def test_no_plan_override_uses_phase_default(self, tmp_path: Path):
-        """Without plan_override, defaults to phase{N}_plan.md."""
+    def test_no_plan_override_uses_target_phase(self, tmp_path: Path):
+        """Without plan_override, defaults to target phase plan (phase+1 when no resume_phase)."""
         gen = HandoverGenerator(tmp_path)
         gen.write(
             checkpoint_id="P3-test",
@@ -411,7 +411,8 @@ class TestHandoverGeneratorFixes:
             next_steps=["step 1"],
         )
         content = (tmp_path / "HANDOVER.md").read_text()
-        assert ".methodology/phase3_plan.md" in content
+        assert ".methodology/phase4_plan.md" in content
+        assert "start Phase 4" in content
 
     # ── SHA removed, git log added ────────────────────────────────────────────
 
@@ -846,3 +847,187 @@ class TestCmdPushMilestone:
         exit_code, output = self._call_push_milestone(monkeypatch, tmp_path, "unknown")
         assert exit_code == 1
         assert "Unknown milestone type" in output
+
+
+# ─── cmd_advance_phase ──────────────────────────────────────────────────────
+
+class TestCmdAdvancePhase:
+    """Tests for cmd_advance_phase HANDOVER regeneration and git operations."""
+
+    @staticmethod
+    def _call_advance_phase(monkeypatch, tmp_path, completed=3, **kwargs):
+        """Call cmd_advance_phase and return (exit_code, output_str)."""
+        import io
+        from harness_cli import cmd_advance_phase
+
+        class Args:
+            pass
+        a = Args()
+        a.completed_phase = completed
+        a.project = str(tmp_path)
+
+        captured = io.StringIO()
+        monkeypatch.setattr("sys.stdout", captured)
+        monkeypatch.setattr("harness_cli._advance_fsm", lambda project, phase: None)
+        monkeypatch.setattr(
+            "harness.handover_generator.HandoverGenerator.write",
+            lambda self, **kw: tmp_path / "HANDOVER.md",
+        )
+
+        # Allow per-test subprocess.run override
+        if "subprocess_run" in kwargs:
+            monkeypatch.setattr("harness_cli.subprocess.run", kwargs["subprocess_run"])
+
+        # Allow per-test HARNESS_NO_GIT override
+        if "harness_no_git" in kwargs:
+            monkeypatch.setenv("HARNESS_NO_GIT", kwargs["harness_no_git"])
+
+        try:
+            exit_code = cmd_advance_phase(a)
+        except SystemExit as e:
+            exit_code = e.code
+        return exit_code, captured.getvalue()
+
+    # ── HARNESS_NO_GIT skip ──────────────────────────────────────────────────
+
+    def test_harness_no_git_skips_commit(self, tmp_path, monkeypatch):
+        """HARNESS_NO_GIT=1 skips git add/commit entirely."""
+        exit_code, output = self._call_advance_phase(
+            monkeypatch, tmp_path, harness_no_git="1",
+        )
+        assert exit_code == 0
+        assert "HARNESS_NO_GIT=1" in output
+        assert "skip" in output.lower()
+
+    # ── Happy path: add succeeds, commit succeeds ────────────────────────────
+
+    def test_git_add_and_commit_succeed(self, tmp_path, monkeypatch):
+        """git add + commit both return 0 → committed message printed."""
+        def fake_run(cmd, **kw):
+            class R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+            return R()
+
+        exit_code, output = self._call_advance_phase(
+            monkeypatch, tmp_path, subprocess_run=fake_run,
+        )
+        assert exit_code == 0
+        assert "Committed HANDOVER.md" in output
+
+    # ── git add failure ──────────────────────────────────────────────────────
+
+    def test_git_add_fails_surfaces_warning(self, tmp_path, monkeypatch):
+        """git add non-zero → warning printed, commit skipped."""
+        def fake_run(cmd, **kw):
+            class R:
+                pass
+            r = R()
+            if "add" in cmd:
+                r.returncode = 1
+                r.stderr = "fatal: not a git repository"
+                r.stdout = ""
+            else:
+                r.returncode = 0
+                r.stdout = ""
+                r.stderr = ""
+            return r
+
+        exit_code, output = self._call_advance_phase(
+            monkeypatch, tmp_path, subprocess_run=fake_run,
+        )
+        assert exit_code == 0
+        assert "WARN: git add failed" in output
+        assert "not a git repository" in output
+        assert "Committed" not in output
+
+    # ── git commit "nothing to commit" ───────────────────────────────────────
+
+    def test_git_commit_nothing_to_commit(self, tmp_path, monkeypatch):
+        """git commit exits 1 with 'nothing to commit' → not treated as error."""
+        def fake_run(cmd, **kw):
+            class R:
+                pass
+            r = R()
+            if "commit" in cmd:
+                r.returncode = 1
+                r.stdout = "nothing to commit, working tree clean"
+                r.stderr = ""
+            else:
+                r.returncode = 0
+                r.stdout = ""
+                r.stderr = ""
+            return r
+
+        exit_code, output = self._call_advance_phase(
+            monkeypatch, tmp_path, subprocess_run=fake_run,
+        )
+        assert exit_code == 0
+        assert "Nothing to commit" in output
+        assert "WARN" not in output
+
+    def test_git_commit_nothing_to_commit_in_stderr(self, tmp_path, monkeypatch):
+        """git commit exits 1 with 'nothing to commit' in stderr."""
+        def fake_run(cmd, **kw):
+            class R:
+                pass
+            r = R()
+            if "commit" in cmd:
+                r.returncode = 1
+                r.stdout = ""
+                r.stderr = "error: nothing to commit"
+            else:
+                r.returncode = 0
+                r.stdout = ""
+                r.stderr = ""
+            return r
+
+        exit_code, output = self._call_advance_phase(
+            monkeypatch, tmp_path, subprocess_run=fake_run,
+        )
+        assert exit_code == 0
+        assert "Nothing to commit" in output
+
+    # ── git commit failure ───────────────────────────────────────────────────
+
+    def test_git_commit_fails_surfaces_warning(self, tmp_path, monkeypatch):
+        """git commit non-zero (not nothing-to-commit) → warning printed."""
+        def fake_run(cmd, **kw):
+            class R:
+                pass
+            r = R()
+            if "commit" in cmd:
+                r.returncode = 128
+                r.stdout = ""
+                r.stderr = "fatal: unable to create commit"
+            else:
+                r.returncode = 0
+                r.stdout = ""
+                r.stderr = ""
+            return r
+
+        exit_code, output = self._call_advance_phase(
+            monkeypatch, tmp_path, subprocess_run=fake_run,
+        )
+        assert exit_code == 0
+        assert "WARN: git commit failed" in output
+        assert "unable to create commit" in output
+
+    # ── Phase number correctness ─────────────────────────────────────────────
+
+    def test_phase3_advances_to_phase4(self, tmp_path, monkeypatch):
+        """completed=3 → next_phase=4 in output and HANDOVER checkpoint."""
+        def fake_run(cmd, **kw):
+            class R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+            return R()
+
+        exit_code, output = self._call_advance_phase(
+            monkeypatch, tmp_path, completed=3, subprocess_run=fake_run,
+        )
+        assert exit_code == 0
+        assert "advancing to 4" in output
+        assert "target phase 4" in output

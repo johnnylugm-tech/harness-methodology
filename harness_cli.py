@@ -48,15 +48,20 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
+import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from harness.git_strategy import GitStrategy
     from harness.harness_bridge import GateBlockedError
+
+from harness.handover_generator import HandoverGenerator
 
 # Ensure repo root on path so core/ and harness/ resolve
 _REPO_ROOT = Path(__file__).parent
@@ -812,13 +817,56 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
       2. Updates git config quality.phase
       3. Attempts gh variable set CURRENT_PHASE (soft-fail with manual fallback)
 
+    After FSM advance, regenerates HANDOVER.md so crash-recovery always
+    reflects the current phase, then commits locally (no push — next
+    milestone push will publish to origin).
+
     Usage:
         python harness_cli.py advance-phase --completed 3   # advances to phase 4
     """
     project = Path(args.project).resolve()
-    print(f"\n[advance-phase] Completed phase {args.completed_phase} → advancing to {args.completed_phase + 1}")
+    next_phase = args.completed_phase + 1
+    print(f"\n[advance-phase] Completed phase {args.completed_phase} → advancing to {next_phase}")
     _advance_fsm(project, args.completed_phase)
-    print(f"[advance-phase] Done — local hooks and CI now target phase {args.completed_phase + 1}")
+
+    # Regenerate HANDOVER.md for the new phase — entry checkpoint
+    gen = HandoverGenerator(project)
+    gen.write(
+        checkpoint_id=f"P{next_phase}-entry-{datetime.now(timezone.utc).strftime('%Y%m%d')}",
+        phase=next_phase,
+        task_background=f"Phase transition from Phase {args.completed_phase}. Entering Phase {next_phase}.",
+        current_status=f"Phase {args.completed_phase} completed. Ready to begin Phase {next_phase}.",
+        next_steps=[
+            f"Follow SKILL.md §0.1 Phase {next_phase} entry checklist",
+            f"Read the Phase {next_phase} plan and execute",
+        ],
+        resume_phase=next_phase,
+    )
+
+    # Commit locally (no push — next milestone push publishes to origin)
+    if os.environ.get("HARNESS_NO_GIT"):
+        print(f"[advance-phase] HARNESS_NO_GIT=1 — skipping git commit")
+    else:
+        add_result = subprocess.run(
+            ["git", "-C", str(project), "add", ".methodology/state.json", "HANDOVER.md"],
+            capture_output=True, text=True,
+        )
+        if add_result.returncode != 0:
+            print(f"[advance-phase] WARN: git add failed — {add_result.stderr.strip()}")
+        else:
+            commit_result = subprocess.run(
+                ["git", "-C", str(project), "commit", "-m",
+                 f"handover: advance to Phase {next_phase}"],
+                capture_output=True, text=True,
+            )
+            if commit_result.returncode == 0:
+                print(f"[advance-phase] Committed HANDOVER.md + state.json locally.")
+            elif "nothing to commit" in (commit_result.stdout + commit_result.stderr):
+                print("[advance-phase] Nothing to commit (already clean).")
+            else:
+                print(f"[advance-phase] WARN: git commit failed — {commit_result.stderr.strip()}")
+
+    print(f"[advance-phase] Done — local hooks and CI now target phase {next_phase}")
     return 0
 
 

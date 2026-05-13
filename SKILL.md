@@ -107,7 +107,7 @@ Before advancing to Phase N+1, confirm ALL:
 - [ ] HANDOVER.md written (auto on git push via GitStrategy)
 - [ ] Git pushed to remote (confirmed push output, no "push skipped")
 - [ ] Next phase plan exists (`plan-phase --phase N+1` completed)
-- [ ] state.json updated (phase advanced in `.methodology/state.json`)
+- [ ] state.json updated: `python3 harness_cli.py advance-phase --completed N --project .` (updates FSM + git config + GitHub CURRENT_PHASE)
 - [ ] Git tag pushed (Gate 4 only): `harness-v4-YYYYMMDD-scoreXX`
 
 ### 0.5 NEVER
