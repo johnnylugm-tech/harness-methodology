@@ -393,7 +393,12 @@ class GitStrategy:
         completed_set = set(fr_ids)
         all_ids = self._manifest_fr_ids() or self._auto_fr_ids()
         remaining = [f for f in all_ids if f not in completed_set]
-        remaining_str = ", ".join(remaining) if remaining else "(all FRs Gate 1 PASS — ready for P4-pre-SSI)"
+        if remaining:
+            remaining_str = ", ".join(remaining)
+        elif all_ids:
+            remaining_str = "(all FRs Gate 1 PASS — ready for P4-pre-SSI)"
+        else:
+            remaining_str = "(manifest not found — run `python3 harness_cli.py manifest` first)"
 
         ab = self._ab_session_summary()
         committed = self._recently_committed_files()

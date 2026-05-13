@@ -843,6 +843,26 @@ class TestCmdPushMilestone:
         exit_code, _ = self._call_push_milestone(monkeypatch, tmp_path, "p8")
         assert exit_code == 0
 
+    def test_p4_mid_missing_fr_done_total(self, tmp_path, monkeypatch):
+        exit_code, output = self._call_push_milestone(monkeypatch, tmp_path, "p4-mid")
+        assert exit_code == 1
+        assert "--fr-done" in output
+
+    def test_p4_mid_with_ids(self, tmp_path, monkeypatch):
+        exit_code, _ = self._call_push_milestone(
+            monkeypatch, tmp_path, "p4-mid",
+            fr_ids="FR-01,FR-02",
+            fr_done=2, fr_total=4,
+        )
+        assert exit_code == 0
+
+    def test_p4_pre_ssi(self, tmp_path, monkeypatch):
+        exit_code, _ = self._call_push_milestone(
+            monkeypatch, tmp_path, "p4-pre-ssi",
+            fr_ids="FR-01,FR-02,FR-03",
+        )
+        assert exit_code == 0
+
     def test_unknown_type(self, tmp_path, monkeypatch):
         exit_code, output = self._call_push_milestone(monkeypatch, tmp_path, "unknown")
         assert exit_code == 1
@@ -1031,3 +1051,157 @@ class TestCmdAdvancePhase:
         assert exit_code == 0
         assert "advancing to 4" in output
         assert "target phase 4" in output
+
+    def test_advance_phase_enriches_with_manifest_data(self, tmp_path, monkeypatch):
+        """HANDOVER enrichment: manifest gate scores + FR counts flow into output."""
+        import io
+        import json
+        from harness_cli import cmd_advance_phase
+
+        manifest_dir = tmp_path / ".methodology"
+        manifest_dir.mkdir()
+        manifest = {
+            "fr_ids": ["FR-01", "FR-02", "FR-03"],
+            "gate_results": {
+                "gate1": {
+                    "FR-01": {"quality_complete": True, "score": 95.0},
+                    "FR-02": {"quality_complete": True, "score": 90.0},
+                    "FR-03": {"quality_complete": True, "score": 88.0},
+                },
+                "gate2": {"quality_complete": True, "score": 96.5},
+            },
+        }
+        (manifest_dir / "quality_manifest.json").write_text(json.dumps(manifest))
+
+        write_kwargs = {}
+
+        def fake_write(self, **kw):
+            write_kwargs.update(kw)
+            return tmp_path / "HANDOVER.md"
+
+        def fake_run(cmd, **kw):
+            class R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+            return R()
+
+        class Args:
+            pass
+        a = Args()
+        a.completed_phase = 3
+        a.project = str(tmp_path)
+
+        captured = io.StringIO()
+        monkeypatch.setattr("sys.stdout", captured)
+        monkeypatch.setattr("harness_cli._advance_fsm", lambda project, phase, **kw: None)
+        monkeypatch.setattr("harness_cli.subprocess.run", fake_run)
+        monkeypatch.setattr("harness.handover_generator.HandoverGenerator.write", fake_write)
+
+        exit_code = cmd_advance_phase(a)
+        assert exit_code == 0
+        assert write_kwargs.get("checkpoint_id", "").startswith("P4-entry")
+        assert "3/3 FRs" in write_kwargs.get("task_background", "")
+        assert "Gate 2" in write_kwargs.get("task_background", "")
+        assert "3/3 FRs" in write_kwargs.get("current_status", "")
+        assert "Gate 2" in write_kwargs.get("current_status", "")
+
+    def test_advance_phase_handles_null_gate1_gracefully(self, tmp_path, monkeypatch):
+        """manifest with gate1: null should not crash fr_done comprehension (Bug #1)."""
+        import io
+        import json
+        from harness_cli import cmd_advance_phase
+
+        manifest_dir = tmp_path / ".methodology"
+        manifest_dir.mkdir()
+        manifest = {
+            "fr_ids": ["FR-01", "FR-02"],
+            "gate_results": {
+                "gate1": None,
+                "gate2": {"quality_complete": True, "score": 80.0},
+            },
+        }
+        (manifest_dir / "quality_manifest.json").write_text(json.dumps(manifest))
+        write_kwargs = {}
+
+        def fake_write(self, **kw):
+            write_kwargs.update(kw)
+            return tmp_path / "HANDOVER.md"
+
+        def fake_run(cmd, **kw):
+            class R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+            return R()
+
+        class Args:
+            pass
+        a = Args()
+        a.completed_phase = 3
+        a.project = str(tmp_path)
+
+        captured = io.StringIO()
+        monkeypatch.setattr("sys.stdout", captured)
+        monkeypatch.setattr("harness_cli._advance_fsm", lambda project, phase, **kw: None)
+        monkeypatch.setattr("harness_cli.subprocess.run", fake_run)
+        monkeypatch.setattr("harness.handover_generator.HandoverGenerator.write", fake_write)
+
+        exit_code = cmd_advance_phase(a)
+        assert exit_code == 0
+        # gate1 is null → fr_done should be 0, no AttributeError raised
+        assert "0/2 FRs" in write_kwargs.get("task_background", "")
+        assert "Gate 2" in write_kwargs.get("task_background", "")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Test _advance_fsm state.json preservation
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestAdvanceFsm:
+    """Tests for _advance_fsm writing last_gate / last_fr to state.json."""
+
+    def test_last_gate_fr_preserved_in_state_json(self, tmp_path, monkeypatch):
+        """last_gate and last_fr are written to state.json (not reset to null)."""
+        import subprocess
+
+        def fake_run(cmd, **kw):
+            class R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+            return R()
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        from harness_cli import _advance_fsm
+        _advance_fsm(tmp_path, 3, last_gate=2, last_fr="FR-13")
+
+        import json
+        state = json.loads((tmp_path / ".methodology" / "state.json").read_text())
+        assert state["last_gate"] == 2
+        assert state["last_fr"] == "FR-13"
+        assert state["current_phase"] == 4
+
+    def test_last_gate_fr_none_when_not_passed(self, tmp_path, monkeypatch):
+        """When last_gate/last_fr are not provided, they stay None."""
+        import subprocess
+
+        def fake_run(cmd, **kw):
+            class R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+            return R()
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        from harness_cli import _advance_fsm
+        _advance_fsm(tmp_path, 1)
+
+        import json
+        state = json.loads((tmp_path / ".methodology" / "state.json").read_text())
+        assert state["last_gate"] is None
+        assert state["last_fr"] is None
+        assert state["current_phase"] == 2

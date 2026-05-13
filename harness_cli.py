@@ -882,7 +882,9 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
             gate_score_str = f" (score={_gscore})"
 
     fr_done = len([f for f in manifest.get("fr_ids", [])
-                   if isinstance(gate1.get(f), dict) and gate1[f].get("quality_complete")])
+                   if isinstance(gate1, dict)
+                   and isinstance(gate1.get(f), dict)
+                   and gate1[f].get("quality_complete")])
     fr_total = len(manifest.get("fr_ids", []))
 
     task_bg = (f"Phase transition from Phase {args.completed_phase} to Phase {next_phase}."
