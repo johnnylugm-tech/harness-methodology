@@ -470,3 +470,81 @@ class TestAutoFixEngine:
     def test_summary_tracks_results(self, tmp_path: Path):
         engine = AutoFixEngine(project_root=tmp_path, phase=3)
         assert engine.summary()["total_fixes"] == 0
+
+    def test_hr13_timeout_escalation(self, tmp_path: Path):
+        """HR-13: phase runs >3x estimate → human escalation."""
+        import time
+        engine = AutoFixEngine(project_root=tmp_path, phase=3,
+                               max_phase_time_multiplier=3.0)
+        engine.start_phase_timer(10.0)  # estimate = 10s
+        engine._phase_start_time = time.time() - 31.0  # elapsed 31s > 3×10
+        context = FixContext(
+            source="gate/gate1", problem_type="low_score",
+            severity="high", phase=3, project_root=tmp_path, details={},
+        )
+        result = engine.fix(context)
+        assert result.escalation == EscalationCondition.HR13_TIMEOUT
+
+    def test_gate_score_below_min_escalates(self, tmp_path: Path):
+        """Gate score < gate_min_score (60) after gate_min_rounds (3) → escalation."""
+        engine = AutoFixEngine(project_root=tmp_path, phase=3,
+                               gate_min_score=60.0, gate_min_rounds=3)
+        context = FixContext(
+            source="gate/gate1", problem_type="low_score",
+            severity="high", phase=3, project_root=tmp_path,
+            details={"score": 45.0}, gate_num=1, retry_count=3,
+        )
+        result = engine.fix(context)
+        assert result.escalation == EscalationCondition.GATE_SCORE_LOW
+
+    def test_gate_score_ok_no_escalation(self, tmp_path: Path):
+        """Gate score >= gate_min_score → no GATE_SCORE_LOW escalation."""
+        engine = AutoFixEngine(project_root=tmp_path, phase=3,
+                               gate_min_score=60.0, gate_min_rounds=3,
+                               confidence_threshold=0.0)  # suppress LOW_CONFIDENCE
+        context = FixContext(
+            source="gate/gate1", problem_type="low_score",
+            severity="medium", phase=3, project_root=tmp_path,
+            details={"score": 75.0}, gate_num=1, retry_count=3,
+        )
+        result = engine.fix(context)
+        assert result.escalation != EscalationCondition.GATE_SCORE_LOW
+
+    def test_confidence_below_70_escalates(self, tmp_path: Path):
+        """Confidence < 70 after max_rounds for problem type → escalation."""
+        engine = AutoFixEngine(project_root=tmp_path, phase=3,
+                               confidence_threshold=70.0)
+        # Must use a known problem_type so _max_rounds_for returns a value
+        engine._round_counters["constitution/low_keyword_density:low_keyword_density"] = 3
+        context = FixContext(
+            source="constitution/low_keyword_density",
+            problem_type="low_keyword_density",
+            severity="medium", phase=3, project_root=tmp_path, details={},
+            retry_count=3,
+        )
+        # fix() will run auto-fix → gets low confidence → check_escalation triggers
+        result = engine.fix(context)
+        # LOW_CONFIDENCE triggers when rounds >= _max_rounds_for and confidence < threshold
+        # _max_rounds_for uses CLASSIFICATION_TABLE — default max_rounds=3, so rounds=3 ≥ 3
+        assert result.escalation == EscalationCondition.LOW_CONFIDENCE
+
+    def test_kill_switch_open_escalates(self, tmp_path: Path):
+        """source contains 'kill_switch' → _human_condition_for returns KILL_SWITCH."""
+        engine = AutoFixEngine(project_root=tmp_path, phase=3)
+        context = FixContext(
+            source="kill_switch/detector", problem_type="blocked_operation",
+            severity="critical", phase=3, project_root=tmp_path, details={},
+        )
+        result = engine.fix(context)
+        assert result.escalation == EscalationCondition.KILL_SWITCH
+
+    def test_hard_rule_violation_escalates(self, tmp_path: Path):
+        """details['hard_rule']=True → classify HUMAN_REQUIRED → _human_condition_for → HARD_RULE_VIOLATION."""
+        engine = AutoFixEngine(project_root=tmp_path, phase=3)
+        context = FixContext(
+            source="constitution/runner", problem_type="unknown",
+            severity="critical", phase=3, project_root=tmp_path,
+            details={"hard_rule": True, "rule_id": "HR-06"},
+        )
+        result = engine.fix(context)
+        assert result.escalation == EscalationCondition.HARD_RULE_VIOLATION

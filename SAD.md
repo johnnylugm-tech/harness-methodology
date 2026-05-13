@@ -1129,7 +1129,7 @@ class KillSwitch:
 | `phase_config.py` | `PHASE_CONFIG` dict — per-phase config consumed by `IntegratedStagePassGenerator` |
 | `phase_paths.py` | `PHASE_ARTIFACT_PATHS` — artifact path registry per phase |
 
-**`parsers/` sub-package** (crg-003 refactor — breaks coupling with test-parsing community):
+**`parsers/` sub-package** (crg-003 refactor, v2.1 — breaks coupling with test-parsing community; extracted from `ab_enforcer.py` and `spec_tracking_checker.py`):
 
 | File | Class | Extracted from | Methods |
 |---|---|---|---|
@@ -1191,6 +1191,10 @@ class KillSwitch:
 7. Auto-fix confidence < 70% after 3 attempts
 8. Kill-switch circuit OPEN (M1)
 9. Gate 4 BLOCKED (requires Hermes APPROVE)
+
+Thresholds are configurable via `AutoFixEngine.__init__` parameters:
+`max_rounds=5`, `max_phase_time_multiplier=3.0`, `integrity_threshold=40.0`,
+`gate_min_score=60.0`, `gate_min_rounds=3`, `confidence_threshold=70.0`.
 
 **Integration points**:
 - `harness_cli.py`: `--auto-fix-rounds N` (default 3, max 5), `--no-auto-fix` flags
