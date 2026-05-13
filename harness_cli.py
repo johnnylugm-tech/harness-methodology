@@ -532,9 +532,6 @@ def cmd_manifest(args: argparse.Namespace) -> int:
     print(f"  fr_ids        : {manifest['fr_ids']}")
     print(f"  generated_at  : phase {manifest['generated_at_phase']}")
     _generate_sab_json(project)
-    git = _make_git(args, project)
-    git.ensure_gitignore()
-    git.commit_and_push_p2(args.fr_ids)
     return 0
 
 
