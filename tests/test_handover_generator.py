@@ -1243,6 +1243,68 @@ class TestAdvanceFsm:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
+class TestLogSession:
+    """Tests for cmd_log_session — manual sessions_spawn.log entry."""
+
+    def test_log_session_appends_entry(self, tmp_path, monkeypatch):
+        import io
+        from harness_cli import cmd_log_session
+
+        class Args:
+            pass
+        a = Args()
+        a.project = str(tmp_path)
+        a.fr_id = "FR-01"
+        a.role = "developer"
+        a.session_id = "dev-abc123"
+        a.status = "success"
+        a.confidence = 9
+        a.task = None
+        a.phase = 3
+
+        captured = io.StringIO()
+        monkeypatch.setattr("sys.stdout", captured)
+        exit_code = cmd_log_session(a)
+        assert exit_code == 0
+
+        import json
+        log_path = tmp_path / ".methodology" / "sessions_spawn.log"
+        assert log_path.exists()
+        entries = [json.loads(line) for line in log_path.read_text().splitlines() if line.strip()]
+        assert len(entries) == 1
+        assert entries[0]["fr_id"] == "FR-01"
+        assert entries[0]["role"] == "developer"
+        assert entries[0]["status"] == "success"
+        assert entries[0]["confidence"] == 9
+
+    def test_log_session_reviewer_entry(self, tmp_path, monkeypatch):
+        import io
+        from harness_cli import cmd_log_session
+
+        class Args:
+            pass
+        a = Args()
+        a.project = str(tmp_path)
+        a.fr_id = "FR-01"
+        a.role = "reviewer"
+        a.session_id = "rev-def456"
+        a.status = "APPROVE"
+        a.confidence = None
+        a.task = None
+        a.phase = 3
+
+        captured = io.StringIO()
+        monkeypatch.setattr("sys.stdout", captured)
+        exit_code = cmd_log_session(a)
+        assert exit_code == 0
+
+        import json
+        log_path = tmp_path / ".methodology" / "sessions_spawn.log"
+        entries = [json.loads(line) for line in log_path.read_text().splitlines() if line.strip()]
+        assert entries[0]["status"] == "APPROVE"
+        assert "confidence" not in entries[0]
+
+
 class TestAuditSessionsSpawn:
     """Tests for _audit_sessions_spawn — pre-push HR-10 warning."""
 
