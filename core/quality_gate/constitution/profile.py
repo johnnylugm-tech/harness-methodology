@@ -323,7 +323,7 @@ def _phase_configs() -> dict[int, PhaseConfig]:
     return {
         1: PhaseConfig(phase_num=1, name="Requirements", entry_score=None, exit_gate=None, key_artifact="SRS.md", per_fr_gate1=False),
         2: PhaseConfig(phase_num=2, name="Architecture", entry_score=None, exit_gate=None, key_artifact="SAD.md", per_fr_gate1=False),
-        3: PhaseConfig(phase_num=3, name="Implementation", entry_score=75, exit_gate=2, key_artifact="03-implementation/src/", per_fr_gate1=True),
+        3: PhaseConfig(phase_num=3, name="Implementation", entry_score=75, exit_gate=2, key_artifact="03-development/src/", per_fr_gate1=True),
         4: PhaseConfig(phase_num=4, name="Testing", entry_score=75, exit_gate=3, key_artifact="TEST_RESULTS.md", per_fr_gate1=True),
         5: PhaseConfig(phase_num=5, name="Verification", entry_score=80, exit_gate=None, key_artifact="VERIFICATION_REPORT.md", per_fr_gate1=True),
         6: PhaseConfig(phase_num=6, name="Quality", entry_score=85, exit_gate=4, key_artifact="QUALITY_REPORT.md", per_fr_gate1=False),

@@ -48,6 +48,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shutil
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -1630,6 +1631,83 @@ jobs:
 """
 
 
+def _init_phase_dirs(project: Path) -> None:
+    """Create canonical 0X-name/ phase directory structure in target project."""
+    dirs = [
+        "01-requirements",
+        "02-architecture/adr",
+        "03-development/src",
+        "03-development/tests",
+        "04-testing",
+        "05-verify",
+        "06-quality",
+        "07-risk",
+        "08-config",
+    ]
+    created = 0
+    skipped = 0
+    for d in dirs:
+        target = project / d
+        if target.exists():
+            skipped += 1
+        else:
+            target.mkdir(parents=True, exist_ok=True)
+            created += 1
+    if created:
+        print(f"   OK — created {created} director{'y' if created == 1 else 'ies'} ({skipped} already existed)")
+    else:
+        print(f"   SKIP: all {skipped} directories already exist")
+
+
+def _init_copy_templates(project: Path, harness_root: Path, *, force: bool = False) -> None:
+    """Copy artifact templates from harness templates/ into the target project."""
+    templates_dir = harness_root / "templates"
+    artifact_map = [
+        ("01-requirements", "SRS.md"),
+        ("01-requirements", "SPEC_TRACKING.md"),
+        ("01-requirements", "TRACEABILITY_MATRIX.md"),
+        ("02-architecture", "SAD.md"),
+        ("02-architecture/adr", "ADR.md"),
+    ]
+    copied = 0
+    skipped = 0
+    missing = 0
+    for subdir, filename in artifact_map:
+        src = templates_dir / filename
+        dst = project / subdir / filename
+        if dst.exists() and not force:
+            skipped += 1
+        elif src.exists():
+            shutil.copy2(src, dst)
+            copied += 1
+        else:
+            print(f"   WARNING: template not found: {src}")
+            missing += 1
+
+    # CLAUDE.md.template → project/CLAUDE.md (only if no CLAUDE.md exists)
+    claude_tmpl = harness_root / "CLAUDE.md.template"
+    claude_dst = project / "CLAUDE.md"
+    if claude_dst.exists() and not force:
+        skipped += 1
+    elif claude_tmpl.exists():
+        shutil.copy2(claude_tmpl, claude_dst)
+        copied += 1
+    else:
+        missing += 1
+
+    parts = []
+    if copied:
+        parts.append(f"copied {copied} template{'s' if copied != 1 else ''}")
+    if skipped:
+        parts.append(f"{skipped} already existed")
+    if missing:
+        parts.append(f"{missing} template(s) not found")
+    if parts:
+        print(f"   OK — {', '.join(parts)}")
+    else:
+        print(f"   SKIP: nothing to copy")
+
+
 def cmd_init_project(args: argparse.Namespace) -> int:
     """
     Initialize harness CI wiring in a target project (Context B setup).
@@ -1715,8 +1793,16 @@ def cmd_init_project(args: argparse.Namespace) -> int:
     else:
         print(f"   WARNING: git config failed (rc={gc.returncode}): {gc.stderr.strip()}")
 
-    # 5. Initialize FSM state.json (required by run-phase preflight)
-    print("\n[5/6] Initializing FSM state...")
+    # 5. Create canonical phase directory structure
+    print("\n[5/8] Creating phase directory structure...")
+    _init_phase_dirs(project)
+
+    # 6. Copy template artifacts into phase directories
+    print("\n[6/8] Copying artifact templates...")
+    _init_copy_templates(project, harness_root, force=args.force)
+
+    # 7. Initialize FSM state.json (required by run-phase preflight)
+    print("\n[7/8] Initializing FSM state...")
     from datetime import datetime, timezone
     state_path = project / ".methodology" / "state.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1735,8 +1821,8 @@ def cmd_init_project(args: argparse.Namespace) -> int:
         )
         print(f"   OK — state.json initialized (phase={phase})")
 
-    # 6. Drift monitor hint
-    print(f"\n[6/6] Drift Monitor hint (optional cronjob)")
+    # 8. Drift monitor hint
+    print(f"\n[8/8] Drift Monitor hint (optional cronjob)")
     print("  Add this crontab entry (edit with: crontab -e):")
     print(f"  0 * * * * DRIFT_PROJECT_PATH={project} \\")
     print(f"    python3 {harness_root}/scripts/cron_drift_monitor.py \\")
@@ -1748,6 +1834,250 @@ def cmd_init_project(args: argparse.Namespace) -> int:
     print(f"  Next: Set CURRENT_PHASE = {phase} in GitHub repo → Settings → Variables")
     print(f"  Docs: {harness_root}/INTEGRATION.md")
     return 0
+
+
+def cmd_audit_structure(args: argparse.Namespace) -> int:
+    """Audit target project directory structure and artifact completeness.
+
+    Checks all 8 phases:
+      1. Directory existence (01-requirements/ ... 08-config/)
+      2. Artifact completeness (required files per phase)
+      3. Content quality (no hollow templates)
+      4. ASPICE traceability chain (cross-phase references)
+      5. Naming convention compliance (0X-name/ format)
+    """
+    import json as _json
+    import re as _re
+
+    project = Path(args.project).resolve()
+
+    # Canonical phase directory names
+    PHASE_DIRS = {
+        1: "01-requirements", 2: "02-architecture",
+        3: "03-development",   4: "04-testing",
+        5: "05-verify",        6: "06-quality",
+        7: "07-risk",          8: "08-config",
+    }
+
+    # Required artifacts per phase (aligned with phase_artifact_enforcer.py)
+    PHASE_ARTIFACTS = {
+        1: ["01-requirements/SRS.md", "01-requirements/SPEC_TRACKING.md",
+            "01-requirements/TRACEABILITY_MATRIX.md"],
+        2: ["02-architecture/SAD.md"],
+        3: ["03-development/src/", "03-development/tests/",
+            "03-development/COMPLIANCE_MATRIX.md"],
+        4: ["04-testing/TEST_PLAN.md", "04-testing/TEST_RESULTS.md"],
+        5: ["05-verify/BASELINE.md", "05-verify/VERIFICATION_REPORT.md"],
+        6: ["06-quality/QUALITY_REPORT.md"],
+        7: ["07-risk/RISK_ASSESSMENT.md", "07-risk/RISK_REGISTER.md"],
+        8: ["08-config/CONFIG_RECORDS.md", "08-config/RELEASE_CHECKLIST.md"],
+    }
+
+    results = {
+        "project": str(project),
+        "dimensions": {},
+    }
+
+    # --- Dimension 1: Directory existence ---
+    dir_status = {}
+    for num, dname in PHASE_DIRS.items():
+        dpath = project / dname
+        dir_status[f"P{num}"] = {
+            "dir": dname,
+            "exists": dpath.is_dir(),
+            "path": str(dpath),
+        }
+    results["dimensions"]["directory_existence"] = {
+        "label": "Directory Existence (01-requirements/ ~ 08-config/)",
+        "passed": all(v["exists"] for v in dir_status.values()),
+        "details": dir_status,
+    }
+
+    # --- Dimension 2: Artifact completeness ---
+    artifact_status = {}
+    for phase_num, paths in PHASE_ARTIFACTS.items():
+        phase_key = f"P{phase_num}"
+        phase_files = []
+        for p in paths:
+            fpath = project / p
+            exists = fpath.exists()
+            size = fpath.stat().st_size if exists and fpath.is_file() else None
+            phase_files.append({"path": p, "exists": exists, "size_bytes": size})
+        artifact_status[phase_key] = {
+            "dir": PHASE_DIRS[phase_num],
+            "all_present": all(f["exists"] for f in phase_files),
+            "files": phase_files,
+        }
+    results["dimensions"]["artifact_completeness"] = {
+        "label": "Artifact Completeness",
+        "passed": all(v["all_present"] for v in artifact_status.values()),
+        "details": artifact_status,
+    }
+
+    # --- Dimension 3: Content quality ---
+    # FR-reference check applies only to phases 1–4 (phases 5–8 produce
+    # operational docs that legitimately contain no FR/NFR references).
+    _FR_REF_PHASES = {1, 2, 3, 4}
+
+    def _check_content_quality(fpath: Path, phase_num: int = 0) -> dict:
+        if not fpath.exists() or not fpath.is_file():
+            return {"quality": "missing"}
+        try:
+            content = fpath.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            return {"quality": "unreadable"}
+        issues = []
+        if len(content.strip()) < 200:
+            issues.append("content < 200 chars")
+        if content.count("\n## ") + content.count("\n# ") < 2:
+            issues.append("< 2 markdown sections")
+        if phase_num in _FR_REF_PHASES and not _re.search(
+            r"\[(TASK|FR|NFR)-\d+\]", content, _re.IGNORECASE
+        ):
+            issues.append("no [TASK/FR/NFR-XX] references")
+        return {"quality": "good" if not issues else "suspicious", "issues": issues}
+
+    quality_status = {}
+    for phase_num, paths in PHASE_ARTIFACTS.items():
+        phase_key = f"P{phase_num}"
+        phase_quality = []
+        for art_path in paths:
+            q = _check_content_quality(project / art_path, phase_num)
+            q["path"] = art_path
+            phase_quality.append(q)
+        all_ok = all(q["quality"] == "good" for q in phase_quality
+                     if not q["path"].endswith("/"))
+        quality_status[phase_key] = {
+            "dir": PHASE_DIRS[phase_num],
+            "all_quality_ok": all_ok,
+            "files": phase_quality,
+        }
+    results["dimensions"]["content_quality"] = {
+        "label": "Content Quality (non-hollow templates)",
+        "passed": all(v["all_quality_ok"] for v in quality_status.values()),
+        "details": quality_status,
+    }
+
+    # --- Dimension 4: ASPICE traceability chain ---
+    try:
+        from core.quality_gate.phase_artifact_enforcer import PhaseArtifactRegistry
+        chain_result = PhaseArtifactRegistry(str(project)).verify_phase_chain(8)
+        aspice_passed = chain_result["all_verified"]
+        aspice_detail = {
+            "all_verified": aspice_passed,
+            "stats": chain_result["stats"],
+            "missing_links": chain_result.get("missing_links", []),
+        }
+    except Exception as exc:
+        aspice_passed = False
+        aspice_detail = {"error": str(exc)}
+    results["dimensions"]["aspice_chain"] = {
+        "label": "ASPICE Traceability Chain (P1→P8)",
+        "passed": aspice_passed,
+        "details": aspice_detail,
+    }
+
+    # --- Dimension 5: Naming convention ---
+    naming_issues = []
+    expected_names = set(PHASE_DIRS.values())
+    found_dirs = set()
+    for child in project.iterdir():
+        if not child.is_dir():
+            continue
+        m = _re.match(r"^\d{2}-", child.name)
+        if m:
+            found_dirs.add(child.name)
+            if child.name not in expected_names:
+                naming_issues.append(
+                    f"unexpected directory '{child.name}' "
+                    f"(expected one of: {', '.join(sorted(expected_names))})"
+                )
+    missing = expected_names - found_dirs
+    if missing:
+        naming_issues.append(
+            f"missing directories: {', '.join(sorted(missing))}"
+        )
+    naming_passed = len(naming_issues) == 0
+    results["dimensions"]["naming_convention"] = {
+        "label": "Naming Convention (0X-name/ format)",
+        "passed": naming_passed,
+        "details": {"issues": naming_issues},
+    }
+
+    # --- Summary ---
+    dims = results["dimensions"]
+    all_passed = all(d["passed"] for d in dims.values())
+    results["summary"] = {
+        "all_passed": all_passed,
+        "pass_count": sum(1 for d in dims.values() if d["passed"]),
+        "total_dims": len(dims),
+    }
+
+    if args.json:
+        print(_json.dumps(results, indent=2, ensure_ascii=False))
+    else:
+        _print_audit_report(results)
+
+    return 0 if all_passed else 1
+
+
+def _print_audit_report(results: dict) -> None:
+    """Print human-readable audit-structure report."""
+    print(f"\n{'='*60}")
+    print(f"Audit-Structure Report")
+    print(f"Project: {results['project']}")
+    print(f"{'='*60}")
+
+    dims = results["dimensions"]
+    for key, dim in dims.items():
+        icon = "PASS" if dim["passed"] else "FAIL"
+        print(f"\n  [{icon}] {dim['label']}")
+
+        if key == "directory_existence":
+            for pk, dv in dim["details"].items():
+                mark = "✅" if dv["exists"] else "❌"
+                print(f"     {mark} {pk}  {dv['dir']}")
+
+        elif key == "artifact_completeness":
+            for pk, pv in dim["details"].items():
+                mark = "✅" if pv["all_present"] else "❌"
+                print(f"     {mark} {pk} ({pv['dir']})")
+                if not pv["all_present"]:
+                    for f in pv["files"]:
+                        if not f["exists"]:
+                            print(f"        ❌ MISSING: {f['path']}")
+
+        elif key == "content_quality":
+            for pk, pv in dim["details"].items():
+                mark = "✅" if pv["all_quality_ok"] else "⚠️"
+                print(f"     {mark} {pk} ({pv['dir']})")
+                for f in pv["files"]:
+                    if f["quality"] != "good" and not f["path"].endswith("/"):
+                        issues = ", ".join(f.get("issues", []))
+                        print(f"        ⚠️  {f['path']}: {f['quality']}"
+                              + (f" ({issues})" if issues else ""))
+
+        elif key == "aspice_chain":
+            stats = dim["details"].get("stats", {})
+            print(f"     Verified: {stats.get('verified', '?')}/{stats.get('total', '?')} links")
+            for link in dim["details"].get("missing_links", [])[:5]:
+                print(f"        ❌ {link}")
+
+        elif key == "naming_convention":
+            if dim["passed"]:
+                print("     ✅ All 0X-name/ directories match expected names")
+            else:
+                for issue in dim["details"]["issues"]:
+                    print(f"        ❌ {issue}")
+
+    # Footer
+    s = results["summary"]
+    print(f"\n{'='*60}")
+    if s["all_passed"]:
+        print(f"RESULT: ALL PASS ({s['pass_count']}/{s['total_dims']} dimensions)")
+    else:
+        print(f"RESULT: FAIL — {s['total_dims'] - s['pass_count']} dimension(s) failed")
+    print(f"{'='*60}")
 
 
 # ---------------------------------------------------------------------------
@@ -1950,6 +2280,15 @@ def build_parser() -> argparse.ArgumentParser:
     ip.add_argument("--force",   action="store_true",
                     help="Overwrite existing CI workflow and hooks")
     ip.set_defaults(func=cmd_init_project)
+
+    # audit-structure
+    aus = sub.add_parser(
+        "audit-structure",
+        help="Audit target project directory structure and artifact completeness",
+    )
+    aus.add_argument("--project", required=True, help="Target project root path")
+    aus.add_argument("--json", action="store_true", help="Output as JSON")
+    aus.set_defaults(func=cmd_audit_structure)
 
     return p
 

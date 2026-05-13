@@ -108,7 +108,8 @@ class TestFrameworkEnforcer:
 
     def test_check_traceability_matrix_with_file(self, tmp_path):
         content = "| src/foo.py | ✅ | ✅ |\n| src/bar.py | ✅ | ✅ |\n"
-        (tmp_path / "TRACEABILITY_MATRIX.md").write_text(content)
+        (tmp_path / "01-requirements").mkdir()
+        (tmp_path / "01-requirements" / "TRACEABILITY_MATRIX.md").write_text(content)
         fe = self._fe(tmp_path)
         result = fe.check_traceability_matrix()
         assert result["exists"] is True

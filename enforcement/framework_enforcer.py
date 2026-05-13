@@ -212,9 +212,7 @@ class FrameworkEnforcer:
         """Run check traceability matrix validation."""
         trace_file = None
         for candidate in [
-            self.project_root / "TRACEABILITY_MATRIX.md",
             self.project_root / "01-requirements" / "TRACEABILITY_MATRIX.md",
-            self.project_root / "01-specify" / "TRACEABILITY_MATRIX.md",
         ]:
             if candidate.exists():
                 trace_file = candidate

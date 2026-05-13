@@ -7,7 +7,8 @@ def test_spec_tracking_checker_not_found(tmp_path):
     assert "SPEC_TRACKING.md not found" in result["missing"]
 
 def test_spec_tracking_checker_complete(tmp_path):
-    spec_file = tmp_path / "SPEC_TRACKING.md"
+    (tmp_path / "01-requirements").mkdir()
+    spec_file = tmp_path / "01-requirements" / "SPEC_TRACKING.md"
     content = """
 # SPEC_TRACKING
 
@@ -27,7 +28,8 @@ def test_spec_tracking_checker_complete(tmp_path):
     assert result["complete"] is True
 
 def test_spec_tracking_checker_missing_table(tmp_path):
-    spec_file = tmp_path / "SPEC_TRACKING.md"
+    (tmp_path / "01-requirements").mkdir()
+    spec_file = tmp_path / "01-requirements" / "SPEC_TRACKING.md"
     content = """
 # SPEC_TRACKING
 No tables here.
@@ -53,7 +55,8 @@ def test_spec_tracking_checker_run_enforcement_returns_dict(tmp_path):
 
 
 def test_completeness_with_spec_file(tmp_path):
-    spec_file = tmp_path / "SPEC_TRACKING.md"
+    (tmp_path / "01-requirements").mkdir()
+    spec_file = tmp_path / "01-requirements" / "SPEC_TRACKING.md"
     content = """
 ## Core Features
 | Spec | Status | Notes |

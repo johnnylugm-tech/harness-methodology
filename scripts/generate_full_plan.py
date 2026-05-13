@@ -226,9 +226,7 @@ def parse_risk_register(repo_path: Path) -> List[Dict]:
 def parse_config_records(repo_path: Path) -> List[Dict]:
     """Parse CONFIG_RECORDS.md"""
     cr_paths = [
-        repo_path / "08-configuration" / "CONFIG_RECORDS.md",
-        repo_path / "CONFIG_RECORDS.md",
-        repo_path / "docs" / "CONFIG_RECORDS.md",
+        repo_path / "08-config" / "CONFIG_RECORDS.md",
     ]
 
     for cr_path in cr_paths:

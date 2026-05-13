@@ -121,7 +121,8 @@ class TestFrameworkEnforcer:
         assert result["complete"] is False
 
     def test_check_traceability_with_file(self, tmp_path):
-        (tmp_path / "TRACEABILITY_MATRIX.md").write_text(
+        (tmp_path / "01-requirements").mkdir()
+        (tmp_path / "01-requirements" / "TRACEABILITY_MATRIX.md").write_text(
             "src/module.py ✅\nsrc/other.py ❌\n"
         )
         fe = FrameworkEnforcer(project_root=str(tmp_path), phase=1)

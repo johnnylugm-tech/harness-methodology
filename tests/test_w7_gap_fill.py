@@ -87,7 +87,8 @@ def _make_spec_tracking(tmp_path, content: str = None) -> Path:
 
 - 2026-04-01: Initial draft
 """
-    f = tmp_path / "SPEC_TRACKING.md"
+    (tmp_path / "01-requirements").mkdir(exist_ok=True)
+    f = tmp_path / "01-requirements" / "SPEC_TRACKING.md"
     f.write_text(content)
     return f
 
@@ -120,7 +121,8 @@ class TestSpecTrackingChecker:
 
     def test_check_completeness_missing_status_column(self, tmp_path):
         from core.quality_gate.spec_tracking_checker import SpecTrackingChecker
-        f = tmp_path / "SPEC_TRACKING.md"
+        (tmp_path / "01-requirements").mkdir(exist_ok=True)
+        f = tmp_path / "01-requirements" / "SPEC_TRACKING.md"
         f.write_text("## Core Features\n\n| Feature | Notes |\n|---|---|\n\n## Update Log\n- entry\n")
         c = SpecTrackingChecker(str(tmp_path))
         result = c.check_completeness()

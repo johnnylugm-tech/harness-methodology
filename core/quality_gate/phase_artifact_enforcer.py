@@ -73,7 +73,7 @@ class PhaseArtifactRegistry:
         },
         Phase.IMPLEMENT: {
             "artifacts": [
-                "03-implementation/COMPLIANCE_MATRIX.md",
+                "03-development/COMPLIANCE_MATRIX.md",
             ],
             "depends_on": [Phase.SPECIFY, Phase.PLAN],
         },

@@ -354,7 +354,8 @@ class TestPolicyEngineEdge:
 class TestSpecTrackingCheckerEdge:
     def test_check_completeness_with_entry_no_status(self, tmp_path):
         from core.quality_gate.spec_tracking_checker import SpecTrackingChecker
-        st = tmp_path / "SPEC_TRACKING.md"
+        (tmp_path / "01-requirements").mkdir()
+        st = tmp_path / "01-requirements" / "SPEC_TRACKING.md"
         st.write_text(
             "# Core Features\n"
             "Feature | Status | Notes |\n"
@@ -370,7 +371,8 @@ class TestSpecTrackingCheckerEdge:
 
     def test_check_completeness_missing_table(self, tmp_path):
         from core.quality_gate.spec_tracking_checker import SpecTrackingChecker
-        st = tmp_path / "SPEC_TRACKING.md"
+        (tmp_path / "01-requirements").mkdir()
+        st = tmp_path / "01-requirements" / "SPEC_TRACKING.md"
         st.write_text("# Some doc\nStatus: Done\n## Update Log\n")
         checker = SpecTrackingChecker(str(tmp_path))
         result = checker.check_completeness()
@@ -378,7 +380,8 @@ class TestSpecTrackingCheckerEdge:
 
     def test_run_enforcement_with_valid_spec(self, tmp_path):
         from core.quality_gate.spec_tracking_checker import SpecTrackingChecker
-        st = tmp_path / "SPEC_TRACKING.md"
+        (tmp_path / "01-requirements").mkdir()
+        st = tmp_path / "01-requirements" / "SPEC_TRACKING.md"
         st.write_text(
             "# Core Features\n| Feature | Status | Notes |\n"
             "| FR-001 | ✅ Done | done |\n\n## Update Log\n"
@@ -397,7 +400,8 @@ class TestSpecTrackingCheckerEdge:
 
     def test_print_report_found_complete(self, tmp_path, capsys):
         from core.quality_gate.spec_tracking_checker import SpecTrackingChecker
-        st = tmp_path / "SPEC_TRACKING.md"
+        (tmp_path / "01-requirements").mkdir()
+        st = tmp_path / "01-requirements" / "SPEC_TRACKING.md"
         st.write_text(
             "# Core Features\n| Feature | Status | Notes |\n"
             "| FR-001 | ✅ Done | |\n\n## Update Log\n| Date | Change |\n"
@@ -592,9 +596,9 @@ class TestPhaseTruthVerifierEdge:
 
     def test_get_manual_checklist_phase3_artifact_exists(self, tmp_path):
         from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
-        (tmp_path / "03-implementation").mkdir()
-        (tmp_path / "03-implementation" / "src").mkdir()
-        (tmp_path / "03-implementation" / "tests").mkdir()
+        (tmp_path / "03-development").mkdir()
+        (tmp_path / "03-development" / "src").mkdir()
+        (tmp_path / "03-development" / "tests").mkdir()
         verifier = PhaseTruthVerifier(str(tmp_path), phase=3)
         checklist = verifier.get_manual_checklist()
         assert len(checklist) > 0

@@ -252,32 +252,13 @@ class PhaseTruthVerifier:
     def get_manual_checklist(self) -> List[Dict]:
         """Generate items requiring manual confirmation"""
 
-        # Phase directory mapping (supports multiple naming conventions)
-        phase_dirs = {
-            1: ["01-requirements", "01-specify", "requirements", "specify"],
-            2: ["02-architecture", "02-plan", "architecture", "plan", "docs"],
-            3: ["03-implementation", "03-implement", "implementation", "implement", "src"],
-            4: ["04-testing", "04-verify", "testing", "verify"],
-            5: ["05-verify", "05-system-test", "verify"],
-            6: ["06-quality", "quality"],
-            7: ["07-risk", "risk"],
-            8: ["08-config", "08-configuration", "config", "configuration"],
-        }
-
         phase_artifacts = {
             1: ["01-requirements/SRS.md", "01-requirements/SPEC_TRACKING.md", "01-requirements/TRACEABILITY_MATRIX.md"],
-            2: ["02-architecture/SAD.md", "02-architecture/adr/001-fastapi-proxy-layer.md", "02-architecture/adr/002-redis-caching-strategy.md", "02-architecture/adr/003-circuit-breaker-resilience.md", "02-architecture/adr/004-text-chunking-strategy.md", "02-architecture/adr/005-cli-click-framework.md", "02-architecture/adr/006-audio-converter-ffmpeg.md"],
+            2: ["02-architecture/SAD.md"],
             3: [
-                # Standard path
-                "03-implementation/src/",
-                "03-implementation/tests/",
-                "03-implementation/COMPLIANCE_MATRIX.md",
-                # Alternative: app/ structure (e.g., tts-kokoro-v613)
-                "app/",
-                "app/processing/",
-                "app/synth/",
-                "app/infrastructure/",
-                "tests/",
+                "03-development/src/",
+                "03-development/tests/",
+                "03-development/COMPLIANCE_MATRIX.md",
             ],
             4: ["04-testing/TEST_PLAN.md", "04-testing/TEST_RESULTS.md"],
             5: ["05-verify/BASELINE.md", "05-verify/VERIFICATION_REPORT.md", "05-verify/MONITORING_PLAN.md"],
@@ -288,9 +269,9 @@ class PhaseTruthVerifier:
 
         checklist = []
 
-        # Add items to confirm based on Phase (check multiple possible locations)
+        # Add items to confirm based on Phase (artifact paths are relative to project root)
         if self.phase in phase_artifacts:
-            dirs_to_check = [None] + phase_dirs.get(self.phase, [])  # None = root directory
+            dirs_to_check = [None]  # artifact paths already include the 0X-name/ prefix
             
             for artifact in phase_artifacts[self.phase]:
                 exists = False

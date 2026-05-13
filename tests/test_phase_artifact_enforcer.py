@@ -163,8 +163,8 @@ class TestVerifyPhaseChain:
         )
 
         # P3: IMPLEMENT (references both)
-        (tmp_path / "03-implementation").mkdir()
-        (tmp_path / "03-implementation" / "COMPLIANCE_MATRIX.md").write_text(
+        (tmp_path / "03-development").mkdir()
+        (tmp_path / "03-development" / "COMPLIANCE_MATRIX.md").write_text(
             "# Compliance\n\nMaps SRS requirements to SAD components.\n"
         )
 

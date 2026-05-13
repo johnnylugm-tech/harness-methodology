@@ -22,10 +22,7 @@ class SpecTrackingChecker:
         self.project_root = Path(project_root)
         # Support multiple possible locations
         self.spec_file_candidates = [
-            self.project_root / "SPEC_TRACKING.md",
             self.project_root / "01-requirements" / "SPEC_TRACKING.md",
-            self.project_root / "01-specify" / "SPEC_TRACKING.md",
-            self.project_root / "requirements" / "SPEC_TRACKING.md",
         ]
         self.template_file = Path(__file__).parent.parent / "templates" / "SPEC_TRACKING.md"
         self.spec_file = None
