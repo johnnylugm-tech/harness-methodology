@@ -61,12 +61,12 @@ cat > "$PREPARE_COMMIT_MSG_HOOK" << 'HOOK_SCRIPT'
 set -e
 
 # Get project root directory
-GIT_DIR=$(unset GIT_DIR; git rev-parse --show-toplevel)
+PROJECT_ROOT=$(unset GIT_DIR GIT_WORK_TREE; git rev-parse --show-toplevel)
 # Auto-detect harness_cli.py: root first, then harness/ submodule
-if [ -f "$GIT_DIR/harness_cli.py" ]; then
-    HARNESS_CLI="$GIT_DIR/harness_cli.py"
-elif [ -f "$GIT_DIR/harness/harness_cli.py" ]; then
-    HARNESS_CLI="$GIT_DIR/harness/harness_cli.py"
+if [ -f "$PROJECT_ROOT/harness_cli.py" ]; then
+    HARNESS_CLI="$PROJECT_ROOT/harness_cli.py"
+elif [ -f "$PROJECT_ROOT/harness/harness_cli.py" ]; then
+    HARNESS_CLI="$PROJECT_ROOT/harness/harness_cli.py"
 else
     HARNESS_CLI=""
 fi
@@ -89,8 +89,8 @@ fi
 # Run Quality Gate check
 echo "Running Phase $PHASE Quality Gate check..."
 
-cd "$GIT_DIR"
-python3 "$HARNESS_CLI" run-phase --phase "$PHASE" --project "$GIT_DIR" --fast
+cd "$PROJECT_ROOT"
+python3 "$HARNESS_CLI" run-phase --phase "$PHASE" --project "$PROJECT_ROOT" --fast
 
 RESULT=$?
 
@@ -138,12 +138,12 @@ cat > "$POST_MERGE_HOOK" << 'HOOK_SCRIPT'
 set -e
 
 # Get project root directory
-GIT_DIR=$(unset GIT_DIR; git rev-parse --show-toplevel)
+PROJECT_ROOT=$(unset GIT_DIR GIT_WORK_TREE; git rev-parse --show-toplevel)
 # Auto-detect harness_cli.py: root first, then harness/ submodule
-if [ -f "$GIT_DIR/harness_cli.py" ]; then
-    HARNESS_CLI="$GIT_DIR/harness_cli.py"
-elif [ -f "$GIT_DIR/harness/harness_cli.py" ]; then
-    HARNESS_CLI="$GIT_DIR/harness/harness_cli.py"
+if [ -f "$PROJECT_ROOT/harness_cli.py" ]; then
+    HARNESS_CLI="$PROJECT_ROOT/harness_cli.py"
+elif [ -f "$PROJECT_ROOT/harness/harness_cli.py" ]; then
+    HARNESS_CLI="$PROJECT_ROOT/harness/harness_cli.py"
 else
     HARNESS_CLI=""
 fi
@@ -168,8 +168,8 @@ echo ""
 echo "Running Phase $PHASE Quality Gate check after merge..."
 echo ""
 
-cd "$GIT_DIR"
-python3 "$HARNESS_CLI" run-phase --phase "$PHASE" --project "$GIT_DIR" --fast || true
+cd "$PROJECT_ROOT"
+python3 "$HARNESS_CLI" run-phase --phase "$PHASE" --project "$PROJECT_ROOT" --fast || true
 
 echo ""
 echo "Post-merge quality check completed."
@@ -201,12 +201,12 @@ cat > "$PRE_PUSH_HOOK" << 'HOOK_SCRIPT'
 set -e
 
 # Get project root directory
-GIT_DIR=$(unset GIT_DIR; git rev-parse --show-toplevel)
+PROJECT_ROOT=$(unset GIT_DIR GIT_WORK_TREE; git rev-parse --show-toplevel)
 # Auto-detect harness_cli.py: root first, then harness/ submodule
-if [ -f "$GIT_DIR/harness_cli.py" ]; then
-    HARNESS_CLI="$GIT_DIR/harness_cli.py"
-elif [ -f "$GIT_DIR/harness/harness_cli.py" ]; then
-    HARNESS_CLI="$GIT_DIR/harness/harness_cli.py"
+if [ -f "$PROJECT_ROOT/harness_cli.py" ]; then
+    HARNESS_CLI="$PROJECT_ROOT/harness_cli.py"
+elif [ -f "$PROJECT_ROOT/harness/harness_cli.py" ]; then
+    HARNESS_CLI="$PROJECT_ROOT/harness/harness_cli.py"
 else
     HARNESS_CLI=""
 fi
@@ -230,7 +230,7 @@ fi
 echo ""
 echo "Checking recent commit for Quality Gate..."
 
-cd "$GIT_DIR"
+cd "$PROJECT_ROOT"
 LAST_COMMIT_MSG=$(git log -1 --pretty=%B | head -n 1)
 
 if [[ "$LAST_COMMIT_MSG" == *"STAGE_PASS"* ]]; then
@@ -239,7 +239,7 @@ if [[ "$LAST_COMMIT_MSG" == *"STAGE_PASS"* ]]; then
 fi
 
 # Run check
-python3 "$HARNESS_CLI" run-phase --phase "$PHASE" --project "$GIT_DIR" --fast
+python3 "$HARNESS_CLI" run-phase --phase "$PHASE" --project "$PROJECT_ROOT" --fast
 
 RESULT=$?
 
