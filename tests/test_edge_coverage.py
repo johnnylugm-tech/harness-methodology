@@ -767,7 +767,7 @@ class TestVerifyEntryGate:
         manifest_dir = tmp_path / ".methodology"
         manifest_dir.mkdir()
         import json
-        manifest = {"gates": {"2": {"passed": True, "score": 80.0}}}
+        manifest = {"gate_results": {"gate2": {"quality_complete": True, "score": 80.0}}}
         (manifest_dir / "quality_manifest.json").write_text(json.dumps(manifest))
 
         _verify_entry_gate = self._import()
@@ -780,7 +780,7 @@ class TestVerifyEntryGate:
         manifest_dir = tmp_path / ".methodology"
         manifest_dir.mkdir()
         import json
-        manifest = {"gates": {"3": {"passed": False, "score": 65.0}}}
+        manifest = {"gate_results": {"gate3": {"quality_complete": False, "score": 65.0}}}
         (manifest_dir / "quality_manifest.json").write_text(json.dumps(manifest))
 
         _verify_entry_gate = self._import()
@@ -793,7 +793,7 @@ class TestVerifyEntryGate:
         manifest_dir = tmp_path / ".methodology"
         manifest_dir.mkdir()
         import json
-        manifest = {"gates": {"3": {"passed": True, "score": 85.0}}}
+        manifest = {"gate_results": {"gate3": {"quality_complete": True, "score": 85.0}}}
         (manifest_dir / "quality_manifest.json").write_text(json.dumps(manifest))
 
         _verify_entry_gate = self._import()

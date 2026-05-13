@@ -142,11 +142,11 @@ def _verify_entry_gate(project: Path, phase: int) -> dict:
 
     try:
         manifest = json.loads(manifest_path.read_text())
-        gates = manifest.get("gates", {})
+        gates = manifest.get("gate_results", {})
         prev_gate = _ENTRY_GATE_MAP.get(phase)
         if prev_gate:
-            gate_status = gates.get(str(prev_gate), {})
-            if gate_status.get("passed"):
+            gate_status = gates.get(f"gate{prev_gate}", {})
+            if gate_status.get("quality_complete"):
                 return {"passed": True, "gate": f"Gate {prev_gate}",
                         "reason": f"Gate {prev_gate} PASS confirmed"}
             return {"passed": False, "gate": f"Gate {prev_gate}",
