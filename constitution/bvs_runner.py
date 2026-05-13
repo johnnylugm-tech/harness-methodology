@@ -128,6 +128,10 @@ class BVSRunner:
                     context = logger.get_phase_context(self.phase)
 
                 logs = logger.collect_from_sessions_spawn_log()
+                # Only check sessions for the current phase — historical
+                # sessions from earlier phases (P1/P2 doc phases) lack
+                # citations/confidence and would produce false violations.
+                logs = [l for l in logs if l.get("phase") == self.phase]
                 if logs:
                     engine = InvariantEngine.from_constitution_rules()
                     inv_violations = engine.check_batch(logs, context)
