@@ -731,19 +731,20 @@ def _fr_dev_steps(fr_id: str, phase: int) -> List[str]:
         f"  - Docstrings: `[{fr_id}]` tag + `Citations:` with line numbers (HR-15)",
         "  - FORBIDDEN: `app/infrastructure/` · `@covers: L1 Error` · `@type: edge`",
         "- [ ] **[A-2]** Agent A returns `{status, files, confidence, citations, summary}`",
-        "- [ ] **[A-LOG]** Record Agent A session:",
+        "- [ ] **[A-DISPATCH]** Dispatch Agent A:",
         "  ```bash",
-        f"  python3 harness_cli.py log-session --fr-id {fr_id} --role developer \\",
-        f"    --session-id <session_id> --status success --confidence <1-10> --phase {phase} --project $REPO",
+        f"  python3 harness_cli.py dispatch --role developer --fr-id {fr_id} \\",
+        f"    --prompt \"{task_hint} for {fr_id}\" --phase {phase} --project $REPO",
         "  ```",
     ]
     lines.extend(_agent_b_dispatch_block(phase, role_b, fr_id=fr_id))
     lines.extend([
-        "- [ ] **[B-LOG]** Record Agent B session:",
+        "- [ ] **[B-DISPATCH]** Dispatch Agent B:",
         "  ```bash",
-        f"  python3 harness_cli.py log-session --fr-id {fr_id} --role reviewer \\",
-        f"    --session-id <session_id> --status <APPROVE|REJECT> --phase {phase} --project $REPO",
+        f"  python3 harness_cli.py dispatch --role reviewer --fr-id {fr_id} \\",
+        f"    --prompt \"Review {fr_id} against SRS + SAD\" --phase {phase} --project $REPO",
         "  ```",
+        "  > AgentSpawner auto-logs to `sessions_spawn.log` on dispatch (HR-10).",
         "",
     ])
     return lines

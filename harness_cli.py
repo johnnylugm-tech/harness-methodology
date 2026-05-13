@@ -25,7 +25,7 @@ Usage:
     python harness_cli.py push-checkpoint   --phase 1|2 --project . [--fr-ids FR-01,FR-02]
     python harness_cli.py push-milestone    --type p3-mid|p3-pre-ssi|p5-baseline|p7|p8 --project .
     python harness_cli.py advance-phase     --completed-phase 3 [--project .]
-    python harness_cli.py log-session       --fr-id FR-01 --role developer|reviewer --session-id <id> --status <status>
+    python harness_cli.py dispatch          --role developer|reviewer --fr-id FR-01 --prompt "..." --phase 3
 
 Gate Evaluation (two-phase flow):
     1. run-gate    → prints evaluation prompt for Claude; exits 0
@@ -1007,32 +1007,34 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
-# log-session  (manual sessions_spawn.log entry for HR-10)
+# dispatch  (spawn Agent A/B + auto-log sessions_spawn.log for HR-10)
 # ---------------------------------------------------------------------------
 
-def cmd_log_session(args: argparse.Namespace) -> int:
-    """Append an entry to sessions_spawn.log for HR-10 compliance.
+def cmd_dispatch(args: argparse.Namespace) -> int:
+    """Dispatch Agent A or B via AgentSpawner, auto-logging to sessions_spawn.log.
 
     Usage:
-        python harness_cli.py log-session --fr-id FR-01 --role developer \\
-            --session-id dev-abc123 --status success --confidence 9
-        python harness_cli.py log-session --fr-id FR-01 --role reviewer \\
-            --session-id rev-def456 --status APPROVE
+        python harness_cli.py dispatch --role developer --fr-id FR-01 \\
+            --prompt "Implement FR-01: Platform Adapter" --phase 3 --project .
+        python harness_cli.py dispatch --role reviewer --fr-id FR-01 \\
+            --prompt "Review FR-01 implementation against SRS" --phase 3 --project .
     """
-    from core.sessions_spawn_logger import SessionsSpawnLogger
+    from core.agent_spawner import AgentSpawner
 
     project = Path(args.project).resolve()
-    logger = SessionsSpawnLogger(str(project))
-    logger.log_spawn(
+    spawner = AgentSpawner(project_path=project)
+    result = spawner.spawn(
         role=args.role,
-        task=args.task or f"{args.role} dispatch for {args.fr_id or 'phase'}",
-        session_id=args.session_id or "",
-        status=args.status,
-        confidence=args.confidence,
+        prompt=args.prompt,
+        context={"phase": args.phase, "fr_id": args.fr_id},
         phase=args.phase,
         fr_id=args.fr_id,
     )
-    print(f"[log-session] {args.fr_id or 'phase'} | {args.role} | {args.status} ✓")
+    status = result.get("status", "SPAWNED")
+    session_id = result.get("session_id", "")
+    print(f"[dispatch] {args.fr_id or 'phase'} | {args.role} | {status} | session={session_id}")
+    if status not in ("success", "STAGE_PASS", "APPROVE"):
+        return 1
     return 0
 
 
@@ -2519,21 +2521,14 @@ def build_parser() -> argparse.ArgumentParser:
     adv.add_argument("--project", default=".", help="Project root (default: .)")
     adv.set_defaults(func=cmd_advance_phase)
 
-    # log-session
-    ls = sub.add_parser("log-session", help="Append entry to sessions_spawn.log (HR-10)")
-    ls.add_argument("--fr-id",     default=None, help="FR ID (FR-01, etc.)")
-    ls.add_argument("--role",      required=True, help="Agent role (developer, reviewer, etc.)")
-    ls.add_argument("--session-id", default="", dest="session_id",
-                    help="Session ID from Agent tool output")
-    ls.add_argument("--status",    default="SPAWNED",
-                    help="Dispatch status (success, APPROVE, REJECT, etc.)")
-    ls.add_argument("--confidence", type=int, default=None,
-                    help="Confidence score 1-10")
-    ls.add_argument("--task",      default=None,
-                    help="Task description (default: auto-generated)")
-    ls.add_argument("--phase",     type=int, default=0, help="Phase number")
-    ls.add_argument("--project",   default=".", help="Project root (default: .)")
-    ls.set_defaults(func=cmd_log_session)
+    # dispatch
+    dp = sub.add_parser("dispatch", help="Spawn Agent A/B + auto-log to sessions_spawn.log (HR-10)")
+    dp.add_argument("--role",    required=True, help="Agent role (developer, reviewer, etc.)")
+    dp.add_argument("--fr-id",   default=None, dest="fr_id", help="FR ID (FR-01, etc.)")
+    dp.add_argument("--prompt",  default="", help="Task prompt for the agent")
+    dp.add_argument("--phase",   type=int, default=0, help="Phase number")
+    dp.add_argument("--project", default=".", help="Project root (default: .)")
+    dp.set_defaults(func=cmd_dispatch)
 
     # reload-policy
     rl = sub.add_parser("reload-policy", help="Hot-reload enforcement policies from enforcement.json")

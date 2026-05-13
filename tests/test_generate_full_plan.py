@@ -266,9 +266,9 @@ class TestFrDevSteps:
         assert "Agent B" in joined
 
     def test_contains_sessions_spawn_log(self):
-        """GAP-A / HR-10: log-session commands must be in steps."""
+        """GAP-A / HR-10: dispatch commands must be in steps."""
         joined = "\n".join(_fr_dev_steps("FR-01", 3))
-        assert "log-session" in joined
+        assert "dispatch" in joined
 
     def test_contains_fr_id_in_log_entry(self):
         joined = "\n".join(_fr_dev_steps("FR-02", 3))

@@ -1243,12 +1243,25 @@ class TestAdvanceFsm:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-class TestLogSession:
-    """Tests for cmd_log_session — manual sessions_spawn.log entry."""
+class TestDispatch:
+    """Tests for cmd_dispatch — spawns agent + auto-logs to sessions_spawn.log."""
 
-    def test_log_session_appends_entry(self, tmp_path, monkeypatch):
+    def test_dispatch_developer_spawns_and_returns_ok(self, tmp_path, monkeypatch):
         import io
-        from harness_cli import cmd_log_session
+        from harness_cli import cmd_dispatch
+
+        def fake_spawn(self, role, prompt, context, phase, fr_id=None):
+            # Write a minimal log entry to simulate _log_dispatch behavior
+            import json
+            log_path = self.project_path / ".methodology" / "sessions_spawn.log"
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            log_path.write_text(json.dumps({
+                "fr_id": fr_id, "role": role, "status": "success",
+                "session_id": "fake-001", "phase": phase,
+            }) + "\n")
+            return {"status": "success", "session_id": "fake-001"}
+
+        monkeypatch.setattr("core.agent_spawner.AgentSpawner.spawn", fake_spawn)
 
         class Args:
             pass
@@ -1256,30 +1269,23 @@ class TestLogSession:
         a.project = str(tmp_path)
         a.fr_id = "FR-01"
         a.role = "developer"
-        a.session_id = "dev-abc123"
-        a.status = "success"
-        a.confidence = 9
-        a.task = None
+        a.prompt = "Implement FR-01"
         a.phase = 3
 
         captured = io.StringIO()
         monkeypatch.setattr("sys.stdout", captured)
-        exit_code = cmd_log_session(a)
+        exit_code = cmd_dispatch(a)
         assert exit_code == 0
+        assert "FR-01 | developer | success" in captured.getvalue()
 
-        import json
-        log_path = tmp_path / ".methodology" / "sessions_spawn.log"
-        assert log_path.exists()
-        entries = [json.loads(line) for line in log_path.read_text().splitlines() if line.strip()]
-        assert len(entries) == 1
-        assert entries[0]["fr_id"] == "FR-01"
-        assert entries[0]["role"] == "developer"
-        assert entries[0]["status"] == "success"
-        assert entries[0]["confidence"] == 9
-
-    def test_log_session_reviewer_entry(self, tmp_path, monkeypatch):
+    def test_dispatch_reviewer_returns_ok(self, tmp_path, monkeypatch):
         import io
-        from harness_cli import cmd_log_session
+        from harness_cli import cmd_dispatch
+
+        def fake_spawn(self, role, prompt, context, phase, fr_id=None):
+            return {"status": "APPROVE", "session_id": "fake-002"}
+
+        monkeypatch.setattr("core.agent_spawner.AgentSpawner.spawn", fake_spawn)
 
         class Args:
             pass
@@ -1287,22 +1293,36 @@ class TestLogSession:
         a.project = str(tmp_path)
         a.fr_id = "FR-01"
         a.role = "reviewer"
-        a.session_id = "rev-def456"
-        a.status = "APPROVE"
-        a.confidence = None
-        a.task = None
+        a.prompt = "Review FR-01"
         a.phase = 3
 
         captured = io.StringIO()
         monkeypatch.setattr("sys.stdout", captured)
-        exit_code = cmd_log_session(a)
+        exit_code = cmd_dispatch(a)
         assert exit_code == 0
 
-        import json
-        log_path = tmp_path / ".methodology" / "sessions_spawn.log"
-        entries = [json.loads(line) for line in log_path.read_text().splitlines() if line.strip()]
-        assert entries[0]["status"] == "APPROVE"
-        assert "confidence" not in entries[0]
+    def test_dispatch_non_ok_status_returns_1(self, tmp_path, monkeypatch):
+        import io
+        from harness_cli import cmd_dispatch
+
+        def fake_spawn(self, role, prompt, context, phase, fr_id=None):
+            return {"status": "REJECT", "session_id": "fake-003"}
+
+        monkeypatch.setattr("core.agent_spawner.AgentSpawner.spawn", fake_spawn)
+
+        class Args:
+            pass
+        a = Args()
+        a.project = str(tmp_path)
+        a.fr_id = "FR-02"
+        a.role = "reviewer"
+        a.prompt = "Review FR-02"
+        a.phase = 3
+
+        captured = io.StringIO()
+        monkeypatch.setattr("sys.stdout", captured)
+        exit_code = cmd_dispatch(a)
+        assert exit_code == 1
 
 
 class TestAuditSessionsSpawn:

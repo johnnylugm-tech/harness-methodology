@@ -50,10 +50,9 @@ When the user says "execute Phase N", "start P3", "implement FR-X", or any phase
 4. EXECUTE plan top-to-bottom. You are the ORCHESTRATOR, not Agent A or B:
 
    [PREFLIGHT]     → python harness_cli.py run-phase --phase N
-   [A/B Work]      → Agent A: dispatch via Agent tool (full spec + code in prompt)
-                   → After Agent A returns: `harness_cli.py log-session --fr-id FR-XX --role developer --session-id <id> --status success`
-                   → Agent B: dispatch as STATELESS Agent tool (embed ALL context — no file paths)
-                   → After Agent B returns: `harness_cli.py log-session --fr-id FR-XX --role reviewer --session-id <id> --status APPROVE`
+   [A/B Work]      → Agent A: `harness_cli.py dispatch --role developer --fr-id FR-XX --prompt "..." --phase N`
+                   → Agent B: `harness_cli.py dispatch --role reviewer --fr-id FR-XX --prompt "..." --phase N`
+                   → sessions_spawn.log auto-written by AgentSpawner (HR-01, HR-10)
                    → NEVER role-play A or B yourself — they MUST be separate sessions (HR-01: A≠B)
                    → finalize-gate --gate 1 blocks if sessions_spawn.log is missing A/B entries
    [CHECKPOINT-K]  → run-gate → Claude evaluates inline → finalize-gate → git push
@@ -130,7 +129,7 @@ Before advancing to Phase N+1, confirm ALL:
 |--------|---------|
 | Plan a new phase | `python harness_cli.py plan-phase --phase N --project . --output .methodology/phaseN_plan.md` |
 | Run preflight for a phase | `python harness_cli.py run-phase --phase N` |
-| Record A/B dispatch (HR-10) | `python harness_cli.py log-session --fr-id FR-XX --role developer\|reviewer --session-id <id> --status <status>` |
+| Dispatch Agent A/B (HR-10) | `python harness_cli.py dispatch --role developer\|reviewer --fr-id FR-XX --prompt "..." --phase N` |
 | Run a gate evaluation | `python harness_cli.py run-gate --gate N --phase P [--fr-id FR-XX]` |
 | Finalize a gate | `python harness_cli.py finalize-gate --gate N --phase P` |
 | Recover from crash | `python harness_cli.py generate-next-plan --project .` |
