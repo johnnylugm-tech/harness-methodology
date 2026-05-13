@@ -1205,3 +1205,34 @@ class TestAdvanceFsm:
         assert state["last_gate"] is None
         assert state["last_fr"] is None
         assert state["current_phase"] == 2
+
+    def test_advance_fsm_updates_fr_progress_phase(self, tmp_path, monkeypatch):
+        """fr_progress.json phase advances together with state.json."""
+        import subprocess
+
+        def fake_run(cmd, **kw):
+            class R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+            return R()
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        # Seed a fr_progress.json with phase=3
+        import json
+        from harness.fr_progress_tracker import FRProgressTracker
+        tracker = FRProgressTracker(tmp_path, phase=3)
+        tracker.record_gate1_pass("FR-01", score=90.0)
+        # Verify initial phase
+        assert json.loads(
+            (tmp_path / ".methodology" / "fr_progress.json").read_text()
+        )["phase"] == 3
+
+        from harness_cli import _advance_fsm
+        _advance_fsm(tmp_path, 3, last_gate=2, last_fr="FR-01")
+
+        # fr_progress.json should now have phase=4
+        data = json.loads((tmp_path / ".methodology" / "fr_progress.json").read_text())
+        assert data["phase"] == 4
+        assert data["frs"]["FR-01"]["status"] == "gate1_pass"

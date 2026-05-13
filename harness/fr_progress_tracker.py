@@ -101,6 +101,15 @@ class FRProgressTracker:
         if self._path.exists():
             self._path.unlink()
 
+    def advance_phase(self, phase: int) -> None:
+        """Update the top-level ``phase`` field to *phase* in-place."""
+        data = self.load()
+        data["phase"] = phase
+        data["updated_at"] = datetime.now(timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+        self._write(data)
+
     # ------------------------------------------------------------------
     # Public read API
     # ------------------------------------------------------------------

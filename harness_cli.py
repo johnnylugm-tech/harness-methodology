@@ -1181,14 +1181,21 @@ def _advance_fsm(project: Path, completed_phase: int,
         encoding="utf-8",
     )
 
-    # 2. Update git config quality.phase (local hooks read this)
+    # 2. Advance fr_progress.json phase (kept in sync with state.json)
+    try:
+        from harness.fr_progress_tracker import FRProgressTracker
+        FRProgressTracker(project, phase=next_phase).advance_phase(next_phase)
+    except Exception:  # pylint: disable=broad-exception-caught
+        pass  # fr_progress.json may not exist yet (P1/P2 projects)
+
+    # 3. Update git config quality.phase (local hooks read this)
     subprocess.run(  # nosec B603 B607
         ["git", "-C", str(project), "config", "--local", "quality.phase", str(next_phase)],
         capture_output=True,
     )
     print(f"  [FSM] quality.phase → {next_phase}")
 
-    # 3. Attempt GitHub CURRENT_PHASE sync via gh CLI (soft-fail)
+    # 4. Attempt GitHub CURRENT_PHASE sync via gh CLI (soft-fail)
     try:
         gh = subprocess.run(  # nosec B603 B607
             ["gh", "variable", "set", "CURRENT_PHASE", "--body", str(next_phase)],
