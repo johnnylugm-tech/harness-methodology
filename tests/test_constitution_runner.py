@@ -190,14 +190,16 @@ class TestScanDirectory:
             assert result.passed is True
             assert len(result.violations) == 0
 
-    def test_empty_directory_phase5_fails(self):
+    def test_empty_directory_phase5_passes(self):
+        # Empty directory → vacuously pass (artifact existence is checked
+        # separately by the artifact enforcer).
         with tempfile.TemporaryDirectory() as d:
             docs = Path(d) / "docs"
             docs.mkdir()
             result = _scan_directory(docs, phase=5, check_type="all")
-            assert result.score == 0.0
-            assert result.passed is False
-            assert len(result.violations) == 1
+            assert result.score == 100.0
+            assert result.passed is True
+            assert len(result.violations) == 0
 
     def test_directory_with_md_files(self):
         with tempfile.TemporaryDirectory() as d:
@@ -321,18 +323,30 @@ class TestRunConstitutionCheck:
         assert result.passed is True
         assert result.score == 100.0
 
-    def test_missing_directory_phase3_fails(self):
+    def test_missing_directory_phase3_passes(self):
+        # Missing directory → vacuously pass (artifact existence is
+        # checked separately by the artifact enforcer).
         result = run_constitution_check("all", "/nonexistent/path", current_phase=3)
-        assert result.passed is False
-        assert result.score == 0.0
+        assert result.passed is True
+        assert result.score == 100.0
 
-    def test_strict_mode_raises_on_missing_dir(self):
-        with pytest.raises(RuntimeError, match="directory not found"):
-            run_constitution_check("all", "/nonexistent/path", current_phase=3, strict=True)
+    def test_strict_mode_passes_on_missing_dir(self):
+        # strict mode no longer raises on missing dir — it's a vacuously pass.
+        result = run_constitution_check("all", "/nonexistent/path", current_phase=3, strict=True)
+        assert result.passed is True
+        assert result.score == 100.0
 
     def test_strict_mode_raises_on_failure(self, tmp_path):
         docs = tmp_path / "docs"
         docs.mkdir()
+        # This file contains no constitution keywords (FR-, NFR-, acceptance
+        # criteria, security/auth/RBAC, test coverage, docstring, etc.) and no
+        # structure beyond a single heading.  Expected score: ~0–20% on each
+        # dimension — well below the P5 80% composite threshold.
+        (docs / "empty.md").write_text(
+            "# X\n\nno keywords here at all, just filler text "
+            "to exceed minimum length requirement for scanning"
+        )
         with pytest.raises(RuntimeError, match="Constitution check FAILED"):
             run_constitution_check("all", str(docs), current_phase=5, strict=True)
 

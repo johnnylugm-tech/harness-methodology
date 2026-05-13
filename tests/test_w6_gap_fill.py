@@ -403,7 +403,7 @@ class TestPhaseHooks:
 
     def test_preflight_constitution_exception_fails(self, tmp_path):
         h = self._hooks(tmp_path)
-        with patch.dict("sys.modules", {"quality_gate.constitution": None}):
+        with patch.dict("sys.modules", {"core.quality_gate.constitution": None}):
             result = h.preflight_constitution()
         assert result["passed"] is False
 
