@@ -111,8 +111,10 @@ def check_traceability(
                     fr_to_tests.setdefault(fr_id, []).append(rel)
 
     all_frs = sorted(set(sad_frs) | coded | tested)
-    untested = [fr for fr in all_frs if fr not in tested]
-    uncoded = [fr for fr in all_frs if fr not in coded]
+    ghost_frs = sorted((coded | tested) - set(sad_frs))
+    # Only SAD-defined FRs are authoritative for traceability gaps
+    untested = [fr for fr in sad_frs if fr not in tested]
+    uncoded = [fr for fr in sad_frs if fr not in coded]
 
     # Populate the traceability model
     rt = RequirementTraceability(project_id=project.resolve().name)
@@ -154,6 +156,7 @@ def check_traceability(
         "tested": len(tested),
         "untested": untested,
         "uncoded": uncoded,
+        "ghost_frs": ghost_frs,
         "complete": len(untested) == 0 and len(uncoded) == 0,
         "completeness": rt.verify_completeness(),
     }
@@ -211,9 +214,16 @@ def main(argv: Optional[List[str]] = None) -> int:
         print("\nUNCODED FRs (no [FR-XX] annotation in source):")
         for fr in report["uncoded"]:
             print(f"  {fr}  ->  add [FR-XX] docstring annotation to implementation file")
+    if report["ghost_frs"]:
+        print("\nGHOST FRs (referenced in code/tests but not defined in SAD.md):")
+        for fr in report["ghost_frs"]:
+            print(f"  {fr}  ->  remove [FR-XX] annotation or add to SAD.md (non-blocking)")
 
     if report["complete"]:
-        print("\nAll FRs fully traced (code + test) — Gate 3 spec_trace_coverage = 100%")
+        msg = "\nAll SAD FRs fully traced (code + test) — Gate 3 spec_trace_coverage = 100%"
+        if report["ghost_frs"]:
+            msg += f"\n  ({len(report['ghost_frs'])} ghost FR(s) present — cleanup recommended, not blocking)"
+        print(msg)
         return 0
     else:
         outstanding = len(report["untested"]) + len(report["uncoded"])

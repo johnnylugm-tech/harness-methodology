@@ -286,6 +286,9 @@ class PhaseHooks:
             print(f"   Untested FRs: {', '.join(report['untested'])}")
         if uncoded:
             print(f"   Uncoded FRs: {', '.join(report['uncoded'])}")
+        ghost = report.get("ghost_frs", [])
+        if ghost:
+            print(f"   Ghost FRs (non-blocking): {', '.join(ghost)} — in code/tests but not in SAD.md")
 
         return {
             "passed": passed,
