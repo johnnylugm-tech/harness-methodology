@@ -460,7 +460,7 @@ python harness_cli.py effort --project /project   # review total effort
 
 | Score threshold | 85 | Dimensions | 12 (full) |
 |---|---|---|---|
-| Max rounds | 3 | Human review | Hermes APPROVE required |
+| Max rounds | 3 | Human review | Hermes APPROVE（auto-skipped if composite ≥ 88 AND confidence ≥ 93） |
 
 ---
 
@@ -497,8 +497,9 @@ run-phase → "PRE-FLIGHT FAILED"
   ├─ Diagnose:
   │    python harness_cli.py status --project /project
   │
-  ├─ Force override (if you understand the failure):
-  │    python harness_cli.py run-phase --phase N --project /project --force
+  ├─ Emergency bypass (genuine blocker, logs to .methodology/force_bypass.log):
+  │    python harness_cli.py advance-phase --completed N \
+  │      --emergency-override --reason='<justification>'
   │
   ├─ Skip preflight for run-gate (v2.4+):
   │    python harness_cli.py run-gate --gate N --phase N --project /project --skip-preflight
@@ -524,7 +525,6 @@ run-gate --gate 4 → GateBlockedError (REVIEWER_REJECT)
   │
   └─ If HERMES_REVIEWER_TARGET not set:
        export HERMES_REVIEWER_TARGET=telegram:YOUR_ID
-       (or use --force to skip human review during development)
 ```
 
 ### AF-04 — SSI Runner Not Installed
@@ -585,8 +585,8 @@ You need to re-run a phase that was already marked complete.
   ├─ Edit .methodology/state.json:
   │    {"state": "ACTIVE", "current_phase": N-1, "last_update": "..."}
   │
-  ├─ Re-run with force:
-  │    python harness_cli.py run-phase --phase N --project /project --force
+  ├─ Re-run from that phase:
+  │    python harness_cli.py run-pipeline --phase-from N --project /project
   │
   └─ Note: gate results are preserved in quality_manifest.json
        If you want to reset gate results, edit gate_results in the manifest
@@ -757,7 +757,7 @@ bash harness/scripts/harness-init.sh --phase 1   # idempotent — safe to re-run
 Repo：/path/to/project
 
 請使用 harness-methodology 全自主執行 P1→P8。
-Gate 4 需要我在 Telegram APPROVE，其餘你全權處理。
+Gate 4 若分數未達自動核准門檻，我會在 Telegram 收到通知並 APPROVE；其餘全自動。
 ```
 
 #### Claude 的執行策略
@@ -801,7 +801,10 @@ python harness_cli.py status --project $PROJECT
 |------|---------|------|---------|
 | P1 需求 | SRS.md 不存在，pipeline exit 10 | 提供 `SRS.md`（含 `### FR-XX:` 段落） | ~5 min |
 | P2 架構 | SAD.md 不存在，pipeline exit 10 | 提供 `SAD.md`（含 FR ID） | ~10 min |
-| Gate 4 最終核准 | P6 exit，Hermes 發送通知 | Telegram 點 APPROVE | ~2 min |
+| Gate 4 最終核准 | P6 exit，Hermes 發送通知（僅當 composite < 88 或 confidence < 93） | Telegram 點 APPROVE | ~2 min |
+
+> **Gate 4 自動核准**：若 Gate 4 composite ≥ 88 **且** script confidence ≥ 93（C1-C7 純工具評分），
+> receipt 自動寫入，Hermes 不發送通知，無需人工介入。
 
 > **Gate block 自動處理**：`--auto-fix-rounds 3` 讓 SSI 內部自行修復最多 3 輪。
 > 3 輪後仍 BLOCKED → pipeline exit 10，Claude 報告根因，等待人類指示後 `--phase-from N` 重跑。
@@ -840,7 +843,7 @@ python harness_cli.py plan-phase \
 python harness_cli.py run-phase \
   --phase   3          \  # Phase 編號（必填）
   --project /project   \  # 專案路徑（預設：.）
-  --force               # 強制忽略 preflight 失敗
+  --fast                  # 輕量 preflight（跳過 drift/traceability/gap/CI 檢查）
 ```
 
 **Pre-flight 檢查**：
@@ -848,7 +851,9 @@ python harness_cli.py run-phase \
 - Constitution 合規性（`docs/` 目錄）
 - Tool Registry 可用性（若已安裝）
 
-**返回碼**：0=pre-flight通過；1=失敗（使用 `--force` 繞過）
+**返回碼**：0=pre-flight通過；1=失敗（修復問題後重跑）
+
+> Preflight 失敗不可繞過。緊急情況請使用 `advance-phase --emergency-override --reason='...'`（寫入審計 log）。
 
 ---
 
@@ -887,7 +892,7 @@ python harness_cli.py finalize-gate \
 
 **時機**：`run-gate` 印出評估提示後，Claude 完成評估並寫入 `.sessi-work/gate{N}_result.json`，再執行此命令。  
 **返回碼**：0=gate 通過；1=Gate Blocked（分數或閾值未達標）；2=錯誤（result.json 不存在等）  
-**Gate 4**：額外等待 `HERMES_REVIEWER_TARGET` 的人工 APPROVE（預設 2 分鐘 timeout，由 `HERMES_TIMEOUT_MS` 控制）。
+**Gate 4**：先執行 `await-hermes-approve`（Phase 6 完整性驗證 + 信心評分），通過後再執行 `finalize-gate`。
 
 > **完整兩步手動流程**（`run-pipeline` 自動執行，此處供手動或 debug 使用）：
 > ```bash
@@ -898,6 +903,34 @@ python harness_cli.py finalize-gate \
 > # Step 2 — 讀取結果，檢查閾值，更新 manifest
 > python harness_cli.py finalize-gate --gate 2 --phase 3 --project /project
 > ```
+
+---
+
+### `await-hermes-approve` — Gate 4 核准（P6 exit 前）
+
+```bash
+python harness_cli.py await-hermes-approve \
+  --project   /project   \  # 專案路徑（預設：.）
+  --timeout-ms 600000    \  # 等待 Hermes 回應逾時（預設：10 分鐘）
+  --response  APPROVE       # 第二次呼叫時傳入 APPROVE 或 REJECT
+```
+
+**流程**：
+1. **Phase 6 完整性檢查**：`PhaseTruthVerifier` 確認 P6 ≥ 90% 完成。未達標 → exit 10（P6 尚未完成，不得請求核准）。
+2. **信心自動評分**（純腳本，無 LLM）：
+   | 指標 | 工具 | 說明 |
+   |------|------|------|
+   | C1 artifact_completeness | phase_artifact_enforcer | 必要 artifacts 存在且非空 |
+   | C2 test_coverage | pytest-cov | 覆蓋率 % |
+   | C3 linting | ruff | 0 violations = 100，每個 -2 |
+   | C4 type_safety | pyright/mypy | 每個 error -2 |
+   | C5 test_pass_rate | pytest | passed/total × 100 |
+   | C6 security | bandit | HIGH=-20，MED=-5，LOW=-1 |
+   | C7 traceability | quality_manifest.json | FR gate pass 覆蓋率 |
+3. **自動核准**：Gate 4 composite ≥ 88 **且** confidence ≥ 93 → 自動寫入 receipt，跳過 Hermes。
+4. **Hermes 發送**：未達自動核准門檻 → 發送 Telegram 通知，等待人工 APPROVE/REJECT。
+
+**返回碼**：0=核准（自動或人工）；5=REJECT 或 timeout；10=P6 未完成
 
 ---
 
@@ -935,7 +968,7 @@ python harness_cli.py status \
 python harness_cli.py init-project \
   --project /path/to/target \  # 目標專案路徑（必填）
   --phase   1              \   # 起始 Phase（預設：1）
-  --force                      # 強制覆寫已存在的配置檔
+  --overwrite                  # 覆寫已存在的 CI workflow / git hooks / state.json
 ```
 
 **自動執行步驟**：
@@ -1076,12 +1109,13 @@ Required path: {--repo}/SRS.md  (or {--repo}/01-requirements/SRS.md)
 
 ### `pre-flight blocked by constitution`
 ```bash
-# Run phase with --force to bypass (development only):
-python harness_cli.py run-phase --phase 3 --project /project --force
-
-# Or fix the constitution violation:
-# Tell Claude: "Pre-flight constitution check found violations. 
+# Fix the constitution violation — preflight failures cannot be bypassed:
+# Tell Claude: "Pre-flight constitution check found violations.
 # Please review docs/ and fix HR policy violations."
+
+# For genuine emergencies (logs to .methodology/force_bypass.log):
+python harness_cli.py advance-phase --completed N \
+  --emergency-override --reason='<justification>'
 ```
 
 ### `hook failed — required hook blocked phase start`
@@ -1134,22 +1168,27 @@ bash -x .git/hooks/prepare-commit-msg /dev/null 2>&1 | grep HARNESS_CLI
 
 ### `Gate 4 times out in CI / PR stuck waiting for Hermes APPROVE`
 
-**Cause**: Gate 4 (`finalize_gate` with `gate_num=4`) unconditionally calls `_require_hermes_approve()` with a 2-minute timeout. CI runners are headless — no one will approve the Telegram message within the window, so the job blocks for 2 minutes then fails.
+**Cause**: Gate 4 calls `await-hermes-approve` which may block waiting for human input.
+CI runners are headless — Hermes approval times out and the job fails.
 
-**Gate 4 is a local-only gate.** It must be run manually by the developer at P6 exit:
+**Gate 4 auto-approve path**: If composite ≥ 88 AND script confidence (C1-C7) ≥ 93,
+`await-hermes-approve` writes the receipt automatically without sending to Hermes.
+High-quality projects never block CI.
+
+**If auto-approve threshold is not met**, Gate 4 must be run locally:
 ```bash
-# Run Gate 4 locally (not in CI):
-python harness_cli.py run-gate --gate 4 --phase 6 --project /project
-# Hermes sends Telegram notification → you APPROVE → gate passes
+# Run Gate 4 locally — Hermes notifies Telegram → you APPROVE → gate passes:
+python harness_cli.py await-hermes-approve --project /project
+python harness_cli.py finalize-gate --gate 4 --phase 6 --project /project
 ```
 
-**CI workflow fix**: Exclude Gate 4 from automated runs. See INTEGRATION.md §4 for the CI YAML pattern:
+**CI workflow fix**: Exclude Gate 4 from automated runs when auto-approve cannot be guaranteed:
 ```yaml
 - name: Run Quality Gate
   env:
     PHASE: ${{ vars.CURRENT_PHASE || '3' }}
-  # Gate 4 (P6 exit) requires human Hermes APPROVE — run locally, not in CI.
-  # Skip CI gate check when phase is 6 and gate would be 4.
+  # Gate 4 (P6 exit) auto-approves when composite≥88 AND confidence≥93.
+  # Skip CI gate check for Phase 6 if running in headless mode.
   if: vars.CURRENT_PHASE != '6'
   run: python harness/harness_cli.py run-gate --phase $PHASE
 ```
@@ -1324,12 +1363,19 @@ STAGE_PASS=1 git push
 
 # Skip commit-msg hook for one commit (use sparingly):
 git commit --no-verify -m "emergency fix"
+
+# Bypass advance-phase checks (P3+) — logged to .methodology/force_bypass.log:
+python harness_cli.py advance-phase --completed N \
+  --emergency-override --reason='<justification>'
 ```
+
+> **`--force` 已廢除**：`run-phase`、`run-pipeline`、`advance-phase` 不再接受 `--force`。
+> 緊急情況使用 `--emergency-override --reason='...'`，強制寫入審計 log 並在下次 preflight 警告。
 
 > **Full reference**: [INTEGRATION.md](../INTEGRATION.md) — all 3 dependency options, CI YAML, drift monitor cron, environment variables, phase transition checklist.
 
 
-## Appendix — Gate Score Formula
+## Appendix A — Gate Score Formula
 
 Gate 2/3/4 composite score = weighted average of all dimension scores:
 
@@ -1344,6 +1390,40 @@ Example Gate 2 (7 dims):
 ```
 
 Gate 1 uses per-dimension pass/fail, not composite score.
+
+---
+
+## Appendix B — Confidence Score（Script-Based, No LLM）
+
+`core/quality_gate/confidence_scorer.py` 計算純工具信心分數，用於 HITL 自動放行。
+
+### 指標定義（C1-C7）
+
+| 指標 | 工具 | 評分公式 | 適用 Phase |
+|------|------|---------|-----------|
+| C1 artifact_completeness | phase_artifact_enforcer | present/total × 100 | 全部 |
+| C2 test_coverage | pytest-cov | 直接取 percent_covered | P3-P8 |
+| C3 linting | ruff | 100 - violations × 2，floor 0 | P3-P8 |
+| C4 type_safety | pyright / mypy | 100 - errors × 2，floor 0 | P3-P8 |
+| C5 test_pass_rate | pytest | passed/(passed+failed) × 100 | P3-P8 |
+| C6 security | bandit | 100 - HIGH×20 - MED×5 - LOW×1，floor 0 | P3-P8 |
+| C7 traceability | quality_manifest.json | FR gate pass 覆蓋率 | 全部 |
+
+### 加權組合
+
+- **P1/P2**（無程式碼）：C1（65%）+ C7（35%）
+- **P3-P8**（含程式碼）：C1(15) C2(20) C3(20) C4(15) C5(15) C6(10) C7(5)
+
+不可用的工具會從加權中排除（不計入分母）。
+
+### 自動放行閾值
+
+| 節點 | 條件 | 結果 |
+|------|------|------|
+| P1/P2 `push-checkpoint` | confidence ≥ 88 | 自動寫入 commit marker |
+| P1/P2 `push-checkpoint` | confidence < 88 | 硬停，列出失敗指標 |
+| Gate 4 `await-hermes-approve` | composite ≥ 88 AND confidence ≥ 93 | 自動寫入 receipt，跳過 Hermes |
+| Gate 4 `await-hermes-approve` | 其他 | 發送 Telegram，等待人工 APPROVE |
 
 ---
 
