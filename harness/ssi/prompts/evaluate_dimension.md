@@ -493,11 +493,14 @@ Save to `.sessi-work/round_<n>/scores/<dimension>.json`:
   "round": <n>,
   "llm_tier": <1|2|3>,
   "llm_provider": "hermes|gemini|claude_native",
-  "_degraded": false,                 // true if fell back past Hermes to Claude native
-  "_degradation_note": null,          // reason string when _degraded=true
-  "tool_score": <0-100>,
-  "llm_score": <0-100>,
-  "score": <min(tool_score, llm_score)>,
+  "_degraded": false,
+  "_degradation_note": null,
+  "tool_score": <0-100|null>,
+  "llm_score": <0-100|null>,
+  "score": <min(tool_score, llm_score) | null if both null>,
+  "tool_note": null,
+  "da_challenge": true|false,
+  "inflation_capped": true,
   "findings": [
     {
       "file": "<path|null>",
@@ -512,6 +515,17 @@ Save to `.sessi-work/round_<n>/scores/<dimension>.json`:
   "reconcile": "tool_first"
 }
 ```
+
+**Required fields (R1 enforced by score.py):** `dimension`, `round`, `llm_tier`,
+`llm_provider`, `tool_score`, `llm_score`, `score`, `tool_outputs`. Missing any →
+`ScoreProtocolError` raised, gate score cannot be computed.
+
+**Field contract:**
+- `tool_score: null` → MUST set `tool_note` explaining why (tool unavailable, install failed, etc.)
+- `llm_tier` 1|2 → `llm_provider` MUST be `gemini` or `hermes` (R3 enforced)
+- `score` → MUST equal `min(tool_score, llm_score)` when both non-null (R4 auto-fixed)
+- `findings[].evidence` → MUST be non-empty for every finding (R5 enforced)
+- `llm_tier: 3` + `llm_score ≥ 85` → MUST include `da_challenge` or `inflation_capped` (R6 enforced)
 
 **Severity canonicalization:** the registry requires one of `critical|high|medium|low|info`.
 Map legacy tool outputs as: `error/critical → critical`, `warning → medium`, `info/note → info`,

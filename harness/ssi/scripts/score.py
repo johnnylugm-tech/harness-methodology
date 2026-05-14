@@ -13,6 +13,7 @@ import os
 import sys
 import json
 from pathlib import Path
+from typing import Any
 
 # Local import for issue registry integration
 sys.path.insert(0, str(Path(__file__).parent))
@@ -20,6 +21,167 @@ try:
     import issue_tracker
 except ImportError:
     issue_tracker = None
+
+
+# ---------------------------------------------------------------------------
+# Protocol Compliance Validator
+# ---------------------------------------------------------------------------
+
+class ScoreProtocolError(Exception):
+    """Score files fail Execution Contract checks — agent MUST redo the dim.
+
+    This is the machine-enforced gate that prevents the main agent from
+    skipping tool execution, using the wrong LLM, or fabricating scores.
+    """
+
+    def __init__(self, errors: list[dict[str, Any]]):
+        self.errors = errors
+        lines = [
+            f"PROTOCOL COMPLIANCE FAILED — {len(errors)} dimension(s) must be fixed:"
+        ]
+        for e in errors:
+            lines.append(f"  [{e['dimension']}]")
+            for issue in e["issues"]:
+                lines.append(f"    - {issue}")
+        super().__init__("\n".join(lines))
+
+
+def _resolve_tool_outputs(tool_outputs: Any) -> str:
+    """Normalize tool_outputs field (string or list) to a single path."""
+    if isinstance(tool_outputs, list):
+        return next((str(p) for p in tool_outputs if p), "")
+    return str(tool_outputs) if tool_outputs else ""
+
+
+def validate_score_file(_dim_name: str, score_data: dict) -> list[str]:
+    """Validate a single score file against evaluate_dimension.md Execution Contract.
+
+    Returns list of issue strings. Empty list = valid.
+    Rejects (R1-R6) block gate scoring. R7 is informational (handled separately).
+    """
+    issues: list[str] = []
+
+    ts = score_data.get("tool_score")
+    ls = score_data.get("llm_score")
+    sc = score_data.get("score")
+    tier = score_data.get("llm_tier")
+    provider = score_data.get("llm_provider")
+    tool_outputs = _resolve_tool_outputs(score_data.get("tool_outputs", ""))
+
+    # R1: Required fields must exist
+    required = [
+        "dimension", "round", "tool_score", "llm_score", "score",
+        "tool_outputs", "llm_tier", "llm_provider",
+    ]
+    for field in required:
+        if field not in score_data:
+            issues.append(f"R1: missing required field '{field}'")
+
+    # R2: tool_outputs must reference existing files
+    # Exception: tool_score=null with tool_note → tool ran but failed / unavailable
+    if tool_outputs:
+        output_path = Path(tool_outputs)
+        if not output_path.exists():
+            issues.append(
+                f"R2: tool_outputs '{tool_outputs}' does not exist — "
+                "tool output file must be present"
+            )
+        elif output_path.stat().st_size == 0 and ts is not None:
+            issues.append(
+                f"R2: tool_outputs is empty but tool_score={ts} — "
+                "cannot assign score without tool output evidence"
+            )
+    elif ts is not None:
+        issues.append(
+            "R2: tool_outputs path is empty but tool_score is non-null"
+        )
+
+    # R3: Tier 1/2 MUST use gemini (or hermes as first hop)
+    if tier in (1, 2) and provider not in ("gemini", "hermes"):
+        issues.append(
+            f"R3: Tier {tier} requires gemini or hermes provider, "
+            f"got '{provider}' — Claude must not evaluate Tier 1/2 dimensions"
+        )
+
+    # R4: score = min(tool_score, llm_score) when both present
+    if ts is not None and ls is not None and sc is not None:
+        expected = min(ts, ls)
+        if abs(sc - expected) > 1.5:
+            issues.append(
+                f"R4: score={sc} != min(tool_score={ts}, llm_score={ls}) = {expected}"
+            )
+
+    # R5: Every finding needs evidence
+    for i, f in enumerate(score_data.get("findings", [])):
+        if not f.get("evidence"):
+            msg_snip = (f.get("message") or "?")[:80]
+            issues.append(
+                f"R5: finding[{i}] ('{msg_snip}') missing 'evidence' field"
+            )
+
+    # R6: Tier 3 + llm_score >= 85 → inflation gate required
+    if tier == 3 and ls is not None and ls >= 85:
+        if "da_challenge" not in score_data and "inflation_capped" not in score_data:
+            issues.append(
+                f"R6: Tier 3 llm_score >= 85 ({ls}) requires "
+                "'da_challenge' or 'inflation_capped' field (Steps 2b/2c)"
+            )
+
+    return issues
+
+
+def _auto_fix_scores(scores: dict) -> list[str]:
+    """Apply automatic corrections. Returns warning messages."""
+    warnings: list[str] = []
+
+    for dim_name, score_data in scores.items():
+        ts = score_data.get("tool_score")
+        ls = score_data.get("llm_score")
+        sc = score_data.get("score")
+
+        # R4 auto-fix: enforce score = min(tool_score, llm_score)
+        if ts is not None and ls is not None and sc is not None:
+            expected = min(ts, ls)
+            if abs(sc - expected) > 1.5:
+                score_data["score"] = expected
+                score_data["_score_autofixed"] = True
+                score_data["_score_autofix_from"] = sc
+                warnings.append(
+                    f"{dim_name}: score auto-fixed {sc} → {expected} "
+                    f"(min(tool_score={ts}, llm_score={ls}))"
+                )
+
+        # R7: flag missing tool_note when tool_score is null (warning only)
+        if score_data.get("tool_score") is None:
+            if "tool_note" not in score_data:
+                warnings.append(
+                    f"{dim_name}: tool_score=null but no 'tool_note' "
+                    "— agent should explain why the tool was unavailable"
+                )
+
+    return warnings
+
+
+def _validate_all_scores(scores: dict):
+    """Validate all score files. Raises ScoreProtocolError on rejection-level failures.
+
+    Auto-fix is applied first (R4: score reconciliation), then hard checks (R1-R6).
+    R7 (missing tool_note) is a warning only and does not block scoring.
+    """
+    # Phase 1: auto-fix (R4) and collect soft warnings (R7)
+    warnings = _auto_fix_scores(scores)
+    for w in warnings:
+        print(f"[score.py] WARNING: {w}", file=sys.stderr)
+
+    # Phase 2: hard validation (R1-R6)
+    all_errors = []
+    for dim_name, score_data in scores.items():
+        issues = validate_score_file(dim_name, score_data)
+        if issues:
+            all_errors.append({"dimension": dim_name, "issues": issues})
+
+    if all_errors:
+        raise ScoreProtocolError(all_errors)
 
 
 def load_scores(round_dir):
@@ -45,6 +207,7 @@ def load_scores(round_dir):
     if not scores:
         raise ValueError(f"No score files found in {scores_dir}")
 
+    _validate_all_scores(scores)
     return scores
 
 

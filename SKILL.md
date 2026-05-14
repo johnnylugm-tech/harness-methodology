@@ -122,6 +122,7 @@ Before advancing to Phase N+1, confirm ALL:
 - Skip `sessions_spawn.log` entries (HR-10)
 - **Role-play both Agent A and Agent B in the same session (HR-01)**
 - **Send Agent B file paths as input — Agent B is stateless, embed content in prompt**
+- **Treat evaluate_dimension.md as reference — it is the mandatory tool-execution protocol. Skipping tool steps, using wrong LLM tiers, or fabricating scores without tool output = HR violation. score.py enforces this at machine level.**
 
 ### 0.6 Quick Reference — CLI Entry Points
 
