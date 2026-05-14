@@ -7,12 +7,11 @@ Does NOT require the full parent system (cli.py needs 30+ external modules).
 
 Usage:
     python harness_cli.py plan-phase       --phase 3 [--project .] [--output plan.md]
-    python harness_cli.py run-phase        --phase 3 [--project .] [--force]
+    python harness_cli.py run-phase        --phase 3 [--project .]
     python harness_cli.py run-gate         --gate 2  --phase 3 [--project .] [--fr-id FR-01]
     python harness_cli.py finalize-gate    --gate 2  --phase 3 [--project .] [--fr-id FR-01]
     python harness_cli.py generate-next-plan [--project .] [--phase 3]
     python harness_cli.py run-pipeline     [--phase-from 1] [--phase-to 8] [--project .]
-                                           [--force]
     python harness_cli.py manifest         --fr-ids FR-01 FR-02 [--sad SAD.md]
     python harness_cli.py status           [--project .]
     python harness_cli.py effort           [--phase 3] [--project .]
@@ -21,7 +20,7 @@ Usage:
     python harness_cli.py audit-phase       --phase 3 --repo owner/repo [--branch main]
     python harness_cli.py verify-spec       [--project .]
     python harness_cli.py check-logic       [--project .] [--srs SRS.md]
-    python harness_cli.py init-project      --project /path/to/target [--phase 3] [--force]
+    python harness_cli.py init-project      --project /path/to/target [--phase 3] [--overwrite]
     python harness_cli.py push-checkpoint   --phase 1|2 --project . [--fr-ids FR-01,FR-02]
     python harness_cli.py push-milestone    --type p3-mid|p3-pre-ssi|p5-baseline|p7|p8 --project .
     python harness_cli.py advance-phase     --completed-phase 3 [--project .] [--emergency-override --reason="..."]
@@ -47,7 +46,7 @@ Exit codes:
         also Gate 4 prerequisites (Hermes receipt, A2-A5 schema, B2 score files)
     7   Plan incompletion block — unchecked mandatory steps in phaseN_plan.md
     8   Missing deliverables block — required artifacts not found on disk
-    9   Illegal --force use (P3+) or invalid --emergency-override (missing --reason)
+    9   Invalid --emergency-override (missing --reason)
     10  PAUSE — Claude must evaluate gate; run finalize-gate then re-run pipeline
     11  Phase Truth < 90% (HR-11); fix and re-run with --phase-from N
 """
@@ -214,9 +213,8 @@ def cmd_run_phase(args: argparse.Namespace) -> int:
 
     # Entry gate check (CONSTITUTION.md SS2.3)
     entry_gate = _verify_entry_gate(project, args.phase)
-    if not entry_gate["passed"] and not args.force:
+    if not entry_gate["passed"]:
         print(f"\n[ENTRY GATE FAILED] {entry_gate['gate']} — {entry_gate['reason']}")
-        print("Use --force to skip entry gate verification.")
         return 10
     print(f"\n[ENTRY GATE] {entry_gate['gate']}: {entry_gate['reason']}")
 
@@ -225,9 +223,8 @@ def cmd_run_phase(args: argparse.Namespace) -> int:
     else:
         pre = hooks.preflight_all()
 
-    if not pre["all_passed"] and not args.force:
+    if not pre["all_passed"]:
         print(f"\nPRE-FLIGHT FAILED: {pre['details']}")
-        print("Use --force to override preflight failures.")
         return 1
 
     print("\n[INFO] Preflight passed. Phase execution hooks ready.")
@@ -259,10 +256,10 @@ def cmd_run_phase(args: argparse.Namespace) -> int:
     if not fast:
         # POST-FLIGHT: constitution re-check, BVS invariants, drift check, FSM advance
         post = hooks.postflight_all()
-        if not post["success"] and not args.force:
+        if not post["success"]:
             print(f"\n[POST-FLIGHT FAILED]")
             return 1
-        print(f"\n[POST-FLIGHT] {'PASS' if post['success'] else 'FAIL (--force)'}")
+        print(f"\n[POST-FLIGHT] PASS")
     return 0
 
 
@@ -1274,18 +1271,6 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
     """
     project = Path(args.project).resolve()
 
-    # ── --force restriction: P3+ must not bypass audits ──────────────
-    if getattr(args, "force", False) and args.completed_phase >= 3:
-        print(
-            f"\n[ERROR] --force is not permitted for P{args.completed_phase}+ "
-            f"(only P1/P2 human-gated phases may use it).\n"
-            "  For genuine emergencies, use:\n"
-            "    --emergency-override --reason='<justification>'\n"
-            "  This logs the bypass to .methodology/force_bypass.log and flags\n"
-            "  it in the next phase preflight."
-        )
-        return 9
-
     # ── --emergency-override: P3+ bypass with mandatory audit log ────
     if getattr(args, "emergency_override", False):
         reason = (getattr(args, "reason", "") or "").strip()
@@ -1625,7 +1610,7 @@ def _auto_fix_loop(hooks, pre: dict, phase: int, project: Path,
     return {"all_passed": False, "escalation": "hr12_max_rounds_exceeded"}
 
 
-def _preflight(phase: int, project: Path, force: bool,
+def _preflight(phase: int, project: Path,
                enable_kill_switch: bool = True,
                drift_threshold: float = 85.0,
                auto_fix: bool = True,
@@ -1639,9 +1624,6 @@ def _preflight(phase: int, project: Path, force: bool,
                            auto_fix_enabled=auto_fix)
         pre = hooks.preflight_all()
         if not pre.get("all_passed"):
-            if force:
-                print("  [PREFLIGHT FAIL] --force: continuing despite failures")
-                return 0
             if auto_fix:
                 print("  [PREFLIGHT FAIL] Attempting auto-fix...")
                 pre = _auto_fix_loop(hooks, pre, phase, project, auto_fix_rounds)
@@ -1654,7 +1636,7 @@ def _preflight(phase: int, project: Path, force: bool,
         return 0
     except Exception as exc:
         print(f"  [WARN] Phase hooks unavailable: {exc}")
-        return 0 if force else 1
+        return 1
 
 
 def _run_gap_analysis(project: Path, similarity: float = 0.6, spec: str = "SPEC.md") -> dict:
@@ -1981,7 +1963,7 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
 
     print(f"\n{'='*60}")
     print(f"run-pipeline  P{phase_from}→P{phase_to}  project={project}")
-    print(f"force={args.force}  kill_switch={enable_kill_switch}  "
+    print(f"kill_switch={enable_kill_switch}  "
           f"drift_threshold={drift_threshold}")
     auto_fix = not getattr(args, "no_auto_fix", False)
     auto_fix_rounds = min(getattr(args, "auto_fix_rounds", 3), 5)
@@ -2090,9 +2072,8 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
 
         # ── Entry gate verification (CONSTITUTION.md §2.3) ──────────────────
         entry_gate = _verify_entry_gate(project, phase)
-        if not entry_gate["passed"] and not args.force:
+        if not entry_gate["passed"]:
             print(f"\n[ENTRY GATE FAILED] {entry_gate['gate']} — {entry_gate['reason']}")
-            print("  Use --force to skip entry gate verification.")
             return 10
         print(f"[ENTRY GATE] {entry_gate['gate']}: {entry_gate['reason']}")
 
@@ -2103,7 +2084,7 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
 
         # ── Step 2: Preflight ─────────────────────────────────────────────
         print(f"\n[{phase}.2] preflight")
-        pf_result = _preflight(phase, project, force=args.force,
+        pf_result = _preflight(phase, project,
                                enable_kill_switch=enable_kill_switch,
                                drift_threshold=drift_threshold,
                                auto_fix=auto_fix,
@@ -2205,11 +2186,11 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
         for fr in fr_pass_results:
             post_hooks.add_gate1_pass(fr["fr_id"], fr["score"])
         post_result = post_hooks.postflight_all()
-        if not post_result["success"] and not args.force:
+        if not post_result["success"]:
             print(f"[BLOCKED] Postflight failed for Phase {phase}.")
             print(f"  Fix issues then re-run with --phase-from {phase}")
             return 10
-        print(f"[{phase}.6] Postflight {'PASS' if post_result['success'] else 'FAIL (--force)'}")
+        print(f"[{phase}.6] Postflight PASS")
 
         # ── Advance FSM state ─────────────────────────────────────────────
         _advance_fsm(project, phase)
@@ -2499,7 +2480,7 @@ def cmd_init_project(args: argparse.Namespace) -> int:
         print("   WARNING: harness not found in target project.")
         print(f"   Run:  git submodule add {harness_root} {project}/harness")
         print(f"   Or:   export PYTHONPATH=\"{harness_root}:$PYTHONPATH\"")
-        if not args.force:
+        if not args.overwrite:
             return 1
 
     # 2. Write CI workflow
@@ -2507,8 +2488,8 @@ def cmd_init_project(args: argparse.Namespace) -> int:
     workflows_dir = project / ".github" / "workflows"
     workflows_dir.mkdir(parents=True, exist_ok=True)
     workflow_path = workflows_dir / "harness_quality_gate.yml"
-    if workflow_path.exists() and not args.force:
-        print(f"   SKIP: {workflow_path} already exists (use --force to overwrite)")
+    if workflow_path.exists() and not args.overwrite:
+        print(f"   SKIP: {workflow_path} already exists (use --overwrite to overwrite)")
     else:
         workflow_path.write_text(_harness_workflow_template(phase))
         print(f"   OK — wrote {workflow_path}")
@@ -2522,8 +2503,8 @@ def cmd_init_project(args: argparse.Namespace) -> int:
         print(f"   WARNING: {hooks_script} not found — skipping hooks")
     else:
         hooks_dir = project / ".git" / "hooks"
-        if (hooks_dir / "prepare-commit-msg").exists() and not args.force:
-            print("   SKIP: hooks already installed (use --force to reinstall)")
+        if (hooks_dir / "prepare-commit-msg").exists() and not args.overwrite:
+            print("   SKIP: hooks already installed (use --overwrite to reinstall)")
         else:
             result = subprocess.run(
                 ["bash", str(hooks_script)],
@@ -2555,15 +2536,15 @@ def cmd_init_project(args: argparse.Namespace) -> int:
 
     # 6. Copy template artifacts into phase directories
     print("\n[6/8] Copying artifact templates...")
-    _init_copy_templates(project, harness_root, force=args.force)
+    _init_copy_templates(project, harness_root, force=args.overwrite)
 
     # 7. Initialize FSM state.json (required by run-phase preflight)
     print("\n[7/8] Initializing FSM state...")
     from datetime import datetime, timezone
     state_path = project / ".methodology" / "state.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)
-    if state_path.exists() and not args.force:
-        print(f"   SKIP: {state_path} already exists (use --force to overwrite)")
+    if state_path.exists() and not args.overwrite:
+        print(f"   SKIP: {state_path} already exists (use --overwrite to overwrite)")
     else:
         state_path.write_text(
             json.dumps({
@@ -2862,7 +2843,6 @@ def build_parser() -> argparse.ArgumentParser:
     rp = sub.add_parser("run-phase", help="Run pre/post-flight hooks for a phase")
     rp.add_argument("--phase",   type=int, required=True, help="Phase number (1-8)")
     rp.add_argument("--project", default=".", help="Project root (default: .)")
-    rp.add_argument("--force",   action="store_true", help="Ignore preflight failures")
     rp.add_argument("--fast",    action="store_true", help="Lightweight preflight (skip drift/traceability/gap/CI)")
     rp.set_defaults(func=cmd_run_phase)
 
@@ -2952,7 +2932,6 @@ def build_parser() -> argparse.ArgumentParser:
     rpl.add_argument("--phase-to",   type=int, default=8, metavar="N", dest="phase_to",
                      help="End phase (default: 8)")
     rpl.add_argument("--project",    default=".", help="Project root (default: .)")
-    rpl.add_argument("--force", action="store_true", help="Ignore preflight failures")
     rpl.add_argument("--no-git", action="store_true", dest="no_git",
                      help="Disable all git commit/push operations")
     rpl.add_argument("--no-kill-switch", action="store_true", dest="no_kill_switch",
@@ -2998,11 +2977,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Phase number that just completed (advance-phase --completed 3 → sets phase 4)",
     )
     adv.add_argument("--project", default=".", help="Project root (default: .)")
-    adv.add_argument(
-        "--force", action="store_true",
-        help="Override plan/deliverable block for P1/P2 human-gated phases only. "
-             "Rejected for P3+ — use --emergency-override instead.",
-    )
     adv.add_argument(
         "--emergency-override", action="store_true", dest="emergency_override",
         help="[P3+ emergency] Bypass plan/deliverable checks. Requires --reason. "
@@ -3092,7 +3066,7 @@ def build_parser() -> argparse.ArgumentParser:
     ip.add_argument("--phase",   type=int, default=1, help="Current phase (default: 1)")
     ip.add_argument("--ci-only", action="store_true",
                     help="Write CI workflow only; skip git hooks")
-    ip.add_argument("--force",   action="store_true",
+    ip.add_argument("--overwrite", action="store_true",
                     help="Overwrite existing CI workflow and hooks")
     ip.set_defaults(func=cmd_init_project)
 

@@ -1684,14 +1684,14 @@ class TestFinalizeGateHR10:
 
 
 # ---------------------------------------------------------------------------
-# Tests: --force P3+ rejection + --emergency-override (D1/D2 improvements)
+# Tests: --emergency-override (the only bypass mechanism; --force is abolished)
 # ---------------------------------------------------------------------------
 
-class TestForceRestriction:
-    """--force must be rejected for P3+; --emergency-override is the P3+ escape hatch."""
+class TestEmergencyOverride:
+    """--emergency-override is the sole bypass path for advance-phase."""
 
     @staticmethod
-    def _call(monkeypatch, tmp_path, *, completed, force=False,
+    def _call(monkeypatch, tmp_path, *, completed,
               emergency_override=False, reason=""):
         import io
         from harness_cli import cmd_advance_phase
@@ -1701,7 +1701,6 @@ class TestForceRestriction:
         a = Args()
         a.completed_phase = completed
         a.project = str(tmp_path)
-        a.force = force
         a.emergency_override = emergency_override
         a.reason = reason
 
@@ -1718,28 +1717,6 @@ class TestForceRestriction:
         except SystemExit as e:
             exit_code = e.code
         return exit_code, captured.getvalue()
-
-    def test_force_p3_rejected_exit9(self, tmp_path, monkeypatch):
-        """--force on P3 must return exit 9 with clear error message."""
-        exit_code, output = self._call(monkeypatch, tmp_path, completed=3, force=True)
-        assert exit_code == 9
-        assert "not permitted" in output.lower() or "P3+" in output
-
-    def test_force_p6_rejected_exit9(self, tmp_path, monkeypatch):
-        """--force on P6 must also return exit 9."""
-        exit_code, output = self._call(monkeypatch, tmp_path, completed=6, force=True)
-        assert exit_code == 9
-
-    def test_force_p1_allowed(self, tmp_path, monkeypatch):
-        """--force on P1 is still permitted (human-gated phase)."""
-        # P1 → P2: no plan file, no deliverables configured → passes cleanly
-        exit_code, output = self._call(monkeypatch, tmp_path, completed=1, force=True)
-        assert exit_code == 0, f"P1 --force should be allowed, got exit={exit_code}\n{output}"
-
-    def test_force_p2_allowed(self, tmp_path, monkeypatch):
-        """--force on P2 is also still permitted."""
-        exit_code, output = self._call(monkeypatch, tmp_path, completed=2, force=True)
-        assert exit_code == 0, f"P2 --force should be allowed, got exit={exit_code}\n{output}"
 
     def test_emergency_override_requires_reason(self, tmp_path, monkeypatch):
         """--emergency-override without --reason must return exit 9."""
