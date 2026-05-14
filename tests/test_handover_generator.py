@@ -1154,6 +1154,77 @@ class TestCmdAdvancePhase:
         assert "Gate 2" in write_kwargs.get("task_background", "")
 
 
+    # ── plan incompletion block ─────────────────────────────────────────────
+
+    def test_plan_incomplete_blocks_advance(self, tmp_path, monkeypatch):
+        """P3+ unchecked plan items → blocked with exit 7."""
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir(parents=True)
+        plan = method_dir / "phase3_plan.md"
+        plan.write_text("- [ ] COVERAGE_REPORT.md - Coverage report\n"
+                        "- [x] TEST_PLAN.md\n"
+                        "- [ ] Run acceptance tests\n")
+
+        exit_code, output = self._call_advance_phase(
+            monkeypatch, tmp_path, completed=3,
+        )
+        # One of those "Run acceptance tests" is a real task, not a skip_pattern
+        assert exit_code == 7
+        assert "plan steps incomplete" in output.lower()
+        assert "COVERAGE_REPORT.md" in output
+
+    def test_plan_incomplete_skips_dispatch_info(self, tmp_path, monkeypatch):
+        """[A-DISPATCH] / [B-DISPATCH] items are not counted as gaps."""
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir(parents=True)
+        plan = method_dir / "phase3_plan.md"
+        plan.write_text("- [ ] [A-DISPATCH] Dispatch Agent A\n"
+                        "- [ ] [B-DISPATCH] Dispatch Agent B\n"
+                        "- [x] TESTS_PASS\n")
+
+        exit_code, output = self._call_advance_phase(
+            monkeypatch, tmp_path, completed=3,
+        )
+        assert exit_code == 0  # dispatch items are informational
+
+    def test_plan_incomplete_pass_p1(self, tmp_path, monkeypatch):
+        """P1 always passes plan check (human-gated)."""
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir(parents=True)
+        plan = method_dir / "phase1_plan.md"
+        plan.write_text("- [ ] Write SRS.md\n- [ ] Define FRs\n")
+
+        exit_code, output = self._call_advance_phase(
+            monkeypatch, tmp_path, completed=1,
+        )
+        assert exit_code == 0
+        assert "human-gated" in output.lower()
+
+    # ── deliverable existence block ─────────────────────────────────────────
+
+    def test_missing_deliverable_blocks_advance(self, tmp_path, monkeypatch):
+        """P4: missing TEST_RESULTS.md → blocked with exit 8."""
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir(parents=True)
+        # Make TEST_PLAN.md exist but not TEST_RESULTS.md
+        (tmp_path / "04-testing").mkdir(parents=True)
+        (tmp_path / "04-testing" / "TEST_PLAN.md").write_text("Plan\n")
+        # Also need state.json so finalize doesn't crash on advance
+        import json
+        (method_dir / "state.json").write_text(json.dumps({
+            "state": "ACTIVE", "current_phase": 4,
+        }))
+        (method_dir / "quality_manifest.json").write_text(json.dumps({
+            "fr_ids": [], "gate_results": {"gate1": {}, "gate3": {}},
+        }))
+
+        exit_code, output = self._call_advance_phase(
+            monkeypatch, tmp_path, completed=4,
+        )
+        assert exit_code == 8
+        assert "TEST_RESULTS.md" in output
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Test _advance_fsm state.json preservation
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1522,7 +1593,7 @@ class TestFinalizeGateHR10:
         assert "HR-10" in output
 
     def test_dev_and_reviewer_passes(self, tmp_path, monkeypatch):
-        """Gate 1 passes when 2 distinct roles exist for the FR."""
+        """Gate 1 passes when 2 distinct roles with different session_ids exist."""
         exit_code, output = self._call_finalize(monkeypatch, tmp_path, spawn_entries=[
             {"fr_id": "FR-01", "role": "developer", "session_id": "d1",
              "status": "success", "confidence": 9},
@@ -1531,6 +1602,38 @@ class TestFinalizeGateHR10:
         ])
         assert exit_code == 0
         assert "HR-10" not in output
+        assert "HR-01" not in output
+
+    def test_same_session_id_blocks_hr01(self, tmp_path, monkeypatch):
+        """HR-01 blocks when A/B entries share the same session_id."""
+        exit_code, output = self._call_finalize(monkeypatch, tmp_path, spawn_entries=[
+            {"fr_id": "FR-01", "role": "developer", "session_id": "same-session",
+             "status": "success", "confidence": 9},
+            {"fr_id": "FR-01", "role": "reviewer", "session_id": "same-session",
+             "status": "success", "review_status": "APPROVE"},
+        ])
+        assert exit_code == 5
+        assert "HR-01" in output
+        assert "self-review" in output.lower()
+
+    def test_old_log_no_session_id_still_passes(self, tmp_path, monkeypatch):
+        """Backward-compat: entries without session_id field → distinct OK."""
+        exit_code, output = self._call_finalize(monkeypatch, tmp_path, spawn_entries=[
+            {"fr_id": "FR-01", "role": "developer",
+             "status": "success", "confidence": 9},
+            {"fr_id": "FR-01", "role": "reviewer",
+             "status": "success", "review_status": "APPROVE"},
+        ])
+        # Without session_id, both entries filter None/"" → empty set
+        # → distinct_sessions = 0 < 2. But since the entries have
+        # no session_id at all, they are pre-HR-01-era records.
+        # We treat missing session_id as "not applicable" rather than
+        # blocking — distinct_sessions computed after removing None.
+        # Both entries have no session_id → set = {} → 0 distinct.
+        # This is expected: old logs without session_id can't be
+        # validated for A≠B. Let the HR-10 distinct-role check pass.
+        # HR-01 only blocks when session_ids ARE present and match.
+        assert exit_code not in (5,), f"exit={exit_code}: {output}"
 
     def test_corrupt_log_warns_and_does_not_block(self, tmp_path, monkeypatch):
         """Bug #2: corrupt sessions_spawn.log → warning printed, NOT blocked (exit != 5)."""
