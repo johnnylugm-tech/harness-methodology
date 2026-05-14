@@ -53,7 +53,7 @@ The system uses this macro architecture:
 | Pattern | Applied In | Purpose |
 |---|---|---|
 | Lazy-Loading Factory | parent-system CLI | Deferred subsystem init across 30+ modules |
-| Strategy Pattern | `core/agent_spawner.py` | Switch between Task tool vs Hermes reviewer |
+| Strategy Pattern | `core/agent_spawner.py` | Switch between Claude headless CLI vs Hermes reviewer |
 | Bridge Pattern | `harness/` directory | Decouple methodology flow from quality tools |
 | Façade Pattern | `harness_cli.py` (standalone) | Minimal harness-only CLI facade |
 | Proxy Pattern | `harness/reviewer_router.py` | Local proxy to remote Hermes MCP service |
@@ -714,11 +714,11 @@ model == "hermes":
     effective = get_reviewer_model(phase, role)   # checks _CLAUDE_PHASES = {7, 8}
     if effective == "hermes":
         → ReviewerRouter.review(role, full_prompt, phase, fr_id)  [return]
-    # effective == "claude" for P7/P8 — fall through to Task tool
+    # effective == "claude" for P7/P8 — fall through to Claude headless CLI
 
 model == "claude" (or P7/P8 auto-routed):
-    → claude_code_sdk.Task(description=..., prompt=..., timeout=task_timeout)
-      raises RuntimeError if claude_code_sdk not importable
+    → claude -p --output-format json --bare --max-turns 1 --no-session-persistence
+      raises RuntimeError if claude CLI not found on PATH
 ```
 - P7 (Risk Assessment) and P8 (Config Mgmt) **always use Claude**, even when caller passes `model="hermes"`
 

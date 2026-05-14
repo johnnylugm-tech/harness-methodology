@@ -1,12 +1,15 @@
 """
 Agent Spawner: Orchestrates agent invocations for Developer and Reviewer roles.
 
-Handles routing between Claude Code's Task tool and Hermes MCP for heterogeneous
+Handles routing between Claude Code headless CLI (claude -p) and Hermes MCP for heterogeneous
 reviewing, adhering to the 'Need-to-know' principle for prompt construction.
 """
 
 from __future__ import annotations
 
+import json
+import shutil
+import subprocess
 from typing import Any, Optional
 
 from pathlib import Path
@@ -28,7 +31,7 @@ class AgentSpawner:
     """
     Routes agent invocations to heterogeneous backends.
 
-    - Developer/Primary agents -> Claude Code Task tool.
+    - Developer/Primary agents -> Claude Code headless CLI (claude -p).
     - Reviewer agents -> ReviewerRouter (Hermes MCP).
 
     Phase routing policy (via get_reviewer_model):
@@ -90,21 +93,65 @@ class AgentSpawner:
                     parsed["_degradation_note"] = result.get("_degradation_note")
                 self._log_dispatch(role, prompt, parsed, phase, fr_id)
                 return parsed
-            # effective == "claude" for P7/P8 — fall through to Task tool
+            # effective == "claude" for P7/P8 — fall through to Claude headless CLI
 
-        # Claude Code Task tool (replaces OpenClaw sessions_spawn)
-        try:
-            from claude_code_sdk import Task  # type: ignore[import]
-            result = Task(
-                description=f"{role}: {prompt[:80]}",
-                prompt=full_prompt,
-                timeout=task_timeout,
-            )
-        except ImportError:
+        # Claude Code headless CLI (replaces deprecated claude_code_sdk.Task).
+        # --bare skips CLAUDE.md/hooks/skills/MCP/plugins: the spawned agent
+        # only sees what _build_prompt() packs into the prompt (persona + SOP +
+        # task + context).  This enforces need-to-know isolation — the agent
+        # cannot read harness rules or trigger recursive harness behaviour.
+        cli = shutil.which("claude")
+        if not cli:
             raise RuntimeError(
-                "claude_code_sdk not available. "
-                "Ensure running inside Claude Code environment."
+                "claude CLI not found. Install Claude Code: "
+                "https://code.claude.com/docs/en/installation"
             )
+        cmd = [
+            cli, "-p", full_prompt,
+            "--output-format", "json",
+            "--bare",
+            "--max-turns", "1",
+            "--permission-mode", "acceptEdits",
+            "--no-session-persistence",
+        ]
+        if self.project_path:
+            cmd.extend(["--cwd", str(self.project_path.resolve())])
+        try:
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=task_timeout,
+                cwd=str(self.project_path.resolve()) if self.project_path else None,
+            )
+        except subprocess.TimeoutExpired:
+            return {
+                "output": f"Agent timed out after {task_timeout}s",
+                "status": "TIMEOUT",
+            }
+        if proc.returncode != 0:
+            return {
+                "output": proc.stderr or proc.stdout,
+                "status": "ERROR",
+                "exit_code": proc.returncode,
+            }
+        try:
+            data = json.loads(proc.stdout)
+            result = {
+                "output": data.get("result", ""),
+                "status": "complete",
+                "session_id": data.get("session_id", ""),
+            }
+        except (json.JSONDecodeError, AttributeError):
+            import sys
+            sys.stderr.write(
+                f"[AgentSpawner] claude -p returned non-JSON stdout "
+                f"(stderr={proc.stderr[:200]!r})\n"
+            )
+            result = {
+                "output": proc.stdout,
+                "status": "complete",
+            }
 
         parsed = self._parse_result(result)
         self._log_dispatch(role, prompt, parsed, phase, fr_id)

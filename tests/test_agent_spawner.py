@@ -2,6 +2,7 @@
 Unit tests for AgentSpawner.
 """
 
+import json
 import pytest
 from unittest.mock import patch, MagicMock
 from core.agent_spawner import AgentSpawner
@@ -41,25 +42,39 @@ class TestAgentSpawner:
     def test_spawn_routes_to_claude_on_p7(self):
         """Verify routing to Claude for phase 7 even if hermes requested."""
         spawner = AgentSpawner()
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = json.dumps({
+            "result": "risk assessed",
+            "session_id": "abc123",
+        })
         with patch("harness.reviewer_router.get_reviewer_model", return_value="claude"):
-            mock_sdk = MagicMock()
-            with patch.dict("sys.modules", {"claude_code_sdk": mock_sdk}):
-                result = spawner.spawn(
-                    role="reviewer",
-                    prompt="Assess risk",
-                    context={"phase": 7},
-                    model="hermes",
-                    phase=7
-                )
-                assert result["status"] == "complete"
-                mock_sdk.Task.assert_called_once()
+            with patch("shutil.which", return_value="/usr/bin/claude"):
+                with patch("subprocess.run", return_value=mock_proc) as mock_run:
+                    result = spawner.spawn(
+                        role="reviewer",
+                        prompt="Assess risk",
+                        context={"phase": 7},
+                        model="hermes",
+                        phase=7
+                    )
+                    assert result["status"] == "complete"
+                    assert "risk assessed" in str(result["output"])
+                    # Verify CLI flags for need-to-know isolation
+                    mock_run.assert_called_once()
+                    cmd = mock_run.call_args[0][0]
+                    assert "--bare" in cmd
+                    assert "--max-turns" in cmd
+                    assert "1" in cmd
+                    assert "--no-session-persistence" in cmd
+                    assert "--output-format" in cmd
+                    assert "json" in cmd
 
-    def test_spawn_raises_error_outside_claude(self):
-        """Verify RuntimeError when claude_code_sdk is missing."""
+    def test_spawn_raises_error_when_cli_not_found(self):
+        """Verify RuntimeError when claude CLI is not on PATH."""
         spawner = AgentSpawner()
-        # Mock sys.modules to simulate missing package
-        with patch.dict("sys.modules", {"claude_code_sdk": None}):
-            with pytest.raises(RuntimeError, match="Ensure running inside Claude Code environment"):
+        with patch("shutil.which", return_value=None):
+            with pytest.raises(RuntimeError, match="claude CLI not found"):
                 spawner.spawn(
                     role="developer",
                     prompt="Do task",
