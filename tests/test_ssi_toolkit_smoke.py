@@ -146,19 +146,3 @@ def test_verify_tools_check_tools():
     assert isinstance(result, dict)
 
 
-def test_eval_12d_src_paths():
-    """src_paths returns list of Path objects for source dirs."""
-    from eval_12d import src_paths
-
-    paths = src_paths()
-    assert isinstance(paths, list)
-    assert len(paths) > 0
-
-
-def test_eval_12d_run():
-    """run executes a shell command and returns (stdout, stderr, exit_code)."""
-    from eval_12d import run
-
-    out, err, code = run(["echo", "hello"], timeout=5)
-    assert code == 0
-    assert "hello" in out

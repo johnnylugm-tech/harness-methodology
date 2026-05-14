@@ -19,7 +19,6 @@ REQUIRED_SCRIPTS = [
     "config_loader",
     "crg_analysis",
     "crg_integration",
-    "eval_12d",
     "issue_tracker",
     "llm_router",
     "report_gen",
