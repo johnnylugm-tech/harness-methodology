@@ -104,7 +104,11 @@ class PhaseHooks:
                 print("   Auto-initialized state.json (fresh P1 project)")
                 return {"passed": True, "state": "ACTIVE", "message": "Auto-initialized for P1"}
             return {"passed": False, "state": "UNKNOWN", "message": "state.json not found"}
-        state = json.loads(self.state_path.read_text())
+        try:
+            state = json.loads(self.state_path.read_text())
+        except (json.JSONDecodeError, OSError) as e:
+            return {"passed": False, "state": "CORRUPT",
+                    "message": f"state.json is corrupt: {e}"}
         current_state = state.get("state", "UNKNOWN")
         current_phase = state.get("current_phase", 0)
         print(f"   State: {current_state}, Phase: {current_phase}")
@@ -189,7 +193,10 @@ class PhaseHooks:
             return {"passed": True, "skipped": True, "message": "detection module unavailable"}
         except Exception as e:
             print(f"   Drift detection error: {e}")
-            return {"passed": True, "skipped": True, "error": str(e)}
+            # P4+ is blocking — module errors must NOT silently pass
+            blocking = self.phase is not None and self.phase >= 4
+            return {"passed": not blocking, "skipped": True,
+                    "error": str(e), "blocking": blocking}
 
     def preflight_sab_check(self) -> Dict[str, Any]:
         """Check SAB constitution compliance (P3+ only — architecture baseline drift)."""
@@ -265,7 +272,10 @@ class PhaseHooks:
             _, report = check_traceability(self.project_path)
         except Exception as e:
             print(f"   Traceability check error: {e}")
-            return {"passed": True, "skipped": True, "error": str(e)}
+            # P5+ is blocking — module errors must NOT silently pass
+            blocking = self.phase is not None and self.phase >= 5
+            return {"passed": not blocking, "skipped": True,
+                    "error": str(e), "blocking": blocking}
 
         total = report["total"]
         untested = len(report["untested"])
@@ -380,10 +390,18 @@ class PhaseHooks:
         if self.phase is None or self.phase <= 1:
             return {"passed": True, "skipped": True, "message": "P1 has no previous phase"}
 
-        from core.quality_gate.phase_artifact_enforcer import PhaseArtifactRegistry  # pyright: ignore[reportMissingImports]
-
-        registry = PhaseArtifactRegistry(str(self.project_path))
-        result = registry.verify_phase_chain(self.phase)
+        try:
+            from core.quality_gate.phase_artifact_enforcer import PhaseArtifactRegistry  # pyright: ignore[reportMissingImports]
+            registry = PhaseArtifactRegistry(str(self.project_path))
+            result = registry.verify_phase_chain(self.phase)
+        except ImportError:
+            print("   ERROR: PhaseArtifactRegistry not importable — cannot verify artifact chain")
+            return {"passed": False, "skipped": True,
+                    "error": "PhaseArtifactRegistry import failed"}
+        except Exception as exc:
+            print(f"   ERROR: Artifact chain verification crashed: {exc}")
+            return {"passed": False, "skipped": True,
+                    "error": f"verify_phase_chain({self.phase}) raised {type(exc).__name__}: {exc}"}
 
         all_ok = result["all_verified"]
         if not all_ok:

@@ -1708,7 +1708,8 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
             try:
                 from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
             except ImportError:
-                print("  [WARN] PhaseTruthVerifier unavailable — skipping HR-11 check")
+                print("  [BLOCKED] PhaseTruthVerifier unavailable — HR-11 check required for P3+, cannot skip")
+                return 11
             else:
                 verifier = PhaseTruthVerifier(str(project), phase)
                 truth_result = verifier.verify()

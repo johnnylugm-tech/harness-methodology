@@ -145,9 +145,11 @@ class PhaseArtifactRegistry:
         missing_to = [a for a in to_artifacts if not (self.project_root / a).exists()]
 
         ref_found = False
-        for artifact_path in found_to:
-            full_path = self.project_root / artifact_path
-            if full_path.is_file():
+        try:
+            for artifact_path in found_to:
+                full_path = self.project_root / artifact_path
+                if not full_path.is_file():
+                    continue
                 try:
                     content = full_path.read_text(encoding="utf-8", errors="ignore")
                     for prev_artifact in from_artifacts:
@@ -155,10 +157,12 @@ class PhaseArtifactRegistry:
                         if prev_name.lower() in content.lower():
                             ref_found = True
                             break
-                except Exception:
+                except (OSError, UnicodeError):
                     pass
-            if ref_found:
-                break
+                if ref_found:
+                    break
+        except Exception:
+            pass  # is_file() or iteration error — treat as no reference found
 
         from_ok = len(found_from) > 0 or len(from_artifacts) == 0
         to_ok = len(found_to) > 0 or len(to_artifacts) == 0 or skip_to_side
@@ -188,6 +192,8 @@ class PhaseArtifactRegistry:
         """Verify the entire ASPICE chain up to current_phase.
 
         Returns dict with all_verified, verified_links, missing_links, stats.
+        A top-level exception is caught and reported as a single failing link
+        rather than crashing the caller.
         """
         phase_map = {
             Phase.CONSTITUTION: 0, Phase.SPECIFY: 1, Phase.PLAN: 2,
@@ -197,17 +203,20 @@ class PhaseArtifactRegistry:
         verified: List[str] = []
         missing: List[str] = []
 
-        for phase in Phase:
-            if phase_map.get(phase, 0) > current_phase:
-                continue
-            is_current = phase_map.get(phase, 0) == current_phase
-            for prev in self.PHASE_ARTIFACTS.get(phase, {}).get("depends_on", []):
-                if phase_map.get(prev, 0) >= current_phase:
+        try:
+            for phase in Phase:
+                if phase_map.get(phase, 0) > current_phase:
                     continue
-                result = self.verify_phase_link(prev, phase,
-                                                skip_to_side=is_current)
-                entry = f"{prev.name}->{phase.name}: {result.reason}"
-                (verified if result.passed else missing).append(entry)
+                is_current = phase_map.get(phase, 0) == current_phase
+                for prev in self.PHASE_ARTIFACTS.get(phase, {}).get("depends_on", []):
+                    if phase_map.get(prev, 0) >= current_phase:
+                        continue
+                    result = self.verify_phase_link(prev, phase,
+                                                    skip_to_side=is_current)
+                    entry = f"{prev.name}->{phase.name}: {result.reason}"
+                    (verified if result.passed else missing).append(entry)
+        except Exception as exc:
+            missing.append(f"CRASH: verify_phase_chain({current_phase}) — {type(exc).__name__}: {exc}")
 
         return {
             "all_verified": len(missing) == 0,
