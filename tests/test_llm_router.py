@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent / "harness" / "ssi" / "scripts"))
 
-from llm_router import route, build_gemini_prompt, TIER_MAP, TIER_CONFIG, IMPROVE_CONFIG  # pyright: ignore[reportMissingImports]
+from llm_router import route, build_gemini_prompt, TIER_MAP, TIER_CONFIG, IMPROVE_CONFIG, _parse_int_env  # pyright: ignore[reportMissingImports]
 
 
 class TestRoute:
@@ -110,6 +110,24 @@ class TestTierMap:
 class TestImproveConfig:
     def test_improve_is_claude(self):
         assert IMPROVE_CONFIG["provider"] == "claude_native"
+
+
+class TestParseIntEnv:
+    def test_valid_value(self, monkeypatch):
+        monkeypatch.setenv("HERMES_TIMEOUT_MS", "60000")
+        assert _parse_int_env("HERMES_TIMEOUT_MS", 90000) == 60000
+
+    def test_invalid_value_returns_default(self, monkeypatch):
+        monkeypatch.setenv("HERMES_TIMEOUT_MS", "foo")
+        assert _parse_int_env("HERMES_TIMEOUT_MS", 90000) == 90000
+
+    def test_missing_var_returns_default(self, monkeypatch):
+        monkeypatch.delenv("HERMES_TIMEOUT_MS", raising=False)
+        assert _parse_int_env("HERMES_TIMEOUT_MS", 90000) == 90000
+
+    def test_empty_string_returns_default(self, monkeypatch):
+        monkeypatch.setenv("HERMES_TIMEOUT_MS", "")
+        assert _parse_int_env("HERMES_TIMEOUT_MS", 90000) == 90000
 
 
 class TestTierConfig:

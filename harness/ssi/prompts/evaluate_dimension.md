@@ -350,34 +350,71 @@ remain functional without CRG.
 > **目的**: 用不同模型主動挑戰 Claude 自己的評估，防止自我感覺良好。  
 > **執行時機**: Claude 完成 Step 2a 評估、寫出初稿 findings 之後，寫入 score 文件之前。
 
+DA prompt (use for all three providers below):
+
 ```
-# DA step uses same provider_chain as the dimension evaluation.
-# Try Hermes first; fall back to Gemini Flash; then Claude native (degraded).
-# Primary path (Hermes available):
-[USE mcp__hermes__messages_send / events_wait / messages_read — same as Step 2 Provider 1]
-# Fallback (Hermes unavailable):
+你是一位挑剔的資深 code reviewer，擅長找出評估者忽視的問題。
+以下是一份針對 <dimension> 維度的程式碼品質評估結果。
+
+**你的任務是主動反駁這份評估，找出它的缺陷：**
+1. 列出 2–3 個「評估可能遺漏的嚴重問題」（要具體說明為何可能被忽略）
+2. 分析分數是否有高估嫌疑：說明至少 1 個讓你懷疑分數過高的理由
+3. 指出 1 個「若分數是準確的，評估中應該提及但未提及的正面證據」
+
+<將 Claude Step 2a 的完整 findings[] 和 llm_score 貼入>
+```
+
+Follow the same `provider_chain` as Step 2. Try each provider in order:
+
+**DA Provider 1: Hermes AI Agent** (if `HARNESS_HERMES_ENABLED=true` and target set)
+
+```
+[USE mcp__hermes__messages_send]
+target: <HARNESS_HERMES_TARGET>
+message: <DA prompt above>
+
+[USE mcp__hermes__events_wait]
+timeout_ms: 90000
+
+[USE mcp__hermes__messages_read]
+session_key: <HARNESS_HERMES_TARGET>
+limit: 1
+```
+
+If valid JSON response → parse as DA result. Record `"da_provider": "hermes"`. **Stop.**
+If Hermes unavailable or no response → fall through.
+
+**DA Provider 2: Gemini Flash** (fallback)
+
+```
 [USE mcp__gemini-cli__ask-gemini]
 model: gemini-2.5-flash
-prompt: |
-  你是一位挑剔的資深 code reviewer，擅長找出評估者忽視的問題。
-  以下是一份針對 <dimension> 維度的程式碼品質評估結果。
-  
-  **你的任務是主動反駁這份評估，找出它的缺陷：**
-  1. 列出 2–3 個「評估可能遺漏的嚴重問題」（要具體說明為何可能被忽略）
-  2. 分析分數是否有高估嫌疑：說明至少 1 個讓你懷疑分數過高的理由
-  3. 指出 1 個「若分數是準確的，評估中應該提及但未提及的正面證據」
-  
-  回覆格式：
-  {
-    "missed_issues": ["<issue1>", "<issue2>"],
-    "overestimation_risk": "<理由>",
-    "missing_positive_evidence": "<應提及但未提及的內容>",
-    "da_verdict": "challenged" | "confirmed"
-  }
-  
-  評估內容：
-  <將 Claude Step 2a 的完整 findings[] 和 llm_score 貼入>
+prompt: <DA prompt above>
 ```
+
+If successful → parse as DA result. Record `"da_provider": "gemini"`. **Stop.**
+If Gemini fails → fall through.
+
+**DA Provider 3: Claude Native** (degraded — current session)
+
+```
+[Claude evaluates DA prompt inline, using current session reasoning]
+```
+
+Record `"da_provider": "claude_native"` and `"_degraded": true`.
+
+**DA response format** (same for all providers):
+
+```json
+{
+  "missed_issues": ["<issue1>", "<issue2>"],
+  "overestimation_risk": "<理由>",
+  "missing_positive_evidence": "<應提及但未提及的內容>",
+  "da_verdict": "challenged" | "confirmed"
+}
+```
+
+> **Note**: DA step uses the same DA prompt for all providers. Construct the prompt once, then try providers in order.
 
 **DA 裁決規則（確定性，不得 LLM 主觀覆蓋）：**
 

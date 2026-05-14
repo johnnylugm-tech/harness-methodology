@@ -22,6 +22,17 @@ _CLAUDE_MODEL = os.environ.get("HARNESS_CLAUDE_MODEL", "claude-sonnet-4-5")
 _IMPROVE_MODEL = os.environ.get("HARNESS_IMPROVE_MODEL", _CLAUDE_MODEL)
 _HERMES_TARGET = os.environ.get("HARNESS_HERMES_TARGET", "slack:#quality-audit")  # Default target
 
+
+def _parse_int_env(key: str, default: int) -> int:
+    """Parse an integer env var; return default on missing or non-numeric value."""
+    raw = os.environ.get(key, "")
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
 # Routing table: dimension → tier
 TIER_MAP = {
     # Tier 1: Tool output is the full story — LLM only summarizes
@@ -76,12 +87,11 @@ TIER_CONFIG = {
 HERMES_CONFIG = {
     "enabled": os.environ.get("HARNESS_HERMES_ENABLED", "false").lower() == "true",
     "target": _HERMES_TARGET,
-    "timeout_ms": int(os.environ.get("HERMES_TIMEOUT_MS", "90000")),
+    # Full round-trip (send → events_wait → messages_read) mirrors reviewer_router._try_hermes().
+    # See evaluate_dimension.md Step 2 Provider 1 for the exact tool sequence.
+    "timeout_ms": _parse_int_env("HERMES_TIMEOUT_MS", 90000),
     "provider": "hermes",
     "action": "mcp_hermes_messages_send",
-    # Full round-trip: send → events_wait(timeout_ms) → messages_read
-    # Mirrors reviewer_router._try_hermes() pattern.
-    "round_trip_tools": ["mcp__hermes__messages_send", "mcp__hermes__events_wait", "mcp__hermes__messages_read"],
 }
 
 # Improve step always Claude — separate override available
@@ -129,7 +139,7 @@ def route(dimension: str) -> dict:
         "tier": tier,
         "model": config["model"],
         "provider": config["provider"],
-        "provider_chain": config["provider_chain"],
+        "provider_chain": config.get("provider_chain", ["claude_native"]),
         "rationale": config["rationale"],
         "token_budget": config["token_budget"],
         "use_gemini": config["provider"] == "gemini",
