@@ -2500,19 +2500,30 @@ jobs:
 """
 
 
+# Canonical phase directory names (single authoritative source — used by both
+# _init_phase_dirs and cmd_audit_structure so they can never drift apart).
+_PHASE_DIRS: dict[int, str] = {
+    1: "01-requirements",
+    2: "02-architecture",
+    3: "03-development",
+    4: "04-testing",
+    5: "05-verify",
+    6: "06-quality",
+    7: "07-risk",
+    8: "08-config",
+}
+
+# Sub-directories created inside phase dirs on init (not tracked for naming checks).
+_PHASE_INIT_SUBDIRS: list[str] = [
+    "02-architecture/adr",
+    "03-development/src",
+    "03-development/tests",
+]
+
+
 def _init_phase_dirs(project: Path) -> None:
     """Create canonical 0X-name/ phase directory structure in target project."""
-    dirs = [
-        "01-requirements",
-        "02-architecture/adr",
-        "03-development/src",
-        "03-development/tests",
-        "04-testing",
-        "05-verify",
-        "06-quality",
-        "07-risk",
-        "08-config",
-    ]
+    dirs = [*_PHASE_DIRS.values(), *_PHASE_INIT_SUBDIRS]
     created = 0
     skipped = 0
     for d in dirs:
@@ -2720,13 +2731,8 @@ def cmd_audit_structure(args: argparse.Namespace) -> int:
 
     project = Path(args.project).resolve()
 
-    # Canonical phase directory names
-    PHASE_DIRS = {
-        1: "01-requirements", 2: "02-architecture",
-        3: "03-development",   4: "04-testing",
-        5: "05-verify",        6: "06-quality",
-        7: "07-risk",          8: "08-config",
-    }
+    # Canonical phase directory names — reference module-level _PHASE_DIRS
+    PHASE_DIRS = _PHASE_DIRS
 
     # Required artifacts per phase (aligned with phase_artifact_enforcer.py)
     PHASE_ARTIFACTS = {

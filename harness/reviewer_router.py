@@ -39,12 +39,23 @@ except ImportError:
 # Constants (all overridable via environment variables)
 # ---------------------------------------------------------------------------
 
+def _parse_int_env(key: str, default: int) -> int:
+    """Return int value of env var *key*, or *default* on missing/non-numeric."""
+    raw = os.environ.get(key, "")
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
 HERMES_TARGET = os.environ.get("HERMES_REVIEWER_TARGET", "")
-HERMES_TIMEOUT_MS  = int(os.environ.get("HERMES_TIMEOUT_MS",  "120000"))  # 120s default
-GEMINI_TIMEOUT_MS  = int(os.environ.get("GEMINI_TIMEOUT_MS",  "60000"))   # 60s for Gemini CLI MCP
-TASK_SIZE_THRESHOLD = int(os.environ.get("TASK_SIZE_THRESHOLD", "2000"))  # chars — decompose if exceeded
-SUBTASK_MAX_SIZE    = int(os.environ.get("SUBTASK_MAX_SIZE",    "800"))   # chars/subtask (paragraph split)
-MAX_CONTEXT_LINES   = int(os.environ.get("MAX_CONTEXT_LINES",   "6"))    # approved-summaries injected
+HERMES_TIMEOUT_MS   = _parse_int_env("HERMES_TIMEOUT_MS",   120000)  # 120s default
+GEMINI_TIMEOUT_MS   = _parse_int_env("GEMINI_TIMEOUT_MS",   60000)   # 60s for Gemini CLI MCP
+TASK_SIZE_THRESHOLD = _parse_int_env("TASK_SIZE_THRESHOLD", 2000)    # chars — decompose if exceeded
+SUBTASK_MAX_SIZE    = _parse_int_env("SUBTASK_MAX_SIZE",    800)     # chars/subtask (paragraph split)
+MAX_CONTEXT_LINES   = _parse_int_env("MAX_CONTEXT_LINES",  6)        # approved-summaries injected
 
 # Reviewer priority chain (sub-agent always appended as final backstop)
 _DEFAULT_CHAIN = "hermes,gemini"
