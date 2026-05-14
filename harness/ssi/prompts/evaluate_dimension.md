@@ -103,6 +103,25 @@ command -v mutmut >/dev/null 2>&1 || pip3 install mutmut --quiet
 
 # Only run if now available:
 if command -v mutmut >/dev/null 2>&1; then
+  # Auto-configure paths_to_mutate so mutmut can find code in non-standard layouts
+  # (e.g. 03-development/src/ instead of src/)
+  _mutmut_needs_config=false
+  if [ -f setup.cfg ]; then
+    grep -q '\[mutmut\]' setup.cfg || _mutmut_needs_config=true
+  else
+    _mutmut_needs_config=true
+  fi
+  if [ "$_mutmut_needs_config" = true ] && ! grep -q '\[tool\.mutmut\]' pyproject.toml 2>/dev/null; then
+    _paths=""
+    for _d in 03-development/src src lib app; do
+      [ -d "$_d" ] && _paths="${_paths},${_d}"
+    done
+    if [ -n "$_paths" ]; then
+      printf '[mutmut]\npaths_to_mutate=%s\n' "${_paths#,}" >> setup.cfg
+    fi
+    unset _paths _d
+  fi
+  unset _mutmut_needs_config
   timeout $TIME_BUDGET mutmut run 2>&1
   mutmut results 2>&1 | head -100
 fi
