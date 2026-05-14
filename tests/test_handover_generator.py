@@ -885,6 +885,7 @@ class TestCmdAdvancePhase:
         a = Args()
         a.completed_phase = completed
         a.project = str(tmp_path)
+        a.force = kwargs.get("force", False)
 
         captured = io.StringIO()
         monkeypatch.setattr("sys.stdout", captured)
@@ -1633,7 +1634,8 @@ class TestFinalizeGateHR10:
         # This is expected: old logs without session_id can't be
         # validated for A≠B. Let the HR-10 distinct-role check pass.
         # HR-01 only blocks when session_ids ARE present and match.
-        assert exit_code not in (5,), f"exit={exit_code}: {output}"
+        # Old entries without session_id → HR-01 skipped, HR-10 distinct-role passes.
+        assert exit_code == 0, f"exit={exit_code}: {output}"
 
     def test_corrupt_log_warns_and_does_not_block(self, tmp_path, monkeypatch):
         """Bug #2: corrupt sessions_spawn.log → warning printed, NOT blocked (exit != 5)."""

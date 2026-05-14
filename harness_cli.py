@@ -1001,7 +1001,7 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                 print(f"   - [ ] {gap}")
             if len(actual_gaps) > 10:
                 print(f"   ... and {len(actual_gaps) - 10} more")
-            if args.completed_phase >= 3 and not getattr(args, "force", False):
+            if args.completed_phase >= 3 and not args.force:
                 print(f"\n[BLOCKED] {len(actual_gaps)} plan steps incomplete "
                       f"— review or use --force to override.")
                 return 7
@@ -1027,7 +1027,7 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                       f"Phase {args.completed_phase}:")
                 for m in missing:
                     print(f"   - {m}")
-                if args.completed_phase >= 3 and not getattr(args, "force", False):
+                if args.completed_phase >= 3 and not args.force:
                     print(f"\n[BLOCKED] {len(missing)} deliverable(s) not found "
                           f"— create them or use --force.")
                     return 8
