@@ -321,9 +321,16 @@ class DriftDetector:
         # ── Check 2: New Python files not in any SAB layer ────────────────
         sab_file_set = {f for f in sab_files if not f.endswith("/")}
         for py_file in self.project_path.rglob("*.py"):
-            if "venv" in str(py_file) or "__pycache__" in str(py_file):
+            py_str = str(py_file)
+            if "venv" in py_str or "__pycache__" in py_str:
                 continue
-            if ".sessi-work" in str(py_file) or ".methodology" in str(py_file):
+            if ".sessi-work" in py_str or ".methodology" in py_str:
+                continue
+            # Exclude git worktrees and build artifacts — they are transient
+            # copies of source files and must not inflate the drift count.
+            if ".claude/worktrees" in py_str or "/worktrees/" in py_str:
+                continue
+            if py_str.endswith(".py") and "/build/lib/" in py_str:
                 continue
             rel = str(py_file.relative_to(self.project_path))
             if rel not in sab_file_set and not rel.startswith("tests/"):
