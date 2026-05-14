@@ -610,9 +610,9 @@ def cmd_await_hermes_approve(args: argparse.Namespace) -> int:
                 ),
             }, ensure_ascii=False, indent=2), encoding="utf-8")
             print(
-                f"\n[await-hermes-approve] ✅ AUTO-APPROVED (Hermes skipped)\n"
-                f"  Gate 4 composite : {composite_score:.1f} ≥ {AUTO_APPROVE_GATE4_COMPOSITE}\n"
-                f"  Script confidence: {conf['composite']:.1f} ≥ {AUTO_APPROVE_GATE4_CONFIDENCE}\n"
+                f"\n[AUTO-APPROVED] await-hermes-approve (Hermes skipped)\n"
+                f"  Gate 4 composite : {composite_score:.1f} >= {AUTO_APPROVE_GATE4_COMPOSITE}\n"
+                f"  Script confidence: {conf['composite']:.1f} >= {AUTO_APPROVE_GATE4_CONFIDENCE}\n"
                 f"{format_confidence_report(conf)}\n"
                 f"  Receipt written to: {receipt}\n"
                 "  You can now run: python harness_cli.py finalize-gate --gate 4 --phase 6"
@@ -1057,6 +1057,7 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
         return 1
 
     # ── Confidence gate: block push-checkpoint if deliverables are insufficient ──
+    skip_conf = getattr(args, "skip_confidence", False)
     try:
         from core.quality_gate.confidence_scorer import (
             compute_confidence,
@@ -1066,19 +1067,29 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
         )
         conf = compute_confidence(project, phase)
         if not should_auto_approve_p1p2(conf):
+            if skip_conf:
+                print(
+                    f"\n[WARN] push-checkpoint (P{phase}): "
+                    f"confidence {conf['composite']:.1f} < {AUTO_APPROVE_P1P2_THRESHOLD} "
+                    f"(--skip-confidence active — proceeding anyway)\n"
+                    f"{format_confidence_report(conf)}"
+                )
+            else:
+                print(
+                    f"\n[BLOCKED] push-checkpoint (P{phase}): "
+                    f"confidence {conf['composite']:.1f} < {AUTO_APPROVE_P1P2_THRESHOLD}\n"
+                    f"  Fix the following before pushing:\n"
+                    f"{format_confidence_report(conf)}\n"
+                    "  Ensure all required artifacts are present and FRs are defined.\n"
+                    "  To override: add --skip-confidence (shows report, does not block)"
+                )
+                return 5
+        else:
             print(
-                f"\n[BLOCKED] push-checkpoint (P{phase}): "
-                f"confidence {conf['composite']:.1f} < {AUTO_APPROVE_P1P2_THRESHOLD}\n"
-                f"  Fix the following before pushing:\n"
-                f"{format_confidence_report(conf)}\n"
-                "  Ensure all required artifacts are present and FRs are defined."
+                f"\n[push-checkpoint] Confidence {conf['composite']:.1f} >= "
+                f"{AUTO_APPROVE_P1P2_THRESHOLD} — auto-approved\n"
+                f"{format_confidence_report(conf)}"
             )
-            return 5
-        print(
-            f"\n[push-checkpoint] Confidence {conf['composite']:.1f} ≥ "
-            f"{AUTO_APPROVE_P1P2_THRESHOLD} — auto-approved\n"
-            f"{format_confidence_report(conf)}"
-        )
     except ImportError:
         print("[WARN] confidence_scorer unavailable — skipping confidence check")
 
@@ -2946,6 +2957,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Comma-separated FR IDs (e.g., FR-01,FR-02)")
     pc.add_argument("--no-git", action="store_true", dest="no_git",
                     help="Disable git commit/push (HANDOVER.md still written)")
+    pc.add_argument("--skip-confidence", action="store_true", dest="skip_confidence",
+                    help="Skip confidence gate check (shows report but does not block)")
     pc.set_defaults(func=cmd_push_checkpoint)
 
     # push-milestone (P3+ milestone push + HANDOVER.md)

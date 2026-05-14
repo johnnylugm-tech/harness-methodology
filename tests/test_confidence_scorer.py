@@ -78,6 +78,25 @@ class TestTestCoverage:
         assert score == pytest.approx(87.5)
         assert "cached" in detail
 
+    def test_reads_percent_covered_display_fallback(self, tmp_path):
+        """Handles pytest-cov >= 4.x 'percent_covered_display' string key."""
+        cov = tmp_path / "coverage.json"
+        cov.write_text(json.dumps({"totals": {"percent_covered_display": "72.5%"}}), encoding="utf-8")
+        score, detail = _score_test_coverage(tmp_path)
+        assert score == pytest.approx(72.5)
+        assert "cached" in detail
+
+    def test_reads_covered_lines_fallback(self, tmp_path):
+        """Falls back to covered_lines/num_statements when no percent key present."""
+        cov = tmp_path / "coverage.json"
+        cov.write_text(
+            json.dumps({"totals": {"covered_lines": 80, "num_statements": 100}}),
+            encoding="utf-8",
+        )
+        score, detail = _score_test_coverage(tmp_path)
+        assert score == pytest.approx(80.0)
+        assert "cached" in detail
+
     def test_returns_none_on_tool_missing(self, tmp_path):
         with patch("subprocess.run", side_effect=FileNotFoundError):
             score, detail = _score_test_coverage(tmp_path)
@@ -241,12 +260,12 @@ class TestTraceability:
         score, detail = _score_traceability(tmp_path)
         assert score == pytest.approx(50.0)
 
-    def test_all_frs_with_gate_pass_returns_100(self, tmp_path):
+    def test_all_frs_with_project_level_gate_returns_100(self, tmp_path):
+        """gate2/3/4 are project-level: passing any one credits all FRs."""
         (tmp_path / ".methodology").mkdir()
         manifest = {
             "fr_ids": ["FR-01", "FR-02"],
             "gate_results": {
-                "gate1": {"quality_complete": True},
                 "gate2": {"quality_complete": True},
             }
         }
@@ -254,8 +273,40 @@ class TestTraceability:
             json.dumps(manifest), encoding="utf-8"
         )
         score, detail = _score_traceability(tmp_path)
-        # Both FRs should match via generic gate keys
         assert score == pytest.approx(100.0)
+
+    def test_generic_gate1_does_not_credit_all_frs(self, tmp_path):
+        """gate1 is per-FR; a generic 'gate1' key must NOT credit every FR."""
+        (tmp_path / ".methodology").mkdir()
+        manifest = {
+            "fr_ids": ["FR-01", "FR-02"],
+            "gate_results": {
+                "gate1": {"quality_complete": True},  # generic — should be ignored
+            }
+        }
+        (tmp_path / ".methodology" / "quality_manifest.json").write_text(
+            json.dumps(manifest), encoding="utf-8"
+        )
+        score, detail = _score_traceability(tmp_path)
+        # 0 FRs credited → partial credit 40
+        assert score == pytest.approx(40.0)
+
+    def test_fr_specific_gate1_credits_only_that_fr(self, tmp_path):
+        """gate1_FR-01 credits FR-01 but not FR-02."""
+        (tmp_path / ".methodology").mkdir()
+        manifest = {
+            "fr_ids": ["FR-01", "FR-02"],
+            "gate_results": {
+                "gate1_FR-01": {"quality_complete": True},
+            }
+        }
+        (tmp_path / ".methodology" / "quality_manifest.json").write_text(
+            json.dumps(manifest), encoding="utf-8"
+        )
+        score, detail = _score_traceability(tmp_path)
+        # 1/2 FRs credited
+        assert score == pytest.approx(50.0)
+        assert "1/2" in detail
 
 
 # ── compute_confidence() ─────────────────────────────────────────────────────

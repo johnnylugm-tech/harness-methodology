@@ -15,7 +15,7 @@ Metrics (C1-C7):
     C7  traceability           FR coverage in quality_manifest.json
 
 Usage:
-    from core.quality_gate.confidence_scorer import compute_confidence, should_auto_approve
+    from core.quality_gate.confidence_scorer import compute_confidence, should_auto_approve_gate4
 
     conf = compute_confidence(project_path, phase=6)
     if should_auto_approve_gate4(conf, composite_score=90.0):
@@ -24,6 +24,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -121,13 +122,32 @@ def _score_artifact_completeness(project: Path, phase: int, **_kw) -> tuple[Opti
 def _score_test_coverage(project: Path, timeout: int = 90, **_kw) -> tuple[Optional[float], str]:
     """C2: pytest --cov percentage (reads cached report if fresh)."""
     # Try to read an existing coverage.json first
+    def _extract_pct(data: dict) -> Optional[float]:
+        """Extract coverage % from coverage.json totals; handles old and new pytest-cov schemas."""
+        totals = data.get("totals", {})
+        pct = totals.get("percent_covered")
+        if pct is None:
+            # pytest-cov ≥ 4.x may emit percent_covered_display (string) or covered_lines/num_statements
+            raw = totals.get("percent_covered_display")
+            if raw is not None:
+                try:
+                    pct = float(str(raw).rstrip("%"))
+                except ValueError:
+                    pass
+        if pct is None:
+            num = totals.get("num_statements", 0)
+            covered = totals.get("covered_lines", 0)
+            if num:
+                pct = covered / num * 100.0
+        return float(pct) if pct is not None else None
+
     for candidate in [project / "coverage.json", project / ".coverage.json"]:
         if candidate.exists():
             try:
                 data = json.loads(candidate.read_text(encoding="utf-8"))
-                pct = data.get("totals", {}).get("percent_covered", None)
+                pct = _extract_pct(data)
                 if pct is not None:
-                    return float(pct), f"coverage={pct:.1f}% (cached)"
+                    return pct, f"coverage={pct:.1f}% (cached)"
             except (json.JSONDecodeError, KeyError):
                 pass
 
@@ -145,7 +165,7 @@ def _score_test_coverage(project: Path, timeout: int = 90, **_kw) -> tuple[Optio
         cov_file = project / "coverage.json"
         if cov_file.exists():
             data = json.loads(cov_file.read_text(encoding="utf-8"))
-            pct = data.get("totals", {}).get("percent_covered", 0)
+            pct = _extract_pct(data) or 0.0
             return float(pct), f"coverage={pct:.1f}%"
         return None, "coverage.json not produced"
     except subprocess.TimeoutExpired:
@@ -230,7 +250,6 @@ def _score_test_pass_rate(project: Path, timeout: int = 90, **_kw) -> tuple[Opti
         )
         # Parse "N passed, M failed" from output
         output = result.stdout + result.stderr
-        import re
         passed_m = re.search(r"(\d+) passed", output)
         failed_m = re.search(r"(\d+) failed", output)
         passed = int(passed_m.group(1)) if passed_m else 0
@@ -290,12 +309,19 @@ def _score_traceability(project: Path, **_kw) -> tuple[Optional[float], str]:
         return 50.0, "no FR IDs defined in manifest"
 
     gates = manifest.get("gate_results", {})
+    # Gate 1 is per-FR (key: gate1_FR-xx); Gates 2-4 are project-level (key: gate2/3/4).
+    # A project-level gate pass means the whole project cleared that phase, so all
+    # FRs get credit.  A generic "gate1" key does NOT credit all FRs — it must be
+    # the FR-specific key "gate1_{fr}" to avoid false positives.
+    project_gate_passed = any(
+        gates.get(f"gate{g}", {}).get("quality_complete")
+        for g in [2, 3, 4]
+    )
     passed_frs = sum(
         1 for fr in fr_ids
-        if any(
-            gates.get(f"gate1_{fr}", {}).get("quality_complete")
-            or gates.get(f"gate{g}", {}).get("quality_complete")
-            for g in [1, 2, 3, 4]
+        if (
+            project_gate_passed
+            or gates.get(f"gate1_{fr}", {}).get("quality_complete")
         )
     )
     # Even with 0 gates passed, give partial credit if FRs are defined
