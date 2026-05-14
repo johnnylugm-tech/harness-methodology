@@ -1681,3 +1681,234 @@ class TestFinalizeGateHR10:
         assert exit_code in (0, 1), f"Expected exit 0 or 1 (not hard-block 5), got {exit_code}"
         assert "parse error" in output.lower()
         assert "HR-10" in output
+
+
+# ---------------------------------------------------------------------------
+# Tests: --force P3+ rejection + --emergency-override (D1/D2 improvements)
+# ---------------------------------------------------------------------------
+
+class TestForceRestriction:
+    """--force must be rejected for P3+; --emergency-override is the P3+ escape hatch."""
+
+    @staticmethod
+    def _call(monkeypatch, tmp_path, *, completed, force=False,
+              emergency_override=False, reason=""):
+        import io
+        from harness_cli import cmd_advance_phase
+
+        class Args:
+            pass
+        a = Args()
+        a.completed_phase = completed
+        a.project = str(tmp_path)
+        a.force = force
+        a.emergency_override = emergency_override
+        a.reason = reason
+
+        captured = io.StringIO()
+        monkeypatch.setattr("sys.stdout", captured)
+        monkeypatch.setattr("harness_cli._advance_fsm", lambda project, phase, **kw: None)
+        monkeypatch.setattr(
+            "harness.handover_generator.HandoverGenerator.write",
+            lambda self, **kw: tmp_path / "HANDOVER.md",
+        )
+        monkeypatch.setenv("HARNESS_NO_GIT", "1")
+        try:
+            exit_code = cmd_advance_phase(a)
+        except SystemExit as e:
+            exit_code = e.code
+        return exit_code, captured.getvalue()
+
+    def test_force_p3_rejected_exit9(self, tmp_path, monkeypatch):
+        """--force on P3 must return exit 9 with clear error message."""
+        exit_code, output = self._call(monkeypatch, tmp_path, completed=3, force=True)
+        assert exit_code == 9
+        assert "not permitted" in output.lower() or "P3+" in output
+
+    def test_force_p6_rejected_exit9(self, tmp_path, monkeypatch):
+        """--force on P6 must also return exit 9."""
+        exit_code, output = self._call(monkeypatch, tmp_path, completed=6, force=True)
+        assert exit_code == 9
+
+    def test_force_p1_allowed(self, tmp_path, monkeypatch):
+        """--force on P1 is still permitted (human-gated phase)."""
+        # P1 → P2: no plan file, no deliverables configured → passes cleanly
+        exit_code, output = self._call(monkeypatch, tmp_path, completed=1, force=True)
+        assert exit_code == 0, f"P1 --force should be allowed, got exit={exit_code}\n{output}"
+
+    def test_force_p2_allowed(self, tmp_path, monkeypatch):
+        """--force on P2 is also still permitted."""
+        exit_code, output = self._call(monkeypatch, tmp_path, completed=2, force=True)
+        assert exit_code == 0, f"P2 --force should be allowed, got exit={exit_code}\n{output}"
+
+    def test_emergency_override_requires_reason(self, tmp_path, monkeypatch):
+        """--emergency-override without --reason must return exit 9."""
+        exit_code, output = self._call(
+            monkeypatch, tmp_path, completed=3, emergency_override=True, reason=""
+        )
+        assert exit_code == 9
+        assert "reason" in output.lower()
+
+    def test_emergency_override_with_reason_writes_log(self, tmp_path, monkeypatch):
+        """--emergency-override --reason=... logs to .methodology/force_bypass.log."""
+        import json as _json
+        exit_code, output = self._call(
+            monkeypatch, tmp_path, completed=3,
+            emergency_override=True, reason="CI deadline — fix tracked in JIRA-42",
+        )
+        # Should proceed (no hard block from --emergency-override itself)
+        assert exit_code == 0, f"emergency-override with reason should pass: {output}"
+
+        bypass_log = tmp_path / ".methodology" / "force_bypass.log"
+        assert bypass_log.exists(), "force_bypass.log must be written"
+        entry = _json.loads(bypass_log.read_text().strip())
+        assert entry["phase"] == 3
+        assert "JIRA-42" in entry["reason"]
+
+    def test_emergency_override_p3_warns_in_subsequent_advance(
+        self, tmp_path, monkeypatch
+    ):
+        """If force_bypass.log exists, next advance-phase prints a warning."""
+        # Pre-create the bypass log
+        log = tmp_path / ".methodology" / "force_bypass.log"
+        log.parent.mkdir(parents=True, exist_ok=True)
+        log.write_text('{"ts":"2026-01-01","phase":3,"reason":"test"}\n')
+
+        # P2 → P3 has no mandatory deliverable check in the enforcer, so warning is reached
+        exit_code, output = self._call(monkeypatch, tmp_path, completed=2)
+        assert "force_bypass.log" in output or "bypass" in output.lower()
+
+
+# ---------------------------------------------------------------------------
+# Tests: Gate 4 prerequisite checks (_check_gate4_prerequisites)
+# ---------------------------------------------------------------------------
+
+class TestGate4Prerequisites:
+    """_check_gate4_prerequisites returns True (blocked) when requirements unmet."""
+
+    def _make_project(self, tmp_path: Path) -> Path:
+        """Minimal project with all Gate 4 prerequisites satisfied."""
+        import json as _json
+        methodology = tmp_path / ".methodology"
+        methodology.mkdir(parents=True, exist_ok=True)
+
+        # A1: Hermes receipt
+        (methodology / "hermes_g4_receipt.json").write_text(_json.dumps({
+            "ts": "2026-01-01T00:00:00+00:00",
+            "approved_by": "hermes",
+            "composite_score": 87.5,
+        }))
+
+        # gate4_result.json (A2/A3/A4/A5)
+        scores_dir = tmp_path / ".sessi-work" / "round_1" / "scores"
+        scores_dir.mkdir(parents=True, exist_ok=True)
+        (scores_dir / "architecture.json").write_text(_json.dumps({"score": 88}))
+
+        issue_registry = methodology / "issue_registry.json"
+        issue_registry.write_text(_json.dumps([{"id": "I-01", "dim": "architecture"}]))
+
+        result_file = tmp_path / ".sessi-work" / "gate4_result.json"
+        result_file.write_text(_json.dumps({
+            "composite_score": 87.5,
+            "breakdown": {
+                "architecture": {"llm_score": 88, "score": 88},
+                "linting": {"llm_score": 92, "score": 92},
+            },
+            "model_used": {
+                "architecture": "claude-sonnet",
+                "linting": "gemini-flash",
+            },
+            "devil_advocate": {
+                "architecture": True,
+                "readability": True,
+                "error_handling": True,
+                "documentation": True,
+                "performance": True,
+            },
+            "high_score_confirmations": {
+                "linting": {
+                    "negative_space_verified": True,
+                    "crg_cited": True,
+                    "tool_triangulated": True,
+                },
+                "architecture": {
+                    "negative_space_verified": True,
+                    "crg_cited": True,
+                    "tool_triangulated": True,
+                },
+            },
+            "issue_registry_path": ".methodology/issue_registry.json",
+        }))
+
+        return tmp_path
+
+    def test_all_prerequisites_met_not_blocked(self, tmp_path):
+        """When all prerequisites are satisfied, returns False (not blocked)."""
+        from harness_cli import _check_gate4_prerequisites
+        project = self._make_project(tmp_path)
+        assert _check_gate4_prerequisites(project) is False
+
+    def test_missing_hermes_receipt_blocked(self, tmp_path):
+        """Missing Hermes receipt blocks Gate 4 (A1)."""
+        from harness_cli import _check_gate4_prerequisites
+        project = self._make_project(tmp_path)
+        (project / ".methodology" / "hermes_g4_receipt.json").unlink()
+        assert _check_gate4_prerequisites(project) is True
+
+    def test_tier1_dim_using_claude_blocked(self, tmp_path):
+        """Tier 1/2 dim (linting) evaluated with Claude instead of gemini blocks (A2)."""
+        import json as _json
+        from harness_cli import _check_gate4_prerequisites
+        project = self._make_project(tmp_path)
+        result_file = project / ".sessi-work" / "gate4_result.json"
+        data = _json.loads(result_file.read_text())
+        data["model_used"]["linting"] = "claude-sonnet"   # wrong — Tier 1 must use gemini
+        result_file.write_text(_json.dumps(data))
+        assert _check_gate4_prerequisites(project) is True
+
+    def test_devil_advocate_missing_dim_blocked(self, tmp_path):
+        """Tier 3 dim without devil_advocate=True blocks (A3)."""
+        import json as _json
+        from harness_cli import _check_gate4_prerequisites
+        project = self._make_project(tmp_path)
+        result_file = project / ".sessi-work" / "gate4_result.json"
+        data = _json.loads(result_file.read_text())
+        data["devil_advocate"]["architecture"] = False
+        result_file.write_text(_json.dumps(data))
+        assert _check_gate4_prerequisites(project) is True
+
+    def test_high_score_missing_confirmation_blocked(self, tmp_path):
+        """Dim with llm_score ≥ 85 without full confirmation blocks (A4)."""
+        import json as _json
+        from harness_cli import _check_gate4_prerequisites
+        project = self._make_project(tmp_path)
+        result_file = project / ".sessi-work" / "gate4_result.json"
+        data = _json.loads(result_file.read_text())
+        # Remove one confirmation key
+        data["high_score_confirmations"]["linting"]["crg_cited"] = False
+        result_file.write_text(_json.dumps(data))
+        assert _check_gate4_prerequisites(project) is True
+
+    def test_missing_issue_registry_blocked(self, tmp_path):
+        """Missing issue_registry file blocks (A5)."""
+        import json as _json
+        from harness_cli import _check_gate4_prerequisites
+        project = self._make_project(tmp_path)
+        (project / ".methodology" / "issue_registry.json").unlink()
+        assert _check_gate4_prerequisites(project) is True
+
+    def test_empty_scores_dir_blocked(self, tmp_path):
+        """Empty per-dim scores directory blocks (B2)."""
+        from harness_cli import _check_gate4_prerequisites
+        project = self._make_project(tmp_path)
+        for f in (project / ".sessi-work" / "round_1" / "scores").glob("*.json"):
+            f.unlink()
+        assert _check_gate4_prerequisites(project) is True
+
+    def test_missing_scores_dir_blocked(self, tmp_path):
+        """Missing scores directory blocks (B2)."""
+        import shutil as _shutil
+        from harness_cli import _check_gate4_prerequisites
+        project = self._make_project(tmp_path)
+        _shutil.rmtree(project / ".sessi-work" / "round_1" / "scores")
+        assert _check_gate4_prerequisites(project) is True

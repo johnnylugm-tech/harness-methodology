@@ -24,7 +24,8 @@ Usage:
     python harness_cli.py init-project      --project /path/to/target [--phase 3] [--force]
     python harness_cli.py push-checkpoint   --phase 1|2 --project . [--fr-ids FR-01,FR-02]
     python harness_cli.py push-milestone    --type p3-mid|p3-pre-ssi|p5-baseline|p7|p8 --project .
-    python harness_cli.py advance-phase     --completed-phase 3 [--project .]
+    python harness_cli.py advance-phase     --completed-phase 3 [--project .] [--emergency-override --reason="..."]
+    python harness_cli.py await-hermes-approve --project . [--timeout-ms 600000] [--response APPROVE|REJECT]
     python harness_cli.py dispatch          --role developer|reviewer --fr-id FR-01 --prompt "..." --phase 3
 
 Gate Evaluation (two-phase flow):
@@ -42,9 +43,11 @@ Exit codes:
     0   All phases complete
     1   Hard failure (investigate error)
     2   run-gap-analysis: critical gaps detected (distinct from hard error)
-    5   HR-01/HR-10 block — A/B self-review or missing sessions_spawn.log entries
+    5   HR-01/HR-10 block — A/B self-review or missing sessions_spawn.log entries;
+        also Gate 4 prerequisites (Hermes receipt, A2-A5 schema, B2 score files)
     7   Plan incompletion block — unchecked mandatory steps in phaseN_plan.md
     8   Missing deliverables block — required artifacts not found on disk
+    9   Illegal --force use (P3+) or invalid --emergency-override (missing --reason)
     10  PAUSE — Claude must evaluate gate; run finalize-gate then re-run pipeline
     11  Phase Truth < 90% (HR-11); fix and re-run with --phase-from N
 """
@@ -314,6 +317,328 @@ def cmd_run_gate(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Gate 4 prerequisite checks  (A1 Hermes receipt, A2-A5 schema, B2 score files)
+# ---------------------------------------------------------------------------
+
+# Tier 3 dimensions that require Devil's Advocate (A3) and high-score confirmation (A4)
+_TIER3_DIMS: frozenset[str] = frozenset({
+    "architecture", "readability", "error_handling", "documentation", "performance",
+})
+# Score threshold that triggers the high-score confirmation requirement (A4)
+_HIGH_SCORE_THRESHOLD: float = 85.0
+# Per-dim score file directory (relative to project root)
+_SCORES_SUBDIR = Path(".sessi-work") / "round_1" / "scores"
+
+
+def _check_gate4_prerequisites(project: Path) -> bool:
+    """
+    Run all Gate 4 blocking prerequisites before calling bridge.finalize_gate.
+
+    Returns True (blocked) if any prerequisite fails, False (clear) otherwise.
+
+    Checks:
+        A1 — Hermes APPROVE receipt file exists
+        A2 — model_used field: Tier 1/2 dims used gemini-flash
+        A3 — devil_advocate field: all Tier 3 dims marked done
+        A4 — high_score_confirmations: dims with llm_score ≥ 85 have 3-item confirmation
+        A5 — issue_registry_path: file exists and is non-empty
+        B2 — per-dim score files exist under .sessi-work/round_1/scores/
+    """
+    blocked = False
+
+    # ── A1: Hermes APPROVE receipt ────────────────────────────────────
+    receipt = project / ".methodology" / "hermes_g4_receipt.json"
+    if not receipt.exists():
+        print(
+            "\n[BLOCKED] Gate 4 (A1): Hermes APPROVE receipt not found.\n"
+            f"  Expected: {receipt}\n"
+            "  Run:  python harness_cli.py await-hermes-approve --project .\n"
+            "  Then re-run finalize-gate --gate 4."
+        )
+        blocked = True
+
+    # ── Load gate4_result.json for A2/A3/A4/A5 ───────────────────────
+    result_candidates = [
+        project / ".sessi-work" / "gate4_result.json",
+        project / ".methodology" / "gate4_result.json",
+        project / "gate4_result.json",
+    ]
+    g4: dict = {}
+    for candidate in result_candidates:
+        if candidate.exists():
+            try:
+                g4 = json.loads(candidate.read_text(encoding="utf-8"))
+                break
+            except Exception as _e:
+                print(f"[Gate 4] ⚠ Could not parse {candidate}: {_e} — skipping extended checks")
+
+    if g4:
+        # ── A2: model_used routing ────────────────────────────────────
+        model_used: dict = g4.get("model_used", {})
+        if not model_used:
+            print(
+                "\n[BLOCKED] Gate 4 (A2): 'model_used' field missing from gate4_result.json.\n"
+                "  Add a 'model_used' dict mapping each dimension name to the model/provider used.\n"
+                "  Tier 1/2 dims must use gemini-flash; Tier 3 dims must use claude."
+            )
+            blocked = True
+        else:
+            wrong_tier = [
+                f"{dim}={model}" for dim, model in model_used.items()
+                if dim not in _TIER3_DIMS and "claude" in str(model).lower()
+            ]
+            if wrong_tier:
+                print(
+                    f"\n[BLOCKED] Gate 4 (A2): Tier 1/2 dimensions evaluated with Claude "
+                    f"instead of Gemini Flash:\n"
+                    + "\n".join(f"  - {w}" for w in wrong_tier) + "\n"
+                    "  Re-evaluate these dims using llm_router.py (Tier 1/2 → gemini-flash)."
+                )
+                blocked = True
+
+        # ── A3: Devil's Advocate for Tier 3 dims ─────────────────────
+        devil_advocate: dict = g4.get("devil_advocate", {})
+        if not devil_advocate:
+            print(
+                "\n[BLOCKED] Gate 4 (A3): 'devil_advocate' field missing from gate4_result.json.\n"
+                "  For each Tier 3 dimension, add devil_advocate: {dim: true/false}.\n"
+                f"  Required dims: {sorted(_TIER3_DIMS)}"
+            )
+            blocked = True
+        else:
+            not_done = [d for d in _TIER3_DIMS if not devil_advocate.get(d, False)]
+            if not_done:
+                print(
+                    f"\n[BLOCKED] Gate 4 (A3): Devil's Advocate challenge not completed for:\n"
+                    + "\n".join(f"  - {d}" for d in sorted(not_done)) + "\n"
+                    "  For each Tier 3 dim, have a second model (Gemini) challenge Claude's findings,\n"
+                    "  then set devil_advocate.<dim> = true in gate4_result.json."
+                )
+                blocked = True
+
+        # ── A4: High-score confirmation (llm_score ≥ 85) ─────────────
+        breakdown: dict = g4.get("breakdown", g4.get("dimensions", {}))
+        high_score_confirmations: dict = g4.get("high_score_confirmations", {})
+        _confirmation_keys = ("negative_space_verified", "crg_cited", "tool_triangulated")
+        high_dims = [
+            dim for dim, data in breakdown.items()
+            if isinstance(data, dict) and data.get("llm_score", data.get("score", 0)) >= _HIGH_SCORE_THRESHOLD
+        ]
+        if high_dims and not high_score_confirmations:
+            print(
+                f"\n[BLOCKED] Gate 4 (A4): 'high_score_confirmations' field missing.\n"
+                f"  {len(high_dims)} dimension(s) have llm_score ≥ {_HIGH_SCORE_THRESHOLD}:\n"
+                + "\n".join(f"  - {d}" for d in sorted(high_dims)) + "\n"
+                "  For each, add high_score_confirmations.<dim> with:\n"
+                "    negative_space_verified: true/false\n"
+                "    crg_cited: true/false\n"
+                "    tool_triangulated: true/false"
+            )
+            blocked = True
+        else:
+            incomplete_confirmations = []
+            for dim in high_dims:
+                conf = high_score_confirmations.get(dim, {})
+                missing_keys = [k for k in _confirmation_keys if not conf.get(k, False)]
+                if missing_keys:
+                    incomplete_confirmations.append(f"{dim}: missing {missing_keys}")
+            if incomplete_confirmations:
+                print(
+                    f"\n[BLOCKED] Gate 4 (A4): High-score confirmations incomplete:\n"
+                    + "\n".join(f"  - {c}" for c in incomplete_confirmations) + "\n"
+                    "  All three confirmations required: negative_space_verified, crg_cited, tool_triangulated."
+                )
+                blocked = True
+
+        # ── A5: Issue Registry ────────────────────────────────────────
+        issue_registry_path_str: str = g4.get("issue_registry_path", "")
+        if not issue_registry_path_str:
+            print(
+                "\n[BLOCKED] Gate 4 (A5): 'issue_registry_path' field missing from gate4_result.json.\n"
+                "  Run: python harness/ssi/scripts/issue_tracker.py add <finding> ...\n"
+                "  Then set issue_registry_path to the registry file path."
+            )
+            blocked = True
+        else:
+            issue_registry = (project / issue_registry_path_str) if not Path(issue_registry_path_str).is_absolute() else Path(issue_registry_path_str)
+            if not issue_registry.exists():
+                print(
+                    f"\n[BLOCKED] Gate 4 (A5): Issue registry not found: {issue_registry}\n"
+                    "  Populate the registry using issue_tracker.py before finalizing Gate 4."
+                )
+                blocked = True
+            else:
+                try:
+                    registry_data = json.loads(issue_registry.read_text(encoding="utf-8"))
+                    if not registry_data:
+                        print(
+                            f"\n[BLOCKED] Gate 4 (A5): Issue registry is empty: {issue_registry}\n"
+                            "  Add findings via issue_tracker.py."
+                        )
+                        blocked = True
+                except Exception:
+                    pass  # Non-JSON registry formats accepted
+
+    # ── B2: Per-dim score files ───────────────────────────────────────
+    scores_dir = project / _SCORES_SUBDIR
+    if not scores_dir.is_dir():
+        print(
+            f"\n[BLOCKED] Gate 4 (B2): Per-dimension score directory not found.\n"
+            f"  Expected: {scores_dir}\n"
+            "  Write individual <dim>.json files for each evaluated dimension."
+        )
+        blocked = True
+    else:
+        # Check that at least one score file exists (exact dim names vary by config)
+        score_files = list(scores_dir.glob("*.json"))
+        if not score_files:
+            print(
+                f"\n[BLOCKED] Gate 4 (B2): No per-dimension score files found in {scores_dir}.\n"
+                "  Write <dim>.json (e.g. architecture.json, linting.json) for each evaluated dimension."
+            )
+            blocked = True
+        else:
+            print(f"[Gate 4] B2: {len(score_files)} per-dim score file(s) found ✅")
+
+    return blocked
+
+
+# ---------------------------------------------------------------------------
+# await-hermes-approve  (Gate 4 async human approval via Hermes)
+# ---------------------------------------------------------------------------
+
+_HERMES_APPROVE_TIMEOUT_MS: int = 600_000  # 10 minutes default
+
+
+def cmd_await_hermes_approve(args: argparse.Namespace) -> int:
+    """
+    Wait for a human APPROVE via Hermes before Gate 4 can be finalized.
+
+    Flow:
+      1. Read gate4_result.json to build a score summary.
+      2. Send the summary + APPROVE/REJECT request to the configured Hermes channel.
+      3. Call events_wait (timeout 10 min) for the APPROVE response.
+      4. On APPROVE: write .methodology/hermes_g4_receipt.json and exit 0.
+      5. On REJECT or timeout: print instructions and exit 5.
+
+    The receipt file is checked by `finalize-gate --gate 4` before proceeding.
+    """
+    project = Path(args.project).resolve()
+    timeout_ms = getattr(args, "timeout_ms", _HERMES_APPROVE_TIMEOUT_MS)
+
+    # ── Build score summary from gate4_result.json ────────────────────
+    score_summary = "Gate 4 evaluation complete (score details in gate4_result.json)"
+    composite_score: float | None = None
+    for candidate in [
+        project / ".sessi-work" / "gate4_result.json",
+        project / ".methodology" / "gate4_result.json",
+        project / "gate4_result.json",
+    ]:
+        if candidate.exists():
+            try:
+                g4 = json.loads(candidate.read_text(encoding="utf-8"))
+                composite_score = g4.get("composite_score", g4.get("total_score"))
+                if composite_score is not None:
+                    score_summary = f"Gate 4 composite score: {composite_score:.1f}/100"
+                break
+            except Exception:
+                pass
+
+    project_name = project.name
+    approve_msg = (
+        f"🔍 [harness-methodology] Gate 4 — Full Project Quality Review\n"
+        f"Project : {project_name}\n"
+        f"Score   : {score_summary}\n"
+        f"Threshold: 85 (must pass)\n\n"
+        f"Please review gate4_result.json and reply:\n"
+        f"  APPROVE — quality gate passes, proceed to P7\n"
+        f"  REJECT  — quality gate fails, provide reason\n\n"
+        f"(This request will time out in {timeout_ms // 60000} minutes)"
+    )
+
+    print(f"\n[await-hermes-approve] Sending Gate 4 approval request…")
+    print(f"  Project : {project_name}")
+    print(f"  Score   : {score_summary}")
+    print(f"  Timeout : {timeout_ms // 1000}s")
+
+    # ── Hermes send + wait ────────────────────────────────────────────
+    # We use the MCP Hermes tools through subprocess since they are
+    # Claude-native tools not importable as a Python library.
+    # The actual send+wait is handled by the calling agent (Claude) which
+    # reads the HERMES_CHANNEL env var and uses mcp__hermes__messages_send
+    # followed by mcp__hermes__events_wait.
+    #
+    # This function writes a "pending" sentinel so Claude knows to:
+    #   1. Call mcp__hermes__messages_send with approve_msg
+    #   2. Call mcp__hermes__events_wait(timeout_ms=<timeout_ms>)
+    #   3. Parse the response and call this again with --response=APPROVE|REJECT
+    #
+    # If --response is already provided (second call from Claude after getting reply):
+    response = (getattr(args, "response", "") or "").strip().upper()
+    if response in ("APPROVE", "REJECT"):
+        return _hermes_process_response(project, response, approve_msg, composite_score)
+
+    # First call: write pending sentinel and print instructions for Claude
+    pending = project / ".methodology" / "hermes_g4_pending.json"
+    pending.parent.mkdir(parents=True, exist_ok=True)
+    pending.write_text(json.dumps({
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "message": approve_msg,
+        "timeout_ms": timeout_ms,
+        "composite_score": composite_score,
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    print(
+        "\n[await-hermes-approve] INSTRUCTIONS FOR CALLING AGENT:\n"
+        "  1. Call mcp__hermes__messages_send with the following message:\n"
+        f"     channel: $HERMES_CHANNEL (or configured approval channel)\n"
+        f"     message: (see {pending})\n"
+        "  2. Call mcp__hermes__events_wait with:\n"
+        f"     timeout_ms: {timeout_ms}\n"
+        "  3. Parse the reply:\n"
+        "     - Contains 'APPROVE' → run:\n"
+        "         python harness_cli.py await-hermes-approve --project . --response APPROVE\n"
+        "     - Contains 'REJECT' or timeout → run:\n"
+        "         python harness_cli.py await-hermes-approve --project . --response REJECT\n"
+    )
+    return 0  # Sentinel written; agent proceeds with Hermes calls
+
+
+def _hermes_process_response(
+    project: Path, response: str, approve_msg: str, composite_score: float | None
+) -> int:
+    """Process the APPROVE/REJECT response from Hermes and write receipt or block."""
+    pending = project / ".methodology" / "hermes_g4_pending.json"
+
+    if response == "APPROVE":
+        receipt = project / ".methodology" / "hermes_g4_receipt.json"
+        receipt.parent.mkdir(parents=True, exist_ok=True)
+        receipt.write_text(json.dumps({
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "approved_by": "hermes",
+            "composite_score": composite_score,
+            "message_sent": approve_msg[:200],
+        }, ensure_ascii=False, indent=2), encoding="utf-8")
+        # Clean up pending sentinel
+        if pending.exists():
+            pending.unlink()
+        print(
+            f"\n[await-hermes-approve] ✅ APPROVED\n"
+            f"  Receipt written to: {receipt}\n"
+            "  You can now run: python harness_cli.py finalize-gate --gate 4 --phase 6 --project ."
+        )
+        return 0
+    else:
+        print(
+            "\n[await-hermes-approve] ❌ REJECTED or TIMEOUT\n"
+            "  Gate 4 is blocked. Review the findings in gate4_result.json,\n"
+            "  address the issues, then re-run the full Gate 4 evaluation\n"
+            "  before calling await-hermes-approve again."
+        )
+        return 5
+
+
+# ---------------------------------------------------------------------------
 # finalize-gate  (Phase 2 of two-phase evaluation)
 # ---------------------------------------------------------------------------
 
@@ -361,6 +686,12 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
                 return 5
         except Exception as _e:  # pylint: disable=broad-exception-caught
             print(f"\n[WARN] HR-10: sessions_spawn.log parse error ({_e}) — skipping enforcement to avoid deadlock.")
+
+    # ── Gate 4 extra enforcement (A1/A2/A3/A4/A5/B2) ─────────────────
+    if args.gate == 4:
+        _gate4_block = _check_gate4_prerequisites(Path(project))
+        if _gate4_block:
+            return 5
 
     # Rebuild context (loads config; skips CRG recon second time since recon file already exists)
     ctx = bridge.prepare_gate(
@@ -924,6 +1255,45 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
         python harness_cli.py advance-phase --completed 3   # advances to phase 4
     """
     project = Path(args.project).resolve()
+
+    # ── --force restriction: P3+ must not bypass audits ──────────────
+    if getattr(args, "force", False) and args.completed_phase >= 3:
+        print(
+            f"\n[ERROR] --force is not permitted for P{args.completed_phase}+ "
+            f"(only P1/P2 human-gated phases may use it).\n"
+            "  For genuine emergencies, use:\n"
+            "    --emergency-override --reason='<justification>'\n"
+            "  This logs the bypass to .methodology/force_bypass.log and flags\n"
+            "  it in the next phase preflight."
+        )
+        return 9
+
+    # ── --emergency-override: P3+ bypass with mandatory audit log ────
+    if getattr(args, "emergency_override", False):
+        reason = (getattr(args, "reason", "") or "").strip()
+        if not reason:
+            print(
+                "\n[ERROR] --emergency-override requires --reason='<justification>'.\n"
+                "  Provide a non-empty reason explaining why the gate bypass is necessary."
+            )
+            return 9
+        bypass_log = project / ".methodology" / "force_bypass.log"
+        bypass_log.parent.mkdir(parents=True, exist_ok=True)
+        entry = json.dumps({
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "phase": args.completed_phase,
+            "reason": reason,
+            "operator": os.environ.get("USER", "unknown"),
+        })
+        with bypass_log.open("a", encoding="utf-8") as _fp:
+            _fp.write(entry + "\n")
+        print(
+            f"\n[EMERGENCY OVERRIDE] Bypass logged to {bypass_log}.\n"
+            f"  Phase  : {args.completed_phase}\n"
+            f"  Reason : {reason}\n"
+            "  ⚠  This bypass will be flagged in the next phase preflight.\n"
+        )
+
     next_phase = args.completed_phase + 1
 
     # Look up gate/FR state from quality_manifest.json for accurate state.json
@@ -1001,11 +1371,13 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                 print(f"   - [ ] {gap}")
             if len(actual_gaps) > 10:
                 print(f"   ... and {len(actual_gaps) - 10} more")
-            if args.completed_phase >= 3 and not args.force:
+            _override_active = (args.completed_phase <= 2 or
+                                getattr(args, "emergency_override", False))
+            if args.completed_phase >= 3 and not _override_active:
                 print(f"\n[BLOCKED] {len(actual_gaps)} plan steps incomplete "
-                      f"— review or use --force to override.")
+                      f"— review, check off items, or use --emergency-override --reason=...")
                 return 7
-            print("   (proceeding: P1/P2 human-gated or --force active)")
+            print("   (proceeding: P1/P2 human-gated or emergency-override active)")
 
     # ── Deliverable existence check ──────────────────────────────────
     try:
@@ -1027,17 +1399,28 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                       f"Phase {args.completed_phase}:")
                 for m in missing:
                     print(f"   - {m}")
-                if args.completed_phase >= 3 and not args.force:
+                _override_active = (args.completed_phase <= 2 or
+                                    getattr(args, "emergency_override", False))
+                if args.completed_phase >= 3 and not _override_active:
                     print(f"\n[BLOCKED] {len(missing)} deliverable(s) not found "
-                          f"— create them or use --force.")
+                          f"— create them or use --emergency-override --reason=...")
                     return 8
-                print("   (proceeding: P1/P2 human-gated or --force active)")
+                print("   (proceeding: P1/P2 human-gated or emergency-override active)")
     except ImportError:
         print("[advance-phase] ⚠ PhaseArtifactRegistry unavailable — "
               "skipping deliverable check")
     except Exception as _exc:
         print(f"[advance-phase] ⚠ Deliverable check error ({_exc}) — "
               "skipping, manual verification recommended")
+
+    # ── force_bypass.log warning for next phase ──────────────────────
+    bypass_log = project / ".methodology" / "force_bypass.log"
+    if bypass_log.exists():
+        print(
+            f"\n[advance-phase] ⚠  force_bypass.log detected — {bypass_log}\n"
+            "  One or more phase audits were emergency-overridden in this project.\n"
+            "  Review the log and ensure bypassed items are resolved before P8."
+        )
 
     print(f"\n[advance-phase] Completed phase {args.completed_phase} → advancing to {next_phase}")
     _advance_fsm(project, args.completed_phase,
@@ -2597,9 +2980,38 @@ def build_parser() -> argparse.ArgumentParser:
         help="Phase number that just completed (advance-phase --completed 3 → sets phase 4)",
     )
     adv.add_argument("--project", default=".", help="Project root (default: .)")
-    adv.add_argument("--force", action="store_true",
-                     help="Override plan/deliverable block (P1/P2 or emergency)")
+    adv.add_argument(
+        "--force", action="store_true",
+        help="Override plan/deliverable block for P1/P2 human-gated phases only. "
+             "Rejected for P3+ — use --emergency-override instead.",
+    )
+    adv.add_argument(
+        "--emergency-override", action="store_true", dest="emergency_override",
+        help="[P3+ emergency] Bypass plan/deliverable checks. Requires --reason. "
+             "Logs to .methodology/force_bypass.log for post-hoc audit.",
+    )
+    adv.add_argument(
+        "--reason", default="", metavar="TEXT",
+        help="Mandatory justification for --emergency-override.",
+    )
     adv.set_defaults(func=cmd_advance_phase)
+
+    # await-hermes-approve (Gate 4 async human approval)
+    aha = sub.add_parser(
+        "await-hermes-approve",
+        help="Send Gate 4 result to Hermes and wait for APPROVE/REJECT. "
+             "Writes .methodology/hermes_g4_receipt.json on APPROVE.",
+    )
+    aha.add_argument("--project", default=".", help="Project root (default: .)")
+    aha.add_argument(
+        "--timeout-ms", type=int, default=_HERMES_APPROVE_TIMEOUT_MS, dest="timeout_ms",
+        help=f"Hermes events_wait timeout in milliseconds (default: {_HERMES_APPROVE_TIMEOUT_MS})",
+    )
+    aha.add_argument(
+        "--response", default="", choices=["", "APPROVE", "REJECT"],
+        help="Pass APPROVE or REJECT after receiving the Hermes reply.",
+    )
+    aha.set_defaults(func=cmd_await_hermes_approve)
 
     # dispatch
     dp = sub.add_parser("dispatch", help="Spawn Agent A/B + auto-log to sessions_spawn.log (HR-10)")

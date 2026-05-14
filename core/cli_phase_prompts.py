@@ -438,7 +438,7 @@ HR-15 enforced: citations must include 'filename#Llinenum' format
 ═══════════════════════════════════════
 ```""",
         "reviewer": """```
-TASK: Review System Baseline + Monitoring Plan
+TASK: Review System Baseline + Verification Report
 TASK_ID: task-p5-review
 ═══════════════════════════════════════
 
