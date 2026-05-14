@@ -124,8 +124,32 @@ if command -v mutmut >/dev/null 2>&1; then
     unset _paths _d
   fi
   unset _mutmut_needs_config
+
+  # Workaround: editable install (pip install -e) places a .pth file in
+  # site-packages pointing to the original source directory. When mutmut
+  # copies code to /tmp/mutmut-* and mutates it, Python resolves imports
+  # via the .pth file back to the ORIGINAL (unmutated) code — mutations
+  # are never tested. Temporarily switch to a regular install.
+  _editable_pkgs=$(pip list --editable --format json 2>/dev/null | python3 -c \
+"import sys,json; data=json.load(sys.stdin); print(' '.join(d['name'] for d in data))")
+  _restore_editable=false
+  if [ -n "$_editable_pkgs" ]; then
+    for _pkg in $_editable_pkgs; do
+      pip uninstall "$_pkg" -y --quiet 2>/dev/null
+    done
+    pip install . --quiet 2>&1 || true
+    _restore_editable=true
+  fi
+
+  # Enforce time budget from config: time_budget_seconds
   timeout $TIME_BUDGET mutmut run 2>&1
   mutmut results 2>&1 | head -100
+
+  # Restore editable install if we switched it
+  if [ "$_restore_editable" = true ]; then
+    pip uninstall "$_editable_pkgs" -y --quiet 2>/dev/null
+    pip install -e . --quiet 2>/dev/null
+  fi
 fi
 ```
 
