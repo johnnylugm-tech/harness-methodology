@@ -1,14 +1,33 @@
 #!/usr/bin/env python3
 """
-12-Dimension Quality Evaluation for harness-methodology.
-Adapted for flat source layout (no 03-development/ wrapper).
+12-Dimension Quality Evaluation — HARNESS SELF-EVALUATION ONLY.
+
+⚠  SCOPE GUARD: This script evaluates the harness-methodology repo itself
+   (CI self-eval / dogfooding). It is NOT a gate evaluation tool for target
+   projects. Gate evaluation follows harness/ssi/prompts/evaluate_dimension.md.
+
+   If you are a Claude agent running a Gate evaluation for a target project,
+   DO NOT call this script. Follow evaluate_dimension.md instead.
 """
 import json, subprocess, statistics, sys, re, os, shutil
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 
-PROJECT = Path(__file__).resolve().parent.parent
+PROJECT = Path(__file__).resolve().parent.parent.parent.parent  # harness-methodology root
+
+# ── Scope guard: refuse to run when invoked from outside the harness repo ──
+_HARNESS_SENTINEL = PROJECT / "harness_cli.py"
+if not _HARNESS_SENTINEL.exists() and __name__ == "__main__":
+    print(
+        "[eval_12d] ERROR: This script is for harness self-evaluation only.\n"
+        "  It must be run from within the harness-methodology repository.\n"
+        "  For gate evaluation of a target project, follow:\n"
+        "    harness/ssi/prompts/evaluate_dimension.md",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
 SRC_DIRS = ["core", "harness", "detection", "enforcement", "gap_detector", "kill_switch", "steering", "scripts"]
 EXCLUDE_FILES = {"cli.py", "harness_cli.py", "__init__.py"}
 EXCLUDE_DIRS = {"tests", "__pycache__", ".git", "venv", "node_modules"}

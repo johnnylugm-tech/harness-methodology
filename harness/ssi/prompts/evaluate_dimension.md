@@ -66,9 +66,18 @@ pyright src/ --outputjson 2>&1 | head -200
 
 ### test_coverage (Tier 1)
 ```bash
-coverage run -m pytest && coverage report --format=json
+# C1: retry with PYTHONPATH=. if default run returns 0% or fails (import errors)
+coverage run -m pytest && coverage report --format=json \
+  || PYTHONPATH=. coverage run -m pytest && coverage report --format=json \
+  || PYTHONPATH=. python3 -m pytest --cov=. --cov-report=term-missing
+
+# JS/TS:
 nyc --reporter=json npm test
 ```
+
+> **If all variants return 0% or fail**: set `tool_score = null`, note
+> `"tool_note": "coverage tool failed — check pytest config"` in score file,
+> and use `llm_score` only (Anti-Bias Rule 3). Do NOT assign an estimated score.
 
 ### security (Tier 2)
 ```bash
@@ -89,10 +98,20 @@ scancode --license --json-pp - src/ | head -300
 
 ### mutation_testing (Tier 1)
 ```bash
-# Enforce time budget from config: time_budget_seconds
-timeout $TIME_BUDGET mutmut run 2>&1
-mutmut results 2>&1 | head -100
+# C2: verify availability BEFORE assigning any score
+command -v mutmut >/dev/null 2>&1 || pip3 install mutmut --quiet
+
+# Only run if now available:
+if command -v mutmut >/dev/null 2>&1; then
+  timeout $TIME_BUDGET mutmut run 2>&1
+  mutmut results 2>&1 | head -100
+fi
 ```
+
+> **If mutmut is unavailable after install attempt**: set `tool_score = null`,
+> note `"tool_note": "tool_unavailable: mutmut install failed"` in score file.
+> Do NOT assign 70 (or any number) as `tool_score`. The Anti-Bias Rule 3
+> fallback applies: use `llm_score` only and flag the dimension.
 
 ### architecture (Tier 3)
 ```bash
