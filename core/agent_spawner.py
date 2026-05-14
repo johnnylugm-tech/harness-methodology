@@ -96,10 +96,12 @@ class AgentSpawner:
             # effective == "claude" for P7/P8 — fall through to Claude headless CLI
 
         # Claude Code headless CLI (replaces deprecated claude_code_sdk.Task).
-        # --bare skips CLAUDE.md/hooks/skills/MCP/plugins: the spawned agent
-        # only sees what _build_prompt() packs into the prompt (persona + SOP +
-        # task + context).  This enforces need-to-know isolation — the agent
-        # cannot read harness rules or trigger recursive harness behaviour.
+        # Isolation flags replace --bare: --setting-sources "" blocks
+        # CLAUDE.md + hooks; --disable-slash-commands blocks skills;
+        # --strict-mcp-config --mcp-config '{}' blocks MCP.
+        # OAuth auth works (unlike --bare which forces API key).
+        # The spawned agent only sees what _build_prompt() packs into the
+        # prompt (persona + SOP + task + context).
         cli = shutil.which("claude")
         if not cli:
             raise RuntimeError(
@@ -109,7 +111,9 @@ class AgentSpawner:
         cmd = [
             cli, "-p", full_prompt,
             "--output-format", "json",
-            "--bare",
+            "--setting-sources", "",
+            "--disable-slash-commands",
+            "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
             "--max-turns", "1",
             "--permission-mode", "acceptEdits",
             "--no-session-persistence",

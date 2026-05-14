@@ -63,7 +63,10 @@ class TestAgentSpawner:
                     # Verify CLI flags for need-to-know isolation
                     mock_run.assert_called_once()
                     cmd = mock_run.call_args[0][0]
-                    assert "--bare" in cmd
+                    assert "--setting-sources" in cmd
+                    assert "" in cmd
+                    assert "--disable-slash-commands" in cmd
+                    assert "--strict-mcp-config" in cmd
                     assert "--max-turns" in cmd
                     assert "1" in cmd
                     assert "--no-session-persistence" in cmd
