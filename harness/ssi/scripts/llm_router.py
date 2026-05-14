@@ -51,18 +51,23 @@ TIER_CONFIG = {
     1: {
         "model": _GEMINI_MODEL,
         "provider": "gemini",
+        # Hermes AI agent is tried first (cheaper, async, avoids Gemini plugin issues).
+        # Falls back to Gemini Flash, then Claude native (degraded — log _degraded=true).
+        "provider_chain": ["hermes", "gemini", "claude_native"],
         "rationale": "Tool output is deterministic; LLM role is summarization only",
         "token_budget": {"input": 8000, "output": 800},
     },
     2: {
         "model": _GEMINI_MODEL,
         "provider": "gemini",
+        "provider_chain": ["hermes", "gemini", "claude_native"],
         "rationale": "Light judgment; Gemini Flash sufficient for pattern analysis",
         "token_budget": {"input": 10000, "output": 1200},
     },
     3: {
         "model": _CLAUDE_MODEL,
         "provider": "claude_native",
+        "provider_chain": ["claude_native"],
         "rationale": "Deep reasoning / subjective judgment / code understanding required",
         "token_budget": {"input": 20000, "output": 3000},
     },
@@ -71,8 +76,12 @@ TIER_CONFIG = {
 HERMES_CONFIG = {
     "enabled": os.environ.get("HARNESS_HERMES_ENABLED", "false").lower() == "true",
     "target": _HERMES_TARGET,
+    "timeout_ms": int(os.environ.get("HERMES_TIMEOUT_MS", "90000")),
     "provider": "hermes",
-    "action": "mcp_hermes_messages_send"
+    "action": "mcp_hermes_messages_send",
+    # Full round-trip: send → events_wait(timeout_ms) → messages_read
+    # Mirrors reviewer_router._try_hermes() pattern.
+    "round_trip_tools": ["mcp__hermes__messages_send", "mcp__hermes__events_wait", "mcp__hermes__messages_read"],
 }
 
 # Improve step always Claude — separate override available
@@ -120,6 +129,7 @@ def route(dimension: str) -> dict:
         "tier": tier,
         "model": config["model"],
         "provider": config["provider"],
+        "provider_chain": config["provider_chain"],
         "rationale": config["rationale"],
         "token_budget": config["token_budget"],
         "use_gemini": config["provider"] == "gemini",
@@ -131,8 +141,9 @@ def route(dimension: str) -> dict:
     if HERMES_CONFIG["enabled"]:
         result["hermes_notification"] = {
             "target": HERMES_CONFIG["target"],
+            "timeout_ms": HERMES_CONFIG["timeout_ms"],
             "tool": HERMES_CONFIG["action"],
-            "message": f"📊 [Harness Audit] Routing dimension '{dimension}' to {config['provider']} ({config['model']})"
+            "message": f"[Harness Audit] Routing dimension '{dimension}' to {config['provider']} ({config['model']})"
         }
     # Surface env overrides for transparency
     if _GEMINI_MODEL != "gemini-2.5-flash" and config["provider"] == "gemini":

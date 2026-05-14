@@ -31,15 +31,17 @@ Before anything else, determine which LLM tier to use:
 python3 scripts/llm_router.py <dimension> [tool_output.txt]
 ```
 
-Read the `tier` and `provider` fields:
+Read the `tier` and `provider_chain` fields:
 
-| Tier | Provider | Dimensions | Action |
-|------|----------|-----------|--------|
-| 1 | `gemini` | linting, type_safety, test_coverage, secrets_scanning, license_compliance, mutation_testing | Use `mcp__gemini-cli__ask-gemini` |
-| 2 | `gemini` | security | Use `mcp__gemini-cli__ask-gemini` |
+| Tier | `provider_chain` | Dimensions | Action |
+|------|-----------------|-----------|--------|
+| 1 | `hermes → gemini → claude_native` | linting, type_safety, test_coverage, secrets_scanning, license_compliance, mutation_testing | Try Hermes AI agent first; fall back to Gemini Flash; then Claude (degraded) |
+| 2 | `hermes → gemini → claude_native` | security | Try Hermes AI agent first; fall back to Gemini Flash; then Claude (degraded) |
 | 3 | `claude_native` | architecture, readability, error_handling, documentation, performance | Use Claude reasoning (this session) |
 
-**NEVER** use Claude for Tier 1/2 dimensions. **NEVER** use Gemini for Tier 3.
+**NEVER** skip the `provider_chain` — always start at index 0 and fall through in order.
+**NEVER** use Gemini for Tier 3.
+Claude native for Tier 1/2 is only permitted as the **last degraded fallback** (log `"_degraded": true` in score file).
 
 ---
 
@@ -168,14 +170,37 @@ radon cc src/ -j --min C 2>&1 | head -100  # Complex functions
 
 ## Step 2: Evaluate (LLM Tier Routing)
 
-### IF Tier 1 or Tier 2 → Call Gemini Flash
+### IF Tier 1 or Tier 2 → Follow `provider_chain`: Hermes → Gemini → Claude (degraded)
 
 Get the prompt from the router:
 ```bash
 python3 scripts/llm_router.py <dimension> .sessi-work/round_<n>/tools/<dimension>.txt
 ```
 
-Use `gemini_prompt` field from output. Call Gemini:
+Use `gemini_prompt` field as the evaluation prompt for all providers. Follow `provider_chain` in order:
+
+#### Provider 1: Hermes AI Agent (primary)
+
+If `HARNESS_HERMES_ENABLED=true` and `HARNESS_HERMES_TARGET` is set:
+
+```
+[USE mcp__hermes__messages_send]
+target: <HARNESS_HERMES_TARGET>
+message: <gemini_prompt from router output>
+
+[USE mcp__hermes__events_wait]
+timeout_ms: 90000
+
+[USE mcp__hermes__messages_read]
+session_key: <HARNESS_HERMES_TARGET>
+limit: 1
+```
+
+Parse the JSON response from `messages_read`. If valid JSON with required fields → this IS the dimension score. Record `"llm_provider": "hermes"` in score file. **Stop — do not call Gemini.**
+
+If Hermes unavailable, not configured, or no response within 90s → fall through to Provider 2.
+
+#### Provider 2: Gemini Flash (fallback)
 
 ```
 [USE mcp__gemini-cli__ask-gemini]
@@ -183,7 +208,13 @@ model: gemini-2.5-flash
 prompt: <gemini_prompt from router output>
 ```
 
-Parse the JSON response. The Gemini response IS the dimension score.
+Parse the JSON response. Record `"llm_provider": "gemini"` in score file. **Stop — do not call Claude.**
+
+If Gemini fails (plugin error, API key missing, timeout) → fall through to Provider 3.
+
+#### Provider 3: Claude Native (degraded — last resort only)
+
+Use Claude reasoning in this session. Record `"llm_provider": "claude_native"` and `"_degraded": true` in score file. Log the failure reason from Provider 1 and 2 in `"_degradation_note"`.
 
 **Token budget:** ≤ 8K input, ≤ 800 output (enforced by router prompt template)
 
@@ -320,6 +351,11 @@ remain functional without CRG.
 > **執行時機**: Claude 完成 Step 2a 評估、寫出初稿 findings 之後，寫入 score 文件之前。
 
 ```
+# DA step uses same provider_chain as the dimension evaluation.
+# Try Hermes first; fall back to Gemini Flash; then Claude native (degraded).
+# Primary path (Hermes available):
+[USE mcp__hermes__messages_send / events_wait / messages_read — same as Step 2 Provider 1]
+# Fallback (Hermes unavailable):
 [USE mcp__gemini-cli__ask-gemini]
 model: gemini-2.5-flash
 prompt: |
@@ -395,7 +431,9 @@ Save to `.sessi-work/round_<n>/scores/<dimension>.json`:
   "dimension": "<name>",
   "round": <n>,
   "llm_tier": <1|2|3>,
-  "llm_provider": "gemini|claude_native",
+  "llm_provider": "hermes|gemini|claude_native",
+  "_degraded": false,                 // true if fell back past Hermes to Claude native
+  "_degradation_note": null,          // reason string when _degraded=true
   "tool_score": <0-100>,
   "llm_score": <0-100>,
   "score": <min(tool_score, llm_score)>,
@@ -471,8 +509,10 @@ The `open_critical` / `open_high` / `open_medium` counts feed directly into
 
 | Tier | Provider | Typical cost/dim | Use case |
 |------|----------|-----------------|---------|
-| 1 | Gemini Flash | ~$0.001 | Tool summarization |
-| 2 | Gemini Flash | ~$0.002 | Light judgment |
+| 1 | Hermes AI agent | ~$0.000 (async, external) | Tool summarization — primary |
+| 1 | Gemini Flash | ~$0.001 | Tool summarization — fallback |
+| 2 | Hermes AI agent | ~$0.000 | Light judgment — primary |
+| 2 | Gemini Flash | ~$0.002 | Light judgment — fallback |
 | 3 | Claude Sonnet | ~$0.08 | Deep reasoning |
 
 **Total per round (12 dims + improve):**

@@ -54,6 +54,25 @@ class TestRoute:
         result = route("linting")
         assert "hermes_notification" not in result
 
+    def test_tier1_provider_chain_hermes_first(self):
+        result = route("linting")
+        assert "provider_chain" in result
+        assert result["provider_chain"][0] == "hermes"
+        assert result["provider_chain"][1] == "gemini"
+        assert result["provider_chain"][2] == "claude_native"
+
+    def test_tier2_provider_chain_hermes_first(self):
+        result = route("security")
+        assert result["provider_chain"][0] == "hermes"
+
+    def test_tier3_provider_chain_claude_only(self):
+        result = route("architecture")
+        assert result["provider_chain"] == ["claude_native"]
+
+    def test_unknown_dim_provider_chain_claude_only(self):
+        result = route("nonexistent_dim")
+        assert result["provider_chain"] == ["claude_native"]
+
 
 class TestBuildGeminiPrompt:
     def test_basic_prompt(self):
