@@ -57,6 +57,7 @@ class AgentSpawner:
         context: dict,
         model: str = "claude",      # "claude" | "hermes"
         task_timeout: int = 300,
+        max_turns: int = 10,
         phase: int = 0,
         fr_id: str | None = None,
     ) -> dict:
@@ -69,6 +70,7 @@ class AgentSpawner:
             context: Additional metadata and state.
             model: Preferred backend ('claude' or 'hermes').
             task_timeout: Max execution time in seconds.
+            max_turns: Max tool-using turns (default 10).
             phase: Current methodology phase.
             fr_id: Optional Functional Requirement ID.
 
@@ -114,7 +116,7 @@ class AgentSpawner:
             "--setting-sources", "",
             "--disable-slash-commands",
             "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
-            "--max-turns", "5",
+            "--max-turns", str(max_turns),
             "--permission-mode", "acceptEdits",
             "--no-session-persistence",
         ]
