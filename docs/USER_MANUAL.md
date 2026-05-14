@@ -350,8 +350,7 @@ Phase 5：驗證與交付。
 請：
 1. 對照 SRS.md 逐一驗證所有 FR 是否完整交付
 2. 建立系統 baseline（BASELINE.md）
-3. 制定監控計畫（MONITORING_PLAN.md）
-4. 輸出驗證報告（VERIFICATION_REPORT.md）
+3. 輸出驗證報告（VERIFICATION_REPORT.md）
 ```
 
 ```bash
@@ -420,8 +419,7 @@ Phase 8：組態管理。
 
 請：
 1. 記錄所有環境、部署、安全、監控設定（CONFIG_RECORDS.md）
-2. 建立部署檢查清單（DEPLOYMENT_CHECKLIST.md）
-3. 輸出環境規格（ENVIRONMENT_SPEC.md）
+2. 建立發布檢查清單（RELEASE_CHECKLIST.md）
 ```
 
 ```bash
