@@ -53,11 +53,21 @@ def _resolve_tool_outputs(tool_outputs: Any) -> str:
     return str(tool_outputs) if tool_outputs else ""
 
 
-def validate_score_file(_dim_name: str, score_data: dict) -> list[str]:
+def validate_score_file(
+    dim_name: str,
+    score_data: dict,
+    project_root: "Path | None" = None,
+) -> list[str]:
     """Validate a single score file against evaluate_dimension.md Execution Contract.
 
     Returns list of issue strings. Empty list = valid.
     Rejects (R1-R6) block gate scoring. R7 is informational (handled separately).
+
+    Args:
+        dim_name: dimension key (used in error context).
+        score_data: parsed score JSON.
+        project_root: used to resolve relative tool_outputs paths (R2).
+            If None, paths are resolved against CWD (less reliable).
     """
     issues: list[str] = []
 
@@ -77,30 +87,39 @@ def validate_score_file(_dim_name: str, score_data: dict) -> list[str]:
         if field not in score_data:
             issues.append(f"R1: missing required field '{field}'")
 
-    # R2: tool_outputs must reference existing files
-    # Exception: tool_score=null with tool_note → tool ran but failed / unavailable
+    # R2: tool_outputs must reference existing files.
+    # Resolve relative paths against project_root to avoid CWD-dependent failures
+    # (score.py may be invoked from any directory).
+    # Exception: tool_score=null → tool unavailable, file check skipped.
     if tool_outputs:
-        output_path = Path(tool_outputs)
+        raw_path = Path(tool_outputs)
+        output_path = (
+            (project_root / raw_path) if (project_root and not raw_path.is_absolute())
+            else raw_path
+        )
         if not output_path.exists():
             issues.append(
-                f"R2: tool_outputs '{tool_outputs}' does not exist — "
+                f"R2: [{dim_name}] tool_outputs '{tool_outputs}' does not exist — "
                 "tool output file must be present"
             )
         elif output_path.stat().st_size == 0 and ts is not None:
             issues.append(
-                f"R2: tool_outputs is empty but tool_score={ts} — "
+                f"R2: [{dim_name}] tool_outputs is empty but tool_score={ts} — "
                 "cannot assign score without tool output evidence"
             )
     elif ts is not None:
         issues.append(
-            "R2: tool_outputs path is empty but tool_score is non-null"
+            f"R2: [{dim_name}] tool_outputs path is empty but tool_score is non-null"
         )
 
-    # R3: Tier 1/2 MUST use gemini (or hermes as first hop)
-    if tier in (1, 2) and provider not in ("gemini", "hermes"):
+    # R3: Tier 1/2 MUST use gemini or hermes.
+    # Exception: claude_native is allowed as the last degraded fallback
+    # (provider_chain exhausted) — score file MUST have _degraded=True in that case.
+    degraded = score_data.get("_degraded", False)
+    if tier in (1, 2) and provider not in ("gemini", "hermes") and not degraded:
         issues.append(
-            f"R3: Tier {tier} requires gemini or hermes provider, "
-            f"got '{provider}' — Claude must not evaluate Tier 1/2 dimensions"
+            f"R3: [{dim_name}] Tier {tier} requires gemini or hermes provider, "
+            f"got '{provider}' — set _degraded=true if provider_chain was exhausted"
         )
 
     # R4: score = min(tool_score, llm_score) when both present
@@ -162,11 +181,15 @@ def _auto_fix_scores(scores: dict) -> list[str]:
     return warnings
 
 
-def _validate_all_scores(scores: dict):
+def _validate_all_scores(scores: dict, project_root: "Path | None" = None):
     """Validate all score files. Raises ScoreProtocolError on rejection-level failures.
 
     Auto-fix is applied first (R4: score reconciliation), then hard checks (R1-R6).
     R7 (missing tool_note) is a warning only and does not block scoring.
+
+    Args:
+        scores: mapping of dim_name → score_data.
+        project_root: project root for resolving relative tool_outputs paths (R2).
     """
     # Phase 1: auto-fix (R4) and collect soft warnings (R7)
     warnings = _auto_fix_scores(scores)
@@ -176,7 +199,7 @@ def _validate_all_scores(scores: dict):
     # Phase 2: hard validation (R1-R6)
     all_errors = []
     for dim_name, score_data in scores.items():
-        issues = validate_score_file(dim_name, score_data)
+        issues = validate_score_file(dim_name, score_data, project_root=project_root)
         if issues:
             all_errors.append({"dimension": dim_name, "issues": issues})
 
@@ -207,7 +230,9 @@ def load_scores(round_dir):
     if not scores:
         raise ValueError(f"No score files found in {scores_dir}")
 
-    _validate_all_scores(scores)
+    # Infer project root: round_dir = .sessi-work/round_N/ → parent.parent
+    project_root = Path(round_dir).resolve().parent.parent
+    _validate_all_scores(scores, project_root=project_root)
     return scores
 
 

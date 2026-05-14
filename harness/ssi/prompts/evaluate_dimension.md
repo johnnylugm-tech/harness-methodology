@@ -141,13 +141,15 @@ if command -v mutmut >/dev/null 2>&1; then
     _restore_editable=true
   fi
 
-  # Enforce time budget from config: time_budget_seconds
   timeout $TIME_BUDGET mutmut run 2>&1
   mutmut results 2>&1 | head -100
 
   # Restore editable install if we switched it
+  # Note: $_editable_pkgs must be UNQUOTED here so shell word-splits it
+  # into separate package name arguments (quoted form passes the whole
+  # space-separated string as one argument, causing uninstall to fail).
   if [ "$_restore_editable" = true ]; then
-    pip uninstall "$_editable_pkgs" -y --quiet 2>/dev/null
+    pip uninstall $_editable_pkgs -y --quiet 2>/dev/null
     pip install -e . --quiet 2>/dev/null
   fi
 fi
