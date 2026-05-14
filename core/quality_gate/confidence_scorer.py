@@ -88,7 +88,9 @@ def _score_artifact_completeness(project: Path, phase: int, **_kw) -> tuple[Opti
     """C1: Check required phase artifacts exist and are non-empty."""
     try:
         # Import inline to avoid circular import at module level
-        sys.path.insert(0, str(Path(__file__).parent.parent))
+        _import_path = str(Path(__file__).parent.parent)
+        if _import_path not in sys.path:
+            sys.path.insert(0, _import_path)
         from quality_gate.phase_artifact_enforcer import Phase, PhaseArtifactRegistry
     except ImportError:
         return None, "phase_artifact_enforcer unavailable"

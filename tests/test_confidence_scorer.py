@@ -255,7 +255,7 @@ class TestTraceability:
         )
         score, detail = _score_traceability(tmp_path)
         # Both FRs should match via generic gate keys
-        assert score >= 40.0  # at minimum partial credit
+        assert score == pytest.approx(100.0)
 
 
 # ── compute_confidence() ─────────────────────────────────────────────────────
