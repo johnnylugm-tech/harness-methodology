@@ -2396,7 +2396,7 @@ def _init_phase_dirs(project: Path) -> None:
         print(f"   SKIP: all {skipped} directories already exist")
 
 
-def _init_copy_templates(project: Path, harness_root: Path, *, force: bool = False) -> None:
+def _init_copy_templates(project: Path, harness_root: Path, *, overwrite: bool = False) -> None:
     """Copy artifact templates from harness templates/ into the target project."""
     templates_dir = harness_root / "templates"
     artifact_map = [
@@ -2412,7 +2412,7 @@ def _init_copy_templates(project: Path, harness_root: Path, *, force: bool = Fal
     for subdir, filename in artifact_map:
         src = templates_dir / filename
         dst = project / subdir / filename
-        if dst.exists() and not force:
+        if dst.exists() and not overwrite:
             skipped += 1
         elif src.exists():
             shutil.copy2(src, dst)
@@ -2424,7 +2424,7 @@ def _init_copy_templates(project: Path, harness_root: Path, *, force: bool = Fal
     # CLAUDE.md.template → project/CLAUDE.md (only if no CLAUDE.md exists)
     claude_tmpl = harness_root / "CLAUDE.md.template"
     claude_dst = project / "CLAUDE.md"
-    if claude_dst.exists() and not force:
+    if claude_dst.exists() and not overwrite:
         skipped += 1
     elif claude_tmpl.exists():
         shutil.copy2(claude_tmpl, claude_dst)
@@ -2536,7 +2536,7 @@ def cmd_init_project(args: argparse.Namespace) -> int:
 
     # 6. Copy template artifacts into phase directories
     print("\n[6/8] Copying artifact templates...")
-    _init_copy_templates(project, harness_root, force=args.overwrite)
+    _init_copy_templates(project, harness_root, overwrite=args.overwrite)
 
     # 7. Initialize FSM state.json (required by run-phase preflight)
     print("\n[7/8] Initializing FSM state...")

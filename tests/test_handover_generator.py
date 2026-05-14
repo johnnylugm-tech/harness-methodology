@@ -883,7 +883,6 @@ class TestCmdAdvancePhase:
         a = Args()
         a.completed_phase = completed
         a.project = str(tmp_path)
-        a.force = kwargs.get("force", False)
 
         captured = io.StringIO()
         monkeypatch.setattr("sys.stdout", captured)

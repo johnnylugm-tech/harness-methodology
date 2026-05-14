@@ -604,7 +604,7 @@ def _preflight_steps(phase: int) -> List[str]:
             "  2. Git hooks installed (`ls .git/hooks/prepare-commit-msg`)",
             "  3. harness importable (submodule, PYTHONPATH, or vendored `quality_gate/`)",
             f"  4. GitHub repo variable `CURRENT_PHASE` = {phase} (updated by `advance-phase`)",
-            f"  > If stale: run `python3 harness_cli.py init-project --phase {phase} --project $REPO --force`",
+            f"  > If stale: run `python3 harness_cli.py init-project --phase {phase} --project $REPO --overwrite`",
         ]
     return [
         "### Pre-Phase Preflight",
@@ -613,7 +613,7 @@ def _preflight_steps(phase: int) -> List[str]:
         "  ```bash",
         f"  python3 harness_cli.py run-phase --phase {phase} --project $REPO",
         "  ```",
-        "  If FAILED non-critically: use `--force`. If BLOCKED: fix FSM/Constitution first.",
+        "  If FAILED: fix FSM/Constitution issues. There is no gate bypass flag.",
         "",
         *ci_check,
         "",

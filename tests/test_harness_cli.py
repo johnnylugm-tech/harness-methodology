@@ -89,7 +89,7 @@ class TestInitCopyTemplates:
         srs = tmp_path / "01-requirements" / "SRS.md"
         srs.write_text("old content")
 
-        _init_copy_templates(tmp_path, harness_root, force=True)
+        _init_copy_templates(tmp_path, harness_root, overwrite=True)
 
         content = srs.read_text()
         assert "old content" not in content  # overwritten by template
