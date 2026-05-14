@@ -331,12 +331,13 @@ def cmd_pre_commit_check(args: argparse.Namespace) -> int:
         print(f"\nPRE-FLIGHT FAILED: {pre['details']}")
         return 1
 
-    print("\n[INFO] Preflight passed. Phase execution hooks ready.")
+    print("\n[INFO] Fast preflight passed (FSM + constitution + kill-switch).")
+    print("[INFO] Full enforcement (drift, traceability) runs at run-phase / finalize-gate.")
 
     if args.phase in _PER_FR_GATE1_PHASES:
         _audit_sessions_spawn(project, args.phase)
 
-    print("[INFO] Fast mode: skipped drift, traceability, gap analysis, CI readiness.")
+    print("[INFO] Skipped: drift, traceability, gap analysis, CI readiness.")
     print("[INFO] Use run-phase or run-pipeline for full enforcement before push.")
     print("[INFO] Next steps:")
     print(f"        python harness_cli.py run-pipeline --phase-from {args.phase} --project {project}")

@@ -842,16 +842,28 @@ python harness_cli.py plan-phase \
 ```bash
 python harness_cli.py run-phase \
   --phase   3          \  # Phase 編號（必填）
-  --project /project   \  # 專案路徑（預設：.）
-  --fast                  # 輕量 preflight（跳過 drift/traceability/gap/CI 檢查）
+  --project /project      # 專案路徑（預設：.）
 ```
 
 **Pre-flight 檢查**：
 - FSM 狀態（不在 FREEZE/PAUSED）
 - Constitution 合規性（`docs/` 目錄）
 - Tool Registry 可用性（若已安裝）
+- Drift / Traceability / Gap analysis（完整強制執行）
 
 **返回碼**：0=pre-flight通過；1=失敗（修復問題後重跑）
+
+### `pre-commit-check` — Git Commit Hook 輕量檢查
+
+```bash
+python harness_cli.py pre-commit-check \
+  --phase   3          \  # Phase 編號（必填）
+  --project /project      # 專案路徑（預設：.）
+```
+
+**用途**：git commit hook 專用（`prepare-commit-msg` / `post-merge`）。只跑 FSM + Constitution + Kill-switch，跳過 drift/traceability/gap/CI，保持 commit 速度。完整強制執行在 `run-phase` / `finalize-gate`。
+
+> ⚠️ 不要在 pipeline 或 agent 腳本中以 `pre-commit-check` 替代 `run-phase`。
 
 > Preflight 失敗不可繞過。緊急情況請使用 `advance-phase --emergency-override --reason='...'`（寫入審計 log）。
 

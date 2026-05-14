@@ -73,7 +73,8 @@ The full-system CLI (`cli.py`) lives in the parent system that contains harness-
 **`harness_cli.py` commands** (21 total):
 ```
 python harness_cli.py plan-phase        --phase 3 [--project .] [--output plan.md]
-python harness_cli.py run-phase         --phase 3 [--project .] [--fast]
+python harness_cli.py run-phase         --phase 3 [--project .]
+python harness_cli.py pre-commit-check  --phase 3 [--project .]   # git hook only (FSM/constitution/kill-switch)
 python harness_cli.py run-gate          --gate 2 --phase 3 [--project .] [--fr-id FR-01] [--no-git]
 python harness_cli.py finalize-gate     --gate 2 --phase 3 [--project .] [--fr-id FR-01] [--no-git]
 python harness_cli.py generate-next-plan [--project .] [--phase N]

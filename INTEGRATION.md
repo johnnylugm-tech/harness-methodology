@@ -104,8 +104,8 @@ Installed hooks:
 
 | Hook | Trigger | Behavior |
 |---|---|---|
-| `prepare-commit-msg` | `git commit` | **Blocks** if `harness_cli.py run-phase --phase $PHASE --fast` fails |
-| `post-merge` | `git merge` | Warns only — runs `run-phase --phase $PHASE --fast` (non-blocking) |
+| `prepare-commit-msg` | `git commit` | **Blocks** if `harness_cli.py pre-commit-check --phase $PHASE` fails |
+| `post-merge` | `git merge` | Warns only — runs `pre-commit-check --phase $PHASE` (non-blocking) |
 | `pre-push` | `git push` | **Blocks** unless `STAGE_PASS=1` env var OR last commit message contains `STAGE_PASS` |
 
 **Phase management**:
