@@ -258,16 +258,13 @@ class TestVerifyPhaseChain:
             "# Architecture\n\nBased on SRS and SPEC_TRACKING.\n"
         )
 
-        # P3: IMPLEMENT (references both)
+        # P3: IMPLEMENT (no mandatory document artifacts — output is code+tests)
         (tmp_path / "03-development").mkdir()
-        (tmp_path / "03-development" / "COMPLIANCE_MATRIX.md").write_text(
-            "# Compliance\n\nMaps SRS requirements to SAD components.\n"
-        )
 
         # P4: VERIFY (references IMPLEMENT)
         (tmp_path / "04-testing").mkdir()
         (tmp_path / "04-testing" / "TEST_PLAN.md").write_text(
-            "# Test Plan\n\nVerifies COMPLIANCE_MATRIX implementation.\n"
+            "# Test Plan\n\nVerification plan for Phase 4.\n"
         )
         (tmp_path / "04-testing" / "TEST_RESULTS.md").write_text("# Results\n\nTests passed.\n")
 

@@ -73,7 +73,6 @@ class PhaseArtifactRegistry:
         },
         Phase.IMPLEMENT: {
             "artifacts": [
-                "03-development/COMPLIANCE_MATRIX.md",
             ],
             "depends_on": [Phase.SPECIFY, Phase.PLAN],
         },
@@ -163,7 +162,7 @@ class PhaseArtifactRegistry:
 
         from_ok = len(found_from) > 0 or len(from_artifacts) == 0
         to_ok = len(found_to) > 0 or len(to_artifacts) == 0 or skip_to_side
-        ref_ok = ref_found or len(from_artifacts) == 0 or skip_to_side
+        ref_ok = ref_found or len(from_artifacts) == 0 or len(to_artifacts) == 0 or skip_to_side
         passed = from_ok and to_ok and ref_ok
 
         if not from_ok:
