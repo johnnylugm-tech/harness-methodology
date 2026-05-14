@@ -42,6 +42,9 @@ Exit codes:
     0   All phases complete
     1   Hard failure (investigate error)
     2   run-gap-analysis: critical gaps detected (distinct from hard error)
+    5   HR-01/HR-10 block — A/B self-review or missing sessions_spawn.log entries
+    7   Plan incompletion block — unchecked mandatory steps in phaseN_plan.md
+    8   Missing deliverables block — required artifacts not found on disk
     10  PAUSE — Claude must evaluate gate; run finalize-gate then re-run pipeline
     11  Phase Truth < 90% (HR-11); fix and re-run with --phase-from N
 """
@@ -341,10 +344,15 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
                        spawn_log.read_text(encoding="utf-8").splitlines() if line.strip()]
             fr_entries = [e for e in entries if e.get("fr_id") == fr_id]
             distinct_roles = len({e.get("role") for e in fr_entries})
+            distinct_sessions = len({e.get("session_id") for e in fr_entries})
             if len(fr_entries) < 2 or distinct_roles < 2:
                 print(f"\n[BLOCKED] HR-10: {fr_id} has {len(fr_entries)} session log entries "
                       f"({distinct_roles} distinct role(s) — need ≥2 entries, ≥2 distinct roles).")
                 print(f"  Dispatch Agent A + Agent B for {fr_id}, then re-run finalize-gate.")
+                return 5
+            if distinct_sessions < 2:
+                print(f"\n[BLOCKED] HR-01: {fr_id} A/B share same session_id — self-review violation.")
+                print(f"  Re-dispatch Agent B via `dispatch` CLI with a separate subagent session.")
                 return 5
         except Exception as _e:  # pylint: disable=broad-exception-caught
             print(f"\n[WARN] HR-10: sessions_spawn.log parse error ({_e}) — skipping enforcement to avoid deadlock.")
@@ -962,6 +970,53 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
               f"Phase {args.completed_phase}: {fr_done}/{fr_total} FRs Gate 1 PASS. "
               f"Gate {last_gate_num}{gate_score_str} — quality_complete. "
               f"Ready to begin Phase {next_phase}.")
+
+    # ── Plan completion audit ─────────────────────────────────────────
+    plan_path = project / ".methodology" / f"phase{args.completed_phase}_plan.md"
+    if plan_path.exists():
+        plan_text = plan_path.read_text(encoding="utf-8", errors="replace")
+        import re as _re
+        unchecked = _re.findall(r'^- \[ \] (.+)$', plan_text, _re.MULTILINE)
+        # Filter out purely informational items
+        skip_patterns = [r'^\[A-DISPATCH\]', r'^\[B-DISPATCH\]',
+                         r'^\[INFO\]', r'^Gate \d+.*score',
+                         r'^Phase \d+.*complete',
+                         r'^If ', r'^See ']
+        actual_gaps = []
+        for item in unchecked:
+            if not any(_re.match(p, item) for p in skip_patterns):
+                actual_gaps.append(item)
+        if actual_gaps:
+            print(f"\n[advance-phase] ⚠ Plan completion audit: {len(actual_gaps)} unchecked items in phase{args.completed_phase}_plan.md")
+            for gap in actual_gaps[:10]:
+                print(f"   - [ ] {gap}")
+            if len(actual_gaps) > 10:
+                print(f"   ... and {len(actual_gaps) - 10} more")
+            if args.completed_phase >= 3 and not args.force:
+                print(f"\n[BLOCKED] {len(actual_gaps)} plan steps incomplete — review or use --force to override.")
+                return 7
+            print("   (proceeding: P1/P2 human-gated or --force active)")
+
+    # ── Deliverable existence check ──────────────────────────────────
+    from core.quality_gate.phase_artifact_enforcer import PhaseArtifactRegistry
+    registry = PhaseArtifactRegistry(str(project))
+    # Map phase number to Phase enum
+    _phase_map = {1: "SPECIFY", 2: "PLAN", 3: "IMPLEMENT",
+                  4: "VERIFY", 5: "SYSTEM_TEST", 6: "QUALITY",
+                  7: "RISK", 8: "CONFIG"}
+    _phase_name = _phase_map.get(args.completed_phase, "UNKNOWN")
+    from core.quality_gate.phase_artifact_enforcer import Phase as _Phase
+    _phase_enum = getattr(_Phase, _phase_name, None)
+    if _phase_enum is not None:
+        artifacts = registry.PHASE_ARTIFACTS.get(_phase_enum, {}).get("artifacts", [])
+        missing = [a for a in artifacts if not (project / a).exists()]
+        if missing:
+            print(f"\n[advance-phase] ⚠ Missing deliverables for Phase {args.completed_phase}:")
+            for m in missing:
+                print(f"   - {m}")
+            if args.completed_phase >= 3 and not args.force:
+                print(f"\n[BLOCKED] {len(missing)} deliverable(s) not found — create them or use --force.")
+                return 8
 
     print(f"\n[advance-phase] Completed phase {args.completed_phase} → advancing to {next_phase}")
     _advance_fsm(project, args.completed_phase,
