@@ -1,5 +1,7 @@
 """Tests for core/quality_gate/phase_artifact_enforcer.py — ASPICE traceability chain."""
 
+from unittest.mock import patch
+
 from core.quality_gate.phase_artifact_enforcer import (  # pyright: ignore[reportMissingImports]
     Phase,
     PhaseArtifactRegistry,
@@ -272,6 +274,15 @@ class TestVerifyPhaseChain:
         result = registry.verify_phase_chain(current_phase=4)
         assert result["all_verified"] is True, f"Missing: {result['missing_links']}"
         assert result["stats"]["missing"] == 0
+
+    def test_verify_phase_chain_crash_reported_as_missing(self, tmp_path):
+        """verify_phase_chain exception → all_verified=False, missing contains CRASH:."""
+        registry = PhaseArtifactRegistry(str(tmp_path))
+        with patch.object(registry, "verify_phase_link",
+                          side_effect=RuntimeError("simulated crash")):
+            result = registry.verify_phase_chain(current_phase=4)
+            assert result["all_verified"] is False
+            assert any("CRASH:" in m for m in result["missing_links"])
 
 
 class TestPhaseLinkResult:

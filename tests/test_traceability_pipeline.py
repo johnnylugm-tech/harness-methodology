@@ -389,6 +389,89 @@ class TestPreflightTraceability:
             assert result["passed"] is True
             assert result.get("skipped") is True
 
+    def test_traceability_import_error_blocks_p5(self, tmp_path):
+        """ImportError at P5+ → blocks (was silent-pass before fix)."""
+        h = PhaseHooks(str(tmp_path), phase=5, enable_kill_switch=False)
+        with patch("scripts.check_spec_trace.check_traceability",
+                   side_effect=ImportError):
+            result = h.preflight_traceability()
+            assert result["passed"] is False
+
+    def test_traceability_runtime_error_blocks_p5(self, tmp_path):
+        """RuntimeError at P5+ → blocks."""
+        h = PhaseHooks(str(tmp_path), phase=5, enable_kill_switch=False)
+        with patch("scripts.check_spec_trace.check_traceability",
+                   side_effect=RuntimeError("crash")):
+            result = h.preflight_traceability()
+            assert result["passed"] is False
+
+    def test_traceability_runtime_error_passes_p3(self, tmp_path):
+        """RuntimeError at P3 → passes (informational only)."""
+        h = PhaseHooks(str(tmp_path), phase=3, enable_kill_switch=False)
+        with patch("scripts.check_spec_trace.check_traceability",
+                   side_effect=RuntimeError("crash")):
+            result = h.preflight_traceability()
+            assert result["passed"] is True
+
+
+# ---------------------------------------------------------------------------
+# preflight_fsm_state — corrupt state.json recovery
+# ---------------------------------------------------------------------------
+
+
+class TestPreflightFSMState:
+    def test_corrupt_json_returns_corrupt_state(self, tmp_path):
+        """Malformed state.json → passed=False, state=CORRUPT."""
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        (method_dir / "state.json").write_text("NOT VALID JSON!!!")
+        h = PhaseHooks(str(tmp_path), phase=3, enable_kill_switch=False)
+        result = h.preflight_fsm_check()
+        assert result["passed"] is False
+        assert result["state"] == "CORRUPT"
+
+
+# ---------------------------------------------------------------------------
+# preflight_drift_detection — exception handling by phase
+# ---------------------------------------------------------------------------
+
+
+class TestPreflightDriftDetection:
+    def test_drift_exception_passes_p3(self, tmp_path):
+        """Drift module exception at P3 → passes (informational)."""
+        h = PhaseHooks(str(tmp_path), phase=3, enable_kill_switch=False)
+        with patch("detection.DriftDetector") as mock_dd:
+            mock_dd.side_effect = RuntimeError("module crash")
+            result = h.preflight_drift_detection()
+            assert result["passed"] is True
+
+    def test_drift_exception_blocks_p4(self, tmp_path):
+        """Drift module exception at P4+ → blocks (was silent-pass)."""
+        h = PhaseHooks(str(tmp_path), phase=4, enable_kill_switch=False)
+        with patch("detection.DriftDetector") as mock_dd:
+            mock_dd.side_effect = RuntimeError("module crash")
+            result = h.preflight_drift_detection()
+            assert result["passed"] is False
+
+
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# preflight_previous_phase_artifacts — import error
+# ---------------------------------------------------------------------------
+
+
+class TestPreflightArtifactChain:
+    def test_import_error_returns_false(self, tmp_path):
+        """PhaseArtifactRegistry cannot be imported → preflight returns passed=False."""
+        from core.phase_hooks import PhaseHooks
+        h = PhaseHooks(str(tmp_path), phase=3, enable_kill_switch=False)
+        with patch("core.quality_gate.phase_artifact_enforcer.PhaseArtifactRegistry",
+                   side_effect=ImportError("no module")):
+            result = h.preflight_previous_phase_artifacts()
+            assert result["passed"] is False
+
 
 # ---------------------------------------------------------------------------
 # preflight_gap_analysis tests
