@@ -298,7 +298,7 @@ _PHASE_ROLES: dict = {
 # Agent B embed doc list per phase — ALL must be pasted verbatim into the prompt (no file paths)
 _AGENT_B_EMBED_DOCS: Dict[int, List[str]] = {
     1: ["Project description / stakeholder brief", "draft 01-requirements/SRS.md (full content)"],
-    2: ["01-requirements/SRS.md (full)", "01-requirements/CONSTRAINTS.md (full)", "draft 02-architecture/SAD.md (full)", "draft 02-architecture/adr/ADR.md (full)"],
+    2: ["01-requirements/SRS.md (full)", "draft 02-architecture/SAD.md (full)"],
     3: ["01-requirements/SRS.md §FR-XX section", "02-architecture/SAD.md module spec for FR-XX", "03-development/src/…/fr_xx.py (implemented code + tests)"],
     4: ["01-requirements/SRS.md §FR-XX section", "02-architecture/SAD.md module spec", "03-development/src/…/fr_xx.py", "tests/…/test_fr_xx.py", "04-testing/TEST_PLAN.md entry for FR-XX"],
     5: ["01-requirements/SRS.md acceptance criteria for FR-XX", "03-development/src/…/fr_xx.py", "tests/…/test_fr_xx.py", "04-testing/TEST_RESULTS.md entry"],
@@ -335,16 +335,6 @@ _PHASE_DELIVERABLE_DEPS: Dict[int, List[Dict]] = {
             "embed_docs": ["Project description / stakeholder brief", "draft 01-requirements/SRS.md (full content)"],
         },
         {
-            "label": "CONSTRAINTS.md",
-            "desc": "Technical Constraints — technology stack, SLA targets, cost model, regulatory requirements",
-            "depends_on": ["SRS.md"],
-            "task_hint": "Analyze constraints from SRS → document tech stack, SLA, cost model, compliance → validate completeness",
-            "checks": ["All technical constraints documented?", "SLA targets defined and measurable?",
-                       "Cost model complete?", "Constraints consistent with SRS requirements?"],
-            "embed_docs": ["01-requirements/SRS.md (APPROVED — full content)",
-                           "draft 01-requirements/CONSTRAINTS.md (full content)"],
-        },
-        {
             "label": "SPEC_TRACKING.md",
             "desc": "Spec Tracking Matrix — maps every FR to its current status, owner, and acceptance state",
             "depends_on": ["SRS.md"],
@@ -375,31 +365,8 @@ _PHASE_DELIVERABLE_DEPS: Dict[int, List[Dict]] = {
             "task_hint": "Design system architecture → write SAD.md → validate every FR has a module mapping",
             "checks": ["Every FR maps to ≥1 module?", "NFRs addressed (latency/security/cost)?",
                        "No circular dependencies?", "Data flow diagrams consistent?"],
-            "embed_docs": ["01-requirements/SRS.md (full)", "01-requirements/CONSTRAINTS.md (full)",
+            "embed_docs": ["01-requirements/SRS.md (full)",
                            "draft 02-architecture/SAD.md (full)"],
-        },
-        {
-            "label": "ADR.md",
-            "desc": "Architecture Decision Records — key decisions with context, options, rationale",
-            "depends_on": ["SAD.md"],
-            "task_hint": "Document key architecture decisions → write ADR.md → validate each decision references SAD context",
-            "checks": ["ADR covers all major decisions from SAD.md?",
-                       "Each ADR has context + options + rationale?",
-                       "No decisions contradict SAD.md module mapping?"],
-            "embed_docs": ["01-requirements/SRS.md (full)", "02-architecture/SAD.md (APPROVED — full content)",
-                           "draft 02-architecture/adr/ADR.md (full)"],
-        },
-        {
-            "label": "ARCHITECTURE_DIAGRAM.md",
-            "desc": "Architecture diagram — system topology, deployment view, data flow visualization",
-            "depends_on": ["SAD.md", "ADR.md"],
-            "task_hint": "Create architecture diagrams → system topology + deployment + data flow → validate against SAD/ADR",
-            "checks": ["Topology matches SAD.md component layout?",
-                       "Deployment view consistent with ADR infrastructure decisions?",
-                       "Data flows match SAD.md interface definitions?"],
-            "embed_docs": ["02-architecture/SAD.md (APPROVED — full content)",
-                           "02-architecture/adr/ADR.md (APPROVED — full content)",
-                           "draft 02-architecture/ARCHITECTURE_DIAGRAM.md (full content)"],
         },
     ],
 }
@@ -688,10 +655,9 @@ def _entry_gate_check(phase: int) -> List[str]:
 def _human_checkpoint(phase: int, checkpoint_n: int) -> List[str]:
     """Human peer-review checkpoint for P1/P2 (deliverable review — NOT harness run-gate)."""
     _DELIVERABLES: dict = {
-        1: ["01-requirements/SRS.md", "01-requirements/CONSTRAINTS.md",
-            "01-requirements/SPEC_TRACKING.md", "01-requirements/TRACEABILITY_MATRIX.md"],
-        2: ["02-architecture/SAD.md", "02-architecture/adr/ADR.md",
-            "02-architecture/ARCHITECTURE_DIAGRAM.md"],
+        1: ["01-requirements/SRS.md", "01-requirements/SPEC_TRACKING.md",
+            "01-requirements/TRACEABILITY_MATRIX.md"],
+        2: ["02-architecture/SAD.md"],
     }
     artifacts = _DELIVERABLES.get(phase, [])
     return [
@@ -1052,7 +1018,6 @@ def generate_phase1_tasks(repo_path: Path, srs_path: Path) -> List[str]:
 
     lines.append("### Phase 1 Deliverables")
     lines.append("- [ ] `SRS.md` - Software Requirements Specification (FRs + NFRs)")
-    lines.append("- [ ] `CONSTRAINTS.md` - Technical constraints, SLA, cost model")
     lines.append("- [ ] `SPEC_TRACKING.md` - Spec tracking matrix")
     lines.append("- [ ] `TRACEABILITY_MATRIX.md` - Requirements traceability matrix")
     lines.append("- [x] `sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
@@ -1134,8 +1099,6 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     ])
     lines.append("### Phase 2 Deliverables")
     lines.append("- [ ] `SAD.md` - Software Architecture Document (every FR has module mapping)")
-    lines.append("- [ ] `ADR.md` - Architecture Decision Records")
-    lines.append("- [ ] `ARCHITECTURE_DIAGRAM.md` - Architecture diagram")
     lines.append("- [ ] `.methodology/quality_manifest.json` — Quality manifest (FR list + SAB data)")
     lines.append("- [ ] `.methodology/SAB.json` — Machine-readable architecture baseline")
     lines.append("- [x] `sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
@@ -1371,7 +1334,6 @@ def generate_phase5_tasks(repo_path: Path) -> List[str]:
 
     lines.append("### Phase 5 Deliverables")
     lines.append("- [ ] `BASELINE.md` - System baseline")
-    lines.append("- [ ] `MONITORING_PLAN.md` - Monitoring plan")
     lines.append("- [ ] `VERIFICATION_REPORT.md` - Verification report")
     lines.append("- [x] `sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
     lines.append("- [ ] Gate 1 PASS for every FR")
@@ -1558,8 +1520,7 @@ def generate_phase8_tasks(repo_path: Path) -> List[str]:
 
     lines.append("### Phase 8 Deliverables")
     lines.append("- [ ] `CONFIG_RECORDS.md` - Configuration records")
-    lines.append("- [ ] `DEPLOYMENT_CHECKLIST.md` - Deployment checklist")
-    lines.append("- [ ] `ENVIRONMENT_SPEC.md` - Environment specification")
+    lines.append("- [ ] `RELEASE_CHECKLIST.md` - Release checklist")
     lines.append("- [x] `sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
     lines.append("- [ ] Gate 1 PASS for every FR")
     lines.append("")

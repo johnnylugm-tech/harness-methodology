@@ -795,10 +795,9 @@ class GitStrategy:
     # Map of known phase deliverable filenames (P1 and P2 are well-defined by
     # the methodology; other phases have project-specific outputs).
     _DELIVERABLE_NAMES: dict[int, list[str]] = {
-        1: ["01-requirements/SRS.md", "01-requirements/CONSTRAINTS.md",
-            "01-requirements/SPEC_TRACKING.md", "01-requirements/TRACEABILITY_MATRIX.md"],
-        2: ["02-architecture/SAD.md", "02-architecture/adr/ADR.md",
-            "02-architecture/ARCHITECTURE_DIAGRAM.md"],
+        1: ["01-requirements/SRS.md", "01-requirements/SPEC_TRACKING.md",
+            "01-requirements/TRACEABILITY_MATRIX.md"],
+        2: ["02-architecture/SAD.md"],
     }
 
     def _deliverable_files(self, phase: int) -> list[str]:

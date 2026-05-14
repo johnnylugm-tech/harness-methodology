@@ -576,10 +576,9 @@ class TestHumanCheckpoint:
         assert "CHECKPOINT-1" in joined
 
     def test_phase2_lists_sad_deliverables(self):
-        """GAP-K3 fix: P2 human checkpoint lists SAD/ADR deliverables."""
+        """GAP-K3 fix: P2 human checkpoint lists SAD deliverables."""
         joined = "\n".join(_human_checkpoint(2, 1))
         assert "SAD.md" in joined
-        assert "ADR.md" in joined
 
     def test_contains_approve_reject(self):
         joined = "\n".join(_human_checkpoint(1, 1))
@@ -662,7 +661,6 @@ class TestDecompositionSection:
         joined = "\n".join(lines)
         assert "Task Decomposition" in joined
         assert "SRS.md" in joined
-        assert "CONSTRAINTS.md" in joined
         assert "SPEC_TRACKING.md" in joined
         assert "TRACEABILITY_MATRIX.md" in joined
 
@@ -670,10 +668,9 @@ class TestDecompositionSection:
         lines = _decomposition_section(1)
         joined = "\n".join(lines)
         idx_srs = joined.find("SRS.md")
-        idx_constraints = joined.find("CONSTRAINTS.md")
         idx_spec = joined.find("SPEC_TRACKING.md")
         idx_trace = joined.find("TRACEABILITY_MATRIX.md")
-        assert idx_srs < idx_constraints < idx_spec < idx_trace, "Deliverables must be in dependency order"
+        assert idx_srs < idx_spec < idx_trace, "Deliverables must be in dependency order"
 
     def test_phase2_returns_non_empty(self):
         lines = _decomposition_section(2)
@@ -683,16 +680,13 @@ class TestDecompositionSection:
         lines = _decomposition_section(2)
         joined = "\n".join(lines)
         assert "SAD.md" in joined
-        assert "ADR.md" in joined
-        assert "ARCHITECTURE_DIAGRAM.md" in joined
 
     def test_phase2_lists_sequential_order(self):
+        """P2 single deliverable: verify it appears as sole item with correct dependency."""
         lines = _decomposition_section(2)
         joined = "\n".join(lines)
-        idx_sad = joined.find("SAD.md")
-        idx_adr = joined.find("ADR.md")
-        idx_diag = joined.find("ARCHITECTURE_DIAGRAM.md")
-        assert idx_sad < idx_adr < idx_diag, "Deliverables must be in dependency order"
+        assert "SAD.md" in joined
+        assert "1 | `SAD.md` | (none — starting point)" in joined
 
     def test_execution_rule_present(self):
         for phase in [1, 2]:
@@ -718,80 +712,80 @@ class TestDeliverableAbBlock:
         return _PHASE_DELIVERABLE_DEPS[2][0]
 
     def test_contains_sub_task_label(self, srs_deliverable: Dict):
-        lines = _deliverable_ab_block(1, srs_deliverable, 1, 4)
+        lines = _deliverable_ab_block(1, srs_deliverable, 1, 3)
         joined = "\n".join(lines)
-        assert "Sub-Task 1/4" in joined
+        assert "Sub-Task 1/3" in joined
         assert "SRS.md" in joined
 
     def test_contains_agent_a_and_b(self, srs_deliverable: Dict):
-        lines = _deliverable_ab_block(1, srs_deliverable, 1, 4)
+        lines = _deliverable_ab_block(1, srs_deliverable, 1, 3)
         joined = "\n".join(lines)
         assert "Agent A" in joined
         assert "Agent B" in joined
 
     def test_contains_depends_on(self, srs_deliverable: Dict):
-        lines = _deliverable_ab_block(1, srs_deliverable, 1, 4)
+        lines = _deliverable_ab_block(1, srs_deliverable, 1, 3)
         joined = "\n".join(lines)
         assert "Depends on" in joined
 
     def test_first_deliverable_no_dependency(self, srs_deliverable: Dict):
-        lines = _deliverable_ab_block(1, srs_deliverable, 1, 4)
+        lines = _deliverable_ab_block(1, srs_deliverable, 1, 3)
         joined = "\n".join(lines)
         assert "none — starting point" in joined
 
     def test_later_deliverable_shows_dependency(self):
-        spec_deliverable = _PHASE_DELIVERABLE_DEPS[1][2]  # depends on SRS.md
-        lines = _deliverable_ab_block(1, spec_deliverable, 3, 4)
+        spec_deliverable = _PHASE_DELIVERABLE_DEPS[1][1]  # SPEC_TRACKING depends on SRS.md
+        lines = _deliverable_ab_block(1, spec_deliverable, 2, 3)
         joined = "\n".join(lines)
         assert "SRS.md" in joined
 
     def test_contains_sessions_spawn_log(self, srs_deliverable: Dict):
-        lines = _deliverable_ab_block(1, srs_deliverable, 1, 4)
+        lines = _deliverable_ab_block(1, srs_deliverable, 1, 3)
         joined = "\n".join(lines)
         assert "sessions_spawn.log" in joined
 
     def test_contains_hr12_max_rounds(self, srs_deliverable: Dict):
-        lines = _deliverable_ab_block(1, srs_deliverable, 1, 4)
+        lines = _deliverable_ab_block(1, srs_deliverable, 1, 3)
         joined = "\n".join(lines)
         assert "5 rounds" in joined or "HR-12" in joined
 
     def test_not_last_subtask_shows_next(self, srs_deliverable: Dict):
-        lines = _deliverable_ab_block(1, srs_deliverable, 1, 4)
+        lines = _deliverable_ab_block(1, srs_deliverable, 1, 3)
         joined = "\n".join(lines)
-        assert "Sub-Task 2/4" in joined
+        assert "Sub-Task 2/3" in joined
 
     def test_last_subtask_shows_human_review(self):
-        trace_deliverable = _PHASE_DELIVERABLE_DEPS[1][3]
-        lines = _deliverable_ab_block(1, trace_deliverable, 4, 4)
+        trace_deliverable = _PHASE_DELIVERABLE_DEPS[1][2]
+        lines = _deliverable_ab_block(1, trace_deliverable, 3, 3)
         joined = "\n".join(lines)
         assert "Human Peer Review" in joined
 
     def test_contains_stateless_sandbox_warning(self, srs_deliverable: Dict):
-        lines = _deliverable_ab_block(1, srs_deliverable, 1, 4)
+        lines = _deliverable_ab_block(1, srs_deliverable, 1, 3)
         joined = "\n".join(lines)
         assert "STATELESS SANDBOX" in joined
 
     def test_deliverable_specific_checks_appear(self, srs_deliverable: Dict):
-        lines = _deliverable_ab_block(1, srs_deliverable, 1, 4)
+        lines = _deliverable_ab_block(1, srs_deliverable, 1, 3)
         joined = "\n".join(lines)
         assert "testable" in joined.lower()
 
     def test_phase2_deliverable_has_correct_roles(self, sad_deliverable: Dict):
-        lines = _deliverable_ab_block(2, sad_deliverable, 1, 3)
+        lines = _deliverable_ab_block(2, sad_deliverable, 1, 1)
         joined = "\n".join(lines)
         assert "ARCHITECT" in joined
         assert "TECH_LEAD" in joined
 
     def test_b2_three_branch_low_gap_approve(self, srs_deliverable: Dict):
         """[B-2] first branch: APPROVE + all gaps low → continue."""
-        lines = _deliverable_ab_block(1, srs_deliverable, 1, 4)
+        lines = _deliverable_ab_block(1, srs_deliverable, 1, 3)
         joined = "\n".join(lines)
         assert "all gaps are `low`" in joined, "Missing low-gap APPROVE branch"
-        assert "Sub-Task 2/4" in joined, "Low-gap branch must reference next sub-task"
+        assert "Sub-Task 2/3" in joined, "Low-gap branch must reference next sub-task"
 
     def test_b2_three_branch_medium_gap_redispatch(self, srs_deliverable: Dict):
         """[B-2] second branch: APPROVE + medium+ gap → fix → re-dispatch B as round 2."""
-        lines = _deliverable_ab_block(1, srs_deliverable, 1, 4)
+        lines = _deliverable_ab_block(1, srs_deliverable, 1, 3)
         joined = "\n".join(lines)
         assert "medium" in joined, "Missing medium-gap re-dispatch branch"
         assert "re-dispatch B as round 2" in joined, "Missing round-2 re-dispatch instruction"
@@ -799,22 +793,22 @@ class TestDeliverableAbBlock:
 
     def test_b2_blocking_note_present(self, srs_deliverable: Dict):
         """[B-2] must include BLOCKING note preventing early advance to next sub-task."""
-        lines = _deliverable_ab_block(1, srs_deliverable, 1, 4)
+        lines = _deliverable_ab_block(1, srs_deliverable, 1, 3)
         joined = "\n".join(lines)
         assert "BLOCKING" in joined, "Missing BLOCKING enforcement note"
         assert "do not start the next sub-task" in joined.lower(), "Must block early advance"
 
     def test_b2_log_includes_round2_example(self, srs_deliverable: Dict):
         """[LOG] section notes sessions_spawn.log is auto-populated by AgentSpawner."""
-        lines = _deliverable_ab_block(1, srs_deliverable, 1, 4)
+        lines = _deliverable_ab_block(1, srs_deliverable, 1, 3)
         joined = "\n".join(lines)
         assert "auto-logs round-2 re-dispatch" in joined, "Missing auto-logging note"
         assert "sessions_spawn.log" in joined, "Missing log reference"
 
     def test_b2_last_subtask_three_branches(self):
         """Last sub-task [B-2] also has three branches (not just APPROVE → Human Review)."""
-        trace_deliverable = _PHASE_DELIVERABLE_DEPS[1][3]
-        lines = _deliverable_ab_block(1, trace_deliverable, 4, 4)
+        trace_deliverable = _PHASE_DELIVERABLE_DEPS[1][2]
+        lines = _deliverable_ab_block(1, trace_deliverable, 3, 3)
         joined = "\n".join(lines)
         assert "all gaps are `low`" in joined
         assert "re-dispatch B as round 2" in joined
@@ -823,7 +817,7 @@ class TestDeliverableAbBlock:
 
     def test_b2_three_branch_phase2(self, sad_deliverable: Dict):
         """Phase 2 deliverables also get three-branch [B-2] (not just phase 1)."""
-        lines = _deliverable_ab_block(2, sad_deliverable, 1, 3)
+        lines = _deliverable_ab_block(2, sad_deliverable, 1, 1)
         joined = "\n".join(lines)
         assert "all gaps are `low`" in joined
         assert "re-dispatch B as round 2" in joined
@@ -831,7 +825,7 @@ class TestDeliverableAbBlock:
 
     def test_b2_round2_embed_instruction_references_b1(self, srs_deliverable: Dict):
         """Round-2 re-dispatch embed instruction reuses B-1 docs (not a bespoke list)."""
-        lines = _deliverable_ab_block(1, srs_deliverable, 1, 4)
+        lines = _deliverable_ab_block(1, srs_deliverable, 1, 3)
         joined = "\n".join(lines)
         assert "same docs as B-1" in joined, (
             "Round-2 embed instruction must say 'same docs as B-1' to avoid context drift"
@@ -853,14 +847,12 @@ class TestPhase1Generator:
         assert "Execution rule" in joined
 
     def test_has_serial_per_deliverable_ab(self, project: Path):
-        """P1 plan must have 4 serial sub-tasks with individual A/B loops."""
+        """P1 plan must have 3 serial sub-tasks with individual A/B loops."""
         joined = "\n".join(generate_phase1_tasks(project, project / "SRS.md"))
-        assert "Sub-Task 1/4" in joined
-        assert "Sub-Task 2/4" in joined
-        assert "Sub-Task 3/4" in joined
-        assert "Sub-Task 4/4" in joined
+        assert "Sub-Task 1/3" in joined
+        assert "Sub-Task 2/3" in joined
+        assert "Sub-Task 3/3" in joined
         assert "SRS.md" in joined
-        assert "CONSTRAINTS.md" in joined
         assert "SPEC_TRACKING.md" in joined
         assert "TRACEABILITY_MATRIX.md" in joined
 
@@ -896,58 +888,47 @@ class TestPhase1Generator:
     def test_traceability_depends_on_srs_and_spec(self, project: Path):
         """Sub-Task 3 (TRACEABILITY) must declare dependency on SRS + SPEC_TRACKING."""
         joined = "\n".join(generate_phase1_tasks(project, project / "SRS.md"))
-        idx_trace = joined.find("Sub-Task 4/4: TRACEABILITY_MATRIX.md")
+        idx_trace = joined.find("Sub-Task 3/3: TRACEABILITY_MATRIX.md")
         assert idx_trace != -1, "TRACEABILITY sub-task heading not found"
         section = joined[idx_trace:idx_trace + 600]
         assert "SRS.md" in section, "SRS.md not referenced in TRACEABILITY section"
         assert "SPEC_TRACKING.md" in section, "SPEC_TRACKING.md not referenced in TRACEABILITY section"
 
     def test_b2_review_chain_follows_depends_on(self, project: Path):
-        """Sub-Task 2 (CONSTRAINTS) depends on SRS.md → dep_note references Sub-Task 1/4."""
+        """Sub-Task 2 (SPEC_TRACKING) depends on SRS.md → dep_note references Sub-Task 1/3."""
         joined = "\n".join(generate_phase1_tasks(project, project / "SRS.md"))
-        idx = joined.find("Sub-Task 2/4: CONSTRAINTS.md")
-        assert idx != -1, "CONSTRAINTS sub-task heading not found"
+        idx = joined.find("Sub-Task 2/3: SPEC_TRACKING.md")
+        assert idx != -1, "SPEC_TRACKING sub-task heading not found"
         section = joined[idx:idx + 400]
-        assert "+ Sub-Task 1/4 review" in section, (
-            "CONSTRAINTS dep_note must reference SRS.md review (Sub-Task 1/4), "
+        assert "+ Sub-Task 1/3 review" in section, (
+            "SPEC_TRACKING dep_note must reference SRS.md review (Sub-Task 1/3), "
             "got: " + section[section.find("Depends on"):section.find("Depends on") + 100]
         )
 
-    def test_b2_review_chain_spec_tracking_not_constraints(self, project: Path):
-        """Sub-Task 3 (SPEC_TRACKING) depends on SRS.md, NOT CONSTRAINTS → references 1/4 not 2/4."""
+    def test_b2_review_chain_spec_tracking_follows_srs(self, project: Path):
+        """Sub-Task 2 (SPEC_TRACKING) depends on SRS.md → references Sub-Task 1/3."""
         joined = "\n".join(generate_phase1_tasks(project, project / "SRS.md"))
-        idx = joined.find("Sub-Task 3/4: SPEC_TRACKING.md")
+        idx = joined.find("Sub-Task 2/3: SPEC_TRACKING.md")
         assert idx != -1, "SPEC_TRACKING sub-task heading not found"
         section = joined[idx:idx + 2000]
-        # Must reference the SRS.md review (Sub-Task 1/4), not CONSTRAINTS (2/4)
-        assert "Sub-Task 1/4" in section, (
-            "SPEC_TRACKING dep_note/embed_docs must reference SRS.md (Sub-Task 1/4)"
+        assert "Sub-Task 1/3" in section, (
+            "SPEC_TRACKING dep_note/embed_docs must reference SRS.md (Sub-Task 1/3)"
         )
-        assert "Sub-Task 2/4" not in section, (
-            "SPEC_TRACKING must NOT reference CONSTRAINTS review (Sub-Task 2/4) — "
-            "it does not depend on CONSTRAINTS.md"
-        )
-        # embed_docs should reference SRS.md B-2 review, not CONSTRAINTS
-        assert "SRS.md (Sub-Task 1/4" in section, (
+        assert "SRS.md (Sub-Task 1/3" in section, (
             "SPEC_TRACKING embed_docs must include SRS.md B-2 review"
         )
 
     def test_b2_review_chain_traceability_multi_dep(self, project: Path):
-        """Sub-Task 4 (TRACEABILITY) depends on SRS.md + SPEC_TRACKING → references both."""
+        """Sub-Task 3 (TRACEABILITY) depends on SRS.md + SPEC_TRACKING → references both."""
         joined = "\n".join(generate_phase1_tasks(project, project / "SRS.md"))
-        idx = joined.find("Sub-Task 4/4: TRACEABILITY_MATRIX.md")
+        idx = joined.find("Sub-Task 3/3: TRACEABILITY_MATRIX.md")
         assert idx != -1, "TRACEABILITY sub-task heading not found"
         section = joined[idx:idx + 2500]
-        assert "Sub-Task 1/4" in section, (
-            "TRACEABILITY dep_note/embed_docs must reference SRS.md (Sub-Task 1/4)"
+        assert "Sub-Task 1/3" in section, (
+            "TRACEABILITY dep_note/embed_docs must reference SRS.md (Sub-Task 1/3)"
         )
-        assert "Sub-Task 3/4" in section, (
-            "TRACEABILITY dep_note/embed_docs must reference SPEC_TRACKING.md (Sub-Task 3/4)"
-        )
-        # Must NOT reference CONSTRAINTS (Sub-Task 2/4) — TRACEABILITY doesn't depend on it
-        assert "Sub-Task 2/4" not in section, (
-            "TRACEABILITY must NOT reference CONSTRAINTS (Sub-Task 2/4) — "
-            "it does not depend on CONSTRAINTS.md"
+        assert "Sub-Task 2/3" in section, (
+            "TRACEABILITY dep_note/embed_docs must reference SPEC_TRACKING.md (Sub-Task 2/3)"
         )
 
 
@@ -972,14 +953,10 @@ class TestPhase2Generator:
         assert "Execution rule" in joined
 
     def test_has_serial_per_deliverable_ab(self, project: Path):
-        """P2 plan must have 3 serial sub-tasks with individual A/B loops."""
+        """P2 plan must have 1 serial sub-task with A/B loop."""
         joined = "\n".join(generate_phase2_tasks(project, project / "SRS.md"))
-        assert "Sub-Task 1/3" in joined
-        assert "Sub-Task 2/3" in joined
-        assert "Sub-Task 3/3" in joined
+        assert "Sub-Task 1/1" in joined
         assert "SAD.md" in joined
-        assert "ADR.md" in joined
-        assert "ARCHITECTURE_DIAGRAM.md" in joined
 
     def test_has_ab_steps(self, project: Path):
         """GAP-K fix: P2 plan must include A/B architecture steps."""

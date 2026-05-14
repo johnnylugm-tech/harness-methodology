@@ -93,14 +93,14 @@ class DriftDetector:
 
     # Expected artifacts per phase (canonical 0X-name/ paths)
     PHASE_ARTIFACTS = {
-        1: ["01-requirements/SRS.md", "01-requirements/TRACEABILITY_MATRIX.md"],
-        2: ["02-architecture/SAD.md", "02-architecture/adr/ADR.md"],
-        3: ["03-development/tests/"],
+        1: ["01-requirements/SRS.md", "01-requirements/SPEC_TRACKING.md", "01-requirements/TRACEABILITY_MATRIX.md"],
+        2: ["02-architecture/SAD.md"],
+        3: [],  # P3 produces code+tests (no document artifacts) — drift detection N/A
         4: ["04-testing/TEST_PLAN.md", "04-testing/TEST_RESULTS.md"],
-        5: ["05-verify/BASELINE.md"],
+        5: ["05-verify/BASELINE.md", "05-verify/VERIFICATION_REPORT.md"],
         6: ["06-quality/QUALITY_REPORT.md"],
-        7: ["07-risk/RISK_REGISTER.md"],
-        8: ["08-config/CONFIG_RECORDS.md"],
+        7: ["07-risk/RISK_ASSESSMENT.md", "07-risk/RISK_REGISTER.md"],
+        8: ["08-config/CONFIG_RECORDS.md", "08-config/RELEASE_CHECKLIST.md"],
     }
 
     def __init__(self, project_path: str):

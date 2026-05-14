@@ -258,11 +258,10 @@ class PhaseTruthVerifier:
             3: [
                 "03-development/src/",
                 "03-development/tests/",
-                "03-development/COMPLIANCE_MATRIX.md",
             ],
             4: ["04-testing/TEST_PLAN.md", "04-testing/TEST_RESULTS.md"],
-            5: ["05-verify/BASELINE.md", "05-verify/VERIFICATION_REPORT.md", "05-verify/MONITORING_PLAN.md"],
-            6: ["06-quality/QUALITY_REPORT.md", "06-quality/MONITORING_PLAN.md"],
+            5: ["05-verify/BASELINE.md", "05-verify/VERIFICATION_REPORT.md"],
+            6: ["06-quality/QUALITY_REPORT.md"],
             7: ["07-risk/RISK_ASSESSMENT.md", "07-risk/RISK_REGISTER.md"],
             8: ["08-config/CONFIG_RECORDS.md", "08-config/RELEASE_CHECKLIST.md"],
         }

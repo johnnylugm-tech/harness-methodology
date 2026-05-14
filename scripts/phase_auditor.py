@@ -161,8 +161,6 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
              "BASELINE.md (7 sections)", True),
             (["05-verify/VERIFICATION_REPORT.md"],
              "VERIFICATION_REPORT.md", True),
-            (["05-verify/MONITORING_PLAN.md"],
-             "MONITORING_PLAN.md", True),
             (["DEVELOPMENT_LOG.md"], "DEVELOPMENT_LOG.md", True),
             (["sessions_spawn.log"], "sessions_spawn.log", True),
             (["00-summary/Phase5_STAGE_PASS.md"],

@@ -270,10 +270,11 @@ class FrameworkEnforcer:
 
     def check_aspice_completeness(self) -> Dict:
         """Run check aspice completeness validation."""
+        _empty: List[str] = []  # typed to prevent mypy widening dict value to `object`
         required_by_phase = {
             1: {"Phase 1 (SPECIFY)":     ["01-requirements/SRS.md", "01-requirements/SPEC_TRACKING.md", "01-requirements/TRACEABILITY_MATRIX.md"]},
             2: {"Phase 2 (PLAN)":        ["02-architecture/SAD.md"]},
-            3: {"Phase 3 (IMPLEMENT)":   ["03-development/IMPLEMENTATION.md"]},
+            3: {"Phase 3 (IMPLEMENT)":   _empty},  # P3 has no mandatory document artifacts
             4: {"Phase 4 (VERIFY)":      ["04-testing/TEST_PLAN.md", "04-testing/TEST_RESULTS.md"]},
             5: {"Phase 5 (SYSTEM_TEST)": ["05-verify/BASELINE.md", "05-verify/VERIFICATION_REPORT.md"]},
             6: {"Phase 6 (QUALITY)":     ["06-quality/QUALITY_REPORT.md"]},
@@ -286,6 +287,8 @@ class FrameworkEnforcer:
             if phase_num not in required_by_phase:
                 continue
             for phase_name, docs in required_by_phase[phase_num].items():
+                if not docs:
+                    continue  # Phase has no mandatory document artifacts
                 found_one = False
                 for doc in docs:
                     if (self.project_root / doc).exists():

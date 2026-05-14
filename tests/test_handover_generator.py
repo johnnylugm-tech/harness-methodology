@@ -627,14 +627,14 @@ class TestHandoverGeneratorFixes:
         assert "▶ 立即開始" in content
 
     def test_deliverable_files_p1_all_exist(self, tmp_path: Path):
-        """_deliverable_files(1) returns ✅ for all 4 P1 files when present."""
+        """_deliverable_files(1) returns ✅ for all 3 P1 files when present."""
         (tmp_path / "01-requirements").mkdir(parents=True, exist_ok=True)
-        for name in ["01-requirements/SRS.md", "01-requirements/CONSTRAINTS.md",
+        for name in ["01-requirements/SRS.md",
                       "01-requirements/SPEC_TRACKING.md", "01-requirements/TRACEABILITY_MATRIX.md"]:
             (tmp_path / name).write_text("# content\n" * 10, encoding="utf-8")
         gs = GitStrategy(tmp_path, enabled=False)
         items = gs._deliverable_files(1)
-        assert len(items) == 4
+        assert len(items) == 3
         assert all("✅" in item for item in items)
         assert any("10L" in item or "L)" in item for item in items)  # line count included
 
@@ -642,22 +642,21 @@ class TestHandoverGeneratorFixes:
         """_deliverable_files(1) marks absent files as ❌ missing."""
         (tmp_path / "01-requirements").mkdir(parents=True, exist_ok=True)
         (tmp_path / "01-requirements" / "SRS.md").write_text("# SRS\n", encoding="utf-8")
-        # CONSTRAINTS.md, SPEC_TRACKING.md, TRACEABILITY_MATRIX.md absent
+        # SPEC_TRACKING.md, TRACEABILITY_MATRIX.md absent
         gs = GitStrategy(tmp_path, enabled=False)
         items = gs._deliverable_files(1)
-        assert len(items) == 4
+        assert len(items) == 3
         assert any("✅" in item and "SRS.md" in item for item in items)
-        assert sum("❌ missing" in item for item in items) == 3
+        assert sum("❌ missing" in item for item in items) == 2
 
     def test_deliverable_files_p2(self, tmp_path: Path):
-        """_deliverable_files(2) covers SAD.md, ADR.md, ARCHITECTURE_DIAGRAM.md."""
+        """_deliverable_files(2) covers SAD.md only."""
         (tmp_path / "02-architecture").mkdir(parents=True, exist_ok=True)
         (tmp_path / "02-architecture" / "SAD.md").write_text("# SAD\n", encoding="utf-8")
         gs = GitStrategy(tmp_path, enabled=False)
         items = gs._deliverable_files(2)
-        assert len(items) == 3
+        assert len(items) == 1
         assert any("SAD.md" in item and "✅" in item for item in items)
-        assert any("ADR.md" in item and "❌" in item for item in items)
 
     def test_deliverable_files_unknown_phase(self, tmp_path: Path):
         """_deliverable_files() returns [] for phases without a hardcoded list."""
@@ -667,7 +666,7 @@ class TestHandoverGeneratorFixes:
     def test_p1_handover_contains_deliverable_section(self, tmp_path: Path):
         """P1 HANDOVER.md includes '交付物清單' section listing deliverables."""
         (tmp_path / "01-requirements").mkdir(parents=True, exist_ok=True)
-        for name in ["01-requirements/SRS.md", "01-requirements/CONSTRAINTS.md",
+        for name in ["01-requirements/SRS.md",
                       "01-requirements/SPEC_TRACKING.md", "01-requirements/TRACEABILITY_MATRIX.md"]:
             (tmp_path / name).write_text("# content\n", encoding="utf-8")
         gs = self._make_strategy(tmp_path)
@@ -675,7 +674,6 @@ class TestHandoverGeneratorFixes:
         content = (tmp_path / "HANDOVER.md").read_text()
         assert "交付物清單" in content
         assert "SRS.md" in content
-        assert "CONSTRAINTS.md" in content
 
     def test_gap_register_rich_table_with_disposition(self, tmp_path: Path):
         """_gap_register_summary() returns a markdown table with disposition column."""
@@ -715,7 +713,7 @@ class TestHandoverGeneratorFixes:
     def test_deliverables_section_has_blank_line_before_status(self, tmp_path: Path):
         """交付物清單 section must be followed by a blank line before ## 目前執行狀況."""
         (tmp_path / "01-requirements").mkdir(parents=True, exist_ok=True)
-        for name in ["01-requirements/SRS.md", "01-requirements/CONSTRAINTS.md",
+        for name in ["01-requirements/SRS.md",
                       "01-requirements/SPEC_TRACKING.md", "01-requirements/TRACEABILITY_MATRIX.md"]:
             (tmp_path / name).write_text("# x\n", encoding="utf-8")
         gs = self._make_strategy(tmp_path)

@@ -137,12 +137,14 @@ class TestFrameworkEnforcer:
         assert "missing_docs" in result
         assert "found" in result["phase_coverage"]
 
-    def test_check_aspice_completeness_phase3_with_docs(self, tmp_path):
+    def test_check_aspice_completeness_phase3_no_mandatory_artifacts(self, tmp_path):
+        """P3 has no mandatory document artifacts — completeness depends on P1+P2 only."""
         for d in ["01-requirements", "02-architecture", "03-development"]:
             (tmp_path / d).mkdir(parents=True)
         (tmp_path / "01-requirements/SRS.md").write_text("# SRS")
         (tmp_path / "02-architecture/SAD.md").write_text("# SAD")
-        (tmp_path / "03-development/IMPLEMENTATION.md").write_text("# IMPL")
+        # P3 dir exists but has no mandatory artifact files — that's fine
+        (tmp_path / "03-development/src").mkdir()
         fe = FrameworkEnforcer(project_root=str(tmp_path), phase=3)
         result = fe.check_aspice_completeness()
         assert result["complete"] is True

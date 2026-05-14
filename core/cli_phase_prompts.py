@@ -412,7 +412,6 @@ Establish system Baseline based on test results, ensuring monitorability and tra
 
 [Outputs]
 - BASELINE.md: System Baseline (performance benchmarks, configuration snapshot)
-- MONITORING_PLAN.md: Monitoring Plan (metrics, alert thresholds)
 - VERIFICATION_REPORT.md: Verification Report
 
 [Verification Criteria]
@@ -429,7 +428,7 @@ Establish system Baseline based on test results, ensuring monitorability and tra
 [OUTPUT_FORMAT]
 {{
  "status": "success|error|unable_to_proceed",
- "result": "actual output (BASELINE.md, MONITORING_PLAN.md path)",
+ "result": "actual output (BASELINE.md, VERIFICATION_REPORT.md path)",
  "confidence": 1-10,
  "citations": ["TEST_RESULTS.md#L10-L20"],
  "summary": "within 50 words"
@@ -445,7 +444,6 @@ TASK_ID: task-p5-review
 
 [Review Scope] (read only these sections, NO full-file dump)
 - BASELINE.md
-- MONITORING_PLAN.md
 - TEST_RESULTS.md (read only statistics)
 
 [Verification Checklist]
@@ -649,17 +647,15 @@ Establish complete configuration management system, ensuring deployability and r
 
 [Outputs]
 - CONFIG_RECORDS.md: Configuration Records (environment, version, parameters)
-- DEPLOYMENT_CHECKLIST.md: Deployment Checklist
-- ENVIRONMENT_SPEC.md: Environment Specification
-- requirements.lock: dependency lock
+- RELEASE_CHECKLIST.md: Release Checklist
 
 [Verification Criteria]
-- requirements.lock exists and complete
+- RELEASE_CHECKLIST.md exists and complete
 - Deployment checklist 100% executable
 - Configuration records traceable to every component
 
 [FORBIDDEN]
-- NO requirements.lock inconsistent with actuals
+- NO RELEASE_CHECKLIST.md inconsistent with actuals
 - NO incomplete deployment checklist
 - NO missing key parameters in configuration records
 - NO citations missing or lacking line numbers -> HR-15 violation
@@ -667,7 +663,7 @@ Establish complete configuration management system, ensuring deployability and r
 [OUTPUT_FORMAT]
 {{
  "status": "success|error|unable_to_proceed",
- "result": "actual output (CONFIG_RECORDS.md, requirements.lock path)",
+ "result": "actual output (CONFIG_RECORDS.md, RELEASE_CHECKLIST.md path)",
  "confidence": 1-10,
  "citations": ["BASELINE.md#L10-L15"],
  "summary": "within 50 words"
@@ -683,19 +679,17 @@ TASK_ID: task-p8-review
 
 [Review Scope] (read only these sections, NO full-file dump)
 - CONFIG_RECORDS.md
-- DEPLOYMENT_CHECKLIST.md
-- ENVIRONMENT_SPEC.md
-- requirements.lock
+- RELEASE_CHECKLIST.md
 
 [Verification Checklist]
-1. requirements.lock fully consistent with actuals
+1. RELEASE_CHECKLIST.md fully consistent with actuals
 2. Deployment checklist fully executable
 3. Configuration records cover all environments (Dev/Staging/Prod)
 4. Version consistency (component versions, dependency versions)
 5. Deployment process reproducible
 
 [REJECT_IF]
-- requirements.lock incomplete or inconsistent -> REJECT
+- RELEASE_CHECKLIST.md incomplete or inconsistent -> REJECT
 - Deployment checklist incomplete -> REJECT
 - Configuration missing key parameters -> REJECT
 - Missing citations or no line numbers -> REJECT (HR-15)
