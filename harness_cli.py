@@ -73,6 +73,39 @@ from harness.handover_generator import HandoverGenerator
 _REPO_ROOT = Path(__file__).parent
 sys.path.insert(0, str(_REPO_ROOT))
 
+
+# ---------------------------------------------------------------------------
+# .env file loader (no external dependency)
+# ---------------------------------------------------------------------------
+
+def _load_env_file(env_path: Path) -> list[str]:
+    """Load KEY=VALUE pairs from a .env file into os.environ.
+
+    Rules:
+    - Lines starting with # or blank are skipped.
+    - Does NOT override variables already set in the shell environment.
+    - Strips surrounding single/double quotes from values.
+    - Inline comments (value # comment) are stripped.
+
+    Returns list of keys that were loaded (empty if file not found).
+    """
+    if not env_path.is_file():
+        return []
+    loaded: list[str] = []
+    for raw in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        if not key:
+            continue
+        value = value.split("#")[0].strip().strip('"').strip("'")
+        if key not in os.environ:   # never override shell-level vars
+            os.environ[key] = value
+            loaded.append(key)
+    return loaded
+
 # Phases where Gate 1 runs per-FR
 _PER_FR_GATE1_PHASES: frozenset[int] = frozenset({3, 4, 5, 7, 8})
 # Statuses that indicate an agent dispatch failure (all others treated as success).
@@ -2815,18 +2848,28 @@ def cmd_audit_structure(args: argparse.Namespace) -> int:
     # --- Dimension 5: Naming convention ---
     naming_issues = []
     expected_names = set(PHASE_DIRS.values())
+    # Map "NN" prefix → canonical dir name, e.g. "05" → "05-verify"
+    expected_by_prefix: dict[str, str] = {n.split("-")[0]: n for n in expected_names}
     found_dirs = set()
     for child in project.iterdir():
         if not child.is_dir():
             continue
-        m = _re.match(r"^\d{2}-", child.name)
+        m = _re.match(r"^(\d{2})-", child.name)
         if m:
             found_dirs.add(child.name)
             if child.name not in expected_names:
-                naming_issues.append(
-                    f"unexpected directory '{child.name}' "
-                    f"(expected one of: {', '.join(sorted(expected_names))})"
-                )
+                prefix = m.group(1)
+                canonical = expected_by_prefix.get(prefix)
+                if canonical:
+                    naming_issues.append(
+                        f"naming deviation: '{child.name}' should be '{canonical}' "
+                        f"— rename with: mv '{child.name}' '{canonical}'"
+                    )
+                else:
+                    naming_issues.append(
+                        f"unexpected directory '{child.name}' "
+                        f"(no phase with prefix '{prefix}' in expected set)"
+                    )
     missing = expected_names - found_dirs
     if missing:
         naming_issues.append(
@@ -3185,6 +3228,21 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     """Main entry point for the CLI."""
+    # Load .env from CWD first (covers `cd project && python harness_cli.py`).
+    _load_env_file(Path.cwd() / ".env")
+    # Also load from --project path if it differs from CWD.
+    for i, arg in enumerate(sys.argv[1:], 1):
+        if arg in ("--project", "-p") and i < len(sys.argv):
+            proj_env = Path(sys.argv[i]) / ".env"
+            if proj_env.resolve() != (Path.cwd() / ".env").resolve():
+                _load_env_file(proj_env)
+            break
+        if arg.startswith("--project="):
+            proj_env = Path(arg.split("=", 1)[1]) / ".env"
+            if proj_env.resolve() != (Path.cwd() / ".env").resolve():
+                _load_env_file(proj_env)
+            break
+
     parser = build_parser()
     args = parser.parse_args()
     return args.func(args)
