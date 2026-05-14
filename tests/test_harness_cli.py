@@ -20,7 +20,7 @@ class TestInitPhaseDirs:
             "03-development/src",
             "03-development/tests",
             "04-testing",
-            "05-verify",
+            "05-verification",
             "06-quality",
             "07-risk",
             "08-config",
@@ -184,7 +184,7 @@ class TestCmdAuditStructure:
 
         for d in [
             "01-requirements", "02-architecture", "03-development",
-            "04-testing", "05-verify", "06-quality", "07-risk", "08-config",
+            "04-testing", "05-verification", "06-quality", "07-risk", "08-config",
         ]:
             (tmp_path / d).mkdir()
 

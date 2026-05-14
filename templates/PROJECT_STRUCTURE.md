@@ -14,7 +14,7 @@ project/
 +-- 03-development/src/     # Phase 3: Implementation
 +-- 03-development/tests/   # Phase 3: Tests
 +-- 04-testing/             # Phase 4: Test verification
-+-- 05-verify/               # Phase 5: Verification & Delivery
++-- 05-verification/        # Phase 5: Verification & Delivery
 +-- 06-quality/              # Phase 6: Quality Assurance
 +-- 07-risk/                 # Phase 7: Risk Management
 +-- 08-config/               # Phase 8: Configuration Management

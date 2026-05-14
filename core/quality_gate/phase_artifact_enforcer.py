@@ -85,8 +85,8 @@ class PhaseArtifactRegistry:
         },
         Phase.SYSTEM_TEST: {
             "artifacts": [
-                "05-verify/BASELINE.md",
-                "05-verify/VERIFICATION_REPORT.md",
+                "05-verification/BASELINE.md",
+                "05-verification/VERIFICATION_REPORT.md",
             ],
             "depends_on": [Phase.VERIFY],
         },

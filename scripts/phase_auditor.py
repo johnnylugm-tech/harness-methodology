@@ -157,9 +157,9 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
         "ab_rounds": 2,
         "constitution_type": None,
         "deliverables": [
-            (["05-verify/BASELINE.md"],
+            (["05-verification/BASELINE.md"],
              "BASELINE.md (7 sections)", True),
-            (["05-verify/VERIFICATION_REPORT.md"],
+            (["05-verification/VERIFICATION_REPORT.md"],
              "VERIFICATION_REPORT.md", True),
             (["DEVELOPMENT_LOG.md"], "DEVELOPMENT_LOG.md", True),
             (["sessions_spawn.log"], "sessions_spawn.log", True),
@@ -1043,7 +1043,7 @@ class PhaseAuditor:
             ))
 
     def _check_baseline_depth(self):
-        content = self._content(["05-verify/BASELINE.md"])
+        content = self._content(["05-verification/BASELINE.md"])
         if not content:
             return
         h2_count = len(re.findall(r"^## ", content, re.MULTILINE))

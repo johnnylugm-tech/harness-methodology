@@ -2507,7 +2507,7 @@ _PHASE_DIRS: dict[int, str] = {
     2: "02-architecture",
     3: "03-development",
     4: "04-testing",
-    5: "05-verify",
+    5: "05-verification",
     6: "06-quality",
     7: "07-risk",
     8: "08-config",
@@ -2741,7 +2741,7 @@ def cmd_audit_structure(args: argparse.Namespace) -> int:
         2: ["02-architecture/SAD.md"],
         3: ["03-development/src/", "03-development/tests/"],
         4: ["04-testing/TEST_PLAN.md", "04-testing/TEST_RESULTS.md"],
-        5: ["05-verify/BASELINE.md", "05-verify/VERIFICATION_REPORT.md"],
+        5: ["05-verification/BASELINE.md", "05-verification/VERIFICATION_REPORT.md"],
         6: ["06-quality/QUALITY_REPORT.md"],
         7: ["07-risk/RISK_ASSESSMENT.md", "07-risk/RISK_REGISTER.md"],
         8: ["08-config/CONFIG_RECORDS.md", "08-config/RELEASE_CHECKLIST.md"],
@@ -2854,7 +2854,7 @@ def cmd_audit_structure(args: argparse.Namespace) -> int:
     # --- Dimension 5: Naming convention ---
     naming_issues = []
     expected_names = set(PHASE_DIRS.values())
-    # Map "NN" prefix → canonical dir name, e.g. "05" → "05-verify"
+    # Map "NN" prefix → canonical dir name, e.g. "05" → "05-verification"
     expected_by_prefix: dict[str, str] = {n.split("-")[0]: n for n in expected_names}
     found_dirs = set()
     for child in project.iterdir():

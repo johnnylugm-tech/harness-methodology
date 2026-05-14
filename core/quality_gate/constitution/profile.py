@@ -411,7 +411,7 @@ def _build_defaults() -> ConstitutionProfile:
             2: "02-architecture",
             3: "03-development",
             4: "04-testing",
-            5: "05-verify",
+            5: "05-verification",
             6: "06-quality",
             7: "07-risk",
             8: "08-config",

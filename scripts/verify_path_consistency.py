@@ -27,14 +27,14 @@ TOOL_FILES = [
 ]
 
 PHASE_WHERE_PATTERNS = {
-    5: "05-verify",
+    5: "05-verification",
     6: "06-quality",
     7: "07-risk",
     8: "08-config",
 }
 
 PHASE_ARTIFACTS = {
-    5: ["05-verify/BASELINE.md", "05-verify/VERIFICATION_REPORT.md"],
+    5: ["05-verification/BASELINE.md", "05-verification/VERIFICATION_REPORT.md"],
     6: ["06-quality/QUALITY_REPORT.md"],
     7: ["07-risk/RISK_ASSESSMENT.md", "07-risk/RISK_REGISTER.md"],
     8: ["08-config/CONFIG_RECORDS.md", "08-config/RELEASE_CHECKLIST.md"],

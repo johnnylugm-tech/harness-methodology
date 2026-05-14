@@ -133,7 +133,7 @@ class FrameworkEnforcer:
                 2: {"type": "sad",            "dir": "02-architecture"},
                 3: {"type": "implementation", "dir": "03-development"},
                 4: {"type": "test_plan",      "dir": "04-testing"},
-                5: {"type": "verification",   "dir": "05-verify"},
+                5: {"type": "verification",   "dir": "05-verification"},
                 6: {"type": "quality_report", "dir": "06-quality"},
                 7: {"type": "risk_management","dir": "07-risk"},
                 8: {"type": "configuration",  "dir": "08-config"},
@@ -276,7 +276,7 @@ class FrameworkEnforcer:
             2: {"Phase 2 (PLAN)":        ["02-architecture/SAD.md"]},
             3: {"Phase 3 (IMPLEMENT)":   _empty},  # P3 has no mandatory document artifacts
             4: {"Phase 4 (VERIFY)":      ["04-testing/TEST_PLAN.md", "04-testing/TEST_RESULTS.md"]},
-            5: {"Phase 5 (SYSTEM_TEST)": ["05-verify/BASELINE.md", "05-verify/VERIFICATION_REPORT.md"]},
+            5: {"Phase 5 (SYSTEM_TEST)": ["05-verification/BASELINE.md", "05-verification/VERIFICATION_REPORT.md"]},
             6: {"Phase 6 (QUALITY)":     ["06-quality/QUALITY_REPORT.md"]},
             7: {"Phase 7 (RISK)":        ["07-risk/RISK_ASSESSMENT.md", "07-risk/RISK_REGISTER.md"]},
             8: {"Phase 8 (CONFIG)":      ["08-config/CONFIG_RECORDS.md", "08-config/RELEASE_CHECKLIST.md"]},

@@ -74,7 +74,7 @@ class TestDefaults:
     def test_phase_directory(self):
         p = defaults()
         assert p.phase_directory(1) == "01-requirements"
-        assert p.phase_directory(5) == "05-verify"
+        assert p.phase_directory(5) == "05-verification"
         assert p.phase_directory(99) == "docs"
 
     def test_dimension_rule(self):

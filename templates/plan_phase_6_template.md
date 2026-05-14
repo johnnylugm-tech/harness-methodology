@@ -142,7 +142,7 @@ GOAL: Comprehensive quality assessment to ensure system meets release standards.
 
 ON DEMAND READS (read only necessary sections):
 - 04-testing/TEST_RESULTS.md (failed cases)
-- 05-verify/BASELINE.md (performance baseline data)
+- 05-verification/BASELINE.md (performance baseline data)
 - 06-quality/QUALITY_REPORT.md (existing version if any)
 
 OUTPUT:
@@ -179,7 +179,7 @@ TASK_ID: task-p6-review
 REVIEW SCOPE (read only necessary sections):
 - 06-quality/QUALITY_REPORT.md
 - 04-testing/TEST_RESULTS.md
-- 05-verify/BASELINE.md
+- 05-verification/BASELINE.md
 
 VERIFICATION CHECKLIST:
 1. Constitution quality total >= 80%
