@@ -494,7 +494,10 @@ Save to `.sessi-work/round_<n>/scores/<dimension>.json`:
   "dimension": "<name>",
   "round": <n>,
   "llm_tier": <1|2|3>,
-  "llm_provider": "hermes|gemini|claude_native",
+  "llm_provider": "hermes|gemini|gemini-flash|claude_native",
+  // Use the PROVIDER name, not the model name. Accepted values:
+  // "hermes" (Hermes AI agent), "gemini" or "gemini-flash" or "gemini-2.5-flash"
+  // (any Gemini variant), "claude_native" (degraded fallback only, _degraded=true).
   "_degraded": false,
   "_degradation_note": null,
   "tool_score": <0-100|null>,

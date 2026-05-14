@@ -155,6 +155,18 @@ class TestR3ProviderConstraint:
                                      project_root=tmp_path)
         assert not any("R3" in i for i in issues)
 
+    def test_tier1_gemini_flash_passes(self, tmp_path):
+        """'gemini-flash' is a valid gemini-family variant — must not trigger R3."""
+        issues = validate_score_file("linting", _t1_score(tmp_path, provider="gemini-flash"),
+                                     project_root=tmp_path)
+        assert not any("R3" in i for i in issues)
+
+    def test_tier1_gemini_25_flash_passes(self, tmp_path):
+        """'gemini-2.5-flash' variant also accepted."""
+        issues = validate_score_file("linting", _t1_score(tmp_path, provider="gemini-2.5-flash"),
+                                     project_root=tmp_path)
+        assert not any("R3" in i for i in issues)
+
     def test_tier1_hermes_passes(self, tmp_path):
         issues = validate_score_file("linting", _t1_score(tmp_path, provider="hermes"),
                                      project_root=tmp_path)
@@ -242,7 +254,10 @@ class TestR6InflationGate:
     def test_tier3_score_85_without_da_flagged(self, tmp_path):
         d = _t3_score(tmp_path, tool_score=85, llm_score=85)
         issues = validate_score_file("architecture", d, project_root=tmp_path)
-        assert any("R6" in i for i in issues)
+        r6 = [i for i in issues if "R6" in i]
+        assert r6
+        # Error message should tell agent exactly what to add
+        assert "da_challenge" in r6[0] and "inflation_capped" in r6[0]
 
     def test_tier3_score_85_with_da_challenge_passes(self, tmp_path):
         d = _t3_score(tmp_path, tool_score=85, llm_score=85, da_challenge=False)

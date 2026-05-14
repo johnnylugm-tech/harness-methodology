@@ -46,6 +46,16 @@ class ScoreProtocolError(Exception):
         super().__init__("\n".join(lines))
 
 
+def _is_gemini_provider(provider: "str | None") -> bool:
+    """Accept 'gemini' and any model-suffixed variant (gemini-flash, gemini-2.5-flash…).
+
+    Score files often record the model name (e.g. 'gemini-flash') rather than the
+    canonical provider token ('gemini'). Both are valid — the meaningful constraint
+    is that a Gemini-family model was used, not which exact model variant.
+    """
+    return bool(provider) and str(provider).startswith("gemini")
+
+
 def _resolve_tool_outputs(tool_outputs: Any) -> str:
     """Normalize tool_outputs field (string or list) to a single path."""
     if isinstance(tool_outputs, list):
@@ -112,14 +122,17 @@ def validate_score_file(
             f"R2: [{dim_name}] tool_outputs path is empty but tool_score is non-null"
         )
 
-    # R3: Tier 1/2 MUST use gemini or hermes.
+    # R3: Tier 1/2 MUST use gemini (any variant) or hermes.
+    # Accepted: "gemini", "gemini-flash", "gemini-2.5-flash", "hermes", …
     # Exception: claude_native is allowed as the last degraded fallback
     # (provider_chain exhausted) — score file MUST have _degraded=True in that case.
     degraded = score_data.get("_degraded", False)
-    if tier in (1, 2) and provider not in ("gemini", "hermes") and not degraded:
+    valid_t12_provider = provider == "hermes" or _is_gemini_provider(provider)
+    if tier in (1, 2) and not valid_t12_provider and not degraded:
         issues.append(
-            f"R3: [{dim_name}] Tier {tier} requires gemini or hermes provider, "
-            f"got '{provider}' — set _degraded=true if provider_chain was exhausted"
+            f"R3: [{dim_name}] Tier {tier} requires gemini (or variant) or hermes provider, "
+            f"got '{provider}' — use 'gemini' / 'gemini-flash' / 'hermes'; "
+            "or set _degraded=true if provider_chain was exhausted"
         )
 
     # R4: score = min(tool_score, llm_score) when both present
@@ -138,12 +151,17 @@ def validate_score_file(
                 f"R5: finding[{i}] ('{msg_snip}') missing 'evidence' field"
             )
 
-    # R6: Tier 3 + llm_score >= 85 → inflation gate required
+    # R6: Tier 3 + llm_score >= 85 → inflation gate required (Steps 2b/2c)
+    # Fix: add ONE of the following to the score file:
+    #   "da_challenge": false   ← DA step was run, no challenge (or true if challenged)
+    #   "inflation_capped": true ← llm_score was capped to 80 by Step 2c
     if tier == 3 and ls is not None and ls >= 85:
         if "da_challenge" not in score_data and "inflation_capped" not in score_data:
             issues.append(
-                f"R6: Tier 3 llm_score >= 85 ({ls}) requires "
-                "'da_challenge' or 'inflation_capped' field (Steps 2b/2c)"
+                f"R6: [{dim_name}] Tier 3 llm_score >= 85 ({ls}) — "
+                "DA challenge (Step 2b) or inflation gate (Step 2c) not recorded. "
+                'Fix: add "da_challenge": false (DA ran, no issues found) '
+                'or "inflation_capped": true (score was capped) to the score file.'
             )
 
     return issues
