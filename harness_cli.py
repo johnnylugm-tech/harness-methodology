@@ -353,7 +353,8 @@ def _check_gate4_prerequisites(project: Path) -> bool:
             "\n[BLOCKED] Gate 4 (A1): Hermes APPROVE receipt not found.\n"
             f"  Expected: {receipt}\n"
             "  Run:  python harness_cli.py await-hermes-approve --project .\n"
-            "  Then re-run finalize-gate --gate 4."
+            "  Then re-run finalize-gate --gate 4.",
+            file=sys.stderr,
         )
         blocked = True
 
@@ -370,7 +371,7 @@ def _check_gate4_prerequisites(project: Path) -> bool:
                 g4 = json.loads(candidate.read_text(encoding="utf-8"))
                 break
             except Exception as _e:
-                print(f"[Gate 4] ⚠ Could not parse {candidate}: {_e} — skipping extended checks")
+                print(f"[Gate 4] ⚠ Could not parse {candidate}: {_e} — skipping extended checks", file=sys.stderr)
 
     if g4:
         # ── A2: model_used routing ────────────────────────────────────
@@ -379,7 +380,8 @@ def _check_gate4_prerequisites(project: Path) -> bool:
             print(
                 "\n[BLOCKED] Gate 4 (A2): 'model_used' field missing from gate4_result.json.\n"
                 "  Add a 'model_used' dict mapping each dimension name to the model/provider used.\n"
-                "  Tier 1/2 dims must use gemini-flash; Tier 3 dims must use claude."
+                "  Tier 1/2 dims must use gemini-flash; Tier 3 dims must use claude.",
+                file=sys.stderr,
             )
             blocked = True
         else:
@@ -392,7 +394,8 @@ def _check_gate4_prerequisites(project: Path) -> bool:
                     f"\n[BLOCKED] Gate 4 (A2): Tier 1/2 dimensions evaluated with Claude "
                     f"instead of Gemini Flash:\n"
                     + "\n".join(f"  - {w}" for w in wrong_tier) + "\n"
-                    "  Re-evaluate these dims using llm_router.py (Tier 1/2 → gemini-flash)."
+                    "  Re-evaluate these dims using llm_router.py (Tier 1/2 → gemini-flash).",
+                    file=sys.stderr,
                 )
                 blocked = True
 
@@ -402,7 +405,8 @@ def _check_gate4_prerequisites(project: Path) -> bool:
             print(
                 "\n[BLOCKED] Gate 4 (A3): 'devil_advocate' field missing from gate4_result.json.\n"
                 "  For each Tier 3 dimension, add devil_advocate: {dim: true/false}.\n"
-                f"  Required dims: {sorted(_TIER3_DIMS)}"
+                f"  Required dims: {sorted(_TIER3_DIMS)}",
+                file=sys.stderr,
             )
             blocked = True
         else:
@@ -412,7 +416,8 @@ def _check_gate4_prerequisites(project: Path) -> bool:
                     f"\n[BLOCKED] Gate 4 (A3): Devil's Advocate challenge not completed for:\n"
                     + "\n".join(f"  - {d}" for d in sorted(not_done)) + "\n"
                     "  For each Tier 3 dim, have a second model (Gemini) challenge Claude's findings,\n"
-                    "  then set devil_advocate.<dim> = true in gate4_result.json."
+                    "  then set devil_advocate.<dim> = true in gate4_result.json.",
+                    file=sys.stderr,
                 )
                 blocked = True
 
@@ -432,7 +437,8 @@ def _check_gate4_prerequisites(project: Path) -> bool:
                 "  For each, add high_score_confirmations.<dim> with:\n"
                 "    negative_space_verified: true/false\n"
                 "    crg_cited: true/false\n"
-                "    tool_triangulated: true/false"
+                "    tool_triangulated: true/false",
+                file=sys.stderr,
             )
             blocked = True
         else:
@@ -446,7 +452,8 @@ def _check_gate4_prerequisites(project: Path) -> bool:
                 print(
                     f"\n[BLOCKED] Gate 4 (A4): High-score confirmations incomplete:\n"
                     + "\n".join(f"  - {c}" for c in incomplete_confirmations) + "\n"
-                    "  All three confirmations required: negative_space_verified, crg_cited, tool_triangulated."
+                    "  All three confirmations required: negative_space_verified, crg_cited, tool_triangulated.",
+                    file=sys.stderr,
                 )
                 blocked = True
 
@@ -456,7 +463,8 @@ def _check_gate4_prerequisites(project: Path) -> bool:
             print(
                 "\n[BLOCKED] Gate 4 (A5): 'issue_registry_path' field missing from gate4_result.json.\n"
                 "  Run: python harness/ssi/scripts/issue_tracker.py add <finding> ...\n"
-                "  Then set issue_registry_path to the registry file path."
+                "  Then set issue_registry_path to the registry file path.",
+                file=sys.stderr,
             )
             blocked = True
         else:
@@ -464,7 +472,8 @@ def _check_gate4_prerequisites(project: Path) -> bool:
             if not issue_registry.exists():
                 print(
                     f"\n[BLOCKED] Gate 4 (A5): Issue registry not found: {issue_registry}\n"
-                    "  Populate the registry using issue_tracker.py before finalizing Gate 4."
+                    "  Populate the registry using issue_tracker.py before finalizing Gate 4.",
+                    file=sys.stderr,
                 )
                 blocked = True
             else:
@@ -473,11 +482,17 @@ def _check_gate4_prerequisites(project: Path) -> bool:
                     if not registry_data:
                         print(
                             f"\n[BLOCKED] Gate 4 (A5): Issue registry is empty: {issue_registry}\n"
-                            "  Add findings via issue_tracker.py."
+                            "  Add findings via issue_tracker.py.",
+                            file=sys.stderr,
                         )
                         blocked = True
-                except Exception:
-                    pass  # Non-JSON registry formats accepted
+                except json.JSONDecodeError:
+                    print(
+                        f"\n[BLOCKED] Gate 4 (A5): Issue registry is not valid JSON: {issue_registry}\n"
+                        "  Ensure the registry was written by issue_tracker.py.",
+                        file=sys.stderr,
+                    )
+                    blocked = True
 
     # ── B2: Per-dim score files ───────────────────────────────────────
     scores_dir = project / _SCORES_SUBDIR
@@ -485,7 +500,8 @@ def _check_gate4_prerequisites(project: Path) -> bool:
         print(
             f"\n[BLOCKED] Gate 4 (B2): Per-dimension score directory not found.\n"
             f"  Expected: {scores_dir}\n"
-            "  Write individual <dim>.json files for each evaluated dimension."
+            "  Write individual <dim>.json files for each evaluated dimension.",
+            file=sys.stderr,
         )
         blocked = True
     else:
@@ -494,11 +510,12 @@ def _check_gate4_prerequisites(project: Path) -> bool:
         if not score_files:
             print(
                 f"\n[BLOCKED] Gate 4 (B2): No per-dimension score files found in {scores_dir}.\n"
-                "  Write <dim>.json (e.g. architecture.json, linting.json) for each evaluated dimension."
+                "  Write <dim>.json (e.g. architecture.json, linting.json) for each evaluated dimension.",
+                file=sys.stderr,
             )
             blocked = True
         else:
-            print(f"[Gate 4] B2: {len(score_files)} per-dim score file(s) found ✅")
+            print(f"[Gate 4] B2: {len(score_files)} per-dim score file(s) found ✅", file=sys.stderr)
 
     return blocked
 
@@ -629,6 +646,7 @@ def _hermes_process_response(
         )
         return 0
     else:
+        pending.unlink(missing_ok=True)
         print(
             "\n[await-hermes-approve] ❌ REJECTED or TIMEOUT\n"
             "  Gate 4 is blocked. Review the findings in gate4_result.json,\n"

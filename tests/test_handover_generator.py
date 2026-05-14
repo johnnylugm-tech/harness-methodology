@@ -1857,33 +1857,36 @@ class TestGate4Prerequisites:
 
     def test_tier1_dim_using_claude_blocked(self, tmp_path):
         """Tier 1/2 dim (linting) evaluated with Claude instead of gemini blocks (A2)."""
+        import copy as _copy
         import json as _json
         from harness_cli import _check_gate4_prerequisites
         project = self._make_project(tmp_path)
         result_file = project / ".sessi-work" / "gate4_result.json"
-        data = _json.loads(result_file.read_text())
+        data = _copy.deepcopy(_json.loads(result_file.read_text()))
         data["model_used"]["linting"] = "claude-sonnet"   # wrong — Tier 1 must use gemini
         result_file.write_text(_json.dumps(data))
         assert _check_gate4_prerequisites(project) is True
 
     def test_devil_advocate_missing_dim_blocked(self, tmp_path):
         """Tier 3 dim without devil_advocate=True blocks (A3)."""
+        import copy as _copy
         import json as _json
         from harness_cli import _check_gate4_prerequisites
         project = self._make_project(tmp_path)
         result_file = project / ".sessi-work" / "gate4_result.json"
-        data = _json.loads(result_file.read_text())
+        data = _copy.deepcopy(_json.loads(result_file.read_text()))
         data["devil_advocate"]["architecture"] = False
         result_file.write_text(_json.dumps(data))
         assert _check_gate4_prerequisites(project) is True
 
     def test_high_score_missing_confirmation_blocked(self, tmp_path):
         """Dim with llm_score ≥ 85 without full confirmation blocks (A4)."""
+        import copy as _copy
         import json as _json
         from harness_cli import _check_gate4_prerequisites
         project = self._make_project(tmp_path)
         result_file = project / ".sessi-work" / "gate4_result.json"
-        data = _json.loads(result_file.read_text())
+        data = _copy.deepcopy(_json.loads(result_file.read_text()))
         # Remove one confirmation key
         data["high_score_confirmations"]["linting"]["crg_cited"] = False
         result_file.write_text(_json.dumps(data))
