@@ -70,14 +70,14 @@ The system uses this macro architecture:
 
 The full-system CLI (`cli.py`) lives in the parent system that contains harness-methodology as a sub-component. It requires 30+ external modules (`progress_dashboard`, `gantt_chart`, `sprint_planner`, `enterprise_hub`, `steering`, etc.) and is not part of this repository. Any work within harness-methodology uses `harness_cli.py`.
 
-**`harness_cli.py` commands** (16 total):
+**`harness_cli.py` commands** (21 total):
 ```
 python harness_cli.py plan-phase        --phase 3 [--project .] [--output plan.md]
-python harness_cli.py run-phase         --phase 3 [--project .] [--force]
+python harness_cli.py run-phase         --phase 3 [--project .] [--fast]
 python harness_cli.py run-gate          --gate 2 --phase 3 [--project .] [--fr-id FR-01] [--no-git]
 python harness_cli.py finalize-gate     --gate 2 --phase 3 [--project .] [--fr-id FR-01] [--no-git]
 python harness_cli.py generate-next-plan [--project .] [--phase N]
-python harness_cli.py run-pipeline      [--phase-from 1] [--phase-to 8] [--project .] [--force]
+python harness_cli.py run-pipeline      [--phase-from 1] [--phase-to 8] [--project .] [--watch]
                                         [--no-git] [--no-kill-switch] [--drift-threshold 85.0]
                                         [--auto-fix-rounds 3] [--no-auto-fix]
 python harness_cli.py push-checkpoint   --phase 1|2 [--project .] [--fr-ids FR-01,FR-02] [--no-git]
@@ -90,7 +90,12 @@ python harness_cli.py audit-phase       --phase 3 --repo owner/repo [--branch ma
                                         [--output markdown|json] [--save FILE]
 python harness_cli.py verify-spec       [--project .] [--fix]  # --fix shows suggestions (no auto-fix)
 python harness_cli.py check-logic       [--project .] [--srs SRS.md]
-python harness_cli.py init-project      --project /path/to/target [--phase 3] [--force] [--ci-only]
+python harness_cli.py init-project      --project /path/to/target [--phase 3] [--overwrite] [--ci-only]
+python harness_cli.py advance-phase     --phase 3 [--project .] [--no-git]
+python harness_cli.py await-hermes-approve [--project .] [--response APPROVE|REJECT]
+python harness_cli.py push-milestone    --phase 3 [--project .]
+python harness_cli.py dispatch          --fr-id FR-01 [--phase 3] [--project .]
+python harness_cli.py audit-structure   [--project .]
 ```
 
 **Gate evaluation (two-phase)**: `run-gate` prepares context and prints evaluation instructions; Claude evaluates inline and writes `.sessi-work/gate{N}_result.json`; `finalize-gate` reads the result and checks thresholds. SSI assets are embedded in `harness/ssi/`.
@@ -163,7 +168,7 @@ This section uses normative language per **RFC 2119**:
 | Gate 1 (per-FR) | P3+ | Per-dim: linting ≥90, type_safety ≥85, test_coverage ≥80 | 3 (linting, type_safety, test_coverage) | **MUST** pass for each FR |
 | Gate 2 (P3 exit) | P3 | ≥75 (composite) | 7 dimensions | **MUST** pass before P4 |
 | Gate 3 (P4 exit) | P4 | ≥80 (composite) | 12 dimensions (incl. 4 tier3) | **MUST** pass before P5 |
-| Gate 4 (P6 full) | P6 | ≥85 (composite) + Hermes APPROVE | 12 dimensions | **MUST** pass before release |
+| Gate 4 (P6 full) | P6 | ≥85 (composite) + Hermes APPROVE (or auto-approve if composite ≥88 AND confidence ≥93) | 12 dimensions | **MUST** pass before release |
 
 #### 2.4.3 Phase Entry / Exit Conformance
 
@@ -173,7 +178,7 @@ This section uses normative language per **RFC 2119**:
 | P2 → P3 | **MUST** | SAD.md + quality_manifest.json exist; `plan-phase --phase 3` succeeds |
 | P3 → P4 | **MUST** | Gate 2 ≥75 + Phase Truth ≥90% + all FRs have Gate 1 PASS |
 | P4 → P5 | **MUST** | Gate 3 ≥80 + coverage ≥80% + TEST_RESULTS.md |
-| P5 → P6 | **MUST** | VERIFICATION_REPORT.md + MONITORING_PLAN.md |
+| P5 → P6 | **MUST** | VERIFICATION_REPORT.md |
 | P6 → P7 | **MUST** | Gate 4 ≥85 + QUALITY_REPORT.md |
 | P7 → P8 | **SHOULD** | RISK_ASSESSMENT.md + RISK_REGISTER.md |
 | Phase advance | **SHALL NOT** | Skip phases; each phase MUST complete before next |
@@ -1126,6 +1131,7 @@ class KillSwitch:
 | File | Purpose |
 |---|---|
 | `claims_verifier.py` | `ClaimsVerifier` + `ClaimsVerifyResult` — verifies sessions_spawn.log A/B role claims |
+| `confidence_scorer.py` | `compute_confidence()`, `should_auto_approve_p1p2()`, `should_auto_approve_gate4()` — script-based C1-C7 scoring (no LLM); drives HITL auto-skip |
 | `phase_config.py` | `PHASE_CONFIG` dict — per-phase config consumed by `IntegratedStagePassGenerator` |
 | `phase_paths.py` | `PHASE_ARTIFACT_PATHS` — artifact path registry per phase |
 
