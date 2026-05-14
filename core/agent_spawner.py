@@ -114,7 +114,7 @@ class AgentSpawner:
             "--setting-sources", "",
             "--disable-slash-commands",
             "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
-            "--max-turns", "1",
+            "--max-turns", "5",
             "--permission-mode", "acceptEdits",
             "--no-session-persistence",
         ]
