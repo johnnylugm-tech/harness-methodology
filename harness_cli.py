@@ -540,6 +540,21 @@ def cmd_await_hermes_approve(args: argparse.Namespace) -> int:
     project = Path(args.project).resolve()
     timeout_ms = getattr(args, "timeout_ms", _HERMES_APPROVE_TIMEOUT_MS)
 
+    # ── Guard 1: Phase 6 must be complete before requesting approval ──
+    try:
+        from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
+        truth = PhaseTruthVerifier(str(project), 6).verify()
+        if not truth.get("passed"):
+            score = truth.get("total_score", 0)
+            print(
+                f"\n[BLOCKED] await-hermes-approve: Phase 6 truth = {score:.0f}% < 90%\n"
+                "  Phase 6 is not yet complete — finish all P6 work before requesting\n"
+                "  Gate 4 approval.  Re-run run-pipeline --phase-from 6 --project ."
+            )
+            return 10
+    except ImportError:
+        pass  # Verifier unavailable; proceed
+
     # ── Build score summary from gate4_result.json ────────────────────
     score_summary = "Gate 4 evaluation complete (score details in gate4_result.json)"
     composite_score: float | None = None
@@ -569,6 +584,52 @@ def cmd_await_hermes_approve(args: argparse.Namespace) -> int:
         f"  REJECT  — quality gate fails, provide reason\n\n"
         f"(This request will time out in {timeout_ms // 60000} minutes)"
     )
+
+    # ── Guard 2: Auto-approve if confidence + composite both exceed threshold ─
+    try:
+        from core.quality_gate.confidence_scorer import (
+            compute_confidence,
+            should_auto_approve_gate4,
+            format_confidence_report,
+            AUTO_APPROVE_GATE4_CONFIDENCE,
+            AUTO_APPROVE_GATE4_COMPOSITE,
+        )
+        conf = compute_confidence(project, phase=6)
+        if composite_score is not None and should_auto_approve_gate4(conf, composite_score):
+            receipt = project / ".methodology" / "hermes_g4_receipt.json"
+            receipt.parent.mkdir(parents=True, exist_ok=True)
+            receipt.write_text(json.dumps({
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "approved_by": "auto",
+                "composite_score": composite_score,
+                "confidence_composite": conf["composite"],
+                "note": (
+                    f"Auto-approved: composite={composite_score:.1f} >= "
+                    f"{AUTO_APPROVE_GATE4_COMPOSITE} AND "
+                    f"confidence={conf['composite']:.1f} >= {AUTO_APPROVE_GATE4_CONFIDENCE}"
+                ),
+            }, ensure_ascii=False, indent=2), encoding="utf-8")
+            print(
+                f"\n[await-hermes-approve] ✅ AUTO-APPROVED (Hermes skipped)\n"
+                f"  Gate 4 composite : {composite_score:.1f} ≥ {AUTO_APPROVE_GATE4_COMPOSITE}\n"
+                f"  Script confidence: {conf['composite']:.1f} ≥ {AUTO_APPROVE_GATE4_CONFIDENCE}\n"
+                f"{format_confidence_report(conf)}\n"
+                f"  Receipt written to: {receipt}\n"
+                "  You can now run: python harness_cli.py finalize-gate --gate 4 --phase 6"
+            )
+            return 0
+        elif composite_score is not None:
+            print(
+                f"\n[await-hermes-approve] Confidence check:\n"
+                f"  Gate 4 composite : {composite_score:.1f} "
+                f"(need ≥ {AUTO_APPROVE_GATE4_COMPOSITE} for auto)\n"
+                f"  Script confidence: {conf['composite']:.1f} "
+                f"(need ≥ {AUTO_APPROVE_GATE4_CONFIDENCE} for auto)\n"
+                f"{format_confidence_report(conf)}\n"
+                "  → Below threshold — sending to Hermes for human review."
+            )
+    except ImportError:
+        pass  # confidence_scorer unavailable; proceed to Hermes
 
     print(f"\n[await-hermes-approve] Sending Gate 4 approval request…")
     print(f"  Project : {project_name}")
@@ -994,6 +1055,33 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
         print(f"[ERROR] push-checkpoint only supports P1/P2 (got phase {phase}).")
         print("  P3+ use: python harness_cli.py run-pipeline --phase-from {phase}")
         return 1
+
+    # ── Confidence gate: block push-checkpoint if deliverables are insufficient ──
+    try:
+        from core.quality_gate.confidence_scorer import (
+            compute_confidence,
+            should_auto_approve_p1p2,
+            format_confidence_report,
+            AUTO_APPROVE_P1P2_THRESHOLD,
+        )
+        conf = compute_confidence(project, phase)
+        if not should_auto_approve_p1p2(conf):
+            print(
+                f"\n[BLOCKED] push-checkpoint (P{phase}): "
+                f"confidence {conf['composite']:.1f} < {AUTO_APPROVE_P1P2_THRESHOLD}\n"
+                f"  Fix the following before pushing:\n"
+                f"{format_confidence_report(conf)}\n"
+                "  Ensure all required artifacts are present and FRs are defined."
+            )
+            return 5
+        print(
+            f"\n[push-checkpoint] Confidence {conf['composite']:.1f} ≥ "
+            f"{AUTO_APPROVE_P1P2_THRESHOLD} — auto-approved\n"
+            f"{format_confidence_report(conf)}"
+        )
+    except ImportError:
+        print("[WARN] confidence_scorer unavailable — skipping confidence check")
+
     if phase == 1:
         ok = git.commit_and_push_p1(
             fr_ids=fr_ids,
