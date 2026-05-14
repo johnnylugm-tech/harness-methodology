@@ -57,7 +57,7 @@ HARNESS_CLI="$GIT_DIR/harness_cli.py"
 [ -f "$HARNESS_CLI" ] || HARNESS_CLI="$GIT_DIR/harness/harness_cli.py"
 [ -f "$HARNESS_CLI" ] || { echo "harness_cli.py not found — skipping quality check"; exit 0; }
 cd "$GIT_DIR"
-python3 "$HARNESS_CLI" run-phase --phase "$PHASE" --project "$GIT_DIR" --fast || {
+python3 "$HARNESS_CLI" pre-commit-check --phase "$PHASE" --project "$GIT_DIR" || {
     echo ""
     echo "PREFLIGHT FAILED (Phase $PHASE)"
     echo "Fix issues or bypass: git commit --no-verify"
@@ -77,7 +77,7 @@ HARNESS_CLI="$GIT_DIR/harness_cli.py"
 [ -f "$HARNESS_CLI" ] || HARNESS_CLI="$GIT_DIR/harness/harness_cli.py"
 [ -f "$HARNESS_CLI" ] || { echo "harness_cli.py not found — skipping quality check"; exit 0; }
 cd "$GIT_DIR"
-python3 "$HARNESS_CLI" run-phase --phase "$PHASE" --project "$GIT_DIR" --fast || true
+python3 "$HARNESS_CLI" pre-commit-check --phase "$PHASE" --project "$GIT_DIR" || true
 HOOK
     chmod +x "$HOOKS_DIR/post-merge"
 

@@ -94,7 +94,7 @@ fi
 # Run Quality Gate check
 echo "Running Phase $PHASE Quality Gate check..."
 
-python3 "$HARNESS_CLI" run-phase --phase "$PHASE" --project "$PROJECT_ROOT" --fast
+python3 "$HARNESS_CLI" pre-commit-check --phase "$PHASE" --project "$PROJECT_ROOT"
 
 RESULT=$?
 
@@ -177,7 +177,7 @@ echo ""
 echo "Running Phase $PHASE Quality Gate check after merge..."
 echo ""
 
-python3 "$HARNESS_CLI" run-phase --phase "$PHASE" --project "$PROJECT_ROOT" --fast || true
+python3 "$HARNESS_CLI" pre-commit-check --phase "$PHASE" --project "$PROJECT_ROOT" || true
 
 echo ""
 echo "Post-merge quality check completed."
@@ -251,7 +251,7 @@ if [[ "$LAST_COMMIT_MSG" == *"STAGE_PASS"* ]]; then
 fi
 
 # Run check
-python3 "$HARNESS_CLI" run-phase --phase "$PHASE" --project "$PROJECT_ROOT" --fast
+python3 "$HARNESS_CLI" pre-commit-check --phase "$PHASE" --project "$PROJECT_ROOT"
 
 RESULT=$?
 

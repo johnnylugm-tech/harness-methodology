@@ -235,14 +235,13 @@ def _audit_sessions_spawn(project: Path, phase: int) -> None:
 
 
 def cmd_run_phase(args: argparse.Namespace) -> int:
-    """Run pre/post-flight hooks for a phase. Use --fast for commit-hook lightweight checks."""
+    """Run full pre/post-flight hooks for a phase."""
     from core.phase_hooks import PhaseHooks
 
     project = Path(args.project).resolve()
     hooks = PhaseHooks(str(project), phase=args.phase)
-    fast = getattr(args, "fast", False)
 
-    print(f"\n{'='*60}\nrun-phase: Phase {args.phase}{' (fast)' if fast else ''}\n{'='*60}")
+    print(f"\n{'='*60}\nrun-phase: Phase {args.phase}\n{'='*60}")
 
     # Entry gate check (CONSTITUTION.md SS2.3)
     entry_gate = _verify_entry_gate(project, args.phase)
@@ -251,11 +250,7 @@ def cmd_run_phase(args: argparse.Namespace) -> int:
         return 10
     print(f"\n[ENTRY GATE] {entry_gate['gate']}: {entry_gate['reason']}")
 
-    if fast:
-        pre = _run_fast_preflight(hooks)
-    else:
-        pre = hooks.preflight_all()
-
+    pre = hooks.preflight_all()
     if not pre["all_passed"]:
         print(f"\nPRE-FLIGHT FAILED: {pre['details']}")
         return 1
@@ -266,9 +261,6 @@ def cmd_run_phase(args: argparse.Namespace) -> int:
     if args.phase in _PER_FR_GATE1_PHASES:
         _audit_sessions_spawn(project, args.phase)
 
-    if fast:
-        print("[INFO] Fast mode: skipped drift, traceability, gap analysis, CI readiness.")
-        print("[INFO] Run without --fast for full preflight before push.")
     print("[INFO] Next steps:")
     if args.phase in _PER_FR_GATE1_PHASES:
         manifest_path = project / ".methodology" / "quality_manifest.json"
@@ -286,18 +278,22 @@ def cmd_run_phase(args: argparse.Namespace) -> int:
             print(f"        python harness_cli.py run-gate --gate 1 --phase {args.phase} --project {project} --fr-id FR-XX")
             print(f"        (quality_manifest.json not found — run 'plan-phase' first to populate FR IDs)")
     print(f"        python harness_cli.py run-pipeline --phase-from {args.phase} --project {project}")
-    if not fast:
-        # POST-FLIGHT: constitution re-check, BVS invariants, drift check, FSM advance
-        post = hooks.postflight_all()
-        if not post["success"]:
-            print(f"\n[POST-FLIGHT FAILED]")
-            return 1
-        print(f"\n[POST-FLIGHT] PASS")
+
+    # POST-FLIGHT: constitution re-check, BVS invariants, drift check, FSM advance
+    post = hooks.postflight_all()
+    if not post["success"]:
+        print(f"\n[POST-FLIGHT FAILED]")
+        return 1
+    print(f"\n[POST-FLIGHT] PASS")
     return 0
 
 
 def _run_fast_preflight(hooks) -> dict:
-    """Lightweight preflight: FSM, constitution, kill-switch only. For commit hooks."""
+    """Lightweight preflight: FSM, constitution, BVS phase order, kill-switch only.
+
+    Used exclusively by cmd_pre_commit_check (git commit hook path).
+    Not exposed via run-phase to prevent agents from bypassing full enforcement.
+    """
     results = {
         "fsm": hooks.preflight_fsm_check(),
         "bvs_phase_order": hooks.preflight_bvs_phase_order(),
@@ -306,6 +302,45 @@ def _run_fast_preflight(hooks) -> dict:
     }
     all_passed = all(r.get("passed", False) for r in results.values())
     return {"all_passed": all_passed, "details": results}
+
+
+def cmd_pre_commit_check(args: argparse.Namespace) -> int:
+    """Lightweight pre-commit hook check (FSM + constitution + kill-switch only).
+
+    Intended exclusively for git commit hooks where speed matters.
+    Skips drift, traceability, gap analysis, and CI readiness — those are
+    enforced by run-phase / run-pipeline / finalize-gate.
+
+    Do NOT use this command in pipelines or as a substitute for run-phase.
+    """
+    from core.phase_hooks import PhaseHooks
+
+    project = Path(args.project).resolve()
+    hooks = PhaseHooks(str(project), phase=args.phase)
+
+    print(f"\n{'='*60}\npre-commit-check: Phase {args.phase}\n{'='*60}")
+
+    entry_gate = _verify_entry_gate(project, args.phase)
+    if not entry_gate["passed"]:
+        print(f"\n[ENTRY GATE FAILED] {entry_gate['gate']} — {entry_gate['reason']}")
+        return 10
+    print(f"\n[ENTRY GATE] {entry_gate['gate']}: {entry_gate['reason']}")
+
+    pre = _run_fast_preflight(hooks)
+    if not pre["all_passed"]:
+        print(f"\nPRE-FLIGHT FAILED: {pre['details']}")
+        return 1
+
+    print("\n[INFO] Preflight passed. Phase execution hooks ready.")
+
+    if args.phase in _PER_FR_GATE1_PHASES:
+        _audit_sessions_spawn(project, args.phase)
+
+    print("[INFO] Fast mode: skipped drift, traceability, gap analysis, CI readiness.")
+    print("[INFO] Use run-phase or run-pipeline for full enforcement before push.")
+    print("[INFO] Next steps:")
+    print(f"        python harness_cli.py run-pipeline --phase-from {args.phase} --project {project}")
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -3022,8 +3057,16 @@ def build_parser() -> argparse.ArgumentParser:
     rp = sub.add_parser("run-phase", help="Run pre/post-flight hooks for a phase")
     rp.add_argument("--phase",   type=int, required=True, help="Phase number (1-8)")
     rp.add_argument("--project", default=".", help="Project root (default: .)")
-    rp.add_argument("--fast",    action="store_true", help="Lightweight preflight (skip drift/traceability/gap/CI)")
     rp.set_defaults(func=cmd_run_phase)
+
+    # pre-commit-check (git commit hook only — FSM + constitution + kill-switch)
+    pcc = sub.add_parser(
+        "pre-commit-check",
+        help="Lightweight check for git commit hooks (FSM/constitution/kill-switch only; no drift/traceability)",
+    )
+    pcc.add_argument("--phase",   type=int, required=True, help="Phase number (1-8)")
+    pcc.add_argument("--project", default=".", help="Project root (default: .)")
+    pcc.set_defaults(func=cmd_pre_commit_check)
 
     # push-checkpoint (P1/P2 human review → git push + HANDOVER.md)
     pc = sub.add_parser(
