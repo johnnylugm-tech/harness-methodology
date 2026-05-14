@@ -609,6 +609,7 @@ class PhaseHooks:
     def postflight_drift_check(self) -> Dict[str, Any]:
         """Post-flight drift detection: verify no new drift introduced."""
         print("\n[POST-FLIGHT] Drift Detection (M2)")
+        blocking = self.phase is not None and self.phase >= 4
         try:
             from detection import DriftDetector
             detector = DriftDetector(str(self.project_path))
@@ -627,7 +628,54 @@ class PhaseHooks:
             return {"passed": True, "skipped": True, "message": "detection module unavailable"}
         except Exception as e:
             print(f"   Drift detection error: {e}")
-            return {"passed": True, "skipped": True, "error": str(e)}
+            # P4+: errors are blocking — a broken detector must not silently pass
+            return {"passed": not blocking, "skipped": True, "error": str(e)}
+
+    def postflight_artifact_links(self) -> Dict[str, Any]:
+        """Post-flight ASPICE traceability: verify current phase artifacts cite predecessor outputs.
+
+        Calls verify_phase_link(skip_to_side=False) for every dependency of the
+        current phase.  Preflight skips this check (artifacts don't exist yet at
+        phase entry); postflight is the only point where the check can be enforced
+        against the artifacts the agent just wrote.  Blocking for P4+.
+        """
+        print("\n[POST-FLIGHT] Artifact Cross-Reference Check (ASPICE)")
+        if self.phase is None or self.phase <= 1:
+            print("   Skipped: P1 has no predecessor artifacts")
+            return {"passed": True, "skipped": True, "reason": "P1 has no predecessor artifacts"}
+        blocking = self.phase >= 4
+        try:
+            from core.quality_gate.phase_artifact_enforcer import (  # pyright: ignore
+                Phase, PhaseArtifactRegistry,
+            )
+            try:
+                current_enum = Phase.from_int(self.phase)
+            except KeyError:
+                return {"passed": True, "skipped": True,
+                        "reason": f"No phase enum for phase {self.phase}"}
+            registry = PhaseArtifactRegistry(str(self.project_path))
+            deps: List = PhaseArtifactRegistry.PHASE_ARTIFACTS.get(
+                current_enum, {}).get("depends_on", [])
+            if not deps:
+                print("   No predecessor dependencies — skipped")
+                return {"passed": True, "skipped": True, "reason": "No predecessor dependencies"}
+            issues: List[str] = []
+            for dep_enum in deps:
+                link = registry.verify_phase_link(dep_enum, current_enum, skip_to_side=False)
+                if not link.passed:
+                    print(f"   FAIL: {link.reason}")
+                    issues.append(link.reason)
+                else:
+                    print(f"   PASS: {link.reason}")
+            passed = len(issues) == 0
+            return {"passed": passed, "issues": issues, "blocking": blocking}
+        except ImportError:
+            return {"passed": True, "skipped": True,
+                    "message": "PhaseArtifactRegistry unavailable"}
+        except Exception as e:
+            print(f"   Artifact link check error: {e}")
+            return {"passed": not blocking, "skipped": True,
+                    "error": str(e), "blocking": blocking}
 
     def postflight_bvs_invariants(self) -> Dict[str, Any]:
         """BVS invariant check (phase 3+) — behavioral invariants from sessions_spawn.log."""
@@ -704,6 +752,7 @@ class PhaseHooks:
         bvs_result = self.postflight_bvs_invariants()
         steering_result = self.postflight_steering_summary()
         drift_result = self.postflight_drift_check()
+        artifact_links_result = self.postflight_artifact_links()
         fr_approved = sum(1 for r in self.fr_results if r.get("review_status") == "APPROVE")
         total_frs = len(self.fr_results)
         # Per-FR gate approval only required for P3+ phases that run per-FR Gate 1.
@@ -716,13 +765,14 @@ class PhaseHooks:
             and bvs_result.get("passed", True)
             and frs_ok
             and drift_result.get("passed", True)
+            and artifact_links_result.get("passed", True)
         )
         state_result = self.postflight_update_state(success=success)
         summary = self.postflight_summary()
         print(f"\nPOST-FLIGHT: {'PASS' if success else 'FAIL'}")
         return {"success": success, "constitution": const_result,
                 "bvs_invariants": bvs_result, "steering": steering_result,
-                "drift_detection": drift_result,
+                "drift_detection": drift_result, "artifact_links": artifact_links_result,
                 "state_update": state_result, "summary": summary}
 
     def add_fr_result(self, fr_id: str, dev_result: Any, rev_result: Any) -> None:

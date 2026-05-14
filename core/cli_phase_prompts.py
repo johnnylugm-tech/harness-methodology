@@ -495,12 +495,15 @@ Conduct comprehensive quality assessment, ensuring system meets release standard
 - Constitution quality total score >=80%
 - Logic correctness score >=90
 - All high-priority issues fixed or risk-accepted
+- QUALITY_REPORT.md MUST cite Phase 5 outputs by filename: BASELINE.md and
+  VERIFICATION_REPORT.md (ASPICE SWE traceability — postflight enforced)
 
 [FORBIDDEN]
 - NO concealing quality issues
 - NO high-priority issues unresolved
 - NO data in report inconsistent with actuals
 - NO citations missing or lacking line numbers -> HR-15 violation
+- NO QUALITY_REPORT.md without explicit reference to BASELINE and VERIFICATION_REPORT
 
 [OUTPUT_FORMAT]
 {{
@@ -536,6 +539,8 @@ TASK_ID: task-p6-review
 - NO high-priority issues unresolved → REJECT
 - Data inconsistent with actuals -> REJECT
 - Missing citations or no line numbers -> REJECT (HR-15)
+- ❌ QUALITY_REPORT.md does not mention BASELINE or VERIFICATION_REPORT by filename → REJECT
+  (ASPICE traceability — postflight will block gate finalization if missing)
 
 [OUTPUT_FORMAT]
 {{

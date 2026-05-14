@@ -818,6 +818,37 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
         print(f"  open_critical   : {result.open_critical}")
         print(f"  open_high       : {result.open_high}")
 
+        # ── Structural post-flight for phase-exit gates (gate ≥ 2) ──────────
+        # Checks ASPICE artifact cross-references and drift against artifacts
+        # written during this phase.  run-pipeline runs full postflight_all();
+        # finalize-gate called directly also needs these blocking checks so the
+        # FSM cannot advance past a gate with structural violations.
+        # NOTE: _update_state_checkpoint intentionally placed AFTER this block —
+        # if postflight fails we return early without marking the gate as passed.
+        if args.gate >= 2:
+            print(f"\n[POST-FLIGHT] Structural checks (Gate {args.gate})...")
+            try:
+                from core.phase_hooks import PhaseHooks
+                _ph = PhaseHooks(project, phase=args.phase, enable_kill_switch=False)
+                _art = _ph.postflight_artifact_links()
+                _drft = _ph.postflight_drift_check()
+                _pf_ok = _art.get("passed", True) and _drft.get("passed", True)
+                if not _pf_ok:
+                    print(f"\n[BLOCKED] Post-flight structural check failed after Gate {args.gate}.")
+                    print(f"  Fix the issues listed above, then re-run:")
+                    print(f"  python harness_cli.py finalize-gate --gate {args.gate} "
+                          f"--phase {args.phase} --project {project}")
+                    return 5
+                print("[POST-FLIGHT] Structural checks PASS")
+            except ImportError:
+                pass  # PhaseHooks unavailable — skip silently
+            except Exception as _pf_exc:
+                # Blocking only for Gate 4 (final gate); earlier gates warn only.
+                if args.gate >= 4:
+                    print(f"[BLOCKED] Post-flight error: {_pf_exc}")
+                    return 5
+                print(f"[WARN] Post-flight hooks error (non-blocking): {_pf_exc}")
+
         _update_state_checkpoint(Path(args.project).resolve(), args.gate, fr_id)
 
         git = _make_git(args, Path(args.project).resolve())

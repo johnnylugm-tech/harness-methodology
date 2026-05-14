@@ -35,6 +35,23 @@ class Phase(enum.Enum):
     RISK = 7
     CONFIG = 8
 
+    @classmethod
+    def from_int(cls, n: int) -> "Phase":
+        """Convert a phase integer (1-8) to a Phase enum member.
+
+        Raises KeyError for unknown integers.  Phase 0 (CONSTITUTION) is
+        intentionally excluded — it is an internal harness phase, not a
+        user-facing pipeline phase.
+        """
+        _map: Dict[int, "Phase"] = {
+            1: cls.SPECIFY,    2: cls.PLAN,       3: cls.IMPLEMENT,
+            4: cls.VERIFY,     5: cls.SYSTEM_TEST, 6: cls.QUALITY,
+            7: cls.RISK,       8: cls.CONFIG,
+        }
+        if n not in _map:
+            raise KeyError(f"No Phase enum for integer {n!r} (expected 1-8)")
+        return _map[n]
+
 
 @dataclass
 class PhaseLinkResult:
