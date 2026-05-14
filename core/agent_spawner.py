@@ -57,7 +57,7 @@ class AgentSpawner:
         context: dict,
         model: str = "claude",      # "claude" | "hermes"
         task_timeout: int = 300,
-        max_turns: int = 10,
+        max_turns: int = 20,
         phase: int = 0,
         fr_id: str | None = None,
     ) -> dict:

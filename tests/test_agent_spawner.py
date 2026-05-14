@@ -68,7 +68,7 @@ class TestAgentSpawner:
                     assert "--disable-slash-commands" in cmd
                     assert "--strict-mcp-config" in cmd
                     assert "--max-turns" in cmd
-                    assert "10" in cmd
+                    assert "20" in cmd
                     assert "--no-session-persistence" in cmd
                     assert "--output-format" in cmd
                     assert "json" in cmd
