@@ -114,8 +114,6 @@ class AgentSpawner:
             "--permission-mode", "acceptEdits",
             "--no-session-persistence",
         ]
-        if self.project_path:
-            cmd.extend(["--cwd", str(self.project_path.resolve())])
         try:
             proc = subprocess.run(
                 cmd,
