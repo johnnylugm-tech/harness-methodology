@@ -121,6 +121,29 @@ class TestR2ToolOutputs:
         issues = validate_score_file("linting", d, project_root=tmp_path)
         assert not any("R2" in i for i in issues)
 
+    def test_relative_path_with_project_root_none_uses_cwd(self, tmp_path, monkeypatch):
+        """project_root=None → relative path resolved against CWD (fallback branch).
+
+        Creates the tool file relative to tmp_path, sets CWD to tmp_path,
+        then passes a relative path to exercise the CWD fallback.
+        All other R2 tests use absolute paths (str(tool_file) from pytest tmp_path),
+        so this test is the only one that exercises the project_root=None branch.
+        """
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "linting_rel.txt").write_text("output", encoding="utf-8")
+        d = _t1_score(tmp_path)
+        d["tool_outputs"] = "linting_rel.txt"   # relative, resolvable from CWD
+        issues = validate_score_file("linting", d, project_root=None)
+        assert not any("R2" in i for i in issues)
+
+    def test_relative_path_with_project_root_none_missing_file(self, tmp_path, monkeypatch):
+        """project_root=None + non-existent relative path → R2 fires via CWD resolution."""
+        monkeypatch.chdir(tmp_path)
+        d = _t1_score(tmp_path)
+        d["tool_outputs"] = "ghost_relative.txt"   # does not exist in tmp_path/CWD
+        issues = validate_score_file("linting", d, project_root=None)
+        assert any("R2" in i for i in issues)
+
 
 # ---------------------------------------------------------------------------
 # R3: Tier 1/2 provider constraint

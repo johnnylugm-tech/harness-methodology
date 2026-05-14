@@ -230,7 +230,12 @@ def load_scores(round_dir):
     if not scores:
         raise ValueError(f"No score files found in {scores_dir}")
 
-    # Infer project root: round_dir = .sessi-work/round_N/ → parent.parent
+    # Infer project root: assumes round_dir == <project>/.sessi-work/round_N/
+    # (parent = .sessi-work/, parent.parent = project root).
+    # Implicit contract: all callers — harness_cli.py main() and plan-phase —
+    # follow this layout. If load_scores() is ever invoked with an arbitrary
+    # directory structure, pass project_root explicitly to _validate_all_scores()
+    # instead of relying on this inference.
     project_root = Path(round_dir).resolve().parent.parent
     _validate_all_scores(scores, project_root=project_root)
     return scores
