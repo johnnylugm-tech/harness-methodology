@@ -128,16 +128,52 @@ This module handles authentication and encryption with HMAC signatures.
 
 
 class TestIsStubTemplate:
-    """Tests for _is_stub_template() — detects {placeholder}-ridden template files."""
+    """Tests for _is_stub_template() — detects {placeholder}-ridden template files.
 
-    def test_five_placeholders_is_stub(self):
+    Threshold is 8 (not 5) and the regex now excludes:
+    - Shell variable expansions: ${VAR} or ${VAR:-default}
+    - Code patterns with dots/colons:  {Platform.Telegram}, {key: value}
+    """
+
+    def test_eight_placeholders_is_stub(self):
         from core.quality_gate.constitution.runner import _is_stub_template
-        content = "### {Project Name}\n\n{desc}\n{module}\n{api}\n{deps}"
+        # 8 simple word/phrase placeholders → IS a stub template
+        content = (
+            "# {Project Name}\n\n{desc}\n{module}\n{api}\n"
+            "{deps}\n{author}\n{version}\n{date}"
+        )
         assert _is_stub_template(content) is True
+
+    def test_seven_placeholders_is_not_stub(self):
+        from core.quality_gate.constitution.runner import _is_stub_template
+        # 7 placeholders → below threshold of 8 → NOT a stub
+        content = "# {Project Name}\n\n{desc}\n{module}\n{api}\n{deps}\n{author}\n{version}"
+        assert _is_stub_template(content) is False
 
     def test_four_placeholders_is_not_stub(self):
         from core.quality_gate.constitution.runner import _is_stub_template
         content = "### {Project Name}\n\n{desc}\n{module}\n{api}"
+        assert _is_stub_template(content) is False
+
+    def test_shell_vars_not_counted(self):
+        """${VAR} and ${VAR:-default} shell expansions must not count as placeholders."""
+        from core.quality_gate.constitution.runner import _is_stub_template
+        # 10 shell vars → still NOT a stub ($ prefix excluded)
+        content = (
+            "${VAR1} ${VAR2} ${VAR3:-default} ${VAR4} ${VAR5}\n"
+            "${VAR6} ${VAR7} ${VAR8} ${VAR9} ${VAR10}"
+        )
+        assert _is_stub_template(content) is False
+
+    def test_code_patterns_with_dots_not_counted(self):
+        """Python/code patterns like {Platform.Telegram} must not count as placeholders."""
+        from core.quality_gate.constitution.runner import _is_stub_template
+        # Code patterns with dots → not matched by strict regex
+        content = (
+            "{Platform.TELEGRAM} {Platform.LINE} {Platform.MESSENGER}\n"
+            "{user.id} {request.body} {response.status} {error.code}\n"
+            "{a.b} {c.d} {e.f}"
+        )
         assert _is_stub_template(content) is False
 
     def test_empty_content(self):
@@ -295,12 +331,23 @@ class TestDimensionsForPhase:
                 f"Phase {p} should use 3 dimensions, got {dims}"
 
     def test_phase4_plus_all_four_dimensions(self):
-        for p in range(4, 9):
+        # P4-P6 and P8 use all 4 dimensions.
+        # P7 (Risk Management) uses only correctness + security — maintainability
+        # and coverage use code/test-centric keywords inapplicable to risk docs.
+        for p in [4, 5, 6, 8]:
             dims = _dimensions_for_phase(p)
-            assert "correctness" in dims
-            assert "security" in dims
-            assert "maintainability" in dims
-            assert "coverage" in dims
+            assert "correctness" in dims, f"P{p} missing correctness"
+            assert "security" in dims, f"P{p} missing security"
+            assert "maintainability" in dims, f"P{p} missing maintainability"
+            assert "coverage" in dims, f"P{p} missing coverage"
+
+    def test_phase7_risk_dimensions(self):
+        # P7 is intentionally limited: risk docs don't contain code/test vocabulary.
+        dims = _dimensions_for_phase(7)
+        assert "correctness" in dims
+        assert "security" in dims
+        assert "maintainability" not in dims, "P7 must exclude code-centric maintainability"
+        assert "coverage" not in dims, "P7 must exclude test-centric coverage"
 
 
 class TestPhaseDirMap:
