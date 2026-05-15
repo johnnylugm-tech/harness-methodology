@@ -2750,10 +2750,10 @@ def cmd_init_project(args: argparse.Namespace) -> int:
     else:
         try:
             workflow_path.write_text(_harness_workflow_template(phase))
-        except FileNotFoundError as _fe:
-            print(f"   ERROR: Cannot write CI workflow — {_fe}")
-            print(f"   The template file is missing from the harness installation.")
-            print(f"   Re-run harness-init.sh or ensure templates/harness_quality_gate.yml exists.")
+        except FileNotFoundError as e:
+            print(f"   ERROR: Cannot write CI workflow — {e}")
+            print("   The template file is missing from the harness installation.")
+            print("   Re-run harness-init.sh or ensure templates/harness_quality_gate.yml exists.")
             return 1
         print(f"   OK — wrote {workflow_path}")
 

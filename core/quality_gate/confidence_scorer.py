@@ -334,7 +334,7 @@ def _score_traceability(project: Path, **_kw) -> tuple[Optional[float], str]:
 
 # ── Ordered metric registry ────────────────────────────────────────────────────
 
-_METRIC_FUNCS: dict[str, "Callable[..., tuple[Optional[float], str]]"] = {
+_METRIC_FUNCS: dict[str, Callable[..., tuple[Optional[float], str]]] = {
     "artifact_completeness": _score_artifact_completeness,
     "test_coverage":         _score_test_coverage,
     "linting":               _score_linting,
