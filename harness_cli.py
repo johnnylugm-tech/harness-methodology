@@ -2679,7 +2679,7 @@ jobs:
           import json, sys
           try:
               d = json.load(open('.methodology/state.json'))
-              print(d.get('phase', 1))
+              print(d.get('current_phase', d.get('phase', 1)))
           except Exception:
               print(1)
           " 2>/dev/null || echo "1")
