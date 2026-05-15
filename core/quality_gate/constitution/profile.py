@@ -351,10 +351,11 @@ def _build_defaults() -> ConstitutionProfile:
             #   are code-centric and do not appear in risk management documents.
             # - coverage excluded: its keywords (pytest, mock, assert) are test-centric
             #   and inapplicable to risk registers and risk assessments.
-            # Risk completeness is measured by artifact existence (artifact enforcer)
-            # and correctness/security keyword density which DO appear naturally in
-            # well-structured risk documents (FR refs, security vulnerabilities, etc.).
-            7: PhaseProfile(active_dimensions=["correctness", "security"], composite_threshold=80.0),
+            # - composite_threshold=65 (not 80): correctness keywords are SRS-centric
+            #   (acceptance criteria, traceability matrix, SRS, SAD). Well-written risk
+            #   docs reference FRs and have structure but rarely use the full keyword set.
+            #   65 blocks truly incomplete docs while accepting phase-appropriate variance.
+            7: PhaseProfile(active_dimensions=["correctness", "security"], composite_threshold=65.0),
             8: PhaseProfile(active_dimensions=["correctness", "security", "maintainability", "coverage"], composite_threshold=80.0),
         },
         dimensions={
