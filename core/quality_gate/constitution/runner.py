@@ -95,7 +95,7 @@ def _should_scan_file(file_path: Path, check_type: str) -> bool:
     return any(kw in file_lower for kw in keywords)
 
 
-_STUB_PLACEHOLDER_RE = re.compile(r'\{[A-Za-z_]')
+_STUB_PLACEHOLDER_RE = re.compile(r'(?<!\$)\{[A-Za-z][A-Za-z0-9_ ]*\}')
 
 
 def _is_stub_template(content: str) -> bool:
@@ -104,8 +104,19 @@ def _is_stub_template(content: str) -> bool:
     Templates from init-project contain {Project Name}, {placeholder}, etc.
     These should not be scored as failing artifacts — they're waiting for
     the user to fill them in.
+
+    Regex only matches simple word/phrase placeholders (letters, digits,
+    underscores, spaces) and excludes:
+    - Shell variable expansions: ${VAR} or ${VAR:-default}  (no $ prefix)
+    - Python/code with dots:     {Platform.TELEGRAM}         (. not in class)
+    - Set/dict literals:         {key: value}                (: not in class)
+
+    Threshold is 8 to avoid false positives on filled documents that
+    contain a handful of incidental code-variable references like {user_id}
+    or {http_code} in citation snippets.  A real unfilled template has
+    15+ placeholders; filled risk/config docs have ≤ 5 such patterns.
     """
-    return len(_STUB_PLACEHOLDER_RE.findall(content)) >= 5
+    return len(_STUB_PLACEHOLDER_RE.findall(content)) >= 8
 
 
 def _keyword_density(content: str, keywords: List[str]) -> float:

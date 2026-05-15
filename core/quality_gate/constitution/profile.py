@@ -346,7 +346,15 @@ def _build_defaults() -> ConstitutionProfile:
             4: PhaseProfile(active_dimensions=["correctness", "security", "maintainability", "coverage"], composite_threshold=90.0),
             5: PhaseProfile(active_dimensions=["correctness", "security", "maintainability", "coverage"], composite_threshold=80.0),
             6: PhaseProfile(active_dimensions=["correctness", "security", "maintainability", "coverage"], composite_threshold=80.0),
-            7: PhaseProfile(active_dimensions=["correctness", "security", "maintainability", "coverage"], composite_threshold=80.0),
+            # P7 (Risk Management): only correctness + security are active.
+            # - maintainability excluded: its keywords (docstring, class, def, import)
+            #   are code-centric and do not appear in risk management documents.
+            # - coverage excluded: its keywords (pytest, mock, assert) are test-centric
+            #   and inapplicable to risk registers and risk assessments.
+            # Risk completeness is measured by artifact existence (artifact enforcer)
+            # and correctness/security keyword density which DO appear naturally in
+            # well-structured risk documents (FR refs, security vulnerabilities, etc.).
+            7: PhaseProfile(active_dimensions=["correctness", "security"], composite_threshold=80.0),
             8: PhaseProfile(active_dimensions=["correctness", "security", "maintainability", "coverage"], composite_threshold=80.0),
         },
         dimensions={
@@ -389,9 +397,17 @@ def _build_defaults() -> ConstitutionProfile:
                 threshold=90.0,
                 rule="TH-06",
                 keywords=[
+                    # Testing / code documents (P3-P4): traditional coverage terms
                     "test coverage", "pytest", "unit test", "integration test",
                     "mock", "fixture", "assert", "coverage report",
                     "test plan", "regression",
+                    # Risk / quality / config documents (P5-P8): domain coverage terms.
+                    # "Coverage" in risk management = completeness of risk identification
+                    # and mitigation; in config = completeness of deployment/audit coverage.
+                    # These keywords appear naturally in well-written phase docs without
+                    # needing to be artificially inserted.
+                    "coverage", "mitigation", "monitoring",
+                    "audit", "completeness",
                 ],
             ),
         },
