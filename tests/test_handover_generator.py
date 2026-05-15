@@ -1222,6 +1222,133 @@ class TestCmdAdvancePhase:
         assert exit_code == 8
         assert "TEST_RESULTS.md" in output
 
+    # ── deliverable git-tracking ─────────────────────────────────────────
+
+    def test_deliverable_untracked_blocks_advance(self, tmp_path, monkeypatch):
+        """File on disk but not git-tracked → blocked with exit 8."""
+        import json as _json
+
+        # Set up P4 project with TEST_RESULTS.md on disk but NOT committed
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir(parents=True)
+        (tmp_path / "04-testing").mkdir(parents=True)
+        (tmp_path / "04-testing" / "TEST_PLAN.md").write_text("Plan\n")
+        (tmp_path / "04-testing" / "TEST_RESULTS.md").write_text("Results\n")
+
+        (method_dir / "state.json").write_text(_json.dumps({
+            "state": "ACTIVE", "current_phase": 4,
+        }))
+        (method_dir / "quality_manifest.json").write_text(_json.dumps({
+            "fr_ids": [], "gate_results": {"gate1": {}, "gate3": {}},
+        }))
+
+        # git ls-files --error-unmatch returns non-zero for untracked files
+        def fake_run(cmd, **kw):
+            class R:
+                pass
+            if cmd[:2] == ["git", "ls-files"]:
+                r = R()
+                r.returncode = 1  # file not tracked
+                return r
+            r = R()
+            r.returncode = 0
+            r.stdout = ""
+            r.stderr = ""
+            return r
+
+        exit_code, output = self._call_advance_phase(
+            monkeypatch, tmp_path, completed=4, subprocess_run=fake_run,
+        )
+        assert exit_code == 8
+        assert "not committed" in output.lower() or "NOT committed" in output
+
+    def test_deliverable_tracked_passes(self, tmp_path, monkeypatch):
+        """File on disk AND git-tracked → passes deliverable check."""
+        import json as _json
+
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir(parents=True)
+        (tmp_path / "04-testing").mkdir(parents=True)
+        (tmp_path / "04-testing" / "TEST_PLAN.md").write_text("Plan\n")
+        (tmp_path / "04-testing" / "TEST_RESULTS.md").write_text("Results\n")
+
+        (method_dir / "state.json").write_text(_json.dumps({
+            "state": "ACTIVE", "current_phase": 4,
+        }))
+        (method_dir / "quality_manifest.json").write_text(_json.dumps({
+            "fr_ids": [], "gate_results": {"gate1": {}, "gate3": {}},
+        }))
+
+        # git ls-files --error-unmatch returns 0 for tracked files
+        def fake_run(cmd, **kw):
+            class R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+            return R()
+
+        exit_code, output = self._call_advance_phase(
+            monkeypatch, tmp_path, completed=4, subprocess_run=fake_run,
+        )
+        assert exit_code == 0
+
+    # ── gate score variance ─────────────────────────────────────────────
+
+    def test_gate_score_variance_identical_blocks(self, tmp_path, monkeypatch):
+        """All FR gate scores identical (>2 entries) → blocked with exit 1."""
+        import json as _json
+        import yaml as _yaml
+
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir(parents=True)
+        (method_dir / "state.json").write_text(_json.dumps({
+            "state": "ACTIVE", "current_phase": 3,
+        }))
+        (method_dir / "quality_manifest.json").write_text(_json.dumps({
+            "fr_ids": ["FR-01", "FR-02", "FR-03"],
+            "gate_results": {"gate1": {"FR-01": True, "FR-02": True, "FR-03": True}},
+        }))
+
+        # Write 3 identical gate score files
+        decision_dir = method_dir / "decision_logs"
+        decision_dir.mkdir(parents=True)
+        for fr in ("FR-01", "FR-02", "FR-03"):
+            lf = decision_dir / f"GATE_3_{fr}.yaml"
+            lf.write_text(_yaml.dump({"scores": {"gate_score": 85.0}}))
+
+        exit_code, output = self._call_advance_phase(
+            monkeypatch, tmp_path, completed=3,
+        )
+        assert exit_code == 1
+        assert "variance" in output.lower() or "identical" in output.lower()
+
+    def test_gate_score_variance_ok(self, tmp_path, monkeypatch):
+        """Different gate scores across FRs → variance check passes."""
+        import json as _json
+        import yaml as _yaml
+
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir(parents=True)
+        (method_dir / "state.json").write_text(_json.dumps({
+            "state": "ACTIVE", "current_phase": 3,
+        }))
+        (method_dir / "quality_manifest.json").write_text(_json.dumps({
+            "fr_ids": ["FR-01", "FR-02", "FR-03"],
+            "gate_results": {"gate1": {"FR-01": True, "FR-02": True, "FR-03": True}},
+        }))
+
+        decision_dir = method_dir / "decision_logs"
+        decision_dir.mkdir(parents=True)
+        for fr, score in [("FR-01", 82.0), ("FR-02", 88.0), ("FR-03", 85.0)]:
+            lf = decision_dir / f"GATE_3_{fr}.yaml"
+            lf.write_text(_yaml.dump({"scores": {"gate_score": score}}))
+
+        exit_code, output = self._call_advance_phase(
+            monkeypatch, tmp_path, completed=3,
+        )
+        assert exit_code == 0
+        assert "variance ok" in output.lower()
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Test _advance_fsm state.json preservation

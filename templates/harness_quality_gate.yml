@@ -64,6 +64,7 @@ jobs:
       - name: Gate Score Variance Check
         # Detects fabricated gate scores: if all FRs in the phase have identical
         # composite scores, they were likely copied rather than evaluated per FR.
+        # Keep heredoc in sync with _GATE_VARIANCE_HEREDOC in harness_cli.py.
         env:
           PHASE: ${{ steps.phase.outputs.PHASE }}
         run: |
