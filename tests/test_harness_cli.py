@@ -35,7 +35,7 @@ class TestInitPhaseDirs:
         _init_phase_dirs(tmp_path)
 
         captured = capsys.readouterr().out
-        assert "SKIP: all 9 directories already exist" in captured
+        assert "SKIP: all 11 directories already exist" in captured
 
 
 # =============================================================================

@@ -2748,7 +2748,13 @@ def cmd_init_project(args: argparse.Namespace) -> int:
     if workflow_path.exists() and not args.overwrite:
         print(f"   SKIP: {workflow_path} already exists (use --overwrite to overwrite)")
     else:
-        workflow_path.write_text(_harness_workflow_template(phase))
+        try:
+            workflow_path.write_text(_harness_workflow_template(phase))
+        except FileNotFoundError as _fe:
+            print(f"   ERROR: Cannot write CI workflow — {_fe}")
+            print(f"   The template file is missing from the harness installation.")
+            print(f"   Re-run harness-init.sh or ensure templates/harness_quality_gate.yml exists.")
+            return 1
         print(f"   OK — wrote {workflow_path}")
 
     # 3. Git hooks
