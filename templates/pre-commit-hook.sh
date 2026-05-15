@@ -18,6 +18,6 @@ cd "$GIT_DIR"
 python3 "$HARNESS_CLI" pre-commit-check --phase "$PHASE" --project "$GIT_DIR" || {
     echo ""
     echo "PREFLIGHT FAILED (Phase $PHASE)"
-    echo "Fix issues or bypass: git commit --no-verify"
+    echo "Fix the issues above before committing."
     exit 1
 }

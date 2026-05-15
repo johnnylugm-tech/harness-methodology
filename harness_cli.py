@@ -23,7 +23,7 @@ Usage:
     python harness_cli.py init-project      --project /path/to/target [--phase 3] [--overwrite]
     python harness_cli.py push-checkpoint   --phase 1|2 --project . [--fr-ids FR-01,FR-02]
     python harness_cli.py push-milestone    --type p3-mid|p3-pre-ssi|p5-baseline|p7|p8 --project .
-    python harness_cli.py advance-phase     --completed-phase 3 [--project .] [--emergency-override --reason="..."]
+    python harness_cli.py advance-phase     --completed-phase 3 [--project .]
     python harness_cli.py await-hermes-approve --project . [--timeout-ms 600000] [--response APPROVE|REJECT]
     python harness_cli.py dispatch          --role developer|reviewer --fr-id FR-01 --prompt "..." --phase 3
 
@@ -45,8 +45,7 @@ Exit codes:
     5   HR-01/HR-10 block — A/B self-review or missing sessions_spawn.log entries;
         also Gate 4 prerequisites (Hermes receipt, A2-A5 schema, B2 score files)
     7   Plan incompletion block — unchecked mandatory steps in phaseN_plan.md
-    8   Missing deliverables block — required artifacts not found on disk
-    9   Invalid --emergency-override (missing --reason)
+    8   Missing deliverables block — required artifacts not found on disk or not git-tracked
     10  PAUSE — Claude must evaluate gate; run finalize-gate then re-run pipeline
     11  Phase Truth < 90% (HR-11); fix and re-run with --phase-from N
 """
@@ -221,17 +220,37 @@ def _audit_sessions_spawn(project: Path, phase: int) -> None:
             print(f"\n[WARN] HR-10: sessions_spawn.log parse error ({_e}) — treating as empty.")
 
     missing = []
+    shallow_reviewer: list[str] = []  # reviewers with suspiciously short task strings
     for fr_id in fr_ids:
         fr_entries = [e for e in entries if e.get("fr_id") == fr_id]
         distinct = len({e.get("role") for e in fr_entries})
         if len(fr_entries) < 2 or distinct < 2:
             missing.append(f"{fr_id}({len(fr_entries)}e/{distinct}r)")
+        # HR-STATELESS: reviewer task must embed full context (SRS/SAD/RISK_REGISTER).
+        # A task string < 500 chars cannot contain a full document — flag as likely
+        # non-stateless (agent passed a short description instead of full context).
+        for e in fr_entries:
+            if e.get("role") == "reviewer":
+                task_len = len(e.get("task", ""))
+                if task_len < 500:
+                    shallow_reviewer.append(
+                        f"{fr_id} (session={e.get('session_id', '?')!r}, {task_len} chars)"
+                    )
 
     if missing:
         print(f"\n[WARN] HR-10: sessions_spawn.log incomplete for {len(missing)}/{len(fr_ids)} FRs: {', '.join(missing[:8])}{'...' if len(missing) > 8 else ''}")
         print(f"  Missing A/B entries will block Gate 1 finalize-gate. Dispatch via AgentSpawner before finalizing.")
     else:
         print(f"\n[HR-10] sessions_spawn.log: {len(fr_ids)}/{len(fr_ids)} FRs OK")
+
+    if shallow_reviewer:
+        print(f"\n[WARN] HR-STATELESS: {len(shallow_reviewer)} reviewer task(s) < 500 chars "
+              f"— full SRS/SAD content was likely NOT embedded (non-stateless review):")
+        for item in shallow_reviewer[:5]:
+            print(f"   - {item}")
+        if len(shallow_reviewer) > 5:
+            print(f"   ... and {len(shallow_reviewer) - 5} more")
+        print("  Re-dispatch Agent B with full document content pasted verbatim into the prompt.")
 
 
 def cmd_run_phase(args: argparse.Namespace) -> int:
@@ -379,6 +398,17 @@ def cmd_run_gate(args: argparse.Namespace) -> int:
         f"--phase {args.phase} --project {args.project}{fr_flag}"
     )
     print("─" * 60)
+
+    # Write sentinel so finalize-gate can verify run-gate was actually called.
+    # Without this file, finalize-gate will block to prevent fabricated gate scores.
+    _sentinel_key = (fr_id or "phase").replace("-", "").lower()
+    _sentinel_dir = Path(project) / ".sessi-work" / "sentinels"
+    _sentinel_dir.mkdir(parents=True, exist_ok=True)
+    _sentinel_file = _sentinel_dir / f"g{args.gate}_{_sentinel_key}.flag"
+    _sentinel_file.write_text(
+        f"{datetime.now(timezone.utc).isoformat()}\n", encoding="utf-8"
+    )
+    print(f"[SENTINEL] {_sentinel_file.relative_to(Path(project))} written.")
     return 0
 
 
@@ -800,6 +830,22 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
     fr_id = getattr(args, "fr_id", None) or None
 
     print(f"\n{'='*60}\nfinalize-gate: Gate {args.gate} | Phase {args.phase}\n{'='*60}")
+
+    # ── Sentinel check: run-gate must have been called before finalize-gate ─
+    # Prevents agents from writing gate{N}_result.json directly and calling
+    # finalize-gate without actually going through run-gate evaluation.
+    _sentinel_key = (fr_id or "phase").replace("-", "").lower()
+    _sentinel_file = Path(project) / ".sessi-work" / "sentinels" / f"g{args.gate}_{_sentinel_key}.flag"
+    if not _sentinel_file.exists():
+        print(
+            f"\n[BLOCKED] run-gate --gate {args.gate} --phase {args.phase}"
+            + (f" --fr-id {fr_id}" if fr_id else "")
+            + f" --project {args.project}"
+            f"\n  must be called before finalize-gate."
+            f"\n  Missing sentinel: .sessi-work/sentinels/g{args.gate}_{_sentinel_key}.flag"
+            f"\n  Writing gate{{N}}_result.json directly without run-gate is not permitted."
+        )
+        return 1
 
     # HR-10 enforcement: Gate 1 requires ≥2 A/B entries per FR in sessions_spawn.log
     if args.gate == 1 and fr_id:
@@ -1470,32 +1516,6 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
     """
     project = Path(args.project).resolve()
 
-    # ── --emergency-override: P3+ bypass with mandatory audit log ────
-    if getattr(args, "emergency_override", False):
-        reason = (getattr(args, "reason", "") or "").strip()
-        if not reason:
-            print(
-                "\n[ERROR] --emergency-override requires --reason='<justification>'.\n"
-                "  Provide a non-empty reason explaining why the gate bypass is necessary."
-            )
-            return 9
-        bypass_log = project / ".methodology" / "force_bypass.log"
-        bypass_log.parent.mkdir(parents=True, exist_ok=True)
-        entry = json.dumps({
-            "ts": datetime.now(timezone.utc).isoformat(),
-            "phase": args.completed_phase,
-            "reason": reason,
-            "operator": os.environ.get("USER", "unknown"),
-        })
-        with bypass_log.open("a", encoding="utf-8") as _fp:
-            _fp.write(entry + "\n")
-        print(
-            f"\n[EMERGENCY OVERRIDE] Bypass logged to {bypass_log}.\n"
-            f"  Phase  : {args.completed_phase}\n"
-            f"  Reason : {reason}\n"
-            "  ⚠  This bypass will be flagged in the next phase preflight.\n"
-        )
-
     next_phase = args.completed_phase + 1
 
     # Look up gate/FR state from quality_manifest.json for accurate state.json
@@ -1573,16 +1593,17 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                 print(f"   - [ ] {gap}")
             if len(actual_gaps) > 10:
                 print(f"   ... and {len(actual_gaps) - 10} more")
-            _override_active = (args.completed_phase <= 2 or
-                                getattr(args, "emergency_override", False))
-            if args.completed_phase >= 3 and not _override_active:
+            if args.completed_phase >= 3:
                 print(f"\n[BLOCKED] {len(actual_gaps)} plan steps incomplete "
-                      f"— review, check off items, or use --emergency-override --reason=...")
+                      f"— review and check off all items before advancing.")
                 return 7
-            print("   (proceeding: P1/P2 human-gated or emergency-override active)")
+            print("   (proceeding: P1/P2 human-gated)")
 
-    # ── Deliverable existence check ──────────────────────────────────
+    # ── Deliverable check: must exist on disk AND be git-tracked ────────
+    # File existing only on disk (untracked) does not count as a deliverable —
+    # it won't survive a clone/CI run and is invisible to code review.
     try:
+        import subprocess as _sp
         from core.quality_gate.phase_artifact_enforcer import (
             PhaseArtifactRegistry,
             Phase as _Phase,
@@ -1595,19 +1616,30 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
         _phase_enum = getattr(_Phase, _phase_name, None)
         if _phase_enum is not None:
             artifacts = registry.PHASE_ARTIFACTS.get(_phase_enum, {}).get("artifacts", [])
-            missing = [a for a in artifacts if not (project / a).exists()]
-            if missing:
-                print(f"\n[advance-phase] ⚠ Missing deliverables for "
-                      f"Phase {args.completed_phase}:")
-                for m in missing:
+            missing_not_exist = [a for a in artifacts if not (project / a).exists()]
+            missing_untracked = [
+                a for a in artifacts
+                if (project / a).exists()
+                and _sp.run(
+                    ["git", "ls-files", "--error-unmatch", a],
+                    capture_output=True, cwd=project
+                ).returncode != 0
+            ]
+            if missing_not_exist:
+                print(f"\n[advance-phase] ❌ Deliverables not created (Phase {args.completed_phase}):")
+                for m in missing_not_exist:
                     print(f"   - {m}")
-                _override_active = (args.completed_phase <= 2 or
-                                    getattr(args, "emergency_override", False))
-                if args.completed_phase >= 3 and not _override_active:
-                    print(f"\n[BLOCKED] {len(missing)} deliverable(s) not found "
-                          f"— create them or use --emergency-override --reason=...")
+            if missing_untracked:
+                print(f"\n[advance-phase] ⚠  Deliverables on disk but NOT committed (Phase {args.completed_phase}):")
+                for m in missing_untracked:
+                    print(f"   - {m}  ← git add && git commit required")
+            if missing_not_exist or missing_untracked:
+                if args.completed_phase >= 3:
+                    total = len(missing_not_exist) + len(missing_untracked)
+                    print(f"\n[BLOCKED] {total} deliverable(s) incomplete "
+                          f"— create and commit all required files before advancing.")
                     return 8
-                print("   (proceeding: P1/P2 human-gated or emergency-override active)")
+                print("   (proceeding: P1/P2 human-gated)")
     except ImportError:
         print("[advance-phase] ⚠ PhaseArtifactRegistry unavailable — "
               "skipping deliverable check")
@@ -1615,14 +1647,43 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
         print(f"[advance-phase] ⚠ Deliverable check error ({_exc}) — "
               "skipping, manual verification recommended")
 
-    # ── force_bypass.log warning for next phase ──────────────────────
-    bypass_log = project / ".methodology" / "force_bypass.log"
-    if bypass_log.exists():
-        print(
-            f"\n[advance-phase] ⚠  force_bypass.log detected — {bypass_log}\n"
-            "  One or more phase audits were emergency-overridden in this project.\n"
-            "  Review the log and ensure bypassed items are resolved before P8."
-        )
+    # ── Gate score variance check ─────────────────────────────────────
+    # All Gate 1 scores being identical across multiple FRs indicates the agent
+    # copied the same score instead of evaluating each FR independently.
+    # Phases 3+ with Gate 1 per-FR are checked; P1/P2 exit gates are exempt.
+    if args.completed_phase >= 3:
+        try:
+            import glob as _glob
+            import yaml as _yaml
+            _decision_dir = project / ".methodology" / "decision_logs"
+            _score_files = _glob.glob(
+                str(_decision_dir / "**" / f"GATE_{args.completed_phase}_*.yaml"),
+                recursive=True,
+            )
+            _scores: list[float] = []
+            for _sf in _score_files:
+                try:
+                    _d = _yaml.safe_load(open(_sf, encoding="utf-8"))
+                    _s = (_d or {}).get("scores", {}).get("gate_score")
+                    if _s is not None:
+                        _scores.append(float(_s))
+                except Exception:
+                    pass
+            if len(_scores) > 2 and len(set(_scores)) == 1:
+                print(
+                    f"\n[BLOCKED] Gate score variance check failed for Phase {args.completed_phase}:\n"
+                    f"  All {len(_scores)} FR gate scores are identical ({_scores[0]}).\n"
+                    f"  This indicates scores were copied rather than evaluated per FR.\n"
+                    f"  Re-run run-gate + evaluate dimensions inline + finalize-gate for each FR."
+                )
+                return 1
+            elif _scores:
+                print(f"[advance-phase] Gate score variance OK "
+                      f"({len(_scores)} FRs, scores: {sorted(set(_scores))})")
+        except ImportError:
+            print("[advance-phase] ⚠ yaml unavailable — skipping gate score variance check")
+        except Exception as _exc:
+            print(f"[advance-phase] ⚠ Gate score variance check error ({_exc}) — skipping")
 
     print(f"\n[advance-phase] Completed phase {args.completed_phase} → advancing to {next_phase}")
     _advance_fsm(project, args.completed_phase,
@@ -2525,15 +2586,23 @@ def _harness_workflow_template(phase: int) -> str:
 
     Kept in sync with templates/harness_quality_gate.yml and INTEGRATION.md §4 Option A.
     """
-    return f"""\
+    return """\
 # Harness Quality Gate — auto-generated by harness-methodology init-project
 # Kept in sync with INTEGRATION.md §4 Option A.
 #
-# Configure (GitHub repo → Settings):
-#   CURRENT_PHASE   → Variables → Actions variables
+# IMPORTANT: Configure branch protection rules in GitHub repo settings:
+#   Settings → Branches → Add rule → Branch: main
+#   ✅ Require a pull request before merging
+#   ✅ Require status checks to pass before merging → Required check: "gate-check"
+#   ✅ Do not allow bypassing the above settings  (no admin bypass)
+#   ✅ Block force pushes
+#
+# No CURRENT_PHASE variable needed — phase is auto-detected from .methodology/state.json.
 name: Harness Quality Gate
 
 on:
+  push:
+    branches: ['**']        # All branch pushes — catches worktree branches before merge
   pull_request:
     branches: [main]
 
@@ -2550,19 +2619,62 @@ jobs:
           python-version: '3.11'
 
       - name: Install harness dependencies
-        run: pip install -r harness/requirements.txt || true
+        run: |
+          pip install -r harness/requirements.txt || true
+          pip install pyyaml 2>/dev/null || true
+
+      - name: Auto-detect phase from state.json
+        id: phase
+        run: |
+          PHASE=$(python3 -c "
+          import json, sys
+          try:
+              d = json.load(open('.methodology/state.json'))
+              print(d.get('phase', 1))
+          except Exception:
+              print(1)
+          " 2>/dev/null || echo "1")
+          echo "PHASE=$PHASE" >> $GITHUB_OUTPUT
+          echo "Detected phase: $PHASE (from .methodology/state.json)"
 
       - name: Run Phase Preflight (FSM / drift / constitution)
-        # Structural enforcement only (FSM state, constitution, drift, traceability).
-        # Gate score evaluation requires an interactive Claude session — always local.
-        # Gate 4 (P6 exit) also requires human Hermes APPROVE — run locally, not in CI.
-        if: vars.CURRENT_PHASE != '6'
+        if: steps.phase.outputs.PHASE != '6'
         env:
-          PHASE: ${{{{ vars.CURRENT_PHASE || '{phase}' }}}}
+          PHASE: ${{ steps.phase.outputs.PHASE }}
         run: python harness/harness_cli.py run-phase --phase $PHASE --project .
 
+      - name: Gate Score Variance Check
+        env:
+          PHASE: ${{ steps.phase.outputs.PHASE }}
+        run: |
+          python3 - <<'EOF'
+          import glob, sys, os
+          try:
+              import yaml
+          except ImportError:
+              print("pyyaml not available — skipping variance check")
+              sys.exit(0)
+          phase = int(os.environ.get("PHASE", "1"))
+          logs = glob.glob(f".methodology/decision_logs/**/GATE_{phase}_*.yaml", recursive=True)
+          scores = []
+          for lf in logs:
+              try:
+                  d = yaml.safe_load(open(lf))
+                  s = (d or {}).get("scores", {}).get("gate_score")
+                  if s is not None:
+                      scores.append(float(s))
+              except Exception:
+                  pass
+          if len(scores) > 2 and len(set(scores)) == 1:
+              print(f"FAIL: All {len(scores)} gate scores identical ({scores[0]}) for phase {phase}.")
+              sys.exit(1)
+          print(f"OK: Gate score variance check passed ({len(scores)} entries for phase {phase}).")
+          EOF
+
       - name: FR Traceability Check
-        run: python harness/scripts/check_fr_full.py --phase ${{{{ vars.CURRENT_PHASE || '{phase}' }}}}
+        env:
+          PHASE: ${{ steps.phase.outputs.PHASE }}
+        run: python harness/scripts/check_fr_full.py --phase $PHASE
         continue-on-error: true
 """
 
@@ -3202,15 +3314,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Phase number that just completed (advance-phase --completed 3 → sets phase 4)",
     )
     adv.add_argument("--project", default=".", help="Project root (default: .)")
-    adv.add_argument(
-        "--emergency-override", action="store_true", dest="emergency_override",
-        help="[P3+ emergency] Bypass plan/deliverable checks. Requires --reason. "
-             "Logs to .methodology/force_bypass.log for post-hoc audit.",
-    )
-    adv.add_argument(
-        "--reason", default="", metavar="TEXT",
-        help="Mandatory justification for --emergency-override.",
-    )
     adv.set_defaults(func=cmd_advance_phase)
 
     # await-hermes-approve (Gate 4 async human approval)

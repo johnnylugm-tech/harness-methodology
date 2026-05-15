@@ -106,7 +106,7 @@ Installed hooks:
 |---|---|---|
 | `prepare-commit-msg` | `git commit` | **Blocks** if `harness_cli.py pre-commit-check --phase $PHASE` fails |
 | `post-merge` | `git merge` | Warns only — runs `pre-commit-check --phase $PHASE` (non-blocking) |
-| `pre-push` | `git push` | **Blocks** unless `STAGE_PASS=1` env var OR last commit message contains `STAGE_PASS` |
+| `pre-push` | `git push` | **Blocks** — runs full `run-phase --phase $PHASE` (no bypass) |
 
 **Phase management**:
 ```bash
@@ -114,11 +114,7 @@ git config quality.phase 3        # Move to Phase 3
 git config quality.phase          # Check current phase
 ```
 
-**Emergency bypass** (use sparingly):
-```bash
-git commit -m "fix: hotfix [STAGE_PASS] emergency"   # pre-push skips check
-git commit --no-verify                                # skips all hooks (audit trail broken)
-```
+> **No bypass mechanism exists for git hooks.** If `run-phase` fails before push, fix the underlying issue. Use `git commit --no-verify` only as a last resort for emergency hotfixes; CI will still block the PR.
 
 ### 3.3 Step 3 (Optional): Drift Monitor — Continuous Architecture Watch
 
@@ -178,11 +174,17 @@ python harness_cli.py init-project --project /path/to/target --phase 3
 
 > **The YAML below targets Option A (submodule).** For Option B (global clone) and Option C (copy), see the variant blocks at the end of this section. Running `harness_cli.py init-project` auto-generates the correct YAML for your install option.
 >
-> **CI scope — structural enforcement only**: CI runs `run-phase` (FSM / constitution / drift / traceability). Gate score evaluation (LLM-based, `run-gate` → Claude → `finalize-gate`) requires an interactive Claude session and is **always local**. Developers run gates locally; CI blocks PRs with broken structure, not low gate scores.
+> **CI scope — structural enforcement only**: CI runs `run-phase` (FSM / constitution / drift / traceability) and gate score variance check. Gate score evaluation (LLM-based, `run-gate` → Claude → `finalize-gate`) requires an interactive Claude session and is **always local**.
 >
-> **Single source of truth**: The Option A YAML below is kept in sync with `templates/harness_quality_gate.yml` (copied by `harness-init.sh`) and `_harness_workflow_template()` in `harness_cli.py` (used by `init-project`). All three generate identical content.
+> **Single source of truth**: The YAML below is kept in sync with `templates/harness_quality_gate.yml` and `_harness_workflow_template()` in `harness_cli.py` (used by `init-project`).
 
-> **Gate 4 is a local-only gate.** It requires a human Hermes APPROVE within a 2-minute window — CI runners are headless and will always time out. All three YAML variants below skip the gate-check step when `CURRENT_PHASE == 6`. Run Gate 4 manually at P6 exit: `python harness_cli.py run-gate --gate 4 --phase 6 --project .`
+> **Gate 4 is a local-only gate.** It requires a human Hermes APPROVE within a 2-minute window — CI runners are headless and will always time out. The workflow auto-skips the preflight step when `.methodology/state.json` reports phase 6. Run Gate 4 manually at P6 exit: `python harness_cli.py run-gate --gate 4 --phase 6 --project .`
+
+> **Branch protection required** — configure in GitHub repo Settings → Branches → Add rule (branch: `main`):
+> - ✅ Require a pull request before merging
+> - ✅ Require status checks to pass → Required check: `gate-check`
+> - ✅ **Do not allow bypassing the above settings** (includes admins)
+> - ✅ Block force pushes
 
 ### Option A — Submodule (recommended)
 
@@ -190,6 +192,8 @@ python harness_cli.py init-project --project /path/to/target --phase 3
 name: Harness Quality Gate
 
 on:
+  push:
+    branches: ['**']        # All branch pushes — catches worktree branches before merge
   pull_request:
     branches: [main]
 
@@ -199,7 +203,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: true          # required — fetches harness/ submodule
+          submodules: true
 
       - uses: actions/setup-python@v5
         with:
@@ -207,33 +211,58 @@ jobs:
 
       - name: Install harness dependencies
         run: |
-          # requirements.txt bundles pyyaml>=6.0 and pytest>=7.0.
-          # '|| true' is intentional — tolerates machines that already have deps installed
-          # via system Python. If the file is missing entirely (Option C without copy),
-          # the next step will fail loudly on ModuleNotFoundError rather than silently here.
           pip install -r harness/requirements.txt || true
+          pip install pyyaml 2>/dev/null || true
+
+      - name: Auto-detect phase from state.json
+        id: phase
+        run: |
+          PHASE=$(python3 -c "
+          import json, sys
+          try:
+              d = json.load(open('.methodology/state.json'))
+              print(d.get('phase', 1))
+          except Exception:
+              print(1)
+          " 2>/dev/null || echo "1")
+          echo "PHASE=$PHASE" >> $GITHUB_OUTPUT
+          echo "Detected phase: $PHASE"
 
       - name: Run Phase Preflight (FSM / drift / constitution)
-        # What this runs: run-phase — FSM state, constitution compliance, drift,
-        # traceability. Structural enforcement only; NOT gate score evaluation.
-        #
-        # Gate score evaluation (LLM-based, run-gate → Claude → finalize-gate) requires
-        # an interactive Claude session and is always local. CI blocks structurally
-        # invalid PRs; developers run gates locally after completing each FR/phase:
-        #   python harness/harness_cli.py run-gate --gate 1 --phase $PHASE --fr-id FR-XX
-        #   python harness/harness_cli.py finalize-gate --gate 1 --phase $PHASE --fr-id FR-XX
-        #
-        # Gate 4 (P6 exit) requires human Hermes APPROVE — headless CI will always
-        # time out. Skip this step when CURRENT_PHASE is 6; run Gate 4 locally.
-        if: vars.CURRENT_PHASE != '6'
+        if: steps.phase.outputs.PHASE != '6'
         env:
-          PHASE: ${{ vars.CURRENT_PHASE || '1' }}
+          PHASE: ${{ steps.phase.outputs.PHASE }}
         run: python harness/harness_cli.py run-phase --phase $PHASE --project .
 
+      - name: Gate Score Variance Check
+        env:
+          PHASE: ${{ steps.phase.outputs.PHASE }}
+        run: |
+          python3 - <<'EOF'
+          import glob, sys, os
+          try:
+              import yaml
+          except ImportError:
+              print("pyyaml not available — skipping"); sys.exit(0)
+          phase = int(os.environ.get("PHASE", "1"))
+          logs = glob.glob(f".methodology/decision_logs/**/GATE_{phase}_*.yaml", recursive=True)
+          scores = []
+          for lf in logs:
+              try:
+                  d = yaml.safe_load(open(lf))
+                  s = (d or {}).get("scores", {}).get("gate_score")
+                  if s is not None: scores.append(float(s))
+              except Exception: pass
+          if len(scores) > 2 and len(set(scores)) == 1:
+              print(f"FAIL: All {len(scores)} gate scores identical ({scores[0]}) — fabrication detected")
+              sys.exit(1)
+          print(f"OK: Gate score variance passed ({len(scores)} entries)")
+          EOF
+
       - name: FR Traceability Check
-        # Advisory only (continue-on-error: true) — traceability gaps surface as warnings,
-        # they do not block the PR.
-        run: python harness/scripts/check_fr_full.py --phase ${{ vars.CURRENT_PHASE || '1' }}
+        env:
+          PHASE: ${{ steps.phase.outputs.PHASE }}
+        run: python harness/scripts/check_fr_full.py --phase $PHASE
         continue-on-error: true
 ```
 
@@ -243,20 +272,34 @@ jobs:
       - name: Install harness
         run: |
           git clone --depth 1 https://github.com/johnnylugm-tech/harness-methodology /opt/harness
-          pip install pyyaml
           pip install -r /opt/harness/requirements.txt || true
+          pip install pyyaml 2>/dev/null || true
+
+      - name: Auto-detect phase from state.json
+        id: phase
+        run: |
+          PHASE=$(python3 -c "
+          import json, sys
+          try:
+              d = json.load(open('.methodology/state.json'))
+              print(d.get('phase', 1))
+          except Exception:
+              print(1)
+          " 2>/dev/null || echo "1")
+          echo "PHASE=$PHASE" >> $GITHUB_OUTPUT
 
       - name: Run Quality Gate (current phase)
-        if: vars.CURRENT_PHASE != '6'   # Gate 4 is local-only (Hermes human APPROVE)
+        if: steps.phase.outputs.PHASE != '6'
         env:
-          PHASE: ${{ vars.CURRENT_PHASE || '1' }}
+          PHASE: ${{ steps.phase.outputs.PHASE }}
           PYTHONPATH: /opt/harness
         run: python /opt/harness/harness_cli.py run-phase --phase $PHASE --project .
 
       - name: FR Traceability Check
         env:
           PYTHONPATH: /opt/harness
-        run: python /opt/harness/scripts/check_fr_full.py --phase ${{ vars.CURRENT_PHASE || '1' }}
+          PHASE: ${{ steps.phase.outputs.PHASE }}
+        run: python /opt/harness/scripts/check_fr_full.py --phase $PHASE
         continue-on-error: true
 ```
 
@@ -265,18 +308,33 @@ jobs:
 ```yaml
       # harness_cli.py and harness/ are already in repo root — no extra install step
 
+      - name: Auto-detect phase from state.json
+        id: phase
+        run: |
+          PHASE=$(python3 -c "
+          import json, sys
+          try:
+              d = json.load(open('.methodology/state.json'))
+              print(d.get('phase', 1))
+          except Exception:
+              print(1)
+          " 2>/dev/null || echo "1")
+          echo "PHASE=$PHASE" >> $GITHUB_OUTPUT
+
       - name: Run Quality Gate (current phase)
-        if: vars.CURRENT_PHASE != '6'   # Gate 4 is local-only (Hermes human APPROVE)
+        if: steps.phase.outputs.PHASE != '6'
         env:
-          PHASE: ${{ vars.CURRENT_PHASE || '1' }}
+          PHASE: ${{ steps.phase.outputs.PHASE }}
         run: python harness_cli.py run-phase --phase $PHASE --project .
 
       - name: FR Traceability Check
-        run: python scripts/check_fr_full.py --phase ${{ vars.CURRENT_PHASE || '1' }}
+        env:
+          PHASE: ${{ steps.phase.outputs.PHASE }}
+        run: python scripts/check_fr_full.py --phase $PHASE
         continue-on-error: true
 ```
 
-Set `vars.CURRENT_PHASE` in GitHub repo → Settings → Variables → Actions variables. **Keep this in sync with local `git config quality.phase`** — divergence causes CI and local hooks to enforce different gates silently.
+Phase is auto-detected from `.methodology/state.json` — no GitHub Variable required. `CURRENT_PHASE` Actions variable is no longer used.
 
 ---
 

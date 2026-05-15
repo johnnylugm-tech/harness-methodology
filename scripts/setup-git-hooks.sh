@@ -239,19 +239,11 @@ if [ ! -f "$HARNESS_CLI" ]; then
     exit 0
 fi
 
-# Check if the most recent commit passed Quality Gate
+# Run full Phase preflight before push (no bypass — use run-phase for complete check)
 echo ""
-echo "Checking recent commit for Quality Gate..."
+echo "Running Phase $PHASE full preflight before push..."
 
-LAST_COMMIT_MSG=$(git log -1 --pretty=%B | head -n 1)
-
-if [[ "$LAST_COMMIT_MSG" == *"STAGE_PASS"* ]]; then
-    echo "Found STAGE_PASS in last commit, skipping check"
-    exit 0
-fi
-
-# Run check
-python3 "$HARNESS_CLI" pre-commit-check --phase "$PHASE" --project "$PROJECT_ROOT"
+python3 "$HARNESS_CLI" run-phase --phase "$PHASE" --project "$PROJECT_ROOT"
 
 RESULT=$?
 
@@ -261,8 +253,8 @@ if [ $RESULT -ne 0 ]; then
     echo "PRE-PUSH PREFLIGHT FAILED"
     echo "=============================================="
     echo ""
-    echo "Last commit did not pass Quality Gate."
-    echo "Please ensure all Phase checks pass before pushing."
+    echo "Phase $PHASE run-phase checks failed."
+    echo "Fix all issues before pushing."
     echo ""
     exit 1
 fi

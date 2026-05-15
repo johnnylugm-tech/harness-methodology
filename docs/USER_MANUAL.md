@@ -497,10 +497,6 @@ run-phase → "PRE-FLIGHT FAILED"
   ├─ Diagnose:
   │    python harness_cli.py status --project /project
   │
-  ├─ Emergency bypass (genuine blocker, logs to .methodology/force_bypass.log):
-  │    python harness_cli.py advance-phase --completed N \
-  │      --emergency-override --reason='<justification>'
-  │
   ├─ Skip preflight for run-gate (v2.4+):
   │    python harness_cli.py run-gate --gate N --phase N --project /project --skip-preflight
   │
@@ -865,7 +861,7 @@ python harness_cli.py pre-commit-check \
 
 > ⚠️ 不要在 pipeline 或 agent 腳本中以 `pre-commit-check` 替代 `run-phase`。
 
-> Preflight 失敗不可繞過。緊急情況請使用 `advance-phase --emergency-override --reason='...'`（寫入審計 log）。
+> Preflight 失敗不可繞過。修正問題後重新執行。
 
 ---
 
@@ -1125,9 +1121,6 @@ Required path: {--repo}/SRS.md  (or {--repo}/01-requirements/SRS.md)
 # Tell Claude: "Pre-flight constitution check found violations.
 # Please review docs/ and fix HR policy violations."
 
-# For genuine emergencies (logs to .methodology/force_bypass.log):
-python harness_cli.py advance-phase --completed N \
-  --emergency-override --reason='<justification>'
 ```
 
 ### `hook failed — required hook blocked phase start`
@@ -1365,24 +1358,25 @@ git config quality.phase N+1
 # while local hooks enforce the new one — results diverge silently.
 ```
 
-> **Tip**: `harness_cli.py init-project` prints a reminder with the exact GitHub URL after setup. You can also check the current CI phase with `gh variable list --repo owner/repo | grep CURRENT_PHASE`.
+> **Tip**: `harness_cli.py init-project` prints a reminder with the exact GitHub URL after setup. CI phase is auto-detected from `.methodology/state.json` — no manual variable sync required.
 
-### 12.4 Emergency Bypass
+### 12.4 Blocked? How to Fix
+
+所有 preflight 和 gate 失敗都必須修復後才能繼續，沒有 bypass 機制。
 
 ```bash
-# Skip pre-push gate for one push:
-STAGE_PASS=1 git push
+# 診斷 preflight 失敗原因:
+python harness_cli.py run-phase --phase N --project .
 
-# Skip commit-msg hook for one commit (use sparingly):
-git commit --no-verify -m "emergency fix"
+# 診斷 advance-phase 失敗原因:
+python harness_cli.py status --project .
 
-# Bypass advance-phase checks (P3+) — logged to .methodology/force_bypass.log:
-python harness_cli.py advance-phase --completed N \
-  --emergency-override --reason='<justification>'
+# 診斷 deliverable 未 commit:
+git status --short
+git add <missing_file> && git commit
 ```
 
-> **`--force` 已廢除**：`run-phase`、`run-pipeline`、`advance-phase` 不再接受 `--force`。
-> 緊急情況使用 `--emergency-override --reason='...'`，強制寫入審計 log 並在下次 preflight 警告。
+> **注意**：`--emergency-override`、`STAGE_PASS=1 git push`、`git commit --no-verify` 均已移除或停用。
 
 > **Full reference**: [INTEGRATION.md](../INTEGRATION.md) — all 3 dependency options, CI YAML, drift monitor cron, environment variables, phase transition checklist.
 

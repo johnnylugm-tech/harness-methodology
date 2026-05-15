@@ -1550,6 +1550,13 @@ class TestFinalizeGateHR10:
         if spawn_entries is not None:
             log_path.write_text("\n".join(_json.dumps(e) for e in spawn_entries) + "\n")
 
+        # Write run-gate sentinel so the sentinel check passes (all tests below
+        # test HR-10/HR-01 logic, not the sentinel; sentinel has its own test).
+        _sentinel_key = (fr_id or "phase").replace("-", "").lower()
+        _sentinel_dir = tmp_path / ".sessi-work" / "sentinels"
+        _sentinel_dir.mkdir(parents=True, exist_ok=True)
+        (_sentinel_dir / f"g{gate}_{_sentinel_key}.flag").write_text("test")
+
         # Disable git ops
         monkeypatch.setattr("harness_cli._make_git",
                             lambda args, project: __import__("harness.git_strategy").git_strategy.GitStrategy(project, enabled=False))
@@ -1560,6 +1567,49 @@ class TestFinalizeGateHR10:
         except SystemExit as e:
             exit_code = e.code
         return exit_code, captured.getvalue()
+
+    def test_missing_sentinel_blocks(self, tmp_path, monkeypatch):
+        """Exit code 1 when run-gate sentinel is missing (finalize-gate called directly)."""
+        import io
+        from harness_cli import cmd_finalize_gate
+        import json as _json
+
+        class Args:
+            pass
+        a = Args()
+        a.gate = 1
+        a.phase = 3
+        a.project = str(tmp_path)
+        a.fr_id = "FR-01"
+
+        # Write gate1_result.json but intentionally NO sentinel
+        sessi = tmp_path / ".sessi-work"
+        sessi.mkdir(parents=True, exist_ok=True)
+        (sessi / "gate1_result.json").write_text(_json.dumps({
+            "gate": 1, "phase": 3, "fr_id": "FR-01",
+            "score": 95.0, "quality_complete": True,
+            "dimensions": {"linting": 95, "type_safety": 95, "test_coverage": 95},
+        }))
+        manifest_dir = tmp_path / ".methodology"
+        manifest_dir.mkdir(parents=True, exist_ok=True)
+        (manifest_dir / "quality_manifest.json").write_text(_json.dumps(
+            {"fr_ids": ["FR-01"], "gate_results": {"gate1": {}}}
+        ))
+        (manifest_dir / "state.json").write_text(_json.dumps(
+            {"state": "ACTIVE", "current_phase": 3}
+        ))
+
+        monkeypatch.setattr("harness_cli._make_git",
+                            lambda args, project: __import__("harness.git_strategy").git_strategy.GitStrategy(project, enabled=False))
+        captured = io.StringIO()
+        monkeypatch.setattr("sys.stdout", captured)
+        try:
+            exit_code = cmd_finalize_gate(a)
+        except SystemExit as e:
+            exit_code = e.code
+        assert exit_code == 1
+        assert "BLOCKED" in captured.getvalue()
+        assert "run-gate" in captured.getvalue()
 
     def test_missing_spawn_log_blocks(self, tmp_path, monkeypatch):
         """Exit code 5 when sessions_spawn.log doesn't exist."""
@@ -1658,6 +1708,11 @@ class TestFinalizeGateHR10:
         # Write corrupt log (not valid JSON)
         (manifest_dir / "sessions_spawn.log").write_text("NOT-VALID-JSON\n{broken\n")
 
+        # Write run-gate sentinel so sentinel check passes
+        _sentinel_dir = sessi / "sentinels"
+        _sentinel_dir.mkdir(parents=True, exist_ok=True)
+        (_sentinel_dir / "g1_fr01.flag").write_text("test")
+
         import io
         from harness_cli import cmd_finalize_gate
         monkeypatch.setattr(
@@ -1685,75 +1740,6 @@ class TestFinalizeGateHR10:
 # ---------------------------------------------------------------------------
 # Tests: --emergency-override (the only bypass mechanism; --force is abolished)
 # ---------------------------------------------------------------------------
-
-class TestEmergencyOverride:
-    """--emergency-override is the sole bypass path for advance-phase."""
-
-    @staticmethod
-    def _call(monkeypatch, tmp_path, *, completed,
-              emergency_override=False, reason=""):
-        import io
-        from harness_cli import cmd_advance_phase
-
-        class Args:
-            pass
-        a = Args()
-        a.completed_phase = completed
-        a.project = str(tmp_path)
-        a.emergency_override = emergency_override
-        a.reason = reason
-
-        captured = io.StringIO()
-        monkeypatch.setattr("sys.stdout", captured)
-        monkeypatch.setattr("harness_cli._advance_fsm", lambda project, phase, **kw: None)
-        monkeypatch.setattr(
-            "harness.handover_generator.HandoverGenerator.write",
-            lambda self, **kw: tmp_path / "HANDOVER.md",
-        )
-        monkeypatch.setenv("HARNESS_NO_GIT", "1")
-        try:
-            exit_code = cmd_advance_phase(a)
-        except SystemExit as e:
-            exit_code = e.code
-        return exit_code, captured.getvalue()
-
-    def test_emergency_override_requires_reason(self, tmp_path, monkeypatch):
-        """--emergency-override without --reason must return exit 9."""
-        exit_code, output = self._call(
-            monkeypatch, tmp_path, completed=3, emergency_override=True, reason=""
-        )
-        assert exit_code == 9
-        assert "reason" in output.lower()
-
-    def test_emergency_override_with_reason_writes_log(self, tmp_path, monkeypatch):
-        """--emergency-override --reason=... logs to .methodology/force_bypass.log."""
-        import json as _json
-        exit_code, output = self._call(
-            monkeypatch, tmp_path, completed=3,
-            emergency_override=True, reason="CI deadline — fix tracked in JIRA-42",
-        )
-        # Should proceed (no hard block from --emergency-override itself)
-        assert exit_code == 0, f"emergency-override with reason should pass: {output}"
-
-        bypass_log = tmp_path / ".methodology" / "force_bypass.log"
-        assert bypass_log.exists(), "force_bypass.log must be written"
-        entry = _json.loads(bypass_log.read_text().strip())
-        assert entry["phase"] == 3
-        assert "JIRA-42" in entry["reason"]
-
-    def test_emergency_override_p3_warns_in_subsequent_advance(
-        self, tmp_path, monkeypatch
-    ):
-        """If force_bypass.log exists, next advance-phase prints a warning."""
-        # Pre-create the bypass log
-        log = tmp_path / ".methodology" / "force_bypass.log"
-        log.parent.mkdir(parents=True, exist_ok=True)
-        log.write_text('{"ts":"2026-01-01","phase":3,"reason":"test"}\n')
-
-        # P2 → P3 has no mandatory deliverable check in the enforcer, so warning is reached
-        exit_code, output = self._call(monkeypatch, tmp_path, completed=2)
-        assert "force_bypass.log" in output or "bypass" in output.lower()
-
 
 # ---------------------------------------------------------------------------
 # Tests: Gate 4 prerequisite checks (_check_gate4_prerequisites)

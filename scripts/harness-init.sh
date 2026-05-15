@@ -60,7 +60,7 @@ cd "$GIT_DIR"
 python3 "$HARNESS_CLI" pre-commit-check --phase "$PHASE" --project "$GIT_DIR" || {
     echo ""
     echo "PREFLIGHT FAILED (Phase $PHASE)"
-    echo "Fix issues or bypass: git commit --no-verify"
+    echo "Fix the issues above before committing."
     exit 1
 }
 HOOK
@@ -81,15 +81,12 @@ python3 "$HARNESS_CLI" pre-commit-check --phase "$PHASE" --project "$GIT_DIR" ||
 HOOK
     chmod +x "$HOOKS_DIR/post-merge"
 
-    # pre-push (blocking, STAGE_PASS bypass)
+    # pre-push (blocking, no bypass)
     cat > "$HOOKS_DIR/pre-push" << 'HOOK'
 #!/bin/bash
 # harness-methodology
 PHASE=$(git config --local --get quality.phase 2>/dev/null || echo "1")
 command -v python3 &>/dev/null || exit 0
-[[ "${STAGE_PASS:-}" == "1" ]] && exit 0
-LAST_MSG=$(git log -1 --pretty=%B 2>/dev/null | head -n1 || true)
-[[ "$LAST_MSG" == *"STAGE_PASS"* ]] && exit 0
 GIT_DIR=$(git rev-parse --show-toplevel)
 HARNESS_CLI="$GIT_DIR/harness_cli.py"
 [ -f "$HARNESS_CLI" ] || HARNESS_CLI="$GIT_DIR/harness/harness_cli.py"
@@ -98,7 +95,7 @@ cd "$GIT_DIR"
 python3 "$HARNESS_CLI" run-phase --phase "$PHASE" --project "$GIT_DIR" || {
     echo ""
     echo "PRE-PUSH PREFLIGHT FAILED (Phase $PHASE)"
-    echo "Fix issues or bypass: STAGE_PASS=1 git push"
+    echo "Fix the issues above before pushing."
     exit 1
 }
 HOOK
@@ -139,6 +136,5 @@ fi
 echo
 echo "  Done."
 echo "  Advance phase : git config quality.phase N"
-echo "  Bypass commit : git commit --no-verify"
-echo "  Bypass push   : STAGE_PASS=1 git push"
+echo "  Check phase   : python harness_cli.py run-phase --phase N --project ."
 echo "══════════════════════════════════════════════"
