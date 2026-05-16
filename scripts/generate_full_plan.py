@@ -368,6 +368,19 @@ _PHASE_DELIVERABLE_DEPS: Dict[int, List[Dict]] = {
             "embed_docs": ["01-requirements/SRS.md (full)",
                            "draft 02-architecture/SAD.md (full)"],
         },
+        {
+            "label": "ADR.md",
+            "desc": "Architecture Decision Records — document key design decisions (tech stack, patterns, interfaces, trade-offs) with context and consequences",
+            "depends_on": ["SAD.md"],
+            "task_hint": "Extract key architecture decisions from SAD.md → write individual ADR entries → validate rationale and consequences are recorded",
+            "checks": ["All major decisions documented (tech stack, patterns, interfaces)?",
+                       "Each ADR has clear context, decision, and consequences?",
+                       "Alternatives considered documented?",
+                       "Decision aligns with SAD.md architecture?"],
+            "embed_docs": ["02-architecture/SAD.md (APPROVED — full content)",
+                           "draft 02-architecture/ADR.md (full content)",
+                           "templates/ADR.md (template format)"],
+        },
     ],
 }
 
@@ -641,7 +654,10 @@ def _entry_gate_check(phase: int) -> List[str]:
     if phase not in _ENTRY_MAP:
         return []
     gate_label, proof = _ENTRY_MAP[phase]
-    prev_phase = phase - 1
+    # Parse correct predecessor phase from proof string (e.g. "from P4" → 4)
+    # Naive phase-1 is wrong when entry gate jumps over a phase (P6 needs P4, not P5)
+    m = re.search(r'from P(\d+)', proof)
+    prev_phase = int(m.group(1)) if m else phase - 1
     return [
         "### Entry Gate Verification",
         "",
@@ -657,7 +673,7 @@ def _human_checkpoint(phase: int, checkpoint_n: int) -> List[str]:
     _DELIVERABLES: dict = {
         1: ["01-requirements/SRS.md", "01-requirements/SPEC_TRACKING.md",
             "01-requirements/TRACEABILITY_MATRIX.md"],
-        2: ["02-architecture/SAD.md"],
+        2: ["02-architecture/SAD.md", "02-architecture/ADR.md"],
     }
     artifacts = _DELIVERABLES.get(phase, [])
     return [
@@ -860,18 +876,53 @@ def _milestone_push_steps(fr_ids: List[str], phase: int,
     ]
 
 
-def _gate1_checkpoint(fr_id: str, phase: int, checkpoint_n: int) -> List[str]:
-    """Gate 1 evaluation steps for a single FR (local commit, no push)."""
+def _fr_source_paths(fr_id: str) -> list[str]:
+    """Guess source file paths for an FR (used by delta-check git diff).
+
+    Returns likely paths so git diff can skip unchanged FRs.
+    Override by setting FR_SOURCE_PATHS mapping in project config.
+    """
+    fr_num = fr_id.replace("FR-", "")
+    candidates = [
+        f"03-development/src/**/*fr_{fr_num.lower()}*",
+        f"03-development/src/**/*{fr_id.lower()}*",
+        f"tests/**/test_fr_{fr_num}*",
+        f"tests/**/test_{fr_id.lower()}*",
+    ]
+    return candidates
+
+
+def _gate1_checkpoint(fr_id: str, phase: int, checkpoint_n: int,
+                       delta_check: bool = False) -> List[str]:
+    """Gate 1 evaluation steps for a single FR (local commit, no push).
+
+    Args:
+        delta_check: If True (P5/P7/P8), skip re-evaluation when FR code hasn't changed
+                     since last gate — check git diff first, re-use previous score if clean.
+    """
     meta = _GATE_META[1]
+    delta_lines = [
+        "",
+        f"> **Delta-check mode** (P{phase}): skip if {fr_id} code unchanged since last Gate 1.",
+        "- [ ] **[DELTA-CHECK]** Check if FR code changed since last Gate 1:",
+        "  ```bash",
+        f"  git diff --quiet HEAD -- $(python3 -c \"from scripts.generate_full_plan import _fr_source_paths; print(' '.join(_fr_source_paths('{fr_id}')))\" 2>/dev/null || echo '.')",
+        "  ```",
+        "  - Exit 0 (no changes) → skip G1a-G1c, re-use previous Gate 1 score from manifest",
+        "  - Exit 1 (changes detected) → proceed to full re-evaluation below",
+        "",
+    ] if delta_check else []
     return [
         "",
         f"### 🔒 CHECKPOINT-{checkpoint_n}: Gate 1 — {fr_id}",
         f"> Dimensions: {meta[2]}",
         "> `gate1_result.json` is overwritten each FR — `finalize-gate` reads it immediately.",
         "",
+    ] + delta_lines + [
         f"- [ ] **G1a** Prepare Gate 1 for {fr_id}:",
         "  ```bash",
-        f"  python3 harness_cli.py run-gate --gate 1 --phase {phase} --fr-id {fr_id}",
+        f"  python3 harness_cli.py run-gate --gate 1 --phase {phase} --fr-id {fr_id}" +
+        (" --delta" if delta_check else ""),
         "  ```",
         "  Read the evaluation prompt printed above.",
         "",
@@ -916,6 +967,20 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
         "  - CASE 3 PLATEAU:  3 consecutive rounds, no new issues → `deferred_fixes.md` → proceed to push",
         "  - CASE 4 BLOCKED:  max_rounds exhausted, not PASS → `GateBlockedError` → escalate to human",
     ]
+    phase_truth_step = (
+        [
+            f"- [ ] **[PHASE-TRUTH]** Verify Phase Truth ≥ 90% (HR-11):",
+            "  ```bash",
+            f"  python3 harness_cli.py run-pipeline --phase-from {phase}",
+            "  ```",
+            "  Exit 0 = PASS, 11 = Phase Truth < 90%. Fix gaps before advancing.",
+            "",
+        ] if phase >= 3 else [
+            f"- [ ] **[PHASE-TRUTH]** Phase Truth — N/A (P{phase} prerequisite only)",
+            "",
+        ]
+    )
+
     return [
         "",
         f"### 🔒 CHECKPOINT-{checkpoint_n}: Gate {gate_num} — Phase {phase} Exit",
@@ -950,7 +1015,7 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
         "  > `HANDOVER.md` **before** committing + pushing. No separate push needed here.",
         "  > If HANDOVER.md is missing, re-run `finalize-gate` (do **not** raw-push).",
         "",
-    ]
+    ] + phase_truth_step
 
 
 def _checkpoint_index(fr_ids: List[str], phase: int) -> List[str]:
@@ -1153,7 +1218,8 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path) -> List[str]:
         "",
     ])
     lines.append("### Phase 2 Deliverables")
-    lines.append("- [ ] `SAD.md` - Software Architecture Document (every FR has module mapping)")
+    lines.append("- [ ] `SAD.md` — Software Architecture Document (every FR has module mapping)")
+    lines.append("- [ ] `ADR.md` — Architecture Decision Records (tech stack, patterns, interfaces)")
     lines.append("- [ ] `.methodology/quality_manifest.json` — Quality manifest (FR list + SAB data)")
     lines.append("- [ ] `.methodology/SAB.json` — Machine-readable architecture baseline")
     lines.append("- [x] `sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
@@ -1273,6 +1339,26 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.extend(_entry_gate_check(4))
     lines.extend(_preflight_steps(4))
 
+    # ── CHECKPOINT-0: Generate TEST_PLAN.md before any FR testing ─────────
+    lines.append("### CHECKPOINT-0: Generate TEST_PLAN.md")
+    lines.append("")
+    lines.append("> Generate `04-testing/TEST_PLAN.md` from SRS.md FR acceptance criteria.")
+    lines.append("> This step runs once before per-FR test execution.")
+    lines.append("")
+    lines.append("**A/B Work — TEST_PLAN.md Generation** (HR-01: A≠B · HR-04: HybridWorkflow ON):")
+    lines.append("- [ ] **[A-TP]** Agent A (QA_ENGINEER): Read SRS.md FR acceptance criteria → write TEST_PLAN.md with per-FR test cases")
+    lines.append("  - For each FR: test case ID, description, input, expected output, priority")
+    lines.append("  - Include positive, negative, boundary, and edge case categories")
+    lines.append("  - Output: `04-testing/TEST_PLAN.md`")
+    lines.append("- [ ] **[A-DISPATCH-TP]** Dispatch Agent A:")
+    lines.append("  ```bash")
+    lines.append("  python3 harness_cli.py dispatch --role developer --fr-id ALL \\")
+    lines.append("    --prompt \"Generate TEST_PLAN.md from SRS.md FR acceptance criteria\" --phase 4 --project .")
+    lines.append("  ```")
+    lines.append("- [ ] **[B-TP]** Agent B (ARCHITECT): Review TEST_PLAN.md for completeness and correctness")
+    lines.append("- [ ] **[TP-DONE]** TEST_PLAN.md written and reviewed: all FRs have ≥1 test case, NFRs addressed")
+    lines.append("")
+
     checkpoint_n = 1
     if test_plans:
         # Test plan exists — show items; Gate 1 still runs per FR from manifest
@@ -1366,16 +1452,17 @@ def generate_phase5_tasks(repo_path: Path) -> List[str]:
             lines.append("- [ ] Confirm ≥80% branch coverage")
             lines.append("")
             lines.extend(_fr_dev_steps(fr_id, phase=5))
-            lines.extend(_gate1_checkpoint(fr_id, phase=5, checkpoint_n=checkpoint_n))
+            lines.extend(_gate1_checkpoint(fr_id, phase=5, checkpoint_n=checkpoint_n, delta_check=True))
             checkpoint_n += 1
     else:
         lines.append("### Verification Items")
         lines.append("(No FR list found — add per-FR verification steps based on SRS.md)")
-        lines.append("- [ ] Integration tests pass")
-        lines.append("- [ ] Performance tests meet targets")
-        lines.append("- [ ] Security scan passes")
-        lines.append("- [ ] Baseline established")
         lines.append("")
+    lines.append("- [ ] Integration tests pass")
+    lines.append("- [ ] Performance tests meet targets")
+    lines.append("- [ ] Security scan passes")
+    lines.append("- [ ] Baseline established")
+    lines.append("")
 
     lines.extend([
         "### P5 Milestone Push (10-Push Strategy ⑦)",
@@ -1489,7 +1576,7 @@ def generate_phase7_tasks(repo_path: Path) -> List[str]:
             lines.append("- [ ] Confirm no new defects introduced")
             lines.append("")
             lines.extend(_fr_dev_steps(fr_id, phase=7))
-            lines.extend(_gate1_checkpoint(fr_id, phase=7, checkpoint_n=checkpoint_n))
+            lines.extend(_gate1_checkpoint(fr_id, phase=7, checkpoint_n=checkpoint_n, delta_check=True))
             checkpoint_n += 1
     else:
         lines.append("(No FR list found in manifest — run Gate 1 per FR manually)")
@@ -1560,7 +1647,7 @@ def generate_phase8_tasks(repo_path: Path) -> List[str]:
             lines.append(f"- [ ] Confirm deployment checklist entries for {fr_id}")
             lines.append("")
             lines.extend(_fr_dev_steps(fr_id, phase=8))
-            lines.extend(_gate1_checkpoint(fr_id, phase=8, checkpoint_n=checkpoint_n))
+            lines.extend(_gate1_checkpoint(fr_id, phase=8, checkpoint_n=checkpoint_n, delta_check=True))
             checkpoint_n += 1
     else:
         lines.append("(No FR list found in manifest — run Gate 1 per FR manually)")

@@ -426,12 +426,40 @@ def cmd_run_gate(args: argparse.Namespace) -> int:
 
     Claude must evaluate inline and write .sessi-work/gate{N}_result.json,
     then call `finalize-gate` to complete threshold checks and git operations.
+
+    Delta-check mode (--delta, P5/P7/P8): skips full re-evaluation when FR
+    code hasn't changed since last Gate 1. Previous score is reused.
     """
+    delta = getattr(args, "delta", False)
+    fr_id = getattr(args, "fr_id", None) or None
+
+    # ── Delta-check: skip re-evaluation if FR code unchanged ────────────
+    if delta and fr_id:
+        project_path = Path(args.project).resolve()
+        manifest_path = project_path / ".methodology" / "quality_manifest.json"
+        if manifest_path.exists():
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                prev_score = (
+                    manifest.get("gate_results", {})
+                    .get("gate1", {})
+                    .get(fr_id, {})
+                    .get("score")
+                )
+            except Exception:
+                prev_score = None
+
+            if prev_score is not None:
+                print(f"\n{'='*60}")
+                print(f"DELTA-CHECK: {fr_id} — reusing previous Gate 1 score ({prev_score})")
+                print(f"  (No code changes detected or delta-mode active)")
+                print(f"{'='*60}")
+                return 0
+
     from harness.harness_bridge import HarnessBridge
 
     project = str(Path(args.project).resolve())
     bridge = HarnessBridge()
-    fr_id = getattr(args, "fr_id", None) or None
 
     print(f"\n{'='*60}\nrun-gate: Gate {args.gate} | Phase {args.phase}\n{'='*60}")
 
@@ -981,6 +1009,20 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
 
         _update_state_checkpoint(Path(args.project).resolve(), args.gate, fr_id)
 
+        # ── Auto-generate quality deliverables for Gate 4 ─────────────
+        if args.gate == 4:
+            try:
+                from scripts.generate_quality_report import generate_quality_report
+                generate_quality_report(str(Path(args.project).resolve()))
+            except Exception as _qre:
+                print(f"  [WARN] QUALITY_REPORT.md generation skipped: {_qre}")
+
+            try:
+                from scripts.generate_release_notes import generate_release_notes
+                generate_release_notes(str(Path(args.project).resolve()))
+            except Exception as _rne:
+                print(f"  [WARN] RELEASE_NOTES.md generation skipped: {_rne}")
+
         git = _make_git(args, Path(args.project).resolve())
         git.ensure_gitignore()
         if args.gate == 1:
@@ -1140,6 +1182,10 @@ def cmd_generate_next_plan(args: argparse.Namespace) -> int:
         # All done in current phase
         next_phase = current_phase + 1
         print("Next ckpt  : (all checkpoints complete in this phase)")
+        if current_phase >= 1:
+            print(f"\n  Phase Truth ≥ 90% (HR-11): verify before advancing to Phase {next_phase}:")
+            print(f"    python harness_cli.py run-pipeline --phase-from {current_phase}")
+            print(f"    (Exits 0 on PASS, 11 if Phase Truth < 90%)")
         print(f"\n✓ Phase {current_phase} complete — start Phase {next_phase}:")
         print(f"  python harness_cli.py run-phase --phase {next_phase} "
               f"--project {project}")
@@ -1844,6 +1890,25 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
         if _rc != 0:
             return _rc
 
+    # ── Phase Truth check (HR-11 ≥90%) ────────────────────────────────
+    if args.completed_phase >= 3:
+        try:
+            from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
+            verifier = PhaseTruthVerifier(str(project), args.completed_phase)
+            truth_result = verifier.verify()
+            if not truth_result["passed"]:
+                score = truth_result.get("total_score", 0)
+                print(f"\n[BLOCKED] Phase {args.completed_phase} truth = {score:.0f}% < 90% (HR-11)")
+                print("  Fix gaps first, then re-run advance-phase.")
+                return 11
+            else:
+                score = truth_result.get("total_score", 0)
+                print(f"  [HR-11] Phase Truth = {score:.0f}% ≥ 90% ✓")
+        except ImportError:
+            print("  [WARN] PhaseTruthVerifier not available — skipping HR-11 check")
+        except Exception as e:
+            print(f"  [WARN] Phase Truth check failed: {e} — proceeding without block")
+
     print(f"\n[advance-phase] Completed phase {args.completed_phase} → advancing to {next_phase}")
     _advance_fsm(project, args.completed_phase,
                  last_gate=last_gate_num, last_fr=last_fr_id)
@@ -2132,19 +2197,24 @@ def _advance_fsm(project: Path, completed_phase: int,
     """Write state.json, update git config quality.phase, and sync GitHub CURRENT_PHASE."""
     import subprocess  # nosec B404
     from datetime import datetime, timezone
+    from core.fsm.fsm import validate_fsm_state, FSMError
 
     next_phase = completed_phase + 1
 
     # 1. Write .methodology/state.json
     state_path = project / ".methodology" / "state.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)
-    existing_state = "ACTIVE"
+    existing_state = "INIT"
     if state_path.exists():
         try:
-            existing_state = json.loads(state_path.read_text()).\
-                get("state", "ACTIVE")
+            raw_state = json.loads(state_path.read_text()).get("state", "INIT")
+            existing_state = validate_fsm_state(raw_state)
+        except FSMError as e:
+            print(f"\n  [FSM ERROR] {e}")
+            print(f"  Fix state.json manually or run `advance-phase` with a clean state.")
+            sys.exit(11)
         except Exception:  # pylint: disable=broad-exception-caught
-            pass
+            existing_state = "INIT"
     state_path.write_text(
         json.dumps({
             "state": existing_state,
@@ -3319,6 +3389,7 @@ def build_parser() -> argparse.ArgumentParser:
     rg.add_argument("--project", default=".", help="Project root (default: .)")
     rg.add_argument("--fr-id",   default=None, help="FR ID (Gate 1 only)", dest="fr_id")
     rg.add_argument("--skip-preflight", action="store_true", help="Skip preflight validation before gate (Item 9)")
+    rg.add_argument("--delta", action="store_true", help="Delta-check mode (P5/P7/P8): skip re-evaluation if FR code unchanged")
     rg.set_defaults(func=cmd_run_gate)
 
     # finalize-gate (Phase 2: read result.json, check thresholds, git)

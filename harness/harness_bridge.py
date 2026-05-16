@@ -7,6 +7,7 @@ Handles gate execution, results parsing, and quality manifest updates.
 from __future__ import annotations
 import json
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -390,6 +391,39 @@ class HarnessBridge:
                        f"DRIFT DETECTED: structural_drift={structural_drift} > {threshold}",
         }
 
+    def _parse_nfr_from_srs(self, project_root: Path) -> dict[str, str]:
+        """Extract NFR→dimension mapping from SRS.md NFR sections as fallback."""
+        srs_path = project_root / "01-requirements" / "SRS.md"
+        if not srs_path.exists():
+            return {}
+        try:
+            text = srs_path.read_text(encoding="utf-8")
+            nfr_map: dict[str, str] = {}
+            # Match ### NFR-XX: Title style sections and map to dimension names
+            for m in re.finditer(r'^###\s+(NFR-\d+)\s*:\s*(.+)$', text, re.MULTILINE):
+                nfr_id = m.group(1)
+                title = m.group(2).strip().lower()
+                # Heuristic dimension mapping from NFR title keywords
+                if any(k in title for k in ("performance", "latency", "throughput", "response")):
+                    nfr_map[nfr_id] = "performance"
+                elif any(k in title for k in ("security", "auth", "access control", "encryption")):
+                    nfr_map[nfr_id] = "security"
+                elif any(k in title for k in ("reliability", "availability", "uptime", "recovery")):
+                    nfr_map[nfr_id] = "reliability"
+                elif any(k in title for k in ("maintainability", "modularity", "extensibility")):
+                    nfr_map[nfr_id] = "maintainability"
+                elif any(k in title for k in ("test", "coverage", "quality")):
+                    nfr_map[nfr_id] = "test_coverage"
+                elif any(k in title for k in ("traceability", "tracking", "audit")):
+                    nfr_map[nfr_id] = "traceability"
+                elif any(k in title for k in ("clarity", "documentation", "readability")):
+                    nfr_map[nfr_id] = "clarity"
+                else:
+                    nfr_map[nfr_id] = "correctness"
+            return nfr_map
+        except Exception:
+            return {}
+
     def generate_quality_manifest(self, fr_ids: list[str], sad_path: str) -> Path:
         """Called at P2 exit. Parses SAD.md -> constraints + high_risk_modules."""
         try:
@@ -398,11 +432,17 @@ class HarnessBridge:
         except Exception:
             sab = {}
 
+        nfr_map = sab.get("nfr_dim_map", {})
+        # Fallback: if SAD.md nfr_dim_map is empty, parse from SRS.md
+        if not nfr_map:
+            srs_nfr = self._parse_nfr_from_srs(Path(sad_path).parent.parent)
+            nfr_map = srs_nfr or nfr_map
+
         manifest: dict[str, Any] = {
             "schema_version": "1.0",
             "generated_at_phase": 2,
             "fr_ids": fr_ids,
-            "nfr_dimension_mapping": sab.get("nfr_dim_map", {}),
+            "nfr_dimension_mapping": nfr_map,
             "architecture_constraints": sab.get("constraints", []),
             "high_risk_modules": sab.get("high_risk", []),
             "gate_score_overrides": {},
