@@ -1,5 +1,6 @@
 """Tests for harness_cli.py init helpers and audit-structure command."""
 
+import argparse
 import json
 from pathlib import Path
 
@@ -306,3 +307,134 @@ class TestInitThenAudit:
         assert data["dimensions"]["naming_convention"]["passed"] is True
         # Artifacts still fail because templates weren't copied
         assert data["dimensions"]["artifact_completeness"]["passed"] is False
+
+
+class TestVerifyAgentBApprovals:
+    """Tests for the verify-agent-b-approvals subcommand."""
+
+    def test_missing_approval_files_returns_1(self, tmp_path, capsys):
+        methodology = tmp_path / ".methodology"
+        methodology.mkdir()
+        (methodology / "quality_manifest.json").write_text(
+            json.dumps({"fr_ids": ["FR-01", "FR-02"], "gate_results": {}})
+        )
+        args = argparse.Namespace(project=str(tmp_path), phase=3, fr_ids="FR-01,FR-02")
+        from harness_cli import cmd_verify_agent_b_approvals
+        rc = cmd_verify_agent_b_approvals(args)
+        assert rc == 1
+        out = capsys.readouterr().out
+        assert "FR-01" in out or "Missing" in out
+
+    def test_all_approved_returns_0(self, tmp_path, capsys):
+        methodology = tmp_path / ".methodology"
+        methodology.mkdir()
+        approvals_dir = tmp_path / ".sessi-work" / "agent_b_approvals"
+        approvals_dir.mkdir(parents=True)
+        for fr in ["FR-01", "FR-02"]:
+            (approvals_dir / f"{fr}.json").write_text(json.dumps({
+                "fr": fr,
+                "review_status": "APPROVE",
+                "docs_embedded": ["SRS.md", "SAD.md"],
+                "confidence": 0.92,
+            }))
+        args = argparse.Namespace(project=str(tmp_path), phase=3, fr_ids="FR-01,FR-02")
+        from harness_cli import cmd_verify_agent_b_approvals
+        rc = cmd_verify_agent_b_approvals(args)
+        assert rc == 0
+
+    def test_non_approve_status_returns_1(self, tmp_path, capsys):
+        approvals_dir = tmp_path / ".sessi-work" / "agent_b_approvals"
+        approvals_dir.mkdir(parents=True)
+        (approvals_dir / "FR-01.json").write_text(json.dumps({
+            "fr": "FR-01",
+            "review_status": "REJECT",
+            "docs_embedded": ["SRS.md", "SAD.md"],
+        }))
+        args = argparse.Namespace(project=str(tmp_path), phase=3, fr_ids="FR-01")
+        from harness_cli import cmd_verify_agent_b_approvals
+        rc = cmd_verify_agent_b_approvals(args)
+        assert rc == 1
+        out = capsys.readouterr().out
+        assert "REJECT" in out or "APPROVE" in out
+
+    def test_missing_docs_embedded_returns_1(self, tmp_path, capsys):
+        approvals_dir = tmp_path / ".sessi-work" / "agent_b_approvals"
+        approvals_dir.mkdir(parents=True)
+        (approvals_dir / "FR-01.json").write_text(json.dumps({
+            "fr": "FR-01",
+            "review_status": "APPROVE",
+            "docs_embedded": [],  # missing required docs
+        }))
+        args = argparse.Namespace(project=str(tmp_path), phase=3, fr_ids="FR-01")
+        from harness_cli import cmd_verify_agent_b_approvals
+        rc = cmd_verify_agent_b_approvals(args)
+        assert rc == 1
+
+    def test_no_fr_ids_no_manifest_returns_1(self, tmp_path, capsys):
+        args = argparse.Namespace(project=str(tmp_path), phase=3, fr_ids="")
+        from harness_cli import cmd_verify_agent_b_approvals
+        rc = cmd_verify_agent_b_approvals(args)
+        assert rc == 1
+
+    def test_reads_fr_ids_from_manifest(self, tmp_path, capsys):
+        methodology = tmp_path / ".methodology"
+        methodology.mkdir()
+        (methodology / "quality_manifest.json").write_text(
+            json.dumps({"fr_ids": ["FR-01"], "gate_results": {}})
+        )
+        approvals_dir = tmp_path / ".sessi-work" / "agent_b_approvals"
+        approvals_dir.mkdir(parents=True)
+        (approvals_dir / "FR-01.json").write_text(json.dumps({
+            "fr": "FR-01",
+            "review_status": "APPROVE",
+            "docs_embedded": ["SRS.md", "SAD.md"],
+            "confidence": 0.9,
+        }))
+        args = argparse.Namespace(project=str(tmp_path), phase=3, fr_ids="")
+        from harness_cli import cmd_verify_agent_b_approvals
+        rc = cmd_verify_agent_b_approvals(args)
+        assert rc == 0
+
+
+class TestValidateP8Completion:
+    """Tests for _validate_p8_completion pre-flight checks."""
+
+    def test_all_ok_returns_empty_list(self, tmp_path):
+        archive = tmp_path / ".methodology-archive"
+        archive.mkdir()
+        handover = tmp_path / "HANDOVER.md"
+        handover.write_text("# Handover\n\nP8 complete. All phases done.\n")
+        from harness_cli import _validate_p8_completion
+        errors = _validate_p8_completion(tmp_path)
+        assert errors == []
+
+    def test_missing_archive_returns_error(self, tmp_path):
+        from harness_cli import _validate_p8_completion
+        errors = _validate_p8_completion(tmp_path)
+        assert any(".methodology-archive" in e for e in errors)
+
+    def test_phase9_reference_in_handover_returns_error(self, tmp_path):
+        archive = tmp_path / ".methodology-archive"
+        archive.mkdir()
+        handover = tmp_path / "HANDOVER.md"
+        handover.write_text("# Handover\n\nNext: Begin Phase 9 tasks.\n")
+        from harness_cli import _validate_p8_completion
+        errors = _validate_p8_completion(tmp_path)
+        assert any("Phase 9" in e or "phase 9" in e.lower() for e in errors)
+
+    def test_phase9_plan_reference_returns_error(self, tmp_path):
+        archive = tmp_path / ".methodology-archive"
+        archive.mkdir()
+        handover = tmp_path / "HANDOVER.md"
+        handover.write_text("See phase9_plan.md for next steps.\n")
+        from harness_cli import _validate_p8_completion
+        errors = _validate_p8_completion(tmp_path)
+        assert any("Phase 9" in e or "phase9" in e.lower() for e in errors)
+
+    def test_no_handover_file_is_ok(self, tmp_path):
+        archive = tmp_path / ".methodology-archive"
+        archive.mkdir()
+        # No HANDOVER.md — should not raise
+        from harness_cli import _validate_p8_completion
+        errors = _validate_p8_completion(tmp_path)
+        assert errors == []

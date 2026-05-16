@@ -1183,7 +1183,7 @@ def _generate_sab_json(project: Path) -> bool:
     import subprocess  # nosec B404
     sab_script = Path(__file__).parent / "scripts" / "generate_sab.py"
     if not sab_script.exists():
-        print("  [SAB] generate_sab.py not found — skipping SAB.json generation")
+        print("  [SAB] ERROR: generate_sab.py not found — pipeline blocked")
         return False
     try:
         result = subprocess.run(  # nosec B603 B607
@@ -1195,10 +1195,10 @@ def _generate_sab_json(project: Path) -> bool:
             print(f"  [SAB] SAB.json written → {sab_path}")
             return True
         else:
-            print(f"  [SAB] WARNING: generate_sab.py failed: {result.stderr[:200]}")
+            print(f"  [SAB] ERROR: generate_sab.py failed — pipeline blocked: {result.stderr[:200]}")
             return False
     except Exception as exc:
-        print(f"  [SAB] WARNING: SAB generation error: {exc}")
+        print(f"  [SAB] ERROR: SAB generation error — pipeline blocked: {exc}")
         return False
 
 
@@ -1307,6 +1307,119 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
+def cmd_verify_agent_b_approvals(args: argparse.Namespace) -> int:
+    """Verify that Agent B approval JSON files exist for all required FRs.
+
+    Each FR must have a corresponding .sessi-work/agent_b_approvals/FR-XX.json
+    with review_status == "APPROVE" and the required docs_embedded list.
+
+    Usage:
+      python harness_cli.py verify-agent-b-approvals --phase 8 --fr-ids FR-01,FR-02 --project .
+      python harness_cli.py verify-agent-b-approvals --phase 8 --project .  # reads from manifest
+    """
+    project = Path(args.project).resolve()
+    phase = args.phase
+    fr_ids_arg = getattr(args, "fr_ids", "") or ""
+    fr_ids = [f.strip() for f in fr_ids_arg.split(",") if f.strip()]
+
+    # Auto-populate fr_ids from quality_manifest.json if not provided
+    if not fr_ids:
+        manifest_path = project / ".methodology" / "quality_manifest.json"
+        if manifest_path.exists():
+            try:
+                mf = json.loads(manifest_path.read_text(encoding="utf-8"))
+                fr_ids = mf.get("fr_ids", [])
+            except Exception:  # pylint: disable=broad-exception-caught
+                pass
+
+    if not fr_ids:
+        print("[verify-agent-b] No FR IDs found — pass --fr-ids or ensure quality_manifest.json exists.")
+        return 1
+
+    approvals_dir = project / ".sessi-work" / "agent_b_approvals"
+    errors: list[str] = []
+    missing: list[str] = []
+    rejected: list[str] = []
+
+    # Required documents that must be embedded in Agent B's review prompt
+    REQUIRED_DOCS = ["SRS.md", "SAD.md"]
+
+    for fr_id in fr_ids:
+        approval_file = approvals_dir / f"{fr_id}.json"
+        if not approval_file.exists():
+            missing.append(fr_id)
+            continue
+        try:
+            data = json.loads(approval_file.read_text(encoding="utf-8"))
+        except Exception as exc:
+            errors.append(f"{fr_id}: JSON parse error — {exc}")
+            continue
+
+        status = data.get("review_status", "")
+        if status != "APPROVE":
+            rejected.append(f"{fr_id}: review_status={status!r} (expected APPROVE)")
+            continue
+
+        embedded = data.get("docs_embedded", [])
+        missing_docs = [d for d in REQUIRED_DOCS if d not in embedded]
+        if missing_docs:
+            errors.append(
+                f"{fr_id}: docs_embedded missing {missing_docs}. "
+                "Agent B prompt must embed full SRS.md + SAD.md content."
+            )
+
+    print(f"\n[verify-agent-b] Phase {phase} — checking {len(fr_ids)} FRs")
+    print(f"  Approvals dir : {approvals_dir}")
+
+    all_ok = not (missing or rejected or errors)
+    if all_ok:
+        print(f"  ✓ All {len(fr_ids)} Agent B approvals verified.")
+        return 0
+
+    print(f"\n[BLOCKED] Agent B approval verification failed:")
+    if missing:
+        print(f"  Missing approval files ({len(missing)}):")
+        for fr in missing:
+            print(f"    • {approvals_dir / fr}.json")
+    if rejected:
+        print(f"  Non-APPROVE statuses ({len(rejected)}):")
+        for r in rejected:
+            print(f"    • {r}")
+    if errors:
+        print(f"  Schema/content errors ({len(errors)}):")
+        for e in errors:
+            print(f"    • {e}")
+    print("\n  Fix: ensure Agent B writes approval JSON for each FR with:")
+    print('    {"fr": "FR-XX", "review_status": "APPROVE", "docs_embedded": ["SRS.md", "SAD.md"], "confidence": 0.9}')
+    return 1
+
+
+def _validate_p8_completion(project: Path) -> list[str]:
+    """Pre-flight checks required before push-milestone --type p8 is allowed."""
+    errors: list[str] = []
+
+    # 1. .methodology-archive/ must exist
+    archive_dir = project / ".methodology-archive"
+    if not archive_dir.exists():
+        errors.append(
+            ".methodology-archive/ does not exist. "
+            "Archive all 8 phases before P8 push: "
+            "mkdir .methodology-archive && cp -r .sessi-work/ .methodology-archive/"
+        )
+
+    # 2. HANDOVER.md must not reference non-existent Phase 9
+    handover = project / "HANDOVER.md"
+    if handover.exists():
+        content = handover.read_text(encoding="utf-8").lower()
+        if "phase 9" in content or "phase9" in content or "phase9_plan" in content:
+            errors.append(
+                "HANDOVER.md references non-existent Phase 9. "
+                "P8 is the final phase. Remove all Phase 9 references from HANDOVER.md."
+            )
+
+    return errors
+
+
 # ---------------------------------------------------------------------------
 # push-milestone  (P3+ milestone push + HANDOVER.md)
 # ---------------------------------------------------------------------------
@@ -1368,12 +1481,28 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
     elif milestone_type == "p7":
         ok = git.commit_and_push_p7()
     elif milestone_type == "p8":
+        p8_errors = _validate_p8_completion(project)
+        if p8_errors:
+            print("[ERROR] P8 push blocked — pre-flight checks failed:")
+            for e in p8_errors:
+                print(f"  • {e}")
+            return 1
         ok = git.commit_and_push_p8()
     else:
         print(f"[ERROR] Unknown milestone type: {milestone_type}")
         return 1
 
     if ok:
+        # Record that push-milestone was used (CI enforces this is not bypassed)
+        state_path = project / ".methodology" / "state.json"
+        if state_path.exists():
+            try:
+                state_data = json.loads(state_path.read_text(encoding="utf-8"))
+                state_data["last_milestone_command"] = f"push-milestone --type {milestone_type}"
+                state_data["last_milestone_at"] = datetime.now(timezone.utc).isoformat()
+                state_path.write_text(json.dumps(state_data, indent=2), encoding="utf-8")
+            except Exception:  # pylint: disable=broad-exception-caught
+                pass
         handover = project / "HANDOVER.md"
         if handover.exists():
             print(f"  HANDOVER.md → {handover}")
@@ -2336,7 +2465,9 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
                     return 1
                 bridge.generate_quality_manifest(fr_ids, str(sad))
                 print(f"[2.2] quality_manifest.json created  fr_ids={fr_ids}")
-                _generate_sab_json(project)
+                if not _generate_sab_json(project):
+                    print("[ERROR] SAB-SYNC failed. Fix generate_sab.py before proceeding.")
+                    return 1
                 git.commit_and_push_p2(fr_ids)  # PUSH ②
             continue
 
@@ -3157,6 +3288,17 @@ def build_parser() -> argparse.ArgumentParser:
     pm.add_argument("--no-git", action="store_true", dest="no_git",
                     help="Disable git operations")
     pm.set_defaults(func=cmd_push_milestone)
+
+    # verify-agent-b-approvals
+    vab = sub.add_parser(
+        "verify-agent-b-approvals",
+        help="Verify Agent B approval JSONs exist for all FRs (blocks if missing or non-APPROVE)",
+    )
+    vab.add_argument("--phase",   type=int, required=True, help="Current phase number")
+    vab.add_argument("--project", default=".", help="Project root (default: .)")
+    vab.add_argument("--fr-ids",  default="", dest="fr_ids",
+                     help="Comma-separated FR IDs (default: read from quality_manifest.json)")
+    vab.set_defaults(func=cmd_verify_agent_b_approvals)
 
     # run-gate (Phase 1: prepare + print evaluation prompt)
     rg = sub.add_parser("run-gate", help="Prepare gate evaluation; print prompt for Claude")

@@ -62,3 +62,118 @@ jobs:
 
       - name: Validate CLASSIFICATION_TABLE ↔ STRATEGY_REGISTRY
         run: python scripts/validate_cross_refs.py
+
+  push-milestone-enforcement:
+    name: Enforce push-milestone (no --no-verify bypass)
+    runs-on: ubuntu-latest
+    # Only enforce on pushes to main, not PRs (PRs may not have state.json)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check last_milestone_command in state.json
+        run: |
+          STATE_FILE=".methodology/state.json"
+          if [ ! -f "$STATE_FILE" ]; then
+            echo "INFO: No state.json found — project not yet initialized, skipping check."
+            exit 0
+          fi
+          PHASE=$(python3 -c "import json; d=json.load(open('$STATE_FILE')); print(d.get('current_phase', 0))")
+          # Only enforce milestone tracking for P3+ projects
+          if [ "$PHASE" -lt 3 ]; then
+            echo "INFO: Phase $PHASE < 3 — push-milestone not yet required."
+            exit 0
+          fi
+          CMD=$(python3 -c "import json; d=json.load(open('$STATE_FILE')); print(d.get('last_milestone_command', ''))")
+          if [ -z "$CMD" ]; then
+            echo "ERROR: state.json has no last_milestone_command field."
+            echo "This means git push was used directly instead of:"
+            echo "  python harness_cli.py push-milestone --type <type> --project ."
+            echo "Use push-milestone for all P3+ milestone pushes."
+            exit 1
+          fi
+          echo "OK: last_milestone_command = $CMD"
+
+  agent-b-approval-check:
+    name: Agent B Approval Verification
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt || true
+
+      - name: Check if Agent B approvals are required
+        id: check_phase
+        run: |
+          STATE_FILE=".methodology/state.json"
+          if [ ! -f "$STATE_FILE" ]; then
+            echo "phase=0" >> $GITHUB_OUTPUT
+          else
+            PHASE=$(python3 -c "import json; d=json.load(open('$STATE_FILE')); print(d.get('current_phase', 0))")
+            echo "phase=$PHASE" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Verify Agent B approvals (P3+)
+        if: steps.check_phase.outputs.phase >= 3
+        run: |
+          python harness_cli.py verify-agent-b-approvals \
+            --phase ${{ steps.check_phase.outputs.phase }} \
+            --project . || {
+              echo ""
+              echo "Agent B review files are missing or incomplete."
+              echo "Each FR requires .sessi-work/agent_b_approvals/FR-XX.json"
+              echo "with review_status=APPROVE and docs_embedded=[SRS.md, SAD.md]"
+              exit 1
+            }
+
+  p8-archive-check:
+    name: P8 Archive & HANDOVER Validation
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check if P8 is complete
+        id: check_p8
+        run: |
+          STATE_FILE=".methodology/state.json"
+          if [ ! -f "$STATE_FILE" ]; then
+            echo "is_p8=false" >> $GITHUB_OUTPUT
+          else
+            PHASE=$(python3 -c "import json; d=json.load(open('$STATE_FILE')); print(d.get('current_phase', 0))")
+            if [ "$PHASE" -gt 8 ] || ([ "$PHASE" -eq 8 ] && python3 -c "import json; d=json.load(open('$STATE_FILE')); print(d.get('last_milestone_command',''))" | grep -q "p8"); then
+              echo "is_p8=true" >> $GITHUB_OUTPUT
+            else
+              echo "is_p8=false" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Validate .methodology-archive exists (P8 only)
+        if: steps.check_p8.outputs.is_p8 == 'true'
+        run: |
+          if [ ! -d ".methodology-archive" ]; then
+            echo "ERROR: .methodology-archive/ does not exist."
+            echo "P8 completion requires archiving all phase artifacts."
+            exit 1
+          fi
+          echo "OK: .methodology-archive/ exists."
+
+      - name: Validate HANDOVER.md has no Phase 9 references (P8 only)
+        if: steps.check_p8.outputs.is_p8 == 'true'
+        run: |
+          if [ -f "HANDOVER.md" ]; then
+            if grep -qi "phase 9\|phase9\|phase9_plan" HANDOVER.md; then
+              echo "ERROR: HANDOVER.md references non-existent Phase 9."
+              echo "P8 is the final phase. Remove all Phase 9 references."
+              grep -ni "phase 9\|phase9" HANDOVER.md || true
+              exit 1
+            fi
+            echo "OK: HANDOVER.md has no Phase 9 references."
+          fi
