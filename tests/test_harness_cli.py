@@ -615,8 +615,11 @@ class TestPushCheckpointAgentBGate:
         monkeypatch.setattr(harness_cli, "_make_git", lambda *_a, **_kw: _FakeGit())
         self._patch_conf(monkeypatch, sys, types, harness_cli)
 
+        # fr_ids matches what `dispatch --role reviewer --fr-id FR-01` would write.
+        # Using FR IDs (not document names) — push-checkpoint resolves approval keys
+        # from fr_ids arg first, so these must align with dispatch's --fr-id value.
         args = argparse.Namespace(
-            project=str(tmp_path), phase=1, fr_ids="SRS.md,SPEC_TRACKING.md,TRACEABILITY_MATRIX.md",
+            project=str(tmp_path), phase=1, fr_ids="FR-01,FR-02,FR-03",
             skip_confidence=False, dry_run=False, no_push=False,
         )
         rc = cmd_push_checkpoint(args)
@@ -630,9 +633,9 @@ class TestPushCheckpointAgentBGate:
         import harness_cli, types, sys
 
         self._write_ci_files(tmp_path)
-        # Write all three P1 deliverable approvals
-        for did in ["SRS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md"]:
-            self._write_approval(tmp_path, did, phase=1)
+        # Approval key must match --fr-ids, which is what dispatch --fr-id writes.
+        # Using "FR-01" here (same as the fr_ids arg below).
+        self._write_approval(tmp_path, "FR-01", phase=1)
 
         commit_calls: list[dict] = []
         class _FakeGit:
@@ -785,6 +788,11 @@ class TestCheckChecklist:
         from harness_cli import cmd_check_checklist
         rc = cmd_check_checklist(args)
         assert rc == 1
+        out = capsys.readouterr().out
+        # f-string fix: phase and project must be interpolated, not printed literally
+        assert "{phase}" not in out
+        assert "{project}" not in out
+        assert "1" in out  # phase number should appear
 
     def test_phase_truth_is_mandatory(self, tmp_path):
         plan = tmp_path / ".methodology" / "phase3_plan.md"

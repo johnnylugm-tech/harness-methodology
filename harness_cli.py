@@ -1370,7 +1370,22 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
             return 5
 
     # ── Agent B approval gate ──────────────────────────────────────────────────
-    deliverable_ids = _PHASE_DELIVERABLES.get(phase, fr_ids)
+    # Key alignment: dispatch writes agent_b_approvals/{fr_id}.json, so the
+    # lookup key must match the --fr-id used in dispatch (typically a real FR ID
+    # like FR-01, not a document name).  Priority: CLI --fr-ids > manifest >
+    # _PHASE_DELIVERABLES fallback (kept only for backward compat).
+    deliverable_ids = fr_ids
+    if not deliverable_ids:
+        manifest_path = project / ".methodology" / "quality_manifest.json"
+        if manifest_path.exists():
+            try:
+                deliverable_ids = json.loads(
+                    manifest_path.read_text(encoding="utf-8")
+                ).get("fr_ids", [])
+            except Exception:  # pylint: disable=broad-exception-caught
+                pass
+    if not deliverable_ids:
+        deliverable_ids = _PHASE_DELIVERABLES.get(phase, [])
     if not skip_conf:
         passed, report = _verify_agent_b_approvals_core(project, phase, deliverable_ids)
         print(report)
@@ -1634,7 +1649,7 @@ def cmd_check_checklist(args: argparse.Namespace) -> int:
 
     if not plan_path.exists():
         print(f"[check-checklist] P{phase}: plan not found at {plan_path}")
-        print("  Run: python harness_cli.py plan-phase --phase {phase} --project {project}")
+        print(f"  Run: python harness_cli.py plan-phase --phase {phase} --project {project}")
         return 1
 
     mandatory_unchecked, advisory_unchecked = _parse_plan_unchecked(plan_path)
