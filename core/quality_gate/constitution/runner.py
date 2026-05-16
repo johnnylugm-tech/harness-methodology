@@ -26,7 +26,24 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Dict, Optional
 
+import json
+
 from core.quality_gate.constitution.profile import get_profile
+
+
+# ── Phase-to-check-type mapping (single source of truth) ───────────────────
+# Preflight mode reads state.json to find completed phases, then uses this
+# map to determine which check_type (file filter) to apply for each phase.
+_PHASE_CHECK_TYPES: Dict[int, str] = {
+    1: "srs",
+    2: "sad",
+    3: "implementation",
+    4: "test_plan",
+    5: "verification",
+    6: "quality_report",
+    7: "risk_management",
+    8: "configuration",
+}
 
 
 @dataclass
@@ -67,6 +84,46 @@ class ConstitutionResult:
             "violations": self.violations,
             "files": [v.get("file", "") for v in self.violations if v.get("file")],
         }
+
+
+# ── State discovery helpers (preflight phase boundary) ─────────────────────
+
+
+def _get_completed_phases(state_path: Path) -> List[int]:
+    """Read state.json and return sorted list of completed phase numbers.
+
+    Returns empty list when state.json is missing, unreadable, or contains
+    no ``phase_completed`` key — callers treat this as "no prior artifacts"
+    (vacuous pass).
+    """
+    if not state_path.exists():
+        return []
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        completed = state.get("phase_completed", {})
+        return sorted(int(k) for k in completed.keys())
+    except (json.JSONDecodeError, OSError, ValueError, TypeError):
+        return []
+
+
+def _vacuous_result(check_type: str, phase: int, check_mode: str = "preflight") -> ConstitutionResult:
+    """Return a vacuous-pass ConstitutionResult (no artifacts to evaluate).
+
+    Used when the target directory does not exist or when no phases have
+    been completed yet.  Artifact *existence* is verified separately by the
+    artifact enforcer (phase_artifact_enforcer.py); the constitution runner
+    only evaluates the *quality* of artifacts that exist.
+    """
+    return ConstitutionResult(
+        score=100.0,
+        passed=True,
+        violations=[],
+        check_type=check_type,
+        phase=phase,
+        check_mode=check_mode,
+        dimensions={"correctness": 100.0, "security": 100.0,
+                     "maintainability": 100.0, "coverage": 100.0},
+    )
 
 
 # ── All configurable values now live in ConstitutionProfile ──────────────────
@@ -338,6 +395,49 @@ def _scan_directory(docs_path: Path, phase: int, check_type: str) -> Constitutio
     )
 
 
+def _preflight_check(docs_path: Path, current_phase: int, strict: bool) -> ConstitutionResult:
+    """Preflight constitution check — scan only completed phases' artifacts.
+
+    Reads ``state.json`` from the project root to discover which phases have
+    been completed, then scans the **most recently completed** phase's
+    directory using that phase's own check_type and profile.
+
+    If no phases have been completed (or state.json is missing), returns a
+    vacuous pass — there are simply no prior artifacts to verify.
+    """
+    project_root = docs_path.parent if docs_path.name == "docs" else docs_path
+    state_path = project_root / ".methodology" / "state.json"
+
+    completed = _get_completed_phases(state_path)
+    if not completed:
+        # No prior phases completed → nothing to verify
+        return _vacuous_result("preflight", current_phase, "preflight")
+
+    # Scan the most recently completed phase's artifacts
+    prev_phase = completed[-1]
+    prev_check_type = _PHASE_CHECK_TYPES.get(prev_phase, "all")
+    phase_dir_name = get_profile().phase_directory(prev_phase)
+    target = project_root / phase_dir_name
+
+    if not target.exists():
+        # Previous phase directory absent → nothing to scan (vacuous pass)
+        return _vacuous_result(prev_check_type, current_phase, "preflight")
+
+    result = _scan_directory(target, prev_phase, prev_check_type)
+    result.check_mode = "preflight"
+
+    if strict and not result.passed:
+        raise RuntimeError(
+            f"Constitution check FAILED (preflight on completed phase {prev_phase}): "
+            f"score={result.score:.0f}% "
+            f"(threshold={get_profile().composite_threshold(prev_phase)}%), "
+            f"violations={len(result.violations)}, "
+            f"dims={result.dimensions}"
+        )
+
+    return result
+
+
 def run_constitution_check(
     check_type: str,
     docs_path: str,
@@ -351,11 +451,25 @@ def run_constitution_check(
     This is the primary entry point used by phase_hooks, framework_enforcer,
     and the CLI.
 
+    **Preflight vs Postflight semantics**:
+
+    - ``check_mode="preflight"`` (default): Scans the **most recently
+      completed** phase's artifacts (read from ``state.json.phase_completed``).
+      The current phase's directory is deliberately **skipped** because its
+      artifacts have not been written yet.  This prevents the chicken-and-egg
+      problem where entering Phase 2 scans stale ``02-architecture/`` files
+      and fails.
+
+    - ``check_mode="postflight"``: Scans the **current** phase's artifacts
+      (existing behavior) — the phase just finished, so its artifacts should
+      exist and should pass quality gate.
+
     Args:
         check_type: Artifact type to check ("all", "srs", "sad", "implementation",
                     "test_plan", "verification", "quality_report", "risk_management",
-                    "configuration").
-        docs_path: Path to the docs/ directory.
+                    "configuration").  **Ignored in preflight mode** — the check
+                    type is derived from the most recently completed phase.
+        docs_path: Path to the docs/ directory (or project root).
         current_phase: Pipeline phase number (1-8).
         check_mode: "preflight" or "postflight".
         strict: If True, raise on critical violations instead of returning.
@@ -371,6 +485,11 @@ def run_constitution_check(
     """
     path = Path(docs_path)
 
+    # ── Preflight: scan completed phases from state.json ───────────────
+    if check_mode == "preflight":
+        return _preflight_check(path, current_phase, strict)
+
+    # ── Postflight (and any other mode): existing behavior ──────────────
     if not path.exists():
         phase_dir_name = get_profile().phase_directory(current_phase)
         alt_path = path.parent / phase_dir_name if path.name == "docs" else path
@@ -378,19 +497,7 @@ def run_constitution_check(
             path = alt_path
 
     if not path.exists():
-        # Directory does not exist — vacuously pass.
-        # Artifact *existence* is checked separately by the artifact enforcer.
-        result = ConstitutionResult(
-            score=100.0,
-            passed=True,
-            violations=[],
-            check_type=check_type,
-            phase=current_phase,
-            check_mode=check_mode,
-            dimensions={"correctness": 100.0, "security": 100.0,
-                       "maintainability": 100.0, "coverage": 100.0},
-        )
-        return result
+        return _vacuous_result(check_type, current_phase, check_mode)
 
     result = _scan_directory(path, current_phase, check_type)
     result.check_mode = check_mode

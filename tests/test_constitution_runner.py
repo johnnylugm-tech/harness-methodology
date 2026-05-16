@@ -1,5 +1,6 @@
 """Tests for core/quality_gate/constitution/runner.py — Constitution compliance checker."""
 
+import json
 import pytest
 import tempfile
 from pathlib import Path
@@ -13,6 +14,7 @@ from core.quality_gate.constitution.runner import (  # pyright: ignore[reportMis
     _dimensions_for_phase,
     _threshold_for_dimension,
     _should_scan_file,
+    _get_completed_phases,
     run_constitution_check,
 )
 from core.quality_gate.constitution.profile import defaults
@@ -535,7 +537,8 @@ class TestRunConstitutionCheck:
             "to exceed minimum length requirement for scanning"
         )
         with pytest.raises(RuntimeError, match="Constitution check FAILED"):
-            run_constitution_check("all", str(docs), current_phase=5, strict=True)
+            run_constitution_check("all", str(docs), current_phase=5,
+                                   check_mode="postflight", strict=True)
 
     def test_preflight_mode(self, tmp_path):
         docs = tmp_path / "docs"
@@ -562,7 +565,8 @@ class TestRunConstitutionCheck:
             "# SRS\n\n## FR-01 Quality Gate\nTest coverage and traceability.\n"
             "Acceptance criteria defined. Constitution compliance verified.\n"
         )
-        result = run_constitution_check("srs", str(docs), current_phase=1)
+        result = run_constitution_check("srs", str(docs), current_phase=1,
+                                        check_mode="postflight")
         assert result.phase == 1
         assert not result.passed, (
             "P1 constitution check fails when security keywords are absent "
@@ -577,7 +581,8 @@ class TestRunConstitutionCheck:
             "# System Architecture\n\n"
             "## Overview\nDescribes the high-level architecture.\n"
         )
-        result = run_constitution_check("sad", str(docs), current_phase=2)
+        result = run_constitution_check("sad", str(docs), current_phase=2,
+                                        check_mode="postflight")
         assert result.phase == 2
         assert not result.passed, (
             "P2 constitution check fails when security keywords are absent "
@@ -598,7 +603,8 @@ class TestRunConstitutionCheck:
             "Just enough words to satisfy the minimum length check.\n"
             "Neutral text that avoids any dimension scoring signals.\n"
         )
-        result = run_constitution_check("all", str(docs), current_phase=3)
+        result = run_constitution_check("all", str(docs), current_phase=3,
+                                        check_mode="postflight")
         assert result.phase == 3
         assert not result.passed, (
             "P3 constitution check fails when security and FR-reference keywords are absent "
@@ -619,7 +625,8 @@ class TestRunConstitutionCheck:
             "Just enough words to satisfy the minimum length check.\n"
             "Neutral text that avoids any dimension scoring signals.\n"
         )
-        result = run_constitution_check("all", str(docs), current_phase=4)
+        result = run_constitution_check("all", str(docs), current_phase=4,
+                                        check_mode="postflight")
         assert result.phase == 4
         assert not result.passed, (
             "P4 constitution check fails when security and coverage keywords are absent "
@@ -649,7 +656,8 @@ class TestRunConstitutionCheck:
             "# Quality Report\n\nquality gate test coverage constitution traceability\n"
             "security auth validation HMAC RBAC\n"
         )
-        result = run_constitution_check("quality_report", str(docs), current_phase=6)
+        result = run_constitution_check("quality_report", str(docs), current_phase=6,
+                                        check_mode="postflight")
         assert result.phase == 6
         assert result.check_type == "quality_report"
 
@@ -758,6 +766,222 @@ class TestCheckTypeFiltering:
         result = _scan_directory(docs, phase=1, check_type="sad")
         # Only SAD.md should be scanned; SRS.md excluded by filter
         assert result.score >= 0
+
+
+class TestGetCompletedPhases:
+    """Tests for _get_completed_phases() — reads state.json phase_completed."""
+
+    def test_missing_state_file(self, tmp_path):
+        state_path = tmp_path / "state.json"
+        assert _get_completed_phases(state_path) == []
+
+    def test_empty_state_file(self, tmp_path):
+        state_path = tmp_path / "state.json"
+        state_path.write_text("{}")
+        assert _get_completed_phases(state_path) == []
+
+    def test_no_phase_completed_key(self, tmp_path):
+        state_path = tmp_path / "state.json"
+        state_path.write_text('{"state": "ACTIVE", "current_phase": 2}')
+        assert _get_completed_phases(state_path) == []
+
+    def test_single_completed_phase(self, tmp_path):
+        state_path = tmp_path / "state.json"
+        state_path.write_text(
+            '{"phase_completed": {"1": {"sha": "abc123", "timestamp": "2026-01-01T00:00:00Z"}}}'
+        )
+        assert _get_completed_phases(state_path) == [1]
+
+    def test_multiple_completed_phases(self, tmp_path):
+        state_path = tmp_path / "state.json"
+        state_path.write_text('{"phase_completed": {"1": {}, "2": {}, "3": {}}}')
+        assert _get_completed_phases(state_path) == [1, 2, 3]
+
+    def test_out_of_order_keys(self, tmp_path):
+        state_path = tmp_path / "state.json"
+        state_path.write_text('{"phase_completed": {"3": {}, "1": {}}}')
+        assert _get_completed_phases(state_path) == [1, 3]
+
+    def test_corrupted_state_file(self, tmp_path):
+        state_path = tmp_path / "state.json"
+        state_path.write_text("not json")
+        assert _get_completed_phases(state_path) == []
+
+
+class TestPreflightPhaseBoundary:
+    """Tests that preflight constitution check respects phase boundaries.
+
+    Core invariant: preflight must scan the MOST RECENT completed phase's
+    artifacts (read from state.json.phase_completed), NOT the current phase's
+    directory — which may contain stale files from a prior run or be entirely
+    empty (the chicken-and-egg bug).
+    """
+
+    def _make_phase_dir(self, base: Path, dir_name: str, content: str,
+                        file_name: str = "SRS.md"):
+        d = base / dir_name
+        d.mkdir(parents=True, exist_ok=True)
+        (d / file_name).write_text(content)
+        return d
+
+    def _make_state(self, base: Path, completed: dict):
+        state_dir = base / ".methodology"
+        state_dir.mkdir(parents=True, exist_ok=True)
+        (state_dir / "state.json").write_text(
+            json.dumps({"phase_completed": completed})
+        )
+
+    def _make_p1_artifact(self, base: Path):
+        """Create a P1 SRS.md with all P1 correctness + security keywords."""
+        return self._make_phase_dir(
+            base, "01-requirements",
+            "# Requirements Specification (SRS)\n\n"
+            "## FR-01: Quality Gate\n"
+            "This requirement defines the quality gate specification.\n"
+            "Acceptance criteria: all FRs must have traceability to test cases.\n"
+            "Constitution compliance verified with security validation.\n"
+            "\n"
+            "## FR-02: User Authentication\n"
+            "Authentication uses HMAC signature verification with token.\n"
+            "RBAC permission model for all API endpoints.\n"
+            "TLS encryption required for external communication.\n"
+            "Secrets managed via environment variables.\n"
+            "\n"
+            "## NFR-01: Performance\n"
+            "PII must be masked before storage.\n"
+            "Security vulnerability assessment required per release.\n",
+            "SRS.md"
+        )
+
+    def _make_p2_artifact(self, base: Path):
+        """Create a P2 SAD.md with all P2 correctness + security keywords."""
+        return self._make_phase_dir(
+            base, "02-architecture",
+            "# Software Architecture Document (SAD)\n\n"
+            "## FR-01: Platform Adapter\n"
+            "This specification covers the Telegram adapter requirement.\n"
+            "FR-02: Signature verification using HMAC for security.\n"
+            "NFR-01: Performance traceability ensures architecture completeness.\n"
+            "SRS input provides the foundation for this SAD document.\n"
+            "\n"
+            "## Security Architecture\n"
+            "Authentication via HMAC signature validation.\n"
+            "Sanitize all user input before processing.\n"
+            "Encryption of sensitive data at rest.\n"
+            "RBAC permission model with token-based verification.\n"
+            "PII masking at input sanitizer boundary.\n"
+            "Rate limit enforcement per user.\n"
+            "TLS for all external connections.\n"
+            "Secret management via environment variables.\n"
+            "Security vulnerability scanning in CI pipeline.\n"
+            "\n"
+            "## Requirements Traceability\n"
+            "Traceability matrix maps all FRs to architecture components.\n"
+            "Acceptance criteria documented per requirement specification.\n",
+            "SAD.md"
+        )
+
+    # ── Phase-specific scenarios ──────────────────────────────────────
+
+    def test_p2_preflight_scans_p1_not_p2(self, tmp_path):
+        """P2 preflight reads state.json P1 completed, scans 01-requirements/
+        instead of 02-architecture/ (which has deliberately poor content)."""
+        self._make_p1_artifact(tmp_path)
+        self._make_state(tmp_path, {"1": {"sha": "a"}})
+        # Poorly-scoring 02-architecture/ should NOT be scanned
+        self._make_phase_dir(tmp_path, "02-architecture",
+                             "# Old Arch\n\nno keywords.", "SAD.md")
+
+        result = run_constitution_check("sad", str(tmp_path / "docs"),
+                                        current_phase=2, check_mode="preflight")
+        assert result.passed, (
+            "P2 preflight should scan P1 (01-requirements/) not P2's stale "
+            f"02-architecture/ (score={result.score})"
+        )
+
+    def test_p3_preflight_scans_p2(self, tmp_path):
+        """P3 preflight with P1+P2 completed scans 02-architecture/."""
+        self._make_p1_artifact(tmp_path)
+        self._make_p2_artifact(tmp_path)
+        self._make_state(tmp_path, {"1": {"sha": "a"}, "2": {"sha": "b"}})
+
+        result = run_constitution_check("implementation", str(tmp_path / "docs"),
+                                        current_phase=3, check_mode="preflight")
+        assert result.passed, (
+            "P3 preflight should scan P2 (02-architecture/), "
+            f"score={result.score}"
+        )
+
+    def test_p2_preflight_no_completed_phases_vacuous_pass(self, tmp_path):
+        """P2 preflight with state.json but empty phase_completed."""
+        self._make_state(tmp_path, {})
+        self._make_phase_dir(tmp_path, "02-architecture",
+                             "# Stale\n\nNo keywords.", "SAD.md")
+
+        result = run_constitution_check("sad", str(tmp_path / "docs"),
+                                        current_phase=2, check_mode="preflight")
+        assert result.passed is True
+        assert result.score == 100.0
+
+    def test_p2_preflight_no_state_json_vacuous_pass(self, tmp_path):
+        """P2 preflight without .methodology/state.json."""
+        self._make_phase_dir(tmp_path, "02-architecture",
+                             "# Stale\n\nNo keywords.", "SAD.md")
+
+        result = run_constitution_check("sad", str(tmp_path / "docs"),
+                                        current_phase=2, check_mode="preflight")
+        assert result.passed is True
+        assert result.score == 100.0
+
+    def test_p1_preflight_vacuous_pass(self, tmp_path):
+        """Phase 1 preflight always passes — no prior phase."""
+        result = run_constitution_check("srs", str(tmp_path / "docs"),
+                                        current_phase=1, check_mode="preflight")
+        assert result.passed is True
+        assert result.score == 100.0
+
+    def test_p2_preflight_prev_phase_dir_absent_vacuous_pass(self, tmp_path):
+        """P1 completed but 01-requirements/ doesn't exist on disk."""
+        self._make_state(tmp_path, {"1": {"sha": "a"}})
+
+        result = run_constitution_check("sad", str(tmp_path / "docs"),
+                                        current_phase=2, check_mode="preflight")
+        assert result.passed is True
+        assert result.score == 100.0
+
+    def test_preflight_strict_mode_raises_on_prev_failure(self, tmp_path):
+        """Strict preflight raises when P1 artifacts fail P1 threshold."""
+        self._make_phase_dir(tmp_path, "01-requirements",
+                             "# X\n\nno keywords here at all"
+                             " to exceed minimum length requirement", "SRS.md")
+        self._make_state(tmp_path, {"1": {"sha": "a"}})
+
+        with pytest.raises(RuntimeError, match="Constitution check FAILED"):
+            run_constitution_check("srs", str(tmp_path / "docs"),
+                                   current_phase=2, check_mode="preflight",
+                                   strict=True)
+
+    def test_preflight_return_passed_false_when_prev_fails(self, tmp_path):
+        """Preflight returns passed=False when P1 artifacts fail."""
+        self._make_phase_dir(tmp_path, "01-requirements",
+                             "# X\n\nno keywords here at all"
+                             " to exceed minimum length requirement", "SRS.md")
+        self._make_state(tmp_path, {"1": {"sha": "a"}})
+
+        result = run_constitution_check("srs", str(tmp_path / "docs"),
+                                        current_phase=2, check_mode="preflight")
+        assert not result.passed
+
+    # ── Postflight invariant ─────────────────────────────────────────
+
+    def test_postflight_still_scans_current_phase(self, tmp_path):
+        """Postflight mode unchanged: scans current phase's directory."""
+        self._make_p2_artifact(tmp_path)
+
+        result = run_constitution_check("sad", str(tmp_path / "02-architecture"),
+                                        current_phase=2, check_mode="postflight")
+        assert result.phase == 2
+        assert result.passed
 
 
 class TestDoubleScanPrevention:
