@@ -659,7 +659,7 @@ def _entry_gate_check(phase: int) -> List[str]:
     m = re.search(r'from P(\d+)', proof)
     prev_phase = int(m.group(1)) if m else phase - 1
     gate_action = f"return to Phase {prev_phase} and complete exit gate first" if prev_phase >= phase - 2 else f"verify Phase {prev_phase} Gate PASS is recorded in quality_manifest.json and confirm all intervening phases (P{prev_phase+1}–P{phase-1}) completed their tasks"
-    return [
+    lines = [
         "### Entry Gate Verification",
         "",
         f"- [ ] **[ENTRY-CHECK]** {gate_label}:",
@@ -667,6 +667,10 @@ def _entry_gate_check(phase: int) -> List[str]:
         f"  If NOT confirmed: {gate_action}.",
         "",
     ]
+    # Phase 6 entry: also verify P5 output artifacts per SAD.md §2.4.3
+    if phase == 6:
+        lines.insert(3, f"  Verify P5 output artifacts exist: `05-verification/VERIFICATION_REPORT.md` + `05-verification/BASELINE.md`")
+    return lines
 
 
 def _human_checkpoint(phase: int, checkpoint_n: int) -> List[str]:
@@ -822,7 +826,7 @@ def _phase_advance_step(phase: int) -> List[str]:
         7: "Risk Management", 8: "Configuration Management",
     }
     next_name = next_names.get(next_phase, f"Phase {next_phase}")
-    return [
+    lines = [
         f"### Phase {phase} → Phase {next_phase}: {next_name}",
         "",
         "- [ ] Confirm ALL checkpoints in this plan are ✓  (no skips — HR-03)",
@@ -831,6 +835,14 @@ def _phase_advance_step(phase: int) -> List[str]:
         f"  python3 harness_cli.py plan-phase --phase {next_phase} --project $REPO \\",
         f"    --output $REPO/.methodology/phase{next_phase}_plan.md",
         "  ```",
+        # Git tag step: SKILL.md §0.4 requires Gate 4 tag only (P6→P7 transition)
+        *([f"- [ ] **[GIT-TAG]** Push Gate 4 git tag (SKILL.md §0.4):",
+           "  ```bash",
+           "  SCORE=$(python3 -c \"import json; d=json.load(open('.sessi-work/gate4_result.json')); print(d.get('composite_score','XX'))\" 2>/dev/null || echo 'XX')",
+           f"  git tag -a \"harness-v4-$(date +%Y%m%d)-score${{SCORE}}\" -m \"Gate 4 PASS (score ${{SCORE}})\"",
+           "  git push origin --tags",
+           "  ```",
+           ""] if phase == 6 else []),
         f"- [ ] Advance FSM to Phase {next_phase} (writes new HANDOVER.md + local commit):",
         "  ```bash",
         f"  python3 harness_cli.py advance-phase --completed {phase} --project .",
@@ -840,6 +852,7 @@ def _phase_advance_step(phase: int) -> List[str]:
         f"- [ ] If session crashes during Phase {next_phase}: read `HANDOVER.md` or run `generate-next-plan`",
         "",
     ]
+    return lines
 
 
 def _p3_milestone_push_steps(fr_ids: List[str]) -> List[str]:
@@ -896,22 +909,6 @@ def _milestone_push_steps(fr_ids: List[str], phase: int,
     ]
 
 
-def _fr_source_paths(fr_id: str) -> list[str]:
-    """Guess source file paths for an FR (used by delta-check git diff).
-
-    Returns likely paths so git diff can skip unchanged FRs.
-    Override by setting FR_SOURCE_PATHS mapping in project config.
-    """
-    fr_num = fr_id.replace("FR-", "")
-    candidates = [
-        f"03-development/src/**/*fr_{fr_num.lower()}*",
-        f"03-development/src/**/*{fr_id.lower()}*",
-        f"tests/**/test_fr_{fr_num}*",
-        f"tests/**/test_{fr_id.lower()}*",
-    ]
-    return candidates
-
-
 def _gate1_checkpoint(fr_id: str, phase: int, checkpoint_n: int,
                        delta_check: bool = False) -> List[str]:
     """Gate 1 evaluation steps for a single FR (local commit, no push).
@@ -926,7 +923,7 @@ def _gate1_checkpoint(fr_id: str, phase: int, checkpoint_n: int,
         f"> **Delta-check mode** (P{phase}): skip if {fr_id} code unchanged since last Gate 1.",
         "- [ ] **[DELTA-CHECK]** Check if FR code changed since last Gate 1:",
         "  ```bash",
-        f"  git diff --quiet HEAD -- $(python3 -c \"from scripts.generate_full_plan import _fr_source_paths; print(' '.join(_fr_source_paths('{fr_id}')))\" 2>/dev/null || echo '.')",
+                f"  git diff --quiet HEAD -- \"03-development/src/**/*fr_{fr_id.lower().replace('fr-', '')}*\" \"03-development/src/**/*{fr_id.lower()}*\" \"tests/**/test_fr_{fr_id.lower().replace('fr-', '')}*\" \"tests/**/test_{fr_id.lower()}*\" 2>/dev/null || echo '.'",
         "  ```",
         "  - Exit 0 (no changes) → skip G1a-G1c, re-use previous Gate 1 score from manifest",
         "  - Exit 1 (changes detected) → proceed to full re-evaluation below",
@@ -1064,9 +1061,10 @@ def _checkpoint_index(fr_ids: List[str], phase: int) -> List[str]:
         lines.append("> - MILESTONE: P8 exit push (config records complete) → **HANDOVER.md**")
     if phase in _PHASE_EXIT_GATES:
         gate_num = _PHASE_EXIT_GATES[phase]
-        lines.append(f"> - CHECKPOINT-{cp}: Gate {gate_num} (Phase {phase} Exit) → **push + HANDOVER.md**")
-    elif phase == 6:
-        lines.append(f"> - CHECKPOINT-{cp}: Gate 4 (Full Project, Hermes APPROVE) → **push + HANDOVER.md**")
+        if phase == 6:
+            lines.append(f"> - CHECKPOINT-{cp}: Gate 4 (Full Project — 12 dims, Hermes APPROVE) → **push + HANDOVER.md**")
+        else:
+            lines.append(f"> - CHECKPOINT-{cp}: Gate {gate_num} (Phase {phase} Exit) → **push + HANDOVER.md**")
     lines.append("")
     return lines
 

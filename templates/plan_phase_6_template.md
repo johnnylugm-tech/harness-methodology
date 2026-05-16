@@ -406,6 +406,12 @@ python3 harness_cli.py finalize-gate --gate 4 --phase 6
 ## 12. Phase 6 → Phase 7: Risk Management
 
 - [ ] Confirm ALL checkpoints in this plan are ✓ (no skips — HR-03)
+- [ ] Push Gate 4 git tag (SKILL.md §0.4):
+  ```bash
+  SCORE=$(python3 -c "import json; d=json.load(open('.sessi-work/gate4_result.json')); print(d.get('composite_score','XX'))" 2>/dev/null || echo 'XX')
+  git tag -a "harness-v4-$(date +%Y%m%d)-score${SCORE}" -m "Gate 4 PASS (score ${SCORE})"
+  git push origin --tags
+  ```
 - [ ] Generate Phase 7 plan:
   ```bash
   python3 harness_cli.py plan-phase --phase 7 --project $REPO \

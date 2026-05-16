@@ -181,7 +181,7 @@ This section uses normative language per **RFC 2119**:
 | P4 → P5 | **MUST** | Gate 3 ≥80 + coverage ≥80% + TEST_RESULTS.md |
 | P5 → P6 | **MUST** | VERIFICATION_REPORT.md |
 | P6 → P7 | **MUST** | Gate 4 ≥85 + QUALITY_REPORT.md |
-| P7 → P8 | **SHOULD** | RISK_ASSESSMENT.md + RISK_REGISTER.md |
+| P7 → P8 | **SHOULD** | RISK_STATUS_REPORT.md + RISK_REGISTER.md |
 | Phase advance | **SHALL NOT** | Skip phases; each phase MUST complete before next |
 
 #### 2.4.4 Auto-Fix Escalation Conditions
