@@ -130,7 +130,7 @@ The `name` field **must match the directory name** — `scripts/list-modules.py 
 ```yaml
 ---
 name: harness-methodology
-version: 2.3.0
+version: 2.4.0
 description: |
   <what the framework does>
   Use when: <trigger conditions>

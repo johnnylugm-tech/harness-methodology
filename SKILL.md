@@ -1,7 +1,7 @@
 ---
 name: harness-methodology
-version: 2.3.0
-constitution_version: 2.3
+version: 2.4.0
+constitution_version: 2.4
 description: |
   全流程軟體開發管線編排與品質門禁。Phase 1-8、A/B 協作、12 維度品質憲章。
   Use when: user asks to execute a phase, plan work, run quality gates, or implement FRs.
@@ -10,7 +10,7 @@ description: |
 
 # SKILL.md — harness-methodology
 
-> **Version**: v2.3.0 | **Framework**: harness-methodology | **Academic Benchmark**: 91/100
+> **Version**: v2.4.0 | **Framework**: harness-methodology | **Academic Benchmark**: 91/100
 
 ---
 
@@ -106,10 +106,16 @@ Before advancing to Phase N+1, confirm ALL:
 
 - [ ] All checkpoints in plan marked done
 - [ ] HANDOVER.md written (auto on git push via GitStrategy)
+- [ ] **(P3+) push-milestone called before git push**: `python harness_cli.py push-milestone --type <type> --project .`
+      Valid types: `p3-mid`, `p3-pre-ssi`, `p4-mid`, `p4-pre-ssi`, `p5-baseline`, `p7`, `p8`
+      Writes `last_milestone_command` to `state.json` — CI `push-milestone-enforcement` blocks if absent.
+- [ ] **(P3+) Agent B approvals present**: `.methodology/agent_b_approvals/FR-XX.json` per FR with `review_status=APPROVE` and `docs_embedded=[SRS.md, SAD.md]`
+      Verify: `python harness_cli.py verify-agent-b-approvals --phase N --project .`
 - [ ] Git pushed to remote (confirmed push output, no "push skipped")
 - [ ] Next phase plan exists (`plan-phase --phase N+1` completed)
 - [ ] state.json updated: `python3 harness_cli.py advance-phase --completed N --project .` (updates FSM + git config + GitHub CURRENT_PHASE)
 - [ ] Git tag pushed (Gate 4 only): `harness-v4-YYYYMMDD-scoreXX`
+- [ ] **(P8 only) `.methodology-archive/` exists and HANDOVER.md has no Phase 9 references** (enforced by CI `p8-archive-check`)
 
 ### 0.5 NEVER
 
@@ -133,6 +139,15 @@ Before advancing to Phase N+1, confirm ALL:
 | Dispatch Agent A/B (HR-10) | `python harness_cli.py dispatch --role developer\|reviewer --fr-id FR-XX --prompt "..." --phase N` |
 | Run a gate evaluation | `python harness_cli.py run-gate --gate N --phase P [--fr-id FR-XX]` |
 | Finalize a gate | `python harness_cli.py finalize-gate --gate N --phase P` |
+| **Push P3+ milestone (required before git push)** | `python harness_cli.py push-milestone --type p3-mid\|p3-pre-ssi\|p4-mid\|p4-pre-ssi\|p5-baseline\|p7\|p8` |
+| Verify Agent B approvals | `python harness_cli.py verify-agent-b-approvals --phase N --project .` |
+| Initialize a new project | `python harness_cli.py init-project --project /path/to/target --phase 1` |
+| Advance to next phase | `python harness_cli.py advance-phase --completed N --project .` |
+| Generate manifest for FRs | `python harness_cli.py manifest --fr-ids FR-01 FR-02 --sad SAD.md` |
+| Run M3 gap analysis | `python harness_cli.py run-gap-analysis --project .` |
+| Audit structure | `python harness_cli.py audit-structure --project .` |
+| Git hook pre-commit check | `python harness_cli.py pre-commit-check --phase N` |
+| Await Gate 4 Hermes APPROVE | `python harness_cli.py await-hermes-approve --project .` |
 | Recover from crash | `python harness_cli.py generate-next-plan --project .` |
 | Audit a completed phase | `python harness_cli.py audit-phase --phase N --repo .` |
 | Full autonomous pipeline | `python harness_cli.py run-pipeline --phase-from N [--auto-fix-rounds 3] [--no-auto-fix]` |
@@ -298,4 +313,4 @@ State stored in `.methodology/state.json`:
 
 ---
 
-*harness-methodology v6.50.0 — Academic Benchmark 91/100*
+*harness-methodology v2.4.0 — Academic Benchmark 91/100*

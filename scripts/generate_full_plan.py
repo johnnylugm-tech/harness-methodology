@@ -670,7 +670,7 @@ def _entry_gate_check(phase: int) -> List[str]:
     ]
     # Phase 6 entry: also verify P5 output artifacts per SAD.md §2.4.3
     if phase == 6:
-        lines.insert(3, f"  Verify P5 output artifacts exist: `05-verification/VERIFICATION_REPORT.md` + `05-verification/BASELINE.md`")
+        lines.insert(3, "  Verify P5 output artifacts exist: `05-verification/VERIFICATION_REPORT.md` + `05-verification/BASELINE.md`")
     return lines
 
 
@@ -816,7 +816,7 @@ def _phase_advance_step(phase: int) -> List[str]:
     if phase >= 8:
         return [
             # Phase Truth (HR-11): applies to P3–P8 per SKILL.md §2
-            *([f"- [ ] **[PHASE-TRUTH]** Verify Phase Truth ≥ 90% (HR-11):",
+            *(["- [ ] **[PHASE-TRUTH]** Verify Phase Truth ≥ 90% (HR-11):",
                "  ```bash",
                f"  python3 harness_cli.py run-pipeline --phase-from {phase}",
                "  ```",
@@ -845,15 +845,15 @@ def _phase_advance_step(phase: int) -> List[str]:
         f"    --output $REPO/.methodology/phase{next_phase}_plan.md",
         "  ```",
         # Git tag step: SKILL.md §0.4 requires Gate 4 tag only (P6→P7 transition)
-        *([f"- [ ] **[GIT-TAG]** Push Gate 4 git tag (SKILL.md §0.4):",
+        *(["- [ ] **[GIT-TAG]** Push Gate 4 git tag (SKILL.md §0.4):",
            "  ```bash",
            "  SCORE=$(python3 -c \"import json; d=json.load(open('.sessi-work/gate4_result.json')); print(d.get('composite_score','XX'))\" 2>/dev/null || echo 'XX')",
-           f"  git tag -a \"harness-v4-$(date +%Y%m%d)-score${{SCORE}}\" -m \"Gate 4 PASS (score ${{SCORE}})\"",
+           "  git tag -a \"harness-v4-$(date +%Y%m%d)-score${SCORE}\" -m \"Gate 4 PASS (score ${SCORE})\"",
            "  git push origin --tags",
            "  ```",
            ""] if phase == 6 else []),
         # Phase Truth (HR-11): gates cover P3/P4/P6; P5/P7 have no exit gate so add here
-        *([f"- [ ] **[PHASE-TRUTH]** Verify Phase Truth ≥ 90% (HR-11):",
+        *(["- [ ] **[PHASE-TRUTH]** Verify Phase Truth ≥ 90% (HR-11):",
            "  ```bash",
            f"  python3 harness_cli.py run-pipeline --phase-from {phase}",
            "  ```",
@@ -1004,7 +1004,7 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
     ]
     phase_truth_step = (
         [
-            f"- [ ] **[PHASE-TRUTH]** Verify Phase Truth ≥ 90% (HR-11):",
+            "- [ ] **[PHASE-TRUTH]** Verify Phase Truth ≥ 90% (HR-11):",
             "  ```bash",
             f"  python3 harness_cli.py run-pipeline --phase-from {phase}",
             "  ```",

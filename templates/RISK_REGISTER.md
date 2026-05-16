@@ -4,9 +4,9 @@
 
 ## Risk Matrix
 
-| ID | Risk Description | Dimension | Level | Probability | Impact | Mitigation | Status |
-|----|-----------------|-----------|-------|-------------|--------|------------|--------|
-| R-01 | {description} | {dimension} | {level} | {prob}% | {impact} | {mitigation} | {status} |
+| Risk ID | FR ID | Category | Description | Likelihood (1-5) | Impact (1-5) | Score | Mitigation | Owner | Status |
+|---------|-------|----------|-------------|------------------|--------------|-------|------------|-------|--------|
+| R-01 | {fr_id} | {category} | {description} | {likelihood} | {impact} | {likelihood*impact} | {mitigation} | {owner} | {status} |
 
 ## Decision Gate Confirmation
 

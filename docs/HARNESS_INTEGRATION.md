@@ -21,7 +21,7 @@ No new Phases are added — Gates replace specific existing steps.
 ## Gate Evaluation Model
 
 SSI is a Claude Code skill — Claude IS the evaluation engine. The subprocess-based
-`run_gate()` is deprecated. All gates now use a two-phase API:
+`run_gate()` is **[deprecated — removed in v2.4]**. All gates now use a two-phase API:
 
 ```
 1. harness_bridge.prepare_gate(gate_num, project_root, phase, fr_id)

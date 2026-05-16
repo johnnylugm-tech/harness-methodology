@@ -264,6 +264,107 @@ jobs:
           PHASE: ${{ steps.phase.outputs.PHASE }}
         run: python harness/scripts/check_fr_full.py --phase $PHASE
         continue-on-error: true
+
+  push-milestone-enforcement:
+    name: Enforce push-milestone (no --no-verify bypass)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check last_milestone_command in state.json
+        run: |
+          STATE_FILE=".methodology/state.json"
+          if [ ! -f "$STATE_FILE" ]; then
+            echo "INFO: No state.json — project not yet initialized, skipping."
+            exit 0
+          fi
+          PHASE=$(python3 -c "import json; d=json.load(open('$STATE_FILE')); print(d.get('current_phase', 0))")
+          if [ "$PHASE" -lt 3 ]; then
+            echo "INFO: Phase $PHASE < 3 — push-milestone not yet required."
+            exit 0
+          fi
+          CMD=$(python3 -c "import json; d=json.load(open('$STATE_FILE')); print(d.get('last_milestone_command', ''))")
+          if [ -z "$CMD" ]; then
+            echo "ERROR: state.json has no last_milestone_command field."
+            echo "Direct git push detected. Use instead:"
+            echo "  python harness/harness_cli.py push-milestone --type <type> --project ."
+            exit 1
+          fi
+          echo "OK: last_milestone_command = $CMD"
+
+  agent-b-approval-check:
+    name: Agent B Approval Verification
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install harness dependencies
+        run: pip install -r harness/requirements.txt || true
+      - name: Detect phase
+        id: phase
+        run: |
+          PHASE=$(python3 -c "
+          import json
+          try:
+              d = json.load(open('.methodology/state.json'))
+              print(d.get('current_phase', 0))
+          except Exception:
+              print(0)
+          " 2>/dev/null || echo "0")
+          echo "PHASE=$PHASE" >> $GITHUB_OUTPUT
+      - name: Verify Agent B approvals (P3+)
+        if: steps.phase.outputs.PHASE >= 3
+        run: |
+          python harness/harness_cli.py verify-agent-b-approvals \
+            --phase ${{ steps.phase.outputs.PHASE }} \
+            --project . || {
+              echo ""
+              echo "Agent B review files missing or non-APPROVE."
+              echo "Each FR needs .methodology/agent_b_approvals/FR-XX.json"
+              echo "with review_status=APPROVE and docs_embedded=[SRS.md, SAD.md]"
+              exit 1
+            }
+
+  p8-archive-check:
+    name: P8 Archive & HANDOVER Validation
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect if P8 milestone was pushed
+        id: p8
+        run: |
+          STATE_FILE=".methodology/state.json"
+          IS_P8="false"
+          if [ -f "$STATE_FILE" ]; then
+            CMD=$(python3 -c "import json; d=json.load(open('$STATE_FILE')); print(d.get('last_milestone_command',''))")
+            if echo "$CMD" | grep -q "p8"; then IS_P8="true"; fi
+          fi
+          echo "IS_P8=$IS_P8" >> $GITHUB_OUTPUT
+      - name: Validate .methodology-archive exists (P8 only)
+        if: steps.p8.outputs.IS_P8 == 'true'
+        run: |
+          if [ ! -d ".methodology-archive" ]; then
+            echo "ERROR: .methodology-archive/ does not exist. Archive phase artifacts before P8 push."
+            exit 1
+          fi
+          echo "OK: .methodology-archive/ exists."
+      - name: Validate HANDOVER.md has no Phase 9 references (P8 only)
+        if: steps.p8.outputs.IS_P8 == 'true'
+        run: |
+          if [ -f "HANDOVER.md" ]; then
+            if grep -qi "phase 9\|phase9\|phase9_plan" HANDOVER.md; then
+              echo "ERROR: HANDOVER.md references non-existent Phase 9."
+              grep -ni "phase 9\|phase9" HANDOVER.md || true
+              exit 1
+            fi
+            echo "OK: HANDOVER.md has no Phase 9 references."
+          fi
 ```
 
 ### Option B — Global clone
@@ -303,6 +404,8 @@ jobs:
         continue-on-error: true
 ```
 
+> **Enforcement jobs for Option B**: Same 3 jobs as Option A but replace `harness/harness_cli.py` with `python /opt/harness/harness_cli.py` in `agent-b-approval-check`. `push-milestone-enforcement` and `p8-archive-check` are identical — they only access `.methodology/` state files.
+
 ### Option C — Copy into project
 
 ```yaml
@@ -333,6 +436,8 @@ jobs:
         run: python scripts/check_fr_full.py --phase $PHASE
         continue-on-error: true
 ```
+
+> **Enforcement jobs for Option C**: Same 3 jobs as Option A but replace `harness/harness_cli.py` with `python harness_cli.py` (project root) in `agent-b-approval-check`. `push-milestone-enforcement` and `p8-archive-check` are identical to Option A.
 
 Phase is auto-detected from `.methodology/state.json` — no GitHub Variable required. `CURRENT_PHASE` Actions variable is no longer used.
 

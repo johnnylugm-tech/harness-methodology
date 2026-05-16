@@ -70,12 +70,12 @@ The system uses this macro architecture:
 
 The full-system CLI (`cli.py`) lives in the parent system that contains harness-methodology as a sub-component. It requires 30+ external modules (`progress_dashboard`, `gantt_chart`, `sprint_planner`, `enterprise_hub`, `steering`, etc.) and is not part of this repository. Any work within harness-methodology uses `harness_cli.py`.
 
-**`harness_cli.py` commands** (21 total):
+**`harness_cli.py` commands** (23 total):
 ```
 python harness_cli.py plan-phase        --phase 3 [--project .] [--output plan.md]
 python harness_cli.py run-phase         --phase 3 [--project .]
 python harness_cli.py pre-commit-check  --phase 3 [--project .]   # git hook only (FSM/constitution/kill-switch)
-python harness_cli.py run-gate          --gate 2 --phase 3 [--project .] [--fr-id FR-01] [--no-git]
+python harness_cli.py run-gate          --gate 2 --phase 3 [--project .] [--fr-id FR-01]
 python harness_cli.py finalize-gate     --gate 2 --phase 3 [--project .] [--fr-id FR-01] [--no-git]
 python harness_cli.py generate-next-plan [--project .] [--phase N]
 python harness_cli.py run-pipeline      [--phase-from 1] [--phase-to 8] [--project .] [--watch]
@@ -92,10 +92,11 @@ python harness_cli.py audit-phase       --phase 3 --repo owner/repo [--branch ma
 python harness_cli.py verify-spec       [--project .] [--fix]  # --fix shows suggestions (no auto-fix)
 python harness_cli.py check-logic       [--project .] [--srs SRS.md]
 python harness_cli.py init-project      --project /path/to/target [--phase 3] [--overwrite] [--ci-only]
-python harness_cli.py advance-phase     --phase 3 [--project .] [--no-git]
+python harness_cli.py advance-phase     --completed N [--project .]
 python harness_cli.py await-hermes-approve [--project .] [--response APPROVE|REJECT]
-python harness_cli.py push-milestone    --phase 3 [--project .]
-python harness_cli.py dispatch          --fr-id FR-01 [--phase 3] [--project .]
+python harness_cli.py push-milestone    --type p3-mid|p3-pre-ssi|p4-mid|p4-pre-ssi|p5-baseline|p7|p8 [--project .]
+python harness_cli.py dispatch          --role developer|reviewer --fr-id FR-01 --prompt "..." [--phase 3] [--project .]
+python harness_cli.py verify-agent-b-approvals --phase N [--fr-ids FR-01,FR-02] [--project .]
 python harness_cli.py audit-structure   [--project .]
 ```
 
@@ -129,6 +130,16 @@ M1 kill-switch circuit state is checked before each phase. M3 gap analysis runs 
 These hooks operate at the Claude Code session layer, independently of the harness Python pipeline. They are **pre-installed** and require no harness-side configuration.
 
 **Agent A TDD mandate** (SKILL.md §6): Agent A must follow RED→GREEN→IMPROVE before returning results. Gate 1 `test_coverage` dimension verifies outcomes; implementations without prior failing tests are expected to score lower on `mutation_testing`.
+
+**Three server-side enforcement mechanisms** (bypass-proof — operate at GitHub Actions layer, not git hooks):
+
+| Mechanism | CLI command | State written | CI job |
+|-----------|-------------|---------------|--------|
+| Push-milestone sentinel | `push-milestone --type <type>` | `state.json:.last_milestone_command` | `push-milestone-enforcement` — blocks push to `main` if P3+ and field absent |
+| Agent B approval gate | `verify-agent-b-approvals --phase N` | `.methodology/agent_b_approvals/FR-XX.json` (per-FR, `review_status=APPROVE`, `docs_embedded=[SRS.md,SAD.md]`) | `agent-b-approval-check` — blocks push if any FR missing APPROVE |
+| P8 archive check | `push-milestone --type p8` (pre-flight in CLI) | `.methodology-archive/` directory + HANDOVER.md clean | `p8-archive-check` — blocks push if archive absent or HANDOVER references Phase 9 |
+
+These three mechanisms were added to address the class of failures where an agent uses `git push --no-verify` to bypass local hooks. GitHub Actions CI cannot be bypassed by hook-skip flags. `init-project --ci-only` installs all three jobs into the target project's `.github/workflows/harness_quality_gate.yml`.
 
 ---
 

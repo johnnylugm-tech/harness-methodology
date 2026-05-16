@@ -222,9 +222,9 @@ Agent A role is determined by Phase:
 - Phase 1: requirements
 - Phase 2-3: architect/developer
 - Phase 4: tester
-- Phase 5: devops
+- Phase 5: developer
 - Phase 6: qa
-- Phase 7: risk
+- Phase 7: devops
 - Phase 8: devops
 
 ### Agent B (determined by Phase)
@@ -856,11 +856,8 @@ sessions_spawn(
 ## 18. Next Steps
 
 ```bash
-# After Johnny review, run:
-python3 harness_cli.py run-phase --phase {PHASE} --goal "{GOAL}"
-
-# Or repair a specific step:
-python3 harness_cli.py plan-phase --phase {PHASE} --repair --step {PHASE}.2 --goal "{GOAL}"
+# After review, run preflight:
+python3 harness_cli.py run-phase --phase {PHASE}
 
 # Generate complete FR detailed tasks (requires SRS.md):
 python3 scripts/generate_full_plan.py --phase {PHASE} --repo /path/to/project

@@ -128,7 +128,7 @@ jobs:
             --project . || {
               echo ""
               echo "Agent B review files are missing or incomplete."
-              echo "Each FR requires .sessi-work/agent_b_approvals/FR-XX.json"
+              echo "Each FR needs .methodology/agent_b_approvals/FR-XX.json"
               echo "with review_status=APPROVE and docs_embedded=[SRS.md, SAD.md]"
               exit 1
             }
