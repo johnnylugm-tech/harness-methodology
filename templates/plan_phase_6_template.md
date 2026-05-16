@@ -78,8 +78,8 @@ HR-01 | HR-07 | HR-08 | HR-10
 
 | Role | Agent | Responsibility |
 |------|-------|----------------|
-| **Agent A** | `qa` | Quality data collection, QUALITY_REPORT writing |
-| **Agent B** | `architect` | Quality confirmation, review verification |
+| **Agent A** | `QA_ENGINEER` | Quality data collection, QUALITY_REPORT writing |
+| **Agent B** | `ARCHITECT` | Quality confirmation, review verification |
 
 ### A/B Protocol Execution
 
