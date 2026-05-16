@@ -1432,6 +1432,16 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
         if handover.exists():
             print(f"  HANDOVER.md → {handover}")
         print("  [git] pushed → remote ✓")
+        # Write sentinel so CI can verify push-checkpoint was invoked (not --no-verify bypass).
+        state_path = project / ".methodology" / "state.json"
+        if state_path.exists():
+            try:
+                state_data = json.loads(state_path.read_text(encoding="utf-8"))
+                state_data["last_push_checkpoint"] = datetime.now(timezone.utc).isoformat()
+                state_data["last_push_checkpoint_phase"] = phase
+                state_path.write_text(json.dumps(state_data, indent=2), encoding="utf-8")
+            except Exception as _e:  # pylint: disable=broad-exception-caught
+                print(f"  [WARN] Could not write last_push_checkpoint to state.json: {_e}")
     return 0 if ok else 1
 
 

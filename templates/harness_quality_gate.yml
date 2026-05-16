@@ -128,6 +128,135 @@ jobs:
           fi
           echo "OK: last_milestone_command = $CMD"
 
+  p1p2-enforcement:
+    name: P1/P2 Push-Checkpoint Enforcement
+    runs-on: ubuntu-latest
+    # --no-verify skips local hooks but not CI. This job is the server-side gate.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install harness dependencies
+        run: pip install -r harness/requirements.txt || true
+
+      - name: Detect phase
+        id: phase
+        run: |
+          PHASE=$(python3 -c "
+          import json
+          try:
+              d = json.load(open('.methodology/state.json'))
+              print(int(d.get('current_phase', 0)))
+          except Exception:
+              print(0)
+          " 2>/dev/null || echo "0")
+          echo "PHASE=$PHASE" >> $GITHUB_OUTPUT
+          echo "Detected phase: $PHASE"
+
+      - name: Verify push-checkpoint sentinel (P1/P2)
+        # push-checkpoint writes last_push_checkpoint to state.json.
+        # Absent = agent used raw git push --no-verify, bypassing all gates.
+        if: steps.phase.outputs.PHASE == '1' || steps.phase.outputs.PHASE == '2'
+        run: |
+          SENTINEL=$(python3 -c "
+          import json, sys
+          try:
+              d = json.load(open('.methodology/state.json'))
+              print(d.get('last_push_checkpoint', ''))
+          except Exception:
+              print('')
+          " 2>/dev/null || echo "")
+          if [ -z "$SENTINEL" ]; then
+            echo "ERROR: state.json has no last_push_checkpoint field."
+            echo "Direct git push detected — push-checkpoint was never called."
+            echo "Use: python harness/harness_cli.py push-checkpoint --phase ${{ steps.phase.outputs.PHASE }} --project ."
+            echo "Do NOT bypass with: git push --no-verify"
+            exit 1
+          fi
+          echo "OK: last_push_checkpoint = $SENTINEL"
+
+      - name: Verify HANDOVER.md exists (P1/P2)
+        if: steps.phase.outputs.PHASE == '1' || steps.phase.outputs.PHASE == '2'
+        run: |
+          if [ ! -f "HANDOVER.md" ]; then
+            echo "ERROR: HANDOVER.md missing."
+            echo "push-checkpoint generates HANDOVER.md. Missing = checkpoint was bypassed."
+            exit 1
+          fi
+          echo "OK: HANDOVER.md present."
+
+      - name: Verify Agent B approvals exist (P1/P2)
+        if: steps.phase.outputs.PHASE == '1' || steps.phase.outputs.PHASE == '2'
+        run: |
+          APPROVALS=$(find .methodology/agent_b_approvals -name "*.json" 2>/dev/null | wc -l || echo 0)
+          if [ "$APPROVALS" -eq 0 ]; then
+            echo "ERROR: No Agent B approval files in .methodology/agent_b_approvals/"
+            echo "Run: python harness/harness_cli.py dispatch --role reviewer --fr-id <FR-ID> --phase ${{ steps.phase.outputs.PHASE }} --project ."
+            exit 1
+          fi
+          APPROVED=$(python3 -c "
+          import json, glob, sys
+          files = glob.glob('.methodology/agent_b_approvals/*.json')
+          n = sum(1 for f in files if json.load(open(f)).get('review_status') == 'APPROVE')
+          print(n)
+          " 2>/dev/null || echo 0)
+          if [ "$APPROVED" -eq 0 ]; then
+            echo "ERROR: No Agent B approval file has review_status=APPROVE."
+            exit 1
+          fi
+          echo "OK: $APPROVED Agent B APPROVE file(s) found."
+
+  checklist-check:
+    name: Phase Plan Checklist Verification
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install harness dependencies
+        run: pip install -r harness/requirements.txt || true
+
+      - name: Detect phase
+        id: phase
+        run: |
+          PHASE=$(python3 -c "
+          import json
+          try:
+              d = json.load(open('.methodology/state.json'))
+              print(int(d.get('current_phase', 0)))
+          except Exception:
+              print(0)
+          " 2>/dev/null || echo "0")
+          echo "PHASE=$PHASE" >> $GITHUB_OUTPUT
+
+      - name: Check mandatory checklist items in phase plan
+        run: |
+          PLAN=".methodology/phase${{ steps.phase.outputs.PHASE }}_plan.md"
+          if [ ! -f "$PLAN" ]; then
+            echo "INFO: $PLAN not found — skipping checklist check."
+            exit 0
+          fi
+          python harness/harness_cli.py check-checklist \
+            --phase ${{ steps.phase.outputs.PHASE }} \
+            --project . || {
+              echo ""
+              echo "Mandatory plan items are unchecked in $PLAN."
+              echo "Change '- [ ]' to '- [x]' for each completed step."
+              exit 1
+            }
+
   agent-b-approval-check:
     name: Agent B Approval Verification
     runs-on: ubuntu-latest
@@ -151,13 +280,14 @@ jobs:
           import json
           try:
               d = json.load(open('.methodology/state.json'))
-              print(d.get('current_phase', 0))
+              print(int(d.get('current_phase', 0)))
           except Exception:
               print(0)
           " 2>/dev/null || echo "0")
           echo "PHASE=$PHASE" >> $GITHUB_OUTPUT
 
       - name: Verify Agent B approvals (P3+)
+        # P1/P2 approval check is handled by p1p2-enforcement job.
         if: steps.phase.outputs.PHASE >= 3
         run: |
           python harness/harness_cli.py verify-agent-b-approvals \
