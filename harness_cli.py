@@ -1980,6 +1980,8 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
         context={"phase": args.phase, "fr_id": args.fr_id},
         phase=args.phase,
         fr_id=args.fr_id,
+        task_timeout=getattr(args, "timeout", 300),
+        max_turns=getattr(args, "max_turns", 20),
     )
     status = result.get("status", "SPAWNED")
     session_id = result.get("session_id", "")
@@ -3510,6 +3512,10 @@ def build_parser() -> argparse.ArgumentParser:
     dp.add_argument("--prompt",  default="", help="Task prompt for the agent")
     dp.add_argument("--phase",   type=int, default=0, help="Phase number")
     dp.add_argument("--project", default=".", help="Project root (default: .)")
+    dp.add_argument("--timeout", type=int, default=300, dest="timeout",
+                    help="Max execution time in seconds (default: 300). Increase for large-document phases (P1/P2).")
+    dp.add_argument("--max-turns", type=int, default=20, dest="max_turns",
+                    help="Max tool-using turns (default: 20). Increase for large documents.")
     dp.set_defaults(func=cmd_dispatch)
 
     # reload-policy

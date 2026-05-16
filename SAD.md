@@ -95,7 +95,7 @@ python harness_cli.py init-project      --project /path/to/target [--phase 3] [-
 python harness_cli.py advance-phase     --completed N [--project .]
 python harness_cli.py await-hermes-approve [--project .] [--response APPROVE|REJECT] [--timeout-ms N]
 python harness_cli.py push-milestone    --type p3-mid|p3-pre-ssi|p4-mid|p4-pre-ssi|p5-baseline|p7|p8 [--project .] [--fr-ids FR-01,FR-02] [--fr-done N] [--fr-total N] [--no-git]
-python harness_cli.py dispatch          --role developer|reviewer --fr-id FR-01 --prompt "..." [--phase 3] [--project .]
+python harness_cli.py dispatch          --role developer|reviewer --fr-id FR-01 --prompt "..." [--phase 3] [--project .] [--timeout 300] [--max-turns 20]
 python harness_cli.py verify-agent-b-approvals --phase N [--fr-ids FR-01,FR-02] [--project .]
 python harness_cli.py audit-structure   [--project .] [--json]
 ```
@@ -2447,9 +2447,9 @@ python3 -m software_self_improvement.runner
 
 | Priority | Action | Score Delta | Unlock Condition | Dimension |
 |---|---|---|---|---|
-| **P1** | SSI result field name verification | 0 pts (correctness fix) | Run one real gate end-to-end; confirm whether SSI runner renames `open_critical_count` -> `open_critical` before writing result JSON, or whether `harness_bridge._parse_result()` needs updating | A |
+| **P1** | ~~SSI result field name verification~~ | ✅ **DONE (v2.0.2)** | `_parse_result()` dual-fallback handles both `open_critical_count`/`open_critical` field name variants — see §8.2. | A |
 | **P1** | ~~`constitution/` package stub or real impl~~ | ✅ Done (v2.0.1) | `constitution/` implemented — `BVSRunner`, `CitationParser`, `VerificationConstitutionChecker` all deployed. | A |
-| **P2** | `harness_bridge` empirical project validation | **+1 -> 93** | First full run against a real project. Confirms Tier 1 deterministic scoring is stable and subprocess call chain works end-to-end | A (20->21) |
+| **P2** | ~~`harness_bridge` empirical project validation~~ | ✅ **DONE** | omnibot-full project (Gate 4 score 89.6, 2026-05-14). Tier 1 deterministic scoring stable, subprocess call chain works end-to-end. | A (20→21) |
 | **P2** | CRG activation + empirical data | **+1 -> 94** | First real project run with CRG MCP available. Validates `min(tool, llm)` floor and `crg_metrics.json` structural signals. Currently `CRGBridge.is_available()` returns `False` in standalone mode | E (10->11) |
 | **P3** | ASPICE full traceability matrix (Phase E docs) | ✅ **DONE** | `scripts/build_traceability.py` populates `RequirementTraceability` model from SAD.md + `[FR-XX]` annotations + test files, auto-generates `TRACEABILITY_MATRIX.md` with ASPICE SWE.3 compliance. `scripts/check_spec_trace.py` upgraded to v2 content-level. `PhaseHooks.preflight_traceability()` blocks at P4+. | C (15→16) |
 | **P4** | Developer-side deterministic tooling | **+1-2 -> 96** | Replace or augment Claude developer agent with static analysis pipeline (mypy strict, semgrep, complexity checker). Reduces D-dimension LLM dependency from 13/15 to 15/15 | D (13->15) |
@@ -2517,9 +2517,9 @@ python3 -m software_self_improvement.runner
 | Item | File | Notes |
 |---|---|---|
 | ~~Chinese-language comments~~ | `core/cli_phase_prompts.py`, `core/quality_gate/ab_enforcer.py`, `core/quality_gate/phase_truth_verifier.py`, `core/quality_gate/spec_tracking_checker.py` | ✅ **Resolved** — all 4 files confirmed 0 CJK characters (translated in Apr 2026 batch) |
-| `cli.py` standalone boundary | `cli.py` (288KB, v6.102.0) | Requires 30+ external modules; cannot run in harness-only mode. Intentional design boundary — add explicit note in README that `harness_cli.py` is the standalone entry point |
+| ~~`cli.py` standalone boundary~~ | `cli.py` (288KB, v6.102.0) | ✅ **Resolved** — README line 30 already documents `harness_cli.py` as "Standalone CLI entry point (plan-phase, run-gate, run-pipeline, etc.)" |
 | `phase_auditor.py` | `scripts/phase_auditor.py` | ✅ Documented in §3.20 |
-| `EnsembleScorer` threshold calibration | `detection/ensemble_scorer.py` | `PASS_THRESHOLD = 0.65` is arbitrary; recalibrate against real project runs once empirical data is available (targeted after first P2 project run) |
+| ~~`EnsembleScorer` threshold calibration~~ | `detection/ensemble_scorer.py` | ✅ **Resolved** — `PASS_THRESHOLD = 0.65` removed; threshold is now a per-call parameter with caller-provided calibration |
 
 ---
 

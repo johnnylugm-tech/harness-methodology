@@ -1492,7 +1492,7 @@ class TestDispatch:
         import io
         from harness_cli import cmd_dispatch
 
-        def fake_spawn(self, role, prompt, context, phase, fr_id=None):
+        def fake_spawn(self, role, prompt, context, phase, fr_id=None, task_timeout=300, max_turns=20):
             # Write a minimal log entry to simulate _log_dispatch behavior
             import json
             log_path = self.project_path / ".methodology" / "sessions_spawn.log"
@@ -1524,7 +1524,7 @@ class TestDispatch:
         import io
         from harness_cli import cmd_dispatch
 
-        def fake_spawn(self, role, prompt, context, phase, fr_id=None):
+        def fake_spawn(self, role, prompt, context, phase, fr_id=None, task_timeout=300, max_turns=20):
             return {"status": "APPROVE", "session_id": "fake-002"}
 
         monkeypatch.setattr("core.agent_spawner.AgentSpawner.spawn", fake_spawn)
@@ -1547,7 +1547,7 @@ class TestDispatch:
         import io
         from harness_cli import cmd_dispatch
 
-        def fake_spawn(self, role, prompt, context, phase, fr_id=None):
+        def fake_spawn(self, role, prompt, context, phase, fr_id=None, task_timeout=300, max_turns=20):
             return {"status": "REJECT", "session_id": "fake-003"}
 
         monkeypatch.setattr("core.agent_spawner.AgentSpawner.spawn", fake_spawn)
@@ -1571,7 +1571,7 @@ class TestDispatch:
         import io
         from harness_cli import cmd_dispatch
 
-        def fake_spawn(self, role, prompt, context, phase, fr_id=None):
+        def fake_spawn(self, role, prompt, context, phase, fr_id=None, task_timeout=300, max_turns=20):
             # AgentSpawner._parse_result wraps non-dict Task results as status="complete"
             return {"status": "complete", "session_id": "fake-004", "output": "done"}
 
@@ -1597,7 +1597,7 @@ class TestDispatch:
         import io
         from harness_cli import cmd_dispatch
 
-        def fake_spawn(self, role, prompt, context, phase, fr_id=None):
+        def fake_spawn(self, role, prompt, context, phase, fr_id=None, task_timeout=300, max_turns=20):
             return {"status": "SPAWNED", "session_id": "fake-005"}
 
         monkeypatch.setattr("core.agent_spawner.AgentSpawner.spawn", fake_spawn)
