@@ -181,7 +181,7 @@ class GitStrategy:
             deliverables=deliverables,
         )
         msg = f"phase1(human-review): SRS + P1 deliverables; {len(fr_ids)} FR(s) [{fr_list}]"
-        return self._commit_and_push(msg)
+        return self._commit_and_push(msg, skip_hooks=True)
 
     # ── Push ② — P2 exit ────────────────────────────────────────────────────
 
@@ -242,7 +242,7 @@ class GitStrategy:
             deliverables=deliverables,
         )
         msg = f"phase2(human-review): SAD + ADR + quality manifest complete [fr_ids={fr_list}]"
-        return self._commit_and_push(msg)
+        return self._commit_and_push(msg, skip_hooks=True)
 
     # ── Push ③ — P3 mid ─────────────────────────────────────────────────────
 
@@ -878,8 +878,13 @@ class GitStrategy:
         r = self._run_git("status", "--porcelain")
         return bool(r.stdout.strip())
 
-    def _commit(self, message: str) -> bool:
-        """Stage all changes and commit. Returns True on success or nothing-to-commit."""
+    def _commit(self, message: str, skip_hooks: bool = False) -> bool:
+        """Stage all changes and commit. Returns True on success or nothing-to-commit.
+
+        Args:
+            skip_hooks: If True, uses --no-verify to bypass prepare-commit-msg hook.
+                        Use only when caller has its own gate enforcement (push-checkpoint).
+        """
         if not self._has_changes():
             print("  [git] nothing to commit — skip")
             return True
@@ -887,7 +892,10 @@ class GitStrategy:
         if r1.returncode != 0:
             print(f"  [git WARN] git add failed: {r1.stderr[:200]}")
             return False
-        r2 = self._run_git("commit", "-m", message)
+        cmd = ["commit", "-m", message]
+        if skip_hooks:
+            cmd.insert(1, "--no-verify")
+        r2 = self._run_git(*cmd)
         if r2.returncode != 0:
             print(f"  [git WARN] git commit failed: {r2.stderr[:200]}")
             return False
@@ -895,8 +903,8 @@ class GitStrategy:
         print(f"  [git] committed {sha}: {message[:72]}")
         return True
 
-    def _commit_and_push(self, message: str) -> bool:
-        if not self._commit(message):
+    def _commit_and_push(self, message: str, skip_hooks: bool = False) -> bool:
+        if not self._commit(message, skip_hooks=skip_hooks):
             return False
         if not self.push:
             print("  [git] push skipped (push=False)")
