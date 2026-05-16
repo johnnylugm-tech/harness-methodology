@@ -328,7 +328,7 @@ class TestVerifyAgentBApprovals:
     def test_all_approved_returns_0(self, tmp_path, capsys):
         methodology = tmp_path / ".methodology"
         methodology.mkdir()
-        approvals_dir = tmp_path / ".sessi-work" / "agent_b_approvals"
+        approvals_dir = tmp_path / ".methodology" / "agent_b_approvals"
         approvals_dir.mkdir(parents=True)
         for fr in ["FR-01", "FR-02"]:
             (approvals_dir / f"{fr}.json").write_text(json.dumps({
@@ -343,7 +343,7 @@ class TestVerifyAgentBApprovals:
         assert rc == 0
 
     def test_non_approve_status_returns_1(self, tmp_path, capsys):
-        approvals_dir = tmp_path / ".sessi-work" / "agent_b_approvals"
+        approvals_dir = tmp_path / ".methodology" / "agent_b_approvals"
         approvals_dir.mkdir(parents=True)
         (approvals_dir / "FR-01.json").write_text(json.dumps({
             "fr": "FR-01",
@@ -358,7 +358,7 @@ class TestVerifyAgentBApprovals:
         assert "REJECT" in out or "APPROVE" in out
 
     def test_missing_docs_embedded_returns_1(self, tmp_path, capsys):
-        approvals_dir = tmp_path / ".sessi-work" / "agent_b_approvals"
+        approvals_dir = tmp_path / ".methodology" / "agent_b_approvals"
         approvals_dir.mkdir(parents=True)
         (approvals_dir / "FR-01.json").write_text(json.dumps({
             "fr": "FR-01",
@@ -382,7 +382,7 @@ class TestVerifyAgentBApprovals:
         (methodology / "quality_manifest.json").write_text(
             json.dumps({"fr_ids": ["FR-01"], "gate_results": {}})
         )
-        approvals_dir = tmp_path / ".sessi-work" / "agent_b_approvals"
+        approvals_dir = tmp_path / ".methodology" / "agent_b_approvals"
         approvals_dir.mkdir(parents=True)
         (approvals_dir / "FR-01.json").write_text(json.dumps({
             "fr": "FR-01",

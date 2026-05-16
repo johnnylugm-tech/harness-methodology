@@ -1310,8 +1310,11 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
 def cmd_verify_agent_b_approvals(args: argparse.Namespace) -> int:
     """Verify that Agent B approval JSON files exist for all required FRs.
 
-    Each FR must have a corresponding .sessi-work/agent_b_approvals/FR-XX.json
+    Each FR must have a corresponding .methodology/agent_b_approvals/FR-XX.json
     with review_status == "APPROVE" and the required docs_embedded list.
+
+    NOTE: .methodology/agent_b_approvals/ is committed (not gitignored).
+    Do NOT use .sessi-work/ — that directory is in .gitignore and invisible to CI.
 
     Usage:
       python harness_cli.py verify-agent-b-approvals --phase 8 --fr-ids FR-01,FR-02 --project .
@@ -1336,7 +1339,7 @@ def cmd_verify_agent_b_approvals(args: argparse.Namespace) -> int:
         print("[verify-agent-b] No FR IDs found — pass --fr-ids or ensure quality_manifest.json exists.")
         return 1
 
-    approvals_dir = project / ".sessi-work" / "agent_b_approvals"
+    approvals_dir = project / ".methodology" / "agent_b_approvals"
     errors: list[str] = []
     missing: list[str] = []
     rejected: list[str] = []
