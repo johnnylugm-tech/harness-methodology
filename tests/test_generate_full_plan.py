@@ -533,17 +533,17 @@ class TestEntryGateCheck:
     def test_phase6_references_gate3(self):
         joined = "\n".join(_entry_gate_check(6))
         assert "Gate 3" in joined
-        assert "Phase 5" in joined
+        assert "P5" in joined
 
     def test_phase7_references_gate4(self):
         joined = "\n".join(_entry_gate_check(7))
         assert "Gate 4" in joined
-        assert "Phase 6" in joined
+        assert "P6" in joined
 
     def test_phase8_references_gate4(self):
         joined = "\n".join(_entry_gate_check(8))
         assert "Gate 4" in joined
-        assert "Phase 7" in joined
+        assert "P7" in joined
 
     def test_phase1_returns_empty(self):
         """P1 has no entry gate."""
@@ -556,7 +556,8 @@ class TestEntryGateCheck:
         assert "Phase 1" in joined
 
     def test_contains_hr03_reference(self):
-        joined = "\n".join(_entry_gate_check(4))
+        """Phase advance step includes HR-03 (no checkpoint skip)."""
+        joined = "\n".join(_phase_advance_step(4))
         assert "HR-03" in joined or "no phase skips" in joined.lower()
 
     def test_contains_return_instruction(self):
@@ -953,9 +954,9 @@ class TestPhase2Generator:
         assert "Execution rule" in joined
 
     def test_has_serial_per_deliverable_ab(self, project: Path):
-        """P2 plan must have 1 serial sub-task with A/B loop."""
+        """P2 plan must have 2 serial sub-tasks with A/B loop (SAD.md + ADR.md)."""
         joined = "\n".join(generate_phase2_tasks(project, project / "SRS.md"))
-        assert "Sub-Task 1/1" in joined
+        assert "Sub-Task 1/2" in joined
         assert "SAD.md" in joined
 
     def test_has_ab_steps(self, project: Path):

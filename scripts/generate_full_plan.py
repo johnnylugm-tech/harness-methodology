@@ -303,8 +303,8 @@ _AGENT_B_EMBED_DOCS: Dict[int, List[str]] = {
     4: ["01-requirements/SRS.md §FR-XX section", "02-architecture/SAD.md module spec", "03-development/src/…/fr_xx.py", "tests/…/test_fr_xx.py", "04-testing/TEST_PLAN.md entry for FR-XX"],
     5: ["01-requirements/SRS.md acceptance criteria for FR-XX", "03-development/src/…/fr_xx.py", "tests/…/test_fr_xx.py", "04-testing/TEST_RESULTS.md entry"],
     6: ["01-requirements/SRS.md", "02-architecture/SAD.md", "06-quality/QUALITY_REPORT.md (draft)", "relevant 03-development/src/ sections"],
-    7: ["01-requirements/SRS.md", "07-risk/RISK_REGISTER.md (draft)"],
-    8: ["01-requirements/SRS.md", "08-config/CONFIG_RECORDS.md (draft)", "ops/ relevant configs"],
+    7: ["01-requirements/SRS.md §FR-XX section", "07-risk/RISK_REGISTER.md (FR-XX draft entry)", "06-quality/QUALITY_REPORT.md (FR-XX findings)"],
+    8: ["01-requirements/SRS.md §FR-XX section", "08-config/CONFIG_RECORDS.md (FR-XX draft entry)", "03-development/src/.../fr_xx.py"],
 }
 
 # Agent B review checklist per phase
@@ -396,6 +396,7 @@ def _agent_b_dispatch_block(phase: int, role_b: str, fr_id: str = "") -> List[st
     embed_docs = _AGENT_B_EMBED_DOCS.get(phase, ["relevant documents"])
     checks = _AGENT_B_CHECKS.get(phase, ["Review for correctness and completeness"])
     fr_suffix = f" for {fr_id}" if fr_id else ""
+    _task_obj = {7: "risk assessment", 8: "configuration record"}.get(phase, "deliverable")
 
     lines: List[str] = [
         f"- [ ] **[B-1]** Agent B ({role_b}){fr_suffix} — dispatch as **STATELESS** subagent:",
@@ -414,7 +415,7 @@ def _agent_b_dispatch_block(phase: int, role_b: str, fr_id: str = "") -> List[st
         "",
         "  **Agent B prompt structure** (use this template verbatim):",
         "  ```",
-        f"  You are {role_b}. Your task: review the following deliverable{fr_suffix}.",
+        f"  You are {role_b}. Your task: review the following {_task_obj}{fr_suffix}.",
         "  You have NO access to any files — all context is provided below.",
         "",
     ]
@@ -843,6 +844,14 @@ def _phase_advance_step(phase: int) -> List[str]:
            "  git push origin --tags",
            "  ```",
            ""] if phase == 6 else []),
+        # Phase Truth (HR-11): gates cover P3/P4/P6; P5/P7 have no exit gate so add here
+        *([f"- [ ] **[PHASE-TRUTH]** Verify Phase Truth ≥ 90% (HR-11):",
+           "  ```bash",
+           f"  python3 harness_cli.py run-pipeline --phase-from {phase}",
+           "  ```",
+           "  Exit 0 = PASS, 11 = Phase Truth < 90%. Fix gaps before advancing.",
+           "",
+           ] if phase >= 3 and phase not in _PHASE_EXIT_GATES else []),
         f"- [ ] Advance FSM to Phase {next_phase} (writes new HANDOVER.md + local commit):",
         "  ```bash",
         f"  python3 harness_cli.py advance-phase --completed {phase} --project .",
