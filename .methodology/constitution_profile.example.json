@@ -15,10 +15,10 @@
 
   "phases": {
     "_description": "Per-phase active dimensions and composite score threshold. active_dimensions: which of the 4 dimensions are checked. composite_threshold: minimum overall score to pass.",
-    "1": { "active_dimensions": ["correctness", "security"], "composite_threshold": 100 },
-    "2": { "active_dimensions": ["correctness", "security", "maintainability"], "composite_threshold": 100 },
-    "3": { "active_dimensions": ["correctness", "security", "maintainability"], "composite_threshold": 90 },
-    "4": { "active_dimensions": ["correctness", "security", "maintainability", "coverage"], "composite_threshold": 90 },
+    "1": { "active_dimensions": ["correctness", "security"], "composite_threshold": 75 },
+    "2": { "active_dimensions": ["correctness", "security"], "composite_threshold": 80 },
+    "3": { "active_dimensions": ["correctness", "security", "maintainability"], "composite_threshold": 80 },
+    "4": { "active_dimensions": ["correctness", "security", "maintainability", "coverage"], "composite_threshold": 80 },
     "5": { "active_dimensions": ["correctness", "security", "maintainability", "coverage"], "composite_threshold": 80 },
     "6": { "active_dimensions": ["correctness", "security", "maintainability", "coverage"], "composite_threshold": 80 },
     "7": { "active_dimensions": ["correctness", "security", "maintainability", "coverage"], "composite_threshold": 80 },

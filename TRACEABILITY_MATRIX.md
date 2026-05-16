@@ -32,7 +32,7 @@
 | FR-03 | verified | tests/test_traceability_pipeline.py | tests/test_traceability_pipeline.py | — |
 | FR-04 | verified | tests/test_traceability_pipeline.py | tests/test_traceability_pipeline.py | — |
 | FR-05 | verified | tests/test_traceability_pipeline.py | tests/test_traceability_pipeline.py | — |
-| FR-06 | verified | core/quality_gate/constitution/profile.py, core/quality_gate/constitution/runner.py | tests/test_constitution_runner.py, tests/test_constitution_profile.py | §3.x Constitution Profile (per-phase keyword overrides P5–P8) |
+| FR-06 | verified | core/quality_gate/constitution/profile.py, core/quality_gate/constitution/runner.py | tests/test_constitution_runner.py, tests/test_constitution_profile.py | §3.x Constitution Profile (per-phase keyword overrides P1–P8) |
 | FR-07 | verified | tests/test_traceability_pipeline.py | tests/test_traceability_pipeline.py | — |
 | FR-99 | verified | tests/test_traceability_pipeline.py | tests/test_traceability_pipeline.py | — |
 | FR-ENF-01 | verified | harness_cli.py (cmd_push_milestone, _validate_p8_completion) | tests/test_harness_cli.py (TestValidateP8Completion) | §2.3 push-milestone sentinel enforcement |

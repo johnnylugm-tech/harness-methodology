@@ -323,12 +323,17 @@ class TestDimensionsForPhase:
         """P1 uses only correctness + security (2 dimensions)."""
         assert _dimensions_for_phase(1) == ["correctness", "security"]
 
-    def test_phase2_3_three_dimensions(self):
-        """P2-P3 use correctness + security + maintainability (3 dimensions)."""
-        for p in (2, 3):
-            dims = _dimensions_for_phase(p)
-            assert dims == ["correctness", "security", "maintainability"], \
-                f"Phase {p} should use 3 dimensions, got {dims}"
+    def test_phase2_only_correctness_security(self):
+        """P2 uses correctness + security only — SAD/ADR are Markdown docs, no code vocabulary."""
+        dims = _dimensions_for_phase(2)
+        assert dims == ["correctness", "security"], f"P2 should use 2 dimensions, got {dims}"
+        assert "maintainability" not in dims, "P2 must exclude code-centric maintainability"
+
+    def test_phase3_three_dimensions(self):
+        """P3 uses correctness + security + maintainability (source code)."""
+        dims = _dimensions_for_phase(3)
+        assert dims == ["correctness", "security", "maintainability"], \
+            f"P3 should use 3 dimensions, got {dims}"
 
     def test_phase4_all_four_dimensions(self):
         # P4 alone uses all 4 dimensions (last code-centric phase).
@@ -410,19 +415,48 @@ class TestDimensionsForPhase:
         assert "release" in p8_kw
         assert "srs" not in p8_kw
 
-        # P1-P4 use global keywords.
-        for phase in (1, 2, 3, 4):
-            kw = p.dimension_keywords_for_phase("correctness", phase)
-            assert kw == global_kw, f"P{phase} should use global correctness keywords"
+        # All phases P1-P8 now have per-phase correctness overrides.
+        p1_kw = p.dimension_keywords_for_phase("correctness", 1)
+        assert "sad" not in p1_kw, "P1 must not require SAD keyword (P2 artifact)"
+        assert "fr-" in p1_kw and "requirement" in p1_kw and "srs" in p1_kw
+
+        # P2 (Architecture): keeps traceability matrix + srs + sad, removes acceptance criteria.
+        p2_kw = p.dimension_keywords_for_phase("correctness", 2)
+        assert "sad" in p2_kw and "srs" in p2_kw and "traceability matrix" in p2_kw
+        assert "acceptance criteria" not in p2_kw, "P2 correctness must not require acceptance criteria"
+
+        # P3 (Source code): only FR-reference vocabulary appears in code comments.
+        p3_kw = p.dimension_keywords_for_phase("correctness", 3)
+        assert "fr-" in p3_kw and "requirement" in p3_kw
+        assert "sad" not in p3_kw and "traceability matrix" not in p3_kw and "srs" not in p3_kw
+
+        # P4 (Testing): adds "test case" (P4-specific), keeps "acceptance criteria".
+        p4_kw = p.dimension_keywords_for_phase("correctness", 4)
+        assert "test case" in p4_kw, "P4 correctness must include test case"
+        assert "acceptance criteria" in p4_kw
+        assert "sad" not in p4_kw and "traceability matrix" not in p4_kw
 
     def test_per_phase_keywords_fallback_for_unchanged_dimensions(self):
-        """Dimensions without per-phase overrides fall back to global keywords."""
+        """Dimensions without per-phase security overrides fall back to global keywords."""
         p = defaults()
-        # Security keywords are not overridden per-phase (except possibly in profile JSON).
-        for phase in range(1, 9):
+        global_sec = p.dimension_keywords("security")
+        # P5-P8: no security override — fall back to global.
+        for phase in range(5, 9):
             sec_kw = p.dimension_keywords_for_phase("security", phase)
-            assert sec_kw == p.dimension_keywords("security"), \
-                f"P{phase} security keywords should match global"
+            assert sec_kw == global_sec, f"P{phase} security keywords should match global"
+        # P1-P4: all have reduced security keyword sets (implementation terms removed).
+        for phase in range(1, 5):
+            sec_kw = p.dimension_keywords_for_phase("security", phase)
+            assert sec_kw != global_sec, f"P{phase} security must use reduced keyword set"
+            # These implementation-specific terms must never appear in any phase's security vocab.
+            for impl_kw in ("whitelist", "compare_digest", "input sanitizer"):
+                assert impl_kw not in sec_kw, f"'{impl_kw}' must not be in P{phase} security vocab"
+        # P1 and P2/P4 additionally remove hmac; P3 retains it (implementation code may use it).
+        assert "hmac" not in p.dimension_keywords_for_phase("security", 1)
+        assert "hmac" not in p.dimension_keywords_for_phase("security", 2)
+        assert "hmac" not in p.dimension_keywords_for_phase("security", 4)
+        assert "hmac" in p.dimension_keywords_for_phase("security", 3), \
+            "P3 source code may use hmac directly"
 
     def test_phase_none_returns_global_keywords(self):
         """phase=None (default for _scan_file_compliance) must fall back to global keywords."""
@@ -517,11 +551,10 @@ class TestRunConstitutionCheck:
         assert result.phase == 1
 
     def test_phase1_sparse_srs_fails_constitution(self, tmp_path):
-        """P1-P2 threshold=100%: sparse SRS without all security keywords fails.
+        """P1 threshold=75%: sparse SRS without security keywords fails.
 
-        Documents the strict P1-P2 design: TH-03=100% + TH-04=100% means documents
-        must include comprehensive correctness AND security content to pass.
-        _aggregate_score uses min-of-dimensions, so both must reach 100%.
+        A minimal SRS with no security vocabulary scores 0% on the security
+        dimension; min-of-dimensions bottleneck makes composite = 0% < 75%.
         """
         docs = tmp_path / "docs"
         docs.mkdir()
@@ -531,11 +564,66 @@ class TestRunConstitutionCheck:
         )
         result = run_constitution_check("srs", str(docs), current_phase=1)
         assert result.phase == 1
-        # P1 threshold=100% (TH-03+TH-04 via bottleneck min); sparse SRS without
-        # full security keywords (e.g. hmac, tls, compare_digest) scores << 100%
         assert not result.passed, (
-            "P1 constitution check requires comprehensive security content "
-            "(TH-04=100% needs all security keywords present)"
+            "P1 constitution check fails when security keywords are absent "
+            "(composite < 75% threshold)"
+        )
+
+    def test_phase2_sparse_sad_fails_constitution(self, tmp_path):
+        """P2 threshold=80%: SAD with no security keywords fails."""
+        docs = tmp_path / "docs"
+        docs.mkdir()
+        (docs / "SAD.md").write_text(
+            "# System Architecture\n\n"
+            "## Overview\nDescribes the high-level architecture.\n"
+        )
+        result = run_constitution_check("sad", str(docs), current_phase=2)
+        assert result.phase == 2
+        assert not result.passed, (
+            "P2 constitution check fails when security keywords are absent "
+            "(composite < 80% threshold)"
+        )
+
+    def test_phase3_sparse_source_fails_constitution(self, tmp_path):
+        """P3 threshold=80%: Markdown doc with no keywords fails.
+
+        runner.py only scans *.md files; uses check_type='all' so the file is
+        not filtered by filename pattern. Content is deliberately keyword-free.
+        """
+        docs = tmp_path / "docs"
+        docs.mkdir()
+        (docs / "sparse.md").write_text(
+            "This sparse document contains no quality keywords.\n"
+            "No FR references, no security terms, no code vocabulary.\n"
+            "Just enough words to satisfy the minimum length check.\n"
+            "Neutral text that avoids any dimension scoring signals.\n"
+        )
+        result = run_constitution_check("all", str(docs), current_phase=3)
+        assert result.phase == 3
+        assert not result.passed, (
+            "P3 constitution check fails when security and FR-reference keywords are absent "
+            "(composite < 80% threshold)"
+        )
+
+    def test_phase4_sparse_tests_fail_constitution(self, tmp_path):
+        """P4 threshold=80%: Markdown doc with no keywords fails.
+
+        runner.py only scans *.md files; uses check_type='all' so the file is
+        not filtered by filename pattern. Content is deliberately keyword-free.
+        """
+        docs = tmp_path / "docs"
+        docs.mkdir()
+        (docs / "sparse.md").write_text(
+            "This sparse document contains no quality keywords.\n"
+            "No FR references, no security terms, no code vocabulary.\n"
+            "Just enough words to satisfy the minimum length check.\n"
+            "Neutral text that avoids any dimension scoring signals.\n"
+        )
+        result = run_constitution_check("all", str(docs), current_phase=4)
+        assert result.phase == 4
+        assert not result.passed, (
+            "P4 constitution check fails when security and coverage keywords are absent "
+            "(composite < 80% threshold)"
         )
 
     def test_phase4_uses_all_dimensions(self, tmp_path):

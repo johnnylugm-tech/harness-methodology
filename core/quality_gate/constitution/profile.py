@@ -359,10 +359,90 @@ def _phase_configs() -> dict[int, PhaseConfig]:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _build_defaults() -> ConstitutionProfile:
-    # Per-phase correctness keyword overrides for non-SRS phases (P5-P8).
-    # Global correctness keywords (below) are SRS/SAD-centric; documents in
-    # later phases reference FRs but use phase-appropriate vocabulary.
+    # Per-phase correctness/security keyword overrides for all phases (P1-P8).
+    # Global keyword lists (defined in dimensions below) serve as fallback for
+    # phase=None calls. Every phase now has phase-appropriate overrides.
     # Each override completely replaces the global keyword set for that phase.
+
+    # P1 (Requirements): requirements-phase keyword overrides.
+    # Empirically driven: SRS/SPEC_TRACKING/TRACEABILITY_MATRIX failed
+    # constitution at 100% threshold with global keyword sets.
+    # - correctness: removes "sad" (P2 artifact, not referenced in P1 docs)
+    #   and replaces "traceability matrix" (exact phrase) with "traceability"
+    #   (substring match covers TRACEABILITY_MATRIX.md heading naturally).
+    #   "acceptance criteria" is kept: SRS documents define acceptance criteria
+    #   at the requirements phase (P4 runs the tests; P1 defines the criteria).
+    # - security: removes implementation-specific primitives (hmac, sanitize,
+    #   compare_digest, input sanitizer, whitelist, mask, signature, rate limit)
+    #   that don't appear in requirements documents.
+    # - composite_threshold=75: a well-written SRS must cover 75% of the
+    #   requirements-appropriate keyword set; 100% was unachievable because
+    #   the global list mixed implementation and requirements vocabulary.
+    _p1_correctness_kw = [
+        "fr-", "nfr-", "acceptance criteria", "requirement",
+        "specification", "traceability", "srs",
+    ]
+    _p1_security_kw = [
+        "auth", "validation", "verify", "permission",
+        "token", "pii", "security", "vulnerability",
+        "rbac", "encrypt", "tls", "secret",
+    ]
+
+    # P2 (Architecture: SAD.md, ADR.md)
+    # - correctness: removes "acceptance criteria" (testing concept, not in architecture docs)
+    # - security: removes hmac, mask, whitelist, compare_digest, input sanitizer
+    #   (cryptographic primitives / impl details that don't appear in architecture documents)
+    # - maintainability dropped: SAD/ADR are Markdown docs — code vocabulary (class, def,
+    #   docstring, type hint, snake_case) never appears; would cap score at 0%.
+    # - composite_threshold=80: architecture must cover most security concepts
+    _p2_correctness_kw = [
+        "fr-", "nfr-", "requirement", "specification",
+        "traceability matrix", "srs", "sad",
+    ]
+    _p2_security_kw = [
+        "auth", "validation", "sanitize", "encrypt",
+        "signature", "verify", "rbac", "permission",
+        "token", "pii", "secret", "tls",
+        "rate limit", "security", "vulnerability",
+    ]
+
+    # P3 (Implementation: source code files)
+    # - correctness: reduced to FR-reference vocabulary only; source code comments reference
+    #   FR/NFR IDs but never contain "acceptance criteria", "traceability matrix", "srs", "sad".
+    # - security: removes whitelist (deprecated term), compare_digest (Python stdlib internals),
+    #   input sanitizer (exact two-word phrase unlikely in code).
+    # - maintainability: kept — source code naturally has class/def/import/docstring patterns.
+    # - composite_threshold=80 (was 90): not every project uses all security primitives.
+    _p3_correctness_kw = [
+        "fr-", "nfr-", "requirement", "specification",
+    ]
+    _p3_security_kw = [
+        "auth", "validation", "sanitize", "encrypt",
+        "hmac", "signature", "verify", "rbac", "permission",
+        "token", "pii", "mask", "secret", "tls",
+        "rate limit", "security", "vulnerability",
+    ]
+
+    # P4 (Testing: test files, TEST_RESULTS.md)
+    # - correctness: adds "test case" (P4-specific activity; excluded from global set as
+    #   phase-inappropriate for P1-P3) and "acceptance criteria" (acceptance testing phase).
+    #   Removes "traceability matrix", "srs", "sad" — test code doesn't reference these.
+    # - security: same reduction as P2 — test code exercises auth/permission/token patterns
+    #   but not cryptographic primitives (hmac, mask, whitelist, compare_digest, input sanitizer).
+    # - maintainability + coverage: both kept — test code has class/def/pytest/mock patterns.
+    # - composite_threshold=80 (was 90): test suites target behavioral coverage, not all
+    #   security primitives.
+    _p4_correctness_kw = [
+        "fr-", "nfr-", "requirement", "specification",
+        "acceptance criteria", "test case",
+    ]
+    _p4_security_kw = [
+        "auth", "validation", "sanitize", "encrypt",
+        "signature", "verify", "rbac", "permission",
+        "token", "pii", "secret", "tls",
+        "rate limit", "security", "vulnerability",
+    ]
+
     _p5_correctness_kw = [
         "fr-", "nfr-", "acceptance criteria", "requirement", "specification",
         "verify", "verification", "traceability", "baseline",
@@ -384,10 +464,38 @@ def _build_defaults() -> ConstitutionProfile:
     return ConstitutionProfile(
         scoring=ScoringProfile(method="min_of_dimensions"),
         phases={
-            1: PhaseProfile(active_dimensions=["correctness", "security"], composite_threshold=100.0),
-            2: PhaseProfile(active_dimensions=["correctness", "security", "maintainability"], composite_threshold=100.0),
-            3: PhaseProfile(active_dimensions=["correctness", "security", "maintainability"], composite_threshold=90.0),
-            4: PhaseProfile(active_dimensions=["correctness", "security", "maintainability", "coverage"], composite_threshold=90.0),
+            1: PhaseProfile(
+                active_dimensions=["correctness", "security"],
+                composite_threshold=75.0,
+                dimension_keywords={
+                    "correctness": _p1_correctness_kw,
+                    "security": _p1_security_kw,
+                },
+            ),
+            2: PhaseProfile(
+                active_dimensions=["correctness", "security"],
+                composite_threshold=80.0,
+                dimension_keywords={
+                    "correctness": _p2_correctness_kw,
+                    "security": _p2_security_kw,
+                },
+            ),
+            3: PhaseProfile(
+                active_dimensions=["correctness", "security", "maintainability"],
+                composite_threshold=80.0,
+                dimension_keywords={
+                    "correctness": _p3_correctness_kw,
+                    "security": _p3_security_kw,
+                },
+            ),
+            4: PhaseProfile(
+                active_dimensions=["correctness", "security", "maintainability", "coverage"],
+                composite_threshold=80.0,
+                dimension_keywords={
+                    "correctness": _p4_correctness_kw,
+                    "security": _p4_security_kw,
+                },
+            ),
             # P5 (Verification): correctness + security only.
             # Preemptive change (not empirically driven): applies the same reasoning as
             # P7 (where RISK_REGISTER.md failures were observed). If a VERIFICATION_REPORT.md

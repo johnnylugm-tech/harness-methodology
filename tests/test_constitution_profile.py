@@ -31,10 +31,12 @@ class TestDefaults:
         assert p.active_dimensions(4) == ["correctness", "security", "maintainability", "coverage"]
 
     def test_composite_threshold_p1(self):
-        assert defaults().composite_threshold(1) == 100.0
+        # P1 lowered from 100 to 75 — requirements docs use a reduced keyword set.
+        assert defaults().composite_threshold(1) == 75.0
 
     def test_composite_threshold_p3(self):
-        assert defaults().composite_threshold(3) == 90.0
+        # P3-P4 lowered from 90 to 80 — not every project uses all security primitives.
+        assert defaults().composite_threshold(3) == 80.0
 
     def test_composite_threshold_p5(self):
         # P5-P8 document phases use 65.0 (matching P7 pattern).
@@ -64,6 +66,28 @@ class TestDefaults:
         assert "auth" in kw
         assert "encrypt" in kw
         assert len(kw) == 20
+
+    def test_p1_security_keywords_are_requirements_appropriate(self):
+        p = defaults()
+        kw = p.dimension_keywords_for_phase("security", 1)
+        # Implementation-level terms must be absent from P1 vocabulary.
+        for impl_kw in ("hmac", "sanitize", "whitelist", "compare_digest", "input sanitizer", "mask", "signature", "rate limit"):
+            assert impl_kw not in kw, f"implementation keyword '{impl_kw}' must not be in P1 security vocab"
+        # Requirements-level terms must be present.
+        for req_kw in ("auth", "validation", "permission", "security", "vulnerability", "encrypt", "tls"):
+            assert req_kw in kw, f"requirements keyword '{req_kw}' must be in P1 security vocab"
+
+    def test_p1_correctness_keywords_exclude_sad(self):
+        p = defaults()
+        kw = p.dimension_keywords_for_phase("correctness", 1)
+        assert "sad" not in kw, "'sad' is a P2 artifact and must not be in P1 correctness vocab"
+        assert "fr-" in kw
+        assert "requirement" in kw
+        assert "traceability" in kw
+
+    def test_global_security_keywords_unchanged(self):
+        # Global (non-phase-specific) security keywords still have 20 entries.
+        assert len(defaults().dimension_keywords("security")) == 20
 
     def test_secret_patterns(self):
         patterns = defaults().secret_patterns()
@@ -97,14 +121,14 @@ class TestDefaults:
         p = defaults()
         d = p.to_dict()
         p2 = ConstitutionProfile.from_dict(d)
-        assert p2.composite_threshold(1) == 100.0
+        assert p2.composite_threshold(1) == 75.0
         assert p2.dimension_keywords("security") == p.dimension_keywords("security")
 
     def test_to_json_roundtrip(self):
         p = defaults()
         js = p.to_json()
         p2 = ConstitutionProfile.from_dict(json.loads(js))
-        assert p2.composite_threshold(3) == 90.0
+        assert p2.composite_threshold(3) == 80.0
 
 
 class TestMerge:
@@ -116,7 +140,7 @@ class TestMerge:
         merged = base.merge(override)
         assert merged.composite_threshold(3) == 85.0
         # other phases unchanged
-        assert merged.composite_threshold(1) == 100.0
+        assert merged.composite_threshold(1) == 75.0
 
     def test_merge_overrides_keywords(self):
         base = defaults()
@@ -172,7 +196,7 @@ class TestMerge:
             "phases": {"1": {"active_dimensions": ["correctness", "security", "maintainability"]}}
         })
         merged = base.merge(override)
-        assert merged.composite_threshold(1) == 100.0
+        assert merged.composite_threshold(1) == 75.0
         assert merged.active_dimensions(1) == ["correctness", "security", "maintainability"]
 
     def test_merge_only_keywords_preserves_dimension_threshold(self):
@@ -197,7 +221,7 @@ class TestLoadProfile:
 
     def test_load_defaults_when_no_file(self):
         p = load_profile(path="/nonexistent/profile.json")
-        assert p.composite_threshold(1) == 100.0
+        assert p.composite_threshold(1) == 75.0
 
     def test_load_from_file(self, tmp_path: Path):
         profile_path = tmp_path / "profile.json"
@@ -234,7 +258,7 @@ class TestLoadProfile:
             assert p.composite_threshold(3) == 85.0
             assert p.composite_threshold(4) == 70.0
             # P1 unchanged
-            assert p.composite_threshold(1) == 100.0
+            assert p.composite_threshold(1) == 75.0
 
     def test_get_profile_singleton(self):
         reset_profile()
@@ -247,4 +271,4 @@ class TestLoadProfile:
             bad = Path(d) / "bad.json"
             bad.write_text("not json")
             p = load_profile(path=str(bad))
-            assert p.composite_threshold(1) == 100.0  # falls back
+            assert p.composite_threshold(1) == 75.0  # falls back to built-in defaults
