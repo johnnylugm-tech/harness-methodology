@@ -1501,8 +1501,17 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
                 state_data["last_milestone_command"] = f"push-milestone --type {milestone_type}"
                 state_data["last_milestone_at"] = datetime.now(timezone.utc).isoformat()
                 state_path.write_text(json.dumps(state_data, indent=2), encoding="utf-8")
-            except Exception:  # pylint: disable=broad-exception-caught
-                pass
+            except Exception as _state_err:  # pylint: disable=broad-exception-caught
+                _mt = milestone_type
+                print(
+                    f"\n  [WARN] Could not write last_milestone_command to state.json: {_state_err}"
+                    "\n  CI will block the next push without this field. Fix manually:"
+                    f"\n    python3 -c \""
+                    f"import json, pathlib; p = pathlib.Path('.methodology/state.json'); "
+                    f"d = json.loads(p.read_text()); "
+                    f"d['last_milestone_command'] = 'push-milestone --type {_mt}'; "
+                    f"p.write_text(json.dumps(d, indent=2))\""
+                )
         handover = project / "HANDOVER.md"
         if handover.exists():
             print(f"  HANDOVER.md → {handover}")
