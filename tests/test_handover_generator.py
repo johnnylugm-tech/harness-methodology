@@ -875,14 +875,44 @@ class TestCmdAdvancePhase:
     """Tests for cmd_advance_phase HANDOVER regeneration and git operations."""
 
     @staticmethod
-    def _call_advance_phase(monkeypatch, tmp_path, completed=3, **kwargs):
-        """Call cmd_advance_phase and return (exit_code, output_str)."""
+    def _call_advance_phase(monkeypatch, tmp_path, completed=3,
+                             skip_prechecks=True, **kwargs):
+        """Call cmd_advance_phase and return (exit_code, output_str).
+
+        Sets up mock _advance_fsm and HandoverGenerator by default.
+        When skip_prechecks is True (default for git-behavior tests),
+        _advance_prechecks is also mocked to 0 since the tmp_path env
+        lacks the real project structure those checks require.
+
+        When skip_prechecks is False, PhaseTruthVerifier is still mocked
+        (requires sessions_spawn.log + FrameworkEnforcer data that no
+        tmp_path test sets up), but plan audit / deliverable / gate
+        variance checks run for real against the test's .methodology/ files.
+        """
         import io
         from harness_cli import cmd_advance_phase
 
-        class Args:
+        class _Args:
+            def __init__(self):
+                self.completed_phase = None
+                self.project = None
+
+        if skip_prechecks:
+            monkeypatch.setattr(
+                "harness_cli._advance_prechecks", lambda project, phase: 0,
+            )
+        else:
+            # PhaseTruthVerifier needs sessions_spawn.log + real project
+            # structure — mock it since no tmp_path test provides those.
+            class _FakeVer:
+                def __init__(self, project_root, phase): pass
+                def verify(self): return {"passed": True, "total_score": 100.0}
+            monkeypatch.setattr(
+                "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier",
+                _FakeVer,
+            )
             pass
-        a = Args()
+        a = _Args()
         a.completed_phase = completed
         a.project = str(tmp_path)
 
@@ -1097,6 +1127,7 @@ class TestCmdAdvancePhase:
         monkeypatch.setattr("harness_cli._advance_fsm", lambda project, phase, **kw: None)
         monkeypatch.setattr("harness_cli.subprocess.run", fake_run)
         monkeypatch.setattr("harness.handover_generator.HandoverGenerator.write", fake_write)
+        monkeypatch.setattr("harness_cli._advance_prechecks", lambda project, phase: 0)
 
         exit_code = cmd_advance_phase(a)
         assert exit_code == 0
@@ -1146,6 +1177,7 @@ class TestCmdAdvancePhase:
         monkeypatch.setattr("harness_cli._advance_fsm", lambda project, phase, **kw: None)
         monkeypatch.setattr("harness_cli.subprocess.run", fake_run)
         monkeypatch.setattr("harness.handover_generator.HandoverGenerator.write", fake_write)
+        monkeypatch.setattr("harness_cli._advance_prechecks", lambda project, phase: 0)
 
         exit_code = cmd_advance_phase(a)
         assert exit_code == 0
@@ -1166,7 +1198,7 @@ class TestCmdAdvancePhase:
                         "- [ ] Run acceptance tests\n")
 
         exit_code, output = self._call_advance_phase(
-            monkeypatch, tmp_path, completed=3,
+            monkeypatch, tmp_path, completed=3, skip_prechecks=False,
         )
         # One of those "Run acceptance tests" is a real task, not a skip_pattern
         assert exit_code == 7
@@ -1181,9 +1213,19 @@ class TestCmdAdvancePhase:
         plan.write_text("- [ ] [A-DISPATCH] Dispatch Agent A\n"
                         "- [ ] [B-DISPATCH] Dispatch Agent B\n"
                         "- [x] TESTS_PASS\n")
+        # Phase Truth and gate variance need mocks in isolated tmp_path
+        monkeypatch.setattr("harness_cli._check_gate_score_variance",
+                            lambda project, phase: 0)
+        class _FakeVer:
+            def __init__(self, project_root, phase): pass
+            def verify(self): return {"passed": True, "total_score": 100.0}
+        monkeypatch.setattr(
+            "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier",
+            _FakeVer,
+        )
 
         exit_code, output = self._call_advance_phase(
-            monkeypatch, tmp_path, completed=3,
+            monkeypatch, tmp_path, completed=3, skip_prechecks=False,
         )
         assert exit_code == 0  # dispatch items are informational
 
@@ -1195,7 +1237,7 @@ class TestCmdAdvancePhase:
         plan.write_text("- [ ] Write SRS.md\n- [ ] Define FRs\n")
 
         exit_code, output = self._call_advance_phase(
-            monkeypatch, tmp_path, completed=1,
+            monkeypatch, tmp_path, completed=1, skip_prechecks=False,
         )
         assert exit_code == 0
         assert "human-gated" in output.lower()
@@ -1219,7 +1261,7 @@ class TestCmdAdvancePhase:
         }))
 
         exit_code, output = self._call_advance_phase(
-            monkeypatch, tmp_path, completed=4,
+            monkeypatch, tmp_path, completed=4, skip_prechecks=False,
         )
         assert exit_code == 8
         assert "TEST_RESULTS.md" in output
@@ -1259,7 +1301,8 @@ class TestCmdAdvancePhase:
             return r
 
         exit_code, output = self._call_advance_phase(
-            monkeypatch, tmp_path, completed=4, subprocess_run=fake_run,
+            monkeypatch, tmp_path, completed=4, skip_prechecks=False,
+            subprocess_run=fake_run,
         )
         assert exit_code == 8
         assert "not committed" in output.lower() or "NOT committed" in output
@@ -1290,7 +1333,8 @@ class TestCmdAdvancePhase:
             return R()
 
         exit_code, output = self._call_advance_phase(
-            monkeypatch, tmp_path, completed=4, subprocess_run=fake_run,
+            monkeypatch, tmp_path, completed=4, skip_prechecks=False,
+            subprocess_run=fake_run,
         )
         assert exit_code == 0
 
@@ -1319,7 +1363,7 @@ class TestCmdAdvancePhase:
             lf.write_text(_yaml.dump({"scores": {"gate_score": 85.0}}))
 
         exit_code, output = self._call_advance_phase(
-            monkeypatch, tmp_path, completed=3,
+            monkeypatch, tmp_path, completed=3, skip_prechecks=False,
         )
         assert exit_code == 1
         assert "variance" in output.lower() or "identical" in output.lower()
@@ -1346,7 +1390,7 @@ class TestCmdAdvancePhase:
             lf.write_text(_yaml.dump({"scores": {"gate_score": score}}))
 
         exit_code, output = self._call_advance_phase(
-            monkeypatch, tmp_path, completed=3,
+            monkeypatch, tmp_path, completed=3, skip_prechecks=False,
         )
         assert exit_code == 0
         assert "variance ok" in output.lower()

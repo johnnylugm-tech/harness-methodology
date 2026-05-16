@@ -815,6 +815,14 @@ def _phase_advance_step(phase: int) -> List[str]:
     """Instruction to advance to the next phase after all checkpoints PASS."""
     if phase >= 8:
         return [
+            # Phase Truth (HR-11): applies to P3–P8 per SKILL.md §2
+            *([f"- [ ] **[PHASE-TRUTH]** Verify Phase Truth ≥ 90% (HR-11):",
+               "  ```bash",
+               f"  python3 harness_cli.py run-pipeline --phase-from {phase}",
+               "  ```",
+               "  Exit 0 = PASS, 11 = Phase Truth < 90%. Fix gaps before finalizing.",
+               "",
+               ] if phase >= 3 else []),
             "### 🎉 Pipeline Complete",
             "",
             "- [ ] All 8 phases complete. Archive `.methodology/` for the audit trail.",
