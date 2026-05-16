@@ -644,11 +644,11 @@ def _entry_gate_check(phase: int) -> List[str]:
             ".methodology/quality_manifest.json records Gate 2 PASS from P3"),
         5: ("Gate 3 PASS",
             ".methodology/quality_manifest.json records Gate 3 PASS from P4"),
-        6: ("Gate 3 PASS",
+        6: ("Gate 3 PASS (P4 exit — P5 has no exit gate, P5 completed stands between)",
             ".methodology/quality_manifest.json records Gate 3 PASS from P4"),
         7: ("Gate 4 PASS",
             ".methodology/quality_manifest.json records Gate 4 PASS from P6"),
-        8: ("Gate 4 PASS",
+        8: ("Gate 4 PASS (P6 exit — P7 has no exit gate, P7 completed stands between)",
             ".methodology/quality_manifest.json records Gate 4 PASS from P6"),
     }
     if phase not in _ENTRY_MAP:
@@ -658,12 +658,13 @@ def _entry_gate_check(phase: int) -> List[str]:
     # Naive phase-1 is wrong when entry gate jumps over a phase (P6 needs P4, not P5)
     m = re.search(r'from P(\d+)', proof)
     prev_phase = int(m.group(1)) if m else phase - 1
+    gate_action = f"return to Phase {prev_phase} and complete exit gate first" if prev_phase >= phase - 2 else f"verify Phase {prev_phase} Gate PASS is recorded in quality_manifest.json and confirm all intervening phases (P{prev_phase+1}–P{phase-1}) completed their tasks"
     return [
         "### Entry Gate Verification",
         "",
-        f"- [ ] **[ENTRY-CHECK]** Confirm Phase {prev_phase} exit ({gate_label}) before proceeding (HR-03 — no phase skips):",
+        f"- [ ] **[ENTRY-CHECK]** {gate_label}:",
         f"  Proof: {proof}.",
-        f"  If NOT confirmed: return to Phase {prev_phase} and complete exit gate first.",
+        f"  If NOT confirmed: {gate_action}.",
         "",
     ]
 
@@ -731,15 +732,34 @@ def _aspice_output_requirements(phase: int) -> List[str]:
         return []
 
     lines = ["", "#### ASPICE Traceability Requirements (enforced by postflight)", ""]
-    for dep_enum in deps:
+    visited: set[int] = set()
+    _queue = list(deps)
+    while _queue:
+        dep_enum = _queue.pop(0)
+        if dep_enum.value in visited:
+            continue
+        visited.add(dep_enum.value)
         dep_info = PhaseArtifactRegistry.PHASE_ARTIFACTS.get(dep_enum, {})
-        for artifact in dep_info.get("artifacts", []):
-            stem = Path(artifact).stem
-            lines.append(
-                f"- [ ] **[ASPICE]** Artifact for Phase {phase} MUST reference "
-                f"`{artifact}` by filename keyword `{stem}` "
-                f"(ASPICE traceability — `postflight_artifact_links()` enforces this)"
-            )
+        artifacts = dep_info.get("artifacts", [])
+        if artifacts:
+            for artifact in artifacts:
+                stem = Path(artifact).stem
+                lines.append(
+                    f"- [ ] **[ASPICE]** Artifact for Phase {phase} MUST reference "
+                    f"`{artifact}` by filename keyword `{stem}` "
+                    f"(ASPICE traceability — `postflight_artifact_links()` enforces this)"
+                )
+        else:
+            # Predecessor has no artifacts (e.g. code-only phase) — traverse its deps
+            for ancestor in dep_info.get("depends_on", []):
+                if ancestor.value not in visited:
+                    _queue.append(ancestor)
+    # Fallback: ensure at least one item for phases with no traceable dependencies
+    if len(lines) == 3:  # only header present, no items added
+        lines.append(
+            f"- [ ] **[ASPICE]** Artifact for Phase {phase} MUST reference `SRS.md` "
+            f"by filename keyword `SRS` (ASPICE traceability — default fallback)"
+        )
     lines.append("")
     return lines
 
@@ -1555,7 +1575,7 @@ def generate_phase7_tasks(repo_path: Path) -> List[str]:
         lines.append("### Risk Register ({} total)".format(len(risks)))
         lines.append("")
         for risk in risks:
-            lines.append(f"- **{risk['name']}**: mitigation strategy required")
+            lines.append(f"- **{risk['name']}**: Define likelihood/impact scores and mitigation approach → document in RISK_REGISTER.md")
         lines.append("")
     else:
         lines.append("### Risk Categories")
@@ -1626,7 +1646,7 @@ def generate_phase8_tasks(repo_path: Path) -> List[str]:
         lines.append("### Configuration Items ({} total)".format(len(configs)))
         lines.append("")
         for config in configs:
-            lines.append(f"- **{config['name']}**: configuration record required")
+            lines.append(f"- **{config['name']}**: Document value/source/access method → update CONFIG_RECORDS.md")
         lines.append("")
     else:
         lines.append("### Configuration Categories")

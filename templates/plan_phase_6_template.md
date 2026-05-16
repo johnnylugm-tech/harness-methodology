@@ -81,6 +81,27 @@ HR-01 | HR-07 | HR-08 | HR-10
 | **Agent A** | `qa` | Quality data collection, QUALITY_REPORT writing |
 | **Agent B** | `architect` | Quality confirmation, review verification |
 
+### A/B Protocol Execution
+
+- [ ] **[A-1]** Agent A (qa): Quality data collection → generate QUALITY_REPORT.md
+  - Docstrings: `[Phase 6]` tag + `Citations:` with line numbers (HR-15)
+- [ ] **[A-2]** Agent A returns `{status, result, confidence, citations, summary}`
+- [ ] **[A-DISPATCH]** Dispatch Agent A:
+  ```bash
+  python3 harness_cli.py dispatch --role qa --fr-id Gate4 \
+    --prompt "Generate QUALITY_REPORT.md from TEST_RESULTS, BASELINE, VERIFICATION_REPORT" --phase 6 --project $REPO
+  ```
+- [ ] **[B-1]** Agent B (architect): Review QUALITY_REPORT — check constitution score, logic correctness, release recommendation
+- [ ] **[B-2]** Agent B returns JSON — parse `review_status`:
+  - `APPROVE` → proceed to Gate 4
+  - `REJECT` → Agent A fixes gaps → re-dispatch B. Max 5 rounds (HR-12).
+- [ ] **[B-DISPATCH]** Dispatch Agent B:
+  ```bash
+  python3 harness_cli.py dispatch --role reviewer --fr-id Gate4 \
+    --prompt "Review QUALITY_REPORT against quality criteria" --phase 6 --project $REPO
+  ```
+  > AgentSpawner auto-logs to `sessions_spawn.log` on dispatch (HR-10).
+
 ---
 
 ## 3. Prior Phase Artifacts

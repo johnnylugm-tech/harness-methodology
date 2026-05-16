@@ -115,7 +115,7 @@ class PhaseArtifactRegistry:
         },
         Phase.RISK: {
             "artifacts": [
-                "07-risk/RISK_ASSESSMENT.md",
+                "07-risk/RISK_STATUS_REPORT.md",
                 "07-risk/RISK_REGISTER.md",
             ],
             "depends_on": [Phase.QUALITY],
