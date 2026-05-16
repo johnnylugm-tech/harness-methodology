@@ -62,22 +62,28 @@ class DimensionProfile:
 
 @dataclass
 class PhaseProfile:
-    """Per-phase configuration: which dimensions are active and the composite threshold."""
+    """Per-phase configuration: which dimensions are active, the composite threshold,
+    and optional per-dimension keyword overrides for phase-appropriate vocabulary."""
 
     active_dimensions: List[str] = field(default_factory=list)
     composite_threshold: Optional[float] = None
+    dimension_keywords: Dict[str, List[str]] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
-        return {
+        result: dict = {
             "active_dimensions": self.active_dimensions,
             "composite_threshold": self.composite_threshold,
         }
+        if self.dimension_keywords:
+            result["dimension_keywords"] = self.dimension_keywords
+        return result
 
     @classmethod
     def from_dict(cls, d: dict) -> "PhaseProfile":
         return cls(
             active_dimensions=d.get("active_dimensions", []),
             composite_threshold=d.get("composite_threshold"),
+            dimension_keywords=d.get("dimension_keywords", {}),
         )
 
 
@@ -139,6 +145,19 @@ class ConstitutionProfile:
         """Return the keyword set for a dimension."""
         d = self.dimensions.get(dim)
         return d.keywords if d else []
+
+    def dimension_keywords_for_phase(self, dim: str, phase: Optional[int]) -> List[str]:
+        """Return the keyword set for a dimension at a specific phase.
+
+        When phase is None, returns global keywords.
+        Otherwise checks per-phase overrides first, falls back to global.
+        """
+        if phase is None:
+            return self.dimension_keywords(dim)
+        p = self.phases.get(phase)
+        if p and dim in p.dimension_keywords:
+            return p.dimension_keywords[dim]
+        return self.dimension_keywords(dim)
 
     def secret_patterns(self) -> List[str]:
         """Return hardcoded-secret detection patterns."""
@@ -213,9 +232,12 @@ class ConstitutionProfile:
         for pk, pv in overrides.phases.items():
             if pk in result.phases:
                 existing = result.phases[pk]
+                merged_kw = dict(existing.dimension_keywords)
+                merged_kw.update(pv.dimension_keywords)
                 result.phases[pk] = PhaseProfile(
                     active_dimensions=pv.active_dimensions or existing.active_dimensions,
                     composite_threshold=pv.composite_threshold if pv.composite_threshold is not None else existing.composite_threshold,
+                    dimension_keywords=merged_kw,
                 )
             else:
                 result.phases[pk] = pv
@@ -337,6 +359,28 @@ def _phase_configs() -> dict[int, PhaseConfig]:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _build_defaults() -> ConstitutionProfile:
+    # Per-phase correctness keyword overrides for non-SRS phases (P5-P8).
+    # Global correctness keywords (below) are SRS/SAD-centric; documents in
+    # later phases reference FRs but use phase-appropriate vocabulary.
+    # Each override completely replaces the global keyword set for that phase.
+    _p5_correctness_kw = [
+        "fr-", "nfr-", "acceptance criteria", "requirement", "specification",
+        "verify", "verification", "traceability", "baseline",
+    ]
+    _p6_correctness_kw = [
+        "fr-", "nfr-", "requirement", "specification",
+        "quality", "monitoring", "audit", "completeness", "coverage",
+    ]
+    _p7_correctness_kw = [
+        "fr-", "nfr-", "requirement", "specification",
+        "risk", "mitigation", "vulnerability", "assessment", "threat", "security",
+    ]
+    _p8_correctness_kw = [
+        "fr-", "nfr-", "requirement", "specification",
+        "config", "configuration", "deployment", "release", "environment",
+        "rollback", "secret",
+    ]
+
     return ConstitutionProfile(
         scoring=ScoringProfile(method="min_of_dimensions"),
         phases={
@@ -344,28 +388,73 @@ def _build_defaults() -> ConstitutionProfile:
             2: PhaseProfile(active_dimensions=["correctness", "security", "maintainability"], composite_threshold=100.0),
             3: PhaseProfile(active_dimensions=["correctness", "security", "maintainability"], composite_threshold=90.0),
             4: PhaseProfile(active_dimensions=["correctness", "security", "maintainability", "coverage"], composite_threshold=90.0),
-            5: PhaseProfile(active_dimensions=["correctness", "security", "maintainability", "coverage"], composite_threshold=80.0),
-            6: PhaseProfile(active_dimensions=["correctness", "security", "maintainability", "coverage"], composite_threshold=80.0),
-            # P7 (Risk Management): only correctness + security are active.
-            # - maintainability excluded: its keywords (docstring, class, def, import)
-            #   are code-centric and do not appear in risk management documents.
-            # - coverage excluded: its keywords (pytest, mock, assert) are test-centric
-            #   and inapplicable to risk registers and risk assessments.
-            # - composite_threshold=65 (not 80): correctness keywords are SRS-centric
-            #   (acceptance criteria, traceability matrix, SRS, SAD). Well-written risk
-            #   docs reference FRs and have structure but rarely use the full keyword set.
-            #   65 blocks truly incomplete docs while accepting phase-appropriate variance.
-            7: PhaseProfile(active_dimensions=["correctness", "security"], composite_threshold=65.0),
-            8: PhaseProfile(active_dimensions=["correctness", "security", "maintainability", "coverage"], composite_threshold=80.0),
+            # P5 (Verification): correctness + security only.
+            # Preemptive change (not empirically driven): applies the same reasoning as
+            # P7 (where RISK_REGISTER.md failures were observed). If a VERIFICATION_REPORT.md
+            # happens to embed code snippets containing docstring/pytest references,
+            # maintainability/coverage signal would be lost — but the common case for a
+            # verification summary doc has no such vocabulary.
+            # - maintainability excluded: keywords (docstring, type hint, snake_case)
+            #   are code-centric and do not appear in verification reports.
+            # - coverage excluded: its keywords (pytest, mock, assert) are test-centric;
+            #   FR→test traceability is checked separately by preflight_traceability.
+            # - composite_threshold=65: with per-phase correctness keywords (verify,
+            #   verification, baseline), well-written verification reports pass.
+            5: PhaseProfile(
+                active_dimensions=["correctness", "security"],
+                composite_threshold=65.0,
+                dimension_keywords={"correctness": _p5_correctness_kw},
+            ),
+            # P6 (Quality): correctness + security only.
+            # Preemptive change (not empirically driven): applies the same reasoning as
+            # P7 (where RISK_REGISTER.md failures were observed). A QUALITY_REPORT.md
+            # may reference pytest/mock in embedded code snippets — if so, the coverage
+            # dimension would provide signal that is now excluded. Restore coverage if
+            # real quality reports routinely include such references.
+            # - maintainability excluded: keywords are code-centric.
+            # - coverage excluded: quality reports discuss monitoring/audit/completeness
+            #   but not pytest/mock/fixture; those are checked by traceability.
+            # - composite_threshold=65: with per-phase correctness keywords (quality,
+            #   monitoring, audit, completeness), well-written quality reports pass.
+            6: PhaseProfile(
+                active_dimensions=["correctness", "security"],
+                composite_threshold=65.0,
+                dimension_keywords={"correctness": _p6_correctness_kw},
+            ),
+            # P7 (Risk Management): correctness + security only.
+            # - maintainability excluded: code-centric keywords inapplicable to risk docs.
+            # - coverage excluded: test-centric keywords inapplicable to risk registers.
+            # - composite_threshold=65 (not 80): with per-phase correctness keywords
+            #   (risk, mitigation, vulnerability, assessment), well-written risk docs pass.
+            7: PhaseProfile(
+                active_dimensions=["correctness", "security"],
+                composite_threshold=65.0,
+                dimension_keywords={"correctness": _p7_correctness_kw},
+            ),
+            # P8 (Configuration Management): correctness + security only.
+            # Empirically driven: CONFIG_RECORDS.md + RELEASE_CHECKLIST.md failed
+            # constitution at 4 dims / 80 threshold. Configuration documents contain
+            # FR references and security vocabulary but no code/test keywords.
+            # - maintainability excluded: code-centric keywords inapplicable to config docs.
+            # - coverage excluded: test-centric keywords inapplicable to config records.
+            # - composite_threshold=65: with per-phase correctness keywords (config,
+            #   deployment, release, environment, rollback), well-written config docs pass.
+            8: PhaseProfile(
+                active_dimensions=["correctness", "security"],
+                composite_threshold=65.0,
+                dimension_keywords={"correctness": _p8_correctness_kw},
+            ),
         },
         dimensions={
             "correctness": DimensionProfile(
                 threshold=100.0,
                 rule="TH-03",
+                # Global correctness keywords for P1-P4 (SRS/SAD-centric).
+                # ### fr- and ## fr- removed — redundant with fr- (substring match).
+                # test case removed — P4 activity, phase-inappropriate for P1-P3.
                 keywords=[
-                    "fr-", "nfr-", "acceptance criteria", "test case",
-                    "### fr-", "## fr-", "requirement", "specification",
-                    "traceability matrix", "srs", "sad",
+                    "fr-", "nfr-", "acceptance criteria", "requirement",
+                    "specification", "traceability matrix", "srs", "sad",
                 ],
             ),
             "security": DimensionProfile(

@@ -24,7 +24,7 @@ import re
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 from core.quality_gate.constitution.profile import get_profile
 
@@ -136,8 +136,13 @@ def _has_hardcoded_secrets(content: str) -> bool:
     return False
 
 
-def _scan_file_compliance(file_path: Path) -> Dict[str, float]:
+def _scan_file_compliance(file_path: Path, phase: Optional[int] = None) -> Dict[str, float]:
     """Scan a single file for constitution compliance across 4 dimensions.
+
+    Args:
+        file_path: Path to the file to scan.
+        phase: Pipeline phase (1-8). When provided, per-phase keyword overrides
+               from ConstitutionProfile are used. None uses global keywords.
 
     Returns a dict with keys: correctness, security, maintainability, coverage.
     Each value is 0-100.
@@ -163,7 +168,8 @@ def _scan_file_compliance(file_path: Path) -> Dict[str, float]:
     profile = get_profile()
 
     # ── Correctness (40% keyword density + 30% structure + 30% FR refs) ──
-    c_kw = _keyword_density(content, profile.dimension_keywords("correctness"))
+    c_keywords = profile.dimension_keywords_for_phase("correctness", phase)
+    c_kw = _keyword_density(content, c_keywords)
     section_count = content.count("\n## ") + content.count("\n# ")
     c_structure = min(section_count / 5.0, 1.0) * 100.0
     has_fr = "fr-" in content
@@ -173,16 +179,19 @@ def _scan_file_compliance(file_path: Path) -> Dict[str, float]:
     correctness = c_kw * 0.4 + c_structure * 0.3 + c_refs * 0.3
 
     # ── Security (keyword density + no hardcoded secrets) ──
-    s_kw = _keyword_density(content, profile.dimension_keywords("security"))
+    s_keywords = profile.dimension_keywords_for_phase("security", phase)
+    s_kw = _keyword_density(content, s_keywords)
     s_secrets = 0.0 if _has_hardcoded_secrets(content) else 100.0
     security = s_kw * 0.6 + s_secrets * 0.4
 
     # ── Maintainability (keyword density + structure signals) ──
-    m_kw = _keyword_density(content, profile.dimension_keywords("maintainability"))
+    m_keywords = profile.dimension_keywords_for_phase("maintainability", phase)
+    m_kw = _keyword_density(content, m_keywords)
     maintainability = m_kw * 0.7 + c_structure * 0.3
 
     # ── Coverage (keyword density) ──
-    cov_kw = _keyword_density(content, profile.dimension_keywords("coverage"))
+    cov_keywords = profile.dimension_keywords_for_phase("coverage", phase)
+    cov_kw = _keyword_density(content, cov_keywords)
     coverage = cov_kw
 
     return {
@@ -263,7 +272,7 @@ def _scan_directory(docs_path: Path, phase: int, check_type: str) -> Constitutio
                 continue
             if not _should_scan_file(item, check_type):
                 continue
-            dims = _scan_file_compliance(item)
+            dims = _scan_file_compliance(item, phase=phase)
             for d, v in dims.items():
                 all_dim_scores[d].append(v)
             files_scanned += 1

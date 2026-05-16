@@ -330,16 +330,30 @@ class TestDimensionsForPhase:
             assert dims == ["correctness", "security", "maintainability"], \
                 f"Phase {p} should use 3 dimensions, got {dims}"
 
-    def test_phase4_plus_all_four_dimensions(self):
-        # P4-P6 and P8 use all 4 dimensions.
-        # P7 (Risk Management) uses only correctness + security — maintainability
-        # and coverage use code/test-centric keywords inapplicable to risk docs.
-        for p in [4, 5, 6, 8]:
-            dims = _dimensions_for_phase(p)
-            assert "correctness" in dims, f"P{p} missing correctness"
-            assert "security" in dims, f"P{p} missing security"
-            assert "maintainability" in dims, f"P{p} missing maintainability"
-            assert "coverage" in dims, f"P{p} missing coverage"
+    def test_phase4_all_four_dimensions(self):
+        # P4 alone uses all 4 dimensions (last code-centric phase).
+        # P5-P8 are document phases with only correctness + security.
+        dims = _dimensions_for_phase(4)
+        assert "correctness" in dims
+        assert "security" in dims
+        assert "maintainability" in dims
+        assert "coverage" in dims
+
+    def test_phase5_verification_dimensions(self):
+        # P5 (Verification) is a document phase — no code/test vocabulary.
+        dims = _dimensions_for_phase(5)
+        assert "correctness" in dims
+        assert "security" in dims
+        assert "maintainability" not in dims, "P5 must exclude code-centric maintainability"
+        assert "coverage" not in dims, "P5 must exclude test-centric coverage"
+
+    def test_phase6_quality_dimensions(self):
+        # P6 (Quality) is a document phase — no code/test vocabulary.
+        dims = _dimensions_for_phase(6)
+        assert "correctness" in dims
+        assert "security" in dims
+        assert "maintainability" not in dims, "P6 must exclude code-centric maintainability"
+        assert "coverage" not in dims, "P6 must exclude test-centric coverage"
 
     def test_phase7_risk_dimensions(self):
         # P7 is intentionally limited: risk docs don't contain code/test vocabulary.
@@ -348,6 +362,98 @@ class TestDimensionsForPhase:
         assert "security" in dims
         assert "maintainability" not in dims, "P7 must exclude code-centric maintainability"
         assert "coverage" not in dims, "P7 must exclude test-centric coverage"
+
+    def test_phase8_config_dimensions(self):
+        # P8 is intentionally limited: config/release docs don't contain code/test vocabulary.
+        dims = _dimensions_for_phase(8)
+        assert "correctness" in dims
+        assert "security" in dims
+        assert "maintainability" not in dims, "P8 must exclude code-centric maintainability"
+        assert "coverage" not in dims, "P8 must exclude test-centric coverage"
+
+    def test_per_phase_correctness_keywords(self):
+        """P5-P8 use phase-appropriate correctness keywords, not SRS/SAD vocabulary."""
+        p = defaults()
+        global_kw = p.dimension_keywords("correctness")
+        # Global keywords are SRS/SAD-centric (P1-P4).
+        assert "srs" in global_kw
+        assert "sad" in global_kw
+        # Redundant format-specific keywords removed.
+        assert "### fr-" not in global_kw
+        assert "## fr-" not in global_kw
+        # Phase-inappropriate P4 activity removed.
+        assert "test case" not in global_kw
+
+        # P5 (Verification): uses verification vocabulary.
+        p5_kw = p.dimension_keywords_for_phase("correctness", 5)
+        assert "verify" in p5_kw or "verification" in p5_kw
+        assert "srs" not in p5_kw, "P5 correctness must not require SRS keyword"
+        assert "sad" not in p5_kw, "P5 correctness must not require SAD keyword"
+
+        # P6 (Quality): uses quality vocabulary.
+        p6_kw = p.dimension_keywords_for_phase("correctness", 6)
+        assert "quality" in p6_kw
+        assert "monitoring" in p6_kw
+        assert "srs" not in p6_kw
+
+        # P7 (Risk): uses risk vocabulary.
+        p7_kw = p.dimension_keywords_for_phase("correctness", 7)
+        assert "risk" in p7_kw
+        assert "mitigation" in p7_kw
+        assert "vulnerability" in p7_kw
+        assert "srs" not in p7_kw
+
+        # P8 (Configuration): uses config vocabulary.
+        p8_kw = p.dimension_keywords_for_phase("correctness", 8)
+        assert "config" in p8_kw or "configuration" in p8_kw
+        assert "deployment" in p8_kw
+        assert "release" in p8_kw
+        assert "srs" not in p8_kw
+
+        # P1-P4 use global keywords.
+        for phase in (1, 2, 3, 4):
+            kw = p.dimension_keywords_for_phase("correctness", phase)
+            assert kw == global_kw, f"P{phase} should use global correctness keywords"
+
+    def test_per_phase_keywords_fallback_for_unchanged_dimensions(self):
+        """Dimensions without per-phase overrides fall back to global keywords."""
+        p = defaults()
+        # Security keywords are not overridden per-phase (except possibly in profile JSON).
+        for phase in range(1, 9):
+            sec_kw = p.dimension_keywords_for_phase("security", phase)
+            assert sec_kw == p.dimension_keywords("security"), \
+                f"P{phase} security keywords should match global"
+
+    def test_phase_none_returns_global_keywords(self):
+        """phase=None (default for _scan_file_compliance) must fall back to global keywords."""
+        p = defaults()
+        for dim in ("correctness", "security", "maintainability", "coverage"):
+            kw_none = p.dimension_keywords_for_phase(dim, None)
+            kw_global = p.dimension_keywords(dim)
+            assert kw_none == kw_global, \
+                f"dimension_keywords_for_phase('{dim}', None) should equal global keywords"
+
+    def test_scan_file_compliance_default_phase_uses_global_keywords(self):
+        """_scan_file_compliance called without phase uses global (P1-P4) correctness vocabulary."""
+        import tempfile, os
+        # SRS-vocabulary content — should score well under global correctness keywords.
+        content = "\n".join([
+            "# SRS Document", "## Overview", "## FR-01 Requirements",
+            "## FR-02 Specification", "## FR-03 Traceability",
+            "This document contains the srs and sad specifications.",
+            "fr- nfr- acceptance criteria requirement specification traceability matrix.",
+            "security encryption authentication tls https pii",
+        ] * 6)
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            f.write(content)
+            tmp = f.name
+        try:
+            dims_no_phase = _scan_file_compliance(Path(tmp))           # phase=None default
+            dims_phase1 = _scan_file_compliance(Path(tmp), phase=1)    # explicit P1 (global kw)
+            assert dims_no_phase["correctness"] == dims_phase1["correctness"], \
+                "phase=None must produce identical correctness score to phase=1"
+        finally:
+            os.unlink(tmp)
 
 
 class TestPhaseDirMap:

@@ -37,7 +37,17 @@ class TestDefaults:
         assert defaults().composite_threshold(3) == 90.0
 
     def test_composite_threshold_p5(self):
-        assert defaults().composite_threshold(5) == 80.0
+        # P5-P8 document phases use 65.0 (matching P7 pattern).
+        assert defaults().composite_threshold(5) == 65.0
+
+    def test_composite_threshold_p6(self):
+        assert defaults().composite_threshold(6) == 65.0
+
+    def test_composite_threshold_p7(self):
+        assert defaults().composite_threshold(7) == 65.0
+
+    def test_composite_threshold_p8(self):
+        assert defaults().composite_threshold(8) == 65.0
 
     def test_dimension_threshold_correctness(self):
         assert defaults().dimension_threshold("correctness") == 100.0
