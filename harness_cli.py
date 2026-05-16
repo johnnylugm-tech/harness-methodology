@@ -302,7 +302,14 @@ def _audit_sessions_spawn(project: Path, phase: int) -> None:
 
 
 def cmd_run_phase(args: argparse.Namespace) -> int:
-    """Run full pre/post-flight hooks for a phase."""
+    """Run preflight checks for a phase.
+
+    Preflight scans the most recently completed phase's artifacts (via
+    state.json.phase_completed) to ensure the project is ready to enter the
+    target phase.  No postflight is executed here — phase output validation
+    and state advancement happen inside run-pipeline / finalize-gate after
+    actual phase work has been completed.
+    """
     from core.phase_hooks import PhaseHooks
 
     project = Path(args.project).resolve()
@@ -345,13 +352,6 @@ def cmd_run_phase(args: argparse.Namespace) -> int:
             print(f"        python harness_cli.py run-gate --gate 1 --phase {args.phase} --project {project} --fr-id FR-XX")
             print(f"        (quality_manifest.json not found — run 'plan-phase' first to populate FR IDs)")
     print(f"        python harness_cli.py run-pipeline --phase-from {args.phase} --project {project}")
-
-    # POST-FLIGHT: constitution re-check, BVS invariants, drift check, FSM advance
-    post = hooks.postflight_all()
-    if not post["success"]:
-        print(f"\n[POST-FLIGHT FAILED]")
-        return 1
-    print(f"\n[POST-FLIGHT] PASS")
     return 0
 
 
@@ -3817,7 +3817,7 @@ def build_parser() -> argparse.ArgumentParser:
     pp.set_defaults(func=cmd_plan_phase)
 
     # run-phase
-    rp = sub.add_parser("run-phase", help="Run pre/post-flight hooks for a phase")
+    rp = sub.add_parser("run-phase", help="Run preflight checks before entering a phase")
     rp.add_argument("--phase",   type=int, required=True, help="Phase number (1-8)")
     rp.add_argument("--project", default=".", help="Project root (default: .)")
     rp.set_defaults(func=cmd_run_phase)
