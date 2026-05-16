@@ -3215,6 +3215,140 @@ def _init_copy_templates(project: Path, harness_root: Path, *, overwrite: bool =
         print(f"   SKIP: nothing to copy")
 
 
+def _setup_branch_protection(project: Path) -> int:
+    """Configure GitHub branch protection for main with required status checks.
+
+    Requires:
+      - gh CLI installed and authenticated
+      - Remote 'origin' pointing to a GitHub repository
+
+    Returns 0 on success, 1 on failure.
+    """
+    import subprocess
+
+    required_checks = [
+        "gate-check",
+        "Enforce push-milestone (no --no-verify bypass)",
+        "P1/P2 Push-Checkpoint Enforcement",
+        "Phase Plan Checklist Verification",
+        "Agent B Approval Verification",
+        "P8 Archive & HANDOVER Validation",
+    ]
+
+    # Detect GitHub remote URL
+    try:
+        remote = subprocess.run(
+            ["git", "-C", str(project), "remote", "get-url", "origin"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if remote.returncode != 0 or not remote.stdout.strip():
+            print("   ERROR: No git remote 'origin' found.")
+            return 1
+        remote_url = remote.stdout.strip()
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        print("   ERROR: Failed to read git remote.")
+        return 1
+
+    # Parse owner/repo from common URL formats
+    owner = repo = None
+    if remote_url.startswith("https://github.com/"):
+        parts = remote_url.rstrip(".git").split("/")
+        if len(parts) >= 2:
+            owner, repo = parts[-2], parts[-1]
+    elif remote_url.startswith("git@github.com:"):
+        parts = remote_url.rstrip(".git").split(":")
+        if len(parts) == 2:
+            parts2 = parts[1].split("/")
+            if len(parts2) == 2:
+                owner, repo = parts2[0], parts2[1]
+    elif "github.com" in remote_url:
+        # Fallback: use gh repo view to parse
+        try:
+            rv = subprocess.run(
+                ["gh", "repo", "view", "--json", "name,owner"],
+                capture_output=True, text=True, timeout=10, cwd=str(project),
+            )
+            if rv.returncode == 0:
+                import json as _json
+                data = _json.loads(rv.stdout)
+                owner, repo = data["owner"]["login"], data["name"]
+        except Exception:
+            pass
+
+    if not owner or not repo:
+        print("   ERROR: Could not parse GitHub owner/repo from remote URL.")
+        print(f"   Remote: {remote_url}")
+        print("   Use --repo OWNER/REPO to specify explicitly.")
+        return 1
+
+    print(f"   Remote: {owner}/{repo}")
+
+    # Verify gh is authenticated
+    try:
+        auth_check = subprocess.run(
+            ["gh", "auth", "status"], capture_output=True, text=True, timeout=10,
+        )
+        if auth_check.returncode != 0:
+            print("   ERROR: gh CLI not authenticated. Run: gh auth login")
+            return 1
+    except FileNotFoundError:
+        print("   ERROR: gh CLI not installed. Install GitHub CLI:")
+        print("     brew install gh  (macOS)")
+        print("     sudo apt install gh  (Linux)")
+        return 1
+
+    api_url = f"repos/{owner}/{repo}/branches/main/protection"
+    payload = {
+        "required_status_checks": {
+            "strict": True,
+            "contexts": required_checks,
+        },
+        "enforce_admins": True,
+        "required_pull_request_reviews": {
+            "required_approving_review_count": 1,
+            "dismiss_stale_reviews": True,
+        },
+        "restrictions": None,
+        "allow_force_pushes": False,
+        "allow_deletions": False,
+        "required_linear_history": True,
+    }
+
+    try:
+        result = subprocess.run(
+            ["gh", "api", api_url, "--method", "PUT",
+             "--input", "-"],
+            input=json.dumps(payload),
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode == 0:
+            print(f"   OK — Branch protection configured for {owner}/{repo}/main")
+            print(f"   Required checks ({len(required_checks)}):")
+            for c in required_checks:
+                print(f"     - {c}")
+            return 0
+        else:
+            err = result.stderr.strip() or result.stdout.strip()
+            # 404 often means branch protection already exists; try PATCH
+            if "404" in err or "Not Found" in err:
+                # Update existing protection
+                result2 = subprocess.run(
+                    ["gh", "api", api_url, "--method", "PATCH",
+                     "--input", "-"],
+                    input=json.dumps(payload),
+                    capture_output=True, text=True, timeout=30,
+                )
+                if result2.returncode == 0:
+                    print(f"   OK — Branch protection updated for {owner}/{repo}/main")
+                    return 0
+                err = result2.stderr.strip() or result2.stdout.strip()
+            print(f"   ERROR: Failed to set branch protection:\n   {err[:500]}")
+            return 1
+    except subprocess.TimeoutExpired:
+        print("   ERROR: API call timed out.")
+        return 1
+
+
 def cmd_init_project(args: argparse.Namespace) -> int:
     """
     Initialize harness CI wiring in a target project (Context B setup).
@@ -3335,11 +3469,26 @@ def cmd_init_project(args: argparse.Namespace) -> int:
         print(f"   OK — state.json initialized (phase={phase})")
 
     # 8. Drift monitor hint
-    print(f"\n[8/8] Drift Monitor hint (optional cronjob)")
+    print(f"\n[8/9] Drift Monitor hint (optional cronjob)")
     print("  Add this crontab entry (edit with: crontab -e):")
     print(f"  0 * * * * DRIFT_PROJECT_PATH={project} \\")
     print(f"    python3 {harness_root}/scripts/cron_drift_monitor.py \\")
     print(f"    >> {project}/logs/drift_monitor.log 2>&1")
+
+    # 9. Optional branch protection setup
+    if args.setup_branch_protection:
+        print(f"\n[9/9] Setting up GitHub branch protection for main...")
+        rc = _setup_branch_protection(project)
+        if rc != 0:
+            print("   WARNING: Branch protection setup did not complete.")
+            print("   Set it up manually via GitHub UI:")
+            print("     Settings → Branches → Add rule → Branch: main")
+            print("     ✅ Require a pull request before merging")
+            print("     ✅ Require status checks to pass before merging")
+            print("     ✅ Do not allow bypassing the above settings")
+            print("     ✅ Block force pushes")
+    else:
+        print(f"\n[9/9] SKIP: --setup-branch-protection not requested")
 
     print(f"\n{'='*60}")
     print("init-project complete.")
@@ -3875,6 +4024,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Write CI workflow only; skip git hooks")
     ip.add_argument("--overwrite", action="store_true",
                     help="Overwrite existing CI workflow and hooks")
+    ip.add_argument("--setup-branch-protection", action="store_true",
+                    help="Configure GitHub branch protection for main with required checks")
     ip.set_defaults(func=cmd_init_project)
 
     # audit-structure
