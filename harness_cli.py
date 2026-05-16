@@ -170,20 +170,43 @@ def _verify_entry_gate(project: Path, phase: int) -> dict:
         return {"passed": True, "gate": "None", "reason": "P1 has no entry gate"}
 
     if phase in (2, 3):
+        prev = phase - 1
+        state_path = project / ".methodology" / "state.json"
+
+        # Primary: state.json phase_completed + git merge-base --is-ancestor
+        # Avoids circular dependency (git log grep fails across branch boundaries).
+        if state_path.exists():
+            try:
+                state = json.loads(state_path.read_text())
+                entry = state.get("phase_completed", {}).get(str(prev))
+                if entry and entry.get("sha"):
+                    import subprocess as sp
+                    r = sp.run(
+                        ["git", "-C", str(project), "merge-base", "--is-ancestor",
+                         entry["sha"], "HEAD"],
+                        capture_output=True, text=True, timeout=10,
+                    )
+                    if r.returncode == 0:
+                        return {"passed": True, "gate": f"Human1 (P{prev})",
+                                "reason": f"Found human APPROVE commit for P{prev}"}
+            except Exception:
+                pass
+
+        # Fallback: git log --grep (projects before phase_completed schema)
         import subprocess as sp
         try:
-            commit_marker = f"phase{phase - 1}(human-review)"
+            commit_marker = f"phase{prev}(human-review)"
             result = sp.run(
                 ["git", "-C", str(project), "log", "--oneline", "--grep", commit_marker, "-1"],
                 capture_output=True, text=True, timeout=10,
             )
             if result.stdout.strip():
-                return {"passed": True, "gate": f"Human1 (P{phase - 1})",
-                        "reason": f"Found human APPROVE commit for P{phase - 1}"}
-            return {"passed": False, "gate": f"Human1 (P{phase - 1})",
-                    "reason": f"No human APPROVE commit found for P{phase - 1}"}
+                return {"passed": True, "gate": f"Human1 (P{prev})",
+                        "reason": f"Found human APPROVE commit for P{prev}"}
+            return {"passed": False, "gate": f"Human1 (P{prev})",
+                    "reason": f"No human APPROVE commit found for P{prev}"}
         except Exception as e:
-            return {"passed": False, "gate": f"Human1 (P{phase - 1})",
+            return {"passed": False, "gate": f"Human1 (P{prev})",
                     "reason": f"Git log check failed: {e}"}
 
     manifest_path = project / ".methodology" / "quality_manifest.json"
@@ -1432,16 +1455,25 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
         if handover.exists():
             print(f"  HANDOVER.md → {handover}")
         print("  [git] pushed → remote ✓")
-        # Write sentinel so CI can verify push-checkpoint was invoked (not --no-verify bypass).
+        # Write sentinel + phase_completed for CI entry gate verification
         state_path = project / ".methodology" / "state.json"
         if state_path.exists():
             try:
                 state_data = json.loads(state_path.read_text(encoding="utf-8"))
                 state_data["last_push_checkpoint"] = datetime.now(timezone.utc).isoformat()
                 state_data["last_push_checkpoint_phase"] = phase
+                # phase_completed + SHA for git merge-base --is-ancestor verification
+                import subprocess as _sp
+                _sha = _sp.run(
+                    ["git", "-C", str(project), "rev-parse", "HEAD"],
+                    capture_output=True, text=True, timeout=10,
+                ).stdout.strip()
+                state_data.setdefault("phase_completed", {})[str(phase)] = {
+                    "sha": _sha, "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
                 state_path.write_text(json.dumps(state_data, indent=2), encoding="utf-8")
             except Exception as _e:  # pylint: disable=broad-exception-caught
-                print(f"  [WARN] Could not write last_push_checkpoint to state.json: {_e}")
+                print(f"  [WARN] Could not write push-checkpoint sentinel to state.json: {_e}")
     return 0 if ok else 1
 
 

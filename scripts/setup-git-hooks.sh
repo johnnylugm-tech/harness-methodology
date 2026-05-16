@@ -76,8 +76,8 @@ else
     HARNESS_CLI=""
 fi
 
-# Get current Phase (from git config or default to 1)
-PHASE=$(git config --local --get quality.phase 2>/dev/null || echo "1")
+# Get current Phase (from state.json or default to 1)
+PHASE=$(python3 -c "import json; d=json.load(open('.methodology/state.json')); print(d.get('current_phase', 1))" 2>/dev/null || echo "1")
 
 # Check if Python is available
 if ! command -v python3 &> /dev/null; then
@@ -157,8 +157,8 @@ else
     HARNESS_CLI=""
 fi
 
-# Get current Phase (from git config or default to 1)
-PHASE=$(git config --local --get quality.phase 2>/dev/null || echo "1")
+# Get current Phase (from state.json or default to 1)
+PHASE=$(python3 -c "import json; d=json.load(open('.methodology/state.json')); print(d.get('current_phase', 1))" 2>/dev/null || echo "1")
 
 # Check if Python is available
 if ! command -v python3 &> /dev/null; then
@@ -224,8 +224,8 @@ else
     HARNESS_CLI=""
 fi
 
-# Get current Phase (from git config or default to 1)
-PHASE=$(git config --local --get quality.phase 2>/dev/null || echo "1")
+# Get current Phase (from state.json or default to 1)
+PHASE=$(python3 -c "import json; d=json.load(open('.methodology/state.json')); print(d.get('current_phase', 1))" 2>/dev/null || echo "1")
 
 # Check if Python is available
 if ! command -v python3 &> /dev/null; then
@@ -274,51 +274,6 @@ echo -e "${GREEN}OK${NC} Created pre-push hook"
 
 echo ""
 echo "=============================================="
-echo "Configuration"
-echo "=============================================="
-echo
-
-# Set default Phase (CLI arg, env, or interactive; default 1)
-if [ -n "$1" ] && [[ "$1" =~ ^[1-8]$ ]]; then
-    PHASE="$1"
-elif [ -n "$HARNESS_PHASE" ] && [[ "$HARNESS_PHASE" =~ ^[1-8]$ ]]; then
-    PHASE="$HARNESS_PHASE"
-elif [ -t 0 ]; then
-    read -p "Enter current Phase (1-8) [default: 1]: " PHASE
-    PHASE=${PHASE:-1}
-else
-    PHASE=1
-fi
-
-git config --local quality.phase "$PHASE"
-echo -e "${GREEN}OK${NC} Set quality.phase to $PHASE"
-
-# Ask whether to enable automatic block
-ENABLE_BLOCK=""
-if [ -n "$HARNESS_BLOCK" ]; then
-    ENABLE_BLOCK="$HARNESS_BLOCK"
-elif [ -t 0 ]; then
-    read -p "Enable automatic block on Quality Gate failure? (y/n) [default: y]: " ENABLE_BLOCK
-    ENABLE_BLOCK=${ENABLE_BLOCK:-y}
-else
-    ENABLE_BLOCK="y"
-fi
-
-if [ "$ENABLE_BLOCK" = "y" ]; then
-    git config --local quality.block-on-failure true
-    echo -e "${GREEN}OK${NC} Enabled block on failure"
-else
-    git config --local quality.block-on-failure false
-    echo -e "${GREEN}OK${NC} Disabled block on failure"
-fi
-
-
-# =============================================================================
-# Done
-# =============================================================================
-
-echo ""
-echo "=============================================="
 echo -e "${GREEN}Git Hooks Setup Complete!${NC}"
 echo "=============================================="
 echo ""
@@ -327,11 +282,5 @@ echo "  - prepare-commit-msg: Block commits if Phase not passed"
 echo "  - post-merge: Check Phase status after merge"
 echo "  - pre-push: Check before pushing"
 echo ""
-echo "Current Phase: $PHASE"
-echo ""
-echo "To change Phase:"
-echo "  git config quality.phase <phase_number>"
-echo ""
-echo "To check Phase status manually:"
-echo "  python3 harness_cli.py run-phase --phase $PHASE --project .  # or harness/harness_cli.py for submodule"
+echo "Phase auto-detected from .methodology/state.json"
 echo ""
