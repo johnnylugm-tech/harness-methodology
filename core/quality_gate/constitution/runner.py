@@ -32,9 +32,11 @@ from core.quality_gate.constitution.profile import get_profile
 
 
 # ── Phase-to-check-type mapping (single source of truth) ───────────────────
+# Public — re-exported via core.quality_gate.constitution so phase_hooks,
+# framework_enforcer, and other callers share one canonical mapping.
 # Preflight mode reads state.json to find completed phases, then uses this
 # map to determine which check_type (file filter) to apply for each phase.
-_PHASE_CHECK_TYPES: Dict[int, str] = {
+PHASE_CHECK_TYPES: Dict[int, str] = {
     1: "srs",
     2: "sad",
     3: "implementation",
@@ -44,6 +46,10 @@ _PHASE_CHECK_TYPES: Dict[int, str] = {
     7: "risk_management",
     8: "configuration",
 }
+
+# Backwards-compatible alias for any in-tree callers that imported the
+# underscored name during the transition window.
+_PHASE_CHECK_TYPES = PHASE_CHECK_TYPES
 
 
 @dataclass
@@ -106,13 +112,17 @@ def _get_completed_phases(state_path: Path) -> List[int]:
         return []
 
 
-def _vacuous_result(check_type: str, phase: int, check_mode: str = "preflight") -> ConstitutionResult:
+def _vacuous_result(check_type: str, phase: int, check_mode: str) -> ConstitutionResult:
     """Return a vacuous-pass ConstitutionResult (no artifacts to evaluate).
 
     Used when the target directory does not exist or when no phases have
     been completed yet.  Artifact *existence* is verified separately by the
     artifact enforcer (phase_artifact_enforcer.py); the constitution runner
     only evaluates the *quality* of artifacts that exist.
+
+    ``check_mode`` is required (no default) — callers must be explicit about
+    whether they're producing a preflight or postflight result so that the
+    returned ConstitutionResult is correctly attributed.
     """
     return ConstitutionResult(
         score=100.0,
@@ -395,7 +405,44 @@ def _scan_directory(docs_path: Path, phase: int, check_type: str) -> Constitutio
     )
 
 
-def _preflight_check(docs_path: Path, current_phase: int, strict: bool) -> ConstitutionResult:
+def _resolve_project_root(docs_path: Path) -> Path:
+    """Resolve the project root from a docs/phase-directory path.
+
+    Walks upward from ``docs_path`` looking for a directory that contains
+    ``.methodology/state.json``.  If none is found, falls back to the
+    parent-of-docs / self-is-project heuristic so existing callers that
+    pass non-canonical paths continue to behave.
+
+    Examples:
+        /proj/docs            → /proj         (state.json found at /proj/.methodology/)
+        /proj/02-architecture → /proj         (walks up one level)
+        /proj                 → /proj         (state.json found directly)
+        /tmp/empty/docs       → /tmp/empty    (no state.json found; fallback)
+    """
+    candidates: List[Path] = []
+    # Start with docs_path itself, then climb. Cap at 6 levels — projects
+    # nested deeper than that would already be unusual.
+    cur = docs_path if docs_path.is_dir() else docs_path.parent
+    for _ in range(6):
+        candidates.append(cur)
+        if (cur / ".methodology" / "state.json").exists():
+            return cur
+        if cur.parent == cur:  # filesystem root
+            break
+        cur = cur.parent
+
+    # Fallback: legacy heuristic — parent if path is named "docs", else self.
+    if docs_path.name == "docs":
+        return docs_path.parent
+    return docs_path
+
+
+def _preflight_check(
+    docs_path: Path,
+    current_phase: int,
+    strict: bool,
+    requested_check_type: str = "all",
+) -> ConstitutionResult:
     """Preflight constitution check — scan only completed phases' artifacts.
 
     Reads ``state.json`` from the project root to discover which phases have
@@ -404,8 +451,12 @@ def _preflight_check(docs_path: Path, current_phase: int, strict: bool) -> Const
 
     If no phases have been completed (or state.json is missing), returns a
     vacuous pass — there are simply no prior artifacts to verify.
+
+    If the caller passed a specific ``requested_check_type`` (anything other
+    than "all" or an empty string) and it differs from the previous phase's
+    check_type, emit a warning so the override isn't silent.
     """
-    project_root = docs_path.parent if docs_path.name == "docs" else docs_path
+    project_root = _resolve_project_root(docs_path)
     state_path = project_root / ".methodology" / "state.json"
 
     completed = _get_completed_phases(state_path)
@@ -415,7 +466,23 @@ def _preflight_check(docs_path: Path, current_phase: int, strict: bool) -> Const
 
     # Scan the most recently completed phase's artifacts
     prev_phase = completed[-1]
-    prev_check_type = _PHASE_CHECK_TYPES.get(prev_phase, "all")
+    prev_check_type = PHASE_CHECK_TYPES.get(prev_phase, "all")
+
+    # Surface the silent-override case: caller asked for a specific check_type
+    # but preflight will use the previous phase's own check_type instead.
+    if (
+        requested_check_type
+        and requested_check_type != "all"
+        and requested_check_type != prev_check_type
+    ):
+        warnings.warn(
+            f"Preflight check_type override: caller requested {requested_check_type!r} "
+            f"but preflight will scan completed phase {prev_phase} as {prev_check_type!r}. "
+            "Pass check_mode='postflight' to honor the requested check_type, or "
+            "pass check_type='all' to suppress this warning.",
+            stacklevel=3,
+        )
+
     phase_dir_name = get_profile().phase_directory(prev_phase)
     target = project_root / phase_dir_name
 
@@ -487,7 +554,7 @@ def run_constitution_check(
 
     # ── Preflight: scan completed phases from state.json ───────────────
     if check_mode == "preflight":
-        return _preflight_check(path, current_phase, strict)
+        return _preflight_check(path, current_phase, strict, check_type)
 
     # ── Postflight (and any other mode): existing behavior ──────────────
     if not path.exists():

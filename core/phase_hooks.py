@@ -30,16 +30,9 @@ class KillSwitchBlockedError(RuntimeError):
     """Raised when kill-switch circuit is OPEN for an agent."""
 
 
-_PHASE_CHECK_TYPES: Dict[int, str] = {
-    1: "srs",
-    2: "sad",
-    3: "implementation",
-    4: "test_plan",
-    5: "verification",
-    6: "quality_report",
-    7: "risk_management",
-    8: "configuration",
-}
+# Phase → check_type mapping is owned by the constitution package
+# (core.quality_gate.constitution.PHASE_CHECK_TYPES). Import lazily inside
+# preflight_constitution() to avoid a heavy import at module load time.
 
 
 class PhaseHooks:
@@ -124,9 +117,11 @@ class PhaseHooks:
         """Run constitution quality gate check."""
         print(f"\n[PRE-FLIGHT] Constitution Check ({check_mode})")
         try:
-            from core.quality_gate.constitution import run_constitution_check
+            from core.quality_gate.constitution import (
+                run_constitution_check, PHASE_CHECK_TYPES,
+            )
             _phase = self.phase if self.phase is not None else 1
-            check_type = _PHASE_CHECK_TYPES.get(_phase, "all")
+            check_type = PHASE_CHECK_TYPES.get(_phase, "all")
             result = run_constitution_check(
                 check_type=check_type, docs_path=str(self.docs_path),
                 current_phase=_phase, check_mode=check_mode

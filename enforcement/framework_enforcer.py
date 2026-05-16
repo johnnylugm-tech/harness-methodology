@@ -125,26 +125,22 @@ class FrameworkEnforcer:
         - P5-P8: ≥80 (TH-02 full constitution compliance)
         """
         try:
-            from core.quality_gate.constitution.runner import run_constitution_check
+            from core.quality_gate.constitution import (
+                run_constitution_check, PHASE_CHECK_TYPES,
+            )
             from constitution import get_constitution_threshold
 
-            phase_info_map = {
-                1: {"type": "srs",            "dir": "01-requirements"},
-                2: {"type": "sad",            "dir": "02-architecture"},
-                3: {"type": "implementation", "dir": "03-development"},
-                4: {"type": "test_plan",      "dir": "04-testing"},
-                5: {"type": "verification",   "dir": "05-verification"},
-                6: {"type": "quality_report", "dir": "06-quality"},
-                7: {"type": "risk_management","dir": "07-risk"},
-                8: {"type": "configuration",  "dir": "08-config"},
-            }
-            phase_info = phase_info_map.get(self.phase, {"type": "srs", "dir": "docs"})
+            check_type = PHASE_CHECK_TYPES.get(self.phase, "srs")
             docs_path = self.project_root / "docs"
             if not docs_path.exists():
                 return {"score": 0, "passed": False, "error": "docs/ directory not found"}
 
+            # check_mode="postflight" — this enforcer evaluates the *current*
+            # phase's output against its threshold (preflight would scan the
+            # previous completed phase, which is the wrong semantics here).
             result = run_constitution_check(
-                phase_info["type"], str(docs_path), current_phase=self.phase
+                check_type, str(docs_path),
+                current_phase=self.phase, check_mode="postflight",
             )
             threshold = get_constitution_threshold(self.phase)
             passed = result.score >= threshold

@@ -886,14 +886,21 @@ class TestPreflightPhaseBoundary:
     def test_p2_preflight_scans_p1_not_p2(self, tmp_path):
         """P2 preflight reads state.json P1 completed, scans 01-requirements/
         instead of 02-architecture/ (which has deliberately poor content)."""
+        import warnings
         self._make_p1_artifact(tmp_path)
         self._make_state(tmp_path, {"1": {"sha": "a"}})
         # Poorly-scoring 02-architecture/ should NOT be scanned
         self._make_phase_dir(tmp_path, "02-architecture",
                              "# Old Arch\n\nno keywords.", "SAD.md")
 
-        result = run_constitution_check("sad", str(tmp_path / "docs"),
-                                        current_phase=2, check_mode="preflight")
+        # The "sad" check_type request triggers the override warning by design
+        # (caller asked for SAD but preflight scans P1 as SRS). That path is
+        # covered by test_preflight_warns_when_check_type_overridden — silence
+        # here to keep test output clean.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            result = run_constitution_check("sad", str(tmp_path / "docs"),
+                                            current_phase=2, check_mode="preflight")
         assert result.passed, (
             "P2 preflight should scan P1 (01-requirements/) not P2's stale "
             f"02-architecture/ (score={result.score})"
@@ -901,12 +908,15 @@ class TestPreflightPhaseBoundary:
 
     def test_p3_preflight_scans_p2(self, tmp_path):
         """P3 preflight with P1+P2 completed scans 02-architecture/."""
+        import warnings
         self._make_p1_artifact(tmp_path)
         self._make_p2_artifact(tmp_path)
         self._make_state(tmp_path, {"1": {"sha": "a"}, "2": {"sha": "b"}})
 
-        result = run_constitution_check("implementation", str(tmp_path / "docs"),
-                                        current_phase=3, check_mode="preflight")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            result = run_constitution_check("implementation", str(tmp_path / "docs"),
+                                            current_phase=3, check_mode="preflight")
         assert result.passed, (
             "P3 preflight should scan P2 (02-architecture/), "
             f"score={result.score}"
@@ -914,6 +924,7 @@ class TestPreflightPhaseBoundary:
 
     def test_p2_preflight_no_completed_phases_vacuous_pass(self, tmp_path):
         """P2 preflight with state.json but empty phase_completed."""
+        # No completed phases → no override possible → no warning expected.
         self._make_state(tmp_path, {})
         self._make_phase_dir(tmp_path, "02-architecture",
                              "# Stale\n\nNo keywords.", "SAD.md")
@@ -942,10 +953,15 @@ class TestPreflightPhaseBoundary:
 
     def test_p2_preflight_prev_phase_dir_absent_vacuous_pass(self, tmp_path):
         """P1 completed but 01-requirements/ doesn't exist on disk."""
+        import warnings
         self._make_state(tmp_path, {"1": {"sha": "a"}})
 
-        result = run_constitution_check("sad", str(tmp_path / "docs"),
-                                        current_phase=2, check_mode="preflight")
+        # Override warning is expected (caller asked for SAD, P1 is latest);
+        # silence here — coverage lives in the dedicated warning tests below.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            result = run_constitution_check("sad", str(tmp_path / "docs"),
+                                            current_phase=2, check_mode="preflight")
         assert result.passed is True
         assert result.score == 100.0
 
@@ -982,6 +998,99 @@ class TestPreflightPhaseBoundary:
                                         current_phase=2, check_mode="postflight")
         assert result.phase == 2
         assert result.passed
+
+    # ── project_root resolution (walk-upward fix) ────────────────────
+
+    def test_preflight_resolves_project_root_from_phase_directory(self, tmp_path):
+        """Preflight called with a phase dir path (not docs/) still finds state.json.
+
+        Regression test for the fragile project_root heuristic: callers that
+        passed e.g. ``<project>/02-architecture`` used to silently bypass
+        preflight because state.json was sought at ``<project>/02-architecture/
+        .methodology/state.json``. The walk-upward resolver now finds the real
+        project root regardless of which subdirectory was passed.
+        """
+        self._make_p1_artifact(tmp_path)
+        self._make_state(tmp_path, {"1": {"sha": "a"}})
+
+        # Pass the phase directory instead of <project>/docs
+        result = run_constitution_check(
+            "all", str(tmp_path / "02-architecture"),
+            current_phase=2, check_mode="preflight",
+        )
+        assert result.passed, (
+            "Preflight should still resolve project root and scan P1 even "
+            f"when docs_path is a phase dir (score={result.score})"
+        )
+        # Verify it actually evaluated artifacts (non-vacuous)
+        assert result.dimensions["correctness"] < 100.0 or result.score < 100.0, (
+            "Should have scanned real artifacts, not returned vacuous 100%"
+        )
+
+    def test_preflight_resolves_project_root_when_passed_root_directly(self, tmp_path):
+        """Preflight called with the project root itself (no docs/ suffix)."""
+        self._make_p1_artifact(tmp_path)
+        self._make_state(tmp_path, {"1": {"sha": "a"}})
+
+        result = run_constitution_check(
+            "all", str(tmp_path),
+            current_phase=2, check_mode="preflight",
+        )
+        assert result.passed
+
+    # ── check_type override warning ──────────────────────────────────
+
+    def test_preflight_warns_when_check_type_overridden(self, tmp_path):
+        """Caller asks for check_type='sad' but P1 is the latest completed →
+        preflight will use 'srs' instead, and that override must be surfaced."""
+        import warnings
+        self._make_p1_artifact(tmp_path)
+        self._make_state(tmp_path, {"1": {"sha": "a"}})
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            run_constitution_check(
+                "sad", str(tmp_path / "docs"),
+                current_phase=2, check_mode="preflight",
+            )
+        msgs = [str(w.message) for w in caught]
+        assert any("Preflight check_type override" in m for m in msgs), (
+            f"Expected override warning; got: {msgs}"
+        )
+
+    def test_preflight_no_warning_when_check_type_is_all(self, tmp_path):
+        """check_type='all' is a wildcard and must not trigger the warning."""
+        import warnings
+        self._make_p1_artifact(tmp_path)
+        self._make_state(tmp_path, {"1": {"sha": "a"}})
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            run_constitution_check(
+                "all", str(tmp_path / "docs"),
+                current_phase=2, check_mode="preflight",
+            )
+        msgs = [str(w.message) for w in caught]
+        assert not any("Preflight check_type override" in m for m in msgs), (
+            f"Did not expect override warning for check_type='all'; got: {msgs}"
+        )
+
+    def test_preflight_no_warning_when_check_type_matches_prev_phase(self, tmp_path):
+        """Caller asks for 'srs' and P1 is the latest completed → no override."""
+        import warnings
+        self._make_p1_artifact(tmp_path)
+        self._make_state(tmp_path, {"1": {"sha": "a"}})
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            run_constitution_check(
+                "srs", str(tmp_path / "docs"),
+                current_phase=2, check_mode="preflight",
+            )
+        msgs = [str(w.message) for w in caught]
+        assert not any("Preflight check_type override" in m for m in msgs), (
+            f"Did not expect override warning when check_type matches; got: {msgs}"
+        )
 
 
 class TestDoubleScanPrevention:
