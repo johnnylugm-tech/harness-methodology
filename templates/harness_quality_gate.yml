@@ -39,8 +39,8 @@ jobs:
       - name: Auto-detect phase from state.json
         id: phase
         run: |
-          # Read phase from project's own state.json — not a GitHub variable.
-          # Eliminates drift between CI phase and local quality.phase config.
+          # Read phase from project's own state.json — the single source of truth.
+          # Local hooks, CLI commands, and CI all read .methodology/state.json::current_phase.
           PHASE=$(python3 -c "
           import json, sys
           try:

@@ -172,28 +172,42 @@ def _verify_entry_gate(project: Path, phase: int) -> dict:
     if phase in (2, 3):
         prev = phase - 1
         state_path = project / ".methodology" / "state.json"
+        import subprocess as sp
 
-        # Primary: state.json phase_completed + git merge-base --is-ancestor
-        # Avoids circular dependency (git log grep fails across branch boundaries).
+        # Primary: state.json phase_completed[N].sha + git merge-base --is-ancestor.
+        # When state.json records a SHA, it IS the authority: a mismatched ancestry
+        # means the recorded commit is no longer reachable from HEAD (branch reset,
+        # force-push, etc.) and must hard-fail. We do NOT fall through to grep —
+        # that would risk a false positive matching a commit message text alone.
         if state_path.exists():
             try:
                 state = json.loads(state_path.read_text())
-                entry = state.get("phase_completed", {}).get(str(prev))
-                if entry and entry.get("sha"):
-                    import subprocess as sp
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                return {"passed": False, "gate": f"Human1 (P{prev})",
+                        "reason": f"state.json unreadable: {exc}"}
+            entry = state.get("phase_completed", {}).get(str(prev))
+            if entry and entry.get("sha"):
+                try:
                     r = sp.run(
                         ["git", "-C", str(project), "merge-base", "--is-ancestor",
                          entry["sha"], "HEAD"],
                         capture_output=True, text=True, timeout=10,
                     )
-                    if r.returncode == 0:
-                        return {"passed": True, "gate": f"Human1 (P{prev})",
-                                "reason": f"Found human APPROVE commit for P{prev}"}
-            except Exception:
-                pass
+                except Exception as exc:  # pylint: disable=broad-exception-caught
+                    return {"passed": False, "gate": f"Human1 (P{prev})",
+                            "reason": f"git merge-base check failed: {exc}"}
+                if r.returncode == 0:
+                    return {"passed": True, "gate": f"Human1 (P{prev})",
+                            "reason": f"Found human APPROVE commit for P{prev} "
+                                      f"(sha={entry['sha'][:8]})"}
+                return {"passed": False, "gate": f"Human1 (P{prev})",
+                        "reason": f"phase_completed[{prev}].sha={entry['sha'][:8]} "
+                                  "is not an ancestor of HEAD — branch may have been "
+                                  "reset or force-pushed; re-run push-checkpoint."}
 
-        # Fallback: git log --grep (projects before phase_completed schema)
-        import subprocess as sp
+        # Fallback: git log --grep — only reached when state.json has no
+        # phase_completed entry (legacy projects). The grep matches commit
+        # message text only and is intentionally less strict than the SHA path.
         try:
             commit_marker = f"phase{prev}(human-review)"
             result = sp.run(
@@ -202,7 +216,7 @@ def _verify_entry_gate(project: Path, phase: int) -> dict:
             )
             if result.stdout.strip():
                 return {"passed": True, "gate": f"Human1 (P{prev})",
-                        "reason": f"Found human APPROVE commit for P{prev}"}
+                        "reason": f"Found human APPROVE commit for P{prev} (legacy grep)"}
             return {"passed": False, "gate": f"Human1 (P{prev})",
                     "reason": f"No human APPROVE commit found for P{prev}"}
         except Exception as e:
@@ -1474,6 +1488,14 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
                 state_path.write_text(json.dumps(state_data, indent=2), encoding="utf-8")
             except Exception as _e:  # pylint: disable=broad-exception-caught
                 print(f"  [WARN] Could not write push-checkpoint sentinel to state.json: {_e}")
+        # Next-step hint — push-checkpoint records phase_completed[N] but does NOT
+        # update current_phase. Hooks and CI continue to read the same phase until
+        # advance-phase is called explicitly. Keeps phase transitions atomic.
+        _next = phase + 1
+        print(
+            f"\n  Next: advance to Phase {_next} when ready:\n"
+            f"    python3 harness_cli.py advance-phase --phase {_next} --project {project}"
+        )
     return 0 if ok else 1
 
 
@@ -2119,12 +2141,12 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
 
 
 def cmd_advance_phase(args: argparse.Namespace) -> int:
-    """Advance to next phase: sync quality.phase + GitHub CURRENT_PHASE atomically.
+    """Advance to next phase: update state.json + GitHub CURRENT_PHASE atomically.
 
     Calls _advance_fsm() which:
-      1. Writes .methodology/state.json (current_phase = completed + 1)
-      2. Updates git config quality.phase
-      3. Attempts gh variable set CURRENT_PHASE (soft-fail with manual fallback)
+      1. Writes .methodology/state.json (current_phase = completed + 1) — the
+         single source of truth read by hooks and CI.
+      2. Attempts gh variable set CURRENT_PHASE (soft-fail with manual fallback).
 
     After FSM advance, regenerates HANDOVER.md so crash-recovery always
     reflects the current phase, then commits locally (no push — next
@@ -2525,14 +2547,19 @@ def _update_state_checkpoint(project: Path, gate_num: int, fr_id: str | None) ->
 def _advance_fsm(project: Path, completed_phase: int,
                  last_gate: int | None = None,
                  last_fr: str | None = None) -> None:
-    """Write state.json, update git config quality.phase, and sync GitHub CURRENT_PHASE."""
+    """Write state.json and sync GitHub CURRENT_PHASE.
+
+    state.json is the single source of truth for phase state; local hooks and CI
+    read .methodology/state.json::current_phase. The deprecated `git config
+    quality.phase` knob is no longer written.
+    """
     import subprocess  # nosec B404
     from datetime import datetime, timezone
     from core.fsm.fsm import validate_fsm_state, FSMError
 
     next_phase = completed_phase + 1
 
-    # 1. Write .methodology/state.json
+    # 1. Write .methodology/state.json (the authoritative phase record)
     state_path = project / ".methodology" / "state.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)
     existing_state = "INIT"
@@ -2556,6 +2583,7 @@ def _advance_fsm(project: Path, completed_phase: int,
         }, indent=2),
         encoding="utf-8",
     )
+    print(f"  [FSM] state.json current_phase → {next_phase}")
 
     # 2. Advance fr_progress.json phase (kept in sync with state.json)
     try:
@@ -2564,14 +2592,7 @@ def _advance_fsm(project: Path, completed_phase: int,
     except Exception:  # pylint: disable=broad-exception-caught
         pass  # fr_progress.json may not exist yet (P1/P2 projects)
 
-    # 3. Update git config quality.phase (local hooks read this)
-    subprocess.run(  # nosec B603 B607
-        ["git", "-C", str(project), "config", "--local", "quality.phase", str(next_phase)],
-        capture_output=True,
-    )
-    print(f"  [FSM] quality.phase → {next_phase}")
-
-    # 4. Attempt GitHub CURRENT_PHASE sync via gh CLI (soft-fail)
+    # 3. Attempt GitHub CURRENT_PHASE sync via gh CLI (soft-fail)
     try:
         gh = subprocess.run(  # nosec B603 B607
             ["gh", "variable", "set", "CURRENT_PHASE", "--body", str(next_phase)],
@@ -3389,7 +3410,7 @@ def cmd_init_project(args: argparse.Namespace) -> int:
       1. Verify harness is importable from the target project
       2. Write .github/workflows/harness_quality_gate.yml
       3. Optionally run setup-git-hooks.sh
-      4. Set git config quality.phase
+      4. Initialize .methodology/state.json (phase source of truth)
       5. Print drift monitor crontab suggestion
     """
     import subprocess  # imported here (not at module level) to keep startup cost low
@@ -3460,17 +3481,11 @@ def cmd_init_project(args: argparse.Namespace) -> int:
             else:
                 print(f"   WARNING: hook install failed:\n{result.stderr[-500:]}")
 
-    # 4. Set git config
-    print("\n[4/6] Git config...")
-    gc = subprocess.run(
-        ["git", "-C", str(project), "config", "--local", "quality.phase", str(phase)],
-        capture_output=True,
-        text=True,
-    )
-    if gc.returncode == 0:
-        print(f"   OK — quality.phase = {phase}")
-    else:
-        print(f"   WARNING: git config failed (rc={gc.returncode}): {gc.stderr.strip()}")
+    # 4. Phase state — managed via .methodology/state.json (written in step 7).
+    #    The deprecated `git config quality.phase` knob is no longer set;
+    #    state.json is the single source of truth read by hooks and CI.
+    print("\n[4/6] Phase state...")
+    print(f"   OK — phase {phase} will be written to .methodology/state.json (step 7)")
 
     # 5. Create canonical phase directory structure
     print("\n[5/8] Creating phase directory structure...")
@@ -3963,7 +3978,7 @@ def build_parser() -> argparse.ArgumentParser:
     # advance-phase
     adv = sub.add_parser(
         "advance-phase",
-        help="Advance to next phase: sync quality.phase + GitHub CURRENT_PHASE atomically",
+        help="Advance to next phase: update state.json + GitHub CURRENT_PHASE atomically",
     )
     adv.add_argument(
         "--completed", type=int, required=True, dest="completed_phase",

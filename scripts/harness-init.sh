@@ -50,9 +50,9 @@ else
     cat > "$HOOKS_DIR/prepare-commit-msg" << 'HOOK'
 #!/bin/bash
 # harness-methodology
-PHASE=$(git config --local --get quality.phase 2>/dev/null || echo "1")
 command -v python3 &>/dev/null || exit 0
 GIT_DIR=$(git rev-parse --show-toplevel)
+PHASE=$(cd "$GIT_DIR" && python3 -c "import json; d=json.load(open('.methodology/state.json')); print(d.get('current_phase', 1))" 2>/dev/null || echo "1")
 HARNESS_CLI="$GIT_DIR/harness_cli.py"
 [ -f "$HARNESS_CLI" ] || HARNESS_CLI="$GIT_DIR/harness/harness_cli.py"
 [ -f "$HARNESS_CLI" ] || { echo "harness_cli.py not found — skipping quality check"; exit 0; }
@@ -70,9 +70,9 @@ HOOK
     cat > "$HOOKS_DIR/post-merge" << 'HOOK'
 #!/bin/bash
 # harness-methodology
-PHASE=$(git config --local --get quality.phase 2>/dev/null || echo "1")
 command -v python3 &>/dev/null || exit 0
 GIT_DIR=$(git rev-parse --show-toplevel)
+PHASE=$(cd "$GIT_DIR" && python3 -c "import json; d=json.load(open('.methodology/state.json')); print(d.get('current_phase', 1))" 2>/dev/null || echo "1")
 HARNESS_CLI="$GIT_DIR/harness_cli.py"
 [ -f "$HARNESS_CLI" ] || HARNESS_CLI="$GIT_DIR/harness/harness_cli.py"
 [ -f "$HARNESS_CLI" ] || { echo "harness_cli.py not found — skipping quality check"; exit 0; }
@@ -85,9 +85,9 @@ HOOK
     cat > "$HOOKS_DIR/pre-push" << 'HOOK'
 #!/bin/bash
 # harness-methodology
-PHASE=$(git config --local --get quality.phase 2>/dev/null || echo "1")
 command -v python3 &>/dev/null || exit 0
 GIT_DIR=$(git rev-parse --show-toplevel)
+PHASE=$(cd "$GIT_DIR" && python3 -c "import json; d=json.load(open('.methodology/state.json')); print(d.get('current_phase', 1))" 2>/dev/null || echo "1")
 HARNESS_CLI="$GIT_DIR/harness_cli.py"
 [ -f "$HARNESS_CLI" ] || HARNESS_CLI="$GIT_DIR/harness/harness_cli.py"
 [ -f "$HARNESS_CLI" ] || { echo "harness_cli.py not found — skipping quality check"; exit 0; }
@@ -104,14 +104,25 @@ HOOK
     ok "git hooks installed (prepare-commit-msg | post-merge | pre-push)"
 fi
 
-# ── Step 2: quality.phase ─────────────────────────────────────────────────────
-CURRENT_PHASE=$(git -C "$TARGET_DIR" config --local quality.phase 2>/dev/null || true)
-if [[ -n "$CURRENT_PHASE" ]]; then
-    skip "quality.phase (current: $CURRENT_PHASE)"
+# ── Step 2: state.json (phase source of truth) ────────────────────────────────
+STATE_FILE="$TARGET_DIR/.methodology/state.json"
+if [[ -f "$STATE_FILE" ]]; then
+    CURRENT_PHASE=$(python3 -c "import json; print(json.load(open('$STATE_FILE')).get('current_phase', '?'))" 2>/dev/null || echo "?")
+    skip "state.json (current_phase: $CURRENT_PHASE)"
 else
     PHASE="${PHASE_ARG:-1}"
-    git -C "$TARGET_DIR" config quality.phase "$PHASE"
-    ok "quality.phase = $PHASE"
+    mkdir -p "$TARGET_DIR/.methodology"
+    NOW=$(python3 -c "from datetime import datetime, timezone; print(datetime.now(timezone.utc).isoformat())")
+    cat > "$STATE_FILE" << JSON
+{
+  "state": "ACTIVE",
+  "current_phase": $PHASE,
+  "last_gate": null,
+  "last_fr": null,
+  "last_update": "$NOW"
+}
+JSON
+    ok "state.json initialized (current_phase = $PHASE)"
 fi
 
 # ── Step 3: CI workflow ───────────────────────────────────────────────────────
@@ -135,6 +146,7 @@ fi
 
 echo
 echo "  Done."
-echo "  Advance phase : git config quality.phase N"
+echo "  Advance phase : python harness_cli.py advance-phase --phase N --project ."
 echo "  Check phase   : python harness_cli.py run-phase --phase N --project ."
+echo "  Phase source  : .methodology/state.json (current_phase)"
 echo "══════════════════════════════════════════════"

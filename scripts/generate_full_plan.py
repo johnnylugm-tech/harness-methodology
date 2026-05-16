@@ -604,7 +604,7 @@ def _preflight_steps(phase: int) -> List[str]:
     if phase == 1:
         ci_check = [
             "- [ ] **[PREFLIGHT-CI]** ⛔ HARD STOP if any item below is missing — complete SKILL.md §0.1 Step 0 first:",
-            "  1. `git config quality.phase` returns `1`  ← set by `init-project`",
+            "  1. `.methodology/state.json` exists with `current_phase = 1`  ← set by `init-project`",
             "  2. `.github/workflows/harness_quality_gate.yml` exists in project root  ← set by `init-project`",
             "  3. Git hooks installed (`ls .git/hooks/prepare-commit-msg`)  ← set by `init-project`",
             "  4. GitHub repo variable `CURRENT_PHASE = 1` (Settings → Variables)  ← optional (fallback '1')",

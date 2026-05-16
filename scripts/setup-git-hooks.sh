@@ -107,8 +107,9 @@ if [ $RESULT -ne 0 ]; then
     echo "Phase $PHASE preflight checks failed."
     echo "Please fix the issues before committing."
     echo ""
-    echo "To update the current Phase, run:"
-    echo "  git config quality.phase <phase_number>"
+    echo "Phase is read from .methodology/state.json (current_phase)."
+    echo "To advance the phase after gates pass, run:"
+    echo "  python3 harness_cli.py advance-phase --phase <next_phase> --project ."
     echo ""
     exit 1
 fi
