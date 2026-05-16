@@ -438,3 +438,193 @@ class TestValidateP8Completion:
         from harness_cli import _validate_p8_completion
         errors = _validate_p8_completion(tmp_path)
         assert errors == []
+
+
+class TestExtractReviewJson:
+    """Tests for _extract_review_json helper."""
+
+    def test_plain_json(self):
+        from harness_cli import _extract_review_json
+        text = '{"fr": "FR-01", "review_status": "APPROVE", "docs_embedded": ["SRS.md"], "confidence": 0.9}'
+        result = _extract_review_json(text)
+        assert result is not None
+        assert result["review_status"] == "APPROVE"
+
+    def test_json_inside_prose(self):
+        from harness_cli import _extract_review_json
+        text = (
+            "After reviewing the document I conclude:\n"
+            '{"fr": "FR-02", "review_status": "REJECT", "docs_embedded": ["SRS.md"]}\n'
+            "End of review."
+        )
+        result = _extract_review_json(text)
+        assert result is not None
+        assert result["review_status"] == "REJECT"
+        assert result["fr"] == "FR-02"
+
+    def test_json_inside_code_fence(self):
+        from harness_cli import _extract_review_json
+        text = (
+            "```json\n"
+            '{"fr": "FR-03", "review_status": "APPROVE", "docs_embedded": ["SRS.md", "SAD.md"], "confidence": 0.85}\n'
+            "```"
+        )
+        result = _extract_review_json(text)
+        assert result is not None
+        assert result["confidence"] == 0.85
+
+    def test_no_review_status_returns_none(self):
+        from harness_cli import _extract_review_json
+        result = _extract_review_json('{"fr": "FR-01", "other_key": "value"}')
+        assert result is None
+
+    def test_empty_string_returns_none(self):
+        from harness_cli import _extract_review_json
+        assert _extract_review_json("") is None
+
+
+class TestDispatchWritesApprovalJson:
+    """Tests for cmd_dispatch reviewer → agent_b_approvals/<fr_id>.json."""
+
+    def _make_spawner_mock(self, status, output):
+        """Return a module-patchable AgentSpawner that yields a fixed result."""
+        class _MockSpawner:
+            def __init__(self, **_kw):
+                pass
+            def spawn(self, **_kw):
+                return {"status": status, "session_id": "sess-abc", "output": output}
+        return _MockSpawner
+
+    def test_reviewer_complete_writes_approval_json(self, tmp_path, monkeypatch):
+        from harness_cli import cmd_dispatch
+        import sys, types
+        output = '{"fr": "FR-01", "review_status": "APPROVE", "docs_embedded": ["SRS.md"], "confidence": 0.9}'
+        fake_mod = types.ModuleType("core.agent_spawner")
+        fake_mod.AgentSpawner = self._make_spawner_mock("complete", output)
+        monkeypatch.setitem(sys.modules, "core.agent_spawner", fake_mod)
+
+        args = argparse.Namespace(
+            project=str(tmp_path), phase=1, fr_id="FR-01",
+            role="reviewer", prompt="Review FR-01", timeout=60, max_turns=5,
+        )
+        rc = cmd_dispatch(args)
+        assert rc == 0
+        approval_file = tmp_path / ".methodology" / "agent_b_approvals" / "FR-01.json"
+        assert approval_file.exists(), "approval JSON should be written"
+        data = json.loads(approval_file.read_text())
+        assert data["review_status"] == "APPROVE"
+
+    def test_reviewer_complete_no_json_warns(self, tmp_path, monkeypatch, capsys):
+        from harness_cli import cmd_dispatch
+        import sys, types
+        fake_mod = types.ModuleType("core.agent_spawner")
+        fake_mod.AgentSpawner = self._make_spawner_mock("complete", "Looks good, no JSON here.")
+        monkeypatch.setitem(sys.modules, "core.agent_spawner", fake_mod)
+
+        args = argparse.Namespace(
+            project=str(tmp_path), phase=1, fr_id="FR-01",
+            role="reviewer", prompt="Review FR-01", timeout=60, max_turns=5,
+        )
+        rc = cmd_dispatch(args)
+        assert rc == 0  # dispatch itself succeeded
+        approval_file = tmp_path / ".methodology" / "agent_b_approvals" / "FR-01.json"
+        assert not approval_file.exists()
+        out = capsys.readouterr().out
+        assert "WARN" in out
+
+    def test_developer_role_does_not_write_approval(self, tmp_path, monkeypatch):
+        from harness_cli import cmd_dispatch
+        import sys, types
+        output = '{"fr": "FR-01", "review_status": "APPROVE", "docs_embedded": ["SRS.md"]}'
+        fake_mod = types.ModuleType("core.agent_spawner")
+        fake_mod.AgentSpawner = self._make_spawner_mock("complete", output)
+        monkeypatch.setitem(sys.modules, "core.agent_spawner", fake_mod)
+
+        args = argparse.Namespace(
+            project=str(tmp_path), phase=1, fr_id="FR-01",
+            role="developer", prompt="Implement FR-01", timeout=60, max_turns=5,
+        )
+        rc = cmd_dispatch(args)
+        assert rc == 0
+        approval_file = tmp_path / ".methodology" / "agent_b_approvals" / "FR-01.json"
+        assert not approval_file.exists(), "developer role must not write approval JSON"
+
+
+class TestPushCheckpointAgentBGate:
+    """push-checkpoint must call Agent B approval gate before committing."""
+
+    def _write_approval(self, project: Path, fr_id: str, phase: int, status="APPROVE"):
+        approvals_dir = project / ".methodology" / "agent_b_approvals"
+        approvals_dir.mkdir(parents=True, exist_ok=True)
+        docs = ["SRS.md"] if phase == 1 else ["SRS.md", "SAD.md"]
+        (approvals_dir / f"{fr_id}.json").write_text(json.dumps({
+            "fr": fr_id, "review_status": status,
+            "docs_embedded": docs, "confidence": 0.9,
+        }))
+
+    def test_missing_agent_b_approvals_blocks(self, tmp_path, monkeypatch, capsys):
+        """push-checkpoint returns 5 when Agent B approvals are missing."""
+        from harness_cli import cmd_push_checkpoint
+        import harness_cli, types, sys
+
+        class _FakeGit:
+            def ensure_gitignore(self): pass
+            def commit_and_push_p1(self, **_kw): return True
+            def commit_and_push_p2(self, **_kw): return True
+
+        monkeypatch.setattr(harness_cli, "_make_git", lambda *_a, **_kw: _FakeGit())
+        conf_mod = types.ModuleType("core.quality_gate.confidence_scorer")
+        conf_mod.compute_confidence = lambda *_: {"composite": 95.0}
+        conf_mod.should_auto_approve_p1p2 = lambda _: True
+        conf_mod.format_confidence_report = lambda _: ""
+        conf_mod.AUTO_APPROVE_P1P2_THRESHOLD = 80.0
+        monkeypatch.setitem(sys.modules, "core.quality_gate.confidence_scorer", conf_mod)
+
+        args = argparse.Namespace(
+            project=str(tmp_path), phase=1, fr_ids="SRS.md,SPEC_TRACKING.md,TRACEABILITY_MATRIX.md",
+            skip_confidence=False, dry_run=False, no_push=False,
+        )
+        rc = cmd_push_checkpoint(args)
+        assert rc == 5, "missing approvals should return 5"
+        out = capsys.readouterr().out
+        assert "BLOCKED" in out or "Missing" in out
+
+    def test_commit_message_no_longer_says_human_review(self, tmp_path, monkeypatch):
+        """Commit notes must NOT say 'human review'."""
+        from harness_cli import cmd_push_checkpoint
+        import harness_cli, types, sys
+
+        # Write all three P1 deliverable approvals
+        for did in ["SRS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md"]:
+            self._write_approval(tmp_path, did, phase=1)
+
+        commit_calls: list[dict] = []
+        class _FakeGit:
+            def ensure_gitignore(self): pass
+            def commit_and_push_p1(self, **kw):
+                commit_calls.append(kw)
+                return True
+            def commit_and_push_p2(self, **kw):
+                commit_calls.append(kw)
+                return True
+
+        monkeypatch.setattr(harness_cli, "_make_git", lambda *_a, **_kw: _FakeGit())
+        conf_mod = types.ModuleType("core.quality_gate.confidence_scorer")
+        conf_mod.compute_confidence = lambda *_: {"composite": 95.0}
+        conf_mod.should_auto_approve_p1p2 = lambda _: True
+        conf_mod.format_confidence_report = lambda _: ""
+        conf_mod.AUTO_APPROVE_P1P2_THRESHOLD = 80.0
+        monkeypatch.setitem(sys.modules, "core.quality_gate.confidence_scorer", conf_mod)
+
+        args = argparse.Namespace(
+            project=str(tmp_path), phase=1, fr_ids="FR-01",
+            skip_confidence=False, dry_run=False, no_push=False,
+        )
+        rc = cmd_push_checkpoint(args)
+        assert rc == 0
+        assert commit_calls, "commit_and_push_p1 should have been called"
+        background = commit_calls[0].get("background", "")
+        notes = commit_calls[0].get("notes", [])
+        assert "human review" not in background.lower(), "must not claim human review"
+        assert all("human review" not in n.lower() for n in notes), "notes must not claim human review"
+        assert "auto-approved" in background.lower() or "confidence" in background.lower()

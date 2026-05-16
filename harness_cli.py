@@ -116,6 +116,17 @@ _ENTRY_GATE_MAP: dict[int, int] = {4: 2, 5: 3, 6: 3, 7: 4, 8: 4}
 # Phase → composite exit gate number
 _PHASE_EXIT_GATES: dict[int, int] = {3: 2, 4: 3, 6: 4}
 
+# P1/P2 deliverable labels used as approval-file keys in agent_b_approvals/
+_PHASE_DELIVERABLES: dict[int, list[str]] = {
+    1: ["SRS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md"],
+    2: ["SAD.md", "ADR.md"],
+}
+# Documents that Agent B must embed per phase (SAD.md doesn't exist until P2)
+_REQUIRED_EMBEDDED_DOCS: dict[int, list[str]] = {
+    1: ["SRS.md"],
+    2: ["SRS.md", "SAD.md"],
+}
+
 
 # ---------------------------------------------------------------------------
 # plan-phase
@@ -1333,17 +1344,28 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
     except ImportError:
         print("[WARN] confidence_scorer unavailable — skipping confidence check")
 
+    # ── Agent B approval gate ──────────────────────────────────────────────────
+    deliverable_ids = _PHASE_DELIVERABLES.get(phase, fr_ids)
+    if not skip_conf:
+        passed, report = _verify_agent_b_approvals_core(project, phase, deliverable_ids)
+        print(report)
+        if not passed:
+            return 5
+    else:
+        _, report = _verify_agent_b_approvals_core(project, phase, deliverable_ids)
+        print(f"[WARN] --skip-confidence active — Agent B gate bypassed\n{report}")
+
     if phase == 1:
         ok = git.commit_and_push_p1(
             fr_ids=fr_ids,
-            background="P1 human review APPROVED — SRS + deliverables complete.",
-            notes=["Human peer review passed", "All deliverables reviewed and approved"],
+            background="P1 auto-approved — confidence gate passed, Agent B approvals verified.",
+            notes=["Confidence gate passed", "Agent B approvals verified"],
         )
     else:
         ok = git.commit_and_push_p2(
             fr_ids=fr_ids,
-            background="P2 human review APPROVED — SAD + ADR + quality manifest complete.",
-            notes=["Human peer review passed", "SAD/ADR reviewed and approved"],
+            background="P2 auto-approved — confidence gate passed, Agent B approvals verified.",
+            notes=["Confidence gate passed", "Agent B approvals verified"],
         )
     if ok:
         handover = project / "HANDOVER.md"
@@ -1351,6 +1373,92 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
             print(f"  HANDOVER.md → {handover}")
         print("  [git] pushed → remote ✓")
     return 0 if ok else 1
+
+
+def _extract_review_json(text: str) -> "dict | None":
+    """Extract the first JSON object containing 'review_status' from free text.
+
+    Scans from every '{' position so it works whether the agent output is plain
+    JSON, JSON inside a markdown code fence, or JSON embedded in prose.
+    Returns None if no valid review JSON is found.
+    """
+    decoder = json.JSONDecoder()
+    for i, ch in enumerate(text):
+        if ch != '{':
+            continue
+        try:
+            obj, _ = decoder.raw_decode(text, i)
+            if isinstance(obj, dict) and "review_status" in obj:
+                return obj
+        except json.JSONDecodeError:
+            pass
+    return None
+
+
+def _verify_agent_b_approvals_core(
+    project: Path, phase: int, deliverable_ids: "list[str]"
+) -> "tuple[bool, str]":
+    """Verify agent_b_approvals/<id>.json files exist and carry APPROVE status.
+
+    Returns (passed, report) where report is a human-readable summary.
+    Uses phase-appropriate required_embedded_docs (P1 only needs SRS.md;
+    P2 needs SRS.md + SAD.md).
+    """
+    required_docs = _REQUIRED_EMBEDDED_DOCS.get(phase, ["SRS.md", "SAD.md"])
+    approvals_dir = project / ".methodology" / "agent_b_approvals"
+    lines: list[str] = [
+        f"[verify-agent-b] Phase {phase} — checking {len(deliverable_ids)} deliverables",
+        f"  Approvals dir : {approvals_dir}",
+    ]
+    missing: list[str] = []
+    rejected: list[str] = []
+    errors: list[str] = []
+
+    for did in deliverable_ids:
+        approval_file = approvals_dir / f"{did}.json"
+        if not approval_file.exists():
+            missing.append(did)
+            continue
+        try:
+            data = json.loads(approval_file.read_text(encoding="utf-8"))
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            errors.append(f"{did}: JSON parse error — {exc}")
+            continue
+        status = data.get("review_status", "")
+        if status != "APPROVE":
+            rejected.append(f"{did}: review_status={status!r} (expected APPROVE)")
+            continue
+        embedded = data.get("docs_embedded", [])
+        missing_docs = [d for d in required_docs if d not in embedded]
+        if missing_docs:
+            errors.append(
+                f"{did}: docs_embedded missing {missing_docs} — "
+                "Agent B prompt must embed the required source documents."
+            )
+
+    passed = not (missing or rejected or errors)
+    if passed:
+        lines.append(f"  ✓ All {len(deliverable_ids)} Agent B approvals verified.")
+    else:
+        lines.append("\n[BLOCKED] Agent B approval verification failed:")
+        if missing:
+            lines.append(f"  Missing approval files ({len(missing)}):")
+            for d in missing:
+                lines.append(f"    • {approvals_dir / d}.json")
+        if rejected:
+            lines.append(f"  Non-APPROVE statuses ({len(rejected)}):")
+            for r in rejected:
+                lines.append(f"    • {r}")
+        if errors:
+            lines.append(f"  Schema/content errors ({len(errors)}):")
+            for e in errors:
+                lines.append(f"    • {e}")
+        lines.append(
+            "\n  Fix: ensure Agent B writes approval JSON for each deliverable:\n"
+            '    {"fr": "<id>", "review_status": "APPROVE", '
+            '"docs_embedded": ["SRS.md"], "confidence": 0.9}'
+        )
+    return passed, "\n".join(lines)
 
 
 def cmd_verify_agent_b_approvals(args: argparse.Namespace) -> int:
@@ -1385,62 +1493,9 @@ def cmd_verify_agent_b_approvals(args: argparse.Namespace) -> int:
         print("[verify-agent-b] No FR IDs found — pass --fr-ids or ensure quality_manifest.json exists.")
         return 1
 
-    approvals_dir = project / ".methodology" / "agent_b_approvals"
-    errors: list[str] = []
-    missing: list[str] = []
-    rejected: list[str] = []
-
-    # Required documents that must be embedded in Agent B's review prompt
-    REQUIRED_DOCS = ["SRS.md", "SAD.md"]
-
-    for fr_id in fr_ids:
-        approval_file = approvals_dir / f"{fr_id}.json"
-        if not approval_file.exists():
-            missing.append(fr_id)
-            continue
-        try:
-            data = json.loads(approval_file.read_text(encoding="utf-8"))
-        except Exception as exc:
-            errors.append(f"{fr_id}: JSON parse error — {exc}")
-            continue
-
-        status = data.get("review_status", "")
-        if status != "APPROVE":
-            rejected.append(f"{fr_id}: review_status={status!r} (expected APPROVE)")
-            continue
-
-        embedded = data.get("docs_embedded", [])
-        missing_docs = [d for d in REQUIRED_DOCS if d not in embedded]
-        if missing_docs:
-            errors.append(
-                f"{fr_id}: docs_embedded missing {missing_docs}. "
-                "Agent B prompt must embed full SRS.md + SAD.md content."
-            )
-
-    print(f"\n[verify-agent-b] Phase {phase} — checking {len(fr_ids)} FRs")
-    print(f"  Approvals dir : {approvals_dir}")
-
-    all_ok = not (missing or rejected or errors)
-    if all_ok:
-        print(f"  ✓ All {len(fr_ids)} Agent B approvals verified.")
-        return 0
-
-    print(f"\n[BLOCKED] Agent B approval verification failed:")
-    if missing:
-        print(f"  Missing approval files ({len(missing)}):")
-        for fr in missing:
-            print(f"    • {approvals_dir / fr}.json")
-    if rejected:
-        print(f"  Non-APPROVE statuses ({len(rejected)}):")
-        for r in rejected:
-            print(f"    • {r}")
-    if errors:
-        print(f"  Schema/content errors ({len(errors)}):")
-        for e in errors:
-            print(f"    • {e}")
-    print("\n  Fix: ensure Agent B writes approval JSON for each FR with:")
-    print('    {"fr": "FR-XX", "review_status": "APPROVE", "docs_embedded": ["SRS.md", "SAD.md"], "confidence": 0.9}')
-    return 1
+    passed, report = _verify_agent_b_approvals_core(project, phase, fr_ids)
+    print(report)
+    return 0 if passed else 1
 
 
 def _validate_p8_completion(project: Path) -> list[str]:
@@ -1988,6 +2043,31 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
     print(f"[dispatch] {args.fr_id or 'phase'} | {args.role} | {status} | session={session_id}")
     if status in _DISPATCH_ERROR_STATUSES:
         return 1
+
+    # For completed reviewer dispatches, extract and persist Agent B approval JSON.
+    if (
+        status == "complete"
+        and "review" in args.role.lower()
+        and args.fr_id
+    ):
+        output_text = result.get("output", "")
+        review_data = _extract_review_json(output_text)
+        if review_data:
+            approvals_dir = project / ".methodology" / "agent_b_approvals"
+            approvals_dir.mkdir(parents=True, exist_ok=True)
+            approval_file = approvals_dir / f"{args.fr_id}.json"
+            approval_file.write_text(
+                json.dumps(review_data, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            print(f"  [dispatch] approval JSON → {approval_file}")
+        else:
+            print(
+                f"  [WARN] dispatch (reviewer): no review JSON found in agent output — "
+                f"{args.fr_id}.json not written.\n"
+                "  Ensure Agent B output includes a JSON block with 'review_status'."
+            )
+
     return 0
 
 
