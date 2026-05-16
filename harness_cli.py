@@ -1281,6 +1281,18 @@ def cmd_manifest(args: argparse.Namespace) -> int:
 # push-checkpoint  (P1/P2 human review checkpoint push + HANDOVER.md)
 # ---------------------------------------------------------------------------
 
+def _check_ci_readiness(project: Path) -> list[str]:
+    """Return list of missing CI components (empty = all present)."""
+    missing: list[str] = []
+    workflow = project / ".github" / "workflows" / "harness_quality_gate.yml"
+    if not workflow.exists():
+        missing.append(".github/workflows/harness_quality_gate.yml")
+    hooks_dir = project / ".git" / "hooks"
+    if not (hooks_dir / "prepare-commit-msg").exists():
+        missing.append(".git/hooks/prepare-commit-msg")
+    return missing
+
+
 def cmd_push_checkpoint(args: argparse.Namespace) -> int:
     """Push P1/P2 human-review checkpoint with HANDOVER.md generation.
 
@@ -1344,6 +1356,19 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
     except ImportError:
         print("[WARN] confidence_scorer unavailable — skipping confidence check")
 
+    # ── CI readiness gate ─────────────────────────────────────────────────────
+    ci_missing = _check_ci_readiness(project)
+    if ci_missing:
+        msg = (
+            f"\n[{'WARN' if skip_conf else 'BLOCKED'}] push-checkpoint (P{phase}): "
+            f"CI wiring incomplete — missing: {ci_missing}\n"
+            f"  Fix: python harness_cli.py init-project --project {project}\n"
+            "  This ensures harness_quality_gate.yml + git hooks are wired.\n"
+        )
+        print(msg)
+        if not skip_conf:
+            return 5
+
     # ── Agent B approval gate ──────────────────────────────────────────────────
     deliverable_ids = _PHASE_DELIVERABLES.get(phase, fr_ids)
     if not skip_conf:
@@ -1354,6 +1379,26 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
     else:
         _, report = _verify_agent_b_approvals_core(project, phase, deliverable_ids)
         print(f"[WARN] --skip-confidence active — Agent B gate bypassed\n{report}")
+
+    # ── Checklist gate (Gap-7) ─────────────────────────────────────────────────
+    plan_path = project / ".methodology" / f"phase{phase}_plan.md"
+    mandatory_unchecked, advisory_unchecked = _parse_plan_unchecked(plan_path)
+    if advisory_unchecked:
+        print(f"  ⚠ Advisory checklist items unchecked: {len(advisory_unchecked)}")
+    if mandatory_unchecked and not skip_conf:
+        print(f"\n[BLOCKED] push-checkpoint (P{phase}): mandatory checklist items unchecked:")
+        for item in mandatory_unchecked:
+            print(f"  • {item}")
+        print(
+            "\n  Tick each item in the plan (`- [ ]` → `- [x]`) before pushing.\n"
+            "  To override: add --skip-confidence"
+        )
+        return 5
+    elif mandatory_unchecked:
+        print(
+            f"[WARN] --skip-confidence active — {len(mandatory_unchecked)} mandatory "
+            "checklist item(s) still unchecked"
+        )
 
     if phase == 1:
         ok = git.commit_and_push_p1(
@@ -1389,6 +1434,33 @@ def _extract_review_json(text: str) -> "dict | None":
         try:
             obj, _ = decoder.raw_decode(text, i)
             if isinstance(obj, dict) and "review_status" in obj:
+                return obj
+        except json.JSONDecodeError:
+            pass
+    return None
+
+
+def _extract_agent_output_json(text: str) -> "dict | None":
+    """Extract Agent A's structured output JSON from free text.
+
+    Looks for a dict that has 'status' plus at least one of the Agent A
+    output fields (files, confidence, citations, summary).  This is distinct
+    from Agent B's review JSON which carries 'review_status'.
+    Returns None if no matching JSON block is found.
+    """
+    _AGENT_A_FIELDS = frozenset({"files", "confidence", "citations", "summary"})
+    decoder = json.JSONDecoder()
+    for i, ch in enumerate(text):
+        if ch != '{':
+            continue
+        try:
+            obj, _ = decoder.raw_decode(text, i)
+            if (
+                isinstance(obj, dict)
+                and "status" in obj
+                and "review_status" not in obj  # not an Agent B block
+                and _AGENT_A_FIELDS & obj.keys()
+            ):
                 return obj
         except json.JSONDecodeError:
             pass
@@ -1496,6 +1568,98 @@ def cmd_verify_agent_b_approvals(args: argparse.Namespace) -> int:
     passed, report = _verify_agent_b_approvals_core(project, phase, fr_ids)
     print(report)
     return 0 if passed else 1
+
+
+# ---------------------------------------------------------------------------
+# check-checklist  (Gap-7: mandatory step tracking in phase plans)
+# ---------------------------------------------------------------------------
+
+# Labels that represent mandatory agent/review steps; unchecked = block.
+_MANDATORY_CHECKLIST_LABELS: frozenset[str] = frozenset({
+    "A-2", "B-2", "HR-READ", "HR-DECIDE", "PHASE-TRUTH",
+})
+
+# These labels are informational checkpoints — warn but don't block push.
+_ADVISORY_CHECKLIST_LABELS: frozenset[str] = frozenset({
+    "PREFLIGHT-CI",
+})
+
+
+def _parse_plan_unchecked(
+    plan_path: Path,
+) -> "tuple[list[str], list[str]]":
+    """Scan a phase plan for unchecked mandatory and advisory items.
+
+    Returns (unchecked_mandatory, unchecked_advisory).
+    Looks for lines of the form:  - [ ] **[LABEL]** ...
+    Items already checked (`- [x]`) are ignored.
+    """
+    import re
+    unchecked_mandatory: list[str] = []
+    unchecked_advisory: list[str] = []
+    if not plan_path.exists():
+        return unchecked_mandatory, unchecked_advisory
+
+    pattern = re.compile(r"^\s*-\s+\[([ x])\]\s+\*\*\[([A-Z0-9_-]+)\]\*\*")
+    for lineno, line in enumerate(plan_path.read_text(encoding="utf-8").splitlines(), 1):
+        m = pattern.match(line)
+        if not m:
+            continue
+        checked, label = m.group(1), m.group(2)
+        if checked == "x":
+            continue
+        entry = f"line {lineno}: [{label}] — {line.strip()[:80]}"
+        if label in _MANDATORY_CHECKLIST_LABELS:
+            unchecked_mandatory.append(entry)
+        elif label in _ADVISORY_CHECKLIST_LABELS:
+            unchecked_advisory.append(entry)
+
+    return unchecked_mandatory, unchecked_advisory
+
+
+def cmd_check_checklist(args: argparse.Namespace) -> int:
+    """Verify that mandatory checklist items in the phase plan are ticked.
+
+    Scans .methodology/phase{N}_plan.md for unchecked items with labels in
+    _MANDATORY_CHECKLIST_LABELS ([A-2], [B-2], [HR-READ], [HR-DECIDE],
+    [PHASE-TRUTH]).  Advisory labels ([PREFLIGHT-CI]) are reported but do not
+    fail the command.
+
+    Usage:
+      python harness_cli.py check-checklist --phase 1 --project .
+    """
+    project = Path(args.project).resolve()
+    phase = args.phase
+    plan_path = project / ".methodology" / f"phase{phase}_plan.md"
+
+    if not plan_path.exists():
+        print(f"[check-checklist] P{phase}: plan not found at {plan_path}")
+        print("  Run: python harness_cli.py plan-phase --phase {phase} --project {project}")
+        return 1
+
+    mandatory_unchecked, advisory_unchecked = _parse_plan_unchecked(plan_path)
+
+    print(f"\n[check-checklist] Phase {phase} — {plan_path.name}")
+    if not mandatory_unchecked and not advisory_unchecked:
+        print("  ✓ All mandatory checklist items are ticked.")
+        return 0
+
+    if advisory_unchecked:
+        print(f"  ⚠ Advisory items unchecked ({len(advisory_unchecked)}) — will not block:")
+        for item in advisory_unchecked:
+            print(f"    • {item}")
+
+    if mandatory_unchecked:
+        print(f"\n  [BLOCKED] Mandatory items unchecked ({len(mandatory_unchecked)}):")
+        for item in mandatory_unchecked:
+            print(f"    • {item}")
+        print(
+            "\n  Tick each item in the plan after completing the corresponding step.\n"
+            "  Change `- [ ]` to `- [x]` once the step is done."
+        )
+        return 1
+
+    return 0
 
 
 def _validate_p8_completion(project: Path) -> list[str]:
@@ -2066,6 +2230,31 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
                 f"  [WARN] dispatch (reviewer): no review JSON found in agent output — "
                 f"{args.fr_id}.json not written.\n"
                 "  Ensure Agent B output includes a JSON block with 'review_status'."
+            )
+
+    # For completed developer dispatches, extract and persist Agent A structured output.
+    if (
+        status == "complete"
+        and "review" not in args.role.lower()
+        and args.fr_id
+    ):
+        output_text = result.get("output", "")
+        agent_output = _extract_agent_output_json(output_text)
+        if agent_output:
+            outputs_dir = project / ".methodology" / "agent_a_outputs"
+            outputs_dir.mkdir(parents=True, exist_ok=True)
+            output_file = outputs_dir / f"{args.fr_id}.json"
+            output_file.write_text(
+                json.dumps(agent_output, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            print(f"  [dispatch] agent output JSON → {output_file}")
+        else:
+            print(
+                f"  [WARN] dispatch ({args.role}): no structured output JSON found — "
+                f"{args.fr_id}.json not written.\n"
+                "  Ensure Agent A output includes a JSON block with 'status', 'files', "
+                "'confidence', 'citations', and 'summary'."
             )
 
     return 0
@@ -3420,6 +3609,15 @@ def build_parser() -> argparse.ArgumentParser:
     pcc.add_argument("--phase",   type=int, required=True, help="Phase number (1-8)")
     pcc.add_argument("--project", default=".", help="Project root (default: .)")
     pcc.set_defaults(func=cmd_pre_commit_check)
+
+    # check-checklist (Gap-7: verify mandatory plan items are ticked)
+    ccl = sub.add_parser(
+        "check-checklist",
+        help="Verify mandatory checklist items in phaseN_plan.md are ticked ([ ] → [x])",
+    )
+    ccl.add_argument("--phase",   type=int, required=True, help="Phase number")
+    ccl.add_argument("--project", default=".", help="Project root (default: .)")
+    ccl.set_defaults(func=cmd_check_checklist)
 
     # push-checkpoint (P1/P2 human review → git push + HANDOVER.md)
     pc = sub.add_parser(

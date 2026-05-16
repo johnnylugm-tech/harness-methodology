@@ -132,6 +132,19 @@ class PhaseHooks:
                 current_phase=_phase, check_mode=check_mode
             )
             print(f"   Score: {result.score:.0f}%, Violations: {len(result.violations)}")
+            if not result.passed:
+                # Gap-6 fix: surface a concrete re-dispatch command so the executing
+                # agent triggers an A/B fix loop instead of manually patching keywords.
+                print(
+                    f"\n   [CONSTITUTION FAIL] Score {result.score:.0f}% below threshold.\n"
+                    "   Do NOT manually edit keywords. Re-dispatch Agent A to fix the document:\n"
+                    f"     python harness_cli.py dispatch --role developer "
+                    f"--phase {_phase} --project . \\\n"
+                    f'       --prompt "Constitution check failed (score {result.score:.0f}%): '
+                    "improve document quality to meet keyword coverage thresholds. "
+                    "Refer to the failing dimensions in the check output and enrich the "
+                    'document sections accordingly."'
+                )
             return {"passed": result.passed, "score": result.score,
                     "violations": len(result.violations)}
         except Exception as e:
