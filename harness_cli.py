@@ -306,9 +306,16 @@ def cmd_run_phase(args: argparse.Namespace) -> int:
 
     Preflight scans the most recently completed phase's artifacts (via
     state.json.phase_completed) to ensure the project is ready to enter the
-    target phase.  No postflight is executed here — phase output validation
-    and state advancement happen inside run-pipeline / finalize-gate after
-    actual phase work has been completed.
+    target phase.  No postflight is executed here.
+
+    Postflight coverage by command:
+    - run-pipeline: calls postflight_all() (constitution + BVS + drift +
+      artifact_links + state advancement) after all FR work completes.
+    - finalize-gate (gate >= 2, standalone): runs only postflight_artifact_links()
+      + postflight_drift_check().  Constitution and BVS invariants are NOT
+      checked on this path.
+    - finalize-gate (gate 1): no postflight; constitution/BVS covered by the
+      subsequent run-pipeline postflight_all() call.
     """
     from core.phase_hooks import PhaseHooks
 
@@ -1047,7 +1054,7 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
                     return 5
                 print("[POST-FLIGHT] Structural checks PASS")
             except ImportError:
-                pass  # PhaseHooks unavailable — skip silently
+                print("[WARN] PhaseHooks unavailable — postflight structural checks skipped")
             except Exception as _pf_exc:
                 # Blocking only for Gate 4 (final gate); earlier gates warn only.
                 if args.gate >= 4:

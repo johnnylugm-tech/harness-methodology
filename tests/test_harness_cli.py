@@ -800,3 +800,87 @@ class TestCheckChecklist:
         from harness_cli import _parse_plan_unchecked
         mandatory, advisory = _parse_plan_unchecked(plan)
         assert any("PHASE-TRUTH" in m for m in mandatory)
+
+
+# =============================================================================
+# TestRunPhaseNoPostflight
+# =============================================================================
+
+class TestRunPhaseNoPostflight:
+    """Verify cmd_run_phase does NOT invoke postflight after the e22e723 fix."""
+
+    def _make_project(self, tmp_path: Path) -> Path:
+        """Minimal project dir that satisfies entry-gate + preflight stubs."""
+        meth = tmp_path / ".methodology"
+        meth.mkdir(parents=True)
+        state = {
+            "current_phase": 1,
+            "phase_completed": {},
+        }
+        (meth / "state.json").write_text(json.dumps(state))
+        return tmp_path
+
+    def test_postflight_not_called_on_success(self, tmp_path, monkeypatch):
+        """run-phase must return without ever calling postflight_all."""
+        project = self._make_project(tmp_path)
+        postflight_called = []
+
+        import harness_cli
+        from core.phase_hooks import PhaseHooks
+
+        # Stub entry gate to pass immediately.
+        monkeypatch.setattr(harness_cli, "_verify_entry_gate",
+                            lambda *_a, **_kw: {"passed": True, "gate": "G", "reason": "ok"})
+        # Stub preflight_all to pass.
+        monkeypatch.setattr(PhaseHooks, "preflight_all",
+                            lambda self: {"all_passed": True, "details": {}})
+        # Stub postflight_all — must NOT be called.
+        monkeypatch.setattr(PhaseHooks, "postflight_all",
+                            lambda self: postflight_called.append(1) or {"success": True})
+        # Suppress sessions_spawn audit (phase 1 is not in _PER_FR_GATE1_PHASES).
+
+        args = argparse.Namespace(phase=1, project=str(project))
+        rc = harness_cli.cmd_run_phase(args)
+
+        assert rc == 0
+        assert postflight_called == [], "postflight_all must NOT be called from run-phase"
+
+    def test_returns_1_on_preflight_failure(self, tmp_path, monkeypatch):
+        """run-phase returns 1 when preflight fails (no postflight)."""
+        project = self._make_project(tmp_path)
+        postflight_called = []
+
+        import harness_cli
+        from core.phase_hooks import PhaseHooks
+
+        monkeypatch.setattr(harness_cli, "_verify_entry_gate",
+                            lambda *_a, **_kw: {"passed": True, "gate": "G", "reason": "ok"})
+        monkeypatch.setattr(PhaseHooks, "preflight_all",
+                            lambda self: {"all_passed": False, "details": {"error": "missing SRS"}})
+        monkeypatch.setattr(PhaseHooks, "postflight_all",
+                            lambda self: postflight_called.append(1) or {"success": True})
+
+        args = argparse.Namespace(phase=1, project=str(project))
+        rc = harness_cli.cmd_run_phase(args)
+
+        assert rc == 1
+        assert postflight_called == [], "postflight_all must NOT be called even on preflight failure"
+
+    def test_returns_10_on_entry_gate_failure(self, tmp_path, monkeypatch):
+        """run-phase returns 10 when entry gate fails (no postflight)."""
+        project = self._make_project(tmp_path)
+        postflight_called = []
+
+        import harness_cli
+        from core.phase_hooks import PhaseHooks
+
+        monkeypatch.setattr(harness_cli, "_verify_entry_gate",
+                            lambda *_a, **_kw: {"passed": False, "gate": "G", "reason": "Phase 0 not complete"})
+        monkeypatch.setattr(PhaseHooks, "postflight_all",
+                            lambda self: postflight_called.append(1) or {"success": True})
+
+        args = argparse.Namespace(phase=2, project=str(project))
+        rc = harness_cli.cmd_run_phase(args)
+
+        assert rc == 10
+        assert postflight_called == [], "postflight_all must NOT be called on entry gate failure"
