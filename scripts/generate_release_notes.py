@@ -137,6 +137,7 @@ def generate_release_notes(project_root: str,
 
     content = "\n".join(lines)
     out = Path(output_path) if output_path else project / "RELEASE_NOTES.md"
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(content, encoding="utf-8")
     print(f"[RENOTES] Written → {out}  ({len(lines)} lines)")
     return str(out)
