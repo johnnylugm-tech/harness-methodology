@@ -2441,6 +2441,7 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
         0  — all requested phases completed
         1  — hard error (SSI unavailable, missing manifest, etc.)
         10 — PAUSE: human intervention needed; re-run with --phase-from N
+        11 — Phase Truth failure (HR-11 score < 90%); auto-fix attempts resolution; escalates after max rounds
     """
     from harness.harness_bridge import HarnessBridge, GateBlockedError
 

@@ -1,4 +1,4 @@
-# SAD — Harness Methodology v2.4 (As-Built — Audit: 2026-05-12)
+# SAD — Harness Methodology v2.4 (As-Built — Audit: 2026-05-16)
 
 > **Sync guarantee**: This document is reverse-engineered from the live codebase.
 > Any change to the code **must** be reflected here, and vice-versa.
@@ -75,15 +75,15 @@ The full-system CLI (`cli.py`) lives in the parent system that contains harness-
 python harness_cli.py plan-phase        --phase 3 [--project .] [--output plan.md]
 python harness_cli.py run-phase         --phase 3 [--project .]
 python harness_cli.py pre-commit-check  --phase 3 [--project .]   # git hook only (FSM/constitution/kill-switch)
-python harness_cli.py run-gate          --gate 2 --phase 3 [--project .] [--fr-id FR-01]
+python harness_cli.py run-gate          --gate 2 --phase 3 [--project .] [--fr-id FR-01] [--skip-preflight] [--delta]
 python harness_cli.py finalize-gate     --gate 2 --phase 3 [--project .] [--fr-id FR-01] [--no-git]
 python harness_cli.py generate-next-plan [--project .] [--phase N]
 python harness_cli.py run-pipeline      [--phase-from 1] [--phase-to 8] [--project .] [--watch]
                                         [--no-git] [--no-kill-switch] [--drift-threshold 85.0]
                                         [--auto-fix-rounds 3] [--no-auto-fix]
-python harness_cli.py push-checkpoint   --phase 1|2 [--project .] [--fr-ids FR-01,FR-02] [--no-git]
+python harness_cli.py push-checkpoint   --phase 1|2 [--project .] [--fr-ids FR-01,FR-02] [--no-git] [--skip-confidence]
 python harness_cli.py manifest          --fr-ids FR-01 FR-02 [--sad SAD.md] [--no-git]
-python harness_cli.py status            [--project .]
+python harness_cli.py status            [--project .] [--json] [--full]
 python harness_cli.py effort            [--phase 3] [--project .]
 python harness_cli.py reload-policy     [--policy-file enforcement/enforcement.json]
 python harness_cli.py run-gap-analysis  [--project .] [--spec SPEC.md] [--similarity 0.6]
@@ -93,11 +93,11 @@ python harness_cli.py verify-spec       [--project .] [--fix]  # --fix shows sug
 python harness_cli.py check-logic       [--project .] [--srs SRS.md]
 python harness_cli.py init-project      --project /path/to/target [--phase 3] [--overwrite] [--ci-only]
 python harness_cli.py advance-phase     --completed N [--project .]
-python harness_cli.py await-hermes-approve [--project .] [--response APPROVE|REJECT]
-python harness_cli.py push-milestone    --type p3-mid|p3-pre-ssi|p4-mid|p4-pre-ssi|p5-baseline|p7|p8 [--project .]
+python harness_cli.py await-hermes-approve [--project .] [--response APPROVE|REJECT] [--timeout-ms N]
+python harness_cli.py push-milestone    --type p3-mid|p3-pre-ssi|p4-mid|p4-pre-ssi|p5-baseline|p7|p8 [--project .] [--fr-ids FR-01,FR-02] [--fr-done N] [--fr-total N] [--no-git]
 python harness_cli.py dispatch          --role developer|reviewer --fr-id FR-01 --prompt "..." [--phase 3] [--project .]
 python harness_cli.py verify-agent-b-approvals --phase N [--fr-ids FR-01,FR-02] [--project .]
-python harness_cli.py audit-structure   [--project .]
+python harness_cli.py audit-structure   [--project .] [--json]
 ```
 
 **Gate evaluation (two-phase)**: `run-gate` prepares context and prints evaluation instructions; Claude evaluates inline and writes `.sessi-work/gate{N}_result.json`; `finalize-gate` reads the result and checks thresholds. SSI assets are embedded in `harness/ssi/`.
@@ -105,7 +105,7 @@ python harness_cli.py audit-structure   [--project .]
 **`run-pipeline`** exit codes:
 - `0` — all phases complete
 - `1` — hard error (SSI unavailable, manifest missing)
-- `10` — PAUSE: auto-fix escalation; human intervention needed (see 9 escalation conditions in `core/auto_fix/__init__.py`); resume with `--phase-from N`
+- `10` — PAUSE: human intervention needed (missing artifacts, kill-switch, preflight failure, Gate BLOCKED, or auto-fix escalation — see 9 escalation conditions in `core/auto_fix/__init__.py`); resume with `--phase-from N`
 - `11` — Phase Truth failure (HR-11 score < 90%); auto-fix attempts resolution; escalates after max rounds
 
 **Pipeline step flow per phase (P3+)**:
@@ -116,12 +116,14 @@ python harness_cli.py audit-structure   [--project .]
 [phase.3]   Gate 1 per-FR      — Per-FR quality gate evaluation (phases 3,4,5,7,8)
 [phase.4]   Phase exit gate    — Composite gate evaluation (G2 at P3, G3 at P4, G4 at P6)
 [phase.5]   Phase Truth        — HR-11 ≥ 90% verification (P1-P8)
+[phase.6]   Postflight         — Constitution re-check + drift re-check + state.json advance + summary
+[phase.7]   Advance FSM        — advance-phase writes HANDOVER.md + commits + pushes to next phase
 ```
 M1 kill-switch circuit state is checked before each phase. M3 gap analysis runs for phases ≥ 3.
 
 **P3+ dynamic planning**: `run-pipeline` generates each phase plan dynamically at phase start. Phases P3+ read FR IDs from `quality_manifest.json` (written at P2 exit from SAD.md), so SAD.md must exist before the pipeline can plan any FR-level work.
 
-**Gate BLOCKED diagnostic** (`finalize-gate` exit 1 / `run-pipeline` exit 10): Both commands emit a structured per-dimension diagnosis on block. Output includes: composite score, open_critical/high counts, per-failing-dimension score/threshold/gap and a fix hint, passing dimension summary, auto-fix round count (if `--auto-fix-rounds > 0`), and copy-pasteable resume commands. Full report written to `.methodology/last_block.md`. Fix hints cover all 12 dimension names: `linting`, `type_safety`, `test_coverage`, `security`, `secrets_scanning`, `license_compliance`, `mutation_testing`, `architecture`, `readability`, `error_handling`, `documentation`, `performance`. Implemented in `_format_block_diagnostic()` (module-level helper in `harness_cli.py`); the dict `_DIMENSION_HINTS` maps dimension name → actionable fix string. When `--auto-fix-rounds > 0` is active, the pipeline attempts `AutoFixEngine.fix()` before emitting the diagnostic; the diagnostic is only shown after all auto-fix rounds are exhausted or a human escalation condition is triggered.
+**Gate BLOCKED diagnostic** (`finalize-gate` exit 1 / `run-pipeline` exit 10): Both commands emit a structured per-dimension diagnosis on block. Output includes: composite score, open_critical/high counts, per-failing-dimension score/threshold/gap and a fix hint, passing dimension summary, auto-fix round count (if `--auto-fix-rounds > 0`), and copy-pasteable resume commands. Full report written to `.methodology/last_block.md`. Fix hints cover all 12 dimension names: `linting`, `type_safety`, `test_coverage`, `security`, `secrets_scanning`, `license_compliance`, `mutation_testing`, `architecture`, `readability`, `error_handling`, `documentation`, `performance`. Implemented in `_format_block_diagnostic()` (module-level helper in `harness_cli.py`); the dict `_DIMENSION_HINTS` maps dimension name → actionable fix string. Auto-fix runs during preflight (`_preflight()` calls `AutoFixEngine.fix()` on preflight failures). In the gate loop, `GateBlockedError` triggers the diagnostic immediately — auto-fix is not re-attempted at the gate level; the pipeline returns exit 10 for human intervention.
 
 **ECC hooks (globally active)**: `~/.claude/hooks/hooks.json` runs ECC (everything-claude-code) hooks across all Claude Code sessions. Relevant to harness:
 - `pre:bash:dispatcher` — blocks `git --no-verify` (prevents HR violation from bypassing hooks), push reminders
@@ -197,7 +199,7 @@ This section uses normative language per **RFC 2119**:
 
 #### 2.4.4 Auto-Fix Escalation Conditions
 
-Per SAD.md §3.18, the AutoFixEngine **MUST** escalate to human (HUMAN_REQUIRED) when any of 9 conditions trigger. These are defined in `core/auto_fix/__init__.py:check_escalation()`. The conditions are **MUST**-level normative requirements for safe autonomous operation.
+Per SAD.md §3.18, the AutoFixEngine **MUST** escalate to human (HUMAN_REQUIRED) when any of 9 conditions trigger. Five conditions are checked in `check_escalation()`; the remaining four (hardcoded secrets, hard rule violations, kill-switch OPEN, Gate 4 BLOCKED) are checked in `_human_condition_for()` during the `HUMAN_REQUIRED` classification path. The conditions are **MUST**-level normative requirements for safe autonomous operation.
 
 ### 2.5 GitHub Integration & Automation Layer
 
@@ -247,7 +249,12 @@ class GateContext:
     gate_num: int; config: dict; project_root: str; phase: int; fr_id: str | None
     ssi_scripts_dir: str; ssi_prompts_dir: str; ssi_schemas_dir: str; work_dir: str
     auto_fix_rounds: int = 0
+    sab_data: dict = field(default_factory=dict)     # architecture constraints, high-risk modules, NFR dim mapping from quality_manifest.json
+    tier3_context: dict = field(default_factory=dict) # CRG Point 2 per-dimension structural context for Tier 3 evaluation
     def evaluation_prompt(self) -> str: ...  # Returns evaluation instructions for Claude
+
+    # Note: code uses `GateConfig | dict` where GateConfig is a TypedDict matching
+    # the gate YAML schema (§5.1). GateConfig is not re-exported — callers see dict.
 
 class GateBlockedError(Exception):
     def __init__(self, gate_num: int, result: GateResult): ...
@@ -1278,6 +1285,108 @@ python3 scripts/build_traceability.py --project . [--sad SAD.md] [--json] [--exp
 - Gap report (FRs without code, FRs without test)
 
 
+### §3.32 — `core/fsm/` — FSM State Validation (v2.3)
+
+**Responsibility**: Validates and normalizes FSM state strings for phase lifecycle management. Enforces the valid state set and provides auto-correction for deprecated states.
+
+**Files**:
+
+| File | Purpose |
+|---|---|
+| `core/fsm/__init__.py` | Package marker; re-exports `validate_fsm_state`, `is_valid_fsm_state`, `FSMError` |
+| `core/fsm/fsm.py` | Core validation logic (91 lines) |
+
+**Valid states**: `INIT`, `RUNNING`, `PAUSED`, `FREEZE`, `DONE`, `OPEN`, `HALF_OPEN`, `CLOSED`
+
+**Deprecated auto-correction**: `ACTIVE` → `RUNNING` (when `auto_correct=True`)
+
+**Public API**:
+
+```python
+def validate_fsm_state(state: str, auto_correct: bool = True) -> str:
+    """Validate, normalize case, strip whitespace, auto-correct deprecated states.
+    Raises FSMError on invalid state or non-string input."""
+
+def is_valid_fsm_state(state: str) -> bool:
+    """Boolean check — never raises. Returns False for invalid/deprecated states."""
+
+class FSMError(Exception):
+    """Raised by validate_fsm_state() on invalid input."""
+```
+
+**Integration**: Called by `harness_cli.py:_advance_fsm()` before phase advancement.
+
+
+### §3.33 — `core/lifecycle_hooks.py` — Lifecycle Hook System
+
+**Responsibility**: Symphony-inspired hook phases for phase/gate/FR lifecycle events. Hook definitions loaded from `.methodology/hooks.json` (or defaults). Each hook has a timeout and required/optional failure semantics.
+
+**Hook events** (`HookEvent` enum):
+- `BEFORE_PHASE` — before a phase starts
+- `AFTER_GATE_PASS` — after a gate passes
+- `ON_GATE_FAIL` — on gate failure
+- `ON_ESCALATE` — on auto-fix escalation
+- `AFTER_FR_COMPLETE` — after an FR completes
+- `BEFORE_PHASE_ADVANCE` — before phase advance
+
+**`HookDefinition` dataclass**: `name`, `event`, `command`, `timeout_seconds` (default 60).
+
+
+### §3.34 — `core/workspace_manager.py` — Per-FR Workspace Isolation
+
+**Responsibility**: Symphony-inspired per-FR workspace isolation with path safety enforcement. Creates isolated working directories per FR with three mandatory safety invariants:
+1. Agent operates only inside its assigned workspace directory
+2. Workspace path stays within workspace root (prefix check + symlink resolution)
+3. Workspace key sanitized — only `[A-Za-z0-9._-]` allowed
+
+**Public API**:
+
+```python
+class WorkspaceManager:
+    def __init__(self, project_root: Path, phase: int = 3)
+    def create_workspace(self, fr_id: str) -> Path
+    def validate_path(self, path: Path, fr_id: str) -> None   # raises WorkspaceViolationError
+    def cleanup_workspace(self, fr_id: str) -> None
+```
+
+
+### §3.35 — `core/adapters/phase_hooks_adapter.py` — PhaseHooks External Adapter
+
+**Responsibility**: Dict-in/dict-out adapter for integrating PhaseHooks with external systems (CLI runners, MCP hooks, remote triggers) that cannot directly import from `core/`. Provides a simplified interface: callers need zero knowledge of PhaseHooks internals.
+
+**Public API**:
+
+```python
+class PhaseHooksAdapter:
+    def __init__(self, project_path: str, phase: int)
+    def preflight(self) -> dict           # returns {"all_passed": bool, "checks": {...}}
+    def before_dev(self, fr_id: str) -> None
+    def after_dev(self, fr_id: str, result: dict) -> None
+    def before_rev(self, fr_id: str) -> None
+    def after_rev(self, fr_id: str, result: dict) -> None
+    def hr12_check(self, fr_id: str, iteration: int) -> bool
+```
+
+
+### §3.36 — `steering/provider.py` — Steering LLM Provider
+
+**Responsibility**: Factory + NoopProvider for zero-dependency steering fallback. Provides the LLM interface that `SteeringLoop.__init__` expects (`provider.chat(messages) -> str`).
+
+**Classes**:
+
+| Class | Purpose |
+|---|---|
+| `SteeringProvider` (ABC) | Abstract base defining `chat(messages: list[dict]) -> str` |
+| `NoopProvider` | Zero-dependency fallback returning empty string |
+| `ClaudeProvider` | Subprocess-based Claude CLI provider |
+
+**Factory**:
+
+```python
+def create_steering_provider(provider: str | None = None) -> SteeringProvider:
+    """Env-var driven factory. Defaults to NoopProvider if no provider configured."""
+```
+
 ---
 
 ## 4. Core Workflow Sequences
@@ -1665,13 +1774,13 @@ CREATE TABLE IF NOT EXISTS effort (
   "layers": [
     {
       "name": "0_Entrypoint_Facade",
-      "description": "CLI entrypoints. harness_cli.py is the standalone harness entrypoint. cli.py is the full-system entrypoint (requires 30+ external modules, not runnable in this repo alone).",
-      "modules": ["harness_cli.py", "cli_phase_subagent.py", "cli.py"],
+      "description": "CLI entrypoints. harness_cli.py is the standalone harness entrypoint. cli.py is the full-system entrypoint (requires 30+ external modules, lives in parent system — not runnable in this repo alone).",
+      "modules": ["harness_cli.py"],
       "allowed_dependencies": ["1_Integration_Bridge", "2_Core_Orchestration"]
     },
     {
       "name": "1_Integration_Bridge",
-      "description": "Bridge layer connecting methodology workflow to external tools: Quality Gates, CRG, Hermes MCP, and audit/metrics sinks.",
+      "description": "Bridge layer connecting methodology workflow to external tools: Quality Gates, CRG, Hermes MCP, git strategy, handover, and audit/metrics sinks.",
       "modules": [
         "harness/harness_bridge.py",
         "harness/reviewer_router.py",
@@ -1681,13 +1790,15 @@ CREATE TABLE IF NOT EXISTS effort (
         "harness/fr_progress_tracker.py",
         "harness/retry_utils.py",
         "harness/effort_tracker.py",
-        "harness/issue_tracker_ext.py"
+        "harness/issue_tracker_ext.py",
+        "harness/git_strategy.py",
+        "harness/ssi/"
       ],
       "allowed_dependencies": ["2_Core_Orchestration", "3_Quality_Features", "4_Base_Utilities"]
     },
     {
       "name": "2_Core_Orchestration",
-      "description": "Manages agent lifecycle, phase execution, workflow routing, task decomposition, AB steering, and session logging.",
+      "description": "Manages agent lifecycle, phase execution, workflow routing, task decomposition, AB steering, session logging, subagent isolation, FSM state, and auto-fix engine.",
       "modules": [
         "core/agent_spawner.py",
         "core/phase_hooks.py",
@@ -1695,13 +1806,19 @@ CREATE TABLE IF NOT EXISTS effort (
         "core/task_splitter.py",
         "core/sessions_spawn_logger.py",
         "core/subagent_isolator.py",
+        "core/verification_gate.py",
+        "core/lifecycle_hooks.py",
+        "core/workspace_manager.py",
+        "core/fsm/",
+        "core/auto_fix/",
+        "core/adapters/",
         "steering/"
       ],
       "allowed_dependencies": ["3_Quality_Features", "4_Base_Utilities"]
     },
     {
       "name": "3_Quality_Features",
-      "description": "Concrete quality check implementations, safety features, gap detection, enforcement hooks, and quality monitoring dashboard.",
+      "description": "Concrete quality check implementations, safety features, gap detection, enforcement hooks, constitution compliance, and quality monitoring dashboard.",
       "modules": [
         "core/quality_gate/",
         "core/requirement_traceability.py",
@@ -1709,7 +1826,9 @@ CREATE TABLE IF NOT EXISTS effort (
         "gap_detector/",
         "kill_switch/",
         "enforcement/",
-              ],
+        "constitution/",
+        "agent_personas/"
+      ],
       "allowed_dependencies": ["4_Base_Utilities"]
     },
     {
@@ -1748,9 +1867,14 @@ CREATE TABLE IF NOT EXISTS effort (
 
 | File | Class | Role |
 |---|---|---|
-| `constitution/__init__.py` | — | Package marker; re-exports all three classes |
+| `constitution/__init__.py` | — | Package marker; re-exports all public classes |
 | `constitution/bvs_runner.py` | `BVSRunner` | HR-03 phase-order checker: reads `.methodology/state.json`, validates phase prerequisites and FSM state |
 | `constitution/citation_parser.py` | `CitationParser` | HR-07/09: regex extraction of citation markers (`[FR-01]`, `[§3.2]`, etc.) and obligation-verb claims; `verify_claim()` checks traceability keywords |
+| `constitution/claim_extractor.py` | `ClaimExtractor` | Extracts claims from agent output for downstream verification |
+| `constitution/claim_verifier.py` | `ClaimVerifier` | Verifies extracted claims against codebase evidence |
+| `constitution/execution_logger.py` | `ExecutionLogger` | Logs constitution check execution for audit trail |
+| `constitution/inferential_sensor.py` | `InferentialSensor` | Inference-based compliance sensing for non-explicit violations |
+| `constitution/invariant_engine.py` | `InvariantEngine` | Evaluates phase invariants (hard rules) against runtime state |
 | `constitution/verification_constitution_checker.py` | `VerificationConstitutionChecker` | Bridges `steering/integrations.py` to `enforcement.constitution_as_code` (R001-R007); gracefully degrades to pass-through if `enforcement/` unavailable |
 
 **Imports**: stdlib only (`re`, `json`, `pathlib`). No external dependencies.  
@@ -1759,7 +1883,7 @@ CREATE TABLE IF NOT EXISTS effort (
 
 ### §3.20 — `scripts/` Directory Overview
 
-Full inventory of the `scripts/` directory (25 items). Grouped by role:
+Full inventory of the `scripts/` directory (27 items). Grouped by role:
 
 #### Phase Lifecycle & Planning
 
@@ -1817,6 +1941,8 @@ python scripts/generate_full_plan.py --phase 3 --repo /path/to/project \
 |---|---|---|
 | `bump_version.py` | 2KB | Semantic version bumper: reads/writes version across SKILL.md, CONSTITUTION.md, and manifest.json |
 | `create_release.sh` | 2KB | Release tagging script: creates annotated tag with changelog, validates version consistency |
+| `generate_quality_report.py` | 12KB | Generates QUALITY_REPORT.md from quality_manifest.json and gate result files; 12-dimension assessment, per-FR Gate 1 summary, defect summary, ASPICE traceability |
+| `generate_release_notes.py` | 4KB | Generates RELEASE_NOTES.md from git log and quality_manifest.json; features, bug fixes, quality scores, known issues |
 | `list-modules.py` | 4KB | Module inventory scanner; `--validate` flag checks all manifest.json + SKILL.md frontmatter integrity |
 | `validate_cross_refs.py` | 3KB | Cross-reference integrity checker: CLASSIFICATION_TABLE ↔ STRATEGY_REGISTRY consistency, dead code detection |
 
@@ -2025,16 +2151,16 @@ python core/requirement_traceability.py --project-id <id> [--verify] [--export r
 
 | Push | ID | Trigger | Commit Message Pattern |
 |---|---|---|---|
-| ① | `P1-plan-YYYYMMDD` | P1 exit: task plan complete | `docs(P1): task plan committed` |
-| ② | `P2-manifest-YYYYMMDD` | P2 exit: `manifest` command success | `docs(P2): finalize SRS + SAD; generate quality manifest [fr_ids=...]` |
-| ③ | `P3-mid-YYYYMMDD` | P3 mid: FR completion ratio ≥ 50% | `feat(P3-mid): FR progress checkpoint — N/T FRs at Gate1 PASS` |
-| ④ | `P3-pre-ssi-YYYYMMDD` | P3 pre-SSI: all FRs at Gate 1 PASS | `feat(P3-pre-ssi): all FRs Gate1 PASS — entering SSI round` |
-| ⑤ | `Gate2-YYYYMMDD` | Gate 2 PASS (P3 exit, score ≥75) | `feat(P3): Gate2 PASS score=XX — N FR(s) implemented` |
-| ⑥ | `Gate3-YYYYMMDD` | Gate 3 PASS (P4 exit, score ≥80) | `test(P4): Gate3 PASS score=XX — full test suite` |
-| ⑦ | `P5-baseline-YYYYMMDD` | P5: BASELINE.md written | auto-included if `_has_changes()` returns True |
-| ⑧ | `Gate4-YYYYMMDD` | Gate 4 APPROVE (P6, score ≥85) | `release(P6): Gate4 PASS score=XX — pipeline complete` + `git tag gate4-YYYYMMDD-scoreXX` |
-| ⑨ | `P7-risk-YYYYMMDD` | P7 completion | `docs(P7): risk register complete` |
-| ⑩ | `P8-config-YYYYMMDD` | P8 completion | `docs(P8): config mgmt records complete` |
+| ① | `P1-exit-YYYYMMDD` | P1 exit: task plan complete | `phase1(human-review): SRS + P1 deliverables; N FR(s) [list]` |
+| ② | `P2-exit-YYYYMMDD` | P2 exit: `manifest` command success | `phase2(human-review): SAD + ADR + quality manifest complete [fr_ids=...]` |
+| ③ | `P3-mid-YYYYMMDD` | P3 mid: FR completion ratio ≥ 50% | `feat(P3-mid): N/T FR(s) Gate1 PASS [list]` |
+| ④ | `P3-pre-ssi-YYYYMMDD` | P3 pre-SSI: all FRs at Gate 1 PASS | `feat(P3-pre-ssi): all N FR(s) Gate1 PASS; ready for SSI` |
+| ⑤ | `P3-gate2-YYYYMMDD` | Gate 2 PASS (P3 exit, score ≥75) | `feat(P3): Gate2 PASS score=XX — N FR(s) implemented` |
+| ⑥ | `P4-gate3-YYYYMMDD` | Gate 3 PASS (P4 exit, score ≥80) | `test(P4): Gate3 PASS score=XX — full test suite` |
+| ⑦ | `P5-baseline-YYYYMMDD` | P5: BASELINE.md written | `docs(P5): BASELINE.md — review baseline checkpoint` |
+| ⑧ | `P6-gate4-YYYYMMDD` | Gate 4 APPROVE (P6, score ≥85) | `release(P6): Gate4 PASS score=XX — pipeline complete` + `git tag gate4-YYYYMMDD-scoreXX` |
+| ⑨ | `P7-exit-YYYYMMDD` | P7 completion | `docs(P7): risk register complete` |
+| ⑩ | `P8-exit-YYYYMMDD` | P8 completion | `docs(P8): config records — pipeline complete` |
 
 **Local commit policy** (no push): Each Gate 1 PASS per FR commits locally:
 ```
@@ -2061,18 +2187,22 @@ class GitStrategy:
     def commit_fr_gate1(fr_id, score, phase) -> bool        # Gate 1 local commit + FRProgressTracker
 
     # PUSH methods (each writes HANDOVER.md before push)
-    def commit_and_push_p1(fr_ids, background, notes=None) -> bool        # PUSH ①
-    def commit_and_push_p2(fr_ids, background=None, notes=None) -> bool   # PUSH ②
+    def commit_and_push_p1(fr_ids, background="", notes=None) -> bool        # PUSH ①
+    def commit_and_push_p2(fr_ids, background="", notes=None) -> bool   # PUSH ②
     def commit_and_push_p3_mid(fr_done, fr_total, fr_ids,
-                               background=None, notes=None) -> bool       # PUSH ③
-    def commit_and_push_p3_pre_ssi(fr_ids, background=None,
+                               background="", notes=None) -> bool       # PUSH ③
+    def commit_and_push_p3_pre_ssi(fr_ids, background="",
                                    notes=None) -> bool                    # PUSH ④
+    def commit_and_push_p4_mid(fr_done, fr_total, fr_ids,
+                               background="", notes=None) -> bool       # P4 mid checkpoint (Gate 1 re-eval)
+    def commit_and_push_p4_pre_ssi(fr_ids, background="",
+                                   notes=None) -> bool                    # P4 pre-SSI checkpoint
     def commit_and_push_gate(gate_num, phase, score, n_frs=0,
-                             background=None, notes=None) -> bool         # PUSH ⑤⑥⑧ + tag
-    def commit_and_push_p5_baseline(background=None, notes=None) -> bool  # PUSH ⑦
-    def commit_and_push_p7(background=None, notes=None) -> bool           # PUSH ⑨
-    def commit_and_push_p8(background=None, notes=None) -> bool           # PUSH ⑩
-    def commit_and_push_final(phases, background=None, notes=None) -> bool  # deprecated → p7/p8
+                             background="", notes=None) -> bool         # PUSH ⑤⑥⑧ + tag
+    def commit_and_push_p5_baseline(background="", notes=None) -> bool  # PUSH ⑦
+    def commit_and_push_p7(background="", notes=None) -> bool           # PUSH ⑨
+    def commit_and_push_p8(background="", notes=None) -> bool           # PUSH ⑩
+    def commit_and_push_final(phases: list[int]) -> bool  # deprecated → p7/p8
 ```
 
 **Helpers** (private):
@@ -2114,22 +2244,37 @@ class HandoverGenerator:
         next_steps: List[str],
         notes: List[str] | None = None,   # prepended AFTER DEFAULT_NOTES
         extra: Dict | None = None,        # optional freeform section
+        plan_override: str | None = None,       # override plan path in "quick start" section
+        deliverables: list[str] | None = None,  # renders "交付物清單" section if non-empty
+        resume_phase: int | None = None,        # phase to suggest for resume command
     ) -> Path
 ```
 
 **Rendered HANDOVER.md structure**:
 ```markdown
-# Harness Session Handover — {checkpoint_id}
+# Harness Methodology — Session Handover
 
-> ⚠️ 開始下一個工作階段前，請先執行 /compact 壓縮上下文
+> ⚠️  **開始下一個工作階段前，請先執行 `/compact` 壓縮上下文**，再從「接下來的工作」繼續。
 
-**Phase**: {phase} | **Generated**: {UTC ISO timestamp}
+**Checkpoint**: {checkpoint_id} | **Phase**: {phase} | **Generated**: {UTC ISO timestamp}
+
+## ▶ 立即開始（三步）
+1. Clone repo / enter project directory
+2. Set env vars (HERMES_REVIEWER_TARGET, etc.)
+3. Read the plan: `.methodology/phase{N}_plan.md`
+
+## 快速接手指令（詳細）
+Alternative git details and metadata table (phase, plan path, resume command, etc.)
 
 ## 任務背景
 {task_background}
 
 ## 目前執行狀況
 {current_status}
+
+## 交付物清單  ← only if deliverables is non-empty
+- {deliverable item}
+...
 
 ## 接下來的工作
 1. {next_steps[0]}
@@ -2162,9 +2307,10 @@ class HandoverGenerator:
 class FRProgressTracker:
     def __init__(self, project: Path, phase: int = 3)
 
-    def record_gate1_pass(self, fr_id: str, score: float = 0.0, phase: int = None) -> None
-    def record_gate1_fail(self, fr_id: str, score: float = 0.0,
+    def record_gate1_pass(self, fr_id: str, score: float, phase: int = None) -> None
+    def record_gate1_fail(self, fr_id: str, score: float,
                           phase: int = None, reason: str = "") -> None
+    def advance_phase(self, phase: int) -> None     # updates phase in fr_progress.json
     def reset(self) -> None                  # deletes fr_progress.json
     def load(self) -> dict                   # returns scaffold if missing or corrupt
 

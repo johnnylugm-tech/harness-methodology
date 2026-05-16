@@ -58,7 +58,7 @@ def test_id_06_type_safety_clean():
     """Requirement: Zero mypy errors on source dirs (excluding yaml stubs)."""
     result = subprocess.run(
         ["mypy", *SOURCES, "--exclude", SRC_EXCLUDE_PATTERN,
-         "--ignore-missing-imports"],
+         "--ignore-missing-imports", "--python-version", "3.10"],
         capture_output=True,
     )
     stdout = result.stdout.decode()
