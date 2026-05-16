@@ -1542,6 +1542,18 @@ def generate_phase6_tasks(repo_path: Path) -> List[str]:
     lines.extend(_preflight_steps(6))
 
     qr = parse_quality_report(repo_path)
+    role_a, role_b, _ = _PHASE_ROLES[6]
+    lines.append("### P6 A/B Roles (Per-Phase, Not Per-FR)")
+    lines.append("")
+    lines.append(f"> **Agent A ({role_a})** — Gate 4 inline evaluation:")
+    lines.append("> Claude evaluates all 12 quality dimensions against SRS/SAD/codebase.")
+    lines.append("> No dispatch command — the evaluation protocol runs inline per SAD.md §12.")
+    lines.append(f"> **Agent B ({role_b})** — Hermes APPROVE:")
+    lines.append("> Reviews Gate 4 results via Hermes (Telegram/Discord/Slack).")
+    lines.append("> Responds APPROVE or REJECT → finalize-gate records outcome.")
+    lines.append("> 2 A/B entries in `sessions_spawn.log` (HR-10: per-phase, not per-FR).")
+    lines.append("")
+
     if qr.get('metrics'):
         lines.append("### Existing Quality Metrics (from QUALITY_REPORT.md)")
         lines.append("")
