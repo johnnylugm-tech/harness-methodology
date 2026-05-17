@@ -49,7 +49,7 @@ git tag v2.4.0
 git push origin v2.4.0
 
 # Regenerate machine-readable SAD block
-python scripts/generate_sab.py --sad SAD.md --output .methodology/sab.json
+python scripts/generate_sab.py --project .
 ```
 
 ---

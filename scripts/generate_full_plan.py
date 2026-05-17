@@ -591,7 +591,7 @@ def _deliverable_ab_block(phase: int, deliverable: Dict, sub_n: int, total: int,
         "",
         "  > ⚠️ **BLOCKING**: Do NOT start the next Sub-Task until this sub-task's current",
         "  > round is fully APPROVED (including any required round 2).",
-        "  > AgentSpawner auto-logs round-2 re-dispatch to `sessions_spawn.log` (HR-10).",
+        "  > AgentSpawner auto-logs round-2 re-dispatch to `.methodology/sessions_spawn.log` (HR-10).",
         "",
         f"  > fr_id uses P{phase} as phase-level placeholder; replace with FR-XX for FR-specific plans.",
         "",
@@ -807,7 +807,7 @@ def _fr_dev_steps(fr_id: str, phase: int) -> List[str]:
         f"  python3 harness_cli.py dispatch --role reviewer --fr-id {fr_id} \\",
         f"    --prompt \"Review {fr_id} against SRS + SAD\" --phase {phase} --project $REPO",
         "  ```",
-        "  > AgentSpawner auto-logs to `sessions_spawn.log` on dispatch (HR-10).",
+        "  > AgentSpawner auto-logs to `.methodology/sessions_spawn.log` on dispatch (HR-10).",
         "",
     ])
     return lines
@@ -1178,7 +1178,7 @@ def generate_phase1_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("- [ ] `SRS.md` - Software Requirements Specification (FRs + NFRs)")
     lines.append("- [ ] `SPEC_TRACKING.md` - Spec tracking matrix")
     lines.append("- [ ] `TRACEABILITY_MATRIX.md` - Requirements traceability matrix")
-    lines.append("- [x] `sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
+    lines.append("- [x] `.methodology/sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
     lines.append("")
 
     lines.extend(_review_checkpoint(1, checkpoint_n=1))
@@ -1260,7 +1260,7 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("- [ ] `ADR.md` — Architecture Decision Records (tech stack, patterns, interfaces)")
     lines.append("- [ ] `.methodology/quality_manifest.json` — Quality manifest (FR list + SAB data)")
     lines.append("- [ ] `.methodology/SAB.json` — Machine-readable architecture baseline")
-    lines.append("- [x] `sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
+    lines.append("- [x] `.methodology/sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
     lines.append("")
 
     lines.extend(_review_checkpoint(2, checkpoint_n=1))
@@ -1292,7 +1292,11 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     if frs:
         lines.append("### FR Implementation Tasks ({} total)".format(len(frs)))
         lines.append("")
-        checkpoint_n = 1
+        # Align checkpoint counter: frs (from SRS.md) may be a subset of fr_ids
+        # (from manifest).  E.g. SRS has FR-14..FR-24 but manifest has FR-01..FR-24
+        # → task CHECKPOINT-N must match the index CHECKPOINT-N for the same FR.
+        checkpoint_n = (fr_ids.index(frs[0]['fr']) + 1
+                        if fr_ids and frs[0]['fr'] in fr_ids else 1)
         for fr in frs:
             title = fr['title']
             fr_prefix = f"{fr['fr']}: "
@@ -1349,7 +1353,7 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("### Phase 3 Deliverables")
     lines.append("- [ ] `03-development/src/` - All FR modules implemented")
     lines.append("- [ ] `tests/` - Unit tests (≥80% coverage per FR)")
-    lines.append("- [x] `sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
+    lines.append("- [x] `.methodology/sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
     lines.append("- [ ] Gate 1 PASS for every FR")
     lines.append("- [ ] Gate 2 PASS (phase exit, composite ≥ 75)")
     lines.append("")
@@ -1420,6 +1424,9 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     elif frs:
         lines.append("### FR Test Coverage")
         lines.append("")
+        # Align checkpoint counter: same offset logic as P3 (frs may be a subset of fr_ids)
+        if fr_ids and frs[0]['fr'] in fr_ids:
+            checkpoint_n = fr_ids.index(frs[0]['fr']) + 1
         for fr in frs:
             title = fr['title']
             fr_prefix = f"{fr['fr']}: "
@@ -1453,7 +1460,7 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("- [ ] `TEST_PLAN.md` - Test plan")
     lines.append("- [ ] `TEST_RESULTS.md` - Test results")
     lines.append("- [ ] `COVERAGE_REPORT.md` - Coverage report")
-    lines.append("- [x] `sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
+    lines.append("- [x] `.methodology/sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
     lines.append("- [ ] Gate 1 PASS for every FR")
     lines.append("- [ ] Gate 3 PASS (phase exit, composite ≥ 80, 12 dims)")
     lines.extend(_aspice_output_requirements(4))
@@ -1516,7 +1523,7 @@ def generate_phase5_tasks(repo_path: Path) -> List[str]:
     lines.append("### Phase 5 Deliverables")
     lines.append("- [ ] `BASELINE.md` - System baseline")
     lines.append("- [ ] `VERIFICATION_REPORT.md` - Verification report")
-    lines.append("- [x] `sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
+    lines.append("- [x] `.methodology/sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
     lines.append("- [ ] Gate 1 PASS for every FR")
     lines.extend(_aspice_output_requirements(5))
     lines.append("")
@@ -1553,7 +1560,7 @@ def generate_phase6_tasks(repo_path: Path) -> List[str]:
     lines.append(f"> **Agent B ({role_b})** — Hermes APPROVE:")
     lines.append("> Reviews Gate 4 results via Hermes (Telegram/Discord/Slack).")
     lines.append("> Responds APPROVE or REJECT → finalize-gate records outcome.")
-    lines.append("> 2 A/B entries in `sessions_spawn.log` (HR-10: per-phase, not per-FR).")
+    lines.append("> 2 A/B entries in `.methodology/sessions_spawn.log` (HR-10: per-phase, not per-FR).")
     lines.append("")
 
     if qr.get('metrics'):
@@ -1578,7 +1585,7 @@ def generate_phase6_tasks(repo_path: Path) -> List[str]:
     lines.append("- [ ] `QUALITY_REPORT.md` - Quality report (auto-generated by Gate 4)")
     lines.append("- [ ] `RELEASE_NOTES.md` - Release notes")
     lines.append("- [ ] `FINAL_SIGN_OFF.md` - Final sign-off")
-    lines.append("- [x] `sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
+    lines.append("- [x] `.methodology/sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
     lines.extend(_aspice_output_requirements(6))
     lines.append("")
 
@@ -1648,7 +1655,7 @@ def generate_phase7_tasks(repo_path: Path) -> List[str]:
     lines.append("- [ ] `RISK_REGISTER.md` - Risk register")
     lines.append("- [ ] `RISK_MITIGATION_PLANS.md` - Mitigation plans")
     lines.append("- [ ] `RISK_STATUS_REPORT.md` - Risk status report")
-    lines.append("- [x] `sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
+    lines.append("- [x] `.methodology/sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
     lines.append("- [ ] Gate 1 PASS for every FR")
     lines.extend(_aspice_output_requirements(7))
     lines.append("")
@@ -1718,7 +1725,7 @@ def generate_phase8_tasks(repo_path: Path) -> List[str]:
     lines.append("### Phase 8 Deliverables")
     lines.append("- [ ] `CONFIG_RECORDS.md` - Configuration records")
     lines.append("- [ ] `RELEASE_CHECKLIST.md` - Release checklist")
-    lines.append("- [x] `sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
+    lines.append("- [x] `.methodology/sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
     lines.append("- [ ] Gate 1 PASS for every FR")
     lines.extend(_aspice_output_requirements(8))
     lines.append("")
