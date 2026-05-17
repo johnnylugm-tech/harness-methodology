@@ -876,9 +876,11 @@ class TestPhase1Generator:
         assert "plan-phase --phase 2" in joined
 
     def test_exit_gate_clarification(self, project: Path):
-        """GAP-K2 fix: P1 must clarify exit gate is human review not harness."""
+        """GAP-K2 fix: P1 must clarify exit gate is peer review not harness run-gate."""
         joined = "\n".join(generate_phase1_tasks(project, project / "SRS.md"))
-        assert "human" in joined.lower() or "Human" in joined
+        # Terminology renamed in 6721c6c: "human peer review" → "Agent B peer review".
+        # Test the intent (peer review vs harness gate), not the specific actor word.
+        assert "peer review" in joined.lower()
         assert "NOT" in joined or "not" in joined.lower()
 
     def test_no_harness_run_gate(self, project: Path):

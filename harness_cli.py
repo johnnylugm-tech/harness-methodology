@@ -3435,7 +3435,12 @@ def _setup_branch_protection(project: Path) -> int:
 
 
 def _verify_no_pr_requirement(owner: str, repo: str) -> None:
-    """Warn if branch protection has PR requirement — incompatible with direct-push."""
+    """Warn if branch protection has PR requirement — incompatible with direct-push.
+
+    Best-effort: prints a [WARN] to stderr (not silent) when gh CLI is unavailable
+    or the protection endpoint fails, so operators can see why verification was
+    skipped.
+    """
     import subprocess as _sp
     try:
         r = _sp.run(
@@ -3443,7 +3448,13 @@ def _verify_no_pr_requirement(owner: str, repo: str) -> None:
             capture_output=True, text=True, timeout=15,
         )
         if r.returncode != 0:
-            return  # can't verify, skip
+            print(
+                f"   [WARN] PR-requirement verification skipped — gh api returned "
+                f"non-zero exit ({r.returncode}). Verify manually: GitHub repo → "
+                f"Settings → Branches → 'Require a pull request' must be OFF.",
+                file=sys.stderr,
+            )
+            return
         cfg = json.loads(r.stdout)
         pr_reviews = cfg.get("required_pull_request_reviews")
         if pr_reviews:
@@ -3451,8 +3462,11 @@ def _verify_no_pr_requirement(owner: str, repo: str) -> None:
             print(f"   This will block push-checkpoint. Disable it manually:")
             print(f"     GitHub repo → Settings → Branches → Edit (main)")
             print(f"     → Uncheck 'Require a pull request before merging'")
-    except Exception:
-        pass  # verification is best-effort
+    except (FileNotFoundError, _sp.TimeoutExpired, json.JSONDecodeError) as exc:
+        print(
+            f"   [WARN] PR-requirement verification skipped: {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
 
 
 def cmd_init_project(args: argparse.Namespace) -> int:

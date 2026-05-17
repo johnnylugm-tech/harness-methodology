@@ -17,8 +17,12 @@ crg_status.json
 .methodology/decision_logs/
 .methodology/last_block.md
 .methodology/steering_history.json
+.methodology/quality_manifest.json
 # NOTE: .methodology/enforcement.json and quality_manifest.example.json are
 #       intentional source artifacts — do NOT add them here.
+
+# Audit reports — generated per-SHA, project-specific
+.audit/
 
 # ── Coverage artifacts ──────────────────────────────────────────────────────
 coverage.json

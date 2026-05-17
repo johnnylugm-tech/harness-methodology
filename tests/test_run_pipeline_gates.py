@@ -15,9 +15,7 @@ Exit codes:
   10 — PAUSE (missing SRS/SAD, etc.)
 """
 
-import pytest
 import json as _json
-from pathlib import Path
 from io import StringIO
 
 
@@ -83,11 +81,12 @@ class TestCmdRunPipelineGates:
             (sad_dir / "SAD.md").write_text("## FR-01: Foo\nArchitecture.\n")
 
         # ── Phase plan (checklist gate) ────────────────────────────────────
+        # _parse_plan_unchecked regex requires `**[LABEL]**` (bracketed).
         if checklist_items is not None:
             plan_file = method_dir / f"phase{phase_from}_plan.md"
             lines = []
             for item in checklist_items:
-                lines.append(f"- [ ] **{item}** some description")
+                lines.append(f"- [ ] **[{item}]** some description")
             plan_file.write_text("\n".join(lines))
 
         # ── Agent B approvals ──────────────────────────────────────────────
@@ -96,7 +95,6 @@ class TestCmdRunPipelineGates:
             approvals_dir.mkdir(parents=True, exist_ok=True)
             for did, data in agent_b_approvals.items():
                 if data is not None:
-                    approvals_dir / f"{did}.json"
                     (approvals_dir / f"{did}.json").write_text(
                         _json.dumps(data)
                     )
@@ -141,17 +139,27 @@ class TestCmdRunPipelineGates:
     # ── P1 Gates ────────────────────────────────────────────────────────────
 
     def test_p1_checklist_unchecked_blocks(self, tmp_path, monkeypatch):
-        """P1: unchecked mandatory items in phase1_plan.md → exit 5."""
+        """P1: unchecked mandatory items in phase1_plan.md → exit 5.
+
+        Provides full Agent B approvals so the checklist gate is the *only*
+        possible blocker — locks semantic correctness of this test.
+        """
         # A-2 and B-2 are in _MANDATORY_CHECKLIST_LABELS
         exit_code, output = self._call_run_pipeline(
             tmp_path, monkeypatch,
             phase_from=1, phase_to=1,
             checklist_items=["A-2", "B-2"],
-            agent_b_approvals={"SRS.md": {"review_status": "APPROVE",
-                                           "docs_embedded": ["SRS.md"]}},
+            agent_b_approvals={
+                "SRS.md":                 {"review_status": "APPROVE", "docs_embedded": ["SRS.md"]},
+                "SPEC_TRACKING.md":       {"review_status": "APPROVE", "docs_embedded": ["SRS.md"]},
+                "TRACEABILITY_MATRIX.md": {"review_status": "APPROVE", "docs_embedded": ["SRS.md"]},
+            },
         )
         assert exit_code == 5, f"Expected exit 5, got {exit_code}. Output:\n{output}"
-        assert "BLOCKED" in output or "mandatory" in output.lower()
+        # Verify the specific label-driven gate fired, not a different blocker.
+        assert ("A-2" in output) or ("B-2" in output), (
+            f"Expected unchecked label in output. Got:\n{output}"
+        )
 
     def test_p1_agent_b_approval_missing_blocks(self, tmp_path, monkeypatch):
         """P1: no agent_b_approvals/SRS.md.json → exit 5."""
@@ -190,9 +198,10 @@ class TestCmdRunPipelineGates:
                 "TRACEABILITY_MATRIX.md": {"review_status": "APPROVE", "docs_embedded": ["SRS.md"]},
             },
         )
-        # exit 0 means pipeline completed; since phase_to=1, it should exit 0
+        # exit 0 means pipeline completed; since phase_to=1, it should exit 0.
+        # No BLOCKED output means both gates passed.
         assert exit_code == 0, f"Expected exit 0, got {exit_code}. Output:\n{output}"
-        assert "[1.1]" in output  # P1 checkpoint was reached
+        assert "BLOCKED" not in output
 
     # ── P2 Gates ────────────────────────────────────────────────────────────
 
@@ -210,7 +219,10 @@ class TestCmdRunPipelineGates:
             sad_exists=True,
         )
         assert exit_code == 5, f"Expected exit 5, got {exit_code}. Output:\n{output}"
-        assert "BLOCKED" in output or "mandatory" in output.lower()
+        # Verify the specific label-driven gate fired, not a different blocker.
+        assert ("B-READ" in output) or ("B-DECIDE" in output), (
+            f"Expected unchecked label in output. Got:\n{output}"
+        )
 
     def test_p2_agent_b_approval_missing_blocks(self, tmp_path, monkeypatch):
         """P2: no agent_b_approvals/SAD.md.json → exit 5."""
@@ -237,5 +249,7 @@ class TestCmdRunPipelineGates:
             srs_exists=True,
             sad_exists=True,
         )
+        # exit 0 + no BLOCKED string means both gates passed; avoid coupling
+        # to internal checkpoint label format like "[2.2]".
         assert exit_code == 0, f"Expected exit 0, got {exit_code}. Output:\n{output}"
-        assert "[2.2]" in output  # P2 checkpoint reached
+        assert "BLOCKED" not in output
