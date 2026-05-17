@@ -633,9 +633,9 @@ class TestPushCheckpointAgentBGate:
         import harness_cli, types, sys
 
         self._write_ci_files(tmp_path)
-        # Approval key must match --fr-ids, which is what dispatch --fr-id writes.
-        # Using "FR-01" here (same as the fr_ids arg below).
-        self._write_approval(tmp_path, "FR-01", phase=1)
+        # P1 uses phase-level deliverables (SKILL.md §0.4), not FR IDs.
+        for did in ["SRS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md"]:
+            self._write_approval(tmp_path, did, phase=1)
 
         commit_calls: list[dict] = []
         class _FakeGit:

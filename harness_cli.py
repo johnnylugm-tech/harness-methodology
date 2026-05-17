@@ -1414,22 +1414,21 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
             return 5
 
     # ── Agent B approval gate ──────────────────────────────────────────────────
-    # Key alignment: dispatch writes agent_b_approvals/{fr_id}.json, so the
-    # lookup key must match the --fr-id used in dispatch (typically a real FR ID
-    # like FR-01, not a document name).  Priority: CLI --fr-ids > manifest >
-    # _PHASE_DELIVERABLES fallback (kept only for backward compat).
-    deliverable_ids = fr_ids
-    if not deliverable_ids:
-        manifest_path = project / ".methodology" / "quality_manifest.json"
-        if manifest_path.exists():
-            try:
-                deliverable_ids = json.loads(
-                    manifest_path.read_text(encoding="utf-8")
-                ).get("fr_ids", [])
-            except Exception:  # pylint: disable=broad-exception-caught
-                pass
-    if not deliverable_ids:
-        deliverable_ids = _PHASE_DELIVERABLES.get(phase, [])
+    # P1/P2: phase-level deliverable approvals only (SKILL.md §0.4 — per-FR is P3+).
+    # P3+: FR IDs from CLI > manifest > empty (no fallback needed for P3+).
+    if phase in _PHASE_DELIVERABLES:
+        deliverable_ids = _PHASE_DELIVERABLES[phase]
+    else:
+        deliverable_ids = fr_ids
+        if not deliverable_ids:
+            manifest_path = project / ".methodology" / "quality_manifest.json"
+            if manifest_path.exists():
+                try:
+                    deliverable_ids = json.loads(
+                        manifest_path.read_text(encoding="utf-8")
+                    ).get("fr_ids", [])
+                except Exception:  # pylint: disable=broad-exception-caught
+                    pass
     if not skip_conf:
         passed, report = _verify_agent_b_approvals_core(project, phase, deliverable_ids)
         print(report)
@@ -1634,24 +1633,28 @@ def cmd_verify_agent_b_approvals(args: argparse.Namespace) -> int:
     """
     project = Path(args.project).resolve()
     phase = args.phase
-    fr_ids_arg = getattr(args, "fr_ids", "") or ""
-    fr_ids = [f.strip() for f in fr_ids_arg.split(",") if f.strip()]
 
-    # Auto-populate fr_ids from quality_manifest.json if not provided
-    if not fr_ids:
-        manifest_path = project / ".methodology" / "quality_manifest.json"
-        if manifest_path.exists():
-            try:
-                mf = json.loads(manifest_path.read_text(encoding="utf-8"))
-                fr_ids = mf.get("fr_ids", [])
-            except Exception:  # pylint: disable=broad-exception-caught
-                pass
+    # P1/P2: always use phase-level deliverables (SKILL.md §0.4 — per-FR approvals are P3+)
+    if phase in _PHASE_DELIVERABLES:
+        deliverable_ids = _PHASE_DELIVERABLES[phase]
+    else:
+        fr_ids_arg = getattr(args, "fr_ids", "") or ""
+        deliverable_ids = [f.strip() for f in fr_ids_arg.split(",") if f.strip()]
 
-    if not fr_ids:
-        print("[verify-agent-b] No FR IDs found — pass --fr-ids or ensure quality_manifest.json exists.")
-        return 1
+        if not deliverable_ids:
+            manifest_path = project / ".methodology" / "quality_manifest.json"
+            if manifest_path.exists():
+                try:
+                    mf = json.loads(manifest_path.read_text(encoding="utf-8"))
+                    deliverable_ids = mf.get("fr_ids", [])
+                except Exception:  # pylint: disable=broad-exception-caught
+                    pass
 
-    passed, report = _verify_agent_b_approvals_core(project, phase, fr_ids)
+        if not deliverable_ids:
+            print("[verify-agent-b] No FR IDs found — pass --fr-ids or ensure quality_manifest.json exists.")
+            return 1
+
+    passed, report = _verify_agent_b_approvals_core(project, phase, deliverable_ids)
     print(report)
     return 0 if passed else 1
 

@@ -270,7 +270,28 @@ class DriftDetector:
         allowed_dependencies, and quality_targets from .methodology/SAB.json.
 
         Falls back to parsing SAD.md §6 SAB block if SAB.json is not available.
+        Skips entirely before Phase 3 — no implementation code exists to check against.
         """
+        if self.state_path.exists():
+            try:
+                current_phase = json.loads(
+                    self.state_path.read_text(encoding="utf-8")
+                ).get("current_phase", 0)
+                if current_phase < 3:
+                    return DriftResult(
+                        drift_type="sab", has_drift=False, checked=0, drifted=0, score=1.0,
+                        drift_items=[DriftItem(
+                            drift_type="sab", severity=DriftSeverity.LOW,
+                            location="state.json",
+                            description=(
+                                f"SAB drift skipped at Phase {current_phase} "
+                                "— implementation code not yet written (P3+)"
+                            ),
+                        )],
+                    )
+            except Exception:  # pragma: no cover
+                pass
+
         sab = self._load_sab_baseline()
         if not sab:
             return DriftResult(
