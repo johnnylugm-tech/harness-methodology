@@ -2234,7 +2234,10 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
     state_path = project / ".methodology" / "state.json"
     if state_path.exists():
         try:
-            _state = json.loads(state_path.read_text(encoding="utf-8"))
+            # B4 (CV-2): hold the state lock for the read so a concurrent
+            # advance-phase process cannot write between our read and the check.
+            with file_lock(state_lock_path(project)):
+                _state = json.loads(state_path.read_text(encoding="utf-8"))
             _current = int(_state.get("current_phase", 0))
             if _current and _current != args.completed_phase and not getattr(args, "force", False):
                 print(
@@ -2681,24 +2684,26 @@ def _advance_fsm(project: Path, completed_phase: int,
             "last_fr": last_fr,
             "last_update": datetime.now(timezone.utc).isoformat(),
         })
+        # B5: Advance fr_progress.json inside the same lock so state.json and
+        # fr_progress.json are always updated atomically from any reader's
+        # perspective. Moving it outside created a window where another process
+        # could see next_phase in state.json but the old phase in fr_progress.json.
+        # SG-9: do not silently swallow exceptions — log to stderr so the
+        # operator knows if state.json and fr_progress.json fall out of sync.
+        # FileNotFoundError is expected for P1/P2 (no fr_progress.json yet).
+        try:
+            from harness.fr_progress_tracker import FRProgressTracker
+            FRProgressTracker(project, phase=next_phase).advance_phase(next_phase)
+        except FileNotFoundError:
+            pass  # P1/P2 projects: fr_progress.json doesn't exist yet — expected.
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            print(
+                f"  [WARN] FRProgressTracker.advance_phase failed: {type(exc).__name__}: {exc}\n"
+                f"  state.json advanced to phase {next_phase}, but fr_progress.json may now\n"
+                f"  be out of sync. Inspect .methodology/fr_progress.json and repair if needed.",
+                file=sys.stderr,
+            )
     print(f"  [FSM] state.json current_phase → {next_phase}")
-
-    # 2. Advance fr_progress.json phase (kept in sync with state.json).
-    # SG-9: do not silently swallow exceptions — log to stderr so the
-    # operator knows state.json and fr_progress.json may be out of sync.
-    # FileNotFoundError is the expected case for P1/P2 (no fr_progress.json yet).
-    try:
-        from harness.fr_progress_tracker import FRProgressTracker
-        FRProgressTracker(project, phase=next_phase).advance_phase(next_phase)
-    except FileNotFoundError:
-        pass  # P1/P2 projects: fr_progress.json doesn't exist yet — expected.
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        print(
-            f"  [WARN] FRProgressTracker.advance_phase failed: {type(exc).__name__}: {exc}\n"
-            f"  state.json advanced to phase {next_phase}, but fr_progress.json may now\n"
-            f"  be out of sync. Inspect .methodology/fr_progress.json and repair if needed.",
-            file=sys.stderr,
-        )
 
     # 3. No other phase storage — state.json is the single source of truth.
     #    git config quality.phase and GitHub CURRENT_PHASE variable are no longer used.

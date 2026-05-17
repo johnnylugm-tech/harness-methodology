@@ -154,7 +154,9 @@ class PhaseTruthVerifier:
                 if not isinstance(entry, dict):
                     malformed += 1
                     continue
-                roles.add(entry.get("role", ""))
+                role = entry.get("role", "")
+                if role:  # B1: guard against empty string inflating role count
+                    roles.add(role)
                 sid = entry.get("session_id", "")
                 if sid:
                     sessions.add(sid)
@@ -167,7 +169,9 @@ class PhaseTruthVerifier:
 
             # Even with ≥2 sessions, malformed lines indicate a writer bug —
             # cap the score so we don't reward a half-broken log.
-            if malformed >= total // 2:
+            # B2: use `malformed * 2 >= total` (≥50%) — `total // 2` is off-by-one
+            # for odd totals (e.g. total=3 → 3//2=1 → 33% triggers cap, too strict).
+            if total >= 2 and malformed * 2 >= total:
                 score = 0.0
             elif has_ab and has_sessions:
                 score = 100.0

@@ -65,6 +65,14 @@ def _archive_dir(date_dir: Path, *, dry_run: bool) -> tuple[bool, str]:
         except OSError:
             pass
         return False, f"tar failed for {date_dir.name}: {exc}"
+    except KeyboardInterrupt:
+        # B6: Ctrl-C leaves a partial archive; without cleanup the next run
+        # sees "archive already exists" and silently skips the directory forever.
+        try:
+            archive_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
     try:
         shutil.rmtree(date_dir)
     except OSError as exc:

@@ -313,7 +313,7 @@ class HarnessBridge:
         # these scores against a per-dimension evidence trail in .sessi-work/.
         try:
             import statistics as _stats
-            dim_scores = [d.score for d in dims if d.score > 0]
+            dim_scores = [d.score for d in dims]  # B3: include zero-scored dims
             if len(dim_scores) >= 3:
                 _stdev = _stats.pstdev(dim_scores)
                 if _stdev < 0.5:

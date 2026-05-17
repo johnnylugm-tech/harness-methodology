@@ -70,7 +70,7 @@ The system uses this macro architecture:
 
 The full-system CLI (`cli.py`) lives in the parent system that contains harness-methodology as a sub-component. It requires 30+ external modules (`progress_dashboard`, `gantt_chart`, `sprint_planner`, `enterprise_hub`, `steering`, etc.) and is not part of this repository. Any work within harness-methodology uses `harness_cli.py`.
 
-**`harness_cli.py` commands** (24 total):
+**`harness_cli.py` commands** (25 total):
 ```
 python harness_cli.py plan-phase        --phase 3 [--project .] [--output plan.md]
 python harness_cli.py run-phase         --phase 3 [--project .]
@@ -93,7 +93,8 @@ python harness_cli.py verify-spec       [--project .] [--fix]  # --fix shows sug
 python harness_cli.py check-logic       [--project .] [--srs SRS.md]
 python harness_cli.py check-checklist   --phase N [--project .]           # verify phase plan mandatory items [x]
 python harness_cli.py init-project      --project /path/to/target [--phase 3] [--overwrite] [--ci-only]
-python harness_cli.py advance-phase     --completed N [--project .]
+python harness_cli.py advance-phase     --completed N [--project .] [--force]  # --force bypasses CV-2 FSM check
+python harness_cli.py kill-switch       trigger|reset|status [--project .] [--reason "..."]
 python harness_cli.py await-hermes-approve [--project .] [--response APPROVE|REJECT] [--timeout-ms N]
 python harness_cli.py push-milestone    --type p3-mid|p3-pre-ssi|p4-mid|p4-pre-ssi|p5-baseline|p7|p8 [--project .] [--fr-ids FR-01,FR-02] [--fr-done N] [--fr-total N] [--no-git]
 python harness_cli.py dispatch          --role developer|reviewer --fr-id FR-01 --prompt "..." [--phase 3] [--project .] [--timeout 300] [--max-turns 20]
@@ -2379,6 +2380,65 @@ def _compute_delay(attempt: int, base: float, cap: float, jitter: float) -> floa
 - `on_retry` is `None` → prints `"Retry {attempt}/{max_attempts} after {wait:.1f}s: {exc}"`.
 
 **Integration**: Used by `AgentDrivenAutoResearch` to wrap subprocess calls with retry logic and fallback.
+
+---
+
+### §3.31 — `core/atomic_io.py` — Atomic File Write Helpers
+
+**Responsibility**: Crash-safe write primitives for all `.methodology/` state files. Prevents truncated-file corruption from mid-write Ctrl-C, OOM kill, disk-full, or NFS hiccup (CV-3).
+
+**Pattern**: write full payload → temp file in same directory → `fsync` → `os.replace` (atomic on POSIX + NTFS) → best-effort `fsync` parent dir.
+
+**Public API**:
+
+```python
+def atomic_write_text(path: Path, content: str, *, encoding: str = "utf-8") -> None
+def atomic_write_json(path: Path, data: Any, *, indent: int = 2, ensure_ascii: bool = False) -> None
+
+@contextmanager
+def file_lock(lock_path: Path, *, blocking: bool = True) -> Iterator[Optional[int]]
+    # Cross-process exclusive lock via fcntl.flock. No-op on Windows (no fcntl).
+
+def state_lock_path(project_root: Path) -> Path
+    # Returns project_root / ".methodology" / ".state.lock"
+```
+
+**Lock scope (SG-12)**: All reads AND writes of `state.json` inside `advance-phase` and `_update_state_checkpoint` are serialized via `file_lock(state_lock_path(project))`. `fr_progress.json` advance is executed inside the same lock to keep both files in sync atomically.
+
+**Windows fallback**: `fcntl` import fails silently; `file_lock` yields immediately without locking. Atomic rename via `os.replace` still works (NTFS).
+
+---
+
+### §3.32 — `scripts/ci_state_helper.py` — CI Safe State Extractor
+
+**Responsibility**: Replaces unsafe bare `python3 -c "import json; ..."` one-liners in CI workflows (CV-5). Returns sensible defaults on missing / unreadable / malformed `state.json` instead of raising an uncaught traceback that blocks every push.
+
+**Public API** (CLI):
+
+```
+python3 scripts/ci_state_helper.py get <field> [--state-file .methodology/state.json] [--default ""]
+python3 scripts/ci_state_helper.py is-p8 [--state-file .methodology/state.json]
+```
+
+**Exit codes**: `0` — value printed to stdout; `10` — invalid usage.
+
+**Behavior**: `get` prints the field value or `--default` on any failure. `is-p8` prints `true` iff `current_phase > 8`, or `current_phase == 8` and `last_milestone_command` contains `"p8"`. Errors emit `[WARN]` to stderr; never raises.
+
+---
+
+### §3.33 — `scripts/rotate_decision_logs.py` — Decision Log Archiver
+
+**Responsibility**: Prevents unbounded growth of `.methodology/decision_logs/` (SG-8). Archives date-named subdirectories older than `--retention-days` (default 30) to `<dir>.tar.gz`, then removes the source directory.
+
+**Public API** (CLI):
+
+```
+python3 scripts/rotate_decision_logs.py [--project .] [--retention-days 30] [--dry-run]
+```
+
+**Exit codes**: `0` — rotation completed (may be a no-op); `1` — hard error.
+
+**Safety**: `KeyboardInterrupt` during tar creation cleans up the partial archive so a subsequent run can retry successfully (B6 fix). Non-date subdirectories are left untouched. `--dry-run` reports what would be archived without modifying the filesystem.
 
 ---
 

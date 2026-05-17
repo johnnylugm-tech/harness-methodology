@@ -295,6 +295,69 @@ Phase is auto-detected from `.methodology/state.json` — no GitHub Variable req
 
 ---
 
+## 5.1 `enforcement.json` Configuration Keys
+
+`.methodology/enforcement.json` (in the **target project**) supports the following keys in addition to the standard gate thresholds:
+
+| Key path | Type | Default | Purpose |
+|---|---|---|---|
+| `phase_truth.pytest_timeout_seconds` | `int` | `300` | Maximum seconds for pytest subprocess in `PhaseTruthVerifier.check_pytest()` (SG-5). Raise for large test suites; floor is 30s. |
+| `hr_overrides.HR-11_phase_truth_threshold` | `int` | `90` | Override the Phase Truth gate threshold (%) for this project (SG-7). Only lower if the project has a documented waiver. |
+
+**Example** (`.methodology/enforcement.json`):
+```json
+{
+  "phase_truth": {
+    "pytest_timeout_seconds": 600
+  },
+  "hr_overrides": {
+    "HR-11_phase_truth_threshold": 85
+  }
+}
+```
+
+---
+
+## 5.2 Migration Notes
+
+### CV-1 — `sessions_spawn.log` canonical path (harness v2.5+)
+
+The canonical location of the A/B session log changed from `sessions_spawn.log` (project root) to `.methodology/sessions_spawn.log`.
+
+**If your project has an existing `sessions_spawn.log` at the root**:
+```bash
+mkdir -p .methodology
+mv sessions_spawn.log .methodology/sessions_spawn.log
+git add .methodology/sessions_spawn.log sessions_spawn.log
+git commit -m "chore: migrate sessions_spawn.log to .methodology/ (CV-1)"
+```
+
+`SessionsSpawnLogger` and `PhaseTruthVerifier` now read and write exclusively from `.methodology/sessions_spawn.log`. The root-level file is no longer consulted.
+
+### SG-11 — `session_id` required in sessions_spawn.log (harness v2.5+)
+
+`sessions_spawn.log` entries without a `session_id` field are now counted as malformed. If your project has entries that lack `session_id`, re-run the A/B dispatch for those FRs, or manually add synthetic IDs:
+
+```python
+# One-off repair script:
+import json
+from pathlib import Path
+
+log = Path(".methodology/sessions_spawn.log")
+lines = log.read_text().splitlines()
+repaired = []
+for line in lines:
+    if not line.strip():
+        continue
+    d = json.loads(line)
+    if not d.get("session_id"):
+        d["session_id"] = f"legacy-{d.get('role','?')}-{len(repaired)}"
+    repaired.append(json.dumps(d))
+log.write_text("\n".join(repaired) + "\n")
+```
+
+---
+
 ## 6. Phase Transition Checklist
 
 When moving to the next phase in a target project:

@@ -70,27 +70,35 @@ class TestCheckSessionLog:
         assert passed is False
 
     def test_legacy_dict_format_rejected(self, tmp_path):
-        """SG-14: single-dict format is no longer accepted (JSONL only)."""
+        """SG-14: single-dict format is no longer accepted (JSONL only).
+
+        The outer dict has no "role" or "session_id" keys, so neither the
+        A/B check nor the sessions check can pass → score must be 0 and
+        passed must be False.
+        """
         self._log_path(tmp_path).write_text(
             json.dumps({"sessions": [
                 {"role": "developer", "session_id": "s1"},
                 {"role": "reviewer",  "session_id": "s2"},
             ]})
         )
-        passed, score, details = PhaseTruthVerifier(str(tmp_path), 1).check_session_log()
-        # Should not be treated as valid log (the dict has no JSONL entries).
-        # Either fails parsing or returns 0 score due to malformed-line count.
-        assert passed is False or score < 100.0
+        passed, score, _ = PhaseTruthVerifier(str(tmp_path), 1).check_session_log()
+        assert passed is False
+        assert score == 0.0
 
     def test_legacy_array_format_rejected(self, tmp_path):
-        """SG-14: JSON array on a single line is not the JSONL format we expect."""
+        """SG-14: JSON array on a single line is not the JSONL format we expect.
+
+        The array parses as a list → isinstance(entry, dict) is False →
+        counted as malformed → score 0.
+        """
         self._log_path(tmp_path).write_text(json.dumps([
             {"role": "developer", "session_id": "s1"},
             {"role": "reviewer",  "session_id": "s2"},
         ]))
         passed, score, _ = PhaseTruthVerifier(str(tmp_path), 1).check_session_log()
-        # A JSON array literal on one line parses but isn't a dict → malformed.
-        assert passed is False or score < 100.0
+        assert passed is False
+        assert score == 0.0
 
 
 # ---------------------------------------------------------------------------
