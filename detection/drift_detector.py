@@ -360,6 +360,10 @@ class DriftDetector:
             rel = str(py_file.relative_to(self.project_path))
             if rel.startswith("harness/"):
                 continue
+            if rel.startswith("archive/"):
+                continue
+            if rel.startswith("03-development/"):
+                continue
             if rel not in sab_file_set and not rel.startswith("tests/"):
                 checked += 1
                 drifted += 1
@@ -393,6 +397,10 @@ class DriftDetector:
 
             rel = str(py_file.relative_to(self.project_path))
             if rel.startswith("harness/"):
+                continue
+            if rel.startswith("archive/"):
+                continue
+            if rel.startswith("03-development/"):
                 continue
             source_layer = sab_files.get(rel)
             if source_layer is None:
