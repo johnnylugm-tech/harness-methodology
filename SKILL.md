@@ -106,6 +106,10 @@ Before advancing to Phase N+1, confirm ALL:
 
 - [ ] All checkpoints in plan marked done
 - [ ] HANDOVER.md written (auto on git push via GitStrategy)
+- [ ] **(ALL) Retry on failure**: If push is blocked (any gate), read the error output,
+      apply the suggested fix, and re-run `push-checkpoint` / `push-milestone`.
+      Do NOT use `--no-verify` or `--skip-confidence` to bypass.
+      Repeat until the push succeeds.
 - [ ] **(P3+) push-milestone called before git push**: `python harness_cli.py push-milestone --type <type> --project .`
       Valid types: `p3-mid`, `p3-pre-ssi`, `p4-mid`, `p4-pre-ssi`, `p5-baseline`, `p7`, `p8`
       Writes `last_milestone_command` to `state.json` — CI `push-milestone-enforcement` blocks if absent.
