@@ -332,7 +332,7 @@ class DriftDetector:
 
         # ── Check 1: SAB files missing from codebase ──────────────────────
         for rel_path, layer_name in sab_files.items():
-            if not rel_path.endswith("/") and not (self.project_path / rel_path).exists():
+            if not rel_path.endswith("/") and not re.match(r'^FR-\d+$', rel_path) and not (self.project_path / rel_path).exists():
                 drifted += 1
                 items.append(DriftItem(
                     drift_type="sab",
@@ -358,6 +358,8 @@ class DriftDetector:
             if py_str.endswith(".py") and "/build/lib/" in py_str:
                 continue
             rel = str(py_file.relative_to(self.project_path))
+            if rel.startswith("harness/"):
+                continue
             if rel not in sab_file_set and not rel.startswith("tests/"):
                 checked += 1
                 drifted += 1
@@ -390,6 +392,8 @@ class DriftDetector:
                 continue
 
             rel = str(py_file.relative_to(self.project_path))
+            if rel.startswith("harness/"):
+                continue
             source_layer = sab_files.get(rel)
             if source_layer is None:
                 continue  # already flagged in Check 2
