@@ -17,6 +17,7 @@ Usage:
 """
 
 import json
+import re
 import sys
 from pathlib import Path
 from datetime import datetime
@@ -245,10 +246,13 @@ class PhaseHooks:
             # P3 or phase-agnostic: skip module-existence check (implementation
             # dirs not created yet). Structural violations (invalid deps) still fail.
             # P4+: enforce that all SAB-layer modules exist on disk.
+            # Modules listed as FR IDs (FR-XX) are not file paths — skip file check.
             if self.phase is not None and self.phase >= 4:
                 missing_modules = [
                     m for m in modules
-                    if not m.endswith("/") and not (self.project_path / m).exists()
+                    if not m.endswith("/")
+                    and not re.match(r'^FR-\d+$', m)
+                    and not (self.project_path / m).exists()
                 ]
                 if missing_modules:
                     violations.append(
