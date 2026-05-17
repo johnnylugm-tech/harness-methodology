@@ -3410,10 +3410,13 @@ def _setup_branch_protection(project: Path) -> int:
         return 1
 
     api_url = f"repos/{owner}/{repo}/branches/main/protection"
-    # Direct-push model: only force-push and deletion protection apply.
-    # required_status_checks, required_pull_request_reviews, required_linear_history,
-    # and enforce_admins are all PR-only concepts — they do not gate direct pushes.
+    # Direct-push model: only force-push and deletion protection are enabled.
+    # PR-only fields must be present (GitHub PUT requires them) but set to disabled.
     payload = {
+        "required_status_checks": None,
+        "enforce_admins": False,
+        "required_pull_request_reviews": None,
+        "required_linear_history": False,
         "allow_force_pushes": False,
         "allow_deletions": False,
         "restrictions": None,
