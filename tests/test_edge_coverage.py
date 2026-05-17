@@ -524,7 +524,10 @@ class TestGapDetectorEdge:
 class TestPhaseTruthVerifierEdge:
     def test_check_session_log_line_by_line(self, tmp_path):
         from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
-        log = tmp_path / "sessions_spawn.log"
+        # CV-1: canonical path is .methodology/sessions_spawn.log
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir(parents=True, exist_ok=True)
+        log = method_dir / "sessions_spawn.log"
         log.write_text(
             '{"role":"architect","session_id":"s1"}\n'
             '{"role":"reviewer","session_id":"s2"}\n'
@@ -535,15 +538,19 @@ class TestPhaseTruthVerifierEdge:
         assert score == 100.0
 
     def test_check_session_log_single_json_dict(self, tmp_path):
+        """SG-14: legacy {"sessions":[...]} format is no longer accepted."""
         from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
-        log = tmp_path / "sessions_spawn.log"
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir(parents=True, exist_ok=True)
+        log = method_dir / "sessions_spawn.log"
         log.write_text(json.dumps({"sessions": [
             {"role": "architect", "session_id": "s1"},
             {"role": "reviewer", "session_id": "s2"},
         ]}))
         verifier = PhaseTruthVerifier(str(tmp_path), phase=3)
         passed, _, _ = verifier.check_session_log()
-        assert passed is True
+        # Legacy single-dict format is now treated as malformed (JSONL only).
+        assert passed is False
 
     def test_check_session_log_not_found(self, tmp_path):
         from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
@@ -586,13 +593,21 @@ class TestPhaseTruthVerifierEdge:
         assert result["passed"] is True
 
     def test_check_framework_block_import_error(self, tmp_path):
-        from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
+        """CV-4: ImportError now raises InfraSkip (distinguishes infra
+        unavailability from a check failure) — verify() handles it by
+        renormalizing weights and emitting [SKIP] in output.
+        """
+        from core.quality_gate.phase_truth_verifier import (
+            PhaseTruthVerifier,
+            InfraSkip,
+        )
         verifier = PhaseTruthVerifier(str(tmp_path), phase=3)
-        with patch("enforcement.framework_enforcer.FrameworkEnforcer",
-                   side_effect=ImportError("no module")):
-            passed, score, details = verifier.check_framework_block()
-            assert passed is False
-            assert "Cannot import" in details
+        # Force the import within check_framework_block to fail.
+        import sys as _sys
+        _sys.modules.pop("enforcement.framework_enforcer", None)
+        with patch.dict("sys.modules", {"enforcement.framework_enforcer": None}):
+            with pytest.raises(InfraSkip):
+                verifier.check_framework_block()
 
     def test_get_manual_checklist_phase3_artifact_exists(self, tmp_path):
         from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier

@@ -1,6 +1,21 @@
 #!/usr/bin/env python3
 """
-A/B Enforcement - mandatory A/B collaboration verification
+A/B Enforcement - mandatory A/B collaboration verification.
+
+⚠️  DEPRECATED for active HR-01 enforcement (SG-13 from robustness audit).
+    The canonical HR-01 self-review check lives in
+    `harness_cli.cmd_finalize_gate` (around line 1035) and reads
+    `.methodology/sessions_spawn.log` directly. That code path is the
+    single source of truth for production A/B separation enforcement.
+
+    This module reads `DEVELOPMENT_LOG.md`, which is NOT the canonical
+    A/B audit log used by the pipeline. It is retained because:
+      * `tests/test_ab_enforcer.py` and `tests/test_w7_gap_fill.py` rely
+        on its API for unit-test coverage of the regex parsing logic.
+      * Some downstream scripts may still call it programmatically.
+
+    Do NOT add new call sites. For pipeline integration, use the
+    sessions_spawn.log path in cmd_finalize_gate instead.
 
 Features:
 1. Verify Developer != Reviewer (different sessions)
@@ -9,7 +24,7 @@ Features:
 
 Usage:
     from quality_gate.ab_enforcer import ABEnforcer
-    
+
     enforcer = ABEnforcer("/path/to/project")
     result = enforcer.verify_developer_reviewer_separation("phase_1")
 """

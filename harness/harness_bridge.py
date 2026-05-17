@@ -304,6 +304,32 @@ class HarnessBridge:
                 issues=dim_data.get("issues", []),
             ))
 
+        # SG-2 (robustness audit): per-dimension variance sanity check.
+        # If ≥3 dimensions all share the SAME score, that's suspiciously uniform
+        # — Claude's per-dim evaluation should produce naturally varied scores.
+        # We don't BLOCK here (Claude may legitimately rate dims identically on
+        # very small projects), but we LOG to decision_log for forensic review.
+        # A future enhancement (deferred audit recommendation) is to compare
+        # these scores against a per-dimension evidence trail in .sessi-work/.
+        try:
+            import statistics as _stats
+            dim_scores = [d.score for d in dims if d.score > 0]
+            if len(dim_scores) >= 3:
+                _stdev = _stats.pstdev(dim_scores)
+                if _stdev < 0.5:
+                    self._log.write(DecisionLogEntry(
+                        ctx=DecisionContext(agent_id="GATE", phase=ctx.phase, fr_id=ctx.fr_id),
+                        decision="GATE_VARIANCE_LOW",
+                        reasoning=(
+                            f"Per-dimension scores cluster tightly "
+                            f"(n={len(dim_scores)}, stddev={_stdev:.3f}, scores={dim_scores}). "
+                            f"Forensic flag — manually verify evidence trail."
+                        ),
+                        scores={"dim_stddev": _stdev},
+                    ))
+        except Exception:  # pylint: disable=broad-exception-caught
+            pass  # variance check is advisory — never block finalize
+
         result = GateResult(
             gate_num=ctx.gate_num,
             score=raw.get("overall_score", raw.get("score", 0.0)),

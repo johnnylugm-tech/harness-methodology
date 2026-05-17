@@ -292,7 +292,10 @@ class TestABEnforcer:
 # ─── PhaseTruthVerifier ───────────────────────────────────────────────────────
 
 def _make_sessions_log(tmp_path, content: str = None) -> Path:
-    f = tmp_path / "sessions_spawn.log"
+    # CV-1: canonical path is .methodology/sessions_spawn.log
+    method_dir = tmp_path / ".methodology"
+    method_dir.mkdir(parents=True, exist_ok=True)
+    f = method_dir / "sessions_spawn.log"
     if content is None:
         content = (
             '{"role": "developer", "session_id": "dev-001"}\n'
@@ -322,43 +325,55 @@ class TestPhaseTruthVerifier:
         assert score == 100.0
 
     def test_check_session_log_dict_sessions_format(self, tmp_path):
+        """SG-14: legacy {"sessions":[...]} format is no longer accepted."""
         data = {"sessions": [
             {"role": "dev", "session_id": "s1"},
             {"role": "rev", "session_id": "s2"},
         ]}
-        (tmp_path / "sessions_spawn.log").write_text(json.dumps(data))
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir(parents=True, exist_ok=True)
+        (method_dir / "sessions_spawn.log").write_text(json.dumps(data))
         v = self._make_verifier(tmp_path)
         passed, _, _ = v.check_session_log()
-        assert passed is True
+        # Legacy single-dict format → treated as malformed under JSONL contract.
+        assert passed is False
 
     def test_check_session_log_list_format(self, tmp_path):
+        """SG-14: legacy JSON-array-on-one-line format is no longer accepted."""
         data = [{"role": "a", "session_id": "s1"}, {"role": "b", "session_id": "s2"}]
-        (tmp_path / "sessions_spawn.log").write_text(json.dumps(data))
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir(parents=True, exist_ok=True)
+        (method_dir / "sessions_spawn.log").write_text(json.dumps(data))
         v = self._make_verifier(tmp_path)
         passed, _, _ = v.check_session_log()
-        assert passed is True
+        assert passed is False
 
     def test_check_session_log_single_entry(self, tmp_path):
-        (tmp_path / "sessions_spawn.log").write_text(
-            json.dumps({"role": "dev", "session_id": "s1"})
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir(parents=True, exist_ok=True)
+        (method_dir / "sessions_spawn.log").write_text(
+            json.dumps({"role": "dev", "session_id": "s1"}) + "\n"
         )
         v = self._make_verifier(tmp_path)
         passed, score, _ = v.check_session_log()
         assert passed is False
 
     def test_check_session_log_exception(self, tmp_path):
-        log = tmp_path / "sessions_spawn.log"
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir(parents=True, exist_ok=True)
+        log = method_dir / "sessions_spawn.log"
         log.write_bytes(b"\xff\xfe\xfd")
         v = self._make_verifier(tmp_path)
         passed, score, detail = v.check_session_log()
         assert passed is False
 
     def test_check_framework_block_import_error(self, tmp_path):
+        """CV-4: ImportError now raises InfraSkip instead of returning 0 score."""
+        from core.quality_gate.phase_truth_verifier import InfraSkip
         v = self._make_verifier(tmp_path)
         with patch.dict("sys.modules", {"enforcement.framework_enforcer": None}):
-            passed, score, detail = v.check_framework_block()
-        assert passed is False
-        assert score == 0.0
+            with pytest.raises(InfraSkip):
+                v.check_framework_block()
 
     def test_check_framework_block_success(self, tmp_path):
         v = self._make_verifier(tmp_path)

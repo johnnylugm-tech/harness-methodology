@@ -78,13 +78,16 @@ jobs:
             echo "INFO: No state.json found — project not yet initialized, skipping check."
             exit 0
           fi
-          PHASE=$(python3 -c "import json; d=json.load(open('$STATE_FILE')); print(d.get('current_phase', 0))")
+          # CV-5: use ci_state_helper.py for safe state.json parsing.
+          # Bare `python3 -c "json.load(...)"` raises uncaught traceback on
+          # corrupted/empty state.json → entire CI run dies.
+          PHASE=$(python3 scripts/ci_state_helper.py get current_phase --default 0 --state-file "$STATE_FILE")
           # Only enforce milestone tracking for P3+ projects
           if [ "$PHASE" -lt 3 ]; then
             echo "INFO: Phase $PHASE < 3 — push-milestone not yet required."
             exit 0
           fi
-          CMD=$(python3 -c "import json; d=json.load(open('$STATE_FILE')); print(d.get('last_milestone_command', ''))")
+          CMD=$(python3 scripts/ci_state_helper.py get last_milestone_command --default "" --state-file "$STATE_FILE")
           if [ -z "$CMD" ]; then
             echo "ERROR: state.json has no last_milestone_command field."
             echo "This means git push was used directly instead of:"
@@ -113,12 +116,9 @@ jobs:
         id: check_phase
         run: |
           STATE_FILE=".methodology/state.json"
-          if [ ! -f "$STATE_FILE" ]; then
-            echo "phase=0" >> $GITHUB_OUTPUT
-          else
-            PHASE=$(python3 -c "import json; d=json.load(open('$STATE_FILE')); print(d.get('current_phase', 0))")
-            echo "phase=$PHASE" >> $GITHUB_OUTPUT
-          fi
+          # CV-5: safe state.json parsing via helper.
+          PHASE=$(python3 scripts/ci_state_helper.py get current_phase --default 0 --state-file "$STATE_FILE")
+          echo "phase=$PHASE" >> $GITHUB_OUTPUT
 
       - name: Verify Agent B approvals (P3+)
         if: steps.check_phase.outputs.phase >= 3
@@ -144,16 +144,10 @@ jobs:
         id: check_p8
         run: |
           STATE_FILE=".methodology/state.json"
-          if [ ! -f "$STATE_FILE" ]; then
-            echo "is_p8=false" >> $GITHUB_OUTPUT
-          else
-            PHASE=$(python3 -c "import json; d=json.load(open('$STATE_FILE')); print(d.get('current_phase', 0))")
-            if [ "$PHASE" -gt 8 ] || ([ "$PHASE" -eq 8 ] && python3 -c "import json; d=json.load(open('$STATE_FILE')); print(d.get('last_milestone_command',''))" | grep -q "p8"); then
-              echo "is_p8=true" >> $GITHUB_OUTPUT
-            else
-              echo "is_p8=false" >> $GITHUB_OUTPUT
-            fi
-          fi
+          # CV-5: safe state.json parsing via helper. Returns "false" on any
+          # read failure (missing/corrupted/empty file) so CI continues.
+          IS_P8=$(python3 scripts/ci_state_helper.py is-p8 --state-file "$STATE_FILE")
+          echo "is_p8=$IS_P8" >> $GITHUB_OUTPUT
 
       - name: Validate .methodology-archive exists (P8 only)
         if: steps.check_p8.outputs.is_p8 == 'true'

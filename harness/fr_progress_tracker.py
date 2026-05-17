@@ -219,8 +219,15 @@ class FRProgressTracker:
         self._write(data)
 
     def _write(self, data: dict) -> None:
+        # Atomic write (CV-3): tempfile + os.replace so a mid-write crash
+        # cannot truncate fr_progress.json. Falls back to direct write if
+        # core.atomic_io is unavailable (e.g. partial install).
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.write_text(
-            json.dumps(data, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
+        try:
+            from core.atomic_io import atomic_write_json  # type: ignore[import-not-found]
+            atomic_write_json(self._path, data, ensure_ascii=False)
+        except ImportError:  # pragma: no cover  (graceful degrade)
+            self._path.write_text(
+                json.dumps(data, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )

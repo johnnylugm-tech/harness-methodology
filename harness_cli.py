@@ -72,6 +72,9 @@ from harness.handover_generator import HandoverGenerator
 _REPO_ROOT = Path(__file__).parent
 sys.path.insert(0, str(_REPO_ROOT))
 
+# Atomic state-file writers (CV-3 / SG-12 from robustness audit)
+from core.atomic_io import atomic_write_json, file_lock, state_lock_path  # noqa: E402
+
 
 # ---------------------------------------------------------------------------
 # .env file loader (no external dependency)
@@ -162,11 +165,19 @@ def _verify_entry_gate(project: Path, phase: int) -> dict:
 
     CONSTITUTION.md SS2.3 defines:
     - P1: None
-    - P2: Human1 (P1) — git log APPROVE
-    - P3: Human1 (P2) — git log APPROVE
+    - P2: Agent B¹ (P1) — git log APPROVE
+    - P3: Agent B¹ (P2) — git log APPROVE
     - P4-P8: quality_manifest.json gate PASS
     """
-    if phase <= 1:
+    # SG-6: reject out-of-range phase early. Previously `phase <= 1` accepted
+    # phase=0 and phase=-1, which is meaningless (only 1..8 exist).
+    if not (1 <= phase <= 8):
+        return {
+            "passed": False,
+            "gate": "InvalidPhase",
+            "reason": f"phase={phase} is out of range 1..8",
+        }
+    if phase == 1:
         return {"passed": True, "gate": "None", "reason": "P1 has no entry gate"}
 
     if phase in (2, 3):
@@ -486,14 +497,25 @@ def _check_gate_score_variance(project: Path, phase: int) -> int:
             except Exception:
                 pass
 
-        if len(_scores) > 2 and len(set(_scores)) == 1:
-            print(
-                f"\n[BLOCKED] Gate score variance check failed for Phase {phase}:\n"
-                f"  All {len(_scores)} per-FR gate scores are identical ({_scores[0]}).\n"
-                f"  This indicates scores were copied rather than evaluated per FR.\n"
-                f"  Re-run run-gate + evaluate dimensions inline + finalize-gate for each FR."
-            )
-            return 1
+        # SG-1: stricter fabrication detection. The previous check fired only
+        # when ALL scores were identical (one decimal of variation defeated it,
+        # e.g. 85.0 + 85.0 + 85.1). Now we compute stddev — if N≥3 scores have
+        # stddev < 0.5, they're suspiciously uniform.
+        if len(_scores) >= 3:
+            import statistics as _stats
+            _stdev = _stats.pstdev(_scores)
+            if _stdev < 0.5:
+                _mean = _stats.fmean(_scores)
+                print(
+                    f"\n[BLOCKED] Gate score variance check failed for Phase {phase}:\n"
+                    f"  {len(_scores)} per-FR scores cluster around {_mean:.2f} "
+                    f"(stddev={_stdev:.3f} < 0.5).\n"
+                    f"  Scores: {_scores}\n"
+                    f"  This indicates scores were copied/fabricated rather than\n"
+                    f"  evaluated per FR. Re-run run-gate + evaluate dimensions\n"
+                    f"  inline + finalize-gate for each FR with genuine evidence."
+                )
+                return 1
         if _scores:
             print(f"[advance-phase] Gate score variance OK "
                   f"({len(_scores)} per-FR scores: {sorted(set(_scores))})")
@@ -1030,10 +1052,19 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
                       f"({distinct_roles} distinct role(s) — need ≥2 entries, ≥2 distinct roles).")
                 print(f"  Dispatch Agent A + Agent B for {fr_id}, then re-run finalize-gate.")
                 return 5
-            # HR-01: only enforce when ALL entries carry session_id (post-fix format).
-            # Old entries without session_id are grandfathered — the check is skipped.
-            has_session_ids = all(e.get("session_id") for e in fr_entries)
-            if has_session_ids and distinct_sessions < 2:
+            # HR-01: empty session_id is a hard error (SG-11). Previously
+            # entries without session_id were grandfathered, which created a
+            # bypass: one entry without session_id disabled the self-review
+            # check for the whole FR. Now we require ALL entries to carry a
+            # session_id; missing values block the gate.
+            missing_sids = [e for e in fr_entries if not e.get("session_id")]
+            if missing_sids:
+                print(f"\n[BLOCKED] HR-01: {fr_id} has {len(missing_sids)} entry/entries "
+                      f"with empty session_id — cannot verify Agent A/B separation.")
+                print(f"  Re-dispatch via the `dispatch` CLI (every spawn must record "
+                      f"a non-empty session_id) and re-run finalize-gate.")
+                return 5
+            if distinct_sessions < 2:
                 print(f"\n[BLOCKED] HR-01: {fr_id} A/B share same session_id "
                       f"({distinct_sessions} distinct session(s)) — self-review violation.")
                 print(f"  Re-dispatch Agent B via `dispatch` CLI with a separate subagent session.")
@@ -1509,7 +1540,7 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
                 state_data.setdefault("phase_completed", {})[str(phase)] = {
                     "sha": _sha, "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
-                state_path.write_text(json.dumps(state_data, indent=2), encoding="utf-8")
+                atomic_write_json(state_path, state_data)
             except Exception as _e:  # pylint: disable=broad-exception-caught
                 print(f"  [WARN] Could not write push-checkpoint sentinel to state.json: {_e}")
         # Next-step hint — push-checkpoint records phase_completed[N] but does NOT
@@ -1887,7 +1918,7 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
                 state_data = json.loads(state_path.read_text(encoding="utf-8"))
                 state_data["last_milestone_command"] = f"push-milestone --type {milestone_type}"
                 state_data["last_milestone_at"] = datetime.now(timezone.utc).isoformat()
-                state_path.write_text(json.dumps(state_data, indent=2), encoding="utf-8")
+                atomic_write_json(state_path, state_data)
             except Exception as _state_err:  # pylint: disable=broad-exception-caught
                 _mt = milestone_type
                 print(
@@ -2195,6 +2226,31 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
         python harness_cli.py advance-phase --completed 3   # advances to phase 4
     """
     project = Path(args.project).resolve()
+
+    # CV-2: Validate args.completed_phase matches state.json::current_phase.
+    # Without this check, an agent could pass --completed 7 while in phase 3
+    # and skip straight to phase 8 (state.json is the only authoritative
+    # source). --force bypasses the check for legitimate FSM repairs.
+    state_path = project / ".methodology" / "state.json"
+    if state_path.exists():
+        try:
+            _state = json.loads(state_path.read_text(encoding="utf-8"))
+            _current = int(_state.get("current_phase", 0))
+            if _current and _current != args.completed_phase and not getattr(args, "force", False):
+                print(
+                    f"\n[BLOCKED] advance-phase: --completed={args.completed_phase} "
+                    f"does not match state.json::current_phase={_current}.\n"
+                    f"  This prevents accidental phase skips. To advance, use:\n"
+                    f"    python3 harness_cli.py advance-phase --completed {_current} --project {project}\n"
+                    f"  To repair a stuck FSM, re-run with --force (audit-logged).",
+                    file=sys.stderr,
+                )
+                return 2
+        except (ValueError, OSError, json.JSONDecodeError) as exc:
+            print(
+                f"  [WARN] Could not read state.json::current_phase for validation: {exc} — proceeding.",
+                file=sys.stderr,
+            )
 
     next_phase = args.completed_phase + 1
 
@@ -2567,20 +2623,25 @@ def _make_git(args: argparse.Namespace, project: Path) -> "GitStrategy":  # noqa
 
 
 def _update_state_checkpoint(project: Path, gate_num: int, fr_id: str | None) -> None:
-    """Write last_gate / last_fr to .methodology/state.json after a gate passes."""
+    """Write last_gate / last_fr to .methodology/state.json after a gate passes.
+
+    Cross-process locked (SG-12): two parallel finalize-gate calls cannot
+    race on the read-modify-write of state.json.
+    """
     from datetime import datetime, timezone
     state_path = project / ".methodology" / "state.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)
-    existing: dict = {}
-    if state_path.exists():
-        try:
-            existing = json.loads(state_path.read_text(encoding="utf-8"))
-        except Exception:  # pylint: disable=broad-exception-caught
-            pass
-    existing["last_gate"] = gate_num
-    existing["last_fr"] = fr_id
-    existing["last_update"] = datetime.now(timezone.utc).isoformat()
-    state_path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
+    with file_lock(state_lock_path(project)):
+        existing: dict = {}
+        if state_path.exists():
+            try:
+                existing = json.loads(state_path.read_text(encoding="utf-8"))
+            except Exception:  # pylint: disable=broad-exception-caught
+                pass
+        existing["last_gate"] = gate_num
+        existing["last_fr"] = fr_id
+        existing["last_update"] = datetime.now(timezone.utc).isoformat()
+        atomic_write_json(state_path, existing)
 
 
 def _advance_fsm(project: Path, completed_phase: int,
@@ -2596,38 +2657,48 @@ def _advance_fsm(project: Path, completed_phase: int,
 
     next_phase = completed_phase + 1
 
-    # 1. Write .methodology/state.json (the authoritative phase record)
+    # 1. Write .methodology/state.json (the authoritative phase record).
+    # Cross-process locked (SG-12) so a parallel _update_state_checkpoint
+    # or push-milestone state-write cannot corrupt the file.
     state_path = project / ".methodology" / "state.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)
-    existing_state = "INIT"
-    if state_path.exists():
-        try:
-            raw_state = json.loads(state_path.read_text()).get("state", "INIT")
-            existing_state = validate_fsm_state(raw_state)
-        except FSMError as e:
-            print(f"\n  [FSM ERROR] {e}")
-            print(f"  Fix state.json manually or run `advance-phase` with a clean state.")
-            sys.exit(11)
-        except Exception:  # pylint: disable=broad-exception-caught
-            existing_state = "INIT"
-    state_path.write_text(
-        json.dumps({
+    with file_lock(state_lock_path(project)):
+        existing_state = "INIT"
+        if state_path.exists():
+            try:
+                raw_state = json.loads(state_path.read_text()).get("state", "INIT")
+                existing_state = validate_fsm_state(raw_state)
+            except FSMError as e:
+                print(f"\n  [FSM ERROR] {e}")
+                print(f"  Fix state.json manually or run `advance-phase` with a clean state.")
+                sys.exit(11)
+            except Exception:  # pylint: disable=broad-exception-caught
+                existing_state = "INIT"
+        atomic_write_json(state_path, {
             "state": existing_state,
             "current_phase": next_phase,
             "last_gate": last_gate,
             "last_fr": last_fr,
             "last_update": datetime.now(timezone.utc).isoformat(),
-        }, indent=2),
-        encoding="utf-8",
-    )
+        })
     print(f"  [FSM] state.json current_phase → {next_phase}")
 
-    # 2. Advance fr_progress.json phase (kept in sync with state.json)
+    # 2. Advance fr_progress.json phase (kept in sync with state.json).
+    # SG-9: do not silently swallow exceptions — log to stderr so the
+    # operator knows state.json and fr_progress.json may be out of sync.
+    # FileNotFoundError is the expected case for P1/P2 (no fr_progress.json yet).
     try:
         from harness.fr_progress_tracker import FRProgressTracker
         FRProgressTracker(project, phase=next_phase).advance_phase(next_phase)
-    except Exception:  # pylint: disable=broad-exception-caught
-        pass  # fr_progress.json may not exist yet (P1/P2 projects)
+    except FileNotFoundError:
+        pass  # P1/P2 projects: fr_progress.json doesn't exist yet — expected.
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        print(
+            f"  [WARN] FRProgressTracker.advance_phase failed: {type(exc).__name__}: {exc}\n"
+            f"  state.json advanced to phase {next_phase}, but fr_progress.json may now\n"
+            f"  be out of sync. Inspect .methodology/fr_progress.json and repair if needed.",
+            file=sys.stderr,
+        )
 
     # 3. No other phase storage — state.json is the single source of truth.
     #    git config quality.phase and GitHub CURRENT_PHASE variable are no longer used.
@@ -3570,16 +3641,13 @@ def cmd_init_project(args: argparse.Namespace) -> int:
     if state_path.exists() and not args.overwrite:
         print(f"   SKIP: {state_path} already exists (use --overwrite to overwrite)")
     else:
-        state_path.write_text(
-            json.dumps({
-                "state": "ACTIVE",
-                "current_phase": phase,
-                "last_gate": None,
-                "last_fr": None,
-                "last_update": datetime.now(timezone.utc).isoformat(),
-            }, indent=2),
-            encoding="utf-8",
-        )
+        atomic_write_json(state_path, {
+            "state": "ACTIVE",
+            "current_phase": phase,
+            "last_gate": None,
+            "last_fr": None,
+            "last_update": datetime.now(timezone.utc).isoformat(),
+        })
         print(f"   OK — state.json initialized (phase={phase})")
 
     # 8. Drift monitor hint
@@ -3610,6 +3678,85 @@ def cmd_init_project(args: argparse.Namespace) -> int:
     print(f"  Phase {phase} written to .methodology/state.json — single source of truth.")
     print(f"  Docs: {harness_root}/INTEGRATION.md")
     return 0
+
+
+def cmd_kill_switch(args: argparse.Namespace) -> int:
+    """CLI surface for the M1 KillSwitch (CV-6 from robustness audit).
+
+    Operators previously had to write Python to manually trigger or re-enable
+    an agent's circuit breaker. This subcommand wires `KillSwitch.manual_trigger`
+    and `KillSwitch.re_enable` directly.
+
+    Subcommands:
+      trigger  --agent-id ID --reason TEXT [--operator ID]   open circuit
+      reset    --agent-id ID --ack TEXT     [--operator ID]   re-enable agent
+      status   [--agent-id ID]                                show circuit state
+
+    Operator ID defaults to $USER (or 'operator' on systems without USER set).
+    All operations are logged to KillSwitch's audit log.
+    """
+    try:
+        from kill_switch.kill_switch import KillSwitch
+    except ImportError as exc:
+        print(f"[ERROR] kill_switch module unavailable: {exc}", file=sys.stderr)
+        return 1
+
+    operator = getattr(args, "operator", None) or os.environ.get("USER") or "operator"
+    ks = KillSwitch()
+    action = args.kill_action
+
+    if action == "trigger":
+        if not args.agent_id or not args.reason:
+            print("[ERROR] kill-switch trigger requires --agent-id and --reason.", file=sys.stderr)
+            return 2
+        evt = ks.manual_trigger(
+            agent_id=args.agent_id, reason=args.reason, operator_id=operator,
+        )
+        print(f"OK — agent {args.agent_id} circuit OPENED by {operator}.")
+        print(f"  Reason: {args.reason}")
+        print(f"  Event: {evt}")
+        return 0
+
+    if action == "reset":
+        if not args.agent_id or not args.ack:
+            print("[ERROR] kill-switch reset requires --agent-id and --ack.", file=sys.stderr)
+            return 2
+        ok = ks.re_enable(
+            agent_id=args.agent_id, operator_id=operator, acknowledgment=args.ack,
+        )
+        if ok:
+            print(f"OK — agent {args.agent_id} re-enabled by {operator}.")
+            print(f"  Acknowledgment: {args.ack}")
+            return 0
+        print(f"[ERROR] re-enable failed for {args.agent_id}.", file=sys.stderr)
+        return 1
+
+    if action == "status":
+        if args.agent_id:
+            try:
+                open_ = ks.is_agent_circuit_open(args.agent_id)
+                state = ks.get_agent_state(args.agent_id)
+                print(f"agent_id={args.agent_id}  circuit_open={open_}  state={state}")
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                print(f"[ERROR] could not read status for {args.agent_id}: {exc}", file=sys.stderr)
+                return 1
+        else:
+            agents = ks.get_registered_agents()
+            if not agents:
+                print("No agents currently registered with KillSwitch.")
+                return 0
+            for aid in agents:
+                try:
+                    open_ = ks.is_agent_circuit_open(aid)
+                    state = ks.get_agent_state(aid)
+                    marker = "🔴 OPEN" if open_ else "🟢 CLOSED"
+                    print(f"  {marker}  {aid}  state={state}")
+                except Exception as exc:  # pylint: disable=broad-exception-caught
+                    print(f"  ⚠  {aid}  status error: {exc}")
+        return 0
+
+    print(f"[ERROR] unknown kill-switch action: {action}", file=sys.stderr)
+    return 2
 
 
 def cmd_audit_structure(args: argparse.Namespace) -> int:
@@ -4052,6 +4199,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Phase number that just completed (advance-phase --completed 3 → sets phase 4)",
     )
     adv.add_argument("--project", default=".", help="Project root (default: .)")
+    adv.add_argument(
+        "--force", action="store_true",
+        help="Bypass the current_phase == --completed check. Required only for "
+             "legitimate FSM repairs (e.g., rolling back after a corrupted state). "
+             "Logged to stderr for audit.",
+    )
     adv.set_defaults(func=cmd_advance_phase)
 
     # await-hermes-approve (Gate 4 async human approval)
@@ -4150,6 +4303,28 @@ def build_parser() -> argparse.ArgumentParser:
     aus.add_argument("--project", required=True, help="Target project root path")
     aus.add_argument("--json", action="store_true", help="Output as JSON")
     aus.set_defaults(func=cmd_audit_structure)
+
+    # kill-switch (CV-6 — operator CLI for M1 KillSwitch)
+    ks = sub.add_parser(
+        "kill-switch",
+        help="Manually trigger/reset/inspect M1 KillSwitch circuit for an agent.",
+    )
+    ks_sub = ks.add_subparsers(dest="kill_action", required=True)
+
+    kst = ks_sub.add_parser("trigger", help="Open the circuit (halt agent dispatch).")
+    kst.add_argument("--agent-id", required=True, help="Agent identifier to halt.")
+    kst.add_argument("--reason", required=True, help="Reason — recorded in audit log.")
+    kst.add_argument("--operator", help="Operator ID (default: $USER).")
+
+    ksr = ks_sub.add_parser("reset", help="Close the circuit (re-enable agent dispatch).")
+    ksr.add_argument("--agent-id", required=True, help="Agent to re-enable.")
+    ksr.add_argument("--ack", required=True, help="Acknowledgment message — audit logged.")
+    ksr.add_argument("--operator", help="Operator ID (default: $USER).")
+
+    kss = ks_sub.add_parser("status", help="Show circuit state for one or all agents.")
+    kss.add_argument("--agent-id", help="Specific agent to inspect (default: list all).")
+
+    ks.set_defaults(func=cmd_kill_switch)
 
     return p
 

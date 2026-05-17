@@ -6,6 +6,7 @@ check_framework_block is excluded (requires full FrameworkEnforcer env).
 """
 
 import json
+from pathlib import Path
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -19,6 +20,21 @@ from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
 # ---------------------------------------------------------------------------
 
 class TestCheckSessionLog:
+    """Tests for check_session_log.
+
+    Updated for CV-1 (canonical path is .methodology/sessions_spawn.log) and
+    SG-14 (only JSONL is accepted — one JSON object per line, matching
+    SessionsSpawnLogger._write_entries). Single-dict and JSON-array formats
+    are no longer accepted because they were never produced by the canonical
+    writer.
+    """
+
+    @staticmethod
+    def _log_path(project: Path) -> Path:
+        p = project / ".methodology" / "sessions_spawn.log"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        return p
+
     def test_log_not_found(self, tmp_path):
         v = PhaseTruthVerifier(str(tmp_path), 1)
         passed, score, details = v.check_session_log()
@@ -27,44 +43,54 @@ class TestCheckSessionLog:
         assert "not found" in details
 
     def test_single_role_fails_ab(self, tmp_path):
-        (tmp_path / "sessions_spawn.log").write_text(
-            json.dumps({"sessions": [{"role": "developer", "session_id": "s1"}]})
+        # JSONL: single entry with one role → fails A/B check.
+        self._log_path(tmp_path).write_text(
+            json.dumps({"role": "developer", "session_id": "s1"}) + "\n"
         )
         passed, score, _ = PhaseTruthVerifier(str(tmp_path), 1).check_session_log()
         assert passed is False
 
-    def test_ab_roles_json_object(self, tmp_path):
-        (tmp_path / "sessions_spawn.log").write_text(json.dumps({"sessions": [
-            {"role": "developer", "session_id": "s1"},
-            {"role": "reviewer",  "session_id": "s2"},
-        ]}))
+    def test_ab_roles_linewise(self, tmp_path):
+        """JSONL with two distinct roles + sessions → passes."""
+        lines = (
+            json.dumps({"role": "developer", "session_id": "s1"}) + "\n" +
+            json.dumps({"role": "reviewer",  "session_id": "s2"}) + "\n"
+        )
+        self._log_path(tmp_path).write_text(lines)
         passed, score, _ = PhaseTruthVerifier(str(tmp_path), 1).check_session_log()
         assert passed is True
         assert score == 100.0
 
-    def test_ab_roles_json_list(self, tmp_path):
-        (tmp_path / "sessions_spawn.log").write_text(json.dumps([
+    def test_single_json_entry_one_role(self, tmp_path):
+        """JSONL single entry → only 1 role → fails."""
+        self._log_path(tmp_path).write_text(
+            json.dumps({"role": "developer", "session_id": "s1"}) + "\n"
+        )
+        passed, _, _ = PhaseTruthVerifier(str(tmp_path), 1).check_session_log()
+        assert passed is False
+
+    def test_legacy_dict_format_rejected(self, tmp_path):
+        """SG-14: single-dict format is no longer accepted (JSONL only)."""
+        self._log_path(tmp_path).write_text(
+            json.dumps({"sessions": [
+                {"role": "developer", "session_id": "s1"},
+                {"role": "reviewer",  "session_id": "s2"},
+            ]})
+        )
+        passed, score, details = PhaseTruthVerifier(str(tmp_path), 1).check_session_log()
+        # Should not be treated as valid log (the dict has no JSONL entries).
+        # Either fails parsing or returns 0 score due to malformed-line count.
+        assert passed is False or score < 100.0
+
+    def test_legacy_array_format_rejected(self, tmp_path):
+        """SG-14: JSON array on a single line is not the JSONL format we expect."""
+        self._log_path(tmp_path).write_text(json.dumps([
             {"role": "developer", "session_id": "s1"},
             {"role": "reviewer",  "session_id": "s2"},
         ]))
         passed, score, _ = PhaseTruthVerifier(str(tmp_path), 1).check_session_log()
-        assert passed is True
-
-    def test_ab_roles_linewise(self, tmp_path):
-        lines = (
-            json.dumps({"role": "developer", "session_id": "s1"}) + "\n" +
-            json.dumps({"role": "reviewer",  "session_id": "s2"})
-        )
-        (tmp_path / "sessions_spawn.log").write_text(lines)
-        passed, score, _ = PhaseTruthVerifier(str(tmp_path), 1).check_session_log()
-        assert passed is True
-
-    def test_single_json_entry(self, tmp_path):
-        (tmp_path / "sessions_spawn.log").write_text(
-            json.dumps({"role": "developer", "session_id": "s1"})
-        )
-        passed, _, _ = PhaseTruthVerifier(str(tmp_path), 1).check_session_log()
-        assert passed is False  # only 1 role
+        # A JSON array literal on one line parses but isn't a dict → malformed.
+        assert passed is False or score < 100.0
 
 
 # ---------------------------------------------------------------------------

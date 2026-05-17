@@ -1,10 +1,17 @@
 # Sessions Spawn Logger - Auto-record sub-agent dispatch
 # v6.60: Added log_update() supporting two-phase write (PENDING -> COMPLETED/FAILED)
+# v6.61: Atomic full-rewrite + cross-process file lock (CV-3 / SG-3 / SG-12).
 
 import json
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict, Any, List
+
+try:
+    from core.atomic_io import atomic_write_text, file_lock  # type: ignore[import-not-found]
+except ImportError:  # pragma: no cover  (graceful degrade if utility missing)
+    atomic_write_text = None  # type: ignore[assignment]
+    file_lock = None  # type: ignore[assignment]
 
 
 class SessionsSpawnLogger:
@@ -19,9 +26,15 @@ class SessionsSpawnLogger:
         self.log_path = self.repo_path / self.LOG_FILENAME
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
 
+    def _lock_path(self) -> Path:
+        return self.log_path.with_suffix(self.log_path.suffix + ".lock")
+
     def _ensure_initialized(self):
         if not self.log_path.exists():
-            self.log_path.write_text("")
+            if (atomic_write_text is not None):
+                atomic_write_text(self.log_path, "")
+            else:
+                self.log_path.write_text("")
 
     def _read_entries(self) -> List[Dict[str, Any]]:
         if not self.log_path.exists():
@@ -41,24 +54,48 @@ class SessionsSpawnLogger:
         return entries
 
     def _write_entries(self, entries: List[Dict[str, Any]]):
+        """Atomic full-rewrite (CV-3): tempfile + os.replace so a crash
+        mid-write cannot truncate the log."""
         lines = [json.dumps(e, ensure_ascii=False) for e in entries]
-        self.log_path.write_text("\n".join(lines) + "\n")
+        content = "\n".join(lines) + "\n"
+        if (atomic_write_text is not None):
+            atomic_write_text(self.log_path, content)
+        else:
+            self.log_path.write_text(content)
 
     def log_spawn(self, role: str, task: str, session_id: str,
                   confidence: Optional[int] = None, status: str = "SPAWNED",
                   **kwargs) -> Dict[str, Any]:
-        """Record a new agent spawn event with role and task attribution."""
+        """Record a new agent spawn event with role and task attribution.
+
+        Guarded by cross-process file lock (SG-3): parallel log_spawn +
+        log_update calls cannot interleave and lose entries.
+        """
         self._ensure_initialized()
         entry: dict[str, Any] = {"timestamp": datetime.now().isoformat(), "role": role,
                                 "task": task, "session_id": session_id, "status": status}
         if confidence is not None:
             entry["confidence"] = confidence
         entry.update(kwargs)
-        with open(self.log_path, "a") as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        if atomic_write_text is not None and file_lock is not None:
+            with file_lock(self._lock_path()):
+                with open(self.log_path, "a") as f:
+                    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        else:
+            with open(self.log_path, "a") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
         return entry
 
     def log_update(self, session_id: str, **updates) -> Optional[Dict[str, Any]]:
+        """Update an entry by session_id. Read-modify-write is serialized via
+        the same lock as log_spawn so parallel callers cannot lose entries.
+        """
+        if atomic_write_text is not None and file_lock is not None:
+            with file_lock(self._lock_path()):
+                return self._log_update_unlocked(session_id, updates)
+        return self._log_update_unlocked(session_id, updates)
+
+    def _log_update_unlocked(self, session_id: str, updates: dict) -> Optional[Dict[str, Any]]:
         entries = self._read_entries()
         for i, entry in enumerate(entries):
             if entry.get("session_id") == session_id:

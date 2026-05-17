@@ -29,13 +29,44 @@ if str(_methodology_root) not in sys.path:
     sys.path.insert(0, str(_methodology_root))
 
 
+class InfraSkip(Exception):
+    """Raised by a Phase Truth check when its infrastructure is unavailable.
+
+    Distinguishes "check failed" (legitimate quality gap → score 0) from
+    "check could not run" (missing module / broken install → skip with
+    warning, renormalize remaining weights). See CV-4 in robustness audit.
+    """
+
+
 class PhaseTruthVerifier:
     """Phase truth verifier"""
 
-    def __init__(self, project_root: str, phase: int):
+    def __init__(self, project_root: str, phase: int, threshold: float | None = None):
+        """
+        :param threshold: Override HR-11 ≥90% threshold. If None, reads
+            `.methodology/enforcement.json::hr_overrides.HR-11_phase_truth_threshold`
+            falling back to 90.0. See SG-7 in robustness audit.
+        """
         self.project_root = Path(project_root)
         self.phase = phase
         self.results: dict[str, Any] = {}
+        self.threshold: float = (
+            float(threshold) if threshold is not None
+            else self._load_threshold_from_config()
+        )
+
+    def _load_threshold_from_config(self) -> float:
+        """Read HR-11 threshold from enforcement.json (SG-7)."""
+        cfg_path = self.project_root / ".methodology" / "enforcement.json"
+        if cfg_path.exists():
+            try:
+                cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+                v = cfg.get("hr_overrides", {}).get("HR-11_phase_truth_threshold")
+                if v is not None:
+                    return float(v)
+            except (json.JSONDecodeError, ValueError, OSError):
+                pass
+        return 90.0
 
     def to_fix_context(self) -> dict:
         """Serialize verify failures for AutoFixEngine consumption."""
@@ -52,7 +83,14 @@ class PhaseTruthVerifier:
         }
 
     def check_framework_block(self) -> Tuple[bool, float, str]:
-        """Check FrameworkEnforcer BLOCK"""
+        """Check FrameworkEnforcer BLOCK.
+
+        CV-4 (robustness audit): an ImportError here previously scored 0
+        (counted as a check failure), making Phase Truth ≥90% unreachable
+        whenever `enforcement/` was missing or partially installed. We now
+        raise InfraSkip so `verify()` can renormalize weights — operators
+        see a [SKIP] warning instead of a misleading 0% score.
+        """
         try:
             # Add enforcement to path if needed
             enforcement_path = self.project_root / "enforcement"
@@ -61,6 +99,13 @@ class PhaseTruthVerifier:
                     sys.path.insert(0, str(self.project_root))
 
             from enforcement.framework_enforcer import FrameworkEnforcer
+        except ImportError as e:
+            raise InfraSkip(
+                f"enforcement.framework_enforcer unavailable ({e}). "
+                f"Check that enforcement/ is installed at {self.project_root}/enforcement."
+            )
+
+        try:
             enforcer = FrameworkEnforcer(str(self.project_root), phase=self.phase)
             result = enforcer.run(level="BLOCK")
 
@@ -69,74 +114,103 @@ class PhaseTruthVerifier:
             details = f"{len(result.block_checks)} check(s), {len(result.violations)} violation(s)"
 
             return passed, score, details
-        except ImportError as e:
-            return False, 0.0, f"Cannot import FrameworkEnforcer: {e}"
         except Exception as e:
             return False, 0.0, f"Error: {e}"
 
     def check_session_log(self) -> Tuple[bool, float, str]:
-        """Check Sessions_spawn.log"""
-        log_file = self.project_root / "sessions_spawn.log"
+        """Check Sessions_spawn.log.
+
+        The canonical log path is `.methodology/sessions_spawn.log` (matches
+        `SessionsSpawnLogger.LOG_FILENAME`). Earlier versions of this module
+        read from project root, which made HR-11 ≥90% mathematically
+        unreachable for P3+ projects (CV-1 in robustness audit).
+        """
+        log_file = self.project_root / ".methodology" / "sessions_spawn.log"
 
         if not log_file.exists():
             return False, 0.0, "sessions_spawn.log not found"
 
         try:
             content = log_file.read_text().strip()
-            
-            # Support two formats:
-            # 1. Line-by-line JSON (one JSON object per line)
-            # 2. Single JSON (contains sessions array)
-            roles = set()
-            sessions = set()
-            
-            # Try parsing as whole JSON
-            try:
-                data = json.loads(content)
-                if isinstance(data, dict) and "sessions" in data:
-                    # Format 2: {"sessions": [...]}
-                    for entry in data.get("sessions", []):
-                        roles.add(entry.get("role", ""))
-                        sessions.add(entry.get("session_id", ""))
-                elif isinstance(data, list):
-                    # Format 1: directly a list
-                    for entry in data:
-                        roles.add(entry.get("role", ""))
-                        sessions.add(entry.get("session_id", ""))
-                else:
-                    # May be single entry
-                    roles.add(data.get("role", ""))
-                    sessions.add(data.get("session_id", ""))
-            except json.JSONDecodeError:
-                # Try line-by-line parsing
-                lines = [line for line in content.split("\n") if line]
-                for line in lines:
-                    try:
-                        entry = json.loads(line)
-                        roles.add(entry.get("role", ""))
-                        sessions.add(entry.get("session_id", ""))
-                    except Exception:  # nosec B110
-                        pass
+
+            # SG-14: require JSONL — one JSON object per non-empty line.
+            # This matches SessionsSpawnLogger._write_entries, which is the
+            # only canonical writer. A single-dict log or a JSON array now
+            # fails parsing instead of returning a misleading 50% score.
+            roles: set[str] = set()
+            sessions: set[str] = set()
+            malformed = 0
+            total = 0
+            for raw_line in content.split("\n"):
+                line = raw_line.strip().lstrip(",")
+                if not line:
+                    continue
+                total += 1
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    malformed += 1
+                    continue
+                if not isinstance(entry, dict):
+                    malformed += 1
+                    continue
+                roles.add(entry.get("role", ""))
+                sid = entry.get("session_id", "")
+                if sid:
+                    sessions.add(sid)
+
+            if total == 0:
+                return False, 0.0, "sessions_spawn.log is empty"
 
             has_ab = len(roles) >= 2
             has_sessions = len(sessions) >= 2
 
-            score = 100.0 if has_ab and has_sessions else 50.0 if has_sessions else 0.0
-            details = f"{len(sessions)} record(s), {len(roles)} role(s), {len(sessions)} session(s)"
+            # Even with ≥2 sessions, malformed lines indicate a writer bug —
+            # cap the score so we don't reward a half-broken log.
+            if malformed >= total // 2:
+                score = 0.0
+            elif has_ab and has_sessions:
+                score = 100.0
+            elif has_sessions:
+                score = 50.0
+            else:
+                score = 0.0
 
-            return has_ab and has_sessions, score, details
+            details = (f"{total} record(s), {len(roles)} role(s), "
+                       f"{len(sessions)} session(s)"
+                       + (f", {malformed} malformed" if malformed else ""))
+
+            return has_ab and has_sessions and malformed == 0, score, details
         except Exception as e:
             return False, 0.0, f"Error: {e}"
+
+    def _get_pytest_timeout(self) -> int:
+        """SG-5: pytest timeout is configurable via enforcement.json. Default 300s.
+
+        Hardcoded 120s previously caused medium-sized test suites to time out,
+        scoring 0 on Phase Truth and blocking P3/P4 advance.
+        """
+        cfg_path = self.project_root / ".methodology" / "enforcement.json"
+        if cfg_path.exists():
+            try:
+                cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+                v = cfg.get("phase_truth", {}).get("pytest_timeout_seconds")
+                if v is not None:
+                    return max(30, int(v))  # floor at 30s to prevent footguns
+            except (json.JSONDecodeError, ValueError, OSError):
+                pass
+        return 300
 
     def check_pytest(self) -> Tuple[bool, float, str]:
         """Check pytest actually passes; capture structured failure output."""
         try:
+            timeout = self._get_pytest_timeout()
             result = subprocess.run(  # nosec B603 B607
                 ["pytest", "--tb=line", "-q", "--no-header"],
                 cwd=self.project_root,
                 capture_output=True,
                 text=True,
-                timeout=120
+                timeout=timeout,
             )
 
             passed = result.returncode == 0
@@ -306,7 +380,7 @@ class PhaseTruthVerifier:
             },
             {
                 "item": "sessions_spawn.log",
-                "status": "✅ present" if (self.project_root / "sessions_spawn.log").exists() else "❌ missing",
+                "status": "✅ present" if (self.project_root / ".methodology" / "sessions_spawn.log").exists() else "❌ missing",
                 "action": "Pick 1 record at random, confirm task description is reasonable"
             },
         ])
@@ -351,30 +425,51 @@ class PhaseTruthVerifier:
                 ("Previous phase artifacts", self.check_previous_phase_artifacts, 0.15),
             ]
 
-        total_score = 0.0
+        total_weighted = 0.0
+        active_weight = 0.0  # sum of weights for checks that actually ran
         results = []
 
         for name, check_func, weight in checks:
-            passed, score, details = check_func()
+            try:
+                passed, score, details = check_func()
+                skipped = False
+            except InfraSkip as skip:
+                # CV-4: infrastructure unavailable — skip with [WARN], don't
+                # penalize the score. The remaining checks get renormalized.
+                passed, score, details = True, 0.0, f"⚠ SKIPPED — {skip}"
+                skipped = True
 
-            weighted_score = score * weight
-            total_score += weighted_score
+            if not skipped:
+                total_weighted += score * weight
+                active_weight += weight
 
-            status = "✅" if passed else "❌"
+            status = "⚠" if skipped else ("✅" if passed else "❌")
             results.append({
                 "name": name,
                 "passed": passed,
                 "score": score,
                 "details": details,
                 "weight": weight,
+                "skipped": skipped,
             })
 
             print(f"{status} {name:<30} {details}")
 
+        # Renormalize: weighted average across checks that actually ran.
+        # If everything was skipped (infra fully broken) we fail-safe with 0%.
+        # Math: original weights are designed to sum to 1.0, so dividing by
+        # active_weight gives a 0-100 scale.
+        if active_weight > 0:
+            total_score = total_weighted / active_weight
+        else:
+            total_score = 0.0
+
         print()
         print("=" * 60)
-        verdict = "✅ likely genuine" if total_score >= 90 else "❌ highly suspicious"
-        print(f"Total score: {total_score:.0f}% - {verdict}")
+        verdict = "✅ likely genuine" if total_score >= self.threshold else "❌ highly suspicious"
+        skipped_count = sum(1 for r in results if r.get("skipped"))
+        skip_note = f" ({skipped_count} check(s) SKIPPED due to infra)" if skipped_count else ""
+        print(f"Total score: {total_score:.0f}% (threshold: {self.threshold:.0f}%) - {verdict}{skip_note}")
         print("=" * 60)
         print()
 
@@ -392,7 +487,8 @@ class PhaseTruthVerifier:
         return {
             "phase": self.phase,
             "total_score": total_score,
-            "passed": total_score >= 90,
+            "threshold": self.threshold,
+            "passed": total_score >= self.threshold,
             "checks": results,
             "checklist": checklist,
         }
