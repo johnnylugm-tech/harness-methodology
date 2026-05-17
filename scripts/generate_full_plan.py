@@ -1110,7 +1110,7 @@ def _load_manifest_fr_ids(repo_path: Path) -> List[str]:
 def generate_phase1_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     """Generate Phase 1 detailed tasks (Requirements Specification).
 
-    Exit gate = human peer review (NOT harness run-gate).
+    Exit gate = Agent B peer review (NOT harness run-gate).
     A/B is serial per-deliverable: SRS → SPEC_TRACKING → TRACEABILITY.
     Each deliverable has its own A/B loop; REJECT only backtracks one step.
     """
@@ -1120,7 +1120,7 @@ def generate_phase1_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("")
     lines.append("### Phase 1 Overview")
     lines.append("Phase 1 is the project starting point. Define complete SRS.")
-    lines.append("**Exit gate = human peer review of deliverables** (not `harness run-gate --gate 1`).")
+    lines.append("**Exit gate = Agent B peer review of deliverables** (not `harness run-gate --gate 1`).")
     lines.append("")
 
     lines.append("> **Crash Recovery**: after each push, `HANDOVER.md` is written to project root.")
@@ -1189,14 +1189,14 @@ def generate_phase1_tasks(repo_path: Path, srs_path: Path) -> List[str]:
 def generate_phase2_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     """Generate Phase 2 detailed tasks (Architecture Design).
 
-    Entry = P1 human APPROVE.  Exit gate = human peer review of SAD + ADR (NOT harness run-gate).
+    Entry = P1 human APPROVE.  Exit gate = Agent B peer review of SAD + ADR (NOT harness run-gate).
     """
     lines = []
     lines.append("## Phase 2 Tasks: Architecture Design")
     lines.append("")
     lines.append("### Phase 2 Overview")
     lines.append("Phase 2 designs the system architecture based on SRS, producing SAD and ADR.")
-    lines.append("**Exit gate = human peer review of deliverables** (not `harness run-gate --gate 1`).")
+    lines.append("**Exit gate = Agent B peer review of deliverables** (not `harness run-gate --gate 1`).")
     lines.append("")
     lines.append("> **Crash Recovery**: after each push, `HANDOVER.md` is written to project root.")
     lines.append("> If context is lost, read `HANDOVER.md` first — it contains phase, status, and next steps.")
