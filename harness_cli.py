@@ -477,6 +477,9 @@ def _check_gate_score_variance(project: Path, phase: int) -> int:
         for _sf in _score_files:
             try:
                 _d = _yaml.safe_load(open(_sf, encoding="utf-8"))
+                # Skip aggregate entries (Gate2/Gate4 have fr_id=null); only check per-FR scores.
+                if (_d or {}).get("ctx", {}).get("fr_id") is None:
+                    continue
                 _s = (_d or {}).get("scores", {}).get("gate_score")
                 if _s is not None:
                     _scores.append(float(_s))
@@ -486,14 +489,14 @@ def _check_gate_score_variance(project: Path, phase: int) -> int:
         if len(_scores) > 2 and len(set(_scores)) == 1:
             print(
                 f"\n[BLOCKED] Gate score variance check failed for Phase {phase}:\n"
-                f"  All {len(_scores)} FR gate scores are identical ({_scores[0]}).\n"
+                f"  All {len(_scores)} per-FR gate scores are identical ({_scores[0]}).\n"
                 f"  This indicates scores were copied rather than evaluated per FR.\n"
                 f"  Re-run run-gate + evaluate dimensions inline + finalize-gate for each FR."
             )
             return 1
         if _scores:
             print(f"[advance-phase] Gate score variance OK "
-                  f"({len(_scores)} FRs, scores: {sorted(set(_scores))})")
+                  f"({len(_scores)} per-FR scores: {sorted(set(_scores))})")
         return 0
     except Exception as _exc:
         print(f"[advance-phase] ⚠ Gate score variance check error ({_exc}) — skipping")
@@ -2902,7 +2905,21 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
                 print(f"     python harness_cli.py run-pipeline --phase-from 1 "
                       f"--project {project}")
                 return 10
-            print("[1.1] SRS.md + A/B review verified — committing P1 checkpoint")
+            print("[1.1] SRS.md + A/B review verified")
+            # Checklist gate
+            _p1_plan = project / ".methodology" / "phase1_plan.md"
+            _mandatory, _ = _parse_plan_unchecked(_p1_plan)
+            if _mandatory:
+                print("[1.1] BLOCKED: mandatory checklist items unchecked in phase1_plan.md:")
+                for _item in _mandatory:
+                    print(f"  • {_item}")
+                return 5
+            # Agent B approvals gate
+            _deliverables = _resolve_deliverable_ids(project, 1, [])
+            _ab_ok, _ab_report = _verify_agent_b_approvals_core(project, 1, _deliverables)
+            print(_ab_report)
+            if not _ab_ok:
+                return 5
             fr_ids = _parse_fr_ids(srs.read_text(encoding="utf-8", errors="ignore"))
             git.commit_and_push_p1(
                 fr_ids=fr_ids,
@@ -2940,6 +2957,20 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
                 if not _generate_sab_json(project):
                     print("[ERROR] SAB-SYNC failed. Fix generate_sab.py before proceeding.")
                     return 1
+                # Checklist gate
+                _p2_plan = project / ".methodology" / "phase2_plan.md"
+                _mandatory, _ = _parse_plan_unchecked(_p2_plan)
+                if _mandatory:
+                    print("[2.2] BLOCKED: mandatory checklist items unchecked in phase2_plan.md:")
+                    for _item in _mandatory:
+                        print(f"  • {_item}")
+                    return 5
+                # Agent B approvals gate
+                _deliverables = _resolve_deliverable_ids(project, 2, [])
+                _ab_ok, _ab_report = _verify_agent_b_approvals_core(project, 2, _deliverables)
+                print(_ab_report)
+                if not _ab_ok:
+                    return 5
                 git.commit_and_push_p2(fr_ids)  # PUSH ②
             continue
 

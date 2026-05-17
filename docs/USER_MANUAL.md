@@ -77,7 +77,7 @@ export HERMES_REVIEWER_TARGET=telegram:YOUR_CHAT_ID   # or other target
 
 # Git hooks (target-project integration) — run ONCE in your target project root:
 bash harness/scripts/harness-init.sh --phase 1   # recommended: idempotent, CI-embeddable
-# After this: git commit / push / PR all trigger harness checks automatically
+# After this: git commit / push trigger harness checks automatically
 ```
 
 > **Three init entry points** (from lowest to highest level):
@@ -117,7 +117,7 @@ your-project/
 One-time setup                      Automatic thereafter
 ────────────────────────────────────────────────────────────
 setup-git-hooks.sh           →  hooks fire on every commit / merge / push
-Add CI YAML to target repo   →  gate check on every PR (blocks merge if fail)
+Add CI YAML to target repo   →  gate check on every push (blocks if fail)
 Set DRIFT_PROJECT_PATH       →  drift alert every hour (log / email / Slack)
 ```
 
@@ -126,7 +126,7 @@ Set DRIFT_PROJECT_PATH       →  drift alert every hour (log / email / Slack)
 | `git commit` | `prepare-commit-msg` hook — phase-aware gate check | ✅ blocks commit |
 | `git merge` | `post-merge` hook — drift detection | ❌ log only |
 | `git push` | `pre-push` hook — full phase gate | ✅ blocks push |
-| PR opened | CI workflow `quality check-phase $PHASE` | ✅ blocks merge |
+| git push (CI) | `gate-check` workflow | ✅ blocks bad push |
 
 > **Full setup guide**: [§12 GitHub Integration Setup](#12-github-integration-setup) | [INTEGRATION.md](../INTEGRATION.md)
 
@@ -726,8 +726,7 @@ Claude 會依序確認並執行：
 **設定完成後的開發者體驗（完全透明）：**
 ```
 ✅ git commit  → 自動 phase check（不通過則阻擋 + 提示修復指令）
-✅ git push    → 自動 pre-push gate（同上）
-✅ PR 開啟     → CI 自動執行 gate check（不通過則阻擋 merge）
+✅ git push    → 自動 pre-push gate + CI gate-check（不通過則 push 被擋下）
 ✅ 每小時      → drift monitor 自動偵測架構偏移
 ❌ 不需要手動執行任何 harness 指令於日常開發
 ```

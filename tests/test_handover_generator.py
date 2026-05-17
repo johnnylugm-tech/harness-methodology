@@ -1360,7 +1360,10 @@ class TestCmdAdvancePhase:
         decision_dir.mkdir(parents=True)
         for fr in ("FR-01", "FR-02", "FR-03"):
             lf = decision_dir / f"GATE_3_{fr}.yaml"
-            lf.write_text(_yaml.dump({"scores": {"gate_score": 85.0}}))
+            lf.write_text(_yaml.dump({
+                "ctx": {"fr_id": fr},
+                "scores": {"gate_score": 85.0},
+            }))
 
         exit_code, output = self._call_advance_phase(
             monkeypatch, tmp_path, completed=3, skip_prechecks=False,
@@ -1387,7 +1390,10 @@ class TestCmdAdvancePhase:
         decision_dir.mkdir(parents=True)
         for fr, score in [("FR-01", 82.0), ("FR-02", 88.0), ("FR-03", 85.0)]:
             lf = decision_dir / f"GATE_3_{fr}.yaml"
-            lf.write_text(_yaml.dump({"scores": {"gate_score": score}}))
+            lf.write_text(_yaml.dump({
+                "ctx": {"fr_id": fr},
+                "scores": {"gate_score": score},
+            }))
 
         exit_code, output = self._call_advance_phase(
             monkeypatch, tmp_path, completed=3, skip_prechecks=False,
