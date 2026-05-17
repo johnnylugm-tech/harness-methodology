@@ -17,9 +17,19 @@ import json
 import sys
 from pathlib import Path
 
+# Ensure harness root (parent of scripts/) is on sys.path so core.quality_gate is importable
+_HARNESS_ROOT = Path(__file__).parent.parent
+if str(_HARNESS_ROOT) not in sys.path:
+    sys.path.insert(0, str(_HARNESS_ROOT))
+
 
 def _import_extract_sab_from_sad():
-    """Import extract_sab_from_sad, trying both package locations."""
+    """Import extract_sab_from_sad from core.quality_gate.sab_parser."""
+    try:
+        from core.quality_gate.sab_parser import extract_sab_from_sad
+        return extract_sab_from_sad
+    except ImportError:
+        pass
     try:
         from quality_gate.sab_parser import extract_sab_from_sad
         return extract_sab_from_sad
@@ -30,7 +40,7 @@ def _import_extract_sab_from_sad():
         return extract_sab_from_sad
     except ImportError:
         raise ImportError(
-            "sab_parser module not found in quality_gate.sab_parser or sab_parser. "
+            "sab_parser module not found in core.quality_gate.sab_parser. "
             "Check PYTHONPATH includes the harness-methodology root. "
             "See SAD.md §6 for the SAB block format."
         )
