@@ -114,7 +114,7 @@ Hooks are defined in `.methodology/hooks.json` and executed by `core/lifecycle_h
 | HR-07 | DEVELOPMENT_LOG must record session_id | -15 | Log session_id per entry |
 | HR-08 | Phase end requires Quality Gate execution | Terminate -10 | stage-pass --phase {PHASE} |
 | HR-09 | Claims Verifier must pass | Terminate -20 | citations cross-check |
-| HR-10 | sessions_spawn.log must have A/B records | Terminate -15 | 2 entries per step |
+| HR-10 | .methodology/sessions_spawn.log must have A/B records | Terminate -15 | 2 entries per step |
 | HR-11 | Phase Truth < 90% blocks next Phase entry | Terminate | <90% → PAUSE |
 | HR-12 | A/B review > 5 rounds → PAUSE | — | Stop proactively at round 5 |
 | HR-13 | Phase execution > 3x estimate → PAUSE | — | Record start_time |
@@ -320,7 +320,7 @@ graph TD
     D --> E{Round 4: Enforce HR-15}
     E --> F[citations with line numbers]
     F --> G{Round 5: A/B collaboration}
-    G --> H[sessions_spawn.log complete]
+    G --> H[.methodology/sessions_spawn.log complete]
     H --> I{4-dimension 10/10?}
     I -->|Yes| J[APPROVE]
     I -->|No| K[Round 6+: Continuous improvement]
@@ -366,7 +366,7 @@ HR-13 >3x estimated time → PAUSE (checkpoint)
 | Dimension | Evaluation Method | Target |
 |-----------|-------------------|--------|
 | **Spec Compliance** | `grep -c '\[FR-' app/**/*.py` | citations >= 1 per function |
-| **A/B Collaboration** | `sessions_spawn.log` fully recorded | 1 entry each for developer + reviewer |
+| **A/B Collaboration** | `.methodology/sessions_spawn.log` fully recorded | 1 entry each for developer + reviewer |
 | **Sub-agent Management** | `SubagentIsolator` used correctly | `fresh_messages` isolation |
 | **Test Coverage** | `pytest --cov=app/ --cov-report=term` | >=80% (P3: >=70%) |
 
@@ -377,10 +377,10 @@ HR-13 >3x estimated time → PAUSE (checkpoint)
 grep -r "\[FR-" app/ --include="*.py" | wc -l
 
 # 2. A/B collaboration
-cat sessions_spawn.log | grep -c "developer\|reviewer"
+cat .methodology/sessions_spawn.log | grep -c "developer\|reviewer"
 
 # 3. Sub-agent management
-cat sessions_spawn.log | grep -c "spawn"
+cat .methodology/sessions_spawn.log | grep -c "spawn"
 
 # 4. Test coverage
 pytest --cov=app/ --cov-report=term -q
@@ -464,7 +464,7 @@ python3 harness_cli.py run-gap-analysis --project .
 
 ---
 
-## 11. sessions_spawn.log Format (HR-10)
+## 11. .methodology/sessions_spawn.log Format (HR-10)
 
 Each FR generates 2 records, total {FR_COUNT} x 2 = {TOTAL_RECORDS} records:
 
@@ -538,13 +538,13 @@ result = si.spawn(role="DEVELOPER", task="FR-{FR_NUM}", artifact_paths=["SRS.md"
 
 ```
 □ state.json initialized (phase={PHASE}, step=0)
-□ sessions_spawn.log cleared and rebuilt
+□ .methodology/sessions_spawn.log cleared and rebuilt
 □ KnowledgeCurator.verify_coverage() executed
 □ ContextManager.create_task() executed ({FR_COUNT} tasks)
 □ Artifact paths confirmed
 □ Forbidden items defined
 □ Output format defined
-□ sessions_spawn.log first entry written (before spawn)
+□ .methodology/sessions_spawn.log first entry written (before spawn)
 □ state.json updated
 □ Long-running tasks session-saved (if > 30 minutes)
 □ New tools registered via ToolRegistry.register (if any)

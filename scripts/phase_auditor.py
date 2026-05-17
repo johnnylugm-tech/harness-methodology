@@ -40,7 +40,7 @@ HARD_RULES = {
     "HR-07": "DEVELOPMENT_LOG must record session_id",
     "HR-08": "Quality Gate must be executed at the end of every Phase",
     "HR-09": "Claims Verifier verification must pass",
-    "HR-10": "sessions_spawn.log must exist and contain A/B records",
+    "HR-10": ".methodology/sessions_spawn.log must exist and contain A/B records",
     "HR-11": "Phase Truth score < 90% blocks entry to next Phase",
 }
 
@@ -62,8 +62,8 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
              "TRACEABILITY_MATRIX.md -- Traceability Matrix", True),
             (["DEVELOPMENT_LOG.md"],
              "DEVELOPMENT_LOG.md -- Development Log", True),
-            (["sessions_spawn.log"],
-             "sessions_spawn.log -- A/B session records", True),
+            ([".methodology/sessions_spawn.log", "sessions_spawn.log"],
+             ".methodology/sessions_spawn.log -- A/B session records", True),
             (["00-summary/Phase1_STAGE_PASS.md"],
              "Phase1_STAGE_PASS.md -- Phase pass certificate", True),
         ],
@@ -95,7 +95,7 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
             (["02-architecture/adr/"],
              "ADR -- Architecture Decision Records", False),
             (["DEVELOPMENT_LOG.md"], "DEVELOPMENT_LOG.md", True),
-            (["sessions_spawn.log"], "sessions_spawn.log", True),
+            ([".methodology/sessions_spawn.log", "sessions_spawn.log"], ".methodology/sessions_spawn.log", True),
             (["00-summary/Phase2_STAGE_PASS.md"],
              "Phase2_STAGE_PASS.md -- Phase pass certificate", True),
         ],
@@ -118,7 +118,7 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
             (["03-development/tests/"],
              "tests/ -- Unit tests", True),
             (["DEVELOPMENT_LOG.md"], "DEVELOPMENT_LOG.md", True),
-            (["sessions_spawn.log"], "sessions_spawn.log", True),
+            ([".methodology/sessions_spawn.log", "sessions_spawn.log"], ".methodology/sessions_spawn.log", True),
             (["00-summary/Phase3_STAGE_PASS.md"],
              "Phase3_STAGE_PASS.md", True),
         ],
@@ -140,7 +140,7 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
             (["04-testing/TEST_RESULTS.md"],
              "TEST_RESULTS.md", True),
             (["DEVELOPMENT_LOG.md"], "DEVELOPMENT_LOG.md", True),
-            (["sessions_spawn.log"], "sessions_spawn.log", True),
+            ([".methodology/sessions_spawn.log", "sessions_spawn.log"], ".methodology/sessions_spawn.log", True),
             (["00-summary/Phase4_STAGE_PASS.md"],
              "Phase4_STAGE_PASS.md", True),
         ],
@@ -162,7 +162,7 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
             (["05-verification/VERIFICATION_REPORT.md"],
              "VERIFICATION_REPORT.md", True),
             (["DEVELOPMENT_LOG.md"], "DEVELOPMENT_LOG.md", True),
-            (["sessions_spawn.log"], "sessions_spawn.log", True),
+            ([".methodology/sessions_spawn.log", "sessions_spawn.log"], ".methodology/sessions_spawn.log", True),
             (["00-summary/Phase5_STAGE_PASS.md"],
              "Phase5_STAGE_PASS.md", True),
         ],
@@ -182,7 +182,7 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
             (["06-quality/QUALITY_REPORT.md"],
              "QUALITY_REPORT.md (7 sections)", True),
             (["DEVELOPMENT_LOG.md"], "DEVELOPMENT_LOG.md", True),
-            (["sessions_spawn.log"], "sessions_spawn.log", True),
+            ([".methodology/sessions_spawn.log", "sessions_spawn.log"], ".methodology/sessions_spawn.log", True),
             (["00-summary/Phase6_STAGE_PASS.md"],
              "Phase6_STAGE_PASS.md", True),
         ],
@@ -204,7 +204,7 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
             (["07-risk/RISK_REGISTER.md"],
              "RISK_REGISTER.md", True),
             (["DEVELOPMENT_LOG.md"], "DEVELOPMENT_LOG.md", True),
-            (["sessions_spawn.log"], "sessions_spawn.log", True),
+            ([".methodology/sessions_spawn.log", "sessions_spawn.log"], ".methodology/sessions_spawn.log", True),
             (["00-summary/Phase7_STAGE_PASS.md"],
              "Phase7_STAGE_PASS.md", True),
         ],
@@ -223,7 +223,7 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
             (["08-config/CONFIG_RECORDS.md"],
              "CONFIG_RECORDS.md (8 sections)", True),
             (["DEVELOPMENT_LOG.md"], "DEVELOPMENT_LOG.md", True),
-            (["sessions_spawn.log"], "sessions_spawn.log", True),
+            ([".methodology/sessions_spawn.log", "sessions_spawn.log"], ".methodology/sessions_spawn.log", True),
             (["00-summary/Phase8_STAGE_PASS.md"],
              "Phase8_STAGE_PASS.md", True),
         ],
@@ -604,13 +604,13 @@ class PhaseAuditor:
 
     # -- C3: A/B Session Separation Verification ---------------------────
     def check_c3_session_separation(self):
-        """C3: sessions_spawn.log A/B different session verification"""
-        content = self._content(["sessions_spawn.log"])
+        """C3: .methodology/sessions_spawn.log A/B different session verification"""
+        content = self._content([".methodology/sessions_spawn.log", "sessions_spawn.log"])
         if not content:
             self.result.add(Finding(
                 check_id="C3", dimension="A/B Session Separation",
                 severity="CRITICAL",
-                title="sessions_spawn.log does not exist",
+                title="sessions_spawn.log does not exist (checked .methodology/ and repo root)",
                 detail="HR-10 mandates this file; absence means A/B collaboration cannot be verified",
                 rule_ref="HR-10",
             ))
@@ -623,7 +623,7 @@ class PhaseAuditor:
         self.result.add(Finding(
             check_id="C3", dimension="A/B Session Separation",
             severity="PASS",
-            title=f"sessions_spawn.log exists with {len(sessions)} records",
+            title=f"sessions_spawn.log exists — {len(sessions)} records found",
             detail="",
         ))
 
@@ -636,7 +636,7 @@ class PhaseAuditor:
         self._check_empty_tasks(sessions)
 
     def _parse_session_records(self, content: str) -> Optional[list]:
-        """Parse line-delimited JSON from sessions_spawn.log."""
+        """Parse line-delimited JSON from .methodology/sessions_spawn.log (or sessions_spawn.log fallback)."""
         sessions = []
         for line in content.strip().splitlines():
             line = line.strip()
@@ -652,7 +652,7 @@ class PhaseAuditor:
             self.result.add(Finding(
                 check_id="C3", dimension="A/B Session Separation",
                 severity="CRITICAL",
-                title="sessions_spawn.log is empty or unparseable",
+                title="sessions_spawn.log (in .methodology/ or root) is empty or unparseable",
                 detail=f"First 100 chars: {content[:100]}",
                 rule_ref="HR-10",
             ))
@@ -697,7 +697,7 @@ class PhaseAuditor:
             self.result.add(Finding(
                 check_id="C3", dimension="A/B Session Separation",
                 severity="CRITICAL",
-                title=f"sessions_spawn.log missing roles: {', '.join(missing)}",
+                title=f"sessions_spawn.log (in .methodology/ or root) missing roles: {', '.join(missing)}",
                 detail=f"Found roles: {roles}; expected: {expected_a}, {expected_b}",
                 rule_ref="HR-01",
             ))
@@ -738,7 +738,7 @@ class PhaseAuditor:
                 check_id="C3", dimension="A/B Session Separation",
                 severity="INFO",
                 title=f"{empty_tasks} session record(s) have empty task field (OpenClaw system limitation)",
-                detail="sessions_spawn.log is generated by OpenClaw; Framework cannot control its format",
+                detail="sessions_spawn.log (in .methodology/ or root) is generated by OpenClaw; Framework cannot control its format",
             ))
 
     # -- C4: DEVELOPMENT_LOG Quality ---------------------------------────

@@ -44,7 +44,7 @@ python3 harness_cli.py generate-next-plan --phase 6
 | HR-07 | DEVELOPMENT_LOG must record session_id | -15 | record session_id per entry |
 | HR-08 | Phase end must run Quality Gate | Terminate -10 | stage-pass --phase 6 |
 | HR-09 | Claims Verifier must pass | Terminate -20 | citations match |
-| HR-10 | sessions_spawn.log must have A/B records | Terminate -15 | 2 records per step |
+| HR-10 | .methodology/sessions_spawn.log must have A/B records | Terminate -15 | 2 records per step |
 | HR-11 | Phase Truth < 90% blocks next Phase | Terminate | <90% → PAUSE |
 | HR-12 | A/B review > 5 rounds → PAUSE | - | stop at 5 rounds |
 | HR-13 | Phase elapsed > estimated x3 → PAUSE | - | record start_time |
@@ -100,7 +100,7 @@ HR-01 | HR-07 | HR-08 | HR-10
   python3 harness_cli.py dispatch --role reviewer --fr-id Gate4 \
     --prompt "Review QUALITY_REPORT against quality criteria" --phase 6 --project $REPO
   ```
-  > AgentSpawner auto-logs to `sessions_spawn.log` on dispatch (HR-10).
+  > AgentSpawner auto-logs to `.methodology/sessions_spawn.log` on dispatch (HR-10).
 
 ---
 
@@ -135,7 +135,7 @@ Project Root/
 - [ ] Constitution score >= 80%
 - [ ] Logic correctness >= 90
 - [ ] Phase Truth > 90%
-- [ ] `sessions_spawn.log` — complete A/B session records
+- [ ] `.methodology/sessions_spawn.log` — complete A/B session records
 - [ ] [ASPICE] QUALITY_REPORT.md references BASELINE.md by filename keyword `BASELINE`
 - [ ] [ASPICE] QUALITY_REPORT.md references VERIFICATION_REPORT.md by filename keyword `VERIFICATION_REPORT`
 - [ ] Hermes APPROVE received from reviewer
@@ -270,7 +270,7 @@ pytest {PROJECT_PATH}/tests/ --cov={SOURCE_DIR} --cov-report=term -q
 
 ---
 
-## 8. sessions_spawn.log Format (HR-10)
+## 8. .methodology/sessions_spawn.log Format (HR-10)
 
 2 records per Phase (qa + architect):
 
