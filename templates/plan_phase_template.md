@@ -377,10 +377,10 @@ HR-13 >3x estimated time → PAUSE (checkpoint)
 grep -r "\[FR-" app/ --include="*.py" | wc -l
 
 # 2. A/B collaboration
-cat .methodology/sessions_spawn.log | grep -c "developer\|reviewer"
+grep -c "developer\|reviewer" .methodology/sessions_spawn.log
 
 # 3. Sub-agent management
-cat .methodology/sessions_spawn.log | grep -c "spawn"
+grep -c "spawn" .methodology/sessions_spawn.log
 
 # 4. Test coverage
 pytest --cov=app/ --cov-report=term -q
