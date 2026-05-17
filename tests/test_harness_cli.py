@@ -457,6 +457,108 @@ class TestValidateP8Completion:
         assert errors == []
 
 
+class TestVerifyEntryGate:
+    """Tests for _verify_entry_gate — phase boundary commit verification."""
+
+    def _make_state(self, project: Path, phase: int, sha: str | None = None) -> None:
+        method = project / ".methodology"
+        method.mkdir(parents=True, exist_ok=True)
+        state: dict = {"current_phase": phase}
+        if sha:
+            state["phase_completed"] = {str(phase - 1): {"sha": sha, "timestamp": "2026-01-01"}}
+        (method / "state.json").write_text(json.dumps(state))
+
+    def _make_approvals(self, project: Path, phase: int, status: str = "APPROVE") -> None:
+        from harness_cli import _PHASE_DELIVERABLES, _REQUIRED_EMBEDDED_DOCS
+        approvals = project / ".methodology" / "agent_b_approvals"
+        approvals.mkdir(parents=True, exist_ok=True)
+        docs = _REQUIRED_EMBEDDED_DOCS.get(phase, ["SRS.md"])
+        for did in _PHASE_DELIVERABLES.get(phase, []):
+            (approvals / f"{did}.json").write_text(json.dumps({
+                "fr": did, "review_status": status,
+                "docs_embedded": docs, "confidence": 0.9,
+            }))
+
+    def test_p1_passes_without_gate(self, tmp_path):
+        from harness_cli import _verify_entry_gate
+        result = _verify_entry_gate(tmp_path, 1)
+        assert result["passed"] is True
+
+    def test_p2_no_state_json_falls_to_grep(self, tmp_path, monkeypatch):
+        """No state.json → falls through to grep path → fails (no commits)."""
+        import subprocess as sp
+        from harness_cli import _verify_entry_gate
+        monkeypatch.setattr(
+            sp, "run",
+            lambda cmd, **_kw: type("R", (), {"returncode": 1, "stdout": "", "stderr": ""})(),
+        )
+        result = _verify_entry_gate(tmp_path, 2)
+        assert result["passed"] is False
+
+    def test_p2_shallow_clone_fallback_passes_with_approvals(self, tmp_path, monkeypatch):
+        """Shallow clone: merge-base fails → fallback to agent_b_approvals → pass."""
+        import subprocess as sp
+        from harness_cli import _verify_entry_gate
+
+        self._make_state(tmp_path, phase=2, sha="abc1234def5678")
+        self._make_approvals(tmp_path, phase=1)
+
+        call_log: list[list[str]] = []
+
+        def fake_run(cmd, **_kw):
+            call_log.append(list(cmd))
+            if "merge-base" in cmd:
+                return type("R", (), {"returncode": 1, "stdout": "", "stderr": ""})()
+            if "--is-shallow-repository" in cmd:
+                return type("R", (), {"returncode": 0, "stdout": "true\n", "stderr": ""})()
+            return type("R", (), {"returncode": 1, "stdout": "", "stderr": ""})()
+
+        monkeypatch.setattr(sp, "run", fake_run)
+        result = _verify_entry_gate(tmp_path, 2)
+        assert result["passed"] is True
+        assert "shallow" in result["reason"].lower()
+        assert "agent_b_approvals" in result["reason"].lower()
+
+    def test_p2_shallow_clone_fallback_fails_without_approvals(self, tmp_path, monkeypatch):
+        """Shallow clone: merge-base fails, no approvals → fail."""
+        import subprocess as sp
+        from harness_cli import _verify_entry_gate
+
+        self._make_state(tmp_path, phase=2, sha="abc1234def5678")
+        # No approval files created
+
+        def fake_run(cmd, **_kw):
+            if "merge-base" in cmd:
+                return type("R", (), {"returncode": 1, "stdout": "", "stderr": ""})()
+            if "--is-shallow-repository" in cmd:
+                return type("R", (), {"returncode": 0, "stdout": "true\n", "stderr": ""})()
+            return type("R", (), {"returncode": 1, "stdout": "", "stderr": ""})()
+
+        monkeypatch.setattr(sp, "run", fake_run)
+        result = _verify_entry_gate(tmp_path, 2)
+        assert result["passed"] is False
+        assert "shallow" in result["reason"].lower()
+
+    def test_p2_non_shallow_sha_mismatch_fails_hard(self, tmp_path, monkeypatch):
+        """Non-shallow clone: SHA not ancestor → hard fail (branch reset scenario)."""
+        import subprocess as sp
+        from harness_cli import _verify_entry_gate
+
+        self._make_state(tmp_path, phase=2, sha="abc1234def5678")
+
+        def fake_run(cmd, **_kw):
+            if "merge-base" in cmd:
+                return type("R", (), {"returncode": 1, "stdout": "", "stderr": ""})()
+            if "--is-shallow-repository" in cmd:
+                return type("R", (), {"returncode": 0, "stdout": "false\n", "stderr": ""})()
+            return type("R", (), {"returncode": 1, "stdout": "", "stderr": ""})()
+
+        monkeypatch.setattr(sp, "run", fake_run)
+        result = _verify_entry_gate(tmp_path, 2)
+        assert result["passed"] is False
+        assert "reset" in result["reason"].lower() or "force-push" in result["reason"].lower()
+
+
 class TestExtractReviewJson:
     """Tests for _extract_review_json helper."""
 
