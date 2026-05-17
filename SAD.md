@@ -219,7 +219,7 @@ Full integration guide: **[INTEGRATION.md](INTEGRATION.md)**. Summary:
 
 ## 3. Detailed Module Design
 
-### 3.1 `harness/harness_bridge.py` — Gate Controller & Bridge
+### §3.1 — `harness/harness_bridge.py` — Gate Controller & Bridge
 
 **Responsibility**: Manages quality gate lifecycle. Core bridge between the methodology workflow and the embedded SSI evaluation skill.
 
@@ -357,7 +357,7 @@ Schema: `harness/ssi/schemas/harness_gate_result.schema.json`
 
 ---
 
-### 3.2 `harness/reviewer_router.py` — Reviewer Proxy (v2.1)
+### §3.2 — `harness/reviewer_router.py` — Reviewer Proxy (v2.1)
 
 **Responsibility**: Routes review requests through a **priority-ordered chain** of backends
 (Hermes MCP → Gemini CLI MCP → sub-agent). Supports **dependency-ordered decomposition** of
@@ -510,7 +510,7 @@ except ImportError:
 
 ---
 
-### 3.3 `harness/crg_bridge.py` — Deterministic Analysis Bridge
+### §3.3 — `harness/crg_bridge.py` — Deterministic Analysis Bridge
 
 **Responsibility**: Wraps CRG MCP tools (`mcp__code_review_graph__*`) for structural analysis. All interaction via direct MCP tool calls. Gracefully degrades if MCP tools not available in runtime (returns empty dicts / False).
 
@@ -544,7 +544,7 @@ _CRG_MCP_AVAILABLE = True  # True if mcp__code_review_graph__* imports succeed
 
 ---
 
-### 3.4 `harness/decision_log.py` — Decision Audit Log Writer
+### §3.4 — `harness/decision_log.py` — Decision Audit Log Writer
 
 **Responsibility**: Write per-decision YAML audit entries. Implements the traceability requirement (NFR-3/NFR-6).
 
@@ -597,7 +597,7 @@ class DecisionLogWriter:
 
 ---
 
-### 3.5 `harness/effort_tracker.py` — Gate Effort Metrics
+### §3.5 — `harness/effort_tracker.py` — Gate Effort Metrics
 
 **Responsibility**: SQLite-backed gate effort tracking for performance monitoring.
 
@@ -644,7 +644,7 @@ class EffortTracker:
 
 ---
 
-### 3.6 `harness/issue_tracker_ext.py` — FR-Tagged Issue Tracker
+### §3.6 — `harness/issue_tracker_ext.py` — FR-Tagged Issue Tracker
 
 **Responsibility**: Extends `software_self_improvement`'s `IssueTracker` with per-FR tagging. Addresses Gap G5. Refactored in `quality-improvement-round-3` to use `FindingData` parameter object.
 
@@ -697,7 +697,7 @@ def fr_coverage_summary(self) -> dict[str, int]:
 
 ---
 
-### 3.7 `core/agent_spawner.py` — Agent Strategy Router
+### §3.7 — `core/agent_spawner.py` — Agent Strategy Router
 
 **Responsibility**: Routes agent invocations to Task tool (Claude Code) or ReviewerRouter (Hermes MCP). Implements Gap G2 (heterogeneous reviewer). Applies need-to-know isolation: each agent receives only its persona + current-phase SOP + task.
 
@@ -761,7 +761,7 @@ model == "claude" (or P7/P8 auto-routed):
 
 ---
 
-### 3.8 `core/phase_hooks.py` — Phase Execution Hooks Framework
+### §3.8 — `core/phase_hooks.py` — Phase Execution Hooks Framework
 
 **Responsibility**: Pre-flight, monitoring, and post-flight hooks for agent phase execution.
 
@@ -810,7 +810,7 @@ File paths used:
 
 ---
 
-### 3.9 `core/hybrid_workflow.py` — Smart-Routing Workflow
+### §3.9 — `core/hybrid_workflow.py` — Smart-Routing Workflow
 
 **Responsibility**: Three-mode workflow controller that auto-routes between single-agent and A/B review based on change size/type.
 
@@ -860,7 +860,7 @@ def get_stats(self) -> dict:
 
 ---
 
-### 3.10 `core/subagent_isolator.py` — Need-to-Know Isolation
+### §3.10 — `core/subagent_isolator.py` — Need-to-Know Isolation
 
 **Responsibility**: Enforces On-Demand / Need-to-Know isolation for subagent spawning. Each subagent receives a fresh message context with only the artifacts relevant to its task.
 
@@ -916,7 +916,7 @@ def create_isolated_spawn(task, role, input_paths, output_paths, persona_prompt)
 
 ---
 
-### 3.11 `core/verification_gate.py` — Gate Remediation Report
+### §3.11 — `core/verification_gate.py` — Gate Remediation Report
 
 **Responsibility**: Structured gate-failure diagnosis for HANDOVER.md crash recovery. Generates per-gate action items with score/gap analysis.
 
@@ -957,7 +957,7 @@ class GateRemediationReport:
 
 ---
 
-### 3.12 `steering/` — AB Workflow Steering Engine
+### §3.12 — `steering/` — AB Workflow Steering Engine
 
 **Responsibility**: LLM-as-judge A/B iteration control. Drives the AB Workflow component referenced by the full-system CLI. Used when two candidate outputs must be compared and converged toward a winner.
 
@@ -1052,7 +1052,7 @@ __all__ = [
 
 ---
 
-### 3.13 `kill_switch/` — Agent Safety Kill Switch
+### §3.13 — `kill_switch/` — Agent Safety Kill Switch
 
 **Responsibility**: Circuit-breaker safety system. Monitors agent health, trips circuit on threshold violation, issues interrupt events, and logs all actions for audit.
 
@@ -1109,7 +1109,7 @@ class KillSwitch:
 
 ---
 
-### 3.14 `enforcement/` — Policy Enforcement Framework
+### §3.14 — `enforcement/` — Policy Enforcement Framework
 
 **Responsibility**: Enforces behavioral policies on agents and commits. 7 files covering hook installation, constitution-as-code enforcement, policy evaluation, and server-side enforcement.
 
@@ -1130,7 +1130,7 @@ class KillSwitch:
 
 ---
 
-### 3.15 `core/quality_gate/` — Quality Gate Implementations
+### §3.15 — `core/quality_gate/` — Quality Gate Implementations
 
 **Responsibility**: Concrete quality check implementations used by the gate evaluation pipeline. Subdirectory of `core/`.
 
@@ -1166,7 +1166,7 @@ class KillSwitch:
 
 ---
 
-### 3.16 `detection/` — Anomaly & Drift Detection
+### §3.16 — `detection/` — Anomaly & Drift Detection
 
 **Responsibility**: Detects code drift, scoring anomalies, and suspicious patterns across evaluation rounds.
 
@@ -1178,7 +1178,7 @@ class KillSwitch:
 
 ---
 
-### 3.17 `gap_detector/` — Specification Gap Detection
+### §3.17 — `gap_detector/` — Specification Gap Detection
 
 **Responsibility**: Detects gaps between requirements specification and implementation. Used to surface uncovered FRs or missing artifacts.
 
@@ -1189,7 +1189,7 @@ class KillSwitch:
 | `reporter.py` | `GapReporter` | Formats gap findings for reporting |
 | `scanner.py` | `CodeScanner` | Scans codebase for coverage evidence |
 
-### 3.18 `core/auto_fix/` — Proactive Auto-Repair Engine (v2.4)
+### §3.18 — `core/auto_fix/` — Proactive Auto-Repair Engine (v2.4)
 
 **Responsibility**: Transforms the system from detect→block→wait_for_human into detect→classify→auto_fix→verify→loop. Provides a unified AutoFixEngine that sits between detection modules and the pipeline loop. Reference: methodology-v2 SKILL.md "fail → FIX + RETRY" execution protocol.
 
