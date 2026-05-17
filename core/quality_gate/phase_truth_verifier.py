@@ -280,6 +280,37 @@ class PhaseTruthVerifier:
         except Exception as e:
             return False, 0.0, f"Error: {e}"
 
+    def check_cross_artifact(self) -> Tuple[bool, float, str]:
+        """D3: Cross-artifact consistency validation.
+
+        Checks that reports don't reference wrong phases, FRs in test results
+        have session log evidence, and coverage reports match actual measurements.
+        """
+        if self.phase < 4:
+            return True, 100.0, "Cross-artifact checks start at P4"
+
+        try:
+            from core.quality_gate.cross_artifact import run_cross_artifact_checks
+            result = run_cross_artifact_checks(self.project_root, self.phase)
+        except ImportError:
+            return True, 100.0, "cross_artifact module unavailable — skip"
+        except Exception as e:
+            return False, 0.0, f"Cross-artifact check error: {e}"
+
+        if result["passed"]:
+            return True, 100.0, (
+                f"No inconsistencies ({result['checks_ran']} checks)"
+            )
+        criticals = result.get("critical_count", 0)
+        highs = result.get("high_count", 0)
+        total = len(result.get("violations", []))
+        # Score degrades with violations: each CRITICAL = -30%, each HIGH = -15%
+        penalty = min(criticals * 30 + highs * 15, 100)
+        score = max(0.0, 100.0 - penalty)
+        return False, score, (
+            f"{total} inconsistency/ies ({criticals}C, {highs}H)"
+        )
+
     def check_previous_phase_artifacts(self) -> Tuple[bool, float, str]:
         """Check that the previous phase produced required deliverables.
 
@@ -412,14 +443,15 @@ class PhaseTruthVerifier:
                 ("Sessions_spawn.log", self.check_session_log, 0.35),
                 ("Previous phase artifacts", self.check_previous_phase_artifacts, 0.15),
             ]
-        # Phase 3-4: 5 checks (includes pytest/coverage + previous phase)
+        # Phase 3-4: 6 checks (includes pytest/coverage + previous phase + cross-artifact)
         elif self.phase <= 4:
             checks = [
-                ("FrameworkEnforcer BLOCK", self.check_framework_block, 0.30),
-                ("Sessions_spawn.log", self.check_session_log, 0.22),
-                ("pytest actually passes", self.check_pytest, 0.22),
-                ("test coverage meets threshold", self.check_coverage, 0.13),
-                ("Previous phase artifacts", self.check_previous_phase_artifacts, 0.13),
+                ("FrameworkEnforcer BLOCK", self.check_framework_block, 0.24),
+                ("Sessions_spawn.log", self.check_session_log, 0.18),
+                ("pytest actually passes", self.check_pytest, 0.18),
+                ("test coverage meets threshold", self.check_coverage, 0.12),
+                ("Previous phase artifacts", self.check_previous_phase_artifacts, 0.12),
+                ("Cross-artifact consistency", self.check_cross_artifact, 0.16),
             ]
         # Phase 5-8: BLOCK + session_log + previous phase (non-code phases)
         else:

@@ -39,15 +39,90 @@ class GateResult:
     rounds_used: int = 0
 
 
+def _check_tool_evidence(ctx: "GateContext", raw: dict) -> list[str]:
+    """S3: Verify tool execution evidence in gate result JSON.
+
+    For dimensions with requires_tool_execution:true in the gate YAML config,
+    the result JSON breakdown entry MUST include either:
+      - tool_output: path to a file containing raw tool stdout/stderr
+      - tool_evidence: inline string of tool output snippet
+
+    Returns list of violation messages (empty = all good).
+    """
+    import yaml as _yaml
+    from pathlib import Path as _Path
+
+    # Load gate config to find requires_tool_execution dimensions
+    cfg_path = None
+    for pattern in [
+        f"gate{ctx.gate_num}_p*.yaml",
+        f"gate{ctx.gate_num}_*.yaml",
+    ]:
+        import glob as _glob
+        candidates = _glob.glob(
+            str(_Path(ctx.project_root) / "harness" / "gate_configs" / pattern)
+        )
+        if candidates:
+            cfg_path = _Path(candidates[0])
+            break
+
+    if not cfg_path or not cfg_path.exists():
+        return []  # No config — cannot enforce
+
+    try:
+        cfg = _yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+    violations: list[str] = []
+    breakdown = raw.get("breakdown", {})
+
+    for dim in cfg.get("dimensions", []):
+        dim_name = dim.get("name", "")
+        requires_tool = dim.get("requires_tool_execution", False)
+        if not requires_tool:
+            continue
+
+        dim_data = breakdown.get(dim_name, {})
+        tool_output = dim_data.get("tool_output")
+        tool_evidence = dim_data.get("tool_evidence")
+
+        if tool_output:
+            out_path = _Path(ctx.project_root) / tool_output
+            if not out_path.exists():
+                violations.append(
+                    f"{dim_name}: tool_output path '{tool_output}' does not exist"
+                )
+        elif tool_evidence:
+            if len(str(tool_evidence).strip()) < 20:
+                violations.append(
+                    f"{dim_name}: tool_evidence too short "
+                    f"({len(str(tool_evidence))} chars) — must be real tool output"
+                )
+        else:
+            violations.append(
+                f"{dim_name}: requires tool execution but result JSON has neither "
+                f"tool_output nor tool_evidence — scores must come from actual tool runs"
+            )
+
+    return violations
+
+
 class GateBlockedError(Exception):
     """Exception raised when a quality gate fails to meet its targets."""
-    def __init__(self, gate_num: int, result: GateResult):
+    def __init__(self, gate_num: int, result: GateResult, details: dict | None = None):
         self.gate_num = gate_num
         self.result = result
-        super().__init__(
+        self.details = details or {}
+        msg = (
             f"Gate {gate_num} BLOCKED — score={result.score:.1f}, "
             f"critical={result.open_critical}, high={result.open_high}"
         )
+        if details:
+            for key, val in details.items():
+                if isinstance(val, list):
+                    msg += f"\n  {key}: {', '.join(str(v) for v in val[:3])}"
+        super().__init__(msg)
 
 
 class PreflightBlockedError(Exception):
@@ -293,6 +368,27 @@ class HarnessBridge:
 
         t0 = time.time()
         raw = json.loads(result_path.read_text(encoding="utf-8"))
+
+        # ── S3: Tool execution evidence enforcement ──────────────────────────
+        # For dimensions with requires_tool_execution:true in the gate YAML,
+        # the result JSON must include tool_output (path to raw tool output)
+        # or tool_evidence (inline snippet). Prevents LLM score fabrication
+        # when tools are installed but never actually run.
+        _tool_violations = _check_tool_evidence(ctx, raw)
+        if _tool_violations:
+            raise GateBlockedError(
+                ctx.gate_num,
+                GateResult(
+                    gate_num=ctx.gate_num,
+                    score=0.0,
+                    dimensions=[],
+                    open_critical=len(_tool_violations),
+                    open_high=0,
+                    quality_complete=False,
+                    rounds_used=0,
+                ),
+                details={"tool_evidence_missing": _tool_violations},
+            )
 
         # Build per-dimension results from breakdown if provided
         dims: list[DimResult] = []

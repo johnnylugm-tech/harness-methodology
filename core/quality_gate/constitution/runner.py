@@ -194,6 +194,61 @@ def _keyword_density(content: str, keywords: List[str]) -> float:
     return min(hits / len(keywords), 1.0) * 100.0
 
 
+def _keyword_stuffing_penalty(content: str, keywords: List[str]) -> float:
+    """Detect unnatural keyword clustering (D1: anti-stuffing).
+
+    Returns a penalty factor 0.0–1.0:
+      1.0 = natural distribution (no penalty)
+      <1.0 = suspicious clustering (penalty applied multiplicatively)
+
+    Two checks:
+    1. Position entropy: keywords in genuine docs are spread across the file;
+       stuffed keywords cluster in one section (usually at the bottom).
+    2. Density cap: if >50% of found keywords appear within a single 10%
+       segment of the document, the document is likely stuffed.
+    """
+    if not keywords or len(content) < 200:
+        return 1.0
+
+    total_len = max(len(content), 1)
+    positions: list[float] = []
+
+    for kw in keywords:
+        idx = content.find(kw)
+        if idx >= 0:
+            positions.append(idx / total_len)
+
+    if len(positions) < 3:
+        return 1.0  # Too few to measure distribution
+
+    # ── Check 1: position standard deviation ──────────────────────────
+    # Genuine docs: keywords spread across 0.0–1.0 → stddev ~0.2–0.4
+    # Stuffed docs: keywords cluster in one spot → stddev < 0.1
+    import statistics as _stats
+    pos_stdev = _stats.pstdev(positions)
+
+    if pos_stdev < 0.05:
+        return 0.5   # Severe clustering — 50% penalty
+    if pos_stdev < 0.10:
+        return 0.7   # Moderate clustering — 30% penalty
+    if pos_stdev < 0.15:
+        return 0.85  # Mild clustering — 15% penalty
+
+    # ── Check 2: density cap (keywords per decile) ─────────────────────
+    # Count keywords in each 10% segment of the document
+    decile_hits = [0] * 10
+    for pos in positions:
+        d = min(int(pos * 10), 9)
+        decile_hits[d] += 1
+
+    # If >50% of found keywords are in one decile → stuffing pattern
+    max_decile = max(decile_hits)
+    if max_decile > len(positions) * 0.5 and len(positions) >= 6:
+        return 0.7
+
+    return 1.0
+
+
 def _has_hardcoded_secrets(content: str) -> bool:
     """Check for hardcoded secret patterns in content."""
     content_lower = content.lower()
@@ -237,6 +292,8 @@ def _scan_file_compliance(file_path: Path, phase: Optional[int] = None) -> Dict[
     # ── Correctness (40% keyword density + 30% structure + 30% FR refs) ──
     c_keywords = profile.dimension_keywords_for_phase("correctness", phase)
     c_kw = _keyword_density(content, c_keywords)
+    c_stuff_penalty = _keyword_stuffing_penalty(content, c_keywords)
+    c_kw *= c_stuff_penalty
     section_count = content.count("\n## ") + content.count("\n# ")
     c_structure = min(section_count / 5.0, 1.0) * 100.0
     has_fr = "fr-" in content
@@ -248,17 +305,23 @@ def _scan_file_compliance(file_path: Path, phase: Optional[int] = None) -> Dict[
     # ── Security (keyword density + no hardcoded secrets) ──
     s_keywords = profile.dimension_keywords_for_phase("security", phase)
     s_kw = _keyword_density(content, s_keywords)
+    s_stuff_penalty = _keyword_stuffing_penalty(content, s_keywords)
+    s_kw *= s_stuff_penalty
     s_secrets = 0.0 if _has_hardcoded_secrets(content) else 100.0
     security = s_kw * 0.6 + s_secrets * 0.4
 
     # ── Maintainability (keyword density + structure signals) ──
     m_keywords = profile.dimension_keywords_for_phase("maintainability", phase)
     m_kw = _keyword_density(content, m_keywords)
+    m_stuff_penalty = _keyword_stuffing_penalty(content, m_keywords)
+    m_kw *= m_stuff_penalty
     maintainability = m_kw * 0.7 + c_structure * 0.3
 
     # ── Coverage (keyword density) ──
     cov_keywords = profile.dimension_keywords_for_phase("coverage", phase)
     cov_kw = _keyword_density(content, cov_keywords)
+    cov_stuff_penalty = _keyword_stuffing_penalty(content, cov_keywords)
+    cov_kw *= cov_stuff_penalty
     coverage = cov_kw
 
     return {

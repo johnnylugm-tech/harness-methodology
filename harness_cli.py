@@ -52,6 +52,8 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import hashlib
+import hmac
 import json
 import os
 import re
@@ -112,6 +114,181 @@ def _load_env_file(env_path: Path) -> list[str]:
 _PER_FR_GATE1_PHASES: frozenset[int] = frozenset({3, 4, 5, 7, 8})
 # Statuses that indicate an agent dispatch failure (all others treated as success).
 _DISPATCH_ERROR_STATUSES: frozenset[str] = frozenset({"REJECT", "BLOCKED", "FAILED", "ERROR", "TIMEOUT"})
+
+# ---------------------------------------------------------------------------
+# State integrity seal (P3: tamper-evident state.json)
+# ---------------------------------------------------------------------------
+
+_SEAL_PEPPER = "h4rness-m3th-v2-seal-8a7f2c"  # hardcoded constant — do not change
+
+def _compute_seal(data: dict) -> str:
+    """Compute HMAC-SHA256 seal for state.json content (excludes _seal key)."""
+    payload = json.dumps(
+        {k: v for k, v in data.items() if k != "_seal"}, sort_keys=True
+    )
+    return hmac.new(
+        _SEAL_PEPPER.encode(), payload.encode(), hashlib.sha256
+    ).hexdigest()[:16]
+
+
+def _verify_state_integrity(project: Path) -> tuple[bool, str]:
+    """Verify state.json seal is intact.
+
+    Returns (ok, diagnostic).
+    - (True, "") — seal valid or state.json absent
+    - (False, "LEGACY") — no seal present (old-format state.json, warn but don't block)
+    - (False, "TAMPERED") — seal present but invalid (direct edit detected)
+    """
+    state_path = project / ".methodology" / "state.json"
+    if not state_path.exists():
+        return True, ""  # No state yet — nothing to verify
+    try:
+        data = json.loads(state_path.read_text(encoding="utf-8"))
+    except Exception:
+        return False, "TAMPERED"
+    stored = data.pop("_seal", None)
+    if stored is None:
+        return False, "LEGACY"  # Old-format state.json — needs migration, not block
+    valid = hmac.compare_digest(_compute_seal(data), stored)
+    return (True, "") if valid else (False, "TAMPERED")
+
+
+# Tool name → (check_command, human_name).
+# Used by _verify_gate_tools() to verify tools are actually installed before
+# accepting dimension scores (S2: prevents LLM guessing when tools are missing).
+# Dimension names that don't map to a dedicated tool (security, architecture, etc.)
+# are checked by the LLM and don't have a tool requirement.
+_TOOL_CHECK_COMMANDS: dict[str, tuple[str, str]] = {
+    "ruff": ("ruff --version 2>&1", "ruff"),
+    "mypy": ("mypy --version 2>&1", "mypy"),
+    "pytest-cov": ("pytest --version 2>&1 && coverage --version 2>&1", "pytest + coverage"),
+    "gitleaks": ("gitleaks detect --no-git --verbose 2>&1 | head -1", "gitleaks"),
+    "scancode": ("scancode --version 2>&1", "scancode-toolkit"),
+    "mutmut": ("mutmut --version 2>&1", "mutmut"),
+    # Fallback: dimension-name-based lookup for older YAML configs without tool field
+    "secrets_scanning": ("gitleaks detect --no-git --verbose 2>&1 | head -1", "gitleaks"),
+    "mutation_testing": ("mutmut --version 2>&1", "mutmut"),
+    "license_compliance": ("scancode --version 2>&1", "scancode-toolkit"),
+    "linting": ("ruff --version 2>&1", "ruff"),
+    "type_safety": ("mypy --version 2>&1", "mypy"),
+    "test_coverage": ("pytest --version 2>&1", "pytest + coverage"),
+}
+
+
+def _check_tool_for_dim(dim_name: str, tool_name: str | None) -> tuple[bool, str]:
+    """Check if the required tool for a dimension is installed.
+
+    Prefers tool_name from YAML config; falls back to dim_name lookup.
+    Returns (available: bool, diagnostic: str).
+    """
+    # First try the explicit tool name from YAML
+    if tool_name:
+        info = _TOOL_CHECK_COMMANDS.get(tool_name)
+        if info:
+            check_cmd, human_name = info
+            try:
+                result = subprocess.run(
+                    ["bash", "-c", check_cmd],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    timeout=10, text=True,
+                )
+                ok = result.returncode == 0
+                return ok, ("" if ok else f"{dim_name}: {human_name} ({tool_name}) not found")
+            except Exception:
+                return False, f"{dim_name}: {human_name} ({tool_name}) check failed"
+
+    # Fall back to dimension name lookup
+    info = _TOOL_CHECK_COMMANDS.get(dim_name)
+    if info is None:
+        return True, ""  # No tool requirement — pass (LLM-evaluated dimension)
+    check_cmd, human_name = info
+    try:
+        result = subprocess.run(
+            ["bash", "-c", check_cmd],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=10, text=True,
+        )
+        ok = result.returncode == 0
+        return ok, ("" if ok else f"{dim_name}: {human_name} not found")
+    except Exception:
+        return False, f"{dim_name}: {human_name} check failed"
+
+
+def _verify_gate_tools(gate_num: int, project: str) -> tuple[bool, list[str]]:
+    """Check all required tools for a gate exist (S2).
+
+    Reads gate YAML config: if a dimension has requires_tool_execution: true
+    and a tool field, the tool MUST be installed. Dimensions without
+    requires_tool_execution (e.g. security, architecture) are LLM-evaluated
+    and skipped.
+
+    Returns (all_ok, missing_list).
+    """
+    import yaml as _yaml
+    cfg_path = None
+    # Try phase-specific name first, then generic pattern
+    for pattern in [
+        f"gate{gate_num}_p*.yaml",
+        f"gate{gate_num}_*.yaml",
+    ]:
+        import glob as _glob
+        candidates = _glob.glob(
+            str(Path(project) / "harness" / "gate_configs" / pattern)
+        )
+        if candidates:
+            cfg_path = Path(candidates[0])
+            break
+    if not cfg_path or not cfg_path.exists():
+        return True, []  # No config to check — pass
+
+    try:
+        cfg = _yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
+    except Exception:
+        return True, []
+
+    missing: list[str] = []
+    for dim in cfg.get("dimensions", []):
+        dim_name = dim.get("name", "")
+        requires_tool = dim.get("requires_tool_execution", False)
+        if not requires_tool:
+            continue  # LLM-evaluated dimension — skip tool check
+        tool_name = dim.get("tool")  # May be None for older configs
+        ok, diag = _check_tool_for_dim(dim_name, tool_name)
+        if not ok and diag:
+            missing.append(diag)
+    return len(missing) == 0, missing
+
+
+# Timestamps of recent gate commits for interval enforcement (P1).
+# Keyed by (project, phase, gate) → list of (fr_id, timestamp).
+# In-memory only — survives one pipeline run.
+_GATE_COMMIT_LOG: dict[tuple[str, int, int], list[tuple[str, float]]] = {}
+
+
+def _check_commit_intervals(
+    project: str, phase: int, gate_num: int, fr_id: str | None
+) -> tuple[bool, str]:
+    """Enforce minimum spacing between gate commits for different FRs (P1).
+
+    Blocks if ≥3 FRs in the same (phase, gate) are committed within 2 seconds.
+    Returns (ok, diagnostic).
+    """
+    import time as _time
+    key = (str(project), phase, gate_num)
+    now = _time.time()
+    entries = _GATE_COMMIT_LOG.setdefault(key, [])
+    entries.append((fr_id or "phase", now))
+    # Keep only last 30 entries
+    if len(entries) > 30:
+        entries[:] = entries[-30:]
+    # Check: ≥3 entries within a 2-second window (including this one)
+    recent = [t for _, t in entries if now - t <= 2.0]
+    if len(recent) >= 3:
+        return False, (
+            f"{len(recent)} gate commits within 2 seconds — "
+            "scores must be evaluated per-FR with genuine evidence, not batch-copied"
+        )
+    return True, ""
 
 # Entry gate required per phase (CONSTITUTION.md §2.3)
 _ENTRY_GATE_MAP: dict[int, int] = {4: 2, 5: 3, 6: 3, 7: 4, 8: 4}
@@ -1011,11 +1188,50 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
     """
     from harness.harness_bridge import HarnessBridge, GateBlockedError
 
-    project = str(Path(args.project).resolve())
+    project_path = Path(args.project).resolve()
+    project = str(project_path)
     bridge = HarnessBridge()
     fr_id = getattr(args, "fr_id", None) or None
 
     print(f"\n{'='*60}\nfinalize-gate: Gate {args.gate} | Phase {args.phase}\n{'='*60}")
+
+    # ── S0: State integrity check (P3 — tamper-evident seal) ─────────────
+    _seal_ok, _seal_diag = _verify_state_integrity(project_path)
+    if not _seal_ok:
+        if _seal_diag == "LEGACY":
+            print(
+                "  [WARN] state.json has no integrity seal (legacy format).\n"
+                "  The seal will be added on the next advance-phase / _advance_fsm() call.\n"
+                "  Until then, direct edits to state.json cannot be detected."
+            )
+        else:  # TAMPERED
+            print(
+                "\n[BLOCKED] state.json integrity seal is INVALID.\n"
+                "  The file was edited directly instead of through advance-phase.\n"
+                "  Run: python harness_cli.py advance-phase --completed <current_phase> --project .\n"
+                "  to regenerate the seal through the legitimate FSM path."
+            )
+            return 8
+
+    # ── S0: Tool availability enforcement (S2 — prevent LLM guessing) ────
+    _tools_ok, _missing_tools = _verify_gate_tools(args.gate, project)
+    if not _tools_ok:
+        print(
+            f"\n[BLOCKED] Required tools not installed for Gate {args.gate}:\n"
+            + "".join(f"  ✗ {m}\n" for m in _missing_tools)
+            + "\n  Install the missing tools and re-run finalize-gate.\n"
+            "  Tool scores must come from actual tool execution, not estimation."
+        )
+        return 8
+
+    # ── S0: Commit interval enforcement (P1 — prevent batch fabrication) ──
+    _interval_ok, _interval_msg = _check_commit_intervals(
+        project, args.phase, args.gate, fr_id
+    )
+    if not _interval_ok:
+        print(f"\n[BLOCKED] Commit interval violation: {_interval_msg}")
+        print("  Re-run per-FR evaluations with genuine evidence and natural spacing.")
+        return 1
 
     # ── Sentinel check: run-gate must have been called before finalize-gate ─
     # Prevents agents from writing gate{N}_result.json directly and calling
@@ -1124,6 +1340,67 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
                     print(f"[BLOCKED] Post-flight error: {_pf_exc}")
                     return 5
                 print(f"[WARN] Post-flight hooks error (non-blocking): {_pf_exc}")
+
+        # ── D2: Score uniformity CRITICAL check ──────────────────────────
+        # stddev=0 (all scores identical) is impossible under genuine
+        # per-FR evaluation — it means scores were batch-copied.
+        # This is a harder block than the existing advisory check in
+        # harness_bridge.py (which only LOGs low variance).
+        if len(result.dimensions) >= 3:
+            import statistics as _stats
+            _d_scores = [d.score for d in result.dimensions]
+            _d_stdev = _stats.pstdev(_d_scores)
+            if _d_stdev == 0.0:
+                print(
+                    f"\n[BLOCKED] CRITICAL: All {len(_d_scores)} dimension scores "
+                    f"are identical ({_d_scores[0]:.1f}).\n"
+                    f"  Genuine per-dimension evaluation produces natural variance.\n"
+                    f"  Re-run run-gate with actual tool execution per dimension."
+                )
+                return 1
+            # Advisory: low-but-nonzero variance
+            if _d_stdev < 0.5:
+                print(
+                    f"  [WARN] Per-dimension scores cluster tightly "
+                    f"(stddev={_d_stdev:.3f}) — verify evidence trail."
+                )
+
+        # ── D2: Gate repeat detection ─────────────────────────────────────
+        # Check if this gate+FR has been finalized before (within this phase).
+        # Repeated identical finalizations suggest batch-rerun without fixes.
+        _dup_flag = project_path / ".sessi-work" / "sentinels" / f"finalized_{args.gate}_{(fr_id or 'phase').replace('-','').lower()}.flag"
+        if _dup_flag.exists():
+            print(
+                f"\n[WARN] Gate {args.gate} was previously finalized for this phase/FR.\n"
+                f"  Re-running without changes wastes CI resources.\n"
+                f"  If this is intentional (e.g., after fixing issues), ignore this warning."
+            )
+        _dup_flag.parent.mkdir(parents=True, exist_ok=True)
+        _dup_flag.write_text(f"{datetime.now(timezone.utc).isoformat()}\n", encoding="utf-8")
+
+        # ── S1: Phase Truth for last gate of phase ────────────────────────
+        # Ensures PhaseTruthVerifier runs even when finalize-gate is called
+        # directly (bypassing advance-phase / run-pipeline).
+        _last_gate = _PHASE_EXIT_GATES.get(args.phase)
+        if _last_gate is not None and args.gate == _last_gate and args.phase >= 3:
+            print(f"\n[PHASE-TRUTH] Phase {args.phase} final gate — running HR-11 check...")
+            try:
+                from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
+                verifier = PhaseTruthVerifier(project, args.phase)
+                truth_result = verifier.verify()
+                if not truth_result["passed"]:
+                    print(
+                        f"\n[BLOCKED] Phase {args.phase} truth = "
+                        f"{truth_result['total_score']:.0f}% < 90% (HR-11)"
+                    )
+                    print(f"  Fix gaps then re-run finalize-gate.")
+                    return 11
+                print(f"  [HR-11] Phase Truth = {truth_result['total_score']:.0f}% ≥ 90% ✓")
+            except ImportError:
+                print("  [BLOCKED] PhaseTruthVerifier unavailable — cannot verify Phase Truth")
+                return 11
+            except Exception as _pte:
+                print(f"  [WARN] Phase Truth check error: {_pte}")
 
         _update_state_checkpoint(Path(args.project).resolve(), args.gate, fr_id)
 
@@ -2644,6 +2921,7 @@ def _update_state_checkpoint(project: Path, gate_num: int, fr_id: str | None) ->
         existing["last_gate"] = gate_num
         existing["last_fr"] = fr_id
         existing["last_update"] = datetime.now(timezone.utc).isoformat()
+        existing["_seal"] = _compute_seal(existing)
         atomic_write_json(state_path, existing)
 
 
@@ -2677,13 +2955,15 @@ def _advance_fsm(project: Path, completed_phase: int,
                 sys.exit(11)
             except Exception:  # pylint: disable=broad-exception-caught
                 existing_state = "INIT"
-        atomic_write_json(state_path, {
+        state_data = {
             "state": existing_state,
             "current_phase": next_phase,
             "last_gate": last_gate,
             "last_fr": last_fr,
             "last_update": datetime.now(timezone.utc).isoformat(),
-        })
+        }
+        state_data["_seal"] = _compute_seal(state_data)
+        atomic_write_json(state_path, state_data)
         # B5: Advance fr_progress.json inside the same lock so state.json and
         # fr_progress.json are always updated atomically from any reader's
         # perspective. Moving it outside created a window where another process
@@ -2705,7 +2985,29 @@ def _advance_fsm(project: Path, completed_phase: int,
             )
     print(f"  [FSM] state.json current_phase → {next_phase}")
 
-    # 3. No other phase storage — state.json is the single source of truth.
+    # 3. Regenerate HANDOVER.md so crash-recovery always reflects current phase.
+    #    Previously only cmd_advance_phase did this — run-pipeline's
+    #    _advance_fsm() call skipped HANDOVER regeneration (Gap 4 in audit).
+    try:
+        HandoverGenerator(project).write(
+            checkpoint_id=f"P{next_phase}-entry-{datetime.now(timezone.utc).strftime('%Y%m%d')}",
+            phase=next_phase,
+            task_background=f"Phase {next_phase} execution via run-pipeline.",
+            current_status=f"FSM advanced from Phase {completed_phase} to Phase {next_phase}.",
+            next_steps=[
+                f"Follow SKILL.md §0.1 Phase {next_phase} entry checklist",
+                f"Read the Phase {next_phase} plan and execute",
+            ],
+            resume_phase=next_phase,
+        )
+        print(f"  [FSM] HANDOVER.md regenerated for Phase {next_phase}")
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        print(
+            f"  [WARN] HANDOVER.md regeneration failed: {exc}",
+            file=sys.stderr,
+        )
+
+    # 4. No other phase storage — state.json is the single source of truth.
     #    git config quality.phase and GitHub CURRENT_PHASE variable are no longer used.
 
 

@@ -5,13 +5,13 @@ trigger: phase_exit
 phase: 6
 scope: full_project
 dimensions:
-  - { name: linting,            tier: 1, model: gemini-flash, threshold: 90,  weight: 0.08 }
-  - { name: type_safety,        tier: 1, model: gemini-flash, threshold: 85,  weight: 0.08 }
-  - { name: test_coverage,      tier: 1, model: gemini-flash, threshold: 80,  weight: 0.08 }
+  - { name: linting,            tier: 1, model: gemini-flash, threshold: 90,  weight: 0.08, tool: ruff,           requires_tool_execution: true }
+  - { name: type_safety,        tier: 1, model: gemini-flash, threshold: 85,  weight: 0.08, tool: mypy,           requires_tool_execution: true }
+  - { name: test_coverage,      tier: 1, model: gemini-flash, threshold: 80,  weight: 0.08, tool: pytest-cov,     requires_tool_execution: true }
   - { name: security,           tier: 2, model: gemini-flash, threshold: 80,  weight: 0.10 }
-  - { name: secrets_scanning,   tier: 1, model: gemini-flash, threshold: 100, weight: 0.07 }
-  - { name: license_compliance, tier: 1, model: gemini-flash, threshold: 100, weight: 0.07 }
-  - { name: mutation_testing,   tier: 1, model: gemini-flash, threshold: 70,  weight: 0.08 }
+  - { name: secrets_scanning,   tier: 1, model: gemini-flash, threshold: 100, weight: 0.07, tool: gitleaks,       requires_tool_execution: true }
+  - { name: license_compliance, tier: 1, model: gemini-flash, threshold: 100, weight: 0.07, tool: scancode,       requires_tool_execution: true }
+  - { name: mutation_testing,   tier: 1, model: gemini-flash, threshold: 70,  weight: 0.08, tool: mutmut,         requires_tool_execution: true }
   - { name: architecture,       tier: 3, model: claude,       threshold: 80,  weight: 0.14 }
   - { name: readability,        tier: 3, model: claude,       threshold: 80,  weight: 0.08 }
   - { name: error_handling,     tier: 3, model: claude,       threshold: 80,  weight: 0.10 }
