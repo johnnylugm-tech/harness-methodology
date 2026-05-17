@@ -2,9 +2,12 @@
 Quality Gate Core Module.
 
 Provides AutoQualityGate with linter, complexity, coverage, style checkers.
+Also re-exports SABSpec and extract_sab_from_sad from sab_parser.
 """
 
 from __future__ import annotations
+
+from .sab_parser import SABSpec as SABSpec, extract_sab_from_sad as extract_sab_from_sad
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any  # noqa: F401 — may be used by derived classes

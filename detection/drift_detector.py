@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import re
 import json
+import sys
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -289,8 +290,11 @@ class DriftDetector:
                             ),
                         )],
                     )
-            except Exception:  # pragma: no cover
-                pass
+            except Exception as exc:  # pragma: no cover
+                print(
+                    f"[WARN] drift_detector: could not read current_phase from state.json: {exc}",
+                    file=sys.stderr,
+                )
 
         sab = self._load_sab_baseline()
         if not sab:

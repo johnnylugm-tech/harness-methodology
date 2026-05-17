@@ -395,6 +395,23 @@ class TestVerifyAgentBApprovals:
         rc = cmd_verify_agent_b_approvals(args)
         assert rc == 0
 
+    def test_p2_uses_phase_deliverables_not_fr_ids(self, tmp_path, capsys):
+        """Phase 2 must verify SAD.md/ADR.md approvals; --fr-ids must be ignored."""
+        approvals_dir = tmp_path / ".methodology" / "agent_b_approvals"
+        approvals_dir.mkdir(parents=True)
+        for did in ["SAD.md", "ADR.md"]:
+            (approvals_dir / f"{did}.json").write_text(json.dumps({
+                "fr": did,
+                "review_status": "APPROVE",
+                "docs_embedded": ["SRS.md", "SAD.md"],
+                "confidence": 0.9,
+            }))
+        # Pass FR IDs — they must be ignored for phase=2
+        args = argparse.Namespace(project=str(tmp_path), phase=2, fr_ids="FR-01,FR-02,FR-03")
+        from harness_cli import cmd_verify_agent_b_approvals
+        rc = cmd_verify_agent_b_approvals(args)
+        assert rc == 0  # SAD.md + ADR.md approvals present → pass
+
 
 class TestValidateP8Completion:
     """Tests for _validate_p8_completion pre-flight checks."""
@@ -615,9 +632,8 @@ class TestPushCheckpointAgentBGate:
         monkeypatch.setattr(harness_cli, "_make_git", lambda *_a, **_kw: _FakeGit())
         self._patch_conf(monkeypatch, sys, types, harness_cli)
 
-        # fr_ids matches what `dispatch --role reviewer --fr-id FR-01` would write.
-        # Using FR IDs (not document names) — push-checkpoint resolves approval keys
-        # from fr_ids arg first, so these must align with dispatch's --fr-id value.
+        # Phase 1 uses phase-level deliverables (SRS.md etc.), not FR IDs.
+        # fr_ids arg is irrelevant for P1/P2 — no approval files are written here.
         args = argparse.Namespace(
             project=str(tmp_path), phase=1, fr_ids="FR-01,FR-02,FR-03",
             skip_confidence=False, dry_run=False, no_push=False,

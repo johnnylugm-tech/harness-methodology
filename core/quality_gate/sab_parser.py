@@ -20,8 +20,8 @@ class SABSpec:
     created_at: str = ""
     phase: int = 0
     project: str = ""
-    layers: list = field(default_factory=list)
-    allowed_dependencies: list = field(default_factory=list)
+    layers: list[dict] = field(default_factory=list)
+    allowed_dependencies: list[dict] = field(default_factory=list)
     quality_targets: dict = field(default_factory=dict)
     nfr_dimension_mapping: dict = field(default_factory=dict)
     architecture_constraints: list = field(default_factory=list)
@@ -44,14 +44,14 @@ class SABSpec:
             if src:
                 dependencies.setdefault(src, []).append(dst)
 
-        layers_out = [
-            {
-                "name": layer.get("name", ""),
+        layers_out = []
+        for layer in self.layers:
+            name = layer.get("name", "")
+            layers_out.append({
+                "name": name,
                 "modules": layer.get("modules", []),
-                "allowed_dependencies": dependencies.get(layer.get("name", ""), []),
-            }
-            for layer in self.layers
-        ]
+                "allowed_dependencies": dependencies.get(name, []),
+            })
 
         return {
             "version": self.version,
@@ -103,10 +103,18 @@ def extract_sab_from_sad(sad_path) -> Optional[SABSpec]:
 
     sab_data = data.get("sab", data)
 
+    raw_phase = sab_data.get("phase", 0)
+    try:
+        phase = int(raw_phase)
+    except (ValueError, TypeError) as exc:
+        raise RuntimeError(
+            f"Invalid 'phase' in SAB block ({sad_path}): {raw_phase!r} — expected integer"
+        ) from exc
+
     return SABSpec(
         version=str(sab_data.get("version", "1.0")),
         created_at=str(sab_data.get("created_at", "")),
-        phase=int(sab_data.get("phase", 0)),
+        phase=phase,
         project=str(sab_data.get("project", "")),
         layers=sab_data.get("layers", []),
         allowed_dependencies=sab_data.get("allowed_dependencies", []),

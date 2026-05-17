@@ -108,6 +108,26 @@ class TestExtractSabFromSad:
         with pytest.raises(RuntimeError, match="Failed to parse SAB YAML"):
             extract_sab_from_sad(sad)
 
+    def test_raises_on_invalid_phase(self, tmp_path):
+        sad = tmp_path / "SAD.md"
+        sad.write_text(
+            "<!-- SAB:START -->\n```yaml\nsab:\n  phase: not-a-number\n  project: x\n```\n<!-- SAB:END -->"
+        )
+        with pytest.raises(RuntimeError, match="Invalid 'phase'"):
+            extract_sab_from_sad(sad)
+
+    def test_parses_block_without_code_fence(self, tmp_path):
+        """SAB block may contain raw YAML without a ``` fence."""
+        sad = tmp_path / "SAD.md"
+        sad.write_text(
+            "<!-- SAB:START -->\nsab:\n  version: '3.0'\n  phase: 4\n  project: raw\n<!-- SAB:END -->"
+        )
+        spec = extract_sab_from_sad(sad)
+        assert spec is not None
+        assert spec.version == "3.0"
+        assert spec.phase == 4
+        assert spec.project == "raw"
+
     def test_file_not_found_raises(self, tmp_path):
         with pytest.raises(FileNotFoundError):
             extract_sab_from_sad(tmp_path / "missing.md")

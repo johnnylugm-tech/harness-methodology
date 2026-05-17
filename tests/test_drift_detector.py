@@ -2,6 +2,8 @@
 Unit tests for DriftDetector.
 """
 
+import json
+
 from detection.drift_detector import DriftDetector
 from unittest.mock import patch
 
@@ -226,6 +228,31 @@ class TestSabDriftDetection:
         results = detector.detect_all()
         assert "sab" in results
         assert results["sab"].drift_type == "sab"
+
+    def test_sab_drift_skips_before_phase_3(self, tmp_path):
+        """Phase < 3: drift check returns has_drift=False regardless of SAB content."""
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        (method_dir / "state.json").write_text(json.dumps({"current_phase": 2}))
+        # Include a SAB with a missing file so drift *would* fire if phase gate didn't short-circuit.
+        sab_json = {"layers": [{"name": "L1", "modules": ["missing.py"]}], "dependencies": {}}
+        (method_dir / "SAB.json").write_text(json.dumps(sab_json))
+
+        result = DriftDetector(str(tmp_path)).detect_sab_drift()
+        assert result.has_drift is False
+        assert result.score == 1.0
+        assert "skipped" in result.drift_items[0].description.lower()
+
+    def test_sab_drift_runs_at_phase_3(self, tmp_path):
+        """Phase 3: drift check executes and flags missing modules."""
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        (method_dir / "state.json").write_text(json.dumps({"current_phase": 3}))
+        sab_json = {"layers": [{"name": "L1", "modules": ["missing.py"]}], "dependencies": {}}
+        (method_dir / "SAB.json").write_text(json.dumps(sab_json))
+
+        result = DriftDetector(str(tmp_path)).detect_sab_drift()
+        assert result.has_drift is True
 
     def test_load_sab_baseline_from_sad_fallback(self, tmp_path):
         """Falls back to parsing SAD.md §6 SAB block when SAB.json missing."""
