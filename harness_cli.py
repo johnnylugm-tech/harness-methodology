@@ -3347,15 +3347,6 @@ def _setup_branch_protection(project: Path) -> int:
     """
     import subprocess
 
-    required_checks = [
-        "gate-check",
-        "Enforce push-milestone (no --no-verify bypass)",
-        "P1/P2 Push-Checkpoint Enforcement",
-        "Phase Plan Checklist Verification",
-        "Agent B Approval Verification",
-        "P8 Archive & HANDOVER Validation",
-    ]
-
     # Detect GitHub remote URL
     try:
         remote = subprocess.run(
@@ -3419,20 +3410,13 @@ def _setup_branch_protection(project: Path) -> int:
         return 1
 
     api_url = f"repos/{owner}/{repo}/branches/main/protection"
+    # Direct-push model: only force-push and deletion protection apply.
+    # required_status_checks, required_pull_request_reviews, required_linear_history,
+    # and enforce_admins are all PR-only concepts — they do not gate direct pushes.
     payload = {
-        "required_status_checks": {
-            "strict": True,
-            "contexts": required_checks,
-        },
-        "enforce_admins": True,
-        "required_pull_request_reviews": {
-            "required_approving_review_count": 1,
-            "dismiss_stale_reviews": True,
-        },
-        "restrictions": None,
         "allow_force_pushes": False,
         "allow_deletions": False,
-        "required_linear_history": True,
+        "restrictions": None,
     }
 
     try:
@@ -3444,9 +3428,8 @@ def _setup_branch_protection(project: Path) -> int:
         )
         if result.returncode == 0:
             print(f"   OK — Branch protection configured for {owner}/{repo}/main")
-            print(f"   Required checks ({len(required_checks)}):")
-            for c in required_checks:
-                print(f"     - {c}")
+            print(f"   Direct-push model: force pushes + deletions blocked.")
+            _verify_no_pr_requirement(owner, repo)
             return 0
         else:
             err = result.stderr.strip() or result.stdout.strip()
@@ -3460,7 +3443,8 @@ def _setup_branch_protection(project: Path) -> int:
                     capture_output=True, text=True, timeout=30,
                 )
                 if result2.returncode == 0:
-                    print(f"   OK — Branch protection updated for {owner}/{repo}/main")
+                    print(f"   OK — Branch protection updated for {owner}/{repo}/main (direct-push model)")
+                    _verify_no_pr_requirement(owner, repo)
                     return 0
                 err = result2.stderr.strip() or result2.stdout.strip()
             print(f"   ERROR: Failed to set branch protection:\n   {err[:500]}")
@@ -3468,6 +3452,27 @@ def _setup_branch_protection(project: Path) -> int:
     except subprocess.TimeoutExpired:
         print("   ERROR: API call timed out.")
         return 1
+
+
+def _verify_no_pr_requirement(owner: str, repo: str) -> None:
+    """Warn if branch protection has PR requirement — incompatible with direct-push."""
+    import subprocess as _sp
+    try:
+        r = _sp.run(
+            ["gh", "api", f"repos/{owner}/{repo}/branches/main/protection"],
+            capture_output=True, text=True, timeout=15,
+        )
+        if r.returncode != 0:
+            return  # can't verify, skip
+        cfg = json.loads(r.stdout)
+        pr_reviews = cfg.get("required_pull_request_reviews")
+        if pr_reviews:
+            print(f"   WARNING: 'Require a pull request' is still enabled on {owner}/{repo}/main.")
+            print(f"   This will block push-checkpoint. Disable it manually:")
+            print(f"     GitHub repo → Settings → Branches → Edit (main)")
+            print(f"     → Uncheck 'Require a pull request before merging'")
+    except Exception:
+        pass  # verification is best-effort
 
 
 def cmd_init_project(args: argparse.Namespace) -> int:
@@ -3598,10 +3603,10 @@ def cmd_init_project(args: argparse.Namespace) -> int:
             print("   WARNING: Branch protection setup did not complete.")
             print("   Set it up manually via GitHub UI:")
             print("     Settings → Branches → Add rule → Branch: main")
-            print("     ✅ Require a pull request before merging")
-            print("     ✅ Require status checks to pass before merging")
-            print("     ✅ Do not allow bypassing the above settings")
             print("     ✅ Block force pushes")
+            print("     ✅ Block deletions")
+            print("     ❌ Do NOT enable 'Require a pull request' — incompatible with push-checkpoint direct-push model")
+            print("     ❌ Do NOT enable 'Require status checks' — only gates PR merges, not direct pushes")
     else:
         print(f"\n[9/9] SKIP: --setup-branch-protection not requested")
 
