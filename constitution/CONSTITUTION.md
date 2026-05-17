@@ -75,15 +75,15 @@
 | Phase | Entry Gate | 驗證方式 |
 |-------|-----------|----------|
 | P1 | None | 無前置 Phase |
-| P2 | Human¹ (P1) | `git log` 確認 P1 APPROVE |
-| P3 | Human¹ (P2) | `git log` 確認 P2 APPROVE |
+| P2 | Agent B¹ (P1) | `git log` 確認 P1 APPROVE |
+| P3 | Agent B¹ (P2) | `git log` 確認 P2 APPROVE |
 | P4 | Gate 2 (P3) | `git log` 確認 P3 Gate 2 PASS |
 | P5 | Gate 3 (P4) | `git log` 確認 P4 Gate 3 PASS |
 | P6 | Gate 3 (P5) | `git log` 確認 P5 Phase Truth PASS |
 | P7 | Gate 4 (P6) | `git log` 確認 P6 Gate 4 PASS |
 | P8 | Gate 4 (P6) | `git log` 確認 P6 Gate 4 PASS |
 
-> ¹ **Human¹** = human peer review of deliverables (P1/P2 produce documents, not code).
+> ¹ **Agent B¹** = Agent B peer review of deliverables (P1/P2 produce documents, not code).
 
 ### 2.4 Constitution Score 門檻
 
@@ -135,10 +135,10 @@
 
 | 變更類型 | 審批者 | 必須通過 |
 |----------|--------|----------|
-| Phase 1-2 交付物 | Human¹ | Manual APPROVE |
+| Phase 1-2 交付物 | Agent B¹ | Agent B APPROVE |
 | Phase 3-8 程式碼 | Agent B (Reviewer) | Gate check ≥ threshold |
 | Gate 4 全專案 | Hermes APPROVE | 120s timeout + cold-read fallback |
-| 緊急修復 | Human¹ (Johnny) | Minimum Gate 1 check |
+| 緊急修復 | Human (Johnny) | Minimum Gate 1 check |
 
 ---
 

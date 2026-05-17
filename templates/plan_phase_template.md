@@ -23,7 +23,8 @@
 **CLI Commands**:
 ```bash
 python3 harness_cli.py run-phase --phase {PHASE} --project .
-python3 harness_cli.py push-checkpoint --phase {PHASE}  # P1/P2 only (P3+: git push)
+python3 harness_cli.py push-checkpoint --phase {PHASE}  # P1/P2: save deliverable checkpoint
+python3 harness_cli.py push-milestone   --phase {PHASE} --type <type>  # P3+: REQUIRED before git push (CI push-milestone-enforcement blocks otherwise)
 python3 harness_cli.py run-gate --gate 1 --phase {PHASE} --fr-id FR-XX
 python3 harness_cli.py generate-next-plan --phase {PHASE}
 ```
@@ -782,10 +783,16 @@ print(f"\n[Phase Truth] Phase Truth validation")
 print("   Phase Truth validation: use PhaseTruthVerifier (core/quality_gate/phase_truth_verifier.py) in standalone mode.")
 
 print(f"\n[Final Checkpoint] Saving phase state")
-# NOTE: push-checkpoint only supports P1/P2. For P3+, commit and push directly.
+# P1/P2 use push-checkpoint to save deliverable state.
+# P3+ MUST call push-milestone --type <type> before git push — CI job
+# `push-milestone-enforcement` reads state.json::last_milestone_command and
+# blocks the push if absent. Direct `git push` will fail at the server side.
 if PHASE <= 2:
     result = run_cmd(["python3", "harness_cli.py", "push-checkpoint", "--phase", str(PHASE), "--project", str(PROJECT_PATH)])
 else:
+    # 1. Mark the milestone sentinel (writes state.json::last_milestone_command)
+    run_cmd(["python3", "harness_cli.py", "push-milestone", "--type", PHASE_MILESTONE_TYPE, "--project", str(PROJECT_PATH)])
+    # 2. Then push — on block, fix the issue and re-run (do NOT use --no-verify or --skip-confidence)
     result = run_cmd(["git", "push"])
 print(f"   {'OK' if result.returncode == 0 else 'WARN'} Checkpoint {'saved' if result.returncode == 0 else 'skipped'}")
 

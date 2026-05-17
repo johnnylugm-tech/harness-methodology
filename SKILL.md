@@ -160,8 +160,8 @@ Before advancing to Phase N+1, confirm ALL:
 
 | Phase | Name | Entry Score | Exit Gate | Key Artifact |
 |-------|------|-------------|-----------|---------------|
-| P1 | Requirements Specification | — | Human¹ | SRS.md |
-| P2 | Architecture Design | Auto (git log)† | Human¹ | SAD.md, ADR.md |
+| P1 | Requirements Specification | — | Agent B¹ | SRS.md |
+| P2 | Architecture Design | Auto (git log)† | Agent B¹ | SAD.md, ADR.md |
 | P3 | Implementation | Auto (git log)† | Gate2 (75) | code + tests |
 | P4 | Testing | Gate2 | Gate3 (80) | TEST_RESULTS.md |
 | P5 | Verification & Delivery | Gate3 | None¹ | BASELINE.md |
@@ -169,7 +169,7 @@ Before advancing to Phase N+1, confirm ALL:
 | P7 | Risk Management | Gate4 | None² | RISK_REGISTER.md |
 | P8 | Configuration Management | Gate4 | None² | CONFIG_RECORDS.md |
 
-> ¹ **Human¹** = human peer review of deliverables. NOT `run-gate --gate 1`. Gate 1 only applies to code phases (P3–P5, P7, P8) where linting/type_safety/test_coverage can be measured. P1/P2 produce documents, not code. P6 has no per-FR Gate 1 — it uses a single Gate 4 (12-dim full audit) at phase exit.
+> ¹ **Agent B¹** = Agent B peer review of deliverables (P1/P2 produce documents, not code). NOT `run-gate --gate 1`. Gate 1 only applies to code phases (P3–P5, P7, P8) where linting/type_safety/test_coverage can be measured. P6 has no per-FR Gate 1 — it uses a single Gate 4 (12-dim full audit) at phase exit.
 >
 > ¹ **None¹** (P5) = Phase Truth check only (HR-11: ≥90%); no separate exit gate evaluation.
 >
