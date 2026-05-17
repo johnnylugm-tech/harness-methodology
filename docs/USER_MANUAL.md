@@ -82,8 +82,8 @@ bash harness/scripts/harness-init.sh --phase 1   # recommended: idempotent, CI-e
 
 > **Three init entry points** (from lowest to highest level):
 > - `setup-git-hooks.sh` — installs git hooks only, interactive prompts for phase
-> - `harness-init.sh --phase N` — idempotent superset: hooks + quality.phase + CI YAML; safe to re-run
-> - `harness_cli.py init-project` — upper-layer orchestrator: checks harness importability, generates CI workflow, calls `setup-git-hooks.sh`, sets `git config quality.phase`
+> - `harness-init.sh --phase N` — idempotent superset: hooks + state.json + CI YAML; safe to re-run
+> - `harness_cli.py init-project` — upper-layer orchestrator: checks harness importability, generates CI workflow, calls `setup-git-hooks.sh`, initializes `.methodology/state.json`
 >
 > If you ran `setup-git-hooks.sh` earlier, running `harness-init.sh` is safe — it detects already-installed hooks and skips them.
 
@@ -718,7 +718,7 @@ Claude 策略：
 Claude 會依序確認並執行：
 1. harness 可 import（submodule / clone+PYTHONPATH / 直接複製）
 2. setup-git-hooks.sh 安裝 hooks 到目標專案 .git/hooks/
-3. git config quality.phase 3
+3. .methodology/state.json 初始化（current_phase = 3）
 4. 建立 CI workflow（.github/workflows/harness_quality_gate.yml）
 5. 確認 DRIFT_PROJECT_PATH（可選）
 ```
@@ -982,12 +982,12 @@ python harness_cli.py init-project \
 1. 確認 harness 可匯入（`harness_cli.py` 與 `core/`/`harness/` 存在於目標路徑）
 2. 生成 `.github/workflows/harness_quality_gate.yml`（CI 配置）
 3. 執行 `setup-git-hooks.sh`（互動式；用 `--ci-only` 略過）
-4. 設定 `git config quality.phase <N>`
+4. 初始化 `.methodology/state.json`（`current_phase = <N>`）
 
 > **與其他初始化入口的關係**：
 > - `setup-git-hooks.sh` — 僅安裝 git hooks，互動式提問 phase
 > - `harness-init.sh --phase N` — 冪等初始化，自動跳過已完成步驟（適合 Makefile/CI 嵌入）
-> - `init-project`（此命令）— 生成 CI workflow + 呼叫 `setup-git-hooks.sh` + 設定 `git config quality.phase`；適合新專案一鍵初始化
+> - `init-project`（此命令）— 生成 CI workflow + 呼叫 `setup-git-hooks.sh` + 初始化 `.methodology/state.json`；適合新專案一鍵初始化
 >
 > **推薦流程**：新專案用 `init-project`；已有配置的存量專案用 `harness-init.sh`（冪等安全）。
 
@@ -1186,15 +1186,14 @@ python harness_cli.py await-hermes-approve --project /project
 python harness_cli.py finalize-gate --gate 4 --phase 6 --project /project
 ```
 
-**CI workflow fix**: Exclude Gate 4 from automated runs when auto-approve cannot be guaranteed:
+**CI workflow fix**: Gate 4 is excluded from CI runs. Phase is auto-detected from `.methodology/state.json`:
 ```yaml
-- name: Run Quality Gate
+- name: Run Phase Preflight
   env:
-    PHASE: ${{ vars.CURRENT_PHASE || '3' }}
-  # Gate 4 (P6 exit) auto-approves when composite≥88 AND confidence≥93.
-  # Skip CI gate check for Phase 6 if running in headless mode.
-  if: vars.CURRENT_PHASE != '6'
-  run: python harness/harness_cli.py run-gate --phase $PHASE
+    PHASE: ${{ steps.phase.outputs.PHASE }}
+  # Gate 4 (P6 exit) requires Hermes APPROVE — CI is headless, skip.
+  if: steps.phase.outputs.PHASE != '6'
+  run: python harness/harness_cli.py run-phase --phase $PHASE --project .
 ```
 
 ---
@@ -1253,12 +1252,12 @@ bash harness/scripts/harness-init.sh --phase 1
 
 # Output (first run):
 #   ✓  git hooks installed (prepare-commit-msg | post-merge | pre-push)
-#   ✓  quality.phase = 1
+#   ✓  state.json (current_phase = 1)
 #   ✓  CI workflow → .github/workflows/harness_quality_gate.yml
 
 # Output (subsequent runs — all skipped, no side effects):
 #   ↷  git hooks (already done)
-#   ↷  quality.phase (already done)
+#   ↷  state.json (already done)
 #   ↷  .github/workflows/harness_quality_gate.yml (already done)
 ```
 
@@ -1294,8 +1293,8 @@ ls .git/hooks/prepare-commit-msg .git/hooks/pre-push .git/hooks/post-merge \
   && echo "OK: hooks installed" || echo "FAIL: hooks missing — re-run harness-init.sh"
 
 echo "--- 2. phase config ---"
-git config quality.phase \
-  && echo "OK: quality.phase set" || echo "FAIL: run git config quality.phase 1"
+python3 -c "import json; print(json.load(open('.methodology/state.json'))['current_phase'])" 2>/dev/null \
+  && echo "OK: state.json found" || echo "FAIL: run python harness_cli.py init-project --phase 1 --project ."
 
 echo "--- 3. harness_cli.py reachable ---"
 if [ -n "$HARNESS_CLI" ]; then
@@ -1332,7 +1331,7 @@ echo "--- done ---"
 **Expected healthy output**:
 ```
 OK: hooks installed
-OK: quality.phase set
+OK: state.json found
 OK: harness_cli.py found (./harness/harness_cli.py)
 OK: pyyaml
 OK: gate config
@@ -1345,16 +1344,16 @@ Any `FAIL` line is a blocking issue. `WARN: SSI` is non-blocking (gates still ru
 
 ### 12.3 Phase Transition
 
-After advancing from Phase N → N+1, update **both** local and CI:
+After advancing from Phase N → N+1, a single command handles everything:
 ```bash
-# 1. Local hooks (immediate effect on next commit/push):
-git config quality.phase N+1
+# state.json is the single source of truth — hooks + CI both read it:
+python harness_cli.py advance-phase --completed N --project .
 
-# 2. CI pipeline — update GitHub repo variable to keep CI in sync:
-#    GitHub repo → Settings → Variables → Actions → CURRENT_PHASE → set to N+1
-#
-# If you skip step 2, CI continues enforcing the old phase gate
-# while local hooks enforce the new one — results diverge silently.
+# advance-phase does:
+#   1. Writes .methodology/state.json (current_phase = N+1)
+#   2. Syncs fr_progress.json phase
+#   3. Regenerates HANDOVER.md
+# All hooks and CI read from state.json — no other step needed.
 ```
 
 > **Tip**: `harness_cli.py init-project` prints a reminder with the exact GitHub URL after setup. CI phase is auto-detected from `.methodology/state.json` — no manual variable sync required.

@@ -607,7 +607,7 @@ def _preflight_steps(phase: int) -> List[str]:
             "  1. `.methodology/state.json` exists with `current_phase = 1`  ← set by `init-project`",
             "  2. `.github/workflows/harness_quality_gate.yml` exists in project root  ← set by `init-project`",
             "  3. Git hooks installed (`ls .git/hooks/prepare-commit-msg`)  ← set by `init-project`",
-            "  4. GitHub repo variable `CURRENT_PHASE = 1` (Settings → Variables)  ← optional (fallback '1')",
+            "  4. Phase stored in `.methodology/state.json` — single source of truth (no GitHub variable needed)",
             "  5. `HERMES_REVIEWER_TARGET` exported in shell  ← required",
             "  If any required item (1-3, 5) is missing: stop, run `python3 harness_cli.py init-project --phase 1 --project $REPO`, then set manual items.",
         ]
@@ -617,7 +617,7 @@ def _preflight_steps(phase: int) -> List[str]:
             "  1. `.github/workflows/harness_quality_gate.yml` exists",
             "  2. Git hooks installed (`ls .git/hooks/prepare-commit-msg`)",
             "  3. harness importable (submodule, PYTHONPATH, or vendored `quality_gate/`)",
-            f"  4. GitHub repo variable `CURRENT_PHASE` = {phase} (updated by `advance-phase`)",
+            f"  4. Phase {phase} confirmed in `.methodology/state.json` (`advance-phase` already run)",
             f"  > If stale: run `python3 harness_cli.py init-project --phase {phase} --project $REPO --overwrite`",
         ]
     return [

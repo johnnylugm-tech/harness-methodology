@@ -97,7 +97,7 @@ bash /path/to/harness-methodology/scripts/setup-git-hooks.sh
 ```
 
 Interactive prompts:
-- Current phase (1-8) -> stored in `git config quality.phase`
+- Current phase (1-8) -> stored in `.methodology/state.json` (`current_phase` field)
 - Enable block on failure? (y/n)
 
 Installed hooks:
@@ -110,8 +110,10 @@ Installed hooks:
 
 **Phase management**:
 ```bash
-git config quality.phase 3        # Move to Phase 3
-git config quality.phase          # Check current phase
+# Advance phase (updates state.json):
+python harness_cli.py advance-phase --completed 2 --project .
+# Check current phase:
+python3 -c "import json; print(json.load(open('.methodology/state.json'))['current_phase'])"
 ```
 
 > **No bypass mechanism exists for git hooks.** If `run-phase` fails before push, fix the underlying issue. Use `git commit --no-verify` only as a last resort for emergency hotfixes; CI will detect the missing sentinel on the next push audit.
@@ -314,11 +316,8 @@ python harness_cli.py audit-phase --phase <current> --repo owner/repo
 python harness_cli.py verify-spec --project .
 python harness_cli.py check-logic --project .
 
-# 6. Advance phase — updates quality.phase + GitHub CURRENT_PHASE atomically
+# 6. Advance phase — updates .methodology/state.json (single source of truth)
 python harness_cli.py advance-phase --completed <current>
-# advance-phase does: git config quality.phase, gh variable set CURRENT_PHASE,
-# and .methodology/state.json — all in one call.
-# If gh CLI is unavailable, it prints the manual fallback command.
 
 # 7. Generate plan for next phase
 python harness_cli.py plan-phase --phase <next>

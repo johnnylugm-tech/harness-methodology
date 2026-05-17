@@ -24,18 +24,14 @@ When the user says "execute Phase N", "start P3", "implement FR-X", or any phase
 
 ```
 0. ONE-TIME PROJECT SETUP (new project only — skip if already initialized):
-   Detect: git config quality.phase 2>/dev/null
-   If EMPTY (fresh project) → run:
+   Detect: cat .methodology/state.json 2>/dev/null (or check for state.json existence)
+   If MISSING (fresh project) → run:
      python harness_cli.py init-project --phase 1 --project .
-     → Installs: git hooks, .github/workflows/harness_quality_gate.yml, quality.phase=1
-   Then confirm these items manually:
-     a. [optional] GitHub repo → Settings → Variables → CURRENT_PHASE = 1
-        CI fallback is '1' so this is not an immediate blocker; advance-phase sets it
-        automatically on every phase transition. Set now for explicitness.
-        (or: gh variable set CURRENT_PHASE --body "1")
-     b. [required] export HERMES_REVIEWER_TARGET=telegram:YOUR_CHAT_ID
+     → Installs: git hooks, .github/workflows/harness_quality_gate.yml, state.json
+   Then confirm this manual item:
+     a. [required] export HERMES_REVIEWER_TARGET=telegram:YOUR_CHAT_ID
         (A/B Agent B uses this from P1; strictly required at P6. Set now for full quality.)
-   If quality.phase IS set → skip to step 1. Setup already done.
+   If state.json EXISTS → skip to step 1. Setup already done.
 
 1. GENERATE PLAN (always first action for a new phase):
    python harness_cli.py plan-phase --phase N --project . --output .methodology/phaseN_plan.md
@@ -117,7 +113,7 @@ Before advancing to Phase N+1, confirm ALL:
       Verify: `python harness_cli.py verify-agent-b-approvals --phase N --project .`
 - [ ] Git pushed to remote (confirmed push output, no "push skipped")
 - [ ] Next phase plan exists (`plan-phase --phase N+1` completed)
-- [ ] state.json updated: `python3 harness_cli.py advance-phase --completed N --project .` (updates FSM + git config + GitHub CURRENT_PHASE)
+- [ ] state.json updated: `python3 harness_cli.py advance-phase --completed N --project .` (updates FSM state)
 - [ ] Git tag pushed (Gate 4 only): `harness-v4-YYYYMMDD-scoreXX`
 - [ ] **(P8 only) `.methodology-archive/` exists and HANDOVER.md has no Phase 9 references** (enforced by CI `p8-archive-check`)
 

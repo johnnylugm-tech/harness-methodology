@@ -2181,12 +2181,11 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
 
 
 def cmd_advance_phase(args: argparse.Namespace) -> int:
-    """Advance to next phase: update state.json + GitHub CURRENT_PHASE atomically.
+    """Advance to next phase: update state.json atomically.
 
     Calls _advance_fsm() which:
       1. Writes .methodology/state.json (current_phase = completed + 1) — the
          single source of truth read by hooks and CI.
-      2. Attempts gh variable set CURRENT_PHASE (soft-fail with manual fallback).
 
     After FSM advance, regenerates HANDOVER.md so crash-recovery always
     reflects the current phase, then commits locally (no push — next
@@ -2587,13 +2586,11 @@ def _update_state_checkpoint(project: Path, gate_num: int, fr_id: str | None) ->
 def _advance_fsm(project: Path, completed_phase: int,
                  last_gate: int | None = None,
                  last_fr: str | None = None) -> None:
-    """Write state.json and sync GitHub CURRENT_PHASE.
+    """Write state.json — the single source of truth for phase state.
 
-    state.json is the single source of truth for phase state; local hooks and CI
-    read .methodology/state.json::current_phase. The deprecated `git config
-    quality.phase` knob is no longer written.
+    Local hooks, CI, and all harness commands read .methodology/state.json::current_phase.
+    No other phase storage mechanisms exist.
     """
-    import subprocess  # nosec B404
     from datetime import datetime, timezone
     from core.fsm.fsm import validate_fsm_state, FSMError
 
@@ -2632,28 +2629,8 @@ def _advance_fsm(project: Path, completed_phase: int,
     except Exception:  # pylint: disable=broad-exception-caught
         pass  # fr_progress.json may not exist yet (P1/P2 projects)
 
-    # 3. Attempt GitHub CURRENT_PHASE sync via gh CLI (soft-fail)
-    try:
-        gh = subprocess.run(  # nosec B603 B607
-            ["gh", "variable", "set", "CURRENT_PHASE", "--body", str(next_phase)],
-            cwd=str(project),
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        if gh.returncode == 0:
-            print(f"  [FSM] GitHub CURRENT_PHASE → {next_phase} ✓")
-        else:
-            _warn_github_phase_sync(next_phase)
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        _warn_github_phase_sync(next_phase)
-
-
-def _warn_github_phase_sync(next_phase: int) -> None:
-    """Print manual fallback instructions when gh CLI sync fails."""
-    print(f"  [WARN] GitHub CURRENT_PHASE not auto-updated (gh CLI unavailable or not authed).")
-    print(f"  Manual option A: gh variable set CURRENT_PHASE --body \"{next_phase}\"")
-    print(f"  Manual option B: GitHub repo → Settings → Variables → CURRENT_PHASE = {next_phase}")
+    # 3. No other phase storage — state.json is the single source of truth.
+    #    git config quality.phase and GitHub CURRENT_PHASE variable are no longer used.
 
 
 # ---------------------------------------------------------------------------
@@ -3616,7 +3593,7 @@ def cmd_init_project(args: argparse.Namespace) -> int:
     print(f"\n{'='*60}")
     print("init-project complete.")
     print(f"{'='*60}")
-    print(f"  Next: Set CURRENT_PHASE = {phase} in GitHub repo → Settings → Variables")
+    print(f"  Phase {phase} written to .methodology/state.json — single source of truth.")
     print(f"  Docs: {harness_root}/INTEGRATION.md")
     return 0
 
@@ -4054,7 +4031,7 @@ def build_parser() -> argparse.ArgumentParser:
     # advance-phase
     adv = sub.add_parser(
         "advance-phase",
-        help="Advance to next phase: update state.json + GitHub CURRENT_PHASE atomically",
+        help="Advance to next phase: update state.json (single source of truth)",
     )
     adv.add_argument(
         "--completed", type=int, required=True, dest="completed_phase",

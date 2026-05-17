@@ -208,7 +208,7 @@ Full integration guide: **[INTEGRATION.md](INTEGRATION.md)**. Summary:
 | Mechanism | File | Context | Purpose |
 |---|---|---|---|
 | **GitHub Actions CI** | `.github/workflows/harness_ci.yml` | This repo (framework self-test) | Mutation testing (median-3, threshold ≥70) + `pytest tests/` on push/PR to `main` |
-| **Git Hooks installer** | `scripts/setup-git-hooks.sh` | Target project | Installs `prepare-commit-msg` (block commit), `post-merge` (warn), `pre-push` (block push) keyed on `git config quality.phase` |
+| **Git Hooks installer** | `scripts/setup-git-hooks.sh` | Target project | Installs `prepare-commit-msg` (block commit), `post-merge` (warn), `pre-push` (block push) keyed on `.methodology/state.json` `current_phase` |
 | **Drift Monitor cron** | `scripts/cron_drift_monitor.py` | Target project (crontab) | Hourly architecture drift detection; alert via log / email / Slack. Path via `DRIFT_PROJECT_PATH` env var |
 | **On-demand scripts** | `scripts/*.py` | Target project | FR audit, phase audit, spec compliance, FR mapping — see INTEGRATION.md §3.4 |
 

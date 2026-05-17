@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0",
+  "generated_at_phase": 2,
+  "fr_ids": [
+    "FR-01"
+  ],
+  "nfr_dimension_mapping": {},
+  "architecture_constraints": [],
+  "high_risk_modules": [],
+  "gate_score_overrides": {},
+  "gate_results": {
+    "gate1": {},
+    "gate2": null,
+    "gate3": null,
+    "gate4": null
+  }
+}
