@@ -80,8 +80,7 @@ def check_phase_title(project_root: Path, phase: int) -> List[Dict[str, str]]:
                 "suggestion": f"Update H1 to reference Phase {phase}",
             })
 
-        # Also check: if there's no Phase N reference at all
-        if f"Phase {phase}" not in title and f"phase {phase}" not in title:
+        elif f"Phase {phase}" not in title and f"phase {phase}" not in title:
             violations.append({
                 "file": rel_path,
                 "issue": f"Title does not reference Phase {phase}",
@@ -190,36 +189,55 @@ def check_coverage_report(project_root: Path, _phase: int) -> List[Dict[str, str
 
     claimed_pct = float(claimed_match.group(1))
 
-    # Try running pytest --cov to get actual coverage
-    import subprocess
+    # Try running pytest --cov to get actual coverage.
+    # Guarded behind HARNESS_CROSS_ARTIFACT_COV=1 to avoid re-running the full
+    # test suite (up to 120s) on every finalize-gate call. When disabled, fall
+    # back to .coverage data if available.
+    import os as _os
+    import subprocess  # nosec B404
     import sys
 
-    try:
-        result = subprocess.run(
-            [sys.executable, "-m", "pytest", "--cov=.", "--cov-report=term-missing", "-q"],
-            cwd=str(project_root),
-            capture_output=True, text=True,
-            timeout=120,
-        )
-    except Exception:
-        return violations  # Cannot verify — skip
+    if _os.environ.get("HARNESS_CROSS_ARTIFACT_COV") == "1":
+        try:
+            result = subprocess.run(  # nosec B603 B607
+                [sys.executable, "-m", "pytest", "--cov=.", "--cov-report=term-missing", "-q"],
+                cwd=str(project_root),
+                capture_output=True, text=True,
+                timeout=120,
+            )
+        except Exception:
+            return violations  # Cannot verify — skip
+    else:
+        # Fast path: try to use existing .coverage SQLite data
+        coverage_data = project_root / ".coverage"
+        if not coverage_data.exists():
+            return violations  # No coverage data — skip silently
+        try:
+            result = subprocess.run(  # nosec B603 B607
+                [sys.executable, "-m", "coverage", "report", "--format=total"],
+                cwd=str(project_root),
+                capture_output=True, text=True,
+                timeout=15,
+            )
+        except Exception:
+            return violations
 
-    # Parse TOTAL line from coverage output
+    # Parse coverage output. Two formats:
+    # 1. pytest --cov: "TOTAL    123    45    85%" (term-missing table)
+    # 2. coverage report --format=total: just "85" or "85.0" on stdout
     actual_match = re.search(
         r'TOTAL\s+\d+\s+\d+\s+(\d{2,3}(?:\.\d)?)\s*%',
-        result.stdout,
+        result.stdout + result.stderr,
     )
-    if not actual_match:
-        # Also try combined stdout+stderr
-        actual_match = re.search(
-            r'TOTAL\s+\d+\s+\d+\s+(\d{2,3}(?:\.\d)?)\s*%',
-            result.stdout + result.stderr,
-        )
-
-    if not actual_match:
-        return violations
-
-    actual_pct = float(actual_match.group(1))
+    if actual_match:
+        actual_pct = float(actual_match.group(1))
+    else:
+        # Try --format=total output (bare number)
+        stripped = result.stdout.strip()
+        if stripped and re.match(r'^\d{1,3}(?:\.\d+)?$', stripped):
+            actual_pct = float(stripped)
+        else:
+            return violations  # Cannot parse — skip
     diff = abs(claimed_pct - actual_pct)
 
     if diff > 10:

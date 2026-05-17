@@ -285,15 +285,19 @@ class PhaseTruthVerifier:
 
         Checks that reports don't reference wrong phases, FRs in test results
         have session log evidence, and coverage reports match actual measurements.
+
+        At P3, the check raises InfraSkip — cross-artifact validation requires
+        testing artifacts that don't exist yet. The weight is renormalized
+        across the remaining substantive checks.
         """
         if self.phase < 4:
-            return True, 100.0, "Cross-artifact checks start at P4"
+            raise InfraSkip("Cross-artifact checks start at P4 — no testing artifacts yet")
 
         try:
             from core.quality_gate.cross_artifact import run_cross_artifact_checks
             result = run_cross_artifact_checks(self.project_root, self.phase)
         except ImportError:
-            return True, 100.0, "cross_artifact module unavailable — skip"
+            raise InfraSkip("cross_artifact module unavailable")
         except Exception as e:
             return False, 0.0, f"Cross-artifact check error: {e}"
 

@@ -187,10 +187,14 @@ def _is_stub_template(content: str) -> bool:
 
 
 def _keyword_density(content: str, keywords: List[str]) -> float:
-    """Compute keyword density score 0-100 for a set of keywords."""
+    """Compute keyword density score 0-100 for a set of keywords.
+
+    Content is expected to be pre-lowered by _scan_file_compliance.
+    Keywords may be mixed-case — we lower them for matching consistency.
+    """
     if not keywords:
         return 100.0
-    hits = sum(1 for kw in keywords if kw in content)
+    hits = sum(1 for kw in keywords if kw.lower() in content)
     return min(hits / len(keywords), 1.0) * 100.0
 
 
@@ -206,6 +210,9 @@ def _keyword_stuffing_penalty(content: str, keywords: List[str]) -> float:
        stuffed keywords cluster in one section (usually at the bottom).
     2. Density cap: if >50% of found keywords appear within a single 10%
        segment of the document, the document is likely stuffed.
+
+    Content is expected to be pre-lowered by _scan_file_compliance.
+    Keywords are lowered before matching for case-consistency with _keyword_density.
     """
     if not keywords or len(content) < 200:
         return 1.0
@@ -214,7 +221,7 @@ def _keyword_stuffing_penalty(content: str, keywords: List[str]) -> float:
     positions: list[float] = []
 
     for kw in keywords:
-        idx = content.find(kw)
+        idx = content.find(kw.lower())
         if idx >= 0:
             positions.append(idx / total_len)
 

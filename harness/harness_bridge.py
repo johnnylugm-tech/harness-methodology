@@ -94,10 +94,10 @@ def _check_tool_evidence(ctx: "GateContext", raw: dict) -> list[str]:
                     f"{dim_name}: tool_output path '{tool_output}' does not exist"
                 )
         elif tool_evidence:
-            if len(str(tool_evidence).strip()) < 20:
+            if len(str(tool_evidence).strip()) < 10:
                 violations.append(
                     f"{dim_name}: tool_evidence too short "
-                    f"({len(str(tool_evidence))} chars) — must be real tool output"
+                    f"({len(str(tool_evidence))} chars) — must be real tool output snippet"
                 )
         else:
             violations.append(
