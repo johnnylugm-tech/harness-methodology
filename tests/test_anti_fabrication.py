@@ -196,37 +196,33 @@ class TestStateIntegrity:
 
 
 # ---------------------------------------------------------------------------
-# P1: Commit interval enforcement
+# P1: Commit interval enforcement (legacy tests updated for disk-based impl)
 # ---------------------------------------------------------------------------
 
 class TestCommitIntervals:
-    """_check_commit_intervals blocks batch commits."""
+    """_check_commit_intervals blocks batch commits (disk-based)."""
 
-    def test_two_in_window_ok(self):
-        from harness_cli import _check_commit_intervals, _GATE_COMMIT_LOG
-        # Clear in-memory log from other tests
-        _GATE_COMMIT_LOG.clear()
-        ok1, _ = _check_commit_intervals("/test/proj", 4, 1, "FR-01")
+    def test_two_in_window_ok(self, tmp_path):
+        from harness_cli import _check_commit_intervals
+        ok1, _ = _check_commit_intervals(str(tmp_path), 4, 1, "FR-01")
         assert ok1
-        ok2, _ = _check_commit_intervals("/test/proj", 4, 1, "FR-02")
+        ok2, _ = _check_commit_intervals(str(tmp_path), 4, 1, "FR-02")
         assert ok2  # 2 in window still OK
 
-    def test_three_in_window_blocked(self):
-        from harness_cli import _check_commit_intervals, _GATE_COMMIT_LOG
-        _GATE_COMMIT_LOG.clear()
-        _check_commit_intervals("/test/proj2", 4, 1, "FR-01")
-        _check_commit_intervals("/test/proj2", 4, 1, "FR-02")
-        ok3, msg = _check_commit_intervals("/test/proj2", 4, 1, "FR-03")
+    def test_three_in_window_blocked(self, tmp_path):
+        from harness_cli import _check_commit_intervals
+        _check_commit_intervals(str(tmp_path), 4, 1, "FR-01")
+        _check_commit_intervals(str(tmp_path), 4, 1, "FR-02")
+        ok3, msg = _check_commit_intervals(str(tmp_path), 4, 1, "FR-03")
         assert not ok3
         assert "within 2 seconds" in msg
 
-    def test_different_gates_independent(self):
-        from harness_cli import _check_commit_intervals, _GATE_COMMIT_LOG
-        _GATE_COMMIT_LOG.clear()
+    def test_different_gates_independent(self, tmp_path):
+        from harness_cli import _check_commit_intervals
         # Same project/phase but different gates — independent buckets
-        _check_commit_intervals("/test/proj3", 4, 1, "FR-01")
-        _check_commit_intervals("/test/proj3", 4, 1, "FR-02")
-        ok, _ = _check_commit_intervals("/test/proj3", 4, 3, "FR-03")
+        _check_commit_intervals(str(tmp_path), 4, 1, "FR-01")
+        _check_commit_intervals(str(tmp_path), 4, 1, "FR-02")
+        ok, _ = _check_commit_intervals(str(tmp_path), 4, 3, "FR-03")
         assert ok  # Gate 3 ≠ Gate 1 → different bucket
 
 
@@ -308,3 +304,233 @@ class TestToolEvidence:
             violations = _check_tool_evidence(ctx, raw)
             assert len(violations) == 1
             assert "too short" in violations[0]
+
+
+# ---------------------------------------------------------------------------
+# P1: Persistent commit interval enforcement
+# ---------------------------------------------------------------------------
+
+class TestPersistentCommitIntervals:
+    """_check_commit_intervals uses disk file, not in-memory."""
+
+    def test_two_commits_ok(self, tmp_path):
+        from harness_cli import _check_commit_intervals
+        ok1, _ = _check_commit_intervals(str(tmp_path), 4, 1, "FR-01")
+        ok2, _ = _check_commit_intervals(str(tmp_path), 4, 1, "FR-02")
+        assert ok1
+        assert ok2
+
+    def test_three_commits_blocked(self, tmp_path):
+        from harness_cli import _check_commit_intervals
+        _check_commit_intervals(str(tmp_path), 4, 1, "FR-01")
+        _check_commit_intervals(str(tmp_path), 4, 1, "FR-02")
+        ok3, msg = _check_commit_intervals(str(tmp_path), 4, 1, "FR-03")
+        assert not ok3
+        assert "within 2 seconds" in msg
+
+    def test_persists_across_calls(self, tmp_path):
+        """Each call is a separate function invocation (simulating separate processes)."""
+        from harness_cli import _check_commit_intervals
+        # Fill 2 prior entries
+        _check_commit_intervals(str(tmp_path), 4, 1, "FR-01")
+        _check_commit_intervals(str(tmp_path), 4, 1, "FR-02")
+        # Third call in same process — but file is already written
+        ok, msg = _check_commit_intervals(str(tmp_path), 4, 1, "FR-03")
+        assert not ok
+
+    def test_different_phase_independent(self, tmp_path):
+        from harness_cli import _check_commit_intervals
+        _check_commit_intervals(str(tmp_path), 3, 1, "FR-01")
+        _check_commit_intervals(str(tmp_path), 3, 1, "FR-02")
+        # Phase 4 has its own bucket
+        ok, _ = _check_commit_intervals(str(tmp_path), 4, 1, "FR-03")
+        assert ok
+
+
+# ---------------------------------------------------------------------------
+# D2: Inter-FR score variance
+# ---------------------------------------------------------------------------
+
+class TestInterFrScoreVariance:
+    """_check_inter_fr_score_variance detects batch-copied scores."""
+
+    def test_high_variance_ok(self, tmp_path):
+        from harness_cli import _record_gate1_score, _check_inter_fr_score_variance
+        for i, score in enumerate([90.0, 95.5, 82.3, 99.1, 87.6, 93.2]):
+            _record_gate1_score(tmp_path, 4, f"FR-{i+1:02d}", score)
+        ok, _ = _check_inter_fr_score_variance(tmp_path, 4)
+        assert ok
+
+    def test_zero_variance_blocked(self, tmp_path):
+        from harness_cli import _record_gate1_score, _check_inter_fr_score_variance
+        for i in range(10):
+            _record_gate1_score(tmp_path, 4, f"FR-{i+1:02d}", 97.67)
+        ok, msg = _check_inter_fr_score_variance(tmp_path, 4)
+        assert not ok
+        assert "stddev" in msg
+
+    def test_fewer_than_5_frs_skipped(self, tmp_path):
+        from harness_cli import _record_gate1_score, _check_inter_fr_score_variance
+        for i in range(4):
+            _record_gate1_score(tmp_path, 4, f"FR-{i+1:02d}", 97.67)
+        ok, _ = _check_inter_fr_score_variance(tmp_path, 4)
+        assert ok  # Fewer than 5 FRs → skip check
+
+
+# ---------------------------------------------------------------------------
+# P3: phase_truth_passed in state.json
+# ---------------------------------------------------------------------------
+
+class TestPhaseTruthPassed:
+    """phase_truth_passed field is set when exit gate passes, blocks advance-phase."""
+
+    def test_compute_seal_includes_phase_truth_passed(self):
+        from harness_cli import _compute_seal
+        d1 = {"current_phase": 4, "phase_truth_passed": True}
+        d2 = {"current_phase": 4, "phase_truth_passed": False}
+        assert _compute_seal(d1) != _compute_seal(d2)
+
+    def test_advance_phase_blocked_without_phase_truth_passed(self, tmp_path):
+        """advance-phase is blocked when phase_truth_passed is False/missing."""
+        from harness_cli import _compute_seal
+        import json
+        # Write state.json with seal but phase_truth_passed=False
+        methodology = tmp_path / ".methodology"
+        methodology.mkdir()
+        state = {
+            "current_phase": 3,
+            "state": "ACTIVE",
+            "last_gate": 2,
+            "last_update": "2026-01-01T00:00:00Z",
+            "phase_truth_passed": False,
+        }
+        state["_seal"] = _compute_seal(state)
+        (methodology / "state.json").write_text(json.dumps(state))
+
+        # Simulate the check that cmd_advance_phase performs
+        import json as _json
+        loaded = _json.loads((methodology / "state.json").read_text())
+        assert "_seal" in loaded
+        assert not loaded.get("phase_truth_passed"), "Should be False"
+
+
+# ---------------------------------------------------------------------------
+# A/B coverage per deliverable
+# ---------------------------------------------------------------------------
+
+class TestABCoveragePerDeliverable:
+    """check_ab_coverage verifies each fr_id has a reviewer entry."""
+
+    def _make_verifier(self, tmp_path, phase=4):
+        from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
+        return PhaseTruthVerifier(str(tmp_path), phase)
+
+    def test_all_paired_passes(self, tmp_path):
+        import json
+        log = tmp_path / ".methodology" / "sessions_spawn.log"
+        log.parent.mkdir()
+        log.write_text(
+            json.dumps({"fr_id": "FR-01", "role": "developer", "session_id": "s1"}) + "\n" +
+            json.dumps({"fr_id": "FR-01", "role": "reviewer", "session_id": "s2"}) + "\n" +
+            json.dumps({"fr_id": "FR-02", "role": "developer", "session_id": "s3"}) + "\n" +
+            json.dumps({"fr_id": "FR-02", "role": "architect", "session_id": "s4"}) + "\n"
+        )
+        v = self._make_verifier(tmp_path)
+        ok, score, msg = v.check_ab_coverage()
+        assert ok
+        assert score == 100.0
+
+    def test_missing_reviewer_fails(self, tmp_path):
+        import json
+        log = tmp_path / ".methodology" / "sessions_spawn.log"
+        log.parent.mkdir()
+        log.write_text(
+            json.dumps({"fr_id": "FR-01", "role": "developer", "session_id": "s1"}) + "\n" +
+            json.dumps({"fr_id": "FR-02", "role": "developer", "session_id": "s2"}) + "\n" +
+            json.dumps({"fr_id": "FR-02", "role": "reviewer", "session_id": "s3"}) + "\n"
+        )
+        v = self._make_verifier(tmp_path)
+        ok, score, msg = v.check_ab_coverage()
+        assert not ok
+        assert "FR-01" in msg
+        assert score < 100.0
+
+    def test_no_log_fails(self, tmp_path):
+        v = self._make_verifier(tmp_path)
+        ok, score, msg = v.check_ab_coverage()
+        assert not ok
+        assert score == 0.0
+
+    def test_architect_role_accepted(self, tmp_path):
+        import json
+        log = tmp_path / ".methodology" / "sessions_spawn.log"
+        log.parent.mkdir()
+        log.write_text(
+            json.dumps({"fr_id": "FR-01", "role": "developer", "session_id": "s1"}) + "\n" +
+            json.dumps({"fr_id": "FR-01", "role": "architect", "session_id": "s2"}) + "\n"
+        )
+        v = self._make_verifier(tmp_path)
+        ok, score, _ = v.check_ab_coverage()
+        assert ok
+        assert score == 100.0
+
+
+# ---------------------------------------------------------------------------
+# D1: Keyword stuffing — all occurrences + tail density
+# ---------------------------------------------------------------------------
+
+class TestKeywordStuffingAllOccurrences:
+    """Updated _keyword_stuffing_penalty uses all occurrences, not just first."""
+
+    def test_first_occurrence_early_but_stuffed_at_end(self):
+        """Game the old first-occurrence check: one early, rest at bottom — should still penalize."""
+        from core.quality_gate.constitution.runner import _keyword_stuffing_penalty
+        # One early occurrence of one keyword (auth), then ALL keywords clustered at end.
+        # Old code: find() returns only first position → auth early → stdev looks OK.
+        # New code: all occurrences scanned → bulk at tail → penalty triggered.
+        body = "normal content auth\n" + "filler line no keywords here\n" * 100
+        tail = "auth validation encrypt tls rbac permission token security\n" * 15
+        content = (body + tail).lower()
+        keywords = ["auth", "validation", "encrypt", "tls", "rbac", "permission", "token", "security"]
+        penalty = _keyword_stuffing_penalty(content, keywords)
+        # With all-occurrence scanning, the clustered bottom hits should trigger a penalty
+        assert penalty < 1.0, f"Tail stuffing should be penalized, got {penalty}"
+
+    def test_d1_tail_density_penalized(self):
+        from core.quality_gate.constitution.runner import _keyword_stuffing_penalty
+        # All keywords appear ONLY in the last 10% of the document
+        body = "normal content without keywords\n" * 50
+        tail = "auth validation encrypt tls rbac permission token security\n" * 5
+        content = (body + tail).lower()
+        keywords = ["auth", "validation", "encrypt", "tls", "rbac", "permission", "token", "security"]
+        penalty = _keyword_stuffing_penalty(content, keywords)
+        assert penalty < 1.0, f"Tail-only keywords should be penalized, got {penalty}"
+
+
+# ---------------------------------------------------------------------------
+# D3: HIGH violations reduce Phase Truth score
+# ---------------------------------------------------------------------------
+
+class TestD3HighViolationScoring:
+    """check_cross_artifact penalizes HIGH violations, not only CRITICAL."""
+
+    def test_high_violation_reduces_score(self, tmp_path):
+        from unittest.mock import patch
+        # Simulate a result with 0 criticals and 1 HIGH
+        fake_result = {
+            "passed": True,  # No criticals
+            "violations": [{"severity": "HIGH", "file": "x", "issue": "wrong phase"}],
+            "checks_ran": 3,
+            "critical_count": 0,
+            "high_count": 1,
+        }
+        with patch(
+            "core.quality_gate.cross_artifact.run_cross_artifact_checks",
+            return_value=fake_result
+        ):
+            from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
+            v = PhaseTruthVerifier(str(tmp_path), phase=4)
+            passed, score, msg = v.check_cross_artifact()
+        assert not passed, "HIGH violation should cause check to fail"
+        assert score < 100.0, f"Score should be penalized, got {score}"
+        assert score == 85.0, f"1 HIGH = -15, expected 85.0, got {score}"

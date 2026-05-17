@@ -259,34 +259,111 @@ def _verify_gate_tools(gate_num: int, project: str) -> tuple[bool, list[str]]:
     return len(missing) == 0, missing
 
 
-# Timestamps of recent gate commits for interval enforcement (P1).
-# Keyed by (project, phase, gate) → list of (fr_id, timestamp).
-# In-memory only — survives one pipeline run.
-_GATE_COMMIT_LOG: dict[tuple[str, int, int], list[tuple[str, float]]] = {}
+_GATE_TIMESTAMPS_FILE = ".gate_timestamps.jsonl"
+
+
+def _record_gate_timestamp(project: Path, phase: int, gate_num: int, fr_id: str | None) -> None:
+    """Append gate commit timestamp to .methodology/.gate_timestamps.jsonl (P1 persistence)."""
+    import time as _time
+    ts_file = project / ".methodology" / _GATE_TIMESTAMPS_FILE
+    ts_file.parent.mkdir(parents=True, exist_ok=True)
+    entry = {"phase": phase, "gate": gate_num, "fr_id": fr_id or "phase", "ts": _time.time()}
+    try:
+        with open(str(ts_file), "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+    except OSError:
+        pass  # Non-blocking
 
 
 def _check_commit_intervals(
     project: str, phase: int, gate_num: int, fr_id: str | None
 ) -> tuple[bool, str]:
-    """Enforce minimum spacing between gate commits for different FRs (P1).
+    """Enforce minimum spacing between gate commits for different FRs (P1 — persistent).
 
-    Blocks if ≥3 FRs in the same (phase, gate) are committed within 2 seconds.
+    Reads .methodology/.gate_timestamps.jsonl across process boundaries.
+    Blocks if ≥3 commits appear within 2 seconds for the same (phase, gate).
     Returns (ok, diagnostic).
     """
     import time as _time
-    key = (str(project), phase, gate_num)
+    project_path = Path(project)
+    ts_file = project_path / ".methodology" / _GATE_TIMESTAMPS_FILE
     now = _time.time()
-    entries = _GATE_COMMIT_LOG.setdefault(key, [])
-    entries.append((fr_id or "phase", now))
-    # Keep only last 30 entries
-    if len(entries) > 30:
-        entries[:] = entries[-30:]
-    # Check: ≥3 entries within a 2-second window (including this one)
-    recent = [t for _, t in entries if now - t <= 2.0]
-    if len(recent) >= 3:
+    recent: list[dict] = []
+
+    if ts_file.exists():
+        try:
+            for line in ts_file.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if (entry.get("phase") == phase
+                        and entry.get("gate") == gate_num
+                        and now - entry.get("ts", 0) <= 2.0):
+                    recent.append(entry)
+        except OSError:
+            pass
+
+    # Record current commit (regardless of outcome)
+    _record_gate_timestamp(project_path, phase, gate_num, fr_id)
+
+    if len(recent) >= 2:  # 2 prior + 1 current = 3 total in window
         return False, (
-            f"{len(recent)} gate commits within 2 seconds — "
+            f"{len(recent) + 1} gate commits within 2 seconds — "
             "scores must be evaluated per-FR with genuine evidence, not batch-copied"
+        )
+    return True, ""
+
+
+_GATE1_SCORES_FILE = ".gate1_scores.json"
+
+
+def _record_gate1_score(project: Path, phase: int, fr_id: str, score: float) -> None:
+    """Track Gate 1 composite score per FR for inter-FR variance check."""
+    scores_file = project / ".methodology" / _GATE1_SCORES_FILE
+    scores: dict = {}
+    if scores_file.exists():
+        try:
+            scores = json.loads(scores_file.read_text(encoding="utf-8"))
+        except Exception:  # pylint: disable=broad-exception-caught
+            pass
+    scores.setdefault(str(phase), {})[fr_id] = score
+    try:
+        atomic_write_json(scores_file, scores)
+    except Exception:  # pylint: disable=broad-exception-caught
+        pass
+
+
+def _check_inter_fr_score_variance(project: Path, phase: int) -> tuple[bool, str]:
+    """D2 extension: Gate 1 score variance across all FRs in a phase.
+
+    stddev < 1.0 across ≥5 FRs is statistically implausible under genuine evaluation.
+    Returns (ok, diagnostic). Advisory — caller decides whether to block or warn.
+    """
+    scores_file = project / ".methodology" / _GATE1_SCORES_FILE
+    if not scores_file.exists():
+        return True, ""
+    try:
+        all_scores = json.loads(scores_file.read_text(encoding="utf-8"))
+    except Exception:  # pylint: disable=broad-exception-caught
+        return True, ""
+
+    phase_scores: dict = all_scores.get(str(phase), {})
+    values = [float(v) for v in phase_scores.values()]
+    if len(values) < 5:
+        return True, ""
+
+    import statistics as _stats
+    stdev = _stats.pstdev(values)
+    if stdev < 1.0:
+        return False, (
+            f"Inter-FR Gate 1 score variance suspicious: "
+            f"stddev={stdev:.3f} across {len(values)} FRs "
+            f"(range {min(values):.1f}~{max(values):.1f}) — "
+            "genuine per-FR evaluation produces natural variance"
         )
     return True, ""
 
@@ -1341,6 +1418,17 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
                     return 5
                 print(f"[WARN] Post-flight hooks error (non-blocking): {_pf_exc}")
 
+        # ── Advisory: rounds_used=0 suggests A/B evaluation was skipped ──
+        _rounds = getattr(result, "rounds_used", None)
+        if _rounds is None:
+            _rounds = 0
+        if _rounds == 0 and args.gate == 1:
+            print(
+                f"  [WARN] rounds_used=0 for {fr_id or 'this gate'}: "
+                "Gate 1 with zero review rounds suggests A/B evaluation was skipped. "
+                "Ensure Agent A and Agent B both ran."
+            )
+
         # ── D2: Score uniformity CRITICAL check ──────────────────────────
         # stddev=0 (all scores identical) is impossible under genuine
         # per-FR evaluation — it means scores were batch-copied.
@@ -1378,6 +1466,13 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
         _dup_flag.parent.mkdir(parents=True, exist_ok=True)
         _dup_flag.write_text(f"{datetime.now(timezone.utc).isoformat()}\n", encoding="utf-8")
 
+        # ── D2: Inter-FR score variance check (phase exit only) ──────────
+        _last_gate = _PHASE_EXIT_GATES.get(args.phase)
+        if _last_gate is not None and args.gate == _last_gate and args.phase >= 3:
+            _var_ok, _var_msg = _check_inter_fr_score_variance(project_path, args.phase)
+            if not _var_ok:
+                print(f"\n[WARN-D2] {_var_msg}")
+
         # ── S1: Phase Truth for last gate of phase ────────────────────────
         # Ensures PhaseTruthVerifier runs even when finalize-gate is called
         # directly (bypassing advance-phase / run-pipeline).
@@ -1402,7 +1497,10 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
             except Exception as _pte:
                 print(f"  [WARN] Phase Truth check error: {_pte}")
 
-        _update_state_checkpoint(Path(args.project).resolve(), args.gate, fr_id)
+        _update_state_checkpoint(
+            Path(args.project).resolve(), args.gate, fr_id,
+            gate_score=result.score, phase=args.phase,
+        )
 
         # ── Auto-generate quality deliverables for Gate 4 ─────────────
         if args.gate == 4:
@@ -2526,6 +2624,22 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                     file=sys.stderr,
                 )
                 return 2
+            # Check phase_truth_passed for phases with exit gates
+            if (args.completed_phase in _PHASE_EXIT_GATES
+                    and not getattr(args, "force", False)
+                    and "_seal" in _state):  # Only for new-format state.json
+                if not _state.get("phase_truth_passed"):
+                    print(
+                        f"\n[BLOCKED] advance-phase: phase_truth_passed not recorded "
+                        f"in state.json for Phase {args.completed_phase}.\n"
+                        f"  Run: python harness_cli.py finalize-gate "
+                        f"--gate {_PHASE_EXIT_GATES[args.completed_phase]} "
+                        f"--phase {args.completed_phase} --project {project}\n"
+                        f"  and ensure Phase Truth ≥ 90% before advancing.\n"
+                        f"  To bypass: add --force (audit-logged).",
+                        file=sys.stderr,
+                    )
+                    return 11
         except (ValueError, OSError, json.JSONDecodeError) as exc:
             print(
                 f"  [WARN] Could not read state.json::current_phase for validation: {exc} — proceeding.",
@@ -2902,7 +3016,10 @@ def _make_git(args: argparse.Namespace, project: Path) -> "GitStrategy":  # noqa
     return GitStrategy(project=project, enabled=not no_git)
 
 
-def _update_state_checkpoint(project: Path, gate_num: int, fr_id: str | None) -> None:
+def _update_state_checkpoint(
+    project: Path, gate_num: int, fr_id: str | None,
+    gate_score: float | None = None, phase: int | None = None,
+) -> None:
     """Write last_gate / last_fr to .methodology/state.json after a gate passes.
 
     Cross-process locked (SG-12): two parallel finalize-gate calls cannot
@@ -2918,9 +3035,16 @@ def _update_state_checkpoint(project: Path, gate_num: int, fr_id: str | None) ->
                 existing = json.loads(state_path.read_text(encoding="utf-8"))
             except Exception:  # pylint: disable=broad-exception-caught
                 pass
+        # Track Gate 1 score for inter-FR variance check (D2 extension)
+        if gate_num == 1 and fr_id and gate_score is not None and phase is not None:
+            _record_gate1_score(project, phase, fr_id, gate_score)
         existing["last_gate"] = gate_num
         existing["last_fr"] = fr_id
         existing["last_update"] = datetime.now(timezone.utc).isoformat()
+        # Record phase_truth_passed when the phase exit gate completes
+        _current_phase = int(existing.get("current_phase", phase or 0))
+        if gate_num == _PHASE_EXIT_GATES.get(_current_phase):
+            existing["phase_truth_passed"] = True
         existing["_seal"] = _compute_seal(existing)
         atomic_write_json(state_path, existing)
 
@@ -2961,6 +3085,7 @@ def _advance_fsm(project: Path, completed_phase: int,
             "last_gate": last_gate,
             "last_fr": last_fr,
             "last_update": datetime.now(timezone.utc).isoformat(),
+            "phase_truth_passed": False,  # Reset for new phase
         }
         state_data["_seal"] = _compute_seal(state_data)
         atomic_write_json(state_path, state_data)

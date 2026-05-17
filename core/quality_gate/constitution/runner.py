@@ -205,11 +205,11 @@ def _keyword_stuffing_penalty(content: str, keywords: List[str]) -> float:
       1.0 = natural distribution (no penalty)
       <1.0 = suspicious clustering (penalty applied multiplicatively)
 
-    Two checks:
-    1. Position entropy: keywords in genuine docs are spread across the file;
-       stuffed keywords cluster in one section (usually at the bottom).
-    2. Density cap: if >50% of found keywords appear within a single 10%
-       segment of the document, the document is likely stuffed.
+    Three checks:
+    1. Position stddev across ALL occurrences (not just first): genuinely
+       distributed keywords have stddev ~0.2–0.4; clustered keywords <0.1.
+    2. Decile density cap: >50% of ALL occurrences in a single 10% segment.
+    3. Tail density ratio: >50% of ALL occurrences in the last 15% of doc.
 
     Content is expected to be pre-lowered by _scan_file_compliance.
     Keywords are lowered before matching for case-consistency with _keyword_density.
@@ -221,19 +221,17 @@ def _keyword_stuffing_penalty(content: str, keywords: List[str]) -> float:
     positions: list[float] = []
 
     for kw in keywords:
-        idx = content.find(kw.lower())
-        if idx >= 0:
-            positions.append(idx / total_len)
+        kw_lower = kw.lower()
+        for m in re.finditer(re.escape(kw_lower), content):
+            positions.append(m.start() / total_len)
 
     if len(positions) < 3:
-        return 1.0  # Too few to measure distribution
+        return 1.0  # Too few occurrences to measure distribution
 
-    # ── Check 1: position standard deviation ──────────────────────────
-    # Genuine docs: keywords spread across 0.0–1.0 → stddev ~0.2–0.4
-    # Stuffed docs: keywords cluster in one spot → stddev < 0.1
     import statistics as _stats
     pos_stdev = _stats.pstdev(positions)
 
+    # ── Check 1: position stddev (all occurrences) ─────────────────────
     if pos_stdev < 0.05:
         return 0.5   # Severe clustering — 50% penalty
     if pos_stdev < 0.10:
@@ -241,17 +239,21 @@ def _keyword_stuffing_penalty(content: str, keywords: List[str]) -> float:
     if pos_stdev < 0.15:
         return 0.85  # Mild clustering — 15% penalty
 
-    # ── Check 2: density cap (keywords per decile) ─────────────────────
-    # Count keywords in each 10% segment of the document
+    # ── Check 2: decile density cap (keywords per decile) ──────────────
     decile_hits = [0] * 10
     for pos in positions:
         d = min(int(pos * 10), 9)
         decile_hits[d] += 1
 
-    # If >50% of found keywords are in one decile → stuffing pattern
     max_decile = max(decile_hits)
     if max_decile > len(positions) * 0.5 and len(positions) >= 6:
         return 0.7
+
+    # ── Check 3: tail density ratio (last 15% of document) ─────────────
+    # Keyword stuffing often concentrates in a "keyword dump" at the end.
+    tail_hits = sum(1 for p in positions if p > 0.85)
+    if len(positions) >= 4 and tail_hits / len(positions) > 0.5:
+        return 0.6  # >50% of occurrences in last 15% — stuffing pattern
 
     return 1.0
 
