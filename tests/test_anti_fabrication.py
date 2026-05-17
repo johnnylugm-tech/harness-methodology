@@ -200,28 +200,42 @@ class TestStateIntegrity:
 # ---------------------------------------------------------------------------
 
 class TestCommitIntervals:
-    """_check_commit_intervals blocks batch commits (disk-based)."""
+    """_check_commit_intervals is a pure read; _record_gate_timestamp writes on success."""
 
     def test_two_in_window_ok(self, tmp_path):
-        from harness_cli import _check_commit_intervals
+        from harness_cli import _check_commit_intervals, _record_gate_timestamp
+        # 0 prior entries → ok; simulate success then 1 prior → still ok
         ok1, _ = _check_commit_intervals(str(tmp_path), 4, 1, "FR-01")
         assert ok1
+        _record_gate_timestamp(tmp_path, 4, 1, "FR-01")  # simulates successful finalize
         ok2, _ = _check_commit_intervals(str(tmp_path), 4, 1, "FR-02")
-        assert ok2  # 2 in window still OK
+        assert ok2  # 1 prior entry, still below threshold
 
     def test_three_in_window_blocked(self, tmp_path):
-        from harness_cli import _check_commit_intervals
-        _check_commit_intervals(str(tmp_path), 4, 1, "FR-01")
-        _check_commit_intervals(str(tmp_path), 4, 1, "FR-02")
+        from harness_cli import _check_commit_intervals, _record_gate_timestamp
+        # Seed 2 prior successful finalizations
+        _record_gate_timestamp(tmp_path, 4, 1, "FR-01")
+        _record_gate_timestamp(tmp_path, 4, 1, "FR-02")
         ok3, msg = _check_commit_intervals(str(tmp_path), 4, 1, "FR-03")
         assert not ok3
         assert "within 2 seconds" in msg
 
+    def test_failed_check_does_not_record(self, tmp_path):
+        """Blocked check must not leave a timestamp — no false positives on retry."""
+        from harness_cli import _check_commit_intervals, _record_gate_timestamp, _GATE_TIMESTAMPS_FILE
+        _record_gate_timestamp(tmp_path, 4, 1, "FR-01")
+        _record_gate_timestamp(tmp_path, 4, 1, "FR-02")
+        ok, _ = _check_commit_intervals(str(tmp_path), 4, 1, "FR-03")
+        assert not ok
+        ts_file = tmp_path / ".methodology" / _GATE_TIMESTAMPS_FILE
+        lines = [l for l in ts_file.read_text(encoding="utf-8").splitlines() if l.strip()]
+        assert len(lines) == 2  # no extra entry from the failed attempt
+
     def test_different_gates_independent(self, tmp_path):
-        from harness_cli import _check_commit_intervals
+        from harness_cli import _check_commit_intervals, _record_gate_timestamp
         # Same project/phase but different gates — independent buckets
-        _check_commit_intervals(str(tmp_path), 4, 1, "FR-01")
-        _check_commit_intervals(str(tmp_path), 4, 1, "FR-02")
+        _record_gate_timestamp(tmp_path, 4, 1, "FR-01")
+        _record_gate_timestamp(tmp_path, 4, 1, "FR-02")
         ok, _ = _check_commit_intervals(str(tmp_path), 4, 3, "FR-03")
         assert ok  # Gate 3 ≠ Gate 1 → different bucket
 
@@ -311,40 +325,66 @@ class TestToolEvidence:
 # ---------------------------------------------------------------------------
 
 class TestPersistentCommitIntervals:
-    """_check_commit_intervals uses disk file, not in-memory."""
+    """Timestamps persist via disk file; _check_commit_intervals is pure read."""
 
     def test_two_commits_ok(self, tmp_path):
-        from harness_cli import _check_commit_intervals
+        from harness_cli import _check_commit_intervals, _record_gate_timestamp
         ok1, _ = _check_commit_intervals(str(tmp_path), 4, 1, "FR-01")
+        _record_gate_timestamp(tmp_path, 4, 1, "FR-01")
         ok2, _ = _check_commit_intervals(str(tmp_path), 4, 1, "FR-02")
+        _record_gate_timestamp(tmp_path, 4, 1, "FR-02")
         assert ok1
         assert ok2
 
     def test_three_commits_blocked(self, tmp_path):
-        from harness_cli import _check_commit_intervals
-        _check_commit_intervals(str(tmp_path), 4, 1, "FR-01")
-        _check_commit_intervals(str(tmp_path), 4, 1, "FR-02")
+        from harness_cli import _check_commit_intervals, _record_gate_timestamp
+        _record_gate_timestamp(tmp_path, 4, 1, "FR-01")
+        _record_gate_timestamp(tmp_path, 4, 1, "FR-02")
         ok3, msg = _check_commit_intervals(str(tmp_path), 4, 1, "FR-03")
         assert not ok3
         assert "within 2 seconds" in msg
 
     def test_persists_across_calls(self, tmp_path):
-        """Each call is a separate function invocation (simulating separate processes)."""
-        from harness_cli import _check_commit_intervals
-        # Fill 2 prior entries
-        _check_commit_intervals(str(tmp_path), 4, 1, "FR-01")
-        _check_commit_intervals(str(tmp_path), 4, 1, "FR-02")
-        # Third call in same process — but file is already written
-        ok, msg = _check_commit_intervals(str(tmp_path), 4, 1, "FR-03")
+        """Entries written by _record_gate_timestamp are visible to subsequent checks."""
+        from harness_cli import _check_commit_intervals, _record_gate_timestamp
+        _record_gate_timestamp(tmp_path, 4, 1, "FR-01")
+        _record_gate_timestamp(tmp_path, 4, 1, "FR-02")
+        ok, _ = _check_commit_intervals(str(tmp_path), 4, 1, "FR-03")
         assert not ok
 
     def test_different_phase_independent(self, tmp_path):
-        from harness_cli import _check_commit_intervals
-        _check_commit_intervals(str(tmp_path), 3, 1, "FR-01")
-        _check_commit_intervals(str(tmp_path), 3, 1, "FR-02")
+        from harness_cli import _check_commit_intervals, _record_gate_timestamp
+        _record_gate_timestamp(tmp_path, 3, 1, "FR-01")
+        _record_gate_timestamp(tmp_path, 3, 1, "FR-02")
         # Phase 4 has its own bucket
         ok, _ = _check_commit_intervals(str(tmp_path), 4, 1, "FR-03")
         assert ok
+
+    def test_trim_to_max_entries(self, tmp_path):
+        """File is trimmed to _GATE_TIMESTAMPS_MAX_ENTRIES after each write."""
+        from harness_cli import _record_gate_timestamp, _GATE_TIMESTAMPS_FILE, _GATE_TIMESTAMPS_MAX_ENTRIES
+        for i in range(_GATE_TIMESTAMPS_MAX_ENTRIES + 20):
+            _record_gate_timestamp(tmp_path, 4, 1, f"FR-{i:03d}")
+        ts_file = tmp_path / ".methodology" / _GATE_TIMESTAMPS_FILE
+        lines = [l for l in ts_file.read_text(encoding="utf-8").splitlines() if l.strip()]
+        assert len(lines) == _GATE_TIMESTAMPS_MAX_ENTRIES
+
+    def test_dotfile_migration(self, tmp_path):
+        """Legacy .gate_timestamps.jsonl is renamed to gate_timestamps.jsonl on first use."""
+        import json as _json
+        from harness_cli import _record_gate_timestamp, _GATE_TIMESTAMPS_FILE
+        methodology = tmp_path / ".methodology"
+        methodology.mkdir()
+        old_file = methodology / ".gate_timestamps.jsonl"
+        old_file.write_text(
+            _json.dumps({"phase": 4, "gate": 1, "fr_id": "FR-00", "ts": 0.0}) + "\n"
+        )
+        _record_gate_timestamp(tmp_path, 4, 1, "FR-01")
+        assert not old_file.exists(), "Old dotfile should have been renamed"
+        new_file = methodology / _GATE_TIMESTAMPS_FILE
+        assert new_file.exists()
+        lines = [l for l in new_file.read_text(encoding="utf-8").splitlines() if l.strip()]
+        assert len(lines) == 2  # migrated entry + new entry
 
 
 # ---------------------------------------------------------------------------
@@ -376,6 +416,22 @@ class TestInterFrScoreVariance:
         ok, _ = _check_inter_fr_score_variance(tmp_path, 4)
         assert ok  # Fewer than 5 FRs → skip check
 
+    def test_stale_phases_pruned(self, tmp_path):
+        """Phases older than (current - 1) are pruned from .gate1_scores.json."""
+        import json as _json
+        from harness_cli import _record_gate1_score, _GATE1_SCORES_FILE
+        # Record scores for phases 3, 4, then 5
+        _record_gate1_score(tmp_path, 3, "FR-01", 90.0)
+        _record_gate1_score(tmp_path, 4, "FR-01", 85.0)
+        # Writing phase 5 must prune phase 3 (< 5-1=4)
+        _record_gate1_score(tmp_path, 5, "FR-01", 92.0)
+        data = _json.loads(
+            (tmp_path / ".methodology" / _GATE1_SCORES_FILE).read_text(encoding="utf-8")
+        )
+        assert "3" not in data, "Phase 3 should be pruned (two phases back)"
+        assert "4" in data, "Phase 4 (current-1) should be retained"
+        assert "5" in data, "Phase 5 (current) should be retained"
+
 
 # ---------------------------------------------------------------------------
 # P3: phase_truth_passed in state.json
@@ -391,7 +447,13 @@ class TestPhaseTruthPassed:
         assert _compute_seal(d1) != _compute_seal(d2)
 
     def test_advance_phase_blocked_without_phase_truth_passed(self, tmp_path):
-        """advance-phase is blocked when phase_truth_passed is False/missing."""
+        """advance-phase returns exit 12 when phase_truth_passed is False/missing.
+
+        Exit 12 is distinct from exit 11 (Phase Truth score < 90%) so that operators
+        can apply the correct remediation:
+          11 → re-run Phase Truth until score ≥ 90%
+          12 → run finalize-gate for the phase exit gate first
+        """
         from harness_cli import _compute_seal
         import json
         # Write state.json with seal but phase_truth_passed=False
@@ -407,11 +469,10 @@ class TestPhaseTruthPassed:
         state["_seal"] = _compute_seal(state)
         (methodology / "state.json").write_text(json.dumps(state))
 
-        # Simulate the check that cmd_advance_phase performs
-        import json as _json
-        loaded = _json.loads((methodology / "state.json").read_text())
+        # Verify the state structure that cmd_advance_phase will check
+        loaded = json.loads((methodology / "state.json").read_text())
         assert "_seal" in loaded
-        assert not loaded.get("phase_truth_passed"), "Should be False"
+        assert not loaded.get("phase_truth_passed"), "Should be False → triggers exit 12"
 
 
 # ---------------------------------------------------------------------------

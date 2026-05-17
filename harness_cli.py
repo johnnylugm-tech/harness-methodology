@@ -259,18 +259,45 @@ def _verify_gate_tools(gate_num: int, project: str) -> tuple[bool, list[str]]:
     return len(missing) == 0, missing
 
 
-_GATE_TIMESTAMPS_FILE = ".gate_timestamps.jsonl"
+# Non-dotfile (consistent with other .methodology/ files like state.json, sessions_spawn.log).
+# Replaces the old ".gate_timestamps.jsonl" hidden file name used before 2026-05-18.
+_GATE_TIMESTAMPS_FILE = "gate_timestamps.jsonl"
+_GATE_TIMESTAMPS_MAX_ENTRIES = 60  # Ring-buffer upper bound
 
 
 def _record_gate_timestamp(project: Path, phase: int, gate_num: int, fr_id: str | None) -> None:
-    """Append gate commit timestamp to .methodology/.gate_timestamps.jsonl (P1 persistence)."""
+    """Append gate commit timestamp to .methodology/gate_timestamps.jsonl (P1 persistence).
+
+    Called only on SUCCESSFUL gate finalization — not on failed checks — so the file
+    represents genuine completed gates, not attempts.  Trims to the last
+    _GATE_TIMESTAMPS_MAX_ENTRIES entries to bound file growth.
+    """
     import time as _time
-    ts_file = project / ".methodology" / _GATE_TIMESTAMPS_FILE
-    ts_file.parent.mkdir(parents=True, exist_ok=True)
+    ts_dir = project / ".methodology"
+    ts_dir.mkdir(parents=True, exist_ok=True)
+    ts_file = ts_dir / _GATE_TIMESTAMPS_FILE
+
+    # One-time migration: rename old hidden-file to the new visible name
+    _old = ts_dir / ".gate_timestamps.jsonl"
+    if _old.exists() and not ts_file.exists():
+        try:
+            _old.rename(ts_file)
+        except OSError:
+            pass
+
     entry = {"phase": phase, "gate": gate_num, "fr_id": fr_id or "phase", "ts": _time.time()}
     try:
+        # Append
         with open(str(ts_file), "a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
+        # Trim to last _GATE_TIMESTAMPS_MAX_ENTRIES lines
+        raw = ts_file.read_text(encoding="utf-8")
+        lines = [l for l in raw.splitlines() if l.strip()]
+        if len(lines) > _GATE_TIMESTAMPS_MAX_ENTRIES:
+            ts_file.write_text(
+                "\n".join(lines[-_GATE_TIMESTAMPS_MAX_ENTRIES:]) + "\n",
+                encoding="utf-8",
+            )
     except OSError:
         pass  # Non-blocking
 
@@ -278,15 +305,29 @@ def _record_gate_timestamp(project: Path, phase: int, gate_num: int, fr_id: str 
 def _check_commit_intervals(
     project: str, phase: int, gate_num: int, fr_id: str | None
 ) -> tuple[bool, str]:
-    """Enforce minimum spacing between gate commits for different FRs (P1 — persistent).
+    """Check if current gate attempt would exceed the batch-commit threshold (P1).
 
-    Reads .methodology/.gate_timestamps.jsonl across process boundaries.
-    Blocks if ≥3 commits appear within 2 seconds for the same (phase, gate).
+    Pure read — does NOT write timestamps.  The caller (cmd_finalize_gate) must call
+    _record_gate_timestamp() only on successful finalization, so failed attempts don't
+    accumulate in the file and trigger false positives on retry.
+
+    Blocks if ≥2 prior successful finalizations exist within a 2-second window for the
+    same (phase, gate) bucket (3 total = statistically implausible for genuine per-FR work).
     Returns (ok, diagnostic).
     """
     import time as _time
     project_path = Path(project)
-    ts_file = project_path / ".methodology" / _GATE_TIMESTAMPS_FILE
+    ts_dir = project_path / ".methodology"
+    ts_file = ts_dir / _GATE_TIMESTAMPS_FILE
+
+    # One-time migration: honour renamed dotfile for legacy projects
+    _old = ts_dir / ".gate_timestamps.jsonl"
+    if _old.exists() and not ts_file.exists():
+        try:
+            _old.rename(ts_file)
+        except OSError:
+            pass
+
     now = _time.time()
     recent: list[dict] = []
 
@@ -307,10 +348,7 @@ def _check_commit_intervals(
         except OSError:
             pass
 
-    # Record current commit (regardless of outcome)
-    _record_gate_timestamp(project_path, phase, gate_num, fr_id)
-
-    if len(recent) >= 2:  # 2 prior + 1 current = 3 total in window
+    if len(recent) >= 2:  # 2 prior successful + 1 current attempt = 3 total in window
         return False, (
             f"{len(recent) + 1} gate commits within 2 seconds — "
             "scores must be evaluated per-FR with genuine evidence, not batch-copied"
@@ -322,7 +360,12 @@ _GATE1_SCORES_FILE = ".gate1_scores.json"
 
 
 def _record_gate1_score(project: Path, phase: int, fr_id: str, score: float) -> None:
-    """Track Gate 1 composite score per FR for inter-FR variance check."""
+    """Track Gate 1 composite score per FR for inter-FR variance check.
+
+    Prunes phases older than (phase - 1) to bound file growth; the previous phase
+    data is kept so finalize-gate can still reference it, but anything further back
+    is stale and safe to drop.
+    """
     scores_file = project / ".methodology" / _GATE1_SCORES_FILE
     scores: dict = {}
     if scores_file.exists():
@@ -331,6 +374,10 @@ def _record_gate1_score(project: Path, phase: int, fr_id: str, score: float) -> 
         except Exception:  # pylint: disable=broad-exception-caught
             pass
     scores.setdefault(str(phase), {})[fr_id] = score
+    # Prune stale phases — keep current and previous only
+    stale = [k for k in list(scores.keys()) if int(k) < phase - 1]
+    for k in stale:
+        del scores[k]
     try:
         atomic_write_json(scores_file, scores)
     except Exception:  # pylint: disable=broad-exception-caught
@@ -1502,6 +1549,11 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
             gate_score=result.score, phase=args.phase,
         )
 
+        # P1: Record successful finalization timestamp HERE (after all checks pass),
+        # not inside _check_commit_intervals.  Failed attempts must not leave a trace
+        # so that retries don't accumulate phantom entries.
+        _record_gate_timestamp(Path(args.project).resolve(), args.phase, args.gate, fr_id)
+
         # ── Auto-generate quality deliverables for Gate 4 ─────────────
         if args.gate == 4:
             try:
@@ -2639,7 +2691,12 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                         f"  To bypass: add --force (audit-logged).",
                         file=sys.stderr,
                     )
-                    return 11
+                    # Exit 12 = phase_truth_passed missing in state.json.
+                    # Distinct from exit 11 (Phase Truth score < 90%) so pipeline
+                    # automation and humans can apply the correct remediation:
+                    #   11 → re-run Phase Truth until score ≥ 90%
+                    #   12 → run finalize-gate for the exit gate of this phase
+                    return 12
         except (ValueError, OSError, json.JSONDecodeError) as exc:
             print(
                 f"  [WARN] Could not read state.json::current_phase for validation: {exc} — proceeding.",
