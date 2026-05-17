@@ -581,7 +581,7 @@ def _deliverable_ab_block(phase: int, deliverable: Dict, sub_n: int, total: int,
     if sub_n < total:
         next_action = f"continue to Sub-Task {sub_n + 1}/{total}"
     else:
-        next_action = "all deliverables complete; proceed to Human Peer Review"
+        next_action = "all deliverables complete; proceed to Agent B Peer Review"
     lines += [
         f"  - `APPROVE` + all gaps are `low` → {next_action}",
         "  - `APPROVE` + any gap is `medium` or `high` → fix gaps → **re-dispatch B as round 2**",
@@ -637,10 +637,10 @@ def _preflight_steps(phase: int) -> List[str]:
 def _entry_gate_check(phase: int) -> List[str]:
     """Entry condition check — confirm previous phase exit gate before starting any work."""
     _ENTRY_MAP: dict = {
-        2: ("P1 human APPROVE",
-            "git log contains commit 'phase1(human-review): Phase 1 deliverables APPROVED'"),
-        3: ("P2 human APPROVE",
-            "git log contains commit 'phase2(human-review): Phase 2 deliverables APPROVED'"),
+        2: ("P1 review-complete",
+            "git log contains commit 'phase1(review-complete): Phase 1 deliverables APPROVED'"),
+        3: ("P2 review-complete",
+            "git log contains commit 'phase2(review-complete): Phase 2 deliverables APPROVED'"),
         4: ("Gate 2 PASS",
             ".methodology/quality_manifest.json records Gate 2 PASS from P3"),
         5: ("Gate 3 PASS",
@@ -674,8 +674,8 @@ def _entry_gate_check(phase: int) -> List[str]:
     return lines
 
 
-def _human_checkpoint(phase: int, checkpoint_n: int) -> List[str]:
-    """Human peer-review checkpoint for P1/P2 (deliverable review — NOT harness run-gate)."""
+def _review_checkpoint(phase: int, checkpoint_n: int) -> List[str]:
+    """Agent B peer-review checkpoint for P1/P2 (deliverable review — NOT harness run-gate)."""
     _DELIVERABLES: dict = {
         1: ["01-requirements/SRS.md", "01-requirements/SPEC_TRACKING.md",
             "01-requirements/TRACEABILITY_MATRIX.md"],
@@ -684,19 +684,19 @@ def _human_checkpoint(phase: int, checkpoint_n: int) -> List[str]:
     artifacts = _DELIVERABLES.get(phase, [])
     return [
         "",
-        f"### 🔒 CHECKPOINT-{checkpoint_n}: Human Peer Review — Phase {phase} Exit",
-        "> Phase 1/2 exit gate = human document review (NOT `harness run-gate --gate 1`).",
+        f"### 🔒 CHECKPOINT-{checkpoint_n}: Agent B Peer Review — Phase {phase} Exit",
+        "> Phase 1/2 exit gate = Agent B document review (NOT `harness run-gate --gate 1`).",
         "> APPROVE criteria: all FRs addressed, no critical gaps, terminology consistent.",
         "",
-        "- [ ] **[HR-READ]** Reviewer reads all deliverables:",
+        "- [ ] **[B-READ]** Reviewer reads all deliverables:",
         *([f"  - `{a}`" for a in artifacts]),
         "  - Checklist: All FRs covered? No contradictions? Each item testable/traceable?",
-        "- [ ] **[HR-DECIDE]** Reviewer records decision:",
+        "- [ ] **[B-DECIDE]** Reviewer records decision:",
         "  ```json",
         f'  {{"phase": {phase}, "reviewer": "XXXX", "status": "APPROVE", "reason": "..."}}',
         "  ```",
         "  - If REJECT → author fixes → re-review. Max 5 rounds (HR-12).",
-        f"- [ ] **[HR-PUSH]** ✅ Push to GitHub + HANDOVER.md (CHECKPOINT-{checkpoint_n} saved):",
+        f"- [ ] **[B-PUSH]** ✅ Push to GitHub + HANDOVER.md (CHECKPOINT-{checkpoint_n} saved):",
         "  ```bash",
         f"  python3 harness_cli.py push-checkpoint --phase {phase} --project . \\",
         "    --fr-ids FR-01,FR-02,FR-03",
@@ -1127,7 +1127,7 @@ def generate_phase1_tasks(repo_path: Path, srs_path: Path) -> List[str]:
 
     # P1 has exactly one checkpoint: human sign-off at phase end
     lines.append("> **Checkpoint Index** (push to GitHub = checkpoint + HANDOVER.md saved):")
-    lines.append("> - CHECKPOINT-1: Human Peer Review (Phase 1 Exit) → `push-checkpoint --phase 1`")
+    lines.append("> - CHECKPOINT-1: Agent B Peer Review (Phase 1 Exit) → `push-checkpoint --phase 1`")
     lines.append("")
 
     lines.extend(_preflight_steps(1))
@@ -1179,7 +1179,7 @@ def generate_phase1_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("- [x] `sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
     lines.append("")
 
-    lines.extend(_human_checkpoint(1, checkpoint_n=1))
+    lines.extend(_review_checkpoint(1, checkpoint_n=1))
     lines.extend(_phase_advance_step(1))
     return lines
 
@@ -1202,7 +1202,7 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path) -> List[str]:
 
     # P2 has exactly one checkpoint: human sign-off at phase end
     lines.append("> **Checkpoint Index** (push to GitHub = checkpoint + HANDOVER.md saved):")
-    lines.append("> - CHECKPOINT-1: Human Peer Review (Phase 2 Exit) → `push-checkpoint --phase 2`")
+    lines.append("> - CHECKPOINT-1: Agent B Peer Review (Phase 2 Exit) → `push-checkpoint --phase 2`")
     lines.append("")
 
     lines.extend(_entry_gate_check(2))  # confirm P1 human APPROVE
@@ -1261,7 +1261,7 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("- [x] `sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
     lines.append("")
 
-    lines.extend(_human_checkpoint(2, checkpoint_n=1))
+    lines.extend(_review_checkpoint(2, checkpoint_n=1))
     lines.extend(_phase_advance_step(2))
     return lines
 

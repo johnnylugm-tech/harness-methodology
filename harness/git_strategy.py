@@ -180,7 +180,7 @@ class GitStrategy:
             plan_override=".methodology/phase2_plan.md" if self._next_phase_plan_exists(1) else None,
             deliverables=deliverables,
         )
-        msg = f"phase1(human-review): SRS + P1 deliverables; {len(fr_ids)} FR(s) [{fr_list}]"
+        msg = f"phase1(review-complete): SRS + P1 deliverables; {len(fr_ids)} FR(s) [{fr_list}]"
         return self._commit_and_push(msg, skip_hooks=True)
 
     # ── Push ② — P2 exit ────────────────────────────────────────────────────
@@ -241,7 +241,7 @@ class GitStrategy:
             plan_override=".methodology/phase3_plan.md" if self._next_phase_plan_exists(2) else None,
             deliverables=deliverables,
         )
-        msg = f"phase2(human-review): SAD + ADR + quality manifest complete [fr_ids={fr_list}]"
+        msg = f"phase2(review-complete): SAD + ADR + quality manifest complete [fr_ids={fr_list}]"
         return self._commit_and_push(msg, skip_hooks=True)
 
     # ── Push ③ — P3 mid ─────────────────────────────────────────────────────

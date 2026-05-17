@@ -708,7 +708,7 @@ class TestVerifyEntryGate:
         import subprocess as sp
 
         class FakeCompleted:
-            stdout = "abc123 phase1(human-review): Phase 1 deliverables APPROVED\n"
+            stdout = "abc123 phase1(review-complete): Phase 1 deliverables APPROVED\n"
             stderr = ""
 
         def fake_run(*args, **kwargs):

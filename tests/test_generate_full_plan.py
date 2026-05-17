@@ -27,7 +27,7 @@ from generate_full_plan import (
     _load_manifest_fr_ids,
     _preflight_steps,
     _entry_gate_check,
-    _human_checkpoint,
+    _review_checkpoint,
     _fr_dev_steps,
     _phase_advance_step,
     _decomposition_section,
@@ -511,12 +511,12 @@ class TestPhase8GateInjection:
 # ─── _entry_gate_check ───────────────────────────────────────────────────────
 
 class TestEntryGateCheck:
-    def test_phase3_references_p2_human_approve(self):
-        """GAP-M fix: P3 entry requires P2 human review (not harness gate)."""
+    def test_phase3_references_p2_review_complete(self):
+        """GAP-M fix: P3 entry requires P2 review-complete (not harness gate)."""
         joined = "\n".join(_entry_gate_check(3))
         assert "ENTRY-CHECK" in joined
         assert "Phase 2" in joined
-        assert "human" in joined.lower() or "Human" in joined
+        assert "review-complete" in joined
 
     def test_phase4_references_gate2(self):
         """GAP-M fix: P4 entry requires Gate 2 PASS from P3."""
@@ -567,43 +567,43 @@ class TestEntryGateCheck:
             assert "return to Phase" in joined or "return" in joined.lower()
 
 
-# ─── _human_checkpoint ───────────────────────────────────────────────────────
+# ─── _review_checkpoint ──────────────────────────────────────────────────────
 
-class TestHumanCheckpoint:
+class TestReviewCheckpoint:
     def test_phase1_lists_srs_deliverables(self):
-        """GAP-K3 fix: P1 human checkpoint lists SRS deliverables."""
-        joined = "\n".join(_human_checkpoint(1, 1))
+        """GAP-K3 fix: P1 review checkpoint lists SRS deliverables."""
+        joined = "\n".join(_review_checkpoint(1, 1))
         assert "SRS.md" in joined
         assert "CHECKPOINT-1" in joined
 
     def test_phase2_lists_sad_deliverables(self):
-        """GAP-K3 fix: P2 human checkpoint lists SAD deliverables."""
-        joined = "\n".join(_human_checkpoint(2, 1))
+        """GAP-K3 fix: P2 review checkpoint lists SAD deliverables."""
+        joined = "\n".join(_review_checkpoint(2, 1))
         assert "SAD.md" in joined
 
     def test_contains_approve_reject(self):
-        joined = "\n".join(_human_checkpoint(1, 1))
+        joined = "\n".join(_review_checkpoint(1, 1))
         assert "APPROVE" in joined
         assert "REJECT" in joined
 
     def test_contains_git_push(self):
-        joined = "\n".join(_human_checkpoint(2, 1))
+        joined = "\n".join(_review_checkpoint(2, 1))
         assert "push-checkpoint" in joined
         assert "HANDOVER.md" in joined
 
     def test_heading_h3(self):
-        lines = _human_checkpoint(1, 1)
+        lines = _review_checkpoint(1, 1)
         assert any(line.startswith("### 🔒 CHECKPOINT-1") for line in lines)
 
     def test_not_harness_gate(self):
         """GAP-K fix: P1/P2 checkpoint must clarify it's NOT harness run-gate."""
-        joined = "\n".join(_human_checkpoint(1, 1))
+        joined = "\n".join(_review_checkpoint(1, 1))
         assert "NOT" in joined
         assert "run-gate" in joined
 
     def test_hr12_max_rounds(self):
-        """HR-12: max 5 rounds applies to human review loop too."""
-        joined = "\n".join(_human_checkpoint(2, 1))
+        """HR-12: max 5 rounds applies to review loop too."""
+        joined = "\n".join(_review_checkpoint(2, 1))
         assert "5 rounds" in joined or "HR-12" in joined
 
 
@@ -755,11 +755,11 @@ class TestDeliverableAbBlock:
         joined = "\n".join(lines)
         assert "Sub-Task 2/3" in joined
 
-    def test_last_subtask_shows_human_review(self):
+    def test_last_subtask_shows_agent_b_review(self):
         trace_deliverable = _PHASE_DELIVERABLE_DEPS[1][2]
         lines = _deliverable_ab_block(1, trace_deliverable, 3, 3)
         joined = "\n".join(lines)
-        assert "Human Peer Review" in joined
+        assert "Agent B Peer Review" in joined
 
     def test_contains_stateless_sandbox_warning(self, srs_deliverable: Dict):
         lines = _deliverable_ab_block(1, srs_deliverable, 1, 3)
@@ -807,14 +807,14 @@ class TestDeliverableAbBlock:
         assert "sessions_spawn.log" in joined, "Missing log reference"
 
     def test_b2_last_subtask_three_branches(self):
-        """Last sub-task [B-2] also has three branches (not just APPROVE → Human Review)."""
+        """Last sub-task [B-2] also has three branches (not just APPROVE → Agent B Review)."""
         trace_deliverable = _PHASE_DELIVERABLE_DEPS[1][2]
         lines = _deliverable_ab_block(1, trace_deliverable, 3, 3)
         joined = "\n".join(lines)
         assert "all gaps are `low`" in joined
         assert "re-dispatch B as round 2" in joined
-        # APPROVE branch still references human review
-        assert "Human Peer Review" in joined
+        # APPROVE branch still references agent b review
+        assert "Agent B Peer Review" in joined
 
     def test_b2_three_branch_phase2(self, sad_deliverable: Dict):
         """Phase 2 deliverables also get three-branch [B-2] (not just phase 1)."""
@@ -864,10 +864,10 @@ class TestPhase1Generator:
         assert "BUSINESS_ANALYST" in joined
         assert "sessions_spawn.log" in joined
 
-    def test_has_human_checkpoint(self, project: Path):
-        """GAP-K3 fix: P1 plan must end with human review checkpoint."""
+    def test_has_review_checkpoint(self, project: Path):
+        """GAP-K3 fix: P1 plan must end with Agent B review checkpoint."""
         joined = "\n".join(generate_phase1_tasks(project, project / "SRS.md"))
-        assert "Human Peer Review" in joined
+        assert "Agent B Peer Review" in joined
         assert "APPROVE" in joined
 
     def test_has_phase_advance_to_p2(self, project: Path):
@@ -971,10 +971,10 @@ class TestPhase2Generator:
         joined = "\n".join(generate_phase2_tasks(project, project / "SRS.md"))
         assert "auto-populated by AgentSpawner" in joined
 
-    def test_has_human_checkpoint(self, project: Path):
-        """GAP-K3 fix: P2 plan must end with human review checkpoint."""
+    def test_has_review_checkpoint(self, project: Path):
+        """GAP-K3 fix: P2 plan must end with Agent B review checkpoint."""
         joined = "\n".join(generate_phase2_tasks(project, project / "SRS.md"))
-        assert "Human Peer Review" in joined
+        assert "Agent B Peer Review" in joined
         assert "SAD.md" in joined
 
     def test_has_phase_advance_to_p3(self, project: Path):

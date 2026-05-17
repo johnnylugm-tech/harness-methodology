@@ -271,7 +271,7 @@ Weights vary by phase:
 
 ### Entry Gate Checks (P2-P8)
 Each phase verifies predecessor completion before starting work:
-- **P2**: git log contains `phase1(human-review): Phase 1 deliverables APPROVED`
+- **P2**: git log contains `phase1(review-complete): Phase 1 deliverables APPROVED`
 - **P3-P5**: quality_manifest.json exists + predecessor Gate PASS
 - **P6-P8**: quality_manifest.json exists + Gate 4 from P6 exists
 

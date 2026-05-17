@@ -235,17 +235,17 @@ def _verify_entry_gate(project: Path, phase: int) -> dict:
                                   "reset or force-pushed; re-run push-checkpoint."}
 
         # Fallback: git log --grep — only reached when state.json has no
-        # phase_completed entry (legacy projects). The grep matches commit
-        # message text only and is intentionally less strict than the SHA path.
+        # phase_completed entry (legacy projects). Accept both old marker
+        # (human-review) and new marker (review-complete) for backward compat.
         try:
-            commit_marker = f"phase{prev}(human-review)"
-            result = sp.run(
-                ["git", "-C", str(project), "log", "--oneline", "--grep", commit_marker, "-1"],
-                capture_output=True, text=True, timeout=10,
-            )
-            if result.stdout.strip():
-                return {"passed": True, "gate": f"Human1 (P{prev})",
-                        "reason": f"Found human APPROVE commit for P{prev} (legacy grep)"}
+            for commit_marker in (f"phase{prev}(review-complete)", f"phase{prev}(human-review)"):
+                result = sp.run(
+                    ["git", "-C", str(project), "log", "--oneline", "--grep", commit_marker, "-1"],
+                    capture_output=True, text=True, timeout=10,
+                )
+                if result.stdout.strip():
+                    return {"passed": True, "gate": f"Human1 (P{prev})",
+                            "reason": f"Found human APPROVE commit for P{prev} (legacy grep)"}
             return {"passed": False, "gate": f"Human1 (P{prev})",
                     "reason": f"No human APPROVE commit found for P{prev}"}
         except Exception as e:
@@ -1692,7 +1692,7 @@ def cmd_verify_agent_b_approvals(args: argparse.Namespace) -> int:
 
 # Labels that represent mandatory agent/review steps; unchecked = block.
 _MANDATORY_CHECKLIST_LABELS: frozenset[str] = frozenset({
-    "A-2", "B-2", "HR-READ", "HR-DECIDE", "PHASE-TRUTH",
+    "A-2", "B-2", "B-READ", "B-DECIDE", "PHASE-TRUTH",
 })
 
 # These labels are informational checkpoints — warn but don't block push.
@@ -1737,7 +1737,7 @@ def cmd_check_checklist(args: argparse.Namespace) -> int:
     """Verify that mandatory checklist items in the phase plan are ticked.
 
     Scans .methodology/phase{N}_plan.md for unchecked items with labels in
-    _MANDATORY_CHECKLIST_LABELS ([A-2], [B-2], [HR-READ], [HR-DECIDE],
+    _MANDATORY_CHECKLIST_LABELS ([A-2], [B-2], [B-READ], [B-DECIDE],
     [PHASE-TRUTH]).  Advisory labels ([PREFLIGHT-CI]) are reported but do not
     fail the command.
 
@@ -2906,8 +2906,8 @@ def cmd_run_pipeline(args: argparse.Namespace) -> int:
             fr_ids = _parse_fr_ids(srs.read_text(encoding="utf-8", errors="ignore"))
             git.commit_and_push_p1(
                 fr_ids=fr_ids,
-                background="P1 human review APPROVED — SRS + deliverables complete.",
-                notes=["Human peer review passed", "All deliverables reviewed and approved"],
+                background="P1 Agent B review complete — SRS + deliverables approved.",
+                notes=["Agent B peer review passed", "All deliverables reviewed and approved"],
             )
             continue
 
