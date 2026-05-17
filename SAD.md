@@ -70,7 +70,7 @@ The system uses this macro architecture:
 
 The full-system CLI (`cli.py`) lives in the parent system that contains harness-methodology as a sub-component. It requires 30+ external modules (`progress_dashboard`, `gantt_chart`, `sprint_planner`, `enterprise_hub`, `steering`, etc.) and is not part of this repository. Any work within harness-methodology uses `harness_cli.py`.
 
-**`harness_cli.py` commands** (23 total):
+**`harness_cli.py` commands** (24 total):
 ```
 python harness_cli.py plan-phase        --phase 3 [--project .] [--output plan.md]
 python harness_cli.py run-phase         --phase 3 [--project .]
@@ -91,6 +91,7 @@ python harness_cli.py audit-phase       --phase 3 --repo owner/repo [--branch ma
                                         [--output markdown|json] [--save FILE]
 python harness_cli.py verify-spec       [--project .] [--fix]  # --fix shows suggestions (no auto-fix)
 python harness_cli.py check-logic       [--project .] [--srs SRS.md]
+python harness_cli.py check-checklist   --phase N [--project .]           # verify phase plan mandatory items [x]
 python harness_cli.py init-project      --project /path/to/target [--phase 3] [--overwrite] [--ci-only]
 python harness_cli.py advance-phase     --completed N [--project .]
 python harness_cli.py await-hermes-approve [--project .] [--response APPROVE|REJECT] [--timeout-ms N]
@@ -730,7 +731,7 @@ class AgentSpawner:
 **`spawn()` routing** (with phase policy enforcement):
 ```
 model == "hermes":
-    effective = get_reviewer_model(phase, role)   # checks _CLAUDE_PHASES = {7, 8}
+    effective = get_reviewer_model(phase, role)   # defined in harness/reviewer_router.py:113; checks _CLAUDE_PHASES = {7, 8}
     if effective == "hermes":
         → ReviewerRouter.review(role, full_prompt, phase, fr_id)  [return]
     # effective == "claude" for P7/P8 — fall through to Claude headless CLI
