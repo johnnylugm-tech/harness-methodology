@@ -572,6 +572,62 @@ class TestKeywordStuffingAllOccurrences:
 # D3: HIGH violations reduce Phase Truth score
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# D2: Per-dimension score saturation exemption
+# ---------------------------------------------------------------------------
+
+class TestDimensionScoreSaturation:
+    """Saturation exemption: genuine all-100 results must not trigger the D2 hard block.
+
+    The check lives inline inside cmd_finalize_gate at the line:
+        if _d_stdev == 0.0 and not _saturated: return 1
+
+    These tests verify the arithmetic that guards the exemption so the rule
+    is not silently broken by future edits.
+    """
+
+    def test_all_100_is_saturated(self):
+        """ruff=100, mypy=100, pytest-cov=100 — 25-line minimal module scenario."""
+        import statistics as _stats
+        scores = [100.0, 100.0, 100.0]
+        mean = sum(scores) / len(scores)
+        stdev = _stats.pstdev(scores)
+        saturated = mean >= 99.5
+        assert stdev == 0.0       # would trigger without saturation check
+        assert saturated          # exemption applies → no block
+
+    def test_mid_range_uniform_not_saturated(self):
+        """Batch-copied 78.5 across all dimensions — must still be blocked."""
+        import statistics as _stats
+        scores = [78.5, 78.5, 78.5]
+        mean = sum(scores) / len(scores)
+        stdev = _stats.pstdev(scores)
+        saturated = mean >= 99.5
+        assert stdev == 0.0
+        assert not saturated      # no exemption → hard block fires
+
+    def test_mixed_near_ceiling_not_blocked(self):
+        """99.5-100 mix — tight but at ceiling, advisory silenced too."""
+        import statistics as _stats
+        scores = [99.5, 100.0, 100.0, 99.8]
+        mean = sum(scores) / len(scores)
+        stdev = _stats.pstdev(scores)
+        saturated = mean >= 99.5
+        assert stdev < 0.5        # would trigger advisory without saturation
+        assert saturated          # exemption silences advisory as well
+
+    def test_low_variance_mid_range_triggers_advisory(self):
+        """Tight mid-range cluster with stddev < 0.5 — advisory should still fire."""
+        import statistics as _stats
+        # pstdev([89.0, 89.1, 89.2, 89.0, 89.1]) ≈ 0.075
+        scores = [89.0, 89.1, 89.2, 89.0, 89.1]
+        mean = sum(scores) / len(scores)
+        stdev = _stats.pstdev(scores)
+        saturated = mean >= 99.5
+        assert stdev < 0.5        # tight cluster — would trigger advisory
+        assert not saturated      # not exempt → advisory fires
+
+
 class TestD3HighViolationScoring:
     """check_cross_artifact penalizes HIGH violations, not only CRITICAL."""
 

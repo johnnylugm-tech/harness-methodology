@@ -1481,11 +1481,20 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
         # per-FR evaluation — it means scores were batch-copied.
         # This is a harder block than the existing advisory check in
         # harness_bridge.py (which only LOGs low variance).
+        #
+        # Saturation exemption: when ALL dimension scores are at (or near)
+        # the ceiling (mean ≥ 99.5), stddev == 0 is a legitimate outcome.
+        # Example: a 25-line minimal module where ruff, mypy, and pytest-cov
+        # all genuinely score 100.  Blocking this case is a false positive.
+        # The suspicious pattern is mid-range uniformity (e.g. all 78.5),
+        # not ceiling uniformity.
         if len(result.dimensions) >= 3:
             import statistics as _stats
             _d_scores = [d.score for d in result.dimensions]
             _d_stdev = _stats.pstdev(_d_scores)
-            if _d_stdev == 0.0:
+            _d_mean = sum(_d_scores) / len(_d_scores)
+            _saturated = _d_mean >= 99.5  # all tools at maximum — not suspicious
+            if _d_stdev == 0.0 and not _saturated:
                 print(
                     f"\n[BLOCKED] CRITICAL: All {len(_d_scores)} dimension scores "
                     f"are identical ({_d_scores[0]:.1f}).\n"
@@ -1493,8 +1502,8 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
                     f"  Re-run run-gate with actual tool execution per dimension."
                 )
                 return 1
-            # Advisory: low-but-nonzero variance
-            if _d_stdev < 0.5:
+            # Advisory: low-but-nonzero variance (skip when saturated)
+            if _d_stdev < 0.5 and not _saturated:
                 print(
                     f"  [WARN] Per-dimension scores cluster tightly "
                     f"(stddev={_d_stdev:.3f}) — verify evidence trail."
