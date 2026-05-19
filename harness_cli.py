@@ -1198,6 +1198,34 @@ def _check_gate4_prerequisites(project: Path) -> bool:
             file=sys.stderr,
         )
         blocked = True
+    else:
+        # A1b: Receipt content integrity — composite_score must be a valid number.
+        # A receipt with composite_score: null indicates the APPROVE flow was
+        # invoked before gate4_result.json existed, or the receipt was manually
+        # written to bypass the await-hermes-approve step.
+        try:
+            receipt_data = json.loads(receipt.read_text(encoding="utf-8"))
+            composite = receipt_data.get("composite_score")
+            if not isinstance(composite, (int, float)) or composite <= 0:
+                print(
+                    f"\n[BLOCKED] Gate 4 (A1b): hermes_g4_receipt.json has invalid "
+                    f"composite_score ({composite!r}) — expected a positive number.\n"
+                    "  The receipt was written before gate4_result.json was available,\n"
+                    "  or was manually fabricated to bypass the APPROVE step.\n"
+                    "  Fix: ensure gate4_result.json is complete, then re-run:\n"
+                    "    python harness_cli.py await-hermes-approve --project .\n"
+                    "  Then re-run finalize-gate --gate 4.",
+                    file=sys.stderr,
+                )
+                blocked = True
+        except (json.JSONDecodeError, OSError) as _receipt_err:
+            print(
+                f"\n[BLOCKED] Gate 4 (A1b): hermes_g4_receipt.json cannot be parsed: "
+                f"{_receipt_err}\n"
+                "  Re-run: python harness_cli.py await-hermes-approve --project .",
+                file=sys.stderr,
+            )
+            blocked = True
 
     # ── Load gate4_result.json for A2/A3/A4/A5 ───────────────────────
     result_candidates = [
@@ -1357,6 +1385,51 @@ def _check_gate4_prerequisites(project: Path) -> bool:
             blocked = True
         else:
             print(f"[Gate 4] B2: {len(score_files)} per-dim score file(s) found ✅", file=sys.stderr)
+
+    # ── B3: CRG recon output existence ────────────────────────────────
+    # If the gate config declares crg.reconnaissance: true, the CRG bridge
+    # must have been executed before finalize-gate is called.  The canonical
+    # evidence is the .sessi-work/crg_recon/ directory (written by CRGBridge).
+    # A missing or empty directory means CRG was never run — architecture-tier
+    # scores derived from CRG data are therefore groundless.
+    try:
+        import yaml as _yaml
+        import glob as _b3glob
+        _crg_cfg_files = _b3glob.glob(
+            str(project / "harness" / "gate_configs" / "gate4_*.yaml")
+        )
+        _crg_recon_required = False
+        for _crg_cfg_path in _crg_cfg_files:
+            try:
+                _crg_cfg = _yaml.safe_load(open(_crg_cfg_path, encoding="utf-8"))
+                if (_crg_cfg or {}).get("crg", {}).get("reconnaissance"):
+                    _crg_recon_required = True
+                    break
+            except Exception:
+                pass
+        if _crg_recon_required:
+            recon_dir = project / ".sessi-work" / "crg_recon"
+            recon_files = list(recon_dir.iterdir()) if recon_dir.is_dir() else []
+            if not recon_files:
+                print(
+                    "\n[BLOCKED] Gate 4 (B3): CRG reconnaissance output not found.\n"
+                    f"  Expected: {recon_dir}/ (non-empty)\n"
+                    "  Gate 4 config declares crg.reconnaissance: true — the CRG bridge\n"
+                    "  must be executed before finalize-gate to provide architecture-tier\n"
+                    "  evaluation context.\n"
+                    "  Run the code-review-graph tool or CRGBridge, then re-run:\n"
+                    "    python harness_cli.py finalize-gate --gate 4 --phase 6 --project .",
+                    file=sys.stderr,
+                )
+                blocked = True
+            else:
+                print(
+                    f"[Gate 4] B3: CRG recon output found "
+                    f"({len(recon_files)} file(s) in {recon_dir.name}/) ✅",
+                    file=sys.stderr,
+                )
+    except Exception as _b3exc:
+        print(f"[Gate 4] B3: CRG recon check error ({_b3exc}) — skipping", file=sys.stderr)
 
     return blocked
 
@@ -1661,6 +1734,17 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
                 print(f"\n[BLOCKED] HR-01: {fr_id} A/B share same session_id "
                       f"({distinct_sessions} distinct session(s)) — self-review violation.")
                 print(f"  Re-dispatch Agent B via `dispatch` CLI with a separate subagent session.")
+                return 5
+            # HR-10b: explicit null timestamp indicates manually injected entry.
+            # AgentSpawner always records a numeric `ts` field; a JSON null means
+            # the entry was hand-written to bypass the spawner requirement.
+            null_ts_entries = [e for e in fr_entries if "ts" in e and e["ts"] is None]
+            if null_ts_entries:
+                print(f"\n[BLOCKED] HR-10b: {fr_id} has {len(null_ts_entries)} "
+                      f"entry/entries with null timestamp (ts: null).")
+                print(f"  AgentSpawner always records a numeric ts. A null value indicates")
+                print(f"  the entry was manually written to bypass the spawner requirement.")
+                print(f"  Re-dispatch via the `dispatch` CLI and re-run finalize-gate.")
                 return 5
         except Exception as _e:  # pylint: disable=broad-exception-caught
             print(f"\n[WARN] HR-10: sessions_spawn.log parse error ({_e}) — skipping enforcement to avoid deadlock.")
