@@ -616,23 +616,25 @@ class TestGateMetaDimNames:
         assert "type_safety" in _GATE_META[1][2]
         assert "test_coverage" in _GATE_META[1][2]
 
-    def test_gate2_has_all_7_dims_named(self):
+    def test_gate2_has_all_10_dims_named(self):
         meta = _GATE_META[2][2]
         for dim in ["linting", "type_safety", "test_coverage",
-                    "security", "secrets_scanning", "license_compliance", "mutation_testing"]:
+                    "security", "secrets_scanning", "license_compliance", "mutation_testing",
+                    "integration_coverage", "test_assertion_quality"]:
             assert dim in meta, f"Gate 2 missing dim: {dim}"
 
-    def test_gate3_has_all_12_dims_named(self):
+    def test_gate3_has_all_15_dims_named(self):
         meta = _GATE_META[3][2]
         for dim in ["linting", "type_safety", "test_coverage", "security",
                     "secrets_scanning", "license_compliance", "mutation_testing",
-                    "architecture", "readability", "error_handling", "documentation", "performance"]:
+                    "integration_coverage", "architecture", "readability", "error_handling",
+                    "documentation", "test_assertion_quality", "performance"]:
             assert dim in meta, f"Gate 3 missing dim: {dim}"
 
     def test_gate4_references_gate3_dims(self):
-        """Gate 4 uses same 12 dims — must say so."""
+        """Gate 4 uses same 15 dims as Gate 3 — must include Hermes note."""
         meta = _GATE_META[4][2]
-        assert "12" in meta or "Gate 3" in meta or "same" in meta.lower()
+        assert "Hermes APPROVE" in meta
 
 
 # ─── _phase_advance_step: P1/P2 labels ───────────────────────────────────────
