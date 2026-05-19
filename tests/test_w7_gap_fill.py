@@ -306,7 +306,7 @@ def _make_sessions_log(tmp_path, content: str = None) -> Path:
 
 
 class TestPhaseTruthVerifier:
-    def _make_verifier(self, tmp_path, phase=3):
+    def _make_verifier(self, tmp_path, phase=1):
         from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
         return PhaseTruthVerifier(str(tmp_path), phase)
 
@@ -417,7 +417,7 @@ class TestPhaseTruthVerifier:
         assert "not found" in detail
 
     def test_check_coverage_parses_total(self, tmp_path):
-        v = self._make_verifier(tmp_path)
+        v = self._make_verifier(tmp_path, phase=3)
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
                 returncode=0,
@@ -429,7 +429,7 @@ class TestPhaseTruthVerifier:
         assert "90%" in detail
 
     def test_check_coverage_exception(self, tmp_path):
-        v = self._make_verifier(tmp_path)
+        v = self._make_verifier(tmp_path, phase=3)
         with patch("subprocess.run", side_effect=Exception("boom")):
             passed, score, detail = v.check_coverage()
         assert passed is False

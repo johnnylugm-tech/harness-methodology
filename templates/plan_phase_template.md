@@ -105,25 +105,28 @@ Hooks are defined in `.methodology/hooks.json` and executed by `core/lifecycle_h
 
 | HR | Rule | Consequence | Action |
 |----|------|-------------|--------|
-| HR-01 | A/B must be different Agents; self-review forbidden | Terminate -25 | Developer spawn → Reviewer spawn (strict order) |
+| HR-01 | A/B must be different Agents; self-review forbidden **[Phase 1-2]** | Terminate -25 | Developer spawn → Reviewer spawn (strict order) |
 | HR-02 | Quality Gate requires actual command output | Terminate -20 | Save stdout for each QG |
 | HR-03 | Phases execute in order; skipping forbidden | Terminate -30 | state.json phase={PHASE} |
-| HR-04 | HybridWorkflow mode=ON, A/B mandatory | Terminate | prompt includes mode=ON |
+| HR-04 | HybridWorkflow mode=ON, A/B mandatory **[Phase 1-2]** | Terminate | prompt includes mode=ON |
 | HR-05 | On conflict, harness-methodology takes priority | Log | methodology wins disputes |
 | HR-06 | External frameworks outside spec are forbidden | Terminate -20 | forbidden list |
 | HR-07 | DEVELOPMENT_LOG must record session_id | -15 | Log session_id per entry |
 | HR-08 | Phase end requires Quality Gate execution | Terminate -10 | stage-pass --phase {PHASE} |
 | HR-09 | Claims Verifier must pass | Terminate -20 | citations cross-check |
-| HR-10 | .methodology/sessions_spawn.log must have A/B records | Terminate -15 | 2 entries per step |
+| HR-10 | .methodology/sessions_spawn.log must have A/B records **[Phase 1-2]** | Terminate -15 | 2 entries per step |
 | HR-11 | Phase Truth < 90% blocks next Phase entry | Terminate | <90% → PAUSE |
-| HR-12 | A/B review > 5 rounds → PAUSE | — | Stop proactively at round 5 |
+| HR-12 | A/B review > 5 rounds → PAUSE **[Phase 1-2]** | — | Stop proactively at round 5 |
 | HR-13 | Phase execution > 3x estimate → PAUSE | — | Record start_time |
 | HR-14 | Integrity < 40 → FREEZE | — | Check Integrity after QG |
 | HR-15 | citations must include line numbers + artifact_verification | -15 | No citations = task failure |
 
 ---
 
-## 2. A/B Collaboration (HR-01, HR-04)
+## 2. A/B Collaboration (Phase 1-2 Only)
+
+> **Phase 3-8**: A/B is replaced by automated **Phase End Audit** (see `scripts/phase_end_audit.py`).
+> Run `python3 scripts/phase_end_audit.py --phase {PHASE} --project .` at phase completion.
 
 ### On Demand / Need to Know Principles
 
@@ -139,7 +142,7 @@ Hooks are defined in `.methodology/hooks.json` and executed by `core/lifecycle_h
 ### TH Thresholds (Phase {PHASE})
 {TH_LIST}
 
-### A/B Roles (Phase {PHASE})
+### A/B Roles (Phase {PHASE}) [Phase 1-2 Only]
 
 | Role | Agent | Responsibility |
 |------|-------|----------------|
@@ -260,14 +263,10 @@ Agent A role is determined by Phase:
 - Phase 7: devops
 - Phase 8: devops
 
-### Agent B (determined by Phase)
+### Agent B (determined by Phase) [Phase 1-2 Only]
 Agent B role is determined by Phase:
 - Phase 1-2: architect/reviewer
-- Phase 3: reviewer
-- Phase 4: reviewer
-- Phase 5-6: architect
-- Phase 7: architect
-- Phase 8: reviewer
+- Phase 3-8: *(not used — Phase End Audit替代)*
 
 See each Phase's output documents for detailed prompts.
 
@@ -275,7 +274,7 @@ See each Phase's output documents for detailed prompts.
 {DEVELOPER_PROMPT}
 ```
 
-### Agent B (Reviewer)
+### Agent B (Reviewer) [Phase 1-2 Only]
 
 ```
 {REVIEWER_PROMPT}
@@ -351,13 +350,31 @@ graph TD
     C --> D[logging + error handling]
     D --> E{Round 4: Enforce HR-15}
     E --> F[citations with line numbers]
-    F --> G{Round 5: A/B collaboration}
+    F --> G{Round 5: A/B collaboration} -.- G2[Phase 1-2 only]
+    G2 -.-> G
+
+    %% Phase 3-8: no A/B review loop
+    F3[Round 4 done - Phase 3-8] --> J[APPROVE]
+    
     G --> H[.methodology/sessions_spawn.log complete]
     H --> I{4-dimension 10/10?}
     I -->|Yes| J[APPROVE]
     I -->|No| K[Round 6+: Continuous improvement]
     K -->|HR-12 5 rounds| L[PAUSE]
 ```
+
+### Phase 3-8: Phase End Audit (Replaces A/B)
+
+Phase 3-8 no longer use A/B collaboration. Instead, run automated audit at phase completion:
+
+```bash
+python3 scripts/phase_end_audit.py --phase {PHASE} --project .
+```
+
+The audit checks: plan checklist completeness, deliverable existence, gate results, git log, and dev log.
+Fix all CRITICAL gaps before advancing. See `scripts/phase_end_audit.py` for details.
+
+---
 
 ### Turn-Based Continuation (v2.4+, Item 7)
 
@@ -398,7 +415,8 @@ HR-13 >3x estimated time → PAUSE (checkpoint)
 | Dimension | Evaluation Method | Target |
 |-----------|-------------------|--------|
 | **Spec Compliance** | `grep -c '\[FR-' app/**/*.py` | citations >= 1 per function |
-| **A/B Collaboration** | `.methodology/sessions_spawn.log` fully recorded | 1 entry each for developer + reviewer |
+| **A/B Collaboration** [P1-P2] | `.methodology/sessions_spawn.log` fully recorded | 1 entry each for developer + reviewer |
+| **A/B Collaboration** [P3-P8] | *(replaced by Phase End Audit)* | Phase End Audit PASS |
 | **Sub-agent Management** | `SubagentIsolator` used correctly | `fresh_messages` isolation |
 | **Test Coverage** | `pytest --cov=app/ --cov-report=term` | >=80% (P3: >=70%) |
 
@@ -408,7 +426,7 @@ HR-13 >3x estimated time → PAUSE (checkpoint)
 # 1. Spec compliance
 grep -r "\[FR-" app/ --include="*.py" | wc -l
 
-# 2. A/B collaboration
+# 2. A/B collaboration [Phase 1-2 only]
 grep -c "developer\|reviewer" .methodology/sessions_spawn.log
 
 # 3. Sub-agent management
@@ -496,7 +514,10 @@ python3 harness_cli.py run-gap-analysis --project .
 
 ---
 
-## 11. .methodology/sessions_spawn.log Format (HR-10)
+## 11. .methodology/sessions_spawn.log Format (HR-10, Phase 1-2 Only)
+
+> Phase 3-8: A/B removed — no sessions_spawn.log required.
+> Phase End Audit (`scripts/phase_end_audit.py`) replaces this check.
 
 Each FR generates 2 records, total {FR_COUNT} x 2 = {TOTAL_RECORDS} records:
 
@@ -542,6 +563,9 @@ Weights vary by phase (see `PhaseTruthVerifier.verify()`):
 | P2 | 50% | 35% | — | — | 15% |
 | P3–P4 | 30% | 22% | 22% | 13% | 13% |
 | P5–P8 | 50% | 35% | — | — | 15% |
+
+* `Sessions_spawn` dimension: P3-P8 triggers `InfraSkip` (A/B removed, weight renormalized).
+  See `core/quality_gate/phase_truth_verifier.py` `check_session_log()` / `check_ab_coverage()`.
 
 Threshold: >=90% for all phases (HR-11/TH-15).
 
@@ -616,14 +640,15 @@ The harness CLI cannot import it, but **Agent can call it directly**.
                               v
 +-------------------------------------------------------------+
 |  FR Execution Loop (FR-01 ~ FR-{FR_COUNT})                  |
+|  **[Phase 1-2: A/B | Phase 3-8: no A/B (Phase End Audit)]** |
 |                                                             |
 |  +-------------------------------------------------------+  |
 |  | 1. Developer implement -> sessions_spawn(dev)         |  |
 |  | 2. Parse JSON -> write files                          |  |
-|  | 3. Reviewer review -> sessions_spawn(rev)             |  |
+|  | 3. Reviewer review [P1-P2] -> sessions_spawn(rev)     |  |
 |  | 4. Constitution Check (includes BVS + HR-09)          |  |
 |  | 5. CQG (Linter + Complexity + Coverage)               |  |
-|  | 6. HR-12 check -> PAUSE at >=5 rounds                 |  |
+|  | 6. HR-12 check [P1-P2] -> PAUSE at >=5 rounds         |  |
 |  +-------------------------------------------------------+  |
 +-------------------------------------------------------------+
                               |
@@ -675,8 +700,11 @@ for fr_id in FR_LIST:
     print(f"Processing {fr_id}")
     print(f"{'='*60}")
 
+    # --- Phase 1-2: A/B loop with reviewer ---
+    # --- Phase 3-8: no A/B, direct implementation + Phase End Audit ---
+
     iteration = 1
-    max_iterations = 5
+    max_iterations = 5 if PHASE <= 2 else 1  # Phase 3-8: single-shot, no review loop
 
     while iteration <= max_iterations:
         print(f"\nIteration {fr_id} {iteration}/{max_iterations}")
@@ -733,10 +761,11 @@ Tasks:
         except Exception as e:
             print(f"   ERROR file write failed: {e}")
 
-        # 3. Reviewer review
-        print(f"\n[Reviewer] Review {fr_id}")
+        # 3. Reviewer review (Phase 1-2 only)
+        if PHASE <= 2:
+            print(f"\n[Reviewer] Review {fr_id}")
 
-        rev_task = f"""You are the Reviewer Agent. Review {fr_id}.
+            rev_task = f"""You are the Reviewer Agent. Review {fr_id}.
 
 Tasks:
 1. Read code files
@@ -758,8 +787,8 @@ Tasks:
 - missing citations or citations lack line numbers -> REJECT (HR-15)
 """
 
-        # NOTE: sessions_spawn() is an OpenClaw runtime tool — callable only in parent system.
-        rev_result = sessions_spawn(task=rev_task, mode="run", runtime="subagent")
+            # NOTE: sessions_spawn() is an OpenClaw runtime tool — callable only in parent system.
+            rev_result = sessions_spawn(task=rev_task, mode="run", runtime="subagent")
 
         # 4. Constitution Check (includes BVS + HR-09)
         print(f"\n[BVS + HR-09] Constitution Check")
@@ -771,29 +800,34 @@ Tasks:
         result = run_cmd(["python3", "harness_cli.py", "run-gate", "--gate", "1", "--phase", str(PHASE), "--fr-id", fr_id])
         print(f"   {'OK' if result.returncode == 0 else 'WARN'} CQG {'PASS' if result.returncode == 0 else 'WARN'}")
 
-        # 6. Iteration decision
-        review_status = rev_result.get("review_status", None)
-        if review_status == "APPROVE":
-            print(f"\n{fr_id} APPROVE")
+        # 6. Iteration decision (Phase 1-2 only)
+        if PHASE <= 2:
+            review_status = rev_result.get("review_status", None)
+            if review_status == "APPROVE":
+                print(f"\n{fr_id} APPROVE")
 
-            # Layer 1-3 check
-            print(f"\n[Layer 1-3] FR Quality Check")
-            result = run_cmd([
-                "python3",
-                "scripts/check_fr_full.py",
-                "--fr", fr_id,
-                "--project", str(PROJECT_PATH),
-                "--loop"
-            ])
-            print(f"   {'OK' if result.returncode == 0 else 'WARN'} Layer 1-3 Check {'PASS' if result.returncode == 0 else 'needs fix'}")
+                # Layer 1-3 check
+                print(f"\n[Layer 1-3] FR Quality Check")
+                result = run_cmd([
+                    "python3",
+                    "scripts/check_fr_full.py",
+                    "--fr", fr_id,
+                    "--project", str(PROJECT_PATH),
+                    "--loop"
+                ])
+                print(f"   {'OK' if result.returncode == 0 else 'WARN'} Layer 1-3 Check {'PASS' if result.returncode == 0 else 'needs fix'}")
 
-            break
-        else:
-            print(f"\n{fr_id} REJECT -> re-implement")
-            iteration += 1
-            if iteration > max_iterations:
-                print(f"\nHR-12 TRIGGERED: > {max_iterations} rounds -> PAUSE")
                 break
+            else:
+                print(f"\n{fr_id} REJECT -> re-implement")
+                iteration += 1
+                if iteration > max_iterations:
+                    print(f"\nHR-12 TRIGGERED: > {max_iterations} rounds -> PAUSE")
+                    break
+        else:
+            # Phase 3-8: single-shot, no review loop
+            print(f"\n{fr_id} Done (Phase 3-8: no A/B review)")
+            break
 
 # ==========================================
 # POST-FLIGHT
@@ -813,6 +847,12 @@ print(f"\n[Phase Truth] Phase Truth validation")
 # result = run_cmd(["python3", "cli.py", "phase-verify", "--phase", str(PHASE)])
 # print(f"   {'OK' if result.returncode == 0 else 'FAIL'} Phase Truth {'PASS' if result.returncode == 0 else '<90% -> PAUSE'}")
 print("   Phase Truth validation: use PhaseTruthVerifier (core/quality_gate/phase_truth_verifier.py) in standalone mode.")
+
+print(f"\n[Phase End Audit] Verifying deliverables (Phase {PHASE})")
+# Phase 3-8: run Phase End Audit before milestone push
+if PHASE >= 3:
+    result = run_cmd(["python3", "scripts/phase_end_audit.py", "--phase", str(PHASE), "--project", str(PROJECT_PATH)])
+    print(f"   {'OK' if result.returncode == 0 else 'GAPS'} Phase End Audit {'PASS' if result.returncode == 0 else 'CRITICAL gaps found — fix before advancing'})
 
 print(f"\n[Final Checkpoint] Saving phase state")
 # P1/P2 use push-checkpoint to save deliverable state.
@@ -841,6 +881,7 @@ print(f"\nPhase {PHASE} complete!")
 | **Constitution** | `python3 -m core.quality_gate.constitution.runner` | **BVS + HR-09** |
 | **CQG** | `harness_cli.py run-gate --gate 1` | **Per-FR quality check** |
 | HR-12 | `monitoring_hr12_check()` | PAUSE at >=5 rounds |
+| **Phase End Audit** [P3-P8] | `scripts/phase_end_audit.py` | **Deliverable verification** |
 | **SAB Drift** | parent-system CLI * | **code<->SAD** |
 | **Steering** | parent-system CLI * | **Workflow control** |
 | **Phase Truth** | `advance-phase` (built-in HR-11 check) | **>90% validation** |

@@ -258,37 +258,70 @@ class TestPreflightSteps:
 # ─── _fr_dev_steps ───────────────────────────────────────────────────────────
 
 class TestFrDevSteps:
-    def test_contains_agent_a_and_b(self):
-        """GAP-A fix: A/B steps must appear in FR development."""
-        lines = _fr_dev_steps("FR-01", 3)
-        joined = "\n".join(lines)
-        assert "Agent A" in joined
-        assert "Agent B" in joined
+    def test_phase1_contains_agent_a_and_b(self):
+        """Phase 1-2: A/B steps must appear in FR development."""
+        for phase in (1, 2):
+            joined = "\n".join(_fr_dev_steps("FR-01", phase))
+            assert "Agent A" in joined, f"Phase {phase} missing Agent A"
+            assert "Agent B" in joined, f"Phase {phase} missing Agent B"
 
-    def test_contains_sessions_spawn_log(self):
-        """GAP-A / HR-10: dispatch commands must be in steps."""
-        joined = "\n".join(_fr_dev_steps("FR-01", 3))
-        assert "dispatch" in joined
+    def test_phase3_plus_no_agent_ab(self):
+        """Phase 3+: no A/B — Phase End Audit替代."""
+        for phase in range(3, 9):
+            joined = "\n".join(_fr_dev_steps("FR-01", phase))
+            assert "Agent A" not in joined, f"Phase {phase} should not have Agent A"
+            assert "Agent B" not in joined, f"Phase {phase} should not have Agent B"
+            assert "Phase End Audit" in joined, f"Phase {phase} missing Phase End Audit note"
 
-    def test_contains_fr_id_in_log_entry(self):
-        joined = "\n".join(_fr_dev_steps("FR-02", 3))
-        assert "FR-02" in joined
+    def test_phase1_contains_dispatch(self):
+        """Phase 1-2: dispatch commands must be in steps (HR-10)."""
+        for phase in (1, 2):
+            joined = "\n".join(_fr_dev_steps("FR-01", phase))
+            assert "dispatch" in joined, f"Phase {phase} missing dispatch command"
 
-    def test_roles_differ_by_phase(self):
-        p3 = "\n".join(_fr_dev_steps("FR-01", 3))
-        p4 = "\n".join(_fr_dev_steps("FR-01", 4))
-        assert "DEVELOPER" in p3
-        assert "QA_ENGINEER" in p4
+    def test_phase3_plus_contains_run_gate(self):
+        """Phase 3+: run-gate command replaces A/B dispatch."""
+        for phase in range(3, 9):
+            joined = "\n".join(_fr_dev_steps("FR-01", phase))
+            assert "run-gate" in joined, f"Phase {phase} missing run-gate"
+            assert "finalize-gate" in joined, f"Phase {phase} missing finalize-gate"
 
-    def test_hr01_note_present(self):
-        """HR-01: A≠B must be called out."""
-        joined = "\n".join(_fr_dev_steps("FR-01", 3))
+    def test_contains_fr_id(self):
+        for phase in range(1, 9):
+            joined = "\n".join(_fr_dev_steps("FR-02", phase))
+            assert "FR-02" in joined, f"Phase {phase} missing FR-02"
+
+    def test_roles_differ_by_phase_p1p2(self):
+        p1 = "\n".join(_fr_dev_steps("FR-01", 1))
+        p2 = "\n".join(_fr_dev_steps("FR-01", 2))
+        assert "REQUIREMENTS_ENGINEER" in p1
+        assert "ARCHITECT" in p2
+
+    def test_phase3_plus_no_role_labels(self):
+        """Phase 3+ output should not reference role labels like DEVELOPER, QA_ENGINEER."""
+        for phase in range(3, 9):
+            joined = "\n".join(_fr_dev_steps("FR-01", phase))
+            assert "DEVELOPER" not in joined, f"Phase {phase} should not have role label"
+
+    def test_hr01_note_present_for_phase1(self):
+        """HR-01: A≠B must be called out for Phase 1-2 only."""
+        joined = "\n".join(_fr_dev_steps("FR-01", 1))
         assert "HR-01" in joined or "DIFFERENT agent" in joined
 
-    def test_hr12_reject_loop_present(self):
-        """HR-12: max 5 rounds guard."""
+    def test_no_hr01_for_phase3_plus(self):
+        """Phase 3+: no HR-01 reference since A/B is removed."""
         joined = "\n".join(_fr_dev_steps("FR-01", 3))
+        assert "HR-01" not in joined
+
+    def test_hr12_reject_loop_present_for_phase1(self):
+        """HR-12: max 5 rounds guard for Phase 1-2."""
+        joined = "\n".join(_fr_dev_steps("FR-01", 1))
         assert "HR-12" in joined or "5 rounds" in joined
+
+    def test_no_hr12_for_phase3_plus(self):
+        """Phase 3+: no HR-12 reference since A/B review loop is removed."""
+        joined = "\n".join(_fr_dev_steps("FR-01", 3))
+        assert "HR-12" not in joined
 
 
 # ─── _phase_advance_step ─────────────────────────────────────────────────────
@@ -361,11 +394,17 @@ class TestPhase3GateInjection:
         joined = "\n".join(generate_phase3_tasks(project, project / "SRS.md"))
         assert "run-phase --phase 3" in joined
 
-    def test_has_ab_dev_steps(self, project: Path):
-        """GAP-A fix: A/B protocol must appear before Gate 1."""
+    def test_has_phase_audit_in_dev_steps(self, project: Path):
+        """Phase 3 uses Phase End Audit instead of A/B."""
         joined = "\n".join(generate_phase3_tasks(project, project / "SRS.md"))
-        assert "Agent A" in joined
-        assert "sessions_spawn.log" in joined
+        assert "Phase End Audit" in joined
+        assert "Agent A" not in joined
+
+    def test_has_phase_audit_step(self, project: Path):
+        """Phase 3 plan must include PHASE-AUDIT checkpoint."""
+        joined = "\n".join(generate_phase3_tasks(project, project / "SRS.md"))
+        assert "PHASE-AUDIT" in joined
+        assert "phase_end_audit.py --phase 3" in joined
 
     def test_has_phase_advance(self, project: Path):
         """GAP-F fix: phase advance instruction at end."""
@@ -394,10 +433,15 @@ class TestPhase4GateInjection:
         joined = "\n".join(generate_phase4_tasks(project, project / "SRS.md"))
         assert "run-phase --phase 4" in joined
 
-    def test_has_ab_dev_steps(self, project: Path):
+    def test_has_phase_audit_in_dev_steps(self, project: Path):
         joined = "\n".join(generate_phase4_tasks(project, project / "SRS.md"))
-        assert "QA_ENGINEER" in joined
-        assert "sessions_spawn.log" in joined
+        assert "Phase End Audit" in joined
+        assert "QA_ENGINEER" not in joined
+
+    def test_has_phase_audit_step(self, project: Path):
+        joined = "\n".join(generate_phase4_tasks(project, project / "SRS.md"))
+        assert "PHASE-AUDIT" in joined
+        assert "phase_end_audit.py --phase 4" in joined
 
     def test_has_phase_advance(self, project: Path):
         joined = "\n".join(generate_phase4_tasks(project, project / "SRS.md"))
@@ -419,9 +463,14 @@ class TestPhase5GateInjection:
         joined = "\n".join(generate_phase5_tasks(project))
         assert "run-phase --phase 5" in joined
 
-    def test_has_ab_dev_steps(self, project: Path):
+    def test_has_phase_audit_in_dev_steps(self, project: Path):
         joined = "\n".join(generate_phase5_tasks(project))
-        assert "sessions_spawn.log" in joined
+        assert "Phase End Audit" in joined
+
+    def test_has_phase_audit_step(self, project: Path):
+        joined = "\n".join(generate_phase5_tasks(project))
+        assert "PHASE-AUDIT" in joined
+        assert "phase_end_audit.py --phase 5" in joined
 
     def test_has_phase_advance(self, project: Path):
         joined = "\n".join(generate_phase5_tasks(project))
@@ -446,6 +495,17 @@ class TestPhase6GateInjection:
         joined = "\n".join(generate_phase6_tasks(project))
         assert "CHECKPOINT-1" in joined
         assert "CHECKPOINT-2" not in joined
+
+    def test_no_ab_roles_section(self, project: Path):
+        """P6 no longer has A/B Roles section — replaced by Phase End Audit."""
+        joined = "\n".join(generate_phase6_tasks(project))
+        assert "P6 A/B Roles" not in joined
+        assert "P6 Phase End Audit" in joined
+
+    def test_has_phase_audit_step(self, project: Path):
+        joined = "\n".join(generate_phase6_tasks(project))
+        assert "PHASE-AUDIT" in joined
+        assert "phase_end_audit.py --phase 6" in joined
 
     def test_has_preflight(self, project: Path):
         joined = "\n".join(generate_phase6_tasks(project))
@@ -475,10 +535,15 @@ class TestPhase7GateInjection:
         joined = "\n".join(generate_phase7_tasks(project))
         assert "run-phase --phase 7" in joined
 
-    def test_has_ab_dev_steps(self, project: Path):
+    def test_has_phase_audit_in_dev_steps(self, project: Path):
         joined = "\n".join(generate_phase7_tasks(project))
-        assert "DEVOPS" in joined
-        assert "sessions_spawn.log" in joined
+        assert "Phase End Audit" in joined
+        assert "DEVOPS" not in joined
+
+    def test_has_phase_audit_step(self, project: Path):
+        joined = "\n".join(generate_phase7_tasks(project))
+        assert "PHASE-AUDIT" in joined
+        assert "phase_end_audit.py --phase 7" in joined
 
     def test_has_phase_advance(self, project: Path):
         joined = "\n".join(generate_phase7_tasks(project))
@@ -498,10 +563,15 @@ class TestPhase8GateInjection:
         joined = "\n".join(generate_phase8_tasks(project))
         assert "run-phase --phase 8" in joined
 
-    def test_has_ab_dev_steps(self, project: Path):
+    def test_has_phase_audit_in_dev_steps(self, project: Path):
         joined = "\n".join(generate_phase8_tasks(project))
-        assert "DEVOPS" in joined
-        assert "sessions_spawn.log" in joined
+        assert "Phase End Audit" in joined
+        assert "DEVOPS" not in joined
+
+    def test_has_phase_audit_step(self, project: Path):
+        joined = "\n".join(generate_phase8_tasks(project))
+        assert "PHASE-AUDIT" in joined
+        assert "phase_end_audit.py --phase 8" in joined
 
     def test_has_pipeline_complete(self, project: Path):
         joined = "\n".join(generate_phase8_tasks(project))

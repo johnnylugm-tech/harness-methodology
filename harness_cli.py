@@ -996,7 +996,11 @@ def _audit_sessions_spawn(project: Path, phase: int) -> None:
 
     Prints a WARNING (not BLOCKED) for each FR missing ≥2 A/B entries.
     Pre-push hooks use this to surface HR-10 gaps before they reach CI.
+
+    Phase 3+: A/B removed — skip (Phase End Audit替代).
     """
+    if phase > 2:
+        return
     manifest_path = project / ".methodology" / "quality_manifest.json"
     log_path = project / ".methodology" / "sessions_spawn.log"
     try:
@@ -1847,7 +1851,9 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
         return 1
 
     # HR-10 enforcement: Gate 1 requires ≥2 A/B entries per FR in sessions_spawn.log
-    if args.gate == 1 and fr_id:
+    # P3+: Phase End Audit替代A/B — only Phase 1-2 requires HR-10/HR-01
+    phase = getattr(args, "phase", 0)
+    if args.gate == 1 and fr_id and phase in (1, 2):
         spawn_log = Path(project) / ".methodology" / "sessions_spawn.log"
         if not spawn_log.exists():
             print(f"\n[BLOCKED] HR-10: sessions_spawn.log not found.")
@@ -2441,16 +2447,19 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
         if not skip_conf:
             return 5
 
-    # ── Agent B approval gate ──────────────────────────────────────────────────
-    deliverable_ids = _resolve_deliverable_ids(project, phase, fr_ids)
-    if not skip_conf:
-        passed, report = _verify_agent_b_approvals_core(project, phase, deliverable_ids)
-        print(report)
-        if not passed:
-            return 5
+    # ── Agent B approval gate (Phase 1-2 only; P3+ uses Phase End Audit) ─
+    if phase > 2:
+        print(f"  [SKIP] Agent B approval not required for Phase {phase}+ (Phase End Audit替代)")
     else:
-        _, report = _verify_agent_b_approvals_core(project, phase, deliverable_ids)
-        print(f"[WARN] --skip-confidence active — Agent B gate bypassed\n{report}")
+        deliverable_ids = _resolve_deliverable_ids(project, phase, fr_ids)
+        if not skip_conf:
+            passed, report = _verify_agent_b_approvals_core(project, phase, deliverable_ids)
+            print(report)
+            if not passed:
+                return 5
+        else:
+            _, report = _verify_agent_b_approvals_core(project, phase, deliverable_ids)
+            print(f"[WARN] --skip-confidence active — Agent B gate bypassed\n{report}")
 
     # ── Checklist gate (Gap-7) ─────────────────────────────────────────────────
     plan_path = project / ".methodology" / f"phase{phase}_plan.md"
@@ -3055,6 +3064,47 @@ def cmd_effort(args: argparse.Namespace) -> int:
 # advance-phase
 # ---------------------------------------------------------------------------
 
+def _run_phase_end_audit(project: Path, completed_phase: int) -> int:
+    """Run Phase End Audit for Phase 3-8. Replaces A/B collaboration checks.
+
+    Delegates to scripts/phase_end_audit.py for framework-level checks.
+    Returns 0 = pass (no critical gaps), 1 = gaps found, 2 = error.
+    """
+    audit_script = Path(__file__).parent / "scripts" / "phase_end_audit.py"
+    if not audit_script.exists():
+        print(f"  [WARN] Phase End Audit script not found at {audit_script} — skipping")
+        return 0
+    try:
+        result = subprocess.run(
+            [sys.executable, str(audit_script),
+             "--phase", str(completed_phase),
+             "--project", str(project)],
+            capture_output=True, text=True, timeout=60,
+        )
+        # Always print audit output so the agent sees gaps
+        for line in result.stdout.splitlines():
+            print(f"  {line}")
+        if result.stderr.strip():
+            for line in result.stderr.splitlines():
+                print(f"  [stderr] {line}")
+        if result.returncode == 1:
+            out_dir = project / ".methodology"
+            report = out_dir / f"audit_gaps_{completed_phase}.md"
+            print(f"\n  [PHASE-AUDIT] CRITICAL gaps found — see {report}")
+            print(f"  Fix gaps above, then re-run advance-phase.")
+            return 1
+        elif result.returncode != 0:
+            # returncode 2 = script error (e.g. project path missing)
+            return 2
+        return 0
+    except subprocess.TimeoutExpired:
+        print(f"  [WARN] Phase End Audit timed out (60s) — audit did not complete")
+        return 2
+    except OSError as exc:
+        print(f"  [WARN] Phase End Audit failed to run: {exc} — audit did not complete")
+        return 2
+
+
 def _advance_prechecks(project: Path, completed_phase: int) -> int:
     """Run pre-advance checks: plan completion, deliverables, gate variance, Phase Truth.
 
@@ -3180,6 +3230,12 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
             print("  [WARN] PhaseTruthVerifier not available — skipping HR-11 check")
         except Exception as e:
             print(f"  [WARN] Phase Truth check failed: {e} — proceeding without block")
+
+    # ── Phase End Audit (P3+ replaces A/B checks) ────────────────────
+    if completed_phase >= 3:
+        audit_rc = _run_phase_end_audit(project, completed_phase)
+        if audit_rc != 0:
+            return audit_rc
 
     return 0
 

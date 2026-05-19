@@ -3,7 +3,7 @@ name: harness-methodology
 version: 2.4.0
 constitution_version: 2.4
 description: |
-  全流程軟體開發管線編排與品質門禁。Phase 1-8、A/B 協作、14 維度品質憲章。
+  全流程軟體開發管線編排與品質門禁。Phase 1-8、14 維度品質憲章。
   Use when: user asks to execute a phase, plan work, run quality gates, or implement FRs.
   Not applicable: one-shot scripts, quick fixes, non-software tasks.
 ---
@@ -111,12 +111,14 @@ Before advancing to Phase N+1, confirm ALL:
 - [ ] **(P3+) push-milestone called before git push**: `python harness_cli.py push-milestone --type <type> --project .`
       Valid types: `p3-mid`, `p3-pre-gate2`, `p4-mid`, `p4-pre-gate3`, `p5-baseline`, `p7`, `p8`
       Writes `last_milestone_command` to `state.json` — CI `push-milestone-enforcement` blocks if absent.
-- [ ] **(P3+) Agent B approvals present**: `.methodology/agent_b_approvals/FR-XX.json` per FR with `review_status=APPROVE` and `docs_embedded=[SRS.md, SAD.md]`
-      Verify: `python harness_cli.py verify-agent-b-approvals --phase N --project .`
+- [ ] **(P3+) Phase End Audit passed**: `.methodology/audit_gaps_{N}.md` has no CRITICAL gaps
+      Verify: `python3 scripts/phase_end_audit.py --phase N --project .`
 - [ ] Git pushed to remote (confirmed push output, no "push skipped")
 - [ ] Next phase plan exists (`plan-phase --phase N+1` completed)
 - [ ] state.json updated: `python3 harness_cli.py advance-phase --completed N --project .` (updates FSM state)
 - [ ] Git tag pushed (Gate 4 only): `harness-v4-YYYYMMDD-scoreXX`
+    > P6 quality report review: Hermes APPROVE（人類, 見 §6.3）+ Phase End Audit 取代原 Agent B (ARCHITECT) 審查。
+    > 確認 QUALITY_REPORT.md 內容、Gate 4 ≥ 85、所有 FR 已合併。
 - [ ] **(P8 only) `.methodology-archive/` exists and HANDOVER.md has no Phase 9 references** (enforced by CI `p8-archive-check`)
 
 ### 0.5 NEVER
@@ -127,9 +129,9 @@ Before advancing to Phase N+1, confirm ALL:
 - Advance phase after gate failure (HR-08)
 - Mix manual mode and automated execution in the same phase
 - Re-read SKILL.md for task details mid-phase (use plan file)
-- Skip `sessions_spawn.log` entries (HR-10)
-- **Role-play both Agent A and Agent B in the same session (HR-01)**
-- **Send Agent B file paths as input — Agent B is stateless, embed content in prompt**
+- Skip `sessions_spawn.log` entries (HR-10 — Phase 1-2 only)
+- **Role-play both Agent A and Agent B in the same session (HR-01 — Phase 1-2 only)**
+- **Send Agent B file paths as input (Phase 1-2 only) — Agent B is stateless, embed content in prompt**
 - **Treat evaluate_dimension.md as reference — it is the mandatory tool-execution protocol. Skipping tool steps, using wrong LLM tiers, or fabricating scores without tool output = HR violation. score.py enforces this at machine level.**
 
 ### 0.6 Quick Reference — CLI Entry Points
@@ -138,11 +140,10 @@ Before advancing to Phase N+1, confirm ALL:
 |--------|---------|
 | Plan a new phase | `python harness_cli.py plan-phase --phase N --project . --output .methodology/phaseN_plan.md` |
 | Run preflight for a phase | `python harness_cli.py run-phase --phase N` |
-| Dispatch Agent A/B (HR-10) | `python harness_cli.py dispatch --role developer\|reviewer --fr-id FR-XX --prompt "..." --phase N` |
 | Run a gate evaluation | `python harness_cli.py run-gate --gate N --phase P [--fr-id FR-XX]` |
 | Finalize a gate | `python harness_cli.py finalize-gate --gate N --phase P` |
 | **Push P3+ milestone (required before git push)** | `python harness_cli.py push-milestone --type p3-mid\|p3-pre-gate2\|p4-mid\|p4-pre-gate3\|p5-baseline\|p7\|p8` |
-| Verify Agent B approvals | `python harness_cli.py verify-agent-b-approvals --phase N --project .` |
+| Phase End Audit (P3+) | `python3 scripts/phase_end_audit.py --phase N --project .` |
 | Initialize a new project | `python harness_cli.py init-project --project /path/to/target --phase 1` |
 | Advance to next phase | `python harness_cli.py advance-phase --completed N --project .` |
 | Generate manifest for FRs | `python harness_cli.py manifest --fr-ids FR-01 FR-02 --sad SAD.md` |
@@ -170,7 +171,7 @@ Before advancing to Phase N+1, confirm ALL:
 | P7 | Risk Management | Gate4 | None² | RISK_REGISTER.md |
 | P8 | Configuration Management | Gate4 | None² | CONFIG_RECORDS.md |
 
-> ¹ **Agent B¹** = Agent B peer review of deliverables (P1/P2 produce documents, not code). NOT `run-gate --gate 1`. Gate 1 only applies to code phases (P3–P5, P7, P8) where linting/type_safety/test_coverage can be measured. P6 has no per-FR Gate 1 — it uses a single Gate 4 (14-dim full audit) at phase exit.
+> ¹ **Agent B¹** = Agent B peer review of deliverables (Phase 1-2 only). Phase 3+ replaces A/B with automated Phase End Audit. NOT `run-gate --gate 1`. Gate 1 only applies to code phases (P3–P5, P7, P8) where linting/type_safety/test_coverage can be measured. P6 has no per-FR Gate 1 — it uses a single Gate 4 (14-dim full audit) at phase exit.
 >
 > ¹ **None¹** (P5) = Phase Truth check only (HR-11: ≥90%); no separate exit gate evaluation.
 >
@@ -211,7 +212,7 @@ Before advancing to Phase N+1, confirm ALL:
 
 ---
 
-## 3. A/B Collaboration Protocol
+## 3. A/B Collaboration Protocol (Phase 1-2 only)
 
 ```
 Agent A (DEVELOPER / architect / tester / devops / qa / risk)
@@ -234,15 +235,16 @@ Agent B (REVIEWER / architect)
 |-------|------------|------------|--------------|--------------|
 | P1 | REQUIREMENTS_ENGINEER | BUSINESS_ANALYST | Draft SRS.md with `### FR-XX:` sections | Review SRS.md against business goals; verify FR-ID traceability |
 | P2 | ARCHITECT | TECH_LEAD | Design SAD.md; write ADR.md; generate TEST_SPEC.md via `derive_test_cases.md` skill | Review SAD.md, ADR.md, and TEST_SPEC.md for completeness, coverage, and SRS alignment |
-| P3 | DEVELOPER | REVIEWER | TDD: RED → GREEN → REFACTOR per FR | Review code against SRS/SAD; verify tests pass; check citations |
-| P4 | QA_ENGINEER | ARCHITECT | Execute TEST_PLAN.md per FR; verify coverage ≥ 80% | Review test results; confirm coverage gaps documented; validate traceability |
-| P5 | DEVELOPER | REVIEWER | Verify acceptance criteria per FR against SRS.md | Review acceptance verification; cross-check BASELINE.md against SRS |
-| P6 | QA_ENGINEER | ARCHITECT | Generate QUALITY_REPORT.md (14-dim audit); prepare RELEASE_NOTES.md | Review quality report; confirm all FRs merged and Gate 4 score ≥ 85 |
-| P7 | DEVOPS | ARCHITECT | Assess risk per FR; draft mitigation plans; populate RISK_REGISTER.md | Review risk assessments; verify mitigation plans actionable |
-| P8 | DEVOPS | ARCHITECT | Document config per FR; populate CONFIG_RECORDS.md | Review config records; verify env parity; confirm no secret leaks |
 
-> All phases: Agent A ≠ Agent B (HR-01). Both write `sessions_spawn.log` (HR-10).
-> P3/P4/P5/P7/P8: 2 entries per FR. P1/P2/P6: 2 entries per phase.
+> Phase 3-8 不再使用 A/B 協作，改以自動化 Phase End Audit 替代（見 §0.4 完成檢查表）。
+>
+> **P6 Gate 4 注意**：原 Agent B (ARCHITECT) 負責審查 QUALITY_REPORT.md 並確認所有 FR 已合併且 Gate 4 ≥ 85。
+> A/B 移除後此責任由兩個機制分擔：(1) **Phase End Audit** 確認 quality_manifest.json 中 Gate 4 分數與
+> 所有 FR 的合併狀態；(2) **Hermes APPROVE**（人類審查）確認 QUALITY_REPORT.md 內容完整性。
+> 見 §6.3 / `await-hermes-approve` CLI 命令。
+
+> Phase 1-2 only: Agent A ≠ Agent B (HR-01). Both write `sessions_spawn.log` (HR-10).
+> Phase 3-8: no A/B requirement. Phase End Audit runs at phase completion.
 
 ### FORBIDDEN in any agent output
 
@@ -254,9 +256,9 @@ Agent B (REVIEWER / architect)
 
 ---
 
-## 4. sessions_spawn.log Format (HR-10)
+## 4. sessions_spawn.log Format (Phase 1-2 only, HR-10)
 
-Two entries per FR (developer + reviewer):
+Two entries per FR/deliverable (developer + reviewer):
 
 ```json
 {"timestamp": "2026-04-26T10:00:00", "fr_id": "FR-01", "role": "developer",
@@ -287,11 +289,12 @@ State stored in `.methodology/state.json`:
 
 ## 6. Decision Rules
 
-- **SKILL.md governs**: phase order, gate thresholds, hard rules (HR-01–HR-15), A/B protocol.
+- **SKILL.md governs**: phase order, gate thresholds, hard rules (HR-01–HR-15), Phase End Audit.
 - **Plan governs**: task sequence within a phase; specific file paths; CLI commands.
 - **Conflict**: SKILL.md wins on rules; plan wins on task order / phase-specific steps.
 - **Never skip checkpoints**: If a gate fails, fix and re-run — never advance without PASS.
-- **A/B is mandatory**: HR-01 (A≠B), HR-04 (HybridWorkflow ON), HR-10 (sessions_spawn.log) apply to every FR in every phase.
+- **Phase 1-2**: A/B mandatory — HR-01 (A≠B), HR-04, HR-10 apply.
+- **Phase 3-8**: No A/B. Phase End Audit runs at advance-phase / push-milestone.
 
 ---
 
@@ -301,7 +304,7 @@ State stored in `.methodology/state.json`:
 |------|-------|
 | Module API (kill_switch, detection, gap_detector, core/, enforcement/) | `SAD.md` §3–§6 |
 | Agent execution loop, modes, phase completion checklist, recovery | `SAD.md` §9 |
-| Autonomous pipeline, per-phase A/B roles table (P1–P8), human checkpoints | `SAD.md` §10 |
+| Autonomous pipeline, human checkpoints | `SAD.md` §10 |
 | Phase E2E flow, entry/exit matrix, preflight hooks, Phase Truth weights | `SAD.md` §11 |
 | Gate evaluation CLI flow, result file schema, evaluation assets | `SAD.md` §12 |
 | CLI commands (plan-phase, run-gate, etc.) | `harness_cli.py --help` |

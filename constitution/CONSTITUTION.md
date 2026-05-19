@@ -123,15 +123,15 @@
 | Phase | Entry Gate | 驗證方式 |
 |-------|-----------|----------|
 | P1 | None | 無前置 Phase |
-| P2 | Agent B¹ (P1) | `git log` 確認 P1 APPROVE |
-| P3 | Agent B¹ (P2) | `git log` 確認 P2 APPROVE |
+| P2 | P1 交付物完成 | `git log` + quality_manifest 確認 P1 PASS |
+| P3 | P2 交付物完成 | `git log` + quality_manifest 確認 P2 PASS |
 | P4 | Gate 2 (P3) | `git log` 確認 P3 Gate 2 PASS |
 | P5 | Gate 3 (P4) | `git log` 確認 P4 Gate 3 PASS |
 | P6 | Gate 3 (P5) | `git log` 確認 P5 Phase Truth PASS |
 | P7 | Gate 4 (P6) | `git log` 確認 P6 Gate 4 PASS |
 | P8 | Gate 4 (P6) | `git log` 確認 P6 Gate 4 PASS |
 
-> ¹ **Agent B¹** = Agent B peer review of deliverables (P1/P2 produce documents, not code).
+> ¹ Agent B peer review of deliverables (僅 Phase 1-2 適用。Phase 3-8 改以 Phase End Audit 替代).
 
 ### 2.4 Constitution Score 門檻
 
@@ -184,9 +184,9 @@
 | 變更類型 | 審批者 | 必須通過 |
 |----------|--------|----------|
 | Phase 1-2 交付物 | Agent B¹ | Agent B APPROVE |
-| Phase 3-8 程式碼 | Agent B (Reviewer) | Gate check ≥ threshold |
+| Phase 3-8 程式碼 | Gate check (Quality Gate) | Gate check ≥ threshold + Phase End Audit |
 | Gate 4 全專案 | Hermes APPROVE | 120s timeout + cold-read fallback |
-| 緊急修復 | Human (Johnny) | Minimum Gate 1 check |
+| 緊急修復 | Human (Johnny) | Minimum Gate 1 check + Phase End Audit |
 
 ---
 
@@ -215,16 +215,16 @@
 
 | ID | 規則 | 後果 |
 |----|------|------|
-| HR-01 | A/B 不同 Agent，禁自寫自審 | 終止 -25 |
+| HR-01 | A/B 不同 Agent，禁自寫自審（Phase 1-2） | 終止 -25 |
 | HR-02 | Quality Gate 需實際命令輸出 | 終止 -20 |
 | HR-03 | Phase 順序執行，不可跳過 | 終止 -30 |
-| HR-04 | HybridWorkflow mode=ON，強制 A/B | 終止 |
+| HR-04 | HybridWorkflow mode=ON，強制 A/B（Phase 1-2） | 終止 |
 | HR-07 | DEVELOPMENT_LOG 需記錄 session_id | -15 |
 | HR-08 | Phase 結束需執行 Quality Gate | 終止 -10 |
 | HR-09 | Claims Verifier 驗證需通過 | 終止 -20 |
-| HR-10 | sessions_spawn.log 需有 A/B 記錄 | 終止 -15 |
+| HR-10 | sessions_spawn.log 需有 A/B 記錄（Phase 1-2） | 終止 -15 |
 | HR-11 | Phase Truth < 90% 禁進入下一 Phase | 終止 |
-| HR-12 | A/B 審查 > 5 輪 → PAUSE | — |
+| HR-12 | A/B 審查 > 5 輪 → PAUSE（Phase 1-2） | — |
 | HR-13 | Phase 執行 > 預估 ×3 → PAUSE | — |
 | HR-14 | Integrity < 40 → FREEZE 全面審計 | — |
 | HR-15 | citations 格式：`檔案#L行號` | -15 |
@@ -243,7 +243,8 @@
 - [ ] All dimensions score ≥ per-gate threshold
 - [ ] Constitution score ≥ 100 (P1-P2) / ≥ 90 (P3-P4) / ≥ 80 (P5-P8)
 - [ ] No CRITICAL constitution violations (R001-R007)
-- [ ] sessions_spawn.log has 2 entries (Agent A + Agent B)
+- [ ] (P1-P2) sessions_spawn.log has 2 entries (Agent A + Agent B)
+- [ ] (P3+) Phase End Audit: `.methodology/audit_gaps_{N}.md` 無 CRITICAL gaps
 
 ### 6.3 Hermes APPROVE (Gate 4 only)
 - [ ] Message sent to HERMES_REVIEWER_TARGET
@@ -257,7 +258,7 @@
 | Phase | BVS 行為 |
 |-------|----------|
 | Phase 1-2 | 自動 skip (無 sessions_spawn 行為資料) |
-| Phase 3+ | 自動執行 invariant checks (HR-03,07,09,10,12,13,15) |
+| Phase 3+ | 自動執行 invariant checks (HR-03,07,09,13,15) + Phase End Audit |
 
 ---
 

@@ -784,33 +784,49 @@ def _sab_sync_step() -> List[str]:
 
 
 def _fr_dev_steps(fr_id: str, phase: int) -> List[str]:
-    """A/B development steps for one FR — must appear BEFORE Gate 1 checkpoint."""
-    role_a, role_b, task_hint = _PHASE_ROLES.get(
-        phase, ("DEVELOPER", "REVIEWER", "Implement per SRS + SAD")
-    )
-    lines = [
-        f"**A/B Work — {fr_id}** (HR-01: A≠B · HR-04: HybridWorkflow ON · HR-10: log required):",
-        f"- [ ] **[A-1]** Agent A ({role_a}): {task_hint}",
+    """Per-FR implementation steps.
+
+    Phase 1-2: A/B collaboration (Agent A + Agent B with dispatch).
+    Phase 3-8: Direct implementation (no A/B — Phase End Audit替代).
+    """
+    if phase <= 2:
+        role_a, role_b, task_hint = _PHASE_ROLES.get(
+            phase, ("DEVELOPER", "REVIEWER", "Implement per SRS + SAD")
+        )
+        lines = [
+            f"**A/B Work — {fr_id}** (HR-01: A≠B · HR-10: log required):",
+            f"- [ ] **[A-1]** Agent A ({role_a}): {task_hint}",
+            f"  - Docstrings: `[{fr_id}]` tag + `Citations:` with line numbers (HR-15)",
+            "  - FORBIDDEN: `app/infrastructure/` · `@covers: L1 Error` · `@type: edge`",
+            "- [ ] **[A-2]** Agent A returns `{status, files, confidence, citations, summary}`",
+            "- [ ] **[A-DISPATCH]** Dispatch Agent A:",
+            "  ```bash",
+            f"  python3 harness_cli.py dispatch --role developer --fr-id {fr_id} \\",
+            f"    --prompt \"{task_hint} for {fr_id}\" --phase {phase} --project $REPO",
+            "  ```",
+        ]
+        lines.extend(_agent_b_dispatch_block(phase, role_b, fr_id=fr_id))
+        lines.extend([
+            "- [ ] **[B-DISPATCH]** Dispatch Agent B:",
+            "  ```bash",
+            f"  python3 harness_cli.py dispatch --role reviewer --fr-id {fr_id} \\",
+            f"    --prompt \"Review {fr_id} against SRS + SAD\" --phase {phase} --project $REPO",
+            "  ```",
+            "  > AgentSpawner auto-logs to `.methodology/sessions_spawn.log` on dispatch (HR-10).",
+            "",
+        ])
+        return lines
+
+    # Phase 3-8: no A/B, direct implementation + Phase End Audit
+    return [
+        f"**Implement {fr_id}** (no A/B — Phase End Audit替代):",
+        f"- [ ] Implement {fr_id} per SRS + SAD",
         f"  - Docstrings: `[{fr_id}]` tag + `Citations:` with line numbers (HR-15)",
         "  - FORBIDDEN: `app/infrastructure/` · `@covers: L1 Error` · `@type: edge`",
-        "- [ ] **[A-2]** Agent A returns `{status, files, confidence, citations, summary}`",
-        "- [ ] **[A-DISPATCH]** Dispatch Agent A:",
-        "  ```bash",
-        f"  python3 harness_cli.py dispatch --role developer --fr-id {fr_id} \\",
-        f"    --prompt \"{task_hint} for {fr_id}\" --phase {phase} --project $REPO",
-        "  ```",
-    ]
-    lines.extend(_agent_b_dispatch_block(phase, role_b, fr_id=fr_id))
-    lines.extend([
-        "- [ ] **[B-DISPATCH]** Dispatch Agent B:",
-        "  ```bash",
-        f"  python3 harness_cli.py dispatch --role reviewer --fr-id {fr_id} \\",
-        f"    --prompt \"Review {fr_id} against SRS + SAD\" --phase {phase} --project $REPO",
-        "  ```",
-        "  > AgentSpawner auto-logs to `.methodology/sessions_spawn.log` on dispatch (HR-10).",
+        f"- [ ] Run `python3 harness_cli.py run-gate --gate 1 --phase {phase} --fr-id {fr_id}`",
+        f"- [ ] Run `python3 harness_cli.py finalize-gate --gate 1 --phase {phase} --fr-id {fr_id}`",
         "",
-    ])
-    return lines
+    ]
 
 
 def _phase_advance_step(phase: int) -> List[str]:
@@ -1361,6 +1377,13 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("- [ ] Gate 2 PASS (phase exit, composite ≥ 75)")
     lines.append("")
 
+    lines.append("- [ ] **[PHASE-AUDIT]** Run Phase End Audit:")
+    lines.append("  ```bash")
+    lines.append("  python3 scripts/phase_end_audit.py --phase 3 --project $REPO")
+    lines.append("  ```")
+    lines.append("  > Read `.methodology/audit_gaps_3.md` and fix all CRITICAL gaps before advancing.")
+    lines.append("")
+
     lines.extend(_phase_advance_step(3))
     return lines
 
@@ -1390,18 +1413,13 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("> Generate `04-testing/TEST_PLAN.md` from SRS.md FR acceptance criteria.")
     lines.append("> This step runs once before per-FR test execution.")
     lines.append("")
-    lines.append("**A/B Work — TEST_PLAN.md Generation** (HR-01: A≠B · HR-04: HybridWorkflow ON):")
-    lines.append("- [ ] **[A-TP]** Agent A (QA_ENGINEER): Read SRS.md FR acceptance criteria → write TEST_PLAN.md with per-FR test cases")
+    lines.append("**Generate TEST_PLAN.md** (no A/B — Phase End Audit替代):")
+    lines.append("- [ ] Read SRS.md FR acceptance criteria → write TEST_PLAN.md with per-FR test cases")
     lines.append("  - For each FR: test case ID, description, input, expected output, priority")
     lines.append("  - Include positive, negative, boundary, and edge case categories")
     lines.append("  - Output: `04-testing/TEST_PLAN.md`")
-    lines.append("- [ ] **[A-DISPATCH-TP]** Dispatch Agent A:")
-    lines.append("  ```bash")
-    lines.append("  python3 harness_cli.py dispatch --role developer --fr-id ALL \\")
-    lines.append("    --prompt \"Generate TEST_PLAN.md from SRS.md FR acceptance criteria\" --phase 4 --project .")
-    lines.append("  ```")
-    lines.append("- [ ] **[B-TP]** Agent B (ARCHITECT): Review TEST_PLAN.md for completeness and correctness")
-    lines.append("- [ ] **[TP-DONE]** TEST_PLAN.md written and reviewed: all FRs have ≥1 test case, NFRs addressed")
+    lines.append("- [ ] Verify TEST_PLAN.md covers all FRs from manifest/quality_manifest.json")
+    lines.append("- [ ] **[TP-DONE]** TEST_PLAN.md written: all FRs have ≥1 test case, NFRs addressed")
     lines.append("")
 
     checkpoint_n = 1
@@ -1469,6 +1487,13 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.extend(_aspice_output_requirements(4))
     lines.append("")
 
+    lines.append("- [ ] **[PHASE-AUDIT]** Run Phase End Audit:")
+    lines.append("  ```bash")
+    lines.append("  python3 scripts/phase_end_audit.py --phase 4 --project $REPO")
+    lines.append("  ```")
+    lines.append("  > Read `.methodology/audit_gaps_4.md` and fix all CRITICAL gaps before advancing.")
+    lines.append("")
+
     lines.extend(_phase_advance_step(4))
     return lines
 
@@ -1531,6 +1556,13 @@ def generate_phase5_tasks(repo_path: Path) -> List[str]:
     lines.extend(_aspice_output_requirements(5))
     lines.append("")
 
+    lines.append("- [ ] **[PHASE-AUDIT]** Run Phase End Audit:")
+    lines.append("  ```bash")
+    lines.append("  python3 scripts/phase_end_audit.py --phase 5 --project $REPO")
+    lines.append("  ```")
+    lines.append("  > Read `.methodology/audit_gaps_5.md` and fix all CRITICAL gaps before advancing.")
+    lines.append("")
+
     lines.extend(_phase_advance_step(5))
     return lines
 
@@ -1554,16 +1586,9 @@ def generate_phase6_tasks(repo_path: Path) -> List[str]:
     lines.extend(_preflight_steps(6))
 
     qr = parse_quality_report(repo_path)
-    role_a, role_b, _ = _PHASE_ROLES[6]
-    lines.append("### P6 A/B Roles (Per-Phase, Not Per-FR)")
+    lines.append("### P6 Phase End Audit (Replaces A/B)")
     lines.append("")
-    lines.append(f"> **Agent A ({role_a})** — Gate 4 inline evaluation:")
-    lines.append("> Claude evaluates all 14 quality dimensions against SRS/SAD/codebase.")
-    lines.append("> No dispatch command — the evaluation protocol runs inline per SAD.md §12.")
-    lines.append(f"> **Agent B ({role_b})** — Hermes APPROVE:")
-    lines.append("> Reviews Gate 4 results via Hermes (Telegram/Discord/Slack).")
-    lines.append("> Responds APPROVE or REJECT → finalize-gate records outcome.")
-    lines.append("> 2 A/B entries in `.methodology/sessions_spawn.log` (HR-10: per-phase, not per-FR).")
+    lines.append("> Phase 6 does not use A/B collaboration. Gate 4 evaluation + Phase End Audit replace it.")
     lines.append("")
 
     if qr.get('metrics'):
@@ -1590,6 +1615,13 @@ def generate_phase6_tasks(repo_path: Path) -> List[str]:
     lines.append("- [ ] `FINAL_SIGN_OFF.md` - Final sign-off")
     lines.append("- [x] `.methodology/sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
     lines.extend(_aspice_output_requirements(6))
+    lines.append("")
+
+    lines.append("- [ ] **[PHASE-AUDIT]** Run Phase End Audit:")
+    lines.append("  ```bash")
+    lines.append("  python3 scripts/phase_end_audit.py --phase 6 --project $REPO")
+    lines.append("  ```")
+    lines.append("  > Read `.methodology/audit_gaps_6.md` and fix all CRITICAL gaps before advancing.")
     lines.append("")
 
     lines.extend(_phase_advance_step(6))
@@ -1663,6 +1695,13 @@ def generate_phase7_tasks(repo_path: Path) -> List[str]:
     lines.extend(_aspice_output_requirements(7))
     lines.append("")
 
+    lines.append("- [ ] **[PHASE-AUDIT]** Run Phase End Audit:")
+    lines.append("  ```bash")
+    lines.append("  python3 scripts/phase_end_audit.py --phase 7 --project $REPO")
+    lines.append("  ```")
+    lines.append("  > Read `.methodology/audit_gaps_7.md` and fix all CRITICAL gaps before advancing.")
+    lines.append("")
+
     lines.extend(_phase_advance_step(7))
     return lines
 
@@ -1731,6 +1770,13 @@ def generate_phase8_tasks(repo_path: Path) -> List[str]:
     lines.append("- [x] `.methodology/sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
     lines.append("- [ ] Gate 1 PASS for every FR")
     lines.extend(_aspice_output_requirements(8))
+    lines.append("")
+
+    lines.append("- [ ] **[PHASE-AUDIT]** Run Phase End Audit:")
+    lines.append("  ```bash")
+    lines.append("  python3 scripts/phase_end_audit.py --phase 8 --project $REPO")
+    lines.append("  ```")
+    lines.append("  > Read `.methodology/audit_gaps_8.md` and fix all CRITICAL gaps before advancing.")
     lines.append("")
 
     lines.extend(_phase_advance_step(8))

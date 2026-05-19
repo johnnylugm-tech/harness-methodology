@@ -911,6 +911,11 @@ class TestCmdAdvancePhase:
                 "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier",
                 _FakeVer,
             )
+            # Phase End Audit needs real project structure — mock it for
+            # tmp_path tests that test advance-phase specific behaviors.
+            monkeypatch.setattr(
+                "harness_cli._run_phase_end_audit", lambda project, phase: 0,
+            )
             pass
         a = _Args()
         a.completed_phase = completed
@@ -1627,7 +1632,7 @@ class TestAuditSessionsSpawn:
     """Tests for _audit_sessions_spawn — pre-push HR-10 warning."""
 
     def test_all_missing_warns(self, tmp_path, monkeypatch, capsys):
-        """13 FRs in manifest, no log → warns for all 13."""
+        """13 FRs in manifest, no log → warns for all 13 (Phase 1)."""
         import json
         manifest_dir = tmp_path / ".methodology"
         manifest_dir.mkdir()
@@ -1635,13 +1640,13 @@ class TestAuditSessionsSpawn:
         (manifest_dir / "quality_manifest.json").write_text(json.dumps({"fr_ids": fr_ids}))
 
         from harness_cli import _audit_sessions_spawn
-        _audit_sessions_spawn(tmp_path, 4)
+        _audit_sessions_spawn(tmp_path, 1)
         captured = capsys.readouterr().out
         assert "HR-10" in captured
         assert "incomplete for 13/13 FRs" in captured
 
     def test_all_ok_silent(self, tmp_path, monkeypatch, capsys):
-        """All FRs have 2 entries → prints OK."""
+        """All FRs have 2 entries → prints OK (Phase 2)."""
         import json
         manifest_dir = tmp_path / ".methodology"
         manifest_dir.mkdir()
@@ -1655,12 +1660,12 @@ class TestAuditSessionsSpawn:
         )
 
         from harness_cli import _audit_sessions_spawn
-        _audit_sessions_spawn(tmp_path, 4)
+        _audit_sessions_spawn(tmp_path, 2)
         captured = capsys.readouterr().out
         assert "2/2 FRs OK" in captured
 
     def test_corrupt_log_warns_and_treats_as_empty(self, tmp_path, capsys):
-        """Issue #3: corrupt JSON in sessions_spawn.log → parse error warning + all FRs missing."""
+        """Issue #3: corrupt JSON in sessions_spawn.log → parse error warning."""
         import json
         manifest_dir = tmp_path / ".methodology"
         manifest_dir.mkdir()
@@ -1673,19 +1678,31 @@ class TestAuditSessionsSpawn:
         )
 
         from harness_cli import _audit_sessions_spawn
-        _audit_sessions_spawn(tmp_path, 3)
+        _audit_sessions_spawn(tmp_path, 2)
         captured = capsys.readouterr().out
         assert "parse error" in captured.lower()
         assert "HR-10" in captured
         # corrupt log → entries empty → both FRs flagged as missing
         assert "incomplete for 2/2 FRs" in captured
 
+    def test_phase3_plus_skips_silently(self, tmp_path, capsys):
+        """Phase 3+ skips audit (A/B removed) without warning."""
+        import json
+        manifest_dir = tmp_path / ".methodology"
+        manifest_dir.mkdir()
+        (manifest_dir / "quality_manifest.json").write_text(json.dumps({"fr_ids": ["FR-01"]}))
+
+        from harness_cli import _audit_sessions_spawn
+        _audit_sessions_spawn(tmp_path, 3)
+        captured = capsys.readouterr().out
+        assert captured == ""
+
 
 class TestFinalizeGateHR10:
-    """HR-10: finalize-gate --gate 1 must block when sessions_spawn.log is missing or incomplete."""
+    """HR-10: finalize-gate --gate 1 blocks for Phase 1-2 when sessions_spawn.log is missing."""
 
     @staticmethod
-    def _call_finalize(monkeypatch, tmp_path, gate=1, phase=3, fr_id="FR-01",
+    def _call_finalize(monkeypatch, tmp_path, gate=1, phase=1, fr_id="FR-01",
                        spawn_entries=None, gate1_result=None):
         """Call cmd_finalize_gate and return (exit_code, output_str)."""
         import io
@@ -1904,7 +1921,7 @@ class TestFinalizeGateHR10:
         try:
             exit_code = cmd_finalize_gate(
                 type("Args", (), {
-                    "gate": 1, "phase": 3, "project": str(tmp_path), "fr_id": "FR-01",
+                    "gate": 1, "phase": 1, "project": str(tmp_path), "fr_id": "FR-01",
                 })()
             )
         except SystemExit as e:
@@ -1914,6 +1931,53 @@ class TestFinalizeGateHR10:
         assert exit_code in (0, 1), f"Expected exit 0 or 1 (not hard-block 5), got {exit_code}"
         assert "parse error" in output.lower()
         assert "HR-10" in output
+
+    def test_phase3_skips_hr10_check(self, tmp_path, monkeypatch):
+        """Phase 3+ does not enforce HR-10/HR-01 (A/B removed)."""
+        import json as _json
+        sessi = tmp_path / ".sessi-work"
+        sessi.mkdir(parents=True)
+        gate1_result = {
+            "gate": 1, "phase": 3, "fr_id": "FR-01",
+            "score": 95.0, "quality_complete": True,
+            "dimensions": {"linting": 95, "type_safety": 95, "test_coverage": 95},
+        }
+        (sessi / "gate1_result.json").write_text(_json.dumps(gate1_result))
+        manifest_dir = tmp_path / ".methodology"
+        manifest_dir.mkdir(parents=True)
+        (manifest_dir / "quality_manifest.json").write_text(_json.dumps({
+            "fr_ids": ["FR-01"],
+            "gate_results": {"gate1": {}},
+        }))
+        (manifest_dir / "state.json").write_text(_json.dumps({
+            "state": "ACTIVE", "current_phase": 3,
+        }))
+        # No sessions_spawn.log — would normally block for P1-P2
+        _sentinel_dir = sessi / "sentinels"
+        _sentinel_dir.mkdir(parents=True, exist_ok=True)
+        (_sentinel_dir / "g1_fr01.flag").write_text("test")
+
+        import io
+        from harness_cli import cmd_finalize_gate
+        monkeypatch.setattr(
+            "harness_cli._make_git",
+            lambda args, project: __import__("harness.git_strategy").git_strategy.GitStrategy(
+                project, enabled=False),
+        )
+        captured = io.StringIO()
+        monkeypatch.setattr("sys.stdout", captured)
+        try:
+            exit_code = cmd_finalize_gate(
+                type("Args", (), {
+                    "gate": 1, "phase": 3, "project": str(tmp_path), "fr_id": "FR-01",
+                })()
+            )
+        except SystemExit as e:
+            exit_code = e.code
+
+        output = captured.getvalue()
+        assert exit_code in (0, 1), f"Expected exit 0 or 1 (not hard-block 5), got {exit_code}"
+        assert "HR-10" not in output, "HR-10 should not be enforced for Phase 3+"
 
 
 # ---------------------------------------------------------------------------

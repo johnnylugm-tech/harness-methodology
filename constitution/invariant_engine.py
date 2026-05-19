@@ -95,7 +95,7 @@ class InvariantEngine:
                 severity="high",
                 source="HR-07",
             ),
-            # HR-10: Subagent isolation
+            # HR-10: Subagent isolation (Phase 1-2 only; P3+ replaces A/B with Phase End Audit)
             BehavioralInvariant(
                 name="Subagent isolation",
                 description="Subagent sessions must not share context with other subagents",
@@ -103,6 +103,7 @@ class InvariantEngine:
                     log.get("session_id") != ctx.get("parent_session_id")
                 ),
                 severity="high",
+                phase_scope=[1, 2],
                 source="HR-10",
             ),
             # HR-12: A/B review threshold
@@ -114,7 +115,7 @@ class InvariantEngine:
                     or log.get("status") == "unable_to_proceed"
                 ),
                 severity="medium",
-                phase_scope=[3, 4, 5, 6, 7, 8],
+                phase_scope=[1, 2],
                 source="HR-12",
             ),
             # HR-13: Phase timeout

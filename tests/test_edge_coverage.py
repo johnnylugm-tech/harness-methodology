@@ -532,7 +532,7 @@ class TestPhaseTruthVerifierEdge:
             '{"role":"architect","session_id":"s1"}\n'
             '{"role":"reviewer","session_id":"s2"}\n'
         )
-        verifier = PhaseTruthVerifier(str(tmp_path), phase=3)
+        verifier = PhaseTruthVerifier(str(tmp_path), phase=1)
         passed, score, details = verifier.check_session_log()
         assert passed is True
         assert score == 100.0
@@ -547,14 +547,14 @@ class TestPhaseTruthVerifierEdge:
             {"role": "architect", "session_id": "s1"},
             {"role": "reviewer", "session_id": "s2"},
         ]}))
-        verifier = PhaseTruthVerifier(str(tmp_path), phase=3)
+        verifier = PhaseTruthVerifier(str(tmp_path), phase=1)
         passed, _, _ = verifier.check_session_log()
         # Legacy single-dict format is now treated as malformed (JSONL only).
         assert passed is False
 
     def test_check_session_log_not_found(self, tmp_path):
         from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
-        verifier = PhaseTruthVerifier(str(tmp_path), phase=3)
+        verifier = PhaseTruthVerifier(str(tmp_path), phase=1)
         passed, score, _ = verifier.check_session_log()
         assert passed is False
         assert score == 0.0

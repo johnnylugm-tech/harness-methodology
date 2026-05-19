@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 import pytest
 from unittest.mock import MagicMock, patch
+import unittest.mock
 
 pytestmark = pytest.mark.gate
 
@@ -207,3 +208,85 @@ class TestCheckCoverage:
         assert "passed" in result
         assert "checks" in result
         assert "checklist" in result
+
+
+# ---------------------------------------------------------------------------
+# Phase 3+: check_session_log and check_ab_coverage raise InfraSkip
+# ---------------------------------------------------------------------------
+
+class TestInfraSkipForPhase3Plus:
+    """Phase 3+ A/B checks raise InfraSkip (A/B removed, Phase End Audit替代)."""
+
+    def test_check_session_log_skips_for_phase3(self, tmp_path):
+        from core.quality_gate.phase_truth_verifier import InfraSkip
+        v = PhaseTruthVerifier(str(tmp_path), 3)
+        try:
+            v.check_session_log()
+        except InfraSkip as e:
+            assert "Phase 3+" in str(e) or "Phase End Audit" in str(e)
+        else:
+            pytest.fail("Expected InfraSkip for Phase 3 check_session_log")
+
+    def test_check_session_log_skips_for_phase4(self, tmp_path):
+        from core.quality_gate.phase_truth_verifier import InfraSkip
+        try:
+            PhaseTruthVerifier(str(tmp_path), 4).check_session_log()
+        except InfraSkip:
+            pass
+        else:
+            pytest.fail("Expected InfraSkip for Phase 4 check_session_log")
+
+    def test_check_session_log_passes_for_phase1(self, tmp_path):
+        """Phase 1 still runs the real check (no InfraSkip)."""
+        from core.quality_gate.phase_truth_verifier import InfraSkip
+        try:
+            PhaseTruthVerifier(str(tmp_path), 1).check_session_log()
+        except InfraSkip:
+            pytest.fail("Phase 1 should not raise InfraSkip for check_session_log")
+
+    def test_check_ab_coverage_skips_for_phase3(self, tmp_path):
+        from core.quality_gate.phase_truth_verifier import InfraSkip
+        v = PhaseTruthVerifier(str(tmp_path), 3)
+        try:
+            v.check_ab_coverage()
+        except InfraSkip:
+            pass
+        else:
+            pytest.fail("Expected InfraSkip for Phase 3 check_ab_coverage")
+
+    def test_check_ab_coverage_skips_for_phase5(self, tmp_path):
+        from core.quality_gate.phase_truth_verifier import InfraSkip
+        try:
+            PhaseTruthVerifier(str(tmp_path), 5).check_ab_coverage()
+        except InfraSkip:
+            pass
+        else:
+            pytest.fail("Expected InfraSkip for Phase 5 check_ab_coverage")
+
+    def test_check_ab_coverage_passes_for_phase1(self, tmp_path):
+        """Phase 1 still runs the real check (no InfraSkip)."""
+        from core.quality_gate.phase_truth_verifier import InfraSkip
+        try:
+            PhaseTruthVerifier(str(tmp_path), 1).check_ab_coverage()
+        except InfraSkip:
+            pytest.fail("Phase 1 should not raise InfraSkip for check_ab_coverage")
+
+    def test_verify_renormalizes_after_infra_skip(self, tmp_path):
+        """verify() should handle InfraSkip gracefully and renormalize weights."""
+        v = PhaseTruthVerifier(str(tmp_path), 3)
+        with unittest.mock.patch.multiple(
+            v,
+            check_framework_block=unittest.mock.DEFAULT,
+            check_pytest=unittest.mock.DEFAULT,
+            check_coverage=unittest.mock.DEFAULT,
+            check_previous_phase_artifacts=unittest.mock.DEFAULT,
+            check_cross_artifact=unittest.mock.DEFAULT,
+        ) as mocks:
+            mocks["check_framework_block"].return_value = (True, 100.0, "ok")
+            mocks["check_pytest"].return_value = (True, 100.0, "ok")
+            mocks["check_coverage"].return_value = (True, 100.0, "ok")
+            mocks["check_previous_phase_artifacts"].return_value = (True, 100.0, "ok")
+            mocks["check_cross_artifact"].return_value = (True, 100.0, "ok")
+            result = v.verify()
+        assert result["passed"] is True
+        assert result["total_score"] >= 90.0

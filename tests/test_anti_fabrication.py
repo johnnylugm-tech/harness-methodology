@@ -482,7 +482,7 @@ class TestPhaseTruthPassed:
 class TestABCoveragePerDeliverable:
     """check_ab_coverage verifies each fr_id has a reviewer entry."""
 
-    def _make_verifier(self, tmp_path, phase=4):
+    def _make_verifier(self, tmp_path, phase=1):
         from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
         return PhaseTruthVerifier(str(tmp_path), phase)
 
@@ -534,6 +534,17 @@ class TestABCoveragePerDeliverable:
         ok, score, _ = v.check_ab_coverage()
         assert ok
         assert score == 100.0
+
+    def test_phase3_plus_raises_infra_skip(self, tmp_path):
+        """Phase 3+ check_ab_coverage raises InfraSkip (A/B removed)."""
+        from core.quality_gate.phase_truth_verifier import InfraSkip
+        for phase in (3, 4, 5, 6, 7, 8):
+            v = self._make_verifier(tmp_path, phase=phase)
+            try:
+                v.check_ab_coverage()
+                pytest.fail(f"Phase {phase} should raise InfraSkip")
+            except InfraSkip:
+                pass
 
 
 # ---------------------------------------------------------------------------
@@ -1168,7 +1179,7 @@ class TestSpawnLogNullTimestamp:
         import argparse
         from harness_cli import cmd_finalize_gate
         args = argparse.Namespace(
-            gate=1, phase=3, project=str(tmp_path),
+            gate=1, phase=1, project=str(tmp_path),
             fr_id=fr_id,
         )
         import sys
