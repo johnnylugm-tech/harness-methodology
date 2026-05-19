@@ -96,6 +96,8 @@ do NOT start work until every item is checked.
 | P1/P2 exit | Human peer review (no automated gate) | Deliverables: SRS.md / SAD.md + ADR.md |
 | After crash | Current position + next checkpoint | `generate-next-plan` |
 
+> ¹ **D4_TestInventory** has two sub-checks: Forward (TEST_INVENTORY.yaml, Gates 2–4: 60/80/90%) and Backward (TEST_SPEC.md spec-coverage, Gates 1–4: 40/40/70/90%). Both must pass. See `CONSTITUTION.md §2.2` or run `harness_cli.py spec-coverage-check`.
+
 ### 0.4 Phase Completion Checklist (Mandatory — Every Phase)
 
 Before advancing to Phase N+1, confirm ALL:
@@ -107,7 +109,7 @@ Before advancing to Phase N+1, confirm ALL:
       Do NOT use `--no-verify` or `--skip-confidence` to bypass.
       Repeat until the push succeeds.
 - [ ] **(P3+) push-milestone called before git push**: `python harness_cli.py push-milestone --type <type> --project .`
-      Valid types: `p3-mid`, `p3-pre-ssi`, `p4-mid`, `p4-pre-ssi`, `p5-baseline`, `p7`, `p8`
+      Valid types: `p3-mid`, `p3-pre-gate2`, `p4-mid`, `p4-pre-gate3`, `p5-baseline`, `p7`, `p8`
       Writes `last_milestone_command` to `state.json` — CI `push-milestone-enforcement` blocks if absent.
 - [ ] **(P3+) Agent B approvals present**: `.methodology/agent_b_approvals/FR-XX.json` per FR with `review_status=APPROVE` and `docs_embedded=[SRS.md, SAD.md]`
       Verify: `python harness_cli.py verify-agent-b-approvals --phase N --project .`
@@ -139,7 +141,7 @@ Before advancing to Phase N+1, confirm ALL:
 | Dispatch Agent A/B (HR-10) | `python harness_cli.py dispatch --role developer\|reviewer --fr-id FR-XX --prompt "..." --phase N` |
 | Run a gate evaluation | `python harness_cli.py run-gate --gate N --phase P [--fr-id FR-XX]` |
 | Finalize a gate | `python harness_cli.py finalize-gate --gate N --phase P` |
-| **Push P3+ milestone (required before git push)** | `python harness_cli.py push-milestone --type p3-mid\|p3-pre-ssi\|p4-mid\|p4-pre-ssi\|p5-baseline\|p7\|p8` |
+| **Push P3+ milestone (required before git push)** | `python harness_cli.py push-milestone --type p3-mid\|p3-pre-gate2\|p4-mid\|p4-pre-gate3\|p5-baseline\|p7\|p8` |
 | Verify Agent B approvals | `python harness_cli.py verify-agent-b-approvals --phase N --project .` |
 | Initialize a new project | `python harness_cli.py init-project --project /path/to/target --phase 1` |
 | Advance to next phase | `python harness_cli.py advance-phase --completed N --project .` |
@@ -301,7 +303,7 @@ State stored in `.methodology/state.json`:
 | Agent execution loop, modes, phase completion checklist, recovery | `SAD.md` §9 |
 | Autonomous pipeline, per-phase A/B roles table (P1–P8), human checkpoints | `SAD.md` §10 |
 | Phase E2E flow, entry/exit matrix, preflight hooks, Phase Truth weights | `SAD.md` §11 |
-| Gate evaluation CLI flow, result file schema, SSI assets | `SAD.md` §12 |
+| Gate evaluation CLI flow, result file schema, evaluation assets | `SAD.md` §12 |
 | CLI commands (plan-phase, run-gate, etc.) | `harness_cli.py --help` |
 | Gate thresholds & quality dimensions | `constitution/CONSTITUTION.md` §2 |
 | Full Mermaid phase flowchart | `docs/superpowers/plans/harness_phase_flowchart.md` |

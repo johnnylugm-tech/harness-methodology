@@ -37,7 +37,8 @@ class TestGitStrategyDisabled:
         assert gs.commit_and_push_p1(["FR-01"]) is True
         assert gs.commit_and_push_p2(["FR-01"]) is True
         assert gs.commit_and_push_p3_mid(1, 2, ["FR-01"]) is True
-        assert gs.commit_and_push_p3_pre_ssi(["FR-01"]) is True
+        assert gs.commit_and_push_p3_pre_gate2(["FR-01"]) is True
+        assert gs.commit_and_push_p4_pre_gate3(["FR-01"]) is True
         assert gs.commit_and_push_gate(2, 3, 85.0) is True
         assert gs.commit_and_push_p5_baseline() is True
         assert gs.commit_and_push_p7() is True

@@ -14,11 +14,11 @@ class TestHandoverGenerator:
     def test_write_creates_handover_md(self, tmp_path: Path):
         gen = HandoverGenerator(tmp_path)
         path = gen.write(
-            checkpoint_id="P3-pre-ssi-20260504",
+            checkpoint_id="P3-pre-gate2-20260504",
             phase=3,
             task_background="Implementing FR-001..FR-005.",
-            current_status="5/5 FRs Gate 1 PASS. SSI not yet run.",
-            next_steps=["Run SSI 3 rounds", "Fix Gate 2 failures"],
+            current_status="5/5 FRs Gate 1 PASS. Gate 2 not yet run.",
+            next_steps=["Run Gate 2 evaluation", "Fix Gate 2 failures"],
         )
         assert path == tmp_path / "HANDOVER.md"
         assert path.exists()
@@ -160,12 +160,12 @@ class TestGitStrategyHandover:
         assert "P3-mid" in content
         assert "3/6" in content
 
-    def test_p3_pre_ssi_writes_handover(self, tmp_path: Path):
+    def test_p3_pre_gate2_writes_handover(self, tmp_path: Path):
         gs = self._make_strategy(tmp_path)
-        gs.commit_and_push_p3_pre_ssi(fr_ids=["FR-001", "FR-002", "FR-003"])
+        gs.commit_and_push_p3_pre_gate2(fr_ids=["FR-001", "FR-002", "FR-003"])
         content = (tmp_path / "HANDOVER.md").read_text()
-        assert "P3-pre-ssi" in content
-        assert "SSI" in content
+        assert "P3-pre-gate2" in content
+        assert "Gate 2 not yet executed" in content
 
     def test_gate2_writes_handover(self, tmp_path: Path):
         gs = self._make_strategy(tmp_path)
@@ -822,9 +822,9 @@ class TestCmdPushMilestone:
         )
         assert exit_code == 0
 
-    def test_p3_pre_ssi(self, tmp_path, monkeypatch):
+    def test_p3_pre_gate2(self, tmp_path, monkeypatch):
         exit_code, _ = self._call_push_milestone(
-            monkeypatch, tmp_path, "p3-pre-ssi",
+            monkeypatch, tmp_path, "p3-pre-gate2",
             fr_ids="FR-01,FR-02,FR-03",
         )
         assert exit_code == 0
@@ -856,9 +856,9 @@ class TestCmdPushMilestone:
         )
         assert exit_code == 0
 
-    def test_p4_pre_ssi(self, tmp_path, monkeypatch):
+    def test_p4_pre_gate3(self, tmp_path, monkeypatch):
         exit_code, _ = self._call_push_milestone(
-            monkeypatch, tmp_path, "p4-pre-ssi",
+            monkeypatch, tmp_path, "p4-pre-gate3",
             fr_ids="FR-01,FR-02,FR-03",
         )
         assert exit_code == 0

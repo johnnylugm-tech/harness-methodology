@@ -21,7 +21,7 @@ Usage:
     python harness_cli.py check-logic       [--project .] [--srs SRS.md]
     python harness_cli.py init-project      --project /path/to/target [--phase 3] [--overwrite]
     python harness_cli.py push-checkpoint   --phase 1|2 --project . [--fr-ids FR-01,FR-02]
-    python harness_cli.py push-milestone    --type p3-mid|p3-pre-ssi|p5-baseline|p7|p8 --project .
+    python harness_cli.py push-milestone    --type p3-mid|p3-pre-gate2|p5-baseline|p7|p8 --project .
     python harness_cli.py advance-phase     --completed-phase 3 [--project .]
     python harness_cli.py await-hermes-approve --project . [--timeout-ms 600000] [--response APPROVE|REJECT]
     python harness_cli.py dispatch          --role developer|reviewer --fr-id FR-01 --prompt "..." --phase 3
@@ -33,9 +33,9 @@ Gate Evaluation (two-phase flow):
 
 Available gates:
     Gate 1  per-FR check       (P3/P4/P5/P7/P8, trigger: per_fr_completion)
-    Gate 2  P3 phase-exit      (score_gate: 75, 10 dims)
-    Gate 3  P4 phase-exit      (score_gate: 80, 15 dims, full CRG)
-    Gate 4  P6 full-project    (score_gate: 85, 15 dims, Hermes APPROVE required)
+    Gate 2  P3 phase-exit      (score_gate: 75, 9 dims)
+    Gate 3  P4 phase-exit      (score_gate: 80, 14 dims, full CRG)
+    Gate 4  P6 full-project    (score_gate: 85, 14 dims, Hermes APPROVE required)
 
 Exit codes:
     0   All phases complete
@@ -2802,16 +2802,16 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
 
     Milestone pushes are the crash-recovery points for P3+:
       p3-mid      — ≥50% FRs have Gate 1 PASS (PUSH ③)
-      p3-pre-ssi  — all FRs Gate 1 PASS, before SSI (PUSH ④)
+      p3-pre-gate2  — all FRs Gate 1 PASS, before Gate 2 (PUSH ④)
       p4-mid      — ≥50% FRs Gate 1 re-eval PASS (PUSH ③ P4 variant)
-      p4-pre-ssi  — all FRs Gate 1 re-eval PASS, before Gate 3 SSI (PUSH ④ P4 variant)
+      p4-pre-gate3  — all FRs Gate 1 re-eval PASS, before Gate 3 (PUSH ④ P4 variant)
       p5-baseline — BASELINE.md generated (PUSH ⑦)
       p7          — risk register complete (PUSH ⑨)
       p8          — config records complete (PUSH ⑩)
 
     Usage:
       python harness_cli.py push-milestone --type p3-mid --project . --fr-done 3 --fr-total 6 --fr-ids FR-01,FR-02,FR-03
-      python harness_cli.py push-milestone --type p3-pre-ssi --project . --fr-ids FR-01,FR-02,FR-03
+      python harness_cli.py push-milestone --type p3-pre-gate2 --project . --fr-ids FR-01,FR-02,FR-03
       python harness_cli.py push-milestone --type p5-baseline --project .
     """
     project = Path(args.project).resolve()
@@ -2838,8 +2838,8 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
             print("[ERROR] --fr-done and --fr-total required for p3-mid (fr-total must be >0)")
             return 1
         ok = git.commit_and_push_p3_mid(fr_done, fr_total, fr_ids)
-    elif milestone_type == "p3-pre-ssi":
-        ok = git.commit_and_push_p3_pre_ssi(fr_ids)
+    elif milestone_type == "p3-pre-gate2":
+        ok = git.commit_and_push_p3_pre_gate2(fr_ids)
     elif milestone_type == "p4-mid":
         fr_done = args.fr_done
         fr_total = args.fr_total
@@ -2847,8 +2847,8 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
             print("[ERROR] --fr-done and --fr-total required for p4-mid (fr-total must be >0)")
             return 1
         ok = git.commit_and_push_p4_mid(fr_done, fr_total, fr_ids)
-    elif milestone_type == "p4-pre-ssi":
-        ok = git.commit_and_push_p4_pre_ssi(fr_ids)
+    elif milestone_type == "p4-pre-gate3":
+        ok = git.commit_and_push_p4_pre_gate3(fr_ids)
     elif milestone_type == "p5-baseline":
         ok = git.commit_and_push_p5_baseline()
     elif milestone_type == "p7":
@@ -4725,10 +4725,10 @@ def build_parser() -> argparse.ArgumentParser:
     # push-milestone (P3+ milestone push + HANDOVER.md)
     pm = sub.add_parser(
         "push-milestone",
-        help="Push milestone checkpoint with HANDOVER.md (P3+: p3-mid, p3-pre-ssi, p5-baseline, p7, p8)",
+        help="Push milestone checkpoint with HANDOVER.md (P3+: p3-mid, p3-pre-gate2, p5-baseline, p7, p8)",
     )
     pm.add_argument("--type", required=True,
-                    choices=["p3-mid", "p3-pre-ssi", "p4-mid", "p4-pre-ssi",
+                    choices=["p3-mid", "p3-pre-gate2", "p4-mid", "p4-pre-gate3",
                              "p5-baseline", "p7", "p8"],
                     help="Milestone type")
     pm.add_argument("--project", default=".", help="Project root (default: .)")

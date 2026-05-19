@@ -6,7 +6,7 @@ harness/git_strategy.py — Gate-aligned Git commit + push strategy.
   PUSH ①  — P1 exit: SRS/SAD draft complete
   PUSH ②  — P2 exit: quality_manifest.json created (human checkpoint)
   PUSH ③  — P3 mid: FR Gate 1 PASS ≥ 50 % of total FRs
-  PUSH ④  — P3 pre-SSI: all FRs done, SSI not yet executed
+  PUSH ④  — P3 pre-Gate2: all FRs done, ready for Gate 2
   PUSH ⑤  — Gate 2 PASS (P3 exit, score ≥75): all FRs implemented
   PUSH ⑥  — Gate 3 PASS (P4 exit, score ≥80): full test suite
   PUSH ⑦  — P5 BASELINE.md (lightweight; auto-committed when present)
@@ -234,7 +234,7 @@ class GitStrategy:
                 p3_step,
                 "Implement each FR with TDD (Gate 1 target per FR ≥75)",
                 "Push P3-mid checkpoint at ≥50 % FR Gate 1 PASS",
-                "Push P3-pre-ssi checkpoint when all FRs done",
+                "Push P3-pre-gate2 checkpoint when all FRs done",
             ],
             notes=notes,
             extra={"fr_count": str(len(fr_ids))},
@@ -273,7 +273,7 @@ class GitStrategy:
         if remaining:
             remaining_str = ", ".join(remaining)
         elif all_ids:
-            remaining_str = "(all FRs Gate 1 PASS — ready for P3-pre-SSI)"
+            remaining_str = "(all FRs Gate 1 PASS — ready for P3-pre-gate2)"
         else:
             remaining_str = "(manifest not found — run `python3 harness_cli.py manifest` first)"
 
@@ -300,7 +300,7 @@ class GitStrategy:
             steps=[
                 f"Complete remaining {fr_total - fr_done} FR(s): {remaining_str}",
                 "Ensure each FR has passing unit tests (TDD)",
-                "When all FRs done → `push-milestone --type p3-pre-ssi`",
+                "When all FRs done → `push-milestone --type p3-pre-gate2`",
             ],
             notes=notes,
             extra={
@@ -317,18 +317,19 @@ class GitStrategy:
         )
         return self._commit_and_push(msg)
 
-    # ── Push ④ — P3 pre-SSI ─────────────────────────────────────────────────
+    # ── Push ④ — P3 pre-Gate2 ────────────────────────────────────────────────
 
-    def commit_and_push_p3_pre_ssi(
+    def commit_and_push_p3_pre_gate2(
         self,
         fr_ids: list[str],
         background: str = "",
         notes: list[str] | None = None,
     ) -> bool:
         """
-        Commit + push when all FRs done but SSI has not yet run.  PUSH ④
+        Commit + push when all FRs done but Gate 2 has not yet run.  PUSH ④
 
-        This is the last stable snapshot before SSI modifies files.
+        This is the last stable snapshot before the phase-exit gate evaluation
+        modifies files.
 
         Args:
             fr_ids:     All FR IDs (Gate 1 PASS).
@@ -346,7 +347,7 @@ class GitStrategy:
 
         status_parts = [
             f"All {len(fr_ids)} FR(s) Gate 1 PASS [{fr_list}]. "
-            "SSI 3-round quality cycle not yet started.",
+            "Gate 2 evaluation not yet started.",
         ]
         if ab:
             status_parts.append(f"\n**A/B Session Results:**\n{ab}")
@@ -355,13 +356,13 @@ class GitStrategy:
             status_parts.append(f"\n**Recently Committed Files:**\n{file_md}")
 
         self._write_handover(
-            checkpoint_id=self._cp("P3-pre-ssi"),
+            checkpoint_id=self._cp("P3-pre-gate2"),
             phase=3,
-            background=background or "P3 Implementation complete. SSI not yet executed.",
+            background=background or "P3 Implementation complete. Gate 2 not yet executed.",
             status="\n".join(status_parts),
             steps=[
-                "Run SSI 3 rounds (Gate 2 target score ≥ 75)",
-                "Fix any failures between SSI rounds",
+                "Run Gate 2 evaluation (target score ≥ 75)",
+                "Fix any failures during evaluation",
                 "On Gate 2 PASS → `finalize-gate --gate 2` handles push + HANDOVER",
             ],
             notes=notes,
@@ -371,10 +372,10 @@ class GitStrategy:
             },
             resume_phase=3,
         )
-        msg = f"feat(P3-pre-ssi): all {len(fr_ids)} FR(s) Gate1 PASS; ready for SSI"
+        msg = f"feat(P3-pre-gate2): all {len(fr_ids)} FR(s) Gate1 PASS; ready for Gate 2"
         return self._commit_and_push(msg)
 
-    # ── Push ③④ (P4 variant) — P4 mid + pre-SSI milestones ─────────────────
+    # ── Push ③④ (P4 variant) — P4 mid + pre-Gate3 milestones ────────────────
 
     def commit_and_push_p4_mid(
         self,
@@ -396,7 +397,7 @@ class GitStrategy:
         if remaining:
             remaining_str = ", ".join(remaining)
         elif all_ids:
-            remaining_str = "(all FRs Gate 1 PASS — ready for P4-pre-SSI)"
+            remaining_str = "(all FRs Gate 1 PASS — ready for P4-pre-gate3)"
         else:
             remaining_str = "(manifest not found — run `python3 harness_cli.py manifest` first)"
 
@@ -423,7 +424,7 @@ class GitStrategy:
             steps=[
                 f"Complete remaining {fr_total - fr_done} FR(s): {remaining_str}",
                 "Ensure each FR has ≥80% branch coverage",
-                "When all FRs done → `push-milestone --type p4-pre-ssi`",
+                "When all FRs done → `push-milestone --type p4-pre-gate3`",
             ],
             notes=notes,
             extra={
@@ -436,13 +437,13 @@ class GitStrategy:
         msg = f"feat(P4-mid): {fr_done}/{fr_total} FRs Gate1 re-eval PASS"
         return self._commit_and_push(msg)
 
-    def commit_and_push_p4_pre_ssi(
+    def commit_and_push_p4_pre_gate3(
         self,
         fr_ids: list[str],
         background: str = "",
         notes: list[str] | None = None,
     ) -> bool:
-        """Commit + push when all P4 FRs done but Gate 3 SSI not yet run."""
+        """Commit + push when all P4 FRs done but Gate 3 has not yet run."""
         if not self.enabled:
             return True
         if not fr_ids:
@@ -456,7 +457,7 @@ class GitStrategy:
 
         status_parts = [
             f"All {len(fr_ids)} FR(s) Gate 1 re-eval PASS [{fr_list}]. "
-            "Gate 3 SSI (15 dims) not yet started.",
+            "Gate 3 (14 dims) not yet started.",
         ]
         if ab:
             status_parts.append(f"\n**A/B Session Results:**\n{ab}")
@@ -465,13 +466,13 @@ class GitStrategy:
             status_parts.append(f"\n**Recently Committed Files:**\n{file_md}")
 
         self._write_handover(
-            checkpoint_id=self._cp("P4-pre-ssi"),
+            checkpoint_id=self._cp("P4-pre-gate3"),
             phase=4,
-            background=background or "P4 Testing complete. Gate 3 SSI not yet executed.",
+            background=background or "P4 Testing complete. Gate 3 not yet executed.",
             status="\n".join(status_parts),
             steps=[
-                "Run Gate 3 SSI (15 dims, target score ≥ 80)",
-                "Fix any failures between SSI rounds",
+                "Run Gate 3 evaluation (14 dims, target score ≥ 80)",
+                "Fix any failures during evaluation",
                 "On Gate 3 PASS → `finalize-gate --gate 3` handles push + HANDOVER",
             ],
             notes=notes,
@@ -481,7 +482,7 @@ class GitStrategy:
             },
             resume_phase=4,
         )
-        msg = f"feat(P4-pre-ssi): all {len(fr_ids)} FR(s) Gate1 re-eval PASS; ready for Gate 3 SSI"
+        msg = f"feat(P4-pre-gate3): all {len(fr_ids)} FR(s) Gate1 re-eval PASS; ready for Gate 3"
         return self._commit_and_push(msg)
 
     # ── Push ⑤⑥⑧ — Gate 2/3/4 PASS ────────────────────────────────────────
@@ -540,7 +541,7 @@ class GitStrategy:
         self._write_handover(
             checkpoint_id=self._cp(cp_map.get(gate_num, f"P{phase}-gate{gate_num}")),
             phase={2: 3, 3: 4, 4: 6}.get(gate_num, phase),
-            background=background or f"Gate {gate_num} PASS — SSI quality cycle complete.",
+            background=background or f"Gate {gate_num} PASS — quality cycle complete.",
             status=f"Gate {gate_num} PASS: score={score:.1f}. {suffix}".strip(),
             steps=next_steps_map.get(gate_num, ["Review gate results and proceed."]),
             notes=notes,

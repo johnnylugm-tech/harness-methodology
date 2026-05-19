@@ -209,7 +209,7 @@ class TestP3MilestonePushSteps:
         result = _p3_milestone_push_steps([])
         assert result == []
 
-    def test_all_fr_ids_in_pre_ssi_bash(self):
+    def test_all_fr_ids_in_pre_gate2_bash(self):
         """PUSH ④ must use full fr_ids (no ellipsis) in bash command."""
         lines = _p3_milestone_push_steps(["FR-01", "FR-02", "FR-03"])
         joined = "\n".join(lines)
@@ -224,14 +224,14 @@ class TestP3MilestonePushSteps:
         assert "…+2" in joined
         # P3-mid bash command uses first {mid} IDs only — no ellipsis
         assert "--fr-ids FR-01,FR-02,FR-03" in joined
-        # P3-pre-ssi bash command uses all IDs — no ellipsis
+        # P3-pre-gate2 bash command uses all IDs — no ellipsis
         assert "--fr-ids FR-01,FR-02,FR-03,FR-04,FR-05,FR-06,FR-07" in joined
 
     def test_contains_milestone_labels(self):
         lines = _p3_milestone_push_steps(["FR-01"])
         joined = "\n".join(lines)
         assert "PUSH ③ — P3-mid" in joined
-        assert "PUSH ④ — P3-pre-SSI" in joined
+        assert "PUSH ④ — P3-pre-gate2" in joined
         assert "push-milestone" in joined
 
 

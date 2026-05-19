@@ -866,17 +866,25 @@ def _phase_advance_step(phase: int) -> List[str]:
     return lines
 
 
+def _pre_gate_for_phase(phase: int) -> int:
+    """Return the exit-gate number for a given phase, for pre-gate milestone naming."""
+    return {3: 2, 4: 3}.get(phase, 2)
+
+
 def _p3_milestone_push_steps(fr_ids: List[str]) -> List[str]:
-    """P3 milestone push instructions (PUSH ③ at ≥50% FRs, PUSH ④ pre-SSI)."""
-    return _milestone_push_steps(fr_ids, phase=3, push_prefixes=("③", "④"))
+    """P3 milestone push instructions (PUSH ③ at ≥50% FRs, PUSH ④ pre-Gate2)."""
+    return _milestone_push_steps(fr_ids, phase=3, pre_gate=2, push_prefixes=("③", "④"))
 
 
 def _milestone_push_steps(fr_ids: List[str], phase: int,
+                          pre_gate: int | None = None,
                           push_prefixes: tuple[str, str] = ("", "")) -> List[str]:
-    """Phase milestone push instructions (mid + pre-SSI push checkpoints).
+    """Phase milestone push instructions (mid + pre-gate push checkpoints).
 
     Args:
-        push_prefixes: (mid_label, pre_ssi_label) — e.g. ("③", "④") for P3.
+        pre_gate: Gate number for pre-gate milestone (e.g. 2 for P3 → "p3-pre-gate2").
+            None = no pre-gate milestone generated.
+        push_prefixes: (mid_label, pre_gate_label) — e.g. ("③", "④") for P3.
             Omit for phases without dedicated push numbers (P4+).
     """
     if not fr_ids:
@@ -895,7 +903,8 @@ def _milestone_push_steps(fr_ids: List[str], phase: int,
     _strategy_label = (f" (10-Push Strategy {push_prefixes[0]}{push_prefixes[1]})"
                        if push_prefixes[0] else "")
 
-    return [
+    pre_gate_type = f"pre-gate{pre_gate}" if pre_gate else None
+    result = [
         f"### P{phase} Milestone Pushes{_strategy_label}",
         "",
         "> Per-FR Gate 1 only commits locally. The two **milestone pushes** below",
@@ -910,14 +919,18 @@ def _milestone_push_steps(fr_ids: List[str], phase: int,
         f"  > `--fr-ids` lists the FRs with Gate 1 PASS so far. Replace `{mid_ids}` with actual.",
         "  > Writes HANDOVER.md + commits + pushes. Next session reads HANDOVER.md to resume.",
         "",
-        f"- [ ] **{_pre_prefix}P{phase}-pre-SSI** (trigger when all {total} FRs Gate 1 PASS, before SSI):",
-        "  ```bash",
-        f"  python3 harness_cli.py push-milestone --type p{phase}-pre-ssi --project . \\",
-        f"    --fr-ids {full_ids}",
-        "  ```",
-        "  > Last stable snapshot before SSI modifies files. HANDOVER.md + push.",
-        "",
     ]
+    if pre_gate_type:
+        result += [
+            f"- [ ] **{_pre_prefix}P{phase}-{pre_gate_type}** (trigger when all {total} FRs Gate 1 PASS, before Gate {pre_gate}):",
+            "  ```bash",
+            f"  python3 harness_cli.py push-milestone --type p{phase}-{pre_gate_type} --project . \\",
+            f"    --fr-ids {full_ids}",
+            "  ```",
+            f"  > Last stable snapshot before Gate {pre_gate} evaluation. HANDOVER.md + push.",
+            "",
+        ]
+    return result
 
 
 def _gate1_checkpoint(fr_id: str, phase: int, checkpoint_n: int,
@@ -972,7 +985,7 @@ def _gate1_checkpoint(fr_id: str, phase: int, checkpoint_n: int,
         "  git log --oneline -1",
         "  ```",
         "  > `finalize-gate --gate 1` calls `commit_fr_gate1()` — **local commit only, no push**.",
-        f"  > Push + HANDOVER.md happens at milestone: `push-milestone --type p{phase}-mid` / `p{phase}-pre-ssi` / Gate exit.",
+        f"  > Push + HANDOVER.md happens at milestone: `push-milestone --type p{phase}-mid` / `p{phase}-pre-gate{_pre_gate_for_phase(phase)}` / Gate exit.",
         "",
     ]
 
@@ -1059,7 +1072,7 @@ def _checkpoint_index(fr_ids: List[str], phase: int) -> List[str]:
             cp += 1
     if phase == 3:
         lines.append("> - MILESTONE: P3-mid push (≥50% FRs Gate 1 PASS) → **HANDOVER.md**")
-        lines.append("> - MILESTONE: P3-pre-SSI push (all FRs done) → **HANDOVER.md**")
+        lines.append("> - MILESTONE: P3-pre-gate2 push (all FRs done) → **HANDOVER.md**")
     if phase == 5:
         lines.append("> - MILESTONE: P5-baseline push (BASELINE.md generated) → **HANDOVER.md**")
     if phase == 7:
@@ -1441,7 +1454,7 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path) -> List[str]:
             lines.extend(_gate1_checkpoint(fr_id, phase=4, checkpoint_n=checkpoint_n))
             checkpoint_n += 1
 
-    lines.extend(_milestone_push_steps(fr_ids, phase=4))
+    lines.extend(_milestone_push_steps(fr_ids, phase=4, pre_gate=3))
 
     lines.extend(_gate_exit_checkpoint(gate_num=3, phase=4, checkpoint_n=checkpoint_n))
 

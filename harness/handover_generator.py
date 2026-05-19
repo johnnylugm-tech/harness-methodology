@@ -9,13 +9,13 @@ Example::
 
     gen = HandoverGenerator(Path("/path/to/project"))
     gen.write(
-        checkpoint_id="P3-pre-ssi-20260504",
+        checkpoint_id="P3-pre-gate2-20260504",
         phase=3,
         task_background="Implementing harness-methodology FR-001..FR-012.",
-        current_status="12/12 FRs Gate 1 PASS. SSI not yet executed.",
+        current_status="12/12 FRs Gate 1 PASS. Gate 2 not yet executed.",
         next_steps=[
-            "Run SSI 3 rounds (Gate 2 target ≥75)",
-            "Fix any Gate 2 failures between rounds",
+            "Run Gate 2 evaluation (target ≥75)",
+            "Fix any Gate 2 failures during evaluation",
         ],
         notes=["100% follow SKILL.md"],
     )
@@ -161,7 +161,7 @@ class HandoverGenerator:
         Parameters
         ----------
         checkpoint_id:
-            Human-readable checkpoint label, e.g. ``"P3-pre-ssi-20260504"``.
+            Human-readable checkpoint label, e.g. ``"P3-pre-gate2-20260504"``.
         phase:
             Current pipeline phase number (1–8).
         task_background:
@@ -183,7 +183,7 @@ class HandoverGenerator:
         resume_phase:
             Phase to resume in the next session. Defaults to ``phase + 1``
             (phase-exit checkpoint). Set to ``phase`` for mid-phase checkpoints
-            (e.g. P3-mid, P3-pre-SSI) where the next session should continue
+            (e.g. P3-mid, P3-pre-gate2) where the next session should continue
             the same phase, not advance.
 
         Returns

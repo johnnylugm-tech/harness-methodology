@@ -114,7 +114,7 @@ class TestCmdGet:
 
     def test_string_field(self, tmp_path, capsys):
         sf = tmp_path / "state.json"
-        sf.write_text(json.dumps({"last_milestone_command": "push-milestone --type p3-pre-ssi"}),
+        sf.write_text(json.dumps({"last_milestone_command": "push-milestone --type p3-pre-gate2"}),
                       encoding="utf-8")
         args = self._args("last_milestone_command", "", sf)
         cmd_get(args)
