@@ -396,10 +396,10 @@ class TestVerifyAgentBApprovals:
         assert rc == 0
 
     def test_p2_uses_phase_deliverables_not_fr_ids(self, tmp_path, capsys):
-        """Phase 2 must verify SAD.md/ADR.md approvals; --fr-ids must be ignored."""
+        """Phase 2 must verify SAD.md/ADR.md/TEST_SPEC.md approvals; --fr-ids must be ignored."""
         approvals_dir = tmp_path / ".methodology" / "agent_b_approvals"
         approvals_dir.mkdir(parents=True)
-        for did in ["SAD.md", "ADR.md"]:
+        for did in ["SAD.md", "ADR.md", "TEST_SPEC.md"]:
             (approvals_dir / f"{did}.json").write_text(json.dumps({
                 "fr": did,
                 "review_status": "APPROVE",
@@ -410,7 +410,7 @@ class TestVerifyAgentBApprovals:
         args = argparse.Namespace(project=str(tmp_path), phase=2, fr_ids="FR-01,FR-02,FR-03")
         from harness_cli import cmd_verify_agent_b_approvals
         rc = cmd_verify_agent_b_approvals(args)
-        assert rc == 0  # SAD.md + ADR.md approvals present → pass
+        assert rc == 0  # SAD.md + ADR.md + TEST_SPEC.md approvals present → pass
 
 
 class TestValidateP8Completion:

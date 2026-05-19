@@ -412,7 +412,7 @@ _PHASE_EXIT_GATES: dict[int, int] = {3: 2, 4: 3, 6: 4}
 # P1/P2 deliverable labels used as approval-file keys in agent_b_approvals/
 _PHASE_DELIVERABLES: dict[int, list[str]] = {
     1: ["SRS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md"],
-    2: ["SAD.md", "ADR.md"],
+    2: ["SAD.md", "ADR.md", "TEST_SPEC.md"],
 }
 # Documents that Agent B must embed per phase (SAD.md doesn't exist until P2)
 _REQUIRED_EMBEDDED_DOCS: dict[int, list[str]] = {
@@ -583,6 +583,153 @@ def _flatten_test_names(inventory: dict | None) -> set[str]:
                             names.update(items)
     return names
 
+
+def _parse_test_spec(spec_path: Path) -> list[dict]:
+    """Parse TEST_SPEC.md and return all named test cases.
+
+    Handles the markdown table format produced by the derive_test_cases.md skill:
+      | # | Test Function | Type | Derivation |
+      |---|---|---|---|
+      | 1 | `test_frXX_...` | happy_path | Q1 |
+
+    Returns a list of dicts with keys: test_fn, type, derivation, fr_id.
+    Backtick-wrapped function names (e.g. `test_foo`) are unwrapped automatically.
+    """
+    results: list[dict] = []
+    if not spec_path.exists():
+        return results
+
+    text = spec_path.read_text(encoding="utf-8")
+    current_fr: str = ""
+    in_table = False
+    header_skipped = False
+
+    for line in text.splitlines():
+        stripped = line.strip()
+
+        # Detect FR section headers: ### FR-XX: ...
+        fr_match = re.match(r"^###\s+(FR-\d+)[:\s]", stripped)
+        if fr_match:
+            current_fr = fr_match.group(1)
+            in_table = False
+            header_skipped = False
+            continue
+
+        # Detect Cross-Cutting section
+        if re.match(r"^##\s+Cross-Cutting", stripped):
+            current_fr = "cross_cutting"
+            in_table = False
+            header_skipped = False
+            continue
+
+        # Detect table header row (| # | Test Function | ...)
+        if "|" in stripped and re.search(r"Test Function", stripped, re.IGNORECASE):
+            in_table = True
+            header_skipped = False
+            continue
+
+        # Skip the separator row (|---|---|...)
+        if in_table and re.match(r"^\|[-| ]+\|$", stripped):
+            header_skipped = True
+            continue
+
+        # Parse data rows
+        if in_table and header_skipped and stripped.startswith("|") and stripped.endswith("|"):
+            cols = [c.strip() for c in stripped.split("|")[1:-1]]
+            if len(cols) >= 3:
+                # cols[0] = #, cols[1] = test fn, cols[2] = type, cols[3] = derivation
+                raw_fn = cols[1].strip("`").strip()
+                if raw_fn.startswith("test_") and len(raw_fn) > 6:
+                    results.append({
+                        "test_fn": raw_fn,
+                        "type": cols[2] if len(cols) > 2 else "",
+                        "derivation": cols[3] if len(cols) > 3 else "",
+                        "fr_id": current_fr,
+                    })
+            continue
+
+        # A blank line or non-table line ends the table
+        if in_table and not stripped.startswith("|"):
+            if stripped:
+                in_table = False
+
+    return results
+
+
+def _run_spec_coverage_check(
+    project: Path,
+    threshold: float = 80.0,
+    *,
+    fr_id: str | None = None,
+    verbose: bool = True,
+) -> tuple[int, float]:
+    """Check TEST_SPEC.md items against actual test function implementations.
+
+    This is the 'backward' half of D4: for each test case declared in TEST_SPEC.md
+    (P2 deliverable), verify that a matching test function exists in tests/.
+
+    Args:
+        project: Project root directory.
+        threshold: Minimum percentage of spec items that must be implemented.
+        fr_id: If set, check only items for that FR (e.g. "FR-03").
+        verbose: Print detailed results.
+
+    Returns:
+        (exit_code, coverage_pct). 0 = pass, 1 = below threshold.
+        If TEST_SPEC.md is absent, returns (0, 100.0) — non-blocking.
+    """
+    spec_path = project / "02-architecture" / "TEST_SPEC.md"
+    if not spec_path.exists():
+        if verbose:
+            print("[spec-coverage] TEST_SPEC.md not found at 02-architecture/TEST_SPEC.md — skipping.")
+        return (0, 100.0)
+
+    items = _parse_test_spec(spec_path)
+    if fr_id:
+        items = [i for i in items if i["fr_id"] == fr_id]
+
+    if not items:
+        if verbose:
+            print(f"[spec-coverage] No test cases found in TEST_SPEC.md"
+                  + (f" for {fr_id}" if fr_id else "") + ".")
+        return (0, 100.0)
+
+    actual_fns = _scan_test_functions(project / "tests")
+
+    covered = [i for i in items if i["test_fn"] in actual_fns]
+    missing = [i for i in items if i["test_fn"] not in actual_fns]
+    pct = len(covered) / len(items) * 100
+
+    if verbose:
+        scope = f" [{fr_id}]" if fr_id else ""
+        print(f"[spec-coverage]{scope} {len(covered)}/{len(items)} ({pct:.1f}%)")
+        if missing:
+            print(f"  Missing ({len(missing)}):")
+            for item in missing[:20]:
+                print(f"    - {item['test_fn']}  (type={item['type']}, deriv={item['derivation']})")
+            if len(missing) > 20:
+                print(f"    ... and {len(missing) - 20} more")
+
+    if pct < threshold:
+        if verbose:
+            print(f"\n[BLOCKED] spec-coverage {pct:.1f}% < {threshold}% threshold")
+        return (1, pct)
+    return (0, pct)
+
+
+def cmd_spec_coverage_check(args: argparse.Namespace) -> int:
+    """Spec Coverage Check — compare TEST_SPEC.md items against actual test files.
+
+    Validates that every named test case declared in the P2 TEST_SPEC.md artifact
+    has been implemented as a real test function in tests/.
+    """
+    project = Path(args.project).resolve()
+    threshold = getattr(args, "threshold", 80.0)
+    fr_id = getattr(args, "fr_id", None)
+    code, _ = _run_spec_coverage_check(project, threshold, fr_id=fr_id, verbose=True)
+    return code
+
+
 def _run_test_inventory_check(
     project: Path,
     threshold: float = 80.0,
@@ -654,6 +801,13 @@ def _run_test_inventory_check(
                     print("\n[CRG Gaps] No untested hotspots from CRG.")
             except (json.JSONDecodeError, OSError) as e:
                 print(f"\n[CRG Gaps] Error reading CRG data: {e}")
+
+    # Spec Coverage sub-check: TEST_SPEC.md (P2 deliverable) backward check
+    # If TEST_SPEC.md exists, also verify that SPEC items are implemented.
+    # spec_threshold mirrors the TEST_INVENTORY threshold (same Gate level).
+    _sc_code, _sc_pct = _run_spec_coverage_check(project, threshold, verbose=True)
+    if _sc_code != 0:
+        return (_sc_code, _sc_pct)
 
     if pct < threshold:
         print(f"\n[BLOCKED] D4 Test Inventory Compliance {pct:.1f}% < {threshold}% threshold")
@@ -1768,6 +1922,17 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
             print(_red_msg)
             return 1
 
+    # ── I-4: Spec Coverage check (Gate 1 per-FR) ──────────────────────
+    # Verify that every TEST_SPEC.md entry for this FR has a matching test function.
+    # Threshold at Gate 1 is 40% — ensures at least skeleton tests exist before P3 proceeds.
+    if args.gate == 1 and fr_id and (Path(project) / "02-architecture" / "TEST_SPEC.md").exists():
+        _sc1_code, _sc1_pct = _run_spec_coverage_check(
+            project_path, 40.0, fr_id=fr_id, verbose=True
+        )
+        if _sc1_code != 0:
+            print(f"\n[BLOCKED] Gate 1 spec-coverage [{fr_id}] {_sc1_pct:.1f}% < 40% threshold")
+            return 1
+
     # ── I-1: D4 Test Inventory compliance (Gates 2-4) ──────────────
     if args.gate >= 2 and (Path(project) / "TEST_INVENTORY.yaml").exists():
         _d4_threshold = {2: 60.0, 3: 80.0, 4: 90.0}.get(args.gate, 80.0)
@@ -1779,6 +1944,17 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
         )
         if _d4_code != 0:
             print(f"\n[BLOCKED] Gate {args.gate} D4 Test Inventory {_d4_pct:.1f}% < {_d4_threshold}%")
+            return 1
+
+    # ── I-5: Spec Coverage check (Gates 2-4) ──────────────────────────
+    # Separate from D4 TEST_INVENTORY check. Thresholds: Gate2=40%, Gate3=70%, Gate4=90%.
+    if args.gate >= 2 and (Path(project) / "02-architecture" / "TEST_SPEC.md").exists():
+        _sc_threshold = {2: 40.0, 3: 70.0, 4: 90.0}.get(args.gate, 40.0)
+        _sc_code, _sc_pct = _run_spec_coverage_check(
+            project_path, _sc_threshold, verbose=True
+        )
+        if _sc_code != 0:
+            print(f"\n[BLOCKED] Gate {args.gate} spec-coverage {_sc_pct:.1f}% < {_sc_threshold}%")
             return 1
 
     # ── Gate 4 extra enforcement (A1/A2/A3/A4/A5/B2) ─────────────────
@@ -3808,6 +3984,7 @@ def _init_copy_templates(project: Path, harness_root: Path, *, overwrite: bool =
         ("01-requirements", "TRACEABILITY_MATRIX.md"),
         ("02-architecture", "SAD.md"),
         ("02-architecture/adr", "ADR.md"),
+        ("02-architecture", "TEST_SPEC.md"),
     ]
     copied = 0
     skipped = 0
@@ -4265,7 +4442,7 @@ def cmd_audit_structure(args: argparse.Namespace) -> int:
     PHASE_ARTIFACTS = {
         1: ["01-requirements/SRS.md", "01-requirements/SPEC_TRACKING.md",
             "01-requirements/TRACEABILITY_MATRIX.md"],
-        2: ["02-architecture/SAD.md"],
+        2: ["02-architecture/SAD.md", "02-architecture/TEST_SPEC.md"],
         3: ["03-development/src/", "03-development/tests/"],
         4: ["04-testing/TEST_PLAN.md", "04-testing/TEST_RESULTS.md"],
         5: ["05-verification/BASELINE.md", "05-verification/VERIFICATION_REPORT.md"],
@@ -4723,6 +4900,18 @@ def build_parser() -> argparse.ArgumentParser:
     cti.add_argument("--crg-gaps", action="store_true", dest="crg_gaps",
                      help="Cross-ref CRG untested hotspots against TEST_INVENTORY.yaml")
     cti.set_defaults(func=cmd_check_test_inventory)
+
+    # spec-coverage-check (D4 backward — TEST_SPEC.md items vs actual test functions)
+    scc = sub.add_parser(
+        "spec-coverage-check",
+        help="D4 backward: compare TEST_SPEC.md items against actual test implementations",
+    )
+    scc.add_argument("--project", default=".", help="Project root (default: .)")
+    scc.add_argument("--threshold", type=float, default=80.0,
+                     help="Minimum spec coverage percentage (default: 80.0)")
+    scc.add_argument("--fr-id", default=None, dest="fr_id",
+                     help="Check only a specific FR (e.g. FR-03)")
+    scc.set_defaults(func=cmd_spec_coverage_check)
 
     # audit-phase
     ap = sub.add_parser(

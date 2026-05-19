@@ -58,7 +58,7 @@
 | D1_Linting | 33% | 15% | 10% | 10% |
 | D2_TypeSafety | 33% | 15% | 10% | 10% |
 | D3_Coverage | 34% | 15% | 10% | 10% |
-| D4_TestInventory | — | 5% | 5% | 5% |
+| D4_TestInventory¹ | — | 5% | 5% | 5% |
 | D5_Security | — | 10% | 10% | 10% |
 | D6_Performance | — | 10% | 10% | 10% |
 | D7_Maintainability | — | 10% | 10% | 10% |
@@ -68,6 +68,11 @@
 | D11_Traceability | — | — | 5% | 5% |
 | D12_Compliance | — | — | 5% | 5% |
 | D13_Constitution | — | 10% | 5% | 5% |
+
+> ¹ **D4_TestInventory** has two sub-checks:
+> - **Forward (TEST_INVENTORY.yaml)**: declared test names → exist as functions in tests/. Thresholds: Gate2=60%, Gate3=80%, Gate4=90%.
+> - **Backward (TEST_SPEC.md spec-coverage)**: P2 TEST_SPEC.md items → implemented test functions. Thresholds: Gate1(per-FR)=40%, Gate2=40%, Gate3=70%, Gate4=90%.
+> Both sub-checks must pass at each gate. Use `harness_cli.py spec-coverage-check` for the backward check.
 
 ### 2.3 Entry Gate 前提條件
 

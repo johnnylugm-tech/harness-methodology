@@ -160,7 +160,7 @@ Before advancing to Phase N+1, confirm ALL:
 | Phase | Name | Entry Score | Exit Gate | Key Artifact |
 |-------|------|-------------|-----------|---------------|
 | P1 | Requirements Specification | — | Agent B¹ | SRS.md |
-| P2 | Architecture Design | Auto (git log)† | Agent B¹ | SAD.md, ADR.md |
+| P2 | Architecture Design | Auto (git log)† | Agent B¹ | SAD.md, ADR.md, TEST_SPEC.md |
 | P3 | Implementation | Auto (git log)† | Gate2 (75) | code + tests |
 | P4 | Testing | Gate2 | Gate3 (80) | TEST_RESULTS.md |
 | P5 | Verification & Delivery | Gate3 | None¹ | BASELINE.md |
@@ -231,7 +231,7 @@ Agent B (REVIEWER / architect)
 | Phase | Agent A Role | Agent B Role | Agent A Task | Agent B Task |
 |-------|------------|------------|--------------|--------------|
 | P1 | REQUIREMENTS_ENGINEER | BUSINESS_ANALYST | Draft SRS.md with `### FR-XX:` sections | Review SRS.md against business goals; verify FR-ID traceability |
-| P2 | ARCHITECT | TECH_LEAD | Design SAD.md; write ADR.md for key decisions | Review SAD.md for feasibility, consistency, SRS alignment |
+| P2 | ARCHITECT | TECH_LEAD | Design SAD.md; write ADR.md; generate TEST_SPEC.md via `derive_test_cases.md` skill | Review SAD.md, ADR.md, and TEST_SPEC.md for completeness, coverage, and SRS alignment |
 | P3 | DEVELOPER | REVIEWER | TDD: RED → GREEN → REFACTOR per FR | Review code against SRS/SAD; verify tests pass; check citations |
 | P4 | QA_ENGINEER | ARCHITECT | Execute TEST_PLAN.md per FR; verify coverage ≥ 80% | Review test results; confirm coverage gaps documented; validate traceability |
 | P5 | DEVELOPER | REVIEWER | Verify acceptance criteria per FR against SRS.md | Review acceptance verification; cross-check BASELINE.md against SRS |

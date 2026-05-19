@@ -172,6 +172,38 @@ Hooks are defined in `.methodology/hooks.json` and executed by `core/lifecycle_h
 
 ---
 
+## 2.6 P2-Specific: TEST_SPEC.md Generation (Required before P2 exit)
+
+> **Applies to Phase 2 only.** Skip this section for all other phases.
+
+After SAD.md and ADR.md are APPROVED by Agent B, Agent A (ARCHITECT) MUST generate
+`02-architecture/TEST_SPEC.md` using the `derive_test_cases.md` skill.
+
+**Steps**:
+1. Read the full `derive_test_cases.md` skill at `harness/ssi/prompts/derive_test_cases.md`
+2. Execute Step 1 of the skill: scan SRS §3 NFRs → build Active Pattern Set
+3. Execute Step 2 for every FR in SRS §2: 7-Question Protocol (Q1~Q7)
+4. Write `02-architecture/TEST_SPEC.md` following the format in Step 3
+5. Add the Cross-Cutting section (Step 4) and Summary table (Step 5)
+6. Agent B validates TEST_SPEC.md against the Agent B Validation Checklist in the skill
+
+**Verification command** (after P3 begins implementing tests):
+```bash
+python3 harness_cli.py spec-coverage-check --project . --threshold 40.0
+```
+
+**Gate thresholds for spec-coverage**:
+| Gate | Threshold | When checked |
+|------|-----------|--------------|
+| Gate 1 (per-FR) | 40% | Each FR in P3 |
+| Gate 2 (P3 exit) | 40% | P3 complete |
+| Gate 3 (P4 exit) | 70% | P4 complete |
+| Gate 4 (P6 full) | 90% | P6 complete |
+
+**P2 exit is blocked if TEST_SPEC.md is absent or contains no test cases.**
+
+---
+
 ## 3. FR-by-FR Task Table ({FR_COUNT} total)
 
 {FR_TABLE_ROWS}
