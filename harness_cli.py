@@ -1206,7 +1206,7 @@ def _check_gate4_prerequisites(project: Path) -> bool:
         try:
             receipt_data = json.loads(receipt.read_text(encoding="utf-8"))
             composite = receipt_data.get("composite_score")
-            if not isinstance(composite, (int, float)) or composite <= 0:
+            if isinstance(composite, bool) or not isinstance(composite, (int, float)) or composite <= 0:
                 print(
                     f"\n[BLOCKED] Gate 4 (A1b): hermes_g4_receipt.json has invalid "
                     f"composite_score ({composite!r}) — expected a positive number.\n"
@@ -1395,9 +1395,9 @@ def _check_gate4_prerequisites(project: Path) -> bool:
     try:
         import yaml as _yaml
         import glob as _b3glob
-        _crg_cfg_files = _b3glob.glob(
+        _crg_cfg_files = sorted(_b3glob.glob(
             str(project / "harness" / "gate_configs" / "gate4_*.yaml")
-        )
+        ))
         _crg_recon_required = False
         for _crg_cfg_path in _crg_cfg_files:
             try:
@@ -1405,8 +1405,9 @@ def _check_gate4_prerequisites(project: Path) -> bool:
                 if (_crg_cfg or {}).get("crg", {}).get("reconnaissance"):
                     _crg_recon_required = True
                     break
-            except Exception:
-                pass
+            except Exception as _b3_cfg_exc:
+                print(f"[Gate 4] B3: skipping {_crg_cfg_path} (parse error: {_b3_cfg_exc})",
+                      file=sys.stderr)
         if _crg_recon_required:
             recon_dir = project / ".sessi-work" / "crg_recon"
             recon_files = list(recon_dir.iterdir()) if recon_dir.is_dir() else []
@@ -1741,10 +1742,13 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
             null_ts_entries = [e for e in fr_entries if "ts" in e and e["ts"] is None]
             if null_ts_entries:
                 print(f"\n[BLOCKED] HR-10b: {fr_id} has {len(null_ts_entries)} "
-                      f"entry/entries with null timestamp (ts: null).")
-                print(f"  AgentSpawner always records a numeric ts. A null value indicates")
-                print(f"  the entry was manually written to bypass the spawner requirement.")
-                print(f"  Re-dispatch via the `dispatch` CLI and re-run finalize-gate.")
+                      f"entry/entries with null timestamp (ts: null).", file=sys.stderr)
+                print(f"  AgentSpawner always records a numeric ts. A null value indicates",
+                      file=sys.stderr)
+                print(f"  the entry was manually written to bypass the spawner requirement.",
+                      file=sys.stderr)
+                print(f"  Re-dispatch via the `dispatch` CLI and re-run finalize-gate.",
+                      file=sys.stderr)
                 return 5
         except Exception as _e:  # pylint: disable=broad-exception-caught
             print(f"\n[WARN] HR-10: sessions_spawn.log parse error ({_e}) — skipping enforcement to avoid deadlock.")

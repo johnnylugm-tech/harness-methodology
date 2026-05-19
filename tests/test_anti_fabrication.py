@@ -1115,6 +1115,23 @@ class TestHermesReceiptIntegrity:
         blocked = _check_gate4_prerequisites(tmp_path)
         assert not blocked, f"Valid composite_score 91.5 should not block Gate 4, got blocked={blocked}"
 
+    def test_bool_true_composite_score_blocked(self, tmp_path):
+        """Receipt with composite_score: true (JSON bool) is blocked (A1b).
+
+        bool is a subclass of int in Python, so True passes isinstance(x, int)
+        with value 1.  The guard must explicitly reject bools.
+        """
+        from harness_cli import _check_gate4_prerequisites
+        self._make_prerequisites(tmp_path)
+        receipt = tmp_path / ".methodology" / "hermes_g4_receipt.json"
+        receipt.write_text(json.dumps({
+            "ts": "2026-05-19T12:00:00Z",
+            "approved_by": "hermes",
+            "composite_score": True,  # JSON true → Python True
+        }))
+        blocked = _check_gate4_prerequisites(tmp_path)
+        assert blocked, "composite_score: true (bool) should block Gate 4 (A1b)"
+
     def test_invalid_json_receipt_blocked(self, tmp_path):
         """A receipt that is not valid JSON is blocked (A1b)."""
         from harness_cli import _check_gate4_prerequisites
@@ -1288,8 +1305,4 @@ class TestCRGReconCheck:
         # No crg_recon/ dir at all — should not block for B3 reasons
         # (crg_recon/ being absent is fine when reconnaissance: false)
         blocked = _check_gate4_prerequisites(tmp_path)
-        # blocked may be True for other reasons (A2 etc.); just verify B3 alone
-        # does not add its own block by checking we get the same result
-        # regardless of whether crg_recon/ exists
-        recon_dir = tmp_path / ".sessi-work" / "crg_recon"
-        assert not recon_dir.exists()  # confirm we never created it
+        assert not blocked, f"reconnaissance: false with no crg_recon/ should not block Gate 4, got blocked={blocked}"
