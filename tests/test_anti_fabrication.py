@@ -1113,20 +1113,7 @@ class TestHermesReceiptIntegrity:
             "composite_score": 91.5,
         }))
         blocked = _check_gate4_prerequisites(tmp_path)
-        # A2 might still block (model_used only has linting, Tier 3 dims not in it)
-        # We just check that A1b does NOT cause a block by verifying the receipt
-        # does not produce an "A1b" error (we look at stderr in a different way,
-        # but here we just verify the function returns False for A1 reasons
-        # only when composite_score is bad)
-        # Simplest assertion: A1b does not independently block when score is valid
-        assert receipt.exists()  # receipt was written correctly
-        # The full _check_gate4_prerequisites may still block for A2/A3/A4/A5 reasons,
-        # but those are separate checks. A1b specifically should NOT block here.
-        # We verify by checking that blocked is not True due to A1b alone:
-        # (run with A2/A3/A4/A5 all satisfied)
-        # Since prerequisites are minimal, other checks may still block — that's OK.
-        # The critical thing is composite_score: 91.5 → A1b passes.
-        pass  # No assertion on blocked: other prereqs may not be fully satisfied
+        assert not blocked, f"Valid composite_score 91.5 should not block Gate 4, got blocked={blocked}"
 
     def test_invalid_json_receipt_blocked(self, tmp_path):
         """A receipt that is not valid JSON is blocked (A1b)."""
@@ -1292,12 +1279,7 @@ class TestCRGReconCheck:
         recon_dir.mkdir(parents=True)
         (recon_dir / "graph.json").write_text(json.dumps({"nodes": 42}))
         blocked = _check_gate4_prerequisites(tmp_path)
-        # B3 specifically should not block; other checks may still block for
-        # unrelated reasons (A2 model_used may block). We just verify B3 passes:
-        # run with all required fields + crg_recon populated.
-        # blocked may still be True from other A/B checks; that's acceptable.
-        # Critical: no B3 block = no "CRG reconnaissance output not found" in stderr
-        assert (recon_dir / "graph.json").exists()  # sanity
+        assert not blocked, f"Populated crg_recon/ should not block Gate 4, got blocked={blocked}"
 
     def test_no_recon_config_skips_check(self, tmp_path):
         """B3: crg.reconnaissance: false → no B3 enforcement."""

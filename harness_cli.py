@@ -1401,7 +1401,7 @@ def _check_gate4_prerequisites(project: Path) -> bool:
         _crg_recon_required = False
         for _crg_cfg_path in _crg_cfg_files:
             try:
-                _crg_cfg = _yaml.safe_load(open(_crg_cfg_path, encoding="utf-8"))
+                _crg_cfg = _yaml.safe_load(Path(_crg_cfg_path).read_text(encoding="utf-8"))
                 if (_crg_cfg or {}).get("crg", {}).get("reconnaissance"):
                     _crg_recon_required = True
                     break
