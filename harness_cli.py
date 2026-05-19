@@ -538,7 +538,7 @@ def _check_red_phase_ordering(project: Path, fr_id: str) -> tuple[bool, str]:
         except (json.JSONDecodeError, OSError):
             pass
 
-    src_ts = _first_at(src_patterns, exclude=["tests/*"])
+    src_ts = _first_at(src_patterns, exclude=["tests/"])
     if src_ts is not None and test_ts > src_ts:
         lag = int(test_ts - src_ts)
         return False, (
@@ -709,10 +709,12 @@ def _parse_inventory_fallback(text: str) -> dict:
         line_s = line.strip()
         if line_s.startswith("cross_cutting"):
             current_section = "cross_cutting"
-        elif line_s.startswith("  "):
-            m2 = re.match(r"^(\w+):", line_s)
-            if m2:
-                current_sub = m2.group(1)
+        elif line and line[0] == " " and re.match(r"^(\w+):\s*$", line_s):
+            # Indented YAML key (sub-section like unit:, integration:, security:).
+            # Must check original `line` for indentation (line_s is stripped).
+            # Must NOT catch list items like "      - test_name" which also have
+            # leading spaces but do not match r"^(\w+):\s*$".
+            current_sub = re.match(r"^(\w+)", line_s).group(1)
         elif line_s.startswith("- "):
             name = line_s[2:].strip()
             result.setdefault(current_section, {}).setdefault(current_sub, []).append(name)
@@ -2883,14 +2885,19 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
             import hashlib
             _cksum = hashlib.sha256(inventory_path.read_bytes()).hexdigest()
             _state_path = project / ".methodology" / "state.json"
-            if _state_path.exists():
-                try:
-                    _state = json.loads(_state_path.read_text())
+            try:
+                with file_lock(state_lock_path(_state_path.parent.parent)):
+                    _state: dict = {}
+                    if _state_path.exists():
+                        try:
+                            _state = json.loads(_state_path.read_text(encoding="utf-8"))
+                        except (json.JSONDecodeError, OSError):
+                            pass
                     _state["test_inventory_checksum"] = _cksum
-                    _state_path.write_text(json.dumps(_state, indent=2))
+                    atomic_write_json(_state_path, _state)
                     print(f"  [D4] TEST_INVENTORY.yaml checksum: {_cksum[:12]}...")
-                except (json.JSONDecodeError, OSError) as _e:
-                    print(f"  [WARN] Could not write test_inventory_checksum: {_e}")
+            except OSError as _e:
+                print(f"  [WARN] Could not write test_inventory_checksum: {_e}")
 
     # ── Gate score variance check ─────────────────────────────────────
     if completed_phase >= 3:

@@ -17,8 +17,8 @@ dimensions:
   - { name: error_handling,        tier: 3, model: claude,       threshold: 80,  weight: 0.08 }
   - { name: documentation,         tier: 3, model: claude,       threshold: 75,  weight: 0.06 }
   - { name: performance,           tier: 3, model: claude,       threshold: 75,  weight: 0.06 }
-  - { name: integration_coverage,  tier: 2, model: gemini-flash, threshold: 60,  weight: 0.05, tool: pytest,         requires_tool_execution: true }
-  - { name: test_assertion_quality, tier: 2, model: gemini-flash, threshold: 60,  weight: 0.02, tool: pytest,         requires_tool_execution: true }
+  - { name: integration_coverage,  tier: 2, model: gemini-flash, threshold: 75,  weight: 0.05, tool: pytest,         requires_tool_execution: true }
+  - { name: test_assertion_quality, tier: 2, model: gemini-flash, threshold: 70,  weight: 0.02, tool: pytest,         requires_tool_execution: true }
 blocking: true
 score_gate: 85
 max_rounds: 3

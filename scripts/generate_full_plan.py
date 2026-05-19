@@ -280,7 +280,7 @@ _GATE_META: dict = {
     1: (None, 3,  "linting(90) · type_safety(85) · test_coverage(80)"),
     2: (75,   10, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · integration_coverage(60) · test_assertion_quality(60)  [D4 TEST_INVENTORY.yaml imperative check ≥60%]"),
     3: (80,   15, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · integration_coverage(60) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · test_assertion_quality(60) · performance(75)  [CRG recon inside run-gate · D4 TEST_INVENTORY.yaml imperative check ≥80%]"),
-    4: (85,   15, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · performance(75) · integration_coverage(60) · test_assertion_quality(60)  [CRG recon inside run-gate · D4 TEST_INVENTORY.yaml imperative check ≥90% · Hermes APPROVE required]"),
+    4: (85,   15, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · performance(75) · integration_coverage(75) · test_assertion_quality(70)  [CRG recon inside run-gate · D4 TEST_INVENTORY.yaml imperative check ≥90% · Hermes APPROVE required]"),
 }
 
 # A/B agent roles per phase: (Agent-A role, Agent-B role, task hint)

@@ -439,3 +439,185 @@ class TestR8bObjectivePrimary:
         r8 = [i for i in issues if i.startswith("R8")]
         assert r8, "expected R8 (null tool_score for Tier 1)"
         assert any("R8:" in i for i in r8), "must be R8 not R8b only"
+
+# ===================================================================
+# Fix 6: Wiring tests — I-2 and I-3 are called from cmd_finalize_gate
+# ===================================================================
+
+class TestFinalizeGateCompliance:
+    """Verify I-2 (FR test file) and I-3 (RED ordering) block cmd_finalize_gate."""
+
+    @staticmethod
+    def _setup_finalize_context(tmp_path: Path, gate: int = 1,
+                                phase: int = 3, fr_id: str = "FR-07") -> None:
+        """Write minimal state needed to reach the I-2/I-3 check in finalize-gate.
+
+        Bypasses: state.json seal (omitted → LEGACY warning, no block),
+        commit interval (no timestamp file → first gate, passes),
+        HR-10 (spawn_log present but FR-07 absent → skip enforcement).
+        """
+        import json as _json
+
+        methodology = tmp_path / ".methodology"
+        methodology.mkdir(parents=True, exist_ok=True)
+
+        # state.json without seal → LEGACY, warns but doesn't block
+        (methodology / "state.json").write_text(
+            _json.dumps({"state": "ACTIVE", "current_phase": phase})
+        )
+
+        # quality_manifest.json (required by bridge pre-checks)
+        (methodology / "quality_manifest.json").write_text(
+            _json.dumps({"fr_ids": [fr_id], "gate_results": {"gate1": {}}})
+        )
+
+        # sessions_spawn.log with 2 valid A/B entries for fr_id so HR-10 passes
+        # (HR-10 needs ≥2 entries with ≥2 distinct roles and distinct session_ids)
+        (methodology / "sessions_spawn.log").write_text(
+            _json.dumps({
+                "fr_id": fr_id, "role": "developer",
+                "session_id": "test-sid-agent-a",
+            }) + "\n" +
+            _json.dumps({
+                "fr_id": fr_id, "role": "reviewer",
+                "session_id": "test-sid-agent-b",
+            }) + "\n"
+        )
+
+        # gate result file (bridge reads this)
+        sessi = tmp_path / ".sessi-work"
+        sessi.mkdir(parents=True, exist_ok=True)
+        (sessi / f"gate{gate}_result.json").write_text(_json.dumps({
+            "gate": gate, "phase": phase, "fr_id": fr_id,
+            "score": 95.0, "quality_complete": True,
+            "dimensions": {"linting": 95, "type_safety": 95, "test_coverage": 95},
+        }))
+
+        # sentinel file (run-gate must precede finalize-gate)
+        key = fr_id.replace("-", "").lower()
+        sentinel_dir = sessi / "sentinels"
+        sentinel_dir.mkdir(parents=True, exist_ok=True)
+        (sentinel_dir / f"g{gate}_{key}.flag").write_text("test")
+
+    def _run(self, monkeypatch, tmp_path: Path,
+             gate: int = 1, phase: int = 3, fr_id: str = "FR-07") -> tuple[int, str]:
+        import argparse, io
+        from harness_cli import cmd_finalize_gate
+        monkeypatch.setattr(
+            "harness_cli._make_git",
+            lambda args, project: __import__(
+                "harness.git_strategy"
+            ).git_strategy.GitStrategy(project, enabled=False),
+        )
+        captured = io.StringIO()
+        monkeypatch.setattr("sys.stdout", captured)
+        a = argparse.Namespace(gate=gate, phase=phase,
+                               project=str(tmp_path), fr_id=fr_id)
+        try:
+            code = cmd_finalize_gate(a)
+        except SystemExit as e:
+            code = e.code
+        return code, captured.getvalue()
+
+    def test_i2_missing_test_file_returns_8(self, tmp_path: Path, monkeypatch):
+        """cmd_finalize_gate returns 8 when FR test file is absent (I-2 wiring)."""
+        self._setup_finalize_context(tmp_path)
+        # tests/ dir exists but test_fr07.py is absent
+        (tmp_path / "tests").mkdir()
+
+        code, output = self._run(monkeypatch, tmp_path)
+        assert code == 8, f"expected 8 (I-2 block), got {code}\n{output}"
+        assert "BLOCKED" in output
+        assert "test_fr07.py" in output
+
+    def test_i2_present_test_file_does_not_block_on_i2(self, tmp_path: Path, monkeypatch):
+        """cmd_finalize_gate does NOT return 8 for I-2 when test file exists."""
+        self._setup_finalize_context(tmp_path)
+        (tmp_path / "tests").mkdir()
+        (tmp_path / "tests" / "test_fr07.py").write_text("def test_stub(): pass\n")
+
+        # I-3 (RED ordering) may still block — that's fine; we only care it's not I-2.
+        code, output = self._run(monkeypatch, tmp_path)
+        # I-2 block would produce "test_fr07.py" with "BLOCKED" and exit 8
+        assert not (code == 8 and "test_fr07.py" in output), (
+            "I-2 incorrectly blocked despite test file being present"
+        )
+
+    def test_no_tests_dir_skips_i2_i3(self, tmp_path: Path, monkeypatch):
+        """Without a tests/ dir (e.g. non-standard layout), I-2/I-3 are skipped."""
+        self._setup_finalize_context(tmp_path)
+        # Deliberately no tests/ directory
+
+        code, output = self._run(monkeypatch, tmp_path)
+        # Should not block on I-2 (test file check skipped when tests/ absent)
+        assert not (code == 8 and "test_fr07.py" in output), (
+            "I-2 check must not fire when tests/ directory is absent"
+        )
+
+
+# ===================================================================
+# Fix 7: _parse_inventory_fallback coverage
+# ===================================================================
+
+class TestParseInventoryFallback:
+    """_parse_inventory_fallback: YAML-free parser for CI/min-dep environments."""
+
+    def _parse(self, text: str) -> dict:
+        from harness_cli import _parse_inventory_fallback
+        return _parse_inventory_fallback(text)
+
+    def test_basic_fr_unit_names_extracted(self):
+        yaml = (
+            "fr_tests:\n"
+            "  FR-07:\n"
+            "    unit:\n"
+            "      - test_knowledge_exact_match\n"
+            "      - test_knowledge_no_match\n"
+        )
+        result = self._parse(yaml)
+        assert "test_knowledge_exact_match" in result["fr_tests"].get("unit", [])
+        assert "test_knowledge_no_match" in result["fr_tests"].get("unit", [])
+
+    def test_integration_sub_key_distinguished_from_unit(self):
+        yaml = (
+            "fr_tests:\n"
+            "  FR-07:\n"
+            "    unit:\n"
+            "      - test_unit_one\n"
+            "    integration:\n"
+            "      - test_integration_one\n"
+        )
+        result = self._parse(yaml)
+        assert "test_unit_one" in result["fr_tests"].get("unit", [])
+        assert "test_integration_one" in result["fr_tests"].get("integration", [])
+
+    def test_cross_cutting_section_parsed(self):
+        yaml = (
+            "cross_cutting:\n"
+            "  security:\n"
+            "    - test_redteam_injection\n"
+        )
+        result = self._parse(yaml)
+        assert "test_redteam_injection" in result["cross_cutting"].get("security", [])
+
+    def test_empty_text_returns_empty_structure(self):
+        result = self._parse("")
+        assert result == {"fr_tests": {}, "cross_cutting": {}}
+
+    def test_flatten_after_fallback_finds_all_names(self):
+        """_flatten_test_names must work on fallback-parsed output."""
+        from harness_cli import _flatten_test_names
+        yaml = (
+            "fr_tests:\n"
+            "  FR-01:\n"
+            "    unit:\n"
+            "      - test_a\n"
+            "    integration:\n"
+            "      - test_b\n"
+            "cross_cutting:\n"
+            "  security:\n"
+            "    - test_c\n"
+        )
+        parsed = self._parse(yaml)
+        names = _flatten_test_names(parsed)
+        assert names == {"test_a", "test_b", "test_c"}
