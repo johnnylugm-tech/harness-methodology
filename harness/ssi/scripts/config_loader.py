@@ -63,6 +63,19 @@ DEFAULT_CONFIG = {
             "target": 70,
             "tools": [],
             "time_budget_seconds": 300,
+            "objective_primary": True,  # mutmut score is objective; llm only adjusts down
+        },
+        "test_assertion_quality": {
+            "enabled": True,
+            "weight": 0.02,
+            "target": 60,
+            "tools": [],
+        },
+        "integration_coverage": {
+            "enabled": True,
+            "weight": 0.05,
+            "target": 60,
+            "tools": [],
         },
         "license_compliance": {
             "enabled": True,
@@ -117,7 +130,7 @@ DEFAULT_CONFIG = {
         "tier2": {
             "provider": "gemini",
             "model": "gemini-2.5-flash",
-            "dimensions": ["security"],
+            "dimensions": ["security", "integration_coverage", "test_assertion_quality"],
         },
         "tier3": {
             "provider": "claude_native",

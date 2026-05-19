@@ -176,6 +176,20 @@ def validate_score_file(
             "init-project blocks on missing tools; run-gate pre-checks before evaluation starts."
         )
 
+    # R8b: objective_primary flag — tool_score is the authoritative source.
+    # When set, llm_score can only reduce (via R4 min()), not replace or override.
+    # If llm_score differs from tool_score by >10 points, warn (potential LLM hallucination
+    # or LLM overcorrecting valid objective data). This is advisory, not blocking.
+    objective = score_data.get("objective_primary", False)
+    if objective and ts is not None and ls is not None:
+        if abs(ls - ts) > 10:
+            issues.append(
+                f"R8b: [{dim_name}] objective_primary dimension — "
+                f"llm_score ({ls}) deviates from tool_score ({ts}) by >10 points. "
+                "The objective tool output should be the primary determinant. "
+                "Verify the tool output is correct before accepting llm_score override."
+            )
+
     return issues
 
 

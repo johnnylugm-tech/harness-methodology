@@ -28,9 +28,41 @@
 |------|------------|
 | {term} | {definition} |
 
+## 6. Cross-Cutting Test Requirements
+
+> 此章節由 harness P1 模板自動注入，開發者必須填入具體測試名稱後才可進入 P2。
+> 執行 `check-test-inventory --srs-crosscut` 可掃描未填寫的 placeholder。
+
+### API Completeness（每個端點必須有以下四類測試）
+- 正常流程 (2xx)
+- 認證失敗 (401)
+- 速率限制 (429)
+- 驗證錯誤 (400/422)
+
+**待填清單**（開發者補充）：
+- [ ] `test_<endpoint>_<scenario>_returns_<status>`
+- [ ] ...
+
+### Security Red Team
+- [ ] `test_redteam_prompt_injection_direct_<entrypoint>_payload`
+- [ ] `test_redteam_rate_limit_burst_attack_blocked`
+- [ ] `test_redteam_pii_mixed_<type>_leak_detected`
+
+### KPI Gates（對應 ODD SQL + k6）
+- [ ] `test_kpi_p95_latency_phase<N>_under_<X>s`
+- [ ] `test_kpi_fcr_phase<N>_target_<X>_percent`
+
+### Deployment Smoke
+- [ ] `test_deploy_docker_compose_all_services_healthy`
+- [ ] `test_deploy_health_endpoint_returns_200_after_startup`
+- [ ] `test_backup_pg_basebackup_and_restore` (Phase 3+)
+
+### Version Consistency（Phase 2+ 必填）
+- [ ] `test_backward_compat_phase<N-1>_tests_pass_in_phase<N>_env`
+
 ---
 
-## 6. FR Block (machine-readable)
+## 7. FR Block (machine-readable)
 
 <!-- FR:START -->
 ```json

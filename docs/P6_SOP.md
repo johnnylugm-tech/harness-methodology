@@ -6,7 +6,9 @@
 ## Step 6.1 — Gate 4 (12-dim full harness)
 ```bash
 python harness_cli.py run-gate --gate 4 --phase 6
-# 12 dims, All Tiers, score_gate=85, max_rounds=3
+# 14 dims, All Tiers, score_gate=85, max_rounds=3
+# 新增維度: integration_coverage (0.05), test_assertion_quality (0.02)
+# mutation_testing: objective_primary=true (tool_score 優先於 llm_score)
 # CRG: full integration (Point 1-4)
 # mutation_testing: median_runs=3
 ```
@@ -78,10 +80,12 @@ SAD constraints:
 All previous gate results:
 > {paste quality_manifest.json gate_results — embed}
 
-12 quality dimensions (from constitution/CONSTITUTION.md §2):
-1. linting | 2. type_safety | 3. test_coverage | 4. documentation
-5. readability | 6. error_handling | 7. security | 8. performance
-9. architecture | 10. maintainability | 11. traceability | 12. integrity
+14 quality dimensions:
+1. linting | 2. type_safety | 3. test_coverage | 4. security
+5. secrets_scanning | 6. license_compliance | 7. mutation_testing
+8. architecture | 9. readability | 10. error_handling
+11. documentation | 12. performance | 13. integration_coverage
+14. test_assertion_quality
 
 Expected output:
 - QUALITY_REPORT.md (per-dimension score + overall Gate 4 score)
@@ -109,7 +113,7 @@ Gate 4 result:
 > {paste gate4_result.json — embed}
 
 Review criteria:
-1. All 12 dimensions evaluated? (no skipped dimensions)
+1. All 14 dimensions evaluated? (no skipped dimensions)
 2. Per-dimension scores consistent with evidence?
 3. open_critical == 0 confirmed?
 4. All FRs represented in the quality report?

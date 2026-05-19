@@ -17,7 +17,7 @@
 | Phase 3-4 | PASS/FAIL |
 | Phase 5-6 | PASS/FAIL |
 
-## 3. Gate 4 Dimensions (12 dims, score_gate ≥ 85)
+## 3. Gate 4 Dimensions (14 dims, score_gate ≥ 85)
 
 | Tier | Dimension | Threshold | Score | Status |
 |------|-----------|-----------|-------|--------|

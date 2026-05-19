@@ -13,6 +13,17 @@
 fr_list = parse_fr_ids("SAD.md")  # e.g. ["FR-001", "FR-002", "FR-003"]
 ```
 
+### 0.1a 驗證 FR→Test 檔案對應（Test Compliance Check）
+
+Gate 1 前自動驗證（`cmd_finalize_gate` 內建 hook）：
+- **I-2**: 每個 FR 必須有對應的 `tests/test_fr_{id}.py` 才算完整（FR→test file check）
+- **I-3**: 測試檔案 commit 必須早於實作程式碼（RED-first ordering）
+
+```bash
+python harness_cli.py check-test-inventory --diff-mode
+# 返回：各 FR 的 test 檔案狀態 + TDD RED-first 順序驗證
+```
+
 ### 0.2 為每個 FR 建立 failing test stub
 
 For each FR, create `tests/test_fr_<id>.py`:
@@ -81,8 +92,11 @@ python harness_cli.py run-gate --gate 1 --phase 3 --fr-id FR-001
 
 ```bash
 python harness_cli.py run-gate --gate 2 --phase 3
-# 7 dims, score_gate=75, max_rounds=3, early_stop=true
+# 9 dims (Tier 1+2), score_gate=75, max_rounds=3, early_stop=true
+# 新增維度: integration_coverage (0.10), test_assertion_quality (0.06)
+# mutation_testing: objective_primary=true (tool_score 優先於 llm_score)
 # 額外 check: 所有 test_fr_*.py 存在且為 GREEN state
+# 額外 check: check-test-inventory --diff-mode 無 FAIL
 # Blocking: score < 75 OR any FR still RED -> issue-driven plan -> iterate
 ```
 
@@ -95,6 +109,7 @@ python harness_cli.py run-gate --gate 2 --phase 3
 - [ ] `check_spec_trace.py SAD.md tests/` 回傳 Exit 0
 - [ ] 所有 TDD tests 為 GREEN state
 - [ ] 每個 FR 的 Gate 1 通過
+- [ ] `check-test-inventory --diff-mode` 驗證通過（FR→test 完整對應 + RED-first 順序）
 - [ ] Gate 2 通過 (score ≥ 75)
 
 ---

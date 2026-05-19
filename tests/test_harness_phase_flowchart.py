@@ -340,10 +340,10 @@ class TestFlowchartVsCode:
         # Gate 1 should reference "3 dims" or "linting/type_safety/coverage"
         assert "linting" in content, "Gate 1 dims not found in diagram"
 
-        # Gate 3 should reference "12 dims"
-        assert "12 dims" in content, "Gate 3 (12 dims) not referenced in diagram"
+        # Gate 3 should reference "14 dims"
+        assert "14 dims" in content, "Gate 3 (14 dims) not referenced in diagram"
 
-        # Gate 4 should reference "12 dims" and "≥ 85"
+        # Gate 4 should reference "14 dims" and "≥ 85"
         assert "score_gate ≥ 85" in content, "Gate 4 (≥85) not referenced in diagram"
 
     def test_human_checkpoints_explicit(self):

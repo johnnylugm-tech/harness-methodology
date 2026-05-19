@@ -3,7 +3,7 @@ name: harness-methodology
 version: 2.4.0
 constitution_version: 2.4
 description: |
-  全流程軟體開發管線編排與品質門禁。Phase 1-8、A/B 協作、12 維度品質憲章。
+  全流程軟體開發管線編排與品質門禁。Phase 1-8、A/B 協作、14 維度品質憲章。
   Use when: user asks to execute a phase, plan work, run quality gates, or implement FRs.
   Not applicable: one-shot scripts, quick fixes, non-software tasks.
 ---
@@ -179,12 +179,12 @@ Before advancing to Phase N+1, confirm ALL:
 
 ### Gate Definitions
 
-| Gate | Phases | score_gate | Blocking |
-|------|--------|------------|----------|
-| Gate1 | P3, P4, P5, P7, P8 per-FR | 75 (each dim) | yes |
-| Gate2 | P3 exit | 75 | yes |
-| Gate3 | P4 exit | 80 | yes |
-| Gate4 | P6 full | 85 | yes |
+| Gate | Phases | score_gate | Dims | Blocking |
+|------|--------|------------|------|----------|
+| Gate1 | P3, P4, P5, P7, P8 per-FR | 75 (each dim) | 3 (Tier 1) | yes |
+| Gate2 | P3 exit | 75 | 9 (Tier 1+2) | yes |
+| Gate3 | P4 exit | 80 | 14 (all tiers) | yes |
+| Gate4 | P6 full | 85 | 14 (all tiers) | yes |
 
 ---
 

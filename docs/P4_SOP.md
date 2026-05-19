@@ -57,7 +57,9 @@ python3 scripts/check_spec_trace.py SAD.md tests/
 
 ```bash
 python harness_cli.py run-gate --gate 3 --phase 4
-# 12 dims (all tiers), score_gate=80, max_rounds=3
+# 14 dims (all tiers), score_gate=80, max_rounds=3
+# 新增維度: integration_coverage (0.05), test_assertion_quality (0.02)
+# mutation_testing: objective_primary=true (tool_score 優先於 llm_score)
 # CRG: reconnaissance + tier3_guidance + impact_check + drift_check
 # 新增 pre-gate check: spec_trace_coverage = 100%
 #   → scripts/check_spec_trace.py 回傳 Exit 1 時直接 raise GateBlockedError，不進入 SSI runner
@@ -71,6 +73,7 @@ python harness_cli.py run-gate --gate 3 --phase 4
 - [ ] `TEST_RESULTS.md` 已生成
 - [ ] `scripts/check_spec_trace.py SAD.md tests/` 回傳 Exit 0 (100% FRs traced)
 - [ ] Integration tests 已涵蓋 FR 互動關係
+- [ ] `check-test-inventory --strict` 通過（所有 FR 有 test + RED-first 順序 + assertion quality ≥ 閾值）
 - [ ] Gate 3 通過 (score ≥ 80 AND spec_trace = 100%)
 
 ---

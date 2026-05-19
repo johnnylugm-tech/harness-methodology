@@ -36,7 +36,7 @@ flowchart TD
     
     P3_PUSH1 --> P3_NEXT_FR{All FRs<br/>complete?}
     P3_NEXT_FR -->|No| P3_WORK
-    P3_NEXT_FR -->|Yes| P3_G2["🔒 Gate 2: Phase Exit<br/>7 dims<br/>score_gate ≥ 75"]
+    P3_NEXT_FR -->|Yes| P3_G2["🔒 Gate 2: Phase Exit<br/>9 dims<br/>score_gate ≥ 75"]
     
     P3_G2 -->|PASS| P3_TRUTH["⚠️ Phase Truth<br/>HR-11 ≥90%"]
     P3_G2 -->|CONTINUE| P3_FIX2["🔧 Fix"]
@@ -65,7 +65,7 @@ flowchart TD
     
     P4_PUSH1 --> P4_NEXT_FR{All FRs<br/>complete?}
     P4_NEXT_FR -->|No| P4_WORK
-    P4_NEXT_FR -->|Yes| P4_G3["🔒 Gate 3: Phase Exit<br/>12 dims<br/>score_gate ≥ 80<br/>[CRG recon]"]
+    P4_NEXT_FR -->|Yes| P4_G3["🔒 Gate 3: Phase Exit<br/>14 dims<br/>score_gate ≥ 80<br/>[CRG recon]"]
     
     P4_G3 -->|PASS| P4_TRUTH["⚠️ Phase Truth<br/>HR-11 ≥90%"]
     P4_G3 -->|CONTINUE| P4_FIX2["🔧 Fix"]
@@ -110,7 +110,7 @@ flowchart TD
     P6 --> P6_ENTRY["Entry: Gate 3 PASS<br/>(from P5)"]
     P6_ENTRY --> P6_PRE["🔧 Preflight<br/>FSM state, Constitution<br/>Drift detection init"]
     P6_PRE --> P6_WORK["💼 A/B Work:<br/>QA_ENGINEER<br/>ARCHITECT<br/><br/>📝 Prepare quality report<br/>📝 sessions_spawn.log (2 entries)"]
-    P6_WORK --> P6_G4["🔒 Gate 4 ONLY<br/>Full project (12 dims)<br/>score_gate ≥ 85<br/>[CRG recon]<br/>[Hermes APPROVE ⏱120s]"]
+    P6_WORK --> P6_G4["🔒 Gate 4 ONLY<br/>Full project (14 dims)<br/>score_gate ≥ 85<br/>[CRG recon]<br/>[Hermes APPROVE ⏱120s]"]
     
     P6_G4 -->|PASS| P6_TRUTH["⚠️ Phase Truth<br/>HR-11 ≥90%"]
     P6_G4 -->|CONTINUE| P6_FIX["🔧 Fix dimension<br/>re-run G4a"]
@@ -242,7 +242,7 @@ flowchart TD
 
 ### P6: No Per-FR Loop
 - **IMPORTANT**: P6 does NOT have a per-FR loop. It is a single Gate 4 evaluation of the entire project.
-- Gate 4 evaluates all 12 dimensions across all FRs at once (not per-FR).
+- Gate 4 evaluates all 14 dimensions across all FRs at once (not per-FR).
 - `sessions_spawn.log` required (2 entries: QA_ENGINEER + ARCHITECT per phase).
 
 ### Hermes APPROVE (P6 Gate 4)

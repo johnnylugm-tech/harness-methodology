@@ -162,6 +162,7 @@ _TOOL_CHECK_COMMANDS: dict[str, tuple[str, str]] = {
     "ruff": ("ruff --version 2>&1", "ruff"),
     "mypy": ("mypy --version 2>&1", "mypy"),
     "pytest-cov": ("pytest --version 2>&1 && coverage --version 2>&1", "pytest + coverage"),
+    "pytest": ("pytest --version 2>&1", "pytest"),
     "gitleaks": ("gitleaks version 2>&1", "gitleaks"),
     "scancode": ("scancode --version 2>&1", "scancode-toolkit"),
     "mutmut": ("mutmut --version 2>&1", "mutmut"),
@@ -461,6 +462,261 @@ def cmd_plan_phase(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 # run-phase
 # ---------------------------------------------------------------------------
+
+def _check_fr_test_file_exists(project: Path, fr_id: str) -> tuple[bool, str]:
+    """Gate 1: verify a test file exists for the given FR (TDD RED phase).
+
+    Accepts test_fr07.py or test_fr7.py naming. Skips non-standard FR-IDs.
+    Called during cmd_finalize_gate Gate 1 path.
+    """
+    m = re.match(r"FR-(\d+)", fr_id, re.IGNORECASE)
+    if not m:
+        return True, ""
+    num = m.group(1).zfill(2)
+    test_dir = project / "tests"
+    patterns = [f"test_fr{num}.py", f"test_fr{num.lstrip('0')}.py"]
+    for pat in patterns:
+        if (test_dir / pat).exists():
+            return True, ""
+    return False, (
+        f"[BLOCKED] FR test file missing: tests/test_fr{num}.py\n"
+        "  TDD requires a test file BEFORE implementation is merged.\n"
+        "  Create tests/test_fr{num}.py with at minimum one failing test."
+    )
+
+
+def _check_red_phase_ordering(project: Path, fr_id: str) -> tuple[bool, str]:
+    """D1 extension: test first commit must predate source first commit (RED→GREEN).
+
+    Uses author timestamp (%at) not committer (%ct) to survive rebase.
+    Supports configurable source_patterns in project.json for non-standard layouts.
+    """
+    m = re.match(r"FR-(\d+)", fr_id, re.IGNORECASE)
+    if not m:
+        return True, ""
+    num = m.group(1).zfill(2)
+    num_raw = num.lstrip('0')
+    test_patterns = [f"tests/test_fr{num}.py", f"tests/test_fr{num_raw}.py"]
+
+    def _first_at(patterns: list[str], exclude: list[str] | None = None
+                 ) -> float | None:
+        """Return earliest author timestamp matching any of the glob patterns.
+        Batches all patterns into a single git log call (vs one subprocess per pattern).
+        Uses %at (second precision). Tests must ensure >1 s between commits.
+        If exclude patterns are given, append :(exclude) pathspecs to each git query
+        to prevent matching unwanted directories (e.g. tests/).
+        """
+        cmd = ["git", "-C", str(project), "log", "--diff-filter=A",
+               "--format=%at", "--"]
+        cmd.extend(patterns)
+        if exclude:
+            for exc in exclude:
+                cmd.append(f":(exclude){exc}")
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        except subprocess.TimeoutExpired:
+            return None
+        earliest: float | None = None
+        for line in r.stdout.splitlines():
+            line = line.strip()
+            if line:
+                try:
+                    ts = float(line)
+                    if earliest is None or ts < earliest:
+                        earliest = ts
+                except ValueError:
+                    continue
+        return earliest
+
+    test_ts = _first_at(test_patterns)
+    if test_ts is None:
+        return False, (
+            f"[BLOCKED] D1-RED: tests/test_fr{num}.py has no git history.\n"
+            "  Commit the failing test BEFORE implementing the source."
+        )
+
+    # Source patterns — use git (glob) magic pathspec. MUST exclude tests/ to avoid
+    # matching the test file itself (e.g. **/*fr07* matches test_fr07.py too).
+    # (exclude) pathspec removes tests/ from the match set.
+    src_patterns = [
+        f":(glob)**/fr{num_raw}*",
+        f":(glob)**/*fr_{num_raw}*",
+        f":(glob)**/*fr{num}*",
+    ]
+    config_path = project / "project.json"
+    if config_path.exists():
+        try:
+            config = json.loads(config_path.read_text())
+            overrides = config.get("source_patterns", {})
+            fr_overrides = overrides.get(f"FR-{num_raw}", overrides.get(f"FR-{num}", []))
+            if fr_overrides:
+                src_patterns = fr_overrides if isinstance(fr_overrides, list) else [fr_overrides]
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    src_ts = _first_at(src_patterns, exclude=["tests/*"])
+    if src_ts is not None and test_ts > src_ts:
+        lag = int(test_ts - src_ts)
+        return False, (
+            f"[BLOCKED] D1-RED: Source committed {lag}s BEFORE test for {fr_id}.\n"
+            "  TDD requires RED (failing test commit) → GREEN (source commit).\n"
+            "  The test file's first commit must predate the source file's first commit."
+        )
+    return True, ""
+
+
+def _scan_test_functions(test_dir: Path) -> set[str]:
+    """Scan all Python test files for function definitions starting with test_."""
+    fns: set[str] = set()
+    if not test_dir.is_dir():
+        return fns
+    for f in sorted(test_dir.rglob("*.py")):
+        try:
+            text = f.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for line in text.splitlines():
+            m2 = re.match(r"^\s*def\s+(test_\w+)\s*\(", line)
+            if m2:
+                fns.add(m2.group(1))
+    return fns
+
+
+def _flatten_test_names(inventory: dict | None) -> set[str]:
+    """Flatten TEST_INVENTORY.yaml fr_tests + cross_cutting into a set of function names."""
+    names: set[str] = set()
+    if not inventory:
+        return names
+    for fr_key in ("fr_tests", "cross_cutting"):
+        section = inventory.get(fr_key, {})
+        if isinstance(section, list):
+            names.update(section)
+        elif isinstance(section, dict):
+            for layers in section.values():
+                if isinstance(layers, list):
+                    names.update(layers)
+                elif isinstance(layers, dict):
+                    for items in layers.values():
+                        if isinstance(items, list):
+                            names.update(items)
+    return names
+
+
+def cmd_check_test_inventory(args: argparse.Namespace) -> int:
+    """D4: Test Inventory Compliance — compare TEST_INVENTORY.yaml against actual tests.
+
+    Supports --strict (block on missing file), --threshold (score gate),
+    --diff-mode (compare checksum against P1 baseline), and
+    --srs-crosscut (scan SRS.md checklist).
+    New in v1.1: --crg-gaps (cross-ref CRG untested hotspots).
+    """
+    project = Path(args.project).resolve()
+    inventory_path = project / "TEST_INVENTORY.yaml"
+
+    if not inventory_path.exists():
+        if getattr(args, "strict", False):
+            print("[BLOCKED] TEST_INVENTORY.yaml not found. P1 must produce this file.")
+            return 8
+        print("[WARN] TEST_INVENTORY.yaml not found — skipping D4 check.")
+        return 0
+
+    # Diff-mode: compare checksum against P1 baseline
+    if getattr(args, "diff_mode", False):
+        state_path = project / ".methodology" / "state.json"
+        if state_path.exists():
+            try:
+                state = json.loads(state_path.read_text())
+                p1_checksum = state.get("test_inventory_checksum")
+                if p1_checksum:
+                    current = hashlib.sha256(inventory_path.read_bytes()).hexdigest()
+                    if current != p1_checksum:
+                        print("[WARN] TEST_INVENTORY.yaml has changed since P1 baseline — "
+                              "review if FRs were removed.")
+            except (json.JSONDecodeError, OSError):
+                pass
+
+    # Scan tests/
+    actual_fns = _scan_test_functions(project / "tests")
+
+    # Read inventory
+    try:
+        import yaml
+        inventory = yaml.safe_load(inventory_path.read_text())
+    except ImportError:
+        # Fallback: minimal YAML-free parse for flat list of test names
+        text = inventory_path.read_text()
+        inventory = _parse_inventory_fallback(text)
+
+    all_required = sorted(_flatten_test_names(inventory))
+    missing = [f for f in all_required if f not in actual_fns]
+    covered = len(all_required) - len(missing)
+    pct = covered / len(all_required) * 100 if all_required else 100.0
+
+    print(f"[D4] Test Inventory: {covered}/{len(all_required)} ({pct:.1f}%)")
+    if missing:
+        print(f"  Missing ({len(missing)}):")
+        for fn in missing[:20]:
+            print(f"    - {fn}")
+
+    # --srs-crosscut: scan SRS.md checklist
+    if getattr(args, "srs_crosscut", False):
+        srs_path = project / "01-requirements" / "SRS.md"
+        if srs_path.exists():
+            text = srs_path.read_text()
+            placeholders = re.findall(r'\[ \].*?<[NnXx]>|TBD', text)
+            if placeholders:
+                print(f"\n[SRS Cross-Cut] {len(placeholders)} unfilled placeholder(s) found:")
+                for ph in placeholders[:10]:
+                    print(f"    - {ph.strip()}")
+            else:
+                print("\n[SRS Cross-Cut] No unfilled placeholders detected.")
+        else:
+            print("\n[SRS Cross-Cut] SRS.md not found at 01-requirements/SRS.md — skipping.")
+
+    # --crg-gaps: cross-ref CRG untested hotspots against TEST_INVENTORY.yaml
+    if getattr(args, "crg_gaps", False):
+        crg_path = project / ".sessi-work" / "crg_reconnaissance.json"
+        if crg_path.exists():
+            try:
+                recon = json.loads(crg_path.read_text())
+                untested = recon.get("untested_hotspots", [])
+                if untested:
+                    print(f"\n[CRG Gaps] {len(untested)} CRG-reported hotspot(s):")
+                    for h in untested[:10]:
+                        h_name = h.get("name", "?")
+                        if h_name not in all_required:
+                            print(f"    - {h_name} (fan_in={h.get('fan_in','?')}) "
+                                  "not in TEST_INVENTORY.yaml")
+                else:
+                    print("\n[CRG Gaps] No untested hotspots from CRG.")
+            except (json.JSONDecodeError, OSError) as e:
+                print(f"\n[CRG Gaps] Error reading CRG data: {e}")
+
+    threshold = getattr(args, "threshold", 80.0)
+    if pct < threshold:
+        print(f"\n[BLOCKED] D4 Test Inventory Compliance {pct:.1f}% < {threshold}% threshold")
+        return 1
+    return 0
+
+
+def _parse_inventory_fallback(text: str) -> dict:
+    """Minimal YAML-free parser for flat test name lists."""
+    result: dict = {"fr_tests": {}, "cross_cutting": {}}
+    current_section = "fr_tests"
+    current_sub = "unit"
+    for line in text.splitlines():
+        line_s = line.strip()
+        if line_s.startswith("cross_cutting"):
+            current_section = "cross_cutting"
+        elif line_s.startswith("  "):
+            m2 = re.match(r"^(\w+):", line_s)
+            if m2:
+                current_sub = m2.group(1)
+        elif line_s.startswith("- "):
+            name = line_s[2:].strip()
+            result.setdefault(current_section, {}).setdefault(current_sub, []).append(name)
+    return result
+
 
 def _verify_entry_gate(project: Path, phase: int) -> dict:
     """Automatically verify entry gate conditions before phase execution.
@@ -1426,6 +1682,21 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
                 return 5
         except Exception as _e:  # pylint: disable=broad-exception-caught
             print(f"\n[WARN] HR-10: sessions_spawn.log parse error ({_e}) — skipping enforcement to avoid deadlock.")
+
+    # ── I-2: FR test file existence check (Gate 1 per-FR) ──────────────
+    # Only applies when project has a tests/ directory (real project, not test fixture).
+    if args.gate == 1 and fr_id and (Path(project) / "tests").is_dir():
+        _fr_ok, _fr_msg = _check_fr_test_file_exists(Path(project), fr_id)
+        if not _fr_ok:
+            print(_fr_msg)
+            return 8
+
+    # ── I-3: RED phase ordering (Gate 1 per-FR) ───────────────────────
+    if args.gate == 1 and fr_id and (Path(project) / "tests").is_dir():
+        _red_ok, _red_msg = _check_red_phase_ordering(Path(project), fr_id)
+        if not _red_ok:
+            print(_red_msg)
+            return 1
 
     # ── Gate 4 extra enforcement (A1/A2/A3/A4/A5/B2) ─────────────────
     if args.gate == 4:
@@ -4783,6 +5054,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to enforcement.json (default: enforcement/enforcement.json)",
     )
     rl.set_defaults(func=cmd_reload_policy)
+
+    # check-test-inventory (D4 — TEST_INVENTORY.yaml compliance)
+    cti = sub.add_parser(
+        "check-test-inventory",
+        help="D4: Compare TEST_INVENTORY.yaml against actual test files",
+    )
+    cti.add_argument("--project", default=".", help="Project root (default: .)")
+    cti.add_argument("--strict", action="store_true",
+                     help="Hard-block if TEST_INVENTORY.yaml missing")
+    cti.add_argument("--threshold", type=float, default=80.0,
+                     help="Minimum compliance percentage (default: 80.0)")
+    cti.add_argument("--diff-mode", action="store_true", dest="diff_mode",
+                     help="Compare checksum against P1 baseline for lifecycle diff")
+    cti.add_argument("--srs-crosscut", action="store_true", dest="srs_crosscut",
+                     help="Also scan SRS.md cross-cutting checklist for unfilled placeholders")
+    cti.add_argument("--crg-gaps", action="store_true", dest="crg_gaps",
+                     help="Cross-ref CRG untested hotspots against TEST_INVENTORY.yaml")
+    cti.set_defaults(func=cmd_check_test_inventory)
 
     # audit-phase
     ap = sub.add_parser(

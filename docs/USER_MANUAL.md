@@ -161,7 +161,7 @@ Each phase works on a list of FRs (e.g. `FR-01`, `FR-02`). Each FR is an atomic 
 |---|---|---|---|
 | Gate 1 | Per-FR at P3/P4/P5/P7/P8 | Single FR | Per-dimension (linting≥90, type≥85, coverage≥80) |
 | Gate 2 | P3 exit | Full phase | Composite score ≥ 75 |
-| Gate 3 | P4 exit | Full phase | Composite score ≥ 80, all 12 dims |
+| Gate 3 | P4 exit | Full phase | Composite score ≥ 80, all 14 dims |
 | Gate 4 | P6 exit | Full project | Composite score ≥ 85 + Hermes human APPROVE |
 
 > **Normative reference**: Gate pass criteria are **MUST**-level requirements per RFC 2119. See [SAD.md §2.4 Conformance Matrix](../SAD.md#24-conformance-matrix-rfc-2119) for the full conformance specification.
@@ -333,7 +333,7 @@ Phase 4：測試。
 # Per-FR gate
 python harness_cli.py run-gate --gate 1 --phase 4 --project /project --fr-id FR-01
 
-# Phase exit gate (12 dimensions including architecture + error_handling)
+# Phase exit gate (14 dimensions including architecture + error_handling + integration_coverage + test_assertion_quality)
 python harness_cli.py run-gate --gate 3 --phase 4 --project /project
 ```
 
@@ -370,7 +370,7 @@ python harness_cli.py run-phase --phase 5 --project /project
 Phase 6：品質保證。
 
 請：
-1. 執行全面品質審查（所有12個維度）
+1. 執行全面品質審查（所有14個維度）
 2. 輸出 QUALITY_REPORT.md
 3. 準備 RELEASE_NOTES.md 與 FINAL_SIGN_OFF.md
 ```
@@ -378,7 +378,8 @@ Phase 6：品質保證。
 **Run Gate 4** (requires SSI + Hermes):
 ```bash
 python harness_cli.py run-gate --gate 4 --phase 6 --project /project
-# → Runs SSI evaluation (score ≥ 85)
+# → Runs SSI evaluation (14 dims, score ≥ 85)
+# → mutation_testing: objective_primary=true
 # → Sends to Hermes reviewer for human APPROVE
 # → On APPROVE: gate passes, decision logged
 # → On REJECT: GateBlockedError raised
@@ -445,22 +446,25 @@ python harness_cli.py effort --project /project   # review total effort
 
 ### Gate 2 — P3 Phase Exit
 
-| Score threshold | 75 | Dimensions | 7 |
+| Score threshold | 75 | Dimensions | 9 |
 |---|---|---|---|
 | Max rounds | 3 | Saturation rounds | 3 |
-| CRG | impact_check | mutation_testing | median_runs=3 |
+| CRG | impact_check | mutation_testing | median_runs=3, objective_primary=true |
+| New dims | integration_coverage (w=0.10) | test_assertion_quality (w=0.06) | — |
 
 ### Gate 3 — P4 Phase Exit
 
-| Score threshold | 80 | Dimensions | 12 (full) |
+| Score threshold | 80 | Dimensions | 14 (full) |
 |---|---|---|---|
 | Max rounds | 3 | CRG | full recon + tier3_guidance |
+| New dims | integration_coverage (w=0.05) | test_assertion_quality (w=0.02) | — |
 
 ### Gate 4 — Full Project (P6 exit)
 
-| Score threshold | 85 | Dimensions | 12 (full) |
+| Score threshold | 85 | Dimensions | 14 (full) |
 |---|---|---|---|
 | Max rounds | 3 | Human review | Hermes APPROVE（auto-skipped if composite ≥ 88 AND confidence ≥ 93） |
+| New dims | integration_coverage (w=0.05) | test_assertion_quality (w=0.02) | — |
 
 ---
 
@@ -969,6 +973,29 @@ python harness_cli.py status \
 
 ---
 
+### `check-test-inventory` — 驗證測試覆蓋完整性（P3+）
+
+```bash
+python harness_cli.py check-test-inventory \
+  --diff-mode              \  # 只檢查本次 diff 的 FR（P3 Gate 2 使用）
+  --strict                 \  # P4+ 嚴格模式：assertion quality + RED-first ordering
+  --threshold 60           \  # test_assertion_quality 最低分數（預設：60）
+  --srs-crosscut           \  # 啟用 cross-cutting SRS 需求掃描
+  --crg-gaps                  # 啟用 CRG untested hub 交叉比對
+```
+
+**檢查項目**：
+- **I-1**: 所有 FR 有對應 test 檔案（`tests/test_fr_*.py`）
+- **I-2**: FR→test 檔案名對應一致（`test_fr_{id}.py` 命名慣例）
+- **I-3**: RED-first ordering（測試 commit 早於實作程式碼）
+- **I-5**: Integration tests 已標記 `@pytest.mark.integration`
+- **I-6b**: Test assertion quality ≥ 閾值（AST-based density 掃描）
+- **I-6c**: CRG hub 節點有對應測試覆蓋
+
+**返回碼**：0=所有檢查通過；1=有 FAIL（`--strict` 模式）；2=錯誤
+
+---
+
 ### `init-project` — 一鍵初始化目標專案
 
 ```bash
@@ -1386,11 +1413,12 @@ Gate 2/3/4 composite score = weighted average of all dimension scores:
 ```
 score = Σ (dimension_score × dimension_weight)
 
-Example Gate 2 (7 dims):
-  linting(90) × 0.15 + type_safety(88) × 0.15 + test_coverage(82) × 0.15
-  + security(85) × 0.15 + secrets_scanning(100) × 0.10
-  + license_compliance(100) × 0.10 + mutation_testing(72) × 0.20
-  = 86.45  ✅ (≥75)
+Example Gate 2 (9 dims):
+  linting(90) × 0.12 + type_safety(88) × 0.12 + test_coverage(82) × 0.12
+  + security(85) × 0.12 + secrets_scanning(100) × 0.08
+  + license_compliance(100) × 0.08 + mutation_testing(72) × 0.20
+  + integration_coverage(75) × 0.10 + test_assertion_quality(80) × 0.06
+  = 84.38  ✅ (≥75)
 ```
 
 Gate 1 uses per-dimension pass/fail, not composite score.

@@ -83,6 +83,40 @@ nyc --reporter=json npm test
 > Do NOT write a score file. Fix the pytest/coverage configuration and restart from Step 1.
 > (`tool_score=null` is not accepted for Tier 1 — score.py R8 will block gate scoring.)
 
+### test_assertion_quality (Tier 2)
+```bash
+# Assertion density & zero-assert detection via Python AST.
+# No external tool needed — uses stdlib ast.
+python3 -c "
+import ast, sys
+from pathlib import Path
+test_dir = Path('tests')
+zero_assert = []
+total_funcs = 0
+total_asserts = 0
+for f in sorted(test_dir.rglob('*.py')):
+    try:
+        tree = ast.parse(f.read_text())
+        funcs = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name.startswith('test_')]
+        total_funcs += len(funcs)
+        for n in funcs:
+            ca = sum(1 for s in ast.walk(n) if isinstance(s, ast.Assert))
+            total_asserts += ca
+            if ca == 0:
+                zero_assert.append(f'{f.name}::{n.name}')
+    except SyntaxError:
+        pass
+density = total_asserts / max(total_funcs, 1)
+zr = len(zero_assert) / max(total_funcs, 1)
+print(f'assertion_density={density:.2f} zero_assert_ratio={zr:.3f}')
+if zero_assert:
+    for z in zero_assert[:20]:
+        print(f'  ZERO-ASSERT: {z}')
+score = min(100, density * 25 + (1 - zr) * 50)
+print(f'tool_score={score:.0f}')
+"
+```
+
 ### security (Tier 2)
 ```bash
 bandit -r src/ -f json 2>&1 | head -300
@@ -162,6 +196,15 @@ fi
 > block gate scoring. Fix the install (check Python version, virtualenv, editable-install
 > conflicts) and restart from Step 1. `run-gate` also pre-checks mutmut availability before
 > printing the evaluation prompt — if that check passed, re-run `pip3 install mutmut`.
+>
+> **objective_primary**: mutation_testing has `objective_primary: true` in config. The mutmut
+> score (survived/killed ratio) IS the authoritative score. When writing the score file,
+> include `"objective_primary": true` in the JSON. The llm_score can only reduce the final
+> score below the mutmut score (via R4 `min()`), never increase it. If llm_score deviates
+> from tool_score by >10, score.py R8b emits a warning.
+>
+> Example: mutmut reports 25% survived → tool_score=75. llm_score=80 is capped to 75.
+> llm_score=60 is accepted (score becomes 60) but R8b warns about the >10-point deviation.
 
 ### architecture (Tier 3)
 ```bash
@@ -599,8 +642,8 @@ The `open_critical` / `open_high` / `open_medium` counts feed directly into
 | 2 | Gemini Flash | ~$0.002 | Light judgment — fallback |
 | 3 | Claude Sonnet | ~$0.08 | Deep reasoning |
 
-**Total per round (12 dims + improve):**
-- Tier 1×6 + Tier 2×1: ~$0.01
+**Total per round (14 dims + improve):**
+- Tier 1×6 + Tier 2×3: ~$0.02
 - Tier 3×5: ~$0.40
 - Improve step: ~$0.45
 - **Total: ~$0.86/round** (vs ~$3.00 all-Claude)

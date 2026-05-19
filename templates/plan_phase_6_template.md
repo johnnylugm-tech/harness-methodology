@@ -150,7 +150,7 @@ Project Root/
 - [ ] Confirm `HERMES_REVIEWER_TARGET` env var is set (e.g. `telegram:6308981865`)
 - [ ] Confirm `HERMES_TIMEOUT_MS=90000` is set in `.env` or shell environment
 
-### 5.2 Quality Dimensions (Gate 4 — 12 dimensions)
+### 5.2 Quality Dimensions (Gate 4 — 14 dimensions)
 
 | Dim | Dimension | Weight | Evaluation Command | Target |
 |-----|-----------|--------|-------------------|--------|
@@ -283,7 +283,7 @@ pytest {PROJECT_PATH}/tests/ --cov={SOURCE_DIR} --cov-report=term -q
 
 ## 9. 🔒 CHECKPOINT-1: Gate 4 — Phase 6 Exit
 
-> Gate 4 evaluates the full project across 12 dimensions with CRG structural recon.
+> Gate 4 evaluates the full project across 14 dimensions with CRG structural recon.
 > score_gate >= 85, Hermes APPROVE required.
 
 ### 9.1 Pre-Gate Preparation
@@ -370,7 +370,7 @@ python3 harness_cli.py finalize-gate --gate 4 --phase 6
 ### 9.6 ASPICE Traceability Check
 - [ ] **[ASPICE]** QUALITY_REPORT.md references `BASELINE.md` by filename keyword
 - [ ] **[ASPICE]** QUALITY_REPORT.md references `VERIFICATION_REPORT.md` by filename keyword
-- [ ] **[ASPICE]** All 12 dimensions have measurable evidence in artifact paths
+- [ ] **[ASPICE]** All 14 dimensions have measurable evidence in artifact paths
 
 ### 9.7 Verify Checkpoint
 - [ ] Confirm `HANDOVER.md` exists at project root

@@ -350,7 +350,7 @@ SESSION START (P3 entry — automated preflight, Human¹ APPROVE from P2 is prec
     ║    → Prints evaluation instructions                     ║
     ║                                                          ║
     ║  G2b: EVALUATE (Claude inline)                          ║
-    ║    DIMENSIONS: 7 dims                                    ║
+    ║    DIMENSIONS: 9 dims                                    ║
     ║    score_gate ≥ 75                         ║
     ║    quality_complete must be true                        ║
     ║    Claude writes: .sessi-work/gate2_result.json         ║
@@ -392,7 +392,7 @@ SESSION START (P4 entry — automated preflight, Gate2 from P3 PASS is precondit
     ▼
 ┌─────────────────────────────────────────────────────────────┐
 │  Read SKILL.md                                               │
-│  P4 routing: Entry=Gate2, Exit=Gate3(80), 12 dims           │
+│  P4 routing: Entry=Gate2, Exit=Gate3(80), 14 dims           │
 └──────────────────┬──────────────────────────────────────────┘
                    │
                    ▼
@@ -455,10 +455,10 @@ SESSION START (P4 entry — automated preflight, Gate2 from P3 PASS is precondit
                    ▼
     ╔══════════════════════════════════════════════════════╗
     ║  ### 🔒 CHECKPOINT-N+1: Gate 3 — Phase 4 Exit ✅    ║
-    ║  12 dims, score_gate ≥ 80                            ║
+    ║  14 dims, score_gate ≥ 80                            ║
     ║  [CRG] recon triggered inside run-gate ✅            ║
     ║  G3a: run-gate --gate 3 --phase 4                   ║
-    ║  G3b: evaluate all 12 dims                           ║
+    ║  G3b: evaluate all 14 dims                           ║
     ║  G3c: finalize-gate                                  ║
     ║    CASE 1 PASS → G3d ✅                              ║
     ║    CASE 2 CONTINUE → fix → repeat G3a ✅            ║
@@ -576,7 +576,7 @@ SESSION START (P6 entry — automated preflight, Phase Truth from P5 PASS is pre
     ▼
 ┌─────────────────────────────────────────────────────────────┐
 │  Read SKILL.md                                               │
-│  P6 routing: Entry=Gate3, Exit=Gate4(85), 12 dims           │
+│  P6 routing: Entry=Gate3, Exit=Gate4(85), 14 dims           │
 │  QUALITY_REPORT.md is the key deliverable                    │
 │  Hermes APPROVE required (Human Checkpoint #2)               │
 └──────────────────┬──────────────────────────────────────────┘
@@ -660,7 +660,7 @@ SESSION START (P6 entry — automated preflight, Phase Truth from P5 PASS is pre
     ║    → [CRG] full graph rebuild + reconnaissance          ║
     ║                                                          ║
     ║  G4b: EVALUATE (Claude inline)                          ║
-    ║    All 12 dimensions scored 0–100                       ║
+    ║    All 14 dimensions scored 0–100                       ║
     ║    score_gate ≥ 85 required                              ║
     ║    quality_complete must be true                        ║
     ║    Claude writes: .sessi-work/gate4_result.json         ║
@@ -963,9 +963,9 @@ SESSION START (P7/P8 entry — automated preflight, Gate4 from P6 PASS is precon
 | Gate | Trigger | Phases | Threshold | Dimensions | Human? |
 |------|---------|--------|-----------|------------|--------|
 | **Gate 1** | per-FR completion | P3, P4, P5, P7, P8 | linting≥90, type_safety≥85, coverage≥80 | 3 dims (lint/type/cov) | No |
-| **Gate 2** | P3 phase exit | P3 | score_gate ≥ 75 + quality_complete | 7 dims | No |
-| **Gate 3** | P4 phase exit | P4 | score_gate ≥ 80 + quality_complete | 12 dims | No |
-| **Gate 4** | P6 phase exit | P6 | score_gate ≥ 85 + quality_complete | 12 dims | **Yes** — Hermes APPROVE |
+| **Gate 2** | P3 phase exit | P3 | score_gate ≥ 75 + quality_complete | 9 dims | No |
+| **Gate 3** | P4 phase exit | P4 | score_gate ≥ 80 + quality_complete | 14 dims | No |
+| **Gate 4** | P6 phase exit | P6 | score_gate ≥ 85 + quality_complete | 14 dims | **Yes** — Hermes APPROVE |
 
 ---
 

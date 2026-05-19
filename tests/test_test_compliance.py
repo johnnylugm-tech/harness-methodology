@@ -1,0 +1,373 @@
+"""
+Tests for test compliance improvements (I-1 through I-6).
+
+Covers:
+  I-2: _check_fr_test_file_exists()   — Gate 1 FR→test file check
+  I-3: _check_red_phase_ordering()    — D1 RED ordering
+  I-1: cmd_check_test_inventory()     — D4 TEST_INVENTORY.yaml compliance
+  I-6a: score.py R8b                  — objective_primary flag
+  I-1 helpers: _scan_test_functions(), _flatten_test_names()
+"""
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from harness_cli import (  # pyright: ignore[reportMissingImports]
+    _check_fr_test_file_exists,
+    _check_red_phase_ordering,
+    _scan_test_functions,
+    _flatten_test_names,
+    cmd_check_test_inventory,
+)
+
+sys.path.insert(0, str(Path(__file__).parent.parent / "harness" / "ssi" / "scripts"))
+from score import (  # pyright: ignore[reportMissingImports]
+    validate_score_file,
+    ScoreProtocolError,
+)
+
+
+# ===================================================================
+# I-2: _check_fr_test_file_exists
+# ===================================================================
+
+class TestCheckFrTestFileExists:
+    """_check_fr_test_file_exists(project, fr_id)."""
+
+    def test_fr07_file_exists_as_test_fr07(self, tmp_path: Path):
+        """FR-07 matches test_fr07.py."""
+        (tmp_path / "tests").mkdir(parents=True)
+        (tmp_path / "tests" / "test_fr07.py").write_text("def test_something(): pass\n")
+        ok, msg = _check_fr_test_file_exists(tmp_path, "FR-07")
+        assert ok, f"expected OK, got: {msg}"
+
+    def test_fr07_file_exists_as_test_fr7(self, tmp_path: Path):
+        """FR-07 matches test_fr7.py (short form)."""
+        (tmp_path / "tests").mkdir(parents=True)
+        (tmp_path / "tests" / "test_fr7.py").write_text("def test_something(): pass\n")
+        ok, msg = _check_fr_test_file_exists(tmp_path, "FR-07")
+        assert ok, f"expected OK, got: {msg}"
+
+    def test_fr_file_missing_blocks(self, tmp_path: Path):
+        """Missing test file for FR-12 returns blocked."""
+        (tmp_path / "tests").mkdir(parents=True)
+        ok, msg = _check_fr_test_file_exists(tmp_path, "FR-12")
+        assert not ok
+        assert "BLOCKED" in msg
+        assert "test_fr12.py" in msg
+
+    def test_non_standard_fr_id_skipped(self, tmp_path: Path):
+        """Non-matching FR-ID (e.g. 'TASK-42') returns OK."""
+        (tmp_path / "tests").mkdir(parents=True)
+        ok, msg = _check_fr_test_file_exists(tmp_path, "TASK-42")
+        assert ok
+
+    def test_fr_case_insensitive(self, tmp_path: Path):
+        """fr-07 (lowercase) still matches."""
+        (tmp_path / "tests").mkdir(parents=True)
+        (tmp_path / "tests" / "test_fr07.py").write_text("def test_something(): pass\n")
+        ok, msg = _check_fr_test_file_exists(tmp_path, "fr-07")
+        assert ok, f"expected OK, got: {msg}"
+
+
+# ===================================================================
+# I-3: _check_red_phase_ordering
+# ===================================================================
+
+class TestCheckRedPhaseOrdering:
+    """_check_red_phase_ordering(project, fr_id)."""
+
+    def _init_git_repo(self, path: Path) -> None:
+        """Initialize a git repo at path with user config for commits."""
+        subprocess.run(["git", "init"], cwd=path, capture_output=True, timeout=10)
+        subprocess.run(
+            ["git", "config", "user.email", "test@test.com"],
+            cwd=path, capture_output=True, timeout=10,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Test"],
+            cwd=path, capture_output=True, timeout=10,
+        )
+
+    def _commit_file(self, path: Path, rel_path: str, content: str) -> None:
+        """Stage and commit a single file."""
+        full = path / rel_path
+        full.parent.mkdir(parents=True, exist_ok=True)
+        full.write_text(content)
+        subprocess.run(["git", "add", rel_path], cwd=path, capture_output=True, timeout=10)
+        subprocess.run(
+            ["git", "commit", "-m", f"add {rel_path}"],
+            cwd=path, capture_output=True, timeout=10,
+        )
+
+    def test_test_first_passes(self, tmp_path: Path):
+        """Test committed before source → OK (TDD RED→GREEN)."""
+        self._init_git_repo(tmp_path)
+        (tmp_path / "tests").mkdir(parents=True)
+        (tmp_path / "src").mkdir(parents=True)
+        # Commit test first — sleep to ensure distinct timestamps
+        self._commit_file(tmp_path, "tests/test_fr07.py", "def test_x(): pass\n")
+        time.sleep(1)
+        self._commit_file(tmp_path, "src/fr07_module.py", "def x(): return 1\n")
+        ok, msg = _check_red_phase_ordering(tmp_path, "FR-07")
+        assert ok, f"expected pass (test first), got: {msg}"
+
+    def test_source_first_blocks(self, tmp_path: Path):
+        """Source committed before test → blocked."""
+        self._init_git_repo(tmp_path)
+        (tmp_path / "tests").mkdir(parents=True)
+        (tmp_path / "src").mkdir(parents=True)
+        # Commit source first — sleep to ensure distinct timestamps
+        self._commit_file(tmp_path, "src/fr07_module.py", "def x(): return 1\n")
+        time.sleep(1)
+        self._commit_file(tmp_path, "tests/test_fr07.py", "def test_x(): pass\n")
+        ok, msg = _check_red_phase_ordering(tmp_path, "FR-07")
+        assert not ok
+        assert "BLOCKED" in msg
+
+    def test_no_test_history_blocks(self, tmp_path: Path):
+        """Test file never committed → blocked."""
+        self._init_git_repo(tmp_path)
+        (tmp_path / "tests").mkdir(parents=True)
+        # Create test file but never commit it
+        (tmp_path / "tests" / "test_fr07.py").write_text("def test_x(): pass\n")
+        ok, msg = _check_red_phase_ordering(tmp_path, "FR-07")
+        assert not ok
+        assert "no git history" in msg
+
+    def test_non_fr_skipped(self, tmp_path: Path):
+        """Non FR-ID returns OK without checking git."""
+        self._init_git_repo(tmp_path)
+        ok, msg = _check_red_phase_ordering(tmp_path, "TASK-42")
+        assert ok
+
+    def test_short_form_naming(self, tmp_path: Path):
+        """FR-7 (not FR-07) also matches."""
+        self._init_git_repo(tmp_path)
+        (tmp_path / "tests").mkdir(parents=True)
+        (tmp_path / "src").mkdir(parents=True)
+        self._commit_file(tmp_path, "tests/test_fr7.py", "def test_x(): pass\n")
+        time.sleep(1)
+        self._commit_file(tmp_path, "src/fr7_module.py", "def x(): return 1\n")
+        ok, msg = _check_red_phase_ordering(tmp_path, "FR-07")
+        assert ok, f"expected pass (short form naming), got: {msg}"
+
+
+# ===================================================================
+# I-1: _scan_test_functions / _flatten_test_names
+# ===================================================================
+
+class TestScanTestFunctions:
+    """_scan_test_functions(test_dir)."""
+
+    def test_finds_test_functions(self, tmp_path: Path):
+        """Scans Python files and finds test_ prefixed functions."""
+        test_dir = tmp_path / "tests"
+        test_dir.mkdir(parents=True)
+        (test_dir / "test_foo.py").write_text(
+            "def test_hello(): pass\ndef test_world(): pass\ndef helper(): pass\n"
+        )
+        (test_dir / "test_bar.py").write_text(
+            "def test_check(): pass\n"
+        )
+        fns = _scan_test_functions(test_dir)
+        assert fns == {"test_hello", "test_world", "test_check"}
+
+    def test_empty_dir(self, tmp_path: Path):
+        """Empty directory returns empty set."""
+        test_dir = tmp_path / "tests"
+        test_dir.mkdir(parents=True)
+        fns = _scan_test_functions(test_dir)
+        assert fns == set()
+
+    def test_non_existent_dir(self, tmp_path: Path):
+        """Non-existent directory returns empty set."""
+        fns = _scan_test_functions(tmp_path / "no-such-dir")
+        assert fns == set()
+
+
+class TestFlattenTestNames:
+    """_flatten_test_names(inventory)."""
+
+    def test_flatten_fr_tests(self):
+        """FR tests are flattened to a set."""
+        data = {
+            "fr_tests": {
+                "FR-07": {
+                    "unit": ["test_a", "test_b"],
+                    "integration": ["test_c"],
+                },
+            },
+            "cross_cutting": {
+                "security": ["test_sec1"],
+            },
+        }
+        names = _flatten_test_names(data)
+        assert names == {"test_a", "test_b", "test_c", "test_sec1"}
+
+    def test_empty_inventory(self):
+        """None or empty returns empty set."""
+        assert _flatten_test_names(None) == set()
+        assert _flatten_test_names({}) == set()
+
+    def test_cross_cutting_as_list(self):
+        """cross_cutting as flat list of names also works."""
+        data = {
+            "fr_tests": {},
+            "cross_cutting": ["test_x", "test_y"],
+        }
+        names = _flatten_test_names(data)
+        assert names == {"test_x", "test_y"}
+
+
+# ===================================================================
+# I-1: cmd_check_test_inventory
+# ===================================================================
+
+class TestCmdCheckTestInventory:
+    """cmd_check_test_inventory(args)."""
+
+    def _make_args(self, tmp_path: Path, **overrides) -> argparse.Namespace:
+        import argparse
+        ns = argparse.Namespace()
+        ns.project = str(tmp_path)
+        ns.strict = False
+        ns.threshold = 80.0
+        ns.diff_mode = False
+        ns.srs_crosscut = False
+        ns.crg_gaps = False
+        for k, v in overrides.items():
+            setattr(ns, k, v)
+        return ns
+
+    def _write_inventory(self, path: Path, names: list[str]):
+        """Write a minimal TEST_INVENTORY.yaml."""
+        target = path / "TEST_INVENTORY.yaml"
+        lines = ["format_version: '1.0'", "fr_tests:", "  FR-01:", "    unit:"]
+        for n in names:
+            lines.append(f"      - {n}")
+        lines.append("cross_cutting: {}")
+        target.write_text("\n".join(lines) + "\n")
+
+    def _write_test_file(self, path: Path, fns: list[str]):
+        """Write a test file with given function names."""
+        (path / "tests").mkdir(parents=True, exist_ok=True)
+        content = "\n".join(f"def {f}(): pass" for f in fns)
+        (path / "tests" / "test_dummy.py").write_text(content)
+
+    def test_all_covered_passes(self, tmp_path: Path):
+        """All required tests exist → passes."""
+        self._write_inventory(tmp_path, ["test_a", "test_b"])
+        self._write_test_file(tmp_path, ["test_a", "test_b"])
+        code = cmd_check_test_inventory(self._make_args(tmp_path))
+        assert code == 0, "expected pass when all covered"
+
+    def test_missing_functions_fails(self, tmp_path: Path):
+        """Required tests missing → fails below threshold."""
+        self._write_inventory(tmp_path, ["test_a", "test_b", "test_c", "test_d"])
+        self._write_test_file(tmp_path, ["test_a"])  # only 1/4
+        code = cmd_check_test_inventory(self._make_args(tmp_path, threshold=50.0))
+        assert code == 1, "expected failure when 1/4 < 50%"
+
+    def test_no_yaml_without_strict(self, tmp_path: Path):
+        """No TEST_INVENTORY.yaml with strict=False → warn, not block."""
+        code = cmd_check_test_inventory(self._make_args(tmp_path))
+        assert code == 0, "expected warn (0) when no YAML and not strict"
+
+    def test_no_yaml_with_strict(self, tmp_path: Path):
+        """No TEST_INVENTORY.yaml with strict=True → blocked (8)."""
+        code = cmd_check_test_inventory(self._make_args(tmp_path, strict=True))
+        assert code == 8, "expected block (8) when no YAML and strict"
+
+    def test_srs_crosscut_placeholder_detected(self, tmp_path: Path):
+        """--srs-crosscut finds unfilled placeholders in SRS.md."""
+        srs_dir = tmp_path / "01-requirements"
+        srs_dir.mkdir(parents=True)
+        (srs_dir / "SRS.md").write_text(
+            "# SRS\n\n- [ ] `test_kpi_latency_phase_<N>_under_<X>s`\n- TBD\n"
+        )
+        self._write_inventory(tmp_path, ["test_a"])
+        self._write_test_file(tmp_path, ["test_a"])
+        # Should pass D4 check but print SRS warnings
+        code = cmd_check_test_inventory(
+            self._make_args(tmp_path, srs_crosscut=True)
+        )
+        assert code == 0  # D4 still passes
+
+    def test_srs_crosscut_clean(self, tmp_path: Path):
+        """--srs-crosscut with filled placeholders is clean."""
+        srs_dir = tmp_path / "01-requirements"
+        srs_dir.mkdir(parents=True)
+        (srs_dir / "SRS.md").write_text(
+            "# SRS\n\n- [x] `test_kpi_latency_phase_3_under_2s`\n"
+        )
+        self._write_inventory(tmp_path, ["test_a"])
+        self._write_test_file(tmp_path, ["test_a"])
+        code = cmd_check_test_inventory(
+            self._make_args(tmp_path, srs_crosscut=True)
+        )
+        assert code == 0
+
+
+# ===================================================================
+# I-6a: score.py R8b — objective_primary
+# ===================================================================
+
+class TestR8bObjectivePrimary:
+    """validate_score_file R8b: objective_primary flag."""
+
+    def _base_score(self) -> dict:
+        return {
+            "dimension": "mutation_testing",
+            "round": 1,
+            "llm_tier": 1,
+            "llm_provider": "gemini",
+            "tool_outputs": "",
+            "findings": [],
+        }
+
+    def test_objective_primary_close_scores_ok(self, tmp_path: Path):
+        """tool_score=75, llm_score=70 (gap=5) → no R8b issue."""
+        sd = self._base_score()
+        sd.update({"tool_score": 75, "llm_score": 70, "score": 70,
+                    "objective_primary": True})
+        issues = validate_score_file("mutation_testing", sd, project_root=tmp_path)
+        r8b = [i for i in issues if i.startswith("R8b")]
+        assert not r8b, f"expected no R8b, got: {r8b}"
+
+    def test_objective_primary_wide_deviation_warns(self, tmp_path: Path):
+        """tool_score=75, llm_score=50 (gap=25) → R8b warns."""
+        sd = self._base_score()
+        sd.update({"tool_score": 75, "llm_score": 50, "score": 50,
+                    "objective_primary": True})
+        issues = validate_score_file("mutation_testing", sd, project_root=tmp_path)
+        r8b = [i for i in issues if i.startswith("R8b")]
+        assert r8b, "expected R8b warning for >10-point gap"
+        assert ">10 points" in r8b[0]
+
+    def test_not_objective_primary_ignored(self, tmp_path: Path):
+        """No objective_primary flag → R8b not triggered."""
+        sd = self._base_score()
+        sd.update({"tool_score": 75, "llm_score": 50, "score": 50})
+        issues = validate_score_file("mutation_testing", sd, project_root=tmp_path)
+        r8b = [i for i in issues if i.startswith("R8b")]
+        assert not r8b, "expected no R8b when flag absent"
+
+    def test_objective_primary_null_tool_score_not_r8b(self, tmp_path: Path):
+        """tool_score=null triggers R8 instead (Tier 1)."""
+        sd = self._base_score()
+        sd.update({"tool_score": None, "llm_score": 80, "score": 80,
+                    "objective_primary": True})
+        issues = validate_score_file("mutation_testing", sd, project_root=tmp_path)
+        r8 = [i for i in issues if i.startswith("R8")]
+        assert r8, "expected R8 (null tool_score for Tier 1)"
+        assert any("R8:" in i for i in r8), "must be R8 not R8b only"

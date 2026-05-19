@@ -54,7 +54,8 @@ Layer 3 (per-FR):
 
 POST-FLIGHT (phase exit):
   python harness_cli.py run-gate --gate 2 --phase 3
-  (Claude evaluates: 7 dims, score_gate=75)
+  (Claude evaluates: 9 dims, score_gate=75)
+  # New dims: integration_coverage (Tier 2), test_assertion_quality (Tier 2)
   python harness_cli.py finalize-gate --gate 2 --phase 3
   → Blocking: score < 75 OR not quality_complete
 ```
@@ -65,7 +66,9 @@ POST-FLIGHT (phase exit):
 ```
 POST-FLIGHT (phase exit):
   python harness_cli.py run-gate --gate 3 --phase 4
-  (Claude evaluates: 12 dims, score_gate=80, CRG recon triggered automatically)
+  (Claude evaluates: 14 dims, score_gate=80, CRG recon triggered automatically)
+  # New dims: integration_coverage (Tier 2), test_assertion_quality (Tier 2)
+  # mutation_testing: objective_primary=true
   python harness_cli.py finalize-gate --gate 3 --phase 4
 ```
 
@@ -92,7 +95,9 @@ Exit: TH-02 ≥80% + TH-07 ≥90
 ```
 Step 6.1:
   python harness_cli.py run-gate --gate 4 --phase 6
-  (Claude evaluates: 12 dims, score_gate=85, CRG full recon)
+  (Claude evaluates: 14 dims, score_gate=85, CRG full recon)
+  # New dims: integration_coverage (Tier 2), test_assertion_quality (Tier 2)
+  # mutation_testing: objective_primary=true
   python harness_cli.py finalize-gate --gate 4 --phase 6
 
 Step 6.2: Hermes MCP APPROVE (wired in finalize_gate → _require_hermes_approve)
@@ -136,9 +141,9 @@ Score reconciliation: final_score = min(tool_score, llm_score)
 | Gate | Why these dims | Why not others |
 |------|---------------|----------------|
 | Gate 1 (per-FR) | linting/type_safety/test_coverage: raw correctness | security/arch need multi-FR context |
-| Gate 2 (P3 exit) | +security/secrets/license/mutation: must clear before testing | arch/readability: refactoring unsafe before P4 |
-| Gate 3 (P4 exit) | All 12: code+tests stable, safe for deep review | — |
-| Gate 4 (P6 full) | All 12 + CRG: final gate, performance safe to optimize | — |
+| Gate 2 (P3 exit) | +security/secrets/license/mutation/integration_coverage/test_assertion_quality: must clear before testing | arch/readability: refactoring unsafe before P4 |
+| Gate 3 (P4 exit) | All 14: code+tests stable, safe for deep review | — |
+| Gate 4 (P6 full) | All 14 + CRG: final gate, performance safe to optimize | — |
 
 ## Environment Variables
 

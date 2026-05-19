@@ -1,6 +1,6 @@
 # harness-methodology
 
-**8-Phase ASPICE AI Development Methodology + 4-Gate 12-Dimension Quality Harness**
+**8-Phase ASPICE AI Development Methodology + 4-Gate 14-Dimension Quality Harness**
 
 Design Score: **92/100** Academic Benchmark
 
@@ -17,9 +17,9 @@ Design Score: **92/100** Academic Benchmark
 | Phase | Gate | Dims | score_gate | CRG |
 |-------|------|------|------------|-----|
 | P3 per-FR | Gate 1 | 3 (Tier 1) | — (per-dim) | ✗ |
-| P3 exit | Gate 2 | 7 (Tier 1+2) | 75 | pre-fix only |
-| P4 exit | Gate 3 | 12 (All Tiers) | 80 | full |
-| P6 full | Gate 4 | 12 (All Tiers) | 85 | full |
+| P3 exit | Gate 2 | 9 (Tier 1+2) | 75 | pre-fix only |
+| P4 exit | Gate 3 | 14 (All Tiers) | 80 | full |
+| P6 full | Gate 4 | 14 (All Tiers) | 85 | full |
 
 ## Key Files
 
