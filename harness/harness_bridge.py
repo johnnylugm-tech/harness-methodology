@@ -126,7 +126,7 @@ def _validate_tool_content(
 
     # 2. Comment-header stub detection
     first_nonblank = next((ln for ln in content.splitlines() if ln.strip()), "")
-    if first_nonblank.startswith("#"):
+    if first_nonblank.strip().startswith("#"):
         kind = "tool_evidence" if inline else "tool_output"
         violations.append(
             f"{dim_name}: {kind} starts with '#' comment — "
@@ -273,7 +273,7 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
             str(_Path(ctx.project_root) / "harness" / "gate_configs" / pattern)
         )
         if candidates:
-            cfg_path = _Path(candidates[0])
+            cfg_path = _Path(sorted(candidates)[0])
             break
 
     if not cfg_path or not cfg_path.exists():
@@ -281,13 +281,15 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
 
     try:
         cfg = _yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
-    except Exception:
+    except Exception as exc:
+        print(f"  [S4-WARN] cross-validation disabled: failed to parse {cfg_path.name}: {exc}")
         return []
 
     try:
         from harness.tool_runners import run_tool, compute_tool_score
-    except ImportError:
-        return []  # Module unavailable — skip cross-validation
+    except ImportError as exc:
+        print(f"  [S4-WARN] cross-validation disabled: harness.tool_runners unavailable: {exc}")
+        return []
 
     verification_dir = _Path(ctx.project_root) / ".sessi-work" / "harness_verification"
     verification_dir.mkdir(parents=True, exist_ok=True)

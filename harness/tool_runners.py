@@ -57,8 +57,7 @@ def run_tool(
     timeout = timeout_override if timeout_override is not None else _DEFAULT_TIMEOUTS.get(tool, 30)
     root = str(project_root)
 
-    # Build command per tool.  All use --exit-zero / --exit-code 0 so we always
-    # get output regardless of whether violations are found.
+    # Build command per tool.
     cmds: dict[str, list[str]] = {
         "ruff": [
             "ruff", "check", root,
@@ -83,7 +82,8 @@ def run_tool(
         "gitleaks": [
             "gitleaks", "detect",
             "--source", root,
-            "--exit-code", "0",
+            # No --exit-code override: exit 0 = clean, exit 1 = leaks found.
+            # Overriding to 0 would make the scorer always return 100.
         ],
     }
 
@@ -165,7 +165,7 @@ def _score_pytest(output: str, *, coverage: bool) -> float:
     With coverage=False: return 100 × (passed / total).
     """
     if coverage:
-        m = re.search(r"TOTAL\s+\d+\s+\d+\s+(\d+)%", output)
+        m = re.search(r"TOTAL\s+(?:\d+\s+){2,}(\d+)%", output)
         if m:
             return float(m.group(1))
         # Fallback to pass-rate if coverage table absent
