@@ -27,7 +27,7 @@ Design Score: **92/100** Academic Benchmark
 |------|---------|
 | `SKILL.md` | Framework spec (YAML frontmatter + HR rules, thresholds, phase SOPs) |
 | `CONTRIBUTING.md` | Maintainer SOP: module structure, versioning, release flow, troubleshooting |
-| `harness_cli.py` | Standalone CLI entry point (plan-phase, run-gate, run-pipeline, etc.) |
+| `harness_cli.py` | Standalone CLI entry point (plan-phase, run-gate, etc.) |
 | `harness/harness_bridge.py` | Gate trigger + CRG integration |
 | `harness/gate_configs/` | 4 Gate YAML configurations |
 | `core/auto_fix/` | AutoFixEngine: classify → fix → verify → loop (13 strategies, 9 escalation conditions) |
@@ -37,26 +37,12 @@ Design Score: **92/100** Academic Benchmark
 
 ## Quick Start
 
-### 全自主模式（推薦）— 一次啟動，P1→P8 自動執行
-
-```bash
-export HERMES_REVIEWER_TARGET="telegram:YOUR_CHAT_ID"
-
-# 全管道（P3+ 計劃在 P2 產出 SAD.md 後動態生成）
-python harness_cli.py run-pipeline \
-  --phase-from 1 --phase-to 8 \
-  --project /path/to/project \
-  --auto-fix-rounds 3
-
-# Gate blocked 或 SRS/SAD 缺少時 exit 10 → 修復後接續：
-python harness_cli.py run-pipeline --phase-from N --project /path/to/project
-```
+### 分步執行（推薦）
 
 人類僅需介入 3 次：提供 SRS.md (P1)、提供 SAD.md (P2)、Gate 4 Telegram APPROVE。
-其餘所有品質問題由 AutoFixEngine 自動修復（最多 `--auto-fix-rounds` 輪，預設 3）。
 9 項嚴格的人類介入條件見 SAD.md §3.18。
 
-### 手動分步
+步驟依序執行：
 
 ```bash
 python harness_cli.py plan-phase  --phase 3

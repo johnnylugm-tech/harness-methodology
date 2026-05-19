@@ -79,9 +79,6 @@ python harness_cli.py pre-commit-check  --phase 3 [--project .]   # git hook onl
 python harness_cli.py run-gate          --gate 2 --phase 3 [--project .] [--fr-id FR-01] [--skip-preflight] [--delta]
 python harness_cli.py finalize-gate     --gate 2 --phase 3 [--project .] [--fr-id FR-01] [--no-git]
 python harness_cli.py generate-next-plan [--project .] [--phase N]
-python harness_cli.py run-pipeline      [--phase-from 1] [--phase-to 8] [--project .] [--watch]
-                                        [--no-git] [--no-kill-switch] [--drift-threshold 85.0]
-                                        [--auto-fix-rounds 3] [--no-auto-fix]
 python harness_cli.py push-checkpoint   --phase 1|2 [--project .] [--fr-ids FR-01,FR-02] [--no-git] [--skip-confidence]
 python harness_cli.py manifest          --fr-ids FR-01 FR-02 [--sad SAD.md] [--no-git]
 python harness_cli.py status            [--project .] [--json] [--full]
@@ -106,28 +103,19 @@ python harness_cli.py audit-structure   [--project .] [--json]
 
 **Gate evaluation (two-phase)**: `run-gate` prepares context and prints evaluation instructions; Claude evaluates inline and writes `.sessi-work/gate{N}_result.json`; `finalize-gate` reads the result and checks thresholds. SSI assets are embedded in `harness/ssi/`.
 
-**`run-pipeline`** exit codes:
-- `0` — all phases complete
-- `1` — hard error (SSI unavailable, manifest missing)
-- `10` — PAUSE: human intervention needed (missing artifacts, kill-switch, preflight failure, Gate BLOCKED, or auto-fix escalation — see 9 escalation conditions in `core/auto_fix/__init__.py`); resume with `--phase-from N`
-- `11` — Phase Truth failure (HR-11 score < 90%); auto-fix attempts resolution; escalates after max rounds
-
-**Pipeline step flow per phase (P3+)**:
+**Manual step-by-step flow per phase**:
 ```
-[phase.1]   plan-phase        — Generate execution plan from SAD.md
-[phase.2]   preflight          — FSM + constitution + kill-switch (M1) + previous_phase_artifacts (ASPICE chain) + drift (M2) + SAB (P3+) + traceability (P3+) + gap analysis (M3) + CI readiness
-[phase.2.5] M3 gap analysis    — (also part of preflight_all since v2.3; explicit call retained in run-pipeline)
+[phase.1]   plan-phase         — Generate execution plan
+[phase.2]   run-phase          — FSM + constitution + kill-switch + artifacts + drift + SAB + traceability + gap analysis + CI readiness
 [phase.3]   Gate 1 per-FR      — Per-FR quality gate evaluation (phases 3,4,5,7,8)
 [phase.4]   Phase exit gate    — Composite gate evaluation (G2 at P3, G3 at P4, G4 at P6)
-[phase.5]   Phase Truth        — HR-11 ≥ 90% verification (P1-P8)
-[phase.6]   Postflight         — Constitution re-check + drift re-check + state.json advance + summary
-[phase.7]   Advance FSM        — advance-phase writes HANDOVER.md + commits + pushes to next phase
+[phase.5]   Phase Truth        — HR-11 ≥ 90% verification (built into advance-phase)
+[phase.6]   advance-phase      — Advance FSM, HANDOVER.md, commit, push
 ```
+
 M1 kill-switch circuit state is checked before each phase. M3 gap analysis runs for phases ≥ 3.
 
-**P3+ dynamic planning**: `run-pipeline` generates each phase plan dynamically at phase start. Phases P3+ read FR IDs from `quality_manifest.json` (written at P2 exit from SAD.md), so SAD.md must exist before the pipeline can plan any FR-level work.
-
-**Gate BLOCKED diagnostic** (`finalize-gate` exit 1 / `run-pipeline` exit 10): Both commands emit a structured per-dimension diagnosis on block. Output includes: composite score, open_critical/high counts, per-failing-dimension score/threshold/gap and a fix hint, passing dimension summary, auto-fix round count (if `--auto-fix-rounds > 0`), and copy-pasteable resume commands. Full report written to `.methodology/last_block.md`. Fix hints cover all 14 dimension names: `linting`, `type_safety`, `test_coverage`, `security`, `secrets_scanning`, `license_compliance`, `mutation_testing`, `architecture`, `readability`, `error_handling`, `documentation`, `performance`, `integration_coverage`, `test_assertion_quality`. Implemented in `_format_block_diagnostic()` (module-level helper in `harness_cli.py`); the dict `_DIMENSION_HINTS` maps dimension name → actionable fix string. Auto-fix runs during preflight (`_preflight()` calls `AutoFixEngine.fix()` on preflight failures). In the gate loop, `GateBlockedError` triggers the diagnostic immediately — auto-fix is not re-attempted at the gate level; the pipeline returns exit 10 for human intervention.
+**Gate BLOCKED diagnostic** (`finalize-gate` exit 1): The command emits a structured per-dimension diagnosis on block. Output includes: composite score, open_critical/high counts, per-failing-dimension score/threshold/gap and a fix hint, passing dimension summary, auto-fix round count (if `--auto-fix-rounds > 0`), and copy-pasteable resume commands. Full report written to `.methodology/last_block.md`. Fix hints cover all 14 dimension names: `linting`, `type_safety`, `test_coverage`, `security`, `secrets_scanning`, `license_compliance`, `mutation_testing`, `architecture`, `readability`, `error_handling`, `documentation`, `performance`, `integration_coverage`, `test_assertion_quality`. Implemented in `_format_block_diagnostic()` (module-level helper in `harness_cli.py`); the dict `_DIMENSION_HINTS` maps dimension name → actionable fix string. Auto-fix runs during preflight (`_preflight()` calls `AutoFixEngine.fix()` on preflight failures).
 
 **ECC hooks (globally active)**: `~/.claude/hooks/hooks.json` runs ECC (everything-claude-code) hooks across all Claude Code sessions. Relevant to harness:
 - `pre:bash:dispatcher` — blocks `git --no-verify` (prevents HR violation from bypassing hooks), push reminders
@@ -1240,9 +1228,11 @@ Phase Truth < 90% → AutoFixEngine.fix() → re-verify → loop
 
 **CLI usage**:
 ```bash
-python harness_cli.py run-pipeline --auto-fix-rounds 3          # default: enabled
-python harness_cli.py run-pipeline --no-auto-fix                # fall back to detect→block→wait
+# Auto-fix is enabled by default in finalize-gate
+python harness_cli.py finalize-gate --gate 2 --phase 3 --project . --auto-fix-rounds 3
+python harness_cli.py finalize-gate --gate 2 --phase 3 --project . --no-auto-fix
 ```
+(Removed in v2.5: the `run-pipeline` autonomous pipeline was unstable for the current maturity level.)
 
 ### §3.21 — `scripts/check_spec_trace.py` — FR Spec Trace Validator (v2 Content-Level)
 
@@ -2214,7 +2204,7 @@ class GitStrategy:
 - `_cp(label) -> str` — builds checkpoint_id: `{label}-{YYYYMMDD}` (UTC).
 - `_fr_summary(fr_ids) -> str` — compact FR list string, max 5 shown.
 
-**CLI flag**: `--no-git` added to `run-gate`, `run-pipeline`, and `manifest` subcommands.
+**CLI flag**: `--no-git` added to `run-gate`, `finalize-gate`, and `manifest` subcommands.
 Env override: `HARNESS_NO_GIT=1` disables git across all commands without a flag.
 
 ---
@@ -2580,7 +2570,7 @@ python3 -m software_self_improvement.runner
 | Item | File | Notes |
 |---|---|---|
 | ~~Chinese-language comments~~ | `core/cli_phase_prompts.py`, `core/quality_gate/ab_enforcer.py`, `core/quality_gate/phase_truth_verifier.py`, `core/quality_gate/spec_tracking_checker.py` | ✅ **Resolved** — all 4 files confirmed 0 CJK characters (translated in Apr 2026 batch) |
-| ~~`cli.py` standalone boundary~~ | `cli.py` (288KB, v6.102.0) | ✅ **Resolved** — README line 30 already documents `harness_cli.py` as "Standalone CLI entry point (plan-phase, run-gate, run-pipeline, etc.)" |
+| ~~`cli.py` standalone boundary~~ | `cli.py` (288KB, v6.102.0) | ✅ **Resolved** — README line 30 already documents `harness_cli.py` as "Standalone CLI entry point (plan-phase, run-gate, finalize-gate, etc.)" |
 | `phase_auditor.py` | `scripts/phase_auditor.py` | ✅ Documented in §3.20 |
 | ~~`EnsembleScorer` threshold calibration~~ | `detection/ensemble_scorer.py` | ✅ **Resolved** — `PASS_THRESHOLD = 0.65` removed; threshold is now a per-call parameter with caller-provided calibration |
 
@@ -2596,14 +2586,12 @@ The agent has **exactly one source of truth at any moment**:
 | Inside a phase | **phase plan file** | Follow the plan step-by-step (do NOT re-read SKILL.md for task details) |
 | After a crash / context reset | **`generate-next-plan`** | Get position report, then resume plan |
 
-### Two Execution Modes — Pick One Per Phase, Never Mix
+### Execution Mode — Manual Only
 
 | Mode | Command | When to use |
 |------|---------|-------------|
 | **Manual (default)** | Follow `phaseN_plan.md` checklist top-to-bottom | Normal autonomous execution |
-| **Automated** | `harness_cli.py run-pipeline` | Pipeline automation; pauses (exit 10) when gate result missing |
-
-> **Rule**: choose one mode per phase. Running `run-pipeline` while also manually executing a phase plan checklist creates double-execution and duplicate gate evaluations.
+> The `run-pipeline` automated mode was removed in v2.5 (unstable at current maturity level).
 
 ### Execution Loop (per phase) — Manual Mode
 
@@ -2684,27 +2672,14 @@ Humans are required at only **3 checkpoints**.
 
 > **Prerequisite**: SRS.md must exist with `### FR-XX:` sections defining each functional requirement.
 > SAD.md must document architecture decisions. Both are **human-provided preconditions** —
-> the pipeline pauses at P1/P2 exit (code 10) until these files are present.
+> the manual flow pauses at P1/P2 exit until these files are present.
 > P1/P2 are NOT auto-generated by the agent; the human creates or provides them,
-> then re-runs `run-pipeline --phase-from 1` to proceed.
+> then proceeds with `plan-phase`, `run-phase`, and `advance-phase`.
 
 ```
 "Build [description]. Repo: [path]. Tech: [stack].
-Run harness-methodology P1→P8 autonomously.
+Run harness-methodology P1→P8 step by step.
 Gate 4 needs my Telegram APPROVE — handle everything else."
-```
-
-### Full Pipeline Command
-
-```bash
-# P3+ plan is generated dynamically after SAD.md exists (P2 output)
-# Pipeline pauses (exit 10) when a gate result is missing — evaluate then resume
-python harness_cli.py run-pipeline \
-  --phase-from 1 --phase-to 8 \
-  --project /path/to/project
-
-# Resume after human provides SRS.md (P1) or SAD.md (P2)
-python harness_cli.py run-pipeline --phase-from 3 --project /path/to/project
 ```
 
 ### Per-Phase A/B Work Content

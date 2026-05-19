@@ -162,7 +162,15 @@ Run from target project root with harness on `PYTHONPATH` (or via submodule).
 
 **Full pipeline execution**:
 ```bash
-python harness_cli.py run-pipeline --phase-from 1 --phase-to 8 --project .
+# Manual step-by-step (recommended — run-pipeline removed in v2.5)
+python harness_cli.py plan-phase --phase 1 --project .
+python harness_cli.py run-phase --phase 1 --project .
+python harness_cli.py plan-phase --phase 2 --project .
+python harness_cli.py run-phase --phase 2 --project .
+python harness_cli.py plan-phase --phase 3 --project .
+python harness_cli.py run-phase --phase 3 --project .
+python harness_cli.py finalize-gate --gate 2 --phase 3 --project .
+# Continue for P4–P8 with same pattern
 ```
 
 **One-shot project initialization** (automates Steps 1-4 above):

@@ -586,7 +586,8 @@ You need to re-run a phase that was already marked complete.
   │    {"state": "ACTIVE", "current_phase": N-1, "last_update": "..."}
   │
   ├─ Re-run from that phase:
-  │    python harness_cli.py run-pipeline --phase-from N --project /project
+  │    python harness_cli.py plan-phase --phase N --project /project
+  │    python harness_cli.py run-phase --phase N --project /project
   │
   └─ Note: gate results are preserved in quality_manifest.json
        If you want to reset gate results, edit gate_results in the manifest
@@ -759,21 +760,10 @@ Repo：/path/to/project
 Gate 4 若分數未達自動核准門檻，我會在 Telegram 收到通知並 APPROVE；其餘全自動。
 ```
 
-#### Claude 的執行策略
-
-```bash
-# 完整管道一鍵啟動（Claude 用 Bash tool 執行）
-python harness_cli.py run-pipeline \
-  --phase-from 1 --phase-to 8 \
-  --project /path/to/project \
-  --auto-fix-rounds 3 \
-  --watch                    # v2.4+: hot-reload SKILL.md YAML frontmatter changes
-```
+#### Claude 的執行策略（分步執行）
 
 > **關鍵設計**：P3+ 的計劃（FR 清單）從 P2 產出的 `SAD.md` 動態讀取。
-> 若 P2 尚未完成，pipeline 會以 exit code 10 暫停，等待人類提供 `SAD.md`。
-
-#### 分步執行（Claude 用 Bash tool 逐步控制）
+> `run-pipeline` 已被 v2.5 移除（當前成熟度不穩定），全面採用分步執行。
 
 ```bash
 # 每 Phase 開始先產計劃（P3+ 必須等 SAD.md 存在）
@@ -905,7 +895,7 @@ python harness_cli.py finalize-gate \
 **返回碼**：0=gate 通過；1=Gate Blocked（分數或閾值未達標）；2=錯誤（result.json 不存在等）  
 **Gate 4**：先執行 `await-hermes-approve`（Phase 6 完整性驗證 + 信心評分），通過後再執行 `finalize-gate`。
 
-> **完整兩步手動流程**（`run-pipeline` 自動執行，此處供手動或 debug 使用）：
+> **完整兩步流程**（`run-pipeline` 已於 v2.5 移除，此為標準流程）：
 > ```bash
 > # Step 1 — 準備評估上下文，Claude 評估後寫入 result.json
 > python harness_cli.py run-gate --gate 2 --phase 3 --project /project

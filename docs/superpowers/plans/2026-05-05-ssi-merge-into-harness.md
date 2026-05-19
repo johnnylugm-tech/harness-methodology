@@ -21,7 +21,7 @@
 ### Modify
 - `harness/harness_bridge.py` — add `GateContext`, `prepare_gate()`, `finalize_gate()`; deprecate `run_gate()` + remove `_invoke_harness()`
 - `harness/crg_bridge.py` — update `_ssi_root()` to point to `harness/ssi/`
-- `harness_cli.py` — update `run-gate` to use `prepare_gate()`; add `finalize-gate` subcommand; update `run-pipeline`
+- `harness_cli.py` — update `run-gate` to use `prepare_gate()`; add `finalize-gate` subcommand; update `run-pipeline` _(note: run-pipeline was removed in v2.5)_
 - `SKILL.md` — add §12 Gate Evaluation Protocol
 - `docs/HARNESS_INTEGRATION.md` — update execution model + architecture
 - `SAD.md` — update §SSI integration section
@@ -991,7 +991,7 @@ In `harness_cli.py`, inside `build_parser()`, add after the `run-gate` parser bl
     fg.set_defaults(func=cmd_finalize_gate)
 ```
 
-- [ ] **Step 4: Update run-pipeline gate calls to use prepare/finalize flow**
+- [x] **Step 4: Update run-pipeline gate calls to use prepare/finalize flow** _(run-pipeline later removed in v2.5 — only prepare/finalize flow remains)_
 
 In `cmd_run_pipeline()`, replace Gate 1 per-FR block (find the block that calls `bridge.run_gate(gate_num=1, ...)`):
 
@@ -1015,7 +1015,7 @@ In `cmd_run_pipeline()`, replace Gate 1 per-FR block (find the block that calls 
                     print(f"  python harness_cli.py finalize-gate --gate 1 --phase {phase}"
                           f" --fr-id {fr_id} --project {project} --no-git")
                     print(f"  python harness_cli.py run-pipeline --phase-from {phase}"
-                          f" --project {project}")
+                          f" --project {project}")  # Note: run-pipeline removed in v2.5
                     return 10
                 try:
                     g1_result = bridge.finalize_gate(
@@ -1051,7 +1051,7 @@ Replace phase exit gate block (find the block calling `bridge.run_gate(gate_num=
                 print(f"  python harness_cli.py finalize-gate --gate {gate_num}"
                       f" --phase {phase} --project {project} --no-git")
                 print(f"  python harness_cli.py run-pipeline --phase-from {phase}"
-                      f" --project {project}")
+                      f" --project {project}")  # Note: run-pipeline removed in v2.5
                 return 10
             try:
                 result = bridge.finalize_gate(
@@ -1254,7 +1254,7 @@ def cmd_generate_next_plan(args: argparse.Namespace) -> int:
             ]
         else:
             lines.append(f"\n✅ Phase {phase} fully complete — all FRs done, Gate {exit_gate_num} passed.")
-            lines.append(f"   Next: `python harness_cli.py run-pipeline --phase-from {phase + 1} --project {project}`")
+            lines.append(f"   Next: `python harness_cli.py run-pipeline --phase-from {phase + 1} --project {project}`")  # Note: run-pipeline removed in v2.5 — use advance-phase --completed N
 
     else:
         # Phase has no exit gate (P1, P2, P7, P8)
@@ -1618,7 +1618,7 @@ git commit -m "fix: post-merge test fixes and coverage adjustments"
 | _invoke_harness() removed | Task 5 |
 | harness_cli run-gate uses prepare_gate() | Task 6 |
 | harness_cli finalize-gate new subcommand | Task 6 |
-| run-pipeline uses prepare/finalize | Task 6 |
+| ~~run-pipeline uses prepare/finalize~~ _(run-pipeline removed in v2.5)_ | Task 6 |
 | SKILL.md §12 gate execution protocol | Task 7 |
 | HARNESS_INTEGRATION.md updated | Task 8 |
 | SAD.md §SSI updated | Task 9 |

@@ -123,7 +123,7 @@ Before advancing to Phase N+1, confirm ALL:
 - Execute before user confirms the plan
 - Skip preflight (`run-phase`)
 - Advance phase after gate failure (HR-08)
-- Mix manual mode and `run-pipeline` in the same phase
+- Mix manual mode and automated execution in the same phase
 - Re-read SKILL.md for task details mid-phase (use plan file)
 - Skip `sessions_spawn.log` entries (HR-10)
 - **Role-play both Agent A and Agent B in the same session (HR-01)**
@@ -150,7 +150,6 @@ Before advancing to Phase N+1, confirm ALL:
 | Await Gate 4 Hermes APPROVE | `python harness_cli.py await-hermes-approve --project .` |
 | Recover from crash | `python harness_cli.py generate-next-plan --project .` |
 | Audit a completed phase | `python harness_cli.py audit-phase --phase N --repo .` |
-| Full autonomous pipeline | `python harness_cli.py run-pipeline --phase-from N [--auto-fix-rounds 3] [--no-auto-fix]` |
 
 > Full execution loop details: SAD.md §9. Phase E2E flow + entry/exit matrix: SAD.md §11.
 
@@ -303,7 +302,7 @@ State stored in `.methodology/state.json`:
 | Autonomous pipeline, per-phase A/B roles table (P1–P8), human checkpoints | `SAD.md` §10 |
 | Phase E2E flow, entry/exit matrix, preflight hooks, Phase Truth weights | `SAD.md` §11 |
 | Gate evaluation CLI flow, result file schema, SSI assets | `SAD.md` §12 |
-| CLI commands (plan-phase, run-gate, run-pipeline, etc.) | `harness_cli.py --help` |
+| CLI commands (plan-phase, run-gate, etc.) | `harness_cli.py --help` |
 | Gate thresholds & quality dimensions | `constitution/CONSTITUTION.md` §2 |
 | Full Mermaid phase flowchart | `docs/superpowers/plans/harness_phase_flowchart.md` |
 | Integration setup (git hooks, CI, submodule, init-project) | `INTEGRATION.md` |

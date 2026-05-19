@@ -979,15 +979,16 @@ SESSION START (P7/P8 entry — automated preflight, Gate4 from P6 PASS is precon
 | 2 | P2 exit | SAD.md + ADR.md ready | Human reads deliverables → APPROVE / REJECT |
 | 3 | P6 exit | Gate 4 evaluation done | Click APPROVE on Telegram (Hermes MCP) |
 
-### Automated Pipeline Mode (run-pipeline)
+### Execution Mode — Manual Step by Step
 
-P1+P2 outputs (SRS.md + SAD.md) are preconditions — the pipeline starts from P3:
+> `run-pipeline` autonomous mode removed in v2.5 (unstable at current maturity).
+> Use manual step-by-step execution: plan-phase → run-phase → run-gate → finalize-gate → advance-phase.
 
 | Checkpoint | When | Action |
 |---|---|---|
-| P1+P2 outputs | Before pipeline can plan P3+ | Provide SRS.md + SAD.md |
+| P1+P2 outputs | Before P3+ | Provide SRS.md + SAD.md |
 | Gate 4 — Final APPROVE | P6 exit | Click APPROVE on Telegram (Hermes MCP) |
-| PAUSE (exit code 10) | Result file missing | Run run-gate, evaluate, then finalize-gate |
+| Gate blocked | After finalize-gate | Fix issues, re-run gate |
 
 ---
 

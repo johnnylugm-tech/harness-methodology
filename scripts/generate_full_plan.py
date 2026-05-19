@@ -818,11 +818,7 @@ def _phase_advance_step(phase: int) -> List[str]:
     if phase >= 8:
         return [
             # Phase Truth (HR-11): applies to P3–P8 per SKILL.md §2
-            *(["- [ ] **[PHASE-TRUTH]** Verify Phase Truth ≥ 90% (HR-11):",
-               "  ```bash",
-               f"  python3 harness_cli.py run-pipeline --phase-from {phase}",
-               "  ```",
-               "  Exit 0 = PASS, 11 = Phase Truth < 90%. Fix gaps before finalizing.",
+            *(["- [ ] **[PHASE-TRUTH]** Phase Truth ≥ 90% (HR-11) — verified by advance-phase",
                "",
                ] if phase >= 3 else []),
             "### 🎉 Pipeline Complete",
@@ -855,11 +851,7 @@ def _phase_advance_step(phase: int) -> List[str]:
            "  ```",
            ""] if phase == 6 else []),
         # Phase Truth (HR-11): gates cover P3/P4/P6; P5/P7 have no exit gate so add here
-        *(["- [ ] **[PHASE-TRUTH]** Verify Phase Truth ≥ 90% (HR-11):",
-           "  ```bash",
-           f"  python3 harness_cli.py run-pipeline --phase-from {phase}",
-           "  ```",
-           "  Exit 0 = PASS, 11 = Phase Truth < 90%. Fix gaps before advancing.",
+        *(["- [ ] **[PHASE-TRUTH]** Phase Truth ≥ 90% (HR-11) — verified by advance-phase",
            "",
            ] if phase >= 3 and phase not in _PHASE_EXIT_GATES else []),
         f"- [ ] Advance FSM to Phase {next_phase} (writes new HANDOVER.md + local commit):",
@@ -1006,11 +998,7 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
     ]
     phase_truth_step = (
         [
-            "- [ ] **[PHASE-TRUTH]** Verify Phase Truth ≥ 90% (HR-11):",
-            "  ```bash",
-            f"  python3 harness_cli.py run-pipeline --phase-from {phase}",
-            "  ```",
-            "  Exit 0 = PASS, 11 = Phase Truth < 90%. Fix gaps before advancing.",
+            "- [ ] **[PHASE-TRUTH]** Phase Truth ≥ 90% (HR-11) — verified by advance-phase",
             "",
         ] if phase >= 3 else [
             f"- [ ] **[PHASE-TRUTH]** Phase Truth — N/A (P{phase} prerequisite only)",

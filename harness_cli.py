@@ -11,7 +11,6 @@ Usage:
     python harness_cli.py run-gate         --gate 2  --phase 3 [--project .] [--fr-id FR-01]
     python harness_cli.py finalize-gate    --gate 2  --phase 3 [--project .] [--fr-id FR-01]
     python harness_cli.py generate-next-plan [--project .] [--phase 3]
-    python harness_cli.py run-pipeline     [--phase-from 1] [--phase-to 8] [--project .]
     python harness_cli.py manifest         --fr-ids FR-01 FR-02 [--sad SAD.md]
     python harness_cli.py status           [--project .]
     python harness_cli.py effort           [--phase 3] [--project .]
@@ -77,7 +76,6 @@ sys.path.insert(0, str(_REPO_ROOT))
 # Atomic state-file writers (CV-3 / SG-12 from robustness audit)
 from core.atomic_io import atomic_write_json, file_lock, state_lock_path  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # .env file loader (no external dependency)
 # ---------------------------------------------------------------------------
@@ -130,7 +128,6 @@ def _compute_seal(data: dict) -> str:
         _SEAL_PEPPER.encode(), payload.encode(), hashlib.sha256
     ).hexdigest()[:16]
 
-
 def _verify_state_integrity(project: Path) -> tuple[bool, str]:
     """Verify state.json seal is intact.
 
@@ -151,7 +148,6 @@ def _verify_state_integrity(project: Path) -> tuple[bool, str]:
         return False, "LEGACY"  # Old-format state.json — needs migration, not block
     valid = hmac.compare_digest(_compute_seal(data), stored)
     return (True, "") if valid else (False, "TAMPERED")
-
 
 # Tool name → (check_command, human_name).
 # Used by _verify_gate_tools() to verify tools are actually installed before
@@ -174,8 +170,6 @@ _TOOL_CHECK_COMMANDS: dict[str, tuple[str, str]] = {
     "type_safety": ("mypy --version 2>&1", "mypy"),
     "test_coverage": ("pytest --version 2>&1", "pytest + coverage"),
 }
-
-
 
 def _check_tool_for_dim(dim_name: str, tool_name: str | None) -> tuple[bool, str]:
     """Check if the required tool for a dimension is installed.
@@ -214,7 +208,6 @@ def _check_tool_for_dim(dim_name: str, tool_name: str | None) -> tuple[bool, str
         return ok, ("" if ok else f"{dim_name}: {human_name} not found")
     except Exception:
         return False, f"{dim_name}: {human_name} check failed"
-
 
 def _verify_gate_tools(gate_num: int, project: str) -> tuple[bool, list[str]]:
     """Check all required tools for a gate exist (S2).
@@ -260,12 +253,10 @@ def _verify_gate_tools(gate_num: int, project: str) -> tuple[bool, list[str]]:
             missing.append(diag)
     return len(missing) == 0, missing
 
-
 # Non-dotfile (consistent with other .methodology/ files like state.json, sessions_spawn.log).
 # Replaces the old ".gate_timestamps.jsonl" hidden file name used before 2026-05-18.
 _GATE_TIMESTAMPS_FILE = "gate_timestamps.jsonl"
 _GATE_TIMESTAMPS_MAX_ENTRIES = 60  # Ring-buffer upper bound
-
 
 def _record_gate_timestamp(project: Path, phase: int, gate_num: int, fr_id: str | None) -> None:
     """Append gate commit timestamp to .methodology/gate_timestamps.jsonl (P1 persistence).
@@ -302,7 +293,6 @@ def _record_gate_timestamp(project: Path, phase: int, gate_num: int, fr_id: str 
             )
     except OSError:
         pass  # Non-blocking
-
 
 def _check_commit_intervals(
     project: str, phase: int, gate_num: int, fr_id: str | None
@@ -357,9 +347,7 @@ def _check_commit_intervals(
         )
     return True, ""
 
-
 _GATE1_SCORES_FILE = ".gate1_scores.json"
-
 
 def _record_gate1_score(project: Path, phase: int, fr_id: str, score: float) -> None:
     """Track Gate 1 composite score per FR for inter-FR variance check.
@@ -384,7 +372,6 @@ def _record_gate1_score(project: Path, phase: int, fr_id: str, score: float) -> 
         atomic_write_json(scores_file, scores)
     except Exception:  # pylint: disable=broad-exception-caught
         pass
-
 
 def _check_inter_fr_score_variance(project: Path, phase: int) -> tuple[bool, str]:
     """D2 extension: Gate 1 score variance across all FRs in a phase.
@@ -433,7 +420,6 @@ _REQUIRED_EMBEDDED_DOCS: dict[int, list[str]] = {
     2: ["SRS.md", "SAD.md"],
 }
 
-
 # ---------------------------------------------------------------------------
 # plan-phase
 # ---------------------------------------------------------------------------
@@ -457,7 +443,6 @@ def cmd_plan_phase(args: argparse.Namespace) -> int:
     else:
         print(plan)
     return 0
-
 
 # ---------------------------------------------------------------------------
 # run-phase
@@ -483,7 +468,6 @@ def _check_fr_test_file_exists(project: Path, fr_id: str) -> tuple[bool, str]:
         "  TDD requires a test file BEFORE implementation is merged.\n"
         "  Create tests/test_fr{num}.py with at minimum one failing test."
     )
-
 
 def _check_red_phase_ordering(project: Path, fr_id: str) -> tuple[bool, str]:
     """D1 extension: test first commit must predate source first commit (RED→GREEN).
@@ -564,7 +548,6 @@ def _check_red_phase_ordering(project: Path, fr_id: str) -> tuple[bool, str]:
         )
     return True, ""
 
-
 def _scan_test_functions(test_dir: Path) -> set[str]:
     """Scan all Python test files for function definitions starting with test_."""
     fns: set[str] = set()
@@ -580,7 +563,6 @@ def _scan_test_functions(test_dir: Path) -> set[str]:
             if m2:
                 fns.add(m2.group(1))
     return fns
-
 
 def _flatten_test_names(inventory: dict | None) -> set[str]:
     """Flatten TEST_INVENTORY.yaml fr_tests + cross_cutting into a set of function names."""
@@ -600,7 +582,6 @@ def _flatten_test_names(inventory: dict | None) -> set[str]:
                         if isinstance(items, list):
                             names.update(items)
     return names
-
 
 def cmd_check_test_inventory(args: argparse.Namespace) -> int:
     """D4: Test Inventory Compliance — compare TEST_INVENTORY.yaml against actual tests.
@@ -698,7 +679,6 @@ def cmd_check_test_inventory(args: argparse.Namespace) -> int:
         return 1
     return 0
 
-
 def _parse_inventory_fallback(text: str) -> dict:
     """Minimal YAML-free parser for flat test name lists."""
     result: dict = {"fr_tests": {}, "cross_cutting": {}}
@@ -716,7 +696,6 @@ def _parse_inventory_fallback(text: str) -> dict:
             name = line_s[2:].strip()
             result.setdefault(current_section, {}).setdefault(current_sub, []).append(name)
     return result
-
 
 def _verify_entry_gate(project: Path, phase: int) -> dict:
     """Automatically verify entry gate conditions before phase execution.
@@ -842,7 +821,6 @@ def _verify_entry_gate(project: Path, phase: int) -> dict:
 
     return {"passed": False, "gate": "Unknown", "reason": f"No entry gate defined for phase {phase}"}
 
-
 def _audit_sessions_spawn(project: Path, phase: int) -> None:
     """Audit sessions_spawn.log completeness against quality_manifest FR list.
 
@@ -898,7 +876,6 @@ def _audit_sessions_spawn(project: Path, phase: int) -> None:
             print(f"   ... and {len(shallow_reviewer) - 5} more")
         print("  Re-dispatch Agent B with full document content pasted verbatim into the prompt.")
 
-
 def cmd_run_phase(args: argparse.Namespace) -> int:
     """Run preflight checks for a phase.
 
@@ -907,13 +884,10 @@ def cmd_run_phase(args: argparse.Namespace) -> int:
     target phase.  No postflight is executed here.
 
     Postflight coverage by command:
-    - run-pipeline: calls postflight_all() (constitution + BVS + drift +
-      artifact_links + state advancement) after all FR work completes.
-    - finalize-gate (gate >= 2, standalone): runs only postflight_artifact_links()
+        - finalize-gate (gate >= 2, standalone): runs only postflight_artifact_links()
       + postflight_drift_check().  Constitution and BVS invariants are NOT
       checked on this path.
     - finalize-gate (gate 1): no postflight; constitution/BVS covered by the
-      subsequent run-pipeline postflight_all() call.
     """
     from core.phase_hooks import PhaseHooks
 
@@ -956,9 +930,7 @@ def cmd_run_phase(args: argparse.Namespace) -> int:
         else:
             print(f"        python harness_cli.py run-gate --gate 1 --phase {args.phase} --project {project} --fr-id FR-XX")
             print(f"        (quality_manifest.json not found — run 'plan-phase' first to populate FR IDs)")
-    print(f"        python harness_cli.py run-pipeline --phase-from {args.phase} --project {project}")
     return 0
-
 
 def _run_fast_preflight(hooks) -> dict:
     """Lightweight preflight: FSM, constitution, BVS phase order, kill-switch only.
@@ -975,13 +947,12 @@ def _run_fast_preflight(hooks) -> dict:
     all_passed = all(r.get("passed", False) for r in results.values())
     return {"all_passed": all_passed, "details": results}
 
-
 def cmd_pre_commit_check(args: argparse.Namespace) -> int:
     """Lightweight pre-commit hook check (FSM + constitution + kill-switch only).
 
     Intended exclusively for git commit hooks where speed matters.
     Skips drift, traceability, gap analysis, and CI readiness — those are
-    enforced by run-phase / run-pipeline / finalize-gate.
+    enforced by run-phase / finalize-gate.
 
     Do NOT use this command in pipelines or as a substitute for run-phase.
     """
@@ -1010,18 +981,14 @@ def cmd_pre_commit_check(args: argparse.Namespace) -> int:
         _audit_sessions_spawn(project, args.phase)
 
     print("[INFO] Skipped: drift, traceability, gap analysis, CI readiness.")
-    print("[INFO] Use run-phase or run-pipeline for full enforcement before push.")
     print("[INFO] Next steps:")
-    print(f"        python harness_cli.py run-pipeline --phase-from {args.phase} --project {project}")
     return 0
-
 
 def _sentinel_path(project: Path, gate: int, fr_id: str | None) -> Path:
     """Return the sentinel file path that run-gate writes and finalize-gate verifies."""
     key = (fr_id or "phase").replace("-", "").lower()
     d = project / ".sessi-work" / "sentinels"
     return d / f"g{gate}_{key}.flag"
-
 
 def _check_gate_score_variance(project: Path, phase: int) -> int:
     """Check that gate scores within a phase vary across FRs.
@@ -1081,7 +1048,6 @@ def _check_gate_score_variance(project: Path, phase: int) -> int:
     except Exception as _exc:
         print(f"[advance-phase] ⚠ Gate score variance check error ({_exc}) — skipping")
         return 0
-
 
 # ---------------------------------------------------------------------------
 # run-gate  (Phase 1 of two-phase evaluation)
@@ -1169,7 +1135,6 @@ def cmd_run_gate(args: argparse.Namespace) -> int:
     print(f"[SENTINEL] {sf.relative_to(Path(project))} written.")
     return 0
 
-
 # ---------------------------------------------------------------------------
 # Gate 4 prerequisite checks  (A1 Hermes receipt, A2-A5 schema, B2 score files)
 # ---------------------------------------------------------------------------
@@ -1182,7 +1147,6 @@ _TIER3_DIMS: frozenset[str] = frozenset({
 _HIGH_SCORE_THRESHOLD: float = 85.0
 # Per-dim score file directory (relative to project root)
 _SCORES_SUBDIR = Path(".sessi-work") / "round_1" / "scores"
-
 
 def _check_gate4_prerequisites(project: Path) -> bool:
     """
@@ -1373,13 +1337,11 @@ def _check_gate4_prerequisites(project: Path) -> bool:
 
     return blocked
 
-
 # ---------------------------------------------------------------------------
 # await-hermes-approve  (Gate 4 async human approval via Hermes)
 # ---------------------------------------------------------------------------
 
 _HERMES_APPROVE_TIMEOUT_MS: int = 600_000  # 10 minutes default
-
 
 def cmd_await_hermes_approve(args: argparse.Namespace) -> int:
     """
@@ -1406,7 +1368,6 @@ def cmd_await_hermes_approve(args: argparse.Namespace) -> int:
             print(
                 f"\n[BLOCKED] await-hermes-approve: Phase 6 truth = {score:.0f}% < 90%\n"
                 "  Phase 6 is not yet complete — finish all P6 work before requesting\n"
-                "  Gate 4 approval.  Re-run run-pipeline --phase-from 6 --project ."
             )
             return 10
     except ImportError:
@@ -1535,7 +1496,6 @@ def cmd_await_hermes_approve(args: argparse.Namespace) -> int:
     )
     return 0  # Sentinel written; agent proceeds with Hermes calls
 
-
 def _hermes_process_response(
     project: Path, response: str, approve_msg: str, composite_score: float | None
 ) -> int:
@@ -1569,7 +1529,6 @@ def _hermes_process_response(
             "  before calling await-hermes-approve again."
         )
         return 5
-
 
 # ---------------------------------------------------------------------------
 # finalize-gate  (Phase 2 of two-phase evaluation)
@@ -1722,7 +1681,6 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
 
         # ── Structural post-flight for phase-exit gates (gate ≥ 2) ──────────
         # Checks ASPICE artifact cross-references and drift against artifacts
-        # written during this phase.  run-pipeline runs full postflight_all();
         # finalize-gate called directly also needs these blocking checks so the
         # FSM cannot advance past a gate with structural violations.
         # NOTE: _update_state_checkpoint intentionally placed AFTER this block —
@@ -1817,7 +1775,6 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
 
         # ── S1: Phase Truth for last gate of phase ────────────────────────
         # Ensures PhaseTruthVerifier runs even when finalize-gate is called
-        # directly (bypassing advance-phase / run-pipeline).
         _last_gate = _PHASE_EXIT_GATES.get(args.phase)
         if _last_gate is not None and args.gate == _last_gate and args.phase >= 3:
             print(f"\n[PHASE-TRUTH] Phase {args.phase} final gate — running HR-11 check...")
@@ -1886,7 +1843,6 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
             e, args.gate, args.phase, fr_id, 3, project_path,
         ))
         return 1
-
 
 # ---------------------------------------------------------------------------
 # generate-next-plan
@@ -2024,7 +1980,6 @@ def cmd_generate_next_plan(args: argparse.Namespace) -> int:
         print("Next ckpt  : (all checkpoints complete in this phase)")
         if current_phase >= 1:
             print(f"\n  Phase Truth ≥ 90% (HR-11): verify before advancing to Phase {next_phase}:")
-            print(f"    python harness_cli.py run-pipeline --phase-from {current_phase}")
             print(f"    (Exits 0 on PASS, 11 if Phase Truth < 90%)")
         print(f"\n✓ Phase {current_phase} complete — start Phase {next_phase}:")
         print(f"  python harness_cli.py run-phase --phase {next_phase} "
@@ -2059,7 +2014,6 @@ def cmd_generate_next_plan(args: argparse.Namespace) -> int:
     print(f"\n{'='*W}")
     return 0
 
-
 # ---------------------------------------------------------------------------
 # manifest
 # ---------------------------------------------------------------------------
@@ -2087,7 +2041,6 @@ def _generate_sab_json(project: Path) -> bool:
         print(f"  [SAB] ERROR: SAB generation error — pipeline blocked: {exc}")
         return False
 
-
 def cmd_manifest(args: argparse.Namespace) -> int:
     """Generate quality_manifest.json at P2 exit."""
     from harness.harness_bridge import HarnessBridge
@@ -2105,7 +2058,6 @@ def cmd_manifest(args: argparse.Namespace) -> int:
     _generate_sab_json(project)
     return 0
 
-
 # ---------------------------------------------------------------------------
 # push-checkpoint  (P1/P2 human review checkpoint push + HANDOVER.md)
 # ---------------------------------------------------------------------------
@@ -2120,7 +2072,6 @@ def _check_ci_readiness(project: Path) -> list[str]:
     if not (hooks_dir / "prepare-commit-msg").exists():
         missing.append(".git/hooks/prepare-commit-msg")
     return missing
-
 
 def cmd_push_checkpoint(args: argparse.Namespace) -> int:
     """Push P1/P2 human-review checkpoint with HANDOVER.md generation.
@@ -2145,7 +2096,6 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
     phase = args.phase
     if phase not in (1, 2):
         print(f"[ERROR] push-checkpoint only supports P1/P2 (got phase {phase}).")
-        print("  P3+ use: python harness_cli.py run-pipeline --phase-from {phase}")
         return 1
 
     # ── Confidence gate: block push-checkpoint if deliverables are insufficient ──
@@ -2275,7 +2225,6 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
         )
     return 0 if ok else 1
 
-
 def _extract_review_json(text: str) -> "dict | None":
     """Extract the first JSON object containing 'review_status' from free text.
 
@@ -2294,7 +2243,6 @@ def _extract_review_json(text: str) -> "dict | None":
         except json.JSONDecodeError:
             pass
     return None
-
 
 def _extract_agent_output_json(text: str) -> "dict | None":
     """Extract Agent A's structured output JSON from free text.
@@ -2322,7 +2270,6 @@ def _extract_agent_output_json(text: str) -> "dict | None":
             pass
     return None
 
-
 def _resolve_deliverable_ids(
     project: Path, phase: int, fr_ids: "list[str]"
 ) -> "list[str]":
@@ -2345,7 +2292,6 @@ def _resolve_deliverable_ids(
         except Exception:  # pylint: disable=broad-exception-caught
             pass
     return []
-
 
 def _verify_agent_b_approvals_core(
     project: Path, phase: int, deliverable_ids: "list[str]"
@@ -2412,7 +2358,6 @@ def _verify_agent_b_approvals_core(
         )
     return passed, "\n".join(lines)
 
-
 def cmd_verify_agent_b_approvals(args: argparse.Namespace) -> int:
     """Verify that Agent B approval JSON files exist for all required FRs.
 
@@ -2441,7 +2386,6 @@ def cmd_verify_agent_b_approvals(args: argparse.Namespace) -> int:
     print(report)
     return 0 if passed else 1
 
-
 # ---------------------------------------------------------------------------
 # check-checklist  (Gap-7: mandatory step tracking in phase plans)
 # ---------------------------------------------------------------------------
@@ -2455,7 +2399,6 @@ _MANDATORY_CHECKLIST_LABELS: frozenset[str] = frozenset({
 _ADVISORY_CHECKLIST_LABELS: frozenset[str] = frozenset({
     "PREFLIGHT-CI",
 })
-
 
 def _parse_plan_unchecked(
     plan_path: Path,
@@ -2487,7 +2430,6 @@ def _parse_plan_unchecked(
             unchecked_advisory.append(entry)
 
     return unchecked_mandatory, unchecked_advisory
-
 
 def cmd_check_checklist(args: argparse.Namespace) -> int:
     """Verify that mandatory checklist items in the phase plan are ticked.
@@ -2533,7 +2475,6 @@ def cmd_check_checklist(args: argparse.Namespace) -> int:
 
     return 0
 
-
 def _validate_p8_completion(project: Path) -> list[str]:
     """Pre-flight checks required before push-milestone --type p8 is allowed."""
     errors: list[str] = []
@@ -2558,7 +2499,6 @@ def _validate_p8_completion(project: Path) -> list[str]:
             )
 
     return errors
-
 
 # ---------------------------------------------------------------------------
 # push-milestone  (P3+ milestone push + HANDOVER.md)
@@ -2657,7 +2597,6 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
             print(f"  HANDOVER.md → {handover}")
         print(f"  [git] milestone {milestone_type} pushed → remote ✓")
     return 0 if ok else 1
-
 
 # ---------------------------------------------------------------------------
 # status
@@ -2802,7 +2741,6 @@ def cmd_status(args: argparse.Namespace) -> int:
 
     return 0
 
-
 # ---------------------------------------------------------------------------
 # effort
 # ---------------------------------------------------------------------------
@@ -2819,7 +2757,6 @@ def cmd_effort(args: argparse.Namespace) -> int:
     print(f"{title}\n{'='*60}")
     print(json.dumps(summary, indent=2))
     return 0
-
 
 # ---------------------------------------------------------------------------
 # advance-phase
@@ -2931,7 +2868,6 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
             print(f"  [WARN] Phase Truth check failed: {e} — proceeding without block")
 
     return 0
-
 
 def cmd_advance_phase(args: argparse.Namespace) -> int:
     """Advance to next phase: update state.json atomically.
@@ -3095,7 +3031,6 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
     print(f"[advance-phase] Done — local hooks and CI now target phase {next_phase}")
     return 0
 
-
 # ---------------------------------------------------------------------------
 # dispatch  (spawn Agent A/B + auto-log sessions_spawn.log for HR-10)
 # ---------------------------------------------------------------------------
@@ -3179,7 +3114,6 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
 
     return 0
 
-
 # ---------------------------------------------------------------------------
 # reload-policy
 # ---------------------------------------------------------------------------
@@ -3213,87 +3147,18 @@ def cmd_reload_policy(args: argparse.Namespace) -> int:
         print(f"\n[ERROR] Failed to reload policies: {e}")
         return 1
 
-
 # ---------------------------------------------------------------------------
-# run-pipeline helpers
-# ---------------------------------------------------------------------------
-
-def _parse_fr_ids(text: str) -> list[str]:
-    """Extract sorted unique FR-XX IDs from arbitrary markdown text."""
-    import re
-    return sorted(set(re.findall(r"\bFR-\d+\b", text)))
-
-
-def _plan_phase_silent(phase: int, repo: Path, output: Path) -> None:
-    """Run plan-phase; warns on failure but never blocks the pipeline."""
-    try:
-        from scripts.generate_full_plan import generate_full_plan
-        plan = generate_full_plan(phase, repo, output)
-        if plan:
-            print(f"  plan → {output}")
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        print(f"  [WARN] plan-phase error: {exc} — continuing without plan")
-
-
-def _auto_fix_loop(hooks, pre: dict, phase: int, project: Path,
-                   max_rounds: int = 3) -> dict:
-    """Core auto-fix loop: fix -> verify -> repeat or escalate.
-
-    Args:
-        hooks: PhaseHooks instance.
-        pre: Preflight results dict.
-        phase: Current phase number.
-        project: Project root path.
-        max_rounds: Maximum auto-fix rounds.
-
-    Returns:
-        Updated results dict with possible "escalation" key.
-    """
-    from core.auto_fix import AutoFixEngine, FixContext
-
-    engine = AutoFixEngine(project_root=project, phase=phase, max_rounds=max_rounds)
-    engine.start_phase_timer(estimate_seconds=max_rounds * 180.0)  # HR-13: 3 min per fix round
-
-    fix_ctx_data = pre.get("details", {}).get("_fix_context", {})
-    if not fix_ctx_data:
-        return pre
-
-    context = FixContext(
-        source=fix_ctx_data.get("source", "phase_hooks"),
-        problem_type=fix_ctx_data.get("problem_type", "preflight_failure"),
-        severity=fix_ctx_data.get("severity", "high"),
-        phase=phase,
-        project_root=project,
-        details=fix_ctx_data,
-    )
-
-    for round_num in range(1, max_rounds + 1):
-        context.retry_count = round_num
-        result = engine.fix(context)
-
-        if result.escalation:
-            print(f"[AUTO-FIX] ESCALATED: {result.escalation.value} — human intervention required")
-            return {"all_passed": False, "escalation": result.escalation.value}
-
-        # Re-run preflight
-        check_result = hooks.preflight_all()
-        if check_result.get("all_passed"):
-            print(f"[AUTO-FIX] SUCCESS after {round_num} round(s)")
-            return check_result
-
-        print(f"[AUTO-FIX] Round {round_num}: fix applied but preflight still failing. "
-              f"Confidence: {result.confidence:.0f}%")
-
-    print(f"[AUTO-FIX] HR-12: max rounds ({max_rounds}) exceeded → PAUSE")
-    return {"all_passed": False, "escalation": "hr12_max_rounds_exceeded"}
-
-
 def _preflight(phase: int, project: Path,
                enable_kill_switch: bool = True,
                drift_threshold: float = 85.0,
                auto_fix: bool = True,
                auto_fix_rounds: int = 3) -> int:
-    """Run phase pre-flight hooks. Returns 0 on pass."""
+    """Run phase pre-flight hooks. Returns 0 on pass.
+
+    auto_fix and auto_fix_rounds are accepted for backward-compatible callers
+    but the inline _auto_fix_loop was removed with run-pipeline in v2.5.
+    Callers should handle fix-retry themselves or fix preflight issues manually.
+    """
     try:
         from core.phase_hooks import PhaseHooks
         hooks = PhaseHooks(str(project), phase=phase,
@@ -3302,20 +3167,11 @@ def _preflight(phase: int, project: Path,
                            auto_fix_enabled=auto_fix)
         pre = hooks.preflight_all()
         if not pre.get("all_passed"):
-            if auto_fix:
-                print("  [PREFLIGHT FAIL] Attempting auto-fix...")
-                pre = _auto_fix_loop(hooks, pre, phase, project, auto_fix_rounds)
-                if pre.get("all_passed"):
-                    print("  [PREFLIGHT] Auto-fix succeeded")
-                    return 0
-                if pre.get("escalation"):
-                    print(f"  [PREFLIGHT] Auto-fix escalated: {pre['escalation']}")
             return 1
         return 0
     except Exception as exc:
         print(f"  [WARN] Phase hooks unavailable: {exc}")
         return 1
-
 
 def _run_gap_analysis(project: Path, similarity: float = 0.6, spec: str = "SPEC.md") -> dict:
     """Run M3 gap analysis. Returns gap report dict; warns on failure."""
@@ -3360,13 +3216,11 @@ def _run_gap_analysis(project: Path, similarity: float = 0.6, spec: str = "SPEC.
         print(f"  [M3] Gap analysis error: {exc}")
         return {"skipped": True, "error": str(exc)}
 
-
 def _make_git(args: argparse.Namespace, project: Path) -> "GitStrategy":  # noqa: F821 — lazy import
     """Instantiate GitStrategy from parsed args. Lazy-imports to keep startup fast."""
     from harness.git_strategy import GitStrategy
     no_git = getattr(args, "no_git", False)
     return GitStrategy(project=project, enabled=not no_git)
-
 
 def _update_state_checkpoint(
     project: Path, gate_num: int, fr_id: str | None,
@@ -3399,7 +3253,6 @@ def _update_state_checkpoint(
             existing["phase_truth_passed"] = True
         existing["_seal"] = _compute_seal(existing)
         atomic_write_json(state_path, existing)
-
 
 def _advance_fsm(project: Path, completed_phase: int,
                  last_gate: int | None = None,
@@ -3463,13 +3316,11 @@ def _advance_fsm(project: Path, completed_phase: int,
     print(f"  [FSM] state.json current_phase → {next_phase}")
 
     # 3. Regenerate HANDOVER.md so crash-recovery always reflects current phase.
-    #    Previously only cmd_advance_phase did this — run-pipeline's
     #    _advance_fsm() call skipped HANDOVER regeneration (Gap 4 in audit).
     try:
         HandoverGenerator(project).write(
             checkpoint_id=f"P{next_phase}-entry-{datetime.now(timezone.utc).strftime('%Y%m%d')}",
             phase=next_phase,
-            task_background=f"Phase {next_phase} execution via run-pipeline.",
             current_status=f"FSM advanced from Phase {completed_phase} to Phase {next_phase}.",
             next_steps=[
                 f"Follow SKILL.md §0.1 Phase {next_phase} entry checklist",
@@ -3486,7 +3337,6 @@ def _advance_fsm(project: Path, completed_phase: int,
 
     # 4. No other phase storage — state.json is the single source of truth.
     #    git config quality.phase and GitHub CURRENT_PHASE variable are no longer used.
-
 
 # ---------------------------------------------------------------------------
 # Gate BLOCKED diagnostic helpers
@@ -3506,7 +3356,6 @@ _DIMENSION_HINTS: dict[str, str] = {
     "documentation":      "All public APIs need [FR-XX] docstrings with Citations: + line numbers",
     "performance":        "Profile with cProfile; fix N+1 queries; add caching where needed",
 }
-
 
 def _format_block_diagnostic(
     exc: "GateBlockedError",  # noqa: F821 — lazy import
@@ -3555,7 +3404,6 @@ def _format_block_diagnostic(
         f"  python harness_cli.py run-gate --gate {gate_num} --phase {phase}"
         f"{fr_flag} --project {project} --auto-fix-rounds {max_rounds}",
         "  # or restart pipeline from this phase:",
-        f"  python harness_cli.py run-pipeline --phase-from {phase}"
         f" --project {project} --auto-fix-rounds {max_rounds}",
         "─" * 60,
     ])
@@ -3588,7 +3436,6 @@ def _format_block_diagnostic(
         + (f" --fr-id {fr_id}" if fr_id else "")
         + f" --project {project} --auto-fix-rounds {max_rounds}",
         "# or:",
-        f"python harness_cli.py run-pipeline --phase-from {phase}"
         f" --project {project} --auto-fix-rounds {max_rounds}",
         "```",
     ]
@@ -3601,7 +3448,6 @@ def _format_block_diagnostic(
         pass
 
     return "\n".join(lines)
-
 
 # ---------------------------------------------------------------------------
 # run-gap-analysis (M3)
@@ -3645,313 +3491,8 @@ def cmd_run_gap_analysis(args: argparse.Namespace) -> int:
         return 2  # 2 = critical gaps (distinct from hard error = 1)
     return 0
 
-
 # ---------------------------------------------------------------------------
-# run-pipeline
-# ---------------------------------------------------------------------------
-
-def cmd_run_pipeline(args: argparse.Namespace) -> int:
-    """
-    Execute the full harness pipeline from phase_from to phase_to.
-
-    P1/P2 pause if SRS.md / SAD.md are missing (human must provide them).
-    P3+ plans are generated dynamically from SAD.md / quality_manifest.json
-    so FR IDs are always available before Gate 1 runs.
-
-    Exit codes:
-        0  — all requested phases completed
-        1  — hard error (SSI unavailable, missing manifest, etc.)
-        10 — PAUSE: human intervention needed; re-run with --phase-from N
-        11 — Phase Truth failure (HR-11 score < 90%); auto-fix attempts resolution; escalates after max rounds
-    """
-    from harness.harness_bridge import HarnessBridge, GateBlockedError
-
-    project = Path(args.project).resolve()
-    phase_from = args.phase_from
-    phase_to = args.phase_to
-    enable_kill_switch = not getattr(args, "no_kill_switch", False)
-    drift_threshold = getattr(args, "drift_threshold", 85.0)
-    bridge = HarnessBridge()
-    git = _make_git(args, project)
-    git.ensure_gitignore()
-
-    print(f"\n{'='*60}")
-    print(f"run-pipeline  P{phase_from}→P{phase_to}  project={project}")
-    print(f"kill_switch={enable_kill_switch}  "
-          f"drift_threshold={drift_threshold}")
-    auto_fix = not getattr(args, "no_auto_fix", False)
-    auto_fix_rounds = min(getattr(args, "auto_fix_rounds", 3), 5)
-    print(f"auto_fix={auto_fix}  auto_fix_rounds={auto_fix_rounds}")
-    print(f"{'='*60}")
-
-    # Optional M1 kill-switch: check circuit state before first phase
-    _ks = None
-    if enable_kill_switch:
-        try:
-            from kill_switch import KillSwitch
-            _ks = KillSwitch()
-            print("[M1] Kill-switch initialized")
-        except ImportError:
-            print("[M1] Kill-switch unavailable — continuing without circuit breaker")
-
-    for phase in range(phase_from, phase_to + 1):
-        print(f"\n{'─'*60}\n[Phase {phase}]\n{'─'*60}")
-
-        # M1: Check kill-switch circuit before each phase
-        if _ks is not None:
-            for _agent in _ks.get_registered_agents():
-                if _ks.is_agent_circuit_open(_agent):
-                    print(f"[M1] BLOCKED: circuit OPEN for {_agent} — "
-                          f"pipeline paused at Phase {phase}")
-                    return 10
-
-        # ── P1: SRS.md must exist (human writes it); checkpoint if valid ────
-        if phase == 1:
-            print(f"\n[1.1] SRS check + checkpoint")
-            srs = project / "01-requirements" / "SRS.md"
-            if not srs.exists():
-                print(f"[1.1] PAUSE: SRS.md not found at {srs}")
-                print("     Create 01-requirements/SRS.md (### FR-XX: ... sections required),")
-                print("     then re-run:")
-                print(f"     python harness_cli.py run-pipeline --phase-from 1 "
-                      f"--project {project}")
-                return 10
-            # Guard: at least one P1 A/B session must be logged before committing
-            # the P1 checkpoint — prevents committing an unreviewed SRS shell.
-            spawn_log = project / ".methodology" / "sessions_spawn.log"
-            p1_reviewed = False
-            if spawn_log.exists():
-                for _raw in spawn_log.read_text(encoding="utf-8", errors="ignore").splitlines():
-                    try:
-                        _entry = json.loads(_raw)
-                        if _entry.get("phase") == 1:
-                            p1_reviewed = True
-                            break
-                    except Exception:
-                        continue
-            if not p1_reviewed:
-                print("[1.1] PAUSE: sessions_spawn.log has no Phase 1 entry — "
-                      "A/B review not started or not logged")
-                print("     Complete P1 A/B review (run generate-plan --phase 1 and follow steps),")
-                print("     then re-run:")
-                print(f"     python harness_cli.py run-pipeline --phase-from 1 "
-                      f"--project {project}")
-                return 10
-            print("[1.1] SRS.md + A/B review verified")
-            # Checklist gate
-            _p1_plan = project / ".methodology" / "phase1_plan.md"
-            _mandatory, _ = _parse_plan_unchecked(_p1_plan)
-            if _mandatory:
-                print("[1.1] BLOCKED: mandatory checklist items unchecked in phase1_plan.md:")
-                for _item in _mandatory:
-                    print(f"  • {_item}")
-                return 5
-            # Agent B approvals gate
-            _deliverables = _resolve_deliverable_ids(project, 1, [])
-            _ab_ok, _ab_report = _verify_agent_b_approvals_core(project, 1, _deliverables)
-            print(_ab_report)
-            if not _ab_ok:
-                return 5
-            fr_ids = _parse_fr_ids(srs.read_text(encoding="utf-8", errors="ignore"))
-            git.commit_and_push_p1(
-                fr_ids=fr_ids,
-                background="P1 Agent B review complete — SRS + deliverables approved.",
-                notes=["Agent B peer review passed", "All deliverables reviewed and approved"],
-            )
-            continue
-
-        # ── P2: SAD.md must exist; generate manifest if missing ──────────
-        if phase == 2:
-            print(f"\n[2.1] SAD check")
-            sad = project / "02-architecture" / "SAD.md"
-            manifest_path = project / ".methodology" / "quality_manifest.json"
-            if not sad.exists():
-                print(f"[2.1] PAUSE: SAD.md not found at {sad}")
-                print("     Generate SAD.md, then re-run:")
-                print(f"     python harness_cli.py run-pipeline --phase-from 2 "
-                      f"--project {project}")
-                return 10
-            if manifest_path.exists():
-                print("[2.2] quality_manifest.json exists — skipping manifest generation")
-            else:
-                print(f"\n[2.2] Manifest + SAB generation")
-                fr_ids = _parse_fr_ids(sad.read_text(encoding="utf-8", errors="ignore"))
-                if not fr_ids:
-                    srs = project / "01-requirements" / "SRS.md"
-                    if srs.exists():
-                        fr_ids = _parse_fr_ids(srs.read_text(encoding="utf-8", errors="ignore"))
-                if not fr_ids:
-                    print("[2.2] ERROR: No FR-XX IDs found in SAD.md or SRS.md.")
-                    print("     Add '### FR-01: ...' sections and re-run.")
-                    return 1
-                bridge.generate_quality_manifest(fr_ids, str(sad))
-                print(f"[2.2] quality_manifest.json created  fr_ids={fr_ids}")
-                if not _generate_sab_json(project):
-                    print("[ERROR] SAB-SYNC failed. Fix generate_sab.py before proceeding.")
-                    return 1
-                # Checklist gate
-                _p2_plan = project / ".methodology" / "phase2_plan.md"
-                _mandatory, _ = _parse_plan_unchecked(_p2_plan)
-                if _mandatory:
-                    print("[2.2] BLOCKED: mandatory checklist items unchecked in phase2_plan.md:")
-                    for _item in _mandatory:
-                        print(f"  • {_item}")
-                    return 5
-                # Agent B approvals gate
-                _deliverables = _resolve_deliverable_ids(project, 2, [])
-                _ab_ok, _ab_report = _verify_agent_b_approvals_core(project, 2, _deliverables)
-                print(_ab_report)
-                if not _ab_ok:
-                    return 5
-                git.commit_and_push_p2(fr_ids)  # PUSH ②
-            continue
-
-        # ── P3+: SAD.md + manifest required for FR-level gate planning ────
-        manifest_path = project / ".methodology" / "quality_manifest.json"
-        if not manifest_path.exists():
-            print("[ERROR] quality_manifest.json missing — complete Phase 2 first.")
-            return 1
-
-        fr_ids = json.loads(manifest_path.read_text(encoding="utf-8")).get("fr_ids", [])
-
-        # ── Entry gate verification (CONSTITUTION.md §2.3) ──────────────────
-        entry_gate = _verify_entry_gate(project, phase)
-        if not entry_gate["passed"]:
-            print(f"\n[ENTRY GATE FAILED] {entry_gate['gate']} — {entry_gate['reason']}")
-            return 10
-        print(f"[ENTRY GATE] {entry_gate['gate']}: {entry_gate['reason']}")
-
-        # ── Step 1: Dynamic plan (reads SAD.md produced in P2) ────────────
-        plan_out = project / ".methodology" / f"phase{phase}_plan.md"
-        print(f"\n[{phase}.1] plan-phase")
-        _plan_phase_silent(phase, project, plan_out)
-
-        # ── Step 2: Preflight ─────────────────────────────────────────────
-        print(f"\n[{phase}.2] preflight")
-        pf_result = _preflight(phase, project,
-                               enable_kill_switch=enable_kill_switch,
-                               drift_threshold=drift_threshold,
-                               auto_fix=auto_fix,
-                               auto_fix_rounds=auto_fix_rounds)
-        if pf_result != 0:
-            print(f"[BLOCKED] Preflight failed for Phase {phase}.")
-            print(f"  Fix constitution/FSM issues, then re-run with --phase-from {phase}")
-            return 10
-
-        # ── Step 2.5: M3 Gap Analysis ─────────────────────────────────────
-        if phase >= 3:
-            print(f"\n[{phase}.2.5] M3 gap analysis")
-            _run_gap_analysis(project)
-
-        # ── Step 3: Per-FR Gate 1 ─────────────────────────────────────────
-        fr_pass_results: list[dict] = []  # accumulate for postflight add_fr_result
-        if phase in _PER_FR_GATE1_PHASES:
-            if not fr_ids:
-                print(f"[ERROR] No FR IDs in manifest — cannot run Gate 1 for phase {phase}.")
-                return 1
-            print(f"\n[{phase}.3] Gate 1 for {len(fr_ids)} FR(s): {fr_ids}")
-            for fr_id in fr_ids:
-                print(f"  [{fr_id}] Gate 1 …", end=" ", flush=True)
-                ctx = bridge.prepare_gate(
-                    gate_num=1, project_root=str(project),
-                    phase=phase, fr_id=fr_id,
-                )
-                result_path = Path(ctx.work_dir) / "gate1_result.json"
-                if not result_path.exists():
-                    print("PAUSE — evaluation needed")
-                    print(ctx.evaluation_prompt())
-                    print("\n  After evaluating, run:")
-                    print(f"  python harness_cli.py finalize-gate --gate 1 "
-                          f"--phase {phase} --project {project} --fr-id {fr_id}")
-                    print(f"  Then re-run: python harness_cli.py run-pipeline "
-                          f"--phase-from {phase} --project {project}")
-                    return 10
-                try:
-                    g1_result = bridge.finalize_gate(ctx)
-                    print(f"PASSED  score={g1_result.score:.1f}")
-                    git.commit_fr_gate1(fr_id, g1_result.score, phase)
-                    fr_pass_results.append({"fr_id": fr_id, "score": g1_result.score})
-                except GateBlockedError as exc:
-                    print("BLOCKED")
-                    print(_format_block_diagnostic(exc, 1, phase, fr_id, 3, project))
-                    return 10
-
-        # ── Step 4: Phase exit gate ───────────────────────────────────────
-        if phase in _PHASE_EXIT_GATES:
-            gate_num = _PHASE_EXIT_GATES[phase]
-            print(f"\n[{phase}.4] Gate {gate_num} (phase exit) …", end=" ", flush=True)
-            ctx = bridge.prepare_gate(
-                gate_num=gate_num, project_root=str(project),
-                phase=phase, fr_id=None,
-            )
-            result_path = Path(ctx.work_dir) / f"gate{gate_num}_result.json"
-            if not result_path.exists():
-                print("PAUSE — evaluation needed")
-                print(ctx.evaluation_prompt())
-                print("\n  After evaluating, run:")
-                print(f"  python harness_cli.py finalize-gate --gate {gate_num} "
-                      f"--phase {phase} --project {project}")
-                print(f"  Then re-run: python harness_cli.py run-pipeline "
-                      f"--phase-from {phase} --project {project}")
-                return 10
-            try:
-                result = bridge.finalize_gate(ctx)
-                print(f"PASSED  score={result.score:.1f}")
-                git.commit_and_push_gate(gate_num, phase, result.score, n_frs=len(fr_ids))
-            except GateBlockedError as exc:
-                print("BLOCKED")
-                print(_format_block_diagnostic(exc, gate_num, phase, None, 3, project))
-                return 10
-
-        # ── Phase Truth (P3–P8 — HR-11 ≥90%) ───────────────────────────────
-        # Exit 11 = Phase Truth < 90% (distinct from GateBlockedError exit 10)
-        if phase >= 3:
-            print(f"\n[{phase}.5] Phase Truth (HR-11 ≥90%) …")
-            try:
-                from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
-            except ImportError:
-                print("  [BLOCKED] PhaseTruthVerifier unavailable — HR-11 check required for P3+, cannot skip")
-                return 11
-            else:
-                verifier = PhaseTruthVerifier(str(project), phase)
-                truth_result = verifier.verify()
-                if not truth_result["passed"]:
-                    print(f"\n[BLOCKED] Phase {phase} truth = {truth_result['total_score']:.0f}% < 90%")
-                    print(f"  Fix issues then re-run with --phase-from {phase}")
-                    return 11  # 11 = Phase Truth failure (10 = GateBlockedError)
-
-        # ── Postflight validation (constitution re-check, drift, BVS invariants, Steering) ──
-        print(f"\n[{phase}.6] Postflight validation")
-        from core.phase_hooks import PhaseHooks
-        post_hooks = PhaseHooks(str(project), phase=phase,
-                               enable_kill_switch=enable_kill_switch,
-                               drift_threshold=drift_threshold,
-                               auto_fix_enabled=auto_fix)
-        for fr in fr_pass_results:
-            post_hooks.add_gate1_pass(fr["fr_id"], fr["score"])
-        post_result = post_hooks.postflight_all()
-        if not post_result["success"]:
-            print(f"[BLOCKED] Postflight failed for Phase {phase}.")
-            print(f"  Fix issues then re-run with --phase-from {phase}")
-            return 10
-        print(f"[{phase}.6] Postflight PASS")
-
-        # ── Advance FSM state ─────────────────────────────────────────────
-        _advance_fsm(project, phase)
-        print(f"\n[Phase {phase}] ✓ Complete")
-
-    print(f"\n{'='*60}")
-    print(f"PIPELINE COMPLETE  P{phase_from}→P{phase_to} ✓")
-    print(f"{'='*60}")
-    # PUSH ⑥ — P7/P8 final artifacts (risk register + config records)
-    late_phases = [p for p in range(phase_from, phase_to + 1) if p in (7, 8)]
-    if late_phases:
-        git.commit_and_push_final(late_phases)
-    return 0
-
-
-# ---------------------------------------------------------------------------
-# audit-phase
+# (run-pipeline removed in v2.5)
 # ---------------------------------------------------------------------------
 
 def cmd_audit_phase(args: argparse.Namespace) -> int:
@@ -3996,7 +3537,6 @@ def cmd_audit_phase(args: argparse.Namespace) -> int:
 
     return 0 if result.verdict != "FAIL" else 1
 
-
 # ---------------------------------------------------------------------------
 # verify-spec
 # ---------------------------------------------------------------------------
@@ -4033,7 +3573,6 @@ def cmd_verify_spec(args: argparse.Namespace) -> int:
 
     return 0 if not result["issues"] else 1
 
-
 # ---------------------------------------------------------------------------
 # check-logic
 # ---------------------------------------------------------------------------
@@ -4060,7 +3599,6 @@ def cmd_check_logic(args: argparse.Namespace) -> int:
 
     return 0 if result.passed else 1
 
-
 # ---------------------------------------------------------------------------
 # init-project
 # ---------------------------------------------------------------------------
@@ -4078,7 +3616,6 @@ def _harness_workflow_template(_phase: int) -> str:
             "Ensure templates/harness_quality_gate.yml exists in the harness-methodology repo."
         )
     return template_path.read_text(encoding="utf-8")
-
 
 # Canonical phase directory names (single authoritative source — used by both
 # _init_phase_dirs and cmd_audit_structure so they can never drift apart).
@@ -4100,7 +3637,6 @@ _PHASE_INIT_SUBDIRS: list[str] = [
     "03-development/tests",
 ]
 
-
 def _init_phase_dirs(project: Path) -> None:
     """Create canonical 0X-name/ phase directory structure in target project."""
     dirs = [*_PHASE_DIRS.values(), *_PHASE_INIT_SUBDIRS]
@@ -4117,7 +3653,6 @@ def _init_phase_dirs(project: Path) -> None:
         print(f"   OK — created {created} director{'y' if created == 1 else 'ies'} ({skipped} already existed)")
     else:
         print(f"   SKIP: all {skipped} directories already exist")
-
 
 def _init_copy_templates(project: Path, harness_root: Path, *, overwrite: bool = False) -> None:
     """Copy artifact templates from harness templates/ into the target project."""
@@ -4166,7 +3701,6 @@ def _init_copy_templates(project: Path, harness_root: Path, *, overwrite: bool =
         print(f"   OK — {', '.join(parts)}")
     else:
         print(f"   SKIP: nothing to copy")
-
 
 def _setup_branch_protection(project: Path) -> int:
     """Configure GitHub branch protection for main with required status checks.
@@ -4288,7 +3822,6 @@ def _setup_branch_protection(project: Path) -> int:
         print("   ERROR: API call timed out.")
         return 1
 
-
 def _verify_no_pr_requirement(owner: str, repo: str) -> None:
     """Warn if branch protection has PR requirement — incompatible with direct-push.
 
@@ -4322,7 +3855,6 @@ def _verify_no_pr_requirement(owner: str, repo: str) -> None:
             f"   [WARN] PR-requirement verification skipped: {type(exc).__name__}: {exc}",
             file=sys.stderr,
         )
-
 
 def cmd_init_project(args: argparse.Namespace) -> int:
     """
@@ -4488,7 +4020,6 @@ def cmd_init_project(args: argparse.Namespace) -> int:
     print(f"  Docs: {harness_root}/INTEGRATION.md")
     return 0
 
-
 def cmd_kill_switch(args: argparse.Namespace) -> int:
     """CLI surface for the M1 KillSwitch (CV-6 from robustness audit).
 
@@ -4566,7 +4097,6 @@ def cmd_kill_switch(args: argparse.Namespace) -> int:
 
     print(f"[ERROR] unknown kill-switch action: {action}", file=sys.stderr)
     return 2
-
 
 def cmd_audit_structure(args: argparse.Namespace) -> int:
     """Audit target project directory structure and artifact completeness.
@@ -4756,7 +4286,6 @@ def cmd_audit_structure(args: argparse.Namespace) -> int:
 
     return 0 if all_passed else 1
 
-
 def _print_audit_report(results: dict) -> None:
     """Print human-readable audit-structure report."""
     print(f"\n{'='*60}")
@@ -4814,7 +4343,6 @@ def _print_audit_report(results: dict) -> None:
     else:
         print(f"RESULT: FAIL — {s['total_dims'] - s['pass_count']} dimension(s) failed")
     print(f"{'='*60}")
-
 
 # ---------------------------------------------------------------------------
 # CLI wiring
@@ -4953,29 +4481,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Similarity threshold for matching (default: 0.6)")
     ga.set_defaults(func=cmd_run_gap_analysis)
 
-    # run-pipeline
-    rpl = sub.add_parser(
-        "run-pipeline",
-        help="Full autonomous pipeline P{from}→P{to} with checkpoint-based gate evaluation",
-    )
-    rpl.add_argument("--phase-from", type=int, default=1, metavar="N", dest="phase_from",
-                     help="Start phase (default: 1)")
-    rpl.add_argument("--phase-to",   type=int, default=8, metavar="N", dest="phase_to",
-                     help="End phase (default: 8)")
-    rpl.add_argument("--project",    default=".", help="Project root (default: .)")
-    rpl.add_argument("--no-git", action="store_true", dest="no_git",
-                     help="Disable all git commit/push operations")
-    rpl.add_argument("--no-kill-switch", action="store_true", dest="no_kill_switch",
-                     help="Disable M1 kill-switch circuit breaker")
-    rpl.add_argument("--drift-threshold", type=float, default=85.0, dest="drift_threshold",
-                     help="M2 drift detection ensemble score threshold (default: 85.0)")
-    rpl.add_argument("--auto-fix-rounds", type=int, default=3, dest="auto_fix_rounds",
-                     help="Max auto-fix rounds per problem (default: 3, max: 5)")
-    rpl.add_argument("--no-auto-fix", action="store_true", dest="no_auto_fix",
-                     help="Disable all auto-fix; fall back to detect→block→wait_for_human")
-    rpl.add_argument("--watch", action="store_true",
-                     help="Enable config hot-reload: watch SKILL.md for YAML frontmatter changes (Item 2)")
-    rpl.set_defaults(func=cmd_run_pipeline)
+    # (run-pipeline removed in v2.5 — old code consumed ~370 lines)
 
     # manifest
     mf = sub.add_parser("manifest", help="Generate quality_manifest.json at P2 exit")
@@ -5155,7 +4661,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     return p
 
-
 def main() -> int:
     """Main entry point for the CLI."""
     # Load .env from CWD first (covers `cd project && python harness_cli.py`).
@@ -5176,7 +4681,6 @@ def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
     return args.func(args)
-
 
 if __name__ == "__main__":
     sys.exit(main())

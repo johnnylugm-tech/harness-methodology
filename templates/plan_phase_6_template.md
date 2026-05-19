@@ -376,7 +376,7 @@ python3 harness_cli.py finalize-gate --gate 4 --phase 6
 - [ ] Confirm `HANDOVER.md` exists at project root
 - [ ] Confirm `quality_manifest.json` records Gate 4 PASS
 - [ ] Confirm git log shows gate commit
-- [ ] Phase Truth >= 90% (HR-11): run `python3 harness_cli.py run-pipeline --phase-from 6`
+- [ ] Phase Truth >= 90% (HR-11): verified by `python3 harness_cli.py advance-phase --completed 6` (built-in check)
 
 ---
 
