@@ -3306,6 +3306,14 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
     _advance_fsm(project, args.completed_phase,
                  last_gate=last_gate_num, last_fr=last_fr_id)
 
+    # CV-13: Stale .sessi-work/ artifacts can cause the next phase's gate
+    # evaluation to skip re-computation (agent sees old result JSONs and
+    # assumes they are current). Clean aggressively at every phase transition.
+    sessi_work = project / ".sessi-work"
+    if sessi_work.is_dir():
+        shutil.rmtree(sessi_work, ignore_errors=True)
+        print(f"  [advance-phase] Cleared stale {sessi_work}")
+
     gen = HandoverGenerator(project)
     gen.write(
         checkpoint_id=f"P{next_phase}-entry-{datetime.now(timezone.utc).strftime('%Y%m%d')}",
