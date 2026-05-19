@@ -1,0 +1,330 @@
+"""
+Unit tests for harness/tool_runners.py — scorer functions.
+
+Covers:
+- _score_radon_cc  (Issue 1: None on parse error; JSON structure)
+- _score_radon_cc_high (Issue 2: differentiated performance scorer)
+- _score_radon_mi  (Issue 1: None on parse error; JSON structure)
+- _score_pyright   (JSON summary.errorCount path + text fallback)
+- _score_bandit    (HIGH/MEDIUM/LOW severity accounting)
+- _score_pydocstyle (violation-count parsing)
+- _score_grep_bare_except (line-count scoring)
+- compute_tool_score  (None propagation from radon scorers)
+"""
+
+import json
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+from harness.tool_runners import (
+    compute_tool_score,
+    _score_radon_cc,
+    _score_radon_cc_high,
+    _score_radon_mi,
+    _score_pyright,
+    _score_bandit,
+    _score_pydocstyle,
+    _score_grep_bare_except,
+)
+
+
+# ---------------------------------------------------------------------------
+# _score_radon_cc
+# ---------------------------------------------------------------------------
+
+class TestScoreRadonCc:
+    """radon cc -j: {"file.py": [{"complexity": N, ...}, ...]}"""
+
+    def test_clean_project_returns_100(self):
+        # All functions CC ≤ 10 → no penalty
+        data = {
+            "src/a.py": [
+                {"name": "foo", "complexity": 5},
+                {"name": "bar", "complexity": 10},
+            ]
+        }
+        assert _score_radon_cc(json.dumps(data), 0) == 100.0
+
+    def test_one_complex_function_costs_5(self):
+        data = {
+            "src/a.py": [{"name": "foo", "complexity": 11}]
+        }
+        assert _score_radon_cc(json.dumps(data), 0) == 95.0
+
+    def test_multiple_complex_functions(self):
+        data = {
+            "src/a.py": [
+                {"name": "foo", "complexity": 12},  # > 10
+                {"name": "bar", "complexity": 9},   # ≤ 10, no penalty
+            ],
+            "src/b.py": [
+                {"name": "baz", "complexity": 20},  # > 10
+            ],
+        }
+        # 2 over threshold → 100 - 2×5 = 90
+        assert _score_radon_cc(json.dumps(data), 0) == 90.0
+
+    def test_empty_project_returns_100(self):
+        assert _score_radon_cc(json.dumps({}), 0) == 100.0
+
+    def test_score_floor_is_zero(self):
+        # 21 complex functions → 100 - 21×5 = -5, clamped to 0
+        data = {"src/a.py": [{"name": f"f{i}", "complexity": 15} for i in range(21)]}
+        assert _score_radon_cc(json.dumps(data), 0) == 0.0
+
+    def test_non_json_returns_none(self):
+        """Issue 1: tool crash / non-JSON stderr must not award 100."""
+        assert _score_radon_cc("radon: command not found", 127) is None
+
+    def test_empty_string_returns_none(self):
+        assert _score_radon_cc("", 0) is None
+
+    def test_non_list_file_entry_ignored(self):
+        # If a file entry is not a list (malformed), skip it gracefully.
+        data = {"src/a.py": {"unexpected": "dict"}}
+        assert _score_radon_cc(json.dumps(data), 0) == 100.0
+
+    def test_entry_missing_complexity_key_ignored(self):
+        data = {"src/a.py": [{"name": "foo"}]}  # no "complexity" key
+        assert _score_radon_cc(json.dumps(data), 0) == 100.0
+
+
+# ---------------------------------------------------------------------------
+# _score_radon_cc_high
+# ---------------------------------------------------------------------------
+
+class TestScoreRadonCcHigh:
+    """radon cc -j --min D: only CC ≥ 16 entries returned.  Each costs 10 pts."""
+
+    def test_no_severe_complexity_returns_100(self):
+        # --min D filters to CC ≥ 16; empty output means nothing severe
+        assert _score_radon_cc_high(json.dumps({}), 0) == 100.0
+
+    def test_one_severe_function_costs_10(self):
+        data = {"src/a.py": [{"name": "monster", "complexity": 20}]}
+        assert _score_radon_cc_high(json.dumps(data), 0) == 90.0
+
+    def test_boundary_exactly_16_is_counted(self):
+        data = {"src/a.py": [{"name": "f", "complexity": 16}]}
+        assert _score_radon_cc_high(json.dumps(data), 0) == 90.0
+
+    def test_complexity_15_not_counted(self):
+        # CC = 15 is grade C, not D — should not be penalised by high scorer
+        data = {"src/a.py": [{"name": "f", "complexity": 15}]}
+        assert _score_radon_cc_high(json.dumps(data), 0) == 100.0
+
+    def test_multiple_severe_functions(self):
+        data = {
+            "src/a.py": [
+                {"name": "f1", "complexity": 25},
+                {"name": "f2", "complexity": 18},
+            ]
+        }
+        # 2 entries → 100 - 2×10 = 80
+        assert _score_radon_cc_high(json.dumps(data), 0) == 80.0
+
+    def test_score_floor_is_zero(self):
+        data = {"src/a.py": [{"name": f"f{i}", "complexity": 20} for i in range(11)]}
+        assert _score_radon_cc_high(json.dumps(data), 0) == 0.0
+
+    def test_non_json_returns_none(self):
+        assert _score_radon_cc_high("not json", 1) is None
+
+    def test_empty_string_returns_none(self):
+        assert _score_radon_cc_high("", 0) is None
+
+
+# ---------------------------------------------------------------------------
+# _score_radon_mi
+# ---------------------------------------------------------------------------
+
+class TestScoreRadonMi:
+    """radon mi -j: {"file.py": {"mi": 80.5, "rank": "A"}}"""
+
+    def test_single_file(self):
+        data = {"src/a.py": {"mi": 80.0, "rank": "A"}}
+        assert _score_radon_mi(json.dumps(data), 0) == 80.0
+
+    def test_average_of_multiple_files(self):
+        data = {
+            "src/a.py": {"mi": 60.0, "rank": "B"},
+            "src/b.py": {"mi": 80.0, "rank": "A"},
+        }
+        assert _score_radon_mi(json.dumps(data), 0) == 70.0
+
+    def test_empty_project_returns_100(self):
+        # No Python files → nothing to average → perfect score
+        assert _score_radon_mi(json.dumps({}), 0) == 100.0
+
+    def test_non_dict_file_value_ignored(self):
+        data = {"src/a.py": "bad", "src/b.py": {"mi": 50.0, "rank": "B"}}
+        assert _score_radon_mi(json.dumps(data), 0) == 50.0
+
+    def test_missing_mi_key_ignored(self):
+        data = {"src/a.py": {"rank": "A"}}  # no "mi" key
+        # Falls through to empty list → 100.0
+        assert _score_radon_mi(json.dumps(data), 0) == 100.0
+
+    def test_non_json_returns_none(self):
+        """Issue 1: tool crash must not award 100."""
+        assert _score_radon_mi("radon: command not found", 127) is None
+
+    def test_empty_string_returns_none(self):
+        assert _score_radon_mi("", 0) is None
+
+
+# ---------------------------------------------------------------------------
+# _score_pyright
+# ---------------------------------------------------------------------------
+
+class TestScorePyright:
+
+    def test_zero_errors_returns_100(self):
+        data = {"summary": {"errorCount": 0, "warningCount": 2}}
+        assert _score_pyright(json.dumps(data), 0) == 100.0
+
+    def test_one_error_costs_5(self):
+        data = {"summary": {"errorCount": 1}}
+        assert _score_pyright(json.dumps(data), 1) == 95.0
+
+    def test_many_errors(self):
+        data = {"summary": {"errorCount": 10}}
+        assert _score_pyright(json.dumps(data), 1) == 50.0
+
+    def test_floor_at_zero(self):
+        data = {"summary": {"errorCount": 25}}
+        assert _score_pyright(json.dumps(data), 1) == 0.0
+
+    def test_text_fallback_counts_error_lines(self):
+        text = "src/foo.py:10:1: error: Cannot assign\nsrc/bar.py:5:2: error: Missing return"
+        assert _score_pyright(text, 1) == 90.0  # 2 errors × 5
+
+    def test_text_fallback_no_errors(self):
+        assert _score_pyright("0 errors, 0 warnings", 0) == 100.0
+
+
+# ---------------------------------------------------------------------------
+# _score_bandit
+# ---------------------------------------------------------------------------
+
+class TestScoreBandit:
+
+    def test_no_issues_returns_100(self):
+        data = {"results": []}
+        assert _score_bandit(json.dumps(data), 0) == 100.0
+
+    def test_high_severity_costs_10(self):
+        data = {"results": [{"issue_severity": "HIGH"}]}
+        assert _score_bandit(json.dumps(data), 0) == 90.0
+
+    def test_medium_severity_costs_3(self):
+        data = {"results": [{"issue_severity": "MEDIUM"}]}
+        assert _score_bandit(json.dumps(data), 0) == 97.0
+
+    def test_low_severity_costs_1(self):
+        data = {"results": [{"issue_severity": "LOW"}]}
+        assert _score_bandit(json.dumps(data), 0) == 99.0
+
+    def test_mixed_severities(self):
+        results = [
+            {"issue_severity": "HIGH"},   # -10
+            {"issue_severity": "HIGH"},   # -10
+            {"issue_severity": "MEDIUM"}, # -3
+            {"issue_severity": "LOW"},    # -1
+        ]
+        data = {"results": results}
+        assert _score_bandit(json.dumps(data), 0) == 76.0
+
+    def test_floor_at_zero(self):
+        data = {"results": [{"issue_severity": "HIGH"}] * 11}
+        assert _score_bandit(json.dumps(data), 0) == 0.0
+
+    def test_non_json_returns_zero(self):
+        # Conservative: tool crash → 0, not 100
+        assert _score_bandit("bandit: command not found", 127) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# _score_pydocstyle
+# ---------------------------------------------------------------------------
+
+class TestScorePydocstyle:
+
+    def test_zero_violations_returns_100(self):
+        # --count appends line like "0 violations found"
+        assert _score_pydocstyle("0 violations found", 0) == 100.0
+
+    def test_one_violation_costs_2(self):
+        assert _score_pydocstyle("src/a.py:1: D100: ...\n1 violation found", 1) == 98.0
+
+    def test_many_violations(self):
+        assert _score_pydocstyle("42 violations found", 1) == max(0.0, 100.0 - 42 * 2)
+
+    def test_floor_at_zero(self):
+        assert _score_pydocstyle("60 violations found", 1) == 0.0
+
+    def test_fallback_counts_D_codes(self):
+        # If no "violations found" line, count D-code matches
+        text = "src/a.py:1 in -: D100: Missing docstring\nsrc/b.py:2 in foo: D103: Missing"
+        assert _score_pydocstyle(text, 1) == 96.0  # 2 violations × 2
+
+
+# ---------------------------------------------------------------------------
+# _score_grep_bare_except
+# ---------------------------------------------------------------------------
+
+class TestScoreGrepBareExcept:
+
+    def test_no_matches_returns_100(self):
+        assert _score_grep_bare_except("", 1) == 100.0  # grep rc=1 = no match
+
+    def test_one_match_costs_5(self):
+        assert _score_grep_bare_except("src/a.py:12:    except:", 0) == 95.0
+
+    def test_multiple_matches(self):
+        output = "src/a.py:12:    except:\nsrc/b.py:5:  except:\n"
+        assert _score_grep_bare_except(output, 0) == 90.0
+
+    def test_floor_at_zero(self):
+        lines = "\n".join(f"src/a.py:{i}:    except:" for i in range(21))
+        assert _score_grep_bare_except(lines, 0) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# compute_tool_score — None propagation from radon scorers
+# ---------------------------------------------------------------------------
+
+class TestComputeToolScoreNonePropagation:
+    """When a scorer returns None, compute_tool_score must also return None."""
+
+    def test_radon_cc_parse_error_propagates_none(self):
+        result = compute_tool_score("radon-cc", "not json", 0)
+        assert result is None
+
+    def test_radon_cc_high_parse_error_propagates_none(self):
+        result = compute_tool_score("radon-cc-high", "not json", 0)
+        assert result is None
+
+    def test_radon_mi_parse_error_propagates_none(self):
+        result = compute_tool_score("radon-mi", "not json", 0)
+        assert result is None
+
+    def test_radon_cc_valid_json_returns_score(self):
+        data = {"src/a.py": [{"complexity": 5}]}
+        result = compute_tool_score("radon-cc", json.dumps(data), 0)
+        assert result == 100.0
+
+    def test_radon_cc_high_valid_json_returns_score(self):
+        data = {"src/a.py": [{"complexity": 20}]}  # CC > 15 → penalty
+        result = compute_tool_score("radon-cc-high", json.dumps(data), 0)
+        assert result == 90.0
+
+    def test_negative_returncode_always_returns_none(self):
+        # Harness-internal error codes: skip regardless of output
+        assert compute_tool_score("radon-cc", "{}", -1) is None
+        assert compute_tool_score("radon-cc", "{}", -3) is None
+
+    def test_unknown_tool_returns_none(self):
+        assert compute_tool_score("nonexistent-tool", "output", 0) is None

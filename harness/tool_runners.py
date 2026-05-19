@@ -37,6 +37,7 @@ _DEFAULT_TIMEOUTS: dict[str, int] = {
     "gitleaks":         30,
     "bandit":           60,
     "radon-cc":         30,
+    "radon-cc-high":    30,
     "radon-mi":         30,
     "pydocstyle":       30,
     "grep-bare-except": 15,
@@ -105,6 +106,11 @@ def run_tool(
             "-j",           # JSON output
             "--min", "A",   # include all grades (A-F)
         ],
+        "radon-cc-high": [
+            "radon", "cc", root,
+            "-j",           # JSON output
+            "--min", "D",   # grade D+ only (CC ≥ 16) — performance hot-path focus
+        ],
         "radon-mi": [
             "radon", "mi", root,
             "-j",           # JSON output
@@ -160,6 +166,7 @@ def compute_tool_score(tool: str, output: str, returncode: int) -> Optional[floa
         "gitleaks":         _score_gitleaks,
         "bandit":           _score_bandit,
         "radon-cc":         _score_radon_cc,
+        "radon-cc-high":    _score_radon_cc_high,
         "radon-mi":         _score_radon_mi,
         "pydocstyle":       _score_pydocstyle,
         "grep-bare-except": _score_grep_bare_except,
@@ -251,8 +258,12 @@ def _score_bandit(output: str, _returncode: int) -> float:
         return 0.0
 
 
-def _score_radon_cc(output: str, _returncode: int) -> float:
-    """Score radon cc -j.  Functions with CC > 10 (grade C+) each cost 5 pts."""
+def _score_radon_cc(output: str, _returncode: int) -> Optional[float]:
+    """Score radon cc -j.  Functions with CC > 10 (grade C+) each cost 5 pts.
+
+    Returns None on JSON parse failure so compute_tool_score propagates None
+    rather than silently awarding 100 for a tool crash.
+    """
     import json as _json
     try:
         data = _json.loads(output)
@@ -265,11 +276,37 @@ def _score_radon_cc(output: str, _returncode: int) -> float:
         )
         return max(0.0, 100.0 - complex_count * 5.0)
     except (_json.JSONDecodeError, ValueError):
-        return 100.0  # No JSON → probably no Python files
+        return None  # Tool crash / non-JSON stderr — cannot score
 
 
-def _score_radon_mi(output: str, _returncode: int) -> float:
-    """Score radon mi -j.  Average Maintainability Index across all files (0-100)."""
+def _score_radon_cc_high(output: str, _returncode: int) -> Optional[float]:
+    """Score radon cc -j --min D.  Functions with CC > 15 (grade D+) each cost 10 pts.
+
+    Used for the *performance* dimension to focus on severe hot-path complexity.
+    Returns None on JSON parse failure.
+    """
+    import json as _json
+    try:
+        data = _json.loads(output)
+        # radon cc -j --min D: {"file.py": [{"complexity": N, ...}, ...]}
+        # All returned entries have CC ≥ 16; filter defensively.
+        complex_count = sum(
+            1
+            for entries in data.values() if isinstance(entries, list)
+            for entry in entries
+            if isinstance(entry, dict) and entry.get("complexity", 0) > 15
+        )
+        return max(0.0, 100.0 - complex_count * 10.0)
+    except (_json.JSONDecodeError, ValueError):
+        return None  # Tool crash / non-JSON stderr — cannot score
+
+
+def _score_radon_mi(output: str, _returncode: int) -> Optional[float]:
+    """Score radon mi -j.  Average Maintainability Index across all files (0-100).
+
+    Returns None on JSON parse failure so compute_tool_score propagates None
+    rather than silently awarding 100 for a tool crash.
+    """
     import json as _json
     try:
         data = _json.loads(output)
@@ -281,7 +318,7 @@ def _score_radon_mi(output: str, _returncode: int) -> float:
         ]
         return round(sum(mis) / len(mis), 1) if mis else 100.0
     except (_json.JSONDecodeError, ValueError):
-        return 100.0
+        return None  # Tool crash / non-JSON stderr — cannot score
 
 
 def _score_pydocstyle(output: str, _returncode: int) -> float:
