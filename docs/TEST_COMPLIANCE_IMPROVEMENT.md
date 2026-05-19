@@ -695,18 +695,8 @@ def _check_crg_test_gaps(project: Path) -> list[str]:
 
 ## 導入策略（Backward Compatibility）
 
-對既有專案（已通過 Gate 1/2/3 的專案如 omnibot），直接啟用會立即擋住 gate：
-
-| 既有專案狀態 | 建議做法 |
-|-------------|---------|
-| 已過 Gate 1 | I-2/I-3 不回溯檢查已 finalize 的 FR；新 FR 開始適用 |
-| 已過 Gate 2 | I-1 D4 在 Gate 2 設 `threshold=0`（僅收集 baseline 不 block） |
-| 已過 Gate 3 | I-1 D4 設 warn-only 模式，Gate 4 才硬門檻 |
-| 全新專案 | 全部預設啟用 |
-
-實作方式：`cmd_check_test_inventory` 接受 `--warn-only` 和 `--threshold` 參數，
-由 gate YAML 的 `d4_mode: strict|warn|baseline` 控制。`init-project --phase N`
-根據 phase 自動設定合理預設值。
+**決定：不實作 migration helpers。** 既有專案只需手動補 `TEST_INVENTORY.yaml` 後即可
+正常 advance，無需特殊 migration code。新專案從 P1 開始自動適用完整生命週期。
 
 ---
 
@@ -735,7 +725,7 @@ def _check_crg_test_gaps(project: Path) -> list[str]:
 | P1（本週） | I-5 integration marker | `templates/conftest.target.yaml` + `gate_3.yaml` | ~30 |
 | P2（下週） | ~~I-1 TEST_INVENTORY + check command + lifecycle~~ | `harness_cli.py` + new YAML schema | ~150 ✅ |
 | P2（下週） | Harness self-tests（I-1~I-5） | `tests/test_test_compliance.py` | ~200 |
-| P3（下下週） | Migration helpers（`--warn-only`, `--threshold`） | `harness_cli.py` | ~40 |
+| ~~P3（下下週）~~ | ~~Migration helpers（`--warn-only`, `--threshold`）~~ | ~~`harness_cli.py`~~ | ~~~40~~ 🚫 |
 
 ---
 
