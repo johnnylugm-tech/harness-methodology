@@ -709,12 +709,12 @@ def _parse_inventory_fallback(text: str) -> dict:
         line_s = line.strip()
         if line_s.startswith("cross_cutting"):
             current_section = "cross_cutting"
-        elif line and line[0] == " " and re.match(r"^(\w+):\s*$", line_s):
+        elif line and line[0] == " " and (_m := re.match(r"^(\w+):\s*$", line_s)):
             # Indented YAML key (sub-section like unit:, integration:, security:).
             # Must check original `line` for indentation (line_s is stripped).
             # Must NOT catch list items like "      - test_name" which also have
             # leading spaces but do not match r"^(\w+):\s*$".
-            current_sub = re.match(r"^(\w+)", line_s).group(1)
+            current_sub = _m.group(1)
         elif line_s.startswith("- "):
             name = line_s[2:].strip()
             result.setdefault(current_section, {}).setdefault(current_sub, []).append(name)

@@ -453,8 +453,10 @@ class TestFinalizeGateCompliance:
         """Write minimal state needed to reach the I-2/I-3 check in finalize-gate.
 
         Bypasses: state.json seal (omitted → LEGACY warning, no block),
-        commit interval (no timestamp file → first gate, passes),
-        HR-10 (spawn_log present but FR-07 absent → skip enforcement).
+        commit interval (no timestamp file → first gate, passes).
+        HR-10: sessions_spawn.log is populated with 2 valid A/B entries for
+        fr_id (developer + reviewer, distinct session_ids) so HR-10 passes
+        cleanly and execution reaches the I-2/I-3 checks.
         """
         import json as _json
 
@@ -516,7 +518,7 @@ class TestFinalizeGateCompliance:
         try:
             code = cmd_finalize_gate(a)
         except SystemExit as e:
-            code = e.code
+            code = e.code if e.code is not None else 0
         return code, captured.getvalue()
 
     def test_i2_missing_test_file_returns_8(self, tmp_path: Path, monkeypatch):
