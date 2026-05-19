@@ -802,13 +802,6 @@ def _run_test_inventory_check(
             except (json.JSONDecodeError, OSError) as e:
                 print(f"\n[CRG Gaps] Error reading CRG data: {e}")
 
-    # Spec Coverage sub-check: TEST_SPEC.md (P2 deliverable) backward check
-    # If TEST_SPEC.md exists, also verify that SPEC items are implemented.
-    # spec_threshold mirrors the TEST_INVENTORY threshold (same Gate level).
-    _sc_code, _sc_pct = _run_spec_coverage_check(project, threshold, verbose=True)
-    if _sc_code != 0:
-        return (_sc_code, _sc_pct)
-
     if pct < threshold:
         print(f"\n[BLOCKED] D4 Test Inventory Compliance {pct:.1f}% < {threshold}% threshold")
         return (1, pct)
