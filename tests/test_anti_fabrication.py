@@ -651,3 +651,388 @@ class TestD3HighViolationScoring:
         assert not passed, "HIGH violation should cause check to fail"
         assert score < 100.0, f"Score should be penalized, got {score}"
         assert score == 85.0, f"1 HIGH = -15, expected 85.0, got {score}"
+
+
+# ---------------------------------------------------------------------------
+# S3-A: Tool-output content validation (Solution A)
+# ---------------------------------------------------------------------------
+
+class TestToolEvidenceContentValidation:
+    """_validate_tool_content rejects stubs; _check_tool_evidence integrates it."""
+
+    # ------------------------------------------------------------------
+    # Helpers shared across tests
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _make_ctx(root: Path, gate: int = 3) -> "object":
+        from harness.harness_bridge import GateContext
+        return GateContext(
+            gate_num=gate, config={}, project_root=str(root),
+            phase=4, fr_id=None,
+            ssi_scripts_dir="", ssi_prompts_dir="", ssi_schemas_dir="",
+            work_dir="", sab_data={},
+        )
+
+    @staticmethod
+    def _make_gate_yaml(root: Path, gate: int, dims: list[dict]) -> None:
+        import yaml
+        cfg_dir = root / "harness" / "gate_configs"
+        cfg_dir.mkdir(parents=True, exist_ok=True)
+        (cfg_dir / f"gate{gate}_p4_exit.yaml").write_text(
+            yaml.dump({"gate": gate, "dimensions": dims})
+        )
+
+    # ------------------------------------------------------------------
+    # _validate_tool_content — unit tests
+    # ------------------------------------------------------------------
+
+    def test_stub_comment_header_file_blocked(self, tmp_path):
+        """File whose first non-blank line starts with '#' is rejected (stub)."""
+        from harness.harness_bridge import _validate_tool_content
+        content = "# Tool output for linting (pre-existing evaluation)\n"
+        violations = _validate_tool_content(content, "ruff", "linting", inline=False)
+        assert len(violations) == 1
+        assert "stub marker" in violations[0]
+
+    def test_stub_comment_header_inline_blocked(self, tmp_path):
+        """Inline tool_evidence starting with '#' is rejected."""
+        from harness.harness_bridge import _validate_tool_content
+        content = "# pre-existing evaluation of mypy run"
+        violations = _validate_tool_content(content, "mypy", "type_safety", inline=True)
+        assert len(violations) == 1
+        assert "stub marker" in violations[0]
+
+    def test_too_small_file_blocked(self, tmp_path):
+        """A file below the minimum size threshold is rejected."""
+        from harness.harness_bridge import _validate_tool_content
+        # 4 bytes — below the 5-byte minimum
+        violations = _validate_tool_content("ok\n", "ruff", "linting", inline=False)
+        assert len(violations) == 1
+        assert "too small" in violations[0]
+
+    def test_ruff_clean_output_accepted(self, tmp_path):
+        """Genuine ruff 'all checks passed' output is accepted."""
+        from harness.harness_bridge import _validate_tool_content
+        content = "All checks passed!\n"
+        violations = _validate_tool_content(content, "ruff", "linting", inline=False)
+        assert violations == [], violations
+
+    def test_ruff_violation_output_accepted(self, tmp_path):
+        """Genuine ruff violation lines are accepted."""
+        from harness.harness_bridge import _validate_tool_content
+        content = "src/app.py:10:1: E501 Line too long (83 > 79 characters)\n"
+        violations = _validate_tool_content(content, "ruff", "linting", inline=False)
+        assert violations == [], violations
+
+    def test_mypy_clean_output_accepted(self, tmp_path):
+        """Genuine mypy success output is accepted."""
+        from harness.harness_bridge import _validate_tool_content
+        content = "Success: no issues found in 12 source files\n"
+        violations = _validate_tool_content(content, "mypy", "type_safety", inline=False)
+        assert violations == [], violations
+
+    def test_unknown_tool_skips_pattern_check(self, tmp_path):
+        """Content for a tool with no registered patterns is never pattern-rejected."""
+        from harness.harness_bridge import _validate_tool_content
+        # 'scancode' patterns exist but let us use a completely unknown tool name
+        content = "some totally custom output without any standard markers\n"
+        violations = _validate_tool_content(content, "unknown_tool_xyz", "custom", inline=False)
+        assert violations == [], violations
+
+    def test_ruff_unrecognized_content_blocked(self, tmp_path):
+        """Content that is large enough, no # header, but matches no ruff pattern."""
+        from harness.harness_bridge import _validate_tool_content
+        # Fake content that is not a comment stub and is big enough but has no
+        # ruff-recognisable patterns.
+        content = "This is definitely not tool output at all but it is long enough.\n"
+        violations = _validate_tool_content(content, "ruff", "linting", inline=False)
+        assert len(violations) == 1
+        assert "does not match" in violations[0]
+
+    # ------------------------------------------------------------------
+    # _check_tool_evidence integration — stub file in tool_output
+    # ------------------------------------------------------------------
+
+    def test_stub_file_tool_output_blocked(self, tmp_path):
+        """A stub tool_output file (comment header) is blocked by _check_tool_evidence."""
+        from harness.harness_bridge import _check_tool_evidence
+        self._make_gate_yaml(tmp_path, 3, [
+            {"name": "linting", "requires_tool_execution": True, "tool": "ruff"},
+        ])
+        # Write a stub file
+        out_dir = tmp_path / ".sessi-work" / "tool_outputs"
+        out_dir.mkdir(parents=True)
+        stub = out_dir / "linting_output.txt"
+        stub.write_text("# Tool output for linting (pre-existing evaluation)\n")
+
+        ctx = self._make_ctx(tmp_path, gate=3)
+        raw = {"breakdown": {"linting": {
+            "score": 95, "threshold": 90,
+            "tool_output": str(stub.relative_to(tmp_path)),
+        }}}
+        violations = _check_tool_evidence(ctx, raw)
+        assert len(violations) == 1
+        assert "stub marker" in violations[0]
+
+    def test_stub_inline_tool_evidence_blocked(self, tmp_path):
+        """A stub inline tool_evidence (comment) is blocked."""
+        from harness.harness_bridge import _check_tool_evidence
+        self._make_gate_yaml(tmp_path, 3, [
+            {"name": "secrets_scanning", "requires_tool_execution": True, "tool": "gitleaks"},
+        ])
+        ctx = self._make_ctx(tmp_path, gate=3)
+        raw = {"breakdown": {"secrets_scanning": {
+            "score": 100, "threshold": 100,
+            "tool_evidence": "# pre-existing gitleaks evaluation",
+        }}}
+        violations = _check_tool_evidence(ctx, raw)
+        assert len(violations) == 1
+        assert "stub marker" in violations[0]
+
+    def test_real_tool_evidence_passes(self, tmp_path):
+        """Genuine gitleaks inline evidence passes."""
+        from harness.harness_bridge import _check_tool_evidence
+        self._make_gate_yaml(tmp_path, 3, [
+            {"name": "secrets_scanning", "requires_tool_execution": True, "tool": "gitleaks"},
+        ])
+        ctx = self._make_ctx(tmp_path, gate=3)
+        raw = {"breakdown": {"secrets_scanning": {
+            "score": 100, "threshold": 100,
+            "tool_evidence": "No leaks found. Scanning 45 files complete.",
+        }}}
+        violations = _check_tool_evidence(ctx, raw)
+        assert violations == [], violations
+
+
+# ---------------------------------------------------------------------------
+# S4: Harness cross-validation (Solution B)
+# ---------------------------------------------------------------------------
+
+class TestHarnessCrossValidation:
+    """_run_harness_cross_validation blocks agent when harness score < threshold."""
+
+    @staticmethod
+    def _make_ctx(root: Path, gate: int = 4) -> "object":
+        from harness.harness_bridge import GateContext
+        return GateContext(
+            gate_num=gate, config={}, project_root=str(root),
+            phase=6, fr_id=None,
+            ssi_scripts_dir="", ssi_prompts_dir="", ssi_schemas_dir="",
+            work_dir=str(root / ".sessi-work"), sab_data={},
+        )
+
+    @staticmethod
+    def _make_gate_yaml(root: Path, gate: int, dims: list[dict]) -> None:
+        import yaml
+        cfg_dir = root / "harness" / "gate_configs"
+        cfg_dir.mkdir(parents=True, exist_ok=True)
+        (cfg_dir / f"gate{gate}_p6_full.yaml").write_text(
+            yaml.dump({"gate": gate, "dimensions": dims})
+        )
+
+    def test_no_fabrication_agent_below_threshold_accepted(self, tmp_path):
+        """Agent score below threshold — no fabrication concern, no violations."""
+        from unittest.mock import patch
+        from harness.harness_bridge import _run_harness_cross_validation
+
+        self._make_gate_yaml(tmp_path, 4, [
+            {"name": "linting", "requires_tool_execution": True, "tool": "ruff",
+             "threshold": 90},
+        ])
+        ctx = self._make_ctx(tmp_path, gate=4)
+        raw = {"breakdown": {"linting": {"score": 70}}}  # agent already says FAIL
+
+        # run_tool should never be called when agent score < threshold
+        with patch("harness.tool_runners.run_tool") as mock_run:
+            violations = _run_harness_cross_validation(ctx, raw)
+
+        assert violations == []
+        mock_run.assert_not_called()
+
+    def test_fabrication_detected_blocks(self, tmp_path):
+        """Agent claims PASS but harness score < threshold → fabrication detected."""
+        from unittest.mock import patch
+        from harness.harness_bridge import _run_harness_cross_validation
+
+        self._make_gate_yaml(tmp_path, 4, [
+            {"name": "linting", "requires_tool_execution": True, "tool": "ruff",
+             "threshold": 90},
+        ])
+        ctx = self._make_ctx(tmp_path, gate=4)
+        raw = {"breakdown": {"linting": {"score": 95}}}  # agent claims PASS
+
+        # Harness finds 30 violations → score = 100 - 30*2 = 40 < threshold 90
+        ruff_json_30_violations = (
+            '[{"code": "E501", "filename": "src/a.py", "location": {"row": 1, "column": 1}}]'
+            * 30  # 30 items — crude but functional for the test
+        )
+        # Actually make a proper JSON list of 30 items
+        import json
+        ruff_output = json.dumps([
+            {"code": "E501", "filename": f"src/a_{i}.py",
+             "location": {"row": i, "column": 1}, "message": "too long"}
+            for i in range(30)
+        ])
+        with patch("harness.tool_runners.run_tool", return_value=(ruff_output, 0)):
+            violations = _run_harness_cross_validation(ctx, raw)
+
+        assert len(violations) == 1
+        assert "fabrication detected" in violations[0]
+        assert "linting" in violations[0]
+
+    def test_harness_passes_threshold_no_violation(self, tmp_path):
+        """Both agent and harness score ≥ threshold → no violation."""
+        from unittest.mock import patch
+        from harness.harness_bridge import _run_harness_cross_validation
+
+        self._make_gate_yaml(tmp_path, 4, [
+            {"name": "linting", "requires_tool_execution": True, "tool": "ruff",
+             "threshold": 90},
+        ])
+        ctx = self._make_ctx(tmp_path, gate=4)
+        raw = {"breakdown": {"linting": {"score": 95}}}  # agent claims 95
+
+        # Harness finds 0 violations → score 100 ≥ threshold 90
+        with patch("harness.tool_runners.run_tool", return_value=("[]", 0)):
+            violations = _run_harness_cross_validation(ctx, raw)
+
+        assert violations == []
+
+    def test_skipped_tool_no_block(self, tmp_path):
+        """Slow/complex tools (mutmut, scancode) are skipped without blocking."""
+        from harness.harness_bridge import _run_harness_cross_validation
+        from harness.tool_runners import run_tool
+
+        self._make_gate_yaml(tmp_path, 4, [
+            {"name": "mutation_testing", "requires_tool_execution": True, "tool": "mutmut",
+             "threshold": 70},
+        ])
+        ctx = self._make_ctx(tmp_path, gate=4)
+        raw = {"breakdown": {"mutation_testing": {"score": 99}}}  # agent claims high score
+
+        # run_tool("mutmut", ...) returns ("", -1) — skipped
+        violations = _run_harness_cross_validation(ctx, raw)
+        assert violations == []
+
+    def test_tool_timeout_no_block(self, tmp_path):
+        """A timed-out tool produces a warning but does not block the gate."""
+        from unittest.mock import patch
+        from harness.harness_bridge import _run_harness_cross_validation
+
+        self._make_gate_yaml(tmp_path, 4, [
+            {"name": "type_safety", "requires_tool_execution": True, "tool": "mypy",
+             "threshold": 85},
+        ])
+        ctx = self._make_ctx(tmp_path, gate=4)
+        raw = {"breakdown": {"type_safety": {"score": 95}}}
+
+        # Simulate timeout
+        with patch("harness.tool_runners.run_tool", return_value=("TIMEOUT: mypy exceeded 60s", -2)):
+            violations = _run_harness_cross_validation(ctx, raw)
+
+        assert violations == []
+
+    def test_multiple_dims_one_fabricated(self, tmp_path):
+        """Only the dimension whose harness score < threshold is reported."""
+        from unittest.mock import patch
+        from harness.harness_bridge import _run_harness_cross_validation
+
+        self._make_gate_yaml(tmp_path, 4, [
+            {"name": "linting",     "requires_tool_execution": True, "tool": "ruff",
+             "threshold": 90},
+            {"name": "type_safety", "requires_tool_execution": True, "tool": "mypy",
+             "threshold": 85},
+        ])
+        ctx = self._make_ctx(tmp_path, gate=4)
+        raw = {"breakdown": {
+            "linting":     {"score": 95},  # claims PASS
+            "type_safety": {"score": 95},  # claims PASS
+        }}
+
+        def fake_run(tool: str, project_root: str, **_kw):
+            import json
+            if tool == "ruff":
+                # 30 violations → score 40 < threshold 90 → fabrication
+                return (json.dumps([{"code": "E501", "filename": f"src/a_{i}.py",
+                                      "location": {"row": i, "column": 1},
+                                      "message": "too long"}
+                                     for i in range(30)]), 0)
+            # mypy: no errors → score 100 ≥ threshold 85 → OK
+            return ("Success: no issues found in 3 source files\n", 0)
+
+        with patch("harness.tool_runners.run_tool", side_effect=fake_run):
+            violations = _run_harness_cross_validation(ctx, raw)
+
+        assert len(violations) == 1
+        assert "linting" in violations[0]
+
+
+# ---------------------------------------------------------------------------
+# tool_runners: unit tests for score computation
+# ---------------------------------------------------------------------------
+
+class TestToolRunnerScoring:
+    """compute_tool_score returns sensible scores from sample tool outputs."""
+
+    def test_ruff_no_violations_scores_100(self):
+        from harness.tool_runners import compute_tool_score
+        assert compute_tool_score("ruff", "[]", 0) == 100.0
+
+    def test_ruff_5_violations_scores_90(self):
+        import json
+        from harness.tool_runners import compute_tool_score
+        output = json.dumps([
+            {"code": "E501", "filename": f"src/a_{i}.py",
+             "location": {"row": i, "column": 1}, "message": "long"}
+            for i in range(5)
+        ])
+        assert compute_tool_score("ruff", output, 0) == 90.0
+
+    def test_ruff_text_format_fallback(self):
+        """Text-format ruff output (non-JSON) is counted by regex."""
+        from harness.tool_runners import compute_tool_score
+        output = "src/foo.py:1:1: E501 too long\nsrc/bar.py:2:1: E302 blank lines\n"
+        assert compute_tool_score("ruff", output, 0) == 96.0  # 2 violations → 100 - 4
+
+    def test_mypy_clean_scores_100(self):
+        from harness.tool_runners import compute_tool_score
+        assert compute_tool_score("mypy", "Success: no issues found in 5 files", 0) == 100.0
+
+    def test_mypy_errors_reduce_score(self):
+        from harness.tool_runners import compute_tool_score
+        output = "src/a.py:1: error: Type mismatch\nsrc/b.py:2: error: Incompatible\n"
+        assert compute_tool_score("mypy", output, 0) == 90.0  # 2 errors → 100 - 10
+
+    def test_pytest_cov_extracts_coverage_pct(self):
+        from harness.tool_runners import compute_tool_score
+        output = (
+            "collected 10 items\n"
+            "..........                                                [100%]\n\n"
+            "---------- coverage: platform darwin, python 3.12 ----------\n"
+            "Name                 Stmts   Miss  Cover\n"
+            "----------------------------------------\n"
+            "src/app.py              50      7    86%\n"
+            "TOTAL                   50      7    86%\n\n"
+            "10 passed in 0.42s\n"
+        )
+        assert compute_tool_score("pytest-cov", output, 0) == 86.0
+
+    def test_gitleaks_no_leaks_scores_100(self):
+        from harness.tool_runners import compute_tool_score
+        assert compute_tool_score("gitleaks", "No leaks found.", 0) == 100.0
+
+    def test_gitleaks_leaks_found_scores_0(self):
+        from harness.tool_runners import compute_tool_score
+        # non-zero exit code + output with "Secret" keyword
+        output = 'WRN[0000] leaks found: 1 Secret detected in src/config.py'
+        assert compute_tool_score("gitleaks", output, 1) == 0.0
+
+    def test_skipped_tool_returns_none(self):
+        from harness.tool_runners import compute_tool_score
+        # returncode -1 = skipped
+        assert compute_tool_score("mutmut", "", -1) is None
+
+    def test_unknown_tool_returns_none(self):
+        from harness.tool_runners import compute_tool_score
+        assert compute_tool_score("unknown_xyz", "some output", 0) is None

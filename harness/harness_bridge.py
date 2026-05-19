@@ -39,6 +39,117 @@ class GateResult:
     rounds_used: int = 0
 
 
+# ---------------------------------------------------------------------------
+# S3-A: Tool-output content patterns (Solution A)
+# ---------------------------------------------------------------------------
+# For each tool name, at least one pattern must match the file/inline content.
+# Patterns use re.IGNORECASE | re.MULTILINE.
+_TOOL_CONTENT_PATTERNS: dict[str, list[str]] = {
+    "ruff": [
+        r"All checks passed",          # clean run
+        r"\S+\.pyi?:\d+:\d+:",         # file:line:col violation line
+        r"Found \d+ error",            # summary
+        r"\[[\w-]+\]",                 # rule code like [E501] or [ruff]
+    ],
+    "mypy": [
+        r"Success: no issues found",
+        r"Found \d+ error",
+        r"\.pyi?:\d+: (error|note):",
+    ],
+    "pytest-cov": [
+        r"\d+ passed",
+        r"TOTAL\s+\d+",
+        r"coverage:",
+        r"Coverage report",
+    ],
+    "pytest": [
+        r"\d+ passed",
+        r"\d+ failed",
+        r"no tests ran",
+        r"={3,}",                      # pytest separator bars
+    ],
+    "gitleaks": [
+        r"No leaks found",
+        r"Secret",
+        r"leaks?\s+found",
+        r"gitleaks",
+        r"WRN\[",                      # gitleaks warning format
+        r"INF\[",                      # gitleaks info format
+    ],
+    "mutmut": [
+        r"Killed",
+        r"Survived",
+        r"mutation score",
+        r"mutmut",
+    ],
+    "scancode": [
+        r"license",
+        r"SPDX",
+        r"copyright",
+        r"scan:",
+    ],
+}
+
+# Minimum byte size for a tool_output file to be considered non-stub.
+# Real tool output is always larger than this; pure comment lines are typically
+# under 80 bytes.
+_TOOL_OUTPUT_MIN_BYTES: int = 5
+
+
+def _validate_tool_content(
+    content: str,
+    tool: str | None,
+    dim_name: str,
+    *,
+    inline: bool,
+) -> list[str]:
+    """S3-A: Verify that *content* looks like genuine tool output.
+
+    Checks (in order):
+      1. Minimum size (file only — inline snippets are expected to be short)
+      2. Comment-header stub detection (applies to both file and inline)
+      3. Tool-specific structural pattern match (applies to both)
+
+    Returns list of violation messages (empty = OK).
+    """
+    violations: list[str] = []
+
+    # 1. Minimum size (file only)
+    if not inline:
+        size = len(content.encode("utf-8"))
+        if size < _TOOL_OUTPUT_MIN_BYTES:
+            violations.append(
+                f"{dim_name}: tool_output file is too small ({size} bytes) — "
+                f"likely a stub; real tool output is at least {_TOOL_OUTPUT_MIN_BYTES} bytes"
+            )
+            return violations  # Early exit — no point checking further
+
+    # 2. Comment-header stub detection
+    first_nonblank = next((ln for ln in content.splitlines() if ln.strip()), "")
+    if first_nonblank.startswith("#"):
+        kind = "tool_evidence" if inline else "tool_output"
+        violations.append(
+            f"{dim_name}: {kind} starts with '#' comment — "
+            f"this is a stub marker, not genuine tool output"
+        )
+        return violations  # Early exit
+
+    # 3. Tool-specific structural pattern
+    if tool and tool in _TOOL_CONTENT_PATTERNS:
+        patterns = _TOOL_CONTENT_PATTERNS[tool]
+        if not any(
+            re.search(p, content, re.IGNORECASE | re.MULTILINE)
+            for p in patterns
+        ):
+            kind = "tool_evidence" if inline else "tool_output"
+            violations.append(
+                f"{dim_name}: {kind} does not match any expected output pattern for "
+                f"'{tool}' — content may not be genuine {tool} output"
+            )
+
+    return violations
+
+
 def _check_tool_evidence(ctx: "GateContext", raw: dict) -> list[str]:
     """S3: Verify tool execution evidence in gate result JSON.
 
@@ -46,6 +157,10 @@ def _check_tool_evidence(ctx: "GateContext", raw: dict) -> list[str]:
     the result JSON breakdown entry MUST include either:
       - tool_output: path to a file containing raw tool stdout/stderr
       - tool_evidence: inline string of tool output snippet
+
+    Additionally (S3-A), the content of tool_output files and tool_evidence
+    strings is validated for structural authenticity — stub files and comment
+    placeholders are rejected.
 
     Returns list of violation messages (empty = all good).
     """
@@ -83,6 +198,7 @@ def _check_tool_evidence(ctx: "GateContext", raw: dict) -> list[str]:
         if not requires_tool:
             continue
 
+        tool = dim.get("tool")
         dim_data = breakdown.get(dim_name, {})
         tool_output = dim_data.get("tool_output")
         tool_evidence = dim_data.get("tool_evidence")
@@ -93,16 +209,154 @@ def _check_tool_evidence(ctx: "GateContext", raw: dict) -> list[str]:
                 violations.append(
                     f"{dim_name}: tool_output path '{tool_output}' does not exist"
                 )
+            else:
+                try:
+                    content = out_path.read_text(encoding="utf-8", errors="replace")
+                except OSError as exc:
+                    violations.append(f"{dim_name}: cannot read tool_output file: {exc}")
+                    continue
+                violations.extend(
+                    _validate_tool_content(content, tool, dim_name, inline=False)
+                )
         elif tool_evidence:
-            if len(str(tool_evidence).strip()) < 10:
+            evidence_str = str(tool_evidence).strip()
+            if len(evidence_str) < 10:
                 violations.append(
                     f"{dim_name}: tool_evidence too short "
-                    f"({len(str(tool_evidence))} chars) — must be real tool output snippet"
+                    f"({len(evidence_str)} chars) — must be real tool output snippet"
+                )
+            else:
+                violations.extend(
+                    _validate_tool_content(evidence_str, tool, dim_name, inline=True)
                 )
         else:
             violations.append(
                 f"{dim_name}: requires tool execution but result JSON has neither "
                 f"tool_output nor tool_evidence — scores must come from actual tool runs"
+            )
+
+    return violations
+
+
+# ---------------------------------------------------------------------------
+# S4: Harness cross-validation (Solution B)
+# ---------------------------------------------------------------------------
+
+def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
+    """S4: Run tools independently and cross-validate agent-reported scores.
+
+    For each Tier 1/2 dimension with requires_tool_execution:true, the harness
+    executes the tool itself (via harness.tool_runners), computes a score, and
+    blocks when:
+      - harness_score < threshold  (harness says the code fails)
+      AND
+      - agent_score >= threshold   (agent claims the code passes)
+
+    This eliminates score fabrication for tool-based dimensions: even if the
+    agent writes a perfectly-structured stub, the harness independently verifies
+    the actual code.
+
+    Slow tools (mutmut, scancode) are skipped here; Solution A (content
+    validation) still applies to their evidence files.
+
+    Raw tool output is written to .sessi-work/harness_verification/ for audit.
+
+    Returns list of fabrication violation messages (empty = all clear).
+    """
+    import yaml as _yaml
+    from pathlib import Path as _Path
+
+    cfg_path = None
+    for pattern in [f"gate{ctx.gate_num}_p*.yaml", f"gate{ctx.gate_num}_*.yaml"]:
+        import glob as _glob
+        candidates = _glob.glob(
+            str(_Path(ctx.project_root) / "harness" / "gate_configs" / pattern)
+        )
+        if candidates:
+            cfg_path = _Path(candidates[0])
+            break
+
+    if not cfg_path or not cfg_path.exists():
+        return []
+
+    try:
+        cfg = _yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+    try:
+        from harness.tool_runners import run_tool, compute_tool_score
+    except ImportError:
+        return []  # Module unavailable — skip cross-validation
+
+    verification_dir = _Path(ctx.project_root) / ".sessi-work" / "harness_verification"
+    verification_dir.mkdir(parents=True, exist_ok=True)
+
+    violations: list[str] = []
+    breakdown = raw.get("breakdown", {})
+
+    for dim in cfg.get("dimensions", []):
+        dim_name = dim.get("name", "")
+        requires_tool = dim.get("requires_tool_execution", False)
+        tool = dim.get("tool")
+        threshold = float(dim.get("threshold", 0))
+
+        if not requires_tool or not tool:
+            continue
+
+        agent_score = float(breakdown.get(dim_name, {}).get("score", 0))
+
+        # Only cross-validate when the agent claims a passing score.
+        # If the agent already reports FAIL, there is no fabrication concern.
+        if agent_score < threshold:
+            continue
+
+        output, returncode = run_tool(tool, ctx.project_root)
+
+        # Write audit trail regardless of outcome
+        audit_file = verification_dir / f"{dim_name}_harness.txt"
+        try:
+            audit_file.write_text(
+                f"# Harness-executed: {tool}\n"
+                f"# returncode: {returncode}\n"
+                f"# agent_score: {agent_score} | threshold: {threshold}\n\n"
+                f"{output}\n",
+                encoding="utf-8",
+            )
+        except OSError:
+            pass  # Audit write failure is non-fatal
+
+        if returncode == -1:
+            # Tool is on the skip list (mutmut / scancode) — S3-A covers it
+            print(
+                f"  [S4] {dim_name}: '{tool}' skipped for cross-validation "
+                f"(too slow/complex) — S3-A content check still applies"
+            )
+            continue
+        if returncode in (-2, -3, -4):
+            # Timed out / not found / error — cannot cross-validate; warn only
+            print(
+                f"  [S4-WARN] {dim_name}: '{tool}' cross-validation skipped "
+                f"(returncode={returncode}) — verify manually"
+            )
+            continue
+
+        harness_score = compute_tool_score(tool, output, returncode)
+        if harness_score is None:
+            continue
+
+        print(
+            f"  [S4] {dim_name}: harness={harness_score:.1f} | "
+            f"agent={agent_score:.1f} | threshold={threshold}"
+        )
+
+        if harness_score < threshold:
+            violations.append(
+                f"{dim_name}: fabrication detected — "
+                f"harness ran '{tool}' and scored {harness_score:.1f} "
+                f"(below threshold {threshold}), but agent reported {agent_score:.1f} "
+                f"(above threshold). "
+                f"See {audit_file.relative_to(_Path(ctx.project_root))}"
             )
 
     return violations
@@ -374,6 +628,9 @@ class HarnessBridge:
         # the result JSON must include tool_output (path to raw tool output)
         # or tool_evidence (inline snippet). Prevents LLM score fabrication
         # when tools are installed but never actually run.
+        # S3-A (Solution A): content of those files/strings is also validated —
+        # stub comments, files that are too small, and content that does not match
+        # the expected tool output structure are all rejected.
         _tool_violations = _check_tool_evidence(ctx, raw)
         if _tool_violations:
             raise GateBlockedError(
@@ -388,6 +645,29 @@ class HarnessBridge:
                     rounds_used=0,
                 ),
                 details={"tool_evidence_missing": _tool_violations},
+            )
+
+        # ── S4: Harness cross-validation (Solution B) ────────────────────────
+        # For each Tier 1/2 dimension where the agent claims a passing score,
+        # the harness independently runs the tool and computes its own score.
+        # If harness_score < threshold but agent_score ≥ threshold, the gate is
+        # blocked with a fabrication violation.
+        # Slow tools (mutmut, scancode) are skipped here; S3-A covers them.
+        print("\n[S4] Running harness cross-validation...")
+        _s4_violations = _run_harness_cross_validation(ctx, raw)
+        if _s4_violations:
+            raise GateBlockedError(
+                ctx.gate_num,
+                GateResult(
+                    gate_num=ctx.gate_num,
+                    score=0.0,
+                    dimensions=[],
+                    open_critical=len(_s4_violations),
+                    open_high=0,
+                    quality_complete=False,
+                    rounds_used=0,
+                ),
+                details={"tool_score_fabrication": _s4_violations},
             )
 
         # Build per-dimension results from breakdown if provided
