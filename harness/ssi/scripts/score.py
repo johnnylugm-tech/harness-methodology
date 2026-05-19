@@ -31,7 +31,7 @@ class ScoreProtocolError(Exception):
     """Score files fail Execution Contract checks — agent MUST redo the dim.
 
     This is the machine-enforced gate that prevents the main agent from
-    skipping tool execution, using the wrong LLM, or fabricating scores.
+    skipping tool execution or fabricating scores.
     """
 
     def __init__(self, errors: list[dict[str, Any]]):
@@ -46,15 +46,6 @@ class ScoreProtocolError(Exception):
         super().__init__("\n".join(lines))
 
 
-def _is_gemini_provider(provider: "str | None") -> bool:
-    """Accept 'gemini' and any model-suffixed variant (gemini-flash, gemini-2.5-flash…).
-
-    Score files often record the model name (e.g. 'gemini-flash') rather than the
-    canonical provider token ('gemini'). Both are valid — the meaningful constraint
-    is that a Gemini-family model was used, not which exact model variant.
-    """
-    return bool(provider) and str(provider).startswith("gemini")
-
 
 def _resolve_tool_outputs(tool_outputs: Any) -> str:
     """Normalize tool_outputs field (string or list) to a single path."""
@@ -68,10 +59,23 @@ def validate_score_file(
     score_data: dict,
     project_root: "Path | None" = None,
 ) -> list[str]:
-    """Validate a single score file against evaluate_dimension.md Execution Contract.
+    """Validate a single score file against the pure-tool scoring contract.
 
     Returns list of issue strings. Empty list = valid.
-    Rejects (R1-R6) block gate scoring. R7 is informational (handled separately).
+    Rejecting rules (R1, R2, R4, R5, R8) block gate scoring.
+    R7 is informational only (handled in _auto_fix_scores).
+
+    Active rules:
+      R1 — Required fields present.
+      R2 — tool_outputs path exists and is non-empty when tool_score is set.
+      R4 — score must equal tool_score (LLM cannot adjust the numeric score).
+      R5 — Every finding must include an evidence field.
+      R8 — tool_score must not be null for any dimension (all tiers require tools).
+
+    Removed rules (LLM scoring abolished):
+      R3  — Tier 1/2 gemini/hermes provider requirement.
+      R6  — Tier 3 + llm_score ≥ 85 inflation gate.
+      R8b — objective_primary llm deviation warning.
 
     Args:
         dim_name: dimension key (used in error context).
@@ -82,26 +86,17 @@ def validate_score_file(
     issues: list[str] = []
 
     ts = score_data.get("tool_score")
-    ls = score_data.get("llm_score")
     sc = score_data.get("score")
-    tier = score_data.get("llm_tier")
-    provider = score_data.get("llm_provider")
     tool_outputs = _resolve_tool_outputs(score_data.get("tool_outputs", ""))
 
-    # R1: Required fields must exist
-    required = [
-        "dimension", "round", "tool_score", "llm_score", "score",
-        "tool_outputs", "llm_tier", "llm_provider",
-    ]
+    # R1: Required fields must exist.
+    # llm_score / llm_tier / llm_provider are now optional annotation fields.
+    required = ["dimension", "round", "tool_score", "score", "tool_outputs"]
     for field in required:
         if field not in score_data:
             issues.append(f"R1: missing required field '{field}'")
 
-    # R2: tool_outputs must reference existing files.
-    # Resolve relative paths against project_root to avoid CWD-dependent failures
-    # (score.py may be invoked from any directory).
-    # Note: tool_score=null for Tier 1/2 is rejected by R8 before this check runs.
-    # For Tier 3, tool_score=null is permitted (helper tool absence); file check skipped.
+    # R2: tool_outputs must reference an existing, non-empty file when tool_score is set.
     if tool_outputs:
         raw_path = Path(tool_outputs)
         output_path = (
@@ -123,28 +118,15 @@ def validate_score_file(
             f"R2: [{dim_name}] tool_outputs path is empty but tool_score is non-null"
         )
 
-    # R3: Tier 1/2 MUST use gemini (any variant) or hermes.
-    # Accepted: "gemini", "gemini-flash", "gemini-2.5-flash", "hermes", …
-    # Exception: claude_native is allowed as the last degraded fallback
-    # (provider_chain exhausted) — score file MUST have _degraded=True in that case.
-    degraded = score_data.get("_degraded", False)
-    valid_t12_provider = provider == "hermes" or _is_gemini_provider(provider)
-    if tier in (1, 2) and not valid_t12_provider and not degraded:
-        issues.append(
-            f"R3: [{dim_name}] Tier {tier} requires gemini (or variant) or hermes provider, "
-            f"got '{provider}' — use 'gemini' / 'gemini-flash' / 'hermes'; "
-            "or set _degraded=true if provider_chain was exhausted"
-        )
-
-    # R4: score = min(tool_score, llm_score) when both present
-    if ts is not None and ls is not None and sc is not None:
-        expected = min(ts, ls)
-        if abs(sc - expected) > 1.5:
+    # R4: score must equal tool_score — LLM annotation cannot adjust the numeric score.
+    if ts is not None and sc is not None:
+        if abs(sc - ts) > 1.5:
             issues.append(
-                f"R4: score={sc} != min(tool_score={ts}, llm_score={ls}) = {expected}"
+                f"R4: [{dim_name}] score={sc} != tool_score={ts} — "
+                "score must equal tool_score; LLM annotation cannot adjust the numeric score"
             )
 
-    # R5: Every finding needs evidence
+    # R5: Every finding needs evidence.
     for i, f in enumerate(score_data.get("findings", [])):
         if not f.get("evidence"):
             msg_snip = (f.get("message") or "?")[:80]
@@ -152,43 +134,14 @@ def validate_score_file(
                 f"R5: finding[{i}] ('{msg_snip}') missing 'evidence' field"
             )
 
-    # R6: Tier 3 + llm_score >= 85 → inflation gate required (Steps 2b/2c)
-    # Fix: add ONE of the following to the score file:
-    #   "da_challenge": false   ← DA step was run, no challenge (or true if challenged)
-    #   "inflation_capped": true ← llm_score was capped to 80 by Step 2c
-    if tier == 3 and ls is not None and ls >= 85:
-        if "da_challenge" not in score_data and "inflation_capped" not in score_data:
-            issues.append(
-                f"R6: [{dim_name}] Tier 3 llm_score >= 85 ({ls}) — "
-                "DA challenge (Step 2b) or inflation gate (Step 2c) not recorded. "
-                'Fix: add "da_challenge": false (DA ran, no issues found) '
-                'or "inflation_capped": true (score was capped) to the score file.'
-            )
-
-    # R8: Tier 1/2 tool_score must not be null.
-    # LLM self-evaluation is not a valid fallback for tool-measured dimensions.
-    # tool_score=null for Tier 3 is permitted (Claude-native evaluation; helper tools optional).
-    if tier in (1, 2) and ts is None:
+    # R8: tool_score must not be null for ANY dimension.
+    # All tiers require tool execution — there is no LLM fallback for scoring.
+    if ts is None:
         issues.append(
-            f"R8: [{dim_name}] Tier {tier} requires tool execution — "
-            "tool_score=null is not permitted. "
+            f"R8: [{dim_name}] tool_score=null is not permitted. "
             "Install the required tool and re-evaluate from Step 1 of evaluate_dimension.md. "
             "init-project blocks on missing tools; run-gate pre-checks before evaluation starts."
         )
-
-    # R8b: objective_primary flag — tool_score is the authoritative source.
-    # When set, llm_score can only reduce (via R4 min()), not replace or override.
-    # If llm_score differs from tool_score by >10 points, warn (potential LLM hallucination
-    # or LLM overcorrecting valid objective data). This is advisory, not blocking.
-    objective = score_data.get("objective_primary", False)
-    if objective and ts is not None and ls is not None:
-        if abs(ls - ts) > 10:
-            issues.append(
-                f"R8b: [{dim_name}] objective_primary dimension — "
-                f"llm_score ({ls}) deviates from tool_score ({ts}) by >10 points. "
-                "The objective tool output should be the primary determinant. "
-                "Verify the tool output is correct before accepting llm_score override."
-            )
 
     return issues
 
@@ -199,19 +152,17 @@ def _auto_fix_scores(scores: dict) -> list[str]:
 
     for dim_name, score_data in scores.items():
         ts = score_data.get("tool_score")
-        ls = score_data.get("llm_score")
         sc = score_data.get("score")
 
-        # R4 auto-fix: enforce score = min(tool_score, llm_score)
-        if ts is not None and ls is not None and sc is not None:
-            expected = min(ts, ls)
-            if abs(sc - expected) > 1.5:
-                score_data["score"] = expected
+        # R4 auto-fix: enforce score = tool_score
+        if ts is not None and sc is not None:
+            if abs(sc - ts) > 1.5:
+                score_data["score"] = ts
                 score_data["_score_autofixed"] = True
                 score_data["_score_autofix_from"] = sc
                 warnings.append(
-                    f"{dim_name}: score auto-fixed {sc} → {expected} "
-                    f"(min(tool_score={ts}, llm_score={ls}))"
+                    f"{dim_name}: score auto-fixed {sc} → {ts} "
+                    f"(tool_score={ts}; LLM annotation cannot override)"
                 )
 
         # R7: flag missing tool_note when tool_score is null (warning only)
@@ -219,7 +170,7 @@ def _auto_fix_scores(scores: dict) -> list[str]:
             if "tool_note" not in score_data:
                 warnings.append(
                     f"{dim_name}: tool_score=null but no 'tool_note' "
-                    "— agent should explain why the tool was unavailable"
+                    "— explain why the tool was unavailable"
                 )
 
     return warnings
@@ -228,7 +179,7 @@ def _auto_fix_scores(scores: dict) -> list[str]:
 def _validate_all_scores(scores: dict, project_root: "Path | None" = None):
     """Validate all score files. Raises ScoreProtocolError on rejection-level failures.
 
-    Auto-fix is applied first (R4: score reconciliation), then hard checks (R1-R6).
+    Auto-fix is applied first (R4: score = tool_score), then hard checks (R1, R2, R4, R5, R8).
     R7 (missing tool_note) is a warning only and does not block scoring.
 
     Args:

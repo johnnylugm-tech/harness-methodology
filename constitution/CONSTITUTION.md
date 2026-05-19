@@ -47,9 +47,9 @@
 | Gate | Phase | 最低分數 | 維度數 | 說明 |
 |------|-------|---------|--------|------|
 | Gate 1 | P3/P4/P5/P7/P8 (per FR) | **≥ 75** | 3 (lint/type/cov) | FR 級別檢查 |
-| Gate 2 | P3 exit | **≥ 75** | 10 | Phase 級別 SSI |
-| Gate 3 | P4 exit | **≥ 80** | 15 | 完整 CRG recon |
-| Gate 4 | P6 exit | **≥ 85** | 15 | 全專案 + Hermes APPROVE |
+| Gate 2 | P3 exit | **≥ 75** | 9 | Phase 級別 SSI |
+| Gate 3 | P4 exit | **≥ 80** | 14 | 完整 CRG recon |
+| Gate 4 | P6 exit | **≥ 85** | 14 | 全專案 + Hermes APPROVE |
 
 ### 2.2 品質維度權重
 

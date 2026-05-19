@@ -412,15 +412,14 @@ class TestR8bObjectivePrimary:
         r8b = [i for i in issues if i.startswith("R8b")]
         assert not r8b, f"expected no R8b, got: {r8b}"
 
-    def test_objective_primary_wide_deviation_warns(self, tmp_path: Path):
-        """tool_score=75, llm_score=50 (gap=25) → R8b warns."""
+    def test_objective_primary_wide_deviation_no_r8b(self, tmp_path: Path):
+        """R8b removed — objective_primary + wide llm/tool gap no longer warns."""
         sd = self._base_score()
-        sd.update({"tool_score": 75, "llm_score": 50, "score": 50,
+        sd.update({"tool_score": 75, "llm_score": 50, "score": 75,
                     "objective_primary": True})
         issues = validate_score_file("mutation_testing", sd, project_root=tmp_path)
         r8b = [i for i in issues if i.startswith("R8b")]
-        assert r8b, "expected R8b warning for >10-point gap"
-        assert ">10 points" in r8b[0]
+        assert not r8b, f"R8b is removed; wide deviation must not generate R8b: {r8b}"
 
     def test_not_objective_primary_ignored(self, tmp_path: Path):
         """No objective_primary flag → R8b not triggered."""

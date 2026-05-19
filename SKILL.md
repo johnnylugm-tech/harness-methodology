@@ -168,7 +168,7 @@ Before advancing to Phase N+1, confirm ALL:
 | P7 | Risk Management | Gate4 | None² | RISK_REGISTER.md |
 | P8 | Configuration Management | Gate4 | None² | CONFIG_RECORDS.md |
 
-> ¹ **Agent B¹** = Agent B peer review of deliverables (P1/P2 produce documents, not code). NOT `run-gate --gate 1`. Gate 1 only applies to code phases (P3–P5, P7, P8) where linting/type_safety/test_coverage can be measured. P6 has no per-FR Gate 1 — it uses a single Gate 4 (12-dim full audit) at phase exit.
+> ¹ **Agent B¹** = Agent B peer review of deliverables (P1/P2 produce documents, not code). NOT `run-gate --gate 1`. Gate 1 only applies to code phases (P3–P5, P7, P8) where linting/type_safety/test_coverage can be measured. P6 has no per-FR Gate 1 — it uses a single Gate 4 (14-dim full audit) at phase exit.
 >
 > ¹ **None¹** (P5) = Phase Truth check only (HR-11: ≥90%); no separate exit gate evaluation.
 >
@@ -235,7 +235,7 @@ Agent B (REVIEWER / architect)
 | P3 | DEVELOPER | REVIEWER | TDD: RED → GREEN → REFACTOR per FR | Review code against SRS/SAD; verify tests pass; check citations |
 | P4 | QA_ENGINEER | ARCHITECT | Execute TEST_PLAN.md per FR; verify coverage ≥ 80% | Review test results; confirm coverage gaps documented; validate traceability |
 | P5 | DEVELOPER | REVIEWER | Verify acceptance criteria per FR against SRS.md | Review acceptance verification; cross-check BASELINE.md against SRS |
-| P6 | QA_ENGINEER | ARCHITECT | Generate QUALITY_REPORT.md (12-dim audit); prepare RELEASE_NOTES.md | Review quality report; confirm all FRs merged and Gate 4 score ≥ 85 |
+| P6 | QA_ENGINEER | ARCHITECT | Generate QUALITY_REPORT.md (14-dim audit); prepare RELEASE_NOTES.md | Review quality report; confirm all FRs merged and Gate 4 score ≥ 85 |
 | P7 | DEVOPS | ARCHITECT | Assess risk per FR; draft mitigation plans; populate RISK_REGISTER.md | Review risk assessments; verify mitigation plans actionable |
 | P8 | DEVOPS | ARCHITECT | Document config per FR; populate CONFIG_RECORDS.md | Review config records; verify env parity; confirm no secret leaks |
 

@@ -29,11 +29,17 @@ _SKIP_TOOLS: frozenset[str] = frozenset({"mutmut", "scancode"})
 
 # Default per-tool timeouts (seconds).
 _DEFAULT_TIMEOUTS: dict[str, int] = {
-    "ruff":       30,
-    "mypy":       60,
-    "pytest-cov": 120,
-    "pytest":     120,
-    "gitleaks":   30,
+    "ruff":             30,
+    "mypy":             60,
+    "pyright":          60,
+    "pytest-cov":       120,
+    "pytest":           120,
+    "gitleaks":         30,
+    "bandit":           60,
+    "radon-cc":         30,
+    "radon-mi":         30,
+    "pydocstyle":       30,
+    "grep-bare-except": 15,
 }
 
 
@@ -70,6 +76,10 @@ def run_tool(
             "--no-color-output",
             "--no-error-summary",
         ],
+        "pyright": [
+            "pyright", root,
+            "--outputjson",
+        ],
         "pytest-cov": [
             "pytest", root,
             "--cov", "--cov-report=term-missing",
@@ -84,6 +94,29 @@ def run_tool(
             "--source", root,
             # No --exit-code override: exit 0 = clean, exit 1 = leaks found.
             # Overriding to 0 would make the scorer always return 100.
+        ],
+        "bandit": [
+            "bandit", "-r", root,
+            "-f", "json",
+            "--exit-zero",  # always exit 0 so returncode doesn't mask JSON output
+        ],
+        "radon-cc": [
+            "radon", "cc", root,
+            "-j",           # JSON output
+            "--min", "A",   # include all grades (A-F)
+        ],
+        "radon-mi": [
+            "radon", "mi", root,
+            "-j",           # JSON output
+        ],
+        "pydocstyle": [
+            "pydocstyle", root,
+            "--count",
+        ],
+        "grep-bare-except": [
+            "grep", "-rn", "--include=*.py",
+            r"except\s*:",
+            root,
         ],
     }
 
@@ -119,11 +152,17 @@ def compute_tool_score(tool: str, output: str, returncode: int) -> Optional[floa
         return None  # Harness-internal codes — cannot score
 
     scorers = {
-        "ruff":       _score_ruff,
-        "mypy":       _score_mypy,
-        "pytest-cov": lambda o, _rc: _score_pytest(o, coverage=True),
-        "pytest":     lambda o, _rc: _score_pytest(o, coverage=False),
-        "gitleaks":   _score_gitleaks,
+        "ruff":             _score_ruff,
+        "mypy":             _score_mypy,
+        "pyright":          _score_pyright,
+        "pytest-cov":       lambda o, _rc: _score_pytest(o, coverage=True),
+        "pytest":           lambda o, _rc: _score_pytest(o, coverage=False),
+        "gitleaks":         _score_gitleaks,
+        "bandit":           _score_bandit,
+        "radon-cc":         _score_radon_cc,
+        "radon-mi":         _score_radon_mi,
+        "pydocstyle":       _score_pydocstyle,
+        "grep-bare-except": _score_grep_bare_except,
     }
     fn = scorers.get(tool)
     return fn(output, returncode) if fn else None
@@ -184,3 +223,76 @@ def _score_gitleaks(output: str, returncode: int) -> float:
     if "No leaks found" in output or returncode == 0:
         return 100.0
     return 0.0
+
+
+def _score_pyright(output: str, _returncode: int) -> float:
+    """Score pyright --outputjson.  0 errors → 100; each error costs 5 pts."""
+    import json as _json
+    try:
+        data = _json.loads(output)
+        errors = data.get("summary", {}).get("errorCount", 0)
+    except (_json.JSONDecodeError, ValueError):
+        # Fall back to counting text-format "error:" lines.
+        errors = len(re.findall(r"\berror:", output))
+    return max(0.0, 100.0 - errors * 5.0)
+
+
+def _score_bandit(output: str, _returncode: int) -> float:
+    """Score bandit -f json.  HIGH=−10, MEDIUM=−3, LOW=−1 per issue."""
+    import json as _json
+    try:
+        data = _json.loads(output)
+        results = data.get("results", [])
+        high   = sum(1 for r in results if r.get("issue_severity") == "HIGH")
+        medium = sum(1 for r in results if r.get("issue_severity") == "MEDIUM")
+        low    = sum(1 for r in results if r.get("issue_severity") == "LOW")
+        return max(0.0, 100.0 - high * 10.0 - medium * 3.0 - low * 1.0)
+    except (_json.JSONDecodeError, ValueError):
+        return 0.0
+
+
+def _score_radon_cc(output: str, _returncode: int) -> float:
+    """Score radon cc -j.  Functions with CC > 10 (grade C+) each cost 5 pts."""
+    import json as _json
+    try:
+        data = _json.loads(output)
+        # radon cc -j: {"file.py": [{"complexity": N, "type": "function", ...}, ...]}
+        complex_count = sum(
+            1
+            for entries in data.values() if isinstance(entries, list)
+            for entry in entries
+            if isinstance(entry, dict) and entry.get("complexity", 0) > 10
+        )
+        return max(0.0, 100.0 - complex_count * 5.0)
+    except (_json.JSONDecodeError, ValueError):
+        return 100.0  # No JSON → probably no Python files
+
+
+def _score_radon_mi(output: str, _returncode: int) -> float:
+    """Score radon mi -j.  Average Maintainability Index across all files (0-100)."""
+    import json as _json
+    try:
+        data = _json.loads(output)
+        # radon mi -j: {"file.py": {"mi": 80.5, "rank": "A"}}
+        mis = [
+            v["mi"]
+            for v in data.values()
+            if isinstance(v, dict) and isinstance(v.get("mi"), (int, float))
+        ]
+        return round(sum(mis) / len(mis), 1) if mis else 100.0
+    except (_json.JSONDecodeError, ValueError):
+        return 100.0
+
+
+def _score_pydocstyle(output: str, _returncode: int) -> float:
+    """Score pydocstyle --count.  Each violation costs 2 pts."""
+    # --count appends a final line like "42 violations found"
+    m = re.search(r"(\d+)\s+violation", output)
+    count = int(m.group(1)) if m else len(re.findall(r":\s*D\d{3}", output))
+    return max(0.0, 100.0 - count * 2.0)
+
+
+def _score_grep_bare_except(output: str, _returncode: int) -> float:
+    """Score grep-bare-except.  Each matching line costs 5 pts."""
+    count = len(output.strip().splitlines()) if output.strip() else 0
+    return max(0.0, 100.0 - count * 5.0)
