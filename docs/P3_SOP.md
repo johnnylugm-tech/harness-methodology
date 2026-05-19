@@ -15,7 +15,8 @@ fr_list = parse_fr_ids("SAD.md")  # e.g. ["FR-001", "FR-002", "FR-003"]
 
 ### 0.1a 驗證 FR→Test 檔案對應（Test Compliance Check）
 
-Gate 1 前自動驗證（`cmd_finalize_gate` 內建 hook）：
+Gate 前自動驗證（`cmd_finalize_gate` 內建 hook）：
+- **I-1 D4**: Gate 2+ 檢查 TEST_INVENTORY.yaml 涵蓋率（Gate 2≥60%, Gate 3≥80%, Gate 4≥90%）
 - **I-2**: 每個 FR 必須有對應的 `tests/test_fr_{id}.py` 才算完整（FR→test file check）
 - **I-3**: 測試檔案 commit 必須早於實作程式碼（RED-first ordering）
 
@@ -92,10 +93,11 @@ python harness_cli.py run-gate --gate 1 --phase 3 --fr-id FR-001
 
 ```bash
 python harness_cli.py run-gate --gate 2 --phase 3
-# 9 dims (Tier 1+2), score_gate=75, max_rounds=3, early_stop=true
+# 10 dims (Tier 1+2), score_gate=75, max_rounds=3, early_stop=true
 # 新增維度: integration_coverage (0.10), test_assertion_quality (0.06)
 # mutation_testing: objective_primary=true (tool_score 優先於 llm_score)
 # 額外 check: 所有 test_fr_*.py 存在且為 GREEN state
+# D4 pre-check: TEST_INVENTORY.yaml coverage ≥ 60%
 # 額外 check: check-test-inventory --diff-mode 無 FAIL
 # Blocking: score < 75 OR any FR still RED -> issue-driven plan -> iterate
 ```

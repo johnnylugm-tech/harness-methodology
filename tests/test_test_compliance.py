@@ -319,6 +319,74 @@ class TestCmdCheckTestInventory:
 
 
 # ===================================================================
+# I-1 lifecycle: advance-phase checksum + finalize-gate D4 block
+# ===================================================================
+
+class TestI1LifecycleIntegration:
+    """D4 lifecycle: P1 checksum write + Gate 2-4 imperative check."""
+
+    def test_advance_phase_p1_checksum(self, tmp_path: Path):
+        """P1 advance-phase writes test_inventory_checksum to state.json."""
+        from harness_cli import _advance_prechecks
+        (tmp_path / "TEST_INVENTORY.yaml").write_text(
+            "format_version: '1.0'\nfr_tests:\n  FR-01:\n    unit:\n      - test_a\n"
+        )
+        state_dir = tmp_path / ".methodology"
+        state_dir.mkdir(parents=True)
+        state = {"phase": 1, "last_gate": 0}
+        (state_dir / "state.json").write_text(json.dumps(state))
+
+        code = _advance_prechecks(tmp_path, 1)
+        assert code == 0, "expected P1 advance to proceed"
+
+        updated = json.loads((state_dir / "state.json").read_text())
+        cksum = updated.get("test_inventory_checksum", "")
+        assert len(cksum) == 64, f"expected sha256 hexdigest, got {cksum!r}"
+
+    def test_advance_phase_p1_no_inventory_skips(self, tmp_path: Path):
+        """P1 advance without TEST_INVENTORY.yaml does not write checksum."""
+        from harness_cli import _advance_prechecks
+        state_dir = tmp_path / ".methodology"
+        state_dir.mkdir(parents=True)
+        state = {"phase": 1}
+        (state_dir / "state.json").write_text(json.dumps(state))
+
+        code = _advance_prechecks(tmp_path, 1)
+        assert code == 0
+
+        updated = json.loads((state_dir / "state.json").read_text())
+        assert "test_inventory_checksum" not in updated
+
+    def test_run_test_inventory_check_gate2_threshold(self, tmp_path: Path):
+        """D4 Gate 2: threshold 60% — 50% coverage blocks (exit 1)."""
+        from harness_cli import _run_test_inventory_check
+        (tmp_path / "TEST_INVENTORY.yaml").write_text(
+            "format_version: '1.0'\nfr_tests:\n  FR-01:\n    unit:\n"
+            "      - test_a\n      - test_b\n"
+        )
+        (tmp_path / "tests").mkdir()
+        (tmp_path / "tests" / "test_a.py").write_text("def test_a(): pass\n")
+
+        code, pct = _run_test_inventory_check(tmp_path, threshold=60.0)
+        assert code == 1, f"expected block at 60% threshold, got code={code}, pct={pct}"
+
+    def test_run_test_inventory_check_gate4_passes(self, tmp_path: Path):
+        """D4 Gate 4: threshold 90% — 100% passes with SRS+CRG flags."""
+        from harness_cli import _run_test_inventory_check
+        (tmp_path / "TEST_INVENTORY.yaml").write_text(
+            "format_version: '1.0'\nfr_tests:\n  FR-01:\n    unit:\n      - test_a\n"
+        )
+        (tmp_path / "tests").mkdir()
+        (tmp_path / "tests" / "test_a.py").write_text("def test_a(): pass\n")
+
+        code, pct = _run_test_inventory_check(
+            tmp_path, threshold=90.0, crg_gaps=True, srs_crosscut=True,
+        )
+        assert code == 0, f"expected pass with 100% coverage, got code={code}, pct={pct}"
+        assert pct == 100.0
+
+
+# ===================================================================
 # I-6a: score.py R8b — objective_primary
 # ===================================================================
 

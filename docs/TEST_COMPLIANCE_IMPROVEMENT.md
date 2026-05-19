@@ -733,11 +733,20 @@ def _check_crg_test_gaps(project: Path) -> list[str]:
 | P0（立即） | I-3 RED phase ordering（`%at` + 批次化） | `harness_cli.py` | ~55 |
 | P1（本週） | I-4 SRS cross-cutting section | `templates/SRS.md` + `harness_cli.py` (checklist scan) | ~50 |
 | P1（本週） | I-5 integration marker | `templates/conftest.target.yaml` + `gate_3.yaml` | ~30 |
-| P2（下週） | I-1 TEST_INVENTORY + check command + lifecycle | `harness_cli.py` + new YAML schema | ~150 |
+| P2（下週） | ~~I-1 TEST_INVENTORY + check command + lifecycle~~ | `harness_cli.py` + new YAML schema | ~150 ✅ |
 | P2（下週） | Harness self-tests（I-1~I-5） | `tests/test_test_compliance.py` | ~200 |
 | P3（下下週） | Migration helpers（`--warn-only`, `--threshold`） | `harness_cli.py` | ~40 |
 
 ---
+
+## I-1 完成狀態
+
+- `templates/TEST_INVENTORY.yaml` — ✅ 已完成
+- `harness_cli.py` — `cmd_check_test_inventory` + `_run_test_inventory_check` helper
+- Lifecycle:
+  - P1 `advance-phase` — checksum 寫入 state.json ✅
+  - `cmd_finalize_gate` — Gate 2 threshold=60%, Gate 3=80%+CRG, Gate 4=90%+CRG+SRS ✅
+- CONSTITUTION.md — D4_TestInventory 維度已加入 ✅
 
 *文件版本：v1.1 | 2026-05-19*  
 *對應分析來源：omnibot-full vs. omnibot-tdd-verification-checklist.md*

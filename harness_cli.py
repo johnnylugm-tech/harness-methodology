@@ -583,6 +583,84 @@ def _flatten_test_names(inventory: dict | None) -> set[str]:
                             names.update(items)
     return names
 
+def _run_test_inventory_check(
+    project: Path,
+    threshold: float = 80.0,
+    *,
+    crg_gaps: bool = False,
+    srs_crosscut: bool = False,
+) -> tuple[int, float]:
+    """Core D4 check: compare TEST_INVENTORY.yaml against actual test functions.
+
+    Returns (exit_code, coverage_pct). 0 = pass, 1 = below threshold.
+    Missing YAML is non-blocking (returns 0, 100.0) — caller handles Strict.
+    """
+    inventory_path = project / "TEST_INVENTORY.yaml"
+    if not inventory_path.exists():
+        return (0, 100.0)
+
+    # Scan actual test functions
+    actual_fns = _scan_test_functions(project / "tests")
+
+    # Read inventory YAML
+    try:
+        import yaml
+        inventory = yaml.safe_load(inventory_path.read_text())
+    except ImportError:
+        text = inventory_path.read_text()
+        inventory = _parse_inventory_fallback(text)
+
+    all_required = sorted(_flatten_test_names(inventory))
+    missing = [f for f in all_required if f not in actual_fns]
+    covered = len(all_required) - len(missing)
+    pct = covered / len(all_required) * 100 if all_required else 100.0
+
+    print(f"[D4] Test Inventory: {covered}/{len(all_required)} ({pct:.1f}%)")
+    if missing:
+        print(f"  Missing ({len(missing)}):")
+        for fn in missing[:20]:
+            print(f"    - {fn}")
+
+    # SRS.md cross-cutting checklist scan
+    if srs_crosscut:
+        srs_path = project / "01-requirements" / "SRS.md"
+        if srs_path.exists():
+            text = srs_path.read_text()
+            placeholders = re.findall(r'\[ \].*?<[NnXx]>|TBD', text)
+            if placeholders:
+                print(f"\n[SRS Cross-Cut] {len(placeholders)} unfilled placeholder(s) found:")
+                for ph in placeholders[:10]:
+                    print(f"    - {ph.strip()}")
+            else:
+                print("\n[SRS Cross-Cut] No unfilled placeholders detected.")
+        else:
+            print("\n[SRS Cross-Cut] SRS.md not found at 01-requirements/SRS.md — skipping.")
+
+    # CRG untested hotspots cross-reference
+    if crg_gaps:
+        crg_path = project / ".sessi-work" / "crg_reconnaissance.json"
+        if crg_path.exists():
+            try:
+                recon = json.loads(crg_path.read_text())
+                untested = recon.get("untested_hotspots", [])
+                if untested:
+                    print(f"\n[CRG Gaps] {len(untested)} CRG-reported hotspot(s):")
+                    for h in untested[:10]:
+                        h_name = h.get("name", "?")
+                        if h_name not in all_required:
+                            print(f"    - {h_name} (fan_in={h.get('fan_in','?')}) "
+                                  "not in TEST_INVENTORY.yaml")
+                else:
+                    print("\n[CRG Gaps] No untested hotspots from CRG.")
+            except (json.JSONDecodeError, OSError) as e:
+                print(f"\n[CRG Gaps] Error reading CRG data: {e}")
+
+    if pct < threshold:
+        print(f"\n[BLOCKED] D4 Test Inventory Compliance {pct:.1f}% < {threshold}% threshold")
+        return (1, pct)
+    return (0, pct)
+
+
 def cmd_check_test_inventory(args: argparse.Namespace) -> int:
     """D4: Test Inventory Compliance — compare TEST_INVENTORY.yaml against actual tests.
 
@@ -601,7 +679,7 @@ def cmd_check_test_inventory(args: argparse.Namespace) -> int:
         print("[WARN] TEST_INVENTORY.yaml not found — skipping D4 check.")
         return 0
 
-    # Diff-mode: compare checksum against P1 baseline
+    # Diff-mode: compare checksum against P1 baseline (CLI-only)
     if getattr(args, "diff_mode", False):
         state_path = project / ".methodology" / "state.json"
         if state_path.exists():
@@ -616,68 +694,11 @@ def cmd_check_test_inventory(args: argparse.Namespace) -> int:
             except (json.JSONDecodeError, OSError):
                 pass
 
-    # Scan tests/
-    actual_fns = _scan_test_functions(project / "tests")
-
-    # Read inventory
-    try:
-        import yaml
-        inventory = yaml.safe_load(inventory_path.read_text())
-    except ImportError:
-        # Fallback: minimal YAML-free parse for flat list of test names
-        text = inventory_path.read_text()
-        inventory = _parse_inventory_fallback(text)
-
-    all_required = sorted(_flatten_test_names(inventory))
-    missing = [f for f in all_required if f not in actual_fns]
-    covered = len(all_required) - len(missing)
-    pct = covered / len(all_required) * 100 if all_required else 100.0
-
-    print(f"[D4] Test Inventory: {covered}/{len(all_required)} ({pct:.1f}%)")
-    if missing:
-        print(f"  Missing ({len(missing)}):")
-        for fn in missing[:20]:
-            print(f"    - {fn}")
-
-    # --srs-crosscut: scan SRS.md checklist
-    if getattr(args, "srs_crosscut", False):
-        srs_path = project / "01-requirements" / "SRS.md"
-        if srs_path.exists():
-            text = srs_path.read_text()
-            placeholders = re.findall(r'\[ \].*?<[NnXx]>|TBD', text)
-            if placeholders:
-                print(f"\n[SRS Cross-Cut] {len(placeholders)} unfilled placeholder(s) found:")
-                for ph in placeholders[:10]:
-                    print(f"    - {ph.strip()}")
-            else:
-                print("\n[SRS Cross-Cut] No unfilled placeholders detected.")
-        else:
-            print("\n[SRS Cross-Cut] SRS.md not found at 01-requirements/SRS.md — skipping.")
-
-    # --crg-gaps: cross-ref CRG untested hotspots against TEST_INVENTORY.yaml
-    if getattr(args, "crg_gaps", False):
-        crg_path = project / ".sessi-work" / "crg_reconnaissance.json"
-        if crg_path.exists():
-            try:
-                recon = json.loads(crg_path.read_text())
-                untested = recon.get("untested_hotspots", [])
-                if untested:
-                    print(f"\n[CRG Gaps] {len(untested)} CRG-reported hotspot(s):")
-                    for h in untested[:10]:
-                        h_name = h.get("name", "?")
-                        if h_name not in all_required:
-                            print(f"    - {h_name} (fan_in={h.get('fan_in','?')}) "
-                                  "not in TEST_INVENTORY.yaml")
-                else:
-                    print("\n[CRG Gaps] No untested hotspots from CRG.")
-            except (json.JSONDecodeError, OSError) as e:
-                print(f"\n[CRG Gaps] Error reading CRG data: {e}")
-
     threshold = getattr(args, "threshold", 80.0)
-    if pct < threshold:
-        print(f"\n[BLOCKED] D4 Test Inventory Compliance {pct:.1f}% < {threshold}% threshold")
-        return 1
-    return 0
+    crg = getattr(args, "crg_gaps", False)
+    srs = getattr(args, "srs_crosscut", False)
+    code, _ = _run_test_inventory_check(project, threshold, crg_gaps=crg, srs_crosscut=srs)
+    return code
 
 def _parse_inventory_fallback(text: str) -> dict:
     """Minimal YAML-free parser for flat test name lists."""
@@ -1655,6 +1676,19 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
         _red_ok, _red_msg = _check_red_phase_ordering(Path(project), fr_id)
         if not _red_ok:
             print(_red_msg)
+            return 1
+
+    # ── I-1: D4 Test Inventory compliance (Gates 2-4) ──────────────
+    if args.gate >= 2 and (Path(project) / "TEST_INVENTORY.yaml").exists():
+        _d4_threshold = {2: 60.0, 3: 80.0, 4: 90.0}.get(args.gate, 80.0)
+        _d4_crg = args.gate >= 3
+        _d4_srs = args.gate == 4
+        _d4_code, _d4_pct = _run_test_inventory_check(
+            project_path, _d4_threshold,
+            crg_gaps=_d4_crg, srs_crosscut=_d4_srs,
+        )
+        if _d4_code != 0:
+            print(f"\n[BLOCKED] Gate {args.gate} D4 Test Inventory {_d4_pct:.1f}% < {_d4_threshold}%")
             return 1
 
     # ── Gate 4 extra enforcement (A1/A2/A3/A4/A5/B2) ─────────────────
@@ -2841,6 +2875,22 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
     except Exception as _exc:
         print(f"[advance-phase] ⚠ Deliverable check error ({_exc}) — "
               "skipping, manual verification recommended")
+
+    # ── P1 checksum: TEST_INVENTORY.yaml baseline ────────────────────
+    if completed_phase == 1:
+        inventory_path = project / "TEST_INVENTORY.yaml"
+        if inventory_path.exists():
+            import hashlib
+            _cksum = hashlib.sha256(inventory_path.read_bytes()).hexdigest()
+            _state_path = project / ".methodology" / "state.json"
+            if _state_path.exists():
+                try:
+                    _state = json.loads(_state_path.read_text())
+                    _state["test_inventory_checksum"] = _cksum
+                    _state_path.write_text(json.dumps(_state, indent=2))
+                    print(f"  [D4] TEST_INVENTORY.yaml checksum: {_cksum[:12]}...")
+                except (json.JSONDecodeError, OSError) as _e:
+                    print(f"  [WARN] Could not write test_inventory_checksum: {_e}")
 
     # ── Gate score variance check ─────────────────────────────────────
     if completed_phase >= 3:

@@ -47,9 +47,9 @@
 | Gate | Phase | 最低分數 | 維度數 | 說明 |
 |------|-------|---------|--------|------|
 | Gate 1 | P3/P4/P5/P7/P8 (per FR) | **≥ 75** | 3 (lint/type/cov) | FR 級別檢查 |
-| Gate 2 | P3 exit | **≥ 75** | 7 | Phase 級別 SSI |
-| Gate 3 | P4 exit | **≥ 80** | 12 | 完整 CRG recon |
-| Gate 4 | P6 exit | **≥ 85** | 12 | 全專案 + Hermes APPROVE |
+| Gate 2 | P3 exit | **≥ 75** | 10 | Phase 級別 SSI |
+| Gate 3 | P4 exit | **≥ 80** | 15 | 完整 CRG recon |
+| Gate 4 | P6 exit | **≥ 85** | 15 | 全專案 + Hermes APPROVE |
 
 ### 2.2 品質維度權重
 
@@ -58,15 +58,16 @@
 | D1_Linting | 33% | 15% | 10% | 10% |
 | D2_TypeSafety | 33% | 15% | 10% | 10% |
 | D3_Coverage | 34% | 15% | 10% | 10% |
-| D4_Security | — | 10% | 10% | 10% |
-| D5_Performance | — | 10% | 10% | 10% |
-| D6_Maintainability | — | 10% | 10% | 10% |
-| D7_Documentation | — | 10% | 10% | 5% |
-| D8_Architecture | — | — | 5% | 5% |
-| D9_Testing | — | — | 5% | 5% |
-| D10_Traceability | — | — | 5% | 5% |
-| D11_Compliance | — | — | 5% | 5% |
-| D12_Constitution | — | 15% | 10% | 10% |
+| D4_TestInventory | — | 5% | 5% | 5% |
+| D5_Security | — | 10% | 10% | 10% |
+| D6_Performance | — | 10% | 10% | 10% |
+| D7_Maintainability | — | 10% | 10% | 10% |
+| D8_Documentation | — | 10% | 10% | 5% |
+| D9_Architecture | — | — | 5% | 5% |
+| D10_Testing | — | — | 5% | 5% |
+| D11_Traceability | — | — | 5% | 5% |
+| D12_Compliance | — | — | 5% | 5% |
+| D13_Constitution | — | 10% | 5% | 5% |
 
 ### 2.3 Entry Gate 前提條件
 
