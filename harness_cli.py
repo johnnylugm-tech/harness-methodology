@@ -33,9 +33,9 @@ Gate Evaluation (two-phase flow):
 
 Available gates:
     Gate 1  per-FR check       (P3/P4/P5/P7/P8, trigger: per_fr_completion)
-    Gate 2  P3 phase-exit      (score_gate: 75, 7 dims)
-    Gate 3  P4 phase-exit      (score_gate: 80, 12 dims, full CRG)
-    Gate 4  P6 full-project    (score_gate: 85, 12 dims, Hermes APPROVE required)
+    Gate 2  P3 phase-exit      (score_gate: 75, 10 dims)
+    Gate 3  P4 phase-exit      (score_gate: 80, 15 dims, full CRG)
+    Gate 4  P6 full-project    (score_gate: 85, 15 dims, Hermes APPROVE required)
 
 Exit codes:
     0   All phases complete

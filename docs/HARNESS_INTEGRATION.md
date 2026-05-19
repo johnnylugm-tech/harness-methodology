@@ -54,7 +54,7 @@ Layer 3 (per-FR):
 
 POST-FLIGHT (phase exit):
   python harness_cli.py run-gate --gate 2 --phase 3
-  (Claude evaluates: 9 dims, score_gate=75)
+  (Claude evaluates: 10 dims, score_gate=75)
   # New dims: integration_coverage (Tier 2), test_assertion_quality (Tier 2)
   python harness_cli.py finalize-gate --gate 2 --phase 3
   → Blocking: score < 75 OR not quality_complete

@@ -456,7 +456,7 @@ class GitStrategy:
 
         status_parts = [
             f"All {len(fr_ids)} FR(s) Gate 1 re-eval PASS [{fr_list}]. "
-            "Gate 3 SSI (12 dims) not yet started.",
+            "Gate 3 SSI (15 dims) not yet started.",
         ]
         if ab:
             status_parts.append(f"\n**A/B Session Results:**\n{ab}")
@@ -470,7 +470,7 @@ class GitStrategy:
             background=background or "P4 Testing complete. Gate 3 SSI not yet executed.",
             status="\n".join(status_parts),
             steps=[
-                "Run Gate 3 SSI (12 dims, target score ≥ 80)",
+                "Run Gate 3 SSI (15 dims, target score ≥ 80)",
                 "Fix any failures between SSI rounds",
                 "On Gate 3 PASS → `finalize-gate --gate 3` handles push + HANDOVER",
             ],
