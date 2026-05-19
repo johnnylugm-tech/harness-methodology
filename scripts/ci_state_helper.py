@@ -21,7 +21,7 @@ Examples:
   $ python3 scripts/ci_state_helper.py get current_phase --default 0
   3
   $ python3 scripts/ci_state_helper.py get last_milestone_command --default ""
-  push-milestone --type p3-pre-ssi
+  push-milestone --type p3-pre-gate2
   $ python3 scripts/ci_state_helper.py is-p8 --state-file .methodology/state.json
   true
 """

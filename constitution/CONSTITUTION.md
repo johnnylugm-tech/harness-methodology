@@ -47,32 +47,74 @@
 | Gate | Phase | 最低分數 | 維度數 | 說明 |
 |------|-------|---------|--------|------|
 | Gate 1 | P3/P4/P5/P7/P8 (per FR) | **≥ 75** | 3 (lint/type/cov) | FR 級別檢查 |
-| Gate 2 | P3 exit | **≥ 75** | 9 | Phase 級別 SSI |
+| Gate 2 | P3 exit | **≥ 75** | 9 | Phase 級別 composite |
 | Gate 3 | P4 exit | **≥ 80** | 14 | 完整 CRG recon |
 | Gate 4 | P6 exit | **≥ 85** | 14 | 全專案 + Hermes APPROVE |
 
 ### 2.2 品質維度權重
 
-| 維度 | Gate 1 | Gate 2 | Gate 3 | Gate 4 |
-|------|--------|--------|--------|--------|
-| D1_Linting | 33% | 15% | 10% | 10% |
-| D2_TypeSafety | 33% | 15% | 10% | 10% |
-| D3_Coverage | 34% | 15% | 10% | 10% |
-| D4_TestInventory¹ | — | 5% | 5% | 5% |
-| D5_Security | — | 10% | 10% | 10% |
-| D6_Performance | — | 10% | 10% | 10% |
-| D7_Maintainability | — | 10% | 10% | 10% |
-| D8_Documentation | — | 10% | 10% | 5% |
-| D9_Architecture | — | — | 5% | 5% |
-| D10_Testing | — | — | 5% | 5% |
-| D11_Traceability | — | — | 5% | 5% |
-| D12_Compliance | — | — | 5% | 5% |
-| D13_Constitution | — | 10% | 5% | 5% |
+以下為各 Gate 實際執行的工具維度與權重（即 `harness/gate_configs/` 中定義的加權值，總和 = 100%）。
 
-> ¹ **D4_TestInventory** has two sub-checks:
-> - **Forward (TEST_INVENTORY.yaml)**: declared test names → exist as functions in tests/. Thresholds: Gate2=60%, Gate3=80%, Gate4=90%.
-> - **Backward (TEST_SPEC.md spec-coverage)**: P2 TEST_SPEC.md items → implemented test functions. Thresholds: Gate1(per-FR)=40%, Gate2=40%, Gate3=70%, Gate4=90%.
-> Both sub-checks must pass at each gate. Use `harness_cli.py spec-coverage-check` for the backward check.
+#### Gate 1（P3/P4/P5/P7/P8 per-FR — 3 維度, composite ≥75）
+| 維度 | 權重 | 門檻 | 工具 |
+|------|------|------|------|
+| linting | 33% | ≥90 | ruff |
+| type_safety | 33% | ≥85 | pyright |
+| test_coverage | 34% | ≥80 | pytest-cov |
+
+#### Gate 2（P3 exit — 9 維度, composite ≥75）
+| 維度 | 權重 | 門檻 | 工具 |
+|------|------|------|------|
+| linting | 12% | ≥90 | ruff |
+| type_safety | 12% | ≥85 | pyright |
+| test_coverage | 12% | ≥80 | pytest-cov |
+| security | 12% | ≥80 | bandit |
+| secrets_scanning | 8% | ≥100 | gitleaks |
+| license_compliance | 8% | ≥100 | scancode |
+| mutation_testing | 20% | ≥70 | mutmut |
+| integration_coverage | 10% | ≥60 | pytest |
+| test_assertion_quality | 6% | ≥60 | pytest |
+
+#### Gate 3（P4 exit — 14 維度, composite ≥80）
+| 維度 | 權重 | 門檻 | 工具 |
+|------|------|------|------|
+| linting | 10% | ≥90 | ruff |
+| type_safety | 10% | ≥85 | pyright |
+| test_coverage | 10% | ≥80 | pytest-cov |
+| security | 10% | ≥80 | bandit |
+| secrets_scanning | 8% | ≥100 | gitleaks |
+| license_compliance | 7% | ≥100 | scancode |
+| mutation_testing | 10% | ≥70 | mutmut |
+| integration_coverage | 5% | ≥60 | pytest |
+| architecture | 10% | ≥80 | radon-cc |
+| readability | 6% | ≥80 | radon-mi |
+| error_handling | 7% | ≥80 | grep-bare-except |
+| documentation | 1% | ≥75 | pydocstyle |
+| test_assertion_quality | 2% | ≥60 | pytest |
+| performance | 4% | ≥75 | radon-cc-high |
+
+#### Gate 4（P6 exit — 14 維度, composite ≥85）
+| 維度 | 權重 | 門檻 | 工具 |
+|------|------|------|------|
+| linting | 7% | ≥90 | ruff |
+| type_safety | 7% | ≥85 | pyright |
+| test_coverage | 7% | ≥80 | pytest-cov |
+| security | 8% | ≥80 | bandit |
+| secrets_scanning | 7% | ≥100 | gitleaks |
+| license_compliance | 7% | ≥100 | scancode |
+| mutation_testing | 8% | ≥70 | mutmut |
+| architecture | 14% | ≥80 | radon-cc |
+| readability | 8% | ≥80 | radon-mi |
+| error_handling | 8% | ≥80 | grep-bare-except |
+| documentation | 6% | ≥75 | pydocstyle |
+| performance | 6% | ≥75 | radon-cc-high |
+| integration_coverage | 5% | ≥75 | pytest |
+| test_assertion_quality | 2% | ≥70 | pytest |
+
+> ¹ **D4_TestInventory**（非加權維度，為獨立命令式檢查）有以下兩個子檢查：
+> - **Forward（TEST_INVENTORY.yaml）**: 宣告的測試名稱 → 實際存在於 tests/ 中的函式。閾值: Gate2=60%, Gate3=80%, Gate4=90%。
+> - **Backward（TEST_SPEC.md spec-coverage）**: P2 TEST_SPEC.md 中列出的測試項目 → 已實作的測試函式。閾值: Gate1(per-FR)=40%, Gate2=40%, Gate3=70%, Gate4=90%。
+> 兩項子檢查在該 Gate 都必須通過。請使用 `harness_cli.py spec-coverage-check` 執行 backward 檢查。
 
 ### 2.3 Entry Gate 前提條件
 
