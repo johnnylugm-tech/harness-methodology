@@ -162,17 +162,18 @@ _TOOL_CHECK_COMMANDS: dict[str, tuple[str, str]] = {
     "ruff": ("ruff --version 2>&1", "ruff"),
     "mypy": ("mypy --version 2>&1", "mypy"),
     "pytest-cov": ("pytest --version 2>&1 && coverage --version 2>&1", "pytest + coverage"),
-    "gitleaks": ("gitleaks detect --no-git --verbose 2>&1 | head -1", "gitleaks"),
+    "gitleaks": ("gitleaks version 2>&1", "gitleaks"),
     "scancode": ("scancode --version 2>&1", "scancode-toolkit"),
     "mutmut": ("mutmut --version 2>&1", "mutmut"),
     # Fallback: dimension-name-based lookup for older YAML configs without tool field
-    "secrets_scanning": ("gitleaks detect --no-git --verbose 2>&1 | head -1", "gitleaks"),
+    "secrets_scanning": ("gitleaks version 2>&1", "gitleaks"),
     "mutation_testing": ("mutmut --version 2>&1", "mutmut"),
     "license_compliance": ("scancode --version 2>&1", "scancode-toolkit"),
     "linting": ("ruff --version 2>&1", "ruff"),
     "type_safety": ("mypy --version 2>&1", "mypy"),
     "test_coverage": ("pytest --version 2>&1", "pytest + coverage"),
 }
+
 
 
 def _check_tool_for_dim(dim_name: str, tool_name: str | None) -> tuple[bool, str]:
@@ -869,6 +870,20 @@ def cmd_run_gate(args: argparse.Namespace) -> int:
     from harness.harness_bridge import HarnessBridge
 
     project = str(Path(args.project).resolve())
+
+    # Block evaluation before printing the prompt — prevents fabrication via
+    # "evaluate without tools, then install stub to pass finalize-gate".
+    _tools_ok, _missing_tools = _verify_gate_tools(args.gate, project)
+    if not _tools_ok:
+        print(
+            f"\n[BLOCKED] run-gate: required tools not installed for Gate {args.gate}:\n"
+            + "".join(f"  ✗ {m}\n" for m in _missing_tools)
+            + "\n  Install tools before starting evaluation.\n"
+            "  tool_score=null is not accepted for Tier 1/2 dimensions (R8).\n"
+            "  See evaluate_dimension.md Step 1 for install commands."
+        )
+        return 8
+
     bridge = HarnessBridge()
 
     print(f"\n{'='*60}\nrun-gate: Gate {args.gate} | Phase {args.phase}\n{'='*60}")
@@ -4169,6 +4184,31 @@ def cmd_init_project(args: argparse.Namespace) -> int:
             print("     ❌ Do NOT enable 'Require status checks' — only gates PR merges, not direct pushes")
     else:
         print(f"\n[9/9] SKIP: --setup-branch-protection not requested")
+
+    # 10. Gate tool availability (blocking — all Tier 1 tools required before project start).
+    # Driven by gate YAMLs so new requires_tool_execution entries are auto-detected.
+    print("\n[10/10] Gate tool availability check...")
+    _missing_init: list[str] = []
+    for _gate_num in (1, 2, 3, 4):
+        _, _missing = _verify_gate_tools(_gate_num, str(harness_root))
+        for _m in _missing:
+            if _m not in _missing_init:
+                _missing_init.append(_m)
+    if _missing_init:
+        print("  [BLOCKED] Required Tier 1 gate tools are not installed:")
+        for _m in _missing_init:
+            print(f"    ✗ {_m}")
+        print(
+            "\n  All tools must be available before starting the project.\n"
+            "  tool_score=null is not accepted for Tier 1/2 dimensions (score.py R8).\n"
+            "  Install commands:\n"
+            "    pip install ruff mypy pytest pytest-cov mutmut\n"
+            "    pip install scancode-toolkit\n"
+            "    brew install gitleaks  # or: go install github.com/gitleaks/gitleaks/v8@latest\n"
+            "  Re-run init-project after installing."
+        )
+        return 1
+    print("  OK — all required gate tools are available.")
 
     print(f"\n{'='*60}")
     print("init-project complete.")

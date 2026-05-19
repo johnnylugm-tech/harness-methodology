@@ -1,8 +1,8 @@
 """
-Tests for score.py protocol compliance validator (R1-R6 + auto-fix).
+Tests for score.py protocol compliance validator (R1-R8 + auto-fix).
 
 Covers:
-  validate_score_file()   — R1-R6 per-dimension checks
+  validate_score_file()   — R1-R8 per-dimension checks
   _auto_fix_scores()      — R4 auto-fix, R7 warning
   _validate_all_scores()  — orchestration + ScoreProtocolError
 """
@@ -102,14 +102,25 @@ class TestR2ToolOutputs:
         issues = validate_score_file("linting", d, project_root=tmp_path)
         assert any("R2" in i for i in issues)
 
-    def test_empty_path_with_null_score_passes(self, tmp_path):
-        """tool_score=null + empty tool_outputs = tool unavailable, not an error."""
+    def test_empty_path_with_null_score_tier1_triggers_r8(self, tmp_path):
+        """Tier 1 tool_score=null → R8 fires (not a valid state for Tier 1/2)."""
         d = _t1_score(tmp_path)
         d["tool_score"] = None
         d["score"] = d["llm_score"]
         d["tool_outputs"] = ""
         issues = validate_score_file("linting", d, project_root=tmp_path)
+        assert not any("R2" in i for i in issues)  # R2 silent — R8 is the relevant block
+        assert any("R8" in i for i in issues)
+
+    def test_empty_path_with_null_score_tier3_passes(self, tmp_path):
+        """Tier 3 tool_score=null + empty tool_outputs = helper tool absent, not an error."""
+        d = _t3_score(tmp_path)
+        d["tool_score"] = None
+        d["score"] = d["llm_score"]
+        d["tool_outputs"] = ""
+        issues = validate_score_file("architecture", d, project_root=tmp_path)
         assert not any("R2" in i for i in issues)
+        assert not any("R8" in i for i in issues)
 
     def test_relative_path_resolved_against_project_root(self, tmp_path):
         """Relative tool_outputs resolved via project_root, not CWD."""
@@ -276,6 +287,58 @@ class TestR6InflationGate:
 
 
 # ---------------------------------------------------------------------------
+# R8: Tier 1/2 tool_score must not be null
+# ---------------------------------------------------------------------------
+
+class TestR8NullToolScore:
+    def test_tier1_null_tool_score_blocked(self, tmp_path):
+        """Tier 1 with tool_score=null triggers R8 — LLM self-eval not permitted."""
+        d = _t1_score(tmp_path)
+        d["tool_score"] = None
+        d["score"] = d["llm_score"]
+        issues = validate_score_file("linting", d, project_root=tmp_path)
+        assert any("R8" in i for i in issues)
+
+    def test_tier2_null_tool_score_blocked(self, tmp_path):
+        """Tier 2 with tool_score=null also triggers R8."""
+        d = _t1_score(tmp_path, tier=2, provider="gemini")
+        d["dimension"] = "security"
+        d["tool_score"] = None
+        d["score"] = d["llm_score"]
+        issues = validate_score_file("security", d, project_root=tmp_path)
+        assert any("R8" in i for i in issues)
+
+    def test_tier3_null_tool_score_allowed(self, tmp_path):
+        """Tier 3 with tool_score=null is permitted (helper tool optional)."""
+        d = _t3_score(tmp_path)
+        d["tool_score"] = None
+        d["score"] = d["llm_score"]
+        issues = validate_score_file("architecture", d, project_root=tmp_path)
+        assert not any("R8" in i for i in issues)
+
+    def test_tier1_with_tool_score_no_r8(self, tmp_path):
+        """Tier 1 with valid tool_score — R8 must not fire."""
+        issues = validate_score_file("linting", _t1_score(tmp_path), project_root=tmp_path)
+        assert not any("R8" in i for i in issues)
+
+    def test_r8_fires_in_validate_all_scores(self, tmp_path):
+        """R8 propagates through _validate_all_scores → ScoreProtocolError."""
+        tool_file = tmp_path / "linting.txt"
+        tool_file.write_text("x", encoding="utf-8")
+        scores = {
+            "linting": {
+                "dimension": "linting", "round": 1,
+                "llm_tier": 1, "llm_provider": "gemini",
+                "tool_score": None, "llm_score": 80, "score": 80,
+                "tool_outputs": str(tool_file), "findings": [],
+            }
+        }
+        with pytest.raises(ScoreProtocolError) as exc:
+            _validate_all_scores(scores, project_root=tmp_path)
+        assert "R8" in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
 # _auto_fix_scores
 # ---------------------------------------------------------------------------
 
@@ -294,14 +357,16 @@ class TestAutoFixScores:
         assert not any("auto-fixed" in w for w in warnings)
 
     def test_r7_warns_on_null_tool_score_without_note(self):
-        scores = {"linting": {"tool_score": None, "llm_score": 80, "score": 80}}
+        """R7 fires as a warning for Tier 3 null tool_score (helper tool absent, no note)."""
+        scores = {"architecture": {"tool_score": None, "llm_score": 80, "score": 80}}
         warnings = _auto_fix_scores(scores)
         assert any("tool_note" in w for w in warnings)
 
     def test_r7_no_warn_when_tool_note_present(self):
-        scores = {"linting": {
+        """R7 is silent when tool_note is provided (Tier 3 helper tool absent)."""
+        scores = {"architecture": {
             "tool_score": None, "llm_score": 80, "score": 80,
-            "tool_note": "ruff not installed",
+            "tool_note": "radon not installed",
         }}
         warnings = _auto_fix_scores(scores)
         assert not any("tool_note" in w for w in warnings)

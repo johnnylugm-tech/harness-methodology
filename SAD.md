@@ -20,9 +20,10 @@ The architecture is driven by five strict non-functional requirements defined in
 
 ### Driver 3 — Reliability & Reproducibility (NFR-1)
 - **Requirement**: Quality assessment must be stable and not over-dependent on LLM stochasticity.
-- **Decision**: Two mechanisms:
-  1. **Hybrid scoring**: `min(tool_score, llm_score)` — LLM cannot score higher than deterministic tools.
+- **Decision**: Three mechanisms:
+  1. **Hybrid scoring**: `min(tool_score, llm_score)` — LLM cannot score higher than deterministic tools. Tier 1/2 `tool_score=null` is rejected by score.py R8; evaluation is SUSPENDED until the tool is installed.
   2. **CRG integration**: Code Review Graph provides graph-theory-based reproducible structural metrics for architecture/error-handling dimensions.
+  3. **Tool pre-flight**: `init-project` blocks on missing Tier 1 tools; `run-gate` checks tools before printing the evaluation prompt — prevents LLM self-evaluation via tool-absent fallback.
 
 ### Driver 4 — Security (NFR-2)
 - **Requirement**: AI agents must be blocked from destructive operations or vulnerability introduction.
@@ -93,6 +94,7 @@ python harness_cli.py verify-spec       [--project .] [--fix]  # --fix shows sug
 python harness_cli.py check-logic       [--project .] [--srs SRS.md]
 python harness_cli.py check-checklist   --phase N [--project .]           # verify phase plan mandatory items [x]
 python harness_cli.py init-project      --project /path/to/target [--phase 3] [--overwrite] [--ci-only]
+                                        # Step 10/10: checks all Tier 1 gate tools (ruff,mypy,pytest-cov,gitleaks,scancode,mutmut); BLOCKS if any missing
 python harness_cli.py advance-phase     --completed N [--project .] [--force]  # --force bypasses CV-2 FSM check
 python harness_cli.py kill-switch       trigger|reset|status [--project .] [--reason "..."]
 python harness_cli.py await-hermes-approve [--project .] [--response APPROVE|REJECT] [--timeout-ms N]

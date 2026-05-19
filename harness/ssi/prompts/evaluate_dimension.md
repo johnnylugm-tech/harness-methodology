@@ -14,11 +14,13 @@ Evaluate a single quality dimension using the **tool-first hierarchy** and **LLM
 > - findings[] 中填入無 `file:line` 或工具輸出支撐的項目
 > - Tier 3 維度給出 ≥ 85 分但未完成 Step 2c 高分確認清單
 > - 跳過工具執行步驟，直接進行 Step 2 LLM 評估
+> - **Tier 1/2 維度以 `tool_score: null` 提交 score 文件**（工具未安裝 → 評估 SUSPENDED，見下）
 >
 > ✅ **每個 score 文件必須滿足：**
 > - `tool_output_path`: 指向實際執行工具的輸出檔（不得為 null）
 > - `tool_outputs` 欄位: 必須包含工具指令輸出的原始路徑或內容摘要
-> - 若工具不可用（未安裝）→ `tool_score: null`，並在 score 文件標註原因
+> - **Tier 1/2 若工具未安裝 → 評估 SUSPENDED。禁止寫入 score 文件。修復環境後從 Step 1 重新開始。**
+> - Tier 3 若 helper tool 不可用 → `tool_score: null` 可接受，須加 `tool_note` 說明原因，llm_score 作為最終分數
 > - `llm_score` 只能作為輔助；`score = min(tool_score, llm_score)` 規則強制執行
 
 ---
@@ -77,9 +79,9 @@ coverage run -m pytest && coverage report --format=json \
 nyc --reporter=json npm test
 ```
 
-> **If all variants return 0% or fail**: set `tool_score = null`, note
-> `"tool_note": "coverage tool failed — check pytest config"` in score file,
-> and use `llm_score` only (Anti-Bias Rule 3). Do NOT assign an estimated score.
+> **If all variants return 0% or fail**: evaluation is **SUSPENDED** for `test_coverage`.
+> Do NOT write a score file. Fix the pytest/coverage configuration and restart from Step 1.
+> (`tool_score=null` is not accepted for Tier 1 — score.py R8 will block gate scoring.)
 
 ### security (Tier 2)
 ```bash
@@ -155,10 +157,11 @@ if command -v mutmut >/dev/null 2>&1; then
 fi
 ```
 
-> **If mutmut is unavailable after install attempt**: set `tool_score = null`,
-> note `"tool_note": "tool_unavailable: mutmut install failed"` in score file.
-> Do NOT assign 70 (or any number) as `tool_score`. The Anti-Bias Rule 3
-> fallback applies: use `llm_score` only and flag the dimension.
+> **If mutmut is unavailable after install attempt**: evaluation is **SUSPENDED** for
+> `mutation_testing`. Do NOT write a score file with `tool_score=null` — score.py R8 will
+> block gate scoring. Fix the install (check Python version, virtualenv, editable-install
+> conflicts) and restart from Step 1. `run-gate` also pre-checks mutmut availability before
+> printing the evaluation prompt — if that check passed, re-run `pip3 install mutmut`.
 
 ### architecture (Tier 3)
 ```bash
@@ -526,7 +529,8 @@ Save to `.sessi-work/round_<n>/scores/<dimension>.json`:
 `ScoreProtocolError` raised, gate score cannot be computed.
 
 **Field contract:**
-- `tool_score: null` → MUST set `tool_note` explaining why (tool unavailable, install failed, etc.)
+- `tool_score: null` (Tier 1/2) → **REJECTED** by score.py R8. Do not submit; fix tool and re-evaluate.
+- `tool_score: null` (Tier 3) → Permitted for optional helper tools; MUST set `tool_note` explaining why.
 - `llm_tier` 1|2 → `llm_provider` MUST be `gemini` or `hermes` (R3 enforced)
 - `score` → MUST equal `min(tool_score, llm_score)` when both non-null (R4 auto-fixed)
 - `findings[].evidence` → MUST be non-empty for every finding (R5 enforced)
@@ -579,7 +583,7 @@ The `open_critical` / `open_high` / `open_medium` counts feed directly into
 
 1. `score = min(tool_score, llm_score)` — no exceptions
 2. Every finding needs `evidence` field — no bare assertions
-3. If tool gives no output (tool missing/error) → `tool_score = null`, use `llm_score` only, flag in score file
+3. **Tier 1/2**: If tool is missing or gives no output → evaluation **SUSPENDED** for this dimension. Do not write score file. Fix the tool environment and restart from Step 1. (score.py R8 enforces this at machine level.) **Tier 3**: If helper tool is unavailable → `tool_score = null`, use `llm_score` only, add `tool_note` explaining the absence.
 4. Δ > 10 from previous round requires tool evidence or ≥ 3 lines of git diff
 5. Tier 1/2 evaluations: trust the tool output — Gemini's role is only to parse and structure it
 

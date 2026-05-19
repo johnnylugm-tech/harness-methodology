@@ -100,7 +100,8 @@ def validate_score_file(
     # R2: tool_outputs must reference existing files.
     # Resolve relative paths against project_root to avoid CWD-dependent failures
     # (score.py may be invoked from any directory).
-    # Exception: tool_score=null → tool unavailable, file check skipped.
+    # Note: tool_score=null for Tier 1/2 is rejected by R8 before this check runs.
+    # For Tier 3, tool_score=null is permitted (helper tool absence); file check skipped.
     if tool_outputs:
         raw_path = Path(tool_outputs)
         output_path = (
@@ -163,6 +164,17 @@ def validate_score_file(
                 'Fix: add "da_challenge": false (DA ran, no issues found) '
                 'or "inflation_capped": true (score was capped) to the score file.'
             )
+
+    # R8: Tier 1/2 tool_score must not be null.
+    # LLM self-evaluation is not a valid fallback for tool-measured dimensions.
+    # tool_score=null for Tier 3 is permitted (Claude-native evaluation; helper tools optional).
+    if tier in (1, 2) and ts is None:
+        issues.append(
+            f"R8: [{dim_name}] Tier {tier} requires tool execution — "
+            "tool_score=null is not permitted. "
+            "Install the required tool and re-evaluate from Step 1 of evaluate_dimension.md. "
+            "init-project blocks on missing tools; run-gate pre-checks before evaluation starts."
+        )
 
     return issues
 
