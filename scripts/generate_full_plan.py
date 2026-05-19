@@ -278,9 +278,9 @@ _PHASE_EXIT_GATES: dict = {3: 2, 4: 3, 6: 4}                  # phase → exit g
 # Gate metadata: (score_gate, dim_count, notes)
 _GATE_META: dict = {
     1: (None, 3,  "linting(90) · type_safety(85) · test_coverage(80)"),
-    2: (75,   10, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · integration_coverage(60) · test_assertion_quality(60)  [D4 TEST_INVENTORY.yaml imperative check ≥60%]"),
-    3: (80,   15, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · integration_coverage(60) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · test_assertion_quality(60) · performance(75)  [CRG recon inside run-gate · D4 TEST_INVENTORY.yaml imperative check ≥80%]"),
-    4: (85,   15, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · performance(75) · integration_coverage(75) · test_assertion_quality(70)  [CRG recon inside run-gate · D4 TEST_INVENTORY.yaml imperative check ≥90% · Hermes APPROVE required]"),
+    2: (75,   9,  "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · integration_coverage(60) · test_assertion_quality(60)  [D4 TEST_INVENTORY.yaml imperative check ≥60%]"),
+    3: (80,   14, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · integration_coverage(60) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · test_assertion_quality(60) · performance(75)  [CRG recon inside run-gate · D4 TEST_INVENTORY.yaml imperative check ≥80%]"),
+    4: (85,   14, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · performance(75) · integration_coverage(75) · test_assertion_quality(70)  [CRG recon inside run-gate · D4 TEST_INVENTORY.yaml imperative check ≥90% · Hermes APPROVE required]"),
 }
 
 # A/B agent roles per phase: (Agent-A role, Agent-B role, task hint)
@@ -314,7 +314,7 @@ _AGENT_B_CHECKS: Dict[int, List[str]] = {
     3: ["Code matches SRS acceptance criteria?", "Tests actually test the spec (not the impl)?", "No forbidden patterns (app/infrastructure/, @covers: L1 Error)?", "Docstrings have [FR-XX] tag + Citations?"],
     4: ["Test coverage ≥80% for this FR?", "Edge cases covered?", "Results match TEST_PLAN.md expected outcomes?"],
     5: ["Acceptance criteria fully met?", "No regressions in related FRs?"],
-    6: ["All 15 Gate 4 dimensions addressed?", "Critical issues count = 0?", "Score ≥85 achievable?"],
+    6: ["All 14 Gate 4 dimensions addressed?", "Critical issues count = 0?", "Score ≥85 achievable?"],
     7: ["All high-risk items have mitigations?", "Likelihood/impact scores justified?"],
     8: ["All config items documented?", "Secrets correctly externalized?", "No hardcoded credentials?"],
 }
@@ -1082,7 +1082,7 @@ def _checkpoint_index(fr_ids: List[str], phase: int) -> List[str]:
     if phase in _PHASE_EXIT_GATES:
         gate_num = _PHASE_EXIT_GATES[phase]
         if phase == 6:
-            lines.append(f"> - CHECKPOINT-{cp}: Gate 4 (Full Project — 15 dims, Hermes APPROVE) → **push + HANDOVER.md**")
+            lines.append(f"> - CHECKPOINT-{cp}: Gate 4 (Full Project — 14 dims, Hermes APPROVE) → **push + HANDOVER.md**")
         else:
             lines.append(f"> - CHECKPOINT-{cp}: Gate {gate_num} (Phase {phase} Exit) → **push + HANDOVER.md**")
     lines.append("")
@@ -1260,6 +1260,7 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("### Phase 2 Deliverables")
     lines.append("- [ ] `SAD.md` — Software Architecture Document (every FR has module mapping)")
     lines.append("- [ ] `ADR.md` — Architecture Decision Records (tech stack, patterns, interfaces)")
+    lines.append("- [ ] `TEST_SPEC.md` — Test specification catalog (named test cases from SRS, backward D4 check source)")
     lines.append("- [ ] `.methodology/quality_manifest.json` — Quality manifest (FR list + SAB data)")
     lines.append("- [ ] `.methodology/SAB.json` — Machine-readable architecture baseline")
     lines.append("- [x] `.methodology/sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
@@ -1371,7 +1372,7 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("")
     lines.append("### Phase 4 Overview")
     lines.append("Phase 4 formulates and executes a complete test plan based on Phase 3 code.")
-    lines.append("Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). Phase exits via Gate 3 (15 dims).")
+    lines.append("Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). Phase exits via Gate 3 (14 dims).")
     lines.append("")
 
     frs = parse_srs_fr_sections(srs_path)
@@ -1464,7 +1465,7 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("- [ ] `COVERAGE_REPORT.md` - Coverage report")
     lines.append("- [x] `.methodology/sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
     lines.append("- [ ] Gate 1 PASS for every FR")
-    lines.append("- [ ] Gate 3 PASS (phase exit, composite ≥ 80, 15 dims)")
+    lines.append("- [ ] Gate 3 PASS (phase exit, composite ≥ 80, 14 dims)")
     lines.extend(_aspice_output_requirements(4))
     lines.append("")
 
@@ -1541,12 +1542,12 @@ def generate_phase6_tasks(repo_path: Path) -> List[str]:
     lines.append("")
     lines.append("### Phase 6 Overview")
     lines.append("Phase 6 is a complete Gate 4 evaluation. Gate 4 replaces the entire P6 SOP.")
-    lines.append("No FR loop — Gate 4 evaluates the full project (15 dims, CRG recon, Hermes APPROVE required).")
+    lines.append("No FR loop — Gate 4 evaluates the full project (14 dims, CRG recon, Hermes APPROVE required).")
     lines.append("")
 
     # P6 has exactly one checkpoint: Gate 4
     lines.append("> **Checkpoint Index** (push to GitHub = checkpoint saved):")
-    lines.append("> - CHECKPOINT-1: Gate 4 (Full Project — 15 dims, Hermes APPROVE)")
+    lines.append("> - CHECKPOINT-1: Gate 4 (Full Project — 14 dims, Hermes APPROVE)")
     lines.append("")
 
     lines.extend(_entry_gate_check(6))
@@ -1557,7 +1558,7 @@ def generate_phase6_tasks(repo_path: Path) -> List[str]:
     lines.append("### P6 A/B Roles (Per-Phase, Not Per-FR)")
     lines.append("")
     lines.append(f"> **Agent A ({role_a})** — Gate 4 inline evaluation:")
-    lines.append("> Claude evaluates all 15 quality dimensions against SRS/SAD/codebase.")
+    lines.append("> Claude evaluates all 14 quality dimensions against SRS/SAD/codebase.")
     lines.append("> No dispatch command — the evaluation protocol runs inline per SAD.md §12.")
     lines.append(f"> **Agent B ({role_b})** — Hermes APPROVE:")
     lines.append("> Reviews Gate 4 results via Hermes (Telegram/Discord/Slack).")
@@ -1582,7 +1583,7 @@ def generate_phase6_tasks(repo_path: Path) -> List[str]:
     lines.extend(_gate_exit_checkpoint(gate_num=4, phase=6, checkpoint_n=1))
 
     lines.append("### Phase 6 Deliverables")
-    lines.append("- [ ] Gate 4 PASS (composite ≥ 85, all 15 dims, CRG recon done)")
+    lines.append("- [ ] Gate 4 PASS (composite ≥ 85, all 14 dims, CRG recon done)")
     lines.append("- [ ] Hermes APPROVE received from reviewer")
     lines.append("- [ ] `QUALITY_REPORT.md` - Quality report (auto-generated by Gate 4)")
     lines.append("- [ ] `RELEASE_NOTES.md` - Release notes")
