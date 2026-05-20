@@ -152,7 +152,7 @@ except Exception as e:
           PHASE=$(python3 -c "
 import json, sys
 try:
-    d = json.load(open('.methodology/state.json'))
+    d = json.load(open('.methodology/state.json', encoding='utf-8'))
     print(int(d.get('current_phase', 0)))
 except Exception:
     print(0)
@@ -784,7 +784,7 @@ except Exception as e:
           PHASE=$(python3 -c "
           import json
           try:
-              d = json.load(open('.methodology/state.json'))
+              d = json.load(open('.methodology/state.json', encoding='utf-8'))
               print(int(d.get('current_phase', 0)))
           except Exception:
               print(0)
@@ -844,7 +844,7 @@ except Exception as e:
               sys.exit(0)
           manifest_path = ".methodology/quality_manifest.json"
           try:
-              manifest = json.load(open(manifest_path))
+              manifest = json.load(open(manifest_path, encoding='utf-8'))
           except FileNotFoundError:
               print(f"ERROR: {manifest_path} not found.")
               print(f"  Gate {gate_num} PASS is required to be in Phase {phase}.")
