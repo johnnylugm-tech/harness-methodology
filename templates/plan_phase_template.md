@@ -50,6 +50,11 @@ a failing gate.
 - [ ] 執行 `python3 harness_cli.py run-gate --gate 1 --phase {PHASE} --fr-id FR-XX`
 - [ ] Claude 評估 gate 結果並寫入 `.sessi-work/gate1_result.json`
 - [ ] 執行 `python3 harness_cli.py finalize-gate --gate 1 --phase {PHASE} --fr-id FR-XX`
+- [ ] **[D4-BACKWARD]** D4 backward spec-coverage-check (Gate 1 threshold 40%; applies P3+):
+  ```bash
+  python3 harness_cli.py spec-coverage-check --project . --threshold 40.0 --fr-id FR-XX
+  ```
+  FAIL → fix missing test implementations → re-run
 - [ ] 確認 gate PASS（each dimension ≥ threshold per SKILL.md §2）
 - [ ] Gate FAIL → AutoFixEngine retry (up to `--auto-fix-rounds`) → re-check
 - [ ] Auto-fix exhausted → escalate to human (see SAD.md §3.18 for 9 escalation conditions)
@@ -64,10 +69,31 @@ Agent MUST stop here. DO NOT advance phase without exit gate PASS.
 - [ ] 執行 `python3 harness_cli.py run-gate --gate {EXIT_GATE_NUM} --phase {PHASE}`
 - [ ] Claude 評估 gate 結果並寫入 `.sessi-work/gate{EXIT_GATE_NUM}_result.json`
 - [ ] 執行 `python3 harness_cli.py finalize-gate --gate {EXIT_GATE_NUM} --phase {PHASE}`
+- [ ] **[D4-BACKWARD]** D4 backward spec-coverage-check (Gate 2=40%, Gate 3=70%; see CONSTITUTION.md §2.2):
+  ```bash
+  # Gate 2 (P3 exit) → --threshold 40.0 ; Gate 3 (P4 exit) → --threshold 70.0
+  python3 harness_cli.py spec-coverage-check --project . --threshold {SPEC_COVERAGE_THRESHOLD}
+  ```
+  FAIL → fix missing test implementations → re-run
 - [ ] 確認 gate PASS（score ≥ threshold per SKILL.md §1）
 - [ ] Gate FAIL → 修復 → 重新評估（HR-08: 不得跳過失敗的 gate）
 - [ ] Phase Truth ≥ 90%（HR-11）
 - [ ] ⛔ 未經用戶明確確認，不得更新 state.json 進入下一 Phase
+
+---
+
+## ⛔ [CHECKPOINT-3] P8-Only: Archive & HANDOVER Finalization
+
+> **僅適用 Phase 8。** 其他 Phase 略過此段。
+
+- [ ] **[P8-ARCHIVE]** 建立 `.methodology-archive/` (CI `p8-archive-check` 驗證):
+  ```bash
+  mkdir -p .methodology-archive && cp -r .sessi-work/ .methodology-archive/
+  ```
+- [ ] **[P8-HANDOVER]** 確認 `HANDOVER.md` 無 Phase 9 引用:
+  ```bash
+  grep -qi "phase 9\|phase9\|phase9_plan" HANDOVER.md && echo "ERROR: Phase 9 refs found — remove them" || echo "OK: no Phase 9 refs"
+  ```
 
 ---
 

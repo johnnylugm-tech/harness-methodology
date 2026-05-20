@@ -278,10 +278,13 @@ _PHASE_EXIT_GATES: dict = {3: 2, 4: 3, 6: 4}                  # phase → exit g
 # Gate metadata: (score_gate, dim_count, notes)
 _GATE_META: dict = {
     1: (None, 3,  "linting(90) · type_safety(85) · test_coverage(80)"),
-    2: (75,   9,  "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · integration_coverage(60) · test_assertion_quality(60)  [D4 TEST_INVENTORY.yaml imperative check ≥60%]"),
-    3: (80,   14, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · integration_coverage(60) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · test_assertion_quality(60) · performance(75)  [CRG recon inside run-gate · D4 TEST_INVENTORY.yaml imperative check ≥80%]"),
-    4: (85,   14, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · performance(75) · integration_coverage(75) · test_assertion_quality(70)  [CRG recon inside run-gate · D4 TEST_INVENTORY.yaml imperative check ≥90% · Hermes APPROVE required]"),
+    2: (75,   9,  "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · integration_coverage(60) · test_assertion_quality(60)  [D4 TEST_INVENTORY.yaml imperative check ≥60% · D4 backward spec-coverage ≥40%]"),
+    3: (80,   14, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · integration_coverage(60) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · test_assertion_quality(60) · performance(75)  [CRG recon inside run-gate · D4 TEST_INVENTORY.yaml imperative check ≥80% · D4 backward spec-coverage ≥70%]"),
+    4: (85,   14, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · performance(75) · integration_coverage(75) · test_assertion_quality(70)  [CRG recon inside run-gate · D4 TEST_INVENTORY.yaml imperative check ≥90% · D4 backward spec-coverage ≥90% · Hermes APPROVE required]"),
 }
+
+# D4 backward (spec-coverage-check) thresholds per exit gate (CONSTITUTION.md §2.2)
+_SPEC_COVERAGE_THRESHOLDS: dict = {2: 40.0, 3: 70.0, 4: 90.0}
 
 # A/B agent roles per phase: (Agent-A role, Agent-B role, task hint)
 _PHASE_ROLES: dict = {
@@ -691,6 +694,19 @@ def _entry_gate_check(phase: int) -> List[str]:
         f"  If NOT confirmed: {gate_action}.",
         "",
     ]
+    # Phase 2 entry: explicitly verify all 4 P1 deliverables per CONSTITUTION.md §2.3
+    if phase == 2:
+        lines.extend([
+            "- [ ] **[P1-ARTIFACTS]** 確認 Phase 1 四項交付物存在（CONSTITUTION.md §2.3 P2 entry 要求）:",
+            "  ```bash",
+            "  ls 01-requirements/SRS.md \\",
+            "     01-requirements/SPEC_TRACKING.md \\",
+            "     01-requirements/TRACEABILITY_MATRIX.md \\",
+            "     TEST_INVENTORY.yaml",
+            "  ```",
+            "  以上 4 個檔案必須全部存在。若有缺失 → 返回 Phase 1 補齊後再進入 Phase 2。",
+            "",
+        ])
     # Phase 6 entry: also verify P5 output artifacts per SAD.md §2.4.3
     if phase == 6:
         lines.insert(3, "  Verify P5 output artifacts exist: `05-verification/VERIFICATION_REPORT.md` + `05-verification/BASELINE.md`")
@@ -1056,6 +1072,12 @@ def _gate1_checkpoint(fr_id: str, phase: int, checkpoint_n: int,
         "  **If FAIL** (any dim below threshold): fix code → repeat G1a→G1b→G1c until PASS.",
         "  **Do NOT proceed to G1d until all dims PASS.**",
         "",
+        "- [ ] **[D4-BACKWARD]** D4 backward spec-coverage-check (Gate 1 threshold 40%):",
+        "  ```bash",
+        f"  python3 harness_cli.py spec-coverage-check --project . --threshold 40.0 --fr-id {fr_id}",
+        "  ```",
+        f"  FAIL → fix missing test implementations for {fr_id} → re-run until ≥ 40%",
+        "",
     ] + (_sab_sync_step() if phase >= 3 else []) + [
         "- [ ] **G1d** ✅ Verify local commit saved (finalize-gate above already committed):",
         "  ```bash",
@@ -1118,6 +1140,12 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
         f"  python3 harness_cli.py finalize-gate --gate {gate_num} --phase {phase}",
         "  ```",
         *([hermes_note] if hermes_note else []),
+        f"- [ ] **[D4-BACKWARD]** D4 backward spec-coverage-check (Gate {gate_num} threshold {_SPEC_COVERAGE_THRESHOLDS[gate_num]:.0f}%):",
+        "  ```bash",
+        f"  python3 harness_cli.py spec-coverage-check --project . --threshold {_SPEC_COVERAGE_THRESHOLDS[gate_num]}",
+        "  ```",
+        "  FAIL → fix missing test implementations → re-run until coverage meets threshold",
+        "",
         *early_stop,
         "",
         f"- [ ] **G{gate_num}d** ✅ Verify checkpoint saved (finalize-gate above already pushed + wrote HANDOVER.md):",
@@ -1856,6 +1884,27 @@ def generate_phase8_tasks(repo_path: Path) -> List[str]:
     else:
         lines.append("(No FR list found in manifest — run Gate 1 per FR manually)")
         lines.append("")
+
+    lines.extend([
+        "### P8 Archive — REQUIRED before push-milestone (CI p8-archive-check)",
+        "",
+        "- [ ] **[P8-ARCHIVE]** 建立 `.methodology-archive/` 目錄（CI `p8-archive-check` 驗證此目錄存在）:",
+        "  ```bash",
+        "  mkdir -p .methodology-archive",
+        "  cp -r .sessi-work/ .methodology-archive/",
+        "  ```",
+        "  > 此步驟必須在 `push-milestone --type p8` 之前完成；`_validate_p8_completion()` 在 push-milestone 內部自動驗證。",
+        "  > CI job `p8-archive-check` 也會在 push to main 時驗證此目錄存在。",
+        "",
+        "- [ ] **[P8-HANDOVER-CHECK]** 確認 `HANDOVER.md` 無 Phase 9 引用（CI `p8-archive-check` 驗證）:",
+        "  ```bash",
+        '  grep -qi "phase 9\\|phase9\\|phase9_plan" HANDOVER.md \\',
+        '    && echo "ERROR: Phase 9 refs found — remove them" \\',
+        '    || echo "OK: no Phase 9 refs"',
+        "  ```",
+        "  Phase 8 為最終 Phase，任何 Phase 9 引用都必須移除。",
+        "",
+    ])
 
     lines.extend([
         "### P8 Milestone Push (10-Push Strategy ⑩)",

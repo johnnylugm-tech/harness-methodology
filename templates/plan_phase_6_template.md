@@ -293,6 +293,12 @@ python3 harness_cli.py run-gate --gate 4 --phase 6
 python3 harness_cli.py finalize-gate --gate 4 --phase 6
 ```
 
+- [ ] **[D4-BACKWARD]** D4 backward spec-coverage-check (Gate 4 threshold 90%):
+  ```bash
+  python3 harness_cli.py spec-coverage-check --project . --threshold 90.0
+  ```
+  FAIL → fix missing test implementations → re-run Gate 4 (repeat 9.2-9.3)
+
 **Early-stop cases after finalize-gate:**
 | Case | Condition | Action |
 |------|-----------|--------|
