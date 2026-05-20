@@ -2129,9 +2129,9 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
             if args.gate == 4:
                 _state_path = Path(args.project).resolve() / ".methodology" / "state.json"
                 try:
-                    _sd = json.loads(_state_path.read_text())
+                    _sd = json.loads(_state_path.read_text(encoding="utf-8"))
                     _sd["last_milestone_command"] = f"finalize-gate --gate 4 --phase {args.phase}"
-                    _state_path.write_text(json.dumps(_sd, indent=2))
+                    _state_path.write_text(json.dumps(_sd, indent=2), encoding="utf-8")
                 except Exception as _sme:
                     print(f"  [WARN] Could not write last_milestone_command to state.json: {_sme}")
         return 0

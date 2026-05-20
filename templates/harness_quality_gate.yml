@@ -572,9 +572,9 @@ except Exception as e:
               print(f"      Run: python harness/scripts/phase_end_audit.py --phase {prev} --project .")
               # Non-blocking if file doesn't exist yet (first push after advance-phase).
               sys.exit(0)
-          content = open(audit_file).read()
+          content = open(audit_file, encoding="utf-8").read()
           critical_section = re.search(
-              r'## CRITICAL Gaps.*?(?=## |\Z)', content, re.DOTALL
+              r'## CRITICAL Gaps.*?(?=## |\Z)', content, re.DOTALL | re.IGNORECASE
           )
           if not critical_section:
               print(f"OK: No CRITICAL Gaps section in {audit_file}.")
