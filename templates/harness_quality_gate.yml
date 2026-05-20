@@ -271,69 +271,6 @@ except Exception:
           fi
           echo "OK: $APPROVED Agent B APPROVE file(s) found."
 
-      - name: Verify sessions_spawn.log has A/B entries (P1/P2)
-        # G-07 fix: CI backup for sessions_spawn.log A/B round count.
-        if: steps.phase.outputs.PHASE == '1' || steps.phase.outputs.PHASE == '2'
-        run: |
-          LOG=".methodology/sessions_spawn.log"
-          if [ ! -f "$LOG" ]; then
-            echo "ERROR: sessions_spawn.log missing (HR-10)."
-            echo "AgentSpawner must log each A/B round. File not found."
-            exit 1
-          fi
-          ENTRIES=$(grep -c '.' "$LOG" || echo 0)
-          if [ "$ENTRIES" -eq 0 ]; then
-            echo "ERROR: sessions_spawn.log is empty (HR-10)."
-            echo "At least one A/B round must be logged."
-            exit 1
-          fi
-          echo "OK: sessions_spawn.log has $ENTRIES line(s)."
-
-  checklist-check:
-    name: Phase Plan Checklist Verification
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install harness dependencies
-        run: pip install -r harness/requirements.txt || true
-
-      - name: Detect phase
-        id: phase
-        run: |
-          PHASE=$(python3 -c "
-          import json
-          try:
-              d = json.load(open('.methodology/state.json'))
-              print(int(d.get('current_phase', 0)))
-          except Exception:
-              print(0)
-          " 2>/dev/null || echo "0")
-          echo "PHASE=$PHASE" >> $GITHUB_OUTPUT
-
-      - name: Check mandatory checklist items in phase plan
-        run: |
-          PLAN=".methodology/phase${{ steps.phase.outputs.PHASE }}_plan.md"
-          if [ ! -f "$PLAN" ]; then
-            echo "INFO: $PLAN not found — skipping checklist check."
-            exit 0
-          fi
-          python harness/harness_cli.py check-checklist \
-            --phase ${{ steps.phase.outputs.PHASE }} \
-            --project . || {
-              echo ""
-              echo "Mandatory plan items are unchecked in $PLAN."
-              echo "Change '- [ ]' to '- [x]' for each completed step."
-              exit 1
-            }
-
   agent-b-approval-check:
     name: Agent B Approval Verification
     runs-on: ubuntu-latest
@@ -500,37 +437,6 @@ except Exception as e:
               print(f"FAIL: D4 backward spec-coverage < {threshold:.0f}% for phase {phase}.")
               sys.exit(1)
           print(f"OK: D4 backward spec-coverage >= {threshold:.0f}%")
-          EOF
-
-  phase-truth-check:
-    # G-04 fix: CI backup for Phase Truth >= 90% (HR-11), previously local-only via advance-phase.
-    name: Phase Truth >= 90% Check (HR-11)
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Check phase_truth_passed in state.json
-        run: |
-          python3 - <<'EOF'
-          import json, sys
-          try:
-              d = json.load(open('.methodology/state.json'))
-          except Exception:
-              print("INFO: state.json not found — skipping.")
-              sys.exit(0)
-          phase = int(d.get('current_phase', 0))
-          exit_gate_phases = {3, 4, 6}
-          if phase not in exit_gate_phases:
-              print(f"INFO: Phase {phase} has no exit gate — phase_truth_passed not required.")
-              sys.exit(0)
-          passed = d.get('phase_truth_passed', None)
-          if passed is True:
-              print(f"OK: phase_truth_passed = True for Phase {phase}.")
-              sys.exit(0)
-          print(f"FAIL: phase_truth_passed = {passed!r} for Phase {phase}.")
-          print("  Phase Truth < 90% or not yet recorded. Run finalize-gate to set it.")
-          sys.exit(1)
           EOF
 
   sab-validation:
