@@ -145,6 +145,30 @@ except Exception as e:
           fi
           echo "OK: last_milestone_command = $CMD"
 
+      - name: Verify HANDOVER.md exists (P3+)
+        # G-NEW-6 fix: push-milestone generates HANDOVER.md; CI verifies it exists for P3+.
+        # P1/P2 HANDOVER.md is already checked by p1p2-enforcement job.
+        run: |
+          PHASE=$(python3 -c "
+import json, sys
+try:
+    d = json.load(open('.methodology/state.json'))
+    print(int(d.get('current_phase', 0)))
+except Exception:
+    print(0)
+" 2>/dev/null || echo "0")
+          if [ "$PHASE" -lt 3 ]; then
+            echo "INFO: Phase $PHASE < 3 — HANDOVER.md managed by p1p2-enforcement."
+            exit 0
+          fi
+          if [ ! -f "HANDOVER.md" ]; then
+            echo "ERROR: HANDOVER.md missing for Phase $PHASE."
+            echo "push-milestone should have generated HANDOVER.md."
+            echo "Run: python harness/harness_cli.py push-milestone --type <type> --project ."
+            exit 1
+          fi
+          echo "OK: HANDOVER.md present."
+
   p1p2-enforcement:
     name: P1/P2 Push-Checkpoint Enforcement
     runs-on: ubuntu-latest
@@ -404,6 +428,24 @@ except Exception as e:
             echo "OK: HANDOVER.md has no Phase 9 references."
           fi
 
+      - name: Validate P8 deliverables exist (P8 only)
+        # G-NEW-3 fix: P8 is the last phase — no P9 entry check exists.
+        # Verify P8's own artifacts at push time instead.
+        if: steps.p8.outputs.IS_P8 == 'true'
+        run: |
+          MISSING=""
+          for f in "08-config/CONFIG_RECORDS.md" "08-config/RELEASE_CHECKLIST.md"; do
+            [ -f "$f" ] || MISSING="$MISSING $f"
+          done
+          if [ -n "$MISSING" ]; then
+            echo "ERROR: P8 deliverables missing:$MISSING"
+            echo "Complete these before the P8 milestone push:"
+            echo "  08-config/CONFIG_RECORDS.md — deployment configuration record"
+            echo "  08-config/RELEASE_CHECKLIST.md — release validation checklist"
+            exit 1
+          fi
+          echo "OK: P8 deliverables present."
+
   d4-backward-check:
     # G-03 fix: CI backup for D4 backward spec-coverage-check (local-only before this).
     name: D4 Backward Spec Coverage Check
@@ -438,11 +480,12 @@ except Exception as e:
         env:
           PHASE: ${{ steps.phase.outputs.PHASE }}
         run: |
-          # Threshold per gate: Gate2/P3=40%, Gate3/P4=70%, Gate4/P6=90%, others=40%
+          # Threshold per gate: P3=40%, P4=70%, P5=70% (≥Gate3), P6=90% (Gate4), P7/P8=90% (post-Gate4)
+          # K-4 fix: P5/P7/P8 were previously using 40% fallback (weaker than prior gate requirement).
           python3 - <<'EOF'
           import os, sys, subprocess
           phase = int(os.environ.get("PHASE", "0"))
-          thresholds = {3: 40.0, 4: 70.0, 6: 90.0}
+          thresholds = {3: 40.0, 4: 70.0, 5: 70.0, 6: 90.0, 7: 90.0, 8: 90.0}
           threshold = thresholds.get(phase, 40.0)
           if phase < 3:
               print(f"INFO: Phase {phase} < 3 — spec-coverage-check not required.")
@@ -616,13 +659,20 @@ except Exception as e:
           python3 - <<'EOF'
           import os, sys
           phase = int(os.environ.get("PHASE", "0"))
-          # Deliverables required to exist when entering each phase.
+          # Deliverables required to exist when phase >= p.
+          # Each entry: "checked when entering phase p or later" (cumulative).
+          # Paths authoritative from core/quality_gate/phase_artifact_enforcer.py.
           required = {
+              3: ["02-architecture/SAD.md"],                         # G-NEW-1: P2 artifact, present from P3+
               4: ["04-testing/TEST_PLAN.md"],
-              5: ["04-testing/TEST_PLAN.md", "04-testing/TEST_RESULTS.md"],
+              5: ["04-testing/TEST_RESULTS.md"],
               6: ["05-verification/VERIFICATION_REPORT.md", "05-verification/BASELINE.md"],
-              7: ["06-quality/QUALITY_REPORT.md"],
-              8: ["07-risk/RISK_STATUS_REPORT.md"],
+              7: ["06-quality/QUALITY_REPORT.md",                   # P6 artifact
+                  "RELEASE_NOTES.md",                               # C-1: P6 artifact (project root)
+                  "FINAL_SIGN_OFF.md"],                             # G-NEW-2: P6 artifact
+              8: ["07-risk/RISK_STATUS_REPORT.md",                  # C-2: P7 artifact, was missing RISK_REGISTER
+                  "07-risk/RISK_REGISTER.md",                       # C-2 fix
+                  "07-risk/RISK_MITIGATION_PLANS.md"],              # K-1: generator lists this, now CI-enforced
           }
           missing = []
           for p, files in required.items():
@@ -754,3 +804,62 @@ except Exception as e:
             echo "  git push origin --tags"
             exit 1
           fi
+
+  gate-pass-check:
+    # G-NEW-5 fix: CI verification of quality_manifest.json gate PASS records.
+    # advance-phase locally checks this; CI provides server-side enforcement.
+    name: Quality Gate PASS Record Verification
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect phase
+        id: phase
+        run: |
+          PHASE=$(python3 -c "
+          import json
+          try:
+              d = json.load(open('.methodology/state.json'))
+              print(int(d.get('current_phase', 0)))
+          except Exception:
+              print(0)
+          " 2>/dev/null || echo "0")
+          echo "PHASE=$PHASE" >> $GITHUB_OUTPUT
+
+      - name: Verify required gate PASS in quality_manifest.json
+        # Entry gate map (mirrors _ENTRY_GATE_MAP in harness_cli.py):
+        #   P4 requires Gate 2 PASS, P5/P6 require Gate 3, P7/P8 require Gate 4
+        env:
+          PHASE: ${{ steps.phase.outputs.PHASE }}
+        run: |
+          python3 - <<'EOF'
+          import json, os, sys
+          phase = int(os.environ.get("PHASE", "0"))
+          # Gate N is required to be in phase p (from _ENTRY_GATE_MAP in harness_cli.py)
+          entry_gate = {4: 2, 5: 3, 6: 3, 7: 4, 8: 4}
+          gate_num = entry_gate.get(phase)
+          if gate_num is None:
+              print(f"INFO: Phase {phase} has no required gate record — skipping.")
+              sys.exit(0)
+          manifest_path = ".methodology/quality_manifest.json"
+          try:
+              manifest = json.load(open(manifest_path))
+          except FileNotFoundError:
+              print(f"ERROR: {manifest_path} not found.")
+              print(f"  Gate {gate_num} PASS is required to be in Phase {phase}.")
+              print(f"  Run finalize-gate --gate {gate_num} and advance-phase to generate it.")
+              sys.exit(1)
+          except Exception as e:
+              print(f"ERROR: {manifest_path} is not valid JSON: {e}")
+              sys.exit(1)
+          gate_result = manifest.get("gate_results", {}).get(f"gate{gate_num}", {})
+          if gate_result.get("quality_complete"):
+              print(f"OK: Gate {gate_num} PASS confirmed in quality_manifest.json (Phase {phase}).")
+              sys.exit(0)
+          print(f"FAIL: Gate {gate_num} PASS not recorded in quality_manifest.json for Phase {phase}.")
+          print(f"  Expected: gate_results.gate{gate_num}.quality_complete = true")
+          print(f"  Got: {gate_result!r}")
+          print(f"  Run: python harness/harness_cli.py finalize-gate --gate {gate_num} --phase <prev_phase> --project .")
+          sys.exit(1)
+          EOF
