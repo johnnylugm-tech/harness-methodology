@@ -411,7 +411,7 @@ _PHASE_EXIT_GATES: dict[int, int] = {3: 2, 4: 3, 6: 4}
 
 # P1/P2 deliverable labels used as approval-file keys in agent_b_approvals/
 _PHASE_DELIVERABLES: dict[int, list[str]] = {
-    1: ["SRS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md"],
+    1: ["SRS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md", "TEST_INVENTORY.yaml"],
     2: ["SAD.md", "ADR.md", "TEST_SPEC.md"],
 }
 # Documents that Agent B must embed per phase (SAD.md doesn't exist until P2)
@@ -4038,6 +4038,7 @@ def _init_copy_templates(project: Path, harness_root: Path, *, overwrite: bool =
         ("01-requirements", "SRS.md"),
         ("01-requirements", "SPEC_TRACKING.md"),
         ("01-requirements", "TRACEABILITY_MATRIX.md"),
+        ("", "TEST_INVENTORY.yaml"),       # project root — D4 reads from here
         ("02-architecture", "SAD.md"),
         ("02-architecture/adr", "ADR.md"),
         ("02-architecture", "TEST_SPEC.md"),
@@ -4497,7 +4498,7 @@ def cmd_audit_structure(args: argparse.Namespace) -> int:
     # Required artifacts per phase (aligned with phase_artifact_enforcer.py)
     PHASE_ARTIFACTS = {
         1: ["01-requirements/SRS.md", "01-requirements/SPEC_TRACKING.md",
-            "01-requirements/TRACEABILITY_MATRIX.md"],
+            "01-requirements/TRACEABILITY_MATRIX.md", "TEST_INVENTORY.yaml"],
         2: ["02-architecture/SAD.md", "02-architecture/TEST_SPEC.md"],
         3: ["03-development/src/", "03-development/tests/"],
         4: ["04-testing/TEST_PLAN.md", "04-testing/TEST_RESULTS.md"],

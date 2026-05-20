@@ -701,7 +701,8 @@ def _review_checkpoint(phase: int, checkpoint_n: int) -> List[str]:
     """Agent B peer-review checkpoint for P1/P2 (deliverable review — NOT harness run-gate)."""
     _DELIVERABLES: dict = {
         1: ["01-requirements/SRS.md", "01-requirements/SPEC_TRACKING.md",
-            "01-requirements/TRACEABILITY_MATRIX.md", "01-requirements/TEST_INVENTORY.yaml"],
+            "01-requirements/TRACEABILITY_MATRIX.md",
+            "TEST_INVENTORY.yaml"],          # project root — D4 reads from here
         2: ["02-architecture/SAD.md", "02-architecture/ADR.md",
             "02-architecture/TEST_SPEC.md"],
     }
@@ -843,18 +844,26 @@ def _fr_dev_steps(fr_id: str, phase: int) -> List[str]:
 
     # Phase 3-8: no A/B, TDD (RED→GREEN→IMPROVE) + Phase End Audit
     num = re.match(r"FR-(\d+)", fr_id)
-    num_str = num.group(1).zfill(2) if num else "XX"
+    # zfill(2) matches D1-RED enforcement in harness_cli.py (accepts test_fr01.py or test_fr1.py).
+    # For non-standard IDs fall back to a sanitized slug so the filename stays unambiguous.
+    if num:
+        num_str = num.group(1).zfill(2)
+    else:
+        num_str = re.sub(r"[^a-z0-9]", "_", fr_id.lower()).strip("_")
     return [
         f"**TDD — {fr_id}** (RED→GREEN→IMPROVE · no A/B — Phase End Audit替代):",
         f"- [ ] **[TDD-1 RED]** Write failing test for {fr_id}:",
         f"    Create `tests/test_fr{num_str}.py` with at minimum one failing test case.",
-        "    Commit the test file BEFORE starting implementation.",
+        "    `git add tests/ && git commit -m \"test(RED): failing test for"
+        f" {fr_id}\"` — commit BEFORE implementation.",
         "    `harness_cli.py finalize-gate` enforces D1-RED: test commit must predate source commit.",
         f"- [ ] **[TDD-2 GREEN]** Implement {fr_id} per SRS + SAD until test passes:",
         f"  - Docstrings: `[{fr_id}]` tag + `Citations:` with line numbers (HR-15)",
         "  - FORBIDDEN: `app/infrastructure/` · `@covers: L1 Error` · `@type: edge`",
+        f"  - `git add src/ && git commit -m \"feat({fr_id}): GREEN\"` — commit implementation.",
         f"- [ ] **[TDD-3 IMPROVE]** Refactor {fr_id} without breaking tests:",
         "  - Verify all existing tests still pass after refactor",
+        f"  - `git commit -m \"refactor({fr_id}): IMPROVE\"` if any changes made.",
         f"- [ ] Run `python3 harness_cli.py run-gate --gate 1 --phase {phase} --fr-id {fr_id}`",
         f"- [ ] Run `python3 harness_cli.py finalize-gate --gate 1 --phase {phase} --fr-id {fr_id}`",
         "",

@@ -752,7 +752,7 @@ class TestPushCheckpointAgentBGate:
 
         self._write_ci_files(tmp_path)
         # P1 uses phase-level deliverables (SKILL.md §0.4), not FR IDs.
-        for did in ["SRS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md"]:
+        for did in ["SRS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md", "TEST_INVENTORY.yaml"]:
             self._write_approval(tmp_path, did, phase=1)
 
         commit_calls: list[dict] = []
