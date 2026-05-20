@@ -123,7 +123,13 @@ M1 kill-switch circuit state is checked before each phase. M3 gap analysis runs 
 - `stop:cost-tracker` — tracks token/cost per session
 These hooks operate at the Claude Code session layer, independently of the harness Python pipeline. They are **pre-installed** and require no harness-side configuration.
 
-**Agent A TDD mandate** (SKILL.md §6): Agent A must follow RED→GREEN→IMPROVE before returning results. Gate 1 `test_coverage` dimension verifies outcomes; implementations without prior failing tests are expected to score lower on `mutation_testing`.
+**Agent A TDD mandate** (SKILL.md §6): Agent A must follow the **RED → GREEN → IMPROVE** cycle per FR before returning results.
+
+- **[TDD-1 RED]** Write a failing test first (`tests/test_frNN.py`). Commit before any implementation: `git commit -m "test(RED): failing test for FR-NN"`. `harness_cli.py finalize-gate` enforces **D1-RED**: the test file's git commit timestamp must predate the source file's commit timestamp; the gate blocks if implementation was committed first. D1-RED is bypass-proof — timestamps are read from `.git/` directly, not from agent-reported metadata.
+- **[TDD-2 GREEN]** Implement the FR until the test passes: `git commit -m "feat(FR-NN): GREEN"`. Every implemented function must carry a `[FR-NN]` docstring tag and a `Citations:` block with line-number references to SRS.md and SAD.md (HR-15).
+- **[TDD-3 IMPROVE]** Refactor without breaking tests: `git commit -m "refactor(FR-NN): IMPROVE"` if any changes were made.
+
+Gate 1 `test_coverage` dimension verifies outcomes; implementations without prior failing tests score lower on `mutation_testing`.
 
 **Three server-side enforcement mechanisms** (bypass-proof — operate at GitHub Actions layer, not git hooks):
 
@@ -180,8 +186,8 @@ This section uses normative language per **RFC 2119**:
 
 | Transition | RFC 2119 | Condition |
 |------------|----------|-----------|
-| P1 → P2 | **MUST** | SRS.md + SPEC_TRACKING.md + TRACEABILITY_MATRIX.md exist |
-| P2 → P3 | **MUST** | SAD.md + quality_manifest.json exist; `plan-phase --phase 3` succeeds |
+| P1 → P2 | **MUST** | SRS.md + SPEC_TRACKING.md + TRACEABILITY_MATRIX.md + TEST_INVENTORY.yaml exist |
+| P2 → P3 | **MUST** | SAD.md + quality_manifest.json + TEST_SPEC.md exist; `plan-phase --phase 3` succeeds |
 | P3 → P4 | **MUST** | Gate 2 ≥75 + Phase Truth ≥90% + all FRs have Gate 1 PASS |
 | P4 → P5 | **MUST** | Gate 3 ≥80 + coverage ≥80% + TEST_RESULTS.md |
 | P5 → P6 | **MUST** | VERIFICATION_REPORT.md |
@@ -1136,6 +1142,7 @@ class KillSwitch:
 | `stage_pass_generator.py` | `IntegratedStagePassGenerator` | Generates stage pass certificates; integrates FrameworkEnforcer + ClaimsVerifier |
 | `feedback_hook.py` | `AutoQualityGateWithFeedback` | AutoQualityGate subclass that submits feedback on gate completion |
 | `constitution/__init__.py` | — | Constitution sub-package (used by `preflight_constitution`) |
+| `cross_artifact.py` | — | D3 cross-artifact fabrication detector: phase title mismatch, FR coverage mismatch, coverage number mismatch; entry point `run_cross_artifact_checks(project_root, phase)` → `{"passed": bool, "violations": [...], "checks_ran": int}`. Runs during Phase Truth verification and `finalize-gate` postflight. |
 
 **Support modules (stubs/config — crg-003 additions):**
 
@@ -1380,6 +1387,40 @@ class PhaseHooksAdapter:
 def create_steering_provider(provider: str | None = None) -> SteeringProvider:
     """Env-var driven factory. Defaults to NoopProvider if no provider configured."""
 ```
+
+---
+
+### §3.37 — `harness/tool_runners.py` — Independent Tool Execution Engine
+
+**Responsibility**: Runs quality tools (ruff, mypy, pytest-cov, bandit, radon, etc.) as harness-owned subprocesses — not agent-owned — so scores cannot be fabricated by writing stub files. Results are written to `.sessi-work/harness_verification/` as an audit trail. This is the "Solution B" (independent subprocess) half of cross-validation; "Solution A" is content-level validation inside `core/quality_gate/`.
+
+**Public API**:
+
+```python
+def run_tool(
+    tool: str,
+    project_root: str,
+    *,
+    timeout_override: Optional[int] = None,
+) -> tuple[str, int]:
+    """Execute tool against project_root. Returns (stdout+stderr, returncode).
+    Negative return codes indicate harness-internal conditions (not tool exit codes):
+      ("", -1)                 — tool is on the skip list (mutmut, scancode)
+      ("TIMEOUT…", -2)         — subprocess timed out
+      ("Tool not found…", -3)  — executable missing
+      ("Error: …", -4)         — unexpected exception
+    """
+
+def compute_tool_score(tool: str, output: str, returncode: int) -> float | None:
+    """Parse tool output and return a normalised 0.0–1.0 score.
+    Returns None when the tool is skipped or unavailable."""
+```
+
+**Skip list**: `mutmut` and `scancode` are excluded from inline cross-validation (too slow / complex). They remain covered by Solution-A content validation.
+
+**Default timeouts** (seconds): `ruff` 30; `mypy`/`pyright` 60; `pytest`/`pytest-cov` 120; `gitleaks` 30; `bandit` 60; `radon-cc`/`radon-mi` 30; `pydocstyle` 30; `grep-bare-except` 15.
+
+**Integration**: Called by `HarnessBridge` during `run_gate()` preflight to produce harness-owned tool scores. Results are compared against agent-reported scores in `cross_artifact.py` (§3.15) and logged to `.sessi-work/harness_verification/` for audit.
 
 ---
 
@@ -1887,6 +1928,7 @@ Full inventory of the `scripts/` directory (27 items). Grouped by role:
 | `generate_full_plan.py` | 56KB | Generates a full FR-level execution plan for a phase from SAD.md; outputs `.methodology/phase{N}_plan.md` |
 | `generate_fr_mapping.py` | 6KB | Builds an FR→file mapping from SAD.md and codebase scan; consumed by `phase_auditor.py` and gate pre-flight |
 | `generate_sab.py` | 3KB | CLI wrapper around `sab_parser.extract_sab_from_sad`; also exposes `parse_sad()` called by `HarnessBridge.generate_quality_manifest()` |
+| `phase_end_audit.py` | ~12KB | Phase 3-8 deliverable verifier (replaces A/B collaboration checks for P3+): validates plan completion, deliverables on disk, gate results in manifest, git log milestones, and DEVELOPMENT_LOG.md; invoked by `harness_cli.py finalize-gate` for phases ≥3 |
 
 **`phase_auditor.py` usage** (via `harness_cli.py audit-phase`):
 ```bash
