@@ -44,7 +44,7 @@ python3 harness_cli.py generate-next-plan --phase 6
 | HR-07 | DEVELOPMENT_LOG must record session_id | -15 | record session_id per entry |
 | HR-08 | Phase end must run Quality Gate | Terminate -10 | Gate 4 (`run-gate --gate 4 --phase 6`) |
 | HR-09 | Claims Verifier must pass | Terminate -20 | citations match |
-| HR-10 | sessions_spawn.log A/B records | Terminate -15 | **Phase 6: NOT enforced** — Phase End Audit replaces A/B check |
+| HR-10 | sessions_spawn.log A/B records | Terminate -15 | **Phase 6: NOT applicable** — Phase End Audit replaces A/B check |
 | HR-11 | Phase Truth < 90% blocks next Phase | Terminate | <90% → PAUSE |
 | HR-12 | A/B review > 5 rounds → PAUSE | - | **Phase 6: NOT applicable** |
 | HR-13 | Phase elapsed > estimated x3 → PAUSE | - | record start_time |
