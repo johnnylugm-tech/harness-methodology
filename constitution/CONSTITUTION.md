@@ -2,7 +2,7 @@
 
 > 本文件定義團隊的不可變原則。所有專案必須遵守這些規則。
 > 此為編譯後的 artifact，不可手動變更。版本哈希用於驗證完整性。
-> schema_version: 2.3
+> schema_version: 2.4
 
 ---
 
@@ -46,7 +46,7 @@
 
 | Gate | Phase | 最低分數 | 維度數 | 說明 |
 |------|-------|---------|--------|------|
-| Gate 1 | P3/P4/P5/P7/P8 (per FR) | **≥ 75** | 3 (lint/type/cov) | FR 級別檢查 |
+| Gate 1 | P3/P4/P5/P7/P8 (per FR) | **per-dim** (no composite) | 3 (lint/type/cov) | FR 級別檢查 |
 | Gate 2 | P3 exit | **≥ 75** | 9 | Phase 級別 composite |
 | Gate 3 | P4 exit | **≥ 80** | 14 | 完整 CRG recon |
 | Gate 4 | P6 exit | **≥ 85** | 14 | 全專案 + Hermes APPROVE |
@@ -55,7 +55,7 @@
 
 以下為各 Gate 實際執行的工具維度與權重（即 `harness/gate_configs/` 中定義的加權值，總和 = 100%）。
 
-#### Gate 1（P3/P4/P5/P7/P8 per-FR — 3 維度, composite ≥75）
+#### Gate 1（P3/P4/P5/P7/P8 per-FR — 3 維度, 各維度各自門檻；無 composite score_gate）
 | 維度 | 權重 | 門檻 | 工具 |
 |------|------|------|------|
 | linting | 33% | ≥90 | ruff |
@@ -123,8 +123,8 @@
 | Phase | Entry Gate | 驗證方式 |
 |-------|-----------|----------|
 | P1 | None | 無前置 Phase |
-| P2 | P1 交付物完成 | `git log` + quality_manifest 確認 P1 PASS |
-| P3 | P2 交付物完成 | `git log` + quality_manifest 確認 P2 PASS |
+| P2 | P1 交付物完成（SRS.md + SPEC_TRACKING.md + TRACEABILITY_MATRIX.md + TEST_INVENTORY.yaml） | `git log` + quality_manifest 確認 P1 PASS |
+| P3 | P2 交付物完成（SAD.md + quality_manifest.json + TEST_SPEC.md） | `git log` + quality_manifest 確認 P2 PASS |
 | P4 | Gate 2 (P3) | `git log` 確認 P3 Gate 2 PASS |
 | P5 | Gate 3 (P4) | `git log` 確認 P4 Gate 3 PASS |
 | P6 | Gate 3 (P5) | `git log` 確認 P5 Phase Truth PASS |

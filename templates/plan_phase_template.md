@@ -52,7 +52,7 @@ a failing gate.
 - [ ] 執行 `python3 harness_cli.py finalize-gate --gate 1 --phase {PHASE} --fr-id FR-XX`
 - [ ] 確認 gate PASS（each dimension ≥ threshold per SKILL.md §2）
 - [ ] Gate FAIL → AutoFixEngine retry (up to `--auto-fix-rounds`) → re-check
-- [ ] Auto-fix exhausted → escalate to human (see SAD.md §3.19 for 9 escalation conditions)
+- [ ] Auto-fix exhausted → escalate to human (see SAD.md §3.18 for 9 escalation conditions)
 - [ ] ⛔ 未經用戶明確確認，不得繼續下一個 FR
 
 ---
@@ -225,7 +225,7 @@ python3 harness_cli.py spec-coverage-check --project . --threshold 40.0
 {DELIVERABLE_STRUCTURE}
 ```
 
-> Source: parsed from SAD.md §1.3 FR requirements mapping table
+> Source: parsed from SRS.md FR requirements + SAD.md module mapping
 
 ### Deliverable Checklist
 

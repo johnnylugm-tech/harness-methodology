@@ -2,7 +2,7 @@
 
 **8-Phase ASPICE AI Development Methodology + 4-Gate 14-Dimension Quality Harness**
 
-Design Score: **92/100** Academic Benchmark
+Design Score: **91/100** Academic Benchmark
 
 ## Architecture
 
@@ -71,4 +71,4 @@ final_score = min(tool_score, llm_score)   # CRG can only lower, never raise
 Early-stop (Gates 2–4): PASS → CONTINUE (anti-pattern guard) → PLATEAU → BLOCKED
 
 ---
-*harness-methodology v2.4 | Academic Benchmark 92/100 | [SAD.md](SAD.md) | [INTEGRATION.md](INTEGRATION.md)*
+*harness-methodology v2.4.0 | Academic Benchmark 91/100 | [SAD.md](SAD.md) | [INTEGRATION.md](INTEGRATION.md)*

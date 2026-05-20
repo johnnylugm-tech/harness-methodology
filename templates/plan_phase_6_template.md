@@ -15,7 +15,7 @@
 [Step 1] LOAD SKILL.md §4 Phase routing
 [Step 2] CHECK entry conditions → blocker → STOP
 [Step 3] EXECUTE SOP → LAZY LOAD docs/P6_SOP.md
-[Step 4] RECORD output | SPAWN A/B agent
+[Step 4] RECORD output | collect quality data (no A/B — Phase End Audit + Hermes APPROVE)
 [Step 5] CHECK exit conditions → fail → FIX + RETRY
 [Step 6] UPDATE state.json phase=7 → GOTO 1
 ```
@@ -35,36 +35,30 @@ python3 harness_cli.py generate-next-plan --phase 6
 
 | HR | Rule | Consequence | Action |
 |----|------|-------------|--------|
-| HR-01 | A/B must be different Agents, no self-review | Terminate -25 | QA spawn then Architect spawn (strict order) |
+| HR-01 | A/B must be different Agents, no self-review | Terminate -25 | **Phase 6: NOT applicable** — A/B replaced by Hermes APPROVE + Phase End Audit |
 | HR-02 | Quality Gate requires actual command output | Terminate -20 | Save stdout for each QG |
 | HR-03 | Phase must execute in sequence, no skipping | Terminate -30 | state.json phase=6 |
-| HR-04 | HybridWorkflow mode=ON, enforce A/B | Terminate | prompt contains mode=ON |
+| HR-04 | HybridWorkflow mode=ON | Terminate | **Phase 6: A/B removed** — Gate 4 + Hermes APPROVE is the exit mechanism |
 | HR-05 | On conflict, harness-methodology wins | Log | disputes resolved by harness-methodology |
 | HR-06 | No frameworks outside spec | Terminate -20 | forbidden list |
 | HR-07 | DEVELOPMENT_LOG must record session_id | -15 | record session_id per entry |
-| HR-08 | Phase end must run Quality Gate | Terminate -10 | stage-pass --phase 6 |
+| HR-08 | Phase end must run Quality Gate | Terminate -10 | Gate 4 (`run-gate --gate 4 --phase 6`) |
 | HR-09 | Claims Verifier must pass | Terminate -20 | citations match |
-| HR-10 | .methodology/sessions_spawn.log must have A/B records | Terminate -15 | 2 records per step |
+| HR-10 | sessions_spawn.log A/B records | Terminate -15 | **Phase 6: NOT enforced** — Phase End Audit replaces A/B check |
 | HR-11 | Phase Truth < 90% blocks next Phase | Terminate | <90% → PAUSE |
-| HR-12 | A/B review > 5 rounds → PAUSE | - | stop at 5 rounds |
+| HR-12 | A/B review > 5 rounds → PAUSE | - | **Phase 6: NOT applicable** |
 | HR-13 | Phase elapsed > estimated x3 → PAUSE | - | record start_time |
 | HR-14 | Integrity < 40 → FREEZE | - | check Integrity post-QG |
 | HR-15 | citations must include line numbers + artifact_verification | -15 | no citations = task failed |
 
 ---
 
-## 2. A/B Collaboration (HR-01, HR-04)
+## 2. Phase 6 Execution Protocol (No A/B)
 
-### On Demand / Need to Know
-
-| Principle | Definition |
-|-----------|------------|
-| **Need to Know** | Only provide essential info; details only when asked |
-| **On Demand** | Sub-agent reads artifact paths directly, no dumping |
-| **Single Responsibility** | Each Sub-agent handles one task only |
-
-### HR Constraints (Phase 6)
-HR-01 | HR-07 | HR-08 | HR-10
+> **Phase 6 does NOT use A/B collaboration.** A/B is Phase 1-2 only.
+> Phase 6 exit is controlled by two mechanisms:
+> 1. **Phase End Audit** — verifies QUALITY_REPORT.md exists, Gate 4 score recorded in manifest, all FRs merged.
+> 2. **Hermes APPROVE** — human reviewer approves via Telegram (see §6 Hermes flow below).
 
 ### TH Thresholds (Phase 6)
 
@@ -72,35 +66,28 @@ HR-01 | HR-07 | HR-08 | HR-10
 |----|--------|-----------|-------------|
 | TH-02 | Constitution total score | >=80% | `core/quality_gate/constitution/runner.py --type all` |
 | TH-07 | Logic correctness | >=90 | `phase-verify` |
-| TH-15 | Phase Truth | >90% | `phase-verify` |
+| TH-15 | Phase Truth | >90% | `advance-phase` (built-in HR-11 check) |
 
-### A/B Roles (Phase 6)
+### Applicable HR Rules (Phase 6)
 
-| Role | Agent | Responsibility |
-|------|-------|----------------|
-| **Agent A** | `QA_ENGINEER` | Quality data collection, QUALITY_REPORT writing |
-| **Agent B** | `ARCHITECT` | Quality confirmation, review verification |
+HR-02 | HR-03 | HR-05 | HR-06 | HR-07 | HR-08 | HR-09 | HR-11 | HR-13 | HR-14 | HR-15
 
-### A/B Protocol Execution
+### Quality Data Collection
 
-- [ ] **[A-1]** Agent A (qa): Quality data collection → generate QUALITY_REPORT.md
-  - Docstrings: `[Phase 6]` tag + `Citations:` with line numbers (HR-15)
-- [ ] **[A-2]** Agent A returns `{status, result, confidence, citations, summary}`
-- [ ] **[A-DISPATCH]** Dispatch Agent A:
+- [ ] Agent (orchestrator) collects quality data from TEST_RESULTS.md, BASELINE.md, VERIFICATION_REPORT.md
+- [ ] Generate QUALITY_REPORT.md using `scripts/generate_quality_report.py`:
   ```bash
-  python3 harness_cli.py dispatch --role qa --fr-id Gate4 \
-    --prompt "Generate QUALITY_REPORT.md from TEST_RESULTS, BASELINE, VERIFICATION_REPORT" --phase 6 --project $REPO
+  python3 scripts/generate_quality_report.py --project $REPO
   ```
-- [ ] **[B-1]** Agent B (architect): Review QUALITY_REPORT — check constitution score, logic correctness, release recommendation
-- [ ] **[B-2]** Agent B returns JSON — parse `review_status`:
-  - `APPROVE` → proceed to Gate 4
-  - `REJECT` → Agent A fixes gaps → re-dispatch B. Max 5 rounds (HR-12).
-- [ ] **[B-DISPATCH]** Dispatch Agent B:
-  ```bash
-  python3 harness_cli.py dispatch --role reviewer --fr-id Gate4 \
-    --prompt "Review QUALITY_REPORT against quality criteria" --phase 6 --project $REPO
-  ```
-  > AgentSpawner auto-logs to `.methodology/sessions_spawn.log` on dispatch (HR-10).
+- [ ] Verify QUALITY_REPORT.md covers all 12 dimensions and references BASELINE + VERIFICATION_REPORT
+
+### Phase End Audit (Required before Gate 4 Hermes push)
+
+```bash
+python3 scripts/phase_end_audit.py --phase 6 --project .
+```
+
+Fix all CRITICAL gaps before proceeding. See `scripts/phase_end_audit.py` for details.
 
 ---
 
@@ -135,7 +122,7 @@ Project Root/
 - [ ] Constitution score >= 80%
 - [ ] Logic correctness >= 90
 - [ ] Phase Truth > 90%
-- [ ] `.methodology/sessions_spawn.log` — complete A/B session records
+- [ ] `.methodology/audit_gaps_6.md` — Phase End Audit has no CRITICAL gaps (`phase_end_audit.py --phase 6`)
 - [ ] [ASPICE] QUALITY_REPORT.md references BASELINE.md by filename keyword `BASELINE`
 - [ ] [ASPICE] QUALITY_REPORT.md references VERIFICATION_REPORT.md by filename keyword `VERIFICATION_REPORT`
 - [ ] Hermes APPROVE received from reviewer

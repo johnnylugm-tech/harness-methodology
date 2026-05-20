@@ -91,7 +91,7 @@ do NOT start work until every item is checked.
 | Boundary | What to verify | CLI |
 |----------|---------------|-----|
 | Before any phase work | Entry gate verify, FSM state, previous phase artifacts, constitution, kill-switch, drift, SAB, traceability, gap analysis, CI readiness | `run-phase --phase N` |
-| After each FR (P3/P4/P5/P7/P8) | Gate 1 per-FR (each dim ≥ 75) | `run-gate --gate 1 --fr-id FR-XX` + evaluate + `finalize-gate` |
+| After each FR (P3/P4/P5/P7/P8) | Gate 1 per-FR (per-dim: linting ≥90, type_safety ≥85, test_coverage ≥80) | `run-gate --gate 1 --fr-id FR-XX` + evaluate + `finalize-gate` |
 | Phase exit (P3→Gate2, P4→Gate3, P6→Gate4) | Gate score ≥ threshold + Phase Truth ≥ 90% (HR-11) | `run-gate --gate N` + evaluate + `finalize-gate` |
 | P1/P2 exit | Human peer review (no automated gate) | Deliverables: SRS.md / SAD.md + ADR.md |
 | After crash | Current position + next checkpoint | `generate-next-plan` |
@@ -183,7 +183,7 @@ Before advancing to Phase N+1, confirm ALL:
 
 | Gate | Phases | score_gate | Dims | Blocking |
 |------|--------|------------|------|----------|
-| Gate1 | P3, P4, P5, P7, P8 per-FR | 75 (each dim) | 3 (Tier 1) | yes |
+| Gate1 | P3, P4, P5, P7, P8 per-FR | per-dim (linting≥90, type_safety≥85, test_coverage≥80; no composite) | 3 (Tier 1) | yes |
 | Gate2 | P3 exit | 75 | 9 (Tier 1+2) | yes |
 | Gate3 | P4 exit | 80 | 14 (all tiers) | yes |
 | Gate4 | P6 full | 85 | 14 (all tiers) | yes |
