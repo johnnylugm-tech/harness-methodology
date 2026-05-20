@@ -356,6 +356,17 @@ _PHASE_DELIVERABLE_DEPS: Dict[int, List[Dict]] = {
                            "01-requirements/SPEC_TRACKING.md (APPROVED — full content)",
                            "draft 01-requirements/TRACEABILITY_MATRIX.md (full content)"],
         },
+        {
+            "label": "TEST_INVENTORY.yaml",
+            "desc": "Test Inventory — maps every FR to test function names (forward D4 check source)",
+            "depends_on": ["TRACEABILITY_MATRIX.md"],
+            "task_hint": "Generate TEST_INVENTORY.yaml from SRS.md FR acceptance criteria → assign test function names per FR → validate naming convention",
+            "checks": ["Every FR has ≥1 test function?", "Test function names follow naming convention?",
+                       "All FRs from TRACEABILITY_MATRIX covered?"],
+            "embed_docs": ["01-requirements/SRS.md (APPROVED — full content)",
+                           "01-requirements/TRACEABILITY_MATRIX.md (APPROVED — full content)",
+                           "draft TEST_INVENTORY.yaml (full content)"],
+        },
     ],
     2: [
         {
@@ -380,6 +391,18 @@ _PHASE_DELIVERABLE_DEPS: Dict[int, List[Dict]] = {
             "embed_docs": ["02-architecture/SAD.md (APPROVED — full content)",
                            "draft 02-architecture/ADR.md (full content)",
                            "templates/ADR.md (template format)"],
+        },
+        {
+            "label": "TEST_SPEC.md",
+            "desc": "Test Specification Catalog — named test cases from SRS (backward D4 check source)",
+            "depends_on": ["ADR.md"],
+            "task_hint": "Generate TEST_SPEC.md via derive_test_cases.md skill → apply 7-Question Protocol per FR → populate cross-cutting section",
+            "checks": ["Every FR has ≥1 named test case?", "7-Question Protocol applied per FR?",
+                       "Cross-cutting section complete?", "Summary table populated?"],
+            "embed_docs": ["01-requirements/SRS.md (APPROVED — full content)",
+                           "02-architecture/SAD.md (APPROVED — full content)",
+                           "02-architecture/ADR.md (APPROVED — full content)",
+                           "draft 02-architecture/TEST_SPEC.md (full content)"],
         },
     ],
 }
@@ -678,8 +701,9 @@ def _review_checkpoint(phase: int, checkpoint_n: int) -> List[str]:
     """Agent B peer-review checkpoint for P1/P2 (deliverable review — NOT harness run-gate)."""
     _DELIVERABLES: dict = {
         1: ["01-requirements/SRS.md", "01-requirements/SPEC_TRACKING.md",
-            "01-requirements/TRACEABILITY_MATRIX.md"],
-        2: ["02-architecture/SAD.md", "02-architecture/ADR.md"],
+            "01-requirements/TRACEABILITY_MATRIX.md", "01-requirements/TEST_INVENTORY.yaml"],
+        2: ["02-architecture/SAD.md", "02-architecture/ADR.md",
+            "02-architecture/TEST_SPEC.md"],
     }
     artifacts = _DELIVERABLES.get(phase, [])
     return [
@@ -817,12 +841,20 @@ def _fr_dev_steps(fr_id: str, phase: int) -> List[str]:
         ])
         return lines
 
-    # Phase 3-8: no A/B, direct implementation + Phase End Audit
+    # Phase 3-8: no A/B, TDD (RED→GREEN→IMPROVE) + Phase End Audit
+    num = re.match(r"FR-(\d+)", fr_id)
+    num_str = num.group(1).zfill(2) if num else "XX"
     return [
-        f"**Implement {fr_id}** (no A/B — Phase End Audit替代):",
-        f"- [ ] Implement {fr_id} per SRS + SAD",
+        f"**TDD — {fr_id}** (RED→GREEN→IMPROVE · no A/B — Phase End Audit替代):",
+        f"- [ ] **[TDD-1 RED]** Write failing test for {fr_id}:",
+        f"    Create `tests/test_fr{num_str}.py` with at minimum one failing test case.",
+        "    Commit the test file BEFORE starting implementation.",
+        "    `harness_cli.py finalize-gate` enforces D1-RED: test commit must predate source commit.",
+        f"- [ ] **[TDD-2 GREEN]** Implement {fr_id} per SRS + SAD until test passes:",
         f"  - Docstrings: `[{fr_id}]` tag + `Citations:` with line numbers (HR-15)",
         "  - FORBIDDEN: `app/infrastructure/` · `@covers: L1 Error` · `@type: edge`",
+        f"- [ ] **[TDD-3 IMPROVE]** Refactor {fr_id} without breaking tests:",
+        "  - Verify all existing tests still pass after refactor",
         f"- [ ] Run `python3 harness_cli.py run-gate --gate 1 --phase {phase} --fr-id {fr_id}`",
         f"- [ ] Run `python3 harness_cli.py finalize-gate --gate 1 --phase {phase} --fr-id {fr_id}`",
         "",
