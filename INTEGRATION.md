@@ -206,7 +206,6 @@ The template contains these jobs (all trigger on `push: branches: [main]`):
 | `gate-check` | Phase preflight + gate score variance + FR traceability |
 | `push-milestone-enforcement` | Blocks raw `git push` for P3+ (requires `push-milestone`) |
 | `p1p2-enforcement` | Blocks raw `git push` for P1/P2 (requires `push-checkpoint`) |
-| `checklist-check` | Verifies phase plan mandatory items are `[x]` |
 | `agent-b-approval-check` | Verifies Agent B APPROVE files for P3+ |
 | `p8-archive-check` | Validates `.methodology-archive/` + no Phase 9 refs |
 
