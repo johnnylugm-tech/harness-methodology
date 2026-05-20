@@ -52,7 +52,7 @@ jobs:
         # Structural enforcement only (FSM state, constitution, drift, traceability).
         # Gate score evaluation requires an interactive Claude session — always local.
         # Gate 4 (P6 exit) also requires human Hermes APPROVE — run locally, not in CI.
-        if: steps.phase.outputs.PHASE != '6'
+        # G-02 fix: P6 no longer skipped — run-phase --phase 6 is safe in CI (no interactive gate eval).
         env:
           PHASE: ${{ steps.phase.outputs.PHASE }}
         run: python harness/harness_cli.py run-phase --phase $PHASE --project .
@@ -93,10 +93,10 @@ jobs:
           EOF
 
       - name: FR Traceability Check
+        # G-05 fix: continue-on-error removed — now blocks if FR→test mapping fails.
         env:
           PHASE: ${{ steps.phase.outputs.PHASE }}
         run: python harness/scripts/check_fr_full.py --phase $PHASE
-        continue-on-error: true
 
   push-milestone-enforcement:
     name: Enforce push-milestone (no --no-verify bypass)
@@ -176,6 +176,24 @@ except Exception as e:
           echo "PHASE=$PHASE" >> $GITHUB_OUTPUT
           echo "Detected phase: $PHASE"
 
+      - name: Verify P1 artifacts exist (P2 entry gate)
+        # G-11 fix: server-side backup for [P1-ARTIFACTS] entry gate check.
+        if: steps.phase.outputs.PHASE == '2'
+        run: |
+          MISSING=""
+          for f in "01-requirements/SRS.md" \
+                   "01-requirements/SPEC_TRACKING.md" \
+                   "01-requirements/TRACEABILITY_MATRIX.md" \
+                   "TEST_INVENTORY.yaml"; do
+            [ -f "$f" ] || MISSING="$MISSING $f"
+          done
+          if [ -n "$MISSING" ]; then
+            echo "ERROR: P2 entry requires all 4 Phase 1 artifacts (CONSTITUTION.md §2.3)."
+            echo "Missing:$MISSING"
+            exit 1
+          fi
+          echo "OK: all 4 P1 artifacts present."
+
       - name: Verify push-checkpoint sentinel (P1/P2)
         # push-checkpoint writes last_push_checkpoint to state.json.
         # Absent = agent used raw git push --no-verify, bypassing all gates.
@@ -228,6 +246,24 @@ except Exception as e:
             exit 1
           fi
           echo "OK: $APPROVED Agent B APPROVE file(s) found."
+
+      - name: Verify sessions_spawn.log has A/B entries (P1/P2)
+        # G-07 fix: CI backup for sessions_spawn.log A/B round count.
+        if: steps.phase.outputs.PHASE == '1' || steps.phase.outputs.PHASE == '2'
+        run: |
+          LOG=".methodology/sessions_spawn.log"
+          if [ ! -f "$LOG" ]; then
+            echo "ERROR: sessions_spawn.log missing (HR-10)."
+            echo "AgentSpawner must log each A/B round. File not found."
+            exit 1
+          fi
+          ENTRIES=$(grep -c '.' "$LOG" || echo 0)
+          if [ "$ENTRIES" -eq 0 ]; then
+            echo "ERROR: sessions_spawn.log is empty (HR-10)."
+            echo "At least one A/B round must be logged."
+            exit 1
+          fi
+          echo "OK: sessions_spawn.log has $ENTRIES line(s)."
 
   checklist-check:
     name: Phase Plan Checklist Verification
@@ -366,4 +402,355 @@ except Exception as e:
               exit 1
             fi
             echo "OK: HANDOVER.md has no Phase 9 references."
+          fi
+
+  d4-backward-check:
+    # G-03 fix: CI backup for D4 backward spec-coverage-check (local-only before this).
+    name: D4 Backward Spec Coverage Check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install harness dependencies
+        run: pip install -r harness/requirements.txt || true
+
+      - name: Detect phase
+        id: phase
+        run: |
+          PHASE=$(python3 -c "
+          import json
+          try:
+              d = json.load(open('.methodology/state.json'))
+              print(int(d.get('current_phase', 0)))
+          except Exception:
+              print(0)
+          " 2>/dev/null || echo "0")
+          echo "PHASE=$PHASE" >> $GITHUB_OUTPUT
+
+      - name: D4 backward spec-coverage-check
+        env:
+          PHASE: ${{ steps.phase.outputs.PHASE }}
+        run: |
+          # Threshold per gate: Gate2/P3=40%, Gate3/P4=70%, Gate4/P6=90%, others=40%
+          python3 - <<'EOF'
+          import os, sys, subprocess
+          phase = int(os.environ.get("PHASE", "0"))
+          thresholds = {3: 40.0, 4: 70.0, 6: 90.0}
+          threshold = thresholds.get(phase, 40.0)
+          if phase < 3:
+              print(f"INFO: Phase {phase} < 3 — spec-coverage-check not required.")
+              sys.exit(0)
+          result = subprocess.run(
+              ["python", "harness/harness_cli.py", "spec-coverage-check",
+               "--project", ".", "--threshold", str(threshold)],
+              capture_output=True, text=True
+          )
+          print(result.stdout)
+          if result.returncode != 0:
+              print(f"FAIL: D4 backward spec-coverage < {threshold:.0f}% for phase {phase}.")
+              sys.exit(1)
+          print(f"OK: D4 backward spec-coverage >= {threshold:.0f}%")
+          EOF
+
+  phase-truth-check:
+    # G-04 fix: CI backup for Phase Truth >= 90% (HR-11), previously local-only via advance-phase.
+    name: Phase Truth >= 90% Check (HR-11)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check phase_truth_passed in state.json
+        run: |
+          python3 - <<'EOF'
+          import json, sys
+          try:
+              d = json.load(open('.methodology/state.json'))
+          except Exception:
+              print("INFO: state.json not found — skipping.")
+              sys.exit(0)
+          phase = int(d.get('current_phase', 0))
+          exit_gate_phases = {3, 4, 6}
+          if phase not in exit_gate_phases:
+              print(f"INFO: Phase {phase} has no exit gate — phase_truth_passed not required.")
+              sys.exit(0)
+          passed = d.get('phase_truth_passed', None)
+          if passed is True:
+              print(f"OK: phase_truth_passed = True for Phase {phase}.")
+              sys.exit(0)
+          print(f"FAIL: phase_truth_passed = {passed!r} for Phase {phase}.")
+          print("  Phase Truth < 90% or not yet recorded. Run finalize-gate to set it.")
+          sys.exit(1)
+          EOF
+
+  sab-validation:
+    # G-10 fix: CI validation for SAB.json (previously no CI check existed).
+    name: SAB.json Schema Validation
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect phase
+        id: phase
+        run: |
+          PHASE=$(python3 -c "
+          import json
+          try:
+              d = json.load(open('.methodology/state.json'))
+              print(int(d.get('current_phase', 0)))
+          except Exception:
+              print(0)
+          " 2>/dev/null || echo "0")
+          echo "PHASE=$PHASE" >> $GITHUB_OUTPUT
+
+      - name: Validate SAB.json (P3+)
+        if: steps.phase.outputs.PHASE >= 3
+        run: |
+          python3 - <<'EOF'
+          import json, sys
+          sab_path = ".methodology/SAB.json"
+          try:
+              d = json.load(open(sab_path))
+          except FileNotFoundError:
+              print(f"ERROR: {sab_path} not found.")
+              print("Run: python harness/scripts/generate_sab.py --project .")
+              sys.exit(1)
+          except Exception as e:
+              print(f"ERROR: {sab_path} is not valid JSON: {e}")
+              sys.exit(1)
+          modules = d.get("modules", [])
+          if not modules:
+              print(f"ERROR: SAB.json has no modules. Re-run generate_sab.py.")
+              sys.exit(1)
+          layers = d.get("layers", [])
+          print(f"OK: SAB.json valid — {len(modules)} module(s), {len(layers)} layer(s).")
+          EOF
+
+  phase-end-audit-check:
+    # G-12 + G-08 fix: CI check that Phase End Audit CRITICAL gaps are cleared before advancing.
+    name: Phase End Audit — No CRITICAL Gaps
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect phase
+        id: phase
+        run: |
+          PHASE=$(python3 -c "
+          import json
+          try:
+              d = json.load(open('.methodology/state.json'))
+              print(int(d.get('current_phase', 0)))
+          except Exception:
+              print(0)
+          " 2>/dev/null || echo "0")
+          echo "PHASE=$PHASE" >> $GITHUB_OUTPUT
+
+      - name: Check previous phase audit for CRITICAL gaps (P4+)
+        # Phase End Audit is P3+ only. We check phase N-1's audit when in phase N (N>=4).
+        # audit_gaps_N.md marks unchecked CRITICAL items as "- [ ]" under "## CRITICAL Gaps".
+        if: steps.phase.outputs.PHASE >= 4
+        env:
+          PHASE: ${{ steps.phase.outputs.PHASE }}
+        run: |
+          python3 - <<'EOF'
+          import os, sys, re
+          phase = int(os.environ.get("PHASE", "0"))
+          prev = phase - 1
+          audit_file = f".methodology/audit_gaps_{prev}.md"
+          if not os.path.exists(audit_file):
+              print(f"INFO: {audit_file} not found — Phase End Audit may not have run for P{prev}.")
+              print(f"      Run: python harness/scripts/phase_end_audit.py --phase {prev} --project .")
+              # Non-blocking if file doesn't exist yet (first push after advance-phase).
+              sys.exit(0)
+          content = open(audit_file).read()
+          critical_section = re.search(
+              r'## CRITICAL Gaps.*?(?=## |\Z)', content, re.DOTALL
+          )
+          if not critical_section:
+              print(f"OK: No CRITICAL Gaps section in {audit_file}.")
+              sys.exit(0)
+          unchecked = re.findall(r'^- \[ \]', critical_section.group(0), re.MULTILINE)
+          if unchecked:
+              print(f"FAIL: {audit_file} has {len(unchecked)} unchecked CRITICAL gap(s).")
+              print("Fix all CRITICAL gaps before advancing to the next phase.")
+              print(content)
+              sys.exit(1)
+          print(f"OK: {audit_file} — no unchecked CRITICAL gaps.")
+          EOF
+
+  deliverable-existence-check:
+    # G-13 + G-15 fix: CI check for phase deliverables existence (TEST_PLAN, VERIFICATION_REPORT, etc.).
+    name: Phase Deliverables Existence Check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect phase
+        id: phase
+        run: |
+          PHASE=$(python3 -c "
+          import json
+          try:
+              d = json.load(open('.methodology/state.json'))
+              print(int(d.get('current_phase', 0)))
+          except Exception:
+              print(0)
+          " 2>/dev/null || echo "0")
+          echo "PHASE=$PHASE" >> $GITHUB_OUTPUT
+
+      - name: Check phase deliverables exist
+        env:
+          PHASE: ${{ steps.phase.outputs.PHASE }}
+        run: |
+          python3 - <<'EOF'
+          import os, sys
+          phase = int(os.environ.get("PHASE", "0"))
+          # Deliverables required to exist when entering each phase.
+          required = {
+              4: ["04-testing/TEST_PLAN.md"],
+              5: ["04-testing/TEST_PLAN.md", "04-testing/TEST_RESULTS.md"],
+              6: ["05-verification/VERIFICATION_REPORT.md", "05-verification/BASELINE.md"],
+              7: ["06-quality/QUALITY_REPORT.md"],
+              8: ["07-risk/RISK_STATUS_REPORT.md"],
+          }
+          missing = []
+          for p, files in required.items():
+              if phase >= p:
+                  for f in files:
+                      if not os.path.exists(f):
+                          missing.append(f"[Phase {p}+] {f}")
+          if missing:
+              print("FAIL: Expected deliverables missing:")
+              for m in missing:
+                  print(f"  {m}")
+              sys.exit(1)
+          print(f"OK: all expected deliverables present for phase {phase}.")
+          EOF
+
+  aspice-trace-check:
+    # G-14 fix: CI enforcement of ASPICE traceability (TH-01), previously local-only.
+    name: ASPICE Traceability Check (TH-01)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install harness dependencies
+        run: pip install -r harness/requirements.txt || true
+
+      - name: Detect phase
+        id: phase
+        run: |
+          PHASE=$(python3 -c "
+          import json
+          try:
+              d = json.load(open('.methodology/state.json'))
+              print(int(d.get('current_phase', 0)))
+          except Exception:
+              print(0)
+          " 2>/dev/null || echo "0")
+          echo "PHASE=$PHASE" >> $GITHUB_OUTPUT
+
+      - name: Run ASPICE trace-check (P4+)
+        if: steps.phase.outputs.PHASE >= 4
+        run: python harness/harness_cli.py trace-check --project .
+
+  hermes-approve-check:
+    # G-16 fix: CI verification that Hermes APPROVE receipt exists before P7+.
+    name: Hermes APPROVE Receipt Verification (P7+)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect phase
+        id: phase
+        run: |
+          PHASE=$(python3 -c "
+          import json
+          try:
+              d = json.load(open('.methodology/state.json'))
+              print(int(d.get('current_phase', 0)))
+          except Exception:
+              print(0)
+          " 2>/dev/null || echo "0")
+          echo "PHASE=$PHASE" >> $GITHUB_OUTPUT
+
+      - name: Verify hermes_g4_receipt.json exists (P7+)
+        if: steps.phase.outputs.PHASE >= 7
+        run: |
+          python3 - <<'EOF'
+          import json, sys
+          receipt_path = ".methodology/hermes_g4_receipt.json"
+          try:
+              d = json.load(open(receipt_path))
+          except FileNotFoundError:
+              print(f"ERROR: {receipt_path} not found.")
+              print("Gate 4 requires Hermes APPROVE before finalize-gate --gate 4.")
+              print("hermes_g4_receipt.json is written by finalize-gate upon APPROVE receipt.")
+              sys.exit(1)
+          except Exception as e:
+              print(f"ERROR: {receipt_path} is not valid JSON: {e}")
+              sys.exit(1)
+          approved_by = d.get("approved_by")
+          if not approved_by:
+              print(f"ERROR: hermes_g4_receipt.json has no 'approved_by' field.")
+              sys.exit(1)
+          score = d.get("composite_score", "?")
+          ts = d.get("ts", "?")
+          print(f"OK: Gate 4 approved by={approved_by!r}, score={score}, ts={ts}")
+          EOF
+
+  gate4-tag-check:
+    # G-17 fix: CI verification that Gate 4 git tag was pushed (previously local-only manual step).
+    name: Gate 4 Git Tag Verification (P7+)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history required for tag lookup
+
+      - name: Detect phase
+        id: phase
+        run: |
+          PHASE=$(python3 -c "
+          import json
+          try:
+              d = json.load(open('.methodology/state.json'))
+              print(int(d.get('current_phase', 0)))
+          except Exception:
+              print(0)
+          " 2>/dev/null || echo "0")
+          echo "PHASE=$PHASE" >> $GITHUB_OUTPUT
+
+      - name: Verify harness-v4-* tag exists (P7+)
+        if: steps.phase.outputs.PHASE >= 7
+        run: |
+          if git tag | grep -q "^harness-v4-"; then
+            echo "OK: harness-v4-* tag found."
+            git tag | grep "^harness-v4-"
+          else
+            echo "ERROR: No harness-v4-* tag found."
+            echo "After Gate 4 PASS, tag the commit:"
+            echo "  git tag -a 'harness-v4-YYYYMMDD-scoreXX' -m 'Gate 4 PASS'"
+            echo "  git push origin --tags"
+            exit 1
           fi

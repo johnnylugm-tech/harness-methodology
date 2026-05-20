@@ -646,6 +646,18 @@ def _preflight_steps(phase: int) -> List[str]:
             f"  4. Phase {phase} confirmed in `.methodology/state.json` (`advance-phase` already run)",
             f"  > If stale: run `python3 harness_cli.py init-project --phase {phase} --project $REPO --overwrite`",
         ]
+    bypass_audit: list[str] = []
+    if phase >= 3:
+        bypass_audit = [
+            "- [ ] **[BYPASS-AUDIT]** 確認 `force_bypass.log` 無未審計的 bypass 條目:",
+            "  ```bash",
+            "  python3 harness_cli.py check-bypass-log --project . 2>/dev/null \\",
+            "    || grep -c '.' .methodology/force_bypass.log 2>/dev/null || echo 'OK: no bypass log'",
+            "  ```",
+            "  每筆 bypass 條目必須有人工確認記錄（audit_note 欄位）。",
+            "  有未審計條目 → 在 `force_bypass.log` 對應條目新增 `audit_note: 'reviewed by <name> <date>'`。",
+            "",
+        ]
     return [
         "### Pre-Phase Preflight",
         "",
@@ -657,6 +669,7 @@ def _preflight_steps(phase: int) -> List[str]:
         "",
         *ci_check,
         "",
+        *bypass_audit,
     ]
 
 
@@ -959,9 +972,16 @@ def _phase_advance_step(phase: int) -> List[str]:
     return lines
 
 
-def _pre_gate_for_phase(phase: int) -> int:
-    """Return the exit-gate number for a given phase, for pre-gate milestone naming."""
-    return {3: 2, 4: 3}.get(phase, 2)
+def _g1d_milestone_hint(phase: int) -> str:
+    """Return the correct push-milestone type hint for the G1d note, per phase."""
+    _hints: dict[int, str] = {
+        3: "`push-milestone --type p3-mid` / `push-milestone --type p3-pre-gate2` / Gate exit",
+        4: "`push-milestone --type p4-mid` / `push-milestone --type p4-pre-gate3` / Gate exit",
+        5: "`push-milestone --type p5-baseline`",
+        7: "`push-milestone --type p7`",
+        8: "`push-milestone --type p8`",
+    }
+    return _hints.get(phase, f"`push-milestone --type p{phase}`")
 
 
 def _p3_milestone_push_steps(fr_ids: List[str]) -> List[str]:
@@ -1084,7 +1104,7 @@ def _gate1_checkpoint(fr_id: str, phase: int, checkpoint_n: int,
         "  git log --oneline -1",
         "  ```",
         "  > `finalize-gate --gate 1` calls `commit_fr_gate1()` — **local commit only, no push**.",
-        f"  > Push + HANDOVER.md happens at milestone: `push-milestone --type p{phase}-mid` / `p{phase}-pre-gate{_pre_gate_for_phase(phase)}` / Gate exit.",
+        f"  > Push + HANDOVER.md happens at milestone: {_g1d_milestone_hint(phase)}.",
         "",
     ]
 

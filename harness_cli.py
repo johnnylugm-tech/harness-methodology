@@ -2124,6 +2124,16 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
             git.commit_fr_gate1(fr_id or "unknown", result.score, args.phase)
         else:
             git.commit_and_push_gate(args.gate, args.phase, result.score)
+            # G-06 fix: record last_milestone_command for gate 4 so CI push-milestone-enforcement
+            # audit trail reflects the actual gate push (not P5 residual).
+            if args.gate == 4:
+                _state_path = Path(args.project).resolve() / ".methodology" / "state.json"
+                try:
+                    _sd = json.loads(_state_path.read_text())
+                    _sd["last_milestone_command"] = f"finalize-gate --gate 4 --phase {args.phase}"
+                    _state_path.write_text(json.dumps(_sd, indent=2))
+                except Exception as _sme:
+                    print(f"  [WARN] Could not write last_milestone_command to state.json: {_sme}")
         return 0
 
     except FileNotFoundError as e:
