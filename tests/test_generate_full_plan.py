@@ -1158,7 +1158,12 @@ class TestGenerateFullPlan:
 
 class TestParseConfigRecords:
     def test_no_multiline_capture(self, tmp_path):
-        """Regex must not capture markdown headers or dates across newlines."""
+        """Regex must not capture markdown headers or dates across newlines.
+
+        The key bug: \\s* in the regex matches \\n, causing a match to start on
+        the last pipe of one table row, consume blank lines + a heading via \\s*,
+        then continue on the first pipe of the next table.  Using [ \\t]* fixes it.
+        """
         from scripts.generate_full_plan import parse_config_records
 
         config_dir = tmp_path / "08-config"
@@ -1178,6 +1183,29 @@ class TestParseConfigRecords:
         assert "Date" not in names
         assert "Repository Configuration" not in names
         assert "##" not in "\n".join(names)
+
+    def test_heading_between_tables_not_captured(self, tmp_path):
+        """Regex must not capture a heading placed between two 3-pipe table rows."""
+        from scripts.generate_full_plan import parse_config_records
+
+        config_dir = tmp_path / "08-config"
+        config_dir.mkdir(parents=True)
+        # Simulate real-world CONFIG_RECORDS.md: 2-column tables separated by headings
+        (config_dir / "CONFIG_RECORDS.md").write_text(
+            "## Section A\n\n"
+            "| Key | Value |\n"
+            "|-----|-------|\n"
+            "| k1  | v1    |\n"
+            "\n"
+            "## Section B\n\n"
+            "| Name | Purpose |\n"
+            "|------|---------|\n"
+            "| n1   | p1      |\n"
+        )
+        configs = parse_config_records(tmp_path)
+        names = [c["name"] for c in configs]
+        # No 3-column table exists → nothing should be captured
+        assert len(configs) == 0, f"Expected 0 matches, got: {names}"
 
     def test_empty_config_file_returns_empty(self, tmp_path):
         from scripts.generate_full_plan import parse_config_records

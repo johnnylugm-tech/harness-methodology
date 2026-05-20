@@ -227,7 +227,7 @@ def parse_config_records(repo_path: Path) -> List[Dict]:
 
         content = cr_path.read_text(encoding='utf-8')
 
-        config_pattern = re.compile(r'\|\s*([^\|\n]+)\s*\|[^\|\n]*?\|[^\|\n]*?\|', re.MULTILINE)
+        config_pattern = re.compile(r'\|[ \t]*([^\|\n]+)[ \t]*\|[^\|\n]*?\|[^\|\n]*?\|', re.MULTILINE)
         configs = []
         for m in config_pattern.finditer(content):
             config_name = m.group(1).strip()
