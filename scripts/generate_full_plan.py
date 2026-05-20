@@ -227,7 +227,7 @@ def parse_config_records(repo_path: Path) -> List[Dict]:
 
         content = cr_path.read_text(encoding='utf-8')
 
-        config_pattern = re.compile(r'\|\s*([^\|]+)\s*\|.*?\|.*?\|', re.MULTILINE)
+        config_pattern = re.compile(r'\|\s*([^\|\n]+)\s*\|[^\|\n]*?\|[^\|\n]*?\|', re.MULTILINE)
         configs = []
         for m in config_pattern.finditer(content):
             config_name = m.group(1).strip()
@@ -829,6 +829,26 @@ def _fr_dev_steps(fr_id: str, phase: int) -> List[str]:
     ]
 
 
+def _fr_carryforward_steps(fr_id: str, phase: int) -> List[str]:
+    """Gate 1 re-evaluation steps for carry-forward FRs (already implemented in prior phases)."""
+    return [
+        f"**Gate 1 Re-evaluation — {fr_id}** (carry-forward, already implemented):",
+        f"- [ ] Re-run Gate 1 for {fr_id} to verify no regressions from Phase {phase} changes",
+        f"  - Docstrings: `[{fr_id}]` tag + `Citations:` with line numbers (HR-15)",
+        "  - FORBIDDEN: `app/infrastructure/` · `@covers: L1 Error` · `@type: edge`",
+        f"- [ ] Run `python3 harness_cli.py run-gate --gate 1 --phase {phase} --fr-id {fr_id}`",
+        f"- [ ] Run `python3 harness_cli.py finalize-gate --gate 1 --phase {phase} --fr-id {fr_id}`",
+        "",
+    ]
+
+
+def _sessions_spawn_deliverable(phase: int) -> str:
+    """sessions_spawn.log deliverable line — HR-10 only applies to Phase 1-2."""
+    if phase <= 2:
+        return "- [x] `.methodology/sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)"
+    return "- [x] `.methodology/sessions_spawn.log` — auto-populated by AgentSpawner"
+
+
 def _phase_advance_step(phase: int) -> List[str]:
     """Instruction to advance to the next phase after all checkpoints PASS."""
     if phase >= 8:
@@ -1131,6 +1151,7 @@ def generate_phase1_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     A/B is serial per-deliverable: SRS → SPEC_TRACKING → TRACEABILITY.
     Each deliverable has its own A/B loop; REJECT only backtracks one step.
     """
+    phase = 1
     _ = repo_path  # reserved for future use (e.g. reading .methodology/state.json)
     lines = []
     lines.append("## Phase 1 Tasks: Requirements Specification")
@@ -1196,7 +1217,7 @@ def generate_phase1_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("- [ ] `SPEC_TRACKING.md` - Spec tracking matrix")
     lines.append("- [ ] `TRACEABILITY_MATRIX.md` - Requirements traceability matrix")
     lines.append("- [ ] `TEST_INVENTORY.yaml` - Test inventory (I-1 P1 deliverable)")
-    lines.append("- [x] `.methodology/sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
+    lines.append(_sessions_spawn_deliverable(phase))
     lines.append("")
 
     lines.extend(_review_checkpoint(1, checkpoint_n=1))
@@ -1209,6 +1230,7 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path) -> List[str]:
 
     Entry = P1 human APPROVE.  Exit gate = Agent B peer review of SAD + ADR (NOT harness run-gate).
     """
+    phase = 2
     lines = []
     lines.append("## Phase 2 Tasks: Architecture Design")
     lines.append("")
@@ -1279,7 +1301,7 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("- [ ] `TEST_SPEC.md` — Test specification catalog (named test cases from SRS, backward D4 check source)")
     lines.append("- [ ] `.methodology/quality_manifest.json` — Quality manifest (FR list + SAB data)")
     lines.append("- [ ] `.methodology/SAB.json` — Machine-readable architecture baseline")
-    lines.append("- [x] `.methodology/sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
+    lines.append(_sessions_spawn_deliverable(phase))
     lines.append("")
 
     lines.extend(_review_checkpoint(2, checkpoint_n=1))
@@ -1289,6 +1311,7 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path) -> List[str]:
 
 def generate_phase3_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     """Generate Phase 3 detailed tasks (Implementation + Gate 1 per-FR + Gate 2 exit)"""
+    phase = 3
     lines = []
     lines.append("## Phase 3 Tasks: Implementation")
     lines.append("")
@@ -1308,47 +1331,63 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.extend(_entry_gate_check(3))
     lines.extend(_preflight_steps(3))
 
-    if frs:
-        lines.append("### FR Implementation Tasks ({} total)".format(len(frs)))
-        lines.append("")
-        # Align checkpoint counter: frs (from SRS.md) may be a subset of fr_ids
-        # (from manifest).  E.g. SRS has FR-14..FR-24 but manifest has FR-01..FR-24
-        # → task CHECKPOINT-N must match the index CHECKPOINT-N for the same FR.
-        checkpoint_n = (fr_ids.index(frs[0]['fr']) + 1
-                        if fr_ids and frs[0]['fr'] in fr_ids else 1)
-        for fr in frs:
-            title = fr['title']
-            fr_prefix = f"{fr['fr']}: "
-            if title.startswith(fr_prefix):
-                title = title[len(fr_prefix):]
-            lines.append(f"#### {fr['fr']}: {title}")
-            lines.append(f"**Task**: {fr['desc']}")
+    if frs and fr_ids:
+        srs_fr_map = {fr['fr']: fr for fr in frs}
+        srs_fr_set = set(srs_fr_map.keys())
+        carry_forward = [fid for fid in fr_ids if fid not in srs_fr_set]
 
-            if fr['requirements']:
-                lines.append("**SRS Requirements**:")
-                for req in fr['requirements'][:5]:
-                    lines.append(f"- {req}")
-
-            if fr['test_cases']:
-                lines.append("**Test Cases**:")
-                for inp, out in fr['test_cases']:
-                    lines.append(f"- Input [{inp}] -> Output [{out}]")
-
-            mod = modules.get(fr['fr'], {})
-            if mod:
-                lines.append("**SAD Mapping**:")
-                lines.append(f"- Module: `{mod.get('module', 'N/A')}`")
-                lines.append(f"- File:   `{mod.get('file', 'N/A')}`")
-
-            lines.append("**Forbidden**:")
-            lines.append("- app/infrastructure/ (deprecated)")
-            lines.append("- @covers: L1 Error")
-            lines.append("- @type: edge")
+        if carry_forward:
+            lines.append("### FR Implementation Tasks ({} total: {} new + {} carry-forward)".format(
+                len(fr_ids), len(frs), len(carry_forward)))
+            lines.append("")
+            lines.append(f"> **Carry-forward from Phase 1**: {', '.join(carry_forward)} — "
+                         "already implemented; Gate 1 re-evaluation only.")
+            lines.append("")
+        else:
+            lines.append("### FR Implementation Tasks ({} total)".format(len(frs)))
             lines.append("")
 
-            # A/B protocol then Gate 1
-            lines.extend(_fr_dev_steps(fr['fr'], phase=3))
-            lines.extend(_gate1_checkpoint(fr['fr'], phase=3, checkpoint_n=checkpoint_n))
+        checkpoint_n = 1
+        for fr_id in fr_ids:
+            if fr_id in srs_fr_map:
+                fr = srs_fr_map[fr_id]
+                title = fr['title']
+                fr_prefix = f"{fr['fr']}: "
+                if title.startswith(fr_prefix):
+                    title = title[len(fr_prefix):]
+                lines.append(f"#### {fr['fr']}: {title}")
+                lines.append(f"**Task**: {fr['desc']}")
+
+                if fr['requirements']:
+                    lines.append("**SRS Requirements**:")
+                    for req in fr['requirements'][:5]:
+                        lines.append(f"- {req}")
+
+                if fr['test_cases']:
+                    lines.append("**Test Cases**:")
+                    for inp, out in fr['test_cases']:
+                        lines.append(f"- Input [{inp}] -> Output [{out}]")
+
+                mod = modules.get(fr['fr'], {})
+                if mod:
+                    lines.append("**SAD Mapping**:")
+                    lines.append(f"- Module: `{mod.get('module', 'N/A')}`")
+                    lines.append(f"- File:   `{mod.get('file', 'N/A')}`")
+
+                lines.append("**Forbidden**:")
+                lines.append("- app/infrastructure/ (deprecated)")
+                lines.append("- @covers: L1 Error")
+                lines.append("- @type: edge")
+                lines.append("")
+
+                lines.extend(_fr_dev_steps(fr['fr'], phase=3))
+            else:
+                lines.append(f"#### {fr_id}: Re-evaluation (carry-forward)")
+                lines.append("> Already implemented in Phase 1. Gate 1 re-run to verify no regressions.")
+                lines.append("")
+                lines.extend(_fr_carryforward_steps(fr_id, phase=3))
+
+            lines.extend(_gate1_checkpoint(fr_id, phase=3, checkpoint_n=checkpoint_n))
             checkpoint_n += 1
 
     elif fr_ids:
@@ -1372,7 +1411,7 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("### Phase 3 Deliverables")
     lines.append("- [ ] `03-development/src/` - All FR modules implemented")
     lines.append("- [ ] `tests/` - Unit tests (≥80% coverage per FR)")
-    lines.append("- [x] `.methodology/sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
+    lines.append(_sessions_spawn_deliverable(phase))
     lines.append("- [ ] Gate 1 PASS for every FR")
     lines.append("- [ ] Gate 2 PASS (phase exit, composite ≥ 75)")
     lines.append("")
@@ -1390,6 +1429,7 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path) -> List[str]:
 
 def generate_phase4_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     """Generate Phase 4 detailed tasks (Testing + Gate 1 per-FR + Gate 3 exit)"""
+    phase = 4
     lines = []
     lines.append("## Phase 4 Tasks: Test Planning & Execution")
     lines.append("")
@@ -1442,26 +1482,45 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path) -> List[str]:
                 lines.extend(_fr_dev_steps(fr_id, phase=4))
                 lines.extend(_gate1_checkpoint(fr_id, phase=4, checkpoint_n=checkpoint_n))
                 checkpoint_n += 1
-    elif frs:
-        lines.append("### FR Test Coverage")
-        lines.append("")
-        # Align checkpoint counter: same offset logic as P3 (frs may be a subset of fr_ids)
-        if fr_ids and frs[0]['fr'] in fr_ids:
-            checkpoint_n = fr_ids.index(frs[0]['fr']) + 1
-        for fr in frs:
-            title = fr['title']
-            fr_prefix = f"{fr['fr']}: "
-            if title.startswith(fr_prefix):
-                title = title[len(fr_prefix):]
-            lines.append(f"#### {fr['fr']}: {title}")
-            lines.append(f"**Test Target**: Verify {fr['desc']}")
-            if fr['test_cases']:
-                lines.append("**Test Cases**:")
-                for inp, out in fr['test_cases']:
-                    lines.append(f"- Input [{inp}] -> Output [{out}]")
+    elif frs and fr_ids:
+        srs_fr_map = {fr['fr']: fr for fr in frs}
+        srs_fr_set = set(srs_fr_map.keys())
+        carry_forward = [fid for fid in fr_ids if fid not in srs_fr_set]
+
+        if carry_forward:
+            lines.append("### FR Test Coverage ({} total: {} new + {} carry-forward)".format(
+                len(fr_ids), len(frs), len(carry_forward)))
             lines.append("")
-            lines.extend(_fr_dev_steps(fr['fr'], phase=4))
-            lines.extend(_gate1_checkpoint(fr['fr'], phase=4, checkpoint_n=checkpoint_n))
+            lines.append(f"> **Carry-forward from Phase 1**: {', '.join(carry_forward)} — "
+                         "already implemented; Gate 1 re-evaluation only.")
+            lines.append("")
+        else:
+            lines.append("### FR Test Coverage")
+            lines.append("")
+
+        checkpoint_n = 1
+        for fr_id in fr_ids:
+            if fr_id in srs_fr_map:
+                fr = srs_fr_map[fr_id]
+                title = fr['title']
+                fr_prefix = f"{fr['fr']}: "
+                if title.startswith(fr_prefix):
+                    title = title[len(fr_prefix):]
+                lines.append(f"#### {fr['fr']}: {title}")
+                lines.append(f"**Test Target**: Verify {fr['desc']}")
+                if fr['test_cases']:
+                    lines.append("**Test Cases**:")
+                    for inp, out in fr['test_cases']:
+                        lines.append(f"- Input [{inp}] -> Output [{out}]")
+                lines.append("")
+                lines.extend(_fr_dev_steps(fr['fr'], phase=4))
+            else:
+                lines.append(f"#### {fr_id}: Re-evaluation (carry-forward)")
+                lines.append("> Already implemented. Gate 1 re-run to verify no regressions.")
+                lines.append("")
+                lines.extend(_fr_carryforward_steps(fr_id, phase=4))
+
+            lines.extend(_gate1_checkpoint(fr_id, phase=4, checkpoint_n=checkpoint_n))
             checkpoint_n += 1
     elif fr_ids:
         lines.append("### FR Test Coverage ({} FRs)".format(len(fr_ids)))
@@ -1481,7 +1540,7 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("- [ ] `TEST_PLAN.md` - Test plan")
     lines.append("- [ ] `TEST_RESULTS.md` - Test results")
     lines.append("- [ ] `COVERAGE_REPORT.md` - Coverage report")
-    lines.append("- [x] `.methodology/sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
+    lines.append(_sessions_spawn_deliverable(phase))
     lines.append("- [ ] Gate 1 PASS for every FR")
     lines.append("- [ ] Gate 3 PASS (phase exit, composite ≥ 80, 14 dims)")
     lines.extend(_aspice_output_requirements(4))
@@ -1500,6 +1559,7 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path) -> List[str]:
 
 def generate_phase5_tasks(repo_path: Path) -> List[str]:
     """Generate Phase 5 detailed tasks (Verification & Delivery + Gate 1 per-FR)"""
+    phase = 5
     lines = []
     lines.append("## Phase 5 Tasks: Verification & Delivery")
     lines.append("")
@@ -1551,7 +1611,7 @@ def generate_phase5_tasks(repo_path: Path) -> List[str]:
     lines.append("### Phase 5 Deliverables")
     lines.append("- [ ] `BASELINE.md` - System baseline")
     lines.append("- [ ] `VERIFICATION_REPORT.md` - Verification report")
-    lines.append("- [x] `.methodology/sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
+    lines.append(_sessions_spawn_deliverable(phase))
     lines.append("- [ ] Gate 1 PASS for every FR")
     lines.extend(_aspice_output_requirements(5))
     lines.append("")
@@ -1569,6 +1629,7 @@ def generate_phase5_tasks(repo_path: Path) -> List[str]:
 
 def generate_phase6_tasks(repo_path: Path) -> List[str]:
     """Generate Phase 6 detailed tasks (Quality Assurance — Gate 4 full replacement)"""
+    phase = 6
     lines = []
     lines.append("## Phase 6 Tasks: Quality Assurance")
     lines.append("")
@@ -1613,7 +1674,7 @@ def generate_phase6_tasks(repo_path: Path) -> List[str]:
     lines.append("- [ ] `QUALITY_REPORT.md` - Quality report (auto-generated by Gate 4)")
     lines.append("- [ ] `RELEASE_NOTES.md` - Release notes")
     lines.append("- [ ] `FINAL_SIGN_OFF.md` - Final sign-off")
-    lines.append("- [x] `.methodology/sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
+    lines.append(_sessions_spawn_deliverable(phase))
     lines.extend(_aspice_output_requirements(6))
     lines.append("")
 
@@ -1630,6 +1691,7 @@ def generate_phase6_tasks(repo_path: Path) -> List[str]:
 
 def generate_phase7_tasks(repo_path: Path) -> List[str]:
     """Generate Phase 7 detailed tasks (Risk Management + Gate 1 per-FR)"""
+    phase = 7
     lines = []
     lines.append("## Phase 7 Tasks: Risk Management")
     lines.append("")
@@ -1690,7 +1752,7 @@ def generate_phase7_tasks(repo_path: Path) -> List[str]:
     lines.append("- [ ] `RISK_REGISTER.md` - Risk register")
     lines.append("- [ ] `RISK_MITIGATION_PLANS.md` - Mitigation plans")
     lines.append("- [ ] `RISK_STATUS_REPORT.md` - Risk status report")
-    lines.append("- [x] `.methodology/sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
+    lines.append(_sessions_spawn_deliverable(phase))
     lines.append("- [ ] Gate 1 PASS for every FR")
     lines.extend(_aspice_output_requirements(7))
     lines.append("")
@@ -1708,6 +1770,7 @@ def generate_phase7_tasks(repo_path: Path) -> List[str]:
 
 def generate_phase8_tasks(repo_path: Path) -> List[str]:
     """Generate Phase 8 detailed tasks (Configuration Management + Gate 1 per-FR)"""
+    phase = 8
     lines = []
     lines.append("## Phase 8 Tasks: Configuration Management")
     lines.append("")
@@ -1767,7 +1830,7 @@ def generate_phase8_tasks(repo_path: Path) -> List[str]:
     lines.append("### Phase 8 Deliverables")
     lines.append("- [ ] `CONFIG_RECORDS.md` - Configuration records")
     lines.append("- [ ] `RELEASE_CHECKLIST.md` - Release checklist")
-    lines.append("- [x] `.methodology/sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)")
+    lines.append(_sessions_spawn_deliverable(phase))
     lines.append("- [ ] Gate 1 PASS for every FR")
     lines.extend(_aspice_output_requirements(8))
     lines.append("")

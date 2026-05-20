@@ -1150,3 +1150,186 @@ class TestGenerateFullPlan:
         assert result is not None
         assert out.exists()
         assert out.read_text(encoding="utf-8") == result
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# C-1 fix: parse_config_records regex must not capture across newlines
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestParseConfigRecords:
+    def test_no_multiline_capture(self, tmp_path):
+        """Regex must not capture markdown headers or dates across newlines."""
+        from scripts.generate_full_plan import parse_config_records
+
+        config_dir = tmp_path / "08-config"
+        config_dir.mkdir(parents=True)
+        (config_dir / "CONFIG_RECORDS.md").write_text(
+            "Date: 2026-05-17\n\n"
+            "## Repository Configuration\n\n"
+            "| Setting | Value | Type |\n"
+            "|---------|-------|------|\n"
+            "| DB_HOST | localhost | string |\n"
+            "| API_KEY | *** | secret |\n"
+        )
+        configs = parse_config_records(tmp_path)
+        names = [c["name"] for c in configs]
+        assert "DB_HOST" in names
+        assert "API_KEY" in names
+        assert "Date" not in names
+        assert "Repository Configuration" not in names
+        assert "##" not in "\n".join(names)
+
+    def test_empty_config_file_returns_empty(self, tmp_path):
+        from scripts.generate_full_plan import parse_config_records
+
+        config_dir = tmp_path / "08-config"
+        config_dir.mkdir(parents=True)
+        (config_dir / "CONFIG_RECORDS.md").write_text("")
+        assert parse_config_records(tmp_path) == []
+
+    def test_no_config_file_returns_empty(self, tmp_path):
+        from scripts.generate_full_plan import parse_config_records
+        assert parse_config_records(tmp_path) == []
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# C-2 fix: P3/P4 carry-forward FR expansion
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@pytest.fixture
+def project_with_carry_forward(tmp_path: Path) -> Path:
+    """Project where SRS.md has FR-14..FR-15 but manifest has FR-01..FR-15."""
+    m_dir = tmp_path / ".methodology"
+    m_dir.mkdir()
+    manifest = {
+        "fr_ids": [f"FR-{i:02d}" for i in range(1, 16)],  # FR-01..FR-15
+        "gate_results": {},
+    }
+    (m_dir / "quality_manifest.json").write_text(
+        json.dumps(manifest), encoding="utf-8"
+    )
+    (tmp_path / "01-requirements").mkdir(parents=True, exist_ok=True)
+    # SRS.md with FR-14 and FR-15 only (simulating Phase 2 scope)
+    srs_content = """# SRS
+
+### FR-14: Platform Adapter
+
+**Description**: Implement Messenger + WhatsApp webhook adapter.
+
+### FR-15: Prompt Injection Defense
+
+**Description**: Implement L3 sandwich defense against prompt injection.
+"""
+    (tmp_path / "01-requirements" / "SRS.md").write_text(srs_content, encoding="utf-8")
+    # Minimal SAD for module mapping
+    (tmp_path / "02-architecture").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "02-architecture" / "SAD.md").write_text(
+        "## Module Mapping\n"
+        "| FR-14 | platform | src/platform.py |\n"
+        "| FR-15 | security | src/security.py |\n"
+    )
+    return tmp_path
+
+
+class TestCarryForwardP3:
+    def test_header_shows_carry_forward_count(self, project_with_carry_forward: Path):
+        """P3 plan header must show new + carry-forward counts."""
+        from scripts.generate_full_plan import generate_phase3_tasks
+        lines = generate_phase3_tasks(project_with_carry_forward,
+                                       project_with_carry_forward / "01-requirements" / "SRS.md")
+        joined = "\n".join(lines)
+        assert "2 new + 13 carry-forward" in joined or "carry-forward" in joined
+
+    def test_carry_forward_frs_have_reeval_label(self, project_with_carry_forward: Path):
+        """Carry-forward FRs must show Re-evaluation label."""
+        from scripts.generate_full_plan import generate_phase3_tasks
+        lines = generate_phase3_tasks(project_with_carry_forward,
+                                       project_with_carry_forward / "01-requirements" / "SRS.md")
+        joined = "\n".join(lines)
+        assert "FR-01" in joined
+        assert "Re-evaluation (carry-forward)" in joined
+        assert "Gate 1 Re-evaluation" in joined
+
+    def test_all_manifest_frs_have_gate1(self, project_with_carry_forward: Path):
+        """Every FR in manifest must have run-gate command."""
+        from scripts.generate_full_plan import generate_phase3_tasks
+        lines = generate_phase3_tasks(project_with_carry_forward,
+                                       project_with_carry_forward / "01-requirements" / "SRS.md")
+        joined = "\n".join(lines)
+        assert "run-gate --gate 1 --phase 3 --fr-id FR-01" in joined
+        assert "run-gate --gate 1 --phase 3 --fr-id FR-14" in joined
+        assert "run-gate --gate 1 --phase 3 --fr-id FR-15" in joined
+
+    def test_srs_frs_have_full_details(self, project_with_carry_forward: Path):
+        """SRS.md FRs must retain full detail (title, task, test cases)."""
+        from scripts.generate_full_plan import generate_phase3_tasks
+        lines = generate_phase3_tasks(project_with_carry_forward,
+                                       project_with_carry_forward / "01-requirements" / "SRS.md")
+        joined = "\n".join(lines)
+        assert "Platform Adapter" in joined
+        assert "Prompt Injection Defense" in joined
+
+    def test_carry_forward_frs_not_labeled_new_implementation(self, project_with_carry_forward: Path):
+        """Carry-forward FRs must NOT use 'Implement FR-XX (no A/B)' label."""
+        from scripts.generate_full_plan import generate_phase3_tasks
+        lines = generate_phase3_tasks(project_with_carry_forward,
+                                       project_with_carry_forward / "01-requirements" / "SRS.md")
+        joined = "\n".join(lines)
+        # First occurrence of FR-01 is in the checkpoint index (blockquote).
+        # Skip past the index to find the implementation section.
+        impl_start = joined.find("### FR Implementation Tasks")
+        assert impl_start > 0, "FR Implementation Tasks section not found"
+        section = joined[impl_start:]
+        # FR-01 should appear as carry-forward Re-evaluation
+        idx = section.find("FR-01")
+        assert idx > 0, "FR-01 not found in implementation section"
+        chunk = section[idx:idx + 500]
+        assert "Re-evaluation (carry-forward)" in chunk
+        assert "Gate 1 Re-evaluation" in chunk
+        assert "Implement FR-01" not in chunk
+
+
+class TestCarryForwardP4:
+    def test_all_manifest_frs_have_gate1(self, project_with_carry_forward: Path):
+        """Every FR in manifest must have run-gate in P4 plan."""
+        from scripts.generate_full_plan import generate_phase4_tasks
+        lines = generate_phase4_tasks(project_with_carry_forward,
+                                       project_with_carry_forward / "01-requirements" / "SRS.md")
+        joined = "\n".join(lines)
+        assert "run-gate --gate 1 --phase 4 --fr-id FR-01" in joined
+        assert "run-gate --gate 1 --phase 4 --fr-id FR-14" in joined
+
+    def test_carry_forward_frs_have_reeval(self, project_with_carry_forward: Path):
+        """Carry-forward FRs must show Re-evaluation in P4 plan."""
+        from scripts.generate_full_plan import generate_phase4_tasks
+        lines = generate_phase4_tasks(project_with_carry_forward,
+                                       project_with_carry_forward / "01-requirements" / "SRS.md")
+        joined = "\n".join(lines)
+        assert "Re-evaluation (carry-forward)" in joined
+        assert "Gate 1 Re-evaluation" in joined
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# C-3 fix: sessions_spawn.log HR-10 label scoped to Phase 1-2
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestSessionsSpawnLabel:
+    def test_phase1_has_hr10_label(self, project: Path):
+        """P1 plan must include HR-10 in sessions_spawn.log deliverable."""
+        result = generate_full_plan(1, project)
+        assert "sessions_spawn.log" in result
+        assert "HR-10" in result
+
+    def test_phase2_has_hr10_label(self, project: Path):
+        """P2 plan must include HR-10 in sessions_spawn.log deliverable."""
+        result = generate_full_plan(2, project)
+        assert "sessions_spawn.log" in result
+        assert "HR-10" in result
+
+    @pytest.mark.parametrize("phase", [3, 4, 5, 6, 7, 8])
+    def test_phase3_plus_no_hr10_label(self, project: Path, phase: int):
+        """P3-P8 plans must NOT include (HR-10) in sessions_spawn.log line."""
+        result = generate_full_plan(phase, project)
+        assert "sessions_spawn.log" in result
+        # The HR-10 label should not appear in the deliverable line
+        assert "auto-populated by AgentSpawner (HR-10)" not in result
