@@ -1852,8 +1852,7 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
 
     # HR-10 enforcement: Gate 1 requires ≥2 A/B entries per FR in sessions_spawn.log
     # P3+: Phase End Audit替代A/B — only Phase 1-2 requires HR-10/HR-01
-    phase = getattr(args, "phase", 0)
-    if args.gate == 1 and fr_id and phase in (1, 2):
+    if args.gate == 1 and fr_id and args.phase in (1, 2):
         spawn_log = Path(project) / ".methodology" / "sessions_spawn.log"
         if not spawn_log.exists():
             print(f"\n[BLOCKED] HR-10: sessions_spawn.log not found.")
@@ -3098,10 +3097,10 @@ def _run_phase_end_audit(project: Path, completed_phase: int) -> int:
             return 2
         return 0
     except subprocess.TimeoutExpired:
-        print(f"  [WARN] Phase End Audit timed out (60s) — audit did not complete")
+        print(f"  [ERROR] Phase End Audit timed out (60s) — audit did not complete")
         return 2
     except OSError as exc:
-        print(f"  [WARN] Phase End Audit failed to run: {exc} — audit did not complete")
+        print(f"  [ERROR] Phase End Audit failed to run: {exc} — audit did not complete")
         return 2
 
 

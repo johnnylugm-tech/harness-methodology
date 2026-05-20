@@ -59,10 +59,12 @@ def audit_plan_completion(project: Path, phase: int) -> Tuple[list[str], list[st
 
     text = plan.read_text(encoding="utf-8", errors="replace")
 
-    # Find unchecked items. Exclude patterns that are meta-items:
-    # [INFO], [PHASE-AUDIT], Gate * score, Phase * complete
+    # Find unchecked items. Exclude patterns that are meta-items or
+    # explicitly marked optional/skipped by the plan author:
+    # [INFO], [PHASE-AUDIT], [OPTIONAL], [SKIP], Gate * score, Phase * complete
     skip_patterns = re.compile(
-        r"^\s*\*\s*\[INFO\]|\[PHASE-AUDIT\]|Gate \d+.*score|Phase \d+.*complete",
+        r"\[INFO\]|\[PHASE-AUDIT\]|\[OPTIONAL\]|\[SKIP\]"
+        r"|Gate \d+.*score|Phase \d+.*complete",
         re.IGNORECASE,
     )
     unchecked: list[str] = []
@@ -163,9 +165,9 @@ def audit_git_log(project: Path, phase: int) -> Tuple[list[str], list[str]]:
                 ["git", "-C", str(project), "log", "--oneline", "-30"],
                 capture_output=True, text=True, timeout=30,
             )
-            log_text = result.stdout
+            log_text = result.stdout.lower()
             for ms in milestones:
-                if ms not in log_text:
+                if ms.lower() not in log_text:
                     warnings.append(
                         f"Milestone commit `{ms}` not found in recent git history"
                     )
