@@ -726,3 +726,58 @@ class TestC1GitTracking:
             "git" in (f.title + f.detail).lower()
             for f in a.result.findings
         )
+
+
+class TestC9GateScoreThreshold:
+    def _manifest(self, gate_num, score, quality_complete=True):
+        return json.dumps({
+            "gate_results": {
+                f"gate{gate_num}": {
+                    "quality_complete": quality_complete,
+                    "score": score,
+                }
+            }
+        })
+
+    def _make(self, phase, manifest_content):
+        files = {".methodology/quality_manifest.json": manifest_content}
+        return PhaseAuditor(FakeGitHubFetcher(files), phase)
+
+    def test_gate2_score_above_threshold_passes(self):
+        a = self._make(4, self._manifest(2, 55.0))
+        a.check_c9_gate_pass()
+        assert any(f.check_id == "C9" and f.severity == "PASS"
+                   and "55" in f.title for f in a.result.findings)
+
+    def test_gate2_score_below_threshold_critical(self):
+        a = self._make(4, self._manifest(2, 35.0))
+        a.check_c9_gate_pass()
+        assert any(f.check_id == "C9" and f.severity == "CRITICAL"
+                   and "35" in f.title for f in a.result.findings)
+
+    def test_gate3_score_below_70_critical(self):
+        a = self._make(5, self._manifest(3, 65.0))
+        a.check_c9_gate_pass()
+        assert any(f.check_id == "C9" and f.severity == "CRITICAL"
+                   and "65" in f.title for f in a.result.findings)
+
+    def test_gate4_score_below_88_critical(self):
+        a = self._make(7, self._manifest(4, 85.0))
+        a.check_c9_gate_pass()
+        assert any(f.check_id == "C9" and f.severity == "CRITICAL"
+                   and "85" in f.title for f in a.result.findings)
+
+    def test_gate4_score_at_threshold_passes(self):
+        a = self._make(7, self._manifest(4, 88.0))
+        a.check_c9_gate_pass()
+        assert any(f.check_id == "C9" and f.severity == "PASS"
+                   and "88" in f.title for f in a.result.findings)
+
+    def test_missing_score_field_warning(self):
+        content = json.dumps({
+            "gate_results": {"gate2": {"quality_complete": True}}
+        })
+        a = self._make(4, content)
+        a.check_c9_gate_pass()
+        assert any(f.check_id == "C9" and f.severity == "WARNING"
+                   for f in a.result.findings)

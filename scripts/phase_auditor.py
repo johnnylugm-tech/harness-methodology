@@ -49,6 +49,10 @@ HARD_RULES = {
 # (mirrors _ENTRY_GATE_MAP in harness_cli.py)
 _ENTRY_GATE_MAP: dict[int, int] = {4: 2, 5: 3, 6: 3, 7: 4, 8: 4}
 
+# Minimum numeric score for each exit gate (from framework spec)
+# Gate 2 = P3 exit (≥40%), Gate 3 = P4 exit (≥70%), Gate 4 = P6 QA (≥88%)
+_GATE_SCORE_THRESHOLDS: dict[int, float] = {2: 40.0, 3: 70.0, 4: 88.0}
+
 # Milestone commit requirements per phase (absorbed from phase_end_audit._MILESTONES)
 _PHASE_MILESTONES: dict[int, list[str]] = {
     3: ["p3-mid", "p3-pre-gate2"],
@@ -1779,6 +1783,44 @@ class PhaseAuditor:
                 title=f"Gate {gate_num} NOT passed — quality_complete != True.",
                 detail=f"Got: {gate_result!r}",
                 rule_ref="HR-08",
+            ))
+
+        # Numeric score threshold check
+        score_val = gate_result.get("score")
+        threshold = _GATE_SCORE_THRESHOLDS.get(gate_num)
+        if threshold is not None and score_val is not None:
+            try:
+                score_f = float(score_val)
+            except (TypeError, ValueError):
+                score_f = None
+            if score_f is None:
+                self.result.add(Finding(
+                    check_id="C9", dimension="Gate PASS Record",
+                    severity="WARNING",
+                    title=f"Gate {gate_num} score unreadable (value={score_val!r}).",
+                    detail="Expected numeric value in quality_manifest.json gate_results.",
+                ))
+            elif score_f < threshold:
+                self.result.add(Finding(
+                    check_id="C9", dimension="Gate PASS Record",
+                    severity="CRITICAL",
+                    title=f"Gate {gate_num} score {score_f:.1f}% below threshold {threshold:.0f}%.",
+                    detail=f"quality_manifest.json gate_results.gate{gate_num}.score = {score_f}",
+                    rule_ref="TH-02" if gate_num >= 3 else "TH-11",
+                ))
+            else:
+                self.result.add(Finding(
+                    check_id="C9", dimension="Gate PASS Record",
+                    severity="PASS",
+                    title=f"Gate {gate_num} score {score_f:.1f}% ≥ threshold {threshold:.0f}%.",
+                    detail="",
+                ))
+        elif threshold is not None and score_val is None:
+            self.result.add(Finding(
+                check_id="C9", dimension="Gate PASS Record",
+                severity="WARNING",
+                title=f"Gate {gate_num} score field absent from quality_manifest.json.",
+                detail="Cannot verify numeric threshold compliance.",
             ))
 
     # -- C10: Local State Consistency (LocalFetcher only) -----------────

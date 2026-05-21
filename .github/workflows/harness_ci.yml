@@ -133,6 +133,42 @@ jobs:
               exit 1
             }
 
+  phase-quality-gate:
+    name: Phase Quality Gate (C1/C2/C4/C5/C9)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install pytest pyyaml
+          pip install -r requirements.txt || true
+
+      - name: Get current phase
+        id: phase
+        run: |
+          PHASE=$(python3 scripts/ci_state_helper.py get current_phase \
+            --default 0 --state-file ".methodology/state.json")
+          echo "phase=$PHASE" >> $GITHUB_OUTPUT
+
+      - name: Phase artifact audit — deliverables / constitution / gate scores (P1+)
+        if: steps.phase.outputs.phase >= 1
+        run: |
+          python harness_cli.py audit-phase \
+            --phase ${{ steps.phase.outputs.phase }} \
+            --project . \
+            --fail-on-critical
+
+      - name: TDD test execution (P3+)
+        if: steps.phase.outputs.phase >= 3
+        run: pytest --tb=short -q
+
   p8-archive-check:
     name: P8 Archive & HANDOVER Validation
     runs-on: ubuntu-latest

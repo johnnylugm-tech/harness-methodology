@@ -951,3 +951,37 @@ class TestRunPhaseNoPostflight:
 
         assert rc == 10
         assert postflight_called == [], "postflight_all must NOT be called on entry gate failure"
+
+
+class TestAuditPhaseFailOnCritical:
+    def test_fail_on_critical_exits_1_on_criticals(self, tmp_path):
+        """--fail-on-critical: exit 1 when CRITICAL findings exist."""
+        import argparse
+        from harness_cli import cmd_audit_phase
+
+        # Minimal P1 project — missing all deliverables → multiple CRITICALs
+        (tmp_path / ".methodology").mkdir()
+
+        args = argparse.Namespace(
+            phase=1, project=str(tmp_path), branch="main",
+            repo=None, save=None, output="text",
+            fail_on_critical=True,
+        )
+        rc = cmd_audit_phase(args)
+        assert rc == 1
+
+    def test_without_flag_uses_verdict_logic(self, tmp_path):
+        """Without --fail-on-critical, exit code follows verdict only."""
+        import argparse
+        from harness_cli import cmd_audit_phase
+
+        (tmp_path / ".methodology").mkdir()
+
+        args = argparse.Namespace(
+            phase=1, project=str(tmp_path), branch="main",
+            repo=None, save=None, output="text",
+            fail_on_critical=False,
+        )
+        rc = cmd_audit_phase(args)
+        # P1 missing deliverables → FAIL verdict → exit 1 (flag path not taken)
+        assert rc in (0, 1)

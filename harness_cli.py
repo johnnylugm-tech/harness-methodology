@@ -3913,6 +3913,8 @@ def cmd_audit_phase(args: argparse.Namespace) -> int:
             save_path.write_text(str(result))
         print(f"\nReport saved → {save_path}")
 
+    if getattr(args, "fail_on_critical", False) and result.criticals():
+        return 1
     return 0 if result.verdict != "FAIL" else 1
 
 # ---------------------------------------------------------------------------
@@ -4991,6 +4993,11 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Output format (default: markdown)")
     ap.add_argument("--save",   default=None, metavar="FILE",
                     help="Save report to file")
+    ap.add_argument(
+        "--fail-on-critical",
+        action="store_true",
+        help="Exit 1 if any CRITICAL finding exists (stricter than default FAIL verdict).",
+    )
     ap.set_defaults(func=cmd_audit_phase)
 
     # verify-spec
