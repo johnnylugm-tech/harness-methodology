@@ -114,66 +114,62 @@ scancode --license --json-pp - src/ | head -300
 
 ### mutation_testing (Tier 1)
 ```bash
-# C2: verify availability BEFORE assigning any score
-command -v mutmut >/dev/null 2>&1 || pip3 install mutmut --quiet
+# mutmut was pre-verified by run-gate (_verify_gate_tools). No install needed here.
 
-# Only run if now available:
-if command -v mutmut >/dev/null 2>&1; then
-  # Auto-configure paths_to_mutate so mutmut can find code in non-standard layouts
-  # (e.g. 03-development/src/ instead of src/)
-  _mutmut_needs_config=false
-  if [ -f setup.cfg ]; then
-    grep -q '\[mutmut\]' setup.cfg || _mutmut_needs_config=true
-  else
-    _mutmut_needs_config=true
+# Auto-configure paths_to_mutate so mutmut can find code in non-standard layouts
+# (e.g. 03-development/src/ instead of src/)
+_mutmut_needs_config=false
+if [ -f setup.cfg ]; then
+  grep -q '\[mutmut\]' setup.cfg || _mutmut_needs_config=true
+else
+  _mutmut_needs_config=true
+fi
+if [ "$_mutmut_needs_config" = true ] && ! grep -q '\[tool\.mutmut\]' pyproject.toml 2>/dev/null; then
+  _paths=""
+  for _d in 03-development/src src lib app; do
+    [ -d "$_d" ] && _paths="${_paths},${_d}"
+  done
+  if [ -n "$_paths" ]; then
+    printf '[mutmut]\npaths_to_mutate=%s\n' "${_paths#,}" >> setup.cfg
   fi
-  if [ "$_mutmut_needs_config" = true ] && ! grep -q '\[tool\.mutmut\]' pyproject.toml 2>/dev/null; then
-    _paths=""
-    for _d in 03-development/src src lib app; do
-      [ -d "$_d" ] && _paths="${_paths},${_d}"
-    done
-    if [ -n "$_paths" ]; then
-      printf '[mutmut]\npaths_to_mutate=%s\n' "${_paths#,}" >> setup.cfg
-    fi
-    unset _paths _d
-  fi
-  unset _mutmut_needs_config
+  unset _paths _d
+fi
+unset _mutmut_needs_config
 
-  # Workaround: editable install (pip install -e) places a .pth file in
-  # site-packages pointing to the original source directory. When mutmut
-  # copies code to /tmp/mutmut-* and mutates it, Python resolves imports
-  # via the .pth file back to the ORIGINAL (unmutated) code — mutations
-  # are never tested. Temporarily switch to a regular install.
-  _editable_pkgs=$(pip list --editable --format json 2>/dev/null | python3 -c \
+# Workaround: editable install (pip install -e) places a .pth file in
+# site-packages pointing to the original source directory. When mutmut
+# copies code to /tmp/mutmut-* and mutates it, Python resolves imports
+# via the .pth file back to the ORIGINAL (unmutated) code — mutations
+# are never tested. Temporarily switch to a regular install.
+_editable_pkgs=$(pip list --editable --format json 2>/dev/null | python3 -c \
 "import sys,json; data=json.load(sys.stdin); print(' '.join(d['name'] for d in data))")
-  _restore_editable=false
-  if [ -n "$_editable_pkgs" ]; then
-    for _pkg in $_editable_pkgs; do
-      pip uninstall "$_pkg" -y --quiet 2>/dev/null
-    done
-    pip install . --quiet 2>&1 || true
-    _restore_editable=true
-  fi
+_restore_editable=false
+if [ -n "$_editable_pkgs" ]; then
+  for _pkg in $_editable_pkgs; do
+    pip uninstall "$_pkg" -y --quiet 2>/dev/null
+  done
+  pip install . --quiet 2>&1 || true
+  _restore_editable=true
+fi
 
-  timeout $TIME_BUDGET mutmut run 2>&1
-  mutmut results 2>&1 | head -100
+timeout $TIME_BUDGET mutmut run 2>&1
+mutmut results 2>&1 | head -100
 
-  # Restore editable install if we switched it
-  # Note: $_editable_pkgs must be UNQUOTED here so shell word-splits it
-  # into separate package name arguments (quoted form passes the whole
-  # space-separated string as one argument, causing uninstall to fail).
-  if [ "$_restore_editable" = true ]; then
-    pip uninstall $_editable_pkgs -y --quiet 2>/dev/null
-    pip install -e . --quiet 2>/dev/null
-  fi
+# Restore editable install if we switched it
+# Note: $_editable_pkgs must be UNQUOTED here so shell word-splits it
+# into separate package name arguments (quoted form passes the whole
+# space-separated string as one argument, causing uninstall to fail).
+if [ "$_restore_editable" = true ]; then
+  pip uninstall $_editable_pkgs -y --quiet 2>/dev/null
+  pip install -e . --quiet 2>/dev/null
 fi
 ```
 
-> **If mutmut is unavailable after install attempt**: evaluation is **SUSPENDED** for
+> **If mutmut is somehow unavailable at execution time**: evaluation is **SUSPENDED** for
 > `mutation_testing`. Do NOT write a score file with `tool_score=null` — score.py R8 will
-> block gate scoring. Fix the install (check Python version, virtualenv, editable-install
-> conflicts) and restart from Step 1. `run-gate` also pre-checks mutmut availability before
-> printing the evaluation prompt — if that check passed, re-run `pip3 install mutmut`.
+> block gate scoring. Re-run `run-gate` which will detect the missing tool and block before
+> printing the evaluation prompt. All required tools must be installed via `init-project`
+> before starting the project.
 >
 > **objective_primary**: mutation_testing has `objective_primary: true` in config. The mutmut
 > score (survived/killed ratio) IS the authoritative score. When writing the score file,
