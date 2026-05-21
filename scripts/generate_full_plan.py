@@ -895,8 +895,8 @@ def _fr_dev_steps(fr_id: str, phase: int) -> List[str]:
         f"- [ ] **[TDD-3 IMPROVE]** Refactor {fr_id} without breaking tests:",
         "  - Verify all existing tests still pass after refactor",
         f"  - `git commit -m \"refactor({fr_id}): IMPROVE\"` if any changes made.",
-        f"- [ ] Run `python3 harness_cli.py run-gate --gate 1 --phase {phase} --fr-id {fr_id}`",
-        f"- [ ] Run `python3 harness_cli.py finalize-gate --gate 1 --phase {phase} --fr-id {fr_id}`",
+        f"- [ ] Run `python3 harness_cli.py run-gate --gate 1 --phase {phase} --fr-id {fr_id} --project .`",
+        f"- [ ] Run `python3 harness_cli.py finalize-gate --gate 1 --phase {phase} --fr-id {fr_id} --project .`",
         "",
     ]
 
@@ -908,8 +908,8 @@ def _fr_carryforward_steps(fr_id: str, phase: int) -> List[str]:
         f"- [ ] Re-run Gate 1 for {fr_id} to verify no regressions from Phase {phase} changes",
         f"  - Docstrings: `[{fr_id}]` tag + `Citations:` with line numbers (HR-15)",
         "  - FORBIDDEN: `app/infrastructure/` · `@covers: L1 Error` · `@type: edge`",
-        f"- [ ] Run `python3 harness_cli.py run-gate --gate 1 --phase {phase} --fr-id {fr_id}`",
-        f"- [ ] Run `python3 harness_cli.py finalize-gate --gate 1 --phase {phase} --fr-id {fr_id}`",
+        f"- [ ] Run `python3 harness_cli.py run-gate --gate 1 --phase {phase} --fr-id {fr_id} --project .`",
+        f"- [ ] Run `python3 harness_cli.py finalize-gate --gate 1 --phase {phase} --fr-id {fr_id} --project .`",
         "",
     ]
 
@@ -1089,7 +1089,7 @@ def _gate1_checkpoint(fr_id: str, phase: int, checkpoint_n: int,
     ] + delta_lines + [
         f"- [ ] **G1a** Prepare Gate 1 for {fr_id}:",
         "  ```bash",
-        f"  python3 harness_cli.py run-gate --gate 1 --phase {phase} --fr-id {fr_id}" +
+        f"  python3 harness_cli.py run-gate --gate 1 --phase {phase} --fr-id {fr_id} --project ." +
         (" --delta" if delta_check else ""),
         "  ```",
         "  Read the evaluation prompt printed above.",
@@ -1101,7 +1101,7 @@ def _gate1_checkpoint(fr_id: str, phase: int, checkpoint_n: int,
         "",
         f"- [ ] **G1c** Finalize Gate 1 for {fr_id}:",
         "  ```bash",
-        f"  python3 harness_cli.py finalize-gate --gate 1 --phase {phase} --fr-id {fr_id}",
+        f"  python3 harness_cli.py finalize-gate --gate 1 --phase {phase} --fr-id {fr_id} --project .",
         "  ```",
         "  **If FAIL** (any dim below threshold): fix code → repeat G1a→G1b→G1c until PASS.",
         "  **Do NOT proceed to G1d until all dims PASS.**",
@@ -1159,7 +1159,7 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
         "",
         f"- [ ] **G{gate_num}a** Prepare Gate {gate_num}:",
         "  ```bash",
-        f"  python3 harness_cli.py run-gate --gate {gate_num} --phase {phase}",
+        f"  python3 harness_cli.py run-gate --gate {gate_num} --phase {phase} --project .",
         "  ```",
         "  Read the evaluation prompt printed above.",
         *([crg_note] if crg_note else []),
@@ -1171,7 +1171,7 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
         "",
         f"- [ ] **G{gate_num}c** Finalize Gate {gate_num}:",
         "  ```bash",
-        f"  python3 harness_cli.py finalize-gate --gate {gate_num} --phase {phase}",
+        f"  python3 harness_cli.py finalize-gate --gate {gate_num} --phase {phase} --project .",
         "  ```",
         *([hermes_note] if hermes_note else []),
         f"- [ ] **[D4-BACKWARD]** D4 backward spec-coverage-check (Gate {gate_num} threshold {_SPEC_COVERAGE_THRESHOLDS[gate_num]:.0f}%):",
