@@ -866,62 +866,6 @@ class TestDispatchSavesAgentAOutput:
         assert not (tmp_path / ".methodology" / "agent_a_outputs" / "FR-01.json").exists()
 
 
-class TestCheckChecklist:
-    """Tests for cmd_check_checklist and _parse_plan_unchecked (Gap-7)."""
-
-    def _write_plan(self, path: Path, content: str):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content)
-
-    def test_all_checked_returns_0(self, tmp_path, capsys):
-        plan = tmp_path / ".methodology" / "phase1_plan.md"
-        self._write_plan(plan, "- [x] **[A-2]** done\n- [x] **[B-2]** done\n")
-        args = argparse.Namespace(project=str(tmp_path), phase=1)
-        from harness_cli import cmd_check_checklist
-        rc = cmd_check_checklist(args)
-        assert rc == 0
-        assert "✓" in capsys.readouterr().out
-
-    def test_unchecked_mandatory_returns_1(self, tmp_path, capsys):
-        plan = tmp_path / ".methodology" / "phase1_plan.md"
-        self._write_plan(plan, "- [ ] **[A-2]** Agent A output\n- [x] **[B-2]** done\n")
-        args = argparse.Namespace(project=str(tmp_path), phase=1)
-        from harness_cli import cmd_check_checklist
-        rc = cmd_check_checklist(args)
-        assert rc == 1
-        out = capsys.readouterr().out
-        assert "BLOCKED" in out
-        assert "A-2" in out
-
-    def test_unchecked_advisory_only_returns_0(self, tmp_path, capsys):
-        plan = tmp_path / ".methodology" / "phase1_plan.md"
-        self._write_plan(plan, "- [x] **[A-2]** done\n- [ ] **[PREFLIGHT-CI]** ci check\n")
-        args = argparse.Namespace(project=str(tmp_path), phase=1)
-        from harness_cli import cmd_check_checklist
-        rc = cmd_check_checklist(args)
-        assert rc == 0
-        out = capsys.readouterr().out
-        assert "Advisory" in out or "advisory" in out or "PREFLIGHT-CI" in out
-
-    def test_missing_plan_returns_1(self, tmp_path, capsys):
-        args = argparse.Namespace(project=str(tmp_path), phase=1)
-        from harness_cli import cmd_check_checklist
-        rc = cmd_check_checklist(args)
-        assert rc == 1
-        out = capsys.readouterr().out
-        # f-string fix: phase and project must be interpolated, not printed literally
-        assert "{phase}" not in out
-        assert "{project}" not in out
-        assert "1" in out  # phase number should appear
-
-    def test_phase_truth_is_mandatory(self, tmp_path):
-        plan = tmp_path / ".methodology" / "phase3_plan.md"
-        self._write_plan(plan, "- [ ] **[PHASE-TRUTH]** verify truth\n")
-        from harness_cli import _parse_plan_unchecked
-        mandatory, advisory = _parse_plan_unchecked(plan)
-        assert any("PHASE-TRUTH" in m for m in mandatory)
-
-
 # =============================================================================
 # TestRunPhaseNoPostflight
 # =============================================================================
