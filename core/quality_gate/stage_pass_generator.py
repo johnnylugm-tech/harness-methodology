@@ -159,7 +159,9 @@ class IntegratedStagePassGenerator:
         print("[Step 2b] Confidence format validation")
         print(f"{'='*60}")
 
-        log_file = self.project_root / "sessions_spawn.log"
+        log_file = self.project_root / ".methodology" / "sessions_spawn.log"
+        if not log_file.exists():
+            log_file = self.project_root / "sessions_spawn.log"
 
         if not log_file.exists():
             print("⚠️ sessions_spawn.log not found, skipping confidence validation")
@@ -386,7 +388,7 @@ class IntegratedStagePassGenerator:
             "|--------|------|------|",
             "| STAGE_PASS.md | ✅ | 00-summary/ |",
             f"| FrameworkEnforcer | {'✅' if block_result.get('passed') else '❌'} | quality_gate/ |",
-            f"| Sessions_spawn.log | {'✅' if log_result.get('passed') else '❌'} | .openclaw/ |",
+            f"| Sessions_spawn.log | {'✅' if log_result.get('passed') else '❌'} | .methodology/ |",
             f"| pytest | {'✅' if test_evidence.get('pytest_passed') else '❌'} | tests/ |",
             "",
         ])

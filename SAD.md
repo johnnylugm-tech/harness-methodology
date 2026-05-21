@@ -71,7 +71,7 @@ The system uses this macro architecture:
 
 The full-system CLI (`cli.py`) lives in the parent system that contains harness-methodology as a sub-component. It requires 30+ external modules (`progress_dashboard`, `gantt_chart`, `sprint_planner`, `enterprise_hub`, `steering`, etc.) and is not part of this repository. Any work within harness-methodology uses `harness_cli.py`.
 
-**`harness_cli.py` commands** (25 total):
+**`harness_cli.py` commands** (26 total):
 ```
 python harness_cli.py plan-phase        --phase 3 [--project .] [--output plan.md]
 python harness_cli.py run-phase         --phase 3 [--project .]
@@ -99,6 +99,8 @@ python harness_cli.py push-milestone    --type p3-mid|p3-pre-ssi|p4-mid|p4-pre-s
 python harness_cli.py dispatch          --role developer|reviewer --fr-id FR-01 --prompt "..." [--phase 3] [--project .] [--timeout 300] [--max-turns 20]
 python harness_cli.py verify-agent-b-approvals --phase N [--fr-ids FR-01,FR-02] [--project .]
 python harness_cli.py audit-structure   [--project .] [--json]
+python harness_cli.py check-test-inventory [--project .] [--strict] [--threshold N] [--diff-mode] [--srs-crosscut] [--crg-gaps]
+python harness_cli.py spec-coverage-check  [--project .] [--threshold N] [--fr-id FR-XX]
 ```
 
 **Gate evaluation (two-phase)**: `run-gate` prepares context and prints evaluation instructions; Claude evaluates inline and writes `.sessi-work/gate{N}_result.json`; `finalize-gate` reads the result and checks thresholds. SSI assets are embedded in `harness/ssi/`.
@@ -157,7 +159,7 @@ This section uses normative language per **RFC 2119**:
 
 | Rule | RFC 2119 | Enforcement Module | Verification |
 |------|----------|--------------------|-------------|
-| HR-01: A≠B (separate sessions) | **MUST** | `core/quality_gate/ab_enforcer.py` | `sessions_spawn.log` ≥2 distinct roles |
+| HR-01: A≠B (separate sessions) | **MUST** | `harness_cli.py` (P1-P2) / `claims_verifier.py` (P3+) | `sessions_spawn.log` ≥2 distinct roles |
 | HR-02: Cannot skip phases | **MUST** | `harness_cli.py` FSM | `state.json` phase ordering |
 | HR-03: Kill switch blocks dispatch | **MUST** | `kill_switch/kill_switch.py` | `kill_switch.status()` check before dispatch |
 | HR-04: HybridWorkflow mode=ON for P2+ | **MUST** | `core/hybrid_workflow.py` | `HybridWorkflow.is_active()` |
@@ -166,12 +168,12 @@ This section uses normative language per **RFC 2119**:
 | HR-07: Constitution score ≥ phase threshold | **MUST** | `core/quality_gate/constitution/runner.py` | `run_constitution_check()` |
 | HR-08: Gate must pass before phase advance | **MUST** | `harness/harness_bridge.py` | `finalize_gate()` threshold check |
 | HR-09: Claims verifier checks A/B authenticity | **MUST** | `core/quality_gate/claims_verifier.py` | `verify_sessions_spawn_log()` |
-| HR-10: sessions_spawn.log entries required | **MUST** | `core/sessions_spawn_logger.py` | ≥2 records per FR |
+| HR-10: sessions_spawn.log entries required | **MUST** | `harness_cli.py` (P1-P2) / `claims_verifier.py` (P3+) | ≥2 records per FR |
 | HR-11: Phase Truth ≥90% | **MUST** | `core/quality_gate/phase_truth_verifier.py` | `PhaseTruthVerifier.verify()` |
 | HR-12: A/B review ≤5 rounds | **MUST** | `steering/steering_loop.py` | Round counter in iteration loop |
 | HR-13: Auto-fix timeout enforcement | **MUST** | `core/auto_fix/__init__.py` | `check_escalation()` HR-13 condition |
 | HR-14: No integrity violations after auto-fix | **MUST** | `core/auto_fix/guardrails.py` | `post_fix_drift_check()` |
-| HR-15: Citations must include line numbers | **MUST** | `core/quality_gate/claims_verifier.py` | Grep confirmation in review |
+| HR-15: Citations must include line numbers | **MUST** | `detection/ensemble_scorer.py` / `pattern_matcher.py` / `steering` | Grep confirmation in review |
 
 #### 2.4.2 Gate Pass Criteria
 
@@ -1135,7 +1137,7 @@ class KillSwitch:
 
 | File | Class | Purpose |
 |---|---|---|
-| `ab_enforcer.py` | `ABEnforcer` | A/B enforcement; HR-12 compliance checking. Delegates parsing to `parsers.DevelopmentLogParser` |
+| `ab_enforcer.py` | `ABEnforcer` | **DEPRECATED**. Retained for backward-compatible unit tests. Production HR-01/HR-10 checks live in `harness_cli.py` & `claims_verifier.py` |
 | `phase_truth_verifier.py` | `PhaseTruthVerifier` | Verifies phase completion truth via sessions_spawn.log, pytest, coverage, framework BLOCK |
 | `phase_artifact_enforcer.py` | `PhaseArtifactRegistry`, `Phase` | ASPICE traceability chain enforcement; validates phase artifact dependencies (P2+) |
 | `spec_tracking_checker.py` | `SpecTrackingChecker` | Tracks SPEC_TRACKING.md completeness. Delegates parsing to `parsers.SpecTrackingParser` |

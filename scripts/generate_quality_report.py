@@ -13,6 +13,7 @@ Output:
     - Defect statistics
     - ASPICE traceability references
 """
+from __future__ import annotations
 
 import argparse
 import json

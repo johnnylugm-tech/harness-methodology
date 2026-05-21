@@ -14,6 +14,7 @@ Output:
     - Quality Scores (from latest gate result)
     - Known Issues
 """
+from __future__ import annotations
 
 import argparse
 import json

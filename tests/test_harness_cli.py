@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for harness_cli.py init helpers and audit-structure command."""
 
 import argparse

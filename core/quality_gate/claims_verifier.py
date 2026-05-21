@@ -31,7 +31,9 @@ class ClaimsVerifier:
         Returns:
             ClaimsVerifyResult with passed=True if A/B roles present.
         """
-        log_path = self.project_root / "sessions_spawn.log"
+        log_path = self.project_root / ".methodology" / "sessions_spawn.log"
+        if not log_path.exists():
+            log_path = self.project_root / "sessions_spawn.log"
         if not log_path.exists():
             return ClaimsVerifyResult(
                 passed=False, message="sessions_spawn.log not found"

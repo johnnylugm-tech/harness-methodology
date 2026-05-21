@@ -19,6 +19,7 @@ Usage:
     python3 scripts/generate_full_plan.py --phase 3 --repo /path/to/project
     python3 scripts/generate_full_plan.py --phase 3 --repo /path/to/project --output phase3_FULL.md
 """
+from __future__ import annotations
 
 import argparse
 import re

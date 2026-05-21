@@ -14,6 +14,8 @@ Usage:
     verifier = PhaseTruthVerifier("/path/to/project", 3)
     result = verifier.verify()
 """
+from __future__ import annotations
+
 
 import subprocess  # nosec B404
 import json
