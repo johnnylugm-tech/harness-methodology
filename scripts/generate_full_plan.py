@@ -1633,13 +1633,24 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path) -> List[str]:
             lines.extend(_gate1_checkpoint(fr_id, phase=4, checkpoint_n=checkpoint_n))
             checkpoint_n += 1
 
+    lines.extend([
+        "### TEST_RESULTS.md Summary (required for C5 P4 audit)",
+        "",
+        "- [ ] **[TEST-RESULTS-SUMMARY]** Finalize `04-testing/TEST_RESULTS.md` before milestone push:",
+        "  - Add execution summary line: `N passed, M failed` or `Pass Rate: N%`"
+        " (required — C5 P4 audit checks for pass rate pattern)",
+        "  - Ensure ≥3 TC-XX or TR-XX references appear across the document"
+        " (C5 P4 audit requires tc_refs + tr_refs ≥ 3)",
+        "",
+    ])
+
     lines.extend(_milestone_push_steps(fr_ids, phase=4, pre_gate=3))
 
     lines.extend(_gate_exit_checkpoint(gate_num=3, phase=4, checkpoint_n=checkpoint_n))
 
     lines.append("### Phase 4 Deliverables")
     lines.append("- [ ] `TEST_PLAN.md` - Test plan")
-    lines.append("- [ ] `TEST_RESULTS.md` - Test results")
+    lines.append("- [ ] `TEST_RESULTS.md` - Test results (pass rate summary + ≥3 TC/TR refs required)")
     lines.append("- [ ] `COVERAGE_REPORT.md` - Coverage report")
     lines.append(_sessions_spawn_deliverable(phase))
     lines.append("- [ ] Gate 1 PASS for every FR")
