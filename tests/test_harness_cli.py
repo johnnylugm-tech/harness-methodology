@@ -953,6 +953,181 @@ class TestRunPhaseNoPostflight:
         assert postflight_called == [], "postflight_all must NOT be called on entry gate failure"
 
 
+# =============================================================================
+# _advance_prechecks — TDD block (P3+)
+# =============================================================================
+
+class TestAdvancePrechecksTDD:
+    """Tests for the P3+ TDD block in _advance_prechecks."""
+
+    def _make_p3_project(self, tmp_path: Path) -> None:
+        """Minimal P3 project skeleton (PhaseAuditor will be mocked)."""
+        (tmp_path / ".methodology").mkdir()
+        (tmp_path / "03-development" / "src").mkdir(parents=True)
+
+    def test_pytest_failure_returns_9(self, tmp_path, monkeypatch):
+        """pytest non-zero exit → _advance_prechecks returns 9."""
+        from harness_cli import _advance_prechecks
+
+        self._make_p3_project(tmp_path)
+        monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
+        monkeypatch.setattr("harness_cli._check_gate_score_variance", lambda p, ph: 0)
+        monkeypatch.setattr(
+            "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier",
+            type("FV", (), {
+                "__init__": lambda s, p, ph: None,
+                "verify": lambda s: {"passed": True, "total_score": 100.0},
+            }),
+        )
+
+        class _FakeResult:
+            returncode = 1
+
+        import harness_cli
+        monkeypatch.setattr(harness_cli.subprocess, "run", lambda *a, **kw: _FakeResult())
+
+        rc = _advance_prechecks(tmp_path, completed_phase=3)
+        assert rc == 9
+
+    def test_pytest_skipped_when_no_src_dir(self, tmp_path, monkeypatch):
+        """No 03-development/src → pytest step skipped, continues to spec-coverage."""
+        from harness_cli import _advance_prechecks
+
+        (tmp_path / ".methodology").mkdir()  # no src dir
+        monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
+        monkeypatch.setattr("harness_cli._check_gate_score_variance", lambda p, ph: 0)
+        monkeypatch.setattr(
+            "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier",
+            type("FV", (), {
+                "__init__": lambda s, p, ph: None,
+                "verify": lambda s: {"passed": True, "total_score": 100.0},
+            }),
+        )
+        # spec-coverage and D4 both return pass
+        monkeypatch.setattr("harness_cli._run_spec_coverage_check",
+                            lambda p, t, **kw: (0, 100.0))
+        monkeypatch.setattr("harness_cli._run_test_inventory_check",
+                            lambda p, t, **kw: (0, 100.0))
+
+        rc = _advance_prechecks(tmp_path, completed_phase=3)
+        assert rc == 0
+
+    def test_spec_coverage_below_threshold_returns_10(self, tmp_path, monkeypatch):
+        """spec-coverage below threshold → _advance_prechecks returns 10."""
+        from harness_cli import _advance_prechecks
+
+        (tmp_path / ".methodology").mkdir()
+        monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
+        monkeypatch.setattr("harness_cli._check_gate_score_variance", lambda p, ph: 0)
+        monkeypatch.setattr(
+            "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier",
+            type("FV", (), {
+                "__init__": lambda s, p, ph: None,
+                "verify": lambda s: {"passed": True, "total_score": 100.0},
+            }),
+        )
+        monkeypatch.setattr("harness_cli._run_spec_coverage_check",
+                            lambda p, t, **kw: (1, 30.0))
+
+        rc = _advance_prechecks(tmp_path, completed_phase=3)
+        assert rc == 10
+
+    def test_d4_below_threshold_returns_12(self, tmp_path, monkeypatch):
+        """D4 test-inventory below threshold → _advance_prechecks returns 12."""
+        from harness_cli import _advance_prechecks
+
+        (tmp_path / ".methodology").mkdir()
+        monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
+        monkeypatch.setattr("harness_cli._check_gate_score_variance", lambda p, ph: 0)
+        monkeypatch.setattr(
+            "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier",
+            type("FV", (), {
+                "__init__": lambda s, p, ph: None,
+                "verify": lambda s: {"passed": True, "total_score": 100.0},
+            }),
+        )
+        monkeypatch.setattr("harness_cli._run_spec_coverage_check",
+                            lambda p, t, **kw: (0, 100.0))
+        monkeypatch.setattr("harness_cli._run_test_inventory_check",
+                            lambda p, t, **kw: (1, 50.0))
+
+        rc = _advance_prechecks(tmp_path, completed_phase=3)
+        assert rc == 12
+
+    def test_tdd_block_not_run_for_p2(self, tmp_path, monkeypatch):
+        """P2 does not execute TDD block — returns 0 after PhaseAuditor."""
+        from harness_cli import _advance_prechecks
+
+        (tmp_path / ".methodology").mkdir()
+        monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
+
+        rc = _advance_prechecks(tmp_path, completed_phase=2)
+        assert rc == 0
+
+    def test_threshold_escalation_p4_uses_70_80(self, tmp_path, monkeypatch):
+        """P4: spec-coverage threshold=70%, D4 threshold=80%."""
+        from harness_cli import _advance_prechecks
+
+        (tmp_path / ".methodology").mkdir()
+        monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
+        monkeypatch.setattr("harness_cli._check_gate_score_variance", lambda p, ph: 0)
+        monkeypatch.setattr(
+            "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier",
+            type("FV", (), {
+                "__init__": lambda s, p, ph: None,
+                "verify": lambda s: {"passed": True, "total_score": 100.0},
+            }),
+        )
+        captured_sc = {}
+        captured_d4 = {}
+
+        def _fake_sc(p, t, **kw):
+            captured_sc["threshold"] = t
+            return (0, 100.0)
+
+        def _fake_d4(p, t, **kw):
+            captured_d4["threshold"] = t
+            return (0, 100.0)
+
+        monkeypatch.setattr("harness_cli._run_spec_coverage_check", _fake_sc)
+        monkeypatch.setattr("harness_cli._run_test_inventory_check", _fake_d4)
+
+        _advance_prechecks(tmp_path, completed_phase=4)
+        assert captured_sc["threshold"] == 70.0
+        assert captured_d4["threshold"] == 80.0
+
+    def test_threshold_escalation_p6_uses_90_90(self, tmp_path, monkeypatch):
+        """P6: both thresholds escalate to 90%."""
+        from harness_cli import _advance_prechecks
+
+        (tmp_path / ".methodology").mkdir()
+        monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
+        monkeypatch.setattr("harness_cli._check_gate_score_variance", lambda p, ph: 0)
+        monkeypatch.setattr(
+            "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier",
+            type("FV", (), {
+                "__init__": lambda s, p, ph: None,
+                "verify": lambda s: {"passed": True, "total_score": 100.0},
+            }),
+        )
+        captured = {}
+
+        def _fake_sc(p, t, **kw):
+            captured["sc"] = t
+            return (0, 100.0)
+
+        def _fake_d4(p, t, **kw):
+            captured["d4"] = t
+            return (0, 100.0)
+
+        monkeypatch.setattr("harness_cli._run_spec_coverage_check", _fake_sc)
+        monkeypatch.setattr("harness_cli._run_test_inventory_check", _fake_d4)
+
+        _advance_prechecks(tmp_path, completed_phase=6)
+        assert captured["sc"] == 90.0
+        assert captured["d4"] == 90.0
+
+
 class TestAuditPhaseFailOnCritical:
     def test_fail_on_critical_exits_1_on_criticals(self, tmp_path):
         """--fail-on-critical: exit 1 when CRITICAL findings exist."""

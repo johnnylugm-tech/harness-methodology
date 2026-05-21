@@ -3167,10 +3167,15 @@ def _run_phase_auditor(project: Path, completed_phase: int) -> int:
 
 
 def _advance_prechecks(project: Path, completed_phase: int) -> int:
-    """Run pre-advance checks: gate variance, Phase Truth, PhaseAuditor C1-C12.
+    """Run pre-advance checks: gate variance, Phase Truth, PhaseAuditor C1-C12, TDD.
 
-    Returns 0 if all checks pass, non-zero exit code on first failure
-    (7=incomplete plan [C11], 8=missing deliverables [C1], 11=Phase Truth < 90%).
+    Returns 0 if all checks pass, non-zero exit code on first failure:
+      7  = C11 CRITICAL (unchecked plan items)
+      8  = C1 CRITICAL (deliverables missing / untracked)
+      9  = pytest / coverage failure (P3+)
+      10 = spec-coverage below phase threshold (P3+)
+      11 = Phase Truth < 90% (P3+)
+      12 = D4 test-inventory below phase threshold (P3+)
     """
     # ── P1 checksum: TEST_INVENTORY.yaml baseline ────────────────────
     if completed_phase == 1:
@@ -3218,10 +3223,49 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
         except Exception as e:
             print(f"  [WARN] Phase Truth check failed: {e} — proceeding without block")
 
-    # ── Phase Auditor: C1-only for P1/P2, full C1-C12 for P3+ ───────────
+    # ── Phase Auditor: full C1-C12 for all phases ────────────────────
     audit_rc = _run_phase_auditor(project, completed_phase)
     if audit_rc != 0:
         return audit_rc
+
+    # ── TDD checks: pytest + coverage, spec-coverage, D4 (P3+) ──────
+    if completed_phase >= 3:
+        # Phase-based thresholds (mirrors CI phase-quality-gate)
+        if completed_phase >= 6:
+            sc_thresh, d4_thresh = 90.0, 90.0
+        elif completed_phase >= 4:
+            sc_thresh, d4_thresh = 70.0, 80.0
+        else:
+            sc_thresh, d4_thresh = 40.0, 60.0
+
+        # 1. pytest + 100% coverage on TDD-governed source
+        src_dir = project / "03-development" / "src"
+        if src_dir.is_dir():
+            import subprocess as _subp
+            r = _subp.run(
+                ["python", "-m", "pytest", "--tb=short", "-q",
+                 "--cov=03-development/src", "--cov-fail-under=100"],
+                cwd=str(project),
+            )
+            if r.returncode != 0:
+                print("\n[BLOCKED] TDD test/coverage failure.")
+                print("  100% coverage on 03-development/src required.")
+                print("  For genuinely untestable lines add: # pragma: no cover")
+                return 9
+
+        # 2. Forward link: TEST_SPEC.md → tests/ (spec-coverage)
+        sc_rc, sc_pct = _run_spec_coverage_check(project, sc_thresh, verbose=True)
+        if sc_rc != 0:
+            print(f"\n[BLOCKED] spec-coverage {sc_pct:.1f}% < threshold {sc_thresh:.0f}%.")
+            print("  Implement missing test cases from TEST_SPEC.md in tests/.")
+            return 10
+
+        # 3. Backward link: TEST_INVENTORY.yaml → tests/ (D4)
+        d4_rc, d4_pct = _run_test_inventory_check(project, d4_thresh)
+        if d4_rc != 0:
+            print(f"\n[BLOCKED] D4 test-inventory {d4_pct:.1f}% < threshold {d4_thresh:.0f}%.")
+            print("  Implement missing test functions listed in TEST_INVENTORY.yaml.")
+            return 12
 
     return 0
 
