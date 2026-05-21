@@ -20,7 +20,6 @@ Required arguments (project_context):
 import argparse
 import base64
 import json
-import os
 import re
 import subprocess  # nosec B404
 import sys
@@ -426,13 +425,12 @@ class LocalFetcher:
         self._file_cache: dict[str, Optional[str]] = {}
 
     def get_tree(self) -> list[dict]:
-        """Walk local filesystem, excluding .git/"""
+        """Walk local filesystem, excluding .git/ using path component check."""
         if self._tree is not None:
             return self._tree
         self._tree = []
-        sep = os.sep
         for p in self.project_root.rglob("*"):
-            if p.is_file() and (f".git{sep}" not in str(p) + sep):
+            if p.is_file() and ".git" not in p.parts:
                 rel = str(p.relative_to(self.project_root))
                 self._tree.append({"path": rel, "type": "blob"})
         return self._tree
@@ -866,13 +864,25 @@ class PhaseAuditor:
             except json.JSONDecodeError:
                 pass
 
-        sev = "PASS" if approved > 0 else "CRITICAL"
+        total = len(approval_files)
+        if approved == total:
+            sev = "PASS"
+            icon = "✅"
+            rule_ref = ""
+        elif approved > 0:
+            sev = "WARNING"
+            icon = "⚠️"
+            rule_ref = "HR-01"
+        else:
+            sev = "CRITICAL"
+            icon = "❌"
+            rule_ref = "HR-01"
         self.result.add(Finding(
             check_id="C3", dimension="A/B Session Separation",
             severity=sev,
-            title=f"{'✅' if sev == 'PASS' else '❌'} {approved}/{len(approval_files)} Agent B approval file(s) have review_status=APPROVE.",
+            title=f"{icon} {approved}/{total} Agent B approval file(s) have review_status=APPROVE.",
             detail=f"Files checked: {[p.split('/')[-1] for p in approval_files[:5]]}",
-            rule_ref="" if sev == "PASS" else "HR-01",
+            rule_ref=rule_ref,
         ))
 
     # -- C4: DEVELOPMENT_LOG Quality ---------------------------------────
@@ -1280,7 +1290,8 @@ class PhaseAuditor:
         if not content:
             return
         keywords = ["version", "release", "change", "fix", "feature"]
-        found = [kw for kw in keywords if kw.lower() in content.lower()]
+        found = [kw for kw in keywords
+                 if re.search(rf"\b{re.escape(kw)}\b", content, re.IGNORECASE)]
         sev = "PASS" if len(found) >= 2 else "WARNING"
         self.result.add(Finding(
             check_id="C5", dimension="Document Content Depth", severity=sev,
@@ -1293,7 +1304,8 @@ class PhaseAuditor:
         if not content:
             return
         keywords = ["APPROVE", "sign", "gate", "pass", "confirm"]
-        found = [kw for kw in keywords if kw.lower() in content.lower()]
+        found = [kw for kw in keywords
+                 if re.search(rf"\b{re.escape(kw)}\b", content, re.IGNORECASE)]
         sev = "PASS" if len(found) >= 2 else "WARNING"
         self.result.add(Finding(
             check_id="C5", dimension="Document Content Depth", severity=sev,
@@ -1307,7 +1319,8 @@ class PhaseAuditor:
             return
         h2_count = len(re.findall(r"^## ", content, re.MULTILINE))
         risk_keywords = ["HIGH", "MEDIUM", "LOW", "status", "mitigation"]
-        found_kw = [kw for kw in risk_keywords if kw.lower() in content.lower()]
+        found_kw = [kw for kw in risk_keywords
+                    if re.search(rf"\b{re.escape(kw)}\b", content, re.IGNORECASE)]
         sev = "PASS" if h2_count >= 3 and len(found_kw) >= 2 else "WARNING"
         self.result.add(Finding(
             check_id="C5", dimension="Document Content Depth", severity=sev,
@@ -1708,9 +1721,15 @@ class PhaseAuditor:
                     detail="",
                 ))
 
-        # 3. gate4_result.json for P6+
+        # 3. gate4_result.json for P6+ (mirrors harness_cli._check_gate4_prerequisites paths)
         if self.phase >= 6:
-            g4 = self.gh.get_file_content(".methodology/gate4_result.json")
+            _g4_candidates = [
+                ".sessi-work/gate4_result.json",     # primary (written by bridge)
+                ".methodology/gate4_result.json",    # fallback
+                "gate4_result.json",                 # root fallback
+            ]
+            g4_path = self.gh.resolve_path(_g4_candidates)
+            g4 = self.gh.get_file_content(g4_path) if g4_path else None
             if not g4:
                 self.result.add(Finding(
                     check_id="C10", dimension="Local State Consistency",
@@ -1727,7 +1746,7 @@ class PhaseAuditor:
                     self.result.add(Finding(
                         check_id="C10", dimension="Local State Consistency",
                         severity=sev,
-                        title=f"gate4_result.json: quality_complete={passed}",
+                        title=f"gate4_result.json: quality_complete={passed} (found at {g4_path})",
                         detail=repr(data)[:120],
                     ))
                 except json.JSONDecodeError:
