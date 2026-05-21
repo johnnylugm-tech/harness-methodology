@@ -887,10 +887,12 @@ def _fr_dev_steps(fr_id: str, phase: int) -> List[str]:
         "    `git add tests/ && git commit -m \"test(RED): failing test for"
         f" {fr_id}\"` — commit BEFORE implementation.",
         "    `harness_cli.py finalize-gate` enforces D1-RED: test commit must predate source commit.",
+        f"  - Update `DEVELOPMENT_LOG.md`: append `## RED phase — {fr_id} — failing test written` (required for C5 P3 audit)",
         f"- [ ] **[TDD-2 GREEN]** Implement {fr_id} per SRS + SAD until test passes:",
         f"  - Docstrings: `[{fr_id}]` tag + `Citations:` with line numbers (HR-15)",
         "  - FORBIDDEN: `app/infrastructure/` · `@covers: L1 Error` · `@type: edge`",
         f"  - `git add src/ && git commit -m \"feat({fr_id}): GREEN\"` — commit implementation.",
+        f"  - Update `DEVELOPMENT_LOG.md`: append `## GREEN phase — {fr_id} — tests pass` (required for C5 P3 audit)",
         f"- [ ] **[TDD-3 IMPROVE]** Refactor {fr_id} without breaking tests:",
         "  - Verify all existing tests still pass after refactor",
         f"  - `git commit -m \"refactor({fr_id}): IMPROVE\"` if any changes made.",
@@ -1323,6 +1325,7 @@ def generate_phase1_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("")
 
     lines.extend(_review_checkpoint(1, checkpoint_n=1))
+    lines.extend(_phase_audit_local_step(1))
     lines.extend(_phase_advance_step(1))
     return lines
 
@@ -1407,6 +1410,7 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("")
 
     lines.extend(_review_checkpoint(2, checkpoint_n=1))
+    lines.extend(_phase_audit_local_step(2))
     lines.extend(_phase_advance_step(2))
     return lines
 
