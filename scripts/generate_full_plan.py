@@ -1511,6 +1511,12 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("  ```")
     lines.append("  > Read `.methodology/audit_gaps_3.md` and fix all CRITICAL gaps before advancing.")
     lines.append("")
+    lines.append("- [ ] **[PHASE-AUDIT-LOCAL]** Run Phase Auditor — comprehensive artifact & process audit (local mode):")
+    lines.append("  ```bash")
+    lines.append("  python3 harness/harness_cli.py audit-phase --phase 3 --project $REPO")
+    lines.append("  ```")
+    lines.append("  > CRITICAL findings must be resolved before advance-phase. WARNING findings need documented justification.")
+    lines.append("")
 
     lines.extend(_phase_advance_step(3))
     return lines
@@ -1641,6 +1647,12 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("  ```")
     lines.append("  > Read `.methodology/audit_gaps_4.md` and fix all CRITICAL gaps before advancing.")
     lines.append("")
+    lines.append("- [ ] **[PHASE-AUDIT-LOCAL]** Run Phase Auditor — comprehensive artifact & process audit (local mode):")
+    lines.append("  ```bash")
+    lines.append("  python3 harness/harness_cli.py audit-phase --phase 4 --project $REPO")
+    lines.append("  ```")
+    lines.append("  > CRITICAL findings must be resolved before advance-phase. WARNING findings need documented justification.")
+    lines.append("")
 
     lines.extend(_phase_advance_step(4))
     return lines
@@ -1711,6 +1723,12 @@ def generate_phase5_tasks(repo_path: Path) -> List[str]:
     lines.append("  ```")
     lines.append("  > Read `.methodology/audit_gaps_5.md` and fix all CRITICAL gaps before advancing.")
     lines.append("")
+    lines.append("- [ ] **[PHASE-AUDIT-LOCAL]** Run Phase Auditor — comprehensive artifact & process audit (local mode):")
+    lines.append("  ```bash")
+    lines.append("  python3 harness/harness_cli.py audit-phase --phase 5 --project $REPO")
+    lines.append("  ```")
+    lines.append("  > CRITICAL findings must be resolved before advance-phase. WARNING findings need documented justification.")
+    lines.append("")
 
     lines.extend(_phase_advance_step(5))
     return lines
@@ -1772,6 +1790,12 @@ def generate_phase6_tasks(repo_path: Path) -> List[str]:
     lines.append("  python3 scripts/phase_end_audit.py --phase 6 --project $REPO")
     lines.append("  ```")
     lines.append("  > Read `.methodology/audit_gaps_6.md` and fix all CRITICAL gaps before advancing.")
+    lines.append("")
+    lines.append("- [ ] **[PHASE-AUDIT-LOCAL]** Run Phase Auditor — comprehensive artifact & process audit (local mode):")
+    lines.append("  ```bash")
+    lines.append("  python3 harness/harness_cli.py audit-phase --phase 6 --project $REPO")
+    lines.append("  ```")
+    lines.append("  > CRITICAL findings must be resolved before advance-phase. WARNING findings need documented justification.")
     lines.append("")
 
     lines.extend(_phase_advance_step(6))
@@ -1851,6 +1875,12 @@ def generate_phase7_tasks(repo_path: Path) -> List[str]:
     lines.append("  python3 scripts/phase_end_audit.py --phase 7 --project $REPO")
     lines.append("  ```")
     lines.append("  > Read `.methodology/audit_gaps_7.md` and fix all CRITICAL gaps before advancing.")
+    lines.append("")
+    lines.append("- [ ] **[PHASE-AUDIT-LOCAL]** Run Phase Auditor — comprehensive artifact & process audit (local mode):")
+    lines.append("  ```bash")
+    lines.append("  python3 harness/harness_cli.py audit-phase --phase 7 --project $REPO")
+    lines.append("  ```")
+    lines.append("  > CRITICAL findings must be resolved before advance-phase. WARNING findings need documented justification.")
     lines.append("")
 
     lines.extend(_phase_advance_step(7))
@@ -1950,6 +1980,12 @@ def generate_phase8_tasks(repo_path: Path) -> List[str]:
     lines.append("  python3 scripts/phase_end_audit.py --phase 8 --project $REPO")
     lines.append("  ```")
     lines.append("  > Read `.methodology/audit_gaps_8.md` and fix all CRITICAL gaps before advancing.")
+    lines.append("")
+    lines.append("- [ ] **[PHASE-AUDIT-LOCAL]** Run Phase Auditor — comprehensive artifact & process audit (local mode):")
+    lines.append("  ```bash")
+    lines.append("  python3 harness/harness_cli.py audit-phase --phase 8 --project $REPO")
+    lines.append("  ```")
+    lines.append("  > CRITICAL findings must be resolved before advance-phase. WARNING findings need documented justification.")
     lines.append("")
 
     lines.extend(_phase_advance_step(8))

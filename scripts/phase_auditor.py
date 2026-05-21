@@ -20,11 +20,13 @@ Required arguments (project_context):
 import argparse
 import base64
 import json
+import os
 import re
 import subprocess  # nosec B404
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import quote
 
@@ -43,6 +45,10 @@ HARD_RULES = {
     "HR-10": ".methodology/sessions_spawn.log must exist and contain A/B records",
     "HR-11": "Phase Truth score < 90% blocks entry to next Phase",
 }
+
+# Gate entry requirements: phase → required gate number that must have PASS
+# (mirrors _ENTRY_GATE_MAP in harness_cli.py)
+_ENTRY_GATE_MAP: dict[int, int] = {4: 2, 5: 3, 6: 3, 7: 4, 8: 4}
 
 # Phase specifications (per SKILL.md v6.13 Phase routing table)
 PHASE_SPEC: dict[int, dict[str, Any]] = {
@@ -64,6 +70,8 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
              "DEVELOPMENT_LOG.md -- Development Log", True),
             ([".methodology/sessions_spawn.log", "sessions_spawn.log"],
              ".methodology/sessions_spawn.log -- A/B session records", True),
+            (["TEST_INVENTORY.yaml"],
+             "TEST_INVENTORY.yaml -- Test Specification Inventory", True),
             (["00-summary/Phase1_STAGE_PASS.md"],
              "Phase1_STAGE_PASS.md -- Phase pass certificate", True),
         ],
@@ -181,6 +189,10 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
         "deliverables": [
             (["06-quality/QUALITY_REPORT.md"],
              "QUALITY_REPORT.md (7 sections)", True),
+            (["RELEASE_NOTES.md"],
+             "RELEASE_NOTES.md -- Release Notes", True),
+            (["FINAL_SIGN_OFF.md"],
+             "FINAL_SIGN_OFF.md -- Final Sign-off Document", True),
             (["DEVELOPMENT_LOG.md"], "DEVELOPMENT_LOG.md", True),
             ([".methodology/sessions_spawn.log", "sessions_spawn.log"], ".methodology/sessions_spawn.log", True),
             (["00-summary/Phase6_STAGE_PASS.md"],
@@ -199,10 +211,12 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
         "ab_rounds": 1,
         "constitution_type": None,
         "deliverables": [
-            (["07-risk/RISK_ASSESSMENT.md"],
-             "RISK_ASSESSMENT.md", True),
+            (["07-risk/RISK_STATUS_REPORT.md", "07-risk/RISK_ASSESSMENT.md"],
+             "RISK_STATUS_REPORT.md / RISK_ASSESSMENT.md -- Risk Status Report", True),
             (["07-risk/RISK_REGISTER.md"],
              "RISK_REGISTER.md", True),
+            (["07-risk/RISK_MITIGATION_PLANS.md"],
+             "RISK_MITIGATION_PLANS.md -- Risk Mitigation Plans", True),
             (["DEVELOPMENT_LOG.md"], "DEVELOPMENT_LOG.md", True),
             ([".methodology/sessions_spawn.log", "sessions_spawn.log"], ".methodology/sessions_spawn.log", True),
             (["00-summary/Phase7_STAGE_PASS.md"],
@@ -222,6 +236,8 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
         "deliverables": [
             (["08-config/CONFIG_RECORDS.md"],
              "CONFIG_RECORDS.md (8 sections)", True),
+            (["08-config/RELEASE_CHECKLIST.md"],
+             "RELEASE_CHECKLIST.md -- Release Validation Checklist", True),
             (["DEVELOPMENT_LOG.md"], "DEVELOPMENT_LOG.md", True),
             ([".methodology/sessions_spawn.log", "sessions_spawn.log"], ".methodology/sessions_spawn.log", True),
             (["00-summary/Phase8_STAGE_PASS.md"],
@@ -391,6 +407,84 @@ class GitHubFetcher:
     def get_repo_info(self) -> dict:
         data = self._gh(f"repos/{self.repo}")
         return data or {}
+
+
+class LocalFetcher:
+    """Access local project filesystem (same interface as GitHubFetcher).
+
+    Used when running audit-phase --project <path> directly on the project
+    execution environment, without requiring GitHub access.
+    """
+
+    is_local: bool = True
+
+    def __init__(self, project_root: str, branch: str = "main"):
+        self.project_root = Path(project_root).resolve()
+        self.repo = str(self.project_root)   # mirrors GitHubFetcher.repo
+        self.branch = branch
+        self._tree: Optional[list[dict]] = None
+        self._file_cache: dict[str, Optional[str]] = {}
+
+    def get_tree(self) -> list[dict]:
+        """Walk local filesystem, excluding .git/"""
+        if self._tree is not None:
+            return self._tree
+        self._tree = []
+        sep = os.sep
+        for p in self.project_root.rglob("*"):
+            if p.is_file() and (f".git{sep}" not in str(p) + sep):
+                rel = str(p.relative_to(self.project_root))
+                self._tree.append({"path": rel, "type": "blob"})
+        return self._tree
+
+    def file_exists(self, path: str) -> bool:
+        return (self.project_root / path).is_file()
+
+    def resolve_path(self, candidates: list[str]) -> Optional[str]:
+        for path in candidates:
+            if self.file_exists(path):
+                return path
+        return None
+
+    def get_file_content(self, path: str) -> Optional[str]:
+        if path in self._file_cache:
+            return self._file_cache[path]
+        full = self.project_root / path
+        if not full.exists():
+            self._file_cache[path] = None
+            return None
+        try:
+            content = full.read_text(encoding="utf-8", errors="replace")
+            self._file_cache[path] = content
+            return content
+        except Exception:
+            self._file_cache[path] = None
+            return None
+
+    def get_commits(self, per_page: int = 30) -> list[dict]:
+        """Get commits via local git log."""
+        result = subprocess.run(  # nosec B603 B607
+            ["git", "-C", str(self.project_root), "log",
+             f"-{per_page}", "--format=%H%n%ae%n%s%n%aI%n---"],
+            capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            return []
+        commits: list[dict] = []
+        for block in result.stdout.split("---\n"):
+            parts = block.strip().split("\n")
+            if len(parts) >= 4:
+                commits.append({
+                    "sha": parts[0],
+                    "commit": {
+                        "author": {"email": parts[1], "date": parts[3]},
+                        "message": parts[2],
+                    },
+                })
+        return commits
+
+    def get_repo_info(self) -> dict:
+        return {"name": self.project_root.name, "full_name": str(self.project_root)}
 
 
 # ─────────────────────────────────────────────
@@ -634,6 +728,7 @@ class PhaseAuditor:
         self._check_session_roles(roles, expected_a, expected_b)
         self._check_session_id_uniqueness(session_ids)
         self._check_empty_tasks(sessions)
+        self._check_agent_b_approvals()
 
     def _parse_session_records(self, content: str) -> Optional[list]:
         """Parse line-delimited JSON from .methodology/sessions_spawn.log (or sessions_spawn.log fallback)."""
@@ -740,6 +835,45 @@ class PhaseAuditor:
                 title=f"{empty_tasks} session record(s) have empty task field (OpenClaw system limitation)",
                 detail="sessions_spawn.log (in .methodology/ or root) is generated by OpenClaw; Framework cannot control its format",
             ))
+
+    def _check_agent_b_approvals(self) -> None:
+        """C3 supplement: verify agent_b_approvals/*.json have review_status=APPROVE (P3+)."""
+        if self.phase < 3:
+            return  # P1/P2: sessions_spawn.log check is sufficient
+
+        tree = self.gh.get_tree()
+        approval_files = [
+            item["path"] for item in tree
+            if item["path"].startswith(".methodology/agent_b_approvals/")
+            and item["path"].endswith(".json")
+        ]
+        if not approval_files:
+            self.result.add(Finding(
+                check_id="C3", dimension="A/B Session Separation",
+                severity="CRITICAL",
+                title="No Agent B approval files found in .methodology/agent_b_approvals/",
+                detail="Each FR requires an approval JSON with review_status=APPROVE (P3+).",
+                rule_ref="HR-01",
+            ))
+            return
+
+        approved = 0
+        for path in approval_files:
+            c = self.gh.get_file_content(path)
+            try:
+                if c and json.loads(c).get("review_status") == "APPROVE":
+                    approved += 1
+            except json.JSONDecodeError:
+                pass
+
+        sev = "PASS" if approved > 0 else "CRITICAL"
+        self.result.add(Finding(
+            check_id="C3", dimension="A/B Session Separation",
+            severity=sev,
+            title=f"{'✅' if sev == 'PASS' else '❌'} {approved}/{len(approval_files)} Agent B approval file(s) have review_status=APPROVE.",
+            detail=f"Files checked: {[p.split('/')[-1] for p in approval_files[:5]]}",
+            rule_ref="" if sev == "PASS" else "HR-01",
+        ))
 
     # -- C4: DEVELOPMENT_LOG Quality ---------------------------------────
     def check_c4_development_log(self):
@@ -876,12 +1010,17 @@ class PhaseAuditor:
 
         elif phase == 6:
             self._check_quality_report_depth()
+            self._check_release_notes_depth()
+            self._check_final_sign_off_depth()
 
         elif phase == 7:
             self._check_risk_register_depth()
+            self._check_risk_status_report_depth()
+            self._check_risk_mitigation_plans_depth()
 
         elif phase == 8:
             self._check_config_records_depth()
+            self._check_release_checklist_depth()
 
     def _check_srs_depth(self):
         content = self._content(["01-requirements/SRS.md"])
@@ -1136,6 +1275,73 @@ class PhaseAuditor:
                 detail="",
             ))
 
+    def _check_release_notes_depth(self):
+        content = self._content(["RELEASE_NOTES.md"])
+        if not content:
+            return
+        keywords = ["version", "release", "change", "fix", "feature"]
+        found = [kw for kw in keywords if kw.lower() in content.lower()]
+        sev = "PASS" if len(found) >= 2 else "WARNING"
+        self.result.add(Finding(
+            check_id="C5", dimension="Document Content Depth", severity=sev,
+            title=f"RELEASE_NOTES.md: {len(found)}/{len(keywords)} content keywords found",
+            detail=f"Found: {found}",
+        ))
+
+    def _check_final_sign_off_depth(self):
+        content = self._content(["FINAL_SIGN_OFF.md"])
+        if not content:
+            return
+        keywords = ["APPROVE", "sign", "gate", "pass", "confirm"]
+        found = [kw for kw in keywords if kw.lower() in content.lower()]
+        sev = "PASS" if len(found) >= 2 else "WARNING"
+        self.result.add(Finding(
+            check_id="C5", dimension="Document Content Depth", severity=sev,
+            title=f"FINAL_SIGN_OFF.md: {len(found)}/{len(keywords)} approval keywords found",
+            detail=f"Found: {found}",
+        ))
+
+    def _check_risk_status_report_depth(self):
+        content = self._content(["07-risk/RISK_STATUS_REPORT.md", "07-risk/RISK_ASSESSMENT.md"])
+        if not content:
+            return
+        h2_count = len(re.findall(r"^## ", content, re.MULTILINE))
+        risk_keywords = ["HIGH", "MEDIUM", "LOW", "status", "mitigation"]
+        found_kw = [kw for kw in risk_keywords if kw.lower() in content.lower()]
+        sev = "PASS" if h2_count >= 3 and len(found_kw) >= 2 else "WARNING"
+        self.result.add(Finding(
+            check_id="C5", dimension="Document Content Depth", severity=sev,
+            title=f"RISK_STATUS_REPORT.md: {h2_count} sections, {len(found_kw)} risk keywords",
+            detail=f"Keywords: {found_kw}",
+        ))
+
+    def _check_risk_mitigation_plans_depth(self):
+        content = self._content(["07-risk/RISK_MITIGATION_PLANS.md"])
+        if not content:
+            return
+        action_count = len(re.findall(
+            r"(?:action|mitigation|owner|due|deadline)", content, re.IGNORECASE))
+        sev = "PASS" if action_count >= 3 else "WARNING"
+        self.result.add(Finding(
+            check_id="C5", dimension="Document Content Depth", severity=sev,
+            title=f"RISK_MITIGATION_PLANS.md: {action_count} action/owner/deadline reference(s)",
+            detail="Expected: mitigation actions, owners, due dates per risk",
+        ))
+
+    def _check_release_checklist_depth(self):
+        content = self._content(["08-config/RELEASE_CHECKLIST.md"])
+        if not content:
+            return
+        checked = len(re.findall(r"^- \[x\]", content, re.MULTILINE | re.IGNORECASE))
+        unchecked = len(re.findall(r"^- \[ \]", content, re.MULTILINE))
+        total = checked + unchecked
+        sev = "PASS" if total >= 5 and unchecked == 0 else "WARNING"
+        self.result.add(Finding(
+            check_id="C5", dimension="Document Content Depth", severity=sev,
+            title=f"RELEASE_CHECKLIST.md: {checked}/{total} items checked",
+            detail=f"{unchecked} item(s) still unchecked." if unchecked else "All items complete.",
+        ))
+
     # -- C6: Commit Timeline Analysis --------------------------------────
     def check_c6_commit_timeline(self):
         """C6: GitHub commit timeline reasonableness"""
@@ -1372,6 +1578,166 @@ class PhaseAuditor:
                 detail=content[:100],
             ))
 
+    # -- C9: quality_manifest.json Gate PASS Verification -----------────
+    def check_c9_gate_pass(self):
+        """C9: Verify quality_manifest.json records required gate PASS for current phase."""
+        gate_num = _ENTRY_GATE_MAP.get(self.phase)
+        if gate_num is None:
+            self.result.add(Finding(
+                check_id="C9", dimension="Gate PASS Record",
+                severity="INFO",
+                title=f"Phase {self.phase} has no required gate record (P1–P3).",
+                detail="Gate entry requirements start from Phase 4.",
+            ))
+            return
+
+        content = self._content([".methodology/quality_manifest.json"])
+        if not content:
+            self.result.add(Finding(
+                check_id="C9", dimension="Gate PASS Record",
+                severity="CRITICAL",
+                title=f"quality_manifest.json missing — Gate {gate_num} PASS cannot be verified.",
+                detail="Required from Phase 4+ (generated at P2 exit by plan-phase).",
+                rule_ref="HR-08",
+            ))
+            return
+
+        try:
+            manifest = json.loads(content)
+        except json.JSONDecodeError as exc:
+            self.result.add(Finding(
+                check_id="C9", dimension="Gate PASS Record",
+                severity="CRITICAL",
+                title=f"quality_manifest.json is not valid JSON: {exc}",
+                detail="",
+            ))
+            return
+
+        gate_result = manifest.get("gate_results", {}).get(f"gate{gate_num}", {})
+        if not gate_result:
+            self.result.add(Finding(
+                check_id="C9", dimension="Gate PASS Record",
+                severity="CRITICAL",
+                title=f"Gate {gate_num} result missing in quality_manifest.json for Phase {self.phase}.",
+                detail=f"Expected: gate_results.gate{gate_num}.quality_complete = true",
+                rule_ref="HR-08",
+            ))
+            return
+
+        if gate_result.get("quality_complete"):
+            self.result.add(Finding(
+                check_id="C9", dimension="Gate PASS Record",
+                severity="PASS",
+                title=f"Gate {gate_num} PASS confirmed in quality_manifest.json.",
+                detail=f"quality_complete=True for Phase {self.phase} entry requirement.",
+            ))
+        else:
+            self.result.add(Finding(
+                check_id="C9", dimension="Gate PASS Record",
+                severity="CRITICAL",
+                title=f"Gate {gate_num} NOT passed — quality_complete != True.",
+                detail=f"Got: {gate_result!r}",
+                rule_ref="HR-08",
+            ))
+
+    # -- C10: Local State Consistency (LocalFetcher only) -----------────
+    def check_c10_local_state(self):
+        """C10: Local-only checks — only runs when using LocalFetcher.
+
+        Checks: (1) state.json current_phase matches audited phase,
+                (2) force_bypass.log unreviewed bypass entries,
+                (3) gate4_result.json present for P6+ (Gate 4 entry).
+        Silently no-ops when using GitHubFetcher (is_local = False).
+        """
+        if not getattr(self.gh, "is_local", False):
+            return  # Skip in GitHub mode
+
+        # 1. state.json phase consistency
+        state_content = self.gh.get_file_content(".methodology/state.json")
+        if state_content:
+            try:
+                state = json.loads(state_content)
+                current = int(state.get("current_phase", 0))
+                if current != self.phase:
+                    self.result.add(Finding(
+                        check_id="C10", dimension="Local State Consistency",
+                        severity="WARNING",
+                        title=f"state.json current_phase={current} ≠ audited phase {self.phase}",
+                        detail="Audit may be running against wrong phase. Check advance-phase.",
+                    ))
+                else:
+                    self.result.add(Finding(
+                        check_id="C10", dimension="Local State Consistency",
+                        severity="PASS",
+                        title=f"state.json current_phase={current} matches audited phase.",
+                        detail="",
+                    ))
+            except (json.JSONDecodeError, ValueError):
+                self.result.add(Finding(
+                    check_id="C10", dimension="Local State Consistency",
+                    severity="WARNING",
+                    title="state.json is not valid JSON or missing current_phase.",
+                    detail="",
+                ))
+
+        # 2. force_bypass.log unreviewed entries
+        bypass_content = self.gh.get_file_content(".methodology/force_bypass.log")
+        if bypass_content:
+            log_lines = [ln for ln in bypass_content.splitlines() if ln.strip()]
+            unreviewed = []
+            for line in log_lines:
+                try:
+                    entry = json.loads(line)
+                    if not entry.get("audit_note"):
+                        unreviewed.append(entry.get("command", "unknown"))
+                except json.JSONDecodeError:
+                    pass
+            if unreviewed:
+                self.result.add(Finding(
+                    check_id="C10", dimension="Local State Consistency",
+                    severity="WARNING",
+                    title=f"{len(unreviewed)} unreviewed bypass entry(ies) in force_bypass.log",
+                    detail=f"Commands: {unreviewed[:5]}. Add audit_note to each entry.",
+                    rule_ref="HR-09",
+                ))
+            else:
+                self.result.add(Finding(
+                    check_id="C10", dimension="Local State Consistency",
+                    severity="PASS",
+                    title=f"force_bypass.log: all {len(log_lines)} entry(ies) have audit_note.",
+                    detail="",
+                ))
+
+        # 3. gate4_result.json for P6+
+        if self.phase >= 6:
+            g4 = self.gh.get_file_content(".methodology/gate4_result.json")
+            if not g4:
+                self.result.add(Finding(
+                    check_id="C10", dimension="Local State Consistency",
+                    severity="CRITICAL",
+                    title="gate4_result.json missing — Gate 4 PASS evidence absent (P6+).",
+                    detail="Run finalize-gate --gate 4 --project . to generate it.",
+                    rule_ref="HR-08",
+                ))
+            else:
+                try:
+                    data = json.loads(g4)
+                    passed = data.get("quality_complete") or data.get("passed")
+                    sev = "PASS" if passed else "CRITICAL"
+                    self.result.add(Finding(
+                        check_id="C10", dimension="Local State Consistency",
+                        severity=sev,
+                        title=f"gate4_result.json: quality_complete={passed}",
+                        detail=repr(data)[:120],
+                    ))
+                except json.JSONDecodeError:
+                    self.result.add(Finding(
+                        check_id="C10", dimension="Local State Consistency",
+                        severity="WARNING",
+                        title="gate4_result.json is not valid JSON.",
+                        detail="",
+                    ))
+
     # -- Run all checks -------------------------------------------────
     def run_all_checks(self) -> AuditResult:
         """Execute all C1-C8 checks and compute final audit score."""
@@ -1387,7 +1753,9 @@ class PhaseAuditor:
             ("C5 Document Content Depth",    self.check_c5_content_depth),
             ("C6 Commit Timeline",           self.check_c6_commit_timeline),
             ("C7 Claims Cross-Verification", self.check_c7_claims_crosscheck),
-            ("C8 Integrity Tracker",   self.check_c8_integrity),
+            ("C8 Integrity Tracker",         self.check_c8_integrity),
+            ("C9 Gate PASS Record",           self.check_c9_gate_pass),
+            ("C10 Local State Consistency",   self.check_c10_local_state),
         ]
         for name, fn in checks:
             print(f"  → {name}...", end=" ", flush=True)

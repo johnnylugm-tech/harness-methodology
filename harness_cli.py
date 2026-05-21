@@ -3883,16 +3883,24 @@ def cmd_run_gap_analysis(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 def cmd_audit_phase(args: argparse.Namespace) -> int:
-    """Audit a phase against GitHub artifacts using PhaseAuditor (8-dimension check)."""
-    from scripts.phase_auditor import PhaseAuditor, GitHubFetcher
+    """Audit a phase against GitHub or local artifacts (C1-C10 PhaseAuditor check)."""
+    from scripts.phase_auditor import PhaseAuditor, GitHubFetcher, LocalFetcher
 
-    print(f"\n{'='*60}\naudit-phase: Phase {args.phase} | repo={args.repo}\n{'='*60}")
-
-    fetcher = GitHubFetcher(repo=args.repo, branch=args.branch)
-    repo_info = fetcher.get_repo_info()
-    if not repo_info:
-        print(f"[ERROR] Cannot access repo: {args.repo} (check gh auth status)")
-        return 1
+    project = getattr(args, "project", None)
+    if project:
+        # Local mode
+        print(f"\n{'='*60}\naudit-phase [LOCAL]: Phase {args.phase} | project={project}\n{'='*60}")
+        fetcher: GitHubFetcher | LocalFetcher = LocalFetcher(
+            project_root=project, branch=args.branch
+        )
+    else:
+        # GitHub mode (original)
+        print(f"\n{'='*60}\naudit-phase [GITHUB]: Phase {args.phase} | repo={args.repo}\n{'='*60}")
+        fetcher = GitHubFetcher(repo=args.repo, branch=args.branch)
+        repo_info = fetcher.get_repo_info()
+        if not repo_info:
+            print(f"[ERROR] Cannot access repo: {args.repo} (check gh auth status)")
+            return 1
 
     auditor = PhaseAuditor(fetcher=fetcher, phase=args.phase)
     result = auditor.run_all_checks()
@@ -4986,8 +4994,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Audit a phase against GitHub artifacts (8-dimension PhaseAuditor check)",
     )
     ap.add_argument("--phase",  type=int, required=True, help="Phase number to audit (1-8)")
-    ap.add_argument("--repo",   required=True,
-                    help="GitHub repo in owner/repo format (e.g. johnnylugm-tech/my-project)")
+    _ap_src = ap.add_mutually_exclusive_group(required=True)
+    _ap_src.add_argument(
+        "--repo",
+        help="GitHub repo in owner/repo format (e.g. johnnylugm-tech/my-project)"
+    )
+    _ap_src.add_argument(
+        "--project",
+        metavar="PATH",
+        help="Local project root path for on-machine audit (e.g. /path/to/project)"
+    )
     ap.add_argument("--branch", default="main", help="Target branch (default: main)")
     ap.add_argument("--output", choices=["markdown", "json"], default="markdown",
                     help="Output format (default: markdown)")
