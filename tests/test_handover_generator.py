@@ -911,12 +911,17 @@ class TestCmdAdvancePhase:
                 "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier",
                 _FakeVer,
             )
-            # Phase Auditor needs real project structure — mock it for
-            # tmp_path tests that test advance-phase specific behaviors.
-            # Set mock_auditor=False for tests that specifically test C1/C11.
+            # Phase Auditor and Agent B approval check need real project
+            # structure — mock both for tmp_path tests that test advance-phase
+            # specific behaviors.
+            # Set mock_auditor=False for tests that specifically test C1/C11/agent-B.
             if mock_auditor:
                 monkeypatch.setattr(
                     "harness_cli._run_phase_auditor", lambda project, phase: 0,
+                )
+                monkeypatch.setattr(
+                    "harness_cli._verify_agent_b_approvals_core",
+                    lambda project, phase, ids: (True, "mocked"),
                 )
         a = _Args()
         a.completed_phase = completed

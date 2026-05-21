@@ -337,8 +337,9 @@ class TestI1LifecycleIntegration:
         state = {"phase": 1, "last_gate": 0}
         (state_dir / "state.json").write_text(json.dumps(state))
 
-        # Mock auditor: test focuses on checksum logic, not deliverable checks
-        with patch("harness_cli._run_phase_auditor", return_value=0):
+        # Mock auditor + agent-B: test focuses on checksum logic only
+        with patch("harness_cli._run_phase_auditor", return_value=0), \
+             patch("harness_cli._verify_agent_b_approvals_core", return_value=(True, "mocked")):
             code = _advance_prechecks(tmp_path, 1)
         assert code == 0, "expected P1 advance to proceed"
 
@@ -355,8 +356,9 @@ class TestI1LifecycleIntegration:
         state = {"phase": 1}
         (state_dir / "state.json").write_text(json.dumps(state))
 
-        # Mock auditor: test focuses on checksum skip logic, not deliverable checks
-        with patch("harness_cli._run_phase_auditor", return_value=0):
+        # Mock auditor + agent-B: test focuses on checksum skip logic only
+        with patch("harness_cli._run_phase_auditor", return_value=0), \
+             patch("harness_cli._verify_agent_b_approvals_core", return_value=(True, "mocked")):
             code = _advance_prechecks(tmp_path, 1)
         assert code == 0
 

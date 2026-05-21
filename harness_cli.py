@@ -3167,7 +3167,8 @@ def _run_phase_auditor(project: Path, completed_phase: int) -> int:
 
 
 def _advance_prechecks(project: Path, completed_phase: int) -> int:
-    """Run pre-advance checks: gate variance, Phase Truth, PhaseAuditor C1-C12, TDD.
+    """Run pre-advance checks: Agent B approvals, gate variance, Phase Truth,
+    PhaseAuditor C1-C12, TDD.
 
     Returns 0 if all checks pass, non-zero exit code on first failure:
       7  = C11 CRITICAL (unchecked plan items)
@@ -3176,6 +3177,7 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
       10 = spec-coverage below phase threshold (P3+)
       11 = Phase Truth < 90% (P3+)
       12 = D4 test-inventory below phase threshold (P3+)
+      13 = Agent B approvals missing / rejected (P1/P2)
     """
     # ── P1 checksum: TEST_INVENTORY.yaml baseline ────────────────────
     if completed_phase == 1:
@@ -3227,6 +3229,25 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
     audit_rc = _run_phase_auditor(project, completed_phase)
     if audit_rc != 0:
         return audit_rc
+
+    # ── Agent B approvals (P1/P2) — after C1 so deliverables confirmed ──
+    if completed_phase in (1, 2):
+        deliverable_ids = _PHASE_DELIVERABLES.get(completed_phase, [])
+        if deliverable_ids:
+            passed_ab, report_ab = _verify_agent_b_approvals_core(
+                project, completed_phase, deliverable_ids
+            )
+            if not passed_ab:
+                print(f"\n[BLOCKED] Agent B approvals incomplete for Phase {completed_phase}:")
+                print(report_ab)
+                print(
+                    f"\n  Each deliverable needs "
+                    f".methodology/agent_b_approvals/<id>.json "
+                    f"with review_status=APPROVE and "
+                    f"docs_embedded containing the required source documents."
+                )
+                return 13
+            print(f"  [Agent B] Phase {completed_phase} approvals verified ✓")
 
     # ── TDD checks: pytest + coverage, spec-coverage, D4 (P3+) ──────
     if completed_phase >= 3:

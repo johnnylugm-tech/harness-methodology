@@ -1055,11 +1055,13 @@ class TestAdvancePrechecksTDD:
         assert rc == 12
 
     def test_tdd_block_not_run_for_p2(self, tmp_path, monkeypatch):
-        """P2 does not execute TDD block — returns 0 after PhaseAuditor."""
+        """P2 does not execute TDD block — returns 0 after PhaseAuditor + agent-B."""
         from harness_cli import _advance_prechecks
 
         (tmp_path / ".methodology").mkdir()
         monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
+        monkeypatch.setattr("harness_cli._verify_agent_b_approvals_core",
+                            lambda p, ph, ids: (True, "mocked"))
 
         rc = _advance_prechecks(tmp_path, completed_phase=2)
         assert rc == 0
@@ -1126,6 +1128,90 @@ class TestAdvancePrechecksTDD:
         _advance_prechecks(tmp_path, completed_phase=6)
         assert captured["sc"] == 90.0
         assert captured["d4"] == 90.0
+
+
+# =============================================================================
+# _advance_prechecks — Agent B approvals (P1/P2)
+# =============================================================================
+
+class TestAdvancePreChecksAgentB:
+    """Agent B approval gate in _advance_prechecks for P1/P2."""
+
+    def _mock_p1_prechecks(self, monkeypatch):
+        """Patch non-AB checks so only AB check is exercised."""
+        monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
+
+    def test_p1_missing_approvals_returns_13(self, tmp_path, monkeypatch):
+        """P1 with no agent_b_approvals/ → returns 13."""
+        from harness_cli import _advance_prechecks
+        (tmp_path / ".methodology").mkdir()
+        self._mock_p1_prechecks(monkeypatch)
+        rc = _advance_prechecks(tmp_path, completed_phase=1)
+        assert rc == 13
+
+    def test_p1_approved_returns_0(self, tmp_path, monkeypatch):
+        """P1 with all approvals APPROVE → proceeds (returns 0)."""
+        from harness_cli import _advance_prechecks, _PHASE_DELIVERABLES
+        import json
+
+        method_dir = tmp_path / ".methodology"
+        (method_dir / "agent_b_approvals").mkdir(parents=True)
+        for did in _PHASE_DELIVERABLES[1]:
+            (method_dir / "agent_b_approvals" / f"{did}.json").write_text(
+                json.dumps({"review_status": "APPROVE", "docs_embedded": ["SRS.md"]}),
+                encoding="utf-8",
+            )
+
+        # Also need TEST_INVENTORY.yaml for checksum step
+        (tmp_path / "TEST_INVENTORY.yaml").write_text("tests: []")
+        (method_dir / "state.json").write_text(json.dumps({"state": "ACTIVE"}))
+        self._mock_p1_prechecks(monkeypatch)
+        rc = _advance_prechecks(tmp_path, completed_phase=1)
+        assert rc == 0
+
+    def test_p2_rejected_approval_returns_13(self, tmp_path, monkeypatch):
+        """P2 with one REJECT approval → returns 13."""
+        from harness_cli import _advance_prechecks, _PHASE_DELIVERABLES
+        import json
+
+        method_dir = tmp_path / ".methodology"
+        (method_dir / "agent_b_approvals").mkdir(parents=True)
+        for i, did in enumerate(_PHASE_DELIVERABLES[2]):
+            status = "REJECT" if i == 0 else "APPROVE"
+            (method_dir / "agent_b_approvals" / f"{did}.json").write_text(
+                json.dumps({
+                    "review_status": status,
+                    "docs_embedded": ["SRS.md", "SAD.md"],
+                }),
+                encoding="utf-8",
+            )
+
+        self._mock_p1_prechecks(monkeypatch)
+        rc = _advance_prechecks(tmp_path, completed_phase=2)
+        assert rc == 13
+
+    def test_p3_skips_agent_b_check(self, tmp_path, monkeypatch):
+        """P3+ does not run Agent B check (A/B removed from P3+)."""
+        from harness_cli import _advance_prechecks
+
+        (tmp_path / ".methodology").mkdir()
+        monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
+        monkeypatch.setattr("harness_cli._check_gate_score_variance", lambda p, ph: 0)
+        monkeypatch.setattr(
+            "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier",
+            type("FV", (), {
+                "__init__": lambda s, p, ph: None,
+                "verify": lambda s: {"passed": True, "total_score": 100.0},
+            }),
+        )
+        monkeypatch.setattr("harness_cli._run_spec_coverage_check",
+                            lambda p, t, **kw: (0, 100.0))
+        monkeypatch.setattr("harness_cli._run_test_inventory_check",
+                            lambda p, t, **kw: (0, 100.0))
+
+        # No agent_b_approvals dir at all — should not matter for P3
+        rc = _advance_prechecks(tmp_path, completed_phase=3)
+        assert rc == 0
 
 
 class TestAuditPhaseFailOnCritical:
