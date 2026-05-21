@@ -3164,8 +3164,12 @@ def _generate_stage_pass(project_path: Path, gate_num: int, phase_num: int) -> N
 def _run_phase_auditor(project: Path, completed_phase: int) -> int:
     """Run PhaseAuditor (local mode) — comprehensive replacement for _run_phase_end_audit().
 
-    Returns: 0=pass, 1=CRITICAL findings found, 2=error/import-failure.
-    CRITICAL findings block advance-phase; warnings are advisory only.
+    Returns:
+      0  = all checks pass
+      7  = C11 CRITICAL (unchecked plan items)
+      8  = C1 CRITICAL (deliverables missing / untracked)
+      1  = other CRITICAL findings
+      2  = error / import failure
     """
     try:
         from scripts.phase_auditor import PhaseAuditor, LocalFetcher
@@ -3176,12 +3180,23 @@ def _run_phase_auditor(project: Path, completed_phase: int) -> int:
     try:
         fetcher = LocalFetcher(project_root=str(project))
         auditor = PhaseAuditor(fetcher=fetcher, phase=completed_phase)
-        result = auditor.run_all_checks()
+
+        # P1/P2: final deliverables only (C1 + git tracking)
+        if completed_phase <= 2:
+            auditor.check_c1_deliverables()
+            auditor._calculate_score()
+            result = auditor.result
+        else:
+            result = auditor.run_all_checks()
 
         criticals = result.criticals()
         warnings  = result.warnings()
 
         if criticals:
+            # Route exit code by check_id for semantic consistency
+            c1_criticals  = [c for c in criticals if c.check_id == "C1"]
+            c11_criticals = [c for c in criticals if c.check_id == "C11"]
+
             print(f"\n  [PHASE-AUDITOR] ❌ {len(criticals)} CRITICAL finding(s) — must fix:")
             for c in criticals[:5]:
                 print(f"    ❌ [{c.check_id}] {c.title}")
@@ -3190,6 +3205,13 @@ def _run_phase_auditor(project: Path, completed_phase: int) -> int:
             print(f"\n  Full report:")
             print(f"    python harness_cli.py audit-phase --phase {completed_phase}"
                   f" --project {project}")
+
+            if c1_criticals:
+                print(f"\n  [BLOCKED] {len(c1_criticals)} deliverable(s) missing/untracked.")
+                return 8
+            if c11_criticals:
+                print(f"\n  [BLOCKED] {len(c11_criticals)} plan item(s) incomplete.")
+                return 7
             return 1
 
         if warnings:
@@ -3203,85 +3225,11 @@ def _run_phase_auditor(project: Path, completed_phase: int) -> int:
 
 
 def _advance_prechecks(project: Path, completed_phase: int) -> int:
-    """Run pre-advance checks: plan completion, deliverables, gate variance, Phase Truth.
+    """Run pre-advance checks: gate variance, Phase Truth, PhaseAuditor C1-C12.
 
     Returns 0 if all checks pass, non-zero exit code on first failure
-    (7=incomplete plan, 8=missing deliverables, 11=Phase Truth < 90%).
+    (7=incomplete plan [C11], 8=missing deliverables [C1], 11=Phase Truth < 90%).
     """
-    # ── Plan completion audit ─────────────────────────────────────────
-    plan_path = project / ".methodology" / f"phase{completed_phase}_plan.md"
-    if plan_path.exists():
-        plan_text = plan_path.read_text(encoding="utf-8", errors="replace")
-        unchecked = re.findall(r'^- \[ \] (.+)$', plan_text, re.MULTILINE)
-        skip_patterns = [
-            r'^\[A-DISPATCH\]', r'^\[B-DISPATCH\]',
-            r'^\[INFO\]',
-            r'^Gate \d+.*score',
-            r'^Phase \d+.*complete',
-        ]
-        actual_gaps = []
-        for item in unchecked:
-            if not any(re.match(p, item) for p in skip_patterns):
-                actual_gaps.append(item)
-        if actual_gaps:
-            print(f"\n[advance-phase] ⚠ Plan completion audit: "
-                  f"{len(actual_gaps)} unchecked items in "
-                  f"phase{completed_phase}_plan.md")
-            for gap in actual_gaps[:10]:
-                print(f"   - [ ] {gap}")
-            if len(actual_gaps) > 10:
-                print(f"   ... and {len(actual_gaps) - 10} more")
-            if completed_phase >= 3:
-                print(f"\n[BLOCKED] {len(actual_gaps)} plan steps incomplete "
-                      f"— review and check off all items before advancing.")
-                return 7
-            print("   (proceeding: P1/P2 human-gated)")
-
-    # ── Deliverable check: must exist on disk AND be git-tracked ────────
-    try:
-        from core.quality_gate.phase_artifact_enforcer import (
-            PhaseArtifactRegistry,
-            Phase as _Phase,
-        )
-        registry = PhaseArtifactRegistry(str(project))
-        _phase_map = {1: "SPECIFY", 2: "PLAN", 3: "IMPLEMENT",
-                      4: "VERIFY", 5: "SYSTEM_TEST", 6: "QUALITY",
-                      7: "RISK", 8: "CONFIG"}
-        _phase_name = _phase_map.get(completed_phase, "UNKNOWN")
-        _phase_enum = getattr(_Phase, _phase_name, None)
-        if _phase_enum is not None:
-            artifacts = registry.PHASE_ARTIFACTS.get(_phase_enum, {}).get("artifacts", [])
-            missing_not_exist = [a for a in artifacts if not (project / a).exists()]
-            missing_untracked = [
-                a for a in artifacts
-                if (project / a).exists()
-                and subprocess.run(
-                    ["git", "ls-files", "--error-unmatch", a],
-                    capture_output=True, cwd=project
-                ).returncode != 0
-            ]
-            if missing_not_exist:
-                print(f"\n[advance-phase] ❌ Deliverables not created (Phase {completed_phase}):")
-                for m in missing_not_exist:
-                    print(f"   - {m}")
-            if missing_untracked:
-                print(f"\n[advance-phase] ⚠  Deliverables on disk but NOT committed (Phase {completed_phase}):")
-                for m in missing_untracked:
-                    print(f"   - {m}  ← git add && git commit required")
-            if missing_not_exist or missing_untracked:
-                if completed_phase >= 3:
-                    total = len(missing_not_exist) + len(missing_untracked)
-                    print(f"\n[BLOCKED] {total} deliverable(s) incomplete "
-                          f"— create and commit all required files before advancing.")
-                    return 8
-                print("   (proceeding: P1/P2 human-gated)")
-    except ImportError:
-        print("[advance-phase] ⚠ PhaseArtifactRegistry unavailable — "
-              "skipping deliverable check")
-    except Exception as _exc:
-        print(f"[advance-phase] ⚠ Deliverable check error ({_exc}) — "
-              "skipping, manual verification recommended")
-
     # ── P1 checksum: TEST_INVENTORY.yaml baseline ────────────────────
     if completed_phase == 1:
         inventory_path = project / "TEST_INVENTORY.yaml"
@@ -3328,11 +3276,10 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
         except Exception as e:
             print(f"  [WARN] Phase Truth check failed: {e} — proceeding without block")
 
-    # ── Phase Auditor C1-C12 (P3+ comprehensive check) ───────────────
-    if completed_phase >= 3:
-        audit_rc = _run_phase_auditor(project, completed_phase)
-        if audit_rc != 0:
-            return audit_rc
+    # ── Phase Auditor: C1-only for P1/P2, full C1-C12 for P3+ ───────────
+    audit_rc = _run_phase_auditor(project, completed_phase)
+    if audit_rc != 0:
+        return audit_rc
 
     return 0
 

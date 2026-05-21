@@ -559,3 +559,170 @@ class TestC12GitMilestones:
         a = self._make(3, [])
         a.check_c12_git_milestones()
         assert any(f.severity == "WARNING" for f in a.result.findings if f.check_id == "C12")
+
+
+# ── C5 P3: TDD log depth ─────────────────────────────────────────────────────
+
+class TestC5P3TddDepth:
+    def _make(self, devlog: str | None):
+        files = {"DEVELOPMENT_LOG.md": devlog} if devlog is not None else {}
+        return PhaseAuditor(FakeGitHubFetcher(files), 3)
+
+    def test_missing_devlog_warning(self):
+        a = self._make(None)
+        a.check_c5_content_depth()
+        assert any(f.check_id == "C5" and f.severity == "WARNING"
+                   for f in a.result.findings)
+
+    def test_rich_tdd_log_passes(self):
+        a = self._make("## RED phase\n## GREEN phase\ntest commit passed pytest")
+        a.check_c5_content_depth()
+        assert any(f.check_id == "C5" and f.severity == "PASS"
+                   for f in a.result.findings)
+
+    def test_no_tdd_evidence_critical(self):
+        a = self._make("We implemented the feature and it works great.")
+        a.check_c5_content_depth()
+        assert any(f.check_id == "C5" and f.severity == "CRITICAL"
+                   for f in a.result.findings)
+
+    def test_single_pattern_warning(self):
+        # Only \bRED\b matches (no GREEN/REFACTOR/test-commit/TR/etc.)
+        a = self._make("## RED phase — implementation done")
+        a.check_c5_content_depth()
+        c5 = [f for f in a.result.findings if f.check_id == "C5"]
+        assert any(f.severity == "WARNING" for f in c5)
+        assert not any(f.severity == "CRITICAL" for f in c5)
+
+
+# ── C5 P2: SAD FR coverage ───────────────────────────────────────────────────
+
+class TestC5P2SadFrCoverage:
+    def _make(self, sad=None, manifest=None, srs=None):
+        files = {}
+        if sad is not None:
+            files["02-architecture/SAD.md"] = sad
+        if manifest is not None:
+            files[".methodology/quality_manifest.json"] = json.dumps(manifest)
+        if srs is not None:
+            files["01-requirements/SRS.md"] = srs
+        return PhaseAuditor(FakeGitHubFetcher(files), 2)
+
+    def test_no_sad_skips(self):
+        a = self._make()
+        a.check_c5_content_depth()
+        assert not any(f.check_id == "C5" for f in a.result.findings)
+
+    def test_full_fr_coverage_passes(self):
+        a = self._make(
+            "Module Architecture FR-01 covers login. FR-02 covers profile.",
+            manifest={"fr_ids": ["FR-01", "FR-02"]},
+        )
+        a.check_c5_content_depth()
+        assert any(f.check_id == "C5" and f.severity == "PASS"
+                   and "2/2" in f.title for f in a.result.findings)
+
+    def test_partial_coverage_warning_or_critical(self):
+        a = self._make(
+            "Module Architecture FR-01 mentioned.",
+            manifest={"fr_ids": ["FR-01", "FR-02", "FR-03", "FR-04"]},
+        )
+        a.check_c5_content_depth()
+        assert any(f.check_id == "C5" and f.severity in ("WARNING", "CRITICAL")
+                   for f in a.result.findings)
+
+    def test_no_fr_ids_info(self):
+        a = self._make("Module Architecture", manifest={"fr_ids": []})
+        a.check_c5_content_depth()
+        assert any(f.check_id == "C5" and f.severity == "INFO"
+                   for f in a.result.findings)
+
+    def test_srs_fallback_coverage(self):
+        a = self._make(
+            "Module Architecture FR-01 FR-02.",
+            srs="## FR-01 Login\n## FR-02 Profile\n",
+        )
+        a.check_c5_content_depth()
+        assert any(f.check_id == "C5" and f.severity == "PASS"
+                   for f in a.result.findings)
+
+
+# ── C5 P4: TEST_RESULTS depth ────────────────────────────────────────────────
+
+class TestC5P4TestResultsDepth:
+    def _make(self, plan=None, results=None):
+        files = {}
+        if plan is not None:
+            files["04-testing/TEST_PLAN.md"] = plan
+        if results is not None:
+            files["04-testing/TEST_RESULTS.md"] = results
+        return PhaseAuditor(FakeGitHubFetcher(files), 4)
+
+    def test_missing_results_critical(self):
+        a = self._make("TC-01 TC-02 TC-03", None)
+        a.check_c5_content_depth()
+        assert any(f.check_id == "C5" and f.severity == "CRITICAL"
+                   for f in a.result.findings)
+
+    def test_full_results_passes(self):
+        a = self._make(
+            "TC-01 TC-02 TC-03",
+            "42 passed, 0 failed\nTC-01 PASS\nTC-02 PASS\nTC-03 PASS\nTC-04 PASS",
+        )
+        a.check_c5_content_depth()
+        assert any(f.check_id == "C5" and f.severity == "PASS"
+                   for f in a.result.findings)
+
+    def test_missing_rate_warning(self):
+        a = self._make("TC-01", "TC-01 done. TC-02 done. TC-03 done. No pass count.")
+        a.check_c5_content_depth()
+        assert any(f.check_id == "C5" and f.severity == "WARNING"
+                   for f in a.result.findings)
+
+
+# ── C1: git tracking ─────────────────────────────────────────────────────────
+
+class TestC1GitTracking:
+    def _make_local(self, tmp_path, files: dict, tracked: list):
+        for rel, content in files.items():
+            p = tmp_path / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(content)
+        from scripts.phase_auditor import LocalFetcher as LF
+        fetcher = LF(project_root=str(tmp_path))
+        fetcher._is_git_tracked = lambda p: p in tracked
+        return PhaseAuditor(fetcher, 3)
+
+    def test_tracked_file_no_git_critical(self, tmp_path):
+        a = self._make_local(
+            tmp_path,
+            {"DEVELOPMENT_LOG.md": "content"},
+            tracked=["DEVELOPMENT_LOG.md"],
+        )
+        a.check_c1_deliverables()
+        assert not any(
+            f.check_id == "C1" and f.severity == "CRITICAL"
+            and "git" in f.title.lower()
+            for f in a.result.findings
+        )
+
+    def test_untracked_required_file_critical(self, tmp_path):
+        a = self._make_local(
+            tmp_path,
+            {"DEVELOPMENT_LOG.md": "content"},
+            tracked=[],
+        )
+        a.check_c1_deliverables()
+        assert any(
+            f.check_id == "C1" and f.severity == "CRITICAL"
+            and "git" in (f.title + f.detail).lower()
+            for f in a.result.findings
+        )
+
+    def test_remote_fetcher_skips_git_check(self):
+        a = PhaseAuditor(FakeGitHubFetcher({"DEVELOPMENT_LOG.md": "content"}), 3)
+        a.check_c1_deliverables()
+        assert not any(
+            "git" in (f.title + f.detail).lower()
+            for f in a.result.findings
+        )

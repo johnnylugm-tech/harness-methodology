@@ -328,6 +328,7 @@ class TestI1LifecycleIntegration:
     def test_advance_phase_p1_checksum(self, tmp_path: Path):
         """P1 advance-phase writes test_inventory_checksum to state.json."""
         from harness_cli import _advance_prechecks
+        from unittest.mock import patch
         (tmp_path / "TEST_INVENTORY.yaml").write_text(
             "format_version: '1.0'\nfr_tests:\n  FR-01:\n    unit:\n      - test_a\n"
         )
@@ -336,7 +337,9 @@ class TestI1LifecycleIntegration:
         state = {"phase": 1, "last_gate": 0}
         (state_dir / "state.json").write_text(json.dumps(state))
 
-        code = _advance_prechecks(tmp_path, 1)
+        # Mock auditor: test focuses on checksum logic, not deliverable checks
+        with patch("harness_cli._run_phase_auditor", return_value=0):
+            code = _advance_prechecks(tmp_path, 1)
         assert code == 0, "expected P1 advance to proceed"
 
         updated = json.loads((state_dir / "state.json").read_text())
@@ -346,12 +349,15 @@ class TestI1LifecycleIntegration:
     def test_advance_phase_p1_no_inventory_skips(self, tmp_path: Path):
         """P1 advance without TEST_INVENTORY.yaml does not write checksum."""
         from harness_cli import _advance_prechecks
+        from unittest.mock import patch
         state_dir = tmp_path / ".methodology"
         state_dir.mkdir(parents=True)
         state = {"phase": 1}
         (state_dir / "state.json").write_text(json.dumps(state))
 
-        code = _advance_prechecks(tmp_path, 1)
+        # Mock auditor: test focuses on checksum skip logic, not deliverable checks
+        with patch("harness_cli._run_phase_auditor", return_value=0):
+            code = _advance_prechecks(tmp_path, 1)
         assert code == 0
 
         updated = json.loads((state_dir / "state.json").read_text())

@@ -81,7 +81,7 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
             (["TEST_INVENTORY.yaml"],
              "TEST_INVENTORY.yaml -- Test Specification Inventory", True),
             (["00-summary/Phase1_STAGE_PASS.md"],
-             "Phase1_STAGE_PASS.md -- Phase pass certificate", True),
+             "Phase1_STAGE_PASS.md -- Phase pass certificate", False),
         ],
         "thresholds": {
             "TH-01": ("ASPICE Compliance Rate", ">80%"),
@@ -113,7 +113,7 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
             (["DEVELOPMENT_LOG.md"], "DEVELOPMENT_LOG.md", True),
             ([".methodology/sessions_spawn.log", "sessions_spawn.log"], ".methodology/sessions_spawn.log", True),
             (["00-summary/Phase2_STAGE_PASS.md"],
-             "Phase2_STAGE_PASS.md -- Phase pass certificate", True),
+             "Phase2_STAGE_PASS.md -- Phase pass certificate", False),
         ],
         "thresholds": {
             "TH-01": ("ASPICE Compliance Rate", ">80%"),
@@ -444,7 +444,7 @@ class LocalFetcher:
         return self._tree
 
     def file_exists(self, path: str) -> bool:
-        return (self.project_root / path).is_file()
+        return (self.project_root / path.rstrip("/")).exists()
 
     def resolve_path(self, candidates: list[str]) -> Optional[str]:
         for path in candidates:
@@ -493,6 +493,15 @@ class LocalFetcher:
 
     def get_repo_info(self) -> dict:
         return {"name": self.project_root.name, "full_name": str(self.project_root)}
+
+    def _is_git_tracked(self, rel_path: str) -> bool:
+        """Return True if rel_path is tracked by git (committed at least once)."""
+        result = subprocess.run(  # nosec B603 B607
+            ["git", "-C", str(self.project_root), "ls-files",
+             "--error-unmatch", rel_path],
+            capture_output=True
+        )
+        return result.returncode == 0
 
 
 # ─────────────────────────────────────────────
@@ -547,6 +556,18 @@ class PhaseAuditor:
                     title=f"✅ {description}",
                     detail=f"Found: {path}",
                 ))
+                # Git tracking check (LocalFetcher only; directories exempt)
+                if getattr(self.gh, "is_local", False):
+                    full = getattr(self.gh, "project_root") / path  # type: ignore[operator]
+                    if full.is_file() and not getattr(self.gh, "_is_git_tracked")(path):
+                        self.result.add(Finding(
+                            check_id="C1",
+                            dimension="Deliverable Completeness",
+                            severity="CRITICAL" if required else "WARNING",
+                            title=f"{'❌' if required else '⚠️'} {Path(path).name} on disk but NOT git-tracked.",
+                            detail=f"Run: git add {path} && git commit",
+                            rule_ref="HR-08" if required else "",
+                        ))
             elif required:
                 self.result.add(Finding(
                     check_id="C1",
@@ -1036,9 +1057,11 @@ class PhaseAuditor:
             self._check_sad_depth()
 
         elif phase in [3, 4]:
-            # check test-related documents
-            if phase == 4:
+            if phase == 3:
+                self._check_tdd_log_depth()
+            else:  # phase == 4
                 self._check_test_plan_depth()
+                self._check_test_results_depth()
 
         elif phase == 5:
             self._check_baseline_depth()
@@ -1171,28 +1194,105 @@ class PhaseAuditor:
                 detail="",
             ))
 
-    def _check_sad_depth(self):
-        content = self._content(["02-architecture/SAD.md"])
+    def _check_tdd_log_depth(self):
+        """C5 P3: Verify DEVELOPMENT_LOG.md contains TDD evidence."""
+        content = self._content(["DEVELOPMENT_LOG.md"])
         if not content:
-            return
-        required = ["Module", "Architecture", "FR-"]
-        missing = [kw for kw in required if kw not in content]
-        if not missing:
             self.result.add(Finding(
-                check_id="C5",
-                dimension="Document Content Depth",
+                check_id="C5", dimension="Document Content Depth",
+                severity="WARNING",
+                title="DEVELOPMENT_LOG.md missing — TDD evidence unverifiable.",
+                detail="",
+            ))
+            return
+
+        tdd_patterns = [
+            r"\bRED\b", r"\bGREEN\b", r"\bREFACTOR\b",
+            r"test[_\s]commit", r"TR-\d+", r"- \[x\].*test",
+            r"test.*pass", r"pytest.*pass",
+        ]
+        hits = [p for p in tdd_patterns if re.search(p, content, re.IGNORECASE)]
+        if len(hits) >= 2:
+            self.result.add(Finding(
+                check_id="C5", dimension="Document Content Depth",
                 severity="PASS",
-                title="SAD.md contains core architecture design content",
-                detail=f"Found keywords: {required}",
+                title=f"DEVELOPMENT_LOG.md contains TDD evidence ({len(hits)} pattern(s)).",
+                detail=f"Matched: {hits[:3]}",
+            ))
+        elif len(hits) == 1:
+            self.result.add(Finding(
+                check_id="C5", dimension="Document Content Depth",
+                severity="WARNING",
+                title="DEVELOPMENT_LOG.md has minimal TDD evidence (1 pattern).",
+                detail="Expected RED/GREEN cycle records or test commit references.",
             ))
         else:
             self.result.add(Finding(
-                check_id="C5",
-                dimension="Document Content Depth",
+                check_id="C5", dimension="Document Content Depth",
+                severity="CRITICAL",
+                title="DEVELOPMENT_LOG.md has no TDD evidence.",
+                detail="HR-06: P3 requires TDD. Log RED→GREEN cycles and test commits.",
+                rule_ref="HR-06",
+            ))
+
+    def _check_sad_depth(self):
+        """C5 P2: SAD.md structural check + FR coverage cross-check."""
+        content = self._content(["02-architecture/SAD.md"])
+        if not content:
+            return
+
+        # Structural keywords
+        required = ["Module", "Architecture", "FR-"]
+        missing_kw = [kw for kw in required if kw not in content]
+        if missing_kw:
+            self.result.add(Finding(
+                check_id="C5", dimension="Document Content Depth",
                 severity="WARNING",
-                title=f"SAD.md missing keywords: {missing}",
+                title=f"SAD.md missing keywords: {missing_kw}",
                 detail="",
             ))
+        else:
+            self.result.add(Finding(
+                check_id="C5", dimension="Document Content Depth",
+                severity="PASS",
+                title="SAD.md contains core architecture design content.",
+                detail=f"Found keywords: {required}",
+            ))
+
+        # FR coverage: extract FR IDs from quality_manifest or SRS, verify all appear in SAD
+        fr_ids: list[str] = []
+        manifest_content = self._content([".methodology/quality_manifest.json"])
+        if manifest_content:
+            try:
+                fr_ids = json.loads(manifest_content).get("fr_ids", [])
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        if not fr_ids:
+            # Fallback: extract from SRS.md
+            srs = self._content(["01-requirements/SRS.md"]) or ""
+            fr_ids = sorted(set(re.findall(r"FR-\d+", srs)))
+
+        if not fr_ids:
+            self.result.add(Finding(
+                check_id="C5", dimension="Document Content Depth",
+                severity="INFO",
+                title="SAD.md FR coverage: no FR IDs found in SRS/manifest to cross-check.",
+                detail="",
+            ))
+            return
+
+        covered = [fr for fr in fr_ids if fr in content]
+        pct = len(covered) / len(fr_ids) * 100
+        sev = "PASS" if pct >= 80 else ("WARNING" if pct >= 50 else "CRITICAL")
+        self.result.add(Finding(
+            check_id="C5", dimension="Document Content Depth",
+            severity=sev,
+            title=f"SAD.md covers {len(covered)}/{len(fr_ids)} FR IDs ({pct:.0f}%)",
+            detail=(f"Missing: {[fr for fr in fr_ids if fr not in content][:5]}"
+                    if sev != "PASS" else ""),
+            rule_ref="" if sev == "PASS" else "HR-05",
+        ))
 
     def _check_test_plan_depth(self):
         content = self._content(["04-testing/TEST_PLAN.md"])
@@ -1213,6 +1313,48 @@ class PhaseAuditor:
                 dimension="Document Content Depth",
                 severity="WARNING" if tc_count > 0 else "CRITICAL",
                 title=f"{'⚠️' if tc_count>0 else '❌'} TEST_PLAN.md only has {tc_count} TC(s) (minimum: 3)",
+                detail="",
+            ))
+
+    def _check_test_results_depth(self):
+        """C5 P4: Verify TEST_RESULTS.md contains pass rate and TC/TR references."""
+        content = self._content(["04-testing/TEST_RESULTS.md"])
+        if not content:
+            self.result.add(Finding(
+                check_id="C5", dimension="Document Content Depth",
+                severity="CRITICAL",
+                title="TEST_RESULTS.md missing — cannot verify test execution.",
+                detail="",
+                rule_ref="HR-10",
+            ))
+            return
+
+        # Pass rate: "X passed" or "pass rate: N%"
+        has_rate = bool(
+            re.search(r"\d+\s*(?:passed|pass(?:ed)?)", content, re.IGNORECASE)
+            or re.search(r"pass\s*rate[:\s]+\d+", content, re.IGNORECASE)
+        )
+        tc_refs = len(re.findall(r"TC-\d+", content))
+        tr_refs = len(re.findall(r"TR-\d+", content))
+
+        if has_rate and (tc_refs + tr_refs) >= 3:
+            self.result.add(Finding(
+                check_id="C5", dimension="Document Content Depth",
+                severity="PASS",
+                title=(f"TEST_RESULTS.md contains pass rate data and "
+                       f"{tc_refs} TC/{tr_refs} TR reference(s)."),
+                detail="",
+            ))
+        else:
+            missing = []
+            if not has_rate:
+                missing.append("pass rate")
+            if tc_refs + tr_refs < 3:
+                missing.append(f"TC/TR references (found {tc_refs}+{tr_refs})")
+            self.result.add(Finding(
+                check_id="C5", dimension="Document Content Depth",
+                severity="WARNING",
+                title=f"TEST_RESULTS.md insufficient: missing {', '.join(missing)}.",
                 detail="",
             ))
 
@@ -1770,10 +1912,9 @@ class PhaseAuditor:
         ]
 
         if unchecked:
-            sev = "CRITICAL" if len(unchecked) > 5 else "WARNING"
             self.result.add(Finding(
                 check_id="C11", dimension="Plan Checklist",
-                severity=sev,
+                severity="CRITICAL",
                 title=f"{len(unchecked)} unchecked mandatory plan item(s).",
                 detail=f"First: {unchecked[:3]}",
                 rule_ref="HR-03",

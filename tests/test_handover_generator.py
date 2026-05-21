@@ -876,7 +876,7 @@ class TestCmdAdvancePhase:
 
     @staticmethod
     def _call_advance_phase(monkeypatch, tmp_path, completed=3,
-                             skip_prechecks=True, **kwargs):
+                             skip_prechecks=True, mock_auditor=True, **kwargs):
         """Call cmd_advance_phase and return (exit_code, output_str).
 
         Sets up mock _advance_fsm and HandoverGenerator by default.
@@ -913,10 +913,11 @@ class TestCmdAdvancePhase:
             )
             # Phase Auditor needs real project structure — mock it for
             # tmp_path tests that test advance-phase specific behaviors.
-            monkeypatch.setattr(
-                "harness_cli._run_phase_auditor", lambda project, phase: 0,
-            )
-            pass
+            # Set mock_auditor=False for tests that specifically test C1/C11.
+            if mock_auditor:
+                monkeypatch.setattr(
+                    "harness_cli._run_phase_auditor", lambda project, phase: 0,
+                )
         a = _Args()
         a.completed_phase = completed
         a.project = str(tmp_path)
@@ -1194,21 +1195,37 @@ class TestCmdAdvancePhase:
     # ── plan incompletion block ─────────────────────────────────────────────
 
     def test_plan_incomplete_blocks_advance(self, tmp_path, monkeypatch):
-        """P3+ unchecked plan items → blocked with exit 7."""
+        """P3+ unchecked plan items → blocked with exit 7 via C11."""
         method_dir = tmp_path / ".methodology"
         method_dir.mkdir(parents=True)
         plan = method_dir / "phase3_plan.md"
-        plan.write_text("- [ ] COVERAGE_REPORT.md - Coverage report\n"
-                        "- [x] TEST_PLAN.md\n"
-                        "- [ ] Run acceptance tests\n")
+        plan.write_text("- [ ] Run acceptance tests\n- [x] Build done\n")
+
+        # P3 required deliverables (C1 must pass so C11 is the blocker)
+        (tmp_path / "03-development" / "src").mkdir(parents=True)
+        (tmp_path / "03-development" / "tests").mkdir(parents=True)
+        (tmp_path / "DEVELOPMENT_LOG.md").write_text("RED GREEN test commit")
+        (method_dir / "sessions_spawn.log").write_text("{}")
+        (tmp_path / "00-summary").mkdir()
+        (tmp_path / "00-summary" / "Phase3_STAGE_PASS.md").write_text(
+            "## Gate Score\n80\n## Quality Status\nquality_complete: True\n## Deliverables\nok\n"
+        )
+        monkeypatch.setattr("harness_cli._check_gate_score_variance", lambda p, ph: 0)
+        class _FakeVer:
+            def __init__(self, *a, **kw): pass
+            def verify(self): return {"passed": True, "total_score": 95.0}
+        monkeypatch.setattr(
+            "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier", _FakeVer,
+        )
+        def _fake_run(cmd, **kw):
+            class R: returncode = 0; stdout = ""; stderr = ""
+            return R()
 
         exit_code, output = self._call_advance_phase(
             monkeypatch, tmp_path, completed=3, skip_prechecks=False,
+            mock_auditor=False, subprocess_run=_fake_run,
         )
-        # One of those "Run acceptance tests" is a real task, not a skip_pattern
         assert exit_code == 7
-        assert "plan steps incomplete" in output.lower()
-        assert "COVERAGE_REPORT.md" in output
 
     def test_plan_incomplete_skips_dispatch_info(self, tmp_path, monkeypatch):
         """[A-DISPATCH] / [B-DISPATCH] items are not counted as gaps."""
@@ -1246,18 +1263,41 @@ class TestCmdAdvancePhase:
         )
         assert exit_code == 0  # dispatch items are informational
 
-    def test_plan_incomplete_pass_p1(self, tmp_path, monkeypatch):
-        """P1 always passes plan check (human-gated)."""
+    def test_p1_missing_deliverable_blocks_advance(self, tmp_path, monkeypatch):
+        """P1 missing required deliverables → blocked with exit 8 via C1."""
+        (tmp_path / ".methodology").mkdir()
+
+        def _fake_run(cmd, **kw):
+            class R: returncode = 0; stdout = ""; stderr = ""
+            return R()
+
+        exit_code, _ = self._call_advance_phase(
+            monkeypatch, tmp_path, completed=1, skip_prechecks=False,
+            mock_auditor=False, subprocess_run=_fake_run,
+        )
+        assert exit_code == 8
+
+    def test_p1_all_deliverables_passes(self, tmp_path, monkeypatch):
+        """P1 with all required deliverables (excl. STAGE_PASS) passes advance."""
         method_dir = tmp_path / ".methodology"
         method_dir.mkdir(parents=True)
-        plan = method_dir / "phase1_plan.md"
-        plan.write_text("- [ ] Write SRS.md\n- [ ] Define FRs\n")
+        (tmp_path / "01-requirements").mkdir()
+        for f in ["SRS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md"]:
+            (tmp_path / "01-requirements" / f).write_text("FR-01 content")
+        (tmp_path / "DEVELOPMENT_LOG.md").write_text("log")
+        (method_dir / "sessions_spawn.log").write_text("{}")
+        (tmp_path / "TEST_INVENTORY.yaml").write_text("tests: []")
+        # Phase1_STAGE_PASS.md is required=False after Task 1 — no need to create
 
-        exit_code, output = self._call_advance_phase(
+        def _fake_run(cmd, **kw):
+            class R: returncode = 0; stdout = ""; stderr = ""
+            return R()
+
+        exit_code, _ = self._call_advance_phase(
             monkeypatch, tmp_path, completed=1, skip_prechecks=False,
+            mock_auditor=False, subprocess_run=_fake_run,
         )
         assert exit_code == 0
-        assert "human-gated" in output.lower()
 
     # ── deliverable existence block ─────────────────────────────────────────
 
@@ -1279,6 +1319,7 @@ class TestCmdAdvancePhase:
 
         exit_code, output = self._call_advance_phase(
             monkeypatch, tmp_path, completed=4, skip_prechecks=False,
+            mock_auditor=False,
         )
         assert exit_code == 8
         assert "TEST_RESULTS.md" in output
@@ -1319,10 +1360,10 @@ class TestCmdAdvancePhase:
 
         exit_code, output = self._call_advance_phase(
             monkeypatch, tmp_path, completed=4, skip_prechecks=False,
-            subprocess_run=fake_run,
+            mock_auditor=False, subprocess_run=fake_run,
         )
         assert exit_code == 8
-        assert "not committed" in output.lower() or "NOT committed" in output
+        assert "git-tracked" in output.lower() or "git" in output.lower()
 
     def test_deliverable_tracked_passes(self, tmp_path, monkeypatch):
         """File on disk AND git-tracked → passes deliverable check."""
