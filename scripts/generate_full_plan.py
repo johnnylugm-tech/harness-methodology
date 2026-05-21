@@ -985,18 +985,6 @@ def _phase_advance_step(phase: int) -> List[str]:
     return lines
 
 
-def _phase_audit_local_step(phase: int) -> list:
-    """[PHASE-AUDIT-LOCAL] checklist item — run audit-phase locally before advance."""
-    return [
-        "- [ ] **[PHASE-AUDIT-LOCAL]** Run Phase Auditor — comprehensive artifact & process audit (local mode):",
-        "  ```bash",
-        f"  python3 harness_cli.py audit-phase --phase {phase} --project $REPO",
-        "  ```",
-        "  > CRITICAL findings must be resolved before advance-phase. WARNING findings need documented justification.",
-        "",
-    ]
-
-
 def _g1d_milestone_hint(phase: int) -> str:
     """Return the correct push-milestone type hint for the G1d note, per phase."""
     _hints: dict[int, str] = {
@@ -1335,7 +1323,6 @@ def generate_phase1_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("")
 
     lines.extend(_review_checkpoint(1, checkpoint_n=1))
-    lines.extend(_phase_audit_local_step(1))
     lines.extend(_phase_advance_step(1))
     return lines
 
@@ -1420,7 +1407,6 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("")
 
     lines.extend(_review_checkpoint(2, checkpoint_n=1))
-    lines.extend(_phase_audit_local_step(2))
     lines.extend(_phase_advance_step(2))
     return lines
 
@@ -1532,8 +1518,7 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("- [ ] Gate 2 PASS (phase exit, composite ≥ 75)")
     lines.append("")
 
-    lines.extend(_phase_audit_local_step(3))
-
+    # audit-phase runs inside advance-phase — no separate local step needed
     lines.extend(_phase_advance_step(3))
     return lines
 
@@ -1668,8 +1653,7 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.extend(_aspice_output_requirements(4))
     lines.append("")
 
-    lines.extend(_phase_audit_local_step(4))
-
+    # audit-phase runs inside advance-phase — no separate local step needed
     lines.extend(_phase_advance_step(4))
     return lines
 
@@ -1733,8 +1717,7 @@ def generate_phase5_tasks(repo_path: Path) -> List[str]:
     lines.extend(_aspice_output_requirements(5))
     lines.append("")
 
-    lines.extend(_phase_audit_local_step(5))
-
+    # audit-phase runs inside advance-phase — no separate local step needed
     lines.extend(_phase_advance_step(5))
     return lines
 
@@ -1790,8 +1773,7 @@ def generate_phase6_tasks(repo_path: Path) -> List[str]:
     lines.extend(_aspice_output_requirements(6))
     lines.append("")
 
-    lines.extend(_phase_audit_local_step(6))
-
+    # audit-phase runs inside advance-phase — no separate local step needed
     lines.extend(_phase_advance_step(6))
     return lines
 
@@ -1864,8 +1846,7 @@ def generate_phase7_tasks(repo_path: Path) -> List[str]:
     lines.extend(_aspice_output_requirements(7))
     lines.append("")
 
-    lines.extend(_phase_audit_local_step(7))
-
+    # audit-phase runs inside advance-phase — no separate local step needed
     lines.extend(_phase_advance_step(7))
     return lines
 
@@ -1958,8 +1939,7 @@ def generate_phase8_tasks(repo_path: Path) -> List[str]:
     lines.extend(_aspice_output_requirements(8))
     lines.append("")
 
-    lines.extend(_phase_audit_local_step(8))
-
+    # audit-phase runs inside advance-phase — no separate local step needed
     lines.extend(_phase_advance_step(8))
     return lines
 

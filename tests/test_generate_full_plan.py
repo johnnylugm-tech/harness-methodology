@@ -401,10 +401,11 @@ class TestPhase3GateInjection:
         assert "Agent A" not in joined
 
     def test_has_phase_audit_step(self, project: Path):
-        """Phase 3 plan must include PHASE-AUDIT checkpoint."""
+        """Phase 3: audit handled by advance-phase (no separate audit-phase command)."""
         joined = "\n".join(generate_phase3_tasks(project, project / "SRS.md"))
-        assert "PHASE-AUDIT" in joined
-        assert "audit-phase --phase 3" in joined
+        assert "PHASE-AUDIT-LOCAL" not in joined
+        assert "audit-phase --phase 3" not in joined
+        assert "advance-phase --completed 3" in joined
 
     def test_has_phase_advance(self, project: Path):
         """GAP-F fix: phase advance instruction at end."""
@@ -439,9 +440,11 @@ class TestPhase4GateInjection:
         assert "QA_ENGINEER" not in joined
 
     def test_has_phase_audit_step(self, project: Path):
+        """Phase 4: audit handled by advance-phase (no separate audit-phase command)."""
         joined = "\n".join(generate_phase4_tasks(project, project / "SRS.md"))
-        assert "PHASE-AUDIT" in joined
-        assert "audit-phase --phase 4" in joined
+        assert "PHASE-AUDIT-LOCAL" not in joined
+        assert "audit-phase --phase 4" not in joined
+        assert "advance-phase --completed 4" in joined
 
     def test_has_phase_advance(self, project: Path):
         joined = "\n".join(generate_phase4_tasks(project, project / "SRS.md"))
@@ -468,9 +471,11 @@ class TestPhase5GateInjection:
         assert "Phase End Audit" in joined
 
     def test_has_phase_audit_step(self, project: Path):
+        """Phase 5: audit handled by advance-phase (no separate audit-phase command)."""
         joined = "\n".join(generate_phase5_tasks(project))
-        assert "PHASE-AUDIT" in joined
-        assert "audit-phase --phase 5" in joined
+        assert "PHASE-AUDIT-LOCAL" not in joined
+        assert "audit-phase --phase 5" not in joined
+        assert "advance-phase --completed 5" in joined
 
     def test_has_phase_advance(self, project: Path):
         joined = "\n".join(generate_phase5_tasks(project))
@@ -503,9 +508,11 @@ class TestPhase6GateInjection:
         assert "P6 Phase End Audit" in joined
 
     def test_has_phase_audit_step(self, project: Path):
+        """Phase 6: audit handled by advance-phase (no separate audit-phase command)."""
         joined = "\n".join(generate_phase6_tasks(project))
-        assert "PHASE-AUDIT" in joined
-        assert "audit-phase --phase 6" in joined
+        assert "PHASE-AUDIT-LOCAL" not in joined
+        assert "audit-phase --phase 6" not in joined
+        assert "advance-phase --completed 6" in joined
 
     def test_has_preflight(self, project: Path):
         joined = "\n".join(generate_phase6_tasks(project))
@@ -541,9 +548,11 @@ class TestPhase7GateInjection:
         assert "DEVOPS" not in joined
 
     def test_has_phase_audit_step(self, project: Path):
+        """Phase 7: audit handled by advance-phase (no separate audit-phase command)."""
         joined = "\n".join(generate_phase7_tasks(project))
-        assert "PHASE-AUDIT" in joined
-        assert "audit-phase --phase 7" in joined
+        assert "PHASE-AUDIT-LOCAL" not in joined
+        assert "audit-phase --phase 7" not in joined
+        assert "advance-phase --completed 7" in joined
 
     def test_has_phase_advance(self, project: Path):
         joined = "\n".join(generate_phase7_tasks(project))
@@ -569,9 +578,11 @@ class TestPhase8GateInjection:
         assert "DEVOPS" not in joined
 
     def test_has_phase_audit_step(self, project: Path):
+        """Phase 8: audit handled by advance-phase; final phase → Pipeline Complete."""
         joined = "\n".join(generate_phase8_tasks(project))
-        assert "PHASE-AUDIT" in joined
-        assert "audit-phase --phase 8" in joined
+        assert "PHASE-AUDIT-LOCAL" not in joined
+        assert "audit-phase --phase 8" not in joined
+        assert "Pipeline Complete" in joined
 
     def test_has_pipeline_complete(self, project: Path):
         joined = "\n".join(generate_phase8_tasks(project))
