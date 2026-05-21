@@ -752,7 +752,7 @@ def _review_checkpoint(phase: int, checkpoint_n: int) -> List[str]:
         "  - If REJECT → author fixes → re-review. Max 5 rounds (HR-12).",
         f"- [ ] **[B-PUSH]** ✅ Push to GitHub + HANDOVER.md — retry until success (CHECKPOINT-{checkpoint_n} saved):",
         "  > Run `push-checkpoint` → if blocked, read the error → fix → re-run until green.",
-        "  > Do NOT use `--no-verify` or `--skip-confidence` to bypass.",
+        "  > Do NOT use `--no-verify` to bypass.",
         "  ```bash",
         f"  python3 harness_cli.py push-checkpoint --phase {phase} --project . \\",
         "    --fr-ids FR-01,FR-02,FR-03",
@@ -941,6 +941,9 @@ def _phase_advance_step(phase: int) -> List[str]:
         7: "Risk Management", 8: "Configuration Management",
     }
     next_name = next_names.get(next_phase, f"Phase {next_phase}")
+    # TDD thresholds: mirror _advance_prechecks in harness_cli.py
+    _tdd_sc = 90.0 if phase >= 6 else (70.0 if phase >= 4 else 40.0)
+    _tdd_d4 = 90.0 if phase >= 6 else (80.0 if phase >= 4 else 60.0)
     lines = [
         f"### Phase {phase} → Phase {next_phase}: {next_name}",
         "",
@@ -962,6 +965,14 @@ def _phase_advance_step(phase: int) -> List[str]:
         *(["- [ ] **[PHASE-TRUTH]** Phase Truth ≥ 90% (HR-11) — verified by advance-phase",
            "",
            ] if phase >= 3 and phase not in _PHASE_EXIT_GATES else []),
+        # TDD prechecks: advance-phase enforces pytest 100% cov + spec-coverage + D4 (exit 9/10/12)
+        *(["- [ ] **[TDD-PRECHECK]** Verify TDD checks pass — advance-phase enforces all three:",
+           "  - `pytest --tb=short -q --cov=03-development/src --cov-fail-under=100` (exit 9)",
+           f"  - `python3 harness_cli.py spec-coverage-check --project . --threshold {_tdd_sc:.1f}` (exit 10)",
+           f"  - `python3 harness_cli.py check-test-inventory --project . --threshold {_tdd_d4:.1f} --strict` (exit 12)",
+           "  > For genuinely untestable lines add: `# pragma: no cover` (requires justification comment).",
+           "",
+           ] if phase >= 3 else []),
         f"- [ ] Advance FSM to Phase {next_phase} (writes new HANDOVER.md + local commit):",
         "  ```bash",
         f"  python3 harness_cli.py advance-phase --completed {phase} --project .",
