@@ -166,14 +166,17 @@ jobs:
             --fail-on-critical
 
       - name: TDD test execution + coverage (P3+)
-        # P3: ≥70%  P4+: ≥80%
+        # Coverage target: 100% on 03-development/src only (TDD-governed source).
+        # Use `# pragma: no cover` with explicit justification for genuine exceptions.
         if: steps.phase.outputs.phase >= 3
         run: |
-          PHASE=${{ steps.phase.outputs.phase }}
-          if [ "$PHASE" -ge 4 ]; then COV_MIN=80; else COV_MIN=70; fi
-          pytest --tb=short -q --cov --cov-fail-under=$COV_MIN || {
+          pytest --tb=short -q \
+            --cov=03-development/src \
+            --cov-fail-under=100 || {
             echo ""
-            echo "Test or coverage failure. Phase ${PHASE} requires ≥${COV_MIN}% line coverage."
+            echo "Test or coverage failure."
+            echo "TDD requires 100% coverage on 03-development/src."
+            echo "If a line is genuinely untestable, add: # pragma: no cover"
             exit 1
           }
 
