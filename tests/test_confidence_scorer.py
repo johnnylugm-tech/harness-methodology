@@ -62,8 +62,10 @@ class TestArtifactCompleteness:
         assert score == pytest.approx(200 / 3, abs=1)   # 2/3
         assert "2/3" in detail
 
-    def test_phase_with_no_required_artifacts_returns_100(self, tmp_path):
-        # Phase 3 (IMPLEMENT) has no required artifacts in the registry
+    def test_phase_with_all_artifacts_present_returns_100(self, tmp_path):
+        # Phase 3 (IMPLEMENT) requires src + tests dirs; both present → 100%
+        (tmp_path / "03-development" / "src").mkdir(parents=True)
+        (tmp_path / "03-development" / "tests").mkdir(parents=True)
         score, detail = _score_artifact_completeness(tmp_path, phase=3)
         assert score == pytest.approx(100.0)
 

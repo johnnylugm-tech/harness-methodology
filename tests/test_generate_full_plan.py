@@ -404,7 +404,7 @@ class TestPhase3GateInjection:
         """Phase 3 plan must include PHASE-AUDIT checkpoint."""
         joined = "\n".join(generate_phase3_tasks(project, project / "SRS.md"))
         assert "PHASE-AUDIT" in joined
-        assert "phase_end_audit.py --phase 3" in joined
+        assert "audit-phase --phase 3" in joined
 
     def test_has_phase_advance(self, project: Path):
         """GAP-F fix: phase advance instruction at end."""
@@ -441,7 +441,7 @@ class TestPhase4GateInjection:
     def test_has_phase_audit_step(self, project: Path):
         joined = "\n".join(generate_phase4_tasks(project, project / "SRS.md"))
         assert "PHASE-AUDIT" in joined
-        assert "phase_end_audit.py --phase 4" in joined
+        assert "audit-phase --phase 4" in joined
 
     def test_has_phase_advance(self, project: Path):
         joined = "\n".join(generate_phase4_tasks(project, project / "SRS.md"))
@@ -470,7 +470,7 @@ class TestPhase5GateInjection:
     def test_has_phase_audit_step(self, project: Path):
         joined = "\n".join(generate_phase5_tasks(project))
         assert "PHASE-AUDIT" in joined
-        assert "phase_end_audit.py --phase 5" in joined
+        assert "audit-phase --phase 5" in joined
 
     def test_has_phase_advance(self, project: Path):
         joined = "\n".join(generate_phase5_tasks(project))
@@ -505,7 +505,7 @@ class TestPhase6GateInjection:
     def test_has_phase_audit_step(self, project: Path):
         joined = "\n".join(generate_phase6_tasks(project))
         assert "PHASE-AUDIT" in joined
-        assert "phase_end_audit.py --phase 6" in joined
+        assert "audit-phase --phase 6" in joined
 
     def test_has_preflight(self, project: Path):
         joined = "\n".join(generate_phase6_tasks(project))
@@ -543,7 +543,7 @@ class TestPhase7GateInjection:
     def test_has_phase_audit_step(self, project: Path):
         joined = "\n".join(generate_phase7_tasks(project))
         assert "PHASE-AUDIT" in joined
-        assert "phase_end_audit.py --phase 7" in joined
+        assert "audit-phase --phase 7" in joined
 
     def test_has_phase_advance(self, project: Path):
         joined = "\n".join(generate_phase7_tasks(project))
@@ -571,7 +571,7 @@ class TestPhase8GateInjection:
     def test_has_phase_audit_step(self, project: Path):
         joined = "\n".join(generate_phase8_tasks(project))
         assert "PHASE-AUDIT" in joined
-        assert "phase_end_audit.py --phase 8" in joined
+        assert "audit-phase --phase 8" in joined
 
     def test_has_pipeline_complete(self, project: Path):
         joined = "\n".join(generate_phase8_tasks(project))

@@ -1518,12 +1518,6 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("- [ ] Gate 2 PASS (phase exit, composite ≥ 75)")
     lines.append("")
 
-    lines.append("- [ ] **[PHASE-AUDIT]** Run Phase End Audit:")
-    lines.append("  ```bash")
-    lines.append("  python3 scripts/phase_end_audit.py --phase 3 --project $REPO")
-    lines.append("  ```")
-    lines.append("  > Read `.methodology/audit_gaps_3.md` and fix all CRITICAL gaps before advancing.")
-    lines.append("")
     lines.extend(_phase_audit_local_step(3))
 
     lines.extend(_phase_advance_step(3))
@@ -1649,12 +1643,6 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.extend(_aspice_output_requirements(4))
     lines.append("")
 
-    lines.append("- [ ] **[PHASE-AUDIT]** Run Phase End Audit:")
-    lines.append("  ```bash")
-    lines.append("  python3 scripts/phase_end_audit.py --phase 4 --project $REPO")
-    lines.append("  ```")
-    lines.append("  > Read `.methodology/audit_gaps_4.md` and fix all CRITICAL gaps before advancing.")
-    lines.append("")
     lines.extend(_phase_audit_local_step(4))
 
     lines.extend(_phase_advance_step(4))
@@ -1720,12 +1708,6 @@ def generate_phase5_tasks(repo_path: Path) -> List[str]:
     lines.extend(_aspice_output_requirements(5))
     lines.append("")
 
-    lines.append("- [ ] **[PHASE-AUDIT]** Run Phase End Audit:")
-    lines.append("  ```bash")
-    lines.append("  python3 scripts/phase_end_audit.py --phase 5 --project $REPO")
-    lines.append("  ```")
-    lines.append("  > Read `.methodology/audit_gaps_5.md` and fix all CRITICAL gaps before advancing.")
-    lines.append("")
     lines.extend(_phase_audit_local_step(5))
 
     lines.extend(_phase_advance_step(5))
@@ -1783,12 +1765,6 @@ def generate_phase6_tasks(repo_path: Path) -> List[str]:
     lines.extend(_aspice_output_requirements(6))
     lines.append("")
 
-    lines.append("- [ ] **[PHASE-AUDIT]** Run Phase End Audit:")
-    lines.append("  ```bash")
-    lines.append("  python3 scripts/phase_end_audit.py --phase 6 --project $REPO")
-    lines.append("  ```")
-    lines.append("  > Read `.methodology/audit_gaps_6.md` and fix all CRITICAL gaps before advancing.")
-    lines.append("")
     lines.extend(_phase_audit_local_step(6))
 
     lines.extend(_phase_advance_step(6))
@@ -1863,12 +1839,6 @@ def generate_phase7_tasks(repo_path: Path) -> List[str]:
     lines.extend(_aspice_output_requirements(7))
     lines.append("")
 
-    lines.append("- [ ] **[PHASE-AUDIT]** Run Phase End Audit:")
-    lines.append("  ```bash")
-    lines.append("  python3 scripts/phase_end_audit.py --phase 7 --project $REPO")
-    lines.append("  ```")
-    lines.append("  > Read `.methodology/audit_gaps_7.md` and fix all CRITICAL gaps before advancing.")
-    lines.append("")
     lines.extend(_phase_audit_local_step(7))
 
     lines.extend(_phase_advance_step(7))
@@ -1963,12 +1933,6 @@ def generate_phase8_tasks(repo_path: Path) -> List[str]:
     lines.extend(_aspice_output_requirements(8))
     lines.append("")
 
-    lines.append("- [ ] **[PHASE-AUDIT]** Run Phase End Audit:")
-    lines.append("  ```bash")
-    lines.append("  python3 scripts/phase_end_audit.py --phase 8 --project $REPO")
-    lines.append("  ```")
-    lines.append("  > Read `.methodology/audit_gaps_8.md` and fix all CRITICAL gaps before advancing.")
-    lines.append("")
     lines.extend(_phase_audit_local_step(8))
 
     lines.extend(_phase_advance_step(8))

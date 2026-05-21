@@ -2105,6 +2105,9 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
         # so that retries don't accumulate phantom entries.
         _record_gate_timestamp(Path(args.project).resolve(), args.phase, args.gate, fr_id)
 
+        # ── Auto-generate machine STAGE_PASS.md ──────────────────────
+        _generate_stage_pass(project_path, args.gate, args.phase)
+
         # ── Auto-generate quality deliverables for Gate 4 ─────────────
         if args.gate == 4:
             try:
@@ -3115,6 +3118,90 @@ def _run_phase_end_audit(project: Path, completed_phase: int) -> int:
         return 2
 
 
+def _generate_stage_pass(project_path: Path, gate_num: int, phase_num: int) -> None:
+    """Write machine-generated 00-summary/Phase{N}_STAGE_PASS.md from quality_manifest.json.
+
+    No LLM involvement — content comes entirely from quality_manifest.json.
+    Called automatically by cmd_finalize_gate() after bridge.finalize_gate succeeds.
+    """
+    from datetime import datetime, timezone as _tz
+
+    gate_data: dict = {}
+    manifest_path = project_path / ".methodology" / "quality_manifest.json"
+    if manifest_path.exists():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            gate_data = manifest.get("gate_results", {}).get(f"gate{gate_num}", {})
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    score = gate_data.get("score", "N/A")
+    qc    = gate_data.get("quality_complete", False)
+
+    out_dir = project_path / "00-summary"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"Phase{phase_num}_STAGE_PASS.md"
+
+    content = (
+        f"# Phase {phase_num} STAGE_PASS\n\n"
+        f"Generated: {datetime.now(_tz.utc).strftime('%Y-%m-%d %H:%M UTC')}\n\n"
+        f"## Gate Score\n"
+        f"Gate {gate_num} Composite Score: **{score}**\n\n"
+        f"## Quality Status\n"
+        f"quality_complete: **{qc}**\n\n"
+        f"## Deliverables\n"
+        f"Phase {phase_num} deliverables verified by PhaseArtifactRegistry.\n\n"
+        f"## Summary\n"
+        f"Phase {phase_num} exit gate {'PASS' if qc else 'FAIL'}.\n"
+    )
+    try:
+        out_path.write_text(content, encoding="utf-8")
+        print(f"  [STAGE_PASS] Written → {out_path.relative_to(project_path)}")
+    except OSError as exc:
+        print(f"  [WARN] Could not write STAGE_PASS.md: {exc}")
+
+
+def _run_phase_auditor(project: Path, completed_phase: int) -> int:
+    """Run PhaseAuditor (local mode) — comprehensive replacement for _run_phase_end_audit().
+
+    Returns: 0=pass, 1=CRITICAL findings found, 2=error/import-failure.
+    CRITICAL findings block advance-phase; warnings are advisory only.
+    """
+    try:
+        from scripts.phase_auditor import PhaseAuditor, LocalFetcher
+    except ImportError as exc:
+        print(f"  [WARN] PhaseAuditor unavailable ({exc}) — skipping comprehensive audit")
+        return 0
+
+    try:
+        fetcher = LocalFetcher(project_root=str(project))
+        auditor = PhaseAuditor(fetcher=fetcher, phase=completed_phase)
+        result = auditor.run_all_checks()
+
+        criticals = result.criticals()
+        warnings  = result.warnings()
+
+        if criticals:
+            print(f"\n  [PHASE-AUDITOR] ❌ {len(criticals)} CRITICAL finding(s) — must fix:")
+            for c in criticals[:5]:
+                print(f"    ❌ [{c.check_id}] {c.title}")
+            if len(criticals) > 5:
+                print(f"    ... and {len(criticals) - 5} more")
+            print(f"\n  Full report:")
+            print(f"    python harness_cli.py audit-phase --phase {completed_phase}"
+                  f" --project {project}")
+            return 1
+
+        if warnings:
+            print(f"  [PHASE-AUDITOR] ⚠️  {len(warnings)} warning(s) — review recommended")
+        print(f"  [PHASE-AUDITOR] Score={result.score:.0f}%  Verdict={result.verdict} ✓")
+        return 0
+
+    except Exception as exc:
+        print(f"  [ERROR] PhaseAuditor failed unexpectedly: {exc}")
+        return 2
+
+
 def _advance_prechecks(project: Path, completed_phase: int) -> int:
     """Run pre-advance checks: plan completion, deliverables, gate variance, Phase Truth.
 
@@ -3241,9 +3328,9 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
         except Exception as e:
             print(f"  [WARN] Phase Truth check failed: {e} — proceeding without block")
 
-    # ── Phase End Audit (P3+ replaces A/B checks) ────────────────────
+    # ── Phase Auditor C1-C12 (P3+ comprehensive check) ───────────────
     if completed_phase >= 3:
-        audit_rc = _run_phase_end_audit(project, completed_phase)
+        audit_rc = _run_phase_auditor(project, completed_phase)
         if audit_rc != 0:
             return audit_rc
 

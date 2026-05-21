@@ -260,8 +260,10 @@ class TestVerifyPhaseChain:
             "# Architecture\n\nBased on SRS and SPEC_TRACKING.\n"
         )
 
-        # P3: IMPLEMENT (no mandatory document artifacts — output is code+tests)
+        # P3: IMPLEMENT — src and tests dirs are the required artifacts
         (tmp_path / "03-development").mkdir()
+        (tmp_path / "03-development" / "src").mkdir()
+        (tmp_path / "03-development" / "tests").mkdir()
 
         # P4: VERIFY (references IMPLEMENT)
         (tmp_path / "04-testing").mkdir()

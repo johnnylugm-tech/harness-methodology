@@ -90,6 +90,8 @@ class PhaseArtifactRegistry:
         },
         Phase.IMPLEMENT: {
             "artifacts": [
+                "03-development/src",
+                "03-development/tests/",
             ],
             "depends_on": [Phase.SPECIFY, Phase.PLAN],
         },
@@ -181,9 +183,20 @@ class PhaseArtifactRegistry:
         except Exception:
             pass  # is_file() or iteration error — treat as no reference found
 
+        # Traceability only applies to readable files; directory-only artifacts
+        # (e.g. code/tests dirs) are exempt from text-reference checks.
+        found_to_files = [
+            a for a in found_to if (self.project_root / a).is_file()
+        ]
         from_ok = len(found_from) > 0 or len(from_artifacts) == 0
         to_ok = len(found_to) > 0 or len(to_artifacts) == 0 or skip_to_side
-        ref_ok = ref_found or len(from_artifacts) == 0 or len(to_artifacts) == 0 or skip_to_side
+        ref_ok = (
+            ref_found
+            or len(from_artifacts) == 0
+            or len(to_artifacts) == 0
+            or skip_to_side
+            or len(found_to_files) == 0  # no readable files → skip text traceability
+        )
         passed = from_ok and to_ok and ref_ok
 
         if not from_ok:

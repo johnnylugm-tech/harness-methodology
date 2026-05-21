@@ -911,10 +911,10 @@ class TestCmdAdvancePhase:
                 "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier",
                 _FakeVer,
             )
-            # Phase End Audit needs real project structure — mock it for
+            # Phase Auditor needs real project structure — mock it for
             # tmp_path tests that test advance-phase specific behaviors.
             monkeypatch.setattr(
-                "harness_cli._run_phase_end_audit", lambda project, phase: 0,
+                "harness_cli._run_phase_auditor", lambda project, phase: 0,
             )
             pass
         a = _Args()
@@ -1218,6 +1218,10 @@ class TestCmdAdvancePhase:
         plan.write_text("- [ ] [A-DISPATCH] Dispatch Agent A\n"
                         "- [ ] [B-DISPATCH] Dispatch Agent B\n"
                         "- [x] TESTS_PASS\n")
+        # P3 deliverables: src + tests dirs now required by PhaseArtifactRegistry
+        (tmp_path / "03-development").mkdir()
+        (tmp_path / "03-development" / "src").mkdir()
+        (tmp_path / "03-development" / "tests").mkdir()
         # Phase Truth and gate variance need mocks in isolated tmp_path
         monkeypatch.setattr("harness_cli._check_gate_score_variance",
                             lambda project, phase: 0)
@@ -1229,8 +1233,16 @@ class TestCmdAdvancePhase:
             _FakeVer,
         )
 
+        def _fake_run(cmd, **kw):
+            class R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+            return R()
+
         exit_code, output = self._call_advance_phase(
             monkeypatch, tmp_path, completed=3, skip_prechecks=False,
+            subprocess_run=_fake_run,
         )
         assert exit_code == 0  # dispatch items are informational
 
@@ -1370,8 +1382,21 @@ class TestCmdAdvancePhase:
                 "scores": {"gate_score": 85.0},
             }))
 
+        # P3 deliverables: src + tests dirs now required by PhaseArtifactRegistry
+        (tmp_path / "03-development").mkdir()
+        (tmp_path / "03-development" / "src").mkdir()
+        (tmp_path / "03-development" / "tests").mkdir()
+
+        def _fake_run(cmd, **kw):
+            class R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+            return R()
+
         exit_code, output = self._call_advance_phase(
             monkeypatch, tmp_path, completed=3, skip_prechecks=False,
+            subprocess_run=_fake_run,
         )
         assert exit_code == 1
         assert "variance" in output.lower() or "identical" in output.lower()
@@ -1400,8 +1425,21 @@ class TestCmdAdvancePhase:
                 "scores": {"gate_score": score},
             }))
 
+        # P3 deliverables: src + tests dirs now required by PhaseArtifactRegistry
+        (tmp_path / "03-development").mkdir()
+        (tmp_path / "03-development" / "src").mkdir()
+        (tmp_path / "03-development" / "tests").mkdir()
+
+        def _fake_run(cmd, **kw):
+            class R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+            return R()
+
         exit_code, output = self._call_advance_phase(
             monkeypatch, tmp_path, completed=3, skip_prechecks=False,
+            subprocess_run=_fake_run,
         )
         assert exit_code == 0
         assert "variance ok" in output.lower()
