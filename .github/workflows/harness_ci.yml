@@ -134,7 +134,7 @@ jobs:
             }
 
   phase-quality-gate:
-    name: Phase Quality Gate (C1/C2/C4/C5/C9)
+    name: Phase Quality Gate (C1/C2/C4/C5/C9 + TDD links + coverage)
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
@@ -147,7 +147,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install pytest pyyaml
+          pip install pytest pytest-cov pyyaml
           pip install -r requirements.txt || true
 
       - name: Get current phase
@@ -165,9 +165,47 @@ jobs:
             --project . \
             --fail-on-critical
 
-      - name: TDD test execution (P3+)
+      - name: TDD test execution + coverage (P3+)
+        # P3: ≥70%  P4+: ≥80%
         if: steps.phase.outputs.phase >= 3
-        run: pytest --tb=short -q
+        run: |
+          PHASE=${{ steps.phase.outputs.phase }}
+          if [ "$PHASE" -ge 4 ]; then COV_MIN=80; else COV_MIN=70; fi
+          pytest --tb=short -q --cov --cov-fail-under=$COV_MIN || {
+            echo ""
+            echo "Test or coverage failure. Phase ${PHASE} requires ≥${COV_MIN}% line coverage."
+            exit 1
+          }
+
+      - name: TDD forward link — TEST_SPEC → tests/ (P3+)
+        # spec-coverage: P3=40%  P4-P5=70%  P6+=90%
+        if: steps.phase.outputs.phase >= 3
+        run: |
+          PHASE=${{ steps.phase.outputs.phase }}
+          if [ "$PHASE" -ge 6 ]; then
+            SC_THRESH=90.0
+          elif [ "$PHASE" -ge 4 ]; then
+            SC_THRESH=70.0
+          else
+            SC_THRESH=40.0
+          fi
+          python harness_cli.py spec-coverage-check \
+            --project . --threshold $SC_THRESH
+
+      - name: TDD backward link — TEST_INVENTORY → tests/ (P3+)
+        # D4 inventory: P3=60%  P4-P5=80%  P6+=90%
+        if: steps.phase.outputs.phase >= 3
+        run: |
+          PHASE=${{ steps.phase.outputs.phase }}
+          if [ "$PHASE" -ge 6 ]; then
+            D4_THRESH=90.0
+          elif [ "$PHASE" -ge 4 ]; then
+            D4_THRESH=80.0
+          else
+            D4_THRESH=60.0
+          fi
+          python harness_cli.py check-test-inventory \
+            --project . --threshold $D4_THRESH --strict
 
   p8-archive-check:
     name: P8 Archive & HANDOVER Validation

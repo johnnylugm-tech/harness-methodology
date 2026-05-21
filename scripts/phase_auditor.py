@@ -1179,6 +1179,8 @@ class PhaseAuditor:
         ])
         if not content:
             return
+
+        # Column existence check
         required_cols = self.spec.get("traceability_required_cols", [])
         missing = [col for col in required_cols if col not in content]
         if not missing:
@@ -1196,6 +1198,48 @@ class PhaseAuditor:
                 severity="WARNING",
                 title=f"TRACEABILITY_MATRIX.md missing columns: {missing}",
                 detail="",
+            ))
+
+        # FR coverage: cross-check every FR-ID from SRS.md appears in the matrix
+        srs = self._content(["01-requirements/SRS.md"]) or ""
+        srs_frs = sorted(set(re.findall(r"FR-\d+", srs)))
+        if srs_frs:
+            missing_frs = [fr for fr in srs_frs if fr not in content]
+            covered = len(srs_frs) - len(missing_frs)
+            pct = covered / len(srs_frs) * 100
+            if pct >= 100:
+                self.result.add(Finding(
+                    check_id="C5", dimension="Document Content Depth",
+                    severity="PASS",
+                    title=f"TRACEABILITY_MATRIX.md covers all {len(srs_frs)} FR(s) from SRS.",
+                    detail="",
+                ))
+            elif pct >= 80:
+                self.result.add(Finding(
+                    check_id="C5", dimension="Document Content Depth",
+                    severity="WARNING",
+                    title=(f"TRACEABILITY_MATRIX.md covers {covered}/{len(srs_frs)} FR(s) "
+                           f"({pct:.0f}%) — {len(missing_frs)} missing."),
+                    detail=f"Missing: {missing_frs[:5]}",
+                ))
+            else:
+                self.result.add(Finding(
+                    check_id="C5", dimension="Document Content Depth",
+                    severity="CRITICAL",
+                    title=(f"TRACEABILITY_MATRIX.md covers only {covered}/{len(srs_frs)} FR(s) "
+                           f"({pct:.0f}%)."),
+                    detail=f"Missing: {missing_frs[:5]}",
+                    rule_ref="HR-05",
+                ))
+
+        # TBD module entries: any unfilled Module column
+        tbd_count = len(re.findall(r'\|\s*TBD\s*\|', content, re.IGNORECASE))
+        if tbd_count > 0:
+            self.result.add(Finding(
+                check_id="C5", dimension="Document Content Depth",
+                severity="WARNING",
+                title=f"TRACEABILITY_MATRIX.md has {tbd_count} Module entry/entries still TBD.",
+                detail="Fill in module assignments before Phase 2.",
             ))
 
     def _check_tdd_log_depth(self):

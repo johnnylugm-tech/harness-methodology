@@ -781,3 +781,60 @@ class TestC9GateScoreThreshold:
         a.check_c9_gate_pass()
         assert any(f.check_id == "C9" and f.severity == "WARNING"
                    for f in a.result.findings)
+
+
+class TestTraceabilityFrCoverage:
+    def _make(self, matrix: str | None, srs: str | None = None):
+        files = {}
+        if matrix is not None:
+            files["01-requirements/TRACEABILITY_MATRIX.md"] = matrix
+        if srs is not None:
+            files["01-requirements/SRS.md"] = srs
+        return PhaseAuditor(FakeGitHubFetcher(files), 1)
+
+    def test_full_fr_coverage_passes(self):
+        a = self._make(
+            "| FR | Module |\n| FR-01 | AuthModule |\n| FR-02 | UserModule |",
+            "## FR-01 Login\n## FR-02 Profile",
+        )
+        a.check_c5_content_depth()
+        assert any(f.check_id == "C5" and f.severity == "PASS"
+                   and "covers all" in f.title for f in a.result.findings)
+
+    def test_missing_fr_in_matrix_critical(self):
+        a = self._make(
+            "| FR | Module |\n| FR-01 | AuthModule |",
+            "## FR-01 Login\n## FR-02 Profile\n## FR-03 Settings\n## FR-04 Admin",
+        )
+        a.check_c5_content_depth()
+        assert any(f.check_id == "C5" and f.severity == "CRITICAL"
+                   for f in a.result.findings)
+
+    def test_partial_coverage_warning(self):
+        # 4/5 = 80% → WARNING
+        a = self._make(
+            "| FR | Module |\n| FR-01 | A |\n| FR-02 | B |\n| FR-03 | C |\n| FR-04 | D |",
+            "## FR-01\n## FR-02\n## FR-03\n## FR-04\n## FR-05",
+        )
+        a.check_c5_content_depth()
+        assert any(f.check_id == "C5" and f.severity == "WARNING"
+                   and "missing" in f.title for f in a.result.findings)
+
+    def test_no_srs_skips_fr_coverage(self):
+        a = self._make("| FR | Module |\n| FR-01 | A |", srs=None)
+        a.check_c5_content_depth()
+        # No SRS → no FR IDs to cross-check → no CRITICAL about FR coverage
+        assert not any(
+            f.check_id == "C5" and f.severity == "CRITICAL"
+            and "covers only" in f.title
+            for f in a.result.findings
+        )
+
+    def test_tbd_module_entries_warning(self):
+        a = self._make(
+            "| FR | Module |\n| FR-01 | TBD |\n| FR-02 | AuthModule |",
+            "## FR-01\n## FR-02",
+        )
+        a.check_c5_content_depth()
+        assert any(f.check_id == "C5" and f.severity == "WARNING"
+                   and "TBD" in f.title for f in a.result.findings)
