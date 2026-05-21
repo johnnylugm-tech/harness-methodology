@@ -1278,7 +1278,12 @@ class TestCmdAdvancePhase:
         assert exit_code == 8
 
     def test_p1_all_deliverables_passes(self, tmp_path, monkeypatch):
-        """P1 with all required deliverables (excl. STAGE_PASS) passes advance."""
+        """P1 with all required deliverables passes advance (auditor mocked; flow test only).
+
+        _run_phase_auditor now runs full C1-C12 for all phases including P1.
+        C2-C12 behavior at P1 is covered by test_phase_auditor.py; here we only
+        verify that advance-phase returns 0 when the auditor itself passes.
+        """
         method_dir = tmp_path / ".methodology"
         method_dir.mkdir(parents=True)
         (tmp_path / "01-requirements").mkdir()
@@ -1287,7 +1292,6 @@ class TestCmdAdvancePhase:
         (tmp_path / "DEVELOPMENT_LOG.md").write_text("log")
         (method_dir / "sessions_spawn.log").write_text("{}")
         (tmp_path / "TEST_INVENTORY.yaml").write_text("tests: []")
-        # Phase1_STAGE_PASS.md is required=False after Task 1 — no need to create
 
         def _fake_run(cmd, **kw):
             class R: returncode = 0; stdout = ""; stderr = ""
@@ -1295,7 +1299,7 @@ class TestCmdAdvancePhase:
 
         exit_code, _ = self._call_advance_phase(
             monkeypatch, tmp_path, completed=1, skip_prechecks=False,
-            mock_auditor=False, subprocess_run=_fake_run,
+            mock_auditor=True, subprocess_run=_fake_run,
         )
         assert exit_code == 0
 

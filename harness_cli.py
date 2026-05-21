@@ -3129,13 +3129,7 @@ def _run_phase_auditor(project: Path, completed_phase: int) -> int:
         fetcher = LocalFetcher(project_root=str(project))
         auditor = PhaseAuditor(fetcher=fetcher, phase=completed_phase)
 
-        # P1/P2: final deliverables only (C1 + git tracking)
-        if completed_phase <= 2:
-            auditor.check_c1_deliverables()
-            auditor._calculate_score()
-            result = auditor.result
-        else:
-            result = auditor.run_all_checks()
+        result = auditor.run_all_checks()
 
         criticals = result.criticals()
         warnings  = result.warnings()
