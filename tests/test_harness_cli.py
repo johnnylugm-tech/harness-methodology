@@ -675,90 +675,12 @@ class TestDispatchWritesApprovalJson:
 
 
 class TestPushCheckpointAgentBGate:
-    """push-checkpoint must enforce CI, Agent B, and checklist gates before committing."""
-
-    def _write_approval(self, project: Path, fr_id: str, phase: int, status="APPROVE"):
-        approvals_dir = project / ".methodology" / "agent_b_approvals"
-        approvals_dir.mkdir(parents=True, exist_ok=True)
-        docs = ["SRS.md"] if phase == 1 else ["SRS.md", "SAD.md"]
-        (approvals_dir / f"{fr_id}.json").write_text(json.dumps({
-            "fr": fr_id, "review_status": status,
-            "docs_embedded": docs, "confidence": 0.9,
-        }))
-
-    def _write_ci_files(self, project: Path):
-        """Create the CI workflow + git hook files required by the CI gate."""
-        wf = project / ".github" / "workflows"
-        wf.mkdir(parents=True, exist_ok=True)
-        (wf / "harness_quality_gate.yml").write_text("# stub")
-        hooks = project / ".git" / "hooks"
-        hooks.mkdir(parents=True, exist_ok=True)
-        (hooks / "prepare-commit-msg").write_text("#!/bin/sh")
-
-    def _patch_conf(self, monkeypatch, sys, types, harness_cli):
-        conf_mod = types.ModuleType("core.quality_gate.confidence_scorer")
-        conf_mod.compute_confidence = lambda *_: {"composite": 95.0}
-        conf_mod.should_auto_approve_p1p2 = lambda _: True
-        conf_mod.format_confidence_report = lambda _: ""
-        conf_mod.AUTO_APPROVE_P1P2_THRESHOLD = 80.0
-        monkeypatch.setitem(sys.modules, "core.quality_gate.confidence_scorer", conf_mod)
-
-    def test_missing_ci_wiring_blocks(self, tmp_path, monkeypatch, capsys):
-        """push-checkpoint returns 5 when CI workflow / git hooks are absent."""
-        from harness_cli import cmd_push_checkpoint
-        import harness_cli, types, sys
-
-        class _FakeGit:
-            def ensure_gitignore(self): pass
-            def commit_and_push_p1(self, **_kw): return True
-
-        monkeypatch.setattr(harness_cli, "_make_git", lambda *_a, **_kw: _FakeGit())
-        self._patch_conf(monkeypatch, sys, types, harness_cli)
-
-        args = argparse.Namespace(
-            project=str(tmp_path), phase=1, fr_ids="FR-01",
-            skip_confidence=False, dry_run=False, no_push=False,
-        )
-        rc = cmd_push_checkpoint(args)
-        assert rc == 5
-        out = capsys.readouterr().out
-        assert "BLOCKED" in out and "CI wiring" in out
-
-    def test_missing_agent_b_approvals_blocks(self, tmp_path, monkeypatch, capsys):
-        """push-checkpoint returns 5 when Agent B approvals are missing."""
-        from harness_cli import cmd_push_checkpoint
-        import harness_cli, types, sys
-
-        self._write_ci_files(tmp_path)
-
-        class _FakeGit:
-            def ensure_gitignore(self): pass
-            def commit_and_push_p1(self, **_kw): return True
-            def commit_and_push_p2(self, **_kw): return True
-
-        monkeypatch.setattr(harness_cli, "_make_git", lambda *_a, **_kw: _FakeGit())
-        self._patch_conf(monkeypatch, sys, types, harness_cli)
-
-        # Phase 1 uses phase-level deliverables (SRS.md etc.), not FR IDs.
-        # fr_ids arg is irrelevant for P1/P2 — no approval files are written here.
-        args = argparse.Namespace(
-            project=str(tmp_path), phase=1, fr_ids="FR-01,FR-02,FR-03",
-            skip_confidence=False, dry_run=False, no_push=False,
-        )
-        rc = cmd_push_checkpoint(args)
-        assert rc == 5, "missing approvals should return 5"
-        out = capsys.readouterr().out
-        assert "BLOCKED" in out or "Missing" in out
+    """push-checkpoint: pure git record — all quality gates live in advance-phase."""
 
     def test_commit_message_no_longer_says_human_review(self, tmp_path, monkeypatch):
-        """Commit notes must NOT say 'human review'."""
+        """Commit notes must NOT say 'human review' (gates moved to advance-phase)."""
         from harness_cli import cmd_push_checkpoint
-        import harness_cli, types, sys
-
-        self._write_ci_files(tmp_path)
-        # P1 uses phase-level deliverables (SKILL.md §0.4), not FR IDs.
-        for did in ["SRS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md", "TEST_INVENTORY.yaml"]:
-            self._write_approval(tmp_path, did, phase=1)
+        import harness_cli
 
         commit_calls: list[dict] = []
         class _FakeGit:
@@ -766,16 +688,12 @@ class TestPushCheckpointAgentBGate:
             def commit_and_push_p1(self, **kw):
                 commit_calls.append(kw)
                 return True
-            def commit_and_push_p2(self, **kw):
-                commit_calls.append(kw)
-                return True
 
         monkeypatch.setattr(harness_cli, "_make_git", lambda *_a, **_kw: _FakeGit())
-        self._patch_conf(monkeypatch, sys, types, harness_cli)
 
         args = argparse.Namespace(
             project=str(tmp_path), phase=1, fr_ids="FR-01",
-            skip_confidence=False, dry_run=False, no_push=False,
+            dry_run=False, no_push=False,
         )
         rc = cmd_push_checkpoint(args)
         assert rc == 0
@@ -784,7 +702,6 @@ class TestPushCheckpointAgentBGate:
         notes = commit_calls[0].get("notes", [])
         assert "human review" not in background.lower(), "must not claim human review"
         assert all("human review" not in n.lower() for n in notes), "notes must not claim human review"
-        assert "auto-approved" in background.lower() or "confidence" in background.lower()
 
 
 class TestExtractAgentOutputJson:

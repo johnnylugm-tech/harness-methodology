@@ -2374,17 +2374,6 @@ def cmd_manifest(args: argparse.Namespace) -> int:
 # push-checkpoint  (P1/P2 human review checkpoint push + HANDOVER.md)
 # ---------------------------------------------------------------------------
 
-def _check_ci_readiness(project: Path) -> list[str]:
-    """Return list of missing CI components (empty = all present)."""
-    missing: list[str] = []
-    workflow = project / ".github" / "workflows" / "harness_quality_gate.yml"
-    if not workflow.exists():
-        missing.append(".github/workflows/harness_quality_gate.yml")
-    hooks_dir = project / ".git" / "hooks"
-    if not (hooks_dir / "prepare-commit-msg").exists():
-        missing.append(".git/hooks/prepare-commit-msg")
-    return missing
-
 def cmd_push_checkpoint(args: argparse.Namespace) -> int:
     """Push P1/P2 human-review checkpoint with HANDOVER.md generation.
 
@@ -2410,81 +2399,17 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
         print(f"[ERROR] push-checkpoint only supports P1/P2 (got phase {phase}).")
         return 1
 
-    # ── Confidence gate: block push-checkpoint if deliverables are insufficient ──
-    skip_conf = getattr(args, "skip_confidence", False)
-    try:
-        from core.quality_gate.confidence_scorer import (
-            compute_confidence,
-            should_auto_approve_p1p2,
-            format_confidence_report,
-            AUTO_APPROVE_P1P2_THRESHOLD,
-        )
-        conf = compute_confidence(project, phase)
-        if not should_auto_approve_p1p2(conf):
-            if skip_conf:
-                print(
-                    f"\n[WARN] push-checkpoint (P{phase}): "
-                    f"confidence {conf['composite']:.1f} < {AUTO_APPROVE_P1P2_THRESHOLD} "
-                    f"(--skip-confidence active — proceeding anyway)\n"
-                    f"{format_confidence_report(conf)}"
-                )
-            else:
-                print(
-                    f"\n[BLOCKED] push-checkpoint (P{phase}): "
-                    f"confidence {conf['composite']:.1f} < {AUTO_APPROVE_P1P2_THRESHOLD}\n"
-                    f"  Fix the following before pushing:\n"
-                    f"{format_confidence_report(conf)}\n"
-                    "  Ensure all required artifacts are present and FRs are defined.\n"
-                    "  To override: add --skip-confidence (shows report, does not block)"
-                )
-                return 5
-        else:
-            print(
-                f"\n[push-checkpoint] Confidence {conf['composite']:.1f} >= "
-                f"{AUTO_APPROVE_P1P2_THRESHOLD} — auto-approved\n"
-                f"{format_confidence_report(conf)}"
-            )
-    except ImportError:
-        print("[WARN] confidence_scorer unavailable — skipping confidence check")
-
-    # ── CI readiness gate ─────────────────────────────────────────────────────
-    ci_missing = _check_ci_readiness(project)
-    if ci_missing:
-        msg = (
-            f"\n[{'WARN' if skip_conf else 'BLOCKED'}] push-checkpoint (P{phase}): "
-            f"CI wiring incomplete — missing: {ci_missing}\n"
-            f"  Fix: python harness_cli.py init-project --project {project}\n"
-            "  This ensures harness_quality_gate.yml + git hooks are wired.\n"
-        )
-        print(msg)
-        if not skip_conf:
-            return 5
-
-    # ── Agent B approval gate (Phase 1-2 only; P3+ uses Phase End Audit) ─
-    if phase > 2:
-        print(f"  [SKIP] Agent B approval not required for Phase {phase}+ (Phase End Audit替代)")
-    else:
-        deliverable_ids = _resolve_deliverable_ids(project, phase, fr_ids)
-        if not skip_conf:
-            passed, report = _verify_agent_b_approvals_core(project, phase, deliverable_ids)
-            print(report)
-            if not passed:
-                return 5
-        else:
-            _, report = _verify_agent_b_approvals_core(project, phase, deliverable_ids)
-            print(f"[WARN] --skip-confidence active — Agent B gate bypassed\n{report}")
-
     if phase == 1:
         ok = git.commit_and_push_p1(
             fr_ids=fr_ids,
-            background="P1 auto-approved — confidence gate passed, Agent B approvals verified.",
-            notes=["Confidence gate passed", "Agent B approvals verified"],
+            background=f"P{phase} phase completed — pushed for record.",
+            notes=["Phase checkpoint push"],
         )
     else:
         ok = git.commit_and_push_p2(
             fr_ids=fr_ids,
-            background="P2 auto-approved — confidence gate passed, Agent B approvals verified.",
-            notes=["Confidence gate passed", "Agent B approvals verified"],
+            background=f"P{phase} phase completed — pushed for record.",
+            notes=["Phase checkpoint push"],
         )
     if ok:
         handover = project / "HANDOVER.md"
@@ -2775,7 +2700,7 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
         return 1
 
     if ok:
-        # Record that push-milestone was used (CI enforces this is not bypassed)
+        # Record milestone type and timestamp for audit trail
         state_path = project / ".methodology" / "state.json"
         if state_path.exists():
             try:
@@ -2784,15 +2709,8 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
                 state_data["last_milestone_at"] = datetime.now(timezone.utc).isoformat()
                 atomic_write_json(state_path, state_data)
             except Exception as _state_err:  # pylint: disable=broad-exception-caught
-                _mt = milestone_type
                 print(
                     f"\n  [WARN] Could not write last_milestone_command to state.json: {_state_err}"
-                    "\n  CI will block the next push without this field. Fix manually:"
-                    f"\n    python3 -c \""
-                    f"import json, pathlib; p = pathlib.Path('.methodology/state.json'); "
-                    f"d = json.loads(p.read_text()); "
-                    f"d['last_milestone_command'] = 'push-milestone --type {_mt}'; "
-                    f"p.write_text(json.dumps(d, indent=2))\""
                 )
         handover = project / "HANDOVER.md"
         if handover.exists():
@@ -4835,8 +4753,6 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Comma-separated FR IDs (e.g., FR-01,FR-02)")
     pc.add_argument("--no-git", action="store_true", dest="no_git",
                     help="Disable git commit/push (HANDOVER.md still written)")
-    pc.add_argument("--skip-confidence", action="store_true", dest="skip_confidence",
-                    help="Skip confidence gate check (shows report but does not block)")
     pc.set_defaults(func=cmd_push_checkpoint)
 
     # push-milestone (P3+ milestone push + HANDOVER.md)
