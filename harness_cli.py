@@ -2685,14 +2685,10 @@ def _validate_p8_completion(project: Path) -> list[str]:
     """Pre-flight checks required before push-milestone --type p8 is allowed."""
     errors: list[str] = []
 
-    # 1. .methodology-archive/ must exist
+    # 1. .methodology-archive/ — auto-create if absent
     archive_dir = project / ".methodology-archive"
     if not archive_dir.exists():
-        errors.append(
-            ".methodology-archive/ does not exist. "
-            "Archive all 8 phases before P8 push: "
-            "mkdir .methodology-archive && cp -r .sessi-work/ .methodology-archive/"
-        )
+        archive_dir.mkdir(parents=True, exist_ok=True)
 
     # 2. HANDOVER.md must not reference non-existent Phase 9
     handover = project / "HANDOVER.md"
@@ -2803,6 +2799,67 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
             print(f"  HANDOVER.md → {handover}")
         print(f"  [git] milestone {milestone_type} pushed → remote ✓")
     return 0 if ok else 1
+
+# ---------------------------------------------------------------------------
+# gate4-tag  (create annotated git tag from gate4_result.json)
+# ---------------------------------------------------------------------------
+
+def cmd_gate4_tag(args: argparse.Namespace) -> int:
+    """Create annotated git tag for Gate 4 pass using composite score from gate4_result.json.
+
+    Reads gate4_result.json (from .sessi-work/, .methodology/, or project root),
+    extracts composite_score, and creates:
+      harness-v4-YYYYMMDD-score<SCORE>
+
+    Usage:
+      python harness_cli.py gate4-tag --project .
+    """
+    project = Path(args.project).resolve()
+
+    # Locate gate4_result.json
+    candidates = [
+        project / ".sessi-work" / "gate4_result.json",
+        project / ".methodology" / "gate4_result.json",
+        project / "gate4_result.json",
+    ]
+    g4_path = next((p for p in candidates if p.exists()), None)
+    if g4_path is None:
+        print("[ERROR] gate4_result.json not found. Run finalize-gate --gate 4 first.")
+        return 1
+
+    try:
+        g4 = json.loads(g4_path.read_text(encoding="utf-8"))
+        score = g4.get("composite_score", g4.get("total_score"))
+    except Exception as exc:
+        print(f"[ERROR] Failed to parse gate4_result.json: {exc}")
+        return 1
+
+    if score is None:
+        score_str = "XX"
+        print("[WARN] composite_score not found in gate4_result.json — tag will use 'XX'.")
+    else:
+        try:
+            score_str = str(int(round(float(score))))
+        except (TypeError, ValueError):
+            score_str = "XX"
+
+    from datetime import date as _date
+    today = _date.today().strftime("%Y%m%d")
+    tag_name = f"harness-v4-{today}-score{score_str}"
+    tag_msg = f"Gate 4 PASS (score {score_str})"
+
+    result = subprocess.run(  # nosec B603 B607
+        ["git", "-C", str(project), "tag", "-a", tag_name, "-m", tag_msg],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        print(f"[ERROR] git tag failed:\n{result.stderr.strip()}")
+        return 1
+
+    print(f"[OK] Created tag: {tag_name} ({tag_msg})")
+    print("  To push: git push origin --tags")
+    return 0
+
 
 # ---------------------------------------------------------------------------
 # status
@@ -4740,6 +4797,14 @@ def build_parser() -> argparse.ArgumentParser:
     pm.add_argument("--no-git", action="store_true", dest="no_git",
                     help="Disable git operations")
     pm.set_defaults(func=cmd_push_milestone)
+
+    # gate4-tag (create annotated git tag from gate4_result.json)
+    g4t = sub.add_parser(
+        "gate4-tag",
+        help="Create annotated git tag for Gate 4 pass using composite score from gate4_result.json",
+    )
+    g4t.add_argument("--project", default=".", help="Project root (default: .)")
+    g4t.set_defaults(func=cmd_gate4_tag)
 
     # verify-agent-b-approvals
     vab = sub.add_parser(

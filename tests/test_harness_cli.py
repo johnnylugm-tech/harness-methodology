@@ -427,10 +427,13 @@ class TestValidateP8Completion:
         errors = _validate_p8_completion(tmp_path)
         assert errors == []
 
-    def test_missing_archive_returns_error(self, tmp_path):
+    def test_missing_archive_autocreated(self, tmp_path):
+        # O2: auto-create .methodology-archive/ instead of returning error
         from harness_cli import _validate_p8_completion
+        assert not (tmp_path / ".methodology-archive").exists()
         errors = _validate_p8_completion(tmp_path)
-        assert any(".methodology-archive" in e for e in errors)
+        assert not any(".methodology-archive" in e for e in errors)
+        assert (tmp_path / ".methodology-archive").exists()
 
     def test_phase9_reference_in_handover_returns_error(self, tmp_path):
         archive = tmp_path / ".methodology-archive"

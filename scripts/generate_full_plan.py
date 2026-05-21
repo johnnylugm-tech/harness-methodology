@@ -652,8 +652,7 @@ def _preflight_steps(phase: int) -> List[str]:
         bypass_audit = [
             "- [ ] **[BYPASS-AUDIT]** 確認 `force_bypass.log` 無未審計的 bypass 條目:",
             "  ```bash",
-            "  python3 harness_cli.py check-bypass-log --project . 2>/dev/null \\",
-            "    || grep -c '.' .methodology/force_bypass.log 2>/dev/null || echo 'OK: no bypass log'",
+            "  grep -c '.' .methodology/force_bypass.log 2>/dev/null || echo 'OK: no bypass log'",
             "  ```",
             "  每筆 bypass 條目必須有人工確認記錄（audit_note 欄位）。",
             "  有未審計條目 → 在 `force_bypass.log` 對應條目新增 `audit_note: 'reviewed by <name> <date>'`。",
