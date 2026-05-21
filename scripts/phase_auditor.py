@@ -460,17 +460,19 @@ class LocalFetcher:
             return None
 
     def get_commits(self, per_page: int = 30) -> list[dict]:
-        """Get commits via local git log."""
+        """Get commits via local git log (null-byte delimited to avoid false splits)."""
         result = subprocess.run(  # nosec B603 B607
             ["git", "-C", str(self.project_root), "log",
-             f"-{per_page}", "--format=%H%n%ae%n%s%n%aI%n---"],
+             f"-{per_page}", "--format=%H%x00%ae%x00%s%x00%aI"],
             capture_output=True, text=True
         )
         if result.returncode != 0:
             return []
         commits: list[dict] = []
-        for block in result.stdout.split("---\n"):
-            parts = block.strip().split("\n")
+        for line in result.stdout.strip().split("\n"):
+            if not line.strip():
+                continue
+            parts = line.split("\0")
             if len(parts) >= 4:
                 commits.append({
                     "sha": parts[0],

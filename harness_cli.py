@@ -404,7 +404,8 @@ def _check_inter_fr_score_variance(project: Path, phase: int) -> tuple[bool, str
     return True, ""
 
 # Entry gate required per phase (CONSTITUTION.md §2.3)
-_ENTRY_GATE_MAP: dict[int, int] = {4: 2, 5: 3, 6: 3, 7: 4, 8: 4}
+# Single source of truth: scripts/phase_auditor.py
+from scripts.phase_auditor import _ENTRY_GATE_MAP  # noqa: E402 (module-level after constants)
 
 # Phase → composite exit gate number
 _PHASE_EXIT_GATES: dict[int, int] = {3: 2, 4: 3, 6: 4}
