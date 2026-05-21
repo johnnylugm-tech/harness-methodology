@@ -120,16 +120,16 @@ jobs:
           PHASE=$(python3 scripts/ci_state_helper.py get current_phase --default 0 --state-file "$STATE_FILE")
           echo "phase=$PHASE" >> $GITHUB_OUTPUT
 
-      - name: Verify Agent B approvals (P3+)
-        if: steps.check_phase.outputs.phase >= 3
+      - name: Verify Agent B approvals (P1/P2 only)
+        if: steps.check_phase.outputs.phase >= 1 && steps.check_phase.outputs.phase <= 2
         run: |
           python harness_cli.py verify-agent-b-approvals \
             --phase ${{ steps.check_phase.outputs.phase }} \
             --project . || {
               echo ""
               echo "Agent B review files are missing or incomplete."
-              echo "Each FR needs .methodology/agent_b_approvals/FR-XX.json"
-              echo "with review_status=APPROVE and docs_embedded=[SRS.md, SAD.md]"
+              echo "Each deliverable needs .methodology/agent_b_approvals/<id>.json"
+              echo "with review_status=APPROVE and docs_embedded=[SRS.md] (P1) or [SRS.md, SAD.md] (P2)"
               exit 1
             }
 
