@@ -344,6 +344,8 @@ python3 harness_cli.py finalize-gate --gate 4 --phase 6
 
 ## 11. Time Estimate
 
+| Stage | Estimate |
+|-------|----------|
 | Pre-execution | 10 min |
 | Quality Evaluation | 60 min |
 | Gate 4 Evaluation | 45 min |
