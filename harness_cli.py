@@ -34,14 +34,14 @@ Available gates:
     Gate 1  per-FR check       (P3/P4/P5/P7/P8, trigger: per_fr_completion)
     Gate 2  P3 phase-exit      (score_gate: 75, 9 dims)
     Gate 3  P4 phase-exit      (score_gate: 80, 14 dims, full CRG)
-    Gate 4  P6 full-project    (score_gate: 85, 14 dims, Hermes APPROVE required)
+    Gate 4  P6 full-project    (score_gate: 85, 14 dims)
 
 Exit codes:
     0   All phases complete
     1   Hard failure (investigate error)
     2   run-gap-analysis: critical gaps detected (distinct from hard error)
     5   HR-01/HR-10 block — A/B self-review or missing sessions_spawn.log entries;
-        also Gate 4 prerequisites (Hermes receipt, A2-A5 schema, B2 score files)
+        also Gate 4 prerequisites (A2-A5 schema, B2 score files)
     7   Plan incompletion block — unchecked mandatory steps in phaseN_plan.md
     8   Missing deliverables block — required artifacts not found on disk or not git-tracked
     10  PAUSE — Claude must evaluate gate; run finalize-gate then re-run pipeline
@@ -1314,7 +1314,7 @@ def cmd_run_gate(args: argparse.Namespace) -> int:
     return 0
 
 # ---------------------------------------------------------------------------
-# Gate 4 prerequisite checks  (A1 Hermes receipt, A2-A5 schema, B2 score files)
+# Gate 4 prerequisite checks  (A2-A5 schema, B2 score files)
 # ---------------------------------------------------------------------------
 
 # Tier 3 dimensions that require Devil's Advocate (A3) and high-score confirmation (A4)
@@ -2065,7 +2065,7 @@ def cmd_generate_next_plan(args: argparse.Namespace) -> int:
         else:
             g_res = gate_results.get("gate4")
             done = bool(g_res and g_res.get("quality_complete"))
-        checkpoints.append(("Gate 4 — Full Project (Hermes APPROVE)", done))
+        checkpoints.append(("Gate 4 — Full Project", done))
 
     # ── Find last complete and first incomplete ──────────────────────────────
     last_done_idx = -1

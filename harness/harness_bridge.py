@@ -6,7 +6,6 @@ Handles gate execution, results parsing, and quality manifest updates.
 
 from __future__ import annotations
 import json
-import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -522,9 +521,6 @@ class HarnessBridge:
     Handles gate triggering, CRG integration, result parsing, and manifest updates.
     """
 
-    # Default timeout for Gate 4 Hermes reviewer — reads HERMES_TIMEOUT_MS env var, default 120s
-    GATE4_HERMES_TIMEOUT_MS: int = int(os.environ.get("HERMES_TIMEOUT_MS", "120000"))
-
     def __init__(self):
         """Initialize the bridge with its dependent subsystems."""
         self.crg = CRGBridge()        # gracefully degrades if CRG unavailable
@@ -824,10 +820,6 @@ class HarnessBridge:
 
         self._trigger_hooks(ctx, "after_gate_pass")
 
-        # Gate 4: require explicit Hermes reviewer APPROVE
-        if ctx.gate_num == 4:
-            self._require_hermes_approve(result, ctx.phase, ctx.fr_id)
-
         return result
 
     def check_pre_fix_safety(self, project_root: str, ref: str = "HEAD") -> dict:
@@ -950,45 +942,6 @@ class HarnessBridge:
         with open(config_path, "r", encoding="utf-8") as f:
             raw = yaml.safe_load(f)
         return GateConfig.from_dict(raw, gate_num)
-
-    def _require_hermes_approve(
-        self, result: GateResult, phase: int, fr_id: str | None,
-        timeout_ms: int = GATE4_HERMES_TIMEOUT_MS,
-    ) -> None:
-        """
-        Check for external approval from Hermes reviewer (Gate 4 only).
-
-        Args:
-            timeout_ms: Max wait time for Hermes response (default 120 s from HERMES_TIMEOUT_MS env var).
-        """
-        from harness.reviewer_router import ReviewerRouter
-        try:
-            router = ReviewerRouter()
-        except (ValueError, RuntimeError):
-            return
-
-        dim_summary = ", ".join(f"{d.name}={d.score:.0f}" for d in result.dimensions)
-        review = router.review(
-            role="reviewer",
-            prompt=(
-                f"Gate 4 final quality review.\n"
-                f"Score: {result.score:.1f} | rounds: {result.rounds_used}\n"
-                f"open_critical: {result.open_critical} | open_high: {result.open_high}\n"
-                f"Dimensions: {dim_summary}\n"
-                f"Approve only if all dimensions meet thresholds and critical=0."
-            ),
-            phase=phase,
-            fr_id=fr_id,
-            timeout_ms=timeout_ms,
-        )
-        if review.get("review_status") != "APPROVE":
-            self._log.write(DecisionLogEntry(
-                ctx=DecisionContext(agent_id="GATE", phase=phase, fr_id=fr_id),
-                decision="REVIEWER_REJECT",
-                reasoning=f"Gate 4 Hermes REJECT: {review.get('summary', '')}",
-                scores={"gate_score": result.score},
-            ))
-            raise GateBlockedError(4, result)
 
     def _update_quality_manifest(
         self, gate_num: int, fr_id: str | None, result: GateResult

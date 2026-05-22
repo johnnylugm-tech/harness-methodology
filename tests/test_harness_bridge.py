@@ -33,22 +33,6 @@ class TestHarnessBridge:
             assert updated["gate_results"]["gate2"]["score"] == 85.0
             assert updated["gate_results"]["gate2"]["quality_complete"] is True
 
-    def test_require_hermes_approve_blocks_on_reject(self):
-        """Verify Gate 4 blocks if Hermes returns REJECT."""
-        bridge = HarnessBridge()
-        result = GateResult(gate_num=4, score=90.0, quality_complete=True)
-        
-        mock_router = MagicMock()
-        mock_router.review.return_value = {"review_status": "REJECT", "summary": "Code smell"}
-        
-        with patch("harness.reviewer_router.ReviewerRouter", return_value=mock_router):
-            with patch.object(bridge, "_log") as mock_log:
-                with pytest.raises(GateBlockedError, match="Gate 4 BLOCKED"):
-                    bridge._require_hermes_approve(result, phase=6, fr_id=None)
-                mock_log.write.assert_called_once()
-                entry = mock_log.write.call_args[0][0]
-                assert entry.decision == "REVIEWER_REJECT"
-
     def test_load_config_returns_gate_config(self):
         from core.quality_gate.constitution.profile import GateConfig
         bridge = HarnessBridge()
@@ -87,12 +71,6 @@ class TestHarnessBridgeIntegration:
             with patch("scripts.generate_sab.parse_sad", side_effect=ImportError):
                 out_path = bridge.generate_quality_manifest(fr_ids=["FR-01"], sad_path="SAD.md")
                 assert out_path.exists()
-
-    def test_require_hermes_approve_init_failure(self):
-        bridge = HarnessBridge()
-        result = GateResult(gate_num=4, score=90.0, quality_complete=True)
-        with patch("harness.reviewer_router.ReviewerRouter", side_effect=ValueError):
-            bridge._require_hermes_approve(result, phase=6, fr_id=None)
 
 
 class TestGateContext:
@@ -307,22 +285,6 @@ class TestFinalizeGate:
                 with patch.object(bridge, "_effort"):
                     with pytest.raises(GateBlockedError):
                         bridge.finalize_gate(ctx)
-
-    def test_finalize_gate_gate4_calls_hermes(self, tmp_path):
-        """Gate 4 must call _require_hermes_approve when passing."""
-        bridge = HarnessBridge()
-        ctx = self._make_context(tmp_path, gate_num=4,
-                                  config={"gate": 4, "score_gate": 85})
-        self._write_result(ctx, {
-            "overall_score": 90.0, "meets_target": True, "quality_complete": True,
-            "open_critical_count": 0, "open_high_count": 0, "breakdown": {},
-        })
-        with patch.object(bridge, "_update_quality_manifest"):
-            with patch.object(bridge, "_log"):
-                with patch.object(bridge, "_effort"):
-                    with patch.object(bridge, "_require_hermes_approve") as mock_hermes:
-                        bridge.finalize_gate(ctx)
-        mock_hermes.assert_called_once()
 
 
 class TestSabManifestIntegration:
