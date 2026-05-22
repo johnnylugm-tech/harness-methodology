@@ -3227,7 +3227,7 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
     # CV-2: Validate args.completed_phase matches state.json::current_phase.
     # Without this check, an agent could pass --completed 7 while in phase 3
     # and skip straight to phase 8 (state.json is the only authoritative
-    # source). --force bypasses the check for legitimate FSM repairs.
+    # source). No bypass flag — use the correct --completed value instead.
     state_path = project / ".methodology" / "state.json"
     if state_path.exists():
         try:
@@ -3236,19 +3236,17 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
             with file_lock(state_lock_path(project)):
                 _state = json.loads(state_path.read_text(encoding="utf-8"))
             _current = int(_state.get("current_phase", 0))
-            if _current and _current != args.completed_phase and not getattr(args, "force", False):
+            if _current and _current != args.completed_phase:
                 print(
                     f"\n[BLOCKED] advance-phase: --completed={args.completed_phase} "
                     f"does not match state.json::current_phase={_current}.\n"
                     f"  This prevents accidental phase skips. To advance, use:\n"
-                    f"    python3 harness_cli.py advance-phase --completed {_current} --project {project}\n"
-                    f"  To repair a stuck FSM, re-run with --force (audit-logged).",
+                    f"    python3 harness_cli.py advance-phase --completed {_current} --project {project}",
                     file=sys.stderr,
                 )
                 return 2
             # Check phase_truth_passed for phases with exit gates
             if (args.completed_phase in _PHASE_EXIT_GATES
-                    and not getattr(args, "force", False)
                     and "_seal" in _state):  # Only for new-format state.json
                 if not _state.get("phase_truth_passed"):
                     print(
@@ -3257,8 +3255,7 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                         f"  Run: python harness_cli.py finalize-gate "
                         f"--gate {_PHASE_EXIT_GATES[args.completed_phase]} "
                         f"--phase {args.completed_phase} --project {project}\n"
-                        f"  and ensure Phase Truth ≥ 90% before advancing.\n"
-                        f"  To bypass: add --force (audit-logged).",
+                        f"  and ensure Phase Truth ≥ 90% before advancing.",
                         file=sys.stderr,
                     )
                     # Exit 12 = phase_truth_passed missing in state.json.
@@ -5268,12 +5265,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Phase number that just completed (advance-phase --completed 3 → sets phase 4)",
     )
     adv.add_argument("--project", default=".", help="Project root (default: .)")
-    adv.add_argument(
-        "--force", action="store_true",
-        help="Bypass the current_phase == --completed check. Required only for "
-             "legitimate FSM repairs (e.g., rolling back after a corrupted state). "
-             "Logged to stderr for audit.",
-    )
     adv.set_defaults(func=cmd_advance_phase)
 
     # await-hermes-approve (Gate 4 async human approval)
