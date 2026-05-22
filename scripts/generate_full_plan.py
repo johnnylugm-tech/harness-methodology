@@ -825,17 +825,6 @@ def _aspice_output_requirements(phase: int) -> List[str]:
     return lines
 
 
-def _sab_sync_step() -> List[str]:
-    """SAB sync step: register new src/ files in SAB layers after FR implementation."""
-    return [
-        "- [ ] **[SAB-SYNC]** Re-sync SAB.json after adding/moving source files:",
-        "  ```bash",
-        "  python3 scripts/generate_sab.py --project $REPO",
-        "  ```",
-        "  _(Keeps M2 SAB drift < 15% — postflight blocks gate finalization if exceeded)_",
-        "",
-    ]
-
 
 def _fr_dev_steps(fr_id: str, phase: int) -> List[str]:
     """Per-FR implementation steps.
@@ -942,6 +931,12 @@ def _fr_carryforward_steps(fr_id: str, phase: int) -> List[str]:
         f"  → Delta-check: skips re-evaluation if {fr_id} code unchanged since last Gate 1.",
         "  → GitHub push: ✅ auto-done by run-fr-step",
         "",
+        "- [ ] **[ORCH-POST]** After GATE1-DELTA PASS — orchestrator runs directly:",
+        "  ```bash",
+        f"  python3 harness_cli.py spec-coverage-check --project . --threshold 40.0 --fr-id {fr_id}",
+        "  python3 scripts/generate_sab.py --project .",
+        "  ```",
+        "",
     ]
 
 
@@ -1016,16 +1011,6 @@ def _phase_advance_step(phase: int) -> List[str]:
     return lines
 
 
-def _g1d_milestone_hint(phase: int) -> str:
-    """Return the correct push-milestone type hint for the G1d note, per phase."""
-    _hints: dict[int, str] = {
-        3: "`push-milestone --type p3-mid` / `push-milestone --type p3-pre-gate2` / Gate exit",
-        4: "`push-milestone --type p4-mid` / `push-milestone --type p4-pre-gate3` / Gate exit",
-        5: "`push-milestone --type p5-baseline`",
-        7: "`push-milestone --type p7`",
-        8: "`push-milestone --type p8`",
-    }
-    return _hints.get(phase, f"`push-milestone --type p{phase}`")
 
 
 def _p3_milestone_push_steps(fr_ids: List[str]) -> List[str]:
@@ -1089,68 +1074,6 @@ def _milestone_push_steps(fr_ids: List[str], phase: int,
         ]
     return result
 
-
-def _gate1_checkpoint(fr_id: str, phase: int, checkpoint_n: int,
-                       delta_check: bool = False) -> List[str]:
-    """Gate 1 evaluation steps for a single FR (local commit, no push).
-
-    Args:
-        delta_check: If True (P5/P7/P8), skip re-evaluation when FR code hasn't changed
-                     since last gate — check git diff first, re-use previous score if clean.
-    """
-    meta = _GATE_META[1]
-    delta_lines = [
-        "",
-        f"> **Delta-check mode** (P{phase}): skip if {fr_id} code unchanged since last Gate 1.",
-        "- [ ] **[DELTA-CHECK]** Check if FR code changed since last Gate 1:",
-        "  ```bash",
-                f"  git diff --quiet HEAD -- \"03-development/src/**/*fr_{fr_id.lower().replace('fr-', '')}*\" \"03-development/src/**/*{fr_id.lower()}*\" \"tests/**/test_fr_{fr_id.lower().replace('fr-', '')}*\" \"tests/**/test_{fr_id.lower()}*\" 2>/dev/null || echo '.'",
-        "  ```",
-        "  - Exit 0 (no changes) → skip G1a-G1c, re-use previous Gate 1 score from manifest",
-        "  - Exit 1 (changes detected) → proceed to full re-evaluation below",
-        "",
-    ] if delta_check else []
-    return [
-        "",
-        f"### 🔒 CHECKPOINT-{checkpoint_n}: Gate 1 — {fr_id}",
-        f"> Dimensions: {meta[2]}",
-        "> `gate1_result.json` is overwritten each FR — `finalize-gate` reads it immediately.",
-        "",
-    ] + delta_lines + [
-        f"- [ ] **G1a** Prepare Gate 1 for {fr_id}:",
-        "  ```bash",
-        f"  python3 harness_cli.py run-gate --gate 1 --phase {phase} --fr-id {fr_id} --project ." +
-        (" --delta" if delta_check else ""),
-        "  ```",
-        "  Read the evaluation prompt printed above.",
-        "",
-        f"- [ ] **G1b** Evaluate all Gate 1 dimensions for {fr_id} inline:",
-        "  - Follow `harness/ssi/prompts/evaluate_dimension.md`",
-        "  - Write result to `.sessi-work/gate1_result.json`",
-        "  - Schema: `harness/ssi/schemas/harness_gate_result.schema.json`",
-        "",
-        f"- [ ] **G1c** Finalize Gate 1 for {fr_id}:",
-        "  ```bash",
-        f"  python3 harness_cli.py finalize-gate --gate 1 --phase {phase} --fr-id {fr_id} --project .",
-        "  ```",
-        "  **If FAIL** (any dim below threshold): fix code → repeat G1a→G1b→G1c until PASS.",
-        "  **Do NOT proceed to G1d until all dims PASS.**",
-        "",
-        "- [ ] **[D4-BACKWARD]** D4 backward spec-coverage-check (Gate 1 threshold 40%):",
-        "  ```bash",
-        f"  python3 harness_cli.py spec-coverage-check --project . --threshold 40.0 --fr-id {fr_id}",
-        "  ```",
-        f"  FAIL → fix missing test implementations for {fr_id} → re-run until ≥ 40%",
-        "",
-    ] + (_sab_sync_step() if phase >= 3 else []) + [
-        "- [ ] **G1d** ✅ Verify local commit saved (finalize-gate above already committed):",
-        "  ```bash",
-        "  git log --oneline -1",
-        "  ```",
-        "  > `finalize-gate --gate 1` calls `commit_fr_gate1()` — **local commit only, no push**.",
-        f"  > Push + HANDOVER.md happens at milestone: {_g1d_milestone_hint(phase)}.",
-        "",
-    ]
 
 
 def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[str]:
@@ -1238,7 +1161,7 @@ def _checkpoint_index(fr_ids: List[str], phase: int) -> List[str]:
     cp = 1
     if phase in _PHASE_GATE1_PHASES:
         for fr_id in fr_ids:
-            lines.append(f"> - CHECKPOINT-{cp}: Gate 1 / {fr_id} *(local commit)*")
+            lines.append(f"> - CHECKPOINT-{cp}: Gate 1 / {fr_id} *(auto-push via run-fr-step)*")
             cp += 1
     if phase == 3:
         lines.append("> - MILESTONE: P3-mid push (≥50% FRs Gate 1 PASS) → **HANDOVER.md**")
@@ -1521,7 +1444,8 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path) -> List[str]:
                 lines.append("")
                 lines.extend(_fr_carryforward_steps(fr_id, phase=3))
 
-            lines.extend(_gate1_checkpoint(fr_id, phase=3, checkpoint_n=checkpoint_n))
+            # Gate 1 is handled inside the sub-agent dispatch (run-fr-step).
+            # _gate1_checkpoint() removed — no duplicate inline G1a/G1b/G1c/G1d.
             checkpoint_n += 1
 
     elif fr_ids:
@@ -1532,7 +1456,7 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path) -> List[str]:
             lines.append(f"#### {fr_id}: [See SRS.md and SAD.md for implementation details]")
             lines.append("")
             lines.extend(_fr_dev_steps(fr_id, phase=3))
-            lines.extend(_gate1_checkpoint(fr_id, phase=3, checkpoint_n=checkpoint_n))
+            # Gate 1 handled inside run-fr-step sub-agent dispatch.
             checkpoint_n += 1
 
     else:
@@ -1581,7 +1505,7 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("> Generate `04-testing/TEST_PLAN.md` from SRS.md FR acceptance criteria.")
     lines.append("> This step runs once before per-FR test execution.")
     lines.append("")
-    lines.append("**Generate TEST_PLAN.md** (no A/B — Phase End Audit替代):")
+    lines.append("**Generate TEST_PLAN.md** (orchestrator runs directly — not a sub-agent dispatch):")
     lines.append("- [ ] Read SRS.md FR acceptance criteria → write TEST_PLAN.md with per-FR test cases")
     lines.append("  - For each FR: test case ID, description, input, expected output, priority")
     lines.append("  - Include positive, negative, boundary, and edge case categories")
@@ -1608,7 +1532,7 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path) -> List[str]:
                 lines.append(f"#### {fr_id}: Test Execution")
                 lines.append("")
                 lines.extend(_fr_dev_steps(fr_id, phase=4))
-                lines.extend(_gate1_checkpoint(fr_id, phase=4, checkpoint_n=checkpoint_n))
+                # Gate 1 handled inside run-fr-step sub-agent dispatch.
                 checkpoint_n += 1
     elif frs and fr_ids:
         srs_fr_map = {fr['fr']: fr for fr in frs}
@@ -1648,7 +1572,7 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path) -> List[str]:
                 lines.append("")
                 lines.extend(_fr_carryforward_steps(fr_id, phase=4))
 
-            lines.extend(_gate1_checkpoint(fr_id, phase=4, checkpoint_n=checkpoint_n))
+            # Gate 1 handled inside run-fr-step sub-agent dispatch.
             checkpoint_n += 1
     elif fr_ids:
         lines.append("### FR Test Coverage ({} FRs)".format(len(fr_ids)))
@@ -1657,7 +1581,7 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path) -> List[str]:
             lines.append(f"#### {fr_id}: [See SRS.md for test targets]")
             lines.append("")
             lines.extend(_fr_dev_steps(fr_id, phase=4))
-            lines.extend(_gate1_checkpoint(fr_id, phase=4, checkpoint_n=checkpoint_n))
+            # Gate 1 handled inside run-fr-step sub-agent dispatch.
             checkpoint_n += 1
 
     lines.extend([

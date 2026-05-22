@@ -21,7 +21,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from generate_full_plan import (
-    _gate1_checkpoint,
     _gate_exit_checkpoint,
     _checkpoint_index,
     _load_manifest_fr_ids,
@@ -65,62 +64,6 @@ def project(tmp_path: Path) -> Path:
     (tmp_path / "01-requirements").mkdir(parents=True, exist_ok=True)
     (tmp_path / "01-requirements" / "SRS.md").write_text("# SRS\n", encoding="utf-8")
     return tmp_path
-
-
-# ─── _gate1_checkpoint ────────────────────────────────────────────────────────
-
-class TestGate1Checkpoint:
-    def test_contains_checkpoint_label(self):
-        lines = _gate1_checkpoint("FR-01", 3, 1)
-        joined = "\n".join(lines)
-        assert "CHECKPOINT-1" in joined
-        assert "Gate 1" in joined
-        assert "FR-01" in joined
-
-    def test_heading_level_h3(self):
-        """GAP-G fix: Gate 1 must use ### heading (not #####)."""
-        lines = _gate1_checkpoint("FR-01", 3, 1)
-        assert any(line.startswith("### 🔒 CHECKPOINT-1") for line in lines)
-        assert not any(line.startswith("#####") for line in lines)
-
-    def test_contains_run_gate_command(self):
-        lines = _gate1_checkpoint("FR-02", 4, 2)
-        joined = "\n".join(lines)
-        assert "run-gate --gate 1 --phase 4 --fr-id FR-02" in joined
-
-    def test_contains_finalize_gate_command(self):
-        lines = _gate1_checkpoint("FR-01", 5, 3)
-        joined = "\n".join(lines)
-        assert "finalize-gate --gate 1 --phase 5 --fr-id FR-01" in joined
-
-    def test_contains_local_commit_verification(self):
-        lines = _gate1_checkpoint("FR-01", 3, 1)
-        joined = "\n".join(lines)
-        assert "local commit only" in joined
-        assert "git push" not in joined
-
-    def test_evaluate_dimension_reference(self):
-        lines = _gate1_checkpoint("FR-01", 3, 1)
-        joined = "\n".join(lines)
-        assert "evaluate_dimension.md" in joined
-
-    def test_result_json_reference(self):
-        lines = _gate1_checkpoint("FR-01", 3, 1)
-        joined = "\n".join(lines)
-        assert "gate1_result.json" in joined
-
-    def test_fail_retry_instruction(self):
-        """GAP-C fix: FAIL retry loop must appear in Gate 1 checklist."""
-        lines = _gate1_checkpoint("FR-01", 3, 1)
-        joined = "\n".join(lines)
-        assert "FAIL" in joined
-        assert "repeat" in joined.lower() or "G1a" in joined
-
-    def test_result_json_overwrite_note(self):
-        """GAP-B fix: note about gate1_result.json being overwritten per FR."""
-        lines = _gate1_checkpoint("FR-01", 3, 1)
-        joined = "\n".join(lines)
-        assert "overwritten" in joined or "overwrite" in joined
 
 
 # ─── _gate_exit_checkpoint ────────────────────────────────────────────────────
@@ -372,10 +315,13 @@ class TestPhase3GateInjection:
         assert "CHECKPOINT-" in joined
 
     def test_has_gate1_per_fr(self, project: Path):
+        """Phase 3 Gate 1 dispatched via sub-agent (run-fr-step), not inline run-gate."""
         lines = generate_phase3_tasks(project, project / "SRS.md")
         joined = "\n".join(lines)
-        assert "run-gate --gate 1 --phase 3 --fr-id FR-01" in joined
-        assert "run-gate --gate 1 --phase 3 --fr-id FR-02" in joined
+        assert "run-fr-step --phase 3 --fr-id FR-01" in joined
+        assert "run-fr-step --phase 3 --fr-id FR-02" in joined
+        # Old inline run-gate must NOT appear for per-FR Gate 1
+        assert "run-gate --gate 1 --phase 3 --fr-id FR-01" not in joined
 
     def test_has_gate2_exit(self, project: Path):
         lines = generate_phase3_tasks(project, project / "SRS.md")
@@ -384,10 +330,13 @@ class TestPhase3GateInjection:
         assert "finalize-gate --gate 2 --phase 3" in joined
 
     def test_gate2_after_all_gate1(self, project: Path):
+        """Gate 2 exit section must appear after sub-agent GATE1 dispatch for last FR."""
         lines = generate_phase3_tasks(project, project / "SRS.md")
         joined = "\n".join(lines)
-        idx_g1_fr02 = joined.rfind("run-gate --gate 1 --phase 3 --fr-id FR-02")
+        # ORCH-GATE1 dispatch for FR-02 (last new FR in fixture) must precede Gate 2 exit
+        idx_g1_fr02 = joined.rfind("run-fr-step --phase 3 --fr-id FR-02")
         idx_g2 = joined.find("run-gate --gate 2 --phase 3")
+        assert idx_g1_fr02 != -1, "run-fr-step for FR-02 not found"
         assert idx_g1_fr02 < idx_g2, "Gate 2 must appear after all Gate 1 per-FR steps"
 
     def test_has_preflight(self, project: Path):
@@ -423,8 +372,10 @@ class TestPhase3GateInjection:
 
 class TestPhase4GateInjection:
     def test_has_gate1_per_fr(self, project: Path):
+        """Phase 4 Gate 1 dispatched via sub-agent (run-fr-step), not inline run-gate."""
         joined = "\n".join(generate_phase4_tasks(project, project / "SRS.md"))
-        assert "run-gate --gate 1 --phase 4 --fr-id FR-01" in joined
+        assert "run-fr-step --phase 4 --fr-id FR-01" in joined
+        assert "run-gate --gate 1 --phase 4 --fr-id FR-01" not in joined
 
     def test_has_gate3_exit(self, project: Path):
         joined = "\n".join(generate_phase4_tasks(project, project / "SRS.md"))
@@ -436,8 +387,10 @@ class TestPhase4GateInjection:
         assert "run-phase --phase 4" in joined
 
     def test_has_phase_audit_in_dev_steps(self, project: Path):
+        """Phase 4 uses sub-agent orchestration (run-fr-step) instead of A/B."""
         joined = "\n".join(generate_phase4_tasks(project, project / "SRS.md"))
-        assert "Phase End Audit" in joined
+        assert "run-fr-step" in joined
+        assert "Phase End Audit" not in joined
         assert "QA_ENGINEER" not in joined
 
     def test_has_phase_audit_step(self, project: Path):
@@ -1297,14 +1250,16 @@ class TestCarryForwardP3:
         assert "Gate 1 Re-evaluation" in joined
 
     def test_all_manifest_frs_have_gate1(self, project_with_carry_forward: Path):
-        """Every FR in manifest must have run-gate command."""
+        """Every FR in manifest must have run-fr-step dispatch (sub-agent model)."""
         from scripts.generate_full_plan import generate_phase3_tasks
         lines = generate_phase3_tasks(project_with_carry_forward,
                                        project_with_carry_forward / "01-requirements" / "SRS.md")
         joined = "\n".join(lines)
-        assert "run-gate --gate 1 --phase 3 --fr-id FR-01" in joined
-        assert "run-gate --gate 1 --phase 3 --fr-id FR-14" in joined
-        assert "run-gate --gate 1 --phase 3 --fr-id FR-15" in joined
+        assert "run-fr-step --phase 3 --fr-id FR-01" in joined
+        assert "run-fr-step --phase 3 --fr-id FR-14" in joined
+        assert "run-fr-step --phase 3 --fr-id FR-15" in joined
+        # Old inline run-gate must NOT appear for per-FR Gate 1
+        assert "run-gate --gate 1 --phase 3 --fr-id FR-01" not in joined
 
     def test_srs_frs_have_full_details(self, project_with_carry_forward: Path):
         """SRS.md FRs must retain full detail (title, task, test cases)."""
@@ -1337,13 +1292,14 @@ class TestCarryForwardP3:
 
 class TestCarryForwardP4:
     def test_all_manifest_frs_have_gate1(self, project_with_carry_forward: Path):
-        """Every FR in manifest must have run-gate in P4 plan."""
+        """Every FR in manifest must have run-fr-step dispatch in P4 plan (sub-agent model)."""
         from scripts.generate_full_plan import generate_phase4_tasks
         lines = generate_phase4_tasks(project_with_carry_forward,
                                        project_with_carry_forward / "01-requirements" / "SRS.md")
         joined = "\n".join(lines)
-        assert "run-gate --gate 1 --phase 4 --fr-id FR-01" in joined
-        assert "run-gate --gate 1 --phase 4 --fr-id FR-14" in joined
+        assert "run-fr-step --phase 4 --fr-id FR-01" in joined
+        assert "run-fr-step --phase 4 --fr-id FR-14" in joined
+        assert "run-gate --gate 1 --phase 4 --fr-id FR-01" not in joined
 
     def test_carry_forward_frs_have_reeval(self, project_with_carry_forward: Path):
         """Carry-forward FRs must show Re-evaluation in P4 plan."""
