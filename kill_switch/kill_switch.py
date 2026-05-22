@@ -101,7 +101,7 @@ class KillSwitch:
             except CircuitBreakerError:
                 pass  # threshold exceeded; circuit already OPEN
             except AgentNotFoundError:
-                pass  # 未在記憶體中註冊，優雅防禦
+                logger.warning(f"Agent {agent_id} not registered in circuit breaker; skipping record_failure")
             if self.circuit_breaker.get_failure_count(agent_id) >= config.failure_threshold:
                 self.circuit_breaker.open_circuit(agent_id, cooldown_seconds=config.cooldown_seconds)
                 try:
@@ -116,5 +116,5 @@ class KillSwitch:
             try:
                 self.circuit_breaker.record_success(agent_id)
             except AgentNotFoundError:
-                pass  # 未在記憶體中註冊，優雅防禦
+                logger.warning(f"Agent {agent_id} not registered in circuit breaker; skipping record_success")
         return False
