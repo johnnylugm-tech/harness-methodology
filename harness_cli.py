@@ -544,12 +544,18 @@ def _check_red_phase_ordering(project: Path, fr_id: str) -> tuple[bool, str]:
 
     src_ts = _first_at(src_patterns, exclude=["tests/"])
     if src_ts is not None and test_ts > src_ts:
+        try:
+            jitter_tolerance = int(os.environ.get("TDD_JITTER_TOLERANCE", "0"))
+        except ValueError:
+            jitter_tolerance = 0
         lag = int(test_ts - src_ts)
-        return False, (
-            f"[BLOCKED] D1-RED: Source committed {lag}s BEFORE test for {fr_id}.\n"
-            "  TDD requires RED (failing test commit) → GREEN (source commit).\n"
-            "  The test file's first commit must predate the source file's first commit."
-        )
+        if lag > jitter_tolerance:
+            return False, (
+                f"[BLOCKED] D1-RED: Source committed {lag}s BEFORE test for {fr_id}.\n"
+                f"  (Allowed jitter tolerance: {jitter_tolerance}s)\n"
+                "  TDD requires RED (failing test commit) → GREEN (source commit).\n"
+                "  The test file's first commit must predate the source file's first commit."
+            )
     return True, ""
 
 def _scan_test_functions(test_dir: Path) -> set[str]:

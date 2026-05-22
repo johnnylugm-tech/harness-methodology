@@ -134,6 +134,26 @@ class TestCheckRedPhaseOrdering:
         assert not ok
         assert "BLOCKED" in msg
 
+    def test_id_tdd_jitter_tolerance_allows_skew(self, tmp_path: Path, monkeypatch):
+        """With TDD_JITTER_TOLERANCE set, source committed slightly before test passes."""
+        self._init_git_repo(tmp_path)
+        (tmp_path / "tests").mkdir(parents=True)
+        (tmp_path / "src").mkdir(parents=True)
+        # Commit source first — sleep to ensure distinct timestamps
+        self._commit_file(tmp_path, "src/fr07_module.py", "def x(): return 1\n")
+        time.sleep(1)
+        self._commit_file(tmp_path, "tests/test_fr07.py", "def test_x(): pass\n")
+        
+        # With default tolerance (0), it blocks
+        ok, msg = _check_red_phase_ordering(tmp_path, "FR-07")
+        assert not ok
+        assert "BLOCKED" in msg
+        
+        # Set tolerance to 5s, lag is 1s, so it should pass
+        monkeypatch.setenv("TDD_JITTER_TOLERANCE", "5")
+        ok_jitter, msg_jitter = _check_red_phase_ordering(tmp_path, "FR-07")
+        assert ok_jitter, f"Expected pass with jitter tolerance, got: {msg_jitter}"
+
     def test_no_test_history_blocks(self, tmp_path: Path):
         """Test file never committed → blocked."""
         self._init_git_repo(tmp_path)

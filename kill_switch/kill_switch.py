@@ -9,7 +9,7 @@ from typing import List, Optional
 
 from .circuit_breaker import CircuitBreaker
 from .enums import CircuitState, KillReason
-from .exceptions import CircuitBreakerError, InterruptInProgressError
+from .exceptions import AgentNotFoundError, CircuitBreakerError, InterruptInProgressError
 from .health_monitor import HealthMonitor
 from .interrupt_engine import InterruptEngine
 from .models import InterruptEvent, MonitorConfig
@@ -100,6 +100,8 @@ class KillSwitch:
                 self.circuit_breaker.record_failure(agent_id)
             except CircuitBreakerError:
                 pass  # threshold exceeded; circuit already OPEN
+            except AgentNotFoundError:
+                pass  # 未在記憶體中註冊，優雅防禦
             if self.circuit_breaker.get_failure_count(agent_id) >= config.failure_threshold:
                 self.circuit_breaker.open_circuit(agent_id, cooldown_seconds=config.cooldown_seconds)
                 try:
@@ -111,5 +113,8 @@ class KillSwitch:
                 except InterruptInProgressError:
                     return False
         else:
-            self.circuit_breaker.record_success(agent_id)
+            try:
+                self.circuit_breaker.record_success(agent_id)
+            except AgentNotFoundError:
+                pass  # 未在記憶體中註冊，優雅防禦
         return False
