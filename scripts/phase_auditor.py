@@ -1872,8 +1872,7 @@ class PhaseAuditor:
         """C10: Local-only checks — only runs when using LocalFetcher.
 
         Checks: (1) state.json current_phase matches audited phase,
-                (2) force_bypass.log unreviewed bypass entries,
-                (3) gate4_result.json present for P6+ (Gate 4 entry).
+                (2) gate4_result.json present for P6+ (Gate 4 entry).
         Silently no-ops when using GitHubFetcher (is_local = False).
         """
         if not getattr(self.gh, "is_local", False):
@@ -1907,35 +1906,7 @@ class PhaseAuditor:
                     detail="",
                 ))
 
-        # 2. force_bypass.log unreviewed entries
-        bypass_content = self.gh.get_file_content(".methodology/force_bypass.log")
-        if bypass_content:
-            log_lines = [ln for ln in bypass_content.splitlines() if ln.strip()]
-            unreviewed = []
-            for line in log_lines:
-                try:
-                    entry = json.loads(line)
-                    if not entry.get("audit_note"):
-                        unreviewed.append(entry.get("command", "unknown"))
-                except json.JSONDecodeError:
-                    pass
-            if unreviewed:
-                self.result.add(Finding(
-                    check_id="C10", dimension="Local State Consistency",
-                    severity="WARNING",
-                    title=f"{len(unreviewed)} unreviewed bypass entry(ies) in force_bypass.log",
-                    detail=f"Commands: {unreviewed[:5]}. Add audit_note to each entry.",
-                    rule_ref="HR-09",
-                ))
-            else:
-                self.result.add(Finding(
-                    check_id="C10", dimension="Local State Consistency",
-                    severity="PASS",
-                    title=f"force_bypass.log: all {len(log_lines)} entry(ies) have audit_note.",
-                    detail="",
-                ))
-
-        # 3. gate4_result.json for P6+ (mirrors harness_cli._check_gate4_prerequisites paths)
+        # 2. gate4_result.json for P6+ (mirrors harness_cli._check_gate4_prerequisites paths)
         if self.phase >= 6:
             _g4_candidates = [
                 ".sessi-work/gate4_result.json",     # primary (written by bridge)

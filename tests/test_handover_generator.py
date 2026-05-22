@@ -2085,13 +2085,6 @@ class TestGate4Prerequisites:
         methodology = tmp_path / ".methodology"
         methodology.mkdir(parents=True, exist_ok=True)
 
-        # A1: Hermes receipt
-        (methodology / "hermes_g4_receipt.json").write_text(_json.dumps({
-            "ts": "2026-01-01T00:00:00+00:00",
-            "approved_by": "hermes",
-            "composite_score": 87.5,
-        }))
-
         # gate4_result.json (A2/A3/A4/A5)
         scores_dir = tmp_path / ".sessi-work" / "round_1" / "scores"
         scores_dir.mkdir(parents=True, exist_ok=True)
@@ -2145,8 +2138,8 @@ class TestGate4Prerequisites:
         """Hermes receipt is no longer required (A1 removed) — Gate 4 proceeds without it."""
         from harness_cli import _check_gate4_prerequisites
         project = self._make_project(tmp_path)
-        (project / ".methodology" / "hermes_g4_receipt.json").unlink()
-        # A1 check removed: missing receipt must NOT block
+        # Receipt file is never created — A1 check removed, missing receipt must NOT block
+        assert not (project / ".methodology" / "hermes_g4_receipt.json").exists()
         assert _check_gate4_prerequisites(project) is False
 
     def test_tier1_dim_using_claude_blocked(self, tmp_path):

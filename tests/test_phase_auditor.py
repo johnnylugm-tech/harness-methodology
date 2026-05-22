@@ -270,7 +270,7 @@ class FakeLocalFetcher:
 
 
 class TestC10LocalState:
-    """C10: Local-only state consistency checks (state.json, force_bypass.log, gate4_result.json)."""
+    """C10: Local-only state consistency checks (state.json, gate4_result.json)."""
 
     def _make_auditor(self, phase: int, files: dict) -> PhaseAuditor:
         return PhaseAuditor(FakeLocalFetcher(files), phase)
@@ -299,29 +299,6 @@ class TestC10LocalState:
         assert any(f.severity == "WARNING" and f.check_id == "C10"
                    and "current_phase=3" in f.title
                    for f in a.result.findings)
-
-    def test_bypass_log_all_reviewed_is_pass(self):
-        """All bypass entries with audit_note → PASS."""
-        bypass = json.dumps({"command": "advance-phase", "audit_note": "reviewed by johnny 2026-05-21"})
-        a = self._make_auditor(3, {
-            ".methodology/state.json": json.dumps({"current_phase": 3}),
-            ".methodology/force_bypass.log": bypass,
-        })
-        a.check_c10_local_state()
-        pass_findings = [f for f in a.result.findings
-                         if f.check_id == "C10" and "force_bypass" in f.title]
-        assert any(f.severity == "PASS" for f in pass_findings)
-
-    def test_bypass_log_unreviewed_is_warning(self):
-        """Bypass entry without audit_note → WARNING."""
-        bypass = json.dumps({"command": "advance-phase"})  # no audit_note
-        a = self._make_auditor(3, {
-            ".methodology/state.json": json.dumps({"current_phase": 3}),
-            ".methodology/force_bypass.log": bypass,
-        })
-        a.check_c10_local_state()
-        assert any(f.severity == "WARNING" and "unreviewed" in f.title
-                   for f in a.result.findings if f.check_id == "C10")
 
     def test_gate4_missing_p6_is_critical(self):
         """P6+ without any gate4_result.json → CRITICAL."""

@@ -12,8 +12,6 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from core.quality_gate.confidence_scorer import (
-    AUTO_APPROVE_GATE4_COMPOSITE,
-    AUTO_APPROVE_GATE4_CONFIDENCE,
     AUTO_APPROVE_P1P2_THRESHOLD,
     _score_artifact_completeness,
     _score_linting,
@@ -24,7 +22,6 @@ from core.quality_gate.confidence_scorer import (
     _score_type_safety,
     compute_confidence,
     format_confidence_report,
-    should_auto_approve_gate4,
     should_auto_approve_p1p2,
 )
 
@@ -362,20 +359,3 @@ class TestAutoApproveThresholds:
         conf = {"composite": AUTO_APPROVE_P1P2_THRESHOLD - 0.1, "scores": {}, "skipped": []}
         assert should_auto_approve_p1p2(conf) is False
 
-    def test_gate4_both_thresholds_met(self):
-        conf = {"composite": AUTO_APPROVE_GATE4_CONFIDENCE, "scores": {}, "skipped": []}
-        assert should_auto_approve_gate4(conf, AUTO_APPROVE_GATE4_COMPOSITE) is True
-
-    def test_gate4_low_composite_blocked(self):
-        """Even with high confidence, low composite blocks auto-approve."""
-        conf = {"composite": AUTO_APPROVE_GATE4_CONFIDENCE + 5, "scores": {}, "skipped": []}
-        assert should_auto_approve_gate4(conf, AUTO_APPROVE_GATE4_COMPOSITE - 1) is False
-
-    def test_gate4_low_confidence_blocked(self):
-        """Even with high composite, low confidence blocks auto-approve."""
-        conf = {"composite": AUTO_APPROVE_GATE4_CONFIDENCE - 1, "scores": {}, "skipped": []}
-        assert should_auto_approve_gate4(conf, AUTO_APPROVE_GATE4_COMPOSITE + 5) is False
-
-    def test_gate4_both_below_threshold_blocked(self):
-        conf = {"composite": 70.0, "scores": {}, "skipped": []}
-        assert should_auto_approve_gate4(conf, 75.0) is False

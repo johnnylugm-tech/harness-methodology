@@ -3,7 +3,7 @@
 confidence_scorer.py — Script-based confidence scoring (no LLM).
 
 Computes a deterministic confidence score (0-100) from tool outputs.
-Used to decide whether HITL approval can be automatically skipped.
+Used to decide whether P1/P2 push-checkpoint can be automatically approved.
 
 Metrics (C1-C7):
     C1  artifact_completeness  Phase artifacts present + non-empty
@@ -15,11 +15,11 @@ Metrics (C1-C7):
     C7  traceability           FR coverage in quality_manifest.json
 
 Usage:
-    from core.quality_gate.confidence_scorer import compute_confidence, should_auto_approve_gate4
+    from core.quality_gate.confidence_scorer import compute_confidence, should_auto_approve_p1p2
 
-    conf = compute_confidence(project_path, phase=6)
-    if should_auto_approve_gate4(conf, composite_score=90.0):
-        # skip Hermes
+    conf = compute_confidence(project_path, phase=1)
+    if should_auto_approve_p1p2(conf):
+        # skip manual push-checkpoint review
 """
 from __future__ import annotations
 
@@ -33,8 +33,6 @@ from typing import Callable, Optional
 # ── Thresholds ────────────────────────────────────────────────────────────────
 
 AUTO_APPROVE_P1P2_THRESHOLD: float = 88.0      # push-checkpoint auto-pass
-AUTO_APPROVE_GATE4_CONFIDENCE: float = 93.0    # confidence gate for Gate 4
-AUTO_APPROVE_GATE4_COMPOSITE: float = 88.0     # composite gate score threshold for Gate 4
 
 # ── Phase → int mapping (mirrors Phase enum in phase_artifact_enforcer.py) ────
 
@@ -399,19 +397,6 @@ def compute_confidence(
 def should_auto_approve_p1p2(conf: dict) -> bool:
     """Return True if P1/P2 confidence meets auto-approve threshold."""
     return conf.get("composite", 0.0) >= AUTO_APPROVE_P1P2_THRESHOLD
-
-
-def should_auto_approve_gate4(conf: dict, composite_score: float) -> bool:
-    """Return True if Gate 4 can be auto-approved (skip Hermes).
-
-    Requires BOTH:
-    - Gate 4 composite_score (from gate4_result.json) >= AUTO_APPROVE_GATE4_COMPOSITE
-    - Script confidence composite >= AUTO_APPROVE_GATE4_CONFIDENCE
-    """
-    return (
-        composite_score >= AUTO_APPROVE_GATE4_COMPOSITE
-        and conf.get("composite", 0.0) >= AUTO_APPROVE_GATE4_CONFIDENCE
-    )
 
 
 def format_confidence_report(conf: dict) -> str:

@@ -450,7 +450,7 @@ def _agent_b_dispatch_block(phase: int, role_b: str, fr_id: str = "") -> List[st
     for i, doc in enumerate(embed_docs, 1):
         lines += [
             f"  === [DOC {i}: {doc}] ===",
-            "  {paste full content here}",
+            "  <<paste full content here>>",
             "",
         ]
     lines += [
@@ -588,7 +588,7 @@ def _deliverable_ab_block(phase: int, deliverable: Dict, sub_n: int, total: int,
     for i, doc in enumerate(embed_docs, 1):
         lines += [
             f"  === [DOC {i}: {doc}] ===",
-            "  {paste full content here}",
+            "  <<paste full content here>>",
             "",
         ]
     lines += [
@@ -760,7 +760,7 @@ def _review_checkpoint(phase: int, checkpoint_n: int) -> List[str]:
     for i, artifact in enumerate(artifacts, 1):
         lines += [
             f"  === [DOC {i}: {artifact}] ===",
-            "  {paste full content here}",
+            "  <<paste full content here>>",
             "",
         ]
     lines += [
