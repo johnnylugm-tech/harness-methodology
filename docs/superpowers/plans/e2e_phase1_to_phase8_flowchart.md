@@ -591,13 +591,15 @@ SESSION START (P6 entry — automated preflight, Phase Truth from P5 PASS is pre
 ╔═════════════════════════════════════════════════════════════╗
 ║  GENERATED PLAN — phase6_plan.md                           ║
 ║                                                             ║
-║  > Quality Dimensions (12 dim audit):                       ║
+║  > Quality Dimensions (14-dimension audit):                 ║
 ║  >   1. linting          2. type_safety                     ║
 ║  >   3. test_coverage    4. security                        ║
 ║  >   5. secrets_scanning 6. license_compliance              ║
 ║  >   7. mutation_testing 8. architecture                    ║
 ║  >   9. readability     10. error_handling                  ║
 ║  >  11. documentation   12. performance                     ║
+║  >  13. integration_coverage                                ║
+║  >  14. test_assertion_quality                              ║
 ║                                                             ║
 ║  > CHECKPOINT-1: Gate 4 (Phase 6 Exit) — score ≥ 85        ║
 ║                                                             ║
@@ -618,7 +620,7 @@ SESSION START (P6 entry — automated preflight, Phase Truth from P5 PASS is pre
 └──────────────────┬──────────────────────────────────────────┘
                    │
                    ▼
-    ┌──────── 12-DIMENSION QUALITY AUDIT ────────────────────┐
+    ┌──────── 14-DIMENSION QUALITY AUDIT ────────────────────┐
     │                                                          │
     │  Per dimension:                                          │
     │    Round 1: Read evaluate_dimension.md prompt            │
@@ -656,7 +658,7 @@ SESSION START (P6 entry — automated preflight, Phase Truth from P5 PASS is pre
     ║  ### 🔒 CHECKPOINT-1: Gate 4 — Phase 6 Exit            ║
     ║                                                          ║
     ║  G4a: run-gate --gate 4 --phase 6 --project $REPO      ║
-    ║    → Prints full 12-dim evaluation instructions         ║
+    ║    → Prints full 14-dim evaluation instructions         ║
     ║    → [CRG] full graph rebuild + reconnaissance          ║
     ║                                                          ║
     ║  G4b: EVALUATE (Claude inline)                          ║
@@ -1067,4 +1069,4 @@ CRASH / CONTEXT RESET
 
 ---
 
-*Generated from SKILL.md v6.50.0 + SAD.md v2.2 — harness-methodology autonomous pipeline specification.*
+*Generated from SKILL.md v2.4.0 + SAD.md v2.4 — harness-methodology autonomous pipeline specification.*

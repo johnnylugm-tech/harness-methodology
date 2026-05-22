@@ -161,7 +161,7 @@ Each phase works on a list of FRs (e.g. `FR-01`, `FR-02`). Each FR is an atomic 
 |---|---|---|---|
 | Gate 1 | Per-FR at P3/P4/P5/P7/P8 | Single FR | Per-dimension (linting≥90, type≥85, coverage≥80) |
 | Gate 2 | P3 exit | Full phase | Composite score ≥ 75 |
-| Gate 3 | P4 exit | Full phase | Composite score ≥ 80, all 15 dims |
+| Gate 3 | P4 exit | Full phase | Composite score ≥ 80, all 14 dims |
 | Gate 4 | P6 exit | Full project | Composite score ≥ 85 + Hermes human APPROVE |
 
 > **Normative reference**: Gate pass criteria are **MUST**-level requirements per RFC 2119. See [SAD.md §2.4 Conformance Matrix](../SAD.md#24-conformance-matrix-rfc-2119) for the full conformance specification.
@@ -333,7 +333,7 @@ Phase 4：測試。
 # Per-FR gate
 python harness_cli.py run-gate --gate 1 --phase 4 --project /project --fr-id FR-01
 
-# Phase exit gate (15 dimensions including architecture + error_handling + integration_coverage + test_assertion_quality)
+# Phase exit gate (14 dimensions including architecture + error_handling + integration_coverage + test_assertion_quality)
 python harness_cli.py run-gate --gate 3 --phase 4 --project /project
 ```
 
@@ -363,7 +363,7 @@ python harness_cli.py run-phase --phase 5 --project /project
 
 **Goal**: Final full-project quality check. Gate 4 (score≥85 + Hermes APPROVE).
 
-**A/B Roles**: QA_ENGINEER (Agent A) + ARCHITECT (Agent B)
+**A/B Roles**: No A/B roles at Phase level (replaced by automated Phase End Audit + Hermes APPROVE)
 
 **Interactive prompt to Claude**:
 ```
@@ -378,7 +378,7 @@ Phase 6：品質保證。
 **Run Gate 4** (requires SSI + Hermes):
 ```bash
 python harness_cli.py run-gate --gate 4 --phase 6 --project /project
-# → Runs SSI evaluation (15 dims, score ≥ 85)
+# → Runs SSI evaluation (14 dims, score ≥ 85)
 # → mutation_testing: objective_primary=true
 # → Sends to Hermes reviewer for human APPROVE
 # → On APPROVE: gate passes, decision logged

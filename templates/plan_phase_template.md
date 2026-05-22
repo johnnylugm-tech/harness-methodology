@@ -496,7 +496,7 @@ pytest --cov=app/ --cov-report=term -q
 
 ---
 
-## 10.5 Automated Quality Enhancement (v6.61+ features)
+## 10.5 Automated Quality Enhancement (v2.4 features)
 
 ### Automated features supported by current framework version
 
@@ -635,7 +635,7 @@ result = si.spawn(role="DEVELOPER", task="FR-{FR_NUM}", artifact_paths=["SRS.md"
 
 ---
 
-## 17. Agent Execution Flow (v7.25+ with enhancements)
+## 17. Agent Execution Flow (v2.4 with enhancements)
 
 ### IMPORTANT: sessions_spawn is called directly by Agent
 
@@ -695,7 +695,7 @@ The harness CLI cannot import it, but **Agent can call it directly**.
 #!/usr/bin/env python3
 """
 Phase {PHASE} FR Execution Script (includes Section 10.5 enhancements)
-Version: v7.25+
+Version: v2.4
 """
 
 import subprocess

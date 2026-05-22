@@ -79,7 +79,7 @@ HR-02 | HR-03 | HR-05 | HR-06 | HR-07 | HR-08 | HR-09 | HR-11 | HR-13 | HR-14 | 
   ```bash
   python3 scripts/generate_quality_report.py --project $REPO
   ```
-- [ ] Verify QUALITY_REPORT.md covers all 12 dimensions and references BASELINE + VERIFICATION_REPORT
+- [ ] Verify QUALITY_REPORT.md covers all 14 dimensions and references BASELINE + VERIFICATION_REPORT
 
 ### Phase End Audit (Required before Gate 4 Hermes push)
 
@@ -104,7 +104,7 @@ Fix all CRITICAL gaps before proceeding. See `scripts/phase_end_audit.py` for de
 
 ```
 06-quality/
-+-- QUALITY_REPORT.md         # Quality report (12-dimension assessment)
++-- QUALITY_REPORT.md         # Quality report (14-dimension assessment)
 +-- MONITORING_PLAN.md        # Monitoring plan
 ```
 ```
@@ -115,7 +115,7 @@ Project Root/
 
 ### Phase 6 Deliverable Checklist
 
-- [ ] `06-quality/QUALITY_REPORT.md` — 12-dimension quality assessment
+- [ ] `06-quality/QUALITY_REPORT.md` — 14-dimension quality assessment
 - [ ] `06-quality/MONITORING_PLAN.md` — Monitoring plan
 - [ ] `RELEASE_NOTES.md` — Release notes
 - [ ] `FINAL_SIGN_OFF.md` — Final sign-off with gate scores
@@ -141,33 +141,34 @@ Project Root/
 
 | Dim | Dimension | Weight | Evaluation Command | Target |
 |-----|-----------|--------|-------------------|--------|
-| 1 | **Completeness** | 10% | FR checklist vs SRS acceptance criteria | 100% FRs covered |
-| 2 | **Correctness** | 10% | `pytest` pass rate | 100% pass |
-| 3 | **Consistency** | 8% | SAD → code alignment (`check-trace`) | >= 90% |
-| 4 | **Clarity** | 8% | Docstring/citation audit | All public fns documented |
-| 5 | **Test Coverage** | 10% | `pytest --cov=app/` | >= 80% |
-| 6 | **Maintainability** | 8% | `ruff check` | 0 errors |
-| 7 | **Reliability** | 10% | Integration test pass rate | >= 90% |
-| 8 | **Performance** | 8% | BASELINE.md regression check | No regression |
-| 9 | **Security** | 8% | Bandit / safety scan | 0 HIGH issues |
-| 10 | **Traceability** | 8% | FR→SRS→SAD→code→test chain | 100% traceable |
-| 11 | **Integrity** | 6% | Constitution score | >= 80% |
-| 12 | **Phase Truth** | 6% | PhaseTruthVerifier | >= 90% |
+| 1 | **linting** | 10% | `ruff check` | 0 errors |
+| 2 | **type_safety** | 10% | `mypy --strict` | 0 errors |
+| 3 | **test_coverage** | 10% | `pytest --cov` | >= 80% |
+| 4 | **security** | 8% | Bandit scan | 0 HIGH issues |
+| 5 | **secrets_scanning** | 6% | `detect-secrets` | 0 secrets |
+| 6 | **license_compliance** | 6% | License audit | 0 forbidden licenses |
+| 7 | **mutation_testing** | 8% | `mutmut` / `mutpy` | score >= 70% |
+| 8 | **architecture** | 8% | CRG structural coupling check | >= 90% |
+| 9 | **readability** | 6% | Maintainability index | Radon MI >= 70 |
+| 10 | **error_handling** | 6% | CRG error flow analysis | 100% flow coverage |
+| 11 | **documentation** | 6% | Docstring / API coverage | 100% coverage |
+| 12 | **performance** | 6% | BASELINE.md regression check | No regression |
+| 13 | **integration_coverage** | 5% | Integration test coverage | >= 80% |
+| 14 | **test_assertion_quality** | 5% | Assertion density/quality | >= 90% |
 
 ### 5.3 Task Table
 
 | Task | Owner | Input | Output |
 |------|-------|-------|--------|
-| Quality data collection | Agent A (qa) | TEST_RESULTS.md, BASELINE.md | Quality data |
-| Constitution check | Agent A (qa) | All Phase outputs | Check report |
-| Logic correctness verification | Agent B (architect) | Code, TEST_RESULTS | Verification report |
-| QUALITY_REPORT writing | Agent A (qa) | All check results | QUALITY_REPORT.md |
+| Quality data collection | QA_ENGINEER | TEST_RESULTS.md, BASELINE.md | Quality data |
+| Constitution check | QA_ENGINEER | All Phase outputs | Check report |
+| QUALITY_REPORT writing | QA_ENGINEER | All check results | QUALITY_REPORT.md |
 
 ---
 
 ## 6. Agent Prompt Templates
 
-### Agent A (qa)
+### QA_ENGINEER
 
 ```
 TASK: Generate QUALITY_REPORT
@@ -186,9 +187,9 @@ OUTPUT:
 
 PASS CRITERIA:
 - Constitution quality total >= 80%
-- Logic correctness score >= 90
+- Gate 4 score >= 85
 - All HIGH priority issues resolved or risk accepted
-- MAX 5 iteration rounds (HR-12)
+- MAX 5 iteration rounds
 
 FORBIDDEN:
 - Concealing quality issues
@@ -202,40 +203,6 @@ OUTPUT_FORMAT:
   "result": "QUALITY_REPORT.md path",
   "confidence": 1-10,
   "citations": ["TEST_RESULTS.md#L30-L40"],
-  "summary": "under 50 chars"
-}
-```
-
-### Agent B (architect)
-
-```
-TASK: Review QUALITY_REPORT
-TASK_ID: task-p6-review
-
-REVIEW SCOPE (read only necessary sections):
-- 06-quality/QUALITY_REPORT.md
-- 04-testing/TEST_RESULTS.md
-- 05-verification/BASELINE.md
-
-VERIFICATION CHECKLIST:
-1. Constitution quality total >= 80%
-2. Logic correctness score >= 90
-3. HIGH priority issues resolved or risk accepted
-4. Quality trend reasonable vs Baseline
-5. Release recommendation clear
-
-REJECT_IF:
-- Constitution < 80% → REJECT
-- HIGH priority issues unresolved → REJECT
-- Data not matching reality → REJECT
-- Missing citations or no line numbers → REJECT (HR-15)
-
-OUTPUT_FORMAT:
-{
-  "status": "APPROVE|REJECT",
-  "confidence": 1-10,
-  "violations": ["specific issue"],
-  "quality_score": "Constitution score",
   "summary": "under 50 chars"
 }
 ```
@@ -257,14 +224,6 @@ pytest {PROJECT_PATH}/tests/ --cov={SOURCE_DIR} --cov-report=term -q
 
 ---
 
-## 8. .methodology/sessions_spawn.log Format (HR-10)
-
-2 records per Phase (qa + architect):
-
-```json
-{"timestamp": "ISO8601", "role": "qa", "task": "generate QUALITY_REPORT", "session_id": "xxx"}
-{"timestamp": "ISO8601", "role": "architect", "task": "review QUALITY_REPORT", "session_id": "yyy"}
-```
 
 ---
 
@@ -347,7 +306,7 @@ python3 harness_cli.py finalize-gate --gate 4 --phase 6
 
 #### QUALITY_REPORT.md
 - Automatically generated by `finalize-gate --gate 4`
-- Contains: 12-dimension score table, FR coverage summary, defect statistics
+- Contains: 14-dimension score table, FR coverage summary, defect statistics
 - [ASPICE] Must reference `BASELINE.md` and `VERIFICATION_REPORT.md` by filename keyword
 
 #### RELEASE_NOTES.md
@@ -385,10 +344,8 @@ python3 harness_cli.py finalize-gate --gate 4 --phase 6
 
 ## 11. Time Estimate
 
-| Stage | Estimate |
-|-------|----------|
 | Pre-execution | 10 min |
-| Quality Evaluation (A/B) | 60 min |
+| Quality Evaluation | 60 min |
 | Gate 4 Evaluation | 45 min |
 | Hermes Approval | 15 min (wait time) |
 | Deliverable Generation | 20 min |

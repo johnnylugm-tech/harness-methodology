@@ -3,7 +3,7 @@
 <!-- Input: All Phase 1-5 artifacts + quality_manifest.json -->
 <!-- Output: Gate 4 report + Hermes APPROVE -->
 
-## Step 6.1 — Gate 4 (12-dim full harness)
+## Step 6.1 — Gate 4 (14-dim full harness)
 ```bash
 python harness_cli.py run-gate --gate 4 --phase 6
 # 14 dims, All Tiers, score_gate=85, max_rounds=3
@@ -69,7 +69,7 @@ Orchestrator: copy this when spawning Agent A for P6.
 [TASK]
 Phase: 6 — Quality Assurance | FR-ID: n/a (per-phase task)
 Role: QA_ENGINEER
-Deliverable: QUALITY_REPORT.md (12-dim full audit)
+Deliverable: QUALITY_REPORT.md (14-dim full audit)
 
 SRS (all FRs):
 > {paste relevant sections from docs/SRS.md — embed, not file path}
@@ -94,33 +94,4 @@ Expected output:
          "files": ["QUALITY_REPORT.md", "RELEASE_NOTES.md"],
          "confidence": N, "per_dimension": {...},
          "overall_score": N, "citations": [...], "summary": "..."}
-```
-
-## Agent B Dispatch Template (P6 — per phase)
-
-Orchestrator: copy this when spawning Agent B for P6.
-
-```
-[TASK]
-Phase: 6 — Quality Assurance | FR-ID: n/a (per-phase task)
-Role: ARCHITECT (reviewer)
-
-Quality report to review:
-> {paste full QUALITY_REPORT.md — embed, not file path.
-   Agent B is STATELESS (§0.5).}
-
-Gate 4 result:
-> {paste gate4_result.json — embed}
-
-Review criteria:
-1. All 14 dimensions evaluated? (no skipped dimensions)
-2. Per-dimension scores consistent with evidence?
-3. open_critical == 0 confirmed?
-4. All FRs represented in the quality report?
-5. RELEASE_NOTES.md accurate and complete?
-
-Expected output:
-- JSON: {"status": "success", "review_status": "APPROVE|REJECT",
-         "confidence": N, "violations": [...], "citations": [...],
-         "summary": "..."}
 ```

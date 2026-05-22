@@ -39,4 +39,4 @@
 
 ## 6. Acceptance Sign-off
 - Agent A: {name} ({session_id}) - {date}
-- Agent B: {name} ({session_id}) - {date}
+- Approver: {name} ({session_id}) - {date}
