@@ -1151,7 +1151,7 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
 def _checkpoint_index(fr_ids: List[str], phase: int) -> List[str]:
     """Generate a checkpoint index header for the plan (P3-P8)."""
     lines = [
-        "> **Crash Recovery**: `python3 harness_cli.py resume-fr-phase --phase N --project .`",
+        f"> **Crash Recovery**: `python3 harness_cli.py resume-fr-phase --phase {phase} --project .`",
         "> prints the next pending step. Each `run-fr-step` auto-pushes to GitHub on completion.",
         "> Per-FR TDD-RED/GREEN/IMPROVE/GATE1 each push immediately (idempotent on re-run).",
         "> At milestones, `HANDOVER.md` is written with phase/FR/status summary.",
