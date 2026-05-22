@@ -469,6 +469,7 @@ def _agent_b_dispatch_block(phase: int, role_b: str, fr_id: str = "") -> List[st
         "  - `APPROVE` → continue to next step",
         "  - `REJECT` → Agent A fixes gaps → re-dispatch B. Max 5 rounds (HR-12).",
         "    > If round 5 REJECT: escalate to human — orchestrator cannot self-resolve.",
+        "    > Human fix → re-dispatch Agent B (same prompt + updated content) → `APPROVE` required before continuing.",
         "",
     ]
     return lines
@@ -617,6 +618,7 @@ def _deliverable_ab_block(phase: int, deliverable: Dict, sub_n: int, total: int,
         f"    → {next_action} only after round-2 APPROVE",
         "  - `REJECT` → Agent A fixes gaps → re-dispatch B. Max 5 rounds (HR-12).",
         "    > If round 5 REJECT: escalate to human — orchestrator cannot self-resolve.",
+        "    > Human fix → re-dispatch Agent B (same prompt + updated content) → `APPROVE` required before continuing.",
         "",
         "  > ⚠️ **BLOCKING**: Do NOT start the next Sub-Task until this sub-task's current",
         "  > round is fully APPROVED (including any required round 2).",
@@ -632,12 +634,17 @@ def _preflight_steps(phase: int) -> List[str]:
     """Preflight hook step — run before the FR development loop (FSM + Constitution check + CI readiness)."""
     if phase == 1:
         ci_check = [
-            "- [ ] **[PREFLIGHT-CI]** ⛔ HARD STOP if any item below is missing — complete SKILL.md §0.1 Step 0 first:",
-            "  1. `.methodology/state.json` exists with `current_phase = 1`  ← set by `init-project`",
-            "  2. `.github/workflows/harness_quality_gate.yml` exists in project root  ← set by `init-project`",
-            "  3. Git hooks installed (`ls .git/hooks/prepare-commit-msg`)  ← set by `init-project`",
+            "- [ ] **[PREFLIGHT-CI]** Verify CI wiring (all 3 items auto-set by `init-project`):",
+            "  1. `.methodology/state.json` exists with `current_phase = 1`",
+            "  2. `.github/workflows/harness_quality_gate.yml` exists in project root",
+            "  3. Git hooks installed (`ls .git/hooks/prepare-commit-msg`)",
             "  4. Phase stored in `.methodology/state.json` — single source of truth (no GitHub variable needed)",
-            "  If any required item (1-3) is missing: stop, run `python3 harness_cli.py init-project --phase 1 --project $REPO`, then set manual items.",
+            "  If any item (1-3) is missing — run automated fix:",
+            "  ```bash",
+            "  python3 harness_cli.py init-project --phase 1 --project $REPO",
+            "  ```",
+            "  Re-verify items 1-3 after running.",
+            "  If still failing after `init-project`: escalate to human — provide `init-project` error output.",
         ]
     else:
         ci_check = [
@@ -655,7 +662,10 @@ def _preflight_steps(phase: int) -> List[str]:
         "  ```bash",
         f"  python3 harness_cli.py run-phase --phase {phase} --project $REPO",
         "  ```",
-        "  If FAILED: fix FSM/Constitution issues. There is no gate bypass flag.",
+        "  If FAILED: fix FSM/Constitution/Drift issues. There is no gate bypass flag.",
+        "  Re-run `run-phase` after each fix. Max 3 attempts.",
+        f"  After 3 FAIL: escalate to human — provide last `run-phase --phase {phase}` full output.",
+        f"  Human fix → re-run `run-phase --phase {phase} --project $REPO` → PASS required before continuing.",
         "",
         *ci_check,
         "",
@@ -783,6 +793,7 @@ def _review_checkpoint(phase: int, checkpoint_n: int) -> List[str]:
         "    (embed same docs as B-1 above with updated content) → push only after round-2 APPROVE",
         "  - `REJECT` → fix all gaps → re-dispatch B. Max 5 rounds (HR-12).",
         "    > If round 5 REJECT: escalate to human — orchestrator cannot self-resolve.",
+        "    > Human fix → re-dispatch Agent B (same prompt + updated content) → `APPROVE` required before continuing.",
         "",
         f"- [ ] **[B-PUSH]** ✅ Push to GitHub + HANDOVER.md — retry until success (CHECKPOINT-{checkpoint_n} saved):",
         "  > Run `push-checkpoint` → if blocked, read the error → fix → re-run until green.",
@@ -937,6 +948,7 @@ def _fr_dev_steps(fr_id: str, phase: int) -> List[str]:
         "  → GitHub push: ✅ auto-done by run-fr-step",
         "  → GATE1 FAIL: auto-dispatches CODE-FIX sub-agent → retries (max 3 rounds)",
         "  → exit 2 = BLOCKED: human intervention required before continuing",
+        f"  → Human fix → re-run `run-fr-step --step GATE1 --fr-id {fr_id}` → exit 0 required before continuing.",
         "",
         "- [ ] **[ORCH-POST]** After GATE1 PASS — orchestrator runs directly:",
         "  ```bash",
@@ -965,6 +977,9 @@ def _fr_carryforward_steps(fr_id: str, phase: int) -> List[str]:
         "  ```",
         f"  → Delta-check: skips re-evaluation if {fr_id} code unchanged since last Gate 1.",
         "  → GitHub push: ✅ auto-done by run-fr-step",
+        "  → GATE1-DELTA FAIL: auto-dispatches CODE-FIX sub-agent → retries (max 3 rounds)",
+        "  → exit 2 = BLOCKED: human intervention required before continuing",
+        f"  → Human fix → re-run `run-fr-step --step GATE1-DELTA --fr-id {fr_id}` → exit 0 required before continuing.",
         "",
         "- [ ] **[ORCH-POST]** After GATE1-DELTA PASS — orchestrator runs directly:",
         "  ```bash",
@@ -1124,6 +1139,7 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
         f"  - CASE 2 CONTINUE: score ≥ score_gate BUT issues remain → fix → repeat G{gate_num}a",
         "  - CASE 3 PLATEAU:  3 consecutive rounds, no new issues → `deferred_fixes.md` → proceed to push",
         "  - CASE 4 BLOCKED:  max_rounds exhausted, not PASS → `GateBlockedError` → escalate to human",
+        f"    > Human fix → re-run `run-gate --gate {gate_num} → finalize-gate --gate {gate_num}` → CASE 1 PASS required before continuing.",
     ]
     phase_truth_step = (
         [
