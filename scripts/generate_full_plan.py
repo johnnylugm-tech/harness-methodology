@@ -965,8 +965,8 @@ def _fr_dev_steps(fr_id: str, phase: int) -> List[str]:
 def _fr_carryforward_steps(fr_id: str, phase: int) -> List[str]:
     """Gate 1 re-evaluation via GATE1-DELTA sub-agent for carry-forward FRs.
 
-    GATE1-DELTA: delta-check first (skip if code unchanged), then GATE1 evaluation.
-    GitHub push happens automatically after sub-agent completes.
+    GATE1-DELTA: git diff since last Gate 1 PASS → no changes: skip (idempotent);
+    code changed: full GATE1 re-evaluation. GitHub push after sub-agent completes.
     """
     return [
         f"**Gate 1 Re-evaluation — {fr_id}** (carry-forward · sub-agent dispatch):",
@@ -975,9 +975,11 @@ def _fr_carryforward_steps(fr_id: str, phase: int) -> List[str]:
         f"  python3 harness_cli.py run-fr-step --phase {phase} --fr-id {fr_id} \\",
         "    --step GATE1-DELTA --project .",
         "  ```",
-        f"  → Delta-check: skips re-evaluation if {fr_id} code unchanged since last Gate 1.",
+        f"  → Code-change detection: git diff {fr_id} files since last Gate 1 PASS",
+        "  → No changes → skip (idempotent — safe to re-run)",
+        "  → Changes detected → full GATE1 re-evaluation (3 dims: linting/type_safety/test_coverage)",
         "  → GitHub push: ✅ auto-done by run-fr-step",
-        "  → GATE1-DELTA FAIL: auto-dispatches CODE-FIX sub-agent → retries (max 3 rounds)",
+        "  → GATE1 FAIL: auto-dispatches CODE-FIX sub-agent → retries (max 3 rounds)",
         "  → exit 2 = BLOCKED: human intervention required before continuing",
         f"  → Human fix → re-run `run-fr-step --step GATE1-DELTA --fr-id {fr_id}` → exit 0 required before continuing.",
         "",
@@ -1669,6 +1671,13 @@ def generate_phase5_tasks(repo_path: Path) -> List[str]:
     lines.append("Phase 5 verifies the system against test results, ensuring all FRs meet acceptance criteria.")
     lines.append("Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). No phase-exit gate — P5 was cleared by Gate 3 at P4 exit.")
     lines.append("")
+    lines.append(
+        "> If code changes are needed for any FR (e.g., bug fixes found during verification), "
+        "run full TDD: `run-fr-step --step TDD-RED` → TDD-GREEN → TDD-IMPROVE → GATE1. "
+        "Crash recovery (`resume-fr-phase`) auto-detects code changes and switches from "
+        "GATE1-DELTA to full TDD when needed."
+    )
+    lines.append("")
 
     manifest_fr_ids = _load_manifest_fr_ids(repo_path)
     lines.extend(_checkpoint_index(manifest_fr_ids, phase=5))
@@ -1783,6 +1792,13 @@ def generate_phase7_tasks(repo_path: Path) -> List[str]:
     lines.append("Phase 7 identifies, tracks, and mitigates all risks introduced during development.")
     lines.append("Each FR gets a Gate 1 risk-aware re-evaluation (CHECKPOINT). No phase-exit gate — P7 cleared by Gate 4.")
     lines.append("")
+    lines.append(
+        "> If risk mitigation requires code changes to any FR, run full TDD: "
+        "`run-fr-step --step TDD-RED` → TDD-GREEN → TDD-IMPROVE → GATE1. "
+        "Crash recovery (`resume-fr-phase`) auto-detects code changes and switches from "
+        "GATE1-DELTA to full TDD when needed."
+    )
+    lines.append("")
 
     manifest_fr_ids = _load_manifest_fr_ids(repo_path)
     lines.extend(_checkpoint_index(manifest_fr_ids, phase=7))
@@ -1852,6 +1868,13 @@ def generate_phase8_tasks(repo_path: Path) -> List[str]:
     lines.append("### Phase 8 Overview")
     lines.append("Phase 8 establishes a complete configuration management system ensuring traceability.")
     lines.append("Each FR gets a Gate 1 config-aware re-evaluation (CHECKPOINT). No phase-exit gate — P8 cleared by Gate 4.")
+    lines.append("")
+    lines.append(
+        "> If configuration changes require code modifications to any FR, run full TDD: "
+        "`run-fr-step --step TDD-RED` → TDD-GREEN → TDD-IMPROVE → GATE1. "
+        "Crash recovery (`resume-fr-phase`) auto-detects code changes and switches from "
+        "GATE1-DELTA to full TDD when needed."
+    )
     lines.append("")
 
     manifest_fr_ids = _load_manifest_fr_ids(repo_path)

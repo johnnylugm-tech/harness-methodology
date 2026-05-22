@@ -149,6 +149,19 @@ class AutoFixEngine:
         round_key = f"{context.source}:{problem_type}"
         self._round_counters[round_key] = context.retry_count
 
+        # Snapshot pre-fix HEAD for CRG drift comparison (Point 4)
+        import subprocess as _sp
+        _pre_fix_head = None
+        try:
+            _r = _sp.run(
+                ["git", "rev-parse", "HEAD"],
+                capture_output=True, text=True, cwd=str(self.project_root), timeout=5,
+            )
+            if _r.returncode == 0:
+                _pre_fix_head = _r.stdout.strip()
+        except Exception:
+            pass
+
         # Pre-fix safety
         from core.auto_fix.guardrails import pre_fix_safety_check
 
@@ -197,10 +210,15 @@ class AutoFixEngine:
 
             modified = self._files_for_context(context)
             drift = post_fix_drift_check(self.project_root, modified)
-            # CRG Point 4: structural drift check after auto-fix
+            # CRG Point 4: structural drift check after auto-fix.
+            # Compare against pre-fix HEAD so drift measures cumulative impact
+            # of all fix rounds, not just the last commit.
             if self._crg is not None:
                 try:
-                    crg_drifted = self._crg.check_drift(str(self.project_root))
+                    base_ref = _pre_fix_head or "HEAD~1"
+                    crg_drifted = self._crg.check_drift(
+                        str(self.project_root), base=base_ref,
+                    )
                     drift["crg_drift_detected"] = crg_drifted
                 except Exception:
                     drift["crg_drift_detected"] = None

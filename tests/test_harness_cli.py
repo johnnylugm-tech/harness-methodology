@@ -1273,11 +1273,14 @@ class TestRunFrStep:
         assert "finalize-gate --gate 1 --phase 3 --fr-id FR-01" in prompt
         assert '"pass"' in prompt
 
-    def test_prompt_gate1_delta_includes_delta_flag(self, tmp_path):
-        """GATE1-DELTA prompt includes --delta flag."""
+    def test_prompt_gate1_delta_uses_full_gate_evaluation(self, tmp_path):
+        """GATE1-DELTA prompt runs full GATE1 (no --delta — skip is handled by
+        _fr_step_already_done() git diff check before dispatch)."""
         import harness_cli
         prompt = harness_cli._build_fr_step_prompt("GATE1-DELTA", "FR-05", 5, tmp_path, None)
-        assert "--delta" in prompt
+        assert "run-gate --gate 1" in prompt
+        assert "finalize-gate --gate 1" in prompt
+        assert "--delta" not in prompt
 
     def test_resume_fr_phase_finds_first_pending_step(self, tmp_path, monkeypatch):
         """resume-fr-phase prints the first step that is not yet done."""
@@ -1364,7 +1367,7 @@ class TestRunFrStep:
         assert rc == 2  # BLOCKED
 
     def test_resume_fr_phase_carryforward_uses_gate1_delta(self, tmp_path, monkeypatch):
-        """resume-fr-phase emits GATE1-DELTA for carry-forward phases (5, 7, 8)."""
+        """resume-fr-phase emits GATE1-DELTA for carry-forward phases when code unchanged."""
         import harness_cli, sys, io
 
         (tmp_path / ".methodology").mkdir()
@@ -1372,6 +1375,9 @@ class TestRunFrStep:
             json.dumps({"fr_ids": ["FR-01"]}), encoding="utf-8"
         )
         monkeypatch.setattr(harness_cli, "_fr_step_already_done", lambda *a: False)
+        monkeypatch.setattr(
+            harness_cli, "_fr_code_changed_since_last_gate1", lambda *a: False,
+        )
         captured = io.StringIO()
         monkeypatch.setattr(sys, "stdout", captured)
 
@@ -1384,6 +1390,30 @@ class TestRunFrStep:
             out = captured.getvalue()
             assert "GATE1-DELTA" in out, f"Phase {phase} should use GATE1-DELTA"
             assert "TDD-RED" not in out, f"Phase {phase} should not show TDD-RED"
+
+    def test_resume_fr_phase_carryforward_switches_to_tdd_when_code_changed(
+        self, tmp_path, monkeypatch,
+    ):
+        """Carry-forward phases switch to full TDD when code changed since last Gate 1."""
+        import harness_cli, sys, io
+
+        (tmp_path / ".methodology").mkdir()
+        (tmp_path / ".methodology" / "quality_manifest.json").write_text(
+            json.dumps({"fr_ids": ["FR-01"]}), encoding="utf-8"
+        )
+        monkeypatch.setattr(harness_cli, "_fr_step_already_done", lambda *a: False)
+        monkeypatch.setattr(
+            harness_cli, "_fr_code_changed_since_last_gate1", lambda *a: True,
+        )
+        captured = io.StringIO()
+        monkeypatch.setattr(sys, "stdout", captured)
+
+        args = argparse.Namespace(phase=7, project=str(tmp_path))
+        rc = harness_cli.cmd_resume_fr_phase(args)
+        assert rc == 0
+        out = captured.getvalue()
+        assert "TDD-RED" in out, "Code changed → should use full TDD"
+        assert "GATE1-DELTA" not in out, "Code changed → should not use GATE1-DELTA"
 
     def test_fr_step_already_done_requires_file_existence(self, tmp_path, monkeypatch):
         """_fr_step_already_done returns False if commit matches but physical test file or src dir is missing."""

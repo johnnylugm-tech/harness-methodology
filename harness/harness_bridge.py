@@ -471,6 +471,25 @@ class GateContext:
             if pre_fix:
                 safe = "SAFE" if pre_fix.get("safe", True) else "UNSAFE"
                 crg_lines += f"  pre_fix_safety: {safe} — {pre_fix.get('message', '')}\n"
+            xp_drift = self.crg_safety_context.get("cross_phase_drift")
+            if xp_drift:
+                drift_val = xp_drift.get("drift", 0)
+                level = "CRITICAL" if drift_val > 0.5 else ("WARNING" if drift_val > 0.3 else "STABLE")
+                bl_phase = xp_drift.get("baseline_phase", "?")
+                crg_lines += (
+                    f"  cross_phase_drift: {level} — {drift_val:.3f} "
+                    f"(baseline=P{bl_phase}, sha={xp_drift.get('baseline_sha','?')[:8]})\n"
+                )
+                if drift_val > 0.5:
+                    crg_lines += (
+                        "  > CRITICAL: significant structural degradation since last phase exit.\n"
+                        "  > Increase architecture/error_handling scrutiny in this gate evaluation.\n"
+                    )
+                elif drift_val > 0.3:
+                    crg_lines += (
+                        "  > WARNING: moderate structural drift since last phase exit.\n"
+                        "  > Review architecture findings against baseline changes.\n"
+                    )
             crg_lines += (
                 "  > Before each fix round, defer if pre_fix_safety is UNSAFE.\n"
             )
@@ -587,10 +606,45 @@ class HarnessBridge:
                         project_root, dim.name
                     )
 
+        # CRG cross-phase drift: compare current structure against previous exit gate baseline.
+        # Only meaningful for Gate 3 (P4, baseline=P3) and Gate 4 (P6, baseline=P4).
+        # Gate 2 may lack metrics (no full recon), so baseline may be absent.
+        _cross_phase_drift = None
+        _baseline_phase_map = {4: 3, 6: 4}  # gate phase → previous exit gate phase
+        _prev_phase = _baseline_phase_map.get(phase)
+        if _prev_phase is not None:
+            _baseline_path = (
+                Path(project_root) / ".methodology"
+                / f"crg_baseline_p{_prev_phase}.json"
+            )
+            if _baseline_path.is_file():
+                try:
+                    import json as _json
+                    _baseline = _json.loads(_baseline_path.read_text(encoding="utf-8"))
+                    _current_metrics_path = (
+                        Path(project_root) / ".sessi-work" / "crg_metrics.json"
+                    )
+                    if _current_metrics_path.is_file():
+                        _current = _json.loads(_current_metrics_path.read_text(encoding="utf-8"))
+                        from harness.ssi.scripts.crg_analysis import compute_structural_drift
+                        _drift = compute_structural_drift(_baseline, _current)
+                        _cross_phase_drift = {
+                            "drift": _drift,
+                            "baseline_phase": _prev_phase,
+                            "baseline_sha": _baseline.get("_baseline_sha", "unknown"),
+                        }
+                except Exception as _xp_exc:
+                    print(
+                        f"[CRG] WARN: cross-phase drift skipped — {_xp_exc}",
+                        flush=True,
+                    )
+
         # CRG Point 3: pre-compute pre-fix safety context (not just text hints).
         # Point 4 (drift check) is per-round, not pre-computed here — it fires
         # in AutoFixEngine.fix() after each fix round.
         crg_safety_context: dict[str, dict] = {}
+        if _cross_phase_drift is not None:
+            crg_safety_context["cross_phase_drift"] = _cross_phase_drift
         if config.crg.get("impact_check") or config.crg.get("enabled"):
             crg_safety_context["pre_fix_safety"] = self.check_pre_fix_safety(project_root)
 

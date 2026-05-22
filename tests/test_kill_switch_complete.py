@@ -717,26 +717,22 @@ class TestCRGBridge:
         result = CRGBridge().check_impact(str(tmp_path))
         assert result is True
 
-    def test_check_drift_false_when_no_metrics_file(self, tmp_path):
+    def test_check_drift_true_when_high_risk(self, tmp_path):
         from harness.crg_bridge import CRGBridge
-        assert CRGBridge().check_drift(str(tmp_path)) is False
-
-    def test_check_drift_true_when_high_drift(self, tmp_path):
-        from harness.crg_bridge import CRGBridge
-        sessi_work = tmp_path / ".sessi-work"
-        sessi_work.mkdir()
-        (sessi_work / "crg_metrics.json").write_text(
-            '{"structural_drift": 0.9}', encoding="utf-8"
-        )
+        import sys
+        mock_mcp = sys.modules["mcp_tools"]
+        mock_mcp.mcp__code_review_graph__detect_changes_tool.return_value = {
+            "risk_score": 0.85
+        }
         assert CRGBridge().check_drift(str(tmp_path), threshold=0.4) is True
 
-    def test_check_drift_false_when_low_drift(self, tmp_path):
+    def test_check_drift_false_when_low_risk(self, tmp_path):
         from harness.crg_bridge import CRGBridge
-        sessi_work = tmp_path / ".sessi-work"
-        sessi_work.mkdir()
-        (sessi_work / "crg_metrics.json").write_text(
-            '{"structural_drift": 0.1}', encoding="utf-8"
-        )
+        import sys
+        mock_mcp = sys.modules["mcp_tools"]
+        mock_mcp.mcp__code_review_graph__detect_changes_tool.return_value = {
+            "risk_score": 0.1
+        }
         assert CRGBridge().check_drift(str(tmp_path), threshold=0.4) is False
 
     def test_load_metrics_returns_data(self, tmp_path):

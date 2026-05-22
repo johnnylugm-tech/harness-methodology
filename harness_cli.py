@@ -1892,6 +1892,31 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
             except Exception as _rne:
                 print(f"  [WARN] RELEASE_NOTES.md generation skipped: {_rne}")
 
+        # ── CRG cross-phase baseline: snapshot metrics for the next exit gate ──
+        _project_path = Path(args.project).resolve()
+        _crg_metrics_path = _project_path / ".sessi-work" / "crg_metrics.json"
+        if _crg_metrics_path.is_file() and args.gate in _PHASE_EXIT_GATES.values():
+            try:
+                import shutil as _shutil
+                _baseline_path = (
+                    _project_path / ".methodology"
+                    / f"crg_baseline_p{args.phase}.json"
+                )
+                _shutil.copy2(_crg_metrics_path, _baseline_path)
+                # Stamp with git SHA for traceability
+                import subprocess as _sp
+                _sha_r = _sp.run(
+                    ["git", "rev-parse", "HEAD"],
+                    capture_output=True, text=True, cwd=str(_project_path),
+                )
+                _bl_data = json.loads(_baseline_path.read_text(encoding="utf-8"))
+                _bl_data["_baseline_sha"] = _sha_r.stdout.strip()
+                _bl_data["_baseline_phase"] = args.phase
+                _baseline_path.write_text(json.dumps(_bl_data, indent=2), encoding="utf-8")
+                print(f"  [CRG] Baseline saved: .methodology/crg_baseline_p{args.phase}.json")
+            except Exception as _bl_exc:
+                print(f"  [WARN] CRG baseline save failed: {_bl_exc}")
+
         git = _make_git(args, Path(args.project).resolve())
         git.ensure_gitignore()
         if args.gate == 1:
@@ -3267,16 +3292,19 @@ _FR_STEP_COMMIT_PATTERNS: dict[str, str] = {
     "TDD-RED":     "test(RED): failing test for {fr_id}",
     "TDD-GREEN":   "feat({fr_id}): GREEN",
     "TDD-IMPROVE": "refactor({fr_id}): IMPROVE",
-    "GATE1":       "feat({fr_id}): Gate1 PASS",  # prefix match against git log
-    "GATE1-DELTA": "feat({fr_id}): Gate1 PASS",  # same commit from finalize-gate
+    "GATE1":       "feat({fr_id}): Gate1 PASS",         # prefix match; phase-scoped
+    "GATE1-DELTA": "feat({fr_id}): Gate1 PASS",         # same prefix + git diff check
 }
 
 
 def _fr_step_already_done(step: str, fr_id: str, project: Path) -> bool:
     """Idempotency check: scan git log for step's expected commit pattern.
 
-    Returns True if a commit matching the pattern already exists, meaning
-    the step can be skipped on re-run (crash recovery).
+    For GATE1-DELTA: additionally checks whether FR code has changed since
+    the last Gate 1 PASS commit. If code changed, returns False so the
+    step re-runs with a full evaluation (not a delta-skip).
+
+    Returns True if the step can be safely skipped (crash recovery / no-change).
     """
     import subprocess as _sp
     tmpl = _FR_STEP_COMMIT_PATTERNS.get(step.upper(), "")
@@ -3290,6 +3318,11 @@ def _fr_step_already_done(step: str, fr_id: str, project: Path) -> bool:
     committed = bool(r.stdout.strip())
     if not committed:
         return False
+
+    # GATE1-DELTA: code-change detection (not just commit-pattern check)
+    if step.upper() == "GATE1-DELTA":
+        return not _fr_code_changed_since_last_gate1(fr_id, project)
+
     # Dual verification for TDD
     if step.upper() == "TDD-RED":
         num_match = re.match(r"FR-(\d+)", fr_id)
@@ -3312,6 +3345,59 @@ def _fr_step_already_done(step: str, fr_id: str, project: Path) -> bool:
                 pass
         return False
     return True
+
+
+def _fr_gate1_commit_sha(fr_id: str, project: Path) -> str | None:
+    """Return the SHA of the most recent Gate 1 PASS commit for the given FR."""
+    import subprocess as _sp
+    pattern = f"feat({fr_id}): Gate1 PASS"
+    r = _sp.run(
+        ["git", "log", "--oneline", "--grep", pattern, "-1", "--format=%H"],
+        capture_output=True, text=True, cwd=str(project),
+    )
+    sha = r.stdout.strip()
+    return sha if sha else None
+
+
+def _fr_code_changed_since_last_gate1(fr_id: str, project: Path) -> bool:
+    """Check whether FR source/test files have changed since last Gate 1 PASS.
+
+    Returns True if code has changed (re-evaluation needed), False otherwise.
+    """
+    import subprocess as _sp
+    sha = _fr_gate1_commit_sha(fr_id, project)
+    if sha is None:
+        return True  # No prior Gate 1 PASS → treat as changed
+
+    # Collect FR-related files for git diff
+    fr_files: list[str] = []
+    num_match = re.match(r"FR-(\d+)", fr_id)
+    num_str = num_match.group(1).zfill(2) if num_match else ""
+
+    # Test file
+    if num_str:
+        test_file = project / f"tests/test_fr{num_str}.py"
+        if test_file.exists():
+            fr_files.append(str(test_file.relative_to(project)))
+
+    # Source files — identified by [{fr_id}] tag in file content
+    src_dir = project / "03-development" / "src"
+    if src_dir.exists():
+        for py_file in src_dir.glob("**/*.py"):
+            try:
+                if f"[{fr_id}]" in py_file.read_text(encoding="utf-8"):
+                    fr_files.append(str(py_file.relative_to(project)))
+            except Exception:
+                pass
+
+    if not fr_files:
+        return False  # No FR files on disk → nothing to diff
+
+    r = _sp.run(
+        ["git", "diff", sha, "HEAD", "--"] + fr_files,
+        capture_output=True, text=True, cwd=str(project),
+    )
+    return bool(r.stdout.strip())
 
 
 def _extract_srs_fr_section(srs_path: Path, fr_id: str) -> str:
@@ -3460,12 +3546,14 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
         )
 
     if step in ("GATE1", "GATE1-DELTA"):
-        delta_flag = " --delta" if step == "GATE1-DELTA" else ""
+        # GATE1-DELTA no longer passes --delta to run-gate. The skip-if-unchanged
+        # decision is now made by _fr_step_already_done() via git diff before dispatch.
+        # Once we reach here, code has changed → full GATE1 evaluation.
         return (
             f"You are a Gate 1 evaluator. Your task: run Gate 1 evaluation for {fr_id}.\n\n"
             f"[TASK — follow EXACTLY in order]\n"
             f"1. Run: `python3 harness_cli.py run-gate --gate 1 --phase {phase} "
-            f"--fr-id {fr_id} --project .{delta_flag}`\n"
+            f"--fr-id {fr_id} --project .`\n"
             f"   Read the evaluation prompt printed above carefully.\n"
             f"2. Evaluate ALL dimensions following `harness/ssi/prompts/evaluate_dimension.md`.\n"
             f"3. Write results to `.sessi-work/gate1_result.json` "
@@ -3637,12 +3725,17 @@ def cmd_resume_fr_phase(args: argparse.Namespace) -> int:
         print("[resume-fr-phase] No FR list found — check .methodology/quality_manifest.json")
         return 1
 
-    # Carry-forward phases (5/7/8) only run GATE1-DELTA; full TDD for all others.
-    if phase in (5, 7, 8):
-        steps = ["GATE1-DELTA"]
-    else:
-        steps = ["TDD-RED", "TDD-GREEN", "TDD-IMPROVE", "GATE1"]
+    # Carry-forward phases (5/7/8) default to GATE1-DELTA.
+    # If FR code changed since last Gate 1 → switch to full TDD cycle.
+    carryforward = phase in (5, 7, 8)
     for fr_id in fr_ids:
+        if carryforward:
+            if _fr_code_changed_since_last_gate1(fr_id, project):
+                steps = ["TDD-RED", "TDD-GREEN", "TDD-IMPROVE", "GATE1"]
+            else:
+                steps = ["GATE1-DELTA"]
+        else:
+            steps = ["TDD-RED", "TDD-GREEN", "TDD-IMPROVE", "GATE1"]
         for step in steps:
             if not _fr_step_already_done(step, fr_id, project):
                 srs_flag = " --srs .methodology/SRS.md" if step in ("TDD-RED", "TDD-GREEN") else ""

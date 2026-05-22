@@ -79,27 +79,36 @@ class TestCRGBridgeCore:
 class TestCRGBridgeFileIO:
     """Drift and metrics file I/O."""
 
-    def test_check_drift_false_when_no_metrics_file(self, tmp_path):
+    def test_check_drift_true_when_high_risk(self):
+        _mock_mcp.mcp__code_review_graph__detect_changes_tool.return_value = {
+            "risk_score": 0.85
+        }
         bridge = CRGBridge()
-        assert bridge.check_drift(str(tmp_path)) is False
+        assert bridge.check_drift("/tmp/project", threshold=0.4) is True
 
-    def test_check_drift_true_when_high_drift(self, tmp_path):
-        sessi_work = tmp_path / ".sessi-work"
-        sessi_work.mkdir()
-        (sessi_work / "crg_metrics.json").write_text(
-            '{"structural_drift": 0.9}', encoding="utf-8"
-        )
+    def test_check_drift_false_when_low_risk(self):
+        _mock_mcp.mcp__code_review_graph__detect_changes_tool.return_value = {
+            "risk_score": 0.1
+        }
         bridge = CRGBridge()
-        assert bridge.check_drift(str(tmp_path), threshold=0.4) is True
+        assert bridge.check_drift("/tmp/project", threshold=0.4) is False
 
-    def test_check_drift_false_when_low_drift(self, tmp_path):
-        sessi_work = tmp_path / ".sessi-work"
-        sessi_work.mkdir()
-        (sessi_work / "crg_metrics.json").write_text(
-            '{"structural_drift": 0.1}', encoding="utf-8"
-        )
+    def test_check_drift_false_when_risk_score_none(self):
+        _mock_mcp.mcp__code_review_graph__detect_changes_tool.return_value = {
+            "risk_score": None
+        }
         bridge = CRGBridge()
-        assert bridge.check_drift(str(tmp_path), threshold=0.4) is False
+        assert bridge.check_drift("/tmp/project", threshold=0.4) is False
+
+    def test_check_drift_passes_base_parameter(self):
+        _mock_mcp.mcp__code_review_graph__detect_changes_tool.return_value = {
+            "risk_score": 0.1
+        }
+        bridge = CRGBridge()
+        bridge.check_drift("/tmp/project", base="fix-start-sha")
+        _mock_mcp.mcp__code_review_graph__detect_changes_tool.assert_called_with(
+            base="fix-start-sha", repo_root="/tmp/project", detail_level="minimal"
+        )
 
     def test_load_metrics_raises_when_no_file(self, tmp_path):
         bridge = CRGBridge()

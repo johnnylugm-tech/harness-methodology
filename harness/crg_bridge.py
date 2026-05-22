@@ -139,13 +139,23 @@ class CRGBridge:
 
     # ── Drift & metrics ────────────────────────────────────────────────────
 
-    def check_drift(self, project_root: str, threshold: float = 0.4) -> bool:
-        """Verify structural drift after an improvement round."""
-        p = Path(project_root) / ".sessi-work" / "crg_metrics.json"
-        if not p.exists():
-            return False
-        data = json.loads(p.read_text(encoding="utf-8"))
-        return data.get("structural_drift", 0) > threshold
+    def check_drift(
+        self, project_root: str, threshold: float = 0.4, base: str = "HEAD~1",
+    ) -> bool:
+        """
+        Verify structural drift after a fix round (per-round, not cross-phase).
+
+        Uses CRG detect_changes to measure structural impact since `base`.
+        Default compares against HEAD~1; AutoFixEngine should pass the HEAD
+        at fix-start so drift measures cumulative impact of all fix rounds.
+
+        For cross-phase drift, see crg_analysis.compute_structural_drift().
+        """
+        data = _crg_detect_changes(
+            base=base, repo_root=project_root, detail_level="minimal"
+        )
+        rs = data.get("risk_score", 0)
+        return float(rs) >= threshold if rs is not None else False
 
     def load_metrics(self, project_root: str) -> dict:
         """Load calculated CRG metrics from the work directory."""
