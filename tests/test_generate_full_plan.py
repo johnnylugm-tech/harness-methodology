@@ -646,6 +646,47 @@ class TestReviewCheckpoint:
         joined = "\n".join(_review_checkpoint(2, 1))
         assert "5 rounds" in joined or "HR-12" in joined
 
+    def test_no_human_reviewer_language(self):
+        """Exit gate must NOT use 'Reviewer reads/records' — that implies human, not sub-agent."""
+        for phase in (1, 2):
+            joined = "\n".join(_review_checkpoint(phase, 1))
+            assert "Reviewer reads" not in joined, f"P{phase}: 'Reviewer reads' is human-reviewer language"
+            assert "Reviewer records" not in joined, f"P{phase}: 'Reviewer records' is human-reviewer language"
+
+    def test_has_stateless_subagent_dispatch(self):
+        """Exit gate must dispatch Agent B as STATELESS subagent (same as inline [B-1])."""
+        for phase in (1, 2):
+            joined = "\n".join(_review_checkpoint(phase, 1))
+            assert "STATELESS" in joined, f"P{phase}: missing STATELESS subagent dispatch"
+            assert "dispatch as **STATELESS** subagent" in joined, \
+                f"P{phase}: missing explicit dispatch instruction"
+
+    def test_has_correct_role_b(self):
+        """Exit gate must name the correct Agent B role per phase."""
+        assert "BUSINESS_ANALYST" in "\n".join(_review_checkpoint(1, 1))
+        assert "TECH_LEAD" in "\n".join(_review_checkpoint(2, 1))
+
+    def test_no_reviewer_xxxx_placeholder(self):
+        """reviewer: XXXX looks like a human name field — must not appear."""
+        for phase in (1, 2):
+            joined = "\n".join(_review_checkpoint(phase, 1))
+            assert '"reviewer": "XXXX"' not in joined, \
+                f"P{phase}: reviewer XXXX placeholder implies human identity"
+
+    def test_has_b1_b2_labels(self):
+        """Exit gate must use [B-1][B-2] labels consistent with inline sub-task dispatch."""
+        for phase in (1, 2):
+            joined = "\n".join(_review_checkpoint(phase, 1))
+            assert "[B-1]" in joined, f"P{phase}: missing [B-1] dispatch step"
+            assert "[B-2]" in joined, f"P{phase}: missing [B-2] response parsing step"
+
+    def test_has_prompt_template(self):
+        """Exit gate must include Agent B prompt template (not just checklist)."""
+        for phase in (1, 2):
+            joined = "\n".join(_review_checkpoint(phase, 1))
+            assert "You are" in joined, f"P{phase}: missing Agent B prompt template"
+            assert "Return JSON only" in joined, f"P{phase}: missing JSON return instruction"
+
 
 # ─── _GATE_META dim names (GAP-Q) ─────────────────────────────────────────────
 
@@ -1366,7 +1407,7 @@ class TestP1FourthDeliverable:
         joined = "\n".join(generate_phase1_tasks(project, project / "SRS.md"))
         idx_checkpoint = joined.find("Agent B Peer Review — Phase 1 Exit")
         assert idx_checkpoint != -1
-        section = joined[idx_checkpoint:idx_checkpoint + 500]
+        section = joined[idx_checkpoint:idx_checkpoint + 1500]
         assert "TEST_INVENTORY.yaml" in section
 
 
@@ -1397,7 +1438,7 @@ class TestP2ThirdDeliverable:
         joined = "\n".join(generate_phase2_tasks(project, project / "SRS.md"))
         idx_checkpoint = joined.find("Agent B Peer Review — Phase 2 Exit")
         assert idx_checkpoint != -1
-        section = joined[idx_checkpoint:idx_checkpoint + 500]
+        section = joined[idx_checkpoint:idx_checkpoint + 1500]
         assert "TEST_SPEC.md" in section
 
 

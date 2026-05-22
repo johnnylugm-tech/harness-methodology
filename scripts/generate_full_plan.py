@@ -727,7 +727,13 @@ def _entry_gate_check(phase: int) -> List[str]:
 
 
 def _review_checkpoint(phase: int, checkpoint_n: int) -> List[str]:
-    """Agent B peer-review checkpoint for P1/P2 (deliverable review — NOT harness run-gate)."""
+    """Agent B peer-review checkpoint for P1/P2 (deliverable review — NOT harness run-gate).
+
+    Agent B is dispatched as a STATELESS sub-agent (same pattern as inline [B-1][B-2]).
+    [B-1] = dispatch Agent B with ALL deliverables embedded in prompt (no file paths)
+    [B-2] = orchestrator parses Agent B's JSON response (APPROVE/REJECT)
+    [B-PUSH] = orchestrator runs push-checkpoint after APPROVE
+    """
     _DELIVERABLES: dict = {
         1: ["01-requirements/SRS.md", "01-requirements/SPEC_TRACKING.md",
             "01-requirements/TRACEABILITY_MATRIX.md",
@@ -736,20 +742,58 @@ def _review_checkpoint(phase: int, checkpoint_n: int) -> List[str]:
             "02-architecture/TEST_SPEC.md"],
     }
     artifacts = _DELIVERABLES.get(phase, [])
-    return [
+    _, role_b, _ = _PHASE_ROLES.get(phase, ("DEVELOPER", "REVIEWER", ""))
+
+    lines: List[str] = [
         "",
         f"### 🔒 CHECKPOINT-{checkpoint_n}: Agent B Peer Review — Phase {phase} Exit",
         "> Phase 1/2 exit gate = Agent B document review (NOT `harness run-gate --gate 1`).",
         "> APPROVE criteria: all FRs addressed, no critical gaps, terminology consistent.",
         "",
-        "- [ ] **[B-READ]** Reviewer reads all deliverables:",
-        *([f"  - `{a}`" for a in artifacts]),
-        "  - Checklist: All FRs covered? No contradictions? Each item testable/traceable?",
-        "- [ ] **[B-DECIDE]** Reviewer records decision:",
-        "  ```json",
-        f'  {{"phase": {phase}, "reviewer": "XXXX", "status": "APPROVE", "reason": "..."}}',
+        f"- [ ] **[B-1]** Agent B ({role_b}) — dispatch as **STATELESS** subagent (holistic review of all deliverables):",
+        "  > ⚠️  **STATELESS SANDBOX**: Agent B has ZERO access to local files or /tmp.",
+        "  > NEVER pass file paths in the prompt — ALL document content must be pasted verbatim.",
+        "  >",
+        "  > **Lesson (stateless agent)**: Rounds 2-3 failed because prompts used file paths.",
+        "  > Round 4 succeeded only after embedding full document content directly.",
+        "",
+        "  **Embed ALL deliverables in full** (copy content, not paths):",
+    ]
+    for artifact in artifacts:
+        lines.append(f"  - `{artifact} (full content)`")
+    lines += [
+        "",
+        "  **Agent B prompt structure** (use this template verbatim):",
         "  ```",
-        "  - If REJECT → author fixes → re-review. Max 5 rounds (HR-12).",
+        f"  You are {role_b}. Your task: holistic review of ALL Phase {phase} deliverables.",
+        "  You have NO access to any files — all context is provided below.",
+        "",
+    ]
+    for i, artifact in enumerate(artifacts, 1):
+        lines += [
+            f"  === [DOC {i}: {artifact}] ===",
+            "  {paste full content here}",
+            "",
+        ]
+    lines += [
+        "  Review checklist:",
+        "  - All FRs covered across all deliverables?",
+        "  - No contradictions between deliverables?",
+        "  - Each item testable/traceable?",
+        "  - All gaps from sub-task reviews addressed?",
+        "  - Terminology consistent across all documents?",
+        "",
+        "  Return JSON only:",
+        '  {"status":"STAGE_PASS"|"REJECT","review_status":"APPROVE"|"REJECT",',
+        '   "reason":"...","confidence":1-10,"citations":["file:line"],"gaps":[...]}',
+        "  ```",
+        "",
+        "- [ ] **[B-2]** Agent B returns JSON — parse `review_status` **AND** `gaps` severity:",
+        "  - `APPROVE` + all gaps are `low` → proceed to push (CHECKPOINT saved)",
+        "  - `APPROVE` + any gap is `medium` or `high` → fix gaps → **re-dispatch B as round 2**",
+        "    (embed same docs as B-1 above with updated content) → push only after round-2 APPROVE",
+        "  - `REJECT` → fix all gaps → re-dispatch B. Max 5 rounds (HR-12).",
+        "",
         f"- [ ] **[B-PUSH]** ✅ Push to GitHub + HANDOVER.md — retry until success (CHECKPOINT-{checkpoint_n} saved):",
         "  > Run `push-checkpoint` → if blocked, read the error → fix → re-run until green.",
         "  > Do NOT use `--no-verify` to bypass.",
@@ -762,6 +806,7 @@ def _review_checkpoint(phase: int, checkpoint_n: int) -> List[str]:
         "  > After a crash, read HANDOVER.md first — it tells you where you were.",
         "",
     ]
+    return lines
 
 
 def _aspice_output_requirements(phase: int) -> List[str]:
