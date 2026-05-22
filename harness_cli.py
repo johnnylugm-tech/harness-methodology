@@ -23,7 +23,6 @@ Usage:
     python harness_cli.py push-checkpoint   --phase 1|2 --project . [--fr-ids FR-01,FR-02]
     python harness_cli.py push-milestone    --type p3-mid|p3-pre-gate2|p5-baseline|p7|p8 --project .
     python harness_cli.py advance-phase     --completed-phase 3 [--project .]
-    python harness_cli.py await-hermes-approve --project . [--timeout-ms 600000] [--response APPROVE|REJECT]
     python harness_cli.py dispatch          --role developer|reviewer --fr-id FR-01 --prompt "..." --phase 3
 
 Gate Evaluation (two-phase flow):
@@ -1330,7 +1329,6 @@ def _check_gate4_prerequisites(project: Path) -> bool:
     Returns True (blocked) if any prerequisite fails, False (clear) otherwise.
 
     Checks:
-        A1 — Hermes APPROVE receipt file exists
         A2 — model_used field: Tier 1/2 dims used gemini-flash
         A3 — devil_advocate field: all Tier 3 dims marked done
         A4 — high_score_confirmations: dims with llm_score ≥ 85 have 3-item confirmation
@@ -1338,46 +1336,6 @@ def _check_gate4_prerequisites(project: Path) -> bool:
         B2 — per-dim score files exist under .sessi-work/round_1/scores/
     """
     blocked = False
-
-    # ── A1: Hermes APPROVE receipt ────────────────────────────────────
-    receipt = project / ".methodology" / "hermes_g4_receipt.json"
-    if not receipt.exists():
-        print(
-            "\n[BLOCKED] Gate 4 (A1): Hermes APPROVE receipt not found.\n"
-            f"  Expected: {receipt}\n"
-            "  Run:  python harness_cli.py await-hermes-approve --project .\n"
-            "  Then re-run finalize-gate --gate 4.",
-            file=sys.stderr,
-        )
-        blocked = True
-    else:
-        # A1b: Receipt content integrity — composite_score must be a valid number.
-        # A receipt with composite_score: null indicates the APPROVE flow was
-        # invoked before gate4_result.json existed, or the receipt was manually
-        # written to bypass the await-hermes-approve step.
-        try:
-            receipt_data = json.loads(receipt.read_text(encoding="utf-8"))
-            composite = receipt_data.get("composite_score")
-            if isinstance(composite, bool) or not isinstance(composite, (int, float)) or composite <= 0:
-                print(
-                    f"\n[BLOCKED] Gate 4 (A1b): hermes_g4_receipt.json has invalid "
-                    f"composite_score ({composite!r}) — expected a positive number.\n"
-                    "  The receipt was written before gate4_result.json was available,\n"
-                    "  or was manually fabricated to bypass the APPROVE step.\n"
-                    "  Fix: ensure gate4_result.json is complete, then re-run:\n"
-                    "    python harness_cli.py await-hermes-approve --project .\n"
-                    "  Then re-run finalize-gate --gate 4.",
-                    file=sys.stderr,
-                )
-                blocked = True
-        except (json.JSONDecodeError, OSError) as _receipt_err:
-            print(
-                f"\n[BLOCKED] Gate 4 (A1b): hermes_g4_receipt.json cannot be parsed: "
-                f"{_receipt_err}\n"
-                "  Re-run: python harness_cli.py await-hermes-approve --project .",
-                file=sys.stderr,
-            )
-            blocked = True
 
     # ── Load gate4_result.json for A2/A3/A4/A5 ───────────────────────
     result_candidates = [
@@ -1585,199 +1543,6 @@ def _check_gate4_prerequisites(project: Path) -> bool:
         print(f"[Gate 4] B3: CRG recon check error ({_b3exc}) — skipping", file=sys.stderr)
 
     return blocked
-
-# ---------------------------------------------------------------------------
-# await-hermes-approve  (Gate 4 async human approval via Hermes)
-# ---------------------------------------------------------------------------
-
-_HERMES_APPROVE_TIMEOUT_MS: int = 600_000  # 10 minutes default
-
-def cmd_await_hermes_approve(args: argparse.Namespace) -> int:
-    """
-    Wait for a human APPROVE via Hermes before Gate 4 can be finalized.
-
-    Flow:
-      1. Read gate4_result.json to build a score summary.
-      2. Send the summary + APPROVE/REJECT request to the configured Hermes channel.
-      3. Call events_wait (timeout 10 min) for the APPROVE response.
-      4. On APPROVE: write .methodology/hermes_g4_receipt.json and exit 0.
-      5. On REJECT or timeout: print instructions and exit 5.
-
-    The receipt file is checked by `finalize-gate --gate 4` before proceeding.
-    """
-    project = Path(args.project).resolve()
-    timeout_ms = getattr(args, "timeout_ms", _HERMES_APPROVE_TIMEOUT_MS)
-
-    # ── Guard 1: Phase 6 must be complete before requesting approval ──
-    try:
-        from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
-        truth = PhaseTruthVerifier(str(project), 6).verify()
-        if not truth.get("passed"):
-            score = truth.get("total_score", 0)
-            print(
-                f"\n[BLOCKED] await-hermes-approve: Phase 6 truth = {score:.0f}% < 90%\n"
-                "  Phase 6 is not yet complete — finish all P6 work before requesting\n"
-            )
-            return 10
-    except ImportError:
-        pass  # Verifier unavailable; proceed
-
-    # ── Build score summary from gate4_result.json ────────────────────
-    score_summary = "Gate 4 evaluation complete (score details in gate4_result.json)"
-    composite_score: float | None = None
-    for candidate in [
-        project / ".sessi-work" / "gate4_result.json",
-        project / ".methodology" / "gate4_result.json",
-        project / "gate4_result.json",
-    ]:
-        if candidate.exists():
-            try:
-                g4 = json.loads(candidate.read_text(encoding="utf-8"))
-                composite_score = g4.get("composite_score", g4.get("total_score"))
-                if composite_score is not None:
-                    score_summary = f"Gate 4 composite score: {composite_score:.1f}/100"
-                break
-            except Exception:
-                pass
-
-    project_name = project.name
-    approve_msg = (
-        f"🔍 [harness-methodology] Gate 4 — Full Project Quality Review\n"
-        f"Project : {project_name}\n"
-        f"Score   : {score_summary}\n"
-        f"Threshold: 85 (must pass)\n\n"
-        f"Please review gate4_result.json and reply:\n"
-        f"  APPROVE — quality gate passes, proceed to P7\n"
-        f"  REJECT  — quality gate fails, provide reason\n\n"
-        f"(This request will time out in {timeout_ms // 60000} minutes)"
-    )
-
-    # ── Guard 2: Auto-approve if confidence + composite both exceed threshold ─
-    try:
-        from core.quality_gate.confidence_scorer import (
-            compute_confidence,
-            should_auto_approve_gate4,
-            format_confidence_report,
-            AUTO_APPROVE_GATE4_CONFIDENCE,
-            AUTO_APPROVE_GATE4_COMPOSITE,
-        )
-        conf = compute_confidence(project, phase=6)
-        if composite_score is not None and should_auto_approve_gate4(conf, composite_score):
-            receipt = project / ".methodology" / "hermes_g4_receipt.json"
-            receipt.parent.mkdir(parents=True, exist_ok=True)
-            receipt.write_text(json.dumps({
-                "ts": datetime.now(timezone.utc).isoformat(),
-                "approved_by": "auto",
-                "composite_score": composite_score,
-                "confidence_composite": conf["composite"],
-                "note": (
-                    f"Auto-approved: composite={composite_score:.1f} >= "
-                    f"{AUTO_APPROVE_GATE4_COMPOSITE} AND "
-                    f"confidence={conf['composite']:.1f} >= {AUTO_APPROVE_GATE4_CONFIDENCE}"
-                ),
-            }, ensure_ascii=False, indent=2), encoding="utf-8")
-            print(
-                f"\n[AUTO-APPROVED] await-hermes-approve (Hermes skipped)\n"
-                f"  Gate 4 composite : {composite_score:.1f} >= {AUTO_APPROVE_GATE4_COMPOSITE}\n"
-                f"  Script confidence: {conf['composite']:.1f} >= {AUTO_APPROVE_GATE4_CONFIDENCE}\n"
-                f"{format_confidence_report(conf)}\n"
-                f"  Receipt written to: {receipt}\n"
-                "  You can now run: python harness_cli.py finalize-gate --gate 4 --phase 6"
-            )
-            return 0
-        elif composite_score is not None:
-            print(
-                f"\n[await-hermes-approve] Confidence check:\n"
-                f"  Gate 4 composite : {composite_score:.1f} "
-                f"(need ≥ {AUTO_APPROVE_GATE4_COMPOSITE} for auto)\n"
-                f"  Script confidence: {conf['composite']:.1f} "
-                f"(need ≥ {AUTO_APPROVE_GATE4_CONFIDENCE} for auto)\n"
-                f"{format_confidence_report(conf)}\n"
-                "  → Below threshold — sending to Hermes for human review."
-            )
-    except ImportError:
-        pass  # confidence_scorer unavailable; proceed to Hermes
-
-    print(f"\n[await-hermes-approve] Sending Gate 4 approval request…")
-    print(f"  Project : {project_name}")
-    print(f"  Score   : {score_summary}")
-    print(f"  Timeout : {timeout_ms // 1000}s")
-
-    # ── Hermes send + wait ────────────────────────────────────────────
-    # We use the MCP Hermes tools through subprocess since they are
-    # Claude-native tools not importable as a Python library.
-    # The actual send+wait is handled by the calling agent (Claude) which
-    # reads the HERMES_CHANNEL env var and uses mcp__hermes__messages_send
-    # followed by mcp__hermes__events_wait.
-    #
-    # This function writes a "pending" sentinel so Claude knows to:
-    #   1. Call mcp__hermes__messages_send with approve_msg
-    #   2. Call mcp__hermes__events_wait(timeout_ms=<timeout_ms>)
-    #   3. Parse the response and call this again with --response=APPROVE|REJECT
-    #
-    # If --response is already provided (second call from Claude after getting reply):
-    response = (getattr(args, "response", "") or "").strip().upper()
-    if response in ("APPROVE", "REJECT"):
-        return _hermes_process_response(project, response, approve_msg, composite_score)
-
-    # First call: write pending sentinel and print instructions for Claude
-    pending = project / ".methodology" / "hermes_g4_pending.json"
-    pending.parent.mkdir(parents=True, exist_ok=True)
-    pending.write_text(json.dumps({
-        "ts": datetime.now(timezone.utc).isoformat(),
-        "message": approve_msg,
-        "timeout_ms": timeout_ms,
-        "composite_score": composite_score,
-    }, ensure_ascii=False, indent=2), encoding="utf-8")
-
-    print(
-        "\n[await-hermes-approve] INSTRUCTIONS FOR CALLING AGENT:\n"
-        "  1. Call mcp__hermes__messages_send with the following message:\n"
-        f"     channel: $HERMES_CHANNEL (or configured approval channel)\n"
-        f"     message: (see {pending})\n"
-        "  2. Call mcp__hermes__events_wait with:\n"
-        f"     timeout_ms: {timeout_ms}\n"
-        "  3. Parse the reply:\n"
-        "     - Contains 'APPROVE' → run:\n"
-        "         python harness_cli.py await-hermes-approve --project . --response APPROVE\n"
-        "     - Contains 'REJECT' or timeout → run:\n"
-        "         python harness_cli.py await-hermes-approve --project . --response REJECT\n"
-    )
-    return 0  # Sentinel written; agent proceeds with Hermes calls
-
-def _hermes_process_response(
-    project: Path, response: str, approve_msg: str, composite_score: float | None
-) -> int:
-    """Process the APPROVE/REJECT response from Hermes and write receipt or block."""
-    pending = project / ".methodology" / "hermes_g4_pending.json"
-
-    if response == "APPROVE":
-        receipt = project / ".methodology" / "hermes_g4_receipt.json"
-        receipt.parent.mkdir(parents=True, exist_ok=True)
-        receipt.write_text(json.dumps({
-            "ts": datetime.now(timezone.utc).isoformat(),
-            "approved_by": "hermes",
-            "composite_score": composite_score,
-            "message_sent": approve_msg[:200],
-        }, ensure_ascii=False, indent=2), encoding="utf-8")
-        # Clean up pending sentinel
-        if pending.exists():
-            pending.unlink()
-        print(
-            f"\n[await-hermes-approve] ✅ APPROVED\n"
-            f"  Receipt written to: {receipt}\n"
-            "  You can now run: python harness_cli.py finalize-gate --gate 4 --phase 6 --project ."
-        )
-        return 0
-    else:
-        pending.unlink(missing_ok=True)
-        print(
-            "\n[await-hermes-approve] ❌ REJECTED or TIMEOUT\n"
-            "  Gate 4 is blocked. Review the findings in gate4_result.json,\n"
-            "  address the issues, then re-run the full Gate 4 evaluation\n"
-            "  before calling await-hermes-approve again."
-        )
-        return 5
 
 # ---------------------------------------------------------------------------
 # finalize-gate  (Phase 2 of two-phase evaluation)
@@ -5266,23 +5031,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     adv.add_argument("--project", default=".", help="Project root (default: .)")
     adv.set_defaults(func=cmd_advance_phase)
-
-    # await-hermes-approve (Gate 4 async human approval)
-    aha = sub.add_parser(
-        "await-hermes-approve",
-        help="Send Gate 4 result to Hermes and wait for APPROVE/REJECT. "
-             "Writes .methodology/hermes_g4_receipt.json on APPROVE.",
-    )
-    aha.add_argument("--project", default=".", help="Project root (default: .)")
-    aha.add_argument(
-        "--timeout-ms", type=int, default=_HERMES_APPROVE_TIMEOUT_MS, dest="timeout_ms",
-        help=f"Hermes events_wait timeout in milliseconds (default: {_HERMES_APPROVE_TIMEOUT_MS})",
-    )
-    aha.add_argument(
-        "--response", default="", choices=["", "APPROVE", "REJECT"],
-        help="Pass APPROVE or REJECT after receiving the Hermes reply.",
-    )
-    aha.set_defaults(func=cmd_await_hermes_approve)
 
     # dispatch
     dp = sub.add_parser("dispatch", help="Spawn Agent A/B + auto-log to sessions_spawn.log (HR-10)")

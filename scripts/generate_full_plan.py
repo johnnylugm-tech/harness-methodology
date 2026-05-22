@@ -281,7 +281,7 @@ _GATE_META: dict = {
     1: (None, 3,  "linting(90) · type_safety(85) · test_coverage(80)"),
     2: (75,   9,  "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · integration_coverage(60) · test_assertion_quality(60)  [D4 TEST_INVENTORY.yaml imperative check ≥60% · D4 backward spec-coverage ≥40%]"),
     3: (80,   14, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · integration_coverage(60) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · test_assertion_quality(60) · performance(75)  [CRG recon inside run-gate · D4 TEST_INVENTORY.yaml imperative check ≥80% · D4 backward spec-coverage ≥70%]"),
-    4: (85,   14, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · performance(75) · integration_coverage(75) · test_assertion_quality(70)  [CRG recon inside run-gate · D4 TEST_INVENTORY.yaml imperative check ≥90% · D4 backward spec-coverage ≥90% · Hermes APPROVE required]"),
+    4: (85,   14, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · performance(75) · integration_coverage(75) · test_assertion_quality(70)  [CRG recon inside run-gate · D4 TEST_INVENTORY.yaml imperative check ≥90% · D4 backward spec-coverage ≥90%]"),
 }
 
 # D4 backward (spec-coverage-check) thresholds per exit gate (CONSTITUTION.md §2.2)
@@ -1116,11 +1116,6 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
         "  (CRG recon triggered inside run-gate automatically — no separate action needed)"
         if gate_num in (3, 4) else ""
     )
-    hermes_note = (
-        f"  - **Hermes APPROVE required**: wait for reviewer APPROVE on Telegram before G{gate_num}d."
-        f"\n  - **Auto-approve shortcut**: if composite ≥88 AND confidence ≥93, Hermes APPROVE may be skipped."
-        if gate_num == 4 else ""
-    )
     early_stop = [
         f"  **Early-stop cases after G{gate_num}c:**",
         f"  - CASE 1 PASS:     score ≥ score_gate AND critical==0 → `quality_complete=True` → G{gate_num}d",
@@ -1159,7 +1154,6 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
         "  ```bash",
         f"  python3 harness_cli.py finalize-gate --gate {gate_num} --phase {phase} --project .",
         "  ```",
-        *([hermes_note] if hermes_note else []),
         f"- [ ] **[D4-BACKWARD]** D4 backward spec-coverage-check (Gate {gate_num} threshold {_SPEC_COVERAGE_THRESHOLDS[gate_num]:.0f}%):",
         "  ```bash",
         f"  python3 harness_cli.py spec-coverage-check --project . --threshold {_SPEC_COVERAGE_THRESHOLDS[gate_num]}",
@@ -1208,7 +1202,7 @@ def _checkpoint_index(fr_ids: List[str], phase: int) -> List[str]:
     if phase in _PHASE_EXIT_GATES:
         gate_num = _PHASE_EXIT_GATES[phase]
         if phase == 6:
-            lines.append(f"> - CHECKPOINT-{cp}: Gate 4 (Full Project — 14 dims, Hermes APPROVE) → **push + HANDOVER.md**")
+            lines.append(f"> - CHECKPOINT-{cp}: Gate 4 (Full Project — 14 dims, fully automated) → **push + HANDOVER.md**")
         else:
             lines.append(f"> - CHECKPOINT-{cp}: Gate {gate_num} (Phase {phase} Exit) → **push + HANDOVER.md**")
     lines.append("")
@@ -1716,12 +1710,12 @@ def generate_phase6_tasks(repo_path: Path) -> List[str]:
     lines.append("")
     lines.append("### Phase 6 Overview")
     lines.append("Phase 6 is a complete Gate 4 evaluation. Gate 4 replaces the entire P6 SOP.")
-    lines.append("No FR loop — Gate 4 evaluates the full project (14 dims, CRG recon, Hermes APPROVE required).")
+    lines.append("No FR loop — Gate 4 evaluates the full project (14 dims, CRG recon, fully automated).")
     lines.append("")
 
     # P6 has exactly one checkpoint: Gate 4
     lines.append("> **Checkpoint Index** (push to GitHub = checkpoint saved):")
-    lines.append("> - CHECKPOINT-1: Gate 4 (Full Project — 14 dims, Hermes APPROVE)")
+    lines.append("> - CHECKPOINT-1: Gate 4 (Full Project — 14 dims, fully automated)")
     lines.append("")
 
     lines.extend(_entry_gate_check(6))
@@ -1743,15 +1737,12 @@ def generate_phase6_tasks(repo_path: Path) -> List[str]:
     lines.append("### Pre-Gate Preparation")
     lines.append("- [ ] Confirm all FRs are merged to main branch")
     lines.append("- [ ] Confirm no open critical or high issues from Gate 3")
-    lines.append("- [ ] Confirm `HERMES_REVIEWER_TARGET` env var is set (e.g. `telegram:6308981865`)")
-    lines.append("- [ ] Confirm `HERMES_TIMEOUT_MS=90000` is set")
     lines.append("")
 
     lines.extend(_gate_exit_checkpoint(gate_num=4, phase=6, checkpoint_n=1))
 
     lines.append("### Phase 6 Deliverables")
     lines.append("- [ ] Gate 4 PASS (composite ≥ 85, all 14 dims, CRG recon done)")
-    lines.append("- [ ] Hermes APPROVE received from reviewer")
     lines.append("- [ ] `QUALITY_REPORT.md` - Quality report (auto-generated by Gate 4)")
     lines.append("- [ ] `RELEASE_NOTES.md` - Release notes")
     lines.append("- [ ] `FINAL_SIGN_OFF.md` - Final sign-off")

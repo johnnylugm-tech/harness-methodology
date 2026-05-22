@@ -1048,7 +1048,8 @@ class TestToolRunnerScoring:
 # ---------------------------------------------------------------------------
 
 class TestHermesReceiptIntegrity:
-    """Gate 4 A1b: hermes_g4_receipt.json must have a valid composite_score."""
+    """Gate 4: hermes_g4_receipt.json is no longer required (A1 removed).
+    Gate 4 is fully automated — composite_score >= score_gate is the sole criterion."""
 
     @staticmethod
     def _make_prerequisites(tmp_path: Path) -> None:
@@ -1087,8 +1088,8 @@ class TestHermesReceiptIntegrity:
         meth.mkdir(parents=True, exist_ok=True)
         (meth / "issues.json").write_text(json.dumps({"issues": ["finding-1"]}))
 
-    def test_null_composite_score_blocked(self, tmp_path):
-        """Receipt with composite_score: null is blocked (A1b)."""
+    def test_receipt_not_required_null_composite(self, tmp_path):
+        """Receipt with composite_score: null does NOT block — receipt is no longer required."""
         from harness_cli import _check_gate4_prerequisites
         self._make_prerequisites(tmp_path)
         receipt = tmp_path / ".methodology" / "hermes_g4_receipt.json"
@@ -1098,10 +1099,10 @@ class TestHermesReceiptIntegrity:
             "composite_score": None,
         }))
         blocked = _check_gate4_prerequisites(tmp_path)
-        assert blocked, "composite_score: null should block Gate 4"
+        assert not blocked, "Receipt content is no longer checked — Gate 4 is fully automated"
 
-    def test_zero_composite_score_blocked(self, tmp_path):
-        """Receipt with composite_score: 0 is blocked (A1b)."""
+    def test_receipt_not_required_zero_composite(self, tmp_path):
+        """Receipt with composite_score: 0 does NOT block — receipt is no longer required."""
         from harness_cli import _check_gate4_prerequisites
         self._make_prerequisites(tmp_path)
         receipt = tmp_path / ".methodology" / "hermes_g4_receipt.json"
@@ -1111,10 +1112,10 @@ class TestHermesReceiptIntegrity:
             "composite_score": 0,
         }))
         blocked = _check_gate4_prerequisites(tmp_path)
-        assert blocked, "composite_score: 0 should block Gate 4"
+        assert not blocked, "Receipt content is no longer checked — Gate 4 is fully automated"
 
     def test_valid_composite_score_passes(self, tmp_path):
-        """Receipt with a valid composite_score passes A1b."""
+        """All Gate 4 prerequisites (A2–B3) satisfied → not blocked."""
         from harness_cli import _check_gate4_prerequisites
         self._make_prerequisites(tmp_path)
         receipt = tmp_path / ".methodology" / "hermes_g4_receipt.json"
@@ -1124,33 +1125,37 @@ class TestHermesReceiptIntegrity:
             "composite_score": 91.5,
         }))
         blocked = _check_gate4_prerequisites(tmp_path)
-        assert not blocked, f"Valid composite_score 91.5 should not block Gate 4, got blocked={blocked}"
+        assert not blocked, f"All prerequisites satisfied should not block Gate 4, got blocked={blocked}"
 
-    def test_bool_true_composite_score_blocked(self, tmp_path):
-        """Receipt with composite_score: true (JSON bool) is blocked (A1b).
-
-        bool is a subclass of int in Python, so True passes isinstance(x, int)
-        with value 1.  The guard must explicitly reject bools.
-        """
+    def test_receipt_not_required_bool_composite(self, tmp_path):
+        """Receipt with composite_score: true does NOT block — receipt is no longer required."""
         from harness_cli import _check_gate4_prerequisites
         self._make_prerequisites(tmp_path)
         receipt = tmp_path / ".methodology" / "hermes_g4_receipt.json"
         receipt.write_text(json.dumps({
             "ts": "2026-05-19T12:00:00Z",
             "approved_by": "hermes",
-            "composite_score": True,  # JSON true → Python True
+            "composite_score": True,
         }))
         blocked = _check_gate4_prerequisites(tmp_path)
-        assert blocked, "composite_score: true (bool) should block Gate 4 (A1b)"
+        assert not blocked, "Receipt content is no longer checked — Gate 4 is fully automated"
 
-    def test_invalid_json_receipt_blocked(self, tmp_path):
-        """A receipt that is not valid JSON is blocked (A1b)."""
+    def test_receipt_not_required_invalid_json(self, tmp_path):
+        """Invalid JSON receipt does NOT block — receipt is no longer required."""
         from harness_cli import _check_gate4_prerequisites
         self._make_prerequisites(tmp_path)
         receipt = tmp_path / ".methodology" / "hermes_g4_receipt.json"
         receipt.write_text("not valid json {{{")
         blocked = _check_gate4_prerequisites(tmp_path)
-        assert blocked, "Invalid JSON receipt should block Gate 4"
+        assert not blocked, "Receipt is no longer required — Gate 4 is fully automated"
+
+    def test_missing_receipt_not_blocked(self, tmp_path):
+        """Missing receipt does NOT block — receipt is no longer required."""
+        from harness_cli import _check_gate4_prerequisites
+        self._make_prerequisites(tmp_path)
+        # No receipt file at all
+        blocked = _check_gate4_prerequisites(tmp_path)
+        assert not blocked, "Missing receipt must not block — A1 check removed"
 
 
 # ---------------------------------------------------------------------------

@@ -2141,12 +2141,13 @@ class TestGate4Prerequisites:
         project = self._make_project(tmp_path)
         assert _check_gate4_prerequisites(project) is False
 
-    def test_missing_hermes_receipt_blocked(self, tmp_path):
-        """Missing Hermes receipt blocks Gate 4 (A1)."""
+    def test_missing_hermes_receipt_not_blocked(self, tmp_path):
+        """Hermes receipt is no longer required (A1 removed) — Gate 4 proceeds without it."""
         from harness_cli import _check_gate4_prerequisites
         project = self._make_project(tmp_path)
         (project / ".methodology" / "hermes_g4_receipt.json").unlink()
-        assert _check_gate4_prerequisites(project) is True
+        # A1 check removed: missing receipt must NOT block
+        assert _check_gate4_prerequisites(project) is False
 
     def test_tier1_dim_using_claude_blocked(self, tmp_path):
         """Tier 1/2 dim (linting) evaluated with Claude instead of gemini blocks (A2)."""

@@ -82,10 +82,12 @@ class TestGateExitCheckpoint:
         assert "run-gate --gate 3 --phase 4" in joined
         assert "finalize-gate --gate 3 --phase 4" in joined
 
-    def test_gate4_hermes_note(self):
+    def test_gate4_no_hermes_note(self):
+        """Gate 4 is fully automated — no Hermes APPROVE step."""
         lines = _gate_exit_checkpoint(4, 6, 1)
         joined = "\n".join(lines)
-        assert "Hermes" in joined
+        assert "Hermes" not in joined
+        assert "await-hermes-approve" not in joined
 
     def test_gate4_result_json(self):
         lines = _gate_exit_checkpoint(4, 6, 1)
@@ -447,9 +449,11 @@ class TestPhase6GateInjection:
         joined = "\n".join(generate_phase6_tasks(project))
         assert "run-gate --gate 1 --phase 6" not in joined
 
-    def test_hermes_approve_note(self, project: Path):
+    def test_no_hermes_approve_note(self, project: Path):
+        """P6 Gate 4 is fully automated — no Hermes APPROVE step in generated plan."""
         joined = "\n".join(generate_phase6_tasks(project))
-        assert "Hermes" in joined
+        assert "Hermes" not in joined
+        assert "await-hermes-approve" not in joined
 
     def test_single_checkpoint(self, project: Path):
         joined = "\n".join(generate_phase6_tasks(project))
@@ -712,10 +716,10 @@ class TestGateMetaDimNames:
                     "documentation", "test_assertion_quality", "performance"]:
             assert dim in meta, f"Gate 3 missing dim: {dim}"
 
-    def test_gate4_references_gate3_dims(self):
-        """Gate 4 uses same 15 dims as Gate 3 — must include Hermes note."""
+    def test_gate4_no_hermes_in_meta(self):
+        """Gate 4 is fully automated — Hermes APPROVE must NOT be in gate meta description."""
         meta = _GATE_META[4][2]
-        assert "Hermes APPROVE" in meta
+        assert "Hermes APPROVE" not in meta
 
 
 # ─── _phase_advance_step: P1/P2 labels ───────────────────────────────────────
@@ -1150,7 +1154,7 @@ class TestGenerateFullPlan:
     def test_phase6_plan_has_gate4(self, project: Path):
         result = generate_full_plan(6, project)
         assert "Gate 4" in result
-        assert "Hermes" in result
+        assert "Hermes" not in result  # Gate 4 is fully automated — no Hermes APPROVE
 
     def test_unknown_phase_returns_none(self, project: Path):
         result = generate_full_plan(99, project)

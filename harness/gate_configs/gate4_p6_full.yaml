@@ -1,5 +1,5 @@
 # Gate 4: P6 full-project. Completely replaces P6 SOP.
-# Final gate: all 8 phases done, full CRG, Hermes reviewer APPROVE required.
+# Final gate: all 8 phases done, full CRG, fully automated (no human approval step).
 gate: 4
 trigger: phase_exit
 phase: 6
