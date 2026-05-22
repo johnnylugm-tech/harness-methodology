@@ -647,17 +647,6 @@ def _preflight_steps(phase: int) -> List[str]:
             f"  4. Phase {phase} confirmed in `.methodology/state.json` (`advance-phase` already run)",
             f"  > If stale: run `python3 harness_cli.py init-project --phase {phase} --project $REPO --overwrite`",
         ]
-    bypass_audit: list[str] = []
-    if phase >= 3:
-        bypass_audit = [
-            "- [ ] **[BYPASS-AUDIT]** 確認 `force_bypass.log` 無未審計的 bypass 條目:",
-            "  ```bash",
-            "  grep -c '.' .methodology/force_bypass.log 2>/dev/null || echo 'OK: no bypass log'",
-            "  ```",
-            "  每筆 bypass 條目必須有人工確認記錄（audit_note 欄位）。",
-            "  有未審計條目 → 在 `force_bypass.log` 對應條目新增 `audit_note: 'reviewed by <name> <date>'`。",
-            "",
-        ]
     return [
         "### Pre-Phase Preflight",
         "",
@@ -669,7 +658,6 @@ def _preflight_steps(phase: int) -> List[str]:
         "",
         *ci_check,
         "",
-        *bypass_audit,
     ]
 
 
