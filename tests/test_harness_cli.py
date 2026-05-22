@@ -1384,3 +1384,119 @@ class TestRunFrStep:
             out = captured.getvalue()
             assert "GATE1-DELTA" in out, f"Phase {phase} should use GATE1-DELTA"
             assert "TDD-RED" not in out, f"Phase {phase} should not show TDD-RED"
+
+    def test_fr_step_already_done_requires_file_existence(self, tmp_path, monkeypatch):
+        """_fr_step_already_done returns False if commit matches but physical test file or src dir is missing."""
+        import harness_cli
+        import subprocess as _sp
+
+        class _FakeResult:
+            returncode = 0
+            stdout = "test(RED): failing test for FR-01"
+
+        # Git log mock returns matching commit
+        monkeypatch.setattr(_sp, "run", lambda *a, **kw: _FakeResult())
+
+        # RED Test: Test file missing -> should return False
+        assert not harness_cli._fr_step_already_done("TDD-RED", "FR-01", tmp_path)
+
+        # Create test file -> should return True
+        (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "tests" / "test_fr01.py").write_text("def test_fr(): pass")
+        assert harness_cli._fr_step_already_done("TDD-RED", "FR-01", tmp_path)
+
+        # GREEN Test: Src dir missing -> should return False
+        assert not harness_cli._fr_step_already_done("TDD-GREEN", "FR-01", tmp_path)
+
+        # Create empty src dir -> should return False
+        (tmp_path / "03-development" / "src").mkdir(parents=True, exist_ok=True)
+        assert not harness_cli._fr_step_already_done("TDD-GREEN", "FR-01", tmp_path)
+
+        # Create source file with tag -> should return True
+        f = tmp_path / "03-development" / "src" / "impl.py"
+        f.write_text("# [FR-01]")
+        assert harness_cli._fr_step_already_done("TDD-GREEN", "FR-01", tmp_path)
+
+    def test_run_fr_step_handles_git_push_failure_as_fatal(self, tmp_path, monkeypatch, capsys):
+        """cmd_run_fr_step prints an error and returns 1 when git push fails (fatal check-recovery)."""
+        import sys, types, harness_cli
+        import subprocess as _sp
+
+        monkeypatch.setattr(harness_cli, "_fr_step_already_done", lambda s, f, p: False)
+
+        class _FakeSpawner:
+            def __init__(self, project_path=None): pass
+            def spawn(self, **kwargs):
+                return {"status": "complete", "output": "{}"}
+
+        fake_mod = types.ModuleType("core.agent_spawner")
+        fake_mod.AgentSpawner = _FakeSpawner
+        monkeypatch.setitem(sys.modules, "core.agent_spawner", fake_mod)
+
+        # Mock git commands: make git push fail (returncode 1)
+        def _fake_run(cmd, **kw):
+            class _Res:
+                returncode = 1 if "push" in cmd else 0
+                stdout = ""
+                stderr = "fatal: Could not read from remote repository."
+            return _Res()
+        monkeypatch.setattr(_sp, "run", _fake_run)
+
+        args = argparse.Namespace(
+            phase=3, fr_id="FR-01", step="TDD-RED", project=str(tmp_path),
+            srs=None, timeout=600, max_turns=30, max_fix_rounds=3, no_push=False
+        )
+
+        rc = harness_cli.cmd_run_fr_step(args)
+        assert rc == 1
+        captured = capsys.readouterr().out
+        assert "git push failed" in captured
+
+    def test_run_fr_step_respects_no_push_argument(self, tmp_path, monkeypatch, capsys):
+        """cmd_run_fr_step skips git push when no_push is True."""
+        import sys, types, harness_cli
+        import subprocess as _sp
+
+        monkeypatch.setattr(harness_cli, "_fr_step_already_done", lambda s, f, p: False)
+
+        class _FakeSpawner:
+            def __init__(self, project_path=None): pass
+            def spawn(self, **kwargs):
+                return {"status": "complete", "output": "{}"}
+
+        fake_mod = types.ModuleType("core.agent_spawner")
+        fake_mod.AgentSpawner = _FakeSpawner
+        monkeypatch.setitem(sys.modules, "core.agent_spawner", fake_mod)
+
+        run_calls = []
+        def _fake_run(cmd, **kw):
+            run_calls.append(cmd)
+            class _Res:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+            return _Res()
+        monkeypatch.setattr(_sp, "run", _fake_run)
+
+        # 1. Test with no_push = True
+        args = argparse.Namespace(
+            phase=3, fr_id="FR-01", step="TDD-RED", project=str(tmp_path),
+            srs=None, timeout=600, max_turns=30, max_fix_rounds=3, no_push=True
+        )
+
+        rc = harness_cli.cmd_run_fr_step(args)
+        assert rc == 0
+        assert not any("push" in cmd for cmd in run_calls), "git push should not be called when no_push=True"
+        captured = capsys.readouterr().out
+        assert "skipping git push" in captured
+        assert "complete" in captured
+        assert "+ pushed to GitHub" not in captured
+
+        # 2. Test with no_push = False (normal behavior)
+        run_calls.clear()
+        args.no_push = False
+        rc = harness_cli.cmd_run_fr_step(args)
+        assert rc == 0
+        assert any("push" in cmd for cmd in run_calls), "git push should be called when no_push=False"
+        captured = capsys.readouterr().out
+        assert "complete + pushed to GitHub" in captured

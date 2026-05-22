@@ -3490,7 +3490,31 @@ def _fr_step_already_done(step: str, fr_id: str, project: Path) -> bool:
         ["git", "log", "--oneline", "--grep", pattern],
         capture_output=True, text=True, cwd=str(project),
     )
-    return bool(r.stdout.strip())
+    committed = bool(r.stdout.strip())
+    if not committed:
+        return False
+    # Dual verification for TDD
+    if step.upper() == "TDD-RED":
+        num_match = re.match(r"FR-(\d+)", fr_id)
+        num_str = num_match.group(1).zfill(2) if num_match else re.sub(r"[^a-z0-9]", "_", fr_id.lower()).strip("_")
+        test_file = project / f"tests/test_fr{num_str}.py"
+        return test_file.exists()
+    elif step.upper() == "TDD-GREEN":
+        src_dir = project / "03-development" / "src"
+        if not src_dir.exists():
+            return False
+        num_match = re.match(r"FR-(\d+)", fr_id)
+        num_str = num_match.group(1).zfill(2) if num_match else re.sub(r"[^a-z0-9]", "_", fr_id.lower()).strip("_")
+        for py_file in src_dir.glob("**/*.py"):
+            if num_str in py_file.name:
+                return True
+            try:
+                if f"[{fr_id}]" in py_file.read_text(encoding="utf-8"):
+                    return True
+            except Exception:
+                pass
+        return False
+    return True
 
 
 def _extract_srs_fr_section(srs_path: Path, fr_id: str) -> str:
@@ -3771,16 +3795,20 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
     if step not in ("TDD-IMPROVE", "CODE-FIX") and not _fr_step_already_done(step, fr_id, project):
         print(f"[run-fr-step] {fr_id} {step}: WARNING — expected commit not found in git log")
 
-    # 6. Push to GitHub (crash-recovery checkpoint)
-    push = _sp.run(
-        ["git", "push", "origin", "HEAD"],
-        capture_output=True, text=True, cwd=str(project),
-    )
-    if push.returncode != 0:
-        print(f"[run-fr-step] git push failed: {push.stderr[:300]}")
-        return 1
+    no_push = getattr(args, "no_push", False) or os.environ.get("HARNESS_NO_GIT")
+    if no_push:
+        print("[run-fr-step] --no-push or HARNESS_NO_GIT specified — skipping git push")
+    else:
+        push = _sp.run(
+            ["git", "push", "origin", "HEAD"],
+            capture_output=True, text=True, cwd=str(project),
+        )
+        if push.returncode != 0:
+            print(f"[run-fr-step] git push failed: {push.stderr[:300].strip()}")
+            return 1
 
-    print(f"[run-fr-step] ✅ {fr_id} {step} complete + pushed to GitHub")
+    suffix = "" if no_push else " + pushed to GitHub"
+    print(f"[run-fr-step] ✅ {fr_id} {step} complete{suffix}")
     return 0
 
 
@@ -5302,6 +5330,7 @@ def build_parser() -> argparse.ArgumentParser:
                      help="Sub-agent max tool-using turns (default: 30)")
     rfp.add_argument("--max-fix-rounds", type=int, default=3, dest="max_fix_rounds",
                      help="Max CODE-FIX + GATE1 retry rounds on GATE1 FAIL (default: 3)")
+    rfp.add_argument("--no-push", action="store_true", help="Skip git push origin HEAD after completion")
     rfp.set_defaults(func=cmd_run_fr_step)
 
     # resume-fr-phase
