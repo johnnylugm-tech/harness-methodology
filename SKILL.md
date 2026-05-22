@@ -117,7 +117,7 @@ Before advancing to Phase N+1, confirm ALL:
 - [ ] Next phase plan exists (`plan-phase --phase N+1` completed)
 - [ ] state.json updated: `python3 harness_cli.py advance-phase --completed N --project .` (updates FSM state)
 - [ ] Git tag pushed (Gate 4 only): `harness-v4-YYYYMMDD-scoreXX`
-    > P6 quality report review: Hermes APPROVE（人類, 見 §6.3）+ Phase End Audit 取代原 Agent B (ARCHITECT) 審查。
+    > P6 quality report review: Phase End Audit 取代原 Agent B (ARCHITECT) 審查。
     > 確認 QUALITY_REPORT.md 內容、Gate 4 ≥ 85、所有 FR 已合併。
 - [ ] **(P8 only) `.methodology-archive/` exists and HANDOVER.md has no Phase 9 references** (enforced by CI `p8-archive-check`)
 
@@ -150,7 +150,6 @@ Before advancing to Phase N+1, confirm ALL:
 | Run M3 gap analysis | `python harness_cli.py run-gap-analysis --project .` |
 | Audit structure | `python harness_cli.py audit-structure --project .` |
 | Git hook pre-commit check | `python harness_cli.py pre-commit-check --phase N` |
-| Await Gate 4 Hermes APPROVE | `python harness_cli.py await-hermes-approve --project .` |
 | Recover from crash | `python harness_cli.py generate-next-plan --project .` |
 | Audit a completed phase | `python harness_cli.py audit-phase --phase N --repo .` |
 
@@ -239,9 +238,7 @@ Agent B (REVIEWER / architect)
 > Phase 3-8 不再使用 A/B 協作，改以自動化 Phase End Audit 替代（見 §0.4 完成檢查表）。
 >
 > **P6 Gate 4 注意**：原 Agent B (ARCHITECT) 負責審查 QUALITY_REPORT.md 並確認所有 FR 已合併且 Gate 4 ≥ 85。
-> A/B 移除後此責任由兩個機制分擔：(1) **Phase End Audit** 確認 quality_manifest.json 中 Gate 4 分數與
-> 所有 FR 的合併狀態；(2) **Hermes APPROVE**（人類審查）確認 QUALITY_REPORT.md 內容完整性。
-> 見 §6.3 / `await-hermes-approve` CLI 命令。
+> A/B 移除後此責任由 **Phase End Audit** 分擔（確認 quality_manifest.json 中 Gate 4 分數與所有 FR 的合併狀態，以及 QUALITY_REPORT.md 內容完整性）。
 
 > Phase 1-2 only: Agent A ≠ Agent B (HR-01). Both write `sessions_spawn.log` (HR-10).
 > Phase 3-8: no A/B requirement. Phase End Audit runs at phase completion.

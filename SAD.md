@@ -94,7 +94,6 @@ python harness_cli.py init-project      --project /path/to/target [--phase 3] [-
                                         # Step 10/10: checks all Tier 1 gate tools (ruff,mypy,pytest-cov,gitleaks,scancode,mutmut); BLOCKS if any missing
 python harness_cli.py advance-phase     --completed N [--project .] [--force]  # --force bypasses CV-2 FSM check
 python harness_cli.py kill-switch       trigger|reset|status [--project .] [--reason "..."]
-python harness_cli.py await-hermes-approve [--project .] [--response APPROVE|REJECT] [--timeout-ms N]
 python harness_cli.py push-milestone    --type p3-mid|p3-pre-ssi|p4-mid|p4-pre-ssi|p5-baseline|p7|p8 [--project .] [--fr-ids FR-01,FR-02] [--fr-done N] [--fr-total N] [--no-git]
 python harness_cli.py dispatch          --role developer|reviewer --fr-id FR-01 --prompt "..." [--phase 3] [--project .] [--timeout 300] [--max-turns 20]
 python harness_cli.py verify-agent-b-approvals --phase N [--fr-ids FR-01,FR-02] [--project .]
@@ -182,7 +181,7 @@ This section uses normative language per **RFC 2119**:
 | Gate 1 (per-FR) | P3+ | Per-dim: linting ≥90, type_safety ≥85, test_coverage ≥80 | 3 (linting, type_safety, test_coverage) | **MUST** pass for each FR |
 | Gate 2 (P3 exit) | P3 | ≥75 (composite) | 9 dimensions | **MUST** pass before P4 |
 | Gate 3 (P4 exit) | P4 | ≥80 (composite) | 14 dimensions (incl. 4 tier3) | **MUST** pass before P5 |
-| Gate 4 (P6 full) | P6 | ≥85 (composite) + Hermes APPROVE (or auto-approve if composite ≥88 AND confidence ≥93) | 14 dimensions | **MUST** pass before release |
+| Gate 4 (P6 full) | P6 | ≥85 (composite) | 14 dimensions | **MUST** pass before release |
 
 #### 2.4.3 Phase Entry / Exit Conformance
 
@@ -302,7 +301,7 @@ class HarnessBridge:
 6. **Blocking logic**:
    - Gate 1: `raise GateBlockedError` if any `d.score < d.threshold` in `result.dimensions`
    - Gate 2/3/4: `raise GateBlockedError` if `result.score < config["score_gate"]` OR `not result.quality_complete`
-7. Gate 4 only: `_require_hermes_approve(result, phase, fr_id)` — Hermes reviewer must APPROVE
+7. Gate 4 only: Runs validation checks to ensure quality completeness.
 8. Return `GateResult`
 
 **Result file contract** (`.sessi-work/gate{N}_result.json`):
@@ -320,10 +319,8 @@ class HarnessBridge:
 ```
 Schema: `harness/ssi/schemas/harness_gate_result.schema.json`
 
-**`_require_hermes_approve(result, phase, fr_id)`** (Gate 4 only):
-- Instantiates `ReviewerRouter()` — silently skips if `HERMES_REVIEWER_TARGET` not set
-- Sends gate score + dimension summary for human review via Hermes
-- `review_status != "APPROVE"` → logs `REVIEWER_REJECT` + raises `GateBlockedError(4, result)`
+**`_require_hermes_approve`** (Gate 4 only):
+- **REMOVED in v2.4** — Gate 4 no longer blocks on Hermes APPROVE.
 
 **`generate_quality_manifest` logic**:
 - Called at P2 exit
@@ -1216,7 +1213,7 @@ class KillSwitch:
 6. Hard Rule violations (R001-R007)
 7. Auto-fix confidence < 70% after 3 attempts
 8. Kill-switch circuit OPEN (M1)
-9. Gate 4 BLOCKED (requires Hermes APPROVE)
+9. Gate 4 BLOCKED (cannot meet threshold after auto-fix rounds)
 
 Thresholds are configurable via `AutoFixEngine.__init__` parameters:
 `max_rounds=5`, `max_phase_time_multiplier=3.0`, `integrity_threshold=40.0`,
@@ -1458,7 +1455,6 @@ Phase 3 — Finalize:
     │      [CLI layer catches GateBlockedError → _format_block_diagnostic() →
     │       structured stdout + writes .methodology/last_block.md]
     └─ 6. return GateResult
-    [Gate 4 only: step 6 = _require_hermes_approve() before return]
 ```
 
 ### 4.2 A/B Review via Hermes MCP (v2.1 — Sequential + Dep-Ordered)

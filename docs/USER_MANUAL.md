@@ -69,7 +69,7 @@ cd harness-methodology
 ```bash
 # SSI is embedded at harness/ssi/ — no external install needed for gate runs
 
-# Hermes MCP — required for Gate 4 human review
+# Hermes MCP — optional, used for Agent B A/B reviews
 export HERMES_REVIEWER_TARGET=telegram:YOUR_CHAT_ID   # or other target
 
 # CRG (Code Review Graph) — optional, enhances Gate 3/4 scoring
@@ -162,7 +162,7 @@ Each phase works on a list of FRs (e.g. `FR-01`, `FR-02`). Each FR is an atomic 
 | Gate 1 | Per-FR at P3/P4/P5/P7/P8 | Single FR | Per-dimension (linting≥90, type≥85, coverage≥80) |
 | Gate 2 | P3 exit | Full phase | Composite score ≥ 75 |
 | Gate 3 | P4 exit | Full phase | Composite score ≥ 80, all 14 dims |
-| Gate 4 | P6 exit | Full project | Composite score ≥ 85 + Hermes human APPROVE |
+| Gate 4 | P6 exit | Full project | Composite score ≥ 85 |
 
 > **Normative reference**: Gate pass criteria are **MUST**-level requirements per RFC 2119. See [SAD.md §2.4 Conformance Matrix](../SAD.md#24-conformance-matrix-rfc-2119) for the full conformance specification.
 
@@ -361,9 +361,9 @@ python harness_cli.py run-phase --phase 5 --project /project
 
 ### Phase 6 — Quality Assurance
 
-**Goal**: Final full-project quality check. Gate 4 (score≥85 + Hermes APPROVE).
+**Goal**: Final full-project quality check. Gate 4 (score≥85).
 
-**A/B Roles**: No A/B roles at Phase level (replaced by automated Phase End Audit + Hermes APPROVE)
+**A/B Roles**: No A/B roles at Phase level (replaced by automated Phase End Audit)
 
 **Interactive prompt to Claude**:
 ```
@@ -375,14 +375,13 @@ Phase 6：品質保證。
 3. 準備 RELEASE_NOTES.md 與 FINAL_SIGN_OFF.md
 ```
 
-**Run Gate 4** (requires SSI + Hermes):
+**Run Gate 4** (requires SSI):
 ```bash
 python harness_cli.py run-gate --gate 4 --phase 6 --project /project
 # → Runs SSI evaluation (14 dims, score ≥ 85)
 # → mutation_testing: objective_primary=true
-# → Sends to Hermes reviewer for human APPROVE
-# → On APPROVE: gate passes, decision logged
-# → On REJECT: GateBlockedError raised
+# → Runs finalize-gate to check threshold:
+python harness_cli.py finalize-gate --gate 4 --phase 6 --project /project
 ```
 
 ---
@@ -463,7 +462,7 @@ python harness_cli.py effort --project /project   # review total effort
 
 | Score threshold | 85 | Dimensions | 15 (full) |
 |---|---|---|---|
-| Max rounds | 3 | Human review | Hermes APPROVE（auto-skipped if composite ≥ 88 AND confidence ≥ 93） |
+| Max rounds | 3 | Human review | None (Fully automated) |
 | New dims | integration_coverage (w=0.05) | test_assertion_quality (w=0.02) | — |
 
 ---
@@ -507,24 +506,6 @@ run-phase → "PRE-FLIGHT FAILED"
   └─ Fix constitution violations:
        Tell Claude: "Pre-flight constitution check failed. Review docs/ for
        HR violations and fix them before I re-run."
-```
-
-### AF-03 — Gate 4 Hermes Reviewer REJECT
-
-```
-run-gate --gate 4 → GateBlockedError (REVIEWER_REJECT)
-  │
-  ├─ Check decision log for reviewer's violations:
-  │    cat .methodology/decision_logs/YYYY-MM-DD/GATE_*_REVIEWER_REJECT*.yaml
-  │
-  ├─ Address violations → tell Claude:
-  │    "Gate 4 reviewer rejected. Violations: [list].
-  │     Please address each violation and produce updated deliverables."
-  │
-  ├─ Re-run Gate 4 after fixes
-  │
-  └─ If HERMES_REVIEWER_TARGET not set:
-       export HERMES_REVIEWER_TARGET=telegram:YOUR_ID
 ```
 
 ### AF-04 — SSI Runner Not Installed
@@ -784,16 +765,12 @@ python harness_cli.py run-gate --gate 2 --phase 3 \
 python harness_cli.py status --project $PROJECT
 ```
 
-#### 人類介入點（僅 3 個）
+#### 人類介入點（僅 2 個）
 
 | 時機 | 觸發條件 | 行動 | 預計時間 |
 |------|---------|------|---------|
 | P1 需求 | SRS.md 不存在，pipeline exit 10 | 提供 `SRS.md`（含 `### FR-XX:` 段落） | ~5 min |
 | P2 架構 | SAD.md 不存在，pipeline exit 10 | 提供 `SAD.md`（含 FR ID） | ~10 min |
-| Gate 4 最終核准 | P6 exit，Hermes 發送通知（僅當 composite < 88 或 confidence < 93） | Telegram 點 APPROVE | ~2 min |
-
-> **Gate 4 自動核准**：若 Gate 4 composite ≥ 88 **且** script confidence ≥ 93（C1-C7 純工具評分），
-> receipt 自動寫入，Hermes 不發送通知，無需人工介入。
 
 > **Gate block 自動處理**：`--auto-fix-rounds 3` 讓 SSI 內部自行修復最多 3 輪。
 > 3 輪後仍 BLOCKED → pipeline exit 10，Claude 報告根因，等待人類指示後 `--phase-from N` 重跑。
@@ -871,7 +848,7 @@ python harness_cli.py run-gate \
 
 **返回碼**：永遠為 `0` — `run-gate` 只準備評估上下文並印出提示，不做閾值判斷。  
 閾值判斷與阻塞（exit 1）由 `finalize-gate` 負責（見下節）。  
-**需要**：SSI 已安裝；Gate 4 額外需要 `HERMES_REVIEWER_TARGET`  
+**需要**：SSI 已安裝
 **v2.4+**：`run-gate` 預設在 gate 評估前先執行 preflight 驗證。使用 `--skip-preflight` 跳過。
 
 > **Gate 1 vs CI**: Gate 1 需要 `--fr-id FR-XX`，必須由開發者在本地逐 FR 執行。  
@@ -892,8 +869,8 @@ python harness_cli.py finalize-gate \
 ```
 
 **時機**：`run-gate` 印出評估提示後，Claude 完成評估並寫入 `.sessi-work/gate{N}_result.json`，再執行此命令。  
-**返回碼**：0=gate 通過；1=Gate Blocked（分數或閾值未達標）；2=錯誤（result.json 不存在等）  
-**Gate 4**：先執行 `await-hermes-approve`（Phase 6 完整性驗證 + 信心評分），通過後再執行 `finalize-gate`。
+**返回碼**：0=gate 通過；1=Gate Blocked（分數或閾值未達標）；2=錯誤（result.json 不存在等）
+
 
 > **完整兩步流程**（`run-pipeline` 已於 v2.5 移除，此為標準流程）：
 > ```bash
@@ -904,34 +881,6 @@ python harness_cli.py finalize-gate \
 > # Step 2 — 讀取結果，檢查閾值，更新 manifest
 > python harness_cli.py finalize-gate --gate 2 --phase 3 --project /project
 > ```
-
----
-
-### `await-hermes-approve` — Gate 4 核准（P6 exit 前）
-
-```bash
-python harness_cli.py await-hermes-approve \
-  --project   /project   \  # 專案路徑（預設：.）
-  --timeout-ms 600000    \  # 等待 Hermes 回應逾時（預設：10 分鐘）
-  --response  APPROVE       # 第二次呼叫時傳入 APPROVE 或 REJECT
-```
-
-**流程**：
-1. **Phase 6 完整性檢查**：`PhaseTruthVerifier` 確認 P6 ≥ 90% 完成。未達標 → exit 10（P6 尚未完成，不得請求核准）。
-2. **信心自動評分**（純腳本，無 LLM）：
-   | 指標 | 工具 | 說明 |
-   |------|------|------|
-   | C1 artifact_completeness | phase_artifact_enforcer | 必要 artifacts 存在且非空 |
-   | C2 test_coverage | pytest-cov | 覆蓋率 % |
-   | C3 linting | ruff | 0 violations = 100，每個 -2 |
-   | C4 type_safety | pyright/mypy | 每個 error -2 |
-   | C5 test_pass_rate | pytest | passed/total × 100 |
-   | C6 security | bandit | HIGH=-20，MED=-5，LOW=-1 |
-   | C7 traceability | quality_manifest.json | FR gate pass 覆蓋率 |
-3. **自動核准**：Gate 4 composite ≥ 88 **且** confidence ≥ 93 → 自動寫入 receipt，跳過 Hermes。
-4. **Hermes 發送**：未達自動核准門檻 → 發送 Telegram 通知，等待人工 APPROVE/REJECT。
-
-**返回碼**：0=核准（自動或人工）；5=REJECT 或 timeout；10=P6 未完成
 
 ---
 
@@ -1060,7 +1009,7 @@ Hooks 是可選的 shell/Python 指令，在特定 phase/gate/FR 事件自動執
 | Variable | Default | Purpose |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | — | **Required** — Claude API key used by SSI runner and agent_spawner for all LLM-based gate evaluation (Gates 1–4). Missing key causes gate evaluation to fail with an authentication error. |
-| `HERMES_REVIEWER_TARGET` | `""` | Hermes reviewer target (e.g. `telegram:6308981865`). **Two uses**: (1) Agent B reviewer for A/B collaboration (`reviewer_router.py`) — active from P1, degrades gracefully to Gemini→Claude sub-agent if unset; (2) Gate 4 human APPROVE (`harness_bridge.py`) — P6 exit only, strictly required, no fallback. Recommended: set from project start for best review quality. |
+| `HERMES_REVIEWER_TARGET` | `""` | Hermes reviewer target (e.g. `telegram:6308981865`). Used for Agent B reviewer for A/B collaboration (`reviewer_router.py`) — active from P1, degrades gracefully to Gemini→Claude sub-agent if unset. |
 | `HERMES_TIMEOUT_MS` | `120000` | Hermes long-poll timeout in ms (default: 2 minutes) |
 | `SSI_ROOT` | `harness/ssi` | Path to embedded SSI package (auto-detected from harness_cli.py) |
 | `DRIFT_PROJECT_PATH` | cwd | **Required for drift monitor** — absolute path to target project. Without this, `cron_drift_monitor.py` silently analyses the cron job's working directory instead of your project. |
@@ -1111,13 +1060,6 @@ module and fix ALL warnings/errors before I re-submit."
 mkdir -p /project/.methodology
 echo '{"state": "ACTIVE", "current_phase": 1, "last_update": "'"$(date -u +%Y-%m-%dT%H:%M:%S)"'"}' \
   > /project/.methodology/state.json
-```
-
-### `Gate 4: HERMES_REVIEWER_TARGET not set`
-```bash
-# Set target, then re-run:
-export HERMES_REVIEWER_TARGET=telegram:YOUR_CHAT_ID
-python harness_cli.py run-gate --gate 4 --phase 6 --project /project
 ```
 
 ### `plan-phase outputs empty task list`
@@ -1185,32 +1127,6 @@ bash -x .git/hooks/prepare-commit-msg /dev/null 2>&1 | grep -E "HARNESS_CLI|Warn
 # Repeat for all three hook files. Then verify:
 bash -x .git/hooks/prepare-commit-msg /dev/null 2>&1 | grep HARNESS_CLI
 # Expected: HARNESS_CLI=/opt/harness/harness_cli.py
-```
-
-### `Gate 4 times out in CI / PR stuck waiting for Hermes APPROVE`
-
-**Cause**: Gate 4 calls `await-hermes-approve` which may block waiting for human input.
-CI runners are headless — Hermes approval times out and the job fails.
-
-**Gate 4 auto-approve path**: If composite ≥ 88 AND script confidence (C1-C7) ≥ 93,
-`await-hermes-approve` writes the receipt automatically without sending to Hermes.
-High-quality projects never block CI.
-
-**If auto-approve threshold is not met**, Gate 4 must be run locally:
-```bash
-# Run Gate 4 locally — Hermes notifies Telegram → you APPROVE → gate passes:
-python harness_cli.py await-hermes-approve --project /project
-python harness_cli.py finalize-gate --gate 4 --phase 6 --project /project
-```
-
-**CI workflow fix**: Gate 4 is excluded from CI runs. Phase is auto-detected from `.methodology/state.json`:
-```yaml
-- name: Run Phase Preflight
-  env:
-    PHASE: ${{ steps.phase.outputs.PHASE }}
-  # Gate 4 (P6 exit) requires Hermes APPROVE — CI is headless, skip.
-  if: steps.phase.outputs.PHASE != '6'
-  run: python harness/harness_cli.py run-phase --phase $PHASE --project .
 ```
 
 ---
@@ -1338,9 +1254,7 @@ python3 -c "import sys; sys.path.insert(0,'$HARNESS_DIR'); import ssi; print('OK
   2>/dev/null || echo "WARN: SSI not importable — gate evaluation will fall back to static scoring"
 
 echo "--- 7. HERMES_REVIEWER_TARGET ---"
-[ -n "$HERMES_REVIEWER_TARGET" ] \
-  && echo "OK: HERMES_REVIEWER_TARGET=$HERMES_REVIEWER_TARGET" \
-  || echo "WARN: not set — A/B Agent B reviews degrade to Gemini/Claude fallback (P1+); Gate 4 (P6 exit) will block. export HERMES_REVIEWER_TARGET=telegram:YOUR_ID"
+  || echo "WARN: not set — A/B Agent B reviews degrade to Gemini/Claude fallback (P1+). export HERMES_REVIEWER_TARGET=telegram:YOUR_ID"
 
 echo "--- done ---"
 ```
@@ -1444,8 +1358,6 @@ Gate 1 uses per-dimension pass/fail, not composite score.
 |------|------|------|
 | P1/P2 `push-checkpoint` | confidence ≥ 88 | 自動寫入 commit marker |
 | P1/P2 `push-checkpoint` | confidence < 88 | 硬停，列出失敗指標 |
-| Gate 4 `await-hermes-approve` | composite ≥ 88 AND confidence ≥ 93 | 自動寫入 receipt，跳過 Hermes |
-| Gate 4 `await-hermes-approve` | 其他 | 發送 Telegram，等待人工 APPROVE |
 
 ---
 

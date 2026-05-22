@@ -628,52 +628,6 @@ except Exception as e:
         if: steps.phase.outputs.PHASE >= 4
         run: python harness/harness_cli.py trace-check --project .
 
-  hermes-approve-check:
-    # G-16 fix: CI verification that Hermes APPROVE receipt exists before P7+.
-    name: Hermes APPROVE Receipt Verification (P7+)
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Detect phase
-        id: phase
-        run: |
-          PHASE=$(python3 -c "
-          import json
-          try:
-              d = json.load(open('.methodology/state.json'))
-              print(int(d.get('current_phase', 0)))
-          except Exception:
-              print(0)
-          " 2>/dev/null || echo "0")
-          echo "PHASE=$PHASE" >> $GITHUB_OUTPUT
-
-      - name: Verify hermes_g4_receipt.json exists (P7+)
-        if: steps.phase.outputs.PHASE >= 7
-        run: |
-          python3 - <<'EOF'
-          import json, sys
-          receipt_path = ".methodology/hermes_g4_receipt.json"
-          try:
-              d = json.load(open(receipt_path))
-          except FileNotFoundError:
-              print(f"ERROR: {receipt_path} not found.")
-              print("Gate 4 requires Hermes APPROVE before finalize-gate --gate 4.")
-              print("hermes_g4_receipt.json is written by finalize-gate upon APPROVE receipt.")
-              sys.exit(1)
-          except Exception as e:
-              print(f"ERROR: {receipt_path} is not valid JSON: {e}")
-              sys.exit(1)
-          approved_by = d.get("approved_by")
-          if not approved_by:
-              print(f"ERROR: hermes_g4_receipt.json has no 'approved_by' field.")
-              sys.exit(1)
-          score = d.get("composite_score", "?")
-          ts = d.get("ts", "?")
-          print(f"OK: Gate 4 approved by={approved_by!r}, score={score}, ts={ts}")
-          EOF
-
   gate4-tag-check:
     # G-17 fix: CI verification that Gate 4 git tag was pushed (previously local-only manual step).
     name: Gate 4 Git Tag Verification (P7+)

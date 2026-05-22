@@ -188,7 +188,7 @@ python harness_cli.py init-project --project /path/to/target --phase 3
 >
 > **Single source of truth**: The YAML below is kept in sync with `templates/harness_quality_gate.yml` and `_harness_workflow_template()` in `harness_cli.py` (used by `init-project`).
 
-> **Gate 4 is a local-only gate.** It requires a human Hermes APPROVE within a 2-minute window — CI runners are headless and will always time out. The workflow auto-skips the preflight step when `.methodology/state.json` reports phase 6. Run Gate 4 manually at P6 exit: `python harness_cli.py run-gate --gate 4 --phase 6 --project .`
+> **Gate 4 is a phase-exit gate.** Run Gate 4 manually at P6 exit: `python harness_cli.py run-gate --gate 4 --phase 6 --project .` followed by `python harness_cli.py finalize-gate --gate 4 --phase 6 --project .`.
 
 > **Branch protection** — configure in GitHub repo Settings → Branches → Add rule (branch: `main`):
 > - ✅ Block force pushes
@@ -292,13 +292,13 @@ Phase is auto-detected from `.methodology/state.json` — no GitHub Variable req
 | Variable | Used by | Default | Purpose |
 |---|---|---|---|
 | `ANTHROPIC_API_KEY` | SSI runner, agent_spawner | — | **Required** — Claude API key for all LLM-based gate evaluation (Gates 1–4) |
-| `HERMES_REVIEWER_TARGET` | `harness_bridge.py`, `reviewer_router.py` | — | Hermes reviewer target (e.g. `telegram:6308981865`). **Two uses**: (1) Agent B A/B collaboration (`reviewer_router.py`) — from P1, fallback chain Hermes→Gemini→Claude sub-agent if unset; (2) Gate 4 human APPROVE (`harness_bridge.py`) — P6 exit only, strictly required, no fallback. Set from project start. |
-| `HERMES_TIMEOUT_MS` | `harness_bridge.py`, `reviewer_router.py` | `120000` | Hermes long-poll timeout in ms (default: 2 min) |
+| `HERMES_REVIEWER_TARGET` | `reviewer_router.py` | — | Hermes reviewer target (e.g. `telegram:6308981865`). Used for Agent B A/B collaboration (`reviewer_router.py`) — active from P1, fallback chain Hermes→Gemini→Claude sub-agent if unset. |
+| `HERMES_TIMEOUT_MS` | `reviewer_router.py` | `120000` | Hermes long-poll timeout in ms (default: 2 min) |
 | `DRIFT_PROJECT_PATH` | `cron_drift_monitor.py` | cwd | Path to target project for drift analysis |
 | `PYTHONPATH` | All scripts | — | Must include harness-methodology root if not using submodule |
 | `SSI_ROOT` | All scripts | `harness/ssi` | Path to embedded SSI package (auto-detected from harness_cli.py location) |
 
-> **Note**: `HERMES_REVIEWER_TARGET` requires the `mcp_tools` package to be importable at runtime. `harness/reviewer_router.py` degrades gracefully if MCP is unavailable (falls back to Gemini→Claude sub-agent for A/B reviews). Gate 4 (`harness_bridge.py`) will block rather than crash if the target is unreachable. Email/Slack notification channels (`drift_notifier`) are planned but not yet implemented.
+> **Note**: `HERMES_REVIEWER_TARGET` requires the `mcp_tools` package to be importable at runtime. `harness/reviewer_router.py` degrades gracefully if MCP is unavailable (falls back to Gemini→Claude sub-agent for A/B reviews). Email/Slack notification channels (`drift_notifier`) are planned but not yet implemented.
 
 ---
 

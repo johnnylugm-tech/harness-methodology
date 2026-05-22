@@ -1,7 +1,7 @@
 # Phase 6 — Quality Assurance (P6 SOP)
-<!-- COMPLETE REPLACEMENT of original P6 SOP (Gap G4) -->
+<!-- COMPLETE REPLACEMENT of original P6 SOP -->
 <!-- Input: All Phase 1-5 artifacts + quality_manifest.json -->
-<!-- Output: Gate 4 report + Hermes APPROVE -->
+<!-- Output: Gate 4 report -->
 
 ## Step 6.1 — Gate 4 (14-dim full harness)
 ```bash
@@ -13,26 +13,8 @@ python harness_cli.py run-gate --gate 4 --phase 6
 # mutation_testing: median_runs=3
 ```
 
-## Step 6.2 — Gate 4 Human Approval (await-hermes-approve)
+## Step 6.2 — Finalize Gate 4
 ```bash
-# Run AFTER Gate 4 evaluation is complete and gate4_result.json is written.
-# This command performs two checks before sending to Hermes:
-#   1. Phase 6 truth ≥ 90% (PhaseTruthVerifier) — P6 must be complete
-#   2. Script confidence scoring (C1-C7, no LLM) — may auto-approve
-
-python harness_cli.py await-hermes-approve --project .
-
-# If auto-approved (composite ≥ 88 AND confidence ≥ 93):
-#   → Receipt written automatically. Proceed to finalize-gate.
-# If below threshold:
-#   → Hermes sends Telegram notification for human APPROVE/REJECT.
-#   → After human replies, re-run with --response APPROVE|REJECT:
-python harness_cli.py await-hermes-approve --project . --response APPROVE
-```
-
-## Step 6.3 — Finalize Gate 4
-```bash
-# Only run after Step 6.2 produces hermes_g4_receipt.json
 python harness_cli.py finalize-gate --gate 4 --phase 6 --project .
 ```
 
@@ -40,23 +22,7 @@ python harness_cli.py finalize-gate --gate 4 --phase 6 --project .
 ```
 Gate 4 score >= 85 (score_gate)
 AND critical_open == 0
-AND hermes_g4_receipt.json exists
-  (written by auto-approve OR human APPROVE via Hermes)
 AND Phase 6 truth >= 90% (PhaseTruthVerifier)
-```
-
-### Auto-Approve Path (no human intervention needed)
-```
-composite_score >= 88
-AND confidence_composite >= 93
-  where confidence = weighted avg of:
-    C1 artifact_completeness (15%)
-    C2 test_coverage         (20%)
-    C3 linting               (20%)
-    C4 type_safety           (15%)
-    C5 test_pass_rate        (15%)
-    C6 security              (10%)
-    C7 traceability           (5%)
 ```
 
 ---

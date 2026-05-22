@@ -15,7 +15,7 @@
 [Step 1] LOAD SKILL.md §4 Phase routing
 [Step 2] CHECK entry conditions → blocker → STOP
 [Step 3] EXECUTE SOP → LAZY LOAD docs/P6_SOP.md
-[Step 4] RECORD output | collect quality data (no A/B — Phase End Audit + Hermes APPROVE)
+[Step 4] RECORD output | collect quality data (no A/B — Phase End Audit)
 [Step 5] CHECK exit conditions → fail → FIX + RETRY
 [Step 6] UPDATE state.json phase=7 → GOTO 1
 ```
@@ -25,7 +25,6 @@
 python3 harness_cli.py run-phase --phase 6 --project .
 python3 harness_cli.py run-gate --gate 4 --phase 6
 python3 harness_cli.py finalize-gate --gate 4 --phase 6
-python3 harness_cli.py await-hermes-approve --project . [--timeout-ms 90000]
 python3 harness_cli.py generate-next-plan --phase 6
 ```
 
@@ -35,10 +34,10 @@ python3 harness_cli.py generate-next-plan --phase 6
 
 | HR | Rule | Consequence | Action |
 |----|------|-------------|--------|
-| HR-01 | A/B must be different Agents, no self-review | Terminate -25 | **Phase 6: NOT applicable** — A/B replaced by Hermes APPROVE + Phase End Audit |
+| HR-01 | A/B must be different Agents, no self-review | Terminate -25 | **Phase 6: NOT applicable** — A/B replaced by Phase End Audit |
 | HR-02 | Quality Gate requires actual command output | Terminate -20 | Save stdout for each QG |
 | HR-03 | Phase must execute in sequence, no skipping | Terminate -30 | state.json phase=6 |
-| HR-04 | HybridWorkflow mode=ON | Terminate | **Phase 6: A/B removed** — Gate 4 + Hermes APPROVE is the exit mechanism |
+| HR-04 | HybridWorkflow mode=ON | Terminate | **Phase 6: A/B removed** — Gate 4 is the exit mechanism |
 | HR-05 | On conflict, harness-methodology wins | Log | disputes resolved by harness-methodology |
 | HR-06 | No frameworks outside spec | Terminate -20 | forbidden list |
 | HR-07 | DEVELOPMENT_LOG must record session_id | -15 | record session_id per entry |
@@ -56,9 +55,8 @@ python3 harness_cli.py generate-next-plan --phase 6
 ## 2. Phase 6 Execution Protocol (No A/B)
 
 > **Phase 6 does NOT use A/B collaboration.** A/B is Phase 1-2 only.
-> Phase 6 exit is controlled by two mechanisms:
+> Phase 6 exit is controlled by:
 > 1. **Phase End Audit** — verifies QUALITY_REPORT.md exists, Gate 4 score recorded in manifest, all FRs merged.
-> 2. **Hermes APPROVE** — human reviewer approves via Telegram (see §6 Hermes flow below).
 
 ### TH Thresholds (Phase 6)
 
@@ -125,7 +123,6 @@ Project Root/
 - [ ] `.methodology/audit_gaps_6.md` — Phase End Audit has no CRITICAL gaps (`phase_end_audit.py --phase 6`)
 - [ ] [ASPICE] QUALITY_REPORT.md references BASELINE.md by filename keyword `BASELINE`
 - [ ] [ASPICE] QUALITY_REPORT.md references VERIFICATION_REPORT.md by filename keyword `VERIFICATION_REPORT`
-- [ ] Hermes APPROVE received from reviewer
 
 ---
 
@@ -134,8 +131,6 @@ Project Root/
 ### 5.1 Pre-Gate Checklist
 - [ ] Confirm all FRs merged to main branch
 - [ ] Confirm no open critical or high issues from previous gate
-- [ ] Confirm `HERMES_REVIEWER_TARGET` env var is set (e.g. `telegram:6308981865`)
-- [ ] Confirm `HERMES_TIMEOUT_MS=90000` is set in `.env` or shell environment
 
 ### 5.2 Quality Dimensions (Gate 4 — 14 dimensions)
 
@@ -230,13 +225,11 @@ pytest {PROJECT_PATH}/tests/ --cov={SOURCE_DIR} --cov-report=term -q
 ## 9. 🔒 CHECKPOINT-1: Gate 4 — Phase 6 Exit
 
 > Gate 4 evaluates the full project across 14 dimensions with CRG structural recon.
-> score_gate >= 85, Hermes APPROVE required.
+> score_gate >= 85.
 
 ### 9.1 Pre-Gate Preparation
 - [ ] Confirm all FRs are merged to main branch
 - [ ] Confirm no open critical or high issues from Gate 3
-- [ ] Confirm `HERMES_REVIEWER_TARGET` env var is set (e.g. `telegram:6308981865`)
-- [ ] Confirm `HERMES_TIMEOUT_MS=90000` is set
 
 ### 9.2 Run Gate 4
 ```bash
@@ -266,43 +259,7 @@ python3 harness_cli.py finalize-gate --gate 4 --phase 6
 | CASE 3 — PLATEAU | 3 consecutive rounds, no new issues | Write `deferred_fixes.md` → proceed |
 | CASE 4 — BLOCKED | max_rounds exhausted, not PASS | Escalate to human |
 
-### 9.4 Hermes Approval Gate
-> ⛔ Gate 4 requires external APPROVE from Hermes reviewer before finalizing.
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│  Hermes Approval Flow (async, timeout=90000ms)              │
-│                                                              │
-│  1. SEND   → mcp__hermes__messages_send                      │
-│               Manifest: QUALITY_REPORT.md summary +          │
-│               request for APPROVE/REJECT with reason          │
-│                                                              │
-│  2. WAIT   → mcp__hermes__events_wait(timeout_ms: 90000)     │
-│               HIT  → parse response                          │
-│               MISS → step 3 (cold-read)                      │
-│                                                              │
-│  3. READ   → mcp__hermes__messages_read                      │
-│               Extract latest message + next_cursor           │
-│                                                              │
-│  4. PARSE  → LLM: APPROVE → proceed; REJECT → fix;          │
-│               info → record + continue                       │
-│                                                              │
-│  5. RETRY  → max 3 rounds. If still no APPROVE → CASE 4     │
-└──────────────────────────────────────────────────────────────┘
-```
-
-- [ ] **[HERMES-1]** Send Gate 4 result summary to reviewer via Hermes:
-  ```python
-  # Include: gate score, dim-by-dim breakdown, critical issues list
-  mcp__hermes__messages_send(target=os.environ["HERMES_REVIEWER_TARGET"],
-    message=f"Gate 4 assessment complete. Score: {score:.1f}/100. Requesting APPROVE.")
-  ```
-- [ ] **[HERMES-2]** Wait for response (events_wait with 90000ms timeout)
-- [ ] **[HERMES-3]** Parse response → APPROVE or REJECT
-- [ ] **[HERMES-4]** If APPROVE: proceed. If REJECT: fix issues → re-run Gate 4
-- [ ] **[HERMES-5]** If 3 rounds exhausted without APPROVE → CASE 4 BLOCKED
-
-### 9.5 Generate Deliverables
+### 9.4 Generate Deliverables
 
 #### QUALITY_REPORT.md
 - Automatically generated by `finalize-gate --gate 4`
@@ -319,12 +276,12 @@ python3 harness_cli.py finalize-gate --gate 4 --phase 6
 - Output: project root `FINAL_SIGN_OFF.md`
 - Template: `templates/FINAL_SIGN_OFF.md`
 
-### 9.6 ASPICE Traceability Check
+### 9.5 ASPICE Traceability Check
 - [ ] **[ASPICE]** QUALITY_REPORT.md references `BASELINE.md` by filename keyword
 - [ ] **[ASPICE]** QUALITY_REPORT.md references `VERIFICATION_REPORT.md` by filename keyword
 - [ ] **[ASPICE]** All 14 dimensions have measurable evidence in artifact paths
 
-### 9.7 Verify Checkpoint
+### 9.6 Verify Checkpoint
 - [ ] Confirm `HANDOVER.md` exists at project root
 - [ ] Confirm `quality_manifest.json` records Gate 4 PASS
 - [ ] Confirm git log shows gate commit
@@ -349,9 +306,8 @@ python3 harness_cli.py finalize-gate --gate 4 --phase 6
 | Pre-execution | 10 min |
 | Quality Evaluation | 60 min |
 | Gate 4 Evaluation | 45 min |
-| Hermes Approval | 15 min (wait time) |
 | Deliverable Generation | 20 min |
-| **Total** | **~2.5 hours** |
+| **Total** | **~2.2 hours** |
 
 ---
 

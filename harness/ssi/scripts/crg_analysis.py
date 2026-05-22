@@ -33,6 +33,7 @@ Explicit thresholds (documented, reviewable, changeable):
 All thresholds are ENV-overridable via CRG_* env vars for experimentation.
 """
 
+from typing import Optional
 import os
 import sys
 import json
@@ -267,7 +268,7 @@ def _validate_recon(recon: dict) -> list:
     return warnings
 
 
-def compute_metrics(recon: dict, prev_metrics: dict | None = None) -> dict:
+def compute_metrics(recon: dict, prev_metrics: Optional[dict] = None) -> dict:
     """
     Run all metric computations. Single call for full analysis.
 
