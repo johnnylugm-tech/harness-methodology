@@ -79,7 +79,7 @@ python harness_cli.py pre-commit-check  --phase 3 [--project .]   # git hook onl
 python harness_cli.py run-gate          --gate 2 --phase 3 [--project .] [--fr-id FR-01] [--skip-preflight] [--delta]
 python harness_cli.py finalize-gate     --gate 2 --phase 3 [--project .] [--fr-id FR-01] [--no-git]
 python harness_cli.py generate-next-plan [--project .] [--phase N]
-python harness_cli.py push-checkpoint   --phase 1|2 [--project .] [--fr-ids FR-01,FR-02] [--no-git] [--skip-confidence]
+python harness_cli.py push-checkpoint   --phase 1|2 [--project .] [--fr-ids FR-01,FR-02] [--no-git]
 python harness_cli.py manifest          --fr-ids FR-01 FR-02 [--sad SAD.md] [--no-git]
 python harness_cli.py status            [--project .] [--json] [--full]
 python harness_cli.py effort            [--phase 3] [--project .]
