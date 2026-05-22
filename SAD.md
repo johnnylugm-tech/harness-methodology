@@ -1920,7 +1920,7 @@ CREATE TABLE IF NOT EXISTS effort (
 
 ### §3.20 — `scripts/` Directory Overview
 
-Full inventory of the `scripts/` directory (27 items). Grouped by role:
+Full inventory of the `scripts/` directory (30 items). Grouped by role:
 
 #### Phase Lifecycle & Planning
 
@@ -1972,6 +1972,8 @@ python scripts/generate_full_plan.py --phase 3 --repo /path/to/project \
 | `verify_spec_compliance.py` | 7KB | End-to-end spec compliance: code must implement every FR declared in SAD.md. Also invocable via `harness_cli.py verify-spec`. |
 | `verify_path_consistency.py` | 3KB | Confirms all path references in SAD.md and manifest match actual filesystem |
 | `state_monitor.py` | 6KB | Reads `.methodology/state.json`; reports FSM state, phase, timestamps |
+| `ci_state_helper.py` | 4KB | CI Safe State Extractor: Replaces unsafe bare json inline parses in CI workflows |
+| `rotate_decision_logs.py` | 5KB | Decision Log Archiver: Prevents unbounded growth of decision logs; archives directories older than retention days |
 
 #### Release Management
 
@@ -2445,7 +2447,7 @@ def state_lock_path(project_root: Path) -> Path
 
 ---
 
-### §3.32 — `scripts/ci_state_helper.py` — CI Safe State Extractor
+### §3.38 — `scripts/ci_state_helper.py` — CI Safe State Extractor
 
 **Responsibility**: Replaces unsafe bare `python3 -c "import json; ..."` one-liners in CI workflows (CV-5). Returns sensible defaults on missing / unreadable / malformed `state.json` instead of raising an uncaught traceback that blocks every push.
 
@@ -2462,7 +2464,7 @@ python3 scripts/ci_state_helper.py is-p8 [--state-file .methodology/state.json]
 
 ---
 
-### §3.33 — `scripts/rotate_decision_logs.py` — Decision Log Archiver
+### §3.39 — `scripts/rotate_decision_logs.py` — Decision Log Archiver
 
 **Responsibility**: Prevents unbounded growth of `.methodology/decision_logs/` (SG-8). Archives date-named subdirectories older than `--retention-days` (default 30) to `<dir>.tar.gz`, then removes the source directory.
 
