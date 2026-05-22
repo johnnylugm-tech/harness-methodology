@@ -468,6 +468,7 @@ def _agent_b_dispatch_block(phase: int, role_b: str, fr_id: str = "") -> List[st
         "- [ ] **[B-2]** Agent B returns JSON — parse `review_status`:",
         "  - `APPROVE` → continue to next step",
         "  - `REJECT` → Agent A fixes gaps → re-dispatch B. Max 5 rounds (HR-12).",
+        "    > If round 5 REJECT: escalate to human — orchestrator cannot self-resolve.",
         "",
     ]
     return lines
@@ -615,6 +616,7 @@ def _deliverable_ab_block(phase: int, deliverable: Dict, sub_n: int, total: int,
         f"    (embed same docs as B-1 above, replacing `{label}` with its updated content)",
         f"    → {next_action} only after round-2 APPROVE",
         "  - `REJECT` → Agent A fixes gaps → re-dispatch B. Max 5 rounds (HR-12).",
+        "    > If round 5 REJECT: escalate to human — orchestrator cannot self-resolve.",
         "",
         "  > ⚠️ **BLOCKING**: Do NOT start the next Sub-Task until this sub-task's current",
         "  > round is fully APPROVED (including any required round 2).",
@@ -635,8 +637,7 @@ def _preflight_steps(phase: int) -> List[str]:
             "  2. `.github/workflows/harness_quality_gate.yml` exists in project root  ← set by `init-project`",
             "  3. Git hooks installed (`ls .git/hooks/prepare-commit-msg`)  ← set by `init-project`",
             "  4. Phase stored in `.methodology/state.json` — single source of truth (no GitHub variable needed)",
-            "  5. `HERMES_REVIEWER_TARGET` exported in shell  ← required",
-            "  If any required item (1-3, 5) is missing: stop, run `python3 harness_cli.py init-project --phase 1 --project $REPO`, then set manual items.",
+            "  If any required item (1-3) is missing: stop, run `python3 harness_cli.py init-project --phase 1 --project $REPO`, then set manual items.",
         ]
     else:
         ci_check = [
@@ -781,6 +782,7 @@ def _review_checkpoint(phase: int, checkpoint_n: int) -> List[str]:
         "  - `APPROVE` + any gap is `medium` or `high` → fix gaps → **re-dispatch B as round 2**",
         "    (embed same docs as B-1 above with updated content) → push only after round-2 APPROVE",
         "  - `REJECT` → fix all gaps → re-dispatch B. Max 5 rounds (HR-12).",
+        "    > If round 5 REJECT: escalate to human — orchestrator cannot self-resolve.",
         "",
         f"- [ ] **[B-PUSH]** ✅ Push to GitHub + HANDOVER.md — retry until success (CHECKPOINT-{checkpoint_n} saved):",
         "  > Run `push-checkpoint` → if blocked, read the error → fix → re-run until green.",
