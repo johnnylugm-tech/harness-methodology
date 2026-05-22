@@ -871,45 +871,76 @@ def _fr_dev_steps(fr_id: str, phase: int) -> List[str]:
         ])
         return lines
 
-    # Phase 3-8: no A/B, TDD (RED→GREEN→IMPROVE) + Phase End Audit
+    # Phase 3-8: Orchestrator dispatches sub-agents per step (no direct execution).
+    # Each run-fr-step call: builds need-to-know context → AgentSpawner.spawn() →
+    # claude -p sub-agent → verify → git push (GitHub crash-recovery checkpoint).
     num = re.match(r"FR-(\d+)", fr_id)
-    # zfill(2) matches D1-RED enforcement in harness_cli.py (accepts test_fr01.py or test_fr1.py).
-    # For non-standard IDs fall back to a sanitized slug so the filename stays unambiguous.
-    if num:
-        num_str = num.group(1).zfill(2)
-    else:
-        num_str = re.sub(r"[^a-z0-9]", "_", fr_id.lower()).strip("_")
+    num_str = num.group(1).zfill(2) if num else re.sub(r"[^a-z0-9]", "_", fr_id.lower()).strip("_")
+    srs_flag = " --srs .methodology/SRS.md"
     return [
-        f"**TDD — {fr_id}** (RED→GREEN→IMPROVE · no A/B — Phase End Audit替代):",
-        f"- [ ] **[TDD-1 RED]** Write failing test for {fr_id}:",
-        f"    Create `tests/test_fr{num_str}.py` with at minimum one failing test case.",
-        "    `git add tests/ && git commit -m \"test(RED): failing test for"
-        f" {fr_id}\"` — commit BEFORE implementation.",
-        "    `harness_cli.py finalize-gate` enforces D1-RED: test commit must predate source commit.",
-        f"  - Update `DEVELOPMENT_LOG.md`: append `## RED phase — {fr_id} — failing test written` (required for C5 P3 audit)",
-        f"- [ ] **[TDD-2 GREEN]** Implement {fr_id} per SRS + SAD until test passes:",
-        f"  - Docstrings: `[{fr_id}]` tag + `Citations:` with line numbers (HR-15)",
-        "  - FORBIDDEN: `app/infrastructure/` · `@covers: L1 Error` · `@type: edge`",
-        f"  - `git add src/ && git commit -m \"feat({fr_id}): GREEN\"` — commit implementation.",
-        f"  - Update `DEVELOPMENT_LOG.md`: append `## GREEN phase — {fr_id} — tests pass` (required for C5 P3 audit)",
-        f"- [ ] **[TDD-3 IMPROVE]** Refactor {fr_id} without breaking tests:",
-        "  - Verify all existing tests still pass after refactor",
-        f"  - `git commit -m \"refactor({fr_id}): IMPROVE\"` if any changes made.",
-        f"- [ ] Run `python3 harness_cli.py run-gate --gate 1 --phase {phase} --fr-id {fr_id} --project .`",
-        f"- [ ] Run `python3 harness_cli.py finalize-gate --gate 1 --phase {phase} --fr-id {fr_id} --project .`",
+        f"**TDD — {fr_id}** (Orchestrator dispatches sub-agents · push after each step):",
+        "",
+        f"- [ ] **[ORCH-RED]** Dispatch TDD-RED sub-agent for {fr_id}:",
+        "  ```bash",
+        f"  python3 harness_cli.py run-fr-step --phase {phase} --fr-id {fr_id} --step TDD-RED \\",
+        f"    --project .{srs_flag}",
+        "  ```",
+        f"  → Verify: `git log --oneline -1` shows `test(RED): failing test for {fr_id}`",
+        "  → GitHub push: ✅ auto-done by run-fr-step",
+        "",
+        f"- [ ] **[ORCH-GREEN]** Dispatch TDD-GREEN sub-agent for {fr_id}:",
+        "  ```bash",
+        f"  python3 harness_cli.py run-fr-step --phase {phase} --fr-id {fr_id} --step TDD-GREEN \\",
+        f"    --project .{srs_flag}",
+        "  ```",
+        f"  → Verify: `pytest tests/test_fr{num_str}.py -q` all pass",
+        "  → GitHub push: ✅ auto-done by run-fr-step",
+        "",
+        f"- [ ] **[ORCH-IMPROVE]** Dispatch TDD-IMPROVE sub-agent for {fr_id}:",
+        "  ```bash",
+        f"  python3 harness_cli.py run-fr-step --phase {phase} --fr-id {fr_id} --step TDD-IMPROVE \\",
+        "    --project .",
+        "  ```",
+        f"  → Verify: `pytest tests/test_fr{num_str}.py -q` still pass",
+        "  → GitHub push: ✅ auto-done by run-fr-step",
+        "",
+        f"- [ ] **[ORCH-GATE1]** Dispatch GATE1 evaluator sub-agent for {fr_id}:",
+        "  ```bash",
+        f"  python3 harness_cli.py run-fr-step --phase {phase} --fr-id {fr_id} --step GATE1 \\",
+        "    --project .",
+        "  ```",
+        f"  → Verify: `git log --oneline -1` shows `feat({fr_id}): Gate1 PASS`",
+        "  → GitHub push: ✅ auto-done by run-fr-step",
+        "  → GATE1 FAIL: auto-dispatches CODE-FIX sub-agent → retries (max 3 rounds)",
+        "  → exit 2 = BLOCKED: human intervention required before continuing",
+        "",
+        "- [ ] **[ORCH-POST]** After GATE1 PASS — orchestrator runs directly:",
+        "  ```bash",
+        f"  python3 harness_cli.py spec-coverage-check --project . --threshold 40.0 --fr-id {fr_id}",
+        "  python3 scripts/generate_sab.py --project .",
+        "  ```",
+        "",
+        f"> 💡 **Crash recovery**: `python3 harness_cli.py resume-fr-phase --phase {phase} --project .`",
+        "> prints the next pending step (idempotent on re-run).",
         "",
     ]
 
 
 def _fr_carryforward_steps(fr_id: str, phase: int) -> List[str]:
-    """Gate 1 re-evaluation steps for carry-forward FRs (already implemented in prior phases)."""
+    """Gate 1 re-evaluation via GATE1-DELTA sub-agent for carry-forward FRs.
+
+    GATE1-DELTA: delta-check first (skip if code unchanged), then GATE1 evaluation.
+    GitHub push happens automatically after sub-agent completes.
+    """
     return [
-        f"**Gate 1 Re-evaluation — {fr_id}** (carry-forward, already implemented):",
-        f"- [ ] Re-run Gate 1 for {fr_id} to verify no regressions from Phase {phase} changes",
-        f"  - Docstrings: `[{fr_id}]` tag + `Citations:` with line numbers (HR-15)",
-        "  - FORBIDDEN: `app/infrastructure/` · `@covers: L1 Error` · `@type: edge`",
-        f"- [ ] Run `python3 harness_cli.py run-gate --gate 1 --phase {phase} --fr-id {fr_id} --project .`",
-        f"- [ ] Run `python3 harness_cli.py finalize-gate --gate 1 --phase {phase} --fr-id {fr_id} --project .`",
+        f"**Gate 1 Re-evaluation — {fr_id}** (carry-forward · sub-agent dispatch):",
+        "- [ ] **[ORCH-GATE1-DELTA]** Dispatch GATE1-DELTA evaluator sub-agent:",
+        "  ```bash",
+        f"  python3 harness_cli.py run-fr-step --phase {phase} --fr-id {fr_id} \\",
+        "    --step GATE1-DELTA --project .",
+        "  ```",
+        f"  → Delta-check: skips re-evaluation if {fr_id} code unchanged since last Gate 1.",
+        "  → GitHub push: ✅ auto-done by run-fr-step",
         "",
     ]
 
@@ -1033,8 +1064,8 @@ def _milestone_push_steps(fr_ids: List[str], phase: int,
     result = [
         f"### P{phase} Milestone Pushes{_strategy_label}",
         "",
-        "> Per-FR Gate 1 only commits locally. The two **milestone pushes** below",
-        "> write `HANDOVER.md` and push to origin — these are the crash-recovery checkpoints.",
+        "> Per-FR steps push automatically via `run-fr-step`. The two **milestone pushes** below",
+        "> also write `HANDOVER.md` with phase/FR/status summary and push to origin.",
         f"> All FR IDs in this project: {_visual}",
         "",
         f"- [ ] **{_mid_prefix}P{phase}-mid** (trigger when ≥{mid}/{total} FRs have Gate 1 PASS):",
@@ -1197,9 +1228,10 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
 def _checkpoint_index(fr_ids: List[str], phase: int) -> List[str]:
     """Generate a checkpoint index header for the plan (P3-P8)."""
     lines = [
-        "> **Crash Recovery**: at each **milestone push**, `HANDOVER.md` is written to project root.",
-        "> If context is lost, read `HANDOVER.md` first — it contains phase, status, and next steps.",
-        "> Per-FR Gate 1 = **local commit only** (no push, no HANDOVER). Push happens at milestones.",
+        "> **Crash Recovery**: `python3 harness_cli.py resume-fr-phase --phase N --project .`",
+        "> prints the next pending step. Each `run-fr-step` auto-pushes to GitHub on completion.",
+        "> Per-FR TDD-RED/GREEN/IMPROVE/GATE1 each push immediately (idempotent on re-run).",
+        "> At milestones, `HANDOVER.md` is written with phase/FR/status summary.",
         "",
         "> **Checkpoint Index**:",
     ]
@@ -1677,7 +1709,6 @@ def generate_phase5_tasks(repo_path: Path) -> List[str]:
     if manifest_fr_ids:
         lines.append("### FR Verification Tasks ({} total)".format(len(manifest_fr_ids)))
         lines.append("")
-        checkpoint_n = 1
         for fr_id in manifest_fr_ids:
             lines.append(f"#### {fr_id}: Verification")
             lines.append(f"- [ ] Confirm all acceptance criteria from SRS.md are met for {fr_id}")
@@ -1685,9 +1716,7 @@ def generate_phase5_tasks(repo_path: Path) -> List[str]:
             lines.append("- [ ] Verify edge cases and error paths")
             lines.append("- [ ] Confirm ≥80% branch coverage")
             lines.append("")
-            lines.extend(_fr_dev_steps(fr_id, phase=5))
-            lines.extend(_gate1_checkpoint(fr_id, phase=5, checkpoint_n=checkpoint_n, delta_check=True))
-            checkpoint_n += 1
+            lines.extend(_fr_carryforward_steps(fr_id, phase=5))
     else:
         lines.append("### Verification Items")
         lines.append("(No FR list found — add per-FR verification steps based on SRS.md)")
@@ -1812,16 +1841,13 @@ def generate_phase7_tasks(repo_path: Path) -> List[str]:
     if manifest_fr_ids:
         lines.append("### FR Risk Evaluation ({} total)".format(len(manifest_fr_ids)))
         lines.append("")
-        checkpoint_n = 1
         for fr_id in manifest_fr_ids:
             lines.append(f"#### {fr_id}: Risk Assessment")
             lines.append(f"- [ ] Review open issues from previous gates for {fr_id}")
             lines.append(f"- [ ] Check `deferred_fixes.md` for {fr_id} entries")
             lines.append("- [ ] Confirm no new defects introduced")
             lines.append("")
-            lines.extend(_fr_dev_steps(fr_id, phase=7))
-            lines.extend(_gate1_checkpoint(fr_id, phase=7, checkpoint_n=checkpoint_n, delta_check=True))
-            checkpoint_n += 1
+            lines.extend(_fr_carryforward_steps(fr_id, phase=7))
     else:
         lines.append("(No FR list found in manifest — run Gate 1 per FR manually)")
         lines.append("")
@@ -1885,16 +1911,13 @@ def generate_phase8_tasks(repo_path: Path) -> List[str]:
     if manifest_fr_ids:
         lines.append("### FR Configuration Evaluation ({} total)".format(len(manifest_fr_ids)))
         lines.append("")
-        checkpoint_n = 1
         for fr_id in manifest_fr_ids:
             lines.append(f"#### {fr_id}: Configuration Record")
             lines.append(f"- [ ] Confirm {fr_id} configuration items are documented in CONFIG_RECORDS.md")
             lines.append("- [ ] Confirm environment variables / secrets are managed (not hardcoded)")
             lines.append(f"- [ ] Confirm deployment checklist entries for {fr_id}")
             lines.append("")
-            lines.extend(_fr_dev_steps(fr_id, phase=8))
-            lines.extend(_gate1_checkpoint(fr_id, phase=8, checkpoint_n=checkpoint_n, delta_check=True))
-            checkpoint_n += 1
+            lines.extend(_fr_carryforward_steps(fr_id, phase=8))
     else:
         lines.append("(No FR list found in manifest — run Gate 1 per FR manually)")
         lines.append("")

@@ -1163,3 +1163,224 @@ class TestAuditPhaseFailOnCritical:
         rc = cmd_audit_phase(args)
         # P1 missing deliverables → FAIL verdict → exit 1 (flag path not taken)
         assert rc in (0, 1)
+
+
+# =============================================================================
+# run-fr-step / resume-fr-phase
+# =============================================================================
+
+class TestRunFrStep:
+    """Tests for cmd_run_fr_step and related helpers."""
+
+    def test_skip_if_already_done(self, tmp_path, monkeypatch):
+        """Idempotency: returns 0 immediately if step commit already exists."""
+        import harness_cli
+        monkeypatch.setattr(harness_cli, "_fr_step_already_done", lambda s, f, p: True)
+        args = argparse.Namespace(
+            phase=3, fr_id="FR-01", step="TDD-RED", project=str(tmp_path),
+            srs=None, timeout=600, max_turns=30, max_fix_rounds=3,
+        )
+        assert harness_cli.cmd_run_fr_step(args) == 0
+
+    def test_dispatch_called_when_not_done(self, tmp_path, monkeypatch):
+        """Sub-agent is dispatched when step has not yet been committed."""
+        import sys, types, harness_cli
+
+        # _fr_step_already_done always returns False (step not done)
+        monkeypatch.setattr(harness_cli, "_fr_step_already_done", lambda s, f, p: False)
+
+        dispatched: dict = {}
+
+        class _FakeSpawner:
+            def __init__(self, project_path=None):
+                pass
+            def spawn(self, **kwargs):
+                dispatched.update(kwargs)
+                return {"status": "complete", "output": "{}"}
+
+        fake_mod = types.ModuleType("core.agent_spawner")
+        fake_mod.AgentSpawner = _FakeSpawner
+        monkeypatch.setitem(sys.modules, "core.agent_spawner", fake_mod)
+
+        import subprocess as _sp
+        class _FakeResult:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+        monkeypatch.setattr(_sp, "run", lambda cmd, **kw: _FakeResult())
+
+        args = argparse.Namespace(
+            phase=3, fr_id="FR-01", step="TDD-RED", project=str(tmp_path),
+            srs=None, timeout=600, max_turns=30, max_fix_rounds=3,
+        )
+        harness_cli.cmd_run_fr_step(args)
+        assert dispatched.get("fr_id") == "FR-01"
+        assert dispatched.get("phase_sop_override") == ""
+
+    def test_extract_srs_fr_section_returns_correct_fr(self, tmp_path):
+        """_extract_srs_fr_section returns only the target FR's content."""
+        import harness_cli
+        srs = tmp_path / "SRS.md"
+        srs.write_text(
+            "### FR-01: Feature A\n\n**Description**: Alpha text\n\n---\n"
+            "### FR-02: Feature B\n\n**Description**: Beta text\n\n---\n",
+            encoding="utf-8",
+        )
+        section = harness_cli._extract_srs_fr_section(srs, "FR-01")
+        assert "Alpha text" in section
+        assert "Beta text" not in section
+
+    def test_extract_srs_fr_section_missing_fr(self, tmp_path):
+        """_extract_srs_fr_section returns empty string when FR not found."""
+        import harness_cli
+        srs = tmp_path / "SRS.md"
+        srs.write_text("### FR-02: Feature B\n\n**Description**: Beta\n\n---\n")
+        assert harness_cli._extract_srs_fr_section(srs, "FR-01") == ""
+
+    def test_prompt_tdd_red_contains_srs_section(self, tmp_path):
+        """TDD-RED prompt includes extracted SRS section and commit format."""
+        import harness_cli
+        srs = tmp_path / "SRS.md"
+        srs.write_text(
+            "### FR-01: My Feature\n\n**Description**: Do important thing X\n\n---\n",
+            encoding="utf-8",
+        )
+        prompt = harness_cli._build_fr_step_prompt("TDD-RED", "FR-01", 3, tmp_path, srs)
+        assert "Do important thing X" in prompt
+        assert "test(RED): failing test for FR-01" in prompt
+        assert "failing test" in prompt.lower()
+
+    def test_prompt_tdd_green_inlines_test_file(self, tmp_path):
+        """TDD-GREEN prompt includes the current test file content inline."""
+        import harness_cli
+        srs = tmp_path / "SRS.md"
+        srs.write_text(
+            "### FR-01: My Feature\n\n**Description**: Do X\n\n---\n", encoding="utf-8"
+        )
+        (tmp_path / "tests").mkdir()
+        (tmp_path / "tests" / "test_fr01.py").write_text(
+            "def test_my_feature(): assert False  # RED", encoding="utf-8"
+        )
+        prompt = harness_cli._build_fr_step_prompt("TDD-GREEN", "FR-01", 3, tmp_path, srs)
+        assert "assert False  # RED" in prompt
+        assert "feat(FR-01): GREEN" in prompt
+
+    def test_prompt_gate1_contains_run_gate_command(self, tmp_path):
+        """GATE1 prompt includes run-gate and finalize-gate commands."""
+        import harness_cli
+        prompt = harness_cli._build_fr_step_prompt("GATE1", "FR-01", 3, tmp_path, None)
+        assert "run-gate --gate 1 --phase 3 --fr-id FR-01" in prompt
+        assert "finalize-gate --gate 1 --phase 3 --fr-id FR-01" in prompt
+        assert '"pass"' in prompt
+
+    def test_prompt_gate1_delta_includes_delta_flag(self, tmp_path):
+        """GATE1-DELTA prompt includes --delta flag."""
+        import harness_cli
+        prompt = harness_cli._build_fr_step_prompt("GATE1-DELTA", "FR-05", 5, tmp_path, None)
+        assert "--delta" in prompt
+
+    def test_resume_fr_phase_finds_first_pending_step(self, tmp_path, monkeypatch):
+        """resume-fr-phase prints the first step that is not yet done."""
+        import harness_cli, sys, io
+
+        (tmp_path / ".methodology").mkdir()
+        (tmp_path / ".methodology" / "quality_manifest.json").write_text(
+            json.dumps({"fr_ids": ["FR-01"]}), encoding="utf-8"
+        )
+        # TDD-RED done, TDD-GREEN not yet done
+        monkeypatch.setattr(
+            harness_cli, "_fr_step_already_done",
+            lambda step, fr_id, project: step == "TDD-RED",
+        )
+        captured = io.StringIO()
+        monkeypatch.setattr(sys, "stdout", captured)
+
+        args = argparse.Namespace(phase=3, project=str(tmp_path))
+        rc = harness_cli.cmd_resume_fr_phase(args)
+        assert rc == 0
+        out = captured.getvalue()
+        assert "TDD-GREEN" in out
+        assert "FR-01" in out
+
+    def test_resume_fr_phase_all_done(self, tmp_path, monkeypatch):
+        """resume-fr-phase reports all complete when every step is done."""
+        import harness_cli, sys, io
+
+        (tmp_path / ".methodology").mkdir()
+        (tmp_path / ".methodology" / "quality_manifest.json").write_text(
+            json.dumps({"fr_ids": ["FR-01"]}), encoding="utf-8"
+        )
+        monkeypatch.setattr(harness_cli, "_fr_step_already_done", lambda *a: True)
+        captured = io.StringIO()
+        monkeypatch.setattr(sys, "stdout", captured)
+
+        args = argparse.Namespace(phase=3, project=str(tmp_path))
+        rc = harness_cli.cmd_resume_fr_phase(args)
+        assert rc == 0
+        assert "All FRs complete" in captured.getvalue()
+
+    def test_resume_fr_phase_falls_back_to_fr_progress(self, tmp_path, monkeypatch):
+        """resume-fr-phase uses fr_progress.json when quality_manifest.json is absent."""
+        import harness_cli, sys, io
+
+        (tmp_path / ".methodology").mkdir()
+        (tmp_path / ".methodology" / "fr_progress.json").write_text(
+            json.dumps({"phase": 3, "frs": {"FR-02": {"status": "gate1_pass"}}}),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(harness_cli, "_fr_step_already_done", lambda *a: False)
+        captured = io.StringIO()
+        monkeypatch.setattr(sys, "stdout", captured)
+
+        args = argparse.Namespace(phase=3, project=str(tmp_path))
+        rc = harness_cli.cmd_resume_fr_phase(args)
+        assert rc == 0
+        assert "FR-02" in captured.getvalue()
+
+    def test_gate1_blocked_after_max_rounds(self, tmp_path, monkeypatch):
+        """Returns exit 2 (BLOCKED) when GATE1 never passes after max_fix_rounds."""
+        import sys, types, harness_cli
+
+        monkeypatch.setattr(harness_cli, "_fr_step_already_done", lambda s, f, p: False)
+
+        # Sub-agent always returns gate_pass=false
+        _fail_output = '{"status": "DONE", "pass": false, "failing_dims": ["D1"], "gate_score": 0.2}'
+
+        class _FakeSpawner:
+            def __init__(self, project_path=None):
+                pass
+            def spawn(self, **kwargs):
+                return {"status": "complete", "output": _fail_output}
+
+        fake_mod = types.ModuleType("core.agent_spawner")
+        fake_mod.AgentSpawner = _FakeSpawner
+        monkeypatch.setitem(sys.modules, "core.agent_spawner", fake_mod)
+
+        args = argparse.Namespace(
+            phase=3, fr_id="FR-01", step="GATE1", project=str(tmp_path),
+            srs=None, timeout=60, max_turns=5, max_fix_rounds=2,
+        )
+        rc = harness_cli.cmd_run_fr_step(args)
+        assert rc == 2  # BLOCKED
+
+    def test_resume_fr_phase_carryforward_uses_gate1_delta(self, tmp_path, monkeypatch):
+        """resume-fr-phase emits GATE1-DELTA for carry-forward phases (5, 7, 8)."""
+        import harness_cli, sys, io
+
+        (tmp_path / ".methodology").mkdir()
+        (tmp_path / ".methodology" / "quality_manifest.json").write_text(
+            json.dumps({"fr_ids": ["FR-01"]}), encoding="utf-8"
+        )
+        monkeypatch.setattr(harness_cli, "_fr_step_already_done", lambda *a: False)
+        captured = io.StringIO()
+        monkeypatch.setattr(sys, "stdout", captured)
+
+        for phase in (5, 7, 8):
+            captured.truncate(0)
+            captured.seek(0)
+            args = argparse.Namespace(phase=phase, project=str(tmp_path))
+            rc = harness_cli.cmd_resume_fr_phase(args)
+            assert rc == 0
+            out = captured.getvalue()
+            assert "GATE1-DELTA" in out, f"Phase {phase} should use GATE1-DELTA"
+            assert "TDD-RED" not in out, f"Phase {phase} should not show TDD-RED"

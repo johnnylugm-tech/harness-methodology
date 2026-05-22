@@ -3462,6 +3462,376 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
     return 0
 
 # ---------------------------------------------------------------------------
+# run-fr-step  (Phase 3-8 sub-agent orchestration with per-step GitHub push)
+# ---------------------------------------------------------------------------
+
+# Commit patterns for idempotency check — must match git_strategy.py commit messages.
+_FR_STEP_COMMIT_PATTERNS: dict[str, str] = {
+    "TDD-RED":     "test(RED): failing test for {fr_id}",
+    "TDD-GREEN":   "feat({fr_id}): GREEN",
+    "TDD-IMPROVE": "refactor({fr_id}): IMPROVE",
+    "GATE1":       "feat({fr_id}): Gate1 PASS",  # prefix match against git log
+    "GATE1-DELTA": "feat({fr_id}): Gate1 PASS",  # same commit from finalize-gate
+}
+
+
+def _fr_step_already_done(step: str, fr_id: str, project: Path) -> bool:
+    """Idempotency check: scan git log for step's expected commit pattern.
+
+    Returns True if a commit matching the pattern already exists, meaning
+    the step can be skipped on re-run (crash recovery).
+    """
+    import subprocess as _sp
+    tmpl = _FR_STEP_COMMIT_PATTERNS.get(step.upper(), "")
+    if not tmpl:
+        return False
+    pattern = tmpl.format(fr_id=fr_id)
+    r = _sp.run(
+        ["git", "log", "--oneline", "--grep", pattern],
+        capture_output=True, text=True, cwd=str(project),
+    )
+    return bool(r.stdout.strip())
+
+
+def _extract_srs_fr_section(srs_path: Path, fr_id: str) -> str:
+    """Extract a single FR's full markdown section from SRS.md.
+
+    Returns text between '### FR-XX: ...' header and the next '### FR-' or '---'.
+    Falls back to empty string if the section is not found.
+    """
+    if not srs_path or not srs_path.exists():
+        return ""
+    content = srs_path.read_text(encoding="utf-8")
+    pat = re.compile(
+        rf"(### {re.escape(fr_id)}:[^\n]+\n)(.*?)(?=\n---\n|\n### FR-\d+|$)",
+        re.DOTALL,
+    )
+    m = pat.search(content)
+    return (m.group(1) + m.group(2)).strip() if m else ""
+
+
+def _parse_gate_output(out: str) -> tuple[bool, list]:
+    """Extract gate_pass and failing_dims from sub-agent output.
+
+    Tries full-string JSON parse first, then scans for embedded JSON objects
+    by tracking brace depth — handles nested structures in failing_dims.
+    Returns (gate_pass, failing_dims); falls back to (False, []) on failure.
+    """
+    def _try(s: str) -> dict | None:
+        try:
+            obj = json.loads(s)
+            if isinstance(obj, dict) and "pass" in obj:
+                return obj
+        except (json.JSONDecodeError, ValueError):
+            pass
+        return None
+
+    # Try whole string first (agent returned bare JSON)
+    obj = _try(out.strip())
+    if obj:
+        return bool(obj.get("pass", False)), obj.get("failing_dims", [])
+
+    # Scan for any embedded JSON object via brace-depth tracking
+    i = 0
+    while i < len(out):
+        if out[i] == "{":
+            depth = 0
+            for j in range(i, len(out)):
+                if out[j] == "{":
+                    depth += 1
+                elif out[j] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        obj = _try(out[i : j + 1])
+                        if obj is not None:
+                            return bool(obj.get("pass", False)), obj.get("failing_dims", [])
+                        break
+        i += 1
+
+    return False, []
+
+
+def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
+                           project: Path, srs_path: Path | None,
+                           failing_dims: list | None = None) -> str:
+    """Build a minimal need-to-know prompt for a single FR TDD step.
+
+    Each prompt is self-contained — the sub-agent receives only what it needs
+    for that specific step (SRS section, test file content, etc.).
+
+    Args:
+        failing_dims: Required for CODE-FIX step — list of failing Gate 1
+            dimension details.  Ignored for all other steps.
+    """
+    step = step.upper()
+    num_match = re.match(r"FR-(\d+)", fr_id)
+    num_str = num_match.group(1).zfill(2) if num_match else re.sub(r"[^a-z0-9]", "_", fr_id.lower()).strip("_")
+    test_file = f"tests/test_fr{num_str}.py"
+    src_dir = "03-development/src"
+
+    # Default SRS path if not given
+    if srs_path is None:
+        candidate = project / ".methodology" / "SRS.md"
+        srs_path = candidate if candidate.exists() else None
+
+    if step == "TDD-RED":
+        srs_section = _extract_srs_fr_section(srs_path, fr_id) if srs_path else ""
+        return (
+            f"You are a TDD developer. Your ONLY task: write a failing pytest test for {fr_id}.\n\n"
+            f"[FR REQUIREMENTS]\n"
+            f"{srs_section or f'See SRS.md for {fr_id} requirements'}\n\n"
+            f"[TASK]\n"
+            f"1. Create `{test_file}` with at minimum ONE failing test covering the acceptance criteria above.\n"
+            f"2. The test MUST FAIL — do NOT implement the feature yet.\n"
+            f"3. Run `pytest {test_file} -q` to confirm it fails.\n"
+            f"4. Commit: `git add {test_file} && git commit -m \"test(RED): failing test for {fr_id}\"`\n"
+            f"5. Append to DEVELOPMENT_LOG.md: `## RED phase — {fr_id} — failing test written`\n\n"
+            f"[FORBIDDEN]\n"
+            f"- Implementing any source code (test file only)\n"
+            f"- app/infrastructure/ paths\n"
+            f"- @covers: L1 Error | @type: edge annotations\n\n"
+            f'[OUTPUT FORMAT]\nReturn JSON: {{"status": "DONE", "test_file": "{test_file}", '
+            f'"commit": "<hash>", "summary": "<under 50 chars>"}}'
+        )
+
+    if step == "TDD-GREEN":
+        srs_section = _extract_srs_fr_section(srs_path, fr_id) if srs_path else ""
+        test_content = ""
+        tf = project / test_file
+        if tf.exists():
+            test_content = tf.read_text(encoding="utf-8")
+        return (
+            f"You are a TDD developer. Your task: implement {fr_id} until the failing test passes.\n\n"
+            f"[FAILING TEST — {test_file}]\n"
+            f"{test_content or f'(read from {test_file})'}\n\n"
+            f"[FR REQUIREMENTS]\n"
+            f"{srs_section or f'See SRS.md for {fr_id} requirements'}\n\n"
+            f"[TASK]\n"
+            f"1. Create/edit source files in `{src_dir}/` to make `{test_file}` pass.\n"
+            f"2. Run `pytest {test_file} -q` — all tests must pass.\n"
+            f"3. Docstrings must include `[{fr_id}]` tag + `Citations:` with line numbers (HR-15).\n"
+            f"4. Commit: `git add {src_dir}/ && git commit -m \"feat({fr_id}): GREEN\"`\n"
+            f"5. Append to DEVELOPMENT_LOG.md: `## GREEN phase — {fr_id} — tests pass`\n\n"
+            f"[FORBIDDEN]\n"
+            f"- Modifying test files\n"
+            f"- app/infrastructure/ paths\n\n"
+            f'[OUTPUT FORMAT]\nReturn JSON: {{"status": "DONE", "files_changed": [...], '
+            f'"commit": "<hash>", "summary": "<under 50 chars>"}}'
+        )
+
+    if step == "TDD-IMPROVE":
+        test_content = ""
+        tf = project / test_file
+        if tf.exists():
+            test_content = tf.read_text(encoding="utf-8")[:1500]
+        return (
+            f"You are a TDD refactorer. Your task: improve {fr_id} WITHOUT breaking tests.\n\n"
+            f"[TEST INVARIANTS — {test_file} (first 1500 chars)]\n"
+            f"{test_content or f'(read from {test_file})'}\n\n"
+            f"[TASK]\n"
+            f"1. Run `pytest {test_file} -q` first — confirm all pass before any changes.\n"
+            f"2. Refactor source code in `{src_dir}/` for clarity, remove duplication, improve naming.\n"
+            f"3. Re-run `pytest {test_file} -q` — must still pass.\n"
+            f"4. If changes made: `git commit -m \"refactor({fr_id}): IMPROVE\"`\n"
+            f"5. If no refactor needed: no commit required.\n\n"
+            f'[OUTPUT FORMAT]\nReturn JSON: {{"status": "DONE", "refactored": true/false, '
+            f'"commit": "<hash or null>", "summary": "<under 50 chars>"}}'
+        )
+
+    if step in ("GATE1", "GATE1-DELTA"):
+        delta_flag = " --delta" if step == "GATE1-DELTA" else ""
+        return (
+            f"You are a Gate 1 evaluator. Your task: run Gate 1 evaluation for {fr_id}.\n\n"
+            f"[TASK — follow EXACTLY in order]\n"
+            f"1. Run: `python3 harness_cli.py run-gate --gate 1 --phase {phase} "
+            f"--fr-id {fr_id} --project .{delta_flag}`\n"
+            f"   Read the evaluation prompt printed above carefully.\n"
+            f"2. Evaluate ALL dimensions following `harness/ssi/prompts/evaluate_dimension.md`.\n"
+            f"3. Write results to `.sessi-work/gate1_result.json` "
+            f"(schema: `harness/ssi/schemas/harness_gate_result.schema.json`).\n"
+            f"4. Run: `python3 harness_cli.py finalize-gate --gate 1 --phase {phase} "
+            f"--fr-id {fr_id} --project .`\n"
+            f"5. Report pass/fail and failing dimensions (if any).\n\n"
+            f'[OUTPUT FORMAT]\nReturn JSON: {{"status": "DONE", "gate_score": <float>, '
+            f'"pass": true/false, "failing_dims": [...], "commit": "<hash or null>", '
+            f'"summary": "<under 50 chars>"}}'
+        )
+
+    if step == "CODE-FIX":
+        dims_str = (
+            "\n".join(str(d) for d in failing_dims)
+            if failing_dims else "see gate1_result.json"
+        )
+        return (
+            f"You are a code fixer. Gate 1 FAILED for {fr_id}. Fix the failing dimensions.\n\n"
+            f"[FAILING DIMENSIONS]\n"
+            f"{dims_str}\n\n"
+            f"[TASK]\n"
+            f"1. Read `harness/ssi/prompts/evaluate_dimension.md` for each failing dimension's criteria.\n"
+            f"2. Fix source code in `{src_dir}/` to address EACH failing dimension.\n"
+            f"3. Run `pytest tests/ -q` to confirm tests still pass.\n"
+            f"4. Commit: `git add {src_dir}/ && "
+            f"git commit -m \"fix({fr_id}): address Gate1 failing dims\"`\n\n"
+            f"[FORBIDDEN]\n"
+            f"- Modifying test files\n"
+            f"- app/infrastructure/ paths\n\n"
+            f'[OUTPUT FORMAT]\nReturn JSON: {{"status": "DONE", "dims_fixed": [...], '
+            f'"commit": "<hash>", "summary": "<under 50 chars>"}}'
+        )
+
+    return f"[ERROR] Unknown step: {step}"
+
+
+def cmd_run_fr_step(args: argparse.Namespace) -> int:
+    """Dispatch a single FR TDD step as sub-agent + push to GitHub on completion.
+
+    Steps: TDD-RED | TDD-GREEN | TDD-IMPROVE | GATE1 | GATE1-DELTA
+    Idempotent: skips silently if the step's commit already exists in git log.
+    On GATE1 FAIL: auto-dispatches CODE-FIX sub-agent then retries (max --max-fix-rounds).
+    Returns: 0=OK, 1=ERROR, 2=BLOCKED (Gate1 exhausted retries — human needed)
+    """
+    import subprocess as _sp
+    from core.agent_spawner import AgentSpawner
+
+    phase = args.phase
+    fr_id = args.fr_id
+    step = args.step.upper()
+    project = Path(args.project).resolve()
+    srs_path = Path(args.srs).resolve() if getattr(args, "srs", None) else None
+
+    # 1. Idempotency — skip if already committed
+    if _fr_step_already_done(step, fr_id, project):
+        print(f"[run-fr-step] {fr_id} {step}: already done → skip")
+        return 0
+
+    # 2. Build minimal need-to-know prompt
+    prompt = _build_fr_step_prompt(step, fr_id, phase, project, srs_path)
+
+    # 3. Dispatch sub-agent (phase_sop_override="" skips full SOP load)
+    spawner = AgentSpawner(project_path=project)
+    result = spawner.spawn(
+        role="developer",
+        prompt=prompt,
+        context={"phase": phase, "fr_id": fr_id, "step": step},
+        phase=phase,
+        fr_id=fr_id,
+        phase_sop_override="",
+        task_timeout=getattr(args, "timeout", 600),
+        max_turns=getattr(args, "max_turns", 30),
+    )
+
+    if result.get("status") in _DISPATCH_ERROR_STATUSES:
+        print(f"[run-fr-step] {fr_id} {step}: sub-agent {result['status']}")
+        print(result.get("output", "")[:500])
+        return 1
+
+    # 4. GATE1: auto-retry with CODE-FIX sub-agent on failure
+    if step in ("GATE1", "GATE1-DELTA"):
+        gate_pass, failing_dims = _parse_gate_output(result.get("output", ""))
+        if not gate_pass:
+            gate_pass = _fr_step_already_done(step, fr_id, project)
+
+        max_fix_rounds = getattr(args, "max_fix_rounds", 3)
+        for fix_round in range(1, max_fix_rounds + 1):
+            if gate_pass or _fr_step_already_done(step, fr_id, project):
+                break
+            print(f"[run-fr-step] {fr_id} GATE1 FAIL (round {fix_round}/{max_fix_rounds})"
+                  f" — dispatching CODE-FIX sub-agent")
+            fix_prompt = _build_fr_step_prompt(
+                "CODE-FIX", fr_id, phase, project, srs_path, failing_dims=failing_dims,
+            )
+            fix_result = spawner.spawn(
+                role="developer", prompt=fix_prompt,
+                context={"phase": phase, "fr_id": fr_id, "step": "CODE-FIX"},
+                phase=phase, fr_id=fr_id, phase_sop_override="",
+                task_timeout=getattr(args, "timeout", 600),
+                max_turns=getattr(args, "max_turns", 30),
+            )
+            if fix_result.get("status") in _DISPATCH_ERROR_STATUSES:
+                print(f"[run-fr-step] CODE-FIX failed: {fix_result.get('output','')[:200]}")
+                break
+            # Re-dispatch GATE1
+            gate_prompt = _build_fr_step_prompt(step, fr_id, phase, project, srs_path)
+            result = spawner.spawn(
+                role="developer", prompt=gate_prompt,
+                context={"phase": phase, "fr_id": fr_id, "step": step},
+                phase=phase, fr_id=fr_id, phase_sop_override="",
+                task_timeout=getattr(args, "timeout", 600),
+                max_turns=getattr(args, "max_turns", 30),
+            )
+            gate_pass, failing_dims = _parse_gate_output(result.get("output", ""))
+            if not gate_pass:
+                gate_pass = _fr_step_already_done(step, fr_id, project)
+        else:
+            print(f"[run-fr-step] {fr_id} GATE1 BLOCKED after {max_fix_rounds} CODE-FIX rounds"
+                  " — human intervention required")
+            return 2  # BLOCKED
+
+    # 5. Verify commit exists (non-fatal warning for TDD-IMPROVE / CODE-FIX)
+    if step not in ("TDD-IMPROVE", "CODE-FIX") and not _fr_step_already_done(step, fr_id, project):
+        print(f"[run-fr-step] {fr_id} {step}: WARNING — expected commit not found in git log")
+
+    # 6. Push to GitHub (crash-recovery checkpoint)
+    push = _sp.run(
+        ["git", "push", "origin", "HEAD"],
+        capture_output=True, text=True, cwd=str(project),
+    )
+    if push.returncode != 0:
+        print(f"[run-fr-step] git push failed: {push.stderr[:300]}")
+        return 1
+
+    print(f"[run-fr-step] ✅ {fr_id} {step} complete + pushed to GitHub")
+    return 0
+
+
+def cmd_resume_fr_phase(args: argparse.Namespace) -> int:
+    """Print the next pending run-fr-step command for crash recovery.
+
+    Scans git log for completed step commit patterns and quality_manifest.json
+    for the FR list.  Prints the exact command to run to continue.
+    """
+    phase = args.phase
+    project = Path(args.project).resolve()
+    manifest_path = project / ".methodology" / "quality_manifest.json"
+    progress_path = project / ".methodology" / "fr_progress.json"
+
+    fr_ids: list[str] = []
+    if manifest_path.exists():
+        try:
+            fr_ids = json.loads(manifest_path.read_text(encoding="utf-8")).get("fr_ids", [])
+        except Exception:
+            pass
+    if not fr_ids and progress_path.exists():
+        try:
+            data = json.loads(progress_path.read_text(encoding="utf-8"))
+            fr_ids = list(data.get("frs", {}).keys())
+        except Exception:
+            pass
+
+    if not fr_ids:
+        print("[resume-fr-phase] No FR list found — check .methodology/quality_manifest.json")
+        return 1
+
+    # Carry-forward phases (5/7/8) only run GATE1-DELTA; full TDD for all others.
+    if phase in (5, 7, 8):
+        steps = ["GATE1-DELTA"]
+    else:
+        steps = ["TDD-RED", "TDD-GREEN", "TDD-IMPROVE", "GATE1"]
+    for fr_id in fr_ids:
+        for step in steps:
+            if not _fr_step_already_done(step, fr_id, project):
+                srs_flag = " --srs .methodology/SRS.md" if step in ("TDD-RED", "TDD-GREEN") else ""
+                print(
+                    f"Next step: python3 harness_cli.py run-fr-step "
+                    f"--phase {phase} --fr-id {fr_id} --step {step} --project .{srs_flag}"
+                )
+                return 0
+
+    print("[resume-fr-phase] All FRs complete for this phase.")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # reload-policy
 # ---------------------------------------------------------------------------
 
@@ -4907,6 +5277,41 @@ def build_parser() -> argparse.ArgumentParser:
     dp.add_argument("--max-turns", type=int, default=20, dest="max_turns",
                     help="Max tool-using turns (default: 20). Increase for large documents.")
     dp.set_defaults(func=cmd_dispatch)
+
+    # run-fr-step
+    rfp = sub.add_parser(
+        "run-fr-step",
+        help="Dispatch one FR TDD step as sub-agent + push to GitHub (Phase 3-8 orchestration)",
+    )
+    rfp.add_argument("--phase", type=int, required=True, help="Phase number")
+    rfp.add_argument("--fr-id", required=True, dest="fr_id", help="FR ID (e.g. FR-14)")
+    rfp.add_argument(
+        "--step", required=True, dest="step",
+        choices=["TDD-RED", "TDD-GREEN", "TDD-IMPROVE", "GATE1", "GATE1-DELTA"],
+        type=str.upper,
+        help="TDD step to dispatch",
+    )
+    rfp.add_argument("--project", default=".", help="Project root (default: .)")
+    rfp.add_argument(
+        "--srs", default=None,
+        help="Path to SRS.md for FR context extraction (default: .methodology/SRS.md)",
+    )
+    rfp.add_argument("--timeout", type=int, default=600,
+                     help="Sub-agent max execution time in seconds (default: 600)")
+    rfp.add_argument("--max-turns", type=int, default=30, dest="max_turns",
+                     help="Sub-agent max tool-using turns (default: 30)")
+    rfp.add_argument("--max-fix-rounds", type=int, default=3, dest="max_fix_rounds",
+                     help="Max CODE-FIX + GATE1 retry rounds on GATE1 FAIL (default: 3)")
+    rfp.set_defaults(func=cmd_run_fr_step)
+
+    # resume-fr-phase
+    rrp = sub.add_parser(
+        "resume-fr-phase",
+        help="Find next pending FR step after a crash — prints the run-fr-step command to run",
+    )
+    rrp.add_argument("--phase", type=int, required=True, help="Phase number")
+    rrp.add_argument("--project", default=".", help="Project root (default: .)")
+    rrp.set_defaults(func=cmd_resume_fr_phase)
 
     # reload-policy
     rl = sub.add_parser("reload-policy", help="Hot-reload enforcement policies from enforcement.json")

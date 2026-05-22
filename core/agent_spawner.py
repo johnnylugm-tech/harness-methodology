@@ -60,6 +60,7 @@ class AgentSpawner:
         max_turns: int = 20,
         phase: int = 0,
         fr_id: str | None = None,
+        phase_sop_override: str | None = None,
     ) -> dict:
         """
         Spawn an agent with a specific role and prompt.
@@ -77,7 +78,8 @@ class AgentSpawner:
         Returns:
             A dictionary containing the agent's output and status.
         """
-        full_prompt = self._build_prompt(role, prompt, context, phase)
+        full_prompt = self._build_prompt(role, prompt, context, phase,
+                                         phase_sop_override=phase_sop_override)
 
         if model == "hermes":
             # Honor phase-level routing policy: P7/P8 stay on Claude
@@ -179,10 +181,20 @@ class AgentSpawner:
             import sys
             sys.stderr.write(f"[AgentSpawner] log_dispatch failed: {e}\n")
 
-    def _build_prompt(self, role: str, prompt: str, context: dict, phase: int) -> str:
-        """Construct the prompt following the need-to-know principle."""
+    def _build_prompt(self, role: str, prompt: str, context: dict, phase: int,
+                      phase_sop_override: str | None = None) -> str:
+        """Construct the prompt following the need-to-know principle.
+
+        Args:
+            phase_sop_override: If None, load full phase SOP from docs/P{phase}_SOP.md.
+                If provided (including ""), use this string instead — "" skips SOP entirely
+                (used by run-fr-step where context is already self-contained in the prompt).
+        """
         persona = _load_persona(role)
-        sop = _load_phase_sop(context.get("phase", phase))
+        if phase_sop_override is None:
+            sop = _load_phase_sop(context.get("phase", phase))
+        else:
+            sop = phase_sop_override  # "" → no SOP section added
         parts = []
         if persona:
             parts.append(f"[PERSONA]\n{persona}")

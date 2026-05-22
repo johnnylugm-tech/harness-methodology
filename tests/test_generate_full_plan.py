@@ -266,12 +266,13 @@ class TestFrDevSteps:
             assert "Agent B" in joined, f"Phase {phase} missing Agent B"
 
     def test_phase3_plus_no_agent_ab(self):
-        """Phase 3+: no A/B — Phase End Audit替代."""
+        """Phase 3+: no A/B — orchestrator dispatches sub-agents instead."""
         for phase in range(3, 9):
             joined = "\n".join(_fr_dev_steps("FR-01", phase))
             assert "Agent A" not in joined, f"Phase {phase} should not have Agent A"
             assert "Agent B" not in joined, f"Phase {phase} should not have Agent B"
-            assert "Phase End Audit" in joined, f"Phase {phase} missing Phase End Audit note"
+            # New model: orchestrator dispatches sub-agents via run-fr-step
+            assert "run-fr-step" in joined, f"Phase {phase} missing run-fr-step dispatch"
 
     def test_phase1_contains_dispatch(self):
         """Phase 1-2: dispatch commands must be in steps (HR-10)."""
@@ -280,11 +281,11 @@ class TestFrDevSteps:
             assert "dispatch" in joined, f"Phase {phase} missing dispatch command"
 
     def test_phase3_plus_contains_run_gate(self):
-        """Phase 3+: run-gate command replaces A/B dispatch."""
+        """Phase 3+: GATE1 sub-agent dispatch (ORCH-GATE1) replaces direct run-gate call."""
         for phase in range(3, 9):
             joined = "\n".join(_fr_dev_steps("FR-01", phase))
-            assert "run-gate" in joined, f"Phase {phase} missing run-gate"
-            assert "finalize-gate" in joined, f"Phase {phase} missing finalize-gate"
+            assert "ORCH-GATE1" in joined, f"Phase {phase} missing ORCH-GATE1"
+            assert "run-fr-step" in joined, f"Phase {phase} missing run-fr-step"
 
     def test_contains_fr_id(self):
         for phase in range(1, 9):
@@ -395,9 +396,9 @@ class TestPhase3GateInjection:
         assert "run-phase --phase 3" in joined
 
     def test_has_phase_audit_in_dev_steps(self, project: Path):
-        """Phase 3 uses Phase End Audit instead of A/B."""
+        """Phase 3 uses sub-agent orchestration (run-fr-step) instead of A/B."""
         joined = "\n".join(generate_phase3_tasks(project, project / "SRS.md"))
-        assert "Phase End Audit" in joined
+        assert "run-fr-step" in joined
         assert "Agent A" not in joined
 
     def test_has_phase_audit_step(self, project: Path):
@@ -453,9 +454,10 @@ class TestPhase4GateInjection:
 
 class TestPhase5GateInjection:
     def test_has_gate1_per_fr(self, project: Path):
+        """Phase 5 carry-forward FRs use GATE1-DELTA sub-agent dispatch."""
         joined = "\n".join(generate_phase5_tasks(project))
-        assert "run-gate --gate 1 --phase 5 --fr-id FR-01" in joined
-        assert "run-gate --gate 1 --phase 5 --fr-id FR-02" in joined
+        assert "run-fr-step --phase 5 --fr-id FR-01" in joined
+        assert "GATE1-DELTA" in joined
 
     def test_no_exit_gate(self, project: Path):
         joined = "\n".join(generate_phase5_tasks(project))
@@ -468,7 +470,7 @@ class TestPhase5GateInjection:
 
     def test_has_phase_audit_in_dev_steps(self, project: Path):
         joined = "\n".join(generate_phase5_tasks(project))
-        assert "Phase End Audit" in joined
+        assert "run-fr-step" in joined
 
     def test_has_phase_audit_step(self, project: Path):
         """Phase 5: audit handled by advance-phase (no separate audit-phase command)."""
@@ -530,8 +532,10 @@ class TestPhase6GateInjection:
 
 class TestPhase7GateInjection:
     def test_has_gate1_per_fr(self, project: Path):
+        """Phase 7 carry-forward FRs use GATE1-DELTA sub-agent dispatch."""
         joined = "\n".join(generate_phase7_tasks(project))
-        assert "run-gate --gate 1 --phase 7 --fr-id FR-01" in joined
+        assert "run-fr-step --phase 7 --fr-id FR-01" in joined
+        assert "GATE1-DELTA" in joined
 
     def test_no_exit_gate(self, project: Path):
         joined = "\n".join(generate_phase7_tasks(project))
@@ -544,7 +548,7 @@ class TestPhase7GateInjection:
 
     def test_has_phase_audit_in_dev_steps(self, project: Path):
         joined = "\n".join(generate_phase7_tasks(project))
-        assert "Phase End Audit" in joined
+        assert "run-fr-step" in joined
         assert "DEVOPS" not in joined
 
     def test_has_phase_audit_step(self, project: Path):
@@ -561,8 +565,10 @@ class TestPhase7GateInjection:
 
 class TestPhase8GateInjection:
     def test_has_gate1_per_fr(self, project: Path):
+        """Phase 8 carry-forward FRs use GATE1-DELTA sub-agent dispatch."""
         joined = "\n".join(generate_phase8_tasks(project))
-        assert "run-gate --gate 1 --phase 8 --fr-id FR-02" in joined
+        assert "run-fr-step --phase 8 --fr-id FR-02" in joined
+        assert "GATE1-DELTA" in joined
 
     def test_no_exit_gate(self, project: Path):
         joined = "\n".join(generate_phase8_tasks(project))
@@ -574,7 +580,7 @@ class TestPhase8GateInjection:
 
     def test_has_phase_audit_in_dev_steps(self, project: Path):
         joined = "\n".join(generate_phase8_tasks(project))
-        assert "Phase End Audit" in joined
+        assert "run-fr-step" in joined
         assert "DEVOPS" not in joined
 
     def test_has_phase_audit_step(self, project: Path):
@@ -1445,11 +1451,11 @@ class TestP2ThirdDeliverable:
 
 class TestTddDevSteps:
     def test_p3_fr_dev_steps_has_tdd_labels(self, project: Path):
-        """P3+ per-FR steps must include TDD-1 RED, TDD-2 GREEN, TDD-3 IMPROVE."""
+        """P3+ per-FR steps must include ORCH-RED, ORCH-GREEN, ORCH-IMPROVE (sub-agent dispatch)."""
         joined = "\n".join(generate_phase3_tasks(project, project / "SRS.md"))
-        assert "TDD-1 RED" in joined
-        assert "TDD-2 GREEN" in joined
-        assert "TDD-3 IMPROVE" in joined
+        assert "ORCH-RED" in joined
+        assert "ORCH-GREEN" in joined
+        assert "ORCH-IMPROVE" in joined
 
     def test_p3_fr_dev_steps_has_test_file_instruction(self, project: Path):
         """P3+ per-FR steps must instruct creating test_frNN.py."""
@@ -1470,8 +1476,7 @@ class TestTddDevSteps:
         assert "TDD-3 IMPROVE" not in joined
 
     def test_p8_fr_dev_steps_has_tdd_labels(self, project: Path):
-        """P8 per-FR steps must also include TDD labels (all P3+)."""
+        """P8 carry-forward FRs use ORCH-GATE1-DELTA (no full TDD re-run)."""
         result = generate_full_plan(8, project)
-        assert "TDD-1 RED" in result
-        assert "TDD-2 GREEN" in result
-        assert "TDD-3 IMPROVE" in result
+        assert "ORCH-GATE1-DELTA" in result
+        assert "GATE1-DELTA" in result

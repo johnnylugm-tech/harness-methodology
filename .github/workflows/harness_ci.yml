@@ -87,6 +87,20 @@ jobs:
             --default 0 --state-file ".methodology/state.json")
           echo "phase=$PHASE" >> $GITHUB_OUTPUT
 
+      - name: Detect RED-phase commit (TDD sub-agent — intentionally failing test)
+        # run-fr-step --step TDD-RED commits with message "test(RED): failing test for FR-XX".
+        # A RED commit is expected to have a failing test — skip pytest/coverage for this push.
+        # All other steps (audit-phase, spec-coverage-check) still run normally.
+        id: red_check
+        run: |
+          MSG=$(git log -1 --format="%s")
+          if echo "$MSG" | grep -qE "^test\(RED\):"; then
+            echo "is_red=true" >> $GITHUB_OUTPUT
+            echo "RED-phase commit detected — pytest/coverage check skipped for this push."
+          else
+            echo "is_red=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Phase artifact audit — deliverables / constitution / gate scores (P1+)
         if: steps.phase.outputs.phase >= 1
         run: |
@@ -98,7 +112,8 @@ jobs:
       - name: TDD test execution + coverage (P3+)
         # Coverage target: 100% on 03-development/src only (TDD-governed source).
         # Use `# pragma: no cover` with explicit justification for genuine exceptions.
-        if: steps.phase.outputs.phase >= 3
+        # Skipped on RED-phase commits (test(RED): ...) — those intentionally fail.
+        if: steps.phase.outputs.phase >= 3 && steps.red_check.outputs.is_red != 'true'
         run: |
           pytest --tb=short -q \
             --cov=03-development/src \
