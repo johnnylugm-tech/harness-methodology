@@ -52,10 +52,26 @@ def count_diff_lines(diff_output):
     return lines_changed
 
 
-def load_result(result_path):
-    """Load raw evaluation result"""
-    with open(result_path, "r") as f:
-        return json.load(f)
+def load_current_scores(round_dir: str) -> dict:
+    """Load current round scores from per-dimension score files."""
+    scores_dir = Path(round_dir) / "scores"
+    if not scores_dir.is_dir():
+        raise FileNotFoundError(
+            f"Scores directory not found: {scores_dir}\n"
+            "Run evaluate_dimension.md Step 3 to write per-dimension score files first."
+        )
+    result = {}
+    for sf in sorted(scores_dir.glob("*.json")):
+        dim_name = sf.stem
+        try:
+            result[dim_name] = json.loads(sf.read_text(encoding="utf-8"))
+        except Exception as exc:
+            print(f"Warning: skipping {sf}: {exc}", file=sys.stderr)
+    if not result:
+        raise FileNotFoundError(
+            f"No .json score files found in {scores_dir}"
+        )
+    return result
 
 
 def load_pre_state(round_dir):
@@ -160,9 +176,10 @@ def self_consistency_gate(
     return {"flagged": False, "reason": "", "action": "ok", "cap_to": None}
 
 
-def verify(result_path, round_dir, repo_path):
+def verify(round_dir, repo_path):
     """
-    Verify evaluation result against evidence
+    Verify evaluation result against evidence.
+    Reads current scores from round_dir/scores/*.json directly.
 
     Returns:
         {
@@ -174,7 +191,7 @@ def verify(result_path, round_dir, repo_path):
             }
         }
     """
-    result = load_result(result_path)
+    result = load_current_scores(round_dir)
     pre_state = load_pre_state(round_dir)
     git_diff = get_git_diff(repo_path)
     diff_lines = count_diff_lines(git_diff)
@@ -254,33 +271,62 @@ def verify(result_path, round_dir, repo_path):
                 }
             )
 
-    return {
+    # ── Baseline (round 1) comparison — catches gradual drift ──
+    baseline_warnings = []
+    try:
+        current_round = int(Path(round_dir).name.split("_")[1])
+    except (IndexError, ValueError):
+        current_round = 0
+    if current_round > 1:
+        round1_dir = str(Path(round_dir).parent / "round_1")
+        round1_scores = load_current_scores(round1_dir)
+        if round1_scores:
+            for dim_name, dim_result in result.items():
+                if not isinstance(dim_result, dict):
+                    continue
+                current_score = dim_result.get("score", 0)
+                baseline_score = round1_scores.get(dim_name, {}).get("score", 0)
+                if current_score < baseline_score - 5:
+                    baseline_warnings.append({
+                        "dimension": dim_name,
+                        "round1_score": baseline_score,
+                        "current_score": current_score,
+                        "delta": current_score - baseline_score,
+                    })
+
+    verified = {
         "verified": len(capped) == 0 and len(regressions) == 0,
         "verification": {
             "capped": capped,
             "regressions": regressions,
             "evidence_ok": evidence_ok,
             "consistency_flags": consistency_flags,
+            "baseline_warnings": baseline_warnings,
         },
         "result": result,
     }
 
+    # Write verified.json so downstream consumers (report_gen.py, etc.)
+    # can access the capped/regression-adjusted result.
+    vpath = Path(round_dir) / "verified.json"
+    vpath.write_text(json.dumps(verified, indent=2), encoding="utf-8")
+    return verified
+
 
 def main():
-    if len(sys.argv) < 3:
-        print(f"Usage: {sys.argv[0]} <result.json> <round_dir> [repo_path]")
-        print("  result.json: raw evaluation results")
+    if len(sys.argv) < 2:
+        print(f"Usage: {sys.argv[0]} <round_dir> [repo_path]")
         print("  round_dir: path to .sessi-work/round_<n>")
         print("  repo_path: repository path (default: current dir)")
         sys.exit(1)
 
-    result_path = sys.argv[1]
-    round_dir = sys.argv[2]
-    repo_path = sys.argv[3] if len(sys.argv) > 3 else "."
+    round_dir = sys.argv[1]
+    repo_path = sys.argv[2] if len(sys.argv) > 2 else "."
 
     try:
-        verified = verify(result_path, round_dir, repo_path)
+        verified = verify(round_dir, repo_path)
         print(json.dumps(verified, indent=2))
+        print(f"[verify] Wrote {Path(round_dir) / 'verified.json'}", file=sys.stderr)
 
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)

@@ -122,6 +122,44 @@ python3 scripts/issue_tracker.py add \
 
 ---
 
+## Step 5a: Execution Flow Handler Coverage (~600 tokens)
+
+List critical execution flows and identify those without error handlers.
+This feeds `flow_coverage.score` for the `error_handling` dimension.
+
+```
+[USE mcp__code-review-graph__list_flows_tool]
+sort_by: "criticality", limit: 50, detail_level: "standard"
+```
+
+For each flow returned, record:
+- `name`: flow name from CRG
+- `has_error_handler`: whether the flow contains error handling nodes
+- `depth`: call depth (for prioritization)
+
+Flag flows without error handlers (`has_error_handler: false`):
+
+```bash
+# Save flows from the list_flows MCP response (use the tool's raw JSON output)
+python3 -c "
+import json, sys
+# Read from the CRG tool's stdout captured above, not from the (not-yet-written) recon file
+flows_raw = '''<paste list_flows JSON output here>'''
+flows = json.loads(flows_raw).get('flows', [])
+missing = [f for f in flows if not f.get('has_error_handler')]
+print(f'{len(missing)}/{len(flows)} flows lack error handlers')
+# Write finding for top 5 critical flows without handlers
+for f in missing[:5]:
+    name = f.get('name', 'unknown')
+    print(f'  CRITICAL flow without handler: {name}')
+"
+```
+
+Filter only flows with `has_error_handler: false` to build the `flows` array
+for the reconnaissance output template (below).
+
+---
+
 ## Step 6: Untested Hotspots
 
 ```
@@ -244,6 +282,9 @@ Save to `.sessi-work/crg_reconnaissance.json`:
   "low_cohesion_communities": [
     { "name": "<community>", "cohesion": 0.0, "size": N }
   ],
+  "flows": [
+    { "name": "<flow>", "has_error_handler": true, "depth": N }
+  ],
   "untested_hotspots": [...],
   "unexpected_couplings": [...],
   "dead_code": [...],
@@ -281,9 +322,15 @@ Turn raw reconnaissance data into deterministic numeric metrics that
 downstream scripts (`score.py`, `evaluate_dimension.md`) consume directly.
 
 ```bash
+# Pass previous round's metrics for per-round structural drift (if it exists)
+PREV=""
+if [ -f ".sessi-work/crg_metrics.json" ]; then
+  PREV=".sessi-work/crg_metrics.json"
+fi
 python3 scripts/crg_analysis.py metrics \
   .sessi-work/crg_reconnaissance.json \
-  .sessi-work/crg_metrics.json
+  .sessi-work/crg_metrics.json \
+  ${PREV}
 ```
 
 Emits `.sessi-work/crg_metrics.json` with:
@@ -341,10 +388,11 @@ Tier 3 dimension: `deep` → full LLM reasoning + hub source read;
 | 3 | `get_suggested_questions` | ~500 |
 | 4 | `get_hub_nodes` + `get_bridge_nodes` | ~800 |
 | 5 | `list_communities` + 2–3× `get_community` | ~800 |
+| 5a | `list_flows` | ~600 |
 | 6 | `get_knowledge_gaps` | ~600 |
 | 7 | `get_surprising_connections` | ~400 |
 | 8 | `refactor_tool(dead_code)` | ~500 |
-| **Total** | | **~3,900** |
+| **Total** | | **~4,500** |
 
 **Benchmark:** Reading 10 random files ≈ 10,000 tokens with no structural signal.
 Reconnaissance delivers richer, targeted findings at **~60% lower token cost**.

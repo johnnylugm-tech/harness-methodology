@@ -267,9 +267,12 @@ def _validate_recon(recon: dict) -> list:
     return warnings
 
 
-def compute_metrics(recon: dict) -> dict:
+def compute_metrics(recon: dict, prev_metrics: dict | None = None) -> dict:
     """
     Run all metric computations. Single call for full analysis.
+
+    If prev_metrics (from a previous round) is provided, per-round
+    structural_drift is computed against it. Otherwise drift = 0.0.
 
     Graceful degradation: if CRG MCP tools were unavailable during
     reconnaissance, key fields will be absent. All sub-computations
@@ -312,10 +315,31 @@ def compute_metrics(recon: dict) -> dict:
             seen.add(n)
         deduped.append(c)
 
+    cohesion_result = compute_community_cohesion_score(deduped)
+    flow_result = compute_flow_coverage_score(recon.get("flows", []))
+    dead_result = compute_dead_code_ratio(recon.get("dead_code", []), total_nodes)
+    hub_result = compute_hub_risk_map(
+        recon.get("high_risk_hubs", []),
+        recon.get("untested_hotspots", []),
+    )
+
+    # Per-round structural drift: compare against previous round if available
+    current_snapshot = {
+        "community_cohesion": cohesion_result,
+        "flow_coverage": flow_result,
+        "dead_code": dead_result,
+        "hub_risk_map": hub_result,
+    }
+    drift = (
+        compute_structural_drift(prev_metrics, current_snapshot)
+        if prev_metrics is not None
+        else 0.0
+    )
+
     return {
         "risk_score": risk_score,
         "eval_depth": compute_eval_depth(risk_score),
-        "data_warnings": warnings,  # empty list = full CRG data present
+        "data_warnings": warnings,
         "thresholds": {
             "risk_deep": RISK_DEEP_THRESHOLD,
             "risk_fast": RISK_FAST_THRESHOLD,
@@ -326,14 +350,12 @@ def compute_metrics(recon: dict) -> dict:
             "hub_high_fan_in": HUB_HIGH_FAN_IN,
             "flow_good_handler_pct": FLOW_GOOD_HANDLER_PCT,
         },
-        "community_cohesion": compute_community_cohesion_score(deduped),
-        "flow_coverage": compute_flow_coverage_score(recon.get("flows", [])),
-        "dead_code": compute_dead_code_ratio(recon.get("dead_code", []), total_nodes),
-        "hub_risk_map": compute_hub_risk_map(
-            recon.get("high_risk_hubs", []),
-            recon.get("untested_hotspots", []),
-        ),
+        "community_cohesion": cohesion_result,
+        "flow_coverage": flow_result,
+        "dead_code": dead_result,
+        "hub_risk_map": hub_result,
         "suggested_questions": recon.get("suggested_questions", []),
+        "structural_drift": drift,
     }
 
 
@@ -466,7 +488,10 @@ def main():
             sys.exit(1)
         recon = _load_recon(sys.argv[2])
         out = sys.argv[3] if len(sys.argv) > 3 else ".sessi-work/crg_metrics.json"
-        metrics = compute_metrics(recon)
+        # Optional: previous round's metrics for per-round drift computation
+        prev_path = sys.argv[4] if len(sys.argv) > 4 else None
+        prev = _load_recon(prev_path) if prev_path else None
+        metrics = compute_metrics(recon, prev_metrics=prev)
         Path(out).parent.mkdir(parents=True, exist_ok=True)
         Path(out).write_text(json.dumps(metrics, indent=2, ensure_ascii=False))
         print(json.dumps(metrics, indent=2))
@@ -489,7 +514,9 @@ def main():
         reg_path = sys.argv[3]
         round_num = int(sys.argv[4])
         recon = _load_recon(recon_path)
-        metrics = compute_metrics(recon)
+        prev_path = sys.argv[5] if len(sys.argv) > 5 else None
+        prev = _load_recon(prev_path) if prev_path else None
+        metrics = compute_metrics(recon, prev_metrics=prev)
         registry = issue_tracker.load(reg_path)
         seeded = seed_issues_from_suggested_questions(registry, metrics, round_num)
         issue_tracker.save(registry, reg_path)

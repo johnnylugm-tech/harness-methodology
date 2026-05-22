@@ -6,59 +6,43 @@ Cross-check all dimension scores after improvements. Detect regressions and cap 
 
 ## Step 1: Run Deterministic Verification
 
+Reads per-dimension scores from `round_<n>/scores/*.json` and writes
+`round_<n>/verified.json` with capped/regression-adjusted result.
+
 ```bash
-python3 scripts/verify.py \
-  .sessi-work/round_<n>/result.json \
-  .sessi-work/round_<n> \
-  <repo_path>
+python3 scripts/verify.py .sessi-work/round_<n> <repo_path>
 ```
 
-Read the output:
+Read the output (stdout + `.sessi-work/round_<n>/verified.json`):
 - `verification.capped[]` — dimensions where claims were capped
 - `verification.regressions[]` — dimensions that got worse
 - `verified: true/false` — overall pass/fail
 
-**Use `verified.json` for all downstream steps. Never use raw `result.json`.**
+**Use `verified.json` for all downstream steps — it contains the capped/regression-adjusted scores.**
 
-### Step 1a (CRG, if available): Structural Verification
+### Step 1a (CRG): Structural Drift Verification
 
-Refresh the graph and measure structural drift across the whole round.
-This catches regressions that dimension tools cannot see:
+Verify structural drift across this round. Uses `crg_metrics.json` which
+`compute_metrics()` now writes with a real `structural_drift` value (computed
+against the previous round's metrics snapshot).
 
 ```bash
-# Incremental refresh (seconds — only re-parses changed files)
-code-review-graph update --repo <repo_path>
-
-# Blast radius of ALL fixes made this round (cumulative, not per-fix).
-# Uses a different base than the per-fix `risky` check:
-#   risky . HEAD  →  uncommitted diff vs HEAD        (per-fix, pre-commit)
-#   blast  <repo> <tag>  →  current state vs round tag  (per-round, post-commit)
-
-# Round 1: no previous round tag exists — count commits made this session
-COMMITS_THIS_ROUND=$(git -C <repo_path> log --oneline round-0..HEAD 2>/dev/null \
-  | wc -l || git -C <repo_path> log --oneline | wc -l)
-BASE_REF="HEAD~${COMMITS_THIS_ROUND}"
-
-# Round N>1: previous round tag exists
-# (check with: git tag -l "round-<n-1>" — if output is non-empty, tag exists)
-if git -C <repo_path> tag -l "round-<n-1>" | grep -q .; then
-  BASE_REF="round-<n-1>"
-fi
-
-python3 scripts/crg_integration.py blast <repo_path> "${BASE_REF}" \
-> .sessi-work/round_<n>/crg_blast_radius.json
+# Read the drift value computed by crg_analysis.py metrics
+DRIFT=$(python3 -c "
+import json, sys
+m = json.loads(open('.sessi-work/crg_metrics.json').read())
+print(m.get('structural_drift', 0.0))
+" 2>/dev/null || echo "0.0")
+echo "Per-round structural drift: ${DRIFT}"
 ```
 
 Two classes of regression to escalate:
 
-- **Architectural drift** — `risk_score` jumped > 0.2 between rounds, OR
-  new hub nodes appeared. Log a warning in `verified.json`; if drift > 0.4,
-  treat as regression and trigger Step 3's revert protocol.
+- **Architectural drift** — `structural_drift` > 0.4: treat as regression
+  and trigger Step 3's revert protocol. 0.2–0.4: log a warning.
 - **Test gap expansion** — `test_gaps` count grew this round. Each new gap
   adds an `open` issue in the registry (dimension = `test_coverage`,
   severity = `medium`).
-
-If CRG is not installed this step is skipped silently.
 
 ---
 
@@ -88,11 +72,29 @@ Actions:
 1. Identify which fix caused the regression (git log --oneline -5)
 2. IF fix is identifiable AND revert is safe:
    git revert <commit_hash> --no-edit
-   Re-run dimension tool to confirm revert worked
+   **Re-run dimension tool and compare score to pre-regression value:**
+   ```bash
+   BEFORE=<pre-regression score from verifications.regressions[].before>
+   # Re-run the dimension tool and parse its score (Step 1 formula from evaluate_dimension.md).
+   # Then read the freshly-written score file:
+   AFTER=$(python3 -c "
+   import json
+   d = json.loads(open('.sessi-work/round_<n>/scores/<dimension>.json').read())
+   print(d.get('score', 0))
+   " 2>/dev/null || echo '0')
+   if [ "${AFTER}" -lt "$((BEFORE - 2))" ]; then
+     echo "WARN: revert did not restore score: ${BEFORE} → ${AFTER}"
+     python3 scripts/issue_tracker.py add .sessi-work/issue_registry.json \
+       <dimension> medium /tmp/revert_finding.json
+   fi
+   ```
 3. IF regression is acceptable trade-off (e.g., security fix breaks a flaky test):
    Document in .sessi-work/round_<n>/deferred_fixes.md
    Keep regression, flag for human review
-4. Update verified.json with post-revert scores
+4. Re-run verify.py to refresh verified.json with post-revert scores:
+   ```bash
+   python3 scripts/verify.py .sessi-work/round_<n> <repo_path>
+   ```
 ```
 
 ---
@@ -115,7 +117,8 @@ Use Claude native (no Gemini for this step — judgment required).
 After verification and any reverts:
 
 ```bash
-python3 scripts/score.py .sessi-work/round_<n> config.json > .sessi-work/round_<n>/final_score.json
+python3 scripts/score.py .sessi-work/round_<n> config.json \
+  .sessi-work/issue_registry.json > .sessi-work/round_<n>/final_score.json
 ```
 
 Check `meets_target`:
@@ -128,8 +131,9 @@ Check `meets_target`:
 
 ```
 .sessi-work/round_<n>/
-├── result.json          ← raw (do not use downstream)
-├── verified.json        ← verified scores (use this)
-├── final_score.json     ← post-verification overall score
-└── deferred_fixes.md    ← items requiring human attention
+├── scores/
+│   └── <dimension>.json   ← per-dimension raw scores (input to verify.py)
+├── verified.json          ← verified scores with caps/regressions (use this)
+├── final_score.json       ← post-verification overall score (with registry)
+└── deferred_fixes.md      ← items requiring human attention
 ```

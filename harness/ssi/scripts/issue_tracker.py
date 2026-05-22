@@ -21,7 +21,7 @@ from pathlib import Path
 from datetime import datetime
 
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
-VALID_STATUS = {"open", "fixed", "deferred", "wontfix"}
+VALID_STATUS = {"open", "fixed", "deferred", "wontfix", "regressed"}
 
 
 def _issue_id(dimension: str, file: str, line, message: str) -> str:
@@ -62,7 +62,14 @@ def add_finding(registry: dict, finding: dict, dimension: str, round_num: int) -
     # Check if already tracked
     existing = next((i for i in registry["issues"] if i["id"] == iid), None)
     if existing:
-        # Update last_seen round, keep status
+        # If the issue was previously fixed/deferred but reappeared
+        # (skipped at least one round), mark it as regressed.
+        prev_status = existing.get("status", "open")
+        prev_round = existing.get("last_seen_round", 0)
+        if prev_status in ("fixed", "deferred") and prev_round < round_num:
+            existing["status"] = "regressed"
+            existing["regressed_from"] = prev_status
+        # Update last_seen round
         existing["last_seen_round"] = round_num
         return iid
 
@@ -178,11 +185,11 @@ def summary(registry: dict) -> dict:
         status = issue["status"]
         counts["by_severity"][sev] = counts["by_severity"].get(sev, 0) + 1
         counts["by_status"][status] = counts["by_status"].get(status, 0) + 1
-        if status == "open":
+        if status in ("open", "regressed"):
             counts["open_by_severity"][sev] = counts["open_by_severity"].get(sev, 0) + 1
 
     counts["total"] = len(registry["issues"])
-    counts["open_total"] = counts["by_status"].get("open", 0)
+    counts["open_total"] = counts["by_status"].get("open", 0) + counts["by_status"].get("regressed", 0)
     counts["open_critical"] = counts["open_by_severity"].get("critical", 0)
     counts["open_high"] = counts["open_by_severity"].get("high", 0)
     counts["open_medium"] = counts["open_by_severity"].get("medium", 0)
@@ -190,8 +197,8 @@ def summary(registry: dict) -> dict:
 
 
 def open_issues(registry: dict, severity_filter: list = None) -> list:
-    """Return open issues, sorted by severity (critical first)."""
-    issues = [i for i in registry["issues"] if i["status"] == "open"]
+    """Return open and regressed issues, sorted by severity (critical first)."""
+    issues = [i for i in registry["issues"] if i["status"] in ("open", "regressed")]
     if severity_filter:
         issues = [i for i in issues if i["severity"] in severity_filter]
     issues.sort(key=lambda i: (SEVERITY_ORDER.get(i["severity"], 99), i["round_found"]))
