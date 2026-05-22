@@ -418,6 +418,7 @@ class GateContext:
     work_dir: str
     sab_data: dict = field(default_factory=dict)
     tier3_context: dict = field(default_factory=dict)  # CRG Point 2 — per-dim context
+    crg_safety_context: dict = field(default_factory=dict)  # CRG Points 3+4 — pre-computed
     auto_fix_rounds: int = 0
 
     def evaluation_prompt(self) -> str:
@@ -462,12 +463,16 @@ class GateContext:
                 " (architecture, error_handling, readability, documentation, performance).\n"
             )
 
-        # CRG Points 3+4: fix-round safety hints (only if CRG is active for this gate)
-        if self.tier3_context:
+        # CRG Point 3: pre-computed safety context.
+        # Point 4 (drift) is per-round — handled by AutoFixEngine, not pre-computed here.
+        if self.crg_safety_context:
+            crg_lines += "\n[CRG Safety Context — pre-computed by HarnessBridge]\n"
+            pre_fix = self.crg_safety_context.get("pre_fix_safety", {})
+            if pre_fix:
+                safe = "SAFE" if pre_fix.get("safe", True) else "UNSAFE"
+                crg_lines += f"  pre_fix_safety: {safe} — {pre_fix.get('message', '')}\n"
             crg_lines += (
-                "\n[CRG Fix-Round Protocol]\n"
-                "  Before each fix: call bridge.check_pre_fix_safety(project_root) — defer if unsafe.\n"
-                "  After each fix:  call bridge.check_post_round_drift(project_root) — revert if drifted.\n"
+                "  > Before each fix round, defer if pre_fix_safety is UNSAFE.\n"
             )
 
         return (
@@ -566,6 +571,13 @@ class HarnessBridge:
         if config.crg.get("reconnaissance"):
             self.crg.run_reconnaissance(project_root)
 
+        # CRG Gate 2: lightweight graph refresh for impact check (no full recon).
+        # Gate 2 declares impact_check but not reconnaissance — ensure graph exists
+        # so pre-fix blast radius checks have structural data to work with.
+        # CRG is mandatory; refresh failure is a blocking error, same as Gate 3/4.
+        if config.crg.get("impact_check") and not config.crg.get("reconnaissance"):
+            self.crg.refresh_graph(project_root)
+
         # CRG Point 2: Tier 3 guidance — get minimal context for each Tier 3 dimension
         tier3_context: dict[str, dict] = {}
         if config.crg.get("tier3_guidance"):
@@ -574,6 +586,13 @@ class HarnessBridge:
                     tier3_context[dim.name] = self.crg.get_minimal_context(
                         project_root, dim.name
                     )
+
+        # CRG Point 3: pre-compute pre-fix safety context (not just text hints).
+        # Point 4 (drift check) is per-round, not pre-computed here — it fires
+        # in AutoFixEngine.fix() after each fix round.
+        crg_safety_context: dict[str, dict] = {}
+        if config.crg.get("impact_check") or config.crg.get("enabled"):
+            crg_safety_context["pre_fix_safety"] = self.check_pre_fix_safety(project_root)
 
         ssi_dir = Path(__file__).parent / "ssi"
         work_dir = Path(project_root) / ".sessi-work"
@@ -593,6 +612,7 @@ class HarnessBridge:
             work_dir=str(work_dir),
             sab_data=sab_data,
             tier3_context=tier3_context,
+            crg_safety_context=crg_safety_context,
             auto_fix_rounds=auto_fix_rounds,
         )
 

@@ -1,17 +1,22 @@
 #!/usr/bin/env python3
 """
-CRG Integration Helper: MCP-first wrapper for code-review-graph operations.
+CRG Integration CLI: Standalone bash-invocable wrapper for code-review-graph.
 
-Used by Tier 3 evaluation (architecture/readability/performance) and by the
-fix loop's blast-radius safety gate.
+Used by prompt-driven evaluation (evaluate_dimension.md, crg_reconnaissance.md,
+improvement_plan.md, verify_round.md) where Claude invokes it as a bash command:
+    python3 scripts/crg_integration.py blast . HEAD
+    python3 scripts/crg_integration.py ensure .
+
+For programmatic use (Python API within HarnessBridge / AutoFixEngine), see
+harness/crg_bridge.py (CRGBridge class).
 
 Three primitives:
-  1. context(repo)          → compressed architecture snapshot for Tier 3 eval
-  2. blast_radius(repo, files)  → impact assessment before applying a fix
-  3. update(repo)           → incremental graph refresh after commits
+  1. context(repo)            → compressed architecture snapshot for Tier 3 eval
+  2. blast_radius(repo, base) → impact assessment before applying a fix
+  3. update(repo)             → incremental graph refresh after commits
 
-All functions use CRG MCP tools directly when running inside Claude Code.
-Falls back gracefully when running standalone (e.g. pytest outside CC).
+CRG is mandatory (same tier as ruff/mypy/pytest). All functions use CRG MCP
+tools directly when running inside Claude Code.
 """
 
 import sys

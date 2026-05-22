@@ -12,14 +12,8 @@ from pathlib import Path
 import tempfile
 import json
 
-# CRG integration (graceful — import failure is non-fatal)
-try:
-    from crg_integration import ensure_ready as _crg_ensure_ready
-
-    _HAS_CRG_MODULE = True
-except ImportError:
-    _HAS_CRG_MODULE = False
-    _crg_ensure_ready = None  # pyright: ignore[reportAssignmentType]
+# CRG integration (required — same as ruff/mypy/pytest)
+from crg_integration import ensure_ready as _crg_ensure_ready
 
 
 def clone_repo(github_url):
@@ -123,20 +117,14 @@ def resolve_target(target):
 
 def init_crg(repo_path: str, work_dir: str) -> dict:
     """
-    Auto-initialize CRG if installed. Writes status to .sessi-work/crg_status.json
-    so all downstream steps can read it without re-checking.
+    Initialize CRG (required — same as ruff/mypy/pytest).
 
-    Returns CRG status dict.
+    Writes status to .sessi-work/crg_status.json so all downstream steps
+    can read it without re-checking. CRG unavailable → BLOCK (exit 1).
     """
     print("[CRG] Checking Code Review Graph…", file=sys.stderr)
 
-    if _HAS_CRG_MODULE:
-        status = _crg_ensure_ready(repo_path)  # pyright: ignore[reportOptionalCall]
-    else:
-        status = {
-            "available": False,
-            "reason": "CRG MCP tools not available — running outside Claude Code",
-        }
+    status = _crg_ensure_ready(repo_path)
 
     # Write status to work_dir for downstream steps
     work_path = Path(work_dir)
@@ -145,19 +133,19 @@ def init_crg(repo_path: str, work_dir: str) -> dict:
     with open(status_file, "w") as f:
         json.dump(status, f, indent=2)
 
-    if status["available"]:
+    if status.get("available"):
         nodes = status.get("node_count", "?")
         action = status.get("action", "")
         tag = " (auto-built)" if action == "auto_built" else ""
         print(f"[CRG] ✓ Ready — {nodes} nodes{tag}", file=sys.stderr)
-    else:
-        print(
-            f"[CRG] Not available — {status.get('reason', 'unknown')}. "
-            f"Framework will run without CRG (higher token cost for Tier 3).",
-            file=sys.stderr,
-        )
+        return status
 
-    return status
+    raise RuntimeError(
+        f"CRG is required but not available.\n"
+        f"  Reason: {status.get('reason', 'unknown')}\n"
+        f"  Install: pipx install code-review-graph\n"
+        f"  Then:    code-review-graph build --repo ."
+    )
 
 
 def main():
@@ -171,11 +159,14 @@ def main():
     try:
         target_path = resolve_target(target)
 
-        # Auto-initialize CRG (transparent — gracefully skipped if not installed)
+        # Auto-initialize CRG (required — raises RuntimeError if unavailable)
         init_crg(target_path, work_dir)
 
         # Output target path to stdout for orchestrator capture
         print(target_path)
+    except RuntimeError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)

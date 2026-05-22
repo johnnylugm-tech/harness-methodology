@@ -403,11 +403,14 @@ class TestSabManifestIntegration:
     def test_crg_tier3_guidance_wired_in_prepare_gate(self, tmp_path):
         """prepare_gate() retrieves tier3_context when tier3_guidance is enabled."""
         bridge = HarnessBridge()
-        bridge.crg.is_available = MagicMock(return_value=True)
         bridge.crg.get_minimal_context = MagicMock(return_value={
             "task": "architecture", "summary": "12 modules, 3 communities",
         })
         bridge.crg.run_reconnaissance = MagicMock()
+        bridge.crg.load_metrics = MagicMock(return_value={})
+        bridge.check_pre_fix_safety = MagicMock(return_value={
+            "safe": True, "message": "ok", "threshold": 0.7,
+        })
 
         # Create minimal gate config with tier3_guidance
         gate_config_dir = Path(__file__).parent.parent / "harness" / "gate_configs"
@@ -435,7 +438,7 @@ class TestSabManifestIntegration:
         assert "linting" not in ctx.tier3_context
 
     def test_crg_tier3_context_in_evaluation_prompt(self):
-        """evaluation_prompt() surfaces tier3_context when available."""
+        """evaluation_prompt() surfaces tier3_context and crg_safety_context when available."""
         ctx = GateContext(
             gate_num=3, config={
                 "dimensions": [{"name": "architecture", "tier": 3, "model": "claude", "threshold": 80, "weight": 1.0}],
@@ -445,13 +448,15 @@ class TestSabManifestIntegration:
             ssi_scripts_dir="/t/ssi", ssi_prompts_dir="/t/ssi",
             ssi_schemas_dir="/t/ssi", work_dir="/t/.sessi-work",
             tier3_context={"architecture": {"task": "architecture", "summary": "high coupling detected"}},
+            crg_safety_context={
+                "pre_fix_safety": {"safe": True, "message": "ok", "threshold": 0.7},
+            },
         )
         prompt = ctx.evaluation_prompt()
         assert "CRG Tier 3 Guidance" in prompt
         assert "architecture" in prompt
-        assert "CRG Fix-Round Protocol" in prompt
-        assert "check_pre_fix_safety" in prompt
-        assert "check_post_round_drift" in prompt
+        assert "CRG Safety Context" in prompt
+        assert "pre_fix_safety" in prompt
 
     def test_check_pre_fix_safety_delegates_to_crg(self, tmp_path):
         """check_pre_fix_safety() calls CRG and returns structured result."""

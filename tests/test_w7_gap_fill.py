@@ -774,27 +774,26 @@ class TestAuditLoggerExtra:
 # ─── CRGBridge extra paths ────────────────────────────────────────────────────
 
 class TestCRGBridgeExtra:
-    def test_run_reconnaissance_not_available(self, tmp_path):
+    def test_run_reconnaissance_raises_when_no_recon_file(self, tmp_path):
         from harness.crg_bridge import CRGBridge
-        b = CRGBridge()
-        with patch.object(b, "is_available", return_value=False):
-            result = b.run_reconnaissance(str(tmp_path))
-        assert result == {}
+        import pytest
+        with pytest.raises(FileNotFoundError, match="CRG reconnaissance data not found"):
+            CRGBridge().run_reconnaissance(str(tmp_path))
 
-    def test_get_minimal_context_not_available(self, tmp_path):
+    def test_get_minimal_context_calls_mcp_for_dimension(self, tmp_path):
         from harness.crg_bridge import CRGBridge
-        b = CRGBridge()
-        with patch.object(b, "is_available", return_value=False):
-            result = b.get_minimal_context(str(tmp_path), "correctness")
-        assert result == {}
+        import sys
+        mock_mcp = sys.modules["mcp_tools"]
+        mock_mcp.mcp__code_review_graph__get_minimal_context_tool.return_value = {
+            "summary": "test dimension context"
+        }
+        result = CRGBridge().get_minimal_context(str(tmp_path), "correctness")
+        assert result["summary"] == "test dimension context"
 
-    def test_get_minimal_context_handles_mcp_error(self, tmp_path):
+    def test_refresh_graph_does_not_require_recon_file(self, tmp_path):
         from harness.crg_bridge import CRGBridge
-        with patch("harness.crg_bridge._CRG_MCP_AVAILABLE", True), \
-             patch("harness.crg_bridge._crg_minimal_context", create=True,
-                   side_effect=RuntimeError("boom")):
-            result = CRGBridge().get_minimal_context(str(tmp_path), "correctness")
-        assert result == {}
+        # refresh_graph() only builds the graph — no file read
+        CRGBridge().refresh_graph(str(tmp_path))
 
 
 # ─── SpecTrackingParser extra paths ───────────────────────────────────────────

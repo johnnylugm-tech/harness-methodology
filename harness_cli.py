@@ -168,6 +168,10 @@ _TOOL_CHECK_COMMANDS: dict[str, tuple[str, str]] = {
     "linting": ("ruff --version 2>&1", "ruff"),
     "type_safety": ("mypy --version 2>&1", "mypy"),
     "test_coverage": ("pytest --version 2>&1", "pytest + coverage"),
+    "code-review-graph": ("code-review-graph status 2>&1", "code-review-graph"),
+    # Structural dimensions — scored by CRG, not LLM
+    "architecture": ("code-review-graph status 2>&1", "code-review-graph"),
+    "error_handling": ("code-review-graph status 2>&1", "code-review-graph"),
 }
 
 def _check_tool_for_dim(dim_name: str, tool_name: str | None) -> tuple[bool, str]:
@@ -1499,8 +1503,9 @@ def _check_gate4_prerequisites(project: Path) -> bool:
     # ── B3: CRG recon output existence ────────────────────────────────
     # If the gate config declares crg.reconnaissance: true, the CRG bridge
     # must have been executed before finalize-gate is called.  The canonical
-    # evidence is the .sessi-work/crg_recon/ directory (written by CRGBridge).
-    # A missing or empty directory means CRG was never run — architecture-tier
+    # evidence is .sessi-work/crg_reconnaissance.json (written by the CRG
+    # reconnaissance protocol).
+    # A missing or empty file means CRG was never run — architecture-tier
     # scores derived from CRG data are therefore groundless.
     try:
         import yaml as _yaml
@@ -1519,16 +1524,16 @@ def _check_gate4_prerequisites(project: Path) -> bool:
                 print(f"[Gate 4] B3: skipping {_crg_cfg_path} (parse error: {_b3_cfg_exc})",
                       file=sys.stderr)
         if _crg_recon_required:
-            recon_dir = project / ".sessi-work" / "crg_recon"
-            recon_files = list(recon_dir.iterdir()) if recon_dir.is_dir() else []
-            if not recon_files:
+            recon_file = project / ".sessi-work" / "crg_reconnaissance.json"
+            recon_exists = recon_file.is_file() and recon_file.stat().st_size > 0
+            if not recon_exists:
                 print(
                     "\n[BLOCKED] Gate 4 (B3): CRG reconnaissance output not found.\n"
-                    f"  Expected: {recon_dir}/ (non-empty)\n"
+                    f"  Expected: {recon_file} (non-empty)\n"
                     "  Gate 4 config declares crg.reconnaissance: true — the CRG bridge\n"
                     "  must be executed before finalize-gate to provide architecture-tier\n"
                     "  evaluation context.\n"
-                    "  Run the code-review-graph tool or CRGBridge, then re-run:\n"
+                    "  Run the CRG reconnaissance protocol, then re-run:\n"
                     "    python harness_cli.py finalize-gate --gate 4 --phase 6 --project .",
                     file=sys.stderr,
                 )
@@ -1536,7 +1541,7 @@ def _check_gate4_prerequisites(project: Path) -> bool:
             else:
                 print(
                     f"[Gate 4] B3: CRG recon output found "
-                    f"({len(recon_files)} file(s) in {recon_dir.name}/) ✅",
+                    f"({recon_file.name}, {recon_file.stat().st_size} bytes) ✅",
                     file=sys.stderr,
                 )
     except Exception as _b3exc:
@@ -2677,6 +2682,36 @@ def cmd_status(args: argparse.Namespace) -> int:
                 print(f"  {fr_id}: score={fs['score']} complete={fs['complete']}")
             else:
                 print(f"  {fr_id}: not run")
+
+    # CRG status
+    crg_status_path = project / ".sessi-work" / "crg_status.json"
+    print("\n[CRG]")
+    if crg_status_path.exists():
+        try:
+            crg_status = json.loads(crg_status_path.read_text(encoding="utf-8"))
+            if crg_status.get("available"):
+                nodes = crg_status.get("node_count", "?")
+                action = crg_status.get("action", "")
+                tag = " (auto-built)" if action == "auto_built" else ""
+                print(f"  graph     : {nodes} nodes{tag}")
+                # Reconnaissance
+                recon_path = project / ".sessi-work" / "crg_reconnaissance.json"
+                if recon_path.is_file() and recon_path.stat().st_size > 0:
+                    print(f"  recon     : available ({recon_path.stat().st_size} bytes)")
+                else:
+                    print(f"  recon     : not yet run")
+                # Metrics
+                metrics_path = project / ".sessi-work" / "crg_metrics.json"
+                if metrics_path.is_file():
+                    print(f"  metrics   : available ({metrics_path.stat().st_size} bytes)")
+                else:
+                    print(f"  metrics   : not yet computed")
+            else:
+                print(f"  status    : unavailable — {crg_status.get('reason', 'unknown')}")
+        except (json.JSONDecodeError, OSError):
+            print(f"  status    : error reading crg_status.json")
+    else:
+        print(f"  status    : not initialized — run Gate 3 or Gate 4 to build graph")
 
     if full:
         print(f"\n[Test Stats]")

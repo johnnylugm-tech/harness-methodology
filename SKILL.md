@@ -315,6 +315,67 @@ State stored in `.methodology/state.json`:
 | Constitution rule parser & HR compliance | `constitution/` directory |
 | A/B agent personas | `agent_personas/` directory |
 
+## 8. CRG Integration Layer
+
+CRG (Code Review Graph) is **mandatory** (same tier as ruff/mypy/pytest). It provides
+structural analysis — call graphs, community detection, flow analysis, dead code detection.
+
+### 8.1 CRG Injection Points (HarnessBridge)
+
+| Point | When | API | Gates |
+|-------|------|-----|-------|
+| 1 Reconnaissance | `prepare_gate()` | `crg.run_reconnaissance()` | 3, 4 |
+| 2 Tier 3 Guidance | `prepare_gate()` | `crg.get_minimal_context(dim)` | 3, 4 |
+| 3 Pre-fix Safety | Before each fix round | `bridge.check_pre_fix_safety()` | 2, 3, 4 |
+| 4 Drift Check | After each fix round | `bridge.check_post_round_drift()` | 3, 4 |
+
+### 8.2 Deep Integration Points (Deterministic)
+
+| # | Signal | Formula | Where |
+|---|--------|---------|-------|
+| 1 | `risk_score` | `eval_depth` gate | `evaluate_dimension.md` |
+| 2 | `community_cohesion` | Architecture score (CRG-only) | `score.py` |
+| 3 | `flow_coverage` | Error handling score (CRG-only) | `score.py` |
+| 4 | `dead_code_ratio` | Escalate severity if > 5% | `improvement_plan.md` |
+| 5 | `hub_risk_map` | Severity bucket by fan-in | `evaluate_dimension.md` |
+| 6 | `suggested_questions` | Auto-seed issue registry | `crg_reconnaissance.md` |
+
+### 8.3 Key CRG MCP Tools
+
+| Tool | Use |
+|------|-----|
+| `build_or_update_graph` | Gate 3/4 entry, post-edit auto-update |
+| `get_minimal_context` | Tier 3 per-dim context (~100 tokens) |
+| `detect_changes` | Pre-fix safety, post-round drift |
+| `get_hub_nodes` / `get_bridge_nodes` | Structural reconnaissance |
+| `list_communities` / `get_community` | Cohesion scoring |
+| `get_knowledge_gaps` | Untested hotspot detection |
+| `query_graph` | Callers/callees/tests tracing |
+| `semantic_search_nodes` | Codebase exploration |
+| `find_large_functions` | Readability evaluation |
+| `refactor_tool` | Dead code detection |
+
+### 8.4 Gate-CRG Configuration
+
+| Gate | CRG Scope |
+|------|----------|
+| Gate 1 (per-FR) | None — 3 dims, Tier 1 only |
+| Gate 2 (P3 exit) | Graph refresh + impact check |
+| Gate 3 (P4 exit) | Full: recon + tier3 + impact + drift |
+| Gate 4 (P6 full) | Full + mandatory B3 recon check |
+
+### 8.5 Verifying CRG
+
+```bash
+python3 scripts/verify_tools.py          # CRG is now in CORE section
+code-review-graph status                  # Quick status check
+cat .sessi-work/crg_status.json          # Session-level status
+cat .sessi-work/crg_reconnaissance.json  # Recon output (Gate 3/4)
+cat .sessi-work/crg_metrics.json         # Metrics for scoring
+```
+
+Full reference: `docs/CRG_DEEP_INTEGRATION.md`
+
 ---
 
 *harness-methodology v2.4.0 — Academic Benchmark 91/100*

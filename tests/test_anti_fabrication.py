@@ -1244,7 +1244,7 @@ class TestSpawnLogNullTimestamp:
 # ---------------------------------------------------------------------------
 
 class TestCRGReconCheck:
-    """Gate 4 B3: .sessi-work/crg_recon/ must exist when reconnaissance: true."""
+    """Gate 4 B3: .sessi-work/crg_reconnaissance.json must exist when reconnaissance: true."""
 
     @staticmethod
     def _make_prereqs_with_crg_config(tmp_path: Path, *, recon: bool) -> None:
@@ -1287,38 +1287,33 @@ class TestCRGReconCheck:
         }))
         (meth / "issues.json").write_text(json.dumps({"issues": ["f1"]}))
 
-    def test_missing_recon_dir_blocked(self, tmp_path):
-        """B3: reconnaissance: true with no crg_recon/ directory → blocked."""
+    def test_missing_recon_file_blocked(self, tmp_path):
+        """B3: reconnaissance: true with no crg_reconnaissance.json → blocked."""
         from harness_cli import _check_gate4_prerequisites
         self._make_prereqs_with_crg_config(tmp_path, recon=True)
-        # crg_recon/ does NOT exist
         blocked = _check_gate4_prerequisites(tmp_path)
-        assert blocked, "Missing crg_recon/ should block Gate 4 (B3)"
+        assert blocked, "Missing crg_reconnaissance.json should block Gate 4 (B3)"
 
-    def test_empty_recon_dir_blocked(self, tmp_path):
-        """B3: reconnaissance: true with empty crg_recon/ directory → blocked."""
+    def test_empty_recon_file_blocked(self, tmp_path):
+        """B3: reconnaissance: true with empty crg_reconnaissance.json → blocked."""
         from harness_cli import _check_gate4_prerequisites
         self._make_prereqs_with_crg_config(tmp_path, recon=True)
-        # Create empty crg_recon/
-        (tmp_path / ".sessi-work" / "crg_recon").mkdir(parents=True)
+        (tmp_path / ".sessi-work" / "crg_reconnaissance.json").write_text("")
         blocked = _check_gate4_prerequisites(tmp_path)
-        assert blocked, "Empty crg_recon/ should block Gate 4 (B3)"
+        assert blocked, "Empty crg_reconnaissance.json should block Gate 4 (B3)"
 
-    def test_populated_recon_dir_passes(self, tmp_path):
-        """B3: recon dir with at least one file passes the check."""
+    def test_populated_recon_file_passes(self, tmp_path):
+        """B3: non-empty crg_reconnaissance.json passes the check."""
         from harness_cli import _check_gate4_prerequisites
         self._make_prereqs_with_crg_config(tmp_path, recon=True)
-        recon_dir = tmp_path / ".sessi-work" / "crg_recon"
-        recon_dir.mkdir(parents=True)
-        (recon_dir / "graph.json").write_text(json.dumps({"nodes": 42}))
+        recon_file = tmp_path / ".sessi-work" / "crg_reconnaissance.json"
+        recon_file.write_text(json.dumps({"nodes": 42}))
         blocked = _check_gate4_prerequisites(tmp_path)
-        assert not blocked, f"Populated crg_recon/ should not block Gate 4, got blocked={blocked}"
+        assert not blocked, f"Populated crg_reconnaissance.json should not block Gate 4, got blocked={blocked}"
 
     def test_no_recon_config_skips_check(self, tmp_path):
         """B3: crg.reconnaissance: false → no B3 enforcement."""
         from harness_cli import _check_gate4_prerequisites
         self._make_prereqs_with_crg_config(tmp_path, recon=False)
-        # No crg_recon/ dir at all — should not block for B3 reasons
-        # (crg_recon/ being absent is fine when reconnaissance: false)
         blocked = _check_gate4_prerequisites(tmp_path)
-        assert not blocked, f"reconnaissance: false with no crg_recon/ should not block Gate 4, got blocked={blocked}"
+        assert not blocked, f"reconnaissance: false should not block Gate 4, got blocked={blocked}"

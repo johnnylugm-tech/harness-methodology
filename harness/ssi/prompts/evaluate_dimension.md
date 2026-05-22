@@ -180,23 +180,37 @@ fi
 > Example: mutmut reports 25% survived → tool_score=75. llm_score=80 is capped to 75.
 > llm_score=60 is accepted (score becomes 60) but R8b warns about the >10-point deviation.
 
-### architecture (Tier 3)
+### architecture (Tier 3 — CRG-ONLY)
+
+**Scored by CRG, not LLM.** The score comes from `crg_analysis.py metrics` output:
+`community_cohesion.score` — percent of healthy communities (cohesion >= 0.4 AND size <= 50).
+
+No LLM evaluation is performed for this dimension. CRG is the authoritative scorer,
+same as ruff for linting or mypy for type_safety.
+
+Tool command (for findings enrichment only — does not affect score):
 ```bash
 radon cc src/ -j --min A 2>&1 | head -200
 ```
-**Score formula:** `tool_score = max(0, 100 - count(CC > 10) × 5)` — count entries in JSON output where `complexity > 10`. Functions with CC ≤ 10 are acceptable (grade A/B); C+ (>10) each deduct 5 points.
 
 ### readability (Tier 3)
+
 ```bash
 radon mi src/ -j 2>&1 | head -100
 ```
-**Score formula:** `tool_score = avg(mi for all files)` — `radon mi -j` outputs `{"file.py": {"mi": 0-100, "rank": "A-F"}}`. Average the `mi` values across all files. This is already a 0-100 maintainability index.
+**Score formula:** `tool_score = avg(mi for all files)` — `radon mi -j` outputs `{"file.py": {"mi": 0-100, "rank": "A-F"}}`. Average the `mi` values across all files.
 
-### error_handling (Tier 3)
+### error_handling (Tier 3 — CRG-ONLY)
+
+**Scored by CRG, not LLM.** The score comes from `crg_analysis.py metrics` output:
+`flow_coverage.score` — percent of flows with documented error handlers.
+
+No LLM evaluation is performed for this dimension. CRG is the authoritative scorer.
+
+Tool command (for findings enrichment only — does not affect score):
 ```bash
 grep -rn --include="*.py" "except\s*:" src/ 2>&1 | head -100
 ```
-**Score formula:** `tool_score = max(0, 100 - match_lines × 5)` — count non-empty output lines. Each bare `except:` (with no exception type) deducts 5 points.
 
 ### documentation (Tier 3)
 ```bash
@@ -225,25 +239,26 @@ radon cc src/ -j --min A 2>&1 | head -100
 
 Score = formula from Step 1. Findings = each tool violation becomes one finding entry.
 
-### Tier 3: use CRG to enrich findings (annotation only — not scoring)
+### Tier 3: CRG-scored dimensions vs tool-scored dimensions
 
+**CRG-ONLY dimensions** (architecture, error_handling):
+- Score comes directly from `crg_analysis.py metrics` → `community_cohesion.score` / `flow_coverage.score`
+- `score.py` applies the CRG score as the authoritative score (not min with LLM)
+- LLM does NOT compute or adjust the numeric score for these dimensions
+- Tool output (radon, grep) is used only for findings enrichment, not scoring
+
+**Tool-scored Tier 3 dimensions** (readability, documentation, performance):
+- Score = formula from Step 1 tool output
+- Optionally query CRG (`get_minimal_context_tool`) to enrich finding descriptions
+- CRG data enriches findings but does not change the score
+
+**For all Tier 3 dimensions**, first check CRG is available:
 ```bash
 cat .sessi-work/crg_status.json
-# {"available": true, ...} OR {"available": false, ...}
+# {"available": true, ...}  — required; if available: false, BLOCK (CRG is mandatory)
 ```
 
-If `available: false` → skip CRG; extract findings from raw tool output only.
-
-If `available: true`:
-
-```
-[USE mcp__code-review-graph__get_minimal_context_tool]
-task: "evaluate <dimension> dimension"
-```
-
-Use CRG data to describe findings more precisely — cite `file:line`, `fan_in`, `cohesion` — but **do not change `tool_score`**. CRG context improves finding quality, not the numeric score.
-
-**CRG tool → finding mapping (for annotation context):**
+CRG tool → finding mapping (for annotation context):
 
 | Dimension | CRG tool | Finding context |
 |-----------|----------|----------------|
@@ -252,14 +267,6 @@ Use CRG data to describe findings more precisely — cite `file:line`, `fan_in`,
 | `performance` | `get_hub_nodes`, `list_flows` | Cite hot-path depth + hub fan_in |
 | `error_handling` | `get_affected_flows`, `semantic_search_nodes "except"` | Cite flow name + missing handler step |
 | `documentation` | `get_hub_nodes`, `get_wiki_page` | Undocumented hub nodes = highest-priority gaps |
-
-**CRG sub-score pull-down (score.py _apply_crg_subscores):**
-
-`score.py` may further lower the tool score using CRG structural signals:
-- `architecture` ← `min(tool_score, community_cohesion.score)`
-- `error_handling` ← `min(tool_score, flow_coverage.score)`
-
-This is applied automatically by `score.py`; you do not need to do it manually.
 
 ---
 

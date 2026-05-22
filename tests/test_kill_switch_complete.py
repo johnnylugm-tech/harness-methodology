@@ -670,35 +670,52 @@ class TestIssueTrackerExt:
 # ===========================================================================
 
 class TestCRGBridge:
-    def test_is_available_false_when_mcp_not_importable(self):
-        with patch("harness.crg_bridge._CRG_MCP_AVAILABLE", False):
-            from harness.crg_bridge import CRGBridge
-            assert CRGBridge().is_available() is False
+    """CRG is mandatory — tests verify core bridge behavior with mcp_tools mocked."""
 
-    def test_is_available_true_when_mcp_importable(self):
-        with patch("harness.crg_bridge._CRG_MCP_AVAILABLE", True):
-            from harness.crg_bridge import CRGBridge
-            assert CRGBridge().is_available() is True
+    def test_refresh_graph_calls_build_with_incremental(self):
+        from harness.crg_bridge import CRGBridge
+        import sys
+        mock_mcp = sys.modules["mcp_tools"]
+        mock_mcp.reset_mock()
+        bridge = CRGBridge()
+        bridge.refresh_graph("/tmp/project")
+        mock_mcp.mcp__code_review_graph__build_or_update_graph_tool.assert_called_once_with(
+            repo_root="/tmp/project", full_rebuild=False
+        )
 
-    def test_run_reconnaissance_returns_empty_when_unavailable(self):
-        with patch("harness.crg_bridge._CRG_MCP_AVAILABLE", False):
-            from harness.crg_bridge import CRGBridge
-            assert CRGBridge().run_reconnaissance("/tmp") == {}
+    def test_run_reconnaissance_when_available(self, tmp_path):
+        from harness.crg_bridge import CRGBridge
+        import sys
+        mock_mcp = sys.modules["mcp_tools"]
+        mock_mcp.reset_mock()
+        sessi_work = tmp_path / ".sessi-work"
+        sessi_work.mkdir()
+        (sessi_work / "crg_reconnaissance.json").write_text('{"modules": 5}', encoding="utf-8")
+        result = CRGBridge().run_reconnaissance(str(tmp_path))
+        assert result == {"modules": 5}
+        mock_mcp.mcp__code_review_graph__build_or_update_graph_tool.assert_called_once_with(
+            repo_root=str(tmp_path), full_rebuild=True
+        )
 
-    def test_get_minimal_context_returns_empty_when_unavailable(self):
-        with patch("harness.crg_bridge._CRG_MCP_AVAILABLE", False):
-            from harness.crg_bridge import CRGBridge
-            assert CRGBridge().get_minimal_context("/tmp", "quality") == {}
+    def test_get_minimal_context_parses_json_output(self, tmp_path):
+        from harness.crg_bridge import CRGBridge
+        import sys
+        mock_mcp = sys.modules["mcp_tools"]
+        mock_mcp.mcp__code_review_graph__get_minimal_context_tool.return_value = {
+            "hint": "use lazy loading"
+        }
+        result = CRGBridge().get_minimal_context(str(tmp_path), "architecture")
+        assert result["hint"] == "use lazy loading"
 
-    def test_check_impact_returns_false_when_unavailable(self):
-        with patch("harness.crg_bridge._CRG_MCP_AVAILABLE", False):
-            from harness.crg_bridge import CRGBridge
-            assert CRGBridge().check_impact("/tmp") is False
-
-    def test_check_drift_returns_false_when_unavailable(self):
-        with patch("harness.crg_bridge._CRG_MCP_AVAILABLE", False):
-            from harness.crg_bridge import CRGBridge
-            assert CRGBridge().check_drift("/tmp") is False
+    def test_check_impact_true_when_high_risk(self, tmp_path):
+        from harness.crg_bridge import CRGBridge
+        import sys
+        mock_mcp = sys.modules["mcp_tools"]
+        mock_mcp.mcp__code_review_graph__detect_changes_tool.return_value = {
+            "risk_score": 0.85
+        }
+        result = CRGBridge().check_impact(str(tmp_path))
+        assert result is True
 
     def test_check_drift_false_when_no_metrics_file(self, tmp_path):
         from harness.crg_bridge import CRGBridge
@@ -722,11 +739,6 @@ class TestCRGBridge:
         )
         assert CRGBridge().check_drift(str(tmp_path), threshold=0.4) is False
 
-    def test_load_metrics_empty_when_no_file(self, tmp_path):
-        from harness.crg_bridge import CRGBridge
-        bridge = CRGBridge()
-        assert bridge.load_metrics(str(tmp_path)) == {}
-
     def test_load_metrics_returns_data(self, tmp_path):
         from harness.crg_bridge import CRGBridge
         sessi_work = tmp_path / ".sessi-work"
@@ -737,29 +749,3 @@ class TestCRGBridge:
         bridge = CRGBridge()
         data = bridge.load_metrics(str(tmp_path))
         assert data["score"] == 0.85
-
-    def test_run_reconnaissance_when_available(self, tmp_path):
-        from harness.crg_bridge import CRGBridge
-        sessi_work = tmp_path / ".sessi-work"
-        sessi_work.mkdir()
-        (sessi_work / "crg_reconnaissance.json").write_text('{"modules": 5}', encoding="utf-8")
-        with patch("harness.crg_bridge._CRG_MCP_AVAILABLE", True), \
-             patch("harness.crg_bridge._crg_build", create=True):
-            result = CRGBridge().run_reconnaissance(str(tmp_path))
-        assert result == {"modules": 5}
-
-    def test_get_minimal_context_parses_json_output(self, tmp_path):
-        from harness.crg_bridge import CRGBridge
-        with patch("harness.crg_bridge._CRG_MCP_AVAILABLE", True), \
-             patch("harness.crg_bridge._crg_minimal_context", create=True) as mock_ctx:
-            mock_ctx.return_value = {"hint": "use lazy loading"}
-            result = CRGBridge().get_minimal_context(str(tmp_path), "architecture")
-        assert result["hint"] == "use lazy loading"
-
-    def test_check_impact_true_when_high_risk(self, tmp_path):
-        from harness.crg_bridge import CRGBridge
-        with patch("harness.crg_bridge._CRG_MCP_AVAILABLE", True), \
-             patch("harness.crg_bridge._crg_detect_changes", create=True) as mock_detect:
-            mock_detect.return_value = {"risk_score": 0.85}
-            result = CRGBridge().check_impact(str(tmp_path))
-        assert result is True

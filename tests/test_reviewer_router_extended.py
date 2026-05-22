@@ -535,9 +535,12 @@ class TestTryChain:
 
     def test_degradation_note_when_hermes_times_out(self):
         r = self._router()
+        # Enable hermes, disable gemini so chain falls through to subagent
         for spec in r._chain:
             if spec.name == "hermes":
                 spec.enabled = True
+            elif spec.name == "gemini":
+                spec.enabled = False
         with patch.object(r, "_try_hermes", side_effect=TimeoutError("timeout")):
             with patch.object(r, "_try_subagent", return_value=APPROVE_RESULT):
                 result = r._try_chain("reviewer", "prompt", 3, None, None)

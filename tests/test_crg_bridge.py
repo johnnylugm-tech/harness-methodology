@@ -1,107 +1,87 @@
-"""Tests for CRGBridge — MCP-first CRG integration."""
+"""Tests for CRGBridge — mandatory CRG integration (no graceful degradation)."""
 
-from unittest.mock import patch
+import sys
+from unittest.mock import MagicMock
 
+import pytest
 
-class TestCRGBridgeAvailability:
-    def test_is_available_when_mcp_not_importable(self):
-        with patch("harness.crg_bridge._CRG_MCP_AVAILABLE", False):
-            from harness.crg_bridge import CRGBridge
-            assert CRGBridge().is_available() is False
+from harness.crg_bridge import CRGBridge
 
-    def test_is_available_when_mcp_importable(self):
-        with patch("harness.crg_bridge._CRG_MCP_AVAILABLE", True):
-            from harness.crg_bridge import CRGBridge
-            assert CRGBridge().is_available() is True
+_mock_mcp = sys.modules["mcp_tools"]
 
 
-class TestCRGBridgeUnavailable:
-    def test_run_reconnaissance_returns_empty(self):
-        with patch("harness.crg_bridge._CRG_MCP_AVAILABLE", False):
-            from harness.crg_bridge import CRGBridge
-            assert CRGBridge().run_reconnaissance("/tmp") == {}
-
-    def test_get_minimal_context_returns_empty(self):
-        with patch("harness.crg_bridge._CRG_MCP_AVAILABLE", False):
-            from harness.crg_bridge import CRGBridge
-            assert CRGBridge().get_minimal_context("/tmp", "quality") == {}
-
-    def test_check_impact_returns_false(self):
-        with patch("harness.crg_bridge._CRG_MCP_AVAILABLE", False):
-            from harness.crg_bridge import CRGBridge
-            assert CRGBridge().check_impact("/tmp") is False
+@pytest.fixture(autouse=True)
+def _reset_mcp_mocks():
+    """Reset all MCP tool mocks between tests."""
+    _mock_mcp.reset_mock()
 
 
-class TestCRGBridgeMCPIntegration:
-    def test_run_reconnaissance_calls_build(self, tmp_path):
-        with patch("harness.crg_bridge._CRG_MCP_AVAILABLE", True), \
-             patch("harness.crg_bridge._crg_build", create=True) as mock_build:
-            from harness.crg_bridge import CRGBridge
-            result = CRGBridge().run_reconnaissance(str(tmp_path))
-            mock_build.assert_called_once_with(
-                repo_root=str(tmp_path), full_rebuild=True
-            )
-            assert result == {}
+class TestCRGBridgeCore:
+    """Core graph lifecycle and context methods."""
 
-    def test_run_reconnaissance_handles_build_error(self, tmp_path):
-        with patch("harness.crg_bridge._CRG_MCP_AVAILABLE", True), \
-             patch("harness.crg_bridge._crg_build", create=True,
-                   side_effect=RuntimeError("boom")):
-            from harness.crg_bridge import CRGBridge
-            result = CRGBridge().run_reconnaissance(str(tmp_path))
-            assert result == {}
+    def test_refresh_graph_calls_build(self):
+        bridge = CRGBridge()
+        bridge.refresh_graph("/tmp/project")
+        _mock_mcp.mcp__code_review_graph__build_or_update_graph_tool.assert_called_once_with(
+            repo_root="/tmp/project", full_rebuild=False
+        )
 
-    def test_get_minimal_context_calls_mcp(self, tmp_path):
-        with patch("harness.crg_bridge._CRG_MCP_AVAILABLE", True), \
-             patch("harness.crg_bridge._crg_minimal_context", create=True) as mock_ctx:
-            mock_ctx.return_value = {"hint": "use lazy loading"}
-            from harness.crg_bridge import CRGBridge
-            result = CRGBridge().get_minimal_context(str(tmp_path), "architecture")
-            mock_ctx.assert_called_once_with(
-                task="architecture", repo_root=str(tmp_path)
-            )
-            assert result == {"hint": "use lazy loading"}
+    def test_run_reconnaissance_calls_build_then_reads_file(self, tmp_path):
+        recon_data = {"risk_score": 0.5, "untested_hotspots": []}
+        sessi_work = tmp_path / ".sessi-work"
+        sessi_work.mkdir()
+        (sessi_work / "crg_reconnaissance.json").write_text(
+            '{"risk_score": 0.5, "untested_hotspots": []}', encoding="utf-8"
+        )
+        bridge = CRGBridge()
+        result = bridge.run_reconnaissance(str(tmp_path))
+        _mock_mcp.mcp__code_review_graph__build_or_update_graph_tool.assert_called_once_with(
+            repo_root=str(tmp_path), full_rebuild=True
+        )
+        assert result == recon_data
 
-    def test_get_minimal_context_handles_error(self, tmp_path):
-        with patch("harness.crg_bridge._CRG_MCP_AVAILABLE", True), \
-             patch("harness.crg_bridge._crg_minimal_context", create=True,
-                   side_effect=RuntimeError("boom")):
-            from harness.crg_bridge import CRGBridge
-            result = CRGBridge().get_minimal_context(str(tmp_path), "quality")
-            assert result == {}
+    def test_run_reconnaissance_raises_when_no_recon_file(self, tmp_path):
+        bridge = CRGBridge()
+        with pytest.raises(FileNotFoundError, match="CRG reconnaissance data not found"):
+            bridge.run_reconnaissance(str(tmp_path))
 
-    def test_check_impact_detects_high_risk(self, tmp_path):
-        with patch("harness.crg_bridge._CRG_MCP_AVAILABLE", True), \
-             patch("harness.crg_bridge._crg_detect_changes", create=True) as mock_detect:
-            mock_detect.return_value = {"risk_score": 0.85}
-            from harness.crg_bridge import CRGBridge
-            result = CRGBridge().check_impact(str(tmp_path))
-            mock_detect.assert_called_once_with(
-                base="HEAD", repo_root=str(tmp_path), detail_level="standard"
-            )
-            assert result is True
+    def test_get_minimal_context_calls_mcp(self):
+        _mock_mcp.mcp__code_review_graph__get_minimal_context_tool.return_value = {
+            "hint": "use lazy loading"
+        }
+        bridge = CRGBridge()
+        result = bridge.get_minimal_context("/tmp/project", "architecture")
+        _mock_mcp.mcp__code_review_graph__get_minimal_context_tool.assert_called_once_with(
+            task="architecture", repo_root="/tmp/project"
+        )
+        assert result == {"hint": "use lazy loading"}
 
-    def test_check_impact_low_risk_returns_false(self, tmp_path):
-        with patch("harness.crg_bridge._CRG_MCP_AVAILABLE", True), \
-             patch("harness.crg_bridge._crg_detect_changes", create=True) as mock_detect:
-            mock_detect.return_value = {"risk_score": 0.3}
-            from harness.crg_bridge import CRGBridge
-            result = CRGBridge().check_impact(str(tmp_path))
-            assert result is False
+    def test_check_impact_detects_high_risk(self):
+        _mock_mcp.mcp__code_review_graph__detect_changes_tool.return_value = {
+            "risk_score": 0.85
+        }
+        bridge = CRGBridge()
+        result = bridge.check_impact("/tmp/project")
+        _mock_mcp.mcp__code_review_graph__detect_changes_tool.assert_called_once_with(
+            base="HEAD", repo_root="/tmp/project", detail_level="standard"
+        )
+        assert result is True
 
-    def test_check_impact_handles_error(self, tmp_path):
-        with patch("harness.crg_bridge._CRG_MCP_AVAILABLE", True), \
-             patch("harness.crg_bridge._crg_detect_changes", create=True,
-                   side_effect=RuntimeError("boom")):
-            from harness.crg_bridge import CRGBridge
-            result = CRGBridge().check_impact(str(tmp_path))
-            assert result is False
+    def test_check_impact_low_risk_returns_false(self):
+        _mock_mcp.mcp__code_review_graph__detect_changes_tool.return_value = {
+            "risk_score": 0.3
+        }
+        bridge = CRGBridge()
+        result = bridge.check_impact("/tmp/project")
+        assert result is False
 
 
 class TestCRGBridgeFileIO:
+    """Drift and metrics file I/O."""
+
     def test_check_drift_false_when_no_metrics_file(self, tmp_path):
-        from harness.crg_bridge import CRGBridge
-        assert CRGBridge().check_drift(str(tmp_path)) is False
+        bridge = CRGBridge()
+        assert bridge.check_drift(str(tmp_path)) is False
 
     def test_check_drift_true_when_high_drift(self, tmp_path):
         sessi_work = tmp_path / ".sessi-work"
@@ -109,8 +89,8 @@ class TestCRGBridgeFileIO:
         (sessi_work / "crg_metrics.json").write_text(
             '{"structural_drift": 0.9}', encoding="utf-8"
         )
-        from harness.crg_bridge import CRGBridge
-        assert CRGBridge().check_drift(str(tmp_path), threshold=0.4) is True
+        bridge = CRGBridge()
+        assert bridge.check_drift(str(tmp_path), threshold=0.4) is True
 
     def test_check_drift_false_when_low_drift(self, tmp_path):
         sessi_work = tmp_path / ".sessi-work"
@@ -118,12 +98,13 @@ class TestCRGBridgeFileIO:
         (sessi_work / "crg_metrics.json").write_text(
             '{"structural_drift": 0.1}', encoding="utf-8"
         )
-        from harness.crg_bridge import CRGBridge
-        assert CRGBridge().check_drift(str(tmp_path), threshold=0.4) is False
+        bridge = CRGBridge()
+        assert bridge.check_drift(str(tmp_path), threshold=0.4) is False
 
-    def test_load_metrics_empty_when_no_file(self, tmp_path):
-        from harness.crg_bridge import CRGBridge
-        assert CRGBridge().load_metrics(str(tmp_path)) == {}
+    def test_load_metrics_raises_when_no_file(self, tmp_path):
+        bridge = CRGBridge()
+        with pytest.raises(FileNotFoundError, match="CRG metrics not found"):
+            bridge.load_metrics(str(tmp_path))
 
     def test_load_metrics_returns_data(self, tmp_path):
         sessi_work = tmp_path / ".sessi-work"
@@ -131,5 +112,156 @@ class TestCRGBridgeFileIO:
         (sessi_work / "crg_metrics.json").write_text(
             '{"score": 0.85}', encoding="utf-8"
         )
-        from harness.crg_bridge import CRGBridge
-        assert CRGBridge().load_metrics(str(tmp_path))["score"] == 0.85
+        bridge = CRGBridge()
+        assert bridge.load_metrics(str(tmp_path))["score"] == 0.85
+
+
+class TestCRGBridgeExtended:
+    """Extended structural analysis tools (optional MCP imports)."""
+
+    # Module-level variables that tests mutate — saved/restored per test
+    _EXTENDED_ATTRS = [
+        "_crg_hub_nodes", "_crg_list_communities", "_crg_knowledge_gaps",
+        "_crg_semantic_search", "_crg_query_graph", "_crg_large_funcs",
+        "_crg_list_flows", "_crg_refactor",
+    ]
+
+    @pytest.fixture(autouse=True)
+    def _save_restore_extended_attrs(self):
+        import harness.crg_bridge as crg_mod
+        saved = {a: getattr(crg_mod, a, None) for a in self._EXTENDED_ATTRS}
+        yield
+        for attr, val in saved.items():
+            setattr(crg_mod, attr, val)
+
+    def test_get_hub_nodes_when_available(self):
+        _mock_mcp.mcp__code_review_graph__get_hub_nodes_tool = MagicMock(
+            return_value={"hubs": [{"name": "main", "fan_in": 15}]}
+        )
+        # Re-import after adding the mock
+        import harness.crg_bridge as crg_mod
+        crg_mod._crg_hub_nodes = _mock_mcp.mcp__code_review_graph__get_hub_nodes_tool
+        bridge = CRGBridge()
+        result = bridge.get_hub_nodes("/tmp/project", min_fan_in=5)
+        assert len(result["hubs"]) == 1
+
+    def test_get_hub_nodes_returns_empty_when_unavailable(self):
+        import harness.crg_bridge as crg_mod
+        crg_mod._crg_hub_nodes = None
+        bridge = CRGBridge()
+        result = bridge.get_hub_nodes("/tmp/project")
+        assert result == {}
+
+    def test_list_communities_when_available(self):
+        _mock_mcp.mcp__code_review_graph__list_communities_tool = MagicMock(
+            return_value={"communities": [{"name": "core", "cohesion": 0.6}]}
+        )
+        import harness.crg_bridge as crg_mod
+        crg_mod._crg_list_communities = (
+            _mock_mcp.mcp__code_review_graph__list_communities_tool
+        )
+        bridge = CRGBridge()
+        result = bridge.list_communities("/tmp/project")
+        assert len(result["communities"]) == 1
+
+    def test_list_communities_returns_empty_when_unavailable(self):
+        import harness.crg_bridge as crg_mod
+        crg_mod._crg_list_communities = None
+        bridge = CRGBridge()
+        result = bridge.list_communities("/tmp/project")
+        assert result == {}
+
+    def test_semantic_search_when_available(self):
+        _mock_mcp.mcp__code_review_graph__semantic_search_nodes_tool = MagicMock(
+            return_value={"results": [{"name": "login"}]}
+        )
+        import harness.crg_bridge as crg_mod
+        crg_mod._crg_semantic_search = (
+            _mock_mcp.mcp__code_review_graph__semantic_search_nodes_tool
+        )
+        bridge = CRGBridge()
+        result = bridge.semantic_search("/tmp/project", "login")
+        assert len(result["results"]) == 1
+
+    def test_semantic_search_returns_empty_when_unavailable(self):
+        import harness.crg_bridge as crg_mod
+        crg_mod._crg_semantic_search = None
+        bridge = CRGBridge()
+        result = bridge.semantic_search("/tmp/project", "login")
+        assert result == {}
+
+    def test_query_graph_when_available(self):
+        _mock_mcp.mcp__code_review_graph__query_graph_tool = MagicMock(
+            return_value={"callers": ["a", "b"]}
+        )
+        import harness.crg_bridge as crg_mod
+        crg_mod._crg_query_graph = (
+            _mock_mcp.mcp__code_review_graph__query_graph_tool
+        )
+        bridge = CRGBridge()
+        result = bridge.query_graph("/tmp/project", "callers_of", "main")
+        assert result == {"callers": ["a", "b"]}
+
+    def test_query_graph_returns_empty_when_unavailable(self):
+        import harness.crg_bridge as crg_mod
+        crg_mod._crg_query_graph = None
+        bridge = CRGBridge()
+        result = bridge.query_graph("/tmp/project", "callers_of", "main")
+        assert result == {}
+
+    def test_find_large_functions_when_available(self):
+        _mock_mcp.mcp__code_review_graph__find_large_functions_tool = MagicMock(
+            return_value={"functions": [{"name": "big_fn", "lines": 200}]}
+        )
+        import harness.crg_bridge as crg_mod
+        crg_mod._crg_large_funcs = (
+            _mock_mcp.mcp__code_review_graph__find_large_functions_tool
+        )
+        bridge = CRGBridge()
+        result = bridge.find_large_functions("/tmp/project", min_lines=100)
+        assert len(result["functions"]) == 1
+
+    def test_find_large_functions_returns_empty_when_unavailable(self):
+        import harness.crg_bridge as crg_mod
+        crg_mod._crg_large_funcs = None
+        bridge = CRGBridge()
+        result = bridge.find_large_functions("/tmp/project")
+        assert result == {}
+
+    def test_list_flows_when_available(self):
+        _mock_mcp.mcp__code_review_graph__list_flows_tool = MagicMock(
+            return_value={"flows": [{"name": "auth_flow", "criticality": 0.9}]}
+        )
+        import harness.crg_bridge as crg_mod
+        crg_mod._crg_list_flows = (
+            _mock_mcp.mcp__code_review_graph__list_flows_tool
+        )
+        bridge = CRGBridge()
+        result = bridge.list_flows("/tmp/project")
+        assert len(result["flows"]) == 1
+
+    def test_list_flows_returns_empty_when_unavailable(self):
+        import harness.crg_bridge as crg_mod
+        crg_mod._crg_list_flows = None
+        bridge = CRGBridge()
+        result = bridge.list_flows("/tmp/project")
+        assert result == {}
+
+    def test_check_dead_code_when_available(self):
+        _mock_mcp.mcp__code_review_graph__refactor_tool = MagicMock(
+            return_value={"dead_symbols": [{"name": "unused_fn"}]}
+        )
+        import harness.crg_bridge as crg_mod
+        crg_mod._crg_refactor = (
+            _mock_mcp.mcp__code_review_graph__refactor_tool
+        )
+        bridge = CRGBridge()
+        result = bridge.check_dead_code("/tmp/project")
+        assert len(result["dead_symbols"]) == 1
+
+    def test_check_dead_code_returns_empty_when_unavailable(self):
+        import harness.crg_bridge as crg_mod
+        crg_mod._crg_refactor = None
+        bridge = CRGBridge()
+        result = bridge.check_dead_code("/tmp/project")
+        assert result == {}

@@ -3,15 +3,13 @@
 Verify tool availability for Harness Quality Framework.
 
 Checks:
-1. Core tools (always required)
+1. Core tools (always required — includes CRG)
 2. Extended dimension tools (optional)
-3. CRG (optional but recommended)
 
 Usage:
   python3 scripts/verify_tools.py              # Check all
   python3 scripts/verify_tools.py --core       # Only core
   python3 scripts/verify_tools.py --extended   # Only extended
-  python3 scripts/verify_tools.py --crg        # Only CRG
   python3 scripts/verify_tools.py --install-guide  # Print install commands
 """
 
@@ -28,6 +26,11 @@ CORE_TOOLS = {
     "eslint": ("eslint --version", "JavaScript linting"),
     "pytest": ("pytest --version", "Python testing"),
     "coverage": ("coverage --version", "Python coverage"),
+    "code-review-graph": (
+        "code-review-graph status",
+        "pipx install code-review-graph",
+        "Architecture analysis (required)",
+    ),
 }
 
 EXTENDED_TOOLS = {
@@ -69,15 +72,6 @@ EXTENDED_TOOLS = {
         "Code signing",
     ),
 }
-
-CRG_TOOLS = {
-    "code-review-graph": (
-        "code-review-graph status",
-        "pipx install code-review-graph",
-        "Architecture analysis",
-    ),
-}
-
 
 def check_command(cmd):
     """Return True if command exists and works."""
@@ -126,7 +120,6 @@ def print_summary(results):
 
     total_core = len(CORE_TOOLS)
     total_ext = len(EXTENDED_TOOLS)
-    total_crg = len(CRG_TOOLS)
 
     print(f"\n✓ Core Tools:     {results['core']['installed']}/{total_core}")
     if results["core"]["missing"] > 0:
@@ -135,10 +128,6 @@ def print_summary(results):
     print(f"\n✓ Extended Tools: {results['extended']['installed']}/{total_ext}")
     if results["extended"]["missing"] > 0:
         print(f"  Missing: {results['extended']['missing']} (optional)")
-
-    print(f"\n✓ CRG:            {results['crg']['installed']}/{total_crg}")
-    if results["crg"]["missing"] > 0:
-        print(f"  Missing: {results['crg']['missing']} (optional, recommended)")
 
     # Recommendations
     print("\n" + "-" * 70)
@@ -162,17 +151,6 @@ def print_summary(results):
     else:
         print("\n✅ All extended tools available")
 
-    if results["crg"]["missing"] > 0:
-        print(
-            "\n💡 CRG not installed (optional, recommended for -30-50% token savings)"
-        )
-        for tool, info in results["crg"]["tools"].items():
-            if not info["installed"] and info["install_cmd"]:
-                print(f"   → {info['install_cmd']}")
-        print("   Then run: code-review-graph build --repo .")
-    else:
-        print("\n✅ CRG installed")
-
     print()
 
 
@@ -185,10 +163,8 @@ def print_install_guide(category=None):
         tools_to_check = CORE_TOOLS
     elif category == "extended":
         tools_to_check = EXTENDED_TOOLS
-    elif category == "crg":
-        tools_to_check = CRG_TOOLS
     else:
-        tools_to_check = {**EXTENDED_TOOLS, **CRG_TOOLS}
+        tools_to_check = {**CORE_TOOLS, **EXTENDED_TOOLS}
 
     print("\n" + "=" * 70)
     print("INSTALLATION GUIDE")
@@ -204,7 +180,6 @@ def print_install_guide(category=None):
             "pa11y",
         ],
         "LOW (governance + observability)": ["scancode", "syft", "grype", "cosign"],
-        "CRG (architecture analysis)": ["code-review-graph"],
     }
 
     for priority, tool_list in priorities.items():
@@ -231,7 +206,6 @@ def main():
     parser.add_argument(
         "--extended", action="store_true", help="Check only extended tools"
     )
-    parser.add_argument("--crg", action="store_true", help="Check only CRG")
     parser.add_argument(
         "--install-guide", action="store_true", help="Print installation commands"
     )
@@ -240,15 +214,13 @@ def main():
     args = parser.parse_args()
 
     # Determine what to check
-    check_all = not any([args.core, args.extended, args.crg, args.install_guide])
+    check_all = not any([args.core, args.extended, args.install_guide])
 
     if args.install_guide:
         if args.core:
-            print("(Core tools come pre-installed on most systems)")
+            print_install_guide("core")
         elif args.extended:
             print_install_guide("extended")
-        elif args.crg:
-            print_install_guide("crg")
         else:
             print_install_guide()
         return 0
@@ -257,7 +229,7 @@ def main():
 
     if check_all or args.core:
         print("\n" + "=" * 70)
-        print("CORE TOOLS (Required)")
+        print("CORE TOOLS (Required — includes CRG)")
         print("=" * 70)
         results["core"] = check_tools(CORE_TOOLS, "core")
 
@@ -266,12 +238,6 @@ def main():
         print("EXTENDED TOOLS (Optional)")
         print("=" * 70)
         results["extended"] = check_tools(EXTENDED_TOOLS, "extended")
-
-    if check_all or args.crg:
-        print("\n" + "=" * 70)
-        print("CODE REVIEW GRAPH (Optional, Recommended)")
-        print("=" * 70)
-        results["crg"] = check_tools(CRG_TOOLS, "crg")
 
     if args.json:
         print(json.dumps(results, indent=2))

@@ -238,52 +238,61 @@ def load_scores(round_dir):
 
 def _apply_crg_subscores(scores, crg_metrics):
     """
-    Deep-integration hook: fold CRG-derived sub-scores INTO per-dimension
-    scores so structural signal can PULL DOWN a dimension that looks fine
-    on its surface tool alone.
+    CRG is the authoritative scorer for structural dimensions.
 
-    Contract: we take the MIN of the tool score and the CRG sub-score so
-    CRG can only REDUCE, never inflate. This protects against the failure
-    mode where a lint-clean repo hides a broken architecture.
+    Architecture and error_handling scores come DIRECTLY from CRG metrics
+    (not from LLM evaluation). Like ruff for linting or mypy for type_safety,
+    CRG is the sole scoring source for structural dimensions.
 
     Applied to:
-      architecture     ← community_cohesion.score
-      error_handling   ← flow_coverage.score
+      architecture     ← community_cohesion.score (only)
+      error_handling   ← flow_coverage.score (only)
 
-    Silently no-op if crg_metrics is missing or lacks the keys.
+    Raises RuntimeError if crg_metrics is missing when structural dims are present.
     """
     if not crg_metrics:
-        return scores
+        if "architecture" in scores or "error_handling" in scores:
+            raise RuntimeError(
+                "CRG metrics required for structural dimension scoring "
+                "(architecture, error_handling). Run crg_analysis.py metrics first."
+            )
+        return {}
 
     adjustments = {}
 
+    # architecture = CRG community_cohesion (authoritative — not min with LLM)
     cohesion = (crg_metrics.get("community_cohesion") or {}).get("score")
-    if cohesion is not None and "architecture" in scores:
-        orig = scores["architecture"].get("score", 100)
-        adjusted = min(orig, cohesion)
-        if adjusted != orig:
-            scores["architecture"]["score"] = adjusted
-            scores["architecture"]["crg_adjusted_from"] = orig
-            scores["architecture"]["crg_cohesion_score"] = cohesion
-            adjustments["architecture"] = {
-                "from": orig,
-                "to": adjusted,
-                "reason": f"community_cohesion={cohesion}",
-            }
+    if "architecture" in scores:
+        if cohesion is None:
+            raise RuntimeError(
+                "CRG community_cohesion.score missing from crg_metrics — "
+                "cannot score architecture dimension. "
+                "Run crg_analysis.py metrics first."
+            )
+        scores["architecture"]["score"] = cohesion
+        scores["architecture"]["scorer"] = "crg"
+        scores["architecture"]["crg_cohesion_score"] = cohesion
+        adjustments["architecture"] = {
+            "score": cohesion,
+            "source": "crg_community_cohesion",
+        }
 
+    # error_handling = CRG flow_coverage (authoritative — not min with LLM)
     flow = (crg_metrics.get("flow_coverage") or {}).get("score")
-    if flow is not None and "error_handling" in scores:
-        orig = scores["error_handling"].get("score", 100)
-        adjusted = min(orig, flow)
-        if adjusted != orig:
-            scores["error_handling"]["score"] = adjusted
-            scores["error_handling"]["crg_adjusted_from"] = orig
-            scores["error_handling"]["crg_flow_score"] = flow
-            adjustments["error_handling"] = {
-                "from": orig,
-                "to": adjusted,
-                "reason": f"flow_coverage={flow}",
-            }
+    if "error_handling" in scores:
+        if flow is None:
+            raise RuntimeError(
+                "CRG flow_coverage.score missing from crg_metrics — "
+                "cannot score error_handling dimension. "
+                "Run crg_analysis.py metrics first."
+            )
+        scores["error_handling"]["score"] = flow
+        scores["error_handling"]["scorer"] = "crg"
+        scores["error_handling"]["crg_flow_score"] = flow
+        adjustments["error_handling"] = {
+            "score": flow,
+            "source": "crg_flow_coverage",
+        }
 
     return adjustments
 

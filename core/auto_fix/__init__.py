@@ -99,6 +99,7 @@ class AutoFixEngine:
         integrity_threshold: float = 40.0,
         gate_min_score: float = 60.0,
         gate_min_rounds: int = 3,
+        crg_bridge=None,
     ):
         self.project_root = Path(project_root)
         self.phase = phase
@@ -108,6 +109,7 @@ class AutoFixEngine:
         self.integrity_threshold = integrity_threshold
         self.gate_min_score = gate_min_score
         self.gate_min_rounds = gate_min_rounds
+        self._crg = crg_bridge
         self._round_counters: Dict[str, int] = {}
         self._phase_start_time: Optional[float] = None
         self._phase_estimate: Optional[float] = None
@@ -151,7 +153,7 @@ class AutoFixEngine:
         from core.auto_fix.guardrails import pre_fix_safety_check
 
         files = self._files_for_context(context)
-        safety = pre_fix_safety_check(self.project_root, files)
+        safety = pre_fix_safety_check(self.project_root, files, crg_bridge=self._crg)
         if not safety.get("safe", True):
             return FixResult(
                 success=False,
@@ -195,6 +197,13 @@ class AutoFixEngine:
 
             modified = self._files_for_context(context)
             drift = post_fix_drift_check(self.project_root, modified)
+            # CRG Point 4: structural drift check after auto-fix
+            if self._crg is not None:
+                try:
+                    crg_drifted = self._crg.check_drift(str(self.project_root))
+                    drift["crg_drift_detected"] = crg_drifted
+                except Exception:
+                    drift["crg_drift_detected"] = None
             result.post_fix_drift = drift
 
         # Escalation check
