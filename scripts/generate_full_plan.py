@@ -1767,6 +1767,14 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path) -> List[str]:
             lines.extend(_fr_dev_steps(fr_id, phase=4))
             # Gate 1 handled inside run-fr-step sub-agent dispatch.
             checkpoint_n += 1
+    else:
+        lines.append("### ⚠️  FR Test Coverage — NONE FOUND")
+        lines.append("")
+        lines.append("> **WARNING**: No FR sections parsed and no manifest FR list found.")
+        lines.append("> Verify SRS.md format or re-run `plan-phase --phase 4` after")
+        lines.append("> quality_manifest.json is generated.")
+        lines.append("")
+        checkpoint_n = 1
 
     lines.extend([
         "### TEST_RESULTS.md Summary (required for C5 P4 audit)",
