@@ -1,7 +1,7 @@
 # Plan: 清除 HERMES_REVIEWER_TARGET 與 P6 Gate 4 的殘留連結
 
 **日期**: 2026-05-23
-**狀態**: Draft
+**狀態**: Done
 **Slug**: remove-hermes-gate4-residue
 
 ---
@@ -116,17 +116,17 @@ a. [optional] export HERMES_REVIEWER_TARGET=telegram:YOUR_CHAT_ID
 
 1. [ ] 備份即將修改的四個檔案（SAD.md, SKILL.md, INTEGRATION.md, CLAUDE.md.template）
 2. [ ] 修改 `SAD.md`:
-   - [ ] 刪除第 2792–2796 行的 Hermes APPROVE 段落
-   - [ ] 刪除第 1723 行的 Gate 4 Hermes APPROVE 說明
-   - [ ] 更新第 2298–2300 行的三步引導
+   - [x] 刪除第 2792–2796 行的 Hermes APPROVE 段落
+   - [x] 刪除第 1723 行的 Gate 4 Hermes APPROVE 說明
+   - [x] 更新第 2298–2300 行的三步引導
 3. [ ] 修改 `SKILL.md`:
-   - [ ] 將 HERMES_REVIEWER_TARGET 從 [required] 改為 [optional]
-   - [ ] 更新說明文字，移除「strictly required at P6」
+   - [x] 將 HERMES_REVIEWER_TARGET 從 [required] 改為 [optional]
+   - [x] 更新說明文字，移除「strictly required at P6」
 4. [ ] 修改 `INTEGRATION.md`:
-   - [ ] 更新表格敘述，說明這是 Optional 且非 P6 Gate 4 必要
+   - [x] 更新表格敘述，說明這是 Optional 且非 P6 Gate 4 必要
 5. [ ] 修改 `CLAUDE.md.template`:
-   - [ ] 將 `Hermes Reviewer Target` 改為 `Reviewer Chain`
-   - [ ] 加入 `REVIEWER_CHAIN` 環境變數說明
+   - [x] 將 `Hermes Reviewer Target` 改為 `Reviewer Chain`
+   - [x] 加入 `REVIEWER_CHAIN` 環境變數說明
 6. [ ] 搜尋確認沒有其他地方殘留「Gate 4 Hermes」「P6 Hermes APPROVE」等關鍵字
 7. [ ] 執行 `git diff` 確認變更範圍
 8. [ ] 提交並 push
