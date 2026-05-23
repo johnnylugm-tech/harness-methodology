@@ -91,7 +91,7 @@ if not isinstance(hooks, dict):
 # pre:bash:dispatcher — blocks git --no-verify
 if "pre:bash:dispatcher" not in hooks:
     hooks["pre:bash:dispatcher"] = {
-        "command": 'echo "$CLAUDE_CODE_TOOL_INPUT" | grep -qi "git.*--no-verify\\|git.*push.*--no\\|git.*commit.*--no" && { echo "[ECC] git --no-verify BLOCKED — use push-checkpoint or push-milestone instead"; exit 1; } || true',
+        "command": 'echo "$CLAUDE_CODE_TOOL_INPUT" | grep -qiE "git.*--no-verify|git.*(push|commit).*-n($|[^a-z])" && { echo "[ECC] git --no-verify / -n BLOCKED — use push-checkpoint or push-milestone instead"; exit 1; } || true',
         "description": "Block git --no-verify (harness-methodology HR compliance)"
     }
 
@@ -116,7 +116,7 @@ import json, sys
 hooks_file = sys.argv[1]
 hooks = {
     "pre:bash:dispatcher": {
-        "command": 'echo "$CLAUDE_CODE_TOOL_INPUT" | grep -qi "git.*--no-verify\\|git.*push.*--no\\|git.*commit.*--no" && { echo "[ECC] git --no-verify BLOCKED — use push-checkpoint or push-milestone instead"; exit 1; } || true',
+        "command": 'echo "$CLAUDE_CODE_TOOL_INPUT" | grep -qiE "git.*--no-verify|git.*(push|commit).*-n($|[^a-z])" && { echo "[ECC] git --no-verify / -n BLOCKED — use push-checkpoint or push-milestone instead"; exit 1; } || true',
         "description": "Block git --no-verify (harness-methodology HR compliance)"
     },
     "stop:cost-tracker": {

@@ -3225,6 +3225,13 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
     # P1/P2: validate --fr-id is a recognised deliverable ID (approval file naming)
     if args.phase in _PHASE_DELIVERABLES:
         _valid_ids = _PHASE_DELIVERABLES[args.phase]
+        if not args.fr_id:
+            print(
+                f"[dispatch] ERROR: phase {args.phase} requires --fr-id (deliverable name).\n"
+                f"  Valid IDs for P{args.phase}: {', '.join(_valid_ids)}\n"
+                f"  Example: --fr-id {_valid_ids[0]}"
+            )
+            return 1
         if args.fr_id not in _valid_ids:
             print(
                 f"[dispatch] ERROR: phase {args.phase} requires --fr-id to be a deliverable name.\n"
@@ -4752,7 +4759,7 @@ def cmd_init_project(args: argparse.Namespace) -> int:
 
     # 11. Gate tool availability (blocking — all Tier 1 tools required before project start).
     # Driven by gate YAMLs so new requires_tool_execution entries are auto-detected.
-    print("\n[10/10] Gate tool availability check...")
+    print("\n[11/11] Gate tool availability check...")
     _missing_init: list[str] = []
     for _gate_num in (1, 2, 3, 4):
         _, _missing = _verify_gate_tools(_gate_num, str(harness_root))

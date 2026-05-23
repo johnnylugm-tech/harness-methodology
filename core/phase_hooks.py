@@ -87,7 +87,7 @@ class PhaseHooks:
                 self.state_path.parent.mkdir(parents=True, exist_ok=True)
                 self.state_path.write_text(
                     json.dumps({
-                        "state": "ACTIVE",
+                        "state": "RUNNING",
                         "current_phase": 1,
                         "last_gate": None,
                         "last_fr": None,
@@ -96,7 +96,7 @@ class PhaseHooks:
                     encoding="utf-8",
                 )
                 print("   Auto-initialized state.json (fresh P1 project)")
-                return {"passed": True, "state": "ACTIVE", "message": "Auto-initialized for P1"}
+                return {"passed": True, "state": "RUNNING", "message": "Auto-initialized for P1"}
             return {"passed": False, "state": "UNKNOWN", "message": "state.json not found"}
         try:
             state = json.loads(self.state_path.read_text())

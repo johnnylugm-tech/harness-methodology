@@ -23,6 +23,7 @@ Usage:
 from __future__ import annotations
 
 import copy
+import fnmatch
 import json
 import os
 from dataclasses import dataclass, field
@@ -130,7 +131,6 @@ class ConstitutionProfile:
         ``*STAGE_PASS.md``).  Glob-style wildcards (``*``, ``?``, ``[seq]``) are
         supported per :func:`fnmatch.fnmatch`.
         """
-        import fnmatch
         file_name = file_path.name
         # Global patterns
         for pat in self.exclude_patterns:
@@ -274,9 +274,12 @@ class ConstitutionProfile:
                 )
             else:
                 result.phases[pk] = pv
-        # merge global exclude_patterns
+        # merge global exclude_patterns (preserve order, don't duplicate)
         if overrides.exclude_patterns:
-            result.exclude_patterns = list(set(result.exclude_patterns) | set(overrides.exclude_patterns))
+            seen = set(result.exclude_patterns)
+            result.exclude_patterns = result.exclude_patterns + [
+                p for p in overrides.exclude_patterns if p not in seen
+            ]
         # merge dimensions
         for dk, dv in overrides.dimensions.items():
             if dk in result.dimensions:
