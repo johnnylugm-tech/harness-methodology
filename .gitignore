@@ -9,6 +9,8 @@
 .sessi-work/
 # Hermes plan backups — redundant with git history
 .hermes/plans/backups/
+# Claude Code local config — machine-specific, not for version control
+.claude/
 # Python coverage binary
 .coverage
 # Ephemeral coverage snapshots emitted by quality runs
