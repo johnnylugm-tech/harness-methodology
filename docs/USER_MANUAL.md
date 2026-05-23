@@ -912,24 +912,20 @@ python harness_cli.py status \
 
 ---
 
-### `check-test-inventory` — 驗證測試覆蓋完整性（P3+）
+### `spec-coverage-check` — D4 統一測試追溯檢查（P3+，v2.6）
 
 ```bash
-python harness_cli.py check-test-inventory \
-  --diff-mode              \  # 只檢查本次 diff 的 FR（P3 Gate 2 使用）
-  --strict                 \  # P4+ 嚴格模式：assertion quality + RED-first ordering
-  --threshold 60           \  # D4 最低涵蓋率（預設：60，Gate 2=60/Gate 3=80/Gate 4=90）
-  --srs-crosscut           \  # 啟用 cross-cutting SRS 需求掃描
-  --crg-gaps                  # 啟用 CRG untested hub 交叉比對
+python harness_cli.py spec-coverage-check \
+  --project .              \  # 專案根目錄
+  --threshold 60           \  # 涵蓋率閾值（Gate1=40%, Gate2=60%, Gate3=80%, Gate4=90%）
+  --fr-id FR-03               # 可選：只檢查特定 FR
 ```
 
-**檢查項目**：
-- **I-1**: 所有 FR 有對應 test 檔案（`tests/test_fr_*.py`）
-- **I-2**: FR→test 檔案名對應一致（`test_fr_{id}.py` 命名慣例）
-- **I-3**: RED-first ordering（測試 commit 早於實作程式碼）
-- **I-5**: Integration tests 已標記 `@pytest.mark.integration`
-- **I-6b**: Test assertion quality ≥ 閾值（AST-based density 掃描）
-- **I-6c**: CRG hub 節點有對應測試覆蓋
+TEST_SPEC.md (P2) 是所有測試追溯的**單一來源**。此命令驗證 TEST_SPEC.md 中宣告的每一個測試案例都有對應的測試函式存在於 `tests/`。
+
+### `check-test-inventory` — 已棄用（v2.6）
+
+此命令已棄用，會自動委派至 `spec-coverage-check`。請改用上述 `spec-coverage-check`。
 
 **返回碼**：0=所有檢查通過；1=有 FAIL（`--strict` 模式）；2=錯誤
 

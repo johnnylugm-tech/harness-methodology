@@ -98,8 +98,8 @@ python harness_cli.py push-milestone    --type p3-mid|p3-pre-ssi|p4-mid|p4-pre-s
 python harness_cli.py dispatch          --role developer|reviewer --fr-id FR-01 --prompt "..." [--phase 3] [--project .] [--timeout 300] [--max-turns 20]
 python harness_cli.py verify-agent-b-approvals --phase N [--fr-ids FR-01,FR-02] [--project .]
 python harness_cli.py audit-structure   [--project .] [--json]
-python harness_cli.py check-test-inventory [--project .] [--strict] [--threshold N] [--diff-mode] [--srs-crosscut] [--crg-gaps]
-python harness_cli.py spec-coverage-check  [--project .] [--threshold N] [--fr-id FR-XX]
+python harness_cli.py check-test-inventory [--project .] [--strict] [--threshold N] [--diff-mode]  # deprecated v2.6 — delegates to spec-coverage-check
+python harness_cli.py spec-coverage-check  [--project .] [--threshold N] [--fr-id FR-XX]  # D4 unified (v2.6)
 ```
 
 **Gate evaluation (two-phase)**: `run-gate` prepares context and prints evaluation instructions; Claude evaluates inline and writes `.sessi-work/gate{N}_result.json`; `finalize-gate` reads the result and checks thresholds. SSI assets are embedded in `harness/ssi/`.

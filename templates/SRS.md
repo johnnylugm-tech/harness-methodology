@@ -31,7 +31,7 @@
 ## 6. Cross-Cutting Test Requirements
 
 > 此章節由 harness P1 模板自動注入，開發者必須填入具體測試名稱後才可進入 P2。
-> 執行 `check-test-inventory --srs-crosscut` 可掃描未填寫的 placeholder。
+> 執行 `python harness_cli.py verify-spec --project .` 可掃描未填寫的 placeholder。
 
 ### API Completeness（每個端點必須有以下四類測試）
 - 正常流程 (2xx)

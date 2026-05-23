@@ -375,13 +375,13 @@ _PHASE_EXIT_GATES: dict = {3: 2, 4: 3, 6: 4}                  # phase → exit g
 # Gate metadata: (score_gate, dim_count, notes)
 _GATE_META: dict = {
     1: (None, 3,  "linting(90) · type_safety(85) · test_coverage(80)"),
-    2: (75,   9,  "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · integration_coverage(60) · test_assertion_quality(60)  [D4 TEST_INVENTORY.yaml imperative check ≥60% · D4 backward spec-coverage ≥40%]"),
-    3: (80,   14, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · integration_coverage(60) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · test_assertion_quality(60) · performance(75)  [CRG recon inside run-gate · D4 TEST_INVENTORY.yaml imperative check ≥80% · D4 backward spec-coverage ≥70%]"),
-    4: (85,   14, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · performance(75) · integration_coverage(75) · test_assertion_quality(70)  [CRG recon inside run-gate · D4 TEST_INVENTORY.yaml imperative check ≥90% · D4 backward spec-coverage ≥90%]"),
+    2: (75,   9,  "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · integration_coverage(60) · test_assertion_quality(60)  [D4 spec-coverage unified ≥60%]"),
+    3: (80,   14, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · integration_coverage(60) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · test_assertion_quality(60) · performance(75)  [CRG recon inside run-gate · D4 spec-coverage unified ≥80%]"),
+    4: (85,   14, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · performance(75) · integration_coverage(75) · test_assertion_quality(70)  [CRG recon inside run-gate · D4 spec-coverage unified ≥90%]"),
 }
 
-# D4 backward (spec-coverage-check) thresholds per exit gate (CONSTITUTION.md §2.2)
-_SPEC_COVERAGE_THRESHOLDS: dict = {2: 40.0, 3: 70.0, 4: 90.0}
+# D4 spec-coverage-check thresholds per exit gate (unified v2.6)
+_SPEC_COVERAGE_THRESHOLDS: dict = {2: 60.0, 3: 80.0, 4: 90.0}
 
 # A/B agent roles per phase: (Agent-A role, Agent-B role, task hint)
 _PHASE_ROLES: dict = {
@@ -458,7 +458,7 @@ _PHASE_DELIVERABLE_DEPS: Dict[int, List[Dict]] = {
         },
         {
             "label": "TEST_INVENTORY.yaml",
-            "desc": "Test Inventory — maps every FR to test function names (forward D4 check source)",
+            "desc": "Test Inventory — P1 naming authority, feeds TEST_SPEC.md (D4 unified source)",
             "depends_on": ["TRACEABILITY_MATRIX.md"],
             "task_hint": "Generate TEST_INVENTORY.yaml from SRS.md FR acceptance criteria → assign test function names per FR → validate naming convention",
             "checks": ["Every FR has ≥1 test function?", "Test function names follow naming convention?",
@@ -494,9 +494,9 @@ _PHASE_DELIVERABLE_DEPS: Dict[int, List[Dict]] = {
         },
         {
             "label": "TEST_SPEC.md",
-            "desc": "Test Specification Catalog — named test cases from SRS (backward D4 check source)",
+            "desc": "Test Specification Catalog — named test cases from SRS (single source of truth, D4 unified check)",
             "depends_on": ["ADR.md"],
-            "task_hint": "Generate TEST_SPEC.md via derive_test_cases.md skill → apply 7-Question Protocol per FR → populate cross-cutting section",
+            "task_hint": "Generate TEST_SPEC.md via derive_test_cases.md skill → preserve TEST_INVENTORY.yaml names where specified → apply 7-Question Protocol per FR → populate cross-cutting section",
             "checks": ["Every FR has ≥1 named test case?", "7-Question Protocol applied per FR?",
                        "Cross-cutting section complete?", "Summary table populated?"],
             "embed_docs": ["01-requirements/SRS.md (APPROVED — full content)",
@@ -1116,8 +1116,7 @@ def _phase_advance_step(phase: int) -> List[str]:
     }
     next_name = next_names.get(next_phase, f"Phase {next_phase}")
     # TDD thresholds: mirror _advance_prechecks in harness_cli.py
-    _tdd_sc = 90.0 if phase >= 6 else (70.0 if phase >= 4 else 40.0)
-    _tdd_d4 = 90.0 if phase >= 6 else (80.0 if phase >= 4 else 60.0)
+    _tdd_sc = 90.0 if phase >= 6 else (80.0 if phase >= 4 else 60.0)  # unified v2.6
     lines = [
         f"### Phase {phase} → Phase {next_phase}: {next_name}",
         "",
@@ -1139,11 +1138,10 @@ def _phase_advance_step(phase: int) -> List[str]:
         *(["- [ ] **[PHASE-TRUTH]** Phase Truth ≥ 90% (HR-11) — verified by advance-phase",
            "",
            ] if phase >= 3 and phase not in _PHASE_EXIT_GATES else []),
-        # TDD prechecks: advance-phase enforces pytest 100% cov + spec-coverage + D4 (exit 9/10/12)
-        *(["- [ ] **[TDD-PRECHECK]** Verify TDD checks pass — advance-phase enforces all three:",
+        # TDD prechecks: advance-phase enforces pytest 100% cov + spec-coverage (exit 9/10)
+        *(["- [ ] **[TDD-PRECHECK]** Verify TDD checks pass — advance-phase enforces both:",
            "  - `pytest --tb=short -q --cov=03-development/src --cov-fail-under=100` (exit 9)",
-           f"  - `python3 harness_cli.py spec-coverage-check --project . --threshold {_tdd_sc:.1f}` (exit 10)",
-           f"  - `python3 harness_cli.py check-test-inventory --project . --threshold {_tdd_d4:.1f} --strict` (exit 12)",
+           f"  - `python3 harness_cli.py spec-coverage-check --project . --threshold {_tdd_sc:.1f}` (exit 10, D4 unified v2.6)",
            "  > For genuinely untestable lines add: `# pragma: no cover` (requires justification comment).",
            "",
            ] if phase >= 3 else []),
@@ -1270,7 +1268,7 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
         "  ```bash",
         f"  python3 harness_cli.py finalize-gate --gate {gate_num} --phase {phase} --project .",
         "  ```",
-        f"- [ ] **[D4-BACKWARD]** D4 backward spec-coverage-check (Gate {gate_num} threshold {_SPEC_COVERAGE_THRESHOLDS[gate_num]:.0f}%):",
+        f"- [ ] **[D4]** D4 spec-coverage-check — unified v2.6 (Gate {gate_num} threshold {_SPEC_COVERAGE_THRESHOLDS[gate_num]:.0f}%):",
         "  ```bash",
         f"  python3 harness_cli.py spec-coverage-check --project . --threshold {_SPEC_COVERAGE_THRESHOLDS[gate_num]}",
         "  ```",
@@ -1416,7 +1414,7 @@ def generate_phase1_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("- [ ] `SRS.md` - Software Requirements Specification (FRs + NFRs)")
     lines.append("- [ ] `SPEC_TRACKING.md` - Spec tracking matrix")
     lines.append("- [ ] `TRACEABILITY_MATRIX.md` - Requirements traceability matrix")
-    lines.append("- [ ] `TEST_INVENTORY.yaml` - Test inventory (I-1 P1 deliverable)")
+    lines.append("- [ ] `TEST_INVENTORY.yaml` - Test inventory (P1 naming authority — feeds TEST_SPEC.md)")
     lines.append(_sessions_spawn_deliverable(phase))
     lines.append("")
 
@@ -1498,7 +1496,7 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("### Phase 2 Deliverables")
     lines.append("- [ ] `SAD.md` — Software Architecture Document (every FR has module mapping)")
     lines.append("- [ ] `ADR.md` — Architecture Decision Records (tech stack, patterns, interfaces)")
-    lines.append("- [ ] `TEST_SPEC.md` — Test specification catalog (named test cases from SRS, backward D4 check source)")
+    lines.append("- [ ] `TEST_SPEC.md` — Test specification catalog (named test cases from SRS, single source of truth — D4 unified check)")
     lines.append("- [ ] `.methodology/quality_manifest.json` — Quality manifest (FR list + SAB data)")
     lines.append("- [ ] `.methodology/SAB.json` — Machine-readable architecture baseline")
     lines.append(_sessions_spawn_deliverable(phase))

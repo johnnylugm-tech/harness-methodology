@@ -675,8 +675,11 @@ def _run_spec_coverage_check(
 ) -> tuple[int, float]:
     """Check TEST_SPEC.md items against actual test function implementations.
 
-    This is the 'backward' half of D4: for each test case declared in TEST_SPEC.md
+    This is the UNIFIED D4 check (v2.6). TEST_SPEC.md is the single source of
+    truth for all test traceability. For each test case declared in TEST_SPEC.md
     (P2 deliverable), verify that a matching test function exists in tests/.
+    Replaces the prior two-check model (I-1 TEST_INVENTORY.yaml forward +
+    I-5 TEST_SPEC.md backward).
 
     Args:
         project: Project root directory.
@@ -746,12 +749,26 @@ def _run_test_inventory_check(
     *,
     crg_gaps: bool = False,
     srs_crosscut: bool = False,
+    delegate_to_spec: bool = True,  # v2.6: unified to TEST_SPEC.md
 ) -> tuple[int, float]:
     """Core D4 check: compare TEST_INVENTORY.yaml against actual test functions.
 
     Returns (exit_code, coverage_pct). 0 = pass, 1 = below threshold.
     Missing YAML is non-blocking (returns 0, 100.0) — caller handles Strict.
+
+    v2.6: delegate_to_spec=True redirects to _run_spec_coverage_check()
+    (unified single source of truth). Pass delegate_to_spec=False for
+    the legacy behavior (e.g., in tests).
     """
+    if delegate_to_spec:
+        if crg_gaps or srs_crosscut:
+            print("[D4] check-test-inventory is deprecated (v2.6) — "
+                  "delegating to spec-coverage-check.")
+            print("[D4] CRG gaps and SRS cross-cut supplemental features "
+                  "are no longer available through this command. "
+                  "Run: python harness_cli.py run-gap-analysis for CRG gaps.")
+        return _run_spec_coverage_check(project, threshold, verbose=True)
+
     inventory_path = project / "TEST_INVENTORY.yaml"
     if not inventory_path.exists():
         return (0, 100.0)
@@ -819,27 +836,31 @@ def _run_test_inventory_check(
 
 
 def cmd_check_test_inventory(args: argparse.Namespace) -> int:
-    """D4: Test Inventory Compliance — compare TEST_INVENTORY.yaml against actual tests.
+    """[DEPRECATED v2.6] Delegates to spec-coverage-check.
 
-    Supports --strict (block on missing file), --threshold (score gate),
-    --diff-mode (compare checksum against P1 baseline), and
-    --srs-crosscut (scan SRS.md checklist).
-    New in v1.1: --crg-gaps (cross-ref CRG untested hotspots).
+    TEST_SPEC.md is now the single source of truth for all test traceability.
+    Use spec-coverage-check instead: python harness_cli.py spec-coverage-check --project . --threshold N
     """
+    print("[DEPRECATED] check-test-inventory is deprecated as of v2.6.")
+    print("  TEST_SPEC.md is now the single source of truth for test traceability.")
+    print("  Delegating to spec-coverage-check.")
+    print("  Please use: python harness_cli.py spec-coverage-check --project . --threshold <N>")
+    print()
     project = Path(args.project).resolve()
     inventory_path = project / "TEST_INVENTORY.yaml"
+    spec_path = project / "02-architecture" / "TEST_SPEC.md"
 
-    if not inventory_path.exists():
-        if getattr(args, "strict", False):
-            print("[BLOCKED] TEST_INVENTORY.yaml not found. P1 must produce this file.")
+    # --strict: only block if BOTH TEST_SPEC.md AND TEST_INVENTORY.yaml are missing
+    if getattr(args, "strict", False):
+        if not spec_path.exists() and not inventory_path.exists():
+            print("[BLOCKED] Neither TEST_SPEC.md nor TEST_INVENTORY.yaml found. "
+                  "P1/P2 must produce these files.")
             return 8
-        print("[WARN] TEST_INVENTORY.yaml not found — skipping D4 check.")
-        return 0
 
-    # Diff-mode: compare checksum against P1 baseline (CLI-only)
+    # --diff-mode: preserved for backward compat (TEST_INVENTORY.yaml checksum)
     if getattr(args, "diff_mode", False):
         state_path = project / ".methodology" / "state.json"
-        if state_path.exists():
+        if state_path.exists() and inventory_path.exists():
             try:
                 state = json.loads(state_path.read_text())
                 p1_checksum = state.get("test_inventory_checksum")
@@ -851,10 +872,17 @@ def cmd_check_test_inventory(args: argparse.Namespace) -> int:
             except (json.JSONDecodeError, OSError):
                 pass
 
+    # --srs-crosscut: deprecated
+    if getattr(args, "srs_crosscut", False):
+        print("[INFO] --srs-crosscut: run `python harness_cli.py verify-spec --project .` instead.")
+
+    # --crg-gaps: deprecated
+    if getattr(args, "crg_gaps", False):
+        print("[INFO] --crg-gaps: run `python harness_cli.py run-gap-analysis --project .` instead.")
+
+    # Delegate to unified spec-coverage check
     threshold = getattr(args, "threshold", 80.0)
-    crg = getattr(args, "crg_gaps", False)
-    srs = getattr(args, "srs_crosscut", False)
-    code, _ = _run_test_inventory_check(project, threshold, crg_gaps=crg, srs_crosscut=srs)
+    code, _ = _run_spec_coverage_check(project, threshold, verbose=True)
     return code
 
 def _parse_inventory_fallback(text: str) -> dict:
@@ -1709,22 +1737,17 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
             return 1
 
     # ── I-1: D4 Test Inventory compliance (Gates 2-4) ──────────────
-    if args.gate >= 2 and (Path(project) / "TEST_INVENTORY.yaml").exists():
-        _d4_threshold = {2: 60.0, 3: 80.0, 4: 90.0}.get(args.gate, 80.0)
-        _d4_crg = args.gate >= 3
-        _d4_srs = args.gate == 4
-        _d4_code, _d4_pct = _run_test_inventory_check(
-            project_path, _d4_threshold,
-            crg_gaps=_d4_crg, srs_crosscut=_d4_srs,
-        )
-        if _d4_code != 0:
-            print(f"\n[BLOCKED] Gate {args.gate} D4 Test Inventory {_d4_pct:.1f}% < {_d4_threshold}%")
-            return 1
-
-    # ── I-5: Spec Coverage check (Gates 2-4) ──────────────────────────
-    # Separate from D4 TEST_INVENTORY check. Thresholds: Gate2=40%, Gate3=70%, Gate4=90%.
+    # REMOVED in v2.6 — unified with I-5 below. TEST_SPEC.md is now the
+    # single source of truth for all test traceability checks.
+    #
+    # ── I-5: D4 Spec Coverage check (Gates 2-4) ──────────────────────
+    # Unified v2.6: replaces prior two-check model (I-1 TEST_INVENTORY.yaml
+    # forward + I-5 TEST_SPEC.md backward). TEST_SPEC.md is the single source
+    # of truth since it carries names from TEST_INVENTORY.yaml (Step 0 of
+    # derive_test_cases.md).
+    # Thresholds: Gate2=60%, Gate3=80%, Gate4=90%.
     if args.gate >= 2 and (Path(project) / "02-architecture" / "TEST_SPEC.md").exists():
-        _sc_threshold = {2: 40.0, 3: 70.0, 4: 90.0}.get(args.gate, 40.0)
+        _sc_threshold = {2: 60.0, 3: 80.0, 4: 90.0}.get(args.gate, 60.0)
         _sc_code, _sc_pct = _run_spec_coverage_check(
             project_path, _sc_threshold, verbose=True
         )
@@ -2943,9 +2966,8 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
       7  = C11 CRITICAL (unchecked plan items)
       8  = C1 CRITICAL (deliverables missing / untracked)
       9  = pytest / coverage failure (P3+)
-      10 = spec-coverage below phase threshold (P3+)
+      10 = spec-coverage below phase threshold (P3+) [unified D4]
       11 = Phase Truth < 90% (P3+)
-      12 = D4 test-inventory below phase threshold (P3+)
       13 = Agent B approvals missing / rejected (P1/P2)
     """
     # ── P1 checksum: TEST_INVENTORY.yaml baseline ────────────────────
@@ -3018,15 +3040,15 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
                 return 13
             print(f"  [Agent B] Phase {completed_phase} approvals verified ✓")
 
-    # ── TDD checks: pytest + coverage, spec-coverage, D4 (P3+) ──────
+    # ── TDD checks: pytest + coverage, spec-coverage (P3+) ──────
     if completed_phase >= 3:
-        # Phase-based thresholds (mirrors CI phase-quality-gate)
+        # Phase-based spec-coverage thresholds (unified v2.6)
         if completed_phase >= 6:
-            sc_thresh, d4_thresh = 90.0, 90.0
+            sc_thresh = 90.0
         elif completed_phase >= 4:
-            sc_thresh, d4_thresh = 70.0, 80.0
+            sc_thresh = 80.0
         else:
-            sc_thresh, d4_thresh = 40.0, 60.0
+            sc_thresh = 60.0
 
         # 1. pytest + 100% coverage on TDD-governed source
         src_dir = project / "03-development" / "src"
@@ -3043,19 +3065,13 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
                 print("  For genuinely untestable lines add: # pragma: no cover")
                 return 9
 
-        # 2. Forward link: TEST_SPEC.md → tests/ (spec-coverage)
+        # 2. D4 traceability: TEST_SPEC.md → tests/ (spec-coverage — unified)
+        #    TEST_SPEC.md is the single source of truth (v2.6).
         sc_rc, sc_pct = _run_spec_coverage_check(project, sc_thresh, verbose=True)
         if sc_rc != 0:
             print(f"\n[BLOCKED] spec-coverage {sc_pct:.1f}% < threshold {sc_thresh:.0f}%.")
             print("  Implement missing test cases from TEST_SPEC.md in tests/.")
             return 10
-
-        # 3. Backward link: TEST_INVENTORY.yaml → tests/ (D4)
-        d4_rc, d4_pct = _run_test_inventory_check(project, d4_thresh)
-        if d4_rc != 0:
-            print(f"\n[BLOCKED] D4 test-inventory {d4_pct:.1f}% < threshold {d4_thresh:.0f}%.")
-            print("  Implement missing test functions listed in TEST_INVENTORY.yaml.")
-            return 12
 
     return 0
 
@@ -5531,28 +5547,28 @@ def build_parser() -> argparse.ArgumentParser:
     )
     rl.set_defaults(func=cmd_reload_policy)
 
-    # check-test-inventory (D4 — TEST_INVENTORY.yaml compliance)
+    # check-test-inventory (D4 — deprecated v2.6, delegates to spec-coverage-check)
     cti = sub.add_parser(
         "check-test-inventory",
-        help="D4: Compare TEST_INVENTORY.yaml against actual test files",
+        help="[DEPRECATED v2.6] Delegates to spec-coverage-check. Use spec-coverage-check instead.",
     )
     cti.add_argument("--project", default=".", help="Project root (default: .)")
     cti.add_argument("--strict", action="store_true",
-                     help="Hard-block if TEST_INVENTORY.yaml missing")
+                     help="Hard-block if both TEST_SPEC.md and TEST_INVENTORY.yaml missing")
     cti.add_argument("--threshold", type=float, default=80.0,
                      help="Minimum compliance percentage (default: 80.0)")
     cti.add_argument("--diff-mode", action="store_true", dest="diff_mode",
-                     help="Compare checksum against P1 baseline for lifecycle diff")
+                     help="(deprecated) Compare checksum against P1 baseline")
     cti.add_argument("--srs-crosscut", action="store_true", dest="srs_crosscut",
-                     help="Also scan SRS.md cross-cutting checklist for unfilled placeholders")
+                     help="(deprecated) use verify-spec instead")
     cti.add_argument("--crg-gaps", action="store_true", dest="crg_gaps",
-                     help="Cross-ref CRG untested hotspots against TEST_INVENTORY.yaml")
+                     help="(deprecated) use run-gap-analysis instead")
     cti.set_defaults(func=cmd_check_test_inventory)
 
-    # spec-coverage-check (D4 backward — TEST_SPEC.md items vs actual test functions)
+    # spec-coverage-check (D4 unified — TEST_SPEC.md → tests/, single source of truth)
     scc = sub.add_parser(
         "spec-coverage-check",
-        help="D4 backward: compare TEST_SPEC.md items against actual test implementations",
+        help="D4 unified: compare TEST_SPEC.md items against actual test implementations",
     )
     scc.add_argument("--project", default=".", help="Project root (default: .)")
     scc.add_argument("--threshold", type=float, default=80.0,

@@ -33,9 +33,30 @@ P3 Agent A implements tests FROM this catalog — not ad-hoc.
 Before starting, read and confirm:
 - [ ] `01-requirements/SRS.md` §2 (FRs) — full FR description for every entry
 - [ ] `01-requirements/SRS.md` §3 (NFRs) — non-functional requirements list
+- [ ] `TEST_INVENTORY.yaml` — P1 test naming conventions per FR (naming authority; use names from here where present)
 - [ ] `02-architecture/SAD.md` §3 (Module Design) — module/class names (for precise test naming)
 
 If SAD.md is not yet written, use provisional names from SRS FR descriptions.
+If TEST_INVENTORY.yaml is absent or empty, derive all names via Q1-Q7 and note in the
+TEST_SPEC.md header that no P1 naming authority was available.
+
+---
+
+## Step 0: Load Naming Conventions from TEST_INVENTORY.yaml
+
+Read TEST_INVENTORY.yaml and extract the per-FR test function names from `fr_tests:`
+and `cross_cutting:` sections. These are the naming AUTHORITY established in P1.
+
+- For each FR-XX that has named test functions in TEST_INVENTORY.yaml:
+  use those EXACT names. Prefer them over derived names.
+- For FRs with partial coverage (e.g., only unit tests named, no integration tests):
+  use the given names for the categories they cover, then fill gaps with Q1-Q7.
+- For FRs not mentioned in TEST_INVENTORY.yaml:
+  derive ALL names via the 7-Question Protocol.
+- For cross_cutting names: place them in the Cross-Cutting section of TEST_SPEC.md.
+
+This ensures bidirectional traceability: TEST_INVENTORY.yaml (P1 forward) →
+TEST_SPEC.md (P2 single source of truth) → tests/ (P3 implementation).
 
 ---
 
@@ -85,6 +106,10 @@ PRE-STEP: Classify FR type (one or more):
   □ INFRASTRUCTURE   — config, deployment, migration, background job
 
 Classification drives which questions generate mandatory vs optional test cases.
+
+**NAMING RULE (v2.6)**: If TEST_INVENTORY.yaml (Step 0) supplies a test name for a category
+that Q1-Q7 would generate, use the YAML-supplied name instead of deriving one.
+Only derive a new name when the YAML has no name for that test category.
 ```
 
 ### Q1: HAPPY PATH (mandatory for ALL types)
@@ -266,6 +291,7 @@ Agent B must verify before APPROVE:
 - [ ] All derivation fields are non-empty and cite a Q-number or NP-number
 - [ ] Module names in test functions match SAD.md module/class names where available
 - [ ] Cross-cutting section is present with at least 1 deployment smoke test
+- [ ] Test names from TEST_INVENTORY.yaml are preserved as-is (not re-derived)
 
 **If any item fails: return REJECT with specific FR numbers and missing items.**
 
@@ -279,4 +305,4 @@ Agent B must verify before APPROVE:
 4. State machine tests: enumerate ALL valid and invalid transitions, not just the happy ones
 5. NFR patterns: if NP-XX is active but you skip it for a specific FR, state the reason inline
 
-*Protocol version: v1.0 | Added in harness-methodology v2.5.0*
+*Protocol version: v1.1 | Updated in harness-methodology v2.6.0*

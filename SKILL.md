@@ -93,7 +93,7 @@ do NOT start work until every item is checked.
 | P1/P2 exit | Human peer review (no automated gate) | Deliverables: SRS.md / SAD.md + ADR.md |
 | After crash | Current position + next checkpoint | `generate-next-plan` |
 
-> ¹ **D4_TestInventory** has two sub-checks: Forward (TEST_INVENTORY.yaml, Gates 2–4: 60/80/90%) and Backward (TEST_SPEC.md spec-coverage, Gates 1–4: 40/40/70/90%). Both must pass. See `CONSTITUTION.md §2.2` or run `harness_cli.py spec-coverage-check`.
+> ¹ **D4_SpecCoverage** (v2.6 unified): TEST_SPEC.md is the single source of truth for all test traceability. The previous two-check model (TEST_INVENTORY.yaml forward + TEST_SPEC.md backward) is retired. A single spec-coverage check runs at Gates 1-4 with thresholds: Gate1(per-FR)=40%, Gate2=60%, Gate3=80%, Gate4=90%. Use `python harness_cli.py spec-coverage-check --project . --threshold N`. The `check-test-inventory` CLI is deprecated and delegates to `spec-coverage-check`.
 
 ### 0.4 Phase Completion Checklist (Mandatory — Every Phase)
 

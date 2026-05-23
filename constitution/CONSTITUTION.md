@@ -111,10 +111,7 @@
 | integration_coverage | 5% | ≥75 | pytest |
 | test_assertion_quality | 2% | ≥70 | pytest |
 
-> ¹ **D4_TestInventory**（非加權維度，為獨立命令式檢查）有以下兩個子檢查：
-> - **Forward（TEST_INVENTORY.yaml）**: 宣告的測試名稱 → 實際存在於 tests/ 中的函式。閾值: Gate2=60%, Gate3=80%, Gate4=90%。
-> - **Backward（TEST_SPEC.md spec-coverage）**: P2 TEST_SPEC.md 中列出的測試項目 → 已實作的測試函式。閾值: Gate1(per-FR)=40%, Gate2=40%, Gate3=70%, Gate4=90%。
-> 兩項子檢查在該 Gate 都必須通過。請使用 `harness_cli.py spec-coverage-check` 執行 backward 檢查。
+> ¹ **D4_SpecCoverage**（v2.6 統一）: TEST_SPEC.md 為唯一溯源來源。單一 spec-coverage 檢查驗證 TEST_SPEC.md 中宣告的每一個測試案例都有對應的測試函式存在於 tests/。閾值: Gate1(per-FR)=40%, Gate2=60%, Gate3=80%, Gate4=90%。使用 `harness_cli.py spec-coverage-check --project . --threshold N`。`check-test-inventory` CLI 已棄用，會自動委派至 `spec-coverage-check`。
 
 ### 2.3 Entry Gate 前提條件
 

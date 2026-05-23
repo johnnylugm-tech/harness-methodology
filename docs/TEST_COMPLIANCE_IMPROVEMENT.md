@@ -740,3 +740,14 @@ def _check_crg_test_gaps(project: Path) -> list[str]:
 
 *文件版本：v1.1 | 2026-05-19*  
 *對應分析來源：omnibot-full vs. omnibot-tdd-verification-checklist.md*
+
+---
+
+## v2.6 Migration Note (2026-05-24)
+
+I-1 (D4 TEST_INVENTORY.yaml forward check) has been merged into I-4/I-5 (TEST_SPEC.md
+spec-coverage backward check). TEST_SPEC.md is now the single source of truth for all
+test traceability. The `check-test-inventory` CLI command is deprecated and delegates
+to `spec-coverage-check`. The bidirectional loop is closed at generation time:
+`derive_test_cases.md` reads TEST_INVENTORY.yaml (Step 0) and preserves its names in
+TEST_SPEC.md. See `harness/ssi/prompts/derive_test_cases.md` for the updated protocol.

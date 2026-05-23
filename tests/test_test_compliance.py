@@ -270,13 +270,29 @@ class TestCmdCheckTestInventory:
         return ns
 
     def _write_inventory(self, path: Path, names: list[str]):
-        """Write a minimal TEST_INVENTORY.yaml."""
+        """Write a minimal TEST_INVENTORY.yaml (for backward compat tests)."""
         target = path / "TEST_INVENTORY.yaml"
         lines = ["format_version: '1.0'", "fr_tests:", "  FR-01:", "    unit:"]
         for n in names:
             lines.append(f"      - {n}")
         lines.append("cross_cutting: {}")
         target.write_text("\n".join(lines) + "\n")
+
+    def _write_test_spec(self, path: Path, names: list[str], fr_id: str = "FR-01"):
+        """Write a minimal TEST_SPEC.md that spec-coverage-check can parse."""
+        spec_dir = path / "02-architecture"
+        spec_dir.mkdir(parents=True, exist_ok=True)
+        lines = [
+            "# TEST_SPEC.md",
+            "",
+            f"### {fr_id}: Example requirement",
+            "",
+            "| # | Test Function | Type | Derivation |",
+            "|---|---|---|---|",
+        ]
+        for i, n in enumerate(names, 1):
+            lines.append(f"| {i} | `{n}` | happy_path | Q1 |")
+        (spec_dir / "TEST_SPEC.md").write_text("\n".join(lines) + "\n")
 
     def _write_test_file(self, path: Path, fns: list[str]):
         """Write a test file with given function names."""
@@ -285,57 +301,55 @@ class TestCmdCheckTestInventory:
         (path / "tests" / "test_dummy.py").write_text(content)
 
     def test_all_covered_passes(self, tmp_path: Path):
-        """All required tests exist → passes."""
-        self._write_inventory(tmp_path, ["test_a", "test_b"])
-        self._write_test_file(tmp_path, ["test_a", "test_b"])
+        """All required tests exist → passes (delegates to spec-coverage)."""
+        self._write_test_spec(tmp_path, ["test_alpha", "test_bravo"])
+        self._write_test_file(tmp_path, ["test_alpha", "test_bravo"])
         code = cmd_check_test_inventory(self._make_args(tmp_path))
         assert code == 0, "expected pass when all covered"
 
     def test_missing_functions_fails(self, tmp_path: Path):
         """Required tests missing → fails below threshold."""
-        self._write_inventory(tmp_path, ["test_a", "test_b", "test_c", "test_d"])
-        self._write_test_file(tmp_path, ["test_a"])  # only 1/4
+        self._write_test_spec(tmp_path, ["test_alpha", "test_bravo", "test_charlie", "test_delta"])
+        self._write_test_file(tmp_path, ["test_alpha"])  # only 1/4
         code = cmd_check_test_inventory(self._make_args(tmp_path, threshold=50.0))
         assert code == 1, "expected failure when 1/4 < 50%"
 
-    def test_no_yaml_without_strict(self, tmp_path: Path):
-        """No TEST_INVENTORY.yaml with strict=False → warn, not block."""
-        code = cmd_check_test_inventory(self._make_args(tmp_path))
-        assert code == 0, "expected warn (0) when no YAML and not strict"
-
-    def test_no_yaml_with_strict(self, tmp_path: Path):
-        """No TEST_INVENTORY.yaml with strict=True → blocked (8)."""
+    def test_neither_spec_nor_inventory_with_strict(self, tmp_path: Path):
+        """Neither TEST_SPEC.md nor TEST_INVENTORY.yaml with strict → blocked (8)."""
         code = cmd_check_test_inventory(self._make_args(tmp_path, strict=True))
-        assert code == 8, "expected block (8) when no YAML and strict"
+        assert code == 8, "expected block (8) when neither file exists"
 
-    def test_srs_crosscut_placeholder_detected(self, tmp_path: Path):
-        """--srs-crosscut finds unfilled placeholders in SRS.md."""
-        srs_dir = tmp_path / "01-requirements"
-        srs_dir.mkdir(parents=True)
-        (srs_dir / "SRS.md").write_text(
-            "# SRS\n\n- [ ] `test_kpi_latency_phase_<N>_under_<X>s`\n- TBD\n"
-        )
-        self._write_inventory(tmp_path, ["test_a"])
-        self._write_test_file(tmp_path, ["test_a"])
-        # Should pass D4 check but print SRS warnings
+    def test_no_spec_without_strict(self, tmp_path: Path):
+        """No TEST_SPEC.md with strict=False → delegation returns 0 (missing → 100%)."""
+        code = cmd_check_test_inventory(self._make_args(tmp_path))
+        assert code == 0, "expected delegation pass (0) when no spec and not strict"
+
+    def test_srs_crosscut_deprecated(self, tmp_path: Path):
+        """--srs-crosscut prints deprecation, still delegates correctly."""
+        self._write_test_spec(tmp_path, ["test_alpha"])
+        self._write_test_file(tmp_path, ["test_alpha"])
         code = cmd_check_test_inventory(
             self._make_args(tmp_path, srs_crosscut=True)
         )
-        assert code == 0  # D4 still passes
+        assert code == 0  # delegation still passes
 
-    def test_srs_crosscut_clean(self, tmp_path: Path):
-        """--srs-crosscut with filled placeholders is clean."""
-        srs_dir = tmp_path / "01-requirements"
-        srs_dir.mkdir(parents=True)
-        (srs_dir / "SRS.md").write_text(
-            "# SRS\n\n- [x] `test_kpi_latency_phase_3_under_2s`\n"
-        )
-        self._write_inventory(tmp_path, ["test_a"])
-        self._write_test_file(tmp_path, ["test_a"])
+    def test_crg_gaps_deprecated(self, tmp_path: Path):
+        """--crg-gaps prints deprecation, still delegates correctly."""
+        self._write_test_spec(tmp_path, ["test_alpha"])
+        self._write_test_file(tmp_path, ["test_alpha"])
         code = cmd_check_test_inventory(
-            self._make_args(tmp_path, srs_crosscut=True)
+            self._make_args(tmp_path, crg_gaps=True)
         )
-        assert code == 0
+        assert code == 0  # delegation still passes
+
+    def test_diff_mode_preserved(self, tmp_path: Path):
+        """--diff-mode preserved for backward compat, delegates correctly."""
+        self._write_test_spec(tmp_path, ["test_alpha"])
+        self._write_test_file(tmp_path, ["test_alpha"])
+        code = cmd_check_test_inventory(
+            self._make_args(tmp_path, diff_mode=True)
+        )
+        assert code == 0  # delegation still passes
 
 
 # ===================================================================
@@ -395,7 +409,7 @@ class TestI1LifecycleIntegration:
         (tmp_path / "tests").mkdir()
         (tmp_path / "tests" / "test_a.py").write_text("def test_a(): pass\n")
 
-        code, pct = _run_test_inventory_check(tmp_path, threshold=60.0)
+        code, pct = _run_test_inventory_check(tmp_path, threshold=60.0, delegate_to_spec=False)
         assert code == 1, f"expected block at 60% threshold, got code={code}, pct={pct}"
 
     def test_run_test_inventory_check_gate4_passes(self, tmp_path: Path):
@@ -409,6 +423,7 @@ class TestI1LifecycleIntegration:
 
         code, pct = _run_test_inventory_check(
             tmp_path, threshold=90.0, crg_gaps=True, srs_crosscut=True,
+            delegate_to_spec=False,
         )
         assert code == 0, f"expected pass with 100% coverage, got code={code}, pct={pct}"
         assert pct == 100.0

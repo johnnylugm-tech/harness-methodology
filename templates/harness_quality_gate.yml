@@ -383,9 +383,9 @@ except Exception as e:
           fi
           echo "OK: P8 deliverables present."
 
-  d4-backward-check:
-    # G-03 fix: CI backup for D4 backward spec-coverage-check (local-only before this).
-    name: D4 Backward Spec Coverage Check
+  d4-spec-coverage-check:
+    # v2.6: Unified D4 spec-coverage-check (replaces prior forward+backward dual check).
+    name: D4 Spec Coverage Check (unified)
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
@@ -413,17 +413,16 @@ except Exception as e:
           " 2>/dev/null || echo "0")
           echo "PHASE=$PHASE" >> $GITHUB_OUTPUT
 
-      - name: D4 backward spec-coverage-check
+      - name: D4 spec-coverage-check (unified v2.6)
         env:
           PHASE: ${{ steps.phase.outputs.PHASE }}
         run: |
-          # Threshold per gate: P3=40%, P4=70%, P5=70% (≥Gate3), P6=90% (Gate4), P7/P8=90% (post-Gate4)
-          # K-4 fix: P5/P7/P8 were previously using 40% fallback (weaker than prior gate requirement).
+          # Threshold per phase: P3=60%, P4-P5=80%, P6+=90% (unified v2.6)
           python3 - <<'EOF'
           import os, sys, subprocess
           phase = int(os.environ.get("PHASE", "0"))
-          thresholds = {3: 40.0, 4: 70.0, 5: 70.0, 6: 90.0, 7: 90.0, 8: 90.0}
-          threshold = thresholds.get(phase, 40.0)
+          thresholds = {3: 60.0, 4: 80.0, 5: 80.0, 6: 90.0, 7: 90.0, 8: 90.0}
+          threshold = thresholds.get(phase, 60.0)
           if phase < 3:
               print(f"INFO: Phase {phase} < 3 — spec-coverage-check not required.")
               sys.exit(0)
@@ -434,9 +433,9 @@ except Exception as e:
           )
           print(result.stdout)
           if result.returncode != 0:
-              print(f"FAIL: D4 backward spec-coverage < {threshold:.0f}% for phase {phase}.")
+              print(f"FAIL: D4 spec-coverage < {threshold:.0f}% for phase {phase}.")
               sys.exit(1)
-          print(f"OK: D4 backward spec-coverage >= {threshold:.0f}%")
+          print(f"OK: D4 spec-coverage >= {threshold:.0f}%")
           EOF
 
   sab-validation:

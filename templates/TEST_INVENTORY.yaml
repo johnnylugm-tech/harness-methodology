@@ -1,5 +1,10 @@
-# TEST_INVENTORY.yaml — P1 交付物：必需測試函式清單
-format_version: "1.0"
+# TEST_INVENTORY.yaml — P1 Naming Authority
+# Maps every FR to expected test function names. These are the AUTHORITATIVE names
+# that derive_test_cases.md preserves in TEST_SPEC.md (P2 single source of truth).
+# Specified per FR and per test category (unit/integration/cross_cutting).
+# If no name is specified for a category, derive_test_cases.md fills the gap with
+# names derived via the 7-Question Protocol.
+format_version: "1.1"
 
 fr_tests:
   FR-01:
