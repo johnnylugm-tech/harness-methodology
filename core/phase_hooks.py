@@ -414,10 +414,10 @@ class PhaseHooks:
     def _check_branch_protection(self) -> bool:
         """Best-effort check for GitHub branch protection on main (requires gh CLI).
 
-        Returns True only when we can positively confirm protection is active.
-        Returns False when: (a) protection is absent, (b) gh/remote unavailable,
-        or (c) API call fails — in all cases the preflight message guides the
-        operator to verify manually.
+        Returns True when: (a) protection is positively confirmed active, or
+        (b) we cannot verify (auth/network errors, missing gh) — assumes OK to
+        avoid false alarms.  Returns False only when we positively confirm
+        protection is absent (API 404) or no GitHub remote exists.
         """
         try:
             import subprocess

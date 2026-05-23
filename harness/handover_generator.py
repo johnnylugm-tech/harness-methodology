@@ -294,7 +294,7 @@ class HandoverGenerator:
             f"# 1. Clone (if working directory cleared)\n"
             f"git clone --recurse-submodules {remote or '<repo-url>'} && cd {_repo_name}\n"
             f"\n"
-            f"# 2. Set env vars (all optional){chr(10)}"
+            f"# 2. Set env vars (all optional)\n"
             f"{_hermes_line}"
             f"\n"
             f"# 3. Read plan and {_action}\n"

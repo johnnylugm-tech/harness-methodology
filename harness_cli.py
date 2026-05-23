@@ -4805,30 +4805,55 @@ def cmd_init_project(args: argparse.Namespace) -> int:
     if _crg_ok:
         print("  OK — CRG (Code Review Graph) MCP server reachable (Gate 3/4 ready)")
     else:
-        print("  INFO: CRG MCP server not detected — Gate 3/4 architecture/error-handling")
-        print("        dimensions will use LLM evaluation instead of structural analysis.")
-        print("        CRG is mandatory for production use (same tier as ruff/mypy/pytest).")
-        print("        Install: code-review-graph MCP server + pip install code-review-graph")
+        print("  INFO: CRG MCP server not detected.")
+        print("        CRG is mandatory for Gate 3/4 (same tier as ruff/mypy/pytest).")
+        print("        prepare_gate() will fail for Gates 3/4 if CRG is not installed.")
+        print("        Install before reaching P4:")
+        print("          pip install code-review-graph")
+        print("          code-review-graph register  # registers repo in ~/.code-review-graph/")
+        print("        OK to proceed with P1/P2 — CRG is not required for these phases.")
 
+    # Phase-aware human checklist
+    _checklist: list[str] = [
+        "  ╔══════════════════════════════════════════════════════════════╗",
+        f"  ║  HUMAN CHECKLIST — Phase {phase} — verify before starting     ║",
+        "  ╠══════════════════════════════════════════════════════════════╣",
+        "  ║  [ ] Tier 1 tools installed (ruff, mypy, pytest-cov, ...)   ║",
+        "  ║  [ ] gitleaks installed (secrets scanning)                  ║",
+        "  ║  [ ] GitHub branch protection enabled on main               ║",
+        "  ║      → Settings → Branches → main → Block force push+delete ║",
+        "  ║  [ ] ECC hooks installed (blocks git --no-verify)           ║",
+        "  ║      → bash scripts/setup-ecc-hooks.sh --verify             ║",
+    ]
+    if phase == 1:
+        _checklist += [
+            "  ║  [ ] SRS.md written with ### FR-XX: sections                ║",
+            "  ║  [ ] SPEC_TRACKING.md + TRACEABILITY_MATRIX.md ready        ║",
+            "  ║  [ ] Hermes reviewer target (optional, for A/B dispatch)    ║",
+            "  ║      → export HERMES_REVIEWER_TARGET=telegram:CHAT_ID       ║",
+        ]
+    elif phase == 2:
+        _checklist += [
+            "  ║  [ ] SAD.md + ADR.md written (architecture design)          ║",
+            "  ║  [ ] TEST_SPEC.md ready (from derive_test_cases.md)         ║",
+            "  ║  [ ] Hermes reviewer target (optional, for A/B dispatch)    ║",
+            "  ║      → export HERMES_REVIEWER_TARGET=telegram:CHAT_ID       ║",
+        ]
+    else:
+        _checklist += [
+            "  ║  [ ] Phase entry deliverables ready (see SKILL.md §1)       ║",
+        ]
+    _checklist += [
+        "  ║  [ ] Review generated templates in phase directories        ║",
+        "  ╚══════════════════════════════════════════════════════════════╝",
+    ]
     print(f"\n{'='*60}")
     print("init-project complete.")
     print(f"{'='*60}")
     print(f"  Phase {phase} → .methodology/state.json")
     print()
-    print("  ╔══════════════════════════════════════════════════════════════╗")
-    print("  ║  HUMAN CHECKLIST — verify before starting phase work        ║")
-    print("  ╠══════════════════════════════════════════════════════════════╣")
-    print("  ║  [ ] Tier 1 tools installed (ruff, mypy, pytest-cov, ...)   ║")
-    print("  ║  [ ] gitleaks installed (secrets scanning)                  ║")
-    print("  ║  [ ] GitHub branch protection enabled on main               ║")
-    print("  ║      → Settings → Branches → main → Block force push+delete ║")
-    print("  ║  [ ] ECC hooks installed (blocks git --no-verify)           ║")
-    print("  ║      → bash scripts/setup-ecc-hooks.sh --verify             ║")
-    print("  ║  [ ] SRS.md written (P1 entry requirement)                  ║")
-    print("  ║  [ ] Hermes reviewer target configured (optional, P1-P2)    ║")
-    print("  ║      → export HERMES_REVIEWER_TARGET=telegram:CHAT_ID       ║")
-    print("  ║  [ ] Review generated templates in phase directories        ║")
-    print("  ╚══════════════════════════════════════════════════════════════╝")
+    for line in _checklist:
+        print(line)
     print(f"  Full docs: {harness_root}/INTEGRATION.md")
     return 0
 
