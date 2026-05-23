@@ -369,7 +369,7 @@ class PhaseHooks:
             return {"passed": True, "skipped": True, "error": str(exc)}
 
     def preflight_ci_readiness(self) -> Dict[str, Any]:
-        """Check target project CI wiring (Context B only — advisory, non-blocking)."""
+        """Check target project CI wiring + ECC hooks + branch protection (advisory, non-blocking)."""
         print("\n[PRE-FLIGHT] CI Readiness Check")
         checks: Dict[str, bool] = {}
         workflow_path = self.project_path / ".github" / "workflows" / "harness_quality_gate.yml"
@@ -382,15 +382,66 @@ class PhaseHooks:
             or (self.project_path / "harness_cli.py").exists()
             or (self.project_path / "harness" / "harness_cli.py").exists()
         )
+        # ECC hooks — session-level git --no-verify blocker
+        ecc_file = Path.home() / ".claude" / "hooks" / "hooks.json"
+        if ecc_file.exists():
+            try:
+                import json as _json
+                ecc_data = _json.loads(ecc_file.read_text(encoding="utf-8"))
+                checks["ecc_hooks"] = "pre:bash:dispatcher" in ecc_data
+            except Exception:
+                checks["ecc_hooks"] = False
+        else:
+            checks["ecc_hooks"] = False
+        # Branch protection — best-effort via gh CLI
+        checks["branch_protection"] = self._check_branch_protection()
+
         missing = [k for k, v in checks.items() if not v]
         if missing:
-            print(f"   WARNING: Missing CI components: {missing}")
-            print(f"   Run: python3 harness_cli.py init-project --project {self.project_path}")
+            print(f"   WARNING: Missing CI/enforcement components: {missing}")
+            if "ecc_hooks" in missing:
+                print("   → ECC hooks: bash scripts/setup-ecc-hooks.sh")
+            if "branch_protection" in missing:
+                print("   → Branch protection: python3 harness_cli.py init-project --setup-branch-protection")
+            if not checks["ci_workflow"]:
+                print(f"   → CI: python3 harness_cli.py init-project --project {self.project_path}")
         else:
-            print("   All CI wiring present")
+            print("   All CI wiring + bypass protections present")
         return {"passed": True, "checks": checks,
                 "missing": missing,
                 "message": "All CI wiring present" if not missing else f"Missing: {missing}"}
+
+    def _check_branch_protection(self) -> bool:
+        """Best-effort check for GitHub branch protection on main (requires gh CLI)."""
+        try:
+            import subprocess
+            remote = subprocess.run(
+                ["git", "-C", str(self.project_path), "remote", "get-url", "origin"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if remote.returncode != 0 or "github.com" not in remote.stdout:
+                return False  # Not a GitHub remote — skip
+            # Parse owner/repo
+            url = remote.stdout.strip().rstrip(".git")
+            if "github.com" in url:
+                parts = url.split("github.com")[-1].strip("/:").split("/")
+                if len(parts) >= 2:
+                    owner, repo = parts[-2], parts[-1]
+                    r = subprocess.run(
+                        ["gh", "api", f"repos/{owner}/{repo}/branches/main/protection"],
+                        capture_output=True, text=True, timeout=15,
+                    )
+                    if r.returncode == 0:
+                        data = json.loads(r.stdout)
+                        # Only check that force-push + deletion protection exist
+                        has_protection = (
+                            data.get("allow_force_pushes") is False
+                            and data.get("allow_deletions") is False
+                        )
+                        return has_protection
+        except Exception:
+            pass
+        return False  # Cannot verify — treat as not configured
 
     def preflight_previous_phase_artifacts(self) -> Dict[str, Any]:
         """Check that previous phase's required deliverables exist (ASPICE traceability).

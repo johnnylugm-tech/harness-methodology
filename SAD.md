@@ -118,11 +118,19 @@ M1 kill-switch circuit state is checked before each phase. M3 gap analysis runs 
 
 **Gate BLOCKED diagnostic** (`finalize-gate` exit 1): The command emits a structured per-dimension diagnosis on block. Output includes: composite score, open_critical/high counts, per-failing-dimension score/threshold/gap and a fix hint, passing dimension summary, auto-fix round count (if `--auto-fix-rounds > 0`), and copy-pasteable resume commands. Full report written to `.methodology/last_block.md`. Fix hints cover all 14 dimension names: `linting`, `type_safety`, `test_coverage`, `security`, `secrets_scanning`, `license_compliance`, `mutation_testing`, `architecture`, `readability`, `error_handling`, `documentation`, `performance`, `integration_coverage`, `test_assertion_quality`. Implemented in `_format_block_diagnostic()` (module-level helper in `harness_cli.py`); the dict `_DIMENSION_HINTS` maps dimension name → actionable fix string. Auto-fix runs during preflight (`_preflight()` calls `AutoFixEngine.fix()` on preflight failures).
 
-**ECC hooks (globally active)**: `~/.claude/hooks/hooks.json` runs ECC (everything-claude-code) hooks across all Claude Code sessions. Relevant to harness:
+**ECC hooks (Claude Code session layer)**: `~/.claude/hooks/hooks.json` runs ECC hooks across all Claude Code sessions. Harness-provided hooks:
 - `pre:bash:dispatcher` — blocks `git --no-verify` (prevents HR violation from bypassing hooks), push reminders
-- `pre:edit-write:suggest-compact` — suggests compaction when context nears limit (prevents gate score drift from truncated context)
 - `stop:cost-tracker` — tracks token/cost per session
-These hooks operate at the Claude Code session layer, independently of the harness Python pipeline. They are **pre-installed** and require no harness-side configuration.
+
+Installation: `bash scripts/setup-ecc-hooks.sh` (or `init-project` auto-checks).
+Verified by: `preflight_ci_readiness()` advisory check at every `run-phase` preflight.
+
+**GitHub branch protection (server-side — bypass-proof)**: `init-project` auto-detects `gh` CLI
+and configures branch protection on `main` (block force pushes + deletions, no PR requirement
+per the direct-push model). Without `gh`, prints a manual setup guide. Verified by:
+`preflight_ci_readiness()` best-effort check via `gh api` at every `run-phase` preflight.
+This is the **only truly bypass-proof** layer — even `--no-verify` + missing ECC hooks
+cannot bypass GitHub's server-side enforcement.
 
 **Agent A TDD mandate** (SKILL.md §6): Agent A must follow the **RED → GREEN → IMPROVE** cycle per FR before returning results.
 

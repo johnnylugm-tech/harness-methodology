@@ -395,4 +395,51 @@ python harness_cli.py plan-phase --phase <next>
 
 ---
 
+## 8. Bypass-Proof Enforcement (Local + Server-Side)
+
+The harness uses a three-layer defense against `git --no-verify` bypass:
+
+### 8.1 Layer 1 — Local Git Hooks
+Installed by `init-project` step [3/11] via `scripts/setup-git-hooks.sh`.  
+Blocks commits and pushes that don't meet phase requirements.  
+**Bypassable**: `git push --no-verify` skips local hooks.
+
+### 8.2 Layer 2 — ECC Hooks (Claude Code Session Layer)
+Installed via `scripts/setup-ecc-hooks.sh`. Blocks `git --no-verify` at the
+Claude Code tool-call level before it reaches the shell:
+```bash
+bash scripts/setup-ecc-hooks.sh            # install
+bash scripts/setup-ecc-hooks.sh --verify   # check status
+bash scripts/setup-ecc-hooks.sh --uninstall  # remove
+```
+`init-project` step [9/11] automatically checks ECC hook presence and
+offers to run the setup script if missing.
+
+### 8.3 Layer 3 — GitHub Branch Protection (Server-Side — Bypass-Proof)
+`init-project` step [10/11] auto-detects `gh` CLI and configures branch
+protection on `main`:
+- Block force pushes
+- Block branch deletions
+- No PR requirement (compatible with push-checkpoint direct-push model)
+
+Without `gh`, prints a manual setup guide. This is the **only truly
+bypass-proof layer** — GitHub rejects protected branch violations at
+the server, before the push is accepted.
+
+Manual setup:
+```
+GitHub repo → Settings → Branches → Add branch protection rule
+  Branch name: main
+  ✅ Block force pushes
+  ✅ Block deletions
+  ❌ Require a pull request (OFF)
+  ❌ Require status checks (OFF)
+```
+
+Or with `gh` CLI:
+```bash
+python harness_cli.py init-project --project . --setup-branch-protection
+```
+
+---
 *See [SAD.md](SAD.md) for full module architecture. See [SKILL.md](SKILL.md) for HR rules and gate thresholds.*

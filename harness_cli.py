@@ -4531,6 +4531,94 @@ def _verify_no_pr_requirement(owner: str, repo: str) -> None:
             file=sys.stderr,
         )
 
+def _check_and_offer_ecc_hooks(harness_root: Path) -> None:
+    """Check for ECC hooks presence and offer to install if missing.
+
+    ECC hooks intercept tool calls at the Claude Code session layer,
+    providing a bypass-proof safety net against ``git --no-verify``.
+    """
+    hooks_file = Path.home() / ".claude" / "hooks" / "hooks.json"
+    if hooks_file.exists():
+        try:
+            data = json.loads(hooks_file.read_text(encoding="utf-8"))
+            if "pre:bash:dispatcher" in data:
+                print("   OK — ECC hooks present (git --no-verify blocked at session layer)")
+                return
+            print("   WARNING: ECC hooks file exists but pre:bash:dispatcher hook is missing.")
+        except Exception:
+            print("   WARNING: ECC hooks file exists but is unreadable.")
+    else:
+        print("   WARNING: ECC hooks not installed — git --no-verify is NOT blocked.")
+
+    # Offer installation
+    setup_script = harness_root / "scripts" / "setup-ecc-hooks.sh"
+    if setup_script.exists():
+        print(f"   Install: bash {setup_script}")
+        print(f"   Verify:  bash {setup_script} --verify")
+    else:
+        print("   Setup script not found in harness installation.")
+
+
+def _auto_offer_branch_protection(project: Path) -> None:
+    """Auto-detect gh CLI and offer to set up branch protection.
+
+    When gh is available and authenticated, offers interactive setup.
+    Otherwise prints the manual setup guide so the operator can configure
+    protection via GitHub's web UI.
+    """
+    import subprocess
+    # Check gh availability
+    try:
+        gh_check = subprocess.run(
+            ["gh", "auth", "status"], capture_output=True, text=True, timeout=10,
+        )
+        if gh_check.returncode != 0:
+            _print_manual_branch_protection_guide()
+            return
+    except FileNotFoundError:
+        _print_manual_branch_protection_guide()
+        return
+    except subprocess.TimeoutExpired:
+        print("   WARNING: gh CLI check timed out — skipping auto-setup.")
+        _print_manual_branch_protection_guide()
+        return
+
+    # gh is available — offer setup
+    print("   gh CLI detected and authenticated.")
+    try:
+        remote_check = subprocess.run(
+            ["git", "-C", str(project), "remote", "get-url", "origin"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if remote_check.returncode != 0 or "github.com" not in remote_check.stdout:
+            print("   SKIP: git remote 'origin' not pointing to GitHub.")
+            return
+    except Exception:
+        print("   SKIP: cannot detect git remote.")
+        return
+
+    print("   Setting up branch protection automatically...")
+    rc = _setup_branch_protection(project)
+    if rc != 0:
+        _print_manual_branch_protection_guide()
+
+
+def _print_manual_branch_protection_guide() -> None:
+    """Print manual branch protection setup instructions for GitHub web UI."""
+    print("   ═══════════════════════════════════════════════════════════════")
+    print("   Set up GitHub branch protection manually:")
+    print("     Settings → Branches → Add branch protection rule")
+    print("     Branch name pattern: main")
+    print("     ✅ Block force pushes")
+    print("     ✅ Block deletions")
+    print("     ❌ Do NOT enable 'Require a pull request'")
+    print("     ❌ Do NOT enable 'Require status checks'")
+    print("   ═══════════════════════════════════════════════════════════════")
+    print("   Or install gh CLI for automatic setup:")
+    print("     brew install gh && gh auth login")
+    print(f"     Then re-run: python3 harness_cli.py init-project --project . --setup-branch-protection")
+
+
 def cmd_init_project(args: argparse.Namespace) -> int:
     """
     Initialize harness CI wiring in a target project (Context B setup).
@@ -4633,7 +4721,7 @@ def cmd_init_project(args: argparse.Namespace) -> int:
         print(f"   SKIP: {state_path} already exists (use --overwrite to overwrite)")
     else:
         atomic_write_json(state_path, {
-            "state": "ACTIVE",
+            "state": "RUNNING",
             "current_phase": phase,
             "last_gate": None,
             "last_fr": None,
@@ -4642,28 +4730,27 @@ def cmd_init_project(args: argparse.Namespace) -> int:
         print(f"   OK — state.json initialized (phase={phase})")
 
     # 8. Drift monitor hint
-    print(f"\n[8/9] Drift Monitor hint (optional cronjob)")
+    print(f"\n[8/11] Drift Monitor hint (optional cronjob)")
     print("  Add this crontab entry (edit with: crontab -e):")
     print(f"  0 * * * * DRIFT_PROJECT_PATH={project} \\")
     print(f"    python3 {harness_root}/scripts/cron_drift_monitor.py \\")
     print(f"    >> {project}/logs/drift_monitor.log 2>&1")
 
-    # 9. Optional branch protection setup
+    # 9. ECC hooks (Claude Code session layer — blocks git --no-verify)
+    print(f"\n[9/11] ECC hooks (git --no-verify blocker)...")
+    _check_and_offer_ecc_hooks(harness_root)
+
+    # 10. Branch protection (GitHub server-side — bypass-proof)
+    print(f"\n[10/11] GitHub branch protection...")
     if args.setup_branch_protection:
-        print(f"\n[9/9] Setting up GitHub branch protection for main...")
         rc = _setup_branch_protection(project)
         if rc != 0:
-            print("   WARNING: Branch protection setup did not complete.")
-            print("   Set it up manually via GitHub UI:")
-            print("     Settings → Branches → Add rule → Branch: main")
-            print("     ✅ Block force pushes")
-            print("     ✅ Block deletions")
-            print("     ❌ Do NOT enable 'Require a pull request' — incompatible with push-checkpoint direct-push model")
-            print("     ❌ Do NOT enable 'Require status checks' — only gates PR merges, not direct pushes")
+            _print_manual_branch_protection_guide()
     else:
-        print(f"\n[9/9] SKIP: --setup-branch-protection not requested")
+        # Auto-detect gh availability and offer setup
+        _auto_offer_branch_protection(project)
 
-    # 10. Gate tool availability (blocking — all Tier 1 tools required before project start).
+    # 11. Gate tool availability (blocking — all Tier 1 tools required before project start).
     # Driven by gate YAMLs so new requires_tool_execution entries are auto-detected.
     print("\n[10/10] Gate tool availability check...")
     _missing_init: list[str] = []
