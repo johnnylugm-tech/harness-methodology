@@ -3604,7 +3604,7 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             for line in spec_text.splitlines():
                 stripped = line.strip()
                 # New "### FR-XX:" header — switch to that FR's section
-                m = re.match(r"^###\s+([A-Z]+-\d+)[:\s]", stripped)
+                m = re.match(r"^###\s+([A-Z]+-\d+)(?:[:\s]|$)", stripped)
                 if m:
                     current_fr = m.group(1)
                     continue
@@ -3617,8 +3617,10 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
                 # Parse data row: `| # | `test_foo` | type | deriv |`
                 if stripped.startswith("|") and stripped.endswith("|"):
                     cols = [c.strip() for c in stripped.split("|")[1:-1]]
-                    if len(cols) >= 2 and cols[1].startswith("`test_"):
-                        spec_rows.append(cols[1].strip("`"))
+                    if len(cols) >= 2:
+                        clean_col = cols[1].strip(" `")
+                        if clean_col.startswith("test_"):
+                            spec_rows.append(clean_col)
                     continue
             if spec_rows:
                 spec_note = (
