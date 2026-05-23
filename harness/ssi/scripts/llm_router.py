@@ -119,7 +119,7 @@ Return ONLY valid JSON in this exact format:
   "dimension": "{dimension}",
   "tool_score": <0-100>,
   "llm_score": <0-100>,
-  "score": <min of tool_score and llm_score>,
+  "score": <same as tool_score — LLM annotation only, does not affect gate scoring>,
   "findings": [
     {{"line": <int or null>, "severity": "critical|warning|info", "message": "<text>", "evidence": "<tool output excerpt>"}}
   ],

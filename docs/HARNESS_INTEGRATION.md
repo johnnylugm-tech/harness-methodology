@@ -145,7 +145,7 @@ Score reconciliation: final_score = min(tool_score, llm_score)
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `ANTHROPIC_API_KEY` | Yes | — | Claude API key for all LLM-based gate evaluation (Gates 1–4). Required in both local and CI contexts. |
+| `ANTHROPIC_API_KEY` | No | — | Optional — only needed when `STEERING_PROVIDER_TYPE=anthropic` (Steering LLM judge). Not required for gate evaluation (Gates 1–4 use tool-based scoring only). |
 | `PYTHONPATH` | Option B only | — | Must include harness-methodology repo root (e.g. `/opt/harness`). Not needed for Option A (submodule) or Option C (copy). |
 | `HERMES_REVIEWER_TARGET` | See note | — | e.g. `telegram:6308981865`. Used for Agent B A/B reviewer (`reviewer_router.py`) — active from P1, optional but degrades to Gemini→Claude fallback if unset. |
 | `HERMES_TIMEOUT_MS` | No | `120000` | Hermes reviewer response timeout (ms, default 2 min) wired in `reviewer_router.py` (module-level constant). |

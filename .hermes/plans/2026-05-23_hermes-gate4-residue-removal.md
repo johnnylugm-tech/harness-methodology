@@ -56,11 +56,9 @@
 修改為：
 ```
 2. Set required env vars:
-   export ANTHROPIC_API_KEY=sk-...       # Required for all LLM evaluation
+   export ANTHROPIC_API_KEY=sk-...       # Optional — only needed when STEERING_PROVIDER_TYPE=anthropic (Steering LLM judge); not required for gate evaluation
    export HERMES_REVIEWER_TARGET=telegram:YOUR_CHAT_ID   # Optional — enables Hermes A/B reviewer (P1–P6)
 ```
-
-（加入 `ANTHROPIC_API_KEY` 是因為它是真正 Required 的，並將 Hermes 降為 Optional）
 
 ### 2. `SKILL.md`
 

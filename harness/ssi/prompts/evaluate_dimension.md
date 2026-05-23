@@ -173,12 +173,10 @@ fi
 >
 > **objective_primary**: mutation_testing has `objective_primary: true` in config. The mutmut
 > score (survived/killed ratio) IS the authoritative score. When writing the score file,
-> include `"objective_primary": true` in the JSON. The llm_score can only reduce the final
-> score below the mutmut score (via R4 `min()`), never increase it. If llm_score deviates
-> from tool_score by >10, score.py R8b emits a warning.
->
-> Example: mutmut reports 25% survived → tool_score=75. llm_score=80 is capped to 75.
-> llm_score=60 is accepted (score becomes 60) but R8b warns about the >10-point deviation.
+> include `"objective_primary": true` in the JSON. The `score` field must equal `tool_score`
+> (score.py R4 enforces this — LLM annotation cannot adjust the numeric score). The
+> `llm_score` field is recorded for annotation purposes only; it does not affect gate scoring.
+> score.py R8b deviation warning was removed when LLM scoring was abolished.
 
 ### architecture (Tier 3 — CRG-ONLY)
 
