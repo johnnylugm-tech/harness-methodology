@@ -28,10 +28,6 @@ When the user says "execute Phase N", "start P3", "implement FR-X", or any phase
    If MISSING (fresh project) → run:
      python harness_cli.py init-project --phase 1 --project .
      → Installs: git hooks, .github/workflows/harness_quality_gate.yml, state.json
-   Then confirm this manual item:
-     a. [optional] export HERMES_REVIEWER_TARGET=telegram:YOUR_CHAT_ID
-        (Optional — enables Hermes in P1–P2 A/B reviewer chain (Hermes→Gemini→Claude).
-         Hermes APPROVE removed from P6 Gate 4 in v2.4. Set for higher review quality in P1–P2.)
    If state.json EXISTS → skip to step 1. Setup already done.
 
 1. GENERATE PLAN (always first action for a new phase):
