@@ -2246,22 +2246,37 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
         )
     return 0 if ok else 1
 
-def _extract_review_json(text: str) -> "dict | None":
+def _extract_review_json(text: str, _depth: int = 0) -> "dict | None":
     """Extract the first JSON object containing 'review_status' from free text.
 
     Scans from every '{' position so it works whether the agent output is plain
     JSON, JSON inside a markdown code fence, or JSON embedded in prose.
+
+    Also unwraps the Claude CLI JSON envelope (``{"result": "...", "session_id": "..."}``)
+    when the agent output was captured as the raw CLI response rather than the
+    unwrapped ``result`` field.  Recursion is bounded at 2 levels (Claude CLI
+    envelope is always exactly 1 level deep).
     Returns None if no valid review JSON is found.
     """
+    if not text or not isinstance(text, str):
+        return None
+
     decoder = json.JSONDecoder()
     for i, ch in enumerate(text):
         if ch != '{':
             continue
         try:
             obj, _ = decoder.raw_decode(text, i)
-            if isinstance(obj, dict) and "review_status" in obj:
+            if not isinstance(obj, dict):
+                continue
+            if "review_status" in obj:
                 return obj
-        except json.JSONDecodeError:
+            # Unwrap Claude CLI envelope: {"result": "...", "session_id": "..."}
+            if "result" in obj and isinstance(obj["result"], str) and _depth < 2:
+                inner = _extract_review_json(obj["result"], _depth + 1)
+                if inner is not None:
+                    return inner
+        except (json.JSONDecodeError, ValueError):
             pass
     return None
 
@@ -3053,6 +3068,10 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
     Usage:
         python harness_cli.py advance-phase --completed 3   # advances to phase 4
     """
+    # Preserve CWD — if any Python code in this process changes directory
+    # (e.g. os.chdir in a hook or library), restore it before returning.
+    # Subprocess calls (git -C, claude -p) do NOT change the parent CWD.
+    _saved_cwd = os.getcwd()
     project = Path(args.project).resolve()
 
     # CV-2: Validate args.completed_phase matches state.json::current_phase.
@@ -3204,6 +3223,14 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                 print(f"[advance-phase] WARN: git commit failed — {commit_result.stderr.strip()}")
 
     print(f"[advance-phase] Done — local hooks and CI now target phase {next_phase}")
+    # Restore CWD in case subprocesses or spawned agents changed it.
+    # Git commands use -C flag (no CWD change), but spawned agents may cd.
+    try:
+        if os.getcwd() != _saved_cwd:
+            os.chdir(_saved_cwd)
+            print(f"[advance-phase] CWD restored to {_saved_cwd}")
+    except OSError:
+        pass
     return 0
 
 # ---------------------------------------------------------------------------
@@ -3222,21 +3249,48 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
     from core.agent_spawner import AgentSpawner
 
     project = Path(args.project).resolve()
-    # P1/P2: validate --fr-id is a recognised deliverable ID (approval file naming)
-    if args.phase in _PHASE_DELIVERABLES:
+
+    # --prompt-file: read prompt from file to avoid shell escaping issues
+    # with {} curly braces, backticks, JSON examples, or $() in the prompt text.
+    _prompt = args.prompt
+    _prompt_file = getattr(args, "prompt_file", None)
+    if _prompt_file:
+        if _prompt:
+            print("[dispatch] WARNING: --prompt-file takes precedence; --prompt ignored")
+        try:
+            _prompt = Path(_prompt_file).read_text(encoding="utf-8")
+        except (FileNotFoundError, OSError) as exc:
+            print(f"[dispatch] ERROR: cannot read --prompt-file: {exc}")
+            return 1
+    elif not _prompt:
+        print("[dispatch] ERROR: --prompt or --prompt-file is required")
+        return 1
+    else:
+        # When prompt is passed via --prompt (inline), the shell may have a
+        # command-line length limit for large prompts. Suggest --prompt-file.
+        if len(_prompt) > 500_000:
+            print("[dispatch] WARNING: --prompt exceeds 500k chars — use --prompt-file instead")
+
+    # P1/P2: validate --fr-id is a recognised deliverable ID (approval file naming).
+    # --skip-deliverable-validation bypasses this check for custom reviews
+    # (e.g. holistic cross-document review, P1_HOLISTIC / P2_HOLISTIC).
+    _skip_dv = getattr(args, "skip_deliverable_validation", False)
+    if args.phase in _PHASE_DELIVERABLES and not _skip_dv:
         _valid_ids = _PHASE_DELIVERABLES[args.phase]
         if not args.fr_id:
             print(
                 f"[dispatch] ERROR: phase {args.phase} requires --fr-id (deliverable name).\n"
                 f"  Valid IDs for P{args.phase}: {', '.join(_valid_ids)}\n"
-                f"  Example: --fr-id {_valid_ids[0]}"
+                f"  Example: --fr-id {_valid_ids[0]}\n"
+                f"  Or use --skip-deliverable-validation for custom review IDs."
             )
             return 1
         if args.fr_id not in _valid_ids:
             print(
                 f"[dispatch] ERROR: phase {args.phase} requires --fr-id to be a deliverable name.\n"
                 f"  Valid IDs for P{args.phase}: {', '.join(_valid_ids)}\n"
-                f"  Got: {args.fr_id!r}"
+                f"  Got: {args.fr_id!r}\n"
+                f"  Or use --skip-deliverable-validation for custom review IDs."
             )
             return 1
     spawner = AgentSpawner(project_path=project)
@@ -3248,18 +3302,23 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
     # STATELESS Agent B (reviewer): skip persona — persona causes Claude to enter
     # multi-step tool exploration mode instead of returning JSON directly (see SAD §reviewer_router).
     persona_override = "" if (is_reviewer or no_persona) else None
+    # STATELESS Agent B: also skip SOP — the SOP is a large reference doc that
+    # causes Claude to enter exploration mode instead of returning JSON directly.
+    # TASK + CONTEXT alone is enough for a reviewer to produce structured output.
+    sop_override = "" if (is_reviewer or no_persona) else None
     # Reviewer dispatches only need a single response turn; cap at 3 to prevent runaway.
     _explicit_max_turns = getattr(args, "max_turns", None)
     effective_max_turns = _explicit_max_turns if _explicit_max_turns is not None else (3 if is_reviewer else 20)
     result = spawner.spawn(
         role=args.role,
-        prompt=args.prompt,
+        prompt=_prompt,
         context={"phase": args.phase, "fr_id": args.fr_id},
         phase=args.phase,
         fr_id=args.fr_id,
         task_timeout=getattr(args, "timeout", 300),
         max_turns=effective_max_turns,
         persona_override=persona_override,
+        phase_sop_override=sop_override,
     )
     status = result.get("status", "SPAWNED")
     session_id = result.get("session_id", "")
@@ -5363,6 +5422,11 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Max tool-using turns (default: 3 for reviewer roles, 20 for others).")
     dp.add_argument("--no-persona", action="store_true", dest="no_persona",
                     help="Skip persona for this dispatch (auto-applied for reviewer/analyst roles; use for other stateless roles).")
+    dp.add_argument("--prompt-file", default=None, dest="prompt_file",
+                    help="Read prompt from file instead of --prompt (avoids shell escaping issues with {} or backticks).")
+    dp.add_argument("--skip-deliverable-validation", action="store_true",
+                    dest="skip_deliverable_validation",
+                    help="Allow custom --fr-id values for P1/P2 (e.g. P1_HOLISTIC for cross-document review).")
     dp.set_defaults(func=cmd_dispatch)
 
     # run-fr-step

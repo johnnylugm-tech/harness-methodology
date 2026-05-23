@@ -141,6 +141,9 @@ Before advancing to Phase N+1, confirm ALL:
 | Finalize a gate | `python harness_cli.py finalize-gate --gate N --phase P` |
 | **Push P3+ milestone (required before git push)** | `python harness_cli.py push-milestone --type p3-mid\|p3-pre-gate2\|p4-mid\|p4-pre-gate3\|p5-baseline\|p7\|p8` |
 | Phase End Audit (P3+) | `python3 scripts/phase_end_audit.py --phase N --project .` |
+| Dispatch Agent A/B (P1/P2) | `python harness_cli.py dispatch --role developer\|reviewer --fr-id <ID> --phase 1\|2 --project . --prompt "..."` |
+| Dispatch with long prompt (P1/P2) | `python harness_cli.py dispatch --role reviewer --fr-id SRS.md --phase 1 --prompt-file /tmp/prompt.txt` |
+| Dispatch holistic review (P1/P2) | `python harness_cli.py dispatch --role reviewer --fr-id P1_HOLISTIC --phase 1 --skip-deliverable-validation --prompt-file /tmp/review.txt` |
 | Initialize a new project | `python harness_cli.py init-project --project /path/to/target --phase 1` |
 | Advance to next phase | `python harness_cli.py advance-phase --completed N --project .` |
 | Generate manifest for FRs | `python harness_cli.py manifest --fr-ids FR-01 FR-02 --sad SAD.md` |
