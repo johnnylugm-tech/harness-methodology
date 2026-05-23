@@ -1,1 +1,1 @@
-"""harness — software_self_improvement integration layer for harness-methodology."""
+"""harness — gate lifecycle, CRG integration, reviewer routing, and audit/metrics sinks."""

@@ -516,9 +516,11 @@ class GateContext:
 
 class HarnessBridge:
     """
-    Bridge layer between software_self_improvement and harness-methodology.
+    Gate lifecycle controller — two-phase API (prepare_gate → finalize_gate).
 
-    Handles gate triggering, CRG integration, result parsing, and manifest updates.
+    Handles gate configuration loading, CRG integration, result parsing, threshold
+    enforcement, and quality manifest updates. The SSI evaluation engine (prompts,
+    scripts, schemas) is embedded in harness/ssi/.
     """
 
     def __init__(self):

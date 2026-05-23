@@ -2476,54 +2476,69 @@ python3 scripts/rotate_decision_logs.py [--project .] [--retention-days 30] [--d
 
 ---
 
-## 7. Runtime Prerequisites & Remaining Work
+## 7. Runtime Prerequisites & Dependencies
 
-All in-framework bugs and stubs have been resolved. The one remaining dependency is external:
+### 7.1 SSI — Embedded Evaluation Engine
 
-| Item | Location | Status | Notes |
-|---|---|---|---|
-| `software_self_improvement` package | `harness_bridge._invoke_harness()` | **External dependency** | Install: `pip install -e path/to/software_self_improvement`. Once installed, `python3 -m software_self_improvement.runner` resolves and gate runs work end-to-end. |
+Gate evaluation assets (prompts, scripts, schemas) are **embedded** in `harness/ssi/` — no
+external package install required.
 
-### Integration Contract (authoritative source: `software_self_improvement` repo)
-
-| Artifact | Path in SSI repo | Purpose |
+| Asset | Path | Purpose |
 |---|---|---|
-| Entry point | `software_self_improvement/runner.py` | CLI called by `_invoke_harness()` |
-| Result schema | `schemas/harness_gate_result.schema.json` | JSON Schema Draft-7 for output file |
-| Integration doc | `docs/HARNESS_INTEGRATION.md` | Full interface spec: args, workspace layout, gate table, env vars |
+| Evaluation prompt | `harness/ssi/prompts/evaluate_dimension.md` | Per-dimension scoring instructions |
+| Verification prompt | `harness/ssi/prompts/verify_round.md` | Round verification |
+| Scripts | `harness/ssi/scripts/` | `score.py`, `issue_tracker.py`, `llm_router.py`, etc. |
+| Schema | `harness/ssi/schemas/harness_gate_result.schema.json` | Result validation |
 
-**Subprocess call** (written in `_invoke_harness`):
+The only remaining reference to `software_self_improvement` is in
+`harness/issue_tracker_ext.py`, which imports `IssueTracker` with an inline stub
+fallback if the package is absent.
+
+### 7.2 Two-Phase Gate Evaluation (no subprocess)
+
+Gates use a two-phase API. Claude **is** the evaluation engine — no subprocess runner:
+
 ```
-python3 -m software_self_improvement.runner
-    --config  .sessi-work/gate{n}_config.yaml
-    --root    {project_root}
-    --output  .sessi-work/gate{n}_result.json
-    [--fr-id  {fr_id}]
+Phase 1 — prepare_gate(gate_num, project_root, phase [, fr_id])
+  ├─ Loads gate config from harness/gate_configs/gate{N}_*.yaml
+  ├─ CRG reconnaissance (Gate 3/4) or refresh (Gate 2)
+  ├─ CRG Tier 3 per-dim context (Gate 3/4)
+  ├─ Reads SAB baseline from quality_manifest.json
+  └─ Returns GateContext with evaluation_prompt()
+
+Phase 2 — Claude evaluates inline
+  ├─ Reads ctx.evaluation_prompt() + harness/ssi/prompts/evaluate_dimension.md
+  ├─ Runs tool checks via harness/ssi/scripts/score.py
+  └─ Writes ctx.work_dir/gate{N}_result.json
+
+Phase 3 — finalize_gate(ctx)
+  ├─ Reads gate{N}_result.json
+  ├─ Tool execution evidence enforcement (S3)
+  ├─ Threshold check → raise GateBlockedError on failure
+  ├─ Updates quality_manifest.json
+  └─ Records DecisionLog + EffortTracker
 ```
 
-**Exit codes**: `0` = `quality_complete=True` | `1` = gate not passed | `2+` = error
+### 7.3 Workspace Layout
 
-**Config translation** (`runner.translate_gate_config`):
-- `dimensions[].threshold` (harness) → `dimensions[name].target` (SSI)
-- `dimensions[].tier` / `model` → `llm_routing` tier assignment
-- Gate 1: `score_gate` absent → per-dim threshold only (blocking handled by harness, not runner)
-
-**Workspace** (both repos share `.sessi-work/` in project root):
-```
+```text
 .sessi-work/
-  gate{n}_config.yaml          ← harness writes (runner input)
-  gate{n}_ssi_config.json      ← runner writes (translated SSI config)
-  gate{n}_result.json          ← runner writes (harness reads)
-  round_{k}/scores/*.json      ← evaluators write, score.py reads
-  issue_registry.json          ← persistent across rounds
-  crg_metrics.json             ← crg_bridge writes, runner reads (optional)
+  gate{N}_result.json          ← Claude writes (harness reads)
+  crg_metrics.json             ← crg_bridge + crg_analysis.py write
+  crg_reconnaissance.json      ← CRG recon protocol output (Gate 3/4)
+  harness_verification/        ← tool_runners.py audit trail
 ```
+
+### 7.4 External Dependencies (All Resolved)
+
+No external package dependencies remain. All gate evaluation logic is self-contained
+within this repository.
 
 ### Previously Fixed Stubs (resolved in this version)
 
 | Fix | Location | Resolution |
 |---|---|---|
-| ① SSI runner stub | `harness_bridge._invoke_harness()` | Replaced `NotImplementedError` with subprocess call + JSON result parsing |
+| ① SSI runner stub | `harness_bridge._invoke_harness()` (removed) | Replaced `NotImplementedError` with subprocess call, then subprocess replaced with two-phase inline API (prepare_gate → Claude eval → finalize_gate). `_invoke_harness()` no longer exists. |
 | ② `parse_sad` import failure | `harness_bridge.generate_quality_manifest()` | Fixed by adding `parse_sad()` to `scripts/generate_sab.py` |
 | ③ P7/P8 Claude routing not wired | `core/agent_spawner.spawn()` | `get_reviewer_model(phase, role)` now checked before Hermes dispatch; P7/P8 auto-route to Claude |
 | ④ ~~Gate 4 Hermes APPROVE not enforced~~ | ~~`harness_bridge.run_gate()`~~ | **REMOVED in v2.4** — `run_gate()` deleted; `finalize_gate()` does NOT require Hermes APPROVE (Gate 4 is score + quality_complete only). |
