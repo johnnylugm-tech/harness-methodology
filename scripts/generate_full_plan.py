@@ -281,6 +281,7 @@ def parse_srs_nfr_sections(srs_path: Optional[Path]) -> List[Dict]:
     """Parse SRS.md to extract NFR sections"""
     if srs_path is None:
         return []
+    srs_path = Path(srs_path)
     if not srs_path.exists():
         return []
 
@@ -300,6 +301,36 @@ def parse_srs_nfr_sections(srs_path: Optional[Path]) -> List[Dict]:
             'title': title,
             'details': details
         })
+
+    # Fallback: table-format NFR extraction (| NFR-01 | Performance | desc | method |)
+    if not nfrs:
+        table_re = re.compile(
+            r'^\|\s*NFR-(\d{1,2})\s*\|\s*(\w+)\s*\|\s*(.+?)\s*\|',
+            re.MULTILINE,
+        )
+        seen = set()
+        for m in table_re.finditer(content):
+            nfr_num = f"NFR-{m.group(1).zfill(2)}"
+            if nfr_num in seen:
+                continue
+            seen.add(nfr_num)
+            nfr_type = m.group(2)
+            desc = m.group(3).strip()
+            if len(desc) > 400:
+                desc = desc[:397] + "..."
+            nfrs.append({
+                'nfr': nfr_num,
+                'title': f"NFR-{m.group(1).zfill(2)}: {nfr_type}",
+                'details': desc,
+            })
+
+    if not nfrs:
+        print(
+            "[generate_full_plan] WARNING: No NFR sections found in SRS.md.\n"
+            "  Expected format: '### NFR-01: Title' sections or '| NFR-01 | Type | desc |' table rows.\n"
+            "  The generated plan will have no NFR summary section.",
+            file=sys.stderr,
+        )
 
     return nfrs
 
