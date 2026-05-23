@@ -1617,6 +1617,8 @@ class TestDispatch:
         a.role = "developer"
         a.prompt = "Implement FR-01"
         a.phase = 3
+        a.no_persona = False
+        a.timeout = 300
 
         captured = io.StringIO()
         monkeypatch.setattr("sys.stdout", captured)
@@ -1647,6 +1649,8 @@ class TestDispatch:
         a.role = "reviewer"
         a.prompt = "Review FR-01"
         a.phase = 3
+        a.no_persona = False
+        a.timeout = 300
 
         captured = io.StringIO()
         monkeypatch.setattr("sys.stdout", captured)
@@ -1676,12 +1680,46 @@ class TestDispatch:
         a.role = "reviewer"
         a.prompt = "Review FR-02"
         a.phase = 3
+        a.no_persona = False
+        a.timeout = 300
 
         captured = io.StringIO()
         monkeypatch.setattr("sys.stdout", captured)
         exit_code = cmd_dispatch(a)
         assert exit_code == 1
         # reviewer: persona skipped and turns capped at 3
+        assert _captured_kwargs.get("persona_override") == ""
+        assert _captured_kwargs.get("max_turns") == 3
+
+    def test_dispatch_business_analyst_uses_reviewer_params(self, tmp_path, monkeypatch):
+        """BUSINESS_ANALYST matches 'analyst' in role_lower → reviewer parameters."""
+        import io
+        from harness_cli import cmd_dispatch
+
+        _captured_kwargs = {}
+
+        def fake_spawn(self, role, prompt, context, phase, fr_id=None, **kwargs):
+            _captured_kwargs.update(kwargs)
+            return {"status": "APPROVE", "session_id": "fake-006"}
+
+        monkeypatch.setattr("core.agent_spawner.AgentSpawner.spawn", fake_spawn)
+
+        class Args:
+            pass
+        a = Args()
+        a.project = str(tmp_path)
+        a.fr_id = "FR-05"
+        a.role = "BUSINESS_ANALYST"
+        a.prompt = "Review business alignment"
+        a.phase = 1
+        a.no_persona = False
+        a.timeout = 300
+
+        captured = io.StringIO()
+        monkeypatch.setattr("sys.stdout", captured)
+        exit_code = cmd_dispatch(a)
+        assert exit_code == 0
+        # BUSINESS_ANALYST: persona skipped and turns capped at 3 (same as reviewer)
         assert _captured_kwargs.get("persona_override") == ""
         assert _captured_kwargs.get("max_turns") == 3
 
@@ -1707,6 +1745,8 @@ class TestDispatch:
         a.role = "developer"
         a.prompt = "Implement FR-03"
         a.phase = 3
+        a.no_persona = False
+        a.timeout = 300
 
         captured = io.StringIO()
         monkeypatch.setattr("sys.stdout", captured)
@@ -1738,6 +1778,8 @@ class TestDispatch:
         a.role = "developer"
         a.prompt = "Implement FR-04"
         a.phase = 3
+        a.no_persona = False
+        a.timeout = 300
 
         captured = io.StringIO()
         monkeypatch.setattr("sys.stdout", captured)
