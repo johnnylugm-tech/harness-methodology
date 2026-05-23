@@ -98,6 +98,42 @@ def parse_srs_fr_sections(srs_path) -> List[Dict]:
             'raw_details': details[:500]
         })
 
+    # Fallback: if no section-format FRs found, try table-format extraction.
+    # Many projects write SRS.md FRs as a markdown table (| FR-01 | desc | ... |)
+    # rather than ### FR-01: section headers.  This fallback extracts at least the
+    # FR IDs and descriptions so the plan generator can produce per-FR task blocks.
+    if not frs:
+        table_re = re.compile(
+            r'^\|\s*FR-(\d{1,2})\s*\|\s*(.+?)\s*\|',
+            re.MULTILINE,
+        )
+        seen = set()
+        for m in table_re.finditer(content):
+            fr_num = f"FR-{m.group(1).zfill(2)}"
+            if fr_num in seen:
+                continue
+            seen.add(fr_num)
+            desc = m.group(2).strip()
+            # Truncate overly long table-cell descriptions
+            if len(desc) > 200:
+                desc = desc[:197] + "..."
+            frs.append({
+                'fr': fr_num,
+                'title': f"{fr_num}: {desc[:80]}",
+                'desc': desc,
+                'test_cases': [],
+                'requirements': [],
+                'raw_details': desc,
+            })
+
+    if not frs:
+        print(
+            "[generate_full_plan] WARNING: No FR sections found in SRS.md.\n"
+            "  Expected format: '### FR-01: Title' sections or '| FR-01 | desc |' table rows.\n"
+            "  The generated plan will have no per-FR task blocks. Verify SRS.md format.",
+            file=sys.stderr,
+        )
+
     return frs
 
 
@@ -1507,6 +1543,15 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path) -> List[str]:
             checkpoint_n += 1
 
     else:
+        lines.append("### ⚠️  FR Implementation Tasks — NONE FOUND")
+        lines.append("")
+        lines.append("> **WARNING**: `parse_srs_fr_sections()` returned zero FRs and no")
+        lines.append("> `quality_manifest.json` FR list was found. The plan has **no per-FR")
+        lines.append("> task blocks**.  Verify SRS.md format: use `### FR-01: Title` sections")
+        lines.append("> or `| FR-01 | description |` table rows.")
+        lines.append("")
+        lines.append("To fix: update SRS.md format and re-run `plan-phase --phase 3`.")
+        lines.append("")
         checkpoint_n = 1
 
     lines.extend(_p3_milestone_push_steps(fr_ids))
