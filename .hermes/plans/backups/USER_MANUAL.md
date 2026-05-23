@@ -1008,6 +1008,7 @@ Hooks 是可選的 shell/Python 指令，在特定 phase/gate/FR 事件自動執
 
 | Variable | Default | Purpose |
 |---|---|---|
+| `ANTHROPIC_API_KEY` | — | **Required** — Claude API key used by SSI runner and agent_spawner for all LLM-based gate evaluation (Gates 1–4). Missing key causes gate evaluation to fail with an authentication error. |
 | `HERMES_REVIEWER_TARGET` | `""` | Hermes reviewer target (e.g. `telegram:6308981865`). Used for Agent B reviewer for A/B collaboration (`reviewer_router.py`) — active from P1, degrades gracefully to Gemini→Claude sub-agent if unset. |
 | `HERMES_TIMEOUT_MS` | `120000` | Hermes long-poll timeout in ms (default: 2 minutes) |
 | `SSI_ROOT` | `harness/ssi` | Path to embedded SSI package (auto-detected from harness_cli.py) |
@@ -1016,6 +1017,7 @@ Hooks 是可選的 shell/Python 指令，在特定 phase/gate/FR 事件自動執
 
 **Setup example**:
 ```bash
+export ANTHROPIC_API_KEY=sk-ant-...
 export HERMES_REVIEWER_TARGET=telegram:1234567890
 export DRIFT_PROJECT_PATH=/path/to/your/project
 # Option B (global clone) only:
@@ -1242,6 +1244,11 @@ python3 -c "import yaml; print('OK: pyyaml')" 2>/dev/null \
 python3 -c "from core.quality_gate.constitution.profile import GateConfig; print('OK: gate config')" \
   2>/dev/null || echo "FAIL: core/ not on path — check PYTHONPATH / submodule init"
 
+echo "--- 5. ANTHROPIC_API_KEY ---"
+[ -n "$ANTHROPIC_API_KEY" ] \
+  && echo "OK: ANTHROPIC_API_KEY set ($(echo $ANTHROPIC_API_KEY | cut -c1-8)...)" \
+  || echo "FAIL: export ANTHROPIC_API_KEY=sk-ant-..."
+
 echo "--- 6. SSI embedded ---"
 python3 -c "import sys; sys.path.insert(0,'$HARNESS_DIR'); import ssi; print('OK: ssi importable')" \
   2>/dev/null || echo "WARN: SSI not importable — gate evaluation will fall back to static scoring"
@@ -1259,6 +1266,7 @@ OK: state.json found
 OK: harness_cli.py found (./harness/harness_cli.py)
 OK: pyyaml
 OK: gate config
+OK: ANTHROPIC_API_KEY set (sk-ant-ap...)
 OK: ssi importable
 OK: HERMES_REVIEWER_TARGET=telegram:6308981865
 ```

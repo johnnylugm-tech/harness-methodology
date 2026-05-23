@@ -21,7 +21,7 @@ The architecture is driven by five strict non-functional requirements defined in
 ### Driver 3 — Reliability & Reproducibility (NFR-1)
 - **Requirement**: Quality assessment must be stable and not over-dependent on LLM stochasticity.
 - **Decision**: Three mechanisms:
-  1. **Pure tool-based scoring**: `score = tool_score` — LLM is not used for scoring. Tier 1/2 `tool_score=null` is rejected by score.py R8; evaluation is SUSPENDED until the tool is installed.
+  1. **Hybrid scoring**: `min(tool_score, llm_score)` — LLM cannot score higher than deterministic tools. Tier 1/2 `tool_score=null` is rejected by score.py R8; evaluation is SUSPENDED until the tool is installed.
   2. **CRG integration**: Code Review Graph provides graph-theory-based reproducible structural metrics for architecture/error-handling dimensions.
   3. **Tool pre-flight**: `init-project` blocks on missing Tier 1 tools; `run-gate` checks tools before printing the evaluation prompt — prevents LLM self-evaluation via tool-absent fallback.
 
@@ -60,7 +60,7 @@ The system uses this macro architecture:
 | Proxy Pattern | `harness/reviewer_router.py` | Local proxy to remote Hermes MCP service |
 | Circuit Breaker | `kill_switch/` | Safety backstop independent of main flow |
 | Graceful Degradation | `harness/crg_bridge.py` | All CRG methods no-op if CRG not installed |
-| LLM-as-Judge | `steering/steering_loop.py` | Objective A/B output evaluation via LLM (default: NoopProvider; requires `STEERING_PROVIDER_TYPE=anthropic` to activate) |
+| LLM-as-Judge | `steering/steering_loop.py` | Objective A/B output evaluation via LLM |
 | Auto-Fix Engine | `core/auto_fix/` | Proactive detect→classify→auto_fix→verify→loop with human escalation guardrails |
 
 ### 2.3 CLI Architecture: Single Entry Point
@@ -992,7 +992,7 @@ class LLMJudgeScorer:
 ```python
 def iterate(output_a, output_b) -> IterationResult:
     # 1. Update stage (EXPLORATION → COMPETITION → CONVERGENCE)
-    # 2. Score both outputs (tool-based; LLM-judge skipped by default — NoopProvider)
+    # 2. LLM-judge score both outputs
     # 3. Compute weighted total (quality*0.4 + clarity*0.2 + consistency*0.2)
     # 4. Determine winner, update best_output
     # 5. Generate feedback
@@ -2296,6 +2296,7 @@ class HandoverGenerator:
 ## ▶ 立即開始（三步）
 1. Clone repo / enter project directory
 2. Set required env vars:
+   export ANTHROPIC_API_KEY=sk-...       # Required for all LLM evaluation
    export HERMES_REVIEWER_TARGET=telegram:YOUR_CHAT_ID   # Optional — P1–P2 A/B reviewer chain (Hermes→Gemini→Claude)
 3. Read the plan: `.methodology/phase{N}_plan.md`
 
