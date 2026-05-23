@@ -174,9 +174,9 @@ def parse_sad_modules(repo_path: Path) -> Dict:
             return modules
 
         # Method 2: JSON SAB block — "FR-01": "app.models"
-        sab_match = re.search(r'"FR-\d{2}":\s*"([^"]+)"', content)
+        sab_match = re.search(r'"FR-\d+":\s*"([^"]+)"', content)
         if sab_match:
-            sab_pattern = re.compile(r'"(FR-\d{2})":\s*"([^"]+)"')
+            sab_pattern = re.compile(r'"(FR-\d+)":\s*"([^"]+)"')
             for m in sab_pattern.finditer(content):
                 fr_key = m.group(1)
                 if fr_key in seen:
@@ -185,6 +185,11 @@ def parse_sad_modules(repo_path: Path) -> Dict:
                 module_path = m.group(2)
                 # Handle "a.b + c.d" style multi-module entries — take the last one
                 if ' + ' in module_path:
+                    print(
+                        f"[generate_full_plan] WARNING: FR {fr_key} maps to multiple modules ({module_path}).\n"
+                        f"  Only the last module ({module_path.split(' + ')[-1]}) will be assigned to Agent A.",
+                        file=sys.stderr,
+                    )
                     module_path = module_path.split(' + ')[-1]
                 modules[fr_key] = {
                     'module': module_path.split('.')[-1] if '.' in module_path else module_path,
