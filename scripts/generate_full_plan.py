@@ -104,7 +104,7 @@ def parse_srs_fr_sections(srs_path) -> List[Dict]:
     # FR IDs and descriptions so the plan generator can produce per-FR task blocks.
     if not frs:
         table_re = re.compile(
-            r'^\|\s*FR-(\d{1,2})\s*\|\s*(.+?)\s*\|',
+            r'^\|\s*FR-(\d+)\s*\|\s*(.+?)\s*\|',
             re.MULTILINE,
         )
         seen = set()
@@ -305,7 +305,7 @@ def parse_srs_nfr_sections(srs_path: Optional[Path]) -> List[Dict]:
     # Fallback: table-format NFR extraction (| NFR-01 | Performance | desc | method |)
     if not nfrs:
         table_re = re.compile(
-            r'^\|\s*NFR-(\d{1,2})\s*\|\s*(\w+)\s*\|\s*(.+?)\s*\|',
+            r'^\|\s*NFR-(\d+)\s*\|\s*([^|]+?)\s*\|\s*(.+?)\s*\|',
             re.MULTILINE,
         )
         seen = set()
@@ -314,7 +314,7 @@ def parse_srs_nfr_sections(srs_path: Optional[Path]) -> List[Dict]:
             if nfr_num in seen:
                 continue
             seen.add(nfr_num)
-            nfr_type = m.group(2)
+            nfr_type = m.group(2).strip()
             desc = m.group(3).strip()
             if len(desc) > 400:
                 desc = desc[:397] + "..."
