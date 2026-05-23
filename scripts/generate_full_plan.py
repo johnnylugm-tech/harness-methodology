@@ -149,6 +149,7 @@ def parse_sad_modules(repo_path: Path) -> Dict:
 
         content = sad_path.read_text(encoding='utf-8')
 
+        # Method 1: inline pattern — FR-01 ... `app/models/schema.py`
         simple_pattern = re.compile(r'FR-(\d+)[^\n]*?`?(?:app/|03-development/src/)([^\s`]+)`?', re.DOTALL)
         modules = {}
         seen = set()
@@ -167,6 +168,29 @@ def parse_sad_modules(repo_path: Path) -> Dict:
                 modules[f"FR-{fr_num}"] = {
                     'module': filename,
                     'file': file_path
+                }
+
+        if modules:
+            return modules
+
+        # Method 2: JSON SAB block — "FR-01": "app.models"
+        sab_match = re.search(r'"FR-\d{2}":\s*"([^"]+)"', content)
+        if sab_match:
+            sab_pattern = re.compile(r'"(FR-\d{2})":\s*"([^"]+)"')
+            for m in sab_pattern.finditer(content):
+                fr_key = m.group(1)
+                if fr_key in seen:
+                    continue
+                seen.add(fr_key)
+                module_path = m.group(2)
+                # Handle "a.b + c.d" style multi-module entries — take the last one
+                if ' + ' in module_path:
+                    module_path = module_path.split(' + ')[-1]
+                modules[fr_key] = {
+                    'module': module_path.split('.')[-1] if '.' in module_path else module_path,
+                    'file': f"03-development/src/{module_path.replace('.', '/')}.py"
+                        if '.' in module_path
+                        else f"03-development/src/{module_path}.py",
                 }
 
         if modules:
@@ -708,7 +732,7 @@ def _preflight_steps(phase: int) -> List[str]:
             "  4. Phase stored in `.methodology/state.json` — single source of truth (no GitHub variable needed)",
             "  If any item (1-3) is missing — run automated fix:",
             "  ```bash",
-            "  python3 harness_cli.py init-project --phase 1 --project $REPO",
+            "  python3 harness_cli.py init-project --phase 1 --project .",
             "  ```",
             "  Re-verify items 1-3 after running.",
             "  If still failing after `init-project`: escalate to human — provide `init-project` error output.",
@@ -720,19 +744,19 @@ def _preflight_steps(phase: int) -> List[str]:
             "  2. Git hooks installed (`ls .git/hooks/prepare-commit-msg`)",
             "  3. harness importable (submodule, PYTHONPATH, or vendored `quality_gate/`)",
             f"  4. Phase {phase} confirmed in `.methodology/state.json` (`advance-phase` already run)",
-            f"  > If stale: run `python3 harness_cli.py init-project --phase {phase} --project $REPO --overwrite`",
+            f"  > If stale: run `python3 harness_cli.py init-project --phase {phase} --project . --overwrite`",
         ]
     return [
         "### Pre-Phase Preflight",
         "",
         "- [ ] **[PREFLIGHT]** Run phase hooks (FSM, Constitution, Kill-Switch, Drift, CI Readiness):",
         "  ```bash",
-        f"  python3 harness_cli.py run-phase --phase {phase} --project $REPO",
+        f"  python3 harness_cli.py run-phase --phase {phase} --project .",
         "  ```",
         "  If FAILED: fix FSM/Constitution/Drift issues. There is no gate bypass flag.",
         "  Re-run `run-phase` after each fix. Max 3 attempts.",
         f"  After 3 FAIL: escalate to human — provide last `run-phase --phase {phase}` full output.",
-        f"  Human fix → re-run `run-phase --phase {phase} --project $REPO` → PASS required before continuing.",
+        f"  Human fix → re-run `run-phase --phase {phase} --project .` → PASS required before continuing.",
         "",
         *ci_check,
         "",
@@ -958,7 +982,7 @@ def _fr_dev_steps(fr_id: str, phase: int) -> List[str]:
             "- [ ] **[A-DISPATCH]** Dispatch Agent A:",
             "  ```bash",
             f"  python3 harness_cli.py dispatch --role developer --fr-id {fr_id} \\",
-            f"    --prompt \"{task_hint} for {fr_id}\" --phase {phase} --project $REPO",
+            f"    --prompt \"{task_hint} for {fr_id}\" --phase {phase} --project .",
             "  ```",
         ]
         lines.extend(_agent_b_dispatch_block(phase, role_b, fr_id=fr_id))
@@ -966,7 +990,7 @@ def _fr_dev_steps(fr_id: str, phase: int) -> List[str]:
             "- [ ] **[B-DISPATCH]** Dispatch Agent B:",
             "  ```bash",
             f"  python3 harness_cli.py dispatch --role reviewer --fr-id {fr_id} \\",
-            f"    --prompt \"Review {fr_id} against SRS + SAD\" --phase {phase} --project $REPO",
+            f"    --prompt \"Review {fr_id} against SRS + SAD\" --phase {phase} --project .",
             "  ```",
             "  > AgentSpawner auto-logs to `.methodology/sessions_spawn.log` on dispatch (HR-10).",
             "",
@@ -978,7 +1002,7 @@ def _fr_dev_steps(fr_id: str, phase: int) -> List[str]:
     # claude -p sub-agent → verify → git push (GitHub crash-recovery checkpoint).
     num = re.match(r"FR-(\d+)", fr_id)
     num_str = num.group(1).zfill(2) if num else re.sub(r"[^a-z0-9]", "_", fr_id.lower()).strip("_")
-    srs_flag = " --srs .methodology/SRS.md"
+    srs_flag = " --srs 01-requirements/SRS.md"
     return [
         f"**TDD — {fr_id}** (Orchestrator dispatches sub-agents · push after each step):",
         "",
@@ -1095,8 +1119,8 @@ def _phase_advance_step(phase: int) -> List[str]:
         "- [ ] Confirm ALL checkpoints in this plan are ✓  (no skips — HR-03)",
         f"- [ ] Generate Phase {next_phase} plan:",
         "  ```bash",
-        f"  python3 harness_cli.py plan-phase --phase {next_phase} --project $REPO \\",
-        f"    --output $REPO/.methodology/phase{next_phase}_plan.md",
+        f"  python3 harness_cli.py plan-phase --phase {next_phase} --project . \\",
+        f"    --output .methodology/phase{next_phase}_plan.md",
         "  ```",
         # Git tag step: SKILL.md §0.4 requires Gate 4 tag only (P6→P7 transition)
         *(["- [ ] **[GIT-TAG]** Push Gate 4 git tag (SKILL.md §0.4):",
@@ -1459,7 +1483,7 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path) -> List[str]:
         "",
         "- [ ] **[SAB]** Generate `.methodology/SAB.json` from SAD.md §6 SAB block:",
         "  ```bash",
-        "  python3 scripts/generate_sab.py --project $REPO",
+        "  python3 scripts/generate_sab.py --project .",
         "  ```",
         "  - SAB.json contains: layers, modules, allowed_dependencies, quality_targets",
         "  - Used by: drift detector (M2), gate architecture dimension, constitution check",
@@ -1584,6 +1608,43 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path) -> List[str]:
         lines.append("To fix: update SRS.md format and re-run `plan-phase --phase 3`.")
         lines.append("")
         checkpoint_n = 1
+
+    # NFR summary — informational, shows which NFRs each FR implements
+    nfrs = parse_srs_nfr_sections(srs_path)
+    if nfrs:
+        lines.append("### NFR Coverage ({} total)".format(len(nfrs)))
+        lines.append("")
+        lines.append("> NFRs are implemented **within FRs** — each FR satisfies one or more NFRs.")
+        lines.append("> Verify NFR compliance via Gate 2/3 tool-scored dimensions, not separate tasks.")
+        lines.append("")
+        lines.append("| NFR | Type | FRs Implementing |")
+        lines.append("|-----|------|-----------------|")
+        for nfr in nfrs:
+            nfr_id = nfr['nfr']
+            nfr_type = nfr.get('title', '').replace(f'{nfr_id}: ', '')
+            # Find FRs referencing this NFR from the SRS table data
+            _ref_frs = [
+                fr['fr'] for fr in frs
+                if nfr_id.lower() in fr.get('raw_details', '').lower()
+            ] if frs else []
+            fr_list = ', '.join(_ref_frs[:5])
+            if len(_ref_frs) > 5:
+                fr_list += f" (+{len(_ref_frs) - 5} more)"
+            if not fr_list:
+                fr_list = '(see SRS.md §3)'
+            lines.append(f"| {nfr_id} | {nfr_type[:30]} | {fr_list} |")
+        lines.append("")
+        lines.append("**Gate 2 NFR dimensions** (tool-scored, see Gate 2 config):")
+        lines.append("- `security` (bandit), `secrets_scanning` (gitleaks), `mutation_testing` (mutmut)")
+        lines.append("- `integration_coverage` (pytest), `test_assertion_quality` (pytest)")
+        lines.append("")
+    else:
+        # NFRs couldn't be parsed — remind the user to check manually
+        lines.append("### NFR Coverage")
+        lines.append("")
+        lines.append("> ⚠️  NFR sections could not be parsed from SRS.md.")
+        lines.append("> Verify NFR compliance manually against `01-requirements/SRS.md` §3.")
+        lines.append("")
 
     lines.extend(_p3_milestone_push_steps(fr_ids))
 
