@@ -5458,7 +5458,7 @@ def build_parser() -> argparse.ArgumentParser:
     rfp.add_argument("--timeout", type=int, default=600,
                      help="Sub-agent max execution time in seconds (default: 600)")
     rfp.add_argument("--max-turns", type=int, default=40, dest="max_turns",
-                     help="Sub-agent max tool-using turns (default: 30)")
+                     help="Sub-agent max tool-using turns (default: %(default)s)")
     rfp.add_argument("--max-fix-rounds", type=int, default=3, dest="max_fix_rounds",
                      help="Max CODE-FIX + GATE1 retry rounds on GATE1 FAIL (default: 3)")
     rfp.add_argument("--no-push", action="store_true", help="Skip git push origin HEAD after completion")
