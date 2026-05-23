@@ -119,7 +119,7 @@ Return ONLY valid JSON in this exact format:
   "dimension": "{dimension}",
   "tool_score": <0-100>,
   "llm_score": <0-100>,
-  "score": <same as tool_score — LLM annotation only, does not affect gate scoring>,
+  "score": <same as tool_score — gate scoring uses tool_score only; llm_score is read by verify.py for consistency checks>,
   "findings": [
     {{"line": <int or null>, "severity": "critical|warning|info", "message": "<text>", "evidence": "<tool output excerpt>"}}
   ],

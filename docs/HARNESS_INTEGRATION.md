@@ -120,7 +120,7 @@ Each round:
   CASE 3 (PLATEAU):  3 consecutive rounds no new issues → emit deferred_fixes.md, stop
   CASE 4 (BLOCKED):  max_rounds exhausted, not PASS → GateBlockedError
 
-Score reconciliation: final_score = min(tool_score, llm_score)
+Score: final_score = tool_score (LLM scoring abolished in v2.4; llm_score recorded for verify.py consistency checks only)
 ```
 
 ## CRG Integration Points

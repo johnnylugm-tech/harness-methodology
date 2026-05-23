@@ -2295,8 +2295,8 @@ class HandoverGenerator:
 
 ## ▶ 立即開始（三步）
 1. Clone repo / enter project directory
-2. Set required env vars:
-   export HERMES_REVIEWER_TARGET=telegram:YOUR_CHAT_ID   # Optional — P1–P2 A/B reviewer chain (Hermes→Gemini→Claude)
+2. Set env vars (all optional):
+   export HERMES_REVIEWER_TARGET=telegram:YOUR_CHAT_ID   # Enables Hermes in P1–P2 A/B reviewer chain (Hermes→Gemini→Claude)
 3. Read the plan: `.methodology/phase{N}_plan.md`
 
 ## 快速接手指令（詳細）

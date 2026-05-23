@@ -7,6 +7,8 @@
 # ── Quality-run runtime artifacts (never commit) ──────────────────────────
 # SKILL.md working directory — raw tool outputs, per-round JSON, scan blobs
 .sessi-work/
+# Hermes plan backups — redundant with git history
+.hermes/plans/backups/
 # Python coverage binary
 .coverage
 # Ephemeral coverage snapshots emitted by quality runs
