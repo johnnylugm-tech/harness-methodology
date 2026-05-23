@@ -291,6 +291,31 @@ Each approval JSON **MUST** include:
 The authoritative deliverable ID registry is `_PHASE_DELIVERABLES` in `harness_cli.py`.
 Dispatch with an unrecognized `--fr-id` in P1/P2 is rejected.
 
+### 4.2 Constitution Scan Exclusions
+
+The constitution keyword-density scanner skips meta-documents that inherently
+contain zero constitution vocabulary — operational logs, handover files,
+and stage-pass certificates. These files are mandatory for the phase auditor
+but should not be scored for keyword density.
+
+Default exclusion patterns (glob, matched against file basename):
+- `DEVELOPMENT_LOG.md`
+- `HANDOVER.md`
+- `*STAGE_PASS.md`
+
+Override via `.methodology/constitution_profile.json`:
+```json
+{
+  "exclude_patterns": ["DEVELOPMENT_LOG.md", "HANDOVER.md", "*STAGE_PASS.md"],
+  "phases": {
+    "3": {"exclude_patterns": ["migration_log.md"]}
+  }
+}
+```
+
+Per-phase patterns are additive with global patterns. See
+`core/quality_gate/constitution/profile.py` for the authoritative default list.
+
 ---
 
 ## 5. State Machine (FSM)
@@ -337,6 +362,7 @@ State stored in `.methodology/state.json`:
 | Integration setup (git hooks, CI, submodule, init-project) | `INTEGRATION.md` |
 | Crash recovery position | `python harness_cli.py generate-next-plan` |
 | Constitution rule parser & HR compliance | `constitution/` directory |
+| Constitution keyword scan exclusions | `.methodology/constitution_profile.json` → `exclude_patterns` |
 | A/B agent personas | `agent_personas/` directory |
 
 ## 8. CRG Integration Layer

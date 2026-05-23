@@ -72,5 +72,12 @@
     "6": "06-quality",
     "7": "07-risk",
     "8": "08-config"
+  },
+
+  "exclude_patterns": {
+    "_description": "Glob patterns for files excluded from constitution keyword-density scanning. Matched against file basename with fnmatch. Per-phase patterns (phases.N.exclude_patterns) are additive.",
+    "_default": ["DEVELOPMENT_LOG.md", "HANDOVER.md", "*STAGE_PASS.md"],
+    "_why": "Meta-documents like DEVELOPMENT_LOG.md and STAGE_PASS.md are mandatory per phase_auditor.py but contain operational logs — zero constitution keywords. Scanning them would dilute the aggregate keyword density below phase thresholds.",
+    "patterns": ["DEVELOPMENT_LOG.md", "HANDOVER.md", "*STAGE_PASS.md"]
   }
 }

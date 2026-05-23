@@ -1912,6 +1912,15 @@ CREATE TABLE IF NOT EXISTS effort (
 **Imports**: stdlib only (`re`, `json`, `pathlib`). No external dependencies.  
 **Integration**: `SteeringIntegrator.bvs_integrator` property and `iterate_with_full_check()` now call real code instead of hitting `ImportError`.
 
+**Constitution keyword scan exclusions** (v2.5): Meta-documents
+(`DEVELOPMENT_LOG.md`, `HANDOVER.md`, `*STAGE_PASS.md`) are excluded from
+keyword-density scanning by default. These files are mandatory per
+`phase_auditor.py` but contain operational content that inherently scores
+zero on constitution keywords, diluting the aggregate score below phase
+thresholds. Exclusions use glob patterns via `ConstitutionProfile.is_excluded()`;
+configurable through `.methodology/constitution_profile.json` → `exclude_patterns`
+(global) and `phases.N.exclude_patterns` (per-phase, additive).
+
 
 ### §3.20 — `scripts/` Directory Overview
 

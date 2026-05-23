@@ -26,6 +26,7 @@ import copy
 import json
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Dict, List, Optional
 
 
@@ -63,11 +64,12 @@ class DimensionProfile:
 @dataclass
 class PhaseProfile:
     """Per-phase configuration: which dimensions are active, the composite threshold,
-    and optional per-dimension keyword overrides for phase-appropriate vocabulary."""
+    optional per-dimension keyword overrides, and per-phase file exclusion patterns."""
 
     active_dimensions: List[str] = field(default_factory=list)
     composite_threshold: Optional[float] = None
     dimension_keywords: Dict[str, List[str]] = field(default_factory=dict)
+    exclude_patterns: List[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         result: dict = {
@@ -76,6 +78,8 @@ class PhaseProfile:
         }
         if self.dimension_keywords:
             result["dimension_keywords"] = self.dimension_keywords
+        if self.exclude_patterns:
+            result["exclude_patterns"] = self.exclude_patterns
         return result
 
     @classmethod
@@ -84,6 +88,7 @@ class PhaseProfile:
             active_dimensions=d.get("active_dimensions", []),
             composite_threshold=d.get("composite_threshold"),
             dimension_keywords=d.get("dimension_keywords", {}),
+            exclude_patterns=d.get("exclude_patterns", []),
         )
 
 
@@ -114,8 +119,31 @@ class ConstitutionProfile:
     dimensions: Dict[str, DimensionProfile] = field(default_factory=dict)
     file_filters: Dict[str, List[str]] = field(default_factory=dict)
     phase_dir_map: Dict[int, str] = field(default_factory=dict)
+    exclude_patterns: List[str] = field(default_factory=list)
 
     # ── helpers ───────────────────────────────────────────────────────────
+
+    def is_excluded(self, file_path: Path, phase: Optional[int] = None) -> bool:
+        """Check whether *file_path* matches any global or per-phase exclusion pattern.
+
+        Patterns use fnmatch against the file basename (e.g. ``DEVELOPMENT_LOG.md``,
+        ``*STAGE_PASS.md``).  Glob-style wildcards (``*``, ``?``, ``[seq]``) are
+        supported per :func:`fnmatch.fnmatch`.
+        """
+        import fnmatch
+        file_name = file_path.name
+        # Global patterns
+        for pat in self.exclude_patterns:
+            if fnmatch.fnmatch(file_name, pat):
+                return True
+        # Per-phase patterns
+        if phase is not None:
+            p = self.phases.get(phase)
+            if p:
+                for pat in p.exclude_patterns:
+                    if fnmatch.fnmatch(file_name, pat):
+                        return True
+        return False
 
     def active_dimensions(self, phase: int) -> List[str]:
         """Return the active constitution dimensions for a given phase."""
@@ -180,13 +208,16 @@ class ConstitutionProfile:
     # ── serialization ─────────────────────────────────────────────────────
 
     def to_dict(self) -> dict:
-        return {
+        result: dict = {
             "scoring": self.scoring.to_dict(),
             "phases": {str(k): v.to_dict() for k, v in self.phases.items()},
             "dimensions": {k: v.to_dict() for k, v in self.dimensions.items()},
             "file_filters": self.file_filters,
             "phase_dir_map": self.phase_dir_map,
         }
+        if self.exclude_patterns:
+            result["exclude_patterns"] = self.exclude_patterns
+        return result
 
     @classmethod
     def from_dict(cls, d: dict) -> "ConstitutionProfile":
@@ -208,6 +239,7 @@ class ConstitutionProfile:
             dimensions=dimensions,
             file_filters=d.get("file_filters", {}),
             phase_dir_map=phase_dir_map,
+            exclude_patterns=d.get("exclude_patterns", []),
         )
 
     def to_json(self) -> str:
@@ -238,9 +270,13 @@ class ConstitutionProfile:
                     active_dimensions=pv.active_dimensions or existing.active_dimensions,
                     composite_threshold=pv.composite_threshold if pv.composite_threshold is not None else existing.composite_threshold,
                     dimension_keywords=merged_kw,
+                    exclude_patterns=pv.exclude_patterns or existing.exclude_patterns,
                 )
             else:
                 result.phases[pk] = pv
+        # merge global exclude_patterns
+        if overrides.exclude_patterns:
+            result.exclude_patterns = list(set(result.exclude_patterns) | set(overrides.exclude_patterns))
         # merge dimensions
         for dk, dv in overrides.dimensions.items():
             if dk in result.dimensions:
@@ -461,8 +497,21 @@ def _build_defaults() -> ConstitutionProfile:
         "rollback", "secret",
     ]
 
+    # Meta-documents excluded from constitution keyword scans.
+    # These files (DEVELOPMENT_LOG.md, HANDOVER.md, STAGE_PASS.md) are mandatory
+    # per phase_auditor.py deliverables check but consist of operational logs and
+    # handover notes — they inherently contain zero constitution keywords and
+    # would dilute the aggregate keyword density below the phase threshold.
+    # Configurable via .methodology/constitution_profile.json → exclude_patterns.
+    _META_EXCLUDE = [
+        "DEVELOPMENT_LOG.md",
+        "HANDOVER.md",
+        "*STAGE_PASS.md",
+    ]
+
     return ConstitutionProfile(
         scoring=ScoringProfile(method="min_of_dimensions"),
+        exclude_patterns=_META_EXCLUDE,
         phases={
             1: PhaseProfile(
                 active_dimensions=["correctness", "security"],

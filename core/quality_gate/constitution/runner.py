@@ -409,6 +409,8 @@ def _scan_directory(docs_path: Path, phase: int, check_type: str) -> Constitutio
         for item in directory.rglob("*.md"):
             if item.name.startswith("."):
                 continue
+            if get_profile().is_excluded(item, phase=phase):
+                continue
             if not _should_scan_file(item, check_type):
                 continue
             dims = _scan_file_compliance(item, phase=phase)
