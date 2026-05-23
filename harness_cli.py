@@ -3223,6 +3223,17 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
 
     project = Path(args.project).resolve()
     spawner = AgentSpawner(project_path=project)
+    role_lower = args.role.lower()
+    # Detect Agent B (stateless reviewer) roles: names containing "review" or "analyst".
+    # For custom roles not matching this heuristic, use --no-persona explicitly.
+    is_reviewer = "review" in role_lower or "analyst" in role_lower
+    no_persona = getattr(args, "no_persona", False)
+    # STATELESS Agent B (reviewer): skip persona — persona causes Claude to enter
+    # multi-step tool exploration mode instead of returning JSON directly (see SAD §reviewer_router).
+    persona_override = "" if (is_reviewer or no_persona) else None
+    # Reviewer dispatches only need a single response turn; cap at 3 to prevent runaway.
+    _explicit_max_turns = getattr(args, "max_turns", None)
+    effective_max_turns = _explicit_max_turns if _explicit_max_turns is not None else (3 if is_reviewer else 20)
     result = spawner.spawn(
         role=args.role,
         prompt=args.prompt,
@@ -3230,7 +3241,8 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
         phase=args.phase,
         fr_id=args.fr_id,
         task_timeout=getattr(args, "timeout", 300),
-        max_turns=getattr(args, "max_turns", 20),
+        max_turns=effective_max_turns,
+        persona_override=persona_override,
     )
     status = result.get("status", "SPAWNED")
     session_id = result.get("session_id", "")
@@ -3241,7 +3253,7 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
     # For completed reviewer dispatches, extract and persist Agent B approval JSON.
     if (
         status == "complete"
-        and "review" in args.role.lower()
+        and is_reviewer
         and args.fr_id
     ):
         output_text = result.get("output", "")
@@ -3265,7 +3277,7 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
     # For completed developer dispatches, extract and persist Agent A structured output.
     if (
         status == "complete"
-        and "review" not in args.role.lower()
+        and not is_reviewer
         and args.fr_id
     ):
         output_text = result.get("output", "")
@@ -5175,8 +5187,10 @@ def build_parser() -> argparse.ArgumentParser:
     dp.add_argument("--project", default=".", help="Project root (default: .)")
     dp.add_argument("--timeout", type=int, default=300, dest="timeout",
                     help="Max execution time in seconds (default: 300). Increase for large-document phases (P1/P2).")
-    dp.add_argument("--max-turns", type=int, default=20, dest="max_turns",
-                    help="Max tool-using turns (default: 20). Increase for large documents.")
+    dp.add_argument("--max-turns", type=int, default=None, dest="max_turns",
+                    help="Max tool-using turns (default: 3 for reviewer roles, 20 for others).")
+    dp.add_argument("--no-persona", action="store_true", dest="no_persona",
+                    help="Skip persona for this dispatch (auto-applied for reviewer/analyst roles; use for other stateless roles).")
     dp.set_defaults(func=cmd_dispatch)
 
     # run-fr-step
