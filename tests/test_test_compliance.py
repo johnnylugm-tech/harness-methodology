@@ -319,6 +319,19 @@ class TestCmdCheckTestInventory:
         code = cmd_check_test_inventory(self._make_args(tmp_path, strict=True))
         assert code == 8, "expected block (8) when neither file exists"
 
+    def test_p1_naming_authority_enforced(self, tmp_path: Path):
+        """If TEST_SPEC.md lacks names from TEST_INVENTORY.yaml, it blocks."""
+        # 1. P1 inventory requires test_alpha and test_beta
+        self._write_inventory(tmp_path, ["test_alpha", "test_beta"])
+        # 2. P2 spec hallucinates and only has test_alpha
+        self._write_test_spec(tmp_path, ["test_alpha", "test_hallucinated"])
+        # 3. test implementations match spec
+        self._write_test_file(tmp_path, ["test_alpha", "test_hallucinated"])
+        # 4. the check should block because test_beta is missing in spec
+        from harness_cli import _run_spec_coverage_check
+        code, pct = _run_spec_coverage_check(tmp_path, threshold=60.0, verbose=False)
+        assert code == 1, "expected block due to P1 naming authority violation"
+
     def test_no_spec_without_strict(self, tmp_path: Path):
         """No TEST_SPEC.md with strict=False → delegation returns 0 (missing → 100%)."""
         code = cmd_check_test_inventory(self._make_args(tmp_path))

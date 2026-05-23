@@ -707,6 +707,26 @@ def _run_spec_coverage_check(
                   + (f" for {fr_id}" if fr_id else "") + ".")
         return (0, 100.0)
 
+    # v2.6.1: Enforce P1 Naming Authority to prevent LLM hallucinations
+    inventory_path = project / "TEST_INVENTORY.yaml"
+    if inventory_path.exists() and not fr_id:
+        try:
+            import yaml
+            inventory = yaml.safe_load(inventory_path.read_text())
+        except ImportError:
+            inventory = _parse_inventory_fallback(inventory_path.read_text())
+            
+        all_required = set(_flatten_test_names(inventory))
+        spec_fns = {i["test_fn"] for i in items}
+        missing_in_spec = all_required - spec_fns
+        if missing_in_spec:
+            if verbose:
+                print(f"\n[BLOCKED] P1 Naming Authority Violation: {len(missing_in_spec)} test(s) from TEST_INVENTORY.yaml missing in TEST_SPEC.md.")
+                for m in sorted(missing_in_spec)[:10]:
+                    print(f"  - {m}")
+                print("  Agent A may have hallucinated names. Re-run derive_test_cases.md.")
+            return (1, 0.0)
+
     actual_fns = _scan_test_functions(project / "tests")
 
     covered = [i for i in items if i["test_fn"] in actual_fns]
