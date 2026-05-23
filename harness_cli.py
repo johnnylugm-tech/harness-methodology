@@ -3223,8 +3223,8 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                 print(f"[advance-phase] WARN: git commit failed — {commit_result.stderr.strip()}")
 
     print(f"[advance-phase] Done — local hooks and CI now target phase {next_phase}")
-    # Restore CWD in case subprocesses or spawned agents changed it.
-    # Git commands use -C flag (no CWD change), but spawned agents may cd.
+    # Restore CWD if any internal Python code (hook, library) changed it.
+    # Subprocess calls do NOT change the parent process CWD.
     try:
         if os.getcwd() != _saved_cwd:
             os.chdir(_saved_cwd)
@@ -3261,6 +3261,9 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
             _prompt = Path(_prompt_file).read_text(encoding="utf-8")
         except (FileNotFoundError, OSError) as exc:
             print(f"[dispatch] ERROR: cannot read --prompt-file: {exc}")
+            return 1
+        if not _prompt.strip():
+            print("[dispatch] ERROR: --prompt-file is empty")
             return 1
     elif not _prompt:
         print("[dispatch] ERROR: --prompt or --prompt-file is required")
