@@ -4816,7 +4816,7 @@ def cmd_init_project(args: argparse.Namespace) -> int:
     # Phase-aware human checklist
     _checklist: list[str] = [
         "  ╔══════════════════════════════════════════════════════════════╗",
-        f"  ║  HUMAN CHECKLIST — Phase {phase} — verify before starting     ║",
+        f"  ║  HUMAN CHECKLIST — Phase {phase} — verify before starting         ║",
         "  ╠══════════════════════════════════════════════════════════════╣",
         "  ║  [ ] Tier 1 tools installed (ruff, mypy, pytest-cov, ...)   ║",
         "  ║  [ ] gitleaks installed (secrets scanning)                  ║",
