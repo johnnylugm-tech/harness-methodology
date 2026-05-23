@@ -742,9 +742,8 @@ def finalize_gate(
         if result.score < config.get("score_gate", 0) or not result.quality_complete:
             raise GateBlockedError(gate_num, result)
 
-    # Gate 4: requires explicit Hermes reviewer APPROVE
-    if gate_num == 4:
-        self._require_hermes_approve(result, phase, fr_id)
+    # Gate 4: Hermes APPROVE removed in v2.4 — Gate 4 is score + quality_complete only
+    # (removed: self._require_hermes_approve(result, phase, fr_id))
 
     return result
 ```
@@ -1501,7 +1500,7 @@ Step 6.2: AgentSpawner.spawn(role="reviewer", model="hermes", phase=6)
          → Reviewer persona from agent_personas/REVIEWER.md
          → Prompt: Gate 4 score + dim breakdown + open issues
 
-Exit: Gate 4 score ≥ 85 AND critical_open == 0 AND Hermes APPROVE
+Exit: Gate 4 score ≥ 85 AND critical_open == 0 (no Hermes APPROVE in v2.4)
 ```
 ```
 

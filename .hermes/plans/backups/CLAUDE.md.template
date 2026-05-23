@@ -7,7 +7,7 @@
 - Quality Manifest: .methodology/quality_manifest.json
 - Active Phase: {CURRENT_PHASE}  <!-- e.g. P3 -->
 - Last Gate: {LAST_GATE} (Score: {LAST_GATE_SCORE})  <!-- e.g. Gate2 (Score: 78) -->
-- Reviewer Chain: ${REVIEWER_CHAIN:-hermes,gemini}  (P1–P2 A/B; Hermes optional, configure via REVIEWER_CHAIN env var)
+- Hermes Reviewer Target: ${HERMES_REVIEWER_TARGET}
 
 ## FR Registry
 {FR_TABLE}

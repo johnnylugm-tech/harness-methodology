@@ -110,7 +110,7 @@ flowchart TD
     P6 --> P6_ENTRY["Entry: Gate 3 PASS<br/>(from P5)"]
     P6_ENTRY --> P6_PRE["🔧 Preflight<br/>FSM state, Constitution<br/>Drift detection init"]
     P6_PRE --> P6_WORK["💼 A/B Work:<br/>QA_ENGINEER<br/>ARCHITECT<br/><br/>📝 Prepare quality report<br/>📝 sessions_spawn.log (2 entries)"]
-    P6_WORK --> P6_G4["🔒 Gate 4 ONLY<br/>Full project (14 dims)<br/>score_gate ≥ 85<br/>[CRG recon]<br/>[Hermes APPROVE ⏱120s]"]
+    P6_WORK --> P6_G4["🔒 Gate 4 ONLY<br/>Full project (14 dims)<br/>score_gate ≥ 85<br/>[CRG recon]<br/>No Hermes APPROVE (v2.4)"]
     
     P6_G4 -->|PASS| P6_TRUTH["⚠️ Phase Truth<br/>HR-11 ≥90%"]
     P6_G4 -->|CONTINUE| P6_FIX["🔧 Fix dimension<br/>re-run G4a"]
@@ -244,13 +244,6 @@ flowchart TD
 - **IMPORTANT**: P6 does NOT have a per-FR loop. It is a single Gate 4 evaluation of the entire project.
 - Gate 4 evaluates all 14 dimensions across all FRs at once (not per-FR).
 - `sessions_spawn.log` required (2 entries: QA_ENGINEER + ARCHITECT per phase).
-
-### Hermes APPROVE (P6 Gate 4)
-- **Trigger**: `messages_send` to HERMES_REVIEWER_TARGET env var (e.g., `telegram:user_id`)
-- **Timeout**: 120 seconds (`GATE4_HERMES_TIMEOUT_MS=120000`; ReviewerRouter.HERMES_TIMEOUT_MS defaults to 90s for general Hermes ops)
-- **Approval**: Reviewer sends "APPROVE" reply → Gate 4 proceeds
-- **Timeout Fallback**: If no reply in 120s, code does cold-read (`messages_read`) and checks for latest message
-- **Failure**: If Hermes unavailable or reviewer rejects, escalate to human
 
 ### Phase Truth Check (P3–P8)
 

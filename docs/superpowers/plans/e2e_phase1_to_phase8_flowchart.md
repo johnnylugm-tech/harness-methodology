@@ -675,11 +675,9 @@ SESSION START (P6 entry — automated preflight, Phase Truth from P5 PASS is pre
     ║      → .methodology/last_block.md                      ║
     ║      → per-dimension fix hints emitted                 ║
     ║                                                          ║
-    ║  ┌─ Human Checkpoint #2: Hermes APPROVE ─────────────┐ ║
-    ║  │  Hermes MCP sends APPROVE request to Telegram     │ ║
-    ║  │  Human clicks APPROVE / REJECT                    │ ║
-    ║  │  ⚠️  Gate 4 CANNOT pass without Hermes APPROVE    │ ║
-    ║  │  (pipeline waits at exit 10 if no response)       │ ║
+    ║  ┌─ Gate 4: Final Quality Check ────────────────────┐ ║
+    ║  │  Gate 4 score ≥ 85 + quality_complete=True        │ ║
+    ║  │  No Hermes APPROVE required (removed in v2.4)      │ ║
     ║  └───────────────────────────────────────────────────┘ ║
     ║                                                          ║
     ║  [Phase Truth] HR-11 (≥90% required)                    ║
@@ -688,7 +686,7 @@ SESSION START (P6 entry — automated preflight, Phase Truth from P5 PASS is pre
     ║    → QUALITY_REPORT.md generated                        ║
     ║    → [FSM] Phase 6 → DONE                               ║
     ╚══════════════════════════════════════════════════════════╝
-                   │ (PASS + Hermes APPROVE)
+                   │ (PASS: score ≥85 + quality_complete)
                    ▼
     ### Phase 6 → Phase 7: Risk Management ✅
     python harness_cli.py plan-phase --phase 7
@@ -967,7 +965,7 @@ SESSION START (P7/P8 entry — automated preflight, Gate4 from P6 PASS is precon
 | **Gate 1** | per-FR completion | P3, P4, P5, P7, P8 | linting≥90, type_safety≥85, coverage≥80 | 3 dims (lint/type/cov) | No |
 | **Gate 2** | P3 phase exit | P3 | score_gate ≥ 75 + quality_complete | 9 dims | No |
 | **Gate 3** | P4 phase exit | P4 | score_gate ≥ 80 + quality_complete | 14 dims | No |
-| **Gate 4** | P6 phase exit | P6 | score_gate ≥ 85 + quality_complete | 14 dims | **Yes** — Hermes APPROVE |
+| **Gate 4** | P6 phase exit | P6 | score_gate ≥ 85 + quality_complete | 14 dims | No |
 
 ---
 
@@ -979,7 +977,7 @@ SESSION START (P7/P8 entry — automated preflight, Gate4 from P6 PASS is precon
 |---|-------|---------|--------|
 | 1 | P1 exit | SRS.md ready | Human reads SRS.md → APPROVE / REJECT |
 | 2 | P2 exit | SAD.md + ADR.md ready | Human reads deliverables → APPROVE / REJECT |
-| 3 | P6 exit | Gate 4 evaluation done | Click APPROVE on Telegram (Hermes MCP) |
+| 3 | P6 exit | Gate 4 evaluation done | Gate 4 score ≥ 85 + quality_complete |
 
 ### Execution Mode — Manual Step by Step
 
@@ -989,7 +987,7 @@ SESSION START (P7/P8 entry — automated preflight, Gate4 from P6 PASS is precon
 | Checkpoint | When | Action |
 |---|---|---|
 | P1+P2 outputs | Before P3+ | Provide SRS.md + SAD.md |
-| Gate 4 — Final APPROVE | P6 exit | Click APPROVE on Telegram (Hermes MCP) |
+| Gate 4 — Final Check | P6 exit | Gate 4 score ≥ 85 + quality_complete (no Hermes APPROVE) |
 | Gate blocked | After finalize-gate | Fix issues, re-run gate |
 
 ---

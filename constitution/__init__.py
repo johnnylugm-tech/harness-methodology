@@ -90,7 +90,7 @@ def get_gate_thresholds() -> dict:
     Gate 1: ≥75 (per-FR, 3 dims)
     Gate 2: ≥75 (P3 exit, 10 dims)
     Gate 3: ≥80 (P4/P5 exit, 15 dims)
-    Gate 4: ≥85 (P6 exit, 15 dims, Hermes APPROVE required)
+    Gate 4: ≥85 (P6 exit, 15 dims)
     """
     return {1: 75.0, 2: 75.0, 3: 80.0, 4: 85.0}
 

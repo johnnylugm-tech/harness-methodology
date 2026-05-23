@@ -49,7 +49,7 @@
 | Gate 1 | P3/P4/P5/P7/P8 (per FR) | **per-dim** (no composite) | 3 (lint/type/cov) | FR 級別檢查 |
 | Gate 2 | P3 exit | **≥ 75** | 9 | Phase 級別 composite |
 | Gate 3 | P4 exit | **≥ 80** | 14 | 完整 CRG recon |
-| Gate 4 | P6 exit | **≥ 85** | 14 | 全專案 + Hermes APPROVE |
+| Gate 4 | P6 exit | **≥ 85** | 14 | 全專案 |
 
 ### 2.2 品質維度權重
 
@@ -185,7 +185,7 @@
 |----------|--------|----------|
 | Phase 1-2 交付物 | Agent B¹ | Agent B APPROVE |
 | Phase 3-8 程式碼 | Gate check (Quality Gate) | Gate check ≥ threshold + Phase End Audit |
-| Gate 4 全專案 | Hermes APPROVE | 120s timeout + cold-read fallback |
+| Gate 4 全專案 | Final check | 120s timeout + cold-read fallback |
 | 緊急修復 | Human (Johnny) | Minimum Gate 1 check + Phase End Audit |
 
 ---
@@ -245,11 +245,6 @@
 - [ ] No CRITICAL constitution violations (R001-R007)
 - [ ] (P1-P2) sessions_spawn.log has 2 entries (Agent A + Agent B)
 - [ ] (P3+) Phase End Audit: `.methodology/audit_gaps_{N}.md` 無 CRITICAL gaps
-
-### 6.3 Hermes APPROVE (Gate 4 only)
-- [ ] Message sent to HERMES_REVIEWER_TARGET
-- [ ] "APPROVE" reply received within 120s
-- [ ] Timeout → cold-read messages_read → check latest
 
 ---
 

@@ -51,7 +51,7 @@ jobs:
       - name: Run Phase Preflight (FSM / drift / constitution)
         # Structural enforcement only (FSM state, constitution, drift, traceability).
         # Gate score evaluation requires an interactive Claude session — always local.
-        # Gate 4 (P6 exit) also requires human Hermes APPROVE — run locally, not in CI.
+        # Gate 4 (P6 exit) — Hermes APPROVE removed in v2.4; CI-friendly.
         # G-02 fix: P6 no longer skipped — run-phase --phase 6 is safe in CI (no interactive gate eval).
         env:
           PHASE: ${{ steps.phase.outputs.PHASE }}

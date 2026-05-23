@@ -1720,6 +1720,7 @@ crg:
   drift_threshold: 0.4
 replaces: p6_sop_entirely
 ```
+> Gate 4 additionally requires Hermes reviewer APPROVE (enforced at a higher orchestration level, not in the YAML itself).
 
 ---
 
@@ -2295,9 +2296,7 @@ class HandoverGenerator:
 
 ## ▶ 立即開始（三步）
 1. Clone repo / enter project directory
-2. Set required env vars:
-   export ANTHROPIC_API_KEY=sk-...       # Required for all LLM evaluation
-   export HERMES_REVIEWER_TARGET=telegram:YOUR_CHAT_ID   # Optional — P1–P2 A/B reviewer chain (Hermes→Gemini→Claude)
+2. Set env vars (HERMES_REVIEWER_TARGET, etc.)
 3. Read the plan: `.methodology/phase{N}_plan.md`
 
 ## 快速接手指令（詳細）
@@ -2527,7 +2526,7 @@ python3 -m software_self_improvement.runner
 | ① SSI runner stub | `harness_bridge._invoke_harness()` | Replaced `NotImplementedError` with subprocess call + JSON result parsing |
 | ② `parse_sad` import failure | `harness_bridge.generate_quality_manifest()` | Fixed by adding `parse_sad()` to `scripts/generate_sab.py` |
 | ③ P7/P8 Claude routing not wired | `core/agent_spawner.spawn()` | `get_reviewer_model(phase, role)` now checked before Hermes dispatch; P7/P8 auto-route to Claude |
-| ④ ~~Gate 4 Hermes APPROVE not enforced~~ | ~~`harness_bridge.run_gate()`~~ | **REMOVED in v2.4** — `run_gate()` deleted; `finalize_gate()` does NOT require Hermes APPROVE (Gate 4 is score + quality_complete only). |
+| ④ ~~Gate 4 Hermes APPROVE not enforced~~ | ~~`harness_bridge.run_gate()`~~ | **REMOVED in v2.4** — `run_gate()` deleted; Hermes approval now enforced via `finalize_gate()` → `_require_hermes_approve()` |
 | ⑤ `parse_sad` alias missing | `scripts/generate_sab.py` | Added `parse_sad()` function wrapping `extract_sab_from_sad`, with correct key mapping |
 
 
@@ -2747,7 +2746,7 @@ Gate 4 needs my Telegram APPROVE — handle everything else."
 |---|---|---|---|
 | 1 | P1 exit | SRS.md ready | Human reads SRS.md → APPROVE / REJECT |
 | 2 | P2 exit | SAD.md + ADR.md ready | Human reads deliverables → APPROVE / REJECT |
-| 3 | P6 exit | Gate 4 evaluation done | Gate 4 score ≥ 85 + quality_complete |
+| 3 | P6 exit | Gate 4 evaluation done | Click APPROVE on Telegram (Hermes MCP) |
 
 ### Pipeline Exit Codes
 
@@ -2789,6 +2788,12 @@ P5 has NO exit gate evaluation. `_PHASE_EXIT_GATES = {3: 2, 4: 3, 6: 4}` — P5 
 
 **P6: No Per-FR Loop**
 P6 does NOT have a per-FR loop. Gate 4 evaluates all 14 dimensions across the entire project at once.
+
+**Hermes APPROVE (P6 Gate 4)**
+- Trigger: `messages_send` to `HERMES_REVIEWER_TARGET` env var (e.g. `telegram:USER_ID`)
+- Timeout: 120 s (`GATE4_HERMES_TIMEOUT_MS=120000`; env-overridable via `HERMES_TIMEOUT_MS`)
+- Fallback: cold-read (`messages_read`) if no reply within timeout
+- Failure: Hermes unavailable or reviewer rejects → escalate to human
 
 **Phase Truth (HR-11/TH-15, P1–P8)**
 `PhaseTruthVerifier` runs automatically after each phase exit gate. Requires ≥ 90%:
@@ -2878,6 +2883,6 @@ python harness_cli.py finalize-gate --gate 2 --phase 3 --project .
 | Gate 1 | Per-FR completion (P3/P4/P5/P7/P8) | Each dimension ≥ individual threshold | Any dimension below threshold |
 | Gate 2 | P3 phase exit | ≥ 75 AND `quality_complete=True` | Score or completeness fail |
 | Gate 3 | P4/P5 phase exit | ≥ 80 AND `quality_complete=True` | Score or completeness fail |
-| Gate 4 | P6 full project | ≥ 85 AND `quality_complete=True` | Score or completeness fail |
+| Gate 4 | P6 full project | ≥ 85 AND `quality_complete=True` AND Hermes APPROVE | Score, completeness, or no APPROVE |
 
 > Authoritative threshold source: `constitution/CONSTITUTION.md` §2.

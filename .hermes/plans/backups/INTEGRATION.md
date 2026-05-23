@@ -292,7 +292,7 @@ Phase is auto-detected from `.methodology/state.json` — no GitHub Variable req
 | Variable | Used by | Default | Purpose |
 |---|---|---|---|
 | `ANTHROPIC_API_KEY` | SSI runner, agent_spawner | — | **Required** — Claude API key for all LLM-based gate evaluation (Gates 1–4) |
-| `HERMES_REVIEWER_TARGET` | `reviewer_router.py` | — | Optional. Enables Hermes as primary reviewer in the P1–P2 A/B priority chain (Hermes→Gemini→Claude). Falls back gracefully if unset. Not required for P6 Gate 4. |
+| `HERMES_REVIEWER_TARGET` | `reviewer_router.py` | — | Hermes reviewer target (e.g. `telegram:6308981865`). Used for Agent B A/B collaboration (`reviewer_router.py`) — active from P1, fallback chain Hermes→Gemini→Claude sub-agent if unset. |
 | `HERMES_TIMEOUT_MS` | `reviewer_router.py` | `120000` | Hermes long-poll timeout in ms (default: 2 min) |
 | `DRIFT_PROJECT_PATH` | `cron_drift_monitor.py` | cwd | Path to target project for drift analysis |
 | `PYTHONPATH` | All scripts | — | Must include harness-methodology root if not using submodule |
