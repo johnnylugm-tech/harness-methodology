@@ -7,9 +7,12 @@ into the agent prompt ``[PERSONA]`` block.
 
 Persona files:
 - ARCHITECT.md
+- BUSINESS_ANALYST.md
 - DEVELOPER.md
-- REVIEWER.md
-- QA_ENGINEER.md
-- PRODUCT_MANAGER.md
 - DEVOPS.md
+- PRODUCT_MANAGER.md
+- QA_ENGINEER.md
+- REQUIREMENTS_ENGINEER.md
+- REVIEWER.md
+- TECH_LEAD.md
 """

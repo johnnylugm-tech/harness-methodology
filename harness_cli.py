@@ -3222,6 +3222,16 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
     from core.agent_spawner import AgentSpawner
 
     project = Path(args.project).resolve()
+    # P1/P2: validate --fr-id is a recognised deliverable ID (approval file naming)
+    if args.phase in _PHASE_DELIVERABLES:
+        _valid_ids = _PHASE_DELIVERABLES[args.phase]
+        if args.fr_id not in _valid_ids:
+            print(
+                f"[dispatch] ERROR: phase {args.phase} requires --fr-id to be a deliverable name.\n"
+                f"  Valid IDs for P{args.phase}: {', '.join(_valid_ids)}\n"
+                f"  Got: {args.fr_id!r}"
+            )
+            return 1
     spawner = AgentSpawner(project_path=project)
     role_lower = args.role.lower()
     # Detect Agent B (stateless reviewer) roles: names containing "review" or "analyst".

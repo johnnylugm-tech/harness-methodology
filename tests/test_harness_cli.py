@@ -628,12 +628,12 @@ class TestDispatchWritesApprovalJson:
         monkeypatch.setitem(sys.modules, "core.agent_spawner", fake_mod)
 
         args = argparse.Namespace(
-            project=str(tmp_path), phase=1, fr_id="FR-01",
+            project=str(tmp_path), phase=1, fr_id="SRS.md",
             role="reviewer", prompt="Review FR-01", timeout=60, max_turns=5,
         )
         rc = cmd_dispatch(args)
         assert rc == 0
-        approval_file = tmp_path / ".methodology" / "agent_b_approvals" / "FR-01.json"
+        approval_file = tmp_path / ".methodology" / "agent_b_approvals" / "SRS.md.json"
         assert approval_file.exists(), "approval JSON should be written"
         data = json.loads(approval_file.read_text())
         assert data["review_status"] == "APPROVE"
@@ -646,12 +646,12 @@ class TestDispatchWritesApprovalJson:
         monkeypatch.setitem(sys.modules, "core.agent_spawner", fake_mod)
 
         args = argparse.Namespace(
-            project=str(tmp_path), phase=1, fr_id="FR-01",
+            project=str(tmp_path), phase=1, fr_id="SRS.md",
             role="reviewer", prompt="Review FR-01", timeout=60, max_turns=5,
         )
         rc = cmd_dispatch(args)
         assert rc == 0  # dispatch itself succeeded
-        approval_file = tmp_path / ".methodology" / "agent_b_approvals" / "FR-01.json"
+        approval_file = tmp_path / ".methodology" / "agent_b_approvals" / "SRS.md.json"
         assert not approval_file.exists()
         out = capsys.readouterr().out
         assert "WARN" in out
@@ -665,12 +665,12 @@ class TestDispatchWritesApprovalJson:
         monkeypatch.setitem(sys.modules, "core.agent_spawner", fake_mod)
 
         args = argparse.Namespace(
-            project=str(tmp_path), phase=1, fr_id="FR-01",
+            project=str(tmp_path), phase=1, fr_id="SRS.md",
             role="developer", prompt="Implement FR-01", timeout=60, max_turns=5,
         )
         rc = cmd_dispatch(args)
         assert rc == 0
-        approval_file = tmp_path / ".methodology" / "agent_b_approvals" / "FR-01.json"
+        approval_file = tmp_path / ".methodology" / "agent_b_approvals" / "SRS.md.json"
         assert not approval_file.exists(), "developer role must not write approval JSON"
 
 
@@ -758,12 +758,12 @@ class TestDispatchSavesAgentAOutput:
         monkeypatch.setitem(sys.modules, "core.agent_spawner", fake_mod)
 
         args = argparse.Namespace(
-            project=str(tmp_path), phase=1, fr_id="FR-01",
+            project=str(tmp_path), phase=1, fr_id="SRS.md",
             role="developer", prompt="Implement FR-01", timeout=60, max_turns=5,
         )
         rc = cmd_dispatch(args)
         assert rc == 0
-        output_file = tmp_path / ".methodology" / "agent_a_outputs" / "FR-01.json"
+        output_file = tmp_path / ".methodology" / "agent_a_outputs" / "SRS.md.json"
         assert output_file.exists(), "agent output JSON should be written"
         data = json.loads(output_file.read_text())
         assert data["status"] == "complete"
@@ -776,14 +776,14 @@ class TestDispatchSavesAgentAOutput:
         monkeypatch.setitem(sys.modules, "core.agent_spawner", fake_mod)
 
         args = argparse.Namespace(
-            project=str(tmp_path), phase=1, fr_id="FR-01",
+            project=str(tmp_path), phase=1, fr_id="SRS.md",
             role="developer", prompt="Implement FR-01", timeout=60, max_turns=5,
         )
         rc = cmd_dispatch(args)
         assert rc == 0
         out = capsys.readouterr().out
         assert "WARN" in out
-        assert not (tmp_path / ".methodology" / "agent_a_outputs" / "FR-01.json").exists()
+        assert not (tmp_path / ".methodology" / "agent_a_outputs" / "SRS.md.json").exists()
 
 
 # =============================================================================

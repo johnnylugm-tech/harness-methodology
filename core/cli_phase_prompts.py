@@ -4,8 +4,8 @@
 PHASE_PROMPTS = {
     1: {
         "name": "Requirements Specification",
-        "agent_a": "architect",
-        "agent_b": "reviewer",
+        "agent_a": "requirements_engineer",
+        "agent_b": "business_analyst",
         "developer": """```
 TASK: Draft Software Requirements Specification (SRS)
 TASK_ID: task-p1
@@ -85,7 +85,7 @@ TASK_ID: task-p1-review
     2: {
         "name": "Architecture Design",
         "agent_a": "architect",
-        "agent_b": "reviewer",
+        "agent_b": "tech_lead",
         "developer": """```
 TASK: Draft System Architecture Document (SAD) + Architecture Decision Records (ADR)
 TASK_ID: task-p2

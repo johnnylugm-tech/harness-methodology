@@ -1708,7 +1708,7 @@ class TestDispatch:
             pass
         a = Args()
         a.project = str(tmp_path)
-        a.fr_id = "FR-05"
+        a.fr_id = "SRS.md"
         a.role = "BUSINESS_ANALYST"
         a.prompt = "Review business alignment"
         a.phase = 1

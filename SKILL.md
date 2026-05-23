@@ -99,7 +99,7 @@ do NOT start work until every item is checked.
 
 Before advancing to Phase N+1, confirm ALL:
 
-- [ ] All checkpoints in plan marked done
+- [ ] All checkpoints in plan marked done (`- [ ]` → `- [x]` in phaseN_plan.md)
 - [ ] HANDOVER.md written (auto on git push via GitStrategy)
 - [ ] **(ALL) Retry on failure**: If push is blocked (any gate), read the error output,
       apply the suggested fix, and re-run `push-checkpoint` / `push-milestone`.
@@ -250,7 +250,7 @@ Agent B (REVIEWER / architect)
 
 ---
 
-## 4. sessions_spawn.log Format (Phase 1-2 only, HR-10)
+## 4. sessions_spawn.log & Agent B Approval Format (Phase 1-2 only, HR-10)
 
 Two entries per FR/deliverable (developer + reviewer):
 
@@ -260,6 +260,36 @@ Two entries per FR/deliverable (developer + reviewer):
 {"timestamp": "2026-04-26T10:05:00", "fr_id": "FR-01", "role": "reviewer",
  "session_id": "rev-def456", "status": "success", "review_status": "APPROVE"}
 ```
+
+### 4.1 Agent B Approval Files (P1/P2 deliverable-level)
+
+P1/P2 dispatching writes per-deliverable approval JSONs to
+`.methodology/agent_b_approvals/<deliverable_id>.json`.
+Deliverable IDs are the deliverable file basenames:
+
+| Phase | Deliverable IDs |
+|-------|----------------|
+| P1 | `SRS.md`, `SPEC_TRACKING.md`, `TRACEABILITY_MATRIX.md`, `TEST_INVENTORY.yaml` |
+| P2 | `SAD.md`, `ADR.md`, `TEST_SPEC.md` |
+
+Each approval JSON **MUST** include:
+
+```json
+{
+  "review_status": "APPROVE",
+  "docs_embedded": ["SRS.md"],
+  "confidence": 0.9,
+  "summary": "..."
+}
+```
+
+- `docs_embedded` **MUST** list every source document the reviewing agent had in its
+  prompt context. P1 reviews require `["SRS.md"]`; P2 reviews require
+  `["SRS.md", "SAD.md"]`. Missing entries cause `verify-agent-b-approvals` to block.
+- `review_status` **MUST** be `"APPROVE"` (not `"success"` or any other value).
+
+The authoritative deliverable ID registry is `_PHASE_DELIVERABLES` in `harness_cli.py`.
+Dispatch with an unrecognized `--fr-id` in P1/P2 is rejected.
 
 ---
 

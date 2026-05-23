@@ -66,8 +66,8 @@ _PHASE_MILESTONES: dict[int, list[str]] = {
 PHASE_SPEC: dict[int, dict[str, Any]] = {
     1: {
         "name": "Requirements Specification",
-        "agent_a": "architect",
-        "agent_b": "reviewer",
+        "agent_a": "requirements_engineer",
+        "agent_b": "business_analyst",
         "ab_rounds": 1,
         "constitution_type": "srs",
         # required deliverables: (candidate paths, description, is_mandatory)
@@ -106,7 +106,7 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
     2: {
         "name": "Architecture Design",
         "agent_a": "architect",
-        "agent_b": "reviewer",
+        "agent_b": "tech_lead",
         "ab_rounds": 1,
         "constitution_type": "sad",
         "deliverables": [

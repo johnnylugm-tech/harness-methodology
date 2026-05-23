@@ -21,11 +21,11 @@ class TestGetPhasePrompts:
 
 class TestGetPhaseRole:
     def test_agent_a_returns_correct_role(self):
-        assert get_phase_role(1, is_agent_a=True) == "architect"
+        assert get_phase_role(1, is_agent_a=True) == "requirements_engineer"
         assert get_phase_role(3, is_agent_a=True) == "developer"
 
     def test_agent_b_returns_correct_role(self):
-        assert get_phase_role(1, is_agent_a=False) == "reviewer"
+        assert get_phase_role(1, is_agent_a=False) == "business_analyst"
         assert get_phase_role(3, is_agent_a=False) == "reviewer"
 
     def test_unknown_phase_defaults_to_3(self):
