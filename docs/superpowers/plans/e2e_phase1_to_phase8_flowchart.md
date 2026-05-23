@@ -578,7 +578,7 @@ SESSION START (P6 entry — automated preflight, Phase Truth from P5 PASS is pre
 │  Read SKILL.md                                               │
 │  P6 routing: Entry=Gate3, Exit=Gate4(85), 14 dims           │
 │  QUALITY_REPORT.md is the key deliverable                    │
-│  Hermes APPROVE required (Human Checkpoint #2)               │
+│  Gate 4: score ≥ 85 + quality_complete (no Hermes APPROVE)    │
 └──────────────────┬──────────────────────────────────────────┘
                    │
                    ▼
@@ -898,7 +898,7 @@ SESSION START (P7/P8 entry — automated preflight, Gate4 from P6 PASS is precon
     ║    P3: code + tests + sessions_spawn.log                 ║
     ║    P4: TEST_RESULTS.md                                   ║
     ║    P5: BASELINE.md                                       ║
-    ║    P6: QUALITY_REPORT.md + Hermes APPROVE                ║
+    ║    P6: QUALITY_REPORT.md (no Hermes APPROVE in v2.4)        ║
     ║    P7: RISK_REGISTER.md                                  ║
     ║    P8: CONFIG_RECORDS.md                                 ║
     ║                                                          ║
