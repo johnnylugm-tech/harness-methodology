@@ -8,7 +8,7 @@
 # SKILL.md working directory — raw tool outputs, per-round JSON, scan blobs
 .sessi-work/
 # Hermes plan backups — redundant with git history
-.hermes/plans/backups/
+.hermes/
 # Claude Code local config — machine-specific, not for version control
 .claude/
 # Python coverage binary
