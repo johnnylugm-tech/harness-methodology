@@ -55,5 +55,9 @@ build/
 # ── Runtime log files ───────────────────────────────────────────────────────
 logs/
 
+# ── Machine-specific tool configs ────────────────────────────────────────────
+.antigravitycli/
+uv.lock
+
 # ── OS metadata ─────────────────────────────────────────────────────────────
 .DS_Store

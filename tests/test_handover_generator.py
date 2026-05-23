@@ -1591,7 +1591,12 @@ class TestDispatch:
         import io
         from harness_cli import cmd_dispatch
 
-        def fake_spawn(self, role, prompt, context, phase, fr_id=None, task_timeout=300, max_turns=20, persona_override=None):
+        _captured_kwargs = {}
+
+        def fake_spawn(self, role, prompt, context, phase, fr_id=None, **kwargs):
+            _captured_kwargs.update(kwargs)
+            _captured_kwargs["role"] = role
+            _captured_kwargs["fr_id"] = fr_id
             # Write a minimal log entry to simulate _log_dispatch behavior
             import json
             log_path = self.project_path / ".methodology" / "sessions_spawn.log"
@@ -1618,12 +1623,18 @@ class TestDispatch:
         exit_code = cmd_dispatch(a)
         assert exit_code == 0
         assert "FR-01 | developer | success" in captured.getvalue()
+        # developer: no persona override, full turns
+        assert _captured_kwargs.get("persona_override") is None
+        assert _captured_kwargs.get("max_turns") == 20
 
     def test_dispatch_reviewer_returns_ok(self, tmp_path, monkeypatch):
         import io
         from harness_cli import cmd_dispatch
 
-        def fake_spawn(self, role, prompt, context, phase, fr_id=None, task_timeout=300, max_turns=20, persona_override=None):
+        _captured_kwargs = {}
+
+        def fake_spawn(self, role, prompt, context, phase, fr_id=None, **kwargs):
+            _captured_kwargs.update(kwargs)
             return {"status": "APPROVE", "session_id": "fake-002"}
 
         monkeypatch.setattr("core.agent_spawner.AgentSpawner.spawn", fake_spawn)
@@ -1641,12 +1652,18 @@ class TestDispatch:
         monkeypatch.setattr("sys.stdout", captured)
         exit_code = cmd_dispatch(a)
         assert exit_code == 0
+        # reviewer: persona skipped and turns capped at 3
+        assert _captured_kwargs.get("persona_override") == ""
+        assert _captured_kwargs.get("max_turns") == 3
 
     def test_dispatch_non_ok_status_returns_1(self, tmp_path, monkeypatch):
         import io
         from harness_cli import cmd_dispatch
 
-        def fake_spawn(self, role, prompt, context, phase, fr_id=None, task_timeout=300, max_turns=20, persona_override=None):
+        _captured_kwargs = {}
+
+        def fake_spawn(self, role, prompt, context, phase, fr_id=None, **kwargs):
+            _captured_kwargs.update(kwargs)
             return {"status": "REJECT", "session_id": "fake-003"}
 
         monkeypatch.setattr("core.agent_spawner.AgentSpawner.spawn", fake_spawn)
@@ -1664,13 +1681,19 @@ class TestDispatch:
         monkeypatch.setattr("sys.stdout", captured)
         exit_code = cmd_dispatch(a)
         assert exit_code == 1
+        # reviewer: persona skipped and turns capped at 3
+        assert _captured_kwargs.get("persona_override") == ""
+        assert _captured_kwargs.get("max_turns") == 3
 
     def test_dispatch_complete_status_succeeds(self, tmp_path, monkeypatch):
         """Bug #1: 'complete' status (Task tool non-dict result path) must exit 0."""
         import io
         from harness_cli import cmd_dispatch
 
-        def fake_spawn(self, role, prompt, context, phase, fr_id=None, task_timeout=300, max_turns=20, persona_override=None):
+        _captured_kwargs = {}
+
+        def fake_spawn(self, role, prompt, context, phase, fr_id=None, **kwargs):
+            _captured_kwargs.update(kwargs)
             # AgentSpawner._parse_result wraps non-dict Task results as status="complete"
             return {"status": "complete", "session_id": "fake-004", "output": "done"}
 
@@ -1690,13 +1713,19 @@ class TestDispatch:
         exit_code = cmd_dispatch(a)
         assert exit_code == 0
         assert "complete" in captured.getvalue()
+        # developer: no persona override, full turns
+        assert _captured_kwargs.get("persona_override") is None
+        assert _captured_kwargs.get("max_turns") == 20
 
     def test_dispatch_spawned_status_succeeds(self, tmp_path, monkeypatch):
         """Bug #1: 'SPAWNED' default status (unknown/new status) must exit 0."""
         import io
         from harness_cli import cmd_dispatch
 
-        def fake_spawn(self, role, prompt, context, phase, fr_id=None, task_timeout=300, max_turns=20, persona_override=None):
+        _captured_kwargs = {}
+
+        def fake_spawn(self, role, prompt, context, phase, fr_id=None, **kwargs):
+            _captured_kwargs.update(kwargs)
             return {"status": "SPAWNED", "session_id": "fake-005"}
 
         monkeypatch.setattr("core.agent_spawner.AgentSpawner.spawn", fake_spawn)
@@ -1714,6 +1743,9 @@ class TestDispatch:
         monkeypatch.setattr("sys.stdout", captured)
         exit_code = cmd_dispatch(a)
         assert exit_code == 0
+        # developer: no persona override, full turns
+        assert _captured_kwargs.get("persona_override") is None
+        assert _captured_kwargs.get("max_turns") == 20
 
 
 class TestAuditSessionsSpawn:

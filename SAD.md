@@ -2494,9 +2494,9 @@ The only remaining reference to `software_self_improvement` is in
 `harness/issue_tracker_ext.py`, which imports `IssueTracker` with an inline stub
 fallback if the package is absent.
 
-### 7.2 Two-Phase Gate Evaluation (no subprocess)
+### 7.2 Three-Phase Gate Evaluation (no subprocess)
 
-Gates use a two-phase API. Claude **is** the evaluation engine — no subprocess runner:
+Gates use a three-phase API. Claude **is** the evaluation engine — no subprocess runner:
 
 ```
 Phase 1 — prepare_gate(gate_num, project_root, phase [, fr_id])
@@ -2524,6 +2524,8 @@ Phase 3 — finalize_gate(ctx)
 ```text
 .sessi-work/
   gate{N}_result.json          ← Claude writes (harness reads)
+  issue_registry.json          ← persistent across rounds (score.py, issue_tracker.py)
+  round_{k}/scores/*.json      ← per-round evaluator scores
   crg_metrics.json             ← crg_bridge + crg_analysis.py write
   crg_reconnaissance.json      ← CRG recon protocol output (Gate 3/4)
   harness_verification/        ← tool_runners.py audit trail
