@@ -3585,16 +3585,63 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
 
     if step == "TDD-RED":
         srs_section = _extract_srs_fr_section(srs_path, fr_id) if srs_path else ""
+
+        # ── TEST_SPEC.md section ───────────────────────────────────────────
+        # spec-coverage-check uses exact string match against TEST_SPEC.md
+        # function names.  The sub-agent MUST use those exact names so
+        # coverage registers correctly (HR-11 traceability).
+        test_spec_path = project / "02-architecture" / "TEST_SPEC.md"
+        spec_note = ""
+        if test_spec_path.exists():
+            spec_text = test_spec_path.read_text(encoding="utf-8")
+            # Parse one FR section at a time.  A blank line between an FR
+            # header and its table (common in TEST_SPEC.md) does NOT reset
+            # state — only the next "### FR-XX:" header does.  This way the
+            # blank-line separator between FR sections is also handled
+            # correctly without accidentally skipping any FR's table.
+            current_fr = ""
+            spec_rows: list[str] = []
+            for line in spec_text.splitlines():
+                stripped = line.strip()
+                # New "### FR-XX:" header — switch to that FR's section
+                m = re.match(r"^###\s+([A-Z]+-\d+)[:\s]", stripped)
+                if m:
+                    current_fr = m.group(1)
+                    continue
+                # Only process table rows for the target FR
+                if current_fr != fr_id:
+                    continue
+                # Triggered by "| # | Test Function | ..." header row
+                if "Test Function" in stripped:
+                    continue
+                # Parse data row: `| # | `test_foo` | type | deriv |`
+                if stripped.startswith("|") and stripped.endswith("|"):
+                    cols = [c.strip() for c in stripped.split("|")[1:-1]]
+                    if len(cols) >= 2 and cols[1].startswith("`test_"):
+                        spec_rows.append(cols[1].strip("`"))
+                    continue
+            if spec_rows:
+                spec_note = (
+                    f"\n[TEST SPEC — match these EXACT names]\n"
+                    f"TEST_SPEC.md at `02-architecture/TEST_SPEC.md` defines "
+                    f"{len(spec_rows)} test cases for {fr_id}. Write ALL of them "
+                    f"using these EXACT function names:\n"
+                    + "\n".join(f"  - {fn}" for fn in spec_rows)
+                    + "\nDo NOT invent names. spec-coverage-check uses exact match.\n"
+                )
+
         return (
-            f"You are a TDD developer. Your ONLY task: write a failing pytest test for {fr_id}.\n\n"
+            f"You are a TDD developer. Your ONLY task: write failing pytest tests for {fr_id}.\n\n"
+            f"{spec_note}"
             f"[FR REQUIREMENTS]\n"
             f"{srs_section or f'See SRS.md for {fr_id} requirements'}\n\n"
             f"[TASK]\n"
-            f"1. Create `{test_file}` with at minimum ONE failing test covering the acceptance criteria above.\n"
-            f"2. The test MUST FAIL — do NOT implement the feature yet.\n"
-            f"3. Run `pytest {test_file} -q` to confirm it fails.\n"
-            f"4. Commit: `git add {test_file} && git commit -m \"test(RED): failing test for {fr_id}\"`\n"
-            f"5. Append to DEVELOPMENT_LOG.md: `## RED phase — {fr_id} — failing test written`\n\n"
+            f"1. Create/edit `{test_file}` with failing tests covering the acceptance criteria above.\n"
+            f"2. Every test function name MUST match the TEST SPEC names listed above exactly.\n"
+            f"3. The tests MUST FAIL — do NOT implement the feature yet.\n"
+            f"4. Run `pytest {test_file} -q` to confirm all tests fail.\n"
+            f"5. Commit: `git add {test_file} && git commit -m \"test(RED): failing test for {fr_id}\"`\n"
+            f"6. Append to DEVELOPMENT_LOG.md: `## RED phase — {fr_id} — failing test written`\n\n"
             f"[FORBIDDEN]\n"
             f"- Implementing any source code (test file only)\n"
             f"- app/infrastructure/ paths\n"
