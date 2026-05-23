@@ -4538,6 +4538,22 @@ def _verify_no_pr_requirement(owner: str, repo: str) -> None:
             file=sys.stderr,
         )
 
+def _check_crg_available() -> bool:
+    """Check whether CRG MCP server is reachable.
+
+    CRG (Code Review Graph) is mandatory for Gate 3/4 structural dimensions
+    (architecture, error_handling). The core tools (build, detect_changes,
+    minimal_context) are imported at module level in harness/crg_bridge.py via
+    ``from mcp_tools import ...`` — if the CRG MCP server is not configured,
+    the import fails and the bridge is unavailable.
+    """
+    try:
+        from harness.crg_bridge import CRGBridge  # noqa: F401
+        return True
+    except (ImportError, ModuleNotFoundError):
+        return False
+
+
 def _check_and_offer_ecc_hooks(harness_root: Path) -> None:
     """Check for ECC hooks presence and offer to install if missing.
 
@@ -4648,7 +4664,7 @@ def cmd_init_project(args: argparse.Namespace) -> int:
     print(f"{'='*60}")
 
     # 1. Verify harness is importable
-    print("\n[1/6] Checking harness importability...")
+    print("\n[1/11] Checking harness importability...")
     importable = (
         (project / "harness" / "core" / "quality_gate" / "__init__.py").exists()
         or (project / "core" / "quality_gate" / "__init__.py").exists()
@@ -4665,7 +4681,7 @@ def cmd_init_project(args: argparse.Namespace) -> int:
             return 1
 
     # 2. Write CI workflow
-    print("\n[2/6] Writing CI workflow...")
+    print("\n[2/11] Writing CI workflow...")
     workflows_dir = project / ".github" / "workflows"
     workflows_dir.mkdir(parents=True, exist_ok=True)
     workflow_path = workflows_dir / "harness_quality_gate.yml"
@@ -4682,7 +4698,7 @@ def cmd_init_project(args: argparse.Namespace) -> int:
         print(f"   OK — wrote {workflow_path}")
 
     # 3. Git hooks
-    print("\n[3/6] Git hooks...")
+    print("\n[3/11] Git hooks...")
     hooks_script = harness_root / "scripts" / "setup-git-hooks.sh"
     if args.ci_only:
         print("   SKIP: --ci-only flag set (hooks not installed)")
@@ -4708,19 +4724,19 @@ def cmd_init_project(args: argparse.Namespace) -> int:
     # 4. Phase state — managed via .methodology/state.json (written in step 7).
     #    The deprecated `git config quality.phase` knob is no longer set;
     #    state.json is the single source of truth read by hooks and CI.
-    print("\n[4/6] Phase state...")
+    print("\n[4/11] Phase state...")
     print(f"   OK — phase {phase} will be written to .methodology/state.json (step 7)")
 
     # 5. Create canonical phase directory structure
-    print("\n[5/8] Creating phase directory structure...")
+    print("\n[5/11] Creating phase directory structure...")
     _init_phase_dirs(project)
 
     # 6. Copy template artifacts into phase directories
-    print("\n[6/8] Copying artifact templates...")
+    print("\n[6/11] Copying artifact templates...")
     _init_copy_templates(project, harness_root, overwrite=args.overwrite)
 
     # 7. Initialize FSM state.json (required by run-phase preflight)
-    print("\n[7/8] Initializing FSM state...")
+    print("\n[7/11] Initializing FSM state...")
     from datetime import datetime, timezone
     state_path = project / ".methodology" / "state.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -4782,11 +4798,38 @@ def cmd_init_project(args: argparse.Namespace) -> int:
         return 1
     print("  OK — all required gate tools are available.")
 
+    # CRG (Code Review Graph) — mandatory for Gate 3/4 structural dimensions.
+    # Core tools (build, detect_changes, minimal_context) are imported at module
+    # level in crg_bridge.py — import failure means CRG MCP is not configured.
+    _crg_ok = _check_crg_available()
+    if _crg_ok:
+        print("  OK — CRG (Code Review Graph) MCP server reachable (Gate 3/4 ready)")
+    else:
+        print("  INFO: CRG MCP server not detected — Gate 3/4 architecture/error-handling")
+        print("        dimensions will use LLM evaluation instead of structural analysis.")
+        print("        CRG is mandatory for production use (same tier as ruff/mypy/pytest).")
+        print("        Install: code-review-graph MCP server + pip install code-review-graph")
+
     print(f"\n{'='*60}")
     print("init-project complete.")
     print(f"{'='*60}")
-    print(f"  Phase {phase} written to .methodology/state.json — single source of truth.")
-    print(f"  Docs: {harness_root}/INTEGRATION.md")
+    print(f"  Phase {phase} → .methodology/state.json")
+    print()
+    print("  ╔══════════════════════════════════════════════════════════════╗")
+    print("  ║  HUMAN CHECKLIST — verify before starting phase work        ║")
+    print("  ╠══════════════════════════════════════════════════════════════╣")
+    print("  ║  [ ] Tier 1 tools installed (ruff, mypy, pytest-cov, ...)   ║")
+    print("  ║  [ ] gitleaks installed (secrets scanning)                  ║")
+    print("  ║  [ ] GitHub branch protection enabled on main               ║")
+    print("  ║      → Settings → Branches → main → Block force push+delete ║")
+    print("  ║  [ ] ECC hooks installed (blocks git --no-verify)           ║")
+    print("  ║      → bash scripts/setup-ecc-hooks.sh --verify             ║")
+    print("  ║  [ ] SRS.md written (P1 entry requirement)                  ║")
+    print("  ║  [ ] Hermes reviewer target configured (optional, P1-P2)    ║")
+    print("  ║      → export HERMES_REVIEWER_TARGET=telegram:CHAT_ID       ║")
+    print("  ║  [ ] Review generated templates in phase directories        ║")
+    print("  ╚══════════════════════════════════════════════════════════════╝")
+    print(f"  Full docs: {harness_root}/INTEGRATION.md")
     return 0
 
 def cmd_kill_switch(args: argparse.Namespace) -> int:

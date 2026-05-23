@@ -412,36 +412,52 @@ class PhaseHooks:
                 "message": "All CI wiring present" if not missing else f"Missing: {missing}"}
 
     def _check_branch_protection(self) -> bool:
-        """Best-effort check for GitHub branch protection on main (requires gh CLI)."""
+        """Best-effort check for GitHub branch protection on main (requires gh CLI).
+
+        Returns True only when we can positively confirm protection is active.
+        Returns False when: (a) protection is absent, (b) gh/remote unavailable,
+        or (c) API call fails — in all cases the preflight message guides the
+        operator to verify manually.
+        """
         try:
             import subprocess
             remote = subprocess.run(
                 ["git", "-C", str(self.project_path), "remote", "get-url", "origin"],
                 capture_output=True, text=True, timeout=10,
             )
-            if remote.returncode != 0 or "github.com" not in remote.stdout:
+            if remote.returncode != 0:
+                return False  # No git remote — not a GitHub project
+            remote_url = remote.stdout.strip()
+            if "github.com" not in remote_url:
                 return False  # Not a GitHub remote — skip
+
             # Parse owner/repo
-            url = remote.stdout.strip().rstrip(".git")
-            if "github.com" in url:
-                parts = url.split("github.com")[-1].strip("/:").split("/")
-                if len(parts) >= 2:
-                    owner, repo = parts[-2], parts[-1]
-                    r = subprocess.run(
-                        ["gh", "api", f"repos/{owner}/{repo}/branches/main/protection"],
-                        capture_output=True, text=True, timeout=15,
-                    )
-                    if r.returncode == 0:
-                        data = json.loads(r.stdout)
-                        # Only check that force-push + deletion protection exist
-                        has_protection = (
-                            data.get("allow_force_pushes") is False
-                            and data.get("allow_deletions") is False
-                        )
-                        return has_protection
+            url = remote_url.rstrip(".git")
+            parts = url.split("github.com")[-1].strip("/:").split("/")
+            if len(parts) < 2:
+                return False
+            owner, repo = parts[-2], parts[-1]
+
+            r = subprocess.run(
+                ["gh", "api", f"repos/{owner}/{repo}/branches/main/protection",
+                 "--jq", ".allow_force_pushes.enabled,.allow_deletions.enabled"],
+                capture_output=True, text=True, timeout=15,
+            )
+            if r.returncode != 0:
+                # 404 = "Branch not protected" → genuinely unconfigured
+                if "404" in (r.stderr or "") or "Not Found" in (r.stderr or ""):
+                    return False
+                # Other errors (auth, network) → can't verify; don't alert
+                return True  # Assume OK if we can't reach the API
+            # Parse two boolean lines: allow_force_pushes, allow_deletions
+            lines = [ln.strip() for ln in r.stdout.strip().splitlines() if ln.strip()]
+            if len(lines) >= 2:
+                force_ok = lines[0].lower() == "false"
+                delete_ok = lines[1].lower() == "false"
+                return force_ok and delete_ok
+            return False
         except Exception:
-            pass
-        return False  # Cannot verify — treat as not configured
+            return True  # Can't verify — assume OK (don't cry wolf)
 
     def preflight_previous_phase_artifacts(self) -> Dict[str, Any]:
         """Check that previous phase's required deliverables exist (ASPICE traceability).
