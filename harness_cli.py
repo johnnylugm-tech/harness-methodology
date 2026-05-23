@@ -2159,9 +2159,14 @@ def cmd_manifest(args: argparse.Namespace) -> int:
     from harness.harness_bridge import HarnessBridge
 
     project = Path(args.sad).resolve().parent
+    # nargs="+" collects space-separated FR IDs, but users may also pass
+    # comma-separated values. Split on commas to support both formats.
+    fr_ids: list[str] = []
+    for item in args.fr_ids:
+        fr_ids.extend(fid.strip() for fid in item.split(",") if fid.strip())
     bridge = HarnessBridge()
     out = bridge.generate_quality_manifest(
-        fr_ids=args.fr_ids,
+        fr_ids=fr_ids,
         sad_path=args.sad,
     )
     print(f"quality_manifest.json written → {out}")
@@ -5452,7 +5457,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     rfp.add_argument("--timeout", type=int, default=600,
                      help="Sub-agent max execution time in seconds (default: 600)")
-    rfp.add_argument("--max-turns", type=int, default=30, dest="max_turns",
+    rfp.add_argument("--max-turns", type=int, default=40, dest="max_turns",
                      help="Sub-agent max tool-using turns (default: 30)")
     rfp.add_argument("--max-fix-rounds", type=int, default=3, dest="max_fix_rounds",
                      help="Max CODE-FIX + GATE1 retry rounds on GATE1 FAIL (default: 3)")

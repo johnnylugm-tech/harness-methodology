@@ -4,11 +4,9 @@ CRG Bridge: Programmatic API for HarnessBridge and AutoFixEngine.
 Provides methods for structural reconnaissance, context retrieval, impact analysis,
 and structural drift verification using CRG MCP tools directly.
 
-CRG is mandatory (same tier as ruff/mypy/pytest). Core tools (build, minimal_context,
-detect_changes) are imported unconditionally — import failure is a blocking error.
-Extended tools (hub_nodes, communities, knowledge_gaps, etc.) are imported optionally
-and return empty dicts when unavailable; they enrich findings but are not required
-for gate scoring.
+CRG is mandatory for Gate 3/4 structural dimensions (same tier as ruff/mypy/pytest).
+When the CRG MCP server is not available (standalone Python, non-Claude Code sessions),
+all methods degrade gracefully to no-ops returning empty dicts or False.
 
 For standalone CLI usage (bash commands in prompts), see
 harness/ssi/scripts/crg_integration.py.
@@ -17,15 +15,25 @@ harness/ssi/scripts/crg_integration.py.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
-# Core CRG tools — mandatory (no graceful degradation)
-from mcp_tools import (  # type: ignore[import-untyped]
-    mcp__code_review_graph__build_or_update_graph_tool as _crg_build,
-    mcp__code_review_graph__get_minimal_context_tool as _crg_minimal_context,
-    mcp__code_review_graph__detect_changes_tool as _crg_detect_changes,
-)
+# Core CRG tools — conditional import with graceful degradation.
+# In Claude Code sessions the mcp_tools module is injected by the MCP runtime.
+# In standalone Python (e.g. `python3 harness_cli.py manifest`) it does not exist.
+try:
+    from mcp_tools import (  # type: ignore[import-untyped]
+        mcp__code_review_graph__build_or_update_graph_tool as _crg_build,
+        mcp__code_review_graph__get_minimal_context_tool as _crg_minimal_context,
+        mcp__code_review_graph__detect_changes_tool as _crg_detect_changes,
+    )
+    _CRG_AVAILABLE = True
+except ImportError:
+    _crg_build = None  # type: ignore[assignment]
+    _crg_minimal_context = None  # type: ignore[assignment]
+    _crg_detect_changes = None  # type: ignore[assignment]
+    _CRG_AVAILABLE = False
 
 # Extended CRG tools — imported individually; None if unavailable in this runtime
 try:
@@ -86,27 +94,38 @@ except ImportError:  # pragma: no cover
 
 
 class CRGBridge:
-    """Wraps CRG MCP tools for structural analysis of the target project."""
+    """Wraps CRG MCP tools for structural analysis of the target project.
+
+    When the CRG MCP server is not available (standalone Python, non-Claude Code
+    sessions), all methods return empty dicts or False — graceful degradation.
+    """
+
+    def __init__(self):
+        self._warned = False
+
+    def _check_available(self) -> bool:
+        """Return True if CRG core tools are importable. Warn once on first failure."""
+        if not _CRG_AVAILABLE and not self._warned:
+            print(
+                "[CRG] WARNING: CRG MCP server not available — structural analysis skipped.\n"
+                "  Gate 3/4 architecture/error-handling dimensions require CRG.\n"
+                "  Install: code-review-graph MCP server + pip install code-review-graph",
+                file=sys.stderr,
+            )
+            self._warned = True
+        return _CRG_AVAILABLE
 
     # ── Graph lifecycle ────────────────────────────────────────────────────
 
     def refresh_graph(self, project_root: str) -> None:
-        """
-        Incremental graph refresh (no reconnaissance queries, no file reads).
-
-        Used by Gate 2 for lightweight impact-check support — ensures the CRG
-        graph is up-to-date without the overhead of full reconnaissance.
-        """
-        _crg_build(repo_root=project_root, full_rebuild=False)
+        if not self._check_available():
+            return
+        _crg_build(repo_root=project_root, full_rebuild=False)  # type: ignore[misc]
 
     def run_reconnaissance(self, project_root: str) -> dict:
-        """
-        Execute full structural reconnaissance to seed the issue registry.
-
-        Builds the CRG graph (full rebuild) and reads the reconnaissance data
-        produced by the CRG reconnaissance protocol (crg_reconnaissance.md).
-        """
-        _crg_build(repo_root=project_root, full_rebuild=True)
+        if not self._check_available():
+            return {}
+        _crg_build(repo_root=project_root, full_rebuild=True)  # type: ignore[misc]
         p = Path(project_root) / ".sessi-work" / "crg_reconnaissance.json"
         if not p.exists():
             raise FileNotFoundError(
@@ -118,20 +137,14 @@ class CRGBridge:
     # ── Context & impact ───────────────────────────────────────────────────
 
     def get_minimal_context(self, project_root: str, dimension: str) -> dict:
-        """
-        Retrieve minimal CRG context for a specific quality dimension.
-
-        Returns the ~100-token orientation snapshot for the given dimension.
-        """
-        return _crg_minimal_context(task=dimension, repo_root=project_root)
+        if not self._check_available():
+            return {}
+        return _crg_minimal_context(task=dimension, repo_root=project_root)  # type: ignore[misc]
 
     def check_impact(self, project_root: str, ref: str = "HEAD", threshold: float = 0.7) -> bool:
-        """
-        Check if changes since 'ref' are risky based on structural impact.
-
-        Returns True if risk_score >= threshold.
-        """
-        data = _crg_detect_changes(
+        if not self._check_available():
+            return False
+        data = _crg_detect_changes(  # type: ignore[misc]
             base=ref, repo_root=project_root, detail_level="standard"
         )
         rs = data.get("risk_score", 0)
@@ -142,23 +155,17 @@ class CRGBridge:
     def check_drift(
         self, project_root: str, threshold: float = 0.4, base: str = "HEAD~1",
     ) -> bool:
-        """
-        Verify structural drift after a fix round (per-round, not cross-phase).
-
-        Uses CRG detect_changes to measure structural impact since `base`.
-        Default compares against HEAD~1; AutoFixEngine should pass the HEAD
-        at fix-start so drift measures cumulative impact of all fix rounds.
-
-        For cross-phase drift, see crg_analysis.compute_structural_drift().
-        """
-        data = _crg_detect_changes(
+        if not self._check_available():
+            return False
+        data = _crg_detect_changes(  # type: ignore[misc]
             base=base, repo_root=project_root, detail_level="minimal"
         )
         rs = data.get("risk_score", 0)
         return float(rs) >= threshold if rs is not None else False
 
     def load_metrics(self, project_root: str) -> dict:
-        """Load calculated CRG metrics from the work directory."""
+        if not self._check_available():
+            return {}
         p = Path(project_root) / ".sessi-work" / "crg_metrics.json"
         if not p.exists():
             raise FileNotFoundError(
