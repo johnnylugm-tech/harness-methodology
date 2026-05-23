@@ -65,7 +65,10 @@ See **[INTEGRATION.md](INTEGRATION.md)** for:
 ## Score Reconciliation
 
 ```
-final_score = min(tool_score, llm_score)   # CRG can only lower, never raise
+final_score = tool_score   # LLM scoring abolished — all 14 dimensions are tool-scored
+                           # score.py R4: score must equal tool_score (LLM cannot adjust)
+                           # score.py R8: tool_score must not be null for any dimension
+                           # CRG structural signals can flag issues but do not lower scores
 ```
 
 Early-stop (Gates 2–4): PASS → CONTINUE (anti-pattern guard) → PLATEAU → BLOCKED
