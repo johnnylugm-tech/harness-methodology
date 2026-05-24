@@ -74,6 +74,7 @@ sys.path.insert(0, str(_REPO_ROOT))
 
 # Atomic state-file writers (CV-3 / SG-12 from robustness audit)
 from core.atomic_io import atomic_write_json, file_lock, state_lock_path  # noqa: E402
+from core.pre_flight import check_cli_tools
 
 # ---------------------------------------------------------------------------
 # .env file loader (no external dependency)
@@ -275,9 +276,6 @@ def _fr_step_preflight(step: str, project: Path, fr_id: str | None) -> tuple[boo
 
     Step-aware: GATE1/CODE-FIX need full tool + DB checks; TDD-RED only needs pytest.
     """
-    import re
-    from core.pre_flight import check_cli_tools
-
     errors: list[str] = []
     step = step.upper()
 
@@ -306,21 +304,24 @@ def _fr_step_preflight(step: str, project: Path, fr_id: str | None) -> tuple[boo
             errors.append("✗ quality_manifest.json is malformed JSON")
 
     # ── 4. TEST_SPEC.md (required for TDD-RED — test names come from here) ───
-    test_spec = project / "TEST_SPEC.md"
+    # Must match _extract_test_spec_names: canonical location is 02-architecture/
+    test_spec = project / "02-architecture" / "TEST_SPEC.md"
     if step == "TDD-RED":
         if not test_spec.exists():
-            errors.append("✗ TEST_SPEC.md not found (TDD-RED requires test catalog)")
+            errors.append(
+                "✗ 02-architecture/TEST_SPEC.md not found (TDD-RED requires test catalog)"
+            )
         else:
             # Basic validity: must contain FR-ID sections
             try:
                 content = test_spec.read_text(encoding="utf-8")
                 if fr_id and not re.search(rf'#+\s+{re.escape(fr_id)}\b', content):
                     errors.append(
-                        f"✗ TEST_SPEC.md exists but has no section for {fr_id}"
+                        f"✗ 02-architecture/TEST_SPEC.md has no section for {fr_id}"
                         " (run derive_test_cases.md skill first)"
                     )
             except Exception:
-                errors.append("✗ TEST_SPEC.md exists but is unreadable")
+                errors.append("✗ 02-architecture/TEST_SPEC.md exists but is unreadable")
 
     # ── 5. Tool checks (step-aware) ───────────────────────────────────────────
     def _missing_tool(name: str) -> str:
@@ -1501,14 +1502,14 @@ def cmd_run_env_check(args: argparse.Namespace) -> int:
     )
 
     if not ctx.sad_excerpt and not ctx.srs_excerpt:
-        import sys as _sys
         print(
             "[WARN] Neither SAD.md nor SRS.md found in project. "
             "Env check will have no project context to evaluate.",
-            file=_sys.stderr,
+            file=sys.stderr,
         )
 
-    print(ctx.evaluation_prompt())
+    # Ensure .sessi-work/ exists before writing the sentinel and result.
+    Path(ctx.work_dir).mkdir(parents=True, exist_ok=True)
 
     # Write sentinel so finalize-env-check can verify run-env-check was called.
     sf = _sentinel_env_path(Path(project))
@@ -1518,6 +1519,7 @@ def cmd_run_env_check(args: argparse.Namespace) -> int:
 
     # Spawn sub-agent to perform the env check inline.
     # Uses bypassPermissions so the agent can run psql, docker, etc.
+    # --setting-sources "" blocks user-level CLAUDE.md/hooks (isolation).
     prompt = ctx.evaluation_prompt()
     cli = shutil.which("claude")
     if not cli:
@@ -1529,6 +1531,7 @@ def cmd_run_env_check(args: argparse.Namespace) -> int:
         "--output-format", "json",
         "--max-turns", "70",
         "--no-session-persistence",
+        "--setting-sources", "",
         "--permission-mode", "bypassPermissions",
         "--disable-slash-commands",
         "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
@@ -1582,6 +1585,38 @@ def cmd_finalize_env_check(args: argparse.Namespace) -> int:
             f"  Writing env_check_result.json directly is not permitted."
         )
         return 1
+
+    # Staleness check: env_check_result.json must not predate the sentinel.
+    # This catches cases where an old result file is reused after a new
+    # run-env-check invocation without re-running the evaluation.
+    sentinel_time: datetime | None = None
+    try:
+        sentinel_time = datetime.fromisoformat(sf.read_text(encoding="utf-8").strip())
+    except (ValueError, OSError):
+        pass  # non-fatal — sentinel exists, timestamp unreadable
+
+    if sentinel_time is not None:
+        result_path = project / ".sessi-work" / "env_check_result.json"
+        if result_path.exists():
+            try:
+                _data = json.loads(result_path.read_text(encoding="utf-8"))
+                _checked_at_str = _data.get("checked_at", "")
+                if _checked_at_str:
+                    _checked_at = datetime.fromisoformat(
+                        _checked_at_str.replace("Z", "+00:00")
+                    )
+                    # Allow 10 s tolerance for the sentinel being written
+                    # just before the sub-agent starts.
+                    from datetime import timedelta
+                    if _checked_at < sentinel_time - timedelta(seconds=10):
+                        print(
+                            "[WARN] env_check_result.json predates the sentinel — "
+                            "result may be from a previous run. "
+                            "Re-run: python harness_cli.py run-env-check "
+                            f"--phase {args.phase} --project {project}"
+                        )
+            except (ValueError, OSError, KeyError):
+                pass  # malformed JSON handled by finalize_env_check
 
     bridge = HarnessBridge()
     ctx = bridge.prepare_env_check(
@@ -4082,13 +4117,12 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
         return 0
 
     # 2. Pre-flight checks — must pass before agent dispatch
-    import sys as _sys
     preflight_ok, preflight_errors = _fr_step_preflight(step, project, fr_id)
     if not preflight_ok:
-        print(f"\n[PRE-FLIGHT FAILED] run-fr-step --fr-id {fr_id} --step {step}", file=_sys.stderr)
+        print(f"\n[PRE-FLIGHT FAILED] run-fr-step --fr-id {fr_id} --step {step}", file=sys.stderr)
         for err in preflight_errors:
-            print(f"  {err}", file=_sys.stderr)
-        print(file=_sys.stderr)
+            print(f"  {err}", file=sys.stderr)
+        print(file=sys.stderr)
         return 1
 
     # 3. Build minimal need-to-know prompt (only after pre-flight passes)
@@ -4148,7 +4182,13 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
 
     # 4. GATE1: auto-retry with CODE-FIX sub-agent on failure
     if step in ("GATE1", "GATE1-DELTA"):
-        gate_pass, failing_dims = _parse_gate_output(result.get("output", ""))
+        # When agent timed-out or errored, no gate1_result.json was written —
+        # failing_dims cannot be parsed. Signal full re-check to CODE-FIX.
+        if _status in {"ERROR", "TIMEOUT"}:
+            gate_pass = False
+            failing_dims: list | None = None
+        else:
+            gate_pass, failing_dims = _parse_gate_output(result.get("output", ""))
         if not gate_pass:
             gate_pass = _fr_step_already_done(step, fr_id, project)
 

@@ -704,7 +704,8 @@ class HarnessBridge:
 
         ssi_dir = Path(__file__).parent / "ssi"
         work_dir = root / ".sessi-work"
-        work_dir.mkdir(parents=True, exist_ok=True)
+        # Note: callers that write to work_dir (cmd_run_env_check) are
+        # responsible for mkdir. prepare_env_check is read-only.
 
         return EnvCheckContext(
             project_root=project_root,

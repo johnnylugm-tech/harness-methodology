@@ -128,9 +128,12 @@ class TestAgentSpawner:
         mock_proc = MagicMock()
         mock_proc.returncode = 0
         mock_proc.stdout = json.dumps({"result": "ok", "session_id": "x"})
+        # Only make the resolved MCP config path appear to exist — not all paths.
+        def _exists_only_mcp(self: Path) -> bool:
+            return str(self).endswith(".mcp.json")
         with patch("shutil.which", return_value="/usr/bin/claude"):
             with patch("subprocess.run", return_value=mock_proc) as mock_run:
-                with patch("pathlib.Path.exists", return_value=True):
+                with patch.object(Path, "exists", _exists_only_mcp):
                     result = spawner.spawn(
                         role="developer", prompt="Task", context={}, model="claude",
                         mcp_config="harness/.mcp.json",
@@ -139,9 +142,7 @@ class TestAgentSpawner:
                     assert result["status"] == "complete"
                     cmd = mock_run.call_args[0][0]
                     assert "--strict-mcp-config" in cmd
-                    assert "harness/.mcp.json" in cmd[-4] or any(
-                        "harness/.mcp.json" in str(a) for a in cmd
-                    )
+                    assert any("harness/.mcp.json" in str(a) for a in cmd)
 
     def test_spawn_with_mcp_config_not_found_falls_back(self, capsys):
         """Missing .mcp.json → warning + fallback to empty MCP."""
@@ -149,9 +150,10 @@ class TestAgentSpawner:
         mock_proc = MagicMock()
         mock_proc.returncode = 0
         mock_proc.stdout = json.dumps({"result": "ok", "session_id": "x"})
+        # Return False for all paths: SOP files are skipped, MCP path triggers warning.
         with patch("shutil.which", return_value="/usr/bin/claude"):
             with patch("subprocess.run", return_value=mock_proc):
-                with patch("pathlib.Path.exists", return_value=False):
+                with patch.object(Path, "exists", return_value=False):
                     result = spawner.spawn(
                         role="developer", prompt="Task", context={}, model="claude",
                         mcp_config="nonexistent/.mcp.json",
