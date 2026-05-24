@@ -16,7 +16,7 @@ dimensions:
   - { name: readability,           tier: 3, threshold: 80,  weight: 0.08, tool: radon-mi,          requires_tool_execution: true }
   - { name: error_handling,        tier: 3, threshold: 80,  weight: 0.08, tool: grep-bare-except,  requires_tool_execution: true }
   - { name: documentation,         tier: 3, threshold: 75,  weight: 0.06, tool: pydocstyle,        requires_tool_execution: true }
-  - { name: performance,           tier: 3, threshold: 75,  weight: 0.06, tool: radon-cc-high,     requires_tool_execution: true }
+  - { name: performance,           tier: 3, threshold: 75,  weight: 0.06, tool: pytest-benchmark,  requires_tool_execution: true }
   - { name: integration_coverage,  tier: 2, threshold: 75,  weight: 0.05, tool: pytest,            requires_tool_execution: true }
   - { name: test_assertion_quality, tier: 2, threshold: 70,  weight: 0.02, tool: pytest,            requires_tool_execution: true }
 blocking: true

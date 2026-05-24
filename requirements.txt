@@ -2,6 +2,8 @@
 pyyaml>=6.0
 # pytest for framework self-tests (B13-B15)
 pytest>=7.0
+# pytest-benchmark for performance dimension in Gate 3/4
+pytest-benchmark>=4.0
 # Optional: mutmut for mutation testing (Gate 2/3/4)
 # mutmut>=2.4
 # Optional: software_self_improvement (harness runner)

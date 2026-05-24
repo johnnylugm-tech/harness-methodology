@@ -41,6 +41,7 @@ _DEFAULT_TIMEOUTS: dict[str, int] = {
     "radon-mi":         30,
     "pydocstyle":       30,
     "grep-bare-except": 15,
+    "pytest-benchmark": 180,
 }
 
 
@@ -124,6 +125,17 @@ def run_tool(
             r"except\s*:",
             root,
         ],
+        # --benchmark-only: run only tests using the `benchmark` fixture.
+        # If none exist, pytest exits with code 5 (no tests collected) → scorer returns None.
+        # Text output (not --benchmark-json) so results flow through stdout capture.
+        "pytest-benchmark": [
+            "pytest", root,
+            "--benchmark-only",
+            "--benchmark-disable-gc",
+            "--benchmark-columns", "mean,max",
+            "--tb", "no",
+            "-q",
+        ],
     }
 
     cmd = cmds.get(tool)
@@ -170,6 +182,7 @@ def compute_tool_score(tool: str, output: str, returncode: int) -> Optional[floa
         "radon-mi":         _score_radon_mi,
         "pydocstyle":       _score_pydocstyle,
         "grep-bare-except": _score_grep_bare_except,
+        "pytest-benchmark": _score_pytest_benchmark,
     }
     fn = scorers.get(tool)
     return fn(output, returncode) if fn else None
@@ -333,3 +346,41 @@ def _score_grep_bare_except(output: str, _returncode: int) -> float:
     """Score grep-bare-except.  Each matching line costs 5 pts."""
     count = len(output.strip().splitlines()) if output.strip() else 0
     return max(0.0, 100.0 - count * 5.0)
+
+
+def _score_pytest_benchmark(output: str, returncode: int) -> Optional[float]:
+    """Score pytest-benchmark text output.
+
+    Exit code 5 means no benchmark tests collected → return None (dimension skipped).
+    Otherwise parse the benchmark table for mean latencies and penalise slow benchmarks.
+
+    Thresholds (cross-validation heuristics, not NFR targets):
+      mean > 3000 ms → -50 pts per benchmark  (hard fail, clearly exceeds NFR-01 target)
+      mean > 1000 ms → -25 pts per benchmark  (warning zone)
+      All within 1000 ms → 100
+    """
+    if returncode == 5:
+        return None  # No benchmark tests exist yet — dimension not yet applicable
+
+    # Parse the unit multiplier from the header line:  "Name (time in ms)"
+    unit_m = re.search(r"Name\s+\(time\s+in\s+(ms|us|s)\)", output, re.IGNORECASE)
+    if unit_m:
+        unit = unit_m.group(1).lower()
+        to_ms = {"ms": 1.0, "us": 0.001, "s": 1000.0}.get(unit, 1.0)
+    else:
+        to_ms = 1.0  # Assume ms if header not found
+
+    # Each data row: "  test_name   <mean_val>   <max_val>"
+    # --benchmark-columns mean,max produces exactly those two numeric columns.
+    row_re = re.compile(
+        r"^\s*(test_\S+)\s+([\d.]+(?:e[+-]?\d+)?)\s+([\d.]+(?:e[+-]?\d+)?)\s*$",
+        re.MULTILINE,
+    )
+    score = 100.0
+    for m in row_re.finditer(output):
+        mean_ms = float(m.group(2)) * to_ms
+        if mean_ms > 3000.0:
+            score -= 50.0
+        elif mean_ms > 1000.0:
+            score -= 25.0
+    return max(0.0, score)
