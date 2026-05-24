@@ -276,7 +276,7 @@ def _fr_step_preflight(step: str, project: Path, fr_id: str | None) -> tuple[boo
     Step-aware: GATE1/CODE-FIX need full tool + DB checks; TDD-RED only needs pytest.
     """
     import re
-    from core.pre_flight import check_cli_tools, check_database_connectivity
+    from core.pre_flight import check_cli_tools
 
     errors: list[str] = []
     step = step.upper()
@@ -329,26 +329,21 @@ def _fr_step_preflight(step: str, project: Path, fr_id: str | None) -> tuple[boo
     if step in ("GATE1", "GATE1-DELTA", "CODE-FIX"):
         _, gate_errors = _verify_gate_tools(1, str(project))
         errors.extend(gate_errors)
-        # DATABASE_URL: GATE1 needs real DB for pytest
-        if not os.environ.get("DATABASE_URL"):
-            errors.append("✗ DATABASE_URL not set (GATE1 pytest needs live DB)")
+        # Delegate env readiness to LLM-driven run-env-check — no hardcoded
+        # DATABASE_URL/pytest/ruff here. Claude evaluates project-specific needs
+        # from SAD.md + SRS.md at run-env-check time.
+        env_result = project / ".sessi-work" / "env_check_result.json"
+        if not env_result.exists():
+            errors.append(
+                "✗ env_check_result.json not found. "
+                "Run: python harness_cli.py run-env-check --phase <phase> --project . "
+                "then evaluate inline and run finalize-env-check."
+            )
 
     if step in ("TDD-RED", "TDD-GREEN", "TDD-IMPROVE"):
         missing_tools = check_cli_tools(["pytest", "ruff"])
         for tool in missing_tools:
             errors.append(_missing_tool(tool))
-
-    # ── 6. DATABASE_URL for GATE1/GATE1-DELTA: verify connection if set ───────
-    db_url = os.environ.get("DATABASE_URL")
-    if db_url and step in ("GATE1", "GATE1-DELTA", "CODE-FIX"):
-        ok, diag = check_database_connectivity(db_url)
-        if not ok:
-            if diag == "missing_psql":
-                errors.append("✗ DATABASE_URL set but psql not installed — cannot verify DB connectivity")
-            elif diag == "timeout":
-                errors.append("✗ DATABASE_URL set but DB connection timed out (5s)")
-            else:
-                errors.append("✗ DATABASE_URL set but psql cannot connect — check host/credentials")
 
     return len(errors) == 0, errors
 
@@ -1504,6 +1499,14 @@ def cmd_run_env_check(args: argparse.Namespace) -> int:
         phase=args.phase,
         fr_id=fr_id,
     )
+
+    if not ctx.sad_excerpt and not ctx.srs_excerpt:
+        import sys as _sys
+        print(
+            "[WARN] Neither SAD.md nor SRS.md found in project. "
+            "Env check will have no project context to evaluate.",
+            file=_sys.stderr,
+        )
 
     print(ctx.evaluation_prompt())
 

@@ -645,7 +645,8 @@ class HarnessBridge:
         """
         root = Path(project_root)
 
-        sad_excerpt = ""
+        sad_full = ""
+        sad_path = None
         for sad_candidate in [
             root / "SAD.md",
             root / "02-architecture" / "SAD.md",
@@ -653,10 +654,22 @@ class HarnessBridge:
             root / "docs" / "SAD.md",
         ]:
             if sad_candidate.exists():
-                sad_excerpt = sad_candidate.read_text(encoding="utf-8")[:8000]
+                sad_full = sad_candidate.read_text(encoding="utf-8")
+                sad_path = sad_candidate
                 break
+        sad_excerpt = ""
+        if sad_full:
+            max_sad = 8000
+            if len(sad_full) > max_sad:
+                sad_excerpt = (
+                    sad_full[:max_sad]
+                    + f"\n\n[... truncated at {max_sad} chars — full content at {sad_path} ...]"
+                )
+            else:
+                sad_excerpt = sad_full
 
-        srs_excerpt = ""
+        srs_full = ""
+        srs_path = None
         for srs_candidate in [
             root / "SRS.md",
             root / "01-requirements" / "SRS.md",
@@ -664,8 +677,19 @@ class HarnessBridge:
             root / "docs" / "SRS.md",
         ]:
             if srs_candidate.exists():
-                srs_excerpt = srs_candidate.read_text(encoding="utf-8")[:6000]
+                srs_full = srs_candidate.read_text(encoding="utf-8")
+                srs_path = srs_candidate
                 break
+        srs_excerpt = ""
+        if srs_full:
+            max_srs = 6000
+            if len(srs_full) > max_srs:
+                srs_excerpt = (
+                    srs_full[:max_srs]
+                    + f"\n\n[... truncated at {max_srs} chars — full content at {srs_path} ...]"
+                )
+            else:
+                srs_excerpt = srs_full
 
         dc_excerpt = ""
         dc = root / "docker-compose.yml"
@@ -703,6 +727,20 @@ class HarnessBridge:
 
         ready = data.get("ready", False)
         summary = data.get("summary", "No summary provided.")
+        checked_at = data.get("checked_at")
+        env_vars = data.get("env_vars", {})
+        cli_tools = data.get("cli_tools", {})
+        infra = data.get("infra_services", {})
+
+        # Minimal anti-fabrication: required fields must be present
+        if checked_at is None:
+            return False, "Result missing required field: checked_at"
+        if not isinstance(env_vars.get("required"), list):
+            return False, "Result missing required field: env_vars.required"
+        if not isinstance(cli_tools.get("required"), list):
+            return False, "Result missing required field: cli_tools.required"
+        if not isinstance(infra.get("required"), list):
+            return False, "Result missing required field: infra_services.required"
 
         if ready:
             return True, f"Environment ready.\n{summary}"
