@@ -1243,6 +1243,85 @@ class TestRunFrStep:
         assert "finalize-gate --gate 1" in prompt
         assert "--delta" not in prompt
 
+    def test_prompt_code_fix_test_coverage_only(self, tmp_path):
+        """CODE-FIX with test_coverage only → [TEST COVERAGE FIX] section,
+        FORBIDDEN allows adding tests, git add includes test file."""
+        import harness_cli
+
+        # Set up TEST_SPEC.md so _extract_test_spec_names returns names
+        spec_dir = tmp_path / "02-architecture"
+        spec_dir.mkdir()
+        spec_dir.joinpath("TEST_SPEC.md").write_text(
+            "### FR-01: Feature\n\n"
+            "| # | Test Function | Type |\n"
+            "|---|--------------|------|\n"
+            "| 1 | `test_feature_a` | Functional |\n"
+            "| 2 | `test_feature_b` | Functional |\n",
+            encoding="utf-8",
+        )
+
+        prompt = harness_cli._build_fr_step_prompt(
+            "CODE-FIX", "FR-01", 3, tmp_path, None,
+            failing_dims=["test_coverage"],
+        )
+        assert "[TEST COVERAGE FIX" in prompt
+        assert "test_feature_a" in prompt
+        assert "test_feature_b" in prompt
+        assert "Deleting or modifying existing passing tests" in prompt
+        assert "you may only ADD" in prompt
+        assert "git add tests/test_fr01.py" in prompt
+
+    def test_prompt_code_fix_source_only(self, tmp_path):
+        """CODE-FIX with ruff only → no test section, FORBIDDEN blocks test files."""
+        import harness_cli
+
+        prompt = harness_cli._build_fr_step_prompt(
+            "CODE-FIX", "FR-01", 3, tmp_path, None,
+            failing_dims=["ruff"],
+        )
+        assert "[TEST COVERAGE FIX" not in prompt
+        assert "Modifying test files" in prompt
+        assert "git add 03-development/src/" in prompt
+
+    def test_prompt_code_fix_mixed_dims(self, tmp_path):
+        """CODE-FIX with test_coverage + ruff → both sections, git add includes
+        both src_dir and test_file."""
+        import harness_cli
+
+        spec_dir = tmp_path / "02-architecture"
+        spec_dir.mkdir()
+        spec_dir.joinpath("TEST_SPEC.md").write_text(
+            "### FR-01: Feature\n\n"
+            "| # | Test Function | Type |\n"
+            "|---|--------------|------|\n"
+            "| 1 | `test_feature_a` | Functional |\n",
+            encoding="utf-8",
+        )
+
+        prompt = harness_cli._build_fr_step_prompt(
+            "CODE-FIX", "FR-01", 3, tmp_path, None,
+            failing_dims=["test_coverage", "ruff"],
+        )
+        assert "[TEST COVERAGE FIX" in prompt
+        assert "Fix source code" in prompt
+        assert "Add ALL missing test functions" in prompt
+        assert "git add 03-development/src/ tests/test_fr01.py" in prompt
+        assert "Deleting or modifying existing passing tests" in prompt
+
+    def test_prompt_code_fix_none_fallback(self, tmp_path):
+        """CODE-FIX with failing_dims=None → fallback to source-only,
+        dims_str becomes 'see gate1_result.json'."""
+        import harness_cli
+
+        prompt = harness_cli._build_fr_step_prompt(
+            "CODE-FIX", "FR-02", 3, tmp_path, None,
+            failing_dims=None,
+        )
+        assert "see gate1_result.json" in prompt
+        assert "[TEST COVERAGE FIX" not in prompt
+        assert "Modifying test files" in prompt
+        assert "git add 03-development/src/" in prompt
+
     def test_resume_fr_phase_finds_first_pending_step(self, tmp_path, monkeypatch):
         """resume-fr-phase prints the first step that is not yet done."""
         import harness_cli, sys, io
