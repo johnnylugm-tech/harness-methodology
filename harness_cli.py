@@ -3872,6 +3872,29 @@ def _parse_gate_output(out: str) -> tuple[bool, list]:
     return False, []
 
 
+def _read_gate1_dim_issues(project: Path) -> dict[str, list[str]]:
+    """Read per-dimension issues from .sessi-work/gate1_result.json.
+
+    Returns a dict keyed by dimension name whose values are the issues list
+    from the breakdown field.  Returns {} when the file is absent or malformed.
+    Called just before CODE-FIX dispatch so the prompt contains the actual
+    per-dimension failure detail from the most recent GATE1 run.
+    """
+    result_path = project / ".sessi-work" / "gate1_result.json"
+    if not result_path.exists():
+        return {}
+    try:
+        data = json.loads(result_path.read_text(encoding="utf-8"))
+        breakdown = data.get("breakdown", {})
+        return {
+            dim: info.get("issues", [])
+            for dim, info in breakdown.items()
+            if isinstance(info, dict) and info.get("issues")
+        }
+    except Exception:
+        return {}
+
+
 def _resolve_phase3_context(project: Path) -> dict:
     """Resolve MCP config and CLAUDE.md settings for Phase 3+ sub-agents.
 
@@ -3946,7 +3969,8 @@ def _extract_test_spec_names(project: Path, fr_id: str) -> tuple[list[str], str]
 
 def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
                            project: Path, srs_path: Path | None,
-                           failing_dims: list | None = None) -> str:
+                           failing_dims: list | None = None,
+                           dim_issues: dict[str, list[str]] | None = None) -> str:
     """Build a minimal need-to-know prompt for a single FR TDD step.
 
     Each prompt is self-contained — the sub-agent receives only what it needs
@@ -3954,7 +3978,10 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
 
     Args:
         failing_dims: Required for CODE-FIX step — list of failing Gate 1
-            dimension details.  Ignored for all other steps.
+            dimension names.  Ignored for all other steps.
+        dim_issues: Per-dimension issue strings from gate1_result.json
+            breakdown.  Used by CODE-FIX to distinguish missing vs failing
+            tests in the test_coverage dimension.
     """
     step = step.upper()
     num_match = re.match(r"FR-(\d+)", fr_id)
@@ -4107,29 +4134,78 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
         dims_str = "\n".join(str(d) for d in failing_dims)
 
         # ── test_coverage section ─────────────────────────────────────────
-        # When test_coverage fails, the fix is to ADD missing test functions,
-        # not to change source code.  Fetch required names from TEST_SPEC.md.
+        # test_coverage can fail for two distinct reasons:
+        #   A. Required test functions are MISSING from the test file.
+        #   B. Required test functions EXIST but are FAILING.
+        # Determine which by scanning the test file against TEST_SPEC.md names.
+        # Give the agent different instructions for each case.
         test_cov_section = ""
         if _test_cov_failing:
             spec_names, _ = _extract_test_spec_names(project, fr_id)
-            if spec_names:
-                test_cov_section = (
-                    f"\n[TEST COVERAGE FIX — required for test_coverage dimension]\n"
-                    f"The test file `{test_file}` is missing required test functions.\n"
-                    f"TEST_SPEC.md mandates these EXACT names for {fr_id}:\n"
-                    + "\n".join(f"  - {fn}" for fn in spec_names)
-                    + f"\n\nFor EACH name above:\n"
-                    f"  1. Grep `{test_file}` to check if the function already exists.\n"
-                    f"  2. If missing → ADD it as a real, passing test (not a placeholder or skip).\n"
-                    f"  3. Do NOT rename or remove existing tests.\n\n"
+            tc_issues = (dim_issues or {}).get("test_coverage", [])
+
+            # Scan the test file to split spec names into missing vs present.
+            test_file_path = project / test_file
+            existing_spec_tests: set[str] = set()
+            if spec_names and test_file_path.exists():
+                try:
+                    tf_content = test_file_path.read_text(encoding="utf-8")
+                    existing_spec_tests = {
+                        fn for fn in spec_names if f"def {fn}" in tf_content
+                    }
+                except OSError:
+                    pass
+
+            missing_spec = [fn for fn in spec_names if fn not in existing_spec_tests]
+            present_spec = [fn for fn in spec_names if fn in existing_spec_tests]
+
+            parts: list[str] = [
+                f"\n[TEST COVERAGE FIX — required for test_coverage dimension]\n"
+                f"Run `pytest {test_file} -v` FIRST to see current pass/fail state.\n"
+            ]
+
+            # Show gate1 reported issues for context
+            if tc_issues:
+                parts.append(
+                    "Gate 1 reported these test_coverage issues:\n"
+                    + "\n".join(f"  {iss}" for iss in tc_issues[:10])
+                    + "\n\n"
                 )
-            else:
-                test_cov_section = (
-                    f"\n[TEST COVERAGE FIX — required for test_coverage dimension]\n"
-                    f"The test file `{test_file}` is missing required test functions.\n"
-                    f"Read `02-architecture/TEST_SPEC.md` section for {fr_id} to find\n"
-                    f"required function names, then add any that are absent.\n\n"
+
+            if missing_spec:
+                parts.append(
+                    f"MISSING — these required tests are NOT in `{test_file}`:\n"
+                    + "\n".join(f"  - {fn}" for fn in missing_spec)
+                    + "\n  → ADD each as a real, passing test.\n\n"
                 )
+
+            if present_spec:
+                parts.append(
+                    f"PRESENT but test_coverage still failing — these tests exist"
+                    f" in `{test_file}` but may be failing:\n"
+                    + "\n".join(f"  - {fn}" for fn in present_spec)
+                    + "\n\n"
+                    "  → Check pytest output for each failure.\n"
+                    "  → If assertion is wrong → fix the assertion.\n"
+                    "  → If source code is wrong → fix the source code.\n"
+                    "  IMPORTANT: `from __future__ import annotations` (PEP 563) in\n"
+                    "  source files stringifies all annotations at runtime, so\n"
+                    "  `inspect.signature(...).return_annotation is SomeType` → False.\n"
+                    "  Fix: remove `from __future__ import annotations` from the\n"
+                    "  affected source file, OR use `typing.get_type_hints(fn)` for\n"
+                    "  runtime annotation inspection instead of `.return_annotation`.\n\n"
+                )
+
+            if not spec_names:
+                # No spec info — generic triage instruction
+                parts.append(
+                    f"Read `02-architecture/TEST_SPEC.md` section for {fr_id} to get\n"
+                    "required test function names, then for each:\n"
+                    "  - NOT in test file → ADD as a real passing test\n"
+                    "  - In test file but FAILING → fix source code or assertion\n\n"
+                )
+
+            test_cov_section = "".join(parts)
 
         # ── TASK steps (built dynamically) ───────────────────────────────
         task_lines = [
@@ -4143,11 +4219,12 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             n += 1
         if _test_cov_failing:
             task_lines.append(
-                f"{n}. Add ALL missing test functions to `{test_file}` "
-                f"(see TEST COVERAGE FIX section above)."
+                f"{n}. Resolve test_coverage failures (see TEST COVERAGE FIX above):\n"
+                f"   a. ADD any missing required test functions to `{test_file}`.\n"
+                f"   b. For tests that exist but FAIL: fix source code or the failing assertion."
             )
             n += 1
-        task_lines.append(f"{n}. Run `pytest tests/ -q` to confirm all tests pass.")
+        task_lines.append(f"{n}. Run `pytest tests/ -q` to confirm ALL tests pass.")
         n += 1
         git_paths = " ".join(filter(None, [
             f"{src_dir}/" if _src_failing else "",
@@ -4158,11 +4235,13 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"git commit -m \"fix({fr_id}): address Gate1 failing dims\"`"
         )
 
-        # ── FORBIDDEN (test files only blocked when test_coverage is NOT failing) ──
+        # ── FORBIDDEN ────────────────────────────────────────────────────
         if _test_cov_failing:
+            # May need to add tests AND fix failing test assertions.
+            # Only hard prohibition is deleting tests.
             forbidden = (
-                "- Deleting or modifying existing passing tests "
-                "(you may only ADD missing test functions)\n"
+                "- Deleting existing tests\n"
+                "- Skipping or xfail-marking tests to make them 'pass'\n"
                 "- app/infrastructure/ paths"
             )
         else:
@@ -4296,7 +4375,9 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
             print(f"[run-fr-step] {fr_id} GATE1 FAIL (round {fix_round}/{max_fix_rounds})"
                   f" — dispatching CODE-FIX sub-agent")
             fix_prompt = _build_fr_step_prompt(
-                "CODE-FIX", fr_id, phase, project, srs_path, failing_dims=failing_dims,
+                "CODE-FIX", fr_id, phase, project, srs_path,
+                failing_dims=failing_dims,
+                dim_issues=_read_gate1_dim_issues(project),
             )
             fix_result = spawner.spawn(
                 role="developer", prompt=fix_prompt,
