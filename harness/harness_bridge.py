@@ -442,8 +442,23 @@ class GateContext:
                 sab_lines += f"  architecture_constraints: {constraints}\n"
             if high_risk:
                 sab_lines += f"  high_risk_modules: {high_risk}\n"
-            if nfr_map:
+            nfr_trace = self.sab_data.get("nfr_traceability", {})
+            # Only show the flat mapping when detailed traceability is absent
+            # (traceability is a strict superset of nfr_dimension_mapping).
+            if nfr_map and not nfr_trace:
                 sab_lines += f"  nfr_dimension_mapping: {nfr_map}\n"
+            if nfr_trace:
+                sab_lines += "  nfr_traceability (module → quality target):\n"
+                for nfr_id, v in nfr_trace.items():
+                    if isinstance(v, dict):
+                        sab_lines += (
+                            f"    {nfr_id}: [{v.get('type', '')}] "
+                            f"{v.get('module', '')} — {v.get('target', '')}\n"
+                        )
+                sab_lines += (
+                    "  > When evaluating NFR-related dimensions, "
+                    "refer to the module and target above for concrete scope.\n"
+                )
             sab_lines += (
                 "  > When evaluating the `architecture` dimension, validate code "
                 "against these constraints.\n"
@@ -1202,6 +1217,7 @@ class HarnessBridge:
             "fr_ids": fr_ids,
             "nfr_dimension_mapping": nfr_map,
             "nfr_fr_mapping": nfr_fr_map,
+            "nfr_traceability": sab.get("nfr_traceability", {}),
             "architecture_constraints": sab.get("constraints", []),
             "high_risk_modules": sab.get("high_risk", []),
             "gate_score_overrides": {},

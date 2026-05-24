@@ -340,7 +340,9 @@ Schema: `harness/ssi/schemas/harness_gate_result.schema.json`
     "schema_version": "1.0",
     "generated_at_phase": 2,
     "fr_ids": [...],
-    "nfr_dimension_mapping": {},
+    "nfr_dimension_mapping": {"NFR-01": "performance", ...},
+    "nfr_fr_mapping": {"NFR-01": ["FR-04", "FR-05"], ...},
+    "nfr_traceability": {"NFR-01": {"type": "performance", "target": "p95 < 3s", "module": "app.pipeline"}, ...},
     "architecture_constraints": [],
     "high_risk_modules": [],
     "gate_score_overrides": {},
@@ -1539,7 +1541,10 @@ HarnessBridge.generate_quality_manifest(fr_ids=["FR-01","FR-02"], sad_path="SAD.
   ├─ from scripts.generate_sab import parse_sad  ← functional (fix ②+⑤ applied)
   │  sab = parse_sad(sad_path)  → {nfr_dim_map, constraints, high_risk, ...}
   │
-  ├─ manifest = {schema_version, generated_at_phase=2, fr_ids, nfr_dimension_mapping,
+  ├─ manifest = {schema_version, generated_at_phase=2, fr_ids,
+  │              nfr_dimension_mapping (auto-derived from nfr_traceability),
+  │              nfr_fr_mapping (from SRS §2 cross-reference table),
+  │              nfr_traceability (verbatim from SAD nfr_traceability block),
   │              architecture_constraints, high_risk_modules, gate_score_overrides={},
   │              gate_results={gate1:{}, gate2:null, gate3:null, gate4:null}}
   │
@@ -1740,7 +1745,12 @@ Schema defined by `schemas/quality_manifest.schema.json` (JSON Schema Draft 7). 
   "schema_version": "1.0",
   "generated_at_phase": 2,
   "fr_ids": ["FR-01", "FR-02"],
-  "nfr_dimension_mapping": {},
+  "nfr_dimension_mapping": {"NFR-01": "performance", "NFR-02": "security"},
+  "nfr_fr_mapping": {"NFR-02": ["FR-04", "FR-05"]},
+  "nfr_traceability": {
+    "NFR-01": {"type": "performance", "target": "p95 < 3s", "module": "app.processing.pipeline"},
+    "NFR-02": {"type": "security",    "target": "reject unsigned",  "module": "app.security.signature"}
+  },
   "architecture_constraints": [],
   "high_risk_modules": [],
   "gate_score_overrides": {},
@@ -1761,6 +1771,9 @@ Schema defined by `schemas/quality_manifest.schema.json` (JSON Schema Draft 7). 
 }
 ```
 
+- `nfr_dimension_mapping` — auto-derived from SAD `nfr_traceability.type`；或 SRS §3 pipe-table fallback
+- `nfr_fr_mapping` — 從 SRS §2 FR Cross-Reference 表格 "NFR Association" 欄反向建立
+- `nfr_traceability` — 直接來自 SAD `nfr_traceability` block（含 type / target / module）
 - `gate1` stores a dict keyed by `fr_id` (per-FR)
 - `gate2`/`gate3`/`gate4` store a single payload dict (full-phase/full-project)
 
@@ -2842,7 +2855,7 @@ The SAB (Software Architecture Baseline) is a machine-readable architecture cont
 | Line | Mechanism | Phase | What it does |
 |------|-----------|-------|-------------|
 | SAB.json generation | `scripts/generate_sab.py --project .` | P2 exit | Extracts layers, modules, dependencies, quality_targets from SAD.md §6 → `.methodology/SAB.json` |
-| Manifest embedding | `harness_bridge.generate_quality_manifest()` | P2 exit | Inline SAB fields (`nfr_dimension_mapping`, `architecture_constraints`, `high_risk_modules`) written to `quality_manifest.json` |
+| Manifest embedding | `harness_bridge.generate_quality_manifest()` | P2 exit | SAB fields written to `quality_manifest.json`: `nfr_dimension_mapping` (auto-derived from `nfr_traceability.type`), `nfr_traceability` (verbatim), `nfr_fr_mapping` (from SRS §2 xref), `architecture_constraints`, `high_risk_modules` |
 | Gate architecture dimension | `harness_bridge.prepare_gate()` | P3–P8 | SAB data injected into `GateContext.sab_data`; appears in `evaluation_prompt()` for architecture dimension validation |
 | SAB drift detection | `DriftDetector.detect_sab_drift()` | P3–P8 preflight | Compares actual import dependencies against SAB `allowed_dependencies`; flags new files not in SAB layers; flags missing SAB-registered files |
 | SAB constitution check | `PhaseHooks.preflight_sab_check()` | P3–P8 preflight | Validates SAB.json existence, layer integrity, module presence; blocks if critical violations found |

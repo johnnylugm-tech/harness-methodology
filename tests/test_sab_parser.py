@@ -3,7 +3,7 @@
 import json
 import pytest
 
-from core.quality_gate.sab_parser import SABSpec, extract_sab_from_sad
+from core.quality_gate.sab_parser import SABSpec, extract_sab_from_sad, _NFR_TYPE_TO_DIM
 
 
 _MINIMAL_SAD = """\
@@ -164,7 +164,7 @@ class TestSABSpecToDict:
         d = self._make_spec().to_dict()
         for key in ("version", "created_at", "phase", "project", "layers",
                     "dependencies", "quality_targets", "nfr_dimension_mapping",
-                    "architecture_constraints", "high_risk_modules"):
+                    "nfr_traceability", "architecture_constraints", "high_risk_modules"):
             assert key in d, f"Missing key: {key}"
 
     def test_to_dict_dependencies_built_from_allowed(self):
@@ -190,6 +190,117 @@ class TestSABSpecToDict:
         assert d["nfr_dimension_mapping"] == {}
         assert d["architecture_constraints"] == []
         assert d["high_risk_modules"] == []
+
+
+_SAD_NFR_TRACEABILITY_ONLY = """\
+<!-- SAB:START -->
+```yaml
+sab:
+  version: "1.0"
+  phase: 2
+  project: "testapp"
+  nfr_traceability:
+    NFR-01:
+      type: performance
+      target: "p95 < 200ms"
+      module: app.pipeline
+    NFR-02:
+      type: security
+      target: "reject unsigned webhooks"
+      module: app.security
+    NFR-09:
+      type: deployability
+      target: "docker compose up within 60s"
+      module: docker-compose.yml
+    NFR-99:
+      type: unknown_future_type
+      target: "some new requirement"
+      module: app.future
+```
+<!-- SAB:END -->
+"""
+
+_SAD_BOTH_NFR_FIELDS = """\
+<!-- SAB:START -->
+```yaml
+sab:
+  version: "1.0"
+  phase: 2
+  project: "testapp"
+  nfr_dimension_mapping:
+    NFR-01: reliability
+  nfr_traceability:
+    NFR-01:
+      type: performance
+      target: "p95 < 200ms"
+      module: app.pipeline
+    NFR-02:
+      type: security
+      target: "reject unsigned webhooks"
+      module: app.security
+```
+<!-- SAB:END -->
+"""
+
+
+class TestNfrTraceability:
+    """Tests for nfr_traceability parsing and nfr_dimension_mapping auto-derivation."""
+
+    def test_auto_derives_nfr_dim_mapping_from_traceability(self, tmp_path):
+        """SAD with only nfr_traceability → nfr_dimension_mapping auto-derived."""
+        sad = tmp_path / "SAD.md"
+        sad.write_text(_SAD_NFR_TRACEABILITY_ONLY)
+        spec = extract_sab_from_sad(sad)
+        assert spec.nfr_dimension_mapping.get("NFR-01") == "performance"
+        assert spec.nfr_dimension_mapping.get("NFR-02") == "security"
+        assert spec.nfr_dimension_mapping.get("NFR-09") == "deployability"
+
+    def test_unknown_nfr_type_silently_omitted(self, tmp_path):
+        """NFRs with a type not in _NFR_TYPE_TO_DIM are excluded from auto-derivation."""
+        sad = tmp_path / "SAD.md"
+        sad.write_text(_SAD_NFR_TRACEABILITY_ONLY)
+        spec = extract_sab_from_sad(sad)
+        assert "NFR-99" not in spec.nfr_dimension_mapping
+
+    def test_explicit_nfr_dim_mapping_wins_over_traceability(self, tmp_path):
+        """When both fields present, explicit nfr_dimension_mapping is NOT overwritten."""
+        sad = tmp_path / "SAD.md"
+        sad.write_text(_SAD_BOTH_NFR_FIELDS)
+        spec = extract_sab_from_sad(sad)
+        # NFR-01 type is 'performance' but explicit mapping says 'reliability' → must keep 'reliability'
+        assert spec.nfr_dimension_mapping.get("NFR-01") == "reliability"
+        # NFR-02 only in traceability, but auto-derive did NOT run → absent from dim mapping
+        assert "NFR-02" not in spec.nfr_dimension_mapping
+
+    def test_traceability_stored_on_spec(self, tmp_path):
+        """nfr_traceability is stored verbatim on SABSpec."""
+        sad = tmp_path / "SAD.md"
+        sad.write_text(_SAD_NFR_TRACEABILITY_ONLY)
+        spec = extract_sab_from_sad(sad)
+        assert spec.nfr_traceability["NFR-01"]["module"] == "app.pipeline"
+        assert spec.nfr_traceability["NFR-01"]["target"] == "p95 < 200ms"
+
+    def test_neither_field_gives_empty_dicts(self, tmp_path):
+        """SAD with neither nfr_dimension_mapping nor nfr_traceability → both empty."""
+        sad = tmp_path / "SAD.md"
+        sad.write_text(_MINIMAL_SAD)
+        spec = extract_sab_from_sad(sad)
+        assert spec.nfr_dimension_mapping == {}
+        assert spec.nfr_traceability == {}
+
+    def test_to_dict_includes_nfr_traceability(self, tmp_path):
+        """to_dict() must serialise nfr_traceability."""
+        sad = tmp_path / "SAD.md"
+        sad.write_text(_SAD_NFR_TRACEABILITY_ONLY)
+        d = extract_sab_from_sad(sad).to_dict()
+        assert "nfr_traceability" in d
+        assert d["nfr_traceability"]["NFR-02"]["module"] == "app.security"
+
+    def test_nfr_type_to_dim_module_constant_covers_standard_types(self):
+        """_NFR_TYPE_TO_DIM must map every standard NFR type used in SAD templates."""
+        for t in ("performance", "security", "reliability", "maintainability",
+                  "deployability", "scalability", "usability", "testability"):
+            assert t in _NFR_TYPE_TO_DIM, f"Missing standard type: {t}"
 
 
 class TestRoundTrip:

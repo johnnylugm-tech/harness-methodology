@@ -24,6 +24,7 @@ class SABSpec:
     allowed_dependencies: list[dict] = field(default_factory=list)
     quality_targets: dict = field(default_factory=dict)
     nfr_dimension_mapping: dict = field(default_factory=dict)
+    nfr_traceability: dict = field(default_factory=dict)
     architecture_constraints: list = field(default_factory=list)
     high_risk_modules: list = field(default_factory=list)
 
@@ -62,10 +63,25 @@ class SABSpec:
             "dependencies": dependencies,
             "quality_targets": self.quality_targets,
             "nfr_dimension_mapping": self.nfr_dimension_mapping,
+            "nfr_traceability": self.nfr_traceability,
             "architecture_constraints": self.architecture_constraints,
             "high_risk_modules": self.high_risk_modules,
         }
 
+
+# Canonical map from SAD.md nfr_traceability type values to harness dimension names.
+# NFRs whose type is not in this map are omitted from auto-derived nfr_dimension_mapping
+# (no harness dimension covers them — they require manual / out-of-band verification).
+_NFR_TYPE_TO_DIM: dict[str, str] = {
+    "performance":    "performance",
+    "reliability":    "reliability",
+    "maintainability": "maintainability",
+    "deployability":  "deployability",
+    "security":       "security",
+    "scalability":    "scalability",
+    "usability":      "usability",
+    "testability":    "testability",
+}
 
 _SAB_BLOCK_RE = re.compile(
     r"<!--\s*SAB:START\s*-->(.*?)<!--\s*SAB:END\s*-->",
@@ -111,6 +127,18 @@ def extract_sab_from_sad(sad_path) -> Optional[SABSpec]:
             f"Invalid 'phase' in SAB block ({sad_path}): {raw_phase!r} — expected integer"
         ) from exc
 
+    nfr_traceability = sab_data.get("nfr_traceability", {})
+    nfr_dim_mapping = sab_data.get("nfr_dimension_mapping", {})
+
+    # Auto-derive nfr_dimension_mapping from nfr_traceability when mapping is absent.
+    # Explicit nfr_dimension_mapping in the SAB block always takes precedence.
+    if not nfr_dim_mapping and nfr_traceability:
+        nfr_dim_mapping = {
+            nfr_id: _NFR_TYPE_TO_DIM[v.get("type", "").lower()]
+            for nfr_id, v in nfr_traceability.items()
+            if isinstance(v, dict) and v.get("type", "").lower() in _NFR_TYPE_TO_DIM
+        }
+
     return SABSpec(
         version=str(sab_data.get("version", "1.0")),
         created_at=str(sab_data.get("created_at", "")),
@@ -119,7 +147,8 @@ def extract_sab_from_sad(sad_path) -> Optional[SABSpec]:
         layers=sab_data.get("layers", []),
         allowed_dependencies=sab_data.get("allowed_dependencies", []),
         quality_targets=sab_data.get("quality_targets", {}),
-        nfr_dimension_mapping=sab_data.get("nfr_dimension_mapping", {}),
+        nfr_dimension_mapping=nfr_dim_mapping,
+        nfr_traceability=nfr_traceability,
         architecture_constraints=sab_data.get("architecture_constraints", []),
         high_risk_modules=sab_data.get("high_risk_modules", []),
     )

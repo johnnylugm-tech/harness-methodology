@@ -38,17 +38,39 @@ fr_ids = re.findall(r"### (FR-\d+):", srs)
 {
   "version": "1.0",
   "phase": 2,
-  "layers": [...],
-  "dependencies": {...},
+  "layers": [
+    {
+      "name": "api",
+      "modules": ["app.api.webhooks"],
+      "fr_coverage": ["FR-01", "FR-02"],
+      "allowed_dependencies": ["service", "infrastructure"]
+    }
+  ],
+  "dependencies": {
+    "api": ["service", "infrastructure"]
+  },
   "quality_targets": {
     "max_complexity": 15,
     "min_coverage": 80,
     "max_coupling": 0.3
+  },
+  "fr_module_traceability": {
+    "FR-01": "app.models",
+    "FR-02": "app.api.webhooks"
+  },
+  "nfr_traceability": {
+    "NFR-01": {"type": "performance",     "target": "p95 < Xms",          "module": "app.processing.pipeline"},
+    "NFR-02": {"type": "security",        "target": "reject unsigned reqs", "module": "app.security.signature"},
+    "NFR-03": {"type": "reliability",     "target": "health check < 500ms", "module": "app.infrastructure.health"},
+    "NFR-04": {"type": "maintainability", "target": "CC <= 10, zero lint",  "module": "cross-cutting"},
+    "NFR-05": {"type": "deployability",   "target": "compose up within 60s","module": "docker-compose.yml"}
   }
 }
 ```
 
 > SAB 用於 P3+ 的 Drift Detection — 實作偏離架構時觸發警告。
+>
+> **`nfr_traceability` 欄位說明**：每個 NFR 必須填寫 `type`（harness dimension）、`target`（可量化目標）、`module`（負責模組）。`type` 的合法值：`performance` / `security` / `reliability` / `maintainability` / `deployability` / `scalability` / `usability` / `testability`。harness 會從此欄位自動推導 `nfr_dimension_mapping`；**不需要**另外填 `nfr_dimension_mapping`。
 
 ---
 

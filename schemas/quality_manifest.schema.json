@@ -25,6 +25,18 @@
       },
       "description": "Reverse mapping: NFR-ID -> list of FR IDs that implement it (e.g. NFR-02 -> [FR-04, FR-05])"
     },
+    "nfr_traceability": {
+      "type": "object",
+      "description": "NFR-ID -> {type, target, module} from SAD.md nfr_traceability block.",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "type":   { "type": "string" },
+          "target": { "type": "string" },
+          "module": { "type": "string" }
+        }
+      }
+    },
     "architecture_constraints": {
       "type": "array",
       "items": { "type": "string" },

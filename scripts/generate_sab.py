@@ -66,10 +66,12 @@ def parse_sad(sad_path: str) -> dict:
         raise RuntimeError(f"No SAB block found in {sad_path}")
 
     raw = sab_spec.to_dict()
+    # Short-alias keys used by harness_bridge (different names from the raw keys).
+    # All other raw keys (including nfr_traceability) are included verbatim via **raw.
     return {
         "nfr_dim_map": raw.get("nfr_dimension_mapping", {}),
-        "constraints": raw.get("architecture_constraints", []),
-        "high_risk": raw.get("high_risk_modules", []),
+        "constraints":  raw.get("architecture_constraints", []),
+        "high_risk":    raw.get("high_risk_modules", []),
         **raw,
     }
 
