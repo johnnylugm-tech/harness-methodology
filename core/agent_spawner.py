@@ -8,6 +8,7 @@ reviewing, adhering to the 'Need-to-know' principle for prompt construction.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from typing import Any, Optional
@@ -162,6 +163,7 @@ class AgentSpawner:
                 text=True,
                 timeout=task_timeout,
                 cwd=str(self.project_path.resolve()) if self.project_path else None,
+                env=os.environ.copy(),
             )
         except subprocess.TimeoutExpired:
             return {
