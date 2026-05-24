@@ -1236,32 +1236,16 @@ def cmd_run_phase(args: argparse.Namespace) -> int:
         print(f"\nPRE-FLIGHT FAILED: {pre['details']}")
         return 1
 
-    # Phase 3: verify dev environment (tools + DB) before any sub-agent dispatch.
+    # Phase 3+: point to LLM-driven env check (project-aware, reads SAD.md + SRS.md).
     # preflight_all() validates governance artifacts but does not check runtime
-    # dependencies (pytest, DATABASE_URL, psql) that sub-agents need at GATE1.
+    # dependencies (env vars, CLI tools, DB/cache connectivity, docker services)
+    # that sub-agents need. Those are project-specific — Claude evaluates them
+    # inline via run-env-check.
     if args.phase in _PER_FR_GATE1_PHASES:
-        from core.pre_flight import check_cli_tools, check_database_connectivity
-
-        p3_errors: list[str] = []
-        missing = check_cli_tools(["pytest", "ruff"])
-        if missing:
-            p3_errors.append(f"Missing CLI tools: {', '.join(missing)}. Install: pip install {' '.join(missing)}")
-        if not os.environ.get("DATABASE_URL"):
-            p3_errors.append("DATABASE_URL not set. Export it or create a .env file.")
-        else:
-            ok, diag = check_database_connectivity(os.environ["DATABASE_URL"])
-            if not ok:
-                if diag == "missing_psql":
-                    p3_errors.append("psql not installed — DB connectivity unverified. Install: brew install libpq")
-                elif diag == "timeout":
-                    p3_errors.append("DB connection timed out — is the postgres container running?")
-                else:
-                    p3_errors.append("DB connectivity failed — check DATABASE_URL host/credentials.")
-        if p3_errors:
-            print(f"\n[BLOCKED] Phase {args.phase} environment not ready:")
-            for e in p3_errors:
-                print(f"  ✗ {e}")
-            return 1
+        print(f"\n[INFO] Phase {args.phase} requires environment validation. Run:")
+        print(f"  python harness_cli.py run-env-check --phase {args.phase} --project {project}")
+        print(f"  # then evaluate inline and run finalize-env-check")
+        print(f"  # or run run-fr-step directly — _fr_step_preflight also guards each step")
 
     print("\n[INFO] Preflight passed. Phase execution hooks ready.")
 
@@ -1489,6 +1473,89 @@ def cmd_run_gate(args: argparse.Namespace) -> int:
     sf.write_text(f"{datetime.now(timezone.utc).isoformat()}\n", encoding="utf-8")
     print(f"[SENTINEL] {sf.relative_to(Path(project))} written.")
     return 0
+
+# ---------------------------------------------------------------------------
+# run-env-check (project-aware environment readiness evaluation)
+# ---------------------------------------------------------------------------
+
+def _sentinel_env_path(project: Path) -> Path:
+    """Return the sentinel file path for env-check."""
+    d = project / ".sessi-work" / "sentinels"
+    return d / "env_check.flag"
+
+def cmd_run_env_check(args: argparse.Namespace) -> int:
+    """Print project-aware environment evaluation prompt for Claude.
+
+    Reads SAD.md + SRS.md from the target project, constructs an evaluation
+    prompt that asks Claude to identify required env vars, CLI tools, and
+    infrastructure services by reading the project's own documentation,
+    then verify each against the current environment.
+
+    Claude must evaluate inline and write .sessi-work/env_check_result.json.
+    """
+    from harness.harness_bridge import HarnessBridge
+
+    project = str(Path(args.project).resolve())
+    fr_id = getattr(args, "fr_id", None) or None
+
+    bridge = HarnessBridge()
+    ctx = bridge.prepare_env_check(
+        project_root=project,
+        phase=args.phase,
+        fr_id=fr_id,
+    )
+
+    print(ctx.evaluation_prompt())
+
+    # Write sentinel so finalize-env-check can verify run-env-check was called.
+    sf = _sentinel_env_path(Path(project))
+    sf.parent.mkdir(parents=True, exist_ok=True)
+    sf.write_text(f"{datetime.now(timezone.utc).isoformat()}\n", encoding="utf-8")
+    print(f"[SENTINEL] {sf.relative_to(Path(project))} written.")
+    return 0
+
+def cmd_finalize_env_check(args: argparse.Namespace) -> int:
+    """Verify env_check_result.json and report environment readiness.
+
+    Reads the result written by Claude after inline evaluation, validates
+    the sentinel exists (anti-fabrication), and prints a pass/fail summary.
+    Exits 0 when ready, 1 when items are missing.
+    """
+    from harness.harness_bridge import HarnessBridge
+
+    project = Path(args.project).resolve()
+    fr_id = getattr(args, "fr_id", None) or None
+
+    # Sentinel check — prevent fabricated results
+    sf = _sentinel_env_path(project)
+    if not sf.exists():
+        print(
+            f"\n[BLOCKED] Sentinel not found: {sf.relative_to(project)}\n"
+            f"  run-env-check must be called before finalize-env-check.\n"
+            f"  Writing env_check_result.json directly is not permitted."
+        )
+        return 1
+
+    bridge = HarnessBridge()
+    ctx = bridge.prepare_env_check(
+        project_root=str(project),
+        phase=args.phase,
+        fr_id=fr_id,
+    )
+
+    ready, message = bridge.finalize_env_check(ctx)
+
+    print(f"\n{'='*60}")
+    print(f"finalize-env-check: Phase {args.phase} | project: {project.name}")
+    print(f"{'='*60}")
+    print(f"\n{message}")
+
+    if ready:
+        print(f"\n[READY] Environment is ready for Phase {args.phase} development.")
+        return 0
+    else:
+        print(f"\n[BLOCKED] Fix the missing items above, then re-run run-env-check.")
+        return 1
 
 # ---------------------------------------------------------------------------
 # Gate 4 prerequisite checks  (A2-A5 schema, B2 score files)
@@ -5648,6 +5715,26 @@ def build_parser() -> argparse.ArgumentParser:
     fg.add_argument("--no-git",  action="store_true", dest="no_git",
                     help="Disable git commit/push after gate pass")
     fg.set_defaults(func=cmd_finalize_gate)
+
+    # run-env-check (project-aware environment readiness — inline LLM evaluation)
+    rec = sub.add_parser(
+        "run-env-check",
+        help="Print project-aware environment evaluation prompt (reads SAD.md + SRS.md)",
+    )
+    rec.add_argument("--phase",   type=int, required=True, help="Current phase number")
+    rec.add_argument("--project", default=".", help="Project root (default: .)")
+    rec.add_argument("--fr-id",   default=None, help="FR ID (optional, for FR-scoped checks)")
+    rec.set_defaults(func=cmd_run_env_check)
+
+    # finalize-env-check (verify env_check_result.json)
+    fec = sub.add_parser(
+        "finalize-env-check",
+        help="Verify env_check_result.json and report environment readiness",
+    )
+    fec.add_argument("--phase",   type=int, required=True, help="Current phase number")
+    fec.add_argument("--project", default=".", help="Project root (default: .)")
+    fec.add_argument("--fr-id",   default=None, help="FR ID (optional)")
+    fec.set_defaults(func=cmd_finalize_env_check)
 
     # generate-next-plan (checkpoint-based tactical plan generator)
     gnp = sub.add_parser(

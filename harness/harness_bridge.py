@@ -514,6 +514,88 @@ class GateContext:
         )
 
 
+@dataclass
+class EnvCheckContext:
+    """Context object returned by prepare_env_check().
+
+    Contains project documentation excerpts that Claude uses to determine what
+    environment variables, CLI tools, and infrastructure services are required,
+    then verify them against the current environment.
+
+    After evaluation Claude writes .sessi-work/env_check_result.json and calls
+    finalize_env_check() to verify completeness.
+    """
+    project_root: str
+    phase: int
+    fr_id: str | None
+    ssi_schemas_dir: str
+    work_dir: str
+    sad_excerpt: str = ""
+    srs_excerpt: str = ""
+    docker_compose_excerpt: str = ""
+
+    def evaluation_prompt(self) -> str:
+        """Return the evaluation instruction for Claude."""
+        result_path = str(Path(self.work_dir) / "env_check_result.json")
+        schema_path = str(Path(self.ssi_schemas_dir) / "env_check_result.schema.json")
+
+        parts: list[str] = []
+
+        if self.sad_excerpt:
+            parts.append(
+                "[SAD.md — Architecture & Technology]\n"
+                f"{self.sad_excerpt}"
+            )
+        if self.srs_excerpt:
+            parts.append(
+                "[SRS.md — Requirements & Verification Methods]\n"
+                f"{self.srs_excerpt}"
+            )
+        if self.docker_compose_excerpt:
+            parts.append(
+                "[docker-compose.yml — Infrastructure Services]\n"
+                f"{self.docker_compose_excerpt}"
+            )
+
+        fr_line = f"  FR-ID    : {self.fr_id}\n" if self.fr_id else ""
+
+        return (
+            f"{'='*60}\n"
+            f"run-env-check: Phase {self.phase} | project: {self.project_root}\n"
+            f"{'='*60}\n"
+            f"  Phase    : {self.phase}\n"
+            f"{fr_line}"
+            f"\n"
+            + "\n\n".join(parts) +
+            f"\n\n{'─'*60}\n"
+            f"[TASK — Evaluate Environment Readiness]\n\n"
+            f"1. IDENTIFY all required items from the project docs above:\n"
+            f"   a. Environment variables (from app.infrastructure.config / FR-21)\n"
+            f"   b. CLI tools (from Technology Choices / verification methods)\n"
+            f"   c. Infrastructure services (from Architecture layers / docker-compose)\n"
+            f"   d. Test framework + extensions (from verification methods / constraints)\n\n"
+            f"2. VERIFY each item against the current environment:\n"
+            f"   - env vars: run `echo $VAR_NAME` or check `os.environ`\n"
+            f"   - CLI tools: run `which <tool>` or `<tool> --version`\n"
+            f"   - DB/cache: run a connectivity check (psql -c 'SELECT 1', redis-cli PING, etc.)\n"
+            f"   - Docker services: run `docker compose ps` to check container health\n\n"
+            f"3. REPORT findings by writing {result_path}\n"
+            f"   Schema: {schema_path}\n"
+            f"   For every missing item, include the exact install/fix command.\n\n"
+            f"[FORBIDDEN]\n"
+            f"- Guessing env var values — only check presence, not correctness\n"
+            f"- Fabricating check results without actual tool execution\n"
+            f"- Skipping a category because it seems obvious\n"
+            f"- Writing result.json without running real verification commands\n\n"
+            f"{'─'*60}\n"
+            f"NEXT: After writing result.json, run:\n"
+            f"  python harness_cli.py finalize-env-check "
+            f"--phase {self.phase} --project {self.project_root}"
+            + (f" --fr-id {self.fr_id}" if self.fr_id else "")
+            + "\n" + "─"*60 + "\n"
+        )
+
+
 class HarnessBridge:
     """
     Gate lifecycle controller — two-phase API (prepare_gate → finalize_gate).
@@ -544,6 +626,88 @@ class HarnessBridge:
             }
         except Exception:
             return {}
+
+    def prepare_env_check(
+        self,
+        project_root: str,
+        phase: int,
+        fr_id: str | None = None,
+    ) -> EnvCheckContext:
+        """Build an EnvCheckContext with project documentation excerpts.
+
+        Reads SAD.md + SRS.md from the project root, extracts key sections
+        (architecture layers, infrastructure config, technology choices,
+        verification methods), and returns an EnvCheckContext whose
+        evaluation_prompt() Claude uses for inline environment readiness
+        evaluation.
+
+        docker-compose.yml is included if present (for service health checks).
+        """
+        root = Path(project_root)
+
+        sad_excerpt = ""
+        for sad_candidate in [
+            root / "SAD.md",
+            root / "02-architecture" / "SAD.md",
+            root / "architecture" / "SAD.md",
+            root / "docs" / "SAD.md",
+        ]:
+            if sad_candidate.exists():
+                sad_excerpt = sad_candidate.read_text(encoding="utf-8")[:8000]
+                break
+
+        srs_excerpt = ""
+        for srs_candidate in [
+            root / "SRS.md",
+            root / "01-requirements" / "SRS.md",
+            root / "requirements" / "SRS.md",
+            root / "docs" / "SRS.md",
+        ]:
+            if srs_candidate.exists():
+                srs_excerpt = srs_candidate.read_text(encoding="utf-8")[:6000]
+                break
+
+        dc_excerpt = ""
+        dc = root / "docker-compose.yml"
+        if dc.exists():
+            dc_excerpt = dc.read_text(encoding="utf-8")[:2000]
+
+        ssi_dir = Path(__file__).parent / "ssi"
+        work_dir = root / ".sessi-work"
+        work_dir.mkdir(parents=True, exist_ok=True)
+
+        return EnvCheckContext(
+            project_root=project_root,
+            phase=phase,
+            fr_id=fr_id,
+            ssi_schemas_dir=str(ssi_dir / "schemas"),
+            work_dir=str(work_dir),
+            sad_excerpt=sad_excerpt,
+            srs_excerpt=srs_excerpt,
+            docker_compose_excerpt=dc_excerpt,
+        )
+
+    def finalize_env_check(self, ctx: EnvCheckContext) -> tuple[bool, str]:
+        """Read env_check_result.json and verify it passes schema + readiness.
+
+        Returns (ready, summary_message).
+        """
+        import json as _json
+        result_path = Path(ctx.work_dir) / "env_check_result.json"
+        if not result_path.exists():
+            return False, f"Result file not found: {result_path} — run run-env-check first"
+        try:
+            data = _json.loads(result_path.read_text(encoding="utf-8"))
+        except Exception:
+            return False, f"Result file is malformed JSON: {result_path}"
+
+        ready = data.get("ready", False)
+        summary = data.get("summary", "No summary provided.")
+
+        if ready:
+            return True, f"Environment ready.\n{summary}"
+        else:
+            return False, f"Environment NOT ready.\n{summary}"
 
     def prepare_gate(
         self,
