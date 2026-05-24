@@ -111,6 +111,17 @@ def _load_env_file(env_path: Path) -> list[str]:
 _PER_FR_GATE1_PHASES: frozenset[int] = frozenset({3, 4, 5, 7, 8})
 # Statuses that indicate an agent dispatch failure (all others treated as success).
 _DISPATCH_ERROR_STATUSES: frozenset[str] = frozenset({"REJECT", "BLOCKED", "FAILED", "ERROR", "TIMEOUT"})
+# Per-step default max_turns for run-fr-step. --max-turns override takes priority.
+# GATE1 needs more turns: 5-step workflow (run-gate → evaluate → write result.json
+# → finalize-gate → report) plus multi-dimension assessment on brownfield codebases.
+_STEP_MAX_TURNS: dict[str, int] = {
+    "TDD-RED":     40,
+    "TDD-GREEN":   40,
+    "TDD-IMPROVE": 40,
+    "GATE1":       70,
+    "GATE1-DELTA": 70,
+    "CODE-FIX":    50,
+}
 
 # ---------------------------------------------------------------------------
 # State integrity seal (P3: tamper-evident state.json)
@@ -3838,6 +3849,15 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
     phase_ctx = _resolve_phase3_context(project)
     if getattr(args, "no_mcp", False):
         phase_ctx["mcp_config"] = None
+
+    _explicit_max_turns = getattr(args, "max_turns", None)
+
+    def _max_turns(step_name: str) -> int:
+        """Per-step max_turns: explicit --max-turns wins, else _STEP_MAX_TURNS."""
+        if _explicit_max_turns is not None:
+            return _explicit_max_turns
+        return _STEP_MAX_TURNS.get(step_name.upper(), 40)
+
     result = spawner.spawn(
         role="developer",
         prompt=prompt,
@@ -3846,15 +3866,26 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
         fr_id=fr_id,
         phase_sop_override="",
         task_timeout=getattr(args, "timeout", 600),
-        max_turns=getattr(args, "max_turns", 30),
+        max_turns=_max_turns(step),
         mcp_config=phase_ctx["mcp_config"],
         setting_sources=phase_ctx["setting_sources"],
     )
 
-    if result.get("status") in _DISPATCH_ERROR_STATUSES:
-        print(f"[run-fr-step] {fr_id} {step}: sub-agent {result['status']}")
-        print(result.get("output", "")[:500])
-        return 1
+    _status = result.get("status")
+    if _status in _DISPATCH_ERROR_STATUSES:
+        # GATE1/GATE1-DELTA: ERROR or TIMEOUT means sub-agent exhausted
+        # turns before writing gate1_result.json. Treat as GATE1 FAIL so
+        # the CODE-FIX retry loop gets a chance to re-run with fresh context.
+        # REJECT/BLOCKED/FAILED are hard-fail (non-turn issues).
+        if step in ("GATE1", "GATE1-DELTA") and _status in {"ERROR", "TIMEOUT"}:
+            print(
+                f"[run-fr-step] {fr_id} GATE1 {_status} "
+                f"— treating as GATE1 FAIL, entering CODE-FIX retry"
+            )
+        else:
+            print(f"[run-fr-step] {fr_id} {step}: sub-agent {_status}")
+            print(result.get("output", "")[:500])
+            return 1
 
     # 4. GATE1: auto-retry with CODE-FIX sub-agent on failure
     if step in ("GATE1", "GATE1-DELTA"):
@@ -3876,7 +3907,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                 context={"phase": phase, "fr_id": fr_id, "step": "CODE-FIX"},
                 phase=phase, fr_id=fr_id, phase_sop_override="",
                 task_timeout=getattr(args, "timeout", 600),
-                max_turns=getattr(args, "max_turns", 30),
+                max_turns=_max_turns("CODE-FIX"),
                 mcp_config=phase_ctx["mcp_config"],
                 setting_sources=phase_ctx["setting_sources"],
             )
@@ -3890,7 +3921,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                 context={"phase": phase, "fr_id": fr_id, "step": step},
                 phase=phase, fr_id=fr_id, phase_sop_override="",
                 task_timeout=getattr(args, "timeout", 600),
-                max_turns=getattr(args, "max_turns", 30),
+                max_turns=_max_turns(step),
                 mcp_config=phase_ctx["mcp_config"],
                 setting_sources=phase_ctx["setting_sources"],
             )
@@ -5581,8 +5612,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     rfp.add_argument("--timeout", type=int, default=600,
                      help="Sub-agent max execution time in seconds (default: 600)")
-    rfp.add_argument("--max-turns", type=int, default=40, dest="max_turns",
-                     help="Sub-agent max tool-using turns (default: %(default)s)")
+    rfp.add_argument("--max-turns", type=int, default=None, dest="max_turns",
+                     help="Sub-agent max tool-using turns (default: per-step, 40-70)")
     rfp.add_argument("--max-fix-rounds", type=int, default=3, dest="max_fix_rounds",
                      help="Max CODE-FIX + GATE1 retry rounds on GATE1 FAIL (default: 3)")
     rfp.add_argument("--no-push", action="store_true", help="Skip git push origin HEAD after completion")
