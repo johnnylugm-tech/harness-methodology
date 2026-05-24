@@ -275,8 +275,8 @@ def _fr_step_preflight(step: str, project: Path, fr_id: str | None) -> tuple[boo
 
     Step-aware: GATE1/CODE-FIX need full tool + DB checks; TDD-RED only needs pytest.
     """
-    import shutil as _shutil
-    import subprocess as _subprocess
+    import re
+    from core.pre_flight import check_cli_tools, check_database_connectivity
 
     errors: list[str] = []
     step = step.upper()
@@ -314,7 +314,7 @@ def _fr_step_preflight(step: str, project: Path, fr_id: str | None) -> tuple[boo
             # Basic validity: must contain FR-ID sections
             try:
                 content = test_spec.read_text(encoding="utf-8")
-                if fr_id and f"### {fr_id}:" not in content:
+                if fr_id and not re.search(rf'#+\s+{re.escape(fr_id)}\b', content):
                     errors.append(
                         f"✗ TEST_SPEC.md exists but has no section for {fr_id}"
                         " (run derive_test_cases.md skill first)"
@@ -334,25 +334,21 @@ def _fr_step_preflight(step: str, project: Path, fr_id: str | None) -> tuple[boo
             errors.append("✗ DATABASE_URL not set (GATE1 pytest needs live DB)")
 
     if step in ("TDD-RED", "TDD-GREEN", "TDD-IMPROVE"):
-        for tool in ("pytest", "ruff"):
-            if not _shutil.which(tool):
-                errors.append(_missing_tool(tool))
+        missing_tools = check_cli_tools(["pytest", "ruff"])
+        for tool in missing_tools:
+            errors.append(_missing_tool(tool))
 
     # ── 6. DATABASE_URL for GATE1/GATE1-DELTA: verify connection if set ───────
     db_url = os.environ.get("DATABASE_URL")
     if db_url and step in ("GATE1", "GATE1-DELTA", "CODE-FIX"):
-        try:
-            r = _subprocess.run(
-                ["bash", "-c", "psql -c 'SELECT 1'"],
-                capture_output=True, timeout=10,
-                env={**os.environ, "DATABASE_URL": db_url},
-            )
-            if r.returncode != 0:
+        ok, diag = check_database_connectivity(db_url)
+        if not ok:
+            if diag == "missing_psql":
+                errors.append("✗ DATABASE_URL set but psql not installed — cannot verify DB connectivity")
+            elif diag == "timeout":
+                errors.append("✗ DATABASE_URL set but DB connection timed out (5s)")
+            else:
                 errors.append("✗ DATABASE_URL set but psql cannot connect — check host/credentials")
-        except FileNotFoundError:
-            errors.append("✗ DATABASE_URL set but psql not installed — cannot verify DB connectivity")
-        except _subprocess.TimeoutExpired:
-            errors.append("✗ DATABASE_URL set but DB connection timed out (10s)")
 
     return len(errors) == 0, errors
 
@@ -1240,14 +1236,7 @@ def cmd_run_phase(args: argparse.Namespace) -> int:
         print(f"\nPRE-FLIGHT FAILED: {pre['details']}")
         return 1
 
-    if args.phase == 3:
-        from core.pre_flight import run_phase3_pre_flight
-        passed, errors = run_phase3_pre_flight(project)
-        if not passed:
-            print(f"\n[BLOCKED] Phase 3 Environment Pre-flight check failed:")
-            for err in errors:
-                print(f"  - {err}")
-            return 1
+
 
     print("\n[INFO] Preflight passed. Phase execution hooks ready.")
 

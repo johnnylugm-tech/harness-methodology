@@ -8,8 +8,8 @@ from core.pre_flight import (
     check_env_vars,
     check_cli_tools,
     check_database_connectivity,
-    run_phase3_pre_flight,
 )
+
 
 def test_check_env_vars():
     with patch.dict(os.environ, {"EXISTING_VAR": "123"}, clear=True):
@@ -73,58 +73,3 @@ def test_check_database_connectivity_timeout(mock_run, mock_which):
     ok, diag = check_database_connectivity("postgres://localhost")
     assert ok is False
     assert diag == "timeout"
-
-@patch("core.pre_flight.check_cli_tools")
-@patch("core.pre_flight.check_env_vars")
-def test_run_phase3_pre_flight_missing_tools_and_vars(mock_check_vars, mock_check_tools):
-    mock_check_tools.return_value = ["pytest"]
-    mock_check_vars.return_value = ["DATABASE_URL"]
-
-    passed, errors = run_phase3_pre_flight(Path("/tmp"))
-
-    assert not passed
-    assert len(errors) == 2
-    assert "pytest" in errors[0]
-    assert "DATABASE_URL" in errors[1]
-
-@patch("core.pre_flight.check_cli_tools")
-@patch("core.pre_flight.check_env_vars")
-@patch("core.pre_flight.check_database_connectivity")
-def test_run_phase3_pre_flight_success(mock_db, mock_check_vars, mock_check_tools):
-    mock_check_tools.return_value = []
-    mock_check_vars.return_value = []
-    mock_db.return_value = (True, None)
-
-    with patch.dict(os.environ, {"DATABASE_URL": "postgres://localhost"}):
-        passed, errors = run_phase3_pre_flight(Path("/tmp"))
-
-        assert passed
-        assert len(errors) == 0
-
-@patch("core.pre_flight.check_cli_tools")
-@patch("core.pre_flight.check_env_vars")
-@patch("core.pre_flight.check_database_connectivity")
-def test_run_phase3_pre_flight_missing_psql(mock_db, mock_check_vars, mock_check_tools):
-    mock_check_tools.return_value = []
-    mock_check_vars.return_value = []
-    mock_db.return_value = (False, "missing_psql")
-
-    with patch.dict(os.environ, {"DATABASE_URL": "postgres://localhost"}):
-        passed, errors = run_phase3_pre_flight(Path("/tmp"))
-
-        assert not passed
-        assert any("psql not installed" in e for e in errors)
-
-@patch("core.pre_flight.check_cli_tools")
-@patch("core.pre_flight.check_env_vars")
-@patch("core.pre_flight.check_database_connectivity")
-def test_run_phase3_pre_flight_db_timeout(mock_db, mock_check_vars, mock_check_tools):
-    mock_check_tools.return_value = []
-    mock_check_vars.return_value = []
-    mock_db.return_value = (False, "timeout")
-
-    with patch.dict(os.environ, {"DATABASE_URL": "postgres://localhost"}):
-        passed, errors = run_phase3_pre_flight(Path("/tmp"))
-
-        assert not passed
-        assert any("timed out" in e for e in errors)
