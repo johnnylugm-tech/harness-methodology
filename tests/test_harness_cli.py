@@ -1319,8 +1319,10 @@ class TestRunFrStep:
         assert "[TEST COVERAGE FIX" in prompt
         assert "test_feature_a" in prompt
         assert "test_feature_b" in prompt
-        assert "Deleting or modifying existing passing tests" in prompt
-        assert "you may only ADD" in prompt
+        assert "MISSING" in prompt
+        assert "ADD each as a real" in prompt
+        assert "Deleting existing tests" in prompt
+        assert "Skipping or xfail-marking" in prompt
         assert "git add tests/test_fr01.py" in prompt
 
     def test_prompt_code_fix_source_only(self, tmp_path):
@@ -1356,9 +1358,11 @@ class TestRunFrStep:
         )
         assert "[TEST COVERAGE FIX" in prompt
         assert "Fix source code" in prompt
-        assert "Add ALL missing test functions" in prompt
+        assert "Resolve test_coverage failures" in prompt
+        assert "ADD any missing" in prompt
         assert "git add 03-development/src/ tests/test_fr01.py" in prompt
-        assert "Deleting or modifying existing passing tests" in prompt
+        assert "Deleting existing tests" in prompt
+        assert "Skipping or xfail-marking" in prompt
 
     def test_prompt_code_fix_none_fallback(self, tmp_path):
         """CODE-FIX with failing_dims=None → diagnostic mode — self-identify
