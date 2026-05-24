@@ -3872,29 +3872,6 @@ def _parse_gate_output(out: str) -> tuple[bool, list]:
     return False, []
 
 
-def _read_gate1_dim_issues(project: Path) -> dict[str, list[str]]:
-    """Read per-dimension issues from .sessi-work/gate1_result.json.
-
-    Returns a dict keyed by dimension name whose values are the issues list
-    from the breakdown field.  Returns {} when the file is absent or malformed.
-    Called just before CODE-FIX dispatch so the prompt contains the actual
-    per-dimension failure detail from the most recent GATE1 run.
-    """
-    result_path = project / ".sessi-work" / "gate1_result.json"
-    if not result_path.exists():
-        return {}
-    try:
-        data = json.loads(result_path.read_text(encoding="utf-8"))
-        breakdown = data.get("breakdown", {})
-        return {
-            dim: info.get("issues", [])
-            for dim, info in breakdown.items()
-            if isinstance(info, dict) and info.get("issues")
-        }
-    except Exception:
-        return {}
-
-
 def _resolve_phase3_context(project: Path) -> dict:
     """Resolve MCP config and CLAUDE.md settings for Phase 3+ sub-agents.
 
@@ -3969,8 +3946,7 @@ def _extract_test_spec_names(project: Path, fr_id: str) -> tuple[list[str], str]
 
 def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
                            project: Path, srs_path: Path | None,
-                           failing_dims: list | None = None,
-                           dim_issues: dict[str, list[str]] | None = None) -> str:
+                           failing_dims: list | None = None) -> str:
     """Build a minimal need-to-know prompt for a single FR TDD step.
 
     Each prompt is self-contained — the sub-agent receives only what it needs
@@ -3979,9 +3955,6 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
     Args:
         failing_dims: Required for CODE-FIX step — list of failing Gate 1
             dimension names.  Ignored for all other steps.
-        dim_issues: Per-dimension issue strings from gate1_result.json
-            breakdown.  Used by CODE-FIX to distinguish missing vs failing
-            tests in the test_coverage dimension.
     """
     step = step.upper()
     num_match = re.match(r"FR-(\d+)", fr_id)
@@ -4142,9 +4115,11 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
         test_cov_section = ""
         if _test_cov_failing:
             spec_names, _ = _extract_test_spec_names(project, fr_id)
-            tc_issues = (dim_issues or {}).get("test_coverage", [])
 
             # Scan the test file to split spec names into missing vs present.
+            # test_coverage can fail for two distinct reasons:
+            #   A. Required test functions are MISSING from the test file.
+            #   B. Required test functions EXIST but are FAILING.
             test_file_path = project / test_file
             existing_spec_tests: set[str] = set()
             if spec_names and test_file_path.exists():
@@ -4163,14 +4138,6 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
                 f"\n[TEST COVERAGE FIX — required for test_coverage dimension]\n"
                 f"Run `pytest {test_file} -v` FIRST to see current pass/fail state.\n"
             ]
-
-            # Show gate1 reported issues for context
-            if tc_issues:
-                parts.append(
-                    "Gate 1 reported these test_coverage issues:\n"
-                    + "\n".join(f"  {iss}" for iss in tc_issues[:10])
-                    + "\n\n"
-                )
 
             if missing_spec:
                 parts.append(
@@ -4377,7 +4344,6 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
             fix_prompt = _build_fr_step_prompt(
                 "CODE-FIX", fr_id, phase, project, srs_path,
                 failing_dims=failing_dims,
-                dim_issues=_read_gate1_dim_issues(project),
             )
             fix_result = spawner.spawn(
                 role="developer", prompt=fix_prompt,
