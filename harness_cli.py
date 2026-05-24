@@ -1515,6 +1515,50 @@ def cmd_run_env_check(args: argparse.Namespace) -> int:
     sf.parent.mkdir(parents=True, exist_ok=True)
     sf.write_text(f"{datetime.now(timezone.utc).isoformat()}\n", encoding="utf-8")
     print(f"[SENTINEL] {sf.relative_to(Path(project))} written.")
+
+    # Spawn sub-agent to perform the env check inline.
+    # Uses bypassPermissions so the agent can run psql, docker, etc.
+    prompt = ctx.evaluation_prompt()
+    cli = shutil.which("claude")
+    if not cli:
+        print("[ERROR] claude CLI not found.", file=sys.stderr)
+        return 1
+
+    cmd = [
+        cli, "-p", prompt,
+        "--output-format", "json",
+        "--max-turns", "70",
+        "--no-session-persistence",
+        "--permission-mode", "bypassPermissions",
+        "--disable-slash-commands",
+        "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
+    ]
+    print("[INFO] Spawning env-check sub-agent...")
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=300,
+            cwd=str(Path(project).resolve()),
+            env=os.environ.copy(),
+        )
+    except subprocess.TimeoutExpired:
+        print("[ERROR] env-check sub-agent timed out after 300s.", file=sys.stderr)
+        return 1
+
+    if proc.returncode != 0:
+        print(f"[ERROR] env-check sub-agent failed (exit {proc.returncode}).", file=sys.stderr)
+        if proc.stderr:
+            print(proc.stderr[:500], file=sys.stderr)
+        return 1
+
+    result_path = Path(project) / ".sessi-work" / "env_check_result.json"
+    if not result_path.exists():
+        print("[ERROR] env-check sub-agent did not write env_check_result.json.", file=sys.stderr)
+        return 1
+
+    print(f"[INFO] env-check complete. Result: {result_path}")
     return 0
 
 def cmd_finalize_env_check(args: argparse.Namespace) -> int:
