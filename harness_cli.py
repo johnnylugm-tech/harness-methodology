@@ -1388,6 +1388,64 @@ def _check_gate_score_variance(project: Path, phase: int) -> int:
 # run-gate  (Phase 1 of two-phase evaluation)
 # ---------------------------------------------------------------------------
 
+def _fr_source_files_from_imports(
+    project: Path, test_file: str, src_dir: str
+) -> list[str]:
+    """Return source files under src_dir that are imported by test_file.
+
+    Parses the test file with ast and matches imported module paths against
+    .py files under src_dir.  Returns relative-to-project paths, e.g.
+    ["03-development/src/omnibot/adapters/telegram_adapter.py"].
+
+    Returns [] when the test file is absent, unparseable, or no matches are
+    found — callers should fall back to the full src_dir in that case.
+    """
+    import ast as _ast
+
+    test_path = project / test_file
+    if not test_path.exists():
+        return []
+    try:
+        tree = _ast.parse(test_path.read_text(encoding="utf-8"))
+    except SyntaxError:
+        return []
+
+    # Collect every dotted name that appears in an import statement.
+    imported: set[str] = set()
+    for node in _ast.walk(tree):
+        if isinstance(node, _ast.Import):
+            for alias in node.names:
+                imported.add(alias.name)
+        elif isinstance(node, _ast.ImportFrom):
+            if node.module:
+                imported.add(node.module)
+                # "from pkg import name" also covers pkg.name
+                for alias in node.names:
+                    imported.add(f"{node.module}.{alias.name}")
+
+    src_path = project / src_dir
+    if not src_path.exists():
+        return []
+
+    matched: list[str] = []
+    for py_file in sorted(src_path.rglob("*.py")):
+        if py_file.name == "__init__.py":
+            continue
+        # Convert file path to dotted module name relative to src_dir root.
+        try:
+            rel_parts = py_file.relative_to(src_path).with_suffix("").parts
+        except ValueError:
+            continue
+        module_dot = ".".join(rel_parts)
+        # Match if any imported name equals or is a sub-path of the module.
+        for imp in imported:
+            if imp == module_dot or imp.startswith(module_dot + "."):
+                matched.append(str(py_file.relative_to(project)))
+                break
+
+    return matched
+
+
 def cmd_run_gate(args: argparse.Namespace) -> int:
     """
     Phase 1: prepare gate context and print evaluation instructions for Claude.
@@ -1455,8 +1513,8 @@ def cmd_run_gate(args: argparse.Namespace) -> int:
     print(ctx.evaluation_prompt())
 
     # Gate 1 scope is single_fr — inject FR-scoped tool command overrides so
-    # the evaluator doesn't measure project-wide coverage and dilute the score
-    # with unrelated files.
+    # the evaluator only measures coverage for this FR's source files, not the
+    # entire project (which dilutes the score with other FRs at 0%).
     if fr_id and args.gate == 1:
         _num_match = re.match(r"FR-(\d+)", fr_id)
         _num_str = (
@@ -1466,17 +1524,39 @@ def cmd_run_gate(args: argparse.Namespace) -> int:
         )
         _test_file = f"tests/test_fr{_num_str}.py"
         _src_dir = "03-development/src"
+
+        # Detect FR-specific source files by parsing the test file's imports.
+        _src_files = _fr_source_files_from_imports(Path(project), _test_file, _src_dir)
+        if _src_files:
+            _include_flag = ",".join(_src_files)
+            _cov_cmd = (
+                f"  coverage run -m pytest {_test_file} "
+                f"&& coverage report --include=\"{_include_flag}\" --format=json \\\n"
+                f"    || PYTHONPATH=. coverage run -m pytest {_test_file} "
+                f"&& coverage report --include=\"{_include_flag}\" --format=json \\\n"
+                f"    || PYTHONPATH=. python3 -m pytest {_test_file} "
+                f"--cov={_src_dir} --cov-report=term-missing"
+            )
+            _cov_note = f"  (FR source files detected: {', '.join(_src_files)})"
+        else:
+            # Fallback: test file absent or no imports matched — use full src dir
+            _cov_cmd = (
+                f"  coverage run --source={_src_dir} -m pytest {_test_file} "
+                f"&& coverage report --format=json \\\n"
+                f"    || PYTHONPATH=. coverage run --source={_src_dir} -m pytest {_test_file} "
+                f"&& coverage report --format=json \\\n"
+                f"    || PYTHONPATH=. python3 -m pytest {_test_file} "
+                f"--cov={_src_dir} --cov-report=term-missing"
+            )
+            _cov_note = f"  (fallback: {_src_dir} — test file not found or no imports detected)"
+
         print(
             f"\n[FR-SCOPED TOOL OVERRIDES — {fr_id}]\n"
             f"Gate 1 scope is single_fr. Replace the project-wide defaults in\n"
             f"evaluate_dimension.md with these FR-scoped commands:\n\n"
-            f"test_coverage — run coverage against {fr_id}'s test file and source only:\n"
-            f"  coverage run --source={_src_dir} -m pytest {_test_file} "
-            f"&& coverage report --format=json \\\n"
-            f"    || PYTHONPATH=. coverage run --source={_src_dir} -m pytest {_test_file} "
-            f"&& coverage report --format=json \\\n"
-            f"    || PYTHONPATH=. python3 -m pytest {_test_file} "
-            f"--cov={_src_dir} --cov-report=term-missing\n\n"
+            f"test_coverage — measure only {fr_id}'s source files:\n"
+            f"{_cov_cmd}\n"
+            f"{_cov_note}\n\n"
             f"linting — lint only the FR source directory:\n"
             f"  ruff check {_src_dir}/ 2>&1 | head -200\n\n"
             f"type_safety — type-check only the FR source directory:\n"
