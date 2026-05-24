@@ -267,6 +267,95 @@ def _verify_gate_tools(gate_num: int, project: str) -> tuple[bool, list[str]]:
             missing.append(diag)
     return len(missing) == 0, missing
 
+def _fr_step_preflight(step: str, project: Path, fr_id: str | None) -> tuple[bool, list[str]]:
+    """Verify environment and artifacts are ready before spawning a sub-agent for an FR step.
+
+    Returns (ok, error_lines). On ok=[], sub-agent spawn proceeds. On failure,
+    caller prints error_lines to stderr and returns 1 before any agent dispatch.
+
+    Step-aware: GATE1/CODE-FIX need full tool + DB checks; TDD-RED only needs pytest.
+    """
+    import shutil as _shutil
+    import subprocess as _subprocess
+
+    errors: list[str] = []
+    step = step.upper()
+
+    # ── 1. Git repo check ────────────────────────────────────────────────────
+    if not project.exists() or not (project / ".git").exists():
+        errors.append(f"✗ {project} is not a git repo or does not exist")
+
+    # ── 2. SRS.md (required for all steps — traceability back to requirements) ─
+    srs = project / "SRS.md"
+    if not srs.exists():
+        errors.append("✗ SRS.md not found in project root (required for all FR steps)")
+
+    # ── 3. quality_manifest.json + FR-ID registration ────────────────────────
+    manifest_path = project / ".methodology" / "quality_manifest.json"
+    if not manifest_path.exists():
+        errors.append("✗ .methodology/quality_manifest.json not found (run run-phase first)")
+    else:
+        try:
+            m = json.loads(manifest_path.read_text(encoding="utf-8"))
+            registered = m.get("fr_ids", [])
+            if fr_id and fr_id not in registered:
+                errors.append(
+                    f"✗ FR-ID {fr_id} not in quality_manifest.json fr_ids ({', '.join(registered)})"
+                )
+        except Exception:
+            errors.append("✗ quality_manifest.json is malformed JSON")
+
+    # ── 4. TEST_SPEC.md (required for TDD-RED — test names come from here) ───
+    test_spec = project / "TEST_SPEC.md"
+    if step == "TDD-RED":
+        if not test_spec.exists():
+            errors.append("✗ TEST_SPEC.md not found (TDD-RED requires test catalog)")
+        else:
+            # Basic validity: must contain FR-ID sections
+            try:
+                content = test_spec.read_text(encoding="utf-8")
+                if fr_id and f"### {fr_id}:" not in content:
+                    errors.append(
+                        f"✗ TEST_SPEC.md exists but has no section for {fr_id}"
+                        " (run derive_test_cases.md skill first)"
+                    )
+            except Exception:
+                errors.append("✗ TEST_SPEC.md exists but is unreadable")
+
+    # ── 5. Tool checks (step-aware) ───────────────────────────────────────────
+    def _missing_tool(name: str) -> str:
+        return f"✗ {name} not found in PATH — install with: pip install {name}"
+
+    if step in ("GATE1", "GATE1-DELTA", "CODE-FIX"):
+        gate_ok, gate_errors = _verify_gate_tools(1, str(project))
+        errors.extend(gate_errors)
+        # DATABASE_URL: GATE1 needs real DB for pytest
+        if not os.environ.get("DATABASE_URL"):
+            errors.append("✗ DATABASE_URL not set (GATE1 pytest needs live DB)")
+
+    if step in ("TDD-RED", "TDD-GREEN", "TDD-IMPROVE"):
+        for tool in ("pytest", "ruff"):
+            if not _shutil.which(tool):
+                errors.append(_missing_tool(tool))
+
+    # ── 6. DATABASE_URL for GATE1/GATE1-DELTA: verify connection if set ───────
+    db_url = os.environ.get("DATABASE_URL")
+    if db_url and step in ("GATE1", "GATE1-DELTA", "CODE-FIX"):
+        try:
+            r = _subprocess.run(
+                ["bash", "-c", "psql -c 'SELECT 1'"],
+                capture_output=True, timeout=10,
+                env={**os.environ, "DATABASE_URL": db_url},
+            )
+            if r.returncode != 0:
+                errors.append("✗ DATABASE_URL set but psql cannot connect — check host/credentials")
+        except FileNotFoundError:
+            errors.append("✗ DATABASE_URL set but psql not installed — cannot verify DB connectivity")
+        except _subprocess.TimeoutExpired:
+            errors.append("✗ DATABASE_URL set but DB connection timed out (10s)")
+
+    return len(errors) == 0, errors
+
 # Non-dotfile (consistent with other .methodology/ files like state.json, sessions_spawn.log).
 # Replaces the old ".gate_timestamps.jsonl" hidden file name used before 2026-05-18.
 _GATE_TIMESTAMPS_FILE = "gate_timestamps.jsonl"
@@ -1150,6 +1239,15 @@ def cmd_run_phase(args: argparse.Namespace) -> int:
     if not pre["all_passed"]:
         print(f"\nPRE-FLIGHT FAILED: {pre['details']}")
         return 1
+        
+    if args.phase == 3:
+        from core.pre_flight import run_phase3_pre_flight
+        passed, errors = run_phase3_pre_flight(project)
+        if not passed:
+            print(f"\n[BLOCKED] Phase 3 Environment Pre-flight check failed:")
+            for err in errors:
+                print(f"  - {err}")
+            return 1
 
     print("\n[INFO] Preflight passed. Phase execution hooks ready.")
 
@@ -3841,10 +3939,20 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
         print(f"[run-fr-step] {fr_id} {step}: already done → skip")
         return 0
 
-    # 2. Build minimal need-to-know prompt
+    # 2. Pre-flight checks — must pass before agent dispatch
+    import sys as _sys
+    preflight_ok, preflight_errors = _fr_step_preflight(step, project, fr_id)
+    if not preflight_ok:
+        print(f"\n[PRE-FLIGHT FAILED] run-fr-step --fr-id {fr_id} --step {step}", file=_sys.stderr)
+        for err in preflight_errors:
+            print(f"  {err}", file=_sys.stderr)
+        print(file=_sys.stderr)
+        return 1
+
+    # 3. Build minimal need-to-know prompt (only after pre-flight passes)
     prompt = _build_fr_step_prompt(step, fr_id, phase, project, srs_path)
 
-    # 3. Dispatch sub-agent (phase_sop_override="" skips full SOP load)
+    # 4. Dispatch sub-agent (phase_sop_override="" skips full SOP load)
     spawner = AgentSpawner(project_path=project)
     phase_ctx = _resolve_phase3_context(project)
     if getattr(args, "no_mcp", False):
