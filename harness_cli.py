@@ -3842,10 +3842,15 @@ def _parse_gate_output(out: str) -> tuple[bool, list]:
             pass
         return None
 
+    def _extract_dims(obj: dict) -> list:
+        # Accept both the prompt-specified key ("failing_dims") and the score.py
+        # schema key ("failing_dimensions") — agents sometimes copy the wrong one.
+        return obj.get("failing_dims") or obj.get("failing_dimensions") or []
+
     # Try whole string first (agent returned bare JSON)
     obj = _try(out.strip())
     if obj:
-        return bool(obj.get("pass", False)), obj.get("failing_dims", [])
+        return bool(obj.get("pass", False)), _extract_dims(obj)
 
     # Scan for any embedded JSON object via brace-depth tracking
     i = 0
@@ -3860,7 +3865,7 @@ def _parse_gate_output(out: str) -> tuple[bool, list]:
                     if depth == 0:
                         obj = _try(out[i : j + 1])
                         if obj is not None:
-                            return bool(obj.get("pass", False)), obj.get("failing_dims", [])
+                            return bool(obj.get("pass", False)), _extract_dims(obj)
                         break
         i += 1
 
@@ -4069,15 +4074,37 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
         )
 
     if step == "CODE-FIX":
-        # Classify failing dims so we know what kind of fix is needed.
-        _fdims_lower = {str(d).lower() for d in (failing_dims or [])}
-        _test_cov_failing = "test_coverage" in _fdims_lower
-        _src_failing = bool(_fdims_lower - {"test_coverage"}) or not _fdims_lower
+        # failing_dims=None means GATE1 timed out / errored before writing a result.
+        # In this case we cannot know what failed — emit a diagnostic mode prompt
+        # that tells the agent to self-diagnose first, rather than blindly fixing src.
+        if failing_dims is None:
+            return (
+                f"You are a code fixer. Gate 1 for {fr_id} could not complete "
+                f"(sub-agent timeout or error — no gate1_result.json was written).\n\n"
+                f"[TASK — diagnostic mode]\n"
+                f"1. Run `pytest tests/ -q` to identify failing / missing tests.\n"
+                f"2. Run `ruff check {src_dir}/` to identify lint errors.\n"
+                f"3. Based on actual results:\n"
+                f"   a. If tests are failing or missing → add/fix tests in `{test_file}` "
+                f"AND fix source code in `{src_dir}/` as needed.\n"
+                f"   b. If lint errors → fix source code only.\n"
+                f"4. Run `pytest tests/ -q` to confirm all tests pass.\n"
+                f"5. Commit all changed files: "
+                f"`git add {src_dir}/ {test_file} && "
+                f"git commit -m \"fix({fr_id}): address Gate1 failures\"`\n\n"
+                f"[FORBIDDEN]\n"
+                f"- Deleting or modifying existing passing tests\n"
+                f"- app/infrastructure/ paths\n\n"
+                f'[OUTPUT FORMAT]\nReturn JSON: {{"status": "DONE", "dims_fixed": [...], '
+                f'"commit": "<hash>", "summary": "<under 50 chars>"}}'
+            )
 
-        dims_str = (
-            "\n".join(str(d) for d in failing_dims)
-            if failing_dims else "see gate1_result.json"
-        )
+        # Classify failing dims so we know what kind of fix is needed.
+        _fdims_lower = {str(d).lower() for d in failing_dims}
+        _test_cov_failing = "test_coverage" in _fdims_lower
+        _src_failing = bool(_fdims_lower - {"test_coverage"})
+
+        dims_str = "\n".join(str(d) for d in failing_dims)
 
         # ── test_coverage section ─────────────────────────────────────────
         # When test_coverage fails, the fix is to ADD missing test functions,
