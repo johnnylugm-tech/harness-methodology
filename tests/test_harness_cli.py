@@ -1180,6 +1180,162 @@ def _setup_preflight_fixtures(tmp_path: Path, *, step: str, fr_id: str = "FR-01"
         )
 
 
+class TestFrSourceFilesFromImports:
+    """Tests for _fr_source_files_from_imports — AST-based FR source file detection."""
+
+    def test_from_import_matches_module_file(self, tmp_path):
+        """from foo.bar import Baz → matches foo/bar.py."""
+        import harness_cli
+
+        src = tmp_path / "src"
+        src.joinpath("foo").mkdir(parents=True)
+        src.joinpath("foo", "bar.py").write_text("class Baz: pass", encoding="utf-8")
+        test = tmp_path / "tests"
+        test.mkdir()
+        test_file = test / "test_fr01.py"
+        test_file.write_text("from foo.bar import Baz\n", encoding="utf-8")
+
+        result = harness_cli._fr_source_files_from_imports(
+            tmp_path, "tests/test_fr01.py", "src"
+        )
+        assert result == ["src/foo/bar.py"]
+
+    def test_direct_import_matches_module_file(self, tmp_path):
+        """import foo.bar → matches foo/bar.py."""
+        import harness_cli
+
+        src = tmp_path / "src"
+        src.joinpath("foo").mkdir(parents=True)
+        src.joinpath("foo", "bar.py").write_text("x = 1", encoding="utf-8")
+        test = tmp_path / "tests"
+        test.mkdir()
+        test_file = test / "test_fr01.py"
+        test_file.write_text("import foo.bar\n", encoding="utf-8")
+
+        result = harness_cli._fr_source_files_from_imports(
+            tmp_path, "tests/test_fr01.py", "src"
+        )
+        assert result == ["src/foo/bar.py"]
+
+    def test_stdlib_only_returns_empty(self, tmp_path):
+        """Test file with only stdlib imports → returns [] (fallback)."""
+        import harness_cli
+
+        src = tmp_path / "src"
+        src.mkdir()
+        src.joinpath("dummy.py").write_text("x = 1", encoding="utf-8")
+        test = tmp_path / "tests"
+        test.mkdir()
+        test_file = test / "test_fr01.py"
+        test_file.write_text("import os\nimport sys\nfrom pathlib import Path\n", encoding="utf-8")
+
+        result = harness_cli._fr_source_files_from_imports(
+            tmp_path, "tests/test_fr01.py", "src"
+        )
+        assert result == []
+
+    def test_missing_test_file_returns_empty(self, tmp_path):
+        """Test file doesn't exist → returns []."""
+        import harness_cli
+
+        src = tmp_path / "src"
+        src.mkdir()
+        src.joinpath("dummy.py").write_text("x = 1", encoding="utf-8")
+
+        result = harness_cli._fr_source_files_from_imports(
+            tmp_path, "tests/nonexistent.py", "src"
+        )
+        assert result == []
+
+    def test_syntax_error_returns_empty(self, tmp_path):
+        """Unparseable test file → returns []."""
+        import harness_cli
+
+        src = tmp_path / "src"
+        src.mkdir()
+        src.joinpath("dummy.py").write_text("x = 1", encoding="utf-8")
+        test = tmp_path / "tests"
+        test.mkdir()
+        test_file = test / "test_fr01.py"
+        test_file.write_text("this is not valid python {{{{{\n", encoding="utf-8")
+
+        result = harness_cli._fr_source_files_from_imports(
+            tmp_path, "tests/test_fr01.py", "src"
+        )
+        assert result == []
+
+    def test_mixed_imports_match_multiple_files(self, tmp_path):
+        """from foo.bar import Baz + import foo.baz → matches both source files."""
+        import harness_cli
+
+        src = tmp_path / "src"
+        src.joinpath("foo").mkdir(parents=True)
+        src.joinpath("foo", "bar.py").write_text("class Baz: pass", encoding="utf-8")
+        src.joinpath("foo", "baz.py").write_text("x = 1", encoding="utf-8")
+        test = tmp_path / "tests"
+        test.mkdir()
+        test_file = test / "test_fr01.py"
+        test_file.write_text(
+            "from foo.bar import Baz\nimport foo.baz\n", encoding="utf-8"
+        )
+
+        result = harness_cli._fr_source_files_from_imports(
+            tmp_path, "tests/test_fr01.py", "src"
+        )
+        assert sorted(result) == ["src/foo/bar.py", "src/foo/baz.py"]
+
+    def test_init_py_excluded(self, tmp_path):
+        """__init__.py files are excluded even when the package is imported."""
+        import harness_cli
+
+        src = tmp_path / "src"
+        src.joinpath("foo").mkdir(parents=True)
+        src.joinpath("foo", "__init__.py").write_text("x = 1", encoding="utf-8")
+        src.joinpath("foo", "bar.py").write_text("class Baz: pass", encoding="utf-8")
+        test = tmp_path / "tests"
+        test.mkdir()
+        test_file = test / "test_fr01.py"
+        test_file.write_text("import foo\nfrom foo.bar import Baz\n", encoding="utf-8")
+
+        result = harness_cli._fr_source_files_from_imports(
+            tmp_path, "tests/test_fr01.py", "src"
+        )
+        # foo/__init__.py should be excluded; only foo/bar.py should match
+        assert result == ["src/foo/bar.py"]
+
+    def test_missing_src_dir_returns_empty(self, tmp_path):
+        """src_dir doesn't exist → returns []."""
+        import harness_cli
+
+        test = tmp_path / "tests"
+        test.mkdir()
+        test_file = test / "test_fr01.py"
+        test_file.write_text("from foo.bar import Baz\n", encoding="utf-8")
+
+        result = harness_cli._fr_source_files_from_imports(
+            tmp_path, "tests/test_fr01.py", "nonexistent_src"
+        )
+        assert result == []
+
+    def test_from_import_with_alias_subpath_match(self, tmp_path):
+        """from foo.bar import BazClass adds foo.bar.BazClass, which startswith-match
+        module foo.bar → correctly finds foo/bar.py."""
+        import harness_cli
+
+        src = tmp_path / "src"
+        src.joinpath("foo").mkdir(parents=True)
+        src.joinpath("foo", "bar.py").write_text("class BazClass: pass", encoding="utf-8")
+        test = tmp_path / "tests"
+        test.mkdir()
+        test_file = test / "test_fr01.py"
+        test_file.write_text("from foo.bar import BazClass\n", encoding="utf-8")
+
+        result = harness_cli._fr_source_files_from_imports(
+            tmp_path, "tests/test_fr01.py", "src"
+        )
+        assert result == ["src/foo/bar.py"]
+
+
 class TestRunFrStep:
     """Tests for cmd_run_fr_step and related helpers."""
 
