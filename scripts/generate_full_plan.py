@@ -1705,9 +1705,7 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path) -> List[str]:
                     fr['fr'] for fr in frs
                     if nfr_id.lower() in fr.get('raw_details', '').lower()
                 ] if frs else []
-            fr_list = ', '.join(_ref_frs[:5])
-            if len(_ref_frs) > 5:
-                fr_list += f" (+{len(_ref_frs) - 5} more)"
+            fr_list = ', '.join(_ref_frs)
             if not fr_list:
                 fr_list = '(see SRS.md §3)'
             lines.append(f"| {nfr_id} | {nfr_type[:30]} | {fr_list} |")
