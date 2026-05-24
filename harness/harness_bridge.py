@@ -581,7 +581,7 @@ class EnvCheckContext:
             f"   b. Write a single verification script (e.g., `.sessi-work/verify.sh`) that\n"
             f"      chains all `which`, `echo $VAR`, and connectivity checks together.\n"
             f"   c. Run the script once to collect all results.\n"
-            f"   d. Write the result JSON to `.sessi-work/env_check_result.json` in a\n"
+            f"   d. Write the result JSON to {result_path} in a\n"
             f"      single Write tool call — do NOT chain writes.\n"
             f"   If the script fails, run remaining checks individually and report partial\n"
             f"   findings rather than writing nothing.\n\n"
