@@ -3,6 +3,8 @@ Unit tests for AgentSpawner.
 """
 
 import json
+from pathlib import Path
+
 import pytest
 from unittest.mock import patch, MagicMock
 from core.agent_spawner import AgentSpawner
@@ -98,3 +100,112 @@ class TestAgentSpawner:
         parsed = spawner._parse_result(res)
         assert parsed["output"] == "completed task"
         assert parsed["status"] == "complete"
+
+    # ── MCP config / setting_sources tests ──────────────────────────────
+
+    def test_spawn_defaults_isolate_completely(self):
+        """Default params (no MCP, empty setting_sources) = current behavior."""
+        spawner = AgentSpawner()
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = json.dumps({"result": "ok", "session_id": "x"})
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            with patch("subprocess.run", return_value=mock_proc) as mock_run:
+                result = spawner.spawn(
+                    role="developer", prompt="Task", context={}, model="claude",
+                )
+                assert result["status"] == "complete"
+                cmd = mock_run.call_args[0][0]
+                # Default: strict isolation
+                assert "--setting-sources" in cmd
+                assert "" in cmd  # empty string = no settings
+                assert "--strict-mcp-config" in cmd
+                assert '{"mcpServers":{}}' in cmd
+
+    def test_spawn_with_mcp_config_file(self):
+        """mcp_config path resolves relative to project_path."""
+        spawner = AgentSpawner(project_path=Path("/fake/project"))
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = json.dumps({"result": "ok", "session_id": "x"})
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            with patch("subprocess.run", return_value=mock_proc) as mock_run:
+                with patch("pathlib.Path.exists", return_value=True):
+                    result = spawner.spawn(
+                        role="developer", prompt="Task", context={}, model="claude",
+                        mcp_config="harness/.mcp.json",
+                        phase_sop_override="", persona_override="",
+                    )
+                    assert result["status"] == "complete"
+                    cmd = mock_run.call_args[0][0]
+                    assert "--strict-mcp-config" in cmd
+                    assert "harness/.mcp.json" in cmd[-4] or any(
+                        "harness/.mcp.json" in str(a) for a in cmd
+                    )
+
+    def test_spawn_with_mcp_config_not_found_falls_back(self, capsys):
+        """Missing .mcp.json → warning + fallback to empty MCP."""
+        spawner = AgentSpawner(project_path=Path("/fake/project"))
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = json.dumps({"result": "ok", "session_id": "x"})
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            with patch("subprocess.run", return_value=mock_proc):
+                with patch("pathlib.Path.exists", return_value=False):
+                    result = spawner.spawn(
+                        role="developer", prompt="Task", context={}, model="claude",
+                        mcp_config="nonexistent/.mcp.json",
+                    )
+                    assert result["status"] == "complete"
+        stderr = capsys.readouterr().err
+        assert "[AgentSpawner] WARNING" in stderr
+
+    def test_spawn_with_inline_mcp_json(self):
+        """Inline JSON string is passed directly to --mcp-config."""
+        spawner = AgentSpawner()
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = json.dumps({"result": "ok", "session_id": "x"})
+        inline = '{"mcpServers":{"crg":{"command":"uvx"}}}'
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            with patch("subprocess.run", return_value=mock_proc) as mock_run:
+                result = spawner.spawn(
+                    role="developer", prompt="Task", context={}, model="claude",
+                    mcp_config=inline,
+                )
+                assert result["status"] == "complete"
+                cmd = mock_run.call_args[0][0]
+                assert inline in cmd
+
+    def test_spawn_with_setting_sources_project(self):
+        """setting_sources='project' is passed to --setting-sources."""
+        spawner = AgentSpawner()
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = json.dumps({"result": "ok", "session_id": "x"})
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            with patch("subprocess.run", return_value=mock_proc) as mock_run:
+                result = spawner.spawn(
+                    role="developer", prompt="Task", context={}, model="claude",
+                    setting_sources="project",
+                )
+                assert result["status"] == "complete"
+                cmd = mock_run.call_args[0][0]
+                idx = cmd.index("--setting-sources")
+                assert cmd[idx + 1] == "project"
+
+    def test_spawn_mcp_config_none_uses_empty_mcp(self):
+        """Explicit mcp_config=None still uses empty MCP."""
+        spawner = AgentSpawner()
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = json.dumps({"result": "ok", "session_id": "x"})
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            with patch("subprocess.run", return_value=mock_proc) as mock_run:
+                result = spawner.spawn(
+                    role="developer", prompt="Task", context={}, model="claude",
+                    mcp_config=None,
+                )
+                assert result["status"] == "complete"
+                cmd = mock_run.call_args[0][0]
+                assert '{"mcpServers":{}}' in cmd

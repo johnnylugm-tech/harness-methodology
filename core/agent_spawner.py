@@ -62,6 +62,8 @@ class AgentSpawner:
         fr_id: str | None = None,
         phase_sop_override: str | None = None,
         persona_override: str | None = None,
+        mcp_config: str | None = None,
+        setting_sources: str = "",
     ) -> dict:
         """
         Spawn an agent with a specific role and prompt.
@@ -72,9 +74,14 @@ class AgentSpawner:
             context: Additional metadata and state.
             model: Preferred backend ('claude' or 'hermes').
             task_timeout: Max execution time in seconds.
-            max_turns: Max tool-using turns (default 10).
+            max_turns: Max tool-using turns (default 20).
             phase: Current methodology phase.
             fr_id: Optional Functional Requirement ID.
+            mcp_config: Path to .mcp.json (relative to project_path), inline
+                JSON string, or None. None = empty MCP (current default).
+                File not found → stderr warning + fallback to empty MCP.
+            setting_sources: Passed to --setting-sources. "" (default) blocks
+                all CLAUDE.md. "project" loads project-level CLAUDE.md only.
 
         Returns:
             A dictionary containing the agent's output and status.
@@ -102,24 +109,44 @@ class AgentSpawner:
             # effective == "claude" for P7/P8 — fall through to Claude headless CLI
 
         # Claude Code headless CLI (replaces deprecated claude_code_sdk.Task).
-        # Isolation flags replace --bare: --setting-sources "" blocks
-        # CLAUDE.md + hooks; --disable-slash-commands blocks skills;
-        # --strict-mcp-config --mcp-config '{}' blocks MCP.
+        # Sub-agent isolation (need-to-know): by default, blocks CLAUDE.md,
+        # hooks, skills, and MCP. Callers can opt into MCP tools and
+        # project-level CLAUDE.md via mcp_config / setting_sources params.
         # OAuth auth works (unlike --bare which forces API key).
-        # The spawned agent only sees what _build_prompt() packs into the
-        # prompt (persona + SOP + task + context).
+        # The spawned agent sees what _build_prompt() packs into the prompt
+        # (persona + SOP + task + context) plus any MCP tools granted.
         cli = shutil.which("claude")
         if not cli:
             raise RuntimeError(
                 "claude CLI not found. Install Claude Code: "
                 "https://code.claude.com/docs/en/installation"
             )
+        # Resolve MCP config
+        if mcp_config is None:
+            mcp_args = ["--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}']
+        elif mcp_config.strip().startswith("{"):
+            mcp_args = ["--strict-mcp-config", "--mcp-config", mcp_config]
+        else:
+            resolved = (
+                str((self.project_path / mcp_config).resolve())
+                if self.project_path else mcp_config
+            )
+            if not Path(resolved).exists():
+                import sys
+                print(
+                    f"[AgentSpawner] WARNING: MCP config '{resolved}'"
+                    f" not found — falling back to isolated mode",
+                    file=sys.stderr,
+                )
+                mcp_args = ["--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}']
+            else:
+                mcp_args = ["--strict-mcp-config", "--mcp-config", resolved]
         cmd = [
             cli, "-p", full_prompt,
             "--output-format", "json",
-            "--setting-sources", "",
+            "--setting-sources", setting_sources,
             "--disable-slash-commands",
-            "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
+            *mcp_args,
             "--max-turns", str(max_turns),
             "--permission-mode", "acceptEdits",
             "--no-session-persistence",

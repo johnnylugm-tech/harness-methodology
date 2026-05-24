@@ -3596,6 +3596,36 @@ def _parse_gate_output(out: str) -> tuple[bool, list]:
     return False, []
 
 
+def _resolve_phase3_context(project: Path) -> dict:
+    """Resolve MCP config and CLAUDE.md settings for Phase 3+ sub-agents.
+
+    Auto-detects whether code-review-graph MCP tools and project CLAUDE.md
+    are available, returning appropriate values for AgentSpawner.spawn().
+    Gracefully degrades: if nothing is found, returns current defaults
+    (no MCP, no CLAUDE.md).
+
+    Returns:
+        dict with keys:
+            mcp_config: str | None  -- relative path to .mcp.json, or None
+            setting_sources: str    -- "project" or ""
+    """
+    import shutil as _shutil
+    result: dict[str, str | None] = {"mcp_config": None, "setting_sources": ""}
+
+    # MCP: only enable if uvx is on PATH (required by our .mcp.json)
+    if _shutil.which("uvx"):
+        for candidate in ["harness/.mcp.json", ".mcp.json"]:
+            if (project / candidate).exists():
+                result["mcp_config"] = candidate
+                break
+
+    # CLAUDE.md: load if it exists at project root
+    if (project / "CLAUDE.md").exists():
+        result["setting_sources"] = "project"
+
+    return result
+
+
 def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
                            project: Path, srs_path: Path | None,
                            failing_dims: list | None = None) -> str:
@@ -3805,6 +3835,9 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
 
     # 3. Dispatch sub-agent (phase_sop_override="" skips full SOP load)
     spawner = AgentSpawner(project_path=project)
+    phase_ctx = _resolve_phase3_context(project)
+    if getattr(args, "no_mcp", False):
+        phase_ctx["mcp_config"] = None
     result = spawner.spawn(
         role="developer",
         prompt=prompt,
@@ -3814,6 +3847,8 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
         phase_sop_override="",
         task_timeout=getattr(args, "timeout", 600),
         max_turns=getattr(args, "max_turns", 30),
+        mcp_config=phase_ctx["mcp_config"],
+        setting_sources=phase_ctx["setting_sources"],
     )
 
     if result.get("status") in _DISPATCH_ERROR_STATUSES:
@@ -3842,6 +3877,8 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                 phase=phase, fr_id=fr_id, phase_sop_override="",
                 task_timeout=getattr(args, "timeout", 600),
                 max_turns=getattr(args, "max_turns", 30),
+                mcp_config=phase_ctx["mcp_config"],
+                setting_sources=phase_ctx["setting_sources"],
             )
             if fix_result.get("status") in _DISPATCH_ERROR_STATUSES:
                 print(f"[run-fr-step] CODE-FIX failed: {fix_result.get('output','')[:200]}")
@@ -3854,6 +3891,8 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                 phase=phase, fr_id=fr_id, phase_sop_override="",
                 task_timeout=getattr(args, "timeout", 600),
                 max_turns=getattr(args, "max_turns", 30),
+                mcp_config=phase_ctx["mcp_config"],
+                setting_sources=phase_ctx["setting_sources"],
             )
             gate_pass, failing_dims = _parse_gate_output(result.get("output", ""))
             if not gate_pass:
@@ -5547,6 +5586,8 @@ def build_parser() -> argparse.ArgumentParser:
     rfp.add_argument("--max-fix-rounds", type=int, default=3, dest="max_fix_rounds",
                      help="Max CODE-FIX + GATE1 retry rounds on GATE1 FAIL (default: 3)")
     rfp.add_argument("--no-push", action="store_true", help="Skip git push origin HEAD after completion")
+    rfp.add_argument("--no-mcp", action="store_true", dest="no_mcp",
+                     help="Disable code-review-graph MCP for this FR step (debugging)")
     rfp.set_defaults(func=cmd_run_fr_step)
 
     # resume-fr-phase
