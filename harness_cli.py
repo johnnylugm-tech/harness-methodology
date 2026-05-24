@@ -1453,6 +1453,36 @@ def cmd_run_gate(args: argparse.Namespace) -> int:
     )
 
     print(ctx.evaluation_prompt())
+
+    # Gate 1 scope is single_fr — inject FR-scoped tool command overrides so
+    # the evaluator doesn't measure project-wide coverage and dilute the score
+    # with unrelated files.
+    if fr_id and args.gate == 1:
+        _num_match = re.match(r"FR-(\d+)", fr_id)
+        _num_str = (
+            _num_match.group(1).zfill(2)
+            if _num_match
+            else re.sub(r"[^a-z0-9]", "_", fr_id.lower()).strip("_")
+        )
+        _test_file = f"tests/test_fr{_num_str}.py"
+        _src_dir = "03-development/src"
+        print(
+            f"\n[FR-SCOPED TOOL OVERRIDES — {fr_id}]\n"
+            f"Gate 1 scope is single_fr. Replace the project-wide defaults in\n"
+            f"evaluate_dimension.md with these FR-scoped commands:\n\n"
+            f"test_coverage — run coverage against {fr_id}'s test file and source only:\n"
+            f"  coverage run --source={_src_dir} -m pytest {_test_file} "
+            f"&& coverage report --format=json \\\n"
+            f"    || PYTHONPATH=. coverage run --source={_src_dir} -m pytest {_test_file} "
+            f"&& coverage report --format=json \\\n"
+            f"    || PYTHONPATH=. python3 -m pytest {_test_file} "
+            f"--cov={_src_dir} --cov-report=term-missing\n\n"
+            f"linting — lint only the FR source directory:\n"
+            f"  ruff check {_src_dir}/ 2>&1 | head -200\n\n"
+            f"type_safety — type-check only the FR source directory:\n"
+            f"  pyright {_src_dir}/ --outputjson 2>&1 | head -200\n"
+        )
+
     print("\n" + "─" * 60)
     print("NEXT STEP: Evaluate the dimensions above, then run:")
     fr_flag = f" --fr-id {fr_id}" if fr_id else ""
