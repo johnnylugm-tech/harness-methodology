@@ -4069,23 +4069,94 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
         )
 
     if step == "CODE-FIX":
+        # Classify failing dims so we know what kind of fix is needed.
+        _fdims_lower = {str(d).lower() for d in (failing_dims or [])}
+        _test_cov_failing = "test_coverage" in _fdims_lower
+        _src_failing = bool(_fdims_lower - {"test_coverage"}) or not _fdims_lower
+
         dims_str = (
             "\n".join(str(d) for d in failing_dims)
             if failing_dims else "see gate1_result.json"
         )
+
+        # ── test_coverage section ─────────────────────────────────────────
+        # When test_coverage fails, the fix is to ADD missing test functions,
+        # not to change source code.  Fetch required names from TEST_SPEC.md.
+        test_cov_section = ""
+        if _test_cov_failing:
+            spec_names, _ = _extract_test_spec_names(project, fr_id)
+            if spec_names:
+                test_cov_section = (
+                    f"\n[TEST COVERAGE FIX — required for test_coverage dimension]\n"
+                    f"The test file `{test_file}` is missing required test functions.\n"
+                    f"TEST_SPEC.md mandates these EXACT names for {fr_id}:\n"
+                    + "\n".join(f"  - {fn}" for fn in spec_names)
+                    + f"\n\nFor EACH name above:\n"
+                    f"  1. Grep `{test_file}` to check if the function already exists.\n"
+                    f"  2. If missing → ADD it as a real, passing test (not a placeholder or skip).\n"
+                    f"  3. Do NOT rename or remove existing tests.\n\n"
+                )
+            else:
+                test_cov_section = (
+                    f"\n[TEST COVERAGE FIX — required for test_coverage dimension]\n"
+                    f"The test file `{test_file}` is missing required test functions.\n"
+                    f"Read `02-architecture/TEST_SPEC.md` section for {fr_id} to find\n"
+                    f"required function names, then add any that are absent.\n\n"
+                )
+
+        # ── TASK steps (built dynamically) ───────────────────────────────
+        task_lines = [
+            "1. Read `harness/ssi/prompts/evaluate_dimension.md` for each failing dimension's criteria.",
+        ]
+        n = 2
+        if _src_failing:
+            task_lines.append(
+                f"{n}. Fix source code in `{src_dir}/` to address non-test-coverage failing dimensions."
+            )
+            n += 1
+        if _test_cov_failing:
+            task_lines.append(
+                f"{n}. Add ALL missing test functions to `{test_file}` "
+                f"(see TEST COVERAGE FIX section above)."
+            )
+            n += 1
+        task_lines.append(f"{n}. Run `pytest tests/ -q` to confirm all tests pass.")
+        n += 1
+        git_paths = " ".join(filter(None, [
+            f"{src_dir}/" if _src_failing else "",
+            test_file if _test_cov_failing else "",
+        ]))
+        task_lines.append(
+            f"{n}. Commit: `git add {git_paths} && "
+            f"git commit -m \"fix({fr_id}): address Gate1 failing dims\"`"
+        )
+
+        # ── FORBIDDEN (test files only blocked when test_coverage is NOT failing) ──
+        if _test_cov_failing:
+            forbidden = (
+                "- Deleting or modifying existing passing tests "
+                "(you may only ADD missing test functions)\n"
+                "- app/infrastructure/ paths"
+            )
+        else:
+            forbidden = (
+                "- Modifying test files\n"
+                "- app/infrastructure/ paths"
+            )
+
+        # test_cov_section ends with \n\n when non-empty, so it provides the gap
+        # before [TASK]. When empty, insert the gap explicitly.
+        gap = "\n" if not test_cov_section else ""
         return (
             f"You are a code fixer. Gate 1 FAILED for {fr_id}. Fix the failing dimensions.\n\n"
             f"[FAILING DIMENSIONS]\n"
-            f"{dims_str}\n\n"
+            f"{dims_str}\n"
+            f"{test_cov_section}"
+            f"{gap}"
             f"[TASK]\n"
-            f"1. Read `harness/ssi/prompts/evaluate_dimension.md` for each failing dimension's criteria.\n"
-            f"2. Fix source code in `{src_dir}/` to address EACH failing dimension.\n"
-            f"3. Run `pytest tests/ -q` to confirm tests still pass.\n"
-            f"4. Commit: `git add {src_dir}/ && "
-            f"git commit -m \"fix({fr_id}): address Gate1 failing dims\"`\n\n"
-            f"[FORBIDDEN]\n"
-            f"- Modifying test files\n"
-            f"- app/infrastructure/ paths\n\n"
+            + "\n".join(task_lines) + "\n\n"
+            + f"[FORBIDDEN]\n"
+            f"{forbidden}\n\n"
             f'[OUTPUT FORMAT]\nReturn JSON: {{"status": "DONE", "dims_fixed": [...], '
             f'"commit": "<hash>", "summary": "<under 50 chars>"}}'
         )
