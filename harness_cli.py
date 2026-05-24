@@ -327,7 +327,7 @@ def _fr_step_preflight(step: str, project: Path, fr_id: str | None) -> tuple[boo
         return f"✗ {name} not found in PATH — install with: pip install {name}"
 
     if step in ("GATE1", "GATE1-DELTA", "CODE-FIX"):
-        gate_ok, gate_errors = _verify_gate_tools(1, str(project))
+        _, gate_errors = _verify_gate_tools(1, str(project))
         errors.extend(gate_errors)
         # DATABASE_URL: GATE1 needs real DB for pytest
         if not os.environ.get("DATABASE_URL"):
@@ -1235,8 +1235,6 @@ def cmd_run_phase(args: argparse.Namespace) -> int:
     if not pre["all_passed"]:
         print(f"\nPRE-FLIGHT FAILED: {pre['details']}")
         return 1
-
-
 
     print("\n[INFO] Preflight passed. Phase execution hooks ready.")
 

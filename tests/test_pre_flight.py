@@ -1,15 +1,12 @@
 import os
-import shutil
 import subprocess
 import pytest
-from pathlib import Path
 from unittest.mock import patch, MagicMock
 from core.pre_flight import (
     check_env_vars,
     check_cli_tools,
     check_database_connectivity,
 )
-
 
 def test_check_env_vars():
     with patch.dict(os.environ, {"EXISTING_VAR": "123"}, clear=True):
