@@ -58,7 +58,7 @@ import re
 import shutil
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -1607,7 +1607,6 @@ def cmd_finalize_env_check(args: argparse.Namespace) -> int:
                     )
                     # Allow 10 s tolerance for the sentinel being written
                     # just before the sub-agent starts.
-                    from datetime import timedelta
                     if _checked_at < sentinel_time - timedelta(seconds=10):
                         print(
                             "[WARN] env_check_result.json predates the sentinel — "
@@ -4186,7 +4185,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
         # failing_dims cannot be parsed. Signal full re-check to CODE-FIX.
         if _status in {"ERROR", "TIMEOUT"}:
             gate_pass = False
-            failing_dims: list | None = None
+            failing_dims = None
         else:
             gate_pass, failing_dims = _parse_gate_output(result.get("output", ""))
         if not gate_pass:
