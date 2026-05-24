@@ -3863,6 +3863,48 @@ def _resolve_phase3_context(project: Path) -> dict:
     return result
 
 
+def _extract_test_spec_names(project: Path, fr_id: str) -> tuple[list[str], str]:
+    """Parse TEST_SPEC.md and return (test_names, formatted_note) for a given FR.
+
+    Returns ([], "") when TEST_SPEC.md is missing or has no entries for this FR.
+    """
+    test_spec_path = project / "02-architecture" / "TEST_SPEC.md"
+    if not test_spec_path.exists():
+        return [], ""
+
+    spec_text = test_spec_path.read_text(encoding="utf-8")
+    current_fr = ""
+    spec_rows: list[str] = []
+    for line in spec_text.splitlines():
+        stripped = line.strip()
+        m = re.match(r"^###\s+([A-Z]+-\d+)(?:[:\s]|$)", stripped)
+        if m:
+            current_fr = m.group(1)
+            continue
+        if current_fr != fr_id:
+            continue
+        if "Test Function" in stripped:
+            continue
+        if stripped.startswith("|") and stripped.endswith("|"):
+            cols = [c.strip() for c in stripped.split("|")[1:-1]]
+            if len(cols) >= 2:
+                clean_col = cols[1].strip(" `")
+                if clean_col.startswith("test_"):
+                    spec_rows.append(clean_col)
+            continue
+    if spec_rows:
+        note = (
+            f"\n[TEST SPEC — match these EXACT names]\n"
+            f"TEST_SPEC.md at `02-architecture/TEST_SPEC.md` defines "
+            f"{len(spec_rows)} test cases for {fr_id}. Write ALL of them "
+            f"using these EXACT function names:\n"
+            + "\n".join(f"  - {fn}" for fn in spec_rows)
+            + "\nDo NOT invent names. spec-coverage-check uses exact match.\n"
+        )
+        return spec_rows, note
+    return [], ""
+
+
 def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
                            project: Path, srs_path: Path | None,
                            failing_dims: list | None = None) -> str:
@@ -3888,52 +3930,7 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
 
     if step == "TDD-RED":
         srs_section = _extract_srs_fr_section(srs_path, fr_id) if srs_path else ""
-
-        # ── TEST_SPEC.md section ───────────────────────────────────────────
-        # spec-coverage-check uses exact string match against TEST_SPEC.md
-        # function names.  The sub-agent MUST use those exact names so
-        # coverage registers correctly (HR-11 traceability).
-        test_spec_path = project / "02-architecture" / "TEST_SPEC.md"
-        spec_note = ""
-        if test_spec_path.exists():
-            spec_text = test_spec_path.read_text(encoding="utf-8")
-            # Parse one FR section at a time.  A blank line between an FR
-            # header and its table (common in TEST_SPEC.md) does NOT reset
-            # state — only the next "### FR-XX:" header does.  This way the
-            # blank-line separator between FR sections is also handled
-            # correctly without accidentally skipping any FR's table.
-            current_fr = ""
-            spec_rows: list[str] = []
-            for line in spec_text.splitlines():
-                stripped = line.strip()
-                # New "### FR-XX:" header — switch to that FR's section
-                m = re.match(r"^###\s+([A-Z]+-\d+)(?:[:\s]|$)", stripped)
-                if m:
-                    current_fr = m.group(1)
-                    continue
-                # Only process table rows for the target FR
-                if current_fr != fr_id:
-                    continue
-                # Triggered by "| # | Test Function | ..." header row
-                if "Test Function" in stripped:
-                    continue
-                # Parse data row: `| # | `test_foo` | type | deriv |`
-                if stripped.startswith("|") and stripped.endswith("|"):
-                    cols = [c.strip() for c in stripped.split("|")[1:-1]]
-                    if len(cols) >= 2:
-                        clean_col = cols[1].strip(" `")
-                        if clean_col.startswith("test_"):
-                            spec_rows.append(clean_col)
-                    continue
-            if spec_rows:
-                spec_note = (
-                    f"\n[TEST SPEC — match these EXACT names]\n"
-                    f"TEST_SPEC.md at `02-architecture/TEST_SPEC.md` defines "
-                    f"{len(spec_rows)} test cases for {fr_id}. Write ALL of them "
-                    f"using these EXACT function names:\n"
-                    + "\n".join(f"  - {fn}" for fn in spec_rows)
-                    + "\nDo NOT invent names. spec-coverage-check uses exact match.\n"
-                )
+        _, spec_note = _extract_test_spec_names(project, fr_id)
 
         return (
             f"You are a TDD developer. Your ONLY task: write failing pytest tests for {fr_id}.\n\n"
@@ -4003,8 +4000,25 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
         # GATE1-DELTA no longer passes --delta to run-gate. The skip-if-unchanged
         # decision is now made by _fr_step_already_done() via git diff before dispatch.
         # Once we reach here, code has changed → full GATE1 evaluation.
+
+        # ── TEST_SPEC.md required test names for test_coverage evaluation ──
+        spec_test_names, _ = _extract_test_spec_names(project, fr_id)
+        spec_section = ""
+        if spec_test_names:
+            spec_section = (
+                f"\n[TEST SPEC — required test cases for {fr_id}]\n"
+                f"TEST_SPEC.md requires these EXACT test functions:\n"
+                + "\n".join(f"  - {fn}" for fn in spec_test_names)
+                + f"\n\nWhen evaluating test_coverage, verify:\n"
+                f"  - EVERY required test EXISTS in the test file\n"
+                f"  - EVERY required test PASSES (not skipped, not failing)\n"
+                f"  - Missing or failing required test = test_coverage FAIL, "
+                f"regardless of raw coverage %\n\n"
+            )
+
         return (
-            f"You are a Gate 1 evaluator. Your task: run Gate 1 evaluation for {fr_id}.\n\n"
+            f"You are a Gate 1 evaluator. Your task: run Gate 1 evaluation for {fr_id}.\n"
+            f"{spec_section}"
             f"[TASK — follow EXACTLY in order]\n"
             f"1. Run: `python3 harness_cli.py run-gate --gate 1 --phase {phase} "
             f"--fr-id {fr_id} --project .`\n"
