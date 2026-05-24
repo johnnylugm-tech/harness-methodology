@@ -1309,18 +1309,21 @@ class TestRunFrStep:
         assert "Deleting or modifying existing passing tests" in prompt
 
     def test_prompt_code_fix_none_fallback(self, tmp_path):
-        """CODE-FIX with failing_dims=None → fallback to source-only,
-        dims_str becomes 'see gate1_result.json'."""
+        """CODE-FIX with failing_dims=None → diagnostic mode — self-identify
+        failures via pytest + ruff (gate1_result.json doesn't exist)."""
         import harness_cli
 
         prompt = harness_cli._build_fr_step_prompt(
             "CODE-FIX", "FR-02", 3, tmp_path, None,
             failing_dims=None,
         )
-        assert "see gate1_result.json" in prompt
+        assert "no gate1_result.json was written" in prompt
+        assert "diagnostic mode" in prompt
+        assert "pytest tests/ -q" in prompt
+        assert "ruff check" in prompt
         assert "[TEST COVERAGE FIX" not in prompt
-        assert "Modifying test files" in prompt
-        assert "git add 03-development/src/" in prompt
+        assert "Deleting or modifying existing passing tests" in prompt
+        assert "git add 03-development/src/ tests/test_fr02.py" in prompt
 
     def test_resume_fr_phase_finds_first_pending_step(self, tmp_path, monkeypatch):
         """resume-fr-phase prints the first step that is not yet done."""
