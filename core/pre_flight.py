@@ -2,7 +2,6 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-from pathlib import Path
 from typing import Union
 
 def check_env_vars(required_keys: list[str]) -> list[str]:
