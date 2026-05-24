@@ -353,6 +353,7 @@ class TestScorePytestBenchmark:
     # Benchmark table header formats
     _HEADER_MS = "Name (time in ms)   Mean     Max\n"
     _HEADER_US = "Name (time in us)   Mean     Max\n"
+    _HEADER_NS = "Name (time in ns)   Mean     Max\n"
     _HEADER_S  = "Name (time in s)    Mean     Max\n"
 
     def test_exit_code_5_returns_none(self):
@@ -393,6 +394,21 @@ class TestScorePytestBenchmark:
         """2,000,000 us = 2000 ms → > 1000 ms → -25."""
         output = self._HEADER_US + "test_pipeline   2000000.0  2500000.0\n"
         assert _score_pytest_benchmark(output, 0) == 75.0
+
+    def test_nanoseconds_unit_fast_converted_correctly(self):
+        """200,000,000 ns = 200 ms → fast, score 100."""
+        output = self._HEADER_NS + "test_pipeline   200000000.0   250000000.0\n"
+        assert _score_pytest_benchmark(output, 0) == 100.0
+
+    def test_nanoseconds_unit_slow_converted_correctly(self):
+        """2,000,000,000 ns = 2000 ms → > 1000 ms → -25."""
+        output = self._HEADER_NS + "test_pipeline   2000000000.0   2500000000.0\n"
+        assert _score_pytest_benchmark(output, 0) == 75.0
+
+    def test_nanoseconds_very_slow_converted_correctly(self):
+        """4,000,000,000 ns = 4000 ms → > 3000 ms → -50."""
+        output = self._HEADER_NS + "test_pipeline   4000000000.0   5000000000.0\n"
+        assert _score_pytest_benchmark(output, 0) == 50.0
 
     def test_seconds_unit_converted_correctly(self):
         """0.2 s = 200 ms → fast, score 100."""

@@ -363,10 +363,10 @@ def _score_pytest_benchmark(output: str, returncode: int) -> Optional[float]:
         return None  # No benchmark tests exist yet — dimension not yet applicable
 
     # Parse the unit multiplier from the header line:  "Name (time in ms)"
-    unit_m = re.search(r"Name\s+\(time\s+in\s+(ms|us|s)\)", output, re.IGNORECASE)
+    unit_m = re.search(r"Name\s+\(time\s+in\s+(ms|us|ns|s)\)", output, re.IGNORECASE)
     if unit_m:
         unit = unit_m.group(1).lower()
-        to_ms = {"ms": 1.0, "us": 0.001, "s": 1000.0}.get(unit, 1.0)
+        to_ms = {"ms": 1.0, "us": 0.001, "ns": 0.000001, "s": 1000.0}.get(unit, 1.0)
     else:
         to_ms = 1.0  # Assume ms if header not found
 
