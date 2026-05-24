@@ -64,6 +64,7 @@ class AgentSpawner:
         persona_override: str | None = None,
         mcp_config: str | None = None,
         setting_sources: str = "",
+        permission_mode: str = "acceptEdits",
     ) -> dict:
         """
         Spawn an agent with a specific role and prompt.
@@ -82,6 +83,9 @@ class AgentSpawner:
                 File not found → stderr warning + fallback to empty MCP.
             setting_sources: Passed to --setting-sources. "" (default) blocks
                 all CLAUDE.md. "project" loads project-level CLAUDE.md only.
+            permission_mode: Claude Code --permission-mode. "acceptEdits"
+                (default) auto-approves file edits, blocks Bash. "bypassPermissions"
+                auto-approves all tools including shell commands.
 
         Returns:
             A dictionary containing the agent's output and status.
@@ -148,7 +152,7 @@ class AgentSpawner:
             "--disable-slash-commands",
             *mcp_args,
             "--max-turns", str(max_turns),
-            "--permission-mode", "acceptEdits",
+            "--permission-mode", permission_mode,
             "--no-session-persistence",
         ]
         try:

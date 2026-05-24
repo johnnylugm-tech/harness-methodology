@@ -3858,6 +3858,14 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
             return _explicit_max_turns
         return _STEP_MAX_TURNS.get(step_name.upper(), 40)
 
+    # GATE1 needs shell (ruff/pytest/pyright); other steps write code only.
+    _explicit_pmode = getattr(args, "permission_mode", None)
+    _pmode = (
+        _explicit_pmode
+        if _explicit_pmode is not None
+        else ("bypassPermissions" if step in ("GATE1", "GATE1-DELTA") else "acceptEdits")
+    )
+
     result = spawner.spawn(
         role="developer",
         prompt=prompt,
@@ -3869,6 +3877,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
         max_turns=_max_turns(step),
         mcp_config=phase_ctx["mcp_config"],
         setting_sources=phase_ctx["setting_sources"],
+        permission_mode=_pmode,
     )
 
     _status = result.get("status")
@@ -3924,6 +3933,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                 max_turns=_max_turns(step),
                 mcp_config=phase_ctx["mcp_config"],
                 setting_sources=phase_ctx["setting_sources"],
+                permission_mode=_pmode,
             )
             gate_pass, failing_dims = _parse_gate_output(result.get("output", ""))
             if not gate_pass:
@@ -5619,6 +5629,9 @@ def build_parser() -> argparse.ArgumentParser:
     rfp.add_argument("--no-push", action="store_true", help="Skip git push origin HEAD after completion")
     rfp.add_argument("--no-mcp", action="store_true", dest="no_mcp",
                      help="Disable code-review-graph MCP for this FR step (debugging)")
+    rfp.add_argument("--permission-mode", default=None, dest="permission_mode",
+                     choices=["acceptEdits", "bypassPermissions", "default", "plan"],
+                     help="Override sub-agent permission mode (default: bypassPermissions for GATE1, acceptEdits otherwise)")
     rfp.set_defaults(func=cmd_run_fr_step)
 
     # resume-fr-phase
