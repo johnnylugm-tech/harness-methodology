@@ -1130,6 +1130,56 @@ class TestAuditPhaseFailOnCritical:
 # run-fr-step / resume-fr-phase
 # =============================================================================
 
+def _setup_preflight_fixtures(tmp_path: Path, *, step: str, fr_id: str = "FR-01") -> None:
+    """Set up the minimum files needed to pass _fr_step_preflight.
+
+    Creates: git repo, SRS.md, quality_manifest.json, and either
+    02-architecture/TEST_SPEC.md (TDD-RED) or env_check_result.json (GATE1/CODE-FIX).
+    """
+    import subprocess as _sp
+
+    # 1. Git repo
+    _sp.run(["git", "init", "-q"], cwd=str(tmp_path), check=False)
+    _sp.run(["git", "config", "user.email", "test@test"], cwd=str(tmp_path), check=False)
+    _sp.run(["git", "config", "user.name", "Test"], cwd=str(tmp_path), check=False)
+
+    # 2. SRS.md
+    tmp_path.joinpath("SRS.md").write_text(
+        f"### {fr_id}: Test Feature\n\n**Description**: Test\n\n---\n",
+        encoding="utf-8",
+    )
+
+    # 3. quality_manifest.json
+    manifest_dir = tmp_path / ".methodology"
+    manifest_dir.mkdir()
+    manifest_dir.joinpath("quality_manifest.json").write_text(
+        json.dumps({"fr_ids": [fr_id]}), encoding="utf-8",
+    )
+
+    # 4. Step-specific
+    if step.upper() in ("GATE1", "GATE1-DELTA", "CODE-FIX"):
+        sessi = tmp_path / ".sessi-work"
+        sessi.mkdir()
+        sessi.joinpath("env_check_result.json").write_text(json.dumps({
+            "ready": True,
+            "checked_at": "2026-01-01T00:00:00+00:00",
+            "summary": "ok",
+            "env_vars": {"required": []},
+            "cli_tools": {"required": []},
+            "infra_services": {"required": []},
+        }), encoding="utf-8")
+    elif step.upper() == "TDD-RED":
+        spec_dir = tmp_path / "02-architecture"
+        spec_dir.mkdir()
+        spec_dir.joinpath("TEST_SPEC.md").write_text(
+            f"### {fr_id}: Test Feature\n\n"
+            "| # | Test Function | Type |\n"
+            "|---|--------------|------|\n"
+            "| 1 | `test_feature` | Functional |\n",
+            encoding="utf-8",
+        )
+
+
 class TestRunFrStep:
     """Tests for cmd_run_fr_step and related helpers."""
 
@@ -1146,6 +1196,8 @@ class TestRunFrStep:
     def test_dispatch_called_when_not_done(self, tmp_path, monkeypatch):
         """Sub-agent is dispatched when step has not yet been committed."""
         import sys, types, harness_cli
+
+        _setup_preflight_fixtures(tmp_path, step="TDD-RED")
 
         # _fr_step_already_done always returns False (step not done)
         monkeypatch.setattr(harness_cli, "_fr_step_already_done", lambda s, f, p: False)
@@ -1387,6 +1439,8 @@ class TestRunFrStep:
         """Returns exit 2 (BLOCKED) when GATE1 never passes after max_fix_rounds."""
         import sys, types, harness_cli
 
+        _setup_preflight_fixtures(tmp_path, step="GATE1")
+
         monkeypatch.setattr(harness_cli, "_fr_step_already_done", lambda s, f, p: False)
 
         # Sub-agent always returns gate_pass=false
@@ -1495,6 +1549,8 @@ class TestRunFrStep:
         import sys, types, harness_cli
         import subprocess as _sp
 
+        _setup_preflight_fixtures(tmp_path, step="TDD-RED")
+
         monkeypatch.setattr(harness_cli, "_fr_step_already_done", lambda s, f, p: False)
 
         class _FakeSpawner:
@@ -1529,6 +1585,8 @@ class TestRunFrStep:
         """cmd_run_fr_step skips git push when no_push is True."""
         import sys, types, harness_cli
         import subprocess as _sp
+
+        _setup_preflight_fixtures(tmp_path, step="TDD-RED")
 
         monkeypatch.setattr(harness_cli, "_fr_step_already_done", lambda s, f, p: False)
 
