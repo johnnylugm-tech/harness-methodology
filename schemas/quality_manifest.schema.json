@@ -15,7 +15,15 @@
     "nfr_dimension_mapping": {
       "type": "object",
       "additionalProperties": { "type": "string" },
-      "description": "NFR-ID -> harness dimension name (e.g. NFR-PERF-01 -> performance)"
+      "description": "NFR-ID -> harness dimension name (e.g. NFR-01 -> security)"
+    },
+    "nfr_fr_mapping": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": { "type": "string" }
+      },
+      "description": "Reverse mapping: NFR-ID -> list of FR IDs that implement it (e.g. NFR-02 -> [FR-04, FR-05])"
     },
     "architecture_constraints": {
       "type": "array",

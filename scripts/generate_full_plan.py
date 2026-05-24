@@ -306,6 +306,69 @@ def parse_config_records(repo_path: Path) -> List[Dict]:
     return []
 
 
+def parse_srs_fr_nfr_xref(srs_path) -> Dict[str, List[str]]:
+    """Parse the FR Cross-Reference table in SRS.md §2 to extract NFR associations.
+
+    Many SRS documents store FR-to-NFR mapping in a dedicated cross-reference
+    table with an 'NFR Association' column (rather than embedding NFR IDs inside
+    individual FR descriptions).  This function finds that table and returns a
+    ``{fr_id: [nfr_id, ...]}`` mapping so the plan generator can produce the
+    correct NFR Coverage section.
+
+    Returns {} when the table is absent or cannot be parsed.
+    """
+    if srs_path is None:
+        return {}
+    srs_path = Path(srs_path)
+    if not srs_path.exists():
+        return {}
+
+    content = srs_path.read_text(encoding="utf-8")
+
+    # Locate the table header that contains 'NFR Association' (case-insensitive).
+    header_re = re.compile(r'^(?:\|[^|\n]*)+\|\s*NFR\s*Association\s*\|', re.IGNORECASE | re.MULTILINE)
+    header_match = header_re.search(content)
+    if not header_match:
+        return {}
+
+    # Determine which column index holds 'NFR Association'.
+    header_line = header_match.group(0)
+    cols = [c.strip() for c in header_line.split('|') if c.strip()]
+    nfr_col_idx = next(
+        (i for i, c in enumerate(cols) if 'nfr' in c.lower() and 'assoc' in c.lower()),
+        -1,
+    )
+    if nfr_col_idx == -1:
+        return {}
+
+    # Parse rows that immediately follow the header (stop at blank line or new section).
+    fr_nfr_map: Dict[str, List[str]] = {}
+    rest = content[header_match.end():]
+    for line in rest.splitlines():
+        line = line.strip()
+        if not line.startswith('|'):
+            if line:
+                break   # non-table content → end of table
+            continue
+        # Skip separator rows (|---|---|)
+        if re.match(r'^\|[\s\-|]+\|$', line):
+            continue
+        cells = [c.strip() for c in line.split('|') if c.strip()]
+        if not cells:
+            continue
+        # First cell must be a bare FR-XX id
+        fr_match = re.match(r'^(FR-\d+)$', cells[0])
+        if not fr_match:
+            continue
+        fr_id = f"FR-{fr_match.group(1).split('-')[1].zfill(2)}"
+        if nfr_col_idx < len(cells):
+            nfr_ids = [f"NFR-{n.zfill(2)}" for n in re.findall(r'NFR-(\d+)', cells[nfr_col_idx])]
+            if nfr_ids:
+                fr_nfr_map[fr_id] = nfr_ids
+
+    return fr_nfr_map
+
+
 def parse_srs_nfr_sections(srs_path: Optional[Path]) -> List[Dict]:
     """Parse SRS.md to extract NFR sections"""
     if srs_path is None:
@@ -1615,6 +1678,15 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     # NFR summary — informational, shows which NFRs each FR implements
     nfrs = parse_srs_nfr_sections(srs_path)
     if nfrs:
+        # Build NFR→FRs reverse map.  Primary source: §2 cross-reference table
+        # (parse_srs_fr_nfr_xref).  Fallback: search raw FR description text for
+        # NFR IDs (works when SRS embeds NFR refs inside FR sections directly).
+        _fr_nfr_xref = parse_srs_fr_nfr_xref(srs_path)
+        _nfr_to_frs: Dict[str, List[str]] = {}
+        for _fr_id, _nfr_ids in _fr_nfr_xref.items():
+            for _nfr_id in _nfr_ids:
+                _nfr_to_frs.setdefault(_nfr_id, []).append(_fr_id)
+
         lines.append("### NFR Coverage ({} total)".format(len(nfrs)))
         lines.append("")
         lines.append("> NFRs are implemented **within FRs** — each FR satisfies one or more NFRs.")
@@ -1625,11 +1697,14 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path) -> List[str]:
         for nfr in nfrs:
             nfr_id = nfr['nfr']
             nfr_type = nfr.get('title', '').replace(f'{nfr_id}: ', '')
-            # Find FRs referencing this NFR from the SRS table data
-            _ref_frs = [
-                fr['fr'] for fr in frs
-                if nfr_id.lower() in fr.get('raw_details', '').lower()
-            ] if frs else []
+            # Primary: cross-reference table lookup
+            _ref_frs = _nfr_to_frs.get(nfr_id, [])
+            # Fallback: grep NFR ID from FR raw_details text
+            if not _ref_frs:
+                _ref_frs = [
+                    fr['fr'] for fr in frs
+                    if nfr_id.lower() in fr.get('raw_details', '').lower()
+                ] if frs else []
             fr_list = ', '.join(_ref_frs[:5])
             if len(_ref_frs) > 5:
                 fr_list += f" (+{len(_ref_frs) - 5} more)"

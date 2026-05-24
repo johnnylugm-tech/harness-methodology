@@ -1072,36 +1072,109 @@ class HarnessBridge:
                        f"DRIFT DETECTED: structural_drift={structural_drift} > {threshold}",
         }
 
+    @staticmethod
+    def _nfr_type_to_dim(nfr_type: str) -> str:
+        """Map an NFR type keyword to a harness quality dimension name."""
+        t = nfr_type.lower()
+        if any(k in t for k in ("performance", "latency", "throughput", "response")):
+            return "performance"
+        if any(k in t for k in ("security", "auth", "access control", "encryption")):
+            return "security"
+        if any(k in t for k in ("reliability", "availability", "uptime", "recovery")):
+            return "reliability"
+        if any(k in t for k in ("deploy", "deployability", "docker", "container", "rollout")):
+            return "deployability"
+        if any(k in t for k in ("maintainability", "modularity", "extensibility")):
+            return "maintainability"
+        if any(k in t for k in ("test", "coverage", "quality")):
+            return "test_coverage"
+        if any(k in t for k in ("traceability", "tracking", "audit")):
+            return "traceability"
+        if any(k in t for k in ("clarity", "documentation", "readability")):
+            return "clarity"
+        return "correctness"
+
     def _parse_nfr_from_srs(self, project_root: Path) -> dict[str, str]:
-        """Extract NFR→dimension mapping from SRS.md NFR sections as fallback."""
+        """Extract NFR→dimension mapping from SRS.md NFR sections as fallback.
+
+        Supports two SRS formats:
+        - H3-heading:  ### NFR-01: Performance
+        - Pipe-table:  | NFR-01 | Performance | description |
+        """
         srs_path = project_root / "01-requirements" / "SRS.md"
         if not srs_path.exists():
             return {}
         try:
             text = srs_path.read_text(encoding="utf-8")
             nfr_map: dict[str, str] = {}
-            # Match ### NFR-XX: Title style sections and map to dimension names
+            # Format 1: ### NFR-XX: Title sections
             for m in re.finditer(r'^###\s+(NFR-\d+)\s*:\s*(.+)$', text, re.MULTILINE):
                 nfr_id = m.group(1)
-                title = m.group(2).strip().lower()
-                # Heuristic dimension mapping from NFR title keywords
-                if any(k in title for k in ("performance", "latency", "throughput", "response")):
-                    nfr_map[nfr_id] = "performance"
-                elif any(k in title for k in ("security", "auth", "access control", "encryption")):
-                    nfr_map[nfr_id] = "security"
-                elif any(k in title for k in ("reliability", "availability", "uptime", "recovery")):
-                    nfr_map[nfr_id] = "reliability"
-                elif any(k in title for k in ("maintainability", "modularity", "extensibility")):
-                    nfr_map[nfr_id] = "maintainability"
-                elif any(k in title for k in ("test", "coverage", "quality")):
-                    nfr_map[nfr_id] = "test_coverage"
-                elif any(k in title for k in ("traceability", "tracking", "audit")):
-                    nfr_map[nfr_id] = "traceability"
-                elif any(k in title for k in ("clarity", "documentation", "readability")):
-                    nfr_map[nfr_id] = "clarity"
-                else:
-                    nfr_map[nfr_id] = "correctness"
+                nfr_map[nfr_id] = self._nfr_type_to_dim(m.group(2).strip())
+            # Format 2 (fallback): pipe-table | NFR-01 | Type | ... |
+            if not nfr_map:
+                for m in re.finditer(
+                    r'^\|\s*(NFR-\d+)\s*\|\s*([^|]+?)\s*\|', text, re.MULTILINE
+                ):
+                    nfr_id = m.group(1)
+                    if nfr_id not in nfr_map:
+                        nfr_map[nfr_id] = self._nfr_type_to_dim(m.group(2).strip())
             return nfr_map
+        except Exception:
+            return {}
+
+    def _parse_nfr_fr_xref(self, project_root: Path) -> dict[str, list[str]]:
+        """Extract NFR→[FR, ...] mapping from the §2 FR Cross-Reference table in SRS.md.
+
+        Looks for a pipe-table whose header contains 'NFR Association'.
+        Returns {nfr_id: [fr_id, ...]} reverse mapping.
+        """
+        srs_path = project_root / "01-requirements" / "SRS.md"
+        if not srs_path.exists():
+            return {}
+        try:
+            text = srs_path.read_text(encoding="utf-8")
+            # Find table header with 'NFR Association' column
+            header_re = re.compile(
+                r'^(?:\|[^|\n]*)+\|\s*NFR\s*Association\s*\|', re.IGNORECASE | re.MULTILINE
+            )
+            header_match = header_re.search(text)
+            if not header_match:
+                return {}
+            cols = [c.strip() for c in header_match.group(0).split('|') if c.strip()]
+            nfr_col = next(
+                (i for i, c in enumerate(cols) if 'nfr' in c.lower() and 'assoc' in c.lower()),
+                -1,
+            )
+            if nfr_col == -1:
+                return {}
+            # Build FR→[NFR] map from table rows, then reverse it
+            fr_nfr: dict[str, list[str]] = {}
+            for line in text[header_match.end():].splitlines():
+                line = line.strip()
+                if not line.startswith('|'):
+                    if line:
+                        break
+                    continue
+                if re.match(r'^\|[\s\-|]+\|$', line):
+                    continue
+                cells = [c.strip() for c in line.split('|') if c.strip()]
+                if not cells:
+                    continue
+                fr_match = re.match(r'^(FR-\d+)$', cells[0])
+                if not fr_match:
+                    continue
+                fr_id = f"FR-{fr_match.group(1).split('-')[1].zfill(2)}"
+                if nfr_col < len(cells):
+                    nfr_ids = [f"NFR-{n.zfill(2)}" for n in re.findall(r'NFR-(\d+)', cells[nfr_col])]
+                    if nfr_ids:
+                        fr_nfr[fr_id] = nfr_ids
+            # Reverse: NFR → [FR, ...]
+            nfr_fr: dict[str, list[str]] = {}
+            for fr_id, nfr_ids in fr_nfr.items():
+                for nfr_id in nfr_ids:
+                    nfr_fr.setdefault(nfr_id, []).append(fr_id)
+            return nfr_fr
         except Exception:
             return {}
 
@@ -1113,17 +1186,22 @@ class HarnessBridge:
         except Exception:
             sab = {}
 
+        _project_root = Path(sad_path).parent.parent
         nfr_map = sab.get("nfr_dim_map", {})
         # Fallback: if SAD.md nfr_dim_map is empty, parse from SRS.md
         if not nfr_map:
-            srs_nfr = self._parse_nfr_from_srs(Path(sad_path).parent.parent)
+            srs_nfr = self._parse_nfr_from_srs(_project_root)
             nfr_map = srs_nfr or nfr_map
+
+        # NFR→[FR] reverse mapping from §2 cross-reference table
+        nfr_fr_map = self._parse_nfr_fr_xref(_project_root)
 
         manifest: dict[str, Any] = {
             "schema_version": "1.0",
             "generated_at_phase": 2,
             "fr_ids": fr_ids,
             "nfr_dimension_mapping": nfr_map,
+            "nfr_fr_mapping": nfr_fr_map,
             "architecture_constraints": sab.get("constraints", []),
             "high_risk_modules": sab.get("high_risk", []),
             "gate_score_overrides": {},
