@@ -1239,7 +1239,7 @@ def cmd_run_phase(args: argparse.Namespace) -> int:
     if not pre["all_passed"]:
         print(f"\nPRE-FLIGHT FAILED: {pre['details']}")
         return 1
-        
+
     if args.phase == 3:
         from core.pre_flight import run_phase3_pre_flight
         passed, errors = run_phase3_pre_flight(project)
