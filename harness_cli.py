@@ -1236,6 +1236,33 @@ def cmd_run_phase(args: argparse.Namespace) -> int:
         print(f"\nPRE-FLIGHT FAILED: {pre['details']}")
         return 1
 
+    # Phase 3: verify dev environment (tools + DB) before any sub-agent dispatch.
+    # preflight_all() validates governance artifacts but does not check runtime
+    # dependencies (pytest, DATABASE_URL, psql) that sub-agents need at GATE1.
+    if args.phase in _PER_FR_GATE1_PHASES:
+        from core.pre_flight import check_cli_tools, check_database_connectivity
+
+        p3_errors: list[str] = []
+        missing = check_cli_tools(["pytest", "ruff"])
+        if missing:
+            p3_errors.append(f"Missing CLI tools: {', '.join(missing)}. Install: pip install {' '.join(missing)}")
+        if not os.environ.get("DATABASE_URL"):
+            p3_errors.append("DATABASE_URL not set. Export it or create a .env file.")
+        else:
+            ok, diag = check_database_connectivity(os.environ["DATABASE_URL"])
+            if not ok:
+                if diag == "missing_psql":
+                    p3_errors.append("psql not installed — DB connectivity unverified. Install: brew install libpq")
+                elif diag == "timeout":
+                    p3_errors.append("DB connection timed out — is the postgres container running?")
+                else:
+                    p3_errors.append("DB connectivity failed — check DATABASE_URL host/credentials.")
+        if p3_errors:
+            print(f"\n[BLOCKED] Phase {args.phase} environment not ready:")
+            for e in p3_errors:
+                print(f"  ✗ {e}")
+            return 1
+
     print("\n[INFO] Preflight passed. Phase execution hooks ready.")
 
     # HR-10 audit: warn if sessions_spawn.log is missing expected FR entries
