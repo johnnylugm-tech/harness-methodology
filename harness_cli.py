@@ -4354,6 +4354,39 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f'"commit": "<hash>", "summary": "<under 50 chars>"}}'
         )
 
+    if step == "COVERAGE-FIX":
+        # Dispatched when _classify_snapshot_failure returns "LOW_COVERAGE":
+        # all Gate 1 tests pass but test_coverage dimension is still failing.
+        # Two root causes:
+        #   A. Existing tests don't cover enough source lines (code_cov < 80%).
+        #   B. Required test functions from TEST_SPEC.md are absent (spec_cov < 80%).
+        return (
+            f"You are a coverage fixer for {fr_id}.\n\n"
+            f"[FORBIDDEN — read first]\n"
+            f"- Deleting or xfail-marking existing tests\n"
+            f"- Modifying source files in `{src_dir}/`\n\n"
+            f"[SITUATION]\n"
+            f"All Gate 1 tests currently PASS, but the test_coverage dimension is FAILING.\n"
+            f"Coverage is below the 80% threshold. Two possible root causes:\n"
+            f"  A. Existing tests don't cover enough source lines (code coverage < 80%).\n"
+            f"  B. Required test functions from TEST_SPEC.md are absent from `{test_file}`.\n\n"
+            f"[ACTUAL TOOL OUTPUT — from pre-run]\n"
+            f"{tool_snapshot or '(not available)'}\n\n"
+            f"[TASK]\n"
+            f"1. Run `pytest {test_file} --cov={src_dir} --cov-report=term-missing -q` "
+            f"to identify which source lines are not covered (Miss column).\n"
+            f"2. Read `02-architecture/TEST_SPEC.md` section for {fr_id} to identify required "
+            f"test function names. For each function missing from `{test_file}` — add it.\n"
+            f"3. For source lines shown as uncovered: add targeted unit tests that exercise "
+            f"those code paths.\n"
+            f"4. Re-run until coverage reaches ≥ 80%: "
+            f"`pytest {test_file} --cov={src_dir} --cov-report=term-missing -q`\n"
+            f"5. Commit: `git add {test_file} && "
+            f"git commit -m \"test({fr_id}): add coverage tests to reach ≥80% threshold\"`\n\n"
+            f'[OUTPUT FORMAT]\nReturn JSON: {{"status": "DONE", "coverage_pct": <number>, '
+            f'"tests_added": <count>, "commit": "<hash>", "summary": "<under 50 chars>"}}'
+        )
+
     if step == "CODE-FIX":
         # failing_dims=None means GATE1 timed out / errored before writing a result.
         # In this case we cannot know what failed — emit a diagnostic mode prompt
@@ -4552,13 +4585,14 @@ def _capture_tool_snapshot(
     return "\n".join(lines)[:2000]
 
 
-def _classify_snapshot_failure(snapshot: str) -> str:
+def _classify_snapshot_failure(snapshot: str, failing_dims: list | None = None) -> str:
     """Classify the root cause of a Gate 1 failure from tool snapshot output.
 
     Returns one of:
       "ENV"             — ModuleNotFoundError / ImportError (environment not set up)
       "ISOLATION"       — tests fail due to auth/HMAC short-circuit, not missing feature
       "PATCH_OBJECT"    — AttributeError: obj has no attribute 'method' (stub missing)
+      "LOW_COVERAGE"    — all tests pass but test_coverage dim failing (coverage < threshold)
       "MISSING_FEATURE" — AssertionError / genuine logic failure (CODE-FIX can help)
       "UNKNOWN"         — cannot classify (fall through to CODE-FIX)
     """
@@ -4573,6 +4607,16 @@ def _classify_snapshot_failure(snapshot: str) -> str:
     if ("status_code=401" in s or "source='auth'" in s
             or 'source="auth"' in s or "401 unauthorized" in s):
         return "ISOLATION"
+    # LOW_COVERAGE: test_coverage dim failing but all tests pass — coverage % below threshold.
+    # Snapshot is collected without --cov, so coverage % is not visible; detect via
+    # failing_dims (test_coverage listed) + no test failures in snapshot + tests did pass.
+    _test_cov_failing = (
+        failing_dims is not None
+        and any("test_coverage" in str(d).lower() for d in failing_dims)
+    )
+    _has_test_failures = "failed" in s or "assertionerror" in s
+    if _test_cov_failing and not _has_test_failures and "passed" in s:
+        return "LOW_COVERAGE"
     if "assertionerror" in s or "failed" in s or "error" in s:
         return "MISSING_FEATURE"
     return "UNKNOWN"
@@ -4722,7 +4766,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                 prev_snapshot_sig = curr_sig
 
                 # ── A: classify failure → route to the correct fixer ─────────────
-                failure_class = _classify_snapshot_failure(tool_snapshot)
+                failure_class = _classify_snapshot_failure(tool_snapshot, failing_dims=failing_dims)
 
                 if failure_class == "ENV":
                     print(f"[run-fr-step] {fr_id} ENV error — human intervention required\n"
@@ -4753,6 +4797,15 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                         failing_dims=failing_dims, tool_snapshot=tool_snapshot,
                     )
                     fix_step_name = "CODE-FIX"
+                elif failure_class == "LOW_COVERAGE":
+                    print(f"[run-fr-step] {fr_id} LOW_COVERAGE failure "
+                          f"(round {fix_round}/{max_fix_rounds})"
+                          f" — dispatching COVERAGE-FIX (tests pass, coverage < 80%)")
+                    fix_prompt = _build_fr_step_prompt(
+                        "COVERAGE-FIX", fr_id, phase, project, srs_path,
+                        tool_snapshot=tool_snapshot,
+                    )
+                    fix_step_name = "COVERAGE-FIX"
                 else:
                     print(f"[run-fr-step] {fr_id} GATE1 FAIL (round {fix_round}/{max_fix_rounds})"
                           f" — dispatching CODE-FIX sub-agent"
