@@ -4168,10 +4168,36 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f'"commit": "<hash or null>", "summary": "<under 50 chars>"}}'
         )
 
+    # Compute spec test coverage (ratio of required tests that exist + pass).
+    # Used both in GATE1 prompt (to make the evaluator report spec coverage)
+    # and in finalize_gate (to override dimension score when spec is incomplete).
+    spec_test_names, _ = _extract_test_spec_names(project, fr_id)
+    test_file_path = project / test_file
+    existing_spec_tests: set[str] = set()
+    if spec_test_names and test_file_path.exists():
+        try:
+            tf_content = test_file_path.read_text(encoding="utf-8")
+            existing_spec_tests = {
+                fn for fn in spec_test_names if f"def {fn}" in tf_content
+            }
+        except OSError:
+            pass
+
+    spec_cov_pct = (
+        round(len(existing_spec_tests) / max(len(spec_test_names), 1) * 100)
+        if spec_test_names else 100
+    )
+    missing_spec_count = len(spec_test_names) - len(existing_spec_tests)
+    spec_summary = (
+        f"SPEC COVERAGE: {len(existing_spec_tests)}/{len(spec_test_names)} "
+        f"({spec_cov_pct}%) — {missing_spec_count} missing"
+        if spec_test_names else ""
+    )
+
+    # GATE1-DELTA no longer passes --delta to run-gate. The skip-if-unchanged
+    # decision is now made by _fr_step_already_done() via git diff before dispatch.
+    # Once we reach here, code has changed → full GATE1 evaluation.
     if step in ("GATE1", "GATE1-DELTA"):
-        # GATE1-DELTA no longer passes --delta to run-gate. The skip-if-unchanged
-        # decision is now made by _fr_step_already_done() via git diff before dispatch.
-        # Once we reach here, code has changed → full GATE1 evaluation.
 
         # ── TEST_SPEC.md required test names for test_coverage evaluation ──
         spec_test_names, _ = _extract_test_spec_names(project, fr_id)
@@ -4196,6 +4222,18 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
                 f"{block_reason}\n"
                 f"Ensure the gate1_result.json you write this time satisfies the\n"
                 f"tool_evidence requirement described in step 3 below.\n\n"
+            )
+
+        # ── Spec test coverage status (inject so evaluator knows the current state) ──
+        spec_section = ""
+        if spec_test_names:
+            spec_section = (
+                f"\n[TEST SPEC — required test cases for {fr_id}]\n"
+                f"TEST_SPEC.md requires these EXACT test functions:\n"
+                + "\n".join(f"  - {fn}" for fn in spec_test_names)
+                + f"\n\n{spec_summary}\n"
+                f"→ score = min(coverage_pct, spec_cov_pct). Missing tests count as 0.\n"
+                f"  All required tests MUST exist and pass — partial coverage = partial score.\n\n"
             )
 
         return (
@@ -4232,7 +4270,10 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"   Scoring formulas:\n"
             f"   - linting:      ruff exit 0 → 100; else count violations: max(0, 100 - violations×5)\n"
             f"   - type_safety:  parse pyright JSON summary.errorCount: max(0, 100 - errorCount×5)\n"
-            f"   - test_coverage: parse coverage % from output; score = coverage_pct\n\n"
+            f"   - test_coverage: score = min(coverage_pct, spec_cov_pct).\n"
+            f"     spec_cov_pct = (existing_required_tests / total_required) × 100.\n"
+            f"     Currently: {missing_spec_count} required tests missing → spec_cov_pct = {spec_cov_pct}% → score capped at {spec_cov_pct}.\n"
+            f"     ALL required tests must exist and pass — partial spec coverage = partial score.\n\n"
             f"4. Run: `python3 harness_cli.py finalize-gate --gate 1 --phase {phase} "
             f"--fr-id {fr_id} --project .`\n"
             f"   If finalize-gate prints [BLOCKED], include the exact error in your output summary.\n\n"
@@ -4279,60 +4320,34 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
         # test_coverage can fail for two distinct reasons:
         #   A. Required test functions are MISSING from the test file.
         #   B. Required test functions EXIST but are FAILING.
-        # Determine which by scanning the test file against TEST_SPEC.md names.
-        # Give the agent different instructions for each case.
+        # Use the already-computed spec analysis from the top of this function.
         test_cov_section = ""
         if _test_cov_failing:
-            spec_names, _ = _extract_test_spec_names(project, fr_id)
-
-            # Scan the test file to split spec names into missing vs present.
-            # test_coverage can fail for two distinct reasons:
-            #   A. Required test functions are MISSING from the test file.
-            #   B. Required test functions EXIST but are FAILING.
-            test_file_path = project / test_file
-            existing_spec_tests: set[str] = set()
-            if spec_names and test_file_path.exists():
-                try:
-                    tf_content = test_file_path.read_text(encoding="utf-8")
-                    existing_spec_tests = {
-                        fn for fn in spec_names if f"def {fn}" in tf_content
-                    }
-                except OSError:
-                    pass
-
-            missing_spec = [fn for fn in spec_names if fn not in existing_spec_tests]
-            present_spec = [fn for fn in spec_names if fn in existing_spec_tests]
+            missing_spec = [fn for fn in spec_test_names if fn not in existing_spec_tests]
+            present_spec = [fn for fn in spec_test_names if fn in existing_spec_tests]
 
             parts: list[str] = [
                 f"\n[TEST COVERAGE FIX — required for test_coverage dimension]\n"
-                f"Run `pytest {test_file} -v` FIRST to see current pass/fail state.\n"
+                f"{spec_summary}\n\n"
             ]
 
             if missing_spec:
                 parts.append(
-                    f"MISSING — these required tests are NOT in `{test_file}`:\n"
+                    f"MISSING ({len(missing_spec)} tests) — these required tests are NOT in `{test_file}`:\n"
                     + "\n".join(f"  - {fn}" for fn in missing_spec)
-                    + "\n  → ADD each as a real, passing test.\n\n"
+                    + "\n  → ADD ALL of them as real, passing tests in THIS session.\n"
+                    + "  IMPORTANT: write ALL missing tests in one go — do not stop after 1-2.\n"
+                    + "  The agent has enough max_turns (70) to add all remaining tests in one session.\n\n"
                 )
 
             if present_spec:
                 parts.append(
-                    f"PRESENT but test_coverage still failing — these tests exist"
-                    f" in `{test_file}` but may be failing:\n"
+                    f"PRESENT but failing ({len(present_spec)} tests) — these tests exist in `{test_file}`:\n"
                     + "\n".join(f"  - {fn}" for fn in present_spec)
-                    + "\n\n"
-                    "  → Check pytest output for each failure.\n"
-                    "  → If assertion is wrong → fix the assertion.\n"
-                    "  → If source code is wrong → fix the source code.\n"
-                    "  IMPORTANT: `from __future__ import annotations` (PEP 563) in\n"
-                    "  source files stringifies all annotations at runtime, so\n"
-                    "  `inspect.signature(...).return_annotation is SomeType` → False.\n"
-                    "  Fix: remove `from __future__ import annotations` from the\n"
-                    "  affected source file, OR use `typing.get_type_hints(fn)` for\n"
-                    "  runtime annotation inspection instead of `.return_annotation`.\n\n"
+                    + "\n  → Run `pytest {test_file} -v` and fix each failing test.\n\n"
                 )
 
-            if not spec_names:
+            if not spec_test_names:
                 # No spec info — generic triage instruction
                 parts.append(
                     f"Read `02-architecture/TEST_SPEC.md` section for {fr_id} to get\n"

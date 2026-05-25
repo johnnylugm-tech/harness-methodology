@@ -419,6 +419,10 @@ class GateContext:
     tier3_context: dict = field(default_factory=dict)  # CRG Point 2 — per-dim context
     crg_safety_context: dict = field(default_factory=dict)  # CRG Points 3+4 — pre-computed
     auto_fix_rounds: int = 0
+    # Per-FR test spec coverage: list of required test names + set that exist.
+    # Used by finalize_gate() to cap test_coverage score at spec_coverage_pct.
+    _spec_test_names: list[str] = field(default_factory=list)
+    _existing_spec_tests: set[str] = field(default_factory=set)
 
     def evaluation_prompt(self) -> str:
         """Return a human-readable evaluation instruction for Claude."""
@@ -908,6 +912,42 @@ class HarnessBridge:
 
         sab_data = self._load_manifest_sab(project_root)
 
+        # ── Per-FR test spec coverage ────────────────────────────────────
+        # Used by finalize_gate() to cap test_coverage score at spec coverage %,
+        # so incomplete test suites don't get a falsely high score when existing
+        # tests all pass at 100% coverage.
+        _spec_names: list[str] = []
+        _existing_spec: set[str] = set()
+        if fr_id and gate_num == 1 and phase in {3, 4, 5, 7, 8}:
+            import re as _re
+            _num_match = _re.match(r"FR-(\d+)", fr_id)
+            _num_str = _num_match.group(1).zfill(2) if _num_match else ""
+            _test_file = Path(project_root) / "tests" / f"test_fr{_num_str}.py"
+            _spec_path = Path(project_root) / "02-architecture" / "TEST_SPEC.md"
+            if _spec_path.exists():
+                try:
+                    _spec_text = _spec_path.read_text(encoding="utf-8")
+                    _current_fr = ""
+                    for _line in _spec_text.splitlines():
+                        _stripped = _line.strip()
+                        _m = _re.match(r"^###\s+([A-Z]+-\d+)(?:[:\s]|$)", _stripped)
+                        if _m:
+                            _current_fr = _m.group(1)
+                            continue
+                        if _current_fr != fr_id:
+                            continue
+                        _fn_m = _re.match(r"^\s*-\s*`?(test_[^`\s]+)`?", _line)
+                        if _fn_m:
+                            _spec_names.append(_fn_m.group(1))
+                except OSError:
+                    pass
+            if _spec_names and _test_file.exists():
+                try:
+                    _content = _test_file.read_text(encoding="utf-8")
+                    _existing_spec = {fn for fn in _spec_names if f"def {fn}" in _content}
+                except OSError:
+                    pass
+
         return GateContext(
             gate_num=gate_num,
             config=config,
@@ -922,6 +962,8 @@ class HarnessBridge:
             tier3_context=tier3_context,
             crg_safety_context=crg_safety_context,
             auto_fix_rounds=auto_fix_rounds,
+            _spec_test_names=_spec_names,
+            _existing_spec_tests=_existing_spec,
         )
 
     def finalize_gate(self, ctx: GateContext) -> GateResult:
@@ -1019,11 +1061,23 @@ class HarnessBridge:
                 if _dt is not None:
                     _dim_thresholds[_dname] = float(_dt)
 
+        # Compute test_coverage cap from spec test coverage.
+        # When required tests are partially missing, coverage % can be 100% even
+        # when most tests don't exist yet. Cap at spec_coverage_pct.
+        _spec_names: list = getattr(ctx, '_spec_test_names', [])
+        _spec_existing: set = getattr(ctx, '_existing_spec_tests', set())
+        _spec_cap: float = 100.0
+        if _spec_names and len(_spec_existing) < len(_spec_names):
+            _spec_cap = len(_spec_existing) / max(len(_spec_names), 1) * 100.0
+
         dims: list[DimResult] = []
         for dim_name, dim_data in raw.get("breakdown", {}).items():
+            score = dim_data.get("score", 0.0)
+            if dim_name == "test_coverage" and _spec_names:
+                score = min(score, _spec_cap)
             dims.append(DimResult(
                 name=dim_name,
-                score=dim_data.get("score", 0.0),
+                score=score,
                 threshold=dim_data.get("threshold", 0.0),
                 issues=dim_data.get("issues", []),
             ))
