@@ -272,9 +272,11 @@ except Exception:
           echo "OK: $APPROVED Agent B APPROVE file(s) found."
 
   agent-b-approval-check:
-    name: Agent B Approval Verification
+    # DEPRECATED: A/B review chain ended at P2. P3+ uses Gate 1 (local) instead of per-FR approval JSON.
+    # P1/P2 approval checks are already covered by p1p2-enforcement above.
+    name: Agent B Approval Verification (P1/P2 only)
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.phase.outputs.PHASE <= '2'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -300,9 +302,10 @@ except Exception:
           " 2>/dev/null || echo "0")
           echo "PHASE=$PHASE" >> $GITHUB_OUTPUT
 
-      - name: Verify Agent B approvals (P3+)
-        # P1/P2 approval check is handled by p1p2-enforcement job.
-        if: steps.phase.outputs.PHASE >= 3
+      - name: Verify Agent B approvals (P1/P2)
+        # P3+ uses Gate 1 (local) instead of per-FR approval JSON.
+        # Gate-pass-check (separate job) covers gate PASS records for P4+.
+        if: steps.phase.outputs.PHASE <= '2'
         run: |
           python harness/harness_cli.py verify-agent-b-approvals \
             --phase ${{ steps.phase.outputs.PHASE }} \
