@@ -8,8 +8,9 @@ Post-fix: drift check, score regression detection, invariant verification
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
 def pre_fix_safety_check(
@@ -157,3 +158,45 @@ def rollback_if_unsafe(
         except Exception:
             pass
     return rolled_back
+
+
+def ast_mutation_guard(
+    file_path: Path,
+    pre_content: str,
+    post_content: str,
+    allowed_node_name: Optional[str] = None
+) -> bool:
+    """
+    Compare AST trees before and after fix.
+    Ensures no nodes outside the allowed_node_name are modified or added.
+    """
+    if not allowed_node_name:
+        return True  # No dynamic constraint applied
+        
+    if not file_path.suffix == ".py":
+        return True  # Only Python files supported for AST analysis
+        
+    try:
+        pre_tree = ast.parse(pre_content)
+        post_tree = ast.parse(post_content)
+
+        def get_invariants(tree: ast.Module, exclude_name: str) -> List[str]:
+            invariants = []
+            for node in tree.body:
+                if isinstance(node, (ast.FunctionDef, ast.ClassDef, ast.AsyncFunctionDef)):
+                    if node.name == exclude_name:
+                        continue
+                invariants.append(ast.dump(node))
+            return invariants
+
+        pre_inv = get_invariants(pre_tree, allowed_node_name)
+        post_inv = get_invariants(post_tree, allowed_node_name)
+
+        if pre_inv != post_inv:
+            return False
+
+    except Exception:
+        # Any parsing failure represents syntax corruption or illegal content
+        return False
+
+    return True

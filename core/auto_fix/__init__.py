@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from core.auto_fix.error_class import ErrorClass
 
 import time
+import ast
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -178,6 +179,41 @@ class AutoFixEngine:
                 rounds_used=context.retry_count,
             )
 
+        # ── AST Segment Slicing and Backup pre-fix content ────────────────
+        allowed_node = None
+        pre_fix_content_map = {}
+        for fp in files:
+            if isinstance(fp, Path) and fp.suffix == ".py" and fp.exists():
+                try:
+                    pre_fix_content_map[fp] = fp.read_text(encoding="utf-8")
+                except Exception:
+                    pass
+
+        error_line = context.details.get("line")
+        if error_line and files:
+            target_file = files[0]
+            if isinstance(target_file, Path) and target_file.suffix == ".py" and target_file.exists() and target_file in pre_fix_content_map:
+                try:
+                    tree = ast.parse(pre_fix_content_map[target_file])
+                    for node in ast.walk(tree):
+                        if isinstance(node, (ast.FunctionDef, ast.ClassDef, ast.AsyncFunctionDef)):
+                            start = node.lineno
+                            end = getattr(node, "end_lineno", start)
+                            if not hasattr(node, "end_lineno"):
+                                max_line = start
+                                for child in ast.walk(node):
+                                    if hasattr(child, "lineno"):
+                                        max_line = max(max_line, child.lineno)
+                                end = max_line
+                            
+                            if start <= int(error_line) <= end:
+                                allowed_node = node.name
+                                break
+                except Exception:
+                    pass
+        if allowed_node:
+            context.details["allowed_node_name"] = allowed_node
+
         # Apply fix
         from core.auto_fix.strategies import STRATEGY_REGISTRY
 
@@ -194,6 +230,34 @@ class AutoFixEngine:
             )
 
         success, action_taken, conf = fix_fn(context, self.project_root)
+
+        # ── AST Mutation Guardrail Verification & Safe Rollback ───────────
+        escalation_override = None
+        if success and allowed_node:
+            from core.auto_fix.guardrails import ast_mutation_guard
+            for fp, pre_content in pre_fix_content_map.items():
+                if fp.exists():
+                    try:
+                        post_content = fp.read_text(encoding="utf-8")
+                        is_safe = ast_mutation_guard(
+                            file_path=fp,
+                            pre_content=pre_content,
+                            post_content=post_content,
+                            allowed_node_name=allowed_node
+                        )
+                        if not is_safe:
+                            success = False
+                            action_taken = f"Blocked by ast_mutation_guard: Out-of-bounds change detected in {fp.name}"
+                            conf = 0.0
+                            fp.write_text(pre_content, encoding="utf-8")
+                            escalation_override = EscalationCondition.HR14_INTEGRITY
+                    except Exception as e:
+                        success = False
+                        action_taken = f"Blocked by ast_mutation_guard error: {e}"
+                        conf = 0.0
+                        fp.write_text(pre_content, encoding="utf-8")
+                        escalation_override = EscalationCondition.HR14_INTEGRITY
+
         result = FixResult(
             success=success,
             strategy=strategy,
@@ -203,6 +267,8 @@ class AutoFixEngine:
             pre_fix_safety=safety,
             rounds_used=context.retry_count,
         )
+        if escalation_override:
+            result.escalation = escalation_override
 
         # Post-fix drift if verified strategy
         if strategy == FixStrategy.AUTO_FIX_WITH_VERIFICATION and success:

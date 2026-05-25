@@ -15,10 +15,56 @@ from __future__ import annotations
 import re
 import json
 import sys
+import ast
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional, Set
+
+
+# ---------------------------------------------------------------------------
+# ASTDependencyScanner
+# ---------------------------------------------------------------------------
+
+class ASTDependencyScanner(ast.NodeVisitor):
+    """AST visitor to extract imports with robust relative path resolution."""
+    
+    def __init__(self, current_file_rel: str):
+        self.imports: Set[str] = set()
+        self.current_file_rel = current_file_rel
+
+    def visit_Import(self, node: ast.Import):
+        for name in node.names:
+            self.imports.add(name.name)
+        self.generic_visit(node)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom):
+        module = node.module or ""
+        if node.level > 0:
+            # Resolve relative import based on current file location
+            parts = Path(self.current_file_rel).parent.parts
+            if parts and parts[0] == ".":
+                parts = parts[1:]
+            
+            slice_len = len(parts) - (node.level - 1)
+            if slice_len >= 0:
+                base_parts = parts[:slice_len]
+                base_module = ".".join(base_parts)
+            else:
+                base_module = ""
+            
+            if base_module:
+                module = f"{base_module}.{module}" if module else base_module
+        
+        if module:
+            self.imports.add(module)
+            
+        for name in node.names:
+            if module:
+                self.imports.add(f"{module}.{name.name}")
+            else:
+                self.imports.add(name.name)
+        self.generic_visit(node)
 
 
 # ---------------------------------------------------------------------------
@@ -410,10 +456,20 @@ class DriftDetector:
             except Exception:
                 continue
 
-            for match in re.finditer(
-                r'^\s*(?:from|import)\s+(\S+)', py_text, re.MULTILINE
-            ):
-                imported = match.group(1)
+            scanner = ASTDependencyScanner(rel)
+            imported_list = set()
+            try:
+                tree = ast.parse(py_text)
+                scanner.visit(tree)
+                imported_list = scanner.imports
+            except Exception:
+                # Fallback to regex if parsing fails (e.g. syntax error in middle of refactoring)
+                for match in re.finditer(
+                    r'^\s*(?:from|import)\s+(\S+)', py_text, re.MULTILINE
+                ):
+                    imported_list.add(match.group(1))
+
+            for imported in imported_list:
                 target_layer = self._resolve_import_layer(imported, layer_to_modules)
                 if target_layer and target_layer != source_layer and target_layer not in allowed:
                     checked += 1

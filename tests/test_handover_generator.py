@@ -2090,9 +2090,10 @@ class TestFinalizeGateHR10:
             exit_code = e.code
 
         output = captured.getvalue()
-        assert exit_code in (0, 1), f"Expected exit 0 or 1 (not hard-block 5), got {exit_code}"
+        assert exit_code == 5, f"Expected exit 5 (hard-block), got {exit_code}"
         assert "parse error" in output.lower()
-        assert "HR-10" in output
+        assert "hr-10" in output.lower()
+        assert "blocked" in output.lower()
 
     def test_phase3_skips_hr10_check(self, tmp_path, monkeypatch):
         """Phase 3+ does not enforce HR-10/HR-01 (A/B removed)."""
