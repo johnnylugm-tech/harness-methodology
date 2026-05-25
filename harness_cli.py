@@ -4507,13 +4507,14 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
             return _explicit_max_turns
         return _STEP_MAX_TURNS.get(step_name.upper(), 40)
 
-    # GATE1 needs shell (ruff/pytest/pyright); other steps write code only.
+    # All FR steps need shell access:
+    #   GATE1/GATE1-DELTA: ruff, pyright, pytest, coverage
+    #   TDD-RED/GREEN/IMPROVE: pytest to verify fail/pass
+    #   CODE-FIX: pytest to confirm fix doesn't break other tests
+    # acceptEdits blocks Bash → agents skip verification steps and commit
+    # broken code, causing the next GATE1 to fail again.
     _explicit_pmode = getattr(args, "permission_mode", None)
-    _pmode = (
-        _explicit_pmode
-        if _explicit_pmode is not None
-        else ("bypassPermissions" if step in ("GATE1", "GATE1-DELTA") else "acceptEdits")
-    )
+    _pmode = _explicit_pmode if _explicit_pmode is not None else "bypassPermissions"
 
     result = spawner.spawn(
         role="developer",
