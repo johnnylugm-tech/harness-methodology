@@ -51,7 +51,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import hmac
 import json
 import os
 import re
@@ -129,41 +128,6 @@ _STEP_MAX_TURNS: dict[str, int] = {
 }
 
 # ---------------------------------------------------------------------------
-# State integrity seal (P3: tamper-evident state.json)
-# ---------------------------------------------------------------------------
-
-_SEAL_PEPPER = "h4rness-m3th-v2-seal-8a7f2c"  # hardcoded constant — do not change
-
-def _compute_seal(data: dict) -> str:
-    """Compute HMAC-SHA256 seal for state.json content (excludes _seal key)."""
-    payload = json.dumps(
-        {k: v for k, v in data.items() if k != "_seal"}, sort_keys=True
-    )
-    return hmac.new(
-        _SEAL_PEPPER.encode(), payload.encode(), hashlib.sha256
-    ).hexdigest()[:16]
-
-def _verify_state_integrity(project: Path) -> tuple[bool, str]:
-    """Verify state.json seal is intact.
-
-    Returns (ok, diagnostic).
-    - (True, "") — seal valid or state.json absent
-    - (False, "LEGACY") — no seal present (old-format state.json, warn but don't block)
-    - (False, "TAMPERED") — seal present but invalid (direct edit detected)
-    """
-    state_path = project / ".methodology" / "state.json"
-    if not state_path.exists():
-        return True, ""  # No state yet — nothing to verify
-    try:
-        data = json.loads(state_path.read_text(encoding="utf-8"))
-    except Exception:
-        return False, "TAMPERED"
-    stored = data.pop("_seal", None)
-    if stored is None:
-        return False, "LEGACY"  # Old-format state.json — needs migration, not block
-    valid = hmac.compare_digest(_compute_seal(data), stored)
-    return (True, "") if valid else (False, "TAMPERED")
-
 # Tool name → (check_command, human_name).
 # Used by _verify_gate_tools() to verify tools are actually installed before
 # accepting dimension scores (S2: prevents LLM guessing when tools are missing).
@@ -2101,34 +2065,6 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
 
     print(f"\n{'='*60}\nfinalize-gate: Gate {args.gate} | Phase {args.phase}\n{'='*60}")
 
-    # ── S0: State integrity check (P3 — tamper-evident seal) ─────────────
-    _seal_ok, _seal_diag = _verify_state_integrity(project_path)
-    if not _seal_ok:
-        if _seal_diag == "LEGACY":
-            print(
-                "  [WARN] state.json has no integrity seal (legacy format).\n"
-                "  The seal will be added on the next advance-phase / _advance_fsm() call.\n"
-                "  Until then, direct edits to state.json cannot be detected."
-            )
-        elif args.gate == 1:
-            # Gate 1 is per-FR; operator manual fixes (direct state.json edits) are
-            # an expected recovery path.  The seal is restored at S3 by
-            # _update_state_checkpoint() — blocking here creates an unresolvable
-            # deadlock.  Gate 2/3/4 remain blocking (codebase should be stable).
-            print(
-                "  [WARN] state.json seal invalid — likely from a manual operator fix.\n"
-                "  Gate 1 allows this: seal will be restored at finalize S3.\n"
-                "  Gate 2 / 3 / 4 will block on any seal violation."
-            )
-        else:  # TAMPERED, gate >= 2
-            print(
-                "\n[BLOCKED] state.json integrity seal is INVALID.\n"
-                "  The file was edited directly instead of through advance-phase.\n"
-                "  Run: python harness_cli.py advance-phase --completed <current_phase> --project .\n"
-                "  to regenerate the seal through the legitimate FSM path."
-            )
-            return 8
-
     # ── S0: Tool availability enforcement (S2 — prevent LLM guessing) ────
     _tools_ok, _missing_tools = _verify_gate_tools(args.gate, project)
     if not _tools_ok:
@@ -3632,7 +3568,7 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                 return 2
             # Check phase_truth_passed for phases with exit gates
             if (args.completed_phase in _PHASE_EXIT_GATES
-                    and "_seal" in _state):  # Only for new-format state.json
+                    ):
                 if not _state.get("phase_truth_passed"):
                     print(
                         f"\n[BLOCKED] advance-phase: phase_truth_passed not recorded "
@@ -5348,7 +5284,6 @@ def _update_state_checkpoint(
         _current_phase = int(existing.get("current_phase", phase or 0))
         if gate_num == _PHASE_EXIT_GATES.get(_current_phase):
             existing["phase_truth_passed"] = True
-        existing["_seal"] = _compute_seal(existing)
         atomic_write_json(state_path, existing)
 
 def _advance_fsm(project: Path, completed_phase: int,
@@ -5389,7 +5324,6 @@ def _advance_fsm(project: Path, completed_phase: int,
             "last_update": datetime.now(timezone.utc).isoformat(),
             "phase_truth_passed": False,  # Reset for new phase
         }
-        state_data["_seal"] = _compute_seal(state_data)
         atomic_write_json(state_path, state_data)
         # B5: Advance fr_progress.json inside the same lock so state.json and
         # fr_progress.json are always updated atomically from any reader's
