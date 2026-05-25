@@ -814,6 +814,8 @@ File paths used:
 
 **Success condition for `postflight_all`**: `constitution.passed AND drift check passed AND all FR results have review_status == "APPROVE"`.
 
+**OpenTelemetry span wrapping** (v2.7.0+): `PhaseHooks` lazily imports `core.observability.init_tracer` during `__init__` and stores it as `self.tracer`. Both `preflight_all()` and `postflight_all()` wrap their execution in a named OTel span (`phase_{N}_preflight` / `phase_{N}_postflight`) with `phase` and `all_passed`/`success` attributes. Tracing is a no-op when `core.observability` is unavailable (import guarded by `try/except`).
+
 ---
 
 ### §3.9 — `core/hybrid_workflow.py` — Smart-Routing Workflow
@@ -989,20 +991,35 @@ class SteeringConfig:
     }
 
 class LLMJudgeScorer:
+    # Lazy CRG cache — avoids one CRGBridge instantiation per score() call
+    _crg_bridge: Any = None   # set on first successful import of crg_bridge
+    _crg_tried: bool = False  # True after first attempt (prevents repeated import errors)
+
     def score(output_a, output_b) -> {"A": {scores}, "B": {scores}}:
         # Dimensions: correctness, completeness, consistency, concision, maintainability
         # Fallback: pessimistic 0.5 across all dims on parse failure
+
+    def score_with_critic_debate(output_a, output_b) -> {"A": {scores}, "B": {scores}}:
+        # Multi-round debate: critic identifies gaps → A defends → B defends → consensus decider rescores
+        # Consumes .methodology/runtime_trace.json (pytest failure trace) once if present
+        # Falls back to score() on any LLM failure
 
     def generate_feedback(output_a, output_b, scores_a, scores_b, winner) -> dict:
         # Returns: {winner_advantages, loser_improvements, actionable_guidance}
 ```
 
-**`SteeringLoop(provider, config, history_path)`**:
+**Module-level constants** (dynamic activation thresholds):
+```python
+DEBATE_DELTA_THRESHOLD = 0.15      # any module: trigger debate when score delta < this
+SENSITIVE_DEBATE_THRESHOLD = 0.30  # sensitive modules: trigger debate when delta < this
+```
+
+**`SteeringLoop(provider, config=None, history_path="", project_root: Optional[Path] = None)`**:
 
 ```python
-def iterate(output_a, output_b) -> IterationResult:
+def iterate(output_a, output_b, changed_modules: Optional[List[str]] = None) -> IterationResult:
     # 1. Update stage (EXPLORATION → COMPETITION → CONVERGENCE)
-    # 2. Score both outputs (tool-based; LLM-judge skipped by default — NoopProvider)
+    # 2. Score both outputs; if _should_activate_debate() → score_with_critic_debate()
     # 3. Compute weighted total (quality_score*w["quality"] + clarity_score*w["clarity"] + consistency_score*w["consistency"] + efficiency_score*w["efficiency"])
     # 4. Determine winner, update best_output
 
@@ -1010,6 +1027,12 @@ def iterate(output_a, output_b) -> IterationResult:
     # 6. Compute convergence score (avg delta of last 3 rounds)
     # 7. Persist history to .methodology/steering_history.json
     # → Returns IterationResult
+
+def _should_activate_debate(initial_delta: float, changed_modules: Optional[List[str]]) -> bool:
+    # True if delta < DEBATE_DELTA_THRESHOLD (any module), OR
+    # True if any changed module path contains a SENSITIVE_MODULES prefix
+    #   AND delta < SENSITIVE_DEBATE_THRESHOLD
+    # Sensitive prefixes: steering/, enforcement/, core/auto_fix/, core/fsm/
 
 def should_continue() -> (bool, str):
     # Returns False if: max_iterations reached, quality_threshold met,
@@ -1206,10 +1229,12 @@ class KillSwitch:
 
 | File | Class / Purpose |
 |------|----------------|
-| `__init__.py` | `AutoFixEngine`, `FixResult`, `FixStrategy`, `FixContext`, `EscalationCondition` |
+| `__init__.py` | `AutoFixEngine`, `FixResult`, `FixStrategy`, `FixContext`, `EscalationCondition`; MVC integration: passes `mvc_text`/`allowed_node_name` from `segment_slicing` into fix context |
 | `classifier.py` | 31-entry classification table; `classify()` → (strategy, confidence, max_rounds, problem_type) |
 | `strategies.py` | 12 strategy functions in `STRATEGY_REGISTRY` (stub generation, keyword injection, test scaffolding, etc.) |
-| `guardrails.py` | `pre_fix_safety_check()`, `post_fix_drift_check()`, `regression_check()`, `rollback_if_unsafe()` |
+| `guardrails.py` | `pre_fix_safety_check()`, `post_fix_drift_check()`, `regression_check()`, `rollback_if_unsafe()`, `ast_mutation_guard()` |
+| `runtime_tracer.py` | pytest plugin (`pytest_exception_interact` hook); captures locals from failing frames; writes `.methodology/runtime_trace.json` (consumed once by `score_with_critic_debate`) |
+| `segment_slicing.py` | `extract_minimal_viable_context(file_path, error_line, crg_bridge, project_root) -> (mvc_text, allowed_node_name)`; ODD: AST-based Minimal Viable Context extraction; only activated when `error_line` is known; optional CRG integration for richer context |
 
 **FixStrategy enum**:
 - `AUTO_FIX` — fully automatic, no verification needed (e.g., missing stub generation, keyword density)
@@ -1236,6 +1261,9 @@ Thresholds are configurable via `AutoFixEngine.__init__` parameters:
 - `orchestration/__init__.py`: exports `run_constitution_check_with_feedback`, `run_enforcement_check_with_feedback`, `run_policy_check_with_feedback` — retry-aware wrappers that delegate auto-fix to AutoFixEngine on failure
 - `core/phase_hooks.py`: `auto_fix_enabled` parameter, `to_fix_context()` method
 - `harness/harness_bridge.py`: `GateContext.auto_fix_rounds`, `prepare_gate(auto_fix_rounds=...)`
+
+**`ast_mutation_guard(file_path, pre_content, post_content, allowed_node_name) -> bool`** (guardrails.py):
+Validates that a fix touched only the AST node named `allowed_node_name`. Dumps invariants of all _other_ top-level nodes (FunctionDef, ClassDef, AsyncFunctionDef) and compares pre/post. For nested methods inside a ClassDef, deep-copies the parent class, strips the target method, then dumps the remainder — so decorator/base-class changes on the parent class are also caught. Returns `False` (unsafe) if: post-fix has a syntax error, or any out-of-bounds node changed. Returns `True` unconditionally for non-.py files or when `allowed_node_name` is None.
 
 **Pipeline integration** (in `cmd_run_pipeline`):
 ```
@@ -1432,6 +1460,42 @@ def compute_tool_score(tool: str, output: str, returncode: int) -> float | None:
 **Default timeouts** (seconds): `ruff` 30; `mypy`/`pyright` 60; `pytest`/`pytest-cov` 120; `gitleaks` 30; `bandit` 60; `radon-cc`/`radon-mi` 30; `pydocstyle` 30; `grep-bare-except` 15.
 
 **Integration**: Called by `HarnessBridge` during `run_gate()` preflight to produce harness-owned tool scores. Results are compared against agent-reported scores in `cross_artifact.py` (§3.15) and logged to `.sessi-work/harness_verification/` for audit.
+
+---
+
+### §3.38 — `core/observability.py` — Agentic Trajectory Tracing
+
+**Responsibility**: OpenTelemetry-based trajectory logging for harness agent execution. Exports span data to a local JSONL file for offline time-travel debugging.
+
+**Classes**:
+
+| Class | Purpose |
+|---|---|
+| `JsonFileSpanExporter(log_dir: Path)` | OTel `SpanExporter` that appends span records to `.harness/traces/agent_trajectory.jsonl`. Records: name, trace_id, span_id, start_time, end_time, attributes, events. |
+
+**Module-level state**:
+```python
+_HARNESS_TRACER_INITIALIZED: bool = False  # module flag; prevents double-init even if third-party libs set a TracerProvider
+```
+
+**Public API**:
+```python
+def init_tracer(project_root: Path) -> trace.Tracer:
+    """Idempotent. Sets up TracerProvider + BatchSpanProcessor + JsonFileSpanExporter.
+    Export path: project_root/.harness/traces/agent_trajectory.jsonl
+    Returns trace.get_tracer("harness_agent")."""
+
+def get_tracer() -> trace.Tracer:
+    """Returns the already-configured tracer (call after init_tracer)."""
+```
+
+**Dependencies** (`pyproject.toml`):
+```toml
+"opentelemetry-api>=1.20.0",
+"opentelemetry-sdk>=1.20.0",
+```
+
+**Activation**: `PhaseHooks.__init__` lazy-imports `init_tracer` and stores the tracer as `self.tracer`. Any downstream code calling `preflight_all()` or `postflight_all()` automatically emits spans. `get_tracer()` is available for custom instrumentation in other modules.
 
 ---
 

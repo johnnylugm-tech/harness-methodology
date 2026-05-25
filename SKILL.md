@@ -10,7 +10,7 @@ description: |
 
 # SKILL.md — harness-methodology
 
-> **Version**: v2.6.0 | **Framework**: harness-methodology | **Academic Benchmark**: 91/100
+> **Version**: v2.7.0 | **Framework**: harness-methodology | **Academic Benchmark**: 91/100
 
 ---
 
@@ -368,12 +368,30 @@ State stored in `.methodology/state.json`:
 | Constitution keyword scan exclusions | `.methodology/constitution_profile.json` → `exclude_patterns` |
 | A/B agent personas | `agent_personas/` directory |
 
-## 8. CRG Integration Layer
+## 8. Agentic Trajectory Tracing (v2.7.0+)
+
+Harness emits OpenTelemetry spans for preflight/postflight execution. Spans land in `.harness/traces/agent_trajectory.jsonl` — one JSON object per line, time-travel-debuggable offline.
+
+**Activation**: automatic when `PhaseHooks` is instantiated with a valid `project_path`. No configuration required.
+
+**Dependencies** (already in `pyproject.toml`):
+```
+opentelemetry-api>=1.20.0
+opentelemetry-sdk>=1.20.0
+```
+
+**SteeringLoop tracing**: pass `project_root=Path(".")` to `SteeringLoop(...)` to enable CRG-lazy-cache integration in `LLMJudgeScorer`. The `score_with_critic_debate()` method fires a multi-round critic debate when score deltas are close (< `DEBATE_DELTA_THRESHOLD=0.15`) or when sensitive modules are changed and delta < `SENSITIVE_DEBATE_THRESHOLD=0.30`. Sensitive module prefixes: `steering/`, `enforcement/`, `core/auto_fix/`, `core/fsm/`.
+
+**Span names**: `phase_{N}_preflight`, `phase_{N}_postflight`
+
+---
+
+## 9. CRG Integration Layer
 
 CRG (Code Review Graph) is **mandatory** (same tier as ruff/mypy/pytest). It provides
 structural analysis — call graphs, community detection, flow analysis, dead code detection.
 
-### 8.1 CRG Injection Points (HarnessBridge)
+### 9.1 CRG Injection Points (HarnessBridge)
 
 | Point | When | API | Gates |
 |-------|------|-----|-------|
@@ -382,7 +400,7 @@ structural analysis — call graphs, community detection, flow analysis, dead co
 | 3 Pre-fix Safety | Before each fix round | `bridge.check_pre_fix_safety()` | 2, 3, 4 |
 | 4 Drift Check | After each fix round | `bridge.check_post_round_drift()` | 3, 4 |
 
-### 8.2 Deep Integration Points (Deterministic)
+### 9.2 Deep Integration Points (Deterministic)
 
 | # | Signal | Formula | Where |
 |---|--------|---------|-------|
@@ -393,7 +411,7 @@ structural analysis — call graphs, community detection, flow analysis, dead co
 | 5 | `hub_risk_map` | Severity bucket by fan-in | `evaluate_dimension.md` |
 | 6 | `suggested_questions` | Auto-seed issue registry | `crg_reconnaissance.md` |
 
-### 8.3 Key CRG MCP Tools
+### 9.3 Key CRG MCP Tools
 
 | Tool | Use |
 |------|-----|
@@ -408,7 +426,7 @@ structural analysis — call graphs, community detection, flow analysis, dead co
 | `find_large_functions` | Readability evaluation |
 | `refactor_tool` | Dead code detection |
 
-### 8.4 Gate-CRG Configuration
+### 9.4 Gate-CRG Configuration
 
 | Gate | CRG Scope |
 |------|----------|
@@ -417,7 +435,7 @@ structural analysis — call graphs, community detection, flow analysis, dead co
 | Gate 3 (P4 exit) | Full: recon + tier3 + impact + drift |
 | Gate 4 (P6 full) | Full + mandatory B3 recon check |
 
-### 8.5 Verifying CRG
+### 9.5 Verifying CRG
 
 ```bash
 python3 scripts/verify_tools.py          # CRG is now in CORE section
@@ -431,4 +449,4 @@ Full reference: `docs/CRG_DEEP_INTEGRATION.md`
 
 ---
 
-*harness-methodology v2.6.0 — Academic Benchmark 91/100*
+*harness-methodology v2.7.0 — Academic Benchmark 91/100*
