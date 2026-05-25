@@ -116,12 +116,16 @@ _DISPATCH_ERROR_STATUSES: frozenset[str] = frozenset({"REJECT", "BLOCKED", "FAIL
 # GATE1 needs more turns: 5-step workflow (run-gate → evaluate → write result.json
 # → finalize-gate → report) plus multi-dimension assessment on brownfield codebases.
 _STEP_MAX_TURNS: dict[str, int] = {
-    "TDD-RED":     40,
-    "TDD-GREEN":   40,
-    "TDD-IMPROVE": 40,
-    "GATE1":       70,
-    "GATE1-DELTA": 70,
-    "CODE-FIX":    50,
+    "TDD-RED":      40,
+    "TDD-GREEN":    40,
+    "TDD-IMPROVE":  40,
+    "GATE1":        70,
+    "GATE1-DELTA":  70,
+    "CODE-FIX":     50,
+    "TEST-FIX":     40,
+    "INFRA-FIX":    40,
+    "LINT-FIX":     70,   # 20+ constant renames with reference updates need many turns
+    "COVERAGE-FIX": 90,   # bulk spec-test writing (100+ tests) needs headroom
 }
 
 # ---------------------------------------------------------------------------
@@ -4398,8 +4402,78 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"Each `# pragma: no cover` annotation MUST be accompanied by a one-line comment "
             f"explaining WHY it is untestable, e.g.:\n"
             f"  `raise NotImplementedError  # pragma: no cover — abstract base, subclass must implement`\n\n"
+            f"[PARTIAL PROGRESS NOTE]\n"
+            f"If there are many missing spec tests (>50), add as many as you can and commit.\n"
+            f"The meta-loop will re-run if coverage is still insufficient — each session "
+            f"reads the test file fresh and picks up where the previous session left off.\n"
+            f"Do NOT stop early to 'leave some for next time' — add the maximum you can.\n\n"
             f'[OUTPUT FORMAT]\nReturn JSON: {{"status": "DONE", "coverage_pct": <number>, '
             f'"tests_added": <count>, "pragmas_added": <count>, '
+            f'"commit": "<hash>", "summary": "<under 50 chars>"}}'
+        )
+
+    if step == "INFRA-FIX":
+        # Dispatched when _classify_snapshot_failure returns "INFRA_SKIP":
+        # pytest reports N skipped (not failed) because Docker/Redis/external service
+        # is unavailable in CI. Coverage is 0 for those paths.
+        return (
+            f"You are an infrastructure mock fixer for {fr_id}.\n\n"
+            f"[FORBIDDEN — read first]\n"
+            f"- Deleting or xfail-marking existing tests\n"
+            f"- Removing skip markers without providing an alternative that actually runs\n\n"
+            f"[SITUATION]\n"
+            f"Gate 1 tests are being SKIPPED (not failing) because they depend on external "
+            f"infrastructure (Docker, Redis, database, external HTTP) that is unavailable in "
+            f"this environment. The skipped tests contribute 0 lines to coverage, causing "
+            f"test_coverage to fail.\n\n"
+            f"[ACTUAL TOOL OUTPUT — from pre-run]\n"
+            f"{tool_snapshot or '(not available)'}\n\n"
+            f"[TASK]\n"
+            f"1. Identify which tests are skipped and WHY (read the skip condition: "
+            f"`pytest {test_file} -v --collect-only 2>&1 | grep -i skip`).\n"
+            f"2. For each skipped test, choose ONE approach:\n"
+            f"   a. ADD a parallel mock-based test that exercises the same logic without "
+            f"real infra (e.g. monkeypatch Redis/Docker client). Keep the original skip "
+            f"test as-is for integration runs.\n"
+            f"   b. If the skipped code path is genuinely untestable without the real service "
+            f"AND the source branch is an infrastructure-only fallback: annotate with "
+            f"`# pragma: no cover` + reason comment in `{src_dir}/`.\n"
+            f"3. Run `pytest {test_file} -q` to verify no new failures are introduced.\n"
+            f"4. Commit: `git add {src_dir}/ {test_file} && "
+            f"git commit -m \"test({fr_id}): add mock tests for infra-skipped paths\"`\n\n"
+            f'[OUTPUT FORMAT]\nReturn JSON: {{"status": "DONE", "mocks_added": <count>, '
+            f'"pragmas_added": <count>, "commit": "<hash>", "summary": "<under 50 chars>"}}'
+        )
+
+    if step == "LINT-FIX":
+        # Dispatched when _classify_snapshot_failure returns "LINT_FAIL" or "LINT_AND_COVERAGE".
+        # LINT_AND_COVERAGE: fix linting only this round; coverage handled next round.
+        return (
+            f"You are a linting fixer for {fr_id}.\n\n"
+            f"[FORBIDDEN — read first]\n"
+            f"- Modifying test files in `tests/`\n"
+            f"- Suppressing violations with `# noqa` unless the violation is a false positive "
+            f"(document why if you use noqa)\n\n"
+            f"[SITUATION]\n"
+            f"Gate 1 linting dimension is FAILING. Fix ALL ruff violations in `{src_dir}/` "
+            f"so `ruff check {src_dir}/` exits 0.\n\n"
+            f"[ACTUAL TOOL OUTPUT — from pre-run]\n"
+            f"{tool_snapshot or '(not available)'}\n\n"
+            f"[TASK]\n"
+            f"1. Run `ruff check {src_dir}/ 2>&1` to see the full violation list.\n"
+            f"2. For N-series violations (naming conventions — N801, N802, N806, N816 etc.):\n"
+            f"   - Rename constants/variables to follow PEP 8 naming (UPPER_CASE for module "
+            f"constants, UpperCase for classes, lower_case for functions/variables).\n"
+            f"   - Update ALL references to each renamed symbol (use `grep -rn '<old_name>'` "
+            f"to find them, then rename systematically).\n"
+            f"3. For E/W-series violations: fix in-place per ruff's suggestion.\n"
+            f"4. Re-run `ruff check {src_dir}/` — it MUST exit 0 before you commit.\n"
+            f"5. Run `pytest {test_file} -q` to confirm no tests broken by renames.\n"
+            f"6. Commit: `git add {src_dir}/ && "
+            f"git commit -m \"fix({fr_id}): resolve ruff linting violations\"`\n\n"
+            f"[NOTE] If BOTH linting AND test_coverage were failing, this session fixes "
+            f"linting ONLY. The meta-loop will address coverage in the next round.\n\n"
+            f'[OUTPUT FORMAT]\nReturn JSON: {{"status": "DONE", "violations_fixed": <count>, '
             f'"commit": "<hash>", "summary": "<under 50 chars>"}}'
         )
 
@@ -4623,14 +4697,29 @@ def _classify_snapshot_failure(snapshot: str, failing_dims: list | None = None) 
     if ("status_code=401" in s or "source='auth'" in s
             or 'source="auth"' in s or "401 unauthorized" in s):
         return "ISOLATION"
-    # LOW_COVERAGE: test_coverage dim failing but all tests pass — coverage % below threshold.
-    # Snapshot is collected without --cov, so coverage % is not visible; detect via
-    # failing_dims (test_coverage listed) + no test failures in snapshot + tests did pass.
+    # Compute shared flags early — referenced by INFRA_SKIP, LINT, and LOW_COVERAGE checks.
     _test_cov_failing = (
         failing_dims is not None
         and any("test_coverage" in str(d).lower() for d in failing_dims)
     )
     _has_test_failures = "failed" in s or "assertionerror" in s
+    # INFRA_SKIP: tests skipped (not failed) because Docker/Redis/external service unavailable.
+    # Coverage is low because skipped tests contribute 0 executed lines. Distinct from
+    # ISOLATION: no 401/auth signal — pytest just reports "N skipped".
+    if _test_cov_failing and "skipped" in s and not _has_test_failures:
+        return "INFRA_SKIP"
+    # LINT_FAIL / LINT_AND_COVERAGE: ruff linting dimension is failing.
+    # Always fix linting first — mixing linting + coverage in one CODE-FIX round causes timeout.
+    _lint_failing = (
+        failing_dims is not None
+        and any("linting" in str(d).lower() for d in failing_dims)
+    )
+    if _lint_failing:
+        # LINT_AND_COVERAGE: both failing — fix linting this round, coverage next round.
+        return "LINT_AND_COVERAGE" if _test_cov_failing else "LINT_FAIL"
+    # LOW_COVERAGE: test_coverage dim failing but all tests pass — coverage % below threshold.
+    # Snapshot is collected without --cov, so coverage % is not visible; detect via
+    # failing_dims (test_coverage listed) + no test failures in snapshot + tests did pass.
     if _test_cov_failing and not _has_test_failures and "passed" in s:
         return "LOW_COVERAGE"
     if "assertionerror" in s or "failed" in s or "error" in s:
@@ -4798,6 +4887,26 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                         tool_snapshot=tool_snapshot,
                     )
                     fix_step_name = "TEST-FIX"
+                elif failure_class == "INFRA_SKIP":
+                    print(f"[run-fr-step] {fr_id} INFRA_SKIP failure "
+                          f"(round {fix_round}/{max_fix_rounds})"
+                          f" — dispatching INFRA-FIX (add mock tests for skipped paths)")
+                    fix_prompt = _build_fr_step_prompt(
+                        "INFRA-FIX", fr_id, phase, project, srs_path,
+                        tool_snapshot=tool_snapshot,
+                    )
+                    fix_step_name = "INFRA-FIX"
+                elif failure_class in ("LINT_FAIL", "LINT_AND_COVERAGE"):
+                    label = ("linting only" if failure_class == "LINT_FAIL"
+                             else "linting + coverage — linting first")
+                    print(f"[run-fr-step] {fr_id} {failure_class} failure "
+                          f"(round {fix_round}/{max_fix_rounds})"
+                          f" — dispatching LINT-FIX ({label})")
+                    fix_prompt = _build_fr_step_prompt(
+                        "LINT-FIX", fr_id, phase, project, srs_path,
+                        tool_snapshot=tool_snapshot,
+                    )
+                    fix_step_name = "LINT-FIX"
                 elif failure_class == "PATCH_OBJECT":
                     print(f"[run-fr-step] {fr_id} PATCH_OBJECT failure "
                           f"(round {fix_round}/{max_fix_rounds})"
