@@ -516,10 +516,10 @@ class TestSabClosureGaps:
     # ── Gap 2: generate_quality_manifest auto-populates gate_score_overrides ──
 
     def test_generate_quality_manifest_populates_gate_score_overrides(self, tmp_path):
-        """min_coverage in quality_targets → gate_score_overrides.coverage populated."""
+        """min_coverage, max_complexity etc. in quality_targets → gate_score_overrides populated."""
         bridge = HarnessBridge()
         sab_return = {
-            "quality_targets": {"min_coverage": 85},
+            "quality_targets": {"min_coverage": 85, "max_complexity": 10, "p95_latency_ms": 200},
             "constraints": [],
             "high_risk": [],
             "nfr_dim_map": {},
@@ -533,15 +533,20 @@ class TestSabClosureGaps:
                     with patch("harness.harness_bridge.Path", side_effect=_path_redirect):
                         p = bridge.generate_quality_manifest(["FR-01"], "SAD.md")
         data = json.loads(p.read_text())
-        assert data["gate_score_overrides"] == {"test_coverage": 85.0}
-        assert data["quality_targets"] == {"min_coverage": 85}
+        assert data["gate_score_overrides"] == {
+            "test_coverage": 85.0,
+            "complexity": 10.0,
+            "performance": 200.0,
+        }
+        assert data["quality_targets"]["min_coverage"] == 85
 
-    def test_generate_quality_manifest_no_override_when_no_min_coverage(self, tmp_path):
-        """quality_targets without min_coverage → gate_score_overrides stays empty."""
+    def test_generate_quality_manifest_no_override_when_no_mapping(self, tmp_path):
+        """quality_targets without mapped keys → gate_score_overrides stays empty."""
         bridge = HarnessBridge()
         sab_return = {
-            "quality_targets": {"max_complexity": 10},
-            "constraints": [], "high_risk": [], "nfr_dim_map": {},
+            "quality_targets": {"unknown_target": 10},
+            "constraints": [],
+            "high_risk": [], "nfr_dim_map": {},
             "nfr_traceability": {}, "fr_module_traceability": {},
         }
         _path_redirect = lambda *a: tmp_path / Path(*a) if ".methodology" in str(a) else Path(*a)

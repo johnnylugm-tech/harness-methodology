@@ -928,17 +928,35 @@ class HarnessBridge:
                 try:
                     _spec_text = _spec_path.read_text(encoding="utf-8")
                     _current_fr = ""
+                    _in_table = False
                     for _line in _spec_text.splitlines():
                         _stripped = _line.strip()
                         _m = _re.match(r"^###\s+([A-Z]+-\d+)(?:[:\s]|$)", _stripped)
                         if _m:
                             _current_fr = _m.group(1)
+                            _in_table = False
                             continue
                         if _current_fr != fr_id:
                             continue
+                        # Backward compatibility: old list format
                         _fn_m = _re.match(r"^\s*-\s*`?(test_[^`\s]+)`?", _line)
                         if _fn_m:
                             _spec_names.append(_fn_m.group(1))
+                            continue
+                        # New Markdown table format
+                        if "|" in _stripped and _re.search(r"Test Function", _stripped, _re.IGNORECASE):
+                            _in_table = True
+                            continue
+                        if _in_table and _re.match(r"^\|[-| ]+\|$", _stripped):
+                            continue
+                        if _in_table and _stripped.startswith("|") and _stripped.endswith("|"):
+                            _cols = [_c.strip() for _c in _stripped.split("|")[1:-1]]
+                            if len(_cols) >= 3:
+                                _raw_fn = _cols[1].strip("`").strip()
+                                if _raw_fn.startswith("test_"):
+                                    _spec_names.append(_raw_fn)
+                        elif _in_table and not _stripped.startswith("|") and _stripped:
+                            _in_table = False
                 except OSError:
                     pass
             if _spec_names and _test_file.exists():
@@ -1362,9 +1380,20 @@ class HarnessBridge:
 
         qt = sab.get("quality_targets", {})
         gate_score_overrides: dict[str, float] = {}
-        if "min_coverage" in qt:
-            # Key must match the dimension name in gate YAML configs ("test_coverage").
-            gate_score_overrides["test_coverage"] = float(qt["min_coverage"])
+        
+        _qt_map = {
+            "min_coverage": "test_coverage",
+            "max_complexity": "complexity",
+            "p95_latency_ms": "performance",
+            "min_reliability": "reliability",
+            "min_security_score": "security"
+        }
+        for qt_key, dim_name in _qt_map.items():
+            if qt_key in qt:
+                try:
+                    gate_score_overrides[dim_name] = float(qt[qt_key])
+                except (ValueError, TypeError):
+                    pass
 
         manifest: dict[str, Any] = {
             "schema_version": "1.0",
