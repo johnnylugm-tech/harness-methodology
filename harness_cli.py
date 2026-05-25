@@ -170,7 +170,7 @@ def _verify_state_integrity(project: Path) -> tuple[bool, str]:
 # Dimension names that don't map to a dedicated tool (security, architecture, etc.)
 # are checked by the LLM and don't have a tool requirement.
 _TOOL_CHECK_COMMANDS: dict[str, tuple[str, str]] = {
-    "ruff": ("ruff --version 2>&1", "ruff"),
+    "ruff": ("ruff --version 2>&1 || python3 -m ruff --version 2>&1", "ruff"),
     "mypy": ("mypy --version 2>&1", "mypy"),
     "pytest-cov": ("pytest --version 2>&1 && coverage --version 2>&1", "pytest + coverage"),
     "pytest": ("pytest --version 2>&1", "pytest"),
@@ -181,7 +181,7 @@ _TOOL_CHECK_COMMANDS: dict[str, tuple[str, str]] = {
     "secrets_scanning": ("gitleaks version 2>&1", "gitleaks"),
     "mutation_testing": ("mutmut --version 2>&1", "mutmut"),
     "license_compliance": ("scancode --version 2>&1", "scancode-toolkit"),
-    "linting": ("ruff --version 2>&1", "ruff"),
+    "linting": ("ruff --version 2>&1 || python3 -m ruff --version 2>&1", "ruff"),
     "type_safety": ("mypy --version 2>&1", "mypy"),
     "test_coverage": ("pytest --version 2>&1", "pytest + coverage"),
     "code-review-graph": ("code-review-graph status 2>&1", "code-review-graph"),
@@ -570,10 +570,18 @@ def _check_fr_test_file_exists(project: Path, fr_id: str) -> tuple[bool, str]:
     )
 
 def _check_red_phase_ordering(project: Path, fr_id: str) -> tuple[bool, str]:
-    """D1 extension: test first commit must predate source first commit (RED→GREEN).
+    """D1 extension: test first commit must be an ancestor of source first commit.
 
-    Uses author timestamp (%at) not committer (%ct) to survive rebase.
+    Uses git ancestry (merge-base --is-ancestor) rather than author timestamps:
+    immune to clock skew, sub-second jitter, and glob mis-matches that pick up
+    wrong files in nested test directories (e.g. 03-development/tests/).
+
+    Source exclude uses :(glob,exclude) magic pathspec to recursively skip ALL
+    test directories and test files, regardless of nesting depth — fixing the
+    issue where :(exclude)tests/ only excluded the repo-root tests/ directory.
+
     Supports configurable source_patterns in project.json for non-standard layouts.
+    TDD_JITTER_TOLERANCE is no longer needed and is ignored.
     """
     m = re.match(r"FR-(\d+)", fr_id, re.IGNORECASE)
     if not m:
@@ -582,51 +590,53 @@ def _check_red_phase_ordering(project: Path, fr_id: str) -> tuple[bool, str]:
     num_raw = num.lstrip('0')
     test_patterns = [f"tests/test_fr{num}.py", f"tests/test_fr{num_raw}.py"]
 
-    def _first_at(patterns: list[str], exclude: list[str] | None = None
-                 ) -> float | None:
-        """Return earliest author timestamp matching any of the glob patterns.
-        Batches all patterns into a single git log call (vs one subprocess per pattern).
-        Uses %at (second precision). Tests must ensure >1 s between commits.
-        If exclude patterns are given, append :(exclude) pathspecs to each git query
-        to prevent matching unwanted directories (e.g. tests/).
+    def _first_sha(patterns: list[str],
+                   exclude_globs: list[str] | None = None) -> str | None:
+        """Return the SHA of the earliest 'A'dd commit matching any pattern.
+
+        Uses --format='%at %H' to get timestamp + SHA, then returns the SHA
+        of the earliest match (handles files added, deleted, re-added).
+        exclude_globs uses :(glob,exclude) pathspec — recursively excludes any
+        path matching the pattern at any directory depth.
         """
         cmd = ["git", "-C", str(project), "log", "--diff-filter=A",
-               "--format=%at", "--"]
+               "--format=%at %H", "--"]
         cmd.extend(patterns)
-        if exclude:
-            for exc in exclude:
-                cmd.append(f":(exclude){exc}")
+        if exclude_globs:
+            for exc in exclude_globs:
+                cmd.append(f":(glob,exclude){exc}")
         try:
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
         except subprocess.TimeoutExpired:
             return None
-        earliest: float | None = None
+        best: tuple[float, str] | None = None
         for line in r.stdout.splitlines():
-            line = line.strip()
-            if line:
+            parts = line.strip().split(" ", 1)
+            if len(parts) == 2:
                 try:
-                    ts = float(line)
-                    if earliest is None or ts < earliest:
-                        earliest = ts
+                    ts, sha = float(parts[0]), parts[1].strip()
+                    if best is None or ts < best[0]:
+                        best = (ts, sha)
                 except ValueError:
                     continue
-        return earliest
+        return best[1] if best else None
 
-    test_ts = _first_at(test_patterns)
-    if test_ts is None:
+    test_sha = _first_sha(test_patterns)
+    if test_sha is None:
         return False, (
             f"[BLOCKED] D1-RED: tests/test_fr{num}.py has no git history.\n"
             "  Commit the failing test BEFORE implementing the source."
         )
 
-    # Source patterns — use git (glob) magic pathspec. MUST exclude tests/ to avoid
-    # matching the test file itself (e.g. **/*fr07* matches test_fr07.py too).
-    # (exclude) pathspec removes tests/ from the match set.
+    # Source glob patterns — :(glob,exclude) recursively excludes ALL test
+    # directories at any depth (fixes the 03-development/tests/ mis-match).
     src_patterns = [
         f":(glob)**/fr{num_raw}*",
         f":(glob)**/*fr_{num_raw}*",
         f":(glob)**/*fr{num}*",
     ]
+    _src_exclude = ["**/tests/**", "**/test_*.py"]
+
     config_path = project / "project.json"
     if config_path.exists():
         try:
@@ -638,20 +648,30 @@ def _check_red_phase_ordering(project: Path, fr_id: str) -> tuple[bool, str]:
         except (json.JSONDecodeError, OSError):
             pass
 
-    src_ts = _first_at(src_patterns, exclude=["tests/"])
-    if src_ts is not None and test_ts > src_ts:
-        try:
-            jitter_tolerance = int(os.environ.get("TDD_JITTER_TOLERANCE", "0"))
-        except ValueError:
-            jitter_tolerance = 0
-        lag = int(test_ts - src_ts)
-        if lag > jitter_tolerance:
+    src_sha = _first_sha(src_patterns, exclude_globs=_src_exclude)
+    if src_sha is None:
+        return True, ""   # no source committed yet — TDD-RED phase is valid
+
+    # Ancestry check: test_sha must be an ancestor of src_sha.
+    # exit 0 → test came before source → OK (RED before GREEN).
+    # exit 1 → source is not descended from test → source committed first → BLOCKED.
+    try:
+        anc = subprocess.run(
+            ["git", "-C", str(project), "merge-base", "--is-ancestor",
+             test_sha, src_sha],
+            capture_output=True, timeout=10,
+        )
+        if anc.returncode != 0:
             return False, (
-                f"[BLOCKED] D1-RED: Source committed {lag}s BEFORE test for {fr_id}.\n"
-                f"  (Allowed jitter tolerance: {jitter_tolerance}s)\n"
+                f"[BLOCKED] D1-RED: Source was committed before test for {fr_id}.\n"
+                f"  test commit : {test_sha[:12]}\n"
+                f"  source commit: {src_sha[:12]}\n"
                 "  TDD requires RED (failing test commit) → GREEN (source commit).\n"
-                "  The test file's first commit must predate the source file's first commit."
+                "  The test file's first commit must be an ancestor of the source "
+                "file's first commit on the current branch."
             )
+    except subprocess.TimeoutExpired:
+        return True, ""   # ancestry check timed out → fail-open (non-fatal)
     return True, ""
 
 def _scan_test_functions(test_dir: Path) -> set[str]:
@@ -1447,6 +1467,39 @@ def _fr_source_files_from_imports(
                 matched.append(str(py_file.relative_to(project)))
                 break
 
+    # Layer 2 (auto): follow __init__.py re-exports for imported packages.
+    # When a test does `from omnibot.queries import ODD_QUERIES`, the AST sees
+    # the package `omnibot.queries` but not the submodule `odd_queries.py` that
+    # __init__.py re-exports.  One level of __init__.py expansion catches this.
+    _seen_dirs: set[str] = set()
+    for imp in list(imported):
+        pkg_candidate = src_path / Path(*imp.split("."))
+        if not pkg_candidate.is_dir():
+            continue
+        pkg_key = str(pkg_candidate)
+        if pkg_key in _seen_dirs:
+            continue
+        _seen_dirs.add(pkg_key)
+        init_file = pkg_candidate / "__init__.py"
+        if not init_file.exists():
+            continue
+        try:
+            init_tree = _ast.parse(init_file.read_text(encoding="utf-8"))
+        except (SyntaxError, OSError):
+            continue
+        for node in _ast.walk(init_tree):
+            if not isinstance(node, _ast.ImportFrom):
+                continue
+            mod = node.module or ""
+            # Resolve relative import: "from .sub import X" inside pkg/__init__.py
+            rel_mod = mod.lstrip(".")
+            for seg in (rel_mod, *(f"{alias.name}" for alias in node.names)):
+                candidate = pkg_candidate / f"{seg}.py"
+                if candidate.exists():
+                    rel = str(candidate.relative_to(project))
+                    if rel not in matched:
+                        matched.append(rel)
+
     return matched
 
 
@@ -1531,41 +1584,79 @@ def cmd_run_gate(args: argparse.Namespace) -> int:
 
         # Detect FR-specific source files by parsing the test file's imports.
         _src_files = _fr_source_files_from_imports(Path(project), _test_file, _src_dir)
-        if _src_files:
-            _include_flag = ",".join(_src_files)
-            _cov_cmd = (
-                f"  coverage run -m pytest {_test_file} "
-                f"&& coverage report --include=\"{_include_flag}\" --format=json \\\n"
-                f"    || PYTHONPATH=. coverage run -m pytest {_test_file} "
-                f"&& coverage report --include=\"{_include_flag}\" --format=json \\\n"
-                f"    || PYTHONPATH=. python3 -m pytest {_test_file} "
-                f"--cov={_src_dir} --cov-report=term-missing"
-            )
-            _cov_note = f"  (FR source files detected: {', '.join(_src_files)})"
-        else:
-            # Fallback: test file absent or no imports matched — use full src dir
-            _cov_cmd = (
-                f"  coverage run --source={_src_dir} -m pytest {_test_file} "
-                f"&& coverage report --format=json \\\n"
-                f"    || PYTHONPATH=. coverage run --source={_src_dir} -m pytest {_test_file} "
-                f"&& coverage report --format=json \\\n"
-                f"    || PYTHONPATH=. python3 -m pytest {_test_file} "
-                f"--cov={_src_dir} --cov-report=term-missing"
-            )
-            _cov_note = f"  (fallback: {_src_dir} — test file not found or no imports detected)"
 
-        print(
-            f"\n[FR-SCOPED TOOL OVERRIDES — {fr_id}]\n"
-            f"Gate 1 scope is single_fr. Replace the project-wide defaults in\n"
-            f"evaluate_dimension.md with these FR-scoped commands:\n\n"
-            f"test_coverage — measure only {fr_id}'s source files:\n"
-            f"{_cov_cmd}\n"
-            f"{_cov_note}\n\n"
-            f"linting — lint only the FR source directory:\n"
-            f"  ruff check {_src_dir}/ 2>&1 | head -200\n\n"
-            f"type_safety — type-check only the FR source directory:\n"
-            f"  pyright {_src_dir}/ --outputjson 2>&1 | head -200\n"
-        )
+        # Load quality_manifest for per-FR overrides (scope + non-python flag).
+        _manifest_data: dict = {}
+        _manifest_path_g = Path(project) / ".methodology" / "quality_manifest.json"
+        try:
+            _manifest_data = json.loads(_manifest_path_g.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            pass
+
+        # Issue 4: manual fr_scope_overrides — merges declared files into scope.
+        # Use when __init__.py transitive re-exports can't be auto-detected.
+        # Add to quality_manifest.json: {"fr_scope_overrides": {"FR-16": ["path/to/file.py"]}}
+        _scope_override = _manifest_data.get("fr_scope_overrides", {}).get(fr_id, [])
+        if _scope_override:
+            _src_files = list(dict.fromkeys(_src_files + _scope_override))
+
+        # Issue 3: non-Python FRs (Docker Compose, SQL, YAML) have no Python source.
+        # When scope is empty and FR is declared non-Python, bypass coverage measurement
+        # and assign threshold score directly (infrastructure FRs are exempt).
+        # Add to quality_manifest.json: {"fr_non_python": ["FR-15"]}
+        _non_python_frs = set(_manifest_data.get("fr_non_python", []))
+        if not _src_files and fr_id in _non_python_frs:
+            print(
+                f"\n[FR-SCOPED TOOL OVERRIDES — {fr_id}]\n"
+                f"Gate 1 scope is single_fr. Replace the project-wide defaults in\n"
+                f"evaluate_dimension.md with these FR-scoped commands:\n\n"
+                f"test_coverage — {fr_id} is declared as a non-Python FR "
+                f"(no Python source to measure):\n"
+                f"  echo 'NON_PYTHON_FR: coverage not applicable'\n"
+                f"  Score this dimension as {80} (= threshold). "
+                f"Infrastructure/config FRs are exempt from Python coverage measurement.\n"
+                f"  Set tool_evidence = 'non-python FR: {fr_id} declared in fr_non_python'\n\n"
+                f"linting — lint only the FR source directory:\n"
+                f"  ruff check {_src_dir}/ 2>&1 | head -200\n\n"
+                f"type_safety — type-check only the FR source directory:\n"
+                f"  pyright {_src_dir}/ --outputjson 2>&1 | head -200\n"
+            )
+        else:
+            if _src_files:
+                _include_flag = ",".join(_src_files)
+                _cov_cmd = (
+                    f"  coverage run -m pytest {_test_file} "
+                    f"&& coverage report --include=\"{_include_flag}\" --format=json \\\n"
+                    f"    || PYTHONPATH=. coverage run -m pytest {_test_file} "
+                    f"&& coverage report --include=\"{_include_flag}\" --format=json \\\n"
+                    f"    || PYTHONPATH=. python3 -m pytest {_test_file} "
+                    f"--cov={_src_dir} --cov-report=term-missing"
+                )
+                _cov_note = f"  (FR source files detected: {', '.join(_src_files)})"
+            else:
+                # Fallback: test file absent or no imports matched — use full src dir
+                _cov_cmd = (
+                    f"  coverage run --source={_src_dir} -m pytest {_test_file} "
+                    f"&& coverage report --format=json \\\n"
+                    f"    || PYTHONPATH=. coverage run --source={_src_dir} -m pytest {_test_file} "
+                    f"&& coverage report --format=json \\\n"
+                    f"    || PYTHONPATH=. python3 -m pytest {_test_file} "
+                    f"--cov={_src_dir} --cov-report=term-missing"
+                )
+                _cov_note = f"  (fallback: {_src_dir} — test file not found or no imports detected)"
+
+            print(
+                f"\n[FR-SCOPED TOOL OVERRIDES — {fr_id}]\n"
+                f"Gate 1 scope is single_fr. Replace the project-wide defaults in\n"
+                f"evaluate_dimension.md with these FR-scoped commands:\n\n"
+                f"test_coverage — measure only {fr_id}'s source files:\n"
+                f"{_cov_cmd}\n"
+                f"{_cov_note}\n\n"
+                f"linting — lint only the FR source directory:\n"
+                f"  ruff check {_src_dir}/ 2>&1 | head -200\n\n"
+                f"type_safety — type-check only the FR source directory:\n"
+                f"  pyright {_src_dir}/ --outputjson 2>&1 | head -200\n"
+            )
 
     print("\n" + "─" * 60)
     print("NEXT STEP: Evaluate the dimensions above, then run:")
@@ -3847,6 +3938,23 @@ def _fr_step_already_done(step: str, fr_id: str, project: Path) -> bool:
     if not committed:
         return False
 
+    # GATE1 / GATE1-DELTA: commit pattern alone is insufficient — a "Gate1 PASS"
+    # commit may have been written with a fabricated or sub-threshold score (e.g.
+    # 0.0 or 66.0). Verify the recorded score actually meets the 80% threshold
+    # before treating this step as done.
+    if step.upper() in ("GATE1", "GATE1-DELTA"):
+        _manifest_path = project / ".methodology" / "quality_manifest.json"
+        try:
+            _manifest = json.loads(_manifest_path.read_text(encoding="utf-8"))
+            _score = float(
+                _manifest.get("gate_results", {})
+                .get("gate1", {}).get(fr_id, {}).get("score", 0.0)
+            )
+            if _score < 80.0:
+                return False   # commit exists but score below threshold → re-run
+        except (OSError, json.JSONDecodeError, ValueError, AttributeError):
+            return False       # manifest unreadable → re-run to be safe
+
     # GATE1-DELTA: code-change detection (not just commit-pattern check)
     if step.upper() == "GATE1-DELTA":
         return not _fr_code_changed_since_last_gate1(fr_id, project)
@@ -4648,17 +4756,27 @@ def _capture_tool_snapshot(
         _os.pathsep.join([str(project / src_dir), str(project)])
         if src_dir else str(project)
     )
-    try:
-        r = _sp.run(
-            ["ruff", "check", f"{src_dir}/"],
-            capture_output=True, text=True, cwd=str(project), timeout=30,
-        )
-        if r.stdout.strip() or r.stderr.strip():
-            lines.append(f"ruff check {src_dir}/ (exit {r.returncode}):")
-            lines.append((r.stdout + r.stderr).strip()[:600])
-            lines.append("")
-    except Exception:
-        pass
+    # Try ruff from PATH first; fall back to python3 -m ruff when ruff is
+    # installed only inside a specific Python environment (e.g. Python 3.9 venv
+    # while the system python3 is 3.14).  exit code 127 = command not found.
+    _ruff_r = None
+    for _ruff_cmd in (
+        ["ruff", "check", f"{src_dir}/"],
+        ["python3", "-m", "ruff", "check", f"{src_dir}/"],
+    ):
+        try:
+            _ruff_r = _sp.run(
+                _ruff_cmd, capture_output=True, text=True,
+                cwd=str(project), timeout=30,
+            )
+            if _ruff_r.returncode != 127:
+                break
+        except Exception:
+            _ruff_r = None
+    if _ruff_r and (_ruff_r.stdout.strip() or _ruff_r.stderr.strip()):
+        lines.append(f"ruff check {src_dir}/ (exit {_ruff_r.returncode}):")
+        lines.append((_ruff_r.stdout + _ruff_r.stderr).strip()[:600])
+        lines.append("")
     try:
         r = _sp.run(
             ["python3", "-m", "pytest", test_file, "-v", "--tb=short", "-q"],
@@ -4752,6 +4870,26 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
     src_dir = "03-development/src"
     test_file = f"tests/test_fr{_num_str}.py"
 
+    # Per-FR config: read fr_config from quality_manifest.json.
+    # Allows large / complex FRs (e.g. FR-19 with 11-stage pipeline) to declare
+    # longer timeouts and more fix rounds without changing global defaults.
+    # CLI flags --timeout / --max-fix-rounds still take precedence.
+    # Example manifest entry:
+    #   {"fr_config": {"FR-19": {"timeout": 1200, "max_fix_rounds": 5,
+    #                             "code_fix_max_turns": 90}}}
+    _fr_conf: dict = {}
+    _fr_manifest_path = project / ".methodology" / "quality_manifest.json"
+    try:
+        _fr_conf = (
+            json.loads(_fr_manifest_path.read_text(encoding="utf-8"))
+            .get("fr_config", {}).get(fr_id, {})
+        )
+    except (OSError, json.JSONDecodeError, AttributeError):
+        pass
+    _fr_timeout = _fr_conf.get("timeout", getattr(args, "timeout", 600))
+    _fr_max_fix_rounds = _fr_conf.get("max_fix_rounds", getattr(args, "max_fix_rounds", 3))
+    _fr_code_fix_max_turns: int | None = _fr_conf.get("code_fix_max_turns")
+
     # 1. Idempotency — skip if already committed
     if _fr_step_already_done(step, fr_id, project):
         print(f"[run-fr-step] {fr_id} {step}: already done → skip")
@@ -4778,9 +4916,11 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
     _explicit_max_turns = getattr(args, "max_turns", None)
 
     def _max_turns(step_name: str) -> int:
-        """Per-step max_turns: explicit --max-turns wins, else _STEP_MAX_TURNS."""
+        """Per-step max_turns: explicit --max-turns wins, then per-FR config, else _STEP_MAX_TURNS."""
         if _explicit_max_turns is not None:
             return _explicit_max_turns
+        if step_name.upper() in ("CODE-FIX", "COVERAGE-FIX") and _fr_code_fix_max_turns:
+            return _fr_code_fix_max_turns
         return _STEP_MAX_TURNS.get(step_name.upper(), 40)
 
     # All FR steps need shell access:
@@ -4799,7 +4939,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
         phase=phase,
         fr_id=fr_id,
         phase_sop_override="",
-        task_timeout=getattr(args, "timeout", 600),
+        task_timeout=_fr_timeout,
         max_turns=_max_turns(step),
         mcp_config=phase_ctx["mcp_config"],
         setting_sources=phase_ctx["setting_sources"],
@@ -4835,7 +4975,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
         if not gate_pass:
             gate_pass = _fr_step_already_done(step, fr_id, project)
 
-        max_fix_rounds = getattr(args, "max_fix_rounds", 3)
+        max_fix_rounds = _fr_max_fix_rounds
         # B: progress tracking — detect lateral variation (same error, no progress)
         prev_snapshot_sig: str = ""
         no_progress_count: int = 0
@@ -4945,7 +5085,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                     role="developer", prompt=fix_prompt,
                     context={"phase": phase, "fr_id": fr_id, "step": fix_step_name},
                     phase=phase, fr_id=fr_id, phase_sop_override="",
-                    task_timeout=getattr(args, "timeout", 600),
+                    task_timeout=_fr_timeout,
                     max_turns=_max_turns(fix_step_name),
                     mcp_config=phase_ctx["mcp_config"],
                     setting_sources=phase_ctx["setting_sources"],
@@ -4967,7 +5107,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                 role="developer", prompt=gate_prompt,
                 context={"phase": phase, "fr_id": fr_id, "step": step},
                 phase=phase, fr_id=fr_id, phase_sop_override="",
-                task_timeout=getattr(args, "timeout", 600),
+                task_timeout=_fr_timeout,
                 max_turns=_max_turns(step),
                 mcp_config=phase_ctx["mcp_config"],
                 setting_sources=phase_ctx["setting_sources"],
