@@ -23,8 +23,8 @@ class JsonFileSpanExporter(SpanExporter):
                 span_data = {
                     "name": span.name,
                     "context": {
-                        "trace_id": format(span.context.trace_id, "032x"),
-                        "span_id": format(span.context.span_id, "016x"),
+                        "trace_id": format(span.context.trace_id, "032x") if span.context else None,
+                        "span_id": format(span.context.span_id, "016x") if span.context else None,
                     },
                     "start_time": span.start_time,
                     "end_time": span.end_time,
@@ -44,21 +44,27 @@ class JsonFileSpanExporter(SpanExporter):
     def shutdown(self):
         pass
 
+# Module-level flag: tracks whether WE set up the provider and attached our exporter.
+# Avoids falsely skipping setup when a third-party lib has already set a TracerProvider.
+_HARNESS_TRACER_INITIALIZED: bool = False
+
+
 def init_tracer(project_root: Path) -> trace.Tracer:
     """Initializes and returns the OpenTelemetry tracer for Agentic Trajectory Logging."""
-    # Prevent multiple initializations
-    if isinstance(trace.get_tracer_provider(), TracerProvider):
+    global _HARNESS_TRACER_INITIALIZED
+    if _HARNESS_TRACER_INITIALIZED:
         return trace.get_tracer("harness_agent")
 
     resource = Resource.create({"service.name": "harness-methodology"})
     provider = TracerProvider(resource=resource)
-    
+
     # Export to a local JSONL file for offline time-travel debugging
     log_dir = project_root / ".harness" / "traces"
     file_exporter = JsonFileSpanExporter(log_dir)
     provider.add_span_processor(BatchSpanProcessor(file_exporter))
-    
+
     trace.set_tracer_provider(provider)
+    _HARNESS_TRACER_INITIALIZED = True
     return trace.get_tracer("harness_agent")
 
 def get_tracer() -> trace.Tracer:

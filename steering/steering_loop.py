@@ -116,6 +116,9 @@ Output JSON:
     def __init__(self, provider):
         """Initialize instance with default configuration."""
         self.provider = provider
+        # CRG bridge: lazy-init on first critic debate call; False = import failed, skip retry
+        self._crg_bridge: Any = None
+        self._crg_tried: bool = False
 
     def score(self, output_a: Union[Dict[str, Any], str], output_b: Union[Dict[str, Any], str]) -> Dict[str, Any]:
         """
@@ -153,28 +156,34 @@ Output JSON:
         b_text = self._extract_text(output_b)
 
         # 1. Critic Round
-        # ODD Optimization: Inject runtime trace for semantic self-healing
-        import json
-        from pathlib import Path
+        # ODD: Inject runtime trace for semantic self-healing (consume-once to avoid stale bias)
         runtime_trace = ""
-        project_root = Path.cwd()
-        trace_file = project_root / ".methodology" / "runtime_trace.json"
+        trace_file = Path.cwd() / ".methodology" / "runtime_trace.json"
         if trace_file.exists():
             try:
                 trace_data = trace_file.read_text(encoding="utf-8")
+                trace_file.unlink(missing_ok=True)  # consume-once: prevent stale injection next call
                 runtime_trace += f"\n\n=== Runtime Execution Trace ===\n{trace_data}\n"
             except Exception:
                 pass
-                
-        # CRG Optimization: Inject Minimal Viable Context (MVC)
-        try:
-            from harness.crg_bridge import CRGBridge
-            crg_bridge = CRGBridge()
-            crg_context = crg_bridge.get_minimal_context(str(project_root), "architecture_or_logic")
-            if crg_context:
-                runtime_trace += f"\n\n=== Minimal Viable Context (CRG) ===\n{json.dumps(crg_context, indent=2)}\n"
-        except Exception:
-            pass
+
+        # CRG: Inject Minimal Viable Context (bridge cached; no re-instantiation per call)
+        if not self._crg_tried:
+            try:
+                from harness.crg_bridge import CRGBridge
+                self._crg_bridge = CRGBridge()
+            except Exception:
+                pass
+            self._crg_tried = True
+        if self._crg_bridge is not None:
+            try:
+                crg_context = self._crg_bridge.get_minimal_context(
+                    str(Path.cwd()), "architecture_or_logic"
+                )
+                if crg_context:
+                    runtime_trace += f"\n\n=== Minimal Viable Context (CRG) ===\n{json.dumps(crg_context, indent=2)}\n"
+            except Exception:
+                pass
 
         critic_prompt = (
             "You are an adversarial critic. Contrast the following outputs under strict boundary conditions:\n"
@@ -306,7 +315,8 @@ class SteeringLoop:
         self,
         provider,                      # LLM provider
         config: Optional[SteeringConfig] = None,
-        history_path: str = ".methodology/steering_history.json"
+        history_path: str = ".methodology/steering_history.json",
+        project_root: Optional[Path] = None,
     ):
         """Initialize instance with default configuration."""
         self.provider = provider
@@ -317,14 +327,13 @@ class SteeringLoop:
         self.iterations: List[IterationResult] = []
         self.best_output: Optional[ScoredOutput] = None
         self.tracer: Any = None
-        
-        try:
-            from core.observability import init_tracer
-            # Assume current working directory is project root or pass default
-            self.tracer = init_tracer(Path.cwd())
-        except ImportError:
-            # Fallback if observability is not configured
-            pass
+
+        if project_root is not None:
+            try:
+                from core.observability import init_tracer
+                self.tracer = init_tracer(project_root)
+            except ImportError:
+                pass
         self.stage = IterationStage.EXPLORATION
 
     # Sensitive module prefixes that trigger critic debate when changed

@@ -189,21 +189,22 @@ class AutoFixEngine:
                     pass
 
         error_line = context.details.get("line")
-        if files:
+        if error_line and files:
             target_file = files[0]
             if isinstance(target_file, Path) and target_file.suffix == ".py" and target_file.exists():
                 from core.auto_fix.segment_slicing import extract_minimal_viable_context
-                
-                # ODD Optimization: Extract Minimal Viable Context (MVC) dynamically
+
+                # ODD: Extract Minimal Viable Context (MVC) — only when error line is known
                 mvc_text, allowed_node = extract_minimal_viable_context(
                     file_path=target_file,
-                    error_line=int(error_line) if error_line else None,
+                    error_line=int(error_line),
                     crg_bridge=self._crg,
                     project_root=self.project_root,
                 )
-                
+
                 # Provide the MVC to strategies instead of full file content
-                context.details["mvc_text"] = mvc_text
+                if mvc_text:
+                    context.details["mvc_text"] = mvc_text
 
         if allowed_node:
             context.details["allowed_node_name"] = allowed_node

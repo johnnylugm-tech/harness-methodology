@@ -435,7 +435,7 @@ class SteeringIntegrator:
     ):
         """Initialize instance."""
 
-        self.steering = SteeringLoop(provider, config)
+        self.steering = SteeringLoop(provider, config, project_root=Path(project_path))
         self.hr = hr_constraints or HRConstraints()
 
         # Lazy-load integration modules (avoid circular dependencies)
