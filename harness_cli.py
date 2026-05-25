@@ -358,7 +358,7 @@ def _record_gate_timestamp(project: Path, phase: int, gate_num: int, fr_id: str 
         pass  # Non-blocking
 
 def _check_commit_intervals(
-    project: str, phase: int, gate_num: int, fr_id: str | None
+    project: str, phase: int, gate_num: int
 ) -> tuple[bool, str]:
     """Check if current gate attempt would exceed the batch-commit threshold (P1).
 
@@ -843,98 +843,6 @@ def cmd_spec_coverage_check(args: argparse.Namespace) -> int:
     return code
 
 
-def _run_test_inventory_check(
-    project: Path,
-    threshold: float = 80.0,
-    *,
-    crg_gaps: bool = False,
-    srs_crosscut: bool = False,
-    delegate_to_spec: bool = True,  # v2.6: unified to TEST_SPEC.md
-) -> tuple[int, float]:
-    """Core D4 check: compare TEST_INVENTORY.yaml against actual test functions.
-
-    Returns (exit_code, coverage_pct). 0 = pass, 1 = below threshold.
-    Missing YAML is non-blocking (returns 0, 100.0) — caller handles Strict.
-
-    v2.6: delegate_to_spec=True redirects to _run_spec_coverage_check()
-    (unified single source of truth). Pass delegate_to_spec=False for
-    the legacy behavior (e.g., in tests).
-    """
-    if delegate_to_spec:
-        if crg_gaps or srs_crosscut:
-            print("[D4] check-test-inventory is deprecated (v2.6) — "
-                  "delegating to spec-coverage-check.")
-            print("[D4] CRG gaps and SRS cross-cut supplemental features "
-                  "are no longer available through this command. "
-                  "Run: python harness_cli.py run-gap-analysis for CRG gaps.")
-        return _run_spec_coverage_check(project, threshold, verbose=True)
-
-    inventory_path = project / "TEST_INVENTORY.yaml"
-    if not inventory_path.exists():
-        return (0, 100.0)
-
-    # Scan actual test functions
-    actual_fns = _scan_test_functions(project / "tests")
-
-    # Read inventory YAML
-    try:
-        import yaml
-        inventory = yaml.safe_load(inventory_path.read_text())
-    except ImportError:
-        text = inventory_path.read_text()
-        inventory = _parse_inventory_fallback(text)
-
-    all_required = sorted(_flatten_test_names(inventory))
-    missing = [f for f in all_required if f not in actual_fns]
-    covered = len(all_required) - len(missing)
-    pct = covered / len(all_required) * 100 if all_required else 100.0
-
-    print(f"[D4] Test Inventory: {covered}/{len(all_required)} ({pct:.1f}%)")
-    if missing:
-        print(f"  Missing ({len(missing)}):")
-        for fn in missing[:20]:
-            print(f"    - {fn}")
-
-    # SRS.md cross-cutting checklist scan
-    if srs_crosscut:
-        srs_path = project / "01-requirements" / "SRS.md"
-        if srs_path.exists():
-            text = srs_path.read_text()
-            placeholders = re.findall(r'\[ \].*?<[NnXx]>|TBD', text)
-            if placeholders:
-                print(f"\n[SRS Cross-Cut] {len(placeholders)} unfilled placeholder(s) found:")
-                for ph in placeholders[:10]:
-                    print(f"    - {ph.strip()}")
-            else:
-                print("\n[SRS Cross-Cut] No unfilled placeholders detected.")
-        else:
-            print("\n[SRS Cross-Cut] SRS.md not found at 01-requirements/SRS.md — skipping.")
-
-    # CRG untested hotspots cross-reference
-    if crg_gaps:
-        crg_path = project / ".sessi-work" / "crg_reconnaissance.json"
-        if crg_path.exists():
-            try:
-                recon = json.loads(crg_path.read_text())
-                untested = recon.get("untested_hotspots", [])
-                if untested:
-                    print(f"\n[CRG Gaps] {len(untested)} CRG-reported hotspot(s):")
-                    for h in untested[:10]:
-                        h_name = h.get("name", "?")
-                        if h_name not in all_required:
-                            print(f"    - {h_name} (fan_in={h.get('fan_in','?')}) "
-                                  "not in TEST_INVENTORY.yaml")
-                else:
-                    print("\n[CRG Gaps] No untested hotspots from CRG.")
-            except (json.JSONDecodeError, OSError) as e:
-                print(f"\n[CRG Gaps] Error reading CRG data: {e}")
-
-    if pct < threshold:
-        print(f"\n[BLOCKED] D4 Test Inventory Compliance {pct:.1f}% < {threshold}% threshold")
-        return (1, pct)
-    return (0, pct)
-
-
 def cmd_check_test_inventory(args: argparse.Namespace) -> int:
     """[DEPRECATED v2.6] Delegates to spec-coverage-check.
 
@@ -1067,7 +975,7 @@ def _verify_entry_gate(project: Path, phase: int) -> dict:
                     if shallow.returncode == 0 and shallow.stdout.strip() == "true":
                         deliverables = _PHASE_DELIVERABLES.get(prev, [])
                         if deliverables:
-                            passed_ab, _report = _verify_agent_b_approvals_core(
+                            passed_ab, _ = _verify_agent_b_approvals_core(
                                 project, prev, deliverables
                             )
                             if passed_ab:
@@ -2078,7 +1986,7 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
 
     # ── S0: Commit interval enforcement (P1 — prevent batch fabrication) ──
     _interval_ok, _interval_msg = _check_commit_intervals(
-        project, args.phase, args.gate, fr_id
+        project, args.phase, args.gate
     )
     if not _interval_ok:
         print(f"\n[BLOCKED] Commit interval violation: {_interval_msg}")
@@ -3263,46 +3171,6 @@ def cmd_effort(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 # advance-phase
 # ---------------------------------------------------------------------------
-
-def _run_phase_end_audit(project: Path, completed_phase: int) -> int:
-    """Run Phase End Audit for Phase 3-8. Replaces A/B collaboration checks.
-
-    Delegates to scripts/phase_end_audit.py for framework-level checks.
-    Returns 0 = pass (no critical gaps), 1 = gaps found, 2 = error.
-    """
-    audit_script = Path(__file__).parent / "scripts" / "phase_end_audit.py"
-    if not audit_script.exists():
-        print(f"  [WARN] Phase End Audit script not found at {audit_script} — skipping")
-        return 0
-    try:
-        result = subprocess.run(
-            [sys.executable, str(audit_script),
-             "--phase", str(completed_phase),
-             "--project", str(project)],
-            capture_output=True, text=True, timeout=60,
-        )
-        # Always print audit output so the agent sees gaps
-        for line in result.stdout.splitlines():
-            print(f"  {line}")
-        if result.stderr.strip():
-            for line in result.stderr.splitlines():
-                print(f"  [stderr] {line}")
-        if result.returncode == 1:
-            out_dir = project / ".methodology"
-            report = out_dir / f"audit_gaps_{completed_phase}.md"
-            print(f"\n  [PHASE-AUDIT] CRITICAL gaps found — see {report}")
-            print(f"  Fix gaps above, then re-run advance-phase.")
-            return 1
-        elif result.returncode != 0:
-            # returncode 2 = script error (e.g. project path missing)
-            return 2
-        return 0
-    except subprocess.TimeoutExpired:
-        print(f"  [ERROR] Phase End Audit timed out (60s) — audit did not complete")
-        return 2
-    except OSError as exc:
-        print(f"  [ERROR] Phase End Audit failed to run: {exc} — audit did not complete")
-        return 2
 
 
 def _generate_stage_pass(project_path: Path, gate_num: int, phase_num: int) -> None:
@@ -4689,7 +4557,7 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
 
 
 def _capture_tool_snapshot(
-    project: Path, fr_id: str, src_dir: str, test_file: str
+    project: Path, src_dir: str, test_file: str
 ) -> str:
     """Run ruff + pytest at orchestration time and return combined output (max 2000 chars).
 
@@ -4946,7 +4814,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
             if not is_s3:
                 # ── Pre-run tools at orchestration time ──────────────────────────
                 # Capture actual ruff + pytest output so fix agents target real errors.
-                tool_snapshot = _capture_tool_snapshot(project, fr_id, src_dir, test_file)
+                tool_snapshot = _capture_tool_snapshot(project, src_dir, test_file)
 
                 # ── B: lateral variation detection ───────────────────────────────
                 curr_sig = tool_snapshot[:300] if tool_snapshot else ""
@@ -5180,32 +5048,6 @@ def cmd_reload_policy(args: argparse.Namespace) -> int:
         print(f"\n[ERROR] Failed to reload policies: {e}")
         return 1
 
-# ---------------------------------------------------------------------------
-def _preflight(phase: int, project: Path,
-               enable_kill_switch: bool = True,
-               drift_threshold: float = 85.0,
-               auto_fix: bool = True,
-               auto_fix_rounds: int = 3) -> int:
-    """Run phase pre-flight hooks. Returns 0 on pass.
-
-    auto_fix and auto_fix_rounds are accepted for backward-compatible callers
-    but the inline _auto_fix_loop was removed with run-pipeline in v2.5.
-    Callers should handle fix-retry themselves or fix preflight issues manually.
-    """
-    try:
-        from core.phase_hooks import PhaseHooks
-        hooks = PhaseHooks(str(project), phase=phase,
-                           enable_kill_switch=enable_kill_switch,
-                           drift_threshold=drift_threshold,
-                           auto_fix_enabled=auto_fix)
-        pre = hooks.preflight_all()
-        if not pre.get("all_passed"):
-            return 1
-        return 0
-    except Exception as exc:
-        print(f"  [WARN] Phase hooks unavailable: {exc}")
-        return 1
-
 def _run_gap_analysis(project: Path, similarity: float = 0.6, spec: str = "SPEC.md") -> dict:
     """Run M3 gap analysis. Returns gap report dict; warns on failure."""
     try:
@@ -5218,10 +5060,10 @@ def _run_gap_analysis(project: Path, similarity: float = 0.6, spec: str = "SPEC.
             print(f"  [M3] {spec} not found — skipping gap analysis")
             return {"skipped": True, "reason": f"{spec} not found"}
 
-        spec = SpecParser(str(spec_path)).parse()
+        parsed_spec = SpecParser(str(spec_path)).parse()
         scanner = CodeScanner(str(project))
         code = scanner.scan()
-        detector = GapDetector(spec, code, similarity_threshold=similarity)
+        detector = GapDetector(parsed_spec, code, similarity_threshold=similarity)
         gaps = detector.detect()
         summary = detector.get_summary()
 
@@ -5352,6 +5194,9 @@ def _advance_fsm(project: Path, completed_phase: int,
         HandoverGenerator(project).write(
             checkpoint_id=f"P{next_phase}-entry-{datetime.now(timezone.utc).strftime('%Y%m%d')}",
             phase=next_phase,
+            task_background=(
+                f"Phase {completed_phase} completed. Advancing FSM to Phase {next_phase}."
+            ),
             current_status=f"FSM advanced from Phase {completed_phase} to Phase {next_phase}.",
             next_steps=[
                 f"Follow SKILL.md §0.1 Phase {next_phase} entry checklist",
@@ -5566,7 +5411,7 @@ def cmd_audit_phase(args: argparse.Namespace) -> int:
                 "verdict": result.verdict,
                 "criticals": len(result.criticals()),
                 "warnings": len(result.warnings()),
-                "findings": [{"severity": f.severity, "check": f.check,
+                "findings": [{"severity": f.severity, "check": f.check_id,
                               "detail": f.detail}
                              for f in result.findings],
             }, indent=2))
@@ -5644,7 +5489,7 @@ def cmd_check_logic(args: argparse.Namespace) -> int:
 # init-project
 # ---------------------------------------------------------------------------
 
-def _harness_workflow_template(_phase: int) -> str:
+def _harness_workflow_template() -> str:
     """Return the content of .github/workflows/harness_quality_gate.yml for a target project.
 
     Reads directly from templates/harness_quality_gate.yml — the single source of truth.
@@ -5909,7 +5754,7 @@ def _check_crg_available() -> bool:
     the import fails and the bridge is unavailable.
     """
     try:
-        from harness.crg_bridge import CRGBridge  # noqa: F401
+        __import__("harness.crg_bridge")
         return True
     except (ImportError, ModuleNotFoundError):
         return False
@@ -6050,7 +5895,7 @@ def cmd_init_project(args: argparse.Namespace) -> int:
         print(f"   SKIP: {workflow_path} already exists (use --overwrite to overwrite)")
     else:
         try:
-            workflow_path.write_text(_harness_workflow_template(phase))
+            workflow_path.write_text(_harness_workflow_template())
         except FileNotFoundError as e:
             print(f"   ERROR: Cannot write CI workflow — {e}")
             print("   The template file is missing from the harness installation.")

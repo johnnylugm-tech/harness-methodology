@@ -519,7 +519,7 @@ class PhaseAuditor:
     separation, dev log, content depth, commit timeline, claims crosscheck,
     and integrity. Produces an AuditResult with scored findings."""
 
-    def __init__(self, fetcher: GitHubFetcher, phase: int):
+    def __init__(self, fetcher: "GitHubFetcher | LocalFetcher", phase: int):
         self.gh = fetcher
         self.phase = phase
         self.spec: dict[str, Any] = PHASE_SPEC.get(phase, {})
