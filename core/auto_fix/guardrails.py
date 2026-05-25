@@ -9,6 +9,7 @@ Post-fix: drift check, score regression detection, invariant verification
 from __future__ import annotations
 
 import ast
+import copy
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -201,14 +202,16 @@ def ast_mutation_guard(
                             if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
                         }
                         if exclude_name in member_names:
-                            # Include all class members except the allowed method.
-                            for item in node.body:
-                                if isinstance(
-                                    item, (ast.FunctionDef, ast.AsyncFunctionDef)
-                                ) and item.name == exclude_name:
-                                    continue
-                                invariants.append(ast.dump(item))
-                            continue  # skip default dump of the whole ClassDef
+                            # We must dump the class (to catch changes to bases, decorators, name)
+                            # but we strip out the allowed method from the body before dumping.
+                            node_copy = copy.deepcopy(node)
+                            node_copy.body = [
+                                item for item in node_copy.body
+                                if not (isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
+                                        and item.name == exclude_name)
+                            ]
+                            invariants.append(ast.dump(node_copy))
+                            continue  # skip default dump of the original ClassDef
                 invariants.append(ast.dump(node))
             return invariants
 

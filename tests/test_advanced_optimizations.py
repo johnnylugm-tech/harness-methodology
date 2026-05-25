@@ -259,6 +259,37 @@ class TestAstMutationGuard:
         """)
         assert ast_mutation_guard(Path("x.py"), pre, post, "target") is False
 
+    def test_nested_method_class_metadata_blocks(self):
+        """Modifying class bases/name while a nested method is allowed must be blocked."""
+        from core.auto_fix.guardrails import ast_mutation_guard
+        pre = textwrap.dedent("""\
+            class Engine(Base):
+                def target(self):
+                    return 1
+        """)
+        post = textwrap.dedent("""\
+            class Engine(HackedBase):
+                def target(self):
+                    return 42
+        """)
+        assert ast_mutation_guard(Path("x.py"), pre, post, "target") is False
+
+    def test_nested_method_class_decorator_blocks(self):
+        """Adding a class decorator while a nested method is allowed must be blocked."""
+        from core.auto_fix.guardrails import ast_mutation_guard
+        pre = textwrap.dedent("""\
+            class Engine:
+                def target(self):
+                    return 1
+        """)
+        post = textwrap.dedent("""\
+            @malicious
+            class Engine:
+                def target(self):
+                    return 42
+        """)
+        assert ast_mutation_guard(Path("x.py"), pre, post, "target") is False
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 3. Cross-Critic Debate & Dynamic Activation Tests
