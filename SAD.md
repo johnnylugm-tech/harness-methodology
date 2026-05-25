@@ -1003,8 +1003,9 @@ class LLMJudgeScorer:
 def iterate(output_a, output_b) -> IterationResult:
     # 1. Update stage (EXPLORATION → COMPETITION → CONVERGENCE)
     # 2. Score both outputs (tool-based; LLM-judge skipped by default — NoopProvider)
-    # 3. Compute weighted total (quality*0.4 + clarity*0.2 + consistency*0.2)
+    # 3. Compute weighted total (quality_score*w["quality"] + clarity_score*w["clarity"] + consistency_score*w["consistency"] + efficiency_score*w["efficiency"])
     # 4. Determine winner, update best_output
+
     # 5. Generate feedback
     # 6. Compute convergence score (avg delta of last 3 rounds)
     # 7. Persist history to .methodology/steering_history.json
@@ -1121,7 +1122,7 @@ class KillSwitch:
 
 | File | Class | Purpose |
 |---|---|---|
-| `agent_proof_hook.py` | `AgentProofHook` | Git pre-commit hook that agents cannot bypass; validates commit message task ID format |
+| `agent_proof_hook.py` | `AgentProofHook` | Git commit-msg hook that agents cannot bypass; validates commit message task ID format |
 | `constitution_as_code.py` | `ConstitutionAsCode` | Constitution rules expressed as executable Python checks |
 | `constitution_policy_sync.py` | `ConstitutionPolicyGenerator` | Synchronizes policy definitions with constitution document |
 | `execution_registry.py` | `ExecutionRegistry` | Registry tracking all executed enforcement actions |
@@ -1129,8 +1130,9 @@ class KillSwitch:
 | `policy_engine.py` | `PolicyEngine` | Evaluates named policies against runtime context |
 
 **`AgentProofHook` key behavior**:
-- Installs to `.git/hooks/pre-commit` (thin wrapper) + `.methodology/agent_hook_core.py` (core logic)
+- Installs to `.git/hooks/commit-msg` (thin wrapper) + `.methodology/agent_hook_core.py` (core logic)
 - Core logic: validates commit messages contain `[TASK-123]` pattern; detects `--no-verify` bypass attempts
+
 - Attempts Unix immutable attribute (`chattr +i`) on hook file
 - Commands: `install`, `verify`, `uninstall`
 
