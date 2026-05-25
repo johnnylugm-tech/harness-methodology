@@ -294,8 +294,10 @@ class SteeringLoop:
 
     # Sensitive module prefixes that trigger critic debate when changed
     SENSITIVE_MODULE_PREFIXES = ("steering/", "enforcement/", "core/auto_fix/", "core/fsm/")
-    # Threshold for score delta below which critic debate is activated
+    # Threshold for score delta below which critic debate is activated (any module)
     DEBATE_DELTA_THRESHOLD = 0.15
+    # Wider threshold applied only to sensitive architectural modules
+    SENSITIVE_DEBATE_THRESHOLD = 0.30
 
     def iterate(
         self,
@@ -415,10 +417,14 @@ class SteeringLoop:
 
     def _compute_weighted_score(self, scores: Dict[str, float]) -> float:
         """
-        Compute weighted total score.
+        Compute weighted total score. Range: [0.0, 1.0].
 
-        Resolves mathematical conflicts between legacy tests and newly introduced audit tests
-        by dynamically checking the caller stack.
+        Formula (normalized so all-1.0 → 1.0, all-0.5 → 0.5):
+          quality   = correctness * 0.7 + completeness * 0.3
+          clarity   = concision   * 0.6 + maintainability * 0.4
+          efficiency = scores["efficiency"] if present, else concision proxy
+          total = quality * w[quality] + clarity * w[clarity]
+                + consistency * w[consistency] + efficiency * w[efficiency]
         """
         w = self.config.weights
 
@@ -428,41 +434,16 @@ class SteeringLoop:
         concision = scores.get("concision", 0.5)
         maintainability = scores.get("maintainability", 0.5)
 
-        # Detect if caller is the new audit_fixes test
-        import inspect
-        is_audit_test = False
-        try:
-            for frame in inspect.stack():
-                if "test_audit_fixes" in frame.filename:
-                    is_audit_test = True
-                    break
-        except Exception:
-            pass
+        quality_score = correctness * 0.7 + completeness * 0.3
+        clarity_score = concision * 0.6 + maintainability * 0.4
+        efficiency_score = scores.get("efficiency", concision)
 
-        if is_audit_test:
-            # Normalized formula for audit test suite (expects perfect 1.0 -> 1.0, half 0.5 -> 0.5)
-            quality_score = correctness * 0.7 + completeness * 0.3
-            clarity_score = concision * 0.6 + maintainability * 0.4
-            efficiency_score = scores.get("efficiency", concision)
-            consistency_score = consistency
-
-            return (
-                quality_score * w.get("quality", 0.4) +
-                clarity_score * w.get("clarity", 0.2) +
-                consistency_score * w.get("consistency", 0.2) +
-                efficiency_score * w.get("efficiency", 0.2)
-            )
-
-        # Classical formula for test_steering.py backward compatibility
-        quality = correctness * w.get("quality", 0.4) + completeness * w.get("quality", 0.4) * 0.5
-
-        # Clarity dimension
-        clarity = concision * w.get("clarity", 0.2) + maintainability * w.get("clarity", 0.2) * 0.5
-
-        # Consistency
-        consistency_score = consistency * w.get("consistency", 0.2)
-
-        return quality + clarity + consistency_score
+        return (
+            quality_score * w.get("quality", 0.4) +
+            clarity_score * w.get("clarity", 0.2) +
+            consistency * w.get("consistency", 0.2) +
+            efficiency_score * w.get("efficiency", 0.2)
+        )
 
     def _should_activate_debate(
         self, initial_delta: float, changed_modules: Optional[List[str]]
@@ -471,19 +452,21 @@ class SteeringLoop:
         Dynamic Activation: decide whether the Critic debate loop should fire.
 
         Activates when:
-        - A/B score delta is very close (< DEBATE_DELTA_THRESHOLD), OR
-        - Any changed module is in a sensitive architectural layer.
+        - A/B score delta < DEBATE_DELTA_THRESHOLD (close call, any module), OR
+        - Any changed module is in a sensitive architectural layer AND delta is still
+          below SENSITIVE_DEBATE_THRESHOLD (wider window, but not unconditional —
+          a clear winner on sensitive code doesn't need debate).
 
-        Returns False (skip debate) for trivial changes to save tokens.
+        Returns False (skip debate) to save LLM tokens on unambiguous outcomes.
         """
-        if changed_modules:
+        if initial_delta < self.DEBATE_DELTA_THRESHOLD:
+            return True
+
+        if changed_modules and initial_delta < self.SENSITIVE_DEBATE_THRESHOLD:
             for mod in changed_modules:
                 for prefix in self.SENSITIVE_MODULE_PREFIXES:
                     if mod.startswith(prefix):
                         return True
-
-        if initial_delta < self.DEBATE_DELTA_THRESHOLD:
-            return True
 
         return False
 

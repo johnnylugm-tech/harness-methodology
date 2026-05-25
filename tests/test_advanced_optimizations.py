@@ -217,6 +217,48 @@ class TestAstMutationGuard:
         """)
         assert ast_mutation_guard(Path("x.py"), pre, post, "MyClass") is False
 
+    def test_nested_method_allowed(self):
+        """Allowed method inside a class: only that method may change."""
+        from core.auto_fix.guardrails import ast_mutation_guard
+        pre = textwrap.dedent("""\
+            class Engine:
+                def target(self):
+                    return 1
+
+                def helper(self):
+                    return 2
+        """)
+        post = textwrap.dedent("""\
+            class Engine:
+                def target(self):
+                    return 42
+
+                def helper(self):
+                    return 2
+        """)
+        assert ast_mutation_guard(Path("x.py"), pre, post, "target") is True
+
+    def test_nested_method_oob_blocks(self):
+        """Sibling method changed while only 'target' is allowed → must be blocked."""
+        from core.auto_fix.guardrails import ast_mutation_guard
+        pre = textwrap.dedent("""\
+            class Engine:
+                def target(self):
+                    return 1
+
+                def helper(self):
+                    return 2
+        """)
+        post = textwrap.dedent("""\
+            class Engine:
+                def target(self):
+                    return 42
+
+                def helper(self):
+                    return 999
+        """)
+        assert ast_mutation_guard(Path("x.py"), pre, post, "target") is False
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 3. Cross-Critic Debate & Dynamic Activation Tests
@@ -260,12 +302,20 @@ class TestDynamicActivation:
             provider = _build_provider([_SCORES_A_HIGH, _FEEDBACK_OK] * 6)
         return SteeringLoop(provider, config=config, history_path=history_path)
 
-    def test_debate_activated_for_sensitive_module(self):
+    def test_debate_activated_for_sensitive_module_within_threshold(self):
+        """Sensitive module + delta within SENSITIVE_DEBATE_THRESHOLD(0.30) → debate fires."""
         loop = self._loop()
-        result = loop._should_activate_debate(0.5, ["steering/steering_loop.py"])
+        result = loop._should_activate_debate(0.25, ["steering/steering_loop.py"])
         assert result is True
 
+    def test_debate_skipped_for_sensitive_module_large_delta(self):
+        """Sensitive module + clear winner (delta=0.5) → debate skipped to save tokens."""
+        loop = self._loop()
+        result = loop._should_activate_debate(0.5, ["steering/steering_loop.py"])
+        assert result is False
+
     def test_debate_activated_for_close_delta(self):
+        """Delta below DEBATE_DELTA_THRESHOLD → debate fires regardless of module."""
         loop = self._loop()
         result = loop._should_activate_debate(0.05, None)
         assert result is True
@@ -280,17 +330,23 @@ class TestDynamicActivation:
         result = loop._should_activate_debate(0.5, None)
         assert result is False
 
-    def test_enforcement_module_triggers_debate(self):
+    def test_enforcement_module_triggers_debate_close_delta(self):
+        """Enforcement module with delta within sensitive threshold → debate fires."""
         loop = self._loop()
-        assert loop._should_activate_debate(0.8, ["enforcement/policy_engine.py"]) is True
+        assert loop._should_activate_debate(0.2, ["enforcement/policy_engine.py"]) is True
 
-    def test_core_auto_fix_triggers_debate(self):
+    def test_enforcement_module_skips_debate_large_delta(self):
+        """Enforcement module with large delta (clear winner) → debate skipped."""
         loop = self._loop()
-        assert loop._should_activate_debate(0.8, ["core/auto_fix/guardrails.py"]) is True
+        assert loop._should_activate_debate(0.8, ["enforcement/policy_engine.py"]) is False
 
-    def test_core_fsm_triggers_debate(self):
+    def test_core_auto_fix_triggers_debate_close_delta(self):
         loop = self._loop()
-        assert loop._should_activate_debate(0.8, ["core/fsm/fsm.py"]) is True
+        assert loop._should_activate_debate(0.2, ["core/auto_fix/guardrails.py"]) is True
+
+    def test_core_fsm_triggers_debate_close_delta(self):
+        loop = self._loop()
+        assert loop._should_activate_debate(0.2, ["core/fsm/fsm.py"]) is True
 
 
 class TestCriticDebateScoring:

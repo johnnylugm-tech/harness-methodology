@@ -56,6 +56,8 @@ class VerificationConstitutionChecker:
                 "passed": len(violations) == 0,
                 "violations": [v.error_message for v in violations],
             }
+        except MemoryError:
+            raise
         except Exception as e:  # pylint: disable=broad-exception-caught
             return {
                 "passed": False,

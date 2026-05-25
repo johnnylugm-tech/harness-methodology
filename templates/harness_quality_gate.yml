@@ -276,7 +276,7 @@ except Exception:
     # P1/P2 approval checks are already covered by p1p2-enforcement above.
     name: Agent B Approval Verification (P1/P2 only)
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.phase.outputs.PHASE <= '2'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && fromJSON(steps.phase.outputs.PHASE) <= 2
     steps:
       - uses: actions/checkout@v4
         with:
@@ -305,7 +305,7 @@ except Exception:
       - name: Verify Agent B approvals (P1/P2)
         # P3+ uses Gate 1 (local) instead of per-FR approval JSON.
         # Gate-pass-check (separate job) covers gate PASS records for P4+.
-        if: steps.phase.outputs.PHASE <= '2'
+        if: fromJSON(steps.phase.outputs.PHASE) <= 2
         run: |
           python harness/harness_cli.py verify-agent-b-approvals \
             --phase ${{ steps.phase.outputs.PHASE }} \
@@ -463,7 +463,7 @@ except Exception as e:
           echo "PHASE=$PHASE" >> $GITHUB_OUTPUT
 
       - name: Validate SAB.json (P3+)
-        if: steps.phase.outputs.PHASE >= 3
+        if: fromJSON(steps.phase.outputs.PHASE) >= 3
         run: |
           python3 - <<'EOF'
           import json, sys

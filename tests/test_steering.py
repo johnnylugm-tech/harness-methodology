@@ -198,16 +198,17 @@ class TestComputeWeightedScore:
         loop = _loop()
         scores = dict.fromkeys(_DIM_KEYS, 0.5)
         result = loop._compute_weighted_score(scores)
-        # quality=0.5*0.4+0.5*0.2=0.3, clarity=0.5*0.2+0.5*0.1=0.15, consistency=0.5*0.2=0.1
-        assert abs(result - 0.55) < 1e-9
+        # quality=0.5, clarity=0.5, efficiency=0.5, consistency=0.5
+        # total = 0.5*0.4 + 0.5*0.2 + 0.5*0.2 + 0.5*0.2 = 0.5
+        assert abs(result - 0.5) < 1e-9
 
     def test_high_correctness_dominates(self):
         loop = _loop()
         scores = dict.fromkeys(_DIM_KEYS, 0.0)
         scores["correctness"] = 1.0
         result = loop._compute_weighted_score(scores)
-        # quality = 1.0*0.4 = 0.4, rest=0
-        assert abs(result - 0.4) < 1e-9
+        # quality = 1.0*0.7 + 0.0*0.3 = 0.7; total = 0.7*0.4 = 0.28
+        assert abs(result - 0.28) < 1e-9
 
     def test_a_high_beats_b_low(self):
         loop = _loop()
@@ -217,8 +218,8 @@ class TestComputeWeightedScore:
 
     def test_missing_dimension_defaults_to_half(self):
         loop = _loop()
-        result = loop._compute_weighted_score({})   # all missing
-        assert abs(result - 0.55) < 1e-9
+        result = loop._compute_weighted_score({})   # all missing → all 0.5
+        assert abs(result - 0.5) < 1e-9
 
 
 # ─── SteeringLoop._update_stage ───────────────────────────────────────────────
@@ -378,11 +379,12 @@ class TestShouldContinue:
 
     def test_quality_threshold_stops(self):
         """After 3+ iterations with high-scoring A, quality_threshold fires."""
-        loop = _loop(scores=_SCORES_A_HIGH)
+        from steering.steering_loop import SteeringConfig
+        # A's weighted score ≈ 0.796 under current formula; threshold set below it.
+        loop = _loop(scores=_SCORES_A_HIGH, config=SteeringConfig(quality_threshold=0.75))
         for _ in range(3):
             loop.iterate(_OUT_A, _OUT_B)
         cont, reason = loop.should_continue()
-        # best_score=0.90 >= quality_threshold=0.85
         assert cont is False
         assert reason == "quality_threshold_reached"
 
@@ -905,7 +907,9 @@ class TestSteeringIntegrator:
         assert isinstance(reason, str)
 
     def test_should_continue_stops_at_quality_threshold(self):
-        si = self._integrator(scores=_SCORES_A_HIGH)
+        from steering.steering_loop import SteeringConfig
+        # A's weighted score ≈ 0.796; threshold set below it.
+        si = self._integrator(scores=_SCORES_A_HIGH, config=SteeringConfig(quality_threshold=0.75))
         # 3 iterations to pass min_iterations (3)
         for _ in range(3):
             si.iterate_with_full_check(_OUT_A, _OUT_B, run_bvs=False, run_constitution=False)

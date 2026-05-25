@@ -169,13 +169,20 @@ def ast_mutation_guard(
     """
     Compare AST trees before and after fix.
     Ensures no nodes outside the allowed_node_name are modified or added.
+
+    Handles two scopes:
+    - Top-level: allowed_node_name matches a top-level FunctionDef / ClassDef →
+      that entire node is excluded from the invariant set.
+    - Nested method: allowed_node_name matches a method inside a top-level ClassDef →
+      only that specific method is excluded from the class body invariants; all
+      other class members and top-level nodes must remain unchanged.
     """
     if not allowed_node_name:
         return True  # No dynamic constraint applied
-        
-    if not file_path.suffix == ".py":
+
+    if file_path.suffix != ".py":
         return True  # Only Python files supported for AST analysis
-        
+
     try:
         pre_tree = ast.parse(pre_content)
         post_tree = ast.parse(post_content)
@@ -183,9 +190,25 @@ def ast_mutation_guard(
         def get_invariants(tree: ast.Module, exclude_name: str) -> List[str]:
             invariants = []
             for node in tree.body:
+                # Top-level node matches: exclude entirely.
                 if isinstance(node, (ast.FunctionDef, ast.ClassDef, ast.AsyncFunctionDef)):
                     if node.name == exclude_name:
                         continue
+                    # ClassDef whose body contains the allowed method as a direct child.
+                    if isinstance(node, ast.ClassDef):
+                        member_names = {
+                            item.name for item in node.body
+                            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
+                        }
+                        if exclude_name in member_names:
+                            # Include all class members except the allowed method.
+                            for item in node.body:
+                                if isinstance(
+                                    item, (ast.FunctionDef, ast.AsyncFunctionDef)
+                                ) and item.name == exclude_name:
+                                    continue
+                                invariants.append(ast.dump(item))
+                            continue  # skip default dump of the whole ClassDef
                 invariants.append(ast.dump(node))
             return invariants
 
@@ -196,7 +219,7 @@ def ast_mutation_guard(
             return False
 
     except Exception:
-        # Any parsing failure represents syntax corruption or illegal content
+        # Any parsing failure (including SyntaxError) represents corruption.
         return False
 
     return True
