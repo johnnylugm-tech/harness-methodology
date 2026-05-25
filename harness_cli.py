@@ -3435,8 +3435,7 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                 )
                 return 2
             # Check phase_truth_passed for phases with exit gates
-            if (args.completed_phase in _PHASE_EXIT_GATES
-                    ):
+            if args.completed_phase in _PHASE_EXIT_GATES:
                 if not _state.get("phase_truth_passed"):
                     print(
                         f"\n[BLOCKED] advance-phase: phase_truth_passed not recorded "

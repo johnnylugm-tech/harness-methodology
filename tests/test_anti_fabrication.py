@@ -145,57 +145,6 @@ class TestCheckFrCoverage:
 
 
 # ---------------------------------------------------------------------------
-# P3: State integrity seal
-# ---------------------------------------------------------------------------
-
-class TestStateIntegrity:
-    """_compute_seal and _verify_state_integrity detect tampered state.json."""
-
-    def test_seal_roundtrip(self, tmp_path):
-        from harness_cli import _compute_seal
-        data = {"current_phase": 4, "state": "ACTIVE", "last_gate": 3}
-        seal = _compute_seal(data)
-        assert len(seal) == 16
-        # Same data → same seal
-        assert _compute_seal(data) == seal
-        # Different data → different seal
-        data2 = {"current_phase": 5, "state": "ACTIVE", "last_gate": 3}
-        assert _compute_seal(data2) != seal
-
-    def test_legacy_state_no_seal(self, tmp_path):
-        from harness_cli import _verify_state_integrity
-        (tmp_path / ".methodology").mkdir(parents=True)
-        (tmp_path / ".methodology" / "state.json").write_text(
-            json.dumps({"current_phase": 3, "state": "ACTIVE"})
-        )
-        ok, diag = _verify_state_integrity(tmp_path)
-        assert not ok
-        assert diag == "LEGACY"
-
-    def test_tampered_seal_detected(self, tmp_path):
-        from harness_cli import _compute_seal, _verify_state_integrity
-        (tmp_path / ".methodology").mkdir(parents=True)
-        data = {"current_phase": 3, "state": "ACTIVE", "last_gate": 2}
-        data["_seal"] = _compute_seal(data)
-        (tmp_path / ".methodology" / "state.json").write_text(json.dumps(data))
-        # Verify original is valid
-        ok, _ = _verify_state_integrity(tmp_path)
-        assert ok, "Valid seal should pass"
-        # Tamper: change current_phase without updating seal
-        data["current_phase"] = 7
-        (tmp_path / ".methodology" / "state.json").write_text(json.dumps(data))
-        ok, diag = _verify_state_integrity(tmp_path)
-        assert not ok
-        assert diag == "TAMPERED"
-
-    def test_no_state_file_passes(self, tmp_path):
-        from harness_cli import _verify_state_integrity
-        ok, diag = _verify_state_integrity(tmp_path)
-        assert ok
-        assert diag == ""
-
-
-# ---------------------------------------------------------------------------
 # P1: Commit interval enforcement (legacy tests updated for disk-based impl)
 # ---------------------------------------------------------------------------
 
@@ -205,10 +154,10 @@ class TestCommitIntervals:
     def test_two_in_window_ok(self, tmp_path):
         from harness_cli import _check_commit_intervals, _record_gate_timestamp
         # 0 prior entries → ok; simulate success then 1 prior → still ok
-        ok1, _ = _check_commit_intervals(str(tmp_path), 4, 1, "FR-01")
+        ok1, _ = _check_commit_intervals(str(tmp_path), 4, 1)
         assert ok1
         _record_gate_timestamp(tmp_path, 4, 1, "FR-01")  # simulates successful finalize
-        ok2, _ = _check_commit_intervals(str(tmp_path), 4, 1, "FR-02")
+        ok2, _ = _check_commit_intervals(str(tmp_path), 4, 1)
         assert ok2  # 1 prior entry, still below threshold
 
     def test_three_in_window_blocked(self, tmp_path):
@@ -216,7 +165,7 @@ class TestCommitIntervals:
         # Seed 2 prior successful finalizations
         _record_gate_timestamp(tmp_path, 4, 1, "FR-01")
         _record_gate_timestamp(tmp_path, 4, 1, "FR-02")
-        ok3, msg = _check_commit_intervals(str(tmp_path), 4, 1, "FR-03")
+        ok3, msg = _check_commit_intervals(str(tmp_path), 4, 1)
         assert not ok3
         assert "within 2 seconds" in msg
 
@@ -225,7 +174,7 @@ class TestCommitIntervals:
         from harness_cli import _check_commit_intervals, _record_gate_timestamp, _GATE_TIMESTAMPS_FILE
         _record_gate_timestamp(tmp_path, 4, 1, "FR-01")
         _record_gate_timestamp(tmp_path, 4, 1, "FR-02")
-        ok, _ = _check_commit_intervals(str(tmp_path), 4, 1, "FR-03")
+        ok, _ = _check_commit_intervals(str(tmp_path), 4, 1)
         assert not ok
         ts_file = tmp_path / ".methodology" / _GATE_TIMESTAMPS_FILE
         lines = [l for l in ts_file.read_text(encoding="utf-8").splitlines() if l.strip()]
@@ -236,7 +185,7 @@ class TestCommitIntervals:
         # Same project/phase but different gates — independent buckets
         _record_gate_timestamp(tmp_path, 4, 1, "FR-01")
         _record_gate_timestamp(tmp_path, 4, 1, "FR-02")
-        ok, _ = _check_commit_intervals(str(tmp_path), 4, 3, "FR-03")
+        ok, _ = _check_commit_intervals(str(tmp_path), 4, 3)
         assert ok  # Gate 3 ≠ Gate 1 → different bucket
 
 
@@ -329,9 +278,9 @@ class TestPersistentCommitIntervals:
 
     def test_two_commits_ok(self, tmp_path):
         from harness_cli import _check_commit_intervals, _record_gate_timestamp
-        ok1, _ = _check_commit_intervals(str(tmp_path), 4, 1, "FR-01")
+        ok1, _ = _check_commit_intervals(str(tmp_path), 4, 1)
         _record_gate_timestamp(tmp_path, 4, 1, "FR-01")
-        ok2, _ = _check_commit_intervals(str(tmp_path), 4, 1, "FR-02")
+        ok2, _ = _check_commit_intervals(str(tmp_path), 4, 1)
         _record_gate_timestamp(tmp_path, 4, 1, "FR-02")
         assert ok1
         assert ok2
@@ -340,7 +289,7 @@ class TestPersistentCommitIntervals:
         from harness_cli import _check_commit_intervals, _record_gate_timestamp
         _record_gate_timestamp(tmp_path, 4, 1, "FR-01")
         _record_gate_timestamp(tmp_path, 4, 1, "FR-02")
-        ok3, msg = _check_commit_intervals(str(tmp_path), 4, 1, "FR-03")
+        ok3, msg = _check_commit_intervals(str(tmp_path), 4, 1)
         assert not ok3
         assert "within 2 seconds" in msg
 
@@ -349,7 +298,7 @@ class TestPersistentCommitIntervals:
         from harness_cli import _check_commit_intervals, _record_gate_timestamp
         _record_gate_timestamp(tmp_path, 4, 1, "FR-01")
         _record_gate_timestamp(tmp_path, 4, 1, "FR-02")
-        ok, _ = _check_commit_intervals(str(tmp_path), 4, 1, "FR-03")
+        ok, _ = _check_commit_intervals(str(tmp_path), 4, 1)
         assert not ok
 
     def test_different_phase_independent(self, tmp_path):
@@ -357,7 +306,7 @@ class TestPersistentCommitIntervals:
         _record_gate_timestamp(tmp_path, 3, 1, "FR-01")
         _record_gate_timestamp(tmp_path, 3, 1, "FR-02")
         # Phase 4 has its own bucket
-        ok, _ = _check_commit_intervals(str(tmp_path), 4, 1, "FR-03")
+        ok, _ = _check_commit_intervals(str(tmp_path), 4, 1)
         assert ok
 
     def test_trim_to_max_entries(self, tmp_path):
@@ -440,23 +389,16 @@ class TestInterFrScoreVariance:
 class TestPhaseTruthPassed:
     """phase_truth_passed field is set when exit gate passes, blocks advance-phase."""
 
-    def test_compute_seal_includes_phase_truth_passed(self):
-        from harness_cli import _compute_seal
-        d1 = {"current_phase": 4, "phase_truth_passed": True}
-        d2 = {"current_phase": 4, "phase_truth_passed": False}
-        assert _compute_seal(d1) != _compute_seal(d2)
-
     def test_advance_phase_blocked_without_phase_truth_passed(self, tmp_path):
-        """advance-phase returns exit 12 when phase_truth_passed is False/missing.
+        """advance-phase checks phase_truth_passed=False and should block (exit 12).
 
         Exit 12 is distinct from exit 11 (Phase Truth score < 90%) so that operators
         can apply the correct remediation:
           11 → re-run Phase Truth until score ≥ 90%
           12 → run finalize-gate for the phase exit gate first
         """
-        from harness_cli import _compute_seal
         import json
-        # Write state.json with seal but phase_truth_passed=False
+        # Write state.json with phase_truth_passed=False (no seal — seal was removed)
         methodology = tmp_path / ".methodology"
         methodology.mkdir()
         state = {
@@ -466,12 +408,10 @@ class TestPhaseTruthPassed:
             "last_update": "2026-01-01T00:00:00Z",
             "phase_truth_passed": False,
         }
-        state["_seal"] = _compute_seal(state)
         (methodology / "state.json").write_text(json.dumps(state))
 
         # Verify the state structure that cmd_advance_phase will check
         loaded = json.loads((methodology / "state.json").read_text())
-        assert "_seal" in loaded
         assert not loaded.get("phase_truth_passed"), "Should be False → triggers exit 12"
 
 
