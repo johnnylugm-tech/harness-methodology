@@ -4,6 +4,7 @@ Unit tests for HarnessBridge.
 
 import json
 import pytest
+from typing import Any
 
 pytestmark = pytest.mark.core
 from unittest.mock import patch, MagicMock
@@ -76,20 +77,23 @@ class TestHarnessBridgeIntegration:
 class TestGateContext:
     """Tests for GateContext dataclass and evaluation_prompt()."""
 
-    def _make_context(self, **kwargs):
-        defaults = dict(
-            gate_num=2,
-            config={"gate": 2, "score_gate": 80, "dimensions": [{"name": "coverage"}, {"name": "lint"}]},
-            project_root="/some/project",
-            phase=3,
-            fr_id=None,
-            ssi_scripts_dir="/harness/ssi/scripts",
-            ssi_prompts_dir="/harness/ssi/prompts",
-            ssi_schemas_dir="/harness/ssi/schemas",
-            work_dir="/some/project/.sessi-work",
+    def _make_context(self, **kwargs: Any) -> GateContext:
+        _cfg = {"gate": 2, "score_gate": 80, "dimensions": [{"name": "coverage"}, {"name": "lint"}]}
+        return GateContext(
+            gate_num=kwargs.get("gate_num", 2),
+            config=kwargs.get("config", _cfg),
+            project_root=kwargs.get("project_root", "/some/project"),
+            phase=kwargs.get("phase", 3),
+            fr_id=kwargs.get("fr_id", None),
+            ssi_scripts_dir=kwargs.get("ssi_scripts_dir", "/harness/ssi/scripts"),
+            ssi_prompts_dir=kwargs.get("ssi_prompts_dir", "/harness/ssi/prompts"),
+            ssi_schemas_dir=kwargs.get("ssi_schemas_dir", "/harness/ssi/schemas"),
+            work_dir=kwargs.get("work_dir", "/some/project/.sessi-work"),
+            sab_data=kwargs.get("sab_data", {}),
+            tier3_context=kwargs.get("tier3_context", {}),
+            crg_safety_context=kwargs.get("crg_safety_context", {}),
+            auto_fix_rounds=kwargs.get("auto_fix_rounds", 0),
         )
-        defaults.update(kwargs)
-        return GateContext(**defaults)
 
     def test_gate_context_attributes(self):
         ctx = self._make_context()
