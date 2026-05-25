@@ -1605,6 +1605,9 @@ def cmd_run_gate(args: argparse.Namespace) -> int:
         # and assign threshold score directly (infrastructure FRs are exempt).
         # Add to quality_manifest.json: {"fr_non_python": ["FR-15"]}
         _non_python_frs = set(_manifest_data.get("fr_non_python", []))
+        _cov_threshold = int(
+            _manifest_data.get("quality_targets", {}).get("min_coverage", 80)
+        )
         if not _src_files and fr_id in _non_python_frs:
             print(
                 f"\n[FR-SCOPED TOOL OVERRIDES — {fr_id}]\n"
@@ -1613,7 +1616,7 @@ def cmd_run_gate(args: argparse.Namespace) -> int:
                 f"test_coverage — {fr_id} is declared as a non-Python FR "
                 f"(no Python source to measure):\n"
                 f"  echo 'NON_PYTHON_FR: coverage not applicable'\n"
-                f"  Score this dimension as {80} (= threshold). "
+                f"  Score this dimension as {_cov_threshold} (= threshold). "
                 f"Infrastructure/config FRs are exempt from Python coverage measurement.\n"
                 f"  Set tool_evidence = 'non-python FR: {fr_id} declared in fr_non_python'\n\n"
                 f"linting — lint only the FR source directory:\n"
@@ -3940,17 +3943,21 @@ def _fr_step_already_done(step: str, fr_id: str, project: Path) -> bool:
 
     # GATE1 / GATE1-DELTA: commit pattern alone is insufficient — a "Gate1 PASS"
     # commit may have been written with a fabricated or sub-threshold score (e.g.
-    # 0.0 or 66.0). Verify the recorded score actually meets the 80% threshold
-    # before treating this step as done.
+    # 0.0 or 66.0). Verify the recorded score actually meets the project threshold
+    # before treating this step as done. Threshold is read from quality_targets
+    # (min_coverage in quality_manifest.json) with 80.0 as the fallback default.
     if step.upper() in ("GATE1", "GATE1-DELTA"):
         _manifest_path = project / ".methodology" / "quality_manifest.json"
         try:
             _manifest = json.loads(_manifest_path.read_text(encoding="utf-8"))
+            _threshold = float(
+                _manifest.get("quality_targets", {}).get("min_coverage", 80.0)
+            )
             _score = float(
                 _manifest.get("gate_results", {})
                 .get("gate1", {}).get(fr_id, {}).get("score", 0.0)
             )
-            if _score < 80.0:
+            if _score < _threshold:
                 return False   # commit exists but score below threshold → re-run
         except (OSError, json.JSONDecodeError, ValueError, AttributeError):
             return False       # manifest unreadable → re-run to be safe
