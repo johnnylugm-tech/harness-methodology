@@ -4215,12 +4215,17 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"3. Write `.sessi-work/gate1_result.json` with this EXACT schema:\n"
             f"   {{\n"
             f'     "gate": 1, "phase": {phase}, "fr_id": "{fr_id}",\n'
+            f'     "overall_score": <float>,           // weighted avg of breakdown scores\n'
+            f'     "quality_complete": true,            // true if overall_score >= 80\n'
+            f'     "rounds_used": 1,\n'
             f'     "breakdown": {{\n'
-            f'       "linting":       {{"score": <0-100>, "tool_evidence": "<first 500 chars of ruff stdout>"}},\n'
-            f'       "type_safety":   {{"score": <0-100>, "tool_evidence": "<first 500 chars of pyright stdout>"}},\n'
-            f'       "test_coverage": {{"score": <0-100>, "tool_evidence": "<first 500 chars of coverage/pytest stdout>"}}\n'
+            f'       "linting":       {{"score": <0-100>, "threshold": 90, "tool_evidence": "<first 500 chars of ruff stdout>"}},\n'
+            f'       "type_safety":   {{"score": <0-100>, "threshold": 85, "tool_evidence": "<first 500 chars of pyright stdout>"}},\n'
+            f'       "test_coverage": {{"score": <0-100>, "threshold": 80, "tool_evidence": "<first 500 chars of coverage/pytest stdout>"}}\n'
             f'     }}\n'
             f"   }}\n"
+            f"   overall_score = (linting.score × 0.33 + type_safety.score × 0.33 + test_coverage.score × 0.34).\n"
+            f"   quality_complete = (overall_score >= 80) AND (every dimension score >= its threshold).\n"
             f"   CRITICAL: `tool_evidence` is REQUIRED for every dimension.\n"
             f"   If you omit it, finalize-gate will BLOCK with S3 error regardless of scores.\n"
             f"   Score fabrication (writing a score without running the tool) also causes S3 block.\n\n"

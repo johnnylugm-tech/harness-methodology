@@ -1000,7 +1000,21 @@ class HarnessBridge:
                 details={"tool_score_fabrication": _s4_violations},
             )
 
-        # Build per-dimension results from breakdown if provided
+        # Build per-dimension results from breakdown if provided.
+        # Gate config dimension metadata (for fallback when agent omits top-level fields).
+        _dim_weights: dict[str, float] = {}
+        _dim_thresholds: dict[str, float] = {}
+        _config_dim_list = getattr(ctx.config, 'dimensions', []) if hasattr(ctx.config, 'dimensions') else []
+        for _d in _config_dim_list:
+            _dname = getattr(_d, 'name', '')
+            _dweight = getattr(_d, 'weight', 0.0)
+            _dt = getattr(_d, 'threshold', 0.0)
+            if _dname:
+                if _dweight:
+                    _dim_weights[_dname] = _dweight
+                if _dt:
+                    _dim_thresholds[_dname] = _dt
+
         dims: list[DimResult] = []
         for dim_name, dim_data in raw.get("breakdown", {}).items():
             dims.append(DimResult(
@@ -1048,14 +1062,47 @@ class HarnessBridge:
         except Exception:  # pylint: disable=broad-exception-caught
             pass  # variance check is advisory — never block finalize
 
+        # ── Fallback: derive overall_score from breakdown if agent omitted it ──
+        _raw_overall = raw.get("overall_score", raw.get("score"))
+        if _raw_overall is not None:
+            _overall_score = float(_raw_overall)
+        elif dims and _dim_weights:
+            # Compute weighted average from breakdown using gate config weights
+            _weighted = 0.0
+            _total_weight = 0.0
+            for d in dims:
+                w = _dim_weights.get(d.name, 1.0 / max(len(dims), 1))
+                _weighted += d.score * w
+                _total_weight += w
+            _overall_score = _weighted / max(_total_weight, 0.001)
+        elif dims:
+            _overall_score = sum(d.score for d in dims) / max(len(dims), 1)
+        else:
+            _overall_score = 0.0
+
+        # ── Fallback: derive quality_complete if agent omitted it ──
+        _raw_qc = raw.get("quality_complete")
+        if _raw_qc is not None:
+            _quality_complete = bool(_raw_qc)
+        elif dims:
+            # Gate 1 pass condition: overall >= score_gate AND every dim >= its threshold.
+            # Use config thresholds as fallback when agent didn't include per-dim thresholds.
+            _gt = ctx.config.get("score_gate", 80) if isinstance(ctx.config, dict) else getattr(ctx.config, 'score_gate', 80)
+            _quality_complete = _overall_score >= _gt and all(
+                d.score >= (_dim_thresholds.get(d.name) or d.threshold or _gt)
+                for d in dims
+            )
+        else:
+            _quality_complete = False
+
         result = GateResult(
             gate_num=ctx.gate_num,
-            score=raw.get("overall_score", raw.get("score", 0.0)),
+            score=_overall_score,
             dimensions=dims,
             open_critical=raw.get("open_critical_count", raw.get("open_critical", 0)),
             open_high=raw.get("open_high_count", raw.get("open_high", 0)),
-            quality_complete=raw.get("quality_complete", False),
-            rounds_used=raw.get("rounds_used", 0),
+            quality_complete=_quality_complete,
+            rounds_used=raw.get("rounds_used", 1),
         )
 
         self._update_quality_manifest(ctx.gate_num, ctx.fr_id, result)
