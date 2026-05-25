@@ -4121,6 +4121,18 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"4. Run `pytest {test_file} -q` to confirm all tests fail.\n"
             f"5. Commit: `git add {test_file} && git commit -m \"test(RED): failing test for {fr_id}\"`\n"
             f"6. Append to DEVELOPMENT_LOG.md: `## RED phase — {fr_id} — failing test written`\n\n"
+            f"[UNIT TEST CONTRACT — avoid false-fail traps]\n"
+            f"Tests must fail because the FEATURE is missing, not because of external side-effects.\n"
+            f"- If tests call methods that perform real external operations (HMAC signature\n"
+            f"  verification, DB connections, HTTP calls), use a pytest autouse fixture in\n"
+            f"  `tests/conftest.py` (or an inline @pytest.fixture) to mock them. This is\n"
+            f"  NOT 'implementing the feature' — it is required test isolation.\n"
+            f"- Example: a pipeline.process() call performs HMAC verification internally.\n"
+            f"  Add an autouse fixture: monkeypatch.setattr(Verifier, 'verify', lambda *a: True)\n"
+            f"  so the test fails because the pipeline logic is absent, not because of bad sig.\n"
+            f"- If you use patch.object(obj, 'method_name', ...) in a test, the method_name\n"
+            f"  MUST be added as a stub to the source class — document it in a comment so\n"
+            f"  the GREEN agent knows to implement it.\n\n"
             f"[FORBIDDEN]\n"
             f"- Implementing any source code (test file only)\n"
             f"- app/infrastructure/ paths\n"
@@ -4141,12 +4153,22 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"{test_content or f'(read from {test_file})'}\n\n"
             f"[FR REQUIREMENTS]\n"
             f"{srs_section or f'See SRS.md for {fr_id} requirements'}\n\n"
+            f"[IMPLEMENTATION CONTRACT]\n"
+            f"Before writing any code, scan `{test_file}` for:\n"
+            f"  1. patch.object(obj, 'method_name', ...) — every patched method_name MUST\n"
+            f"     exist in your implementation (even as a stub returning {{}}). Missing\n"
+            f"     attributes cause AttributeError before the test even runs.\n"
+            f"  2. autouse fixtures that mock verifiers — means the test bypasses real HMAC/auth.\n"
+            f"     Do NOT add HMAC bypass to production code; the fixture already handles it.\n"
+            f"  3. Any test that calls process() or similar — ensure the implementation has\n"
+            f"     an outer try/except that returns 500 on unhandled exceptions (never crashes).\n\n"
             f"[TASK]\n"
-            f"1. Create/edit source files in `{src_dir}/` to make `{test_file}` pass.\n"
-            f"2. Run `pytest {test_file} -q` — all tests must pass.\n"
-            f"3. Docstrings must include `[{fr_id}]` tag + `Citations:` with line numbers (HR-15).\n"
-            f"4. Commit: `git add {src_dir}/ && git commit -m \"feat({fr_id}): GREEN\"`\n"
-            f"5. Append to DEVELOPMENT_LOG.md: `## GREEN phase — {fr_id} — tests pass`\n\n"
+            f"1. Scan test file per [IMPLEMENTATION CONTRACT] above before writing any code.\n"
+            f"2. Create/edit source files in `{src_dir}/` to make `{test_file}` pass.\n"
+            f"3. Run `pytest {test_file} -q` — all tests must pass.\n"
+            f"4. Docstrings must include `[{fr_id}]` tag + `Citations:` with line numbers (HR-15).\n"
+            f"5. Commit: `git add {src_dir}/ && git commit -m \"feat({fr_id}): GREEN\"`\n"
+            f"6. Append to DEVELOPMENT_LOG.md: `## GREEN phase — {fr_id} — tests pass`\n\n"
             f"[FORBIDDEN]\n"
             f"- Modifying test files\n"
             f"- app/infrastructure/ paths\n\n"
@@ -4449,6 +4471,10 @@ def _capture_tool_snapshot(
     """
     import subprocess as _sp
     lines: list[str] = []
+    # PYTHONPATH must point at the src root, not the project root.
+    # For src-layout projects (e.g. 03-development/src/) using PYTHONPATH=project
+    # causes ModuleNotFoundError, masking the real assertion failures from fixers.
+    _pythonpath = str(project / src_dir) if src_dir else str(project)
     try:
         r = _sp.run(
             ["ruff", "check", f"{src_dir}/"],
@@ -4464,7 +4490,7 @@ def _capture_tool_snapshot(
         r = _sp.run(
             ["python3", "-m", "pytest", test_file, "-v", "--tb=short", "-q"],
             capture_output=True, text=True, cwd=str(project),
-            timeout=60, env={**__import__("os").environ, "PYTHONPATH": str(project)},
+            timeout=60, env={**__import__("os").environ, "PYTHONPATH": _pythonpath},
         )
         output = (r.stdout + r.stderr).strip()
         if output:
