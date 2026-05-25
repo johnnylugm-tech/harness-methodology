@@ -306,6 +306,7 @@ class TestSabManifestIntegration:
             "nfr_dimension_mapping": {"NFR-1": "security"},
             "architecture_constraints": ["no-circular-deps"],
             "high_risk_modules": ["core/auth.py"],
+            "gate_score_overrides": {"coverage": 80.0},
         }
         (method_dir / "quality_manifest.json").write_text(json.dumps(manifest))
 
@@ -314,6 +315,11 @@ class TestSabManifestIntegration:
         assert sab["nfr_dimension_mapping"] == {"NFR-1": "security"}
         assert sab["architecture_constraints"] == ["no-circular-deps"]
         assert sab["high_risk_modules"] == ["core/auth.py"]
+        # New fields introduced by SAB closure
+        assert sab["gate_score_overrides"] == {"coverage": 80.0}
+        assert sab["nfr_traceability"] == {}
+        assert sab["quality_targets"] == {}
+        assert sab["fr_module_traceability"] == {}
 
     def test_load_manifest_sab_partial(self, tmp_path):
         """Manifest without SAB fields returns empty lists/dicts."""
@@ -516,18 +522,13 @@ class TestSabClosureGaps:
             "nfr_traceability": {},
             "fr_module_traceability": {},
         }
+        _path_redirect = lambda *a: tmp_path / Path(*a) if ".methodology" in str(a) else Path(*a)
         with patch("scripts.generate_sab.parse_sad", return_value=sab_return):
             with patch.object(bridge, "_parse_nfr_from_srs", return_value={}):
                 with patch.object(bridge, "_parse_nfr_fr_xref", return_value={}):
-                    import os
-                    old_cwd = os.getcwd()
-                    os.chdir(tmp_path)
-                    try:
+                    with patch("harness.harness_bridge.Path", side_effect=_path_redirect):
                         p = bridge.generate_quality_manifest(["FR-01"], "SAD.md")
-                        # Read while CWD is still tmp_path — p is a relative Path
-                        data = json.loads(p.read_text())
-                    finally:
-                        os.chdir(old_cwd)
+        data = json.loads(p.read_text())
         assert data["gate_score_overrides"] == {"coverage": 85.0}
         assert data["quality_targets"] == {"min_coverage": 85}
 
@@ -539,17 +540,13 @@ class TestSabClosureGaps:
             "constraints": [], "high_risk": [], "nfr_dim_map": {},
             "nfr_traceability": {}, "fr_module_traceability": {},
         }
+        _path_redirect = lambda *a: tmp_path / Path(*a) if ".methodology" in str(a) else Path(*a)
         with patch("scripts.generate_sab.parse_sad", return_value=sab_return):
             with patch.object(bridge, "_parse_nfr_from_srs", return_value={}):
                 with patch.object(bridge, "_parse_nfr_fr_xref", return_value={}):
-                    import os
-                    old_cwd = os.getcwd()
-                    os.chdir(tmp_path)
-                    try:
+                    with patch("harness.harness_bridge.Path", side_effect=_path_redirect):
                         p = bridge.generate_quality_manifest(["FR-01"], "SAD.md")
-                        data = json.loads(p.read_text())
-                    finally:
-                        os.chdir(old_cwd)
+        data = json.loads(p.read_text())
         assert data["gate_score_overrides"] == {}
 
     # ── Gap 4: evaluation_prompt injects fr_module_traceability ────────────
@@ -597,7 +594,6 @@ class TestSabClosureGaps:
     # ── Gap 5: finalize_gate applies gate_score_overrides as threshold floor ──
 
     def _write_gate1_result(self, ctx: GateContext, breakdown: dict) -> None:
-        import os
         result_path = Path(ctx.work_dir) / f"gate{ctx.gate_num}_result.json"
         result_path.parent.mkdir(parents=True, exist_ok=True)
         result_path.write_text(json.dumps({
@@ -609,8 +605,6 @@ class TestSabClosureGaps:
     def test_finalize_gate_raises_when_override_exceeds_agent_threshold(self, tmp_path):
         """coverage override=80 with agent threshold=60 and score=70 → blocked."""
         bridge = HarnessBridge()
-        methodology = tmp_path / ".methodology"
-        methodology.mkdir()
         ctx = GateContext(
             gate_num=1, config={"gate": 1, "dimensions": []},
             project_root=str(tmp_path), phase=3, fr_id="FR-01",
@@ -671,3 +665,33 @@ class TestSabClosureGaps:
                         with patch.object(bridge, "_effort"):
                             with pytest.raises(GateBlockedError):
                                 bridge.finalize_gate(ctx)
+
+    def test_finalize_gate2_ignores_dimension_overrides(self, tmp_path):
+        """Gate 2–4 passes/fails on composite score_gate, not per-dimension overrides."""
+        bridge = HarnessBridge()
+        # Override says coverage must be ≥80, but Gate 2 checks score_gate only.
+        ctx = GateContext(
+            gate_num=2,
+            config={"gate": 2, "dimensions": [], "score_gate": 75, "max_rounds": 2},
+            project_root=str(tmp_path), phase=4, fr_id=None,
+            ssi_scripts_dir="/t", ssi_prompts_dir="/t", ssi_schemas_dir="/t",
+            work_dir=str(tmp_path / ".sessi-work"),
+            sab_data={"gate_score_overrides": {"coverage": 80.0}},
+        )
+        # overall_score=80 >= score_gate=75, so gate should pass
+        # coverage dim score=70 < override=80, but Gate 2 doesn't use per-dim thresholds
+        result_path = Path(ctx.work_dir) / "gate2_result.json"
+        result_path.parent.mkdir(parents=True, exist_ok=True)
+        result_path.write_text(json.dumps({
+            "overall_score": 80.0, "quality_complete": True,
+            "open_critical_count": 0, "open_high_count": 0,
+            "breakdown": {"coverage": {"score": 70.0, "threshold": 60.0, "issues": []}},
+        }))
+        with patch("harness.harness_bridge._check_tool_evidence", return_value=[]):
+            with patch("harness.harness_bridge._run_harness_cross_validation", return_value=[]):
+                with patch.object(bridge, "_update_quality_manifest"):
+                    with patch.object(bridge, "_log"):
+                        with patch.object(bridge, "_effort"):
+                            result = bridge.finalize_gate(ctx)
+        assert result.quality_complete is True
+        assert result.score == 80.0
