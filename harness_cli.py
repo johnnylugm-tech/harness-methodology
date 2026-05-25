@@ -4112,15 +4112,10 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
         return (
             f"You are a TDD developer. Your ONLY task: write failing pytest tests for {fr_id}.\n\n"
             f"{spec_note}"
-            f"[FR REQUIREMENTS]\n"
-            f"{srs_section or f'See SRS.md for {fr_id} requirements'}\n\n"
-            f"[TASK]\n"
-            f"1. Create/edit `{test_file}` with failing tests covering the acceptance criteria above.\n"
-            f"2. Every test function name MUST match the TEST SPEC names listed above exactly.\n"
-            f"3. The tests MUST FAIL — do NOT implement the feature yet.\n"
-            f"4. Run `pytest {test_file} -q` to confirm all tests fail.\n"
-            f"5. Commit: `git add {test_file} && git commit -m \"test(RED): failing test for {fr_id}\"`\n"
-            f"6. Append to DEVELOPMENT_LOG.md: `## RED phase — {fr_id} — failing test written`\n\n"
+            f"[FORBIDDEN — read before anything else]\n"
+            f"- Implementing any source code (test file only)\n"
+            f"- app/infrastructure/ paths\n"
+            f"- @covers: L1 Error | @type: edge annotations\n\n"
             f"[UNIT TEST CONTRACT — avoid false-fail traps]\n"
             f"Tests must fail because the FEATURE is missing, not because of external side-effects.\n"
             f"- If tests call methods that perform real external operations (HMAC signature\n"
@@ -4134,10 +4129,15 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"  directly above that test explaining what the GREEN agent must implement:\n"
             f"  # GREEN TODO: <ClassName> must have <method_name>(self, *args) -> <return_type>\n"
             f"  Do NOT add stubs to source files yourself — GREEN does that.\n\n"
-            f"[FORBIDDEN]\n"
-            f"- Implementing any source code (test file only)\n"
-            f"- app/infrastructure/ paths\n"
-            f"- @covers: L1 Error | @type: edge annotations\n\n"
+            f"[FR REQUIREMENTS]\n"
+            f"{srs_section or f'See SRS.md for {fr_id} requirements'}\n\n"
+            f"[TASK]\n"
+            f"1. Create/edit `{test_file}` with failing tests covering the acceptance criteria above.\n"
+            f"2. Every test function name MUST match the TEST SPEC names listed above exactly.\n"
+            f"3. The tests MUST FAIL — do NOT implement the feature yet.\n"
+            f"4. Run `pytest {test_file} -q` to confirm all tests fail.\n"
+            f"5. Commit: `git add {test_file} && git commit -m \"test(RED): failing test for {fr_id}\"`\n"
+            f"6. Append to DEVELOPMENT_LOG.md: `## RED phase — {fr_id} — failing test written`\n\n"
             f'[OUTPUT FORMAT]\nReturn JSON: {{"status": "DONE", "test_file": "{test_file}", '
             f'"commit": "<hash>", "summary": "<under 50 chars>"}}'
         )
@@ -4150,10 +4150,9 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             test_content = tf.read_text(encoding="utf-8")
         return (
             f"You are a TDD developer. Your task: implement {fr_id} until the failing test passes.\n\n"
-            f"[FAILING TEST — {test_file}]\n"
-            f"{test_content or f'(read from {test_file})'}\n\n"
-            f"[FR REQUIREMENTS]\n"
-            f"{srs_section or f'See SRS.md for {fr_id} requirements'}\n\n"
+            f"[FORBIDDEN — read before anything else]\n"
+            f"- Modifying test files\n"
+            f"- app/infrastructure/ paths\n\n"
             f"[IMPLEMENTATION CONTRACT]\n"
             f"Before writing any code, scan `{test_file}` for:\n"
             f"  1. patch.object(obj, 'method_name', ...) — every patched method_name MUST\n"
@@ -4165,6 +4164,10 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"     orchestrator or pipeline method — verify the implementation handles unexpected\n"
             f"     exceptions and returns a structured error response rather than propagating.\n"
             f"     Only add try/except if the tests actually require it; do not add for utilities.\n\n"
+            f"[FAILING TEST — {test_file}]\n"
+            f"{test_content or f'(read from {test_file})'}\n\n"
+            f"[FR REQUIREMENTS]\n"
+            f"{srs_section or f'See SRS.md for {fr_id} requirements'}\n\n"
             f"[TASK]\n"
             f"1. Scan test file per [IMPLEMENTATION CONTRACT] above before writing any code.\n"
             f"2. Create/edit source files in `{src_dir}/` to make `{test_file}` pass.\n"
@@ -4172,9 +4175,6 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"4. Docstrings must include `[{fr_id}]` tag + `Citations:` with line numbers (HR-15).\n"
             f"5. Commit: `git add {src_dir}/ && git commit -m \"feat({fr_id}): GREEN\"`\n"
             f"6. Append to DEVELOPMENT_LOG.md: `## GREEN phase — {fr_id} — tests pass`\n\n"
-            f"[FORBIDDEN]\n"
-            f"- Modifying test files\n"
-            f"- app/infrastructure/ paths\n\n"
             f'[OUTPUT FORMAT]\nReturn JSON: {{"status": "DONE", "files_changed": [...], '
             f'"commit": "<hash>", "summary": "<under 50 chars>"}}'
         )
@@ -4270,6 +4270,16 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"You are a Gate 1 evaluator. Your task: run Gate 1 evaluation for {fr_id}.\n"
             f"{spec_section}"
             f"{block_section}"
+            f"[STOP RULE — follow when tools fail or you are unsure]\n"
+            f"- If any tool command fails to execute (error, not found, env issue):\n"
+            f"  → Record score=0 for that dimension\n"
+            f"  → Set tool_evidence = first 300 chars of the error output\n"
+            f"  → Move on to the next dimension — do NOT retry the same command\n"
+            f"- If finalize-gate prints [BLOCKED]:\n"
+            f"  → Include the exact BLOCKED message in your output summary\n"
+            f"  → Do NOT attempt to fix source code yourself — that is CODE-FIX's job\n"
+            f"- Write gate1_result.json and call finalize-gate within 10 turns of starting.\n"
+            f"  A low score with tool_evidence is always better than a timeout.\n\n"
             f"[TASK — follow EXACTLY in order]\n"
             f"1. Run: `python3 harness_cli.py run-gate --gate 1 --phase {phase} "
             f"--fr-id {fr_id} --project .`\n"
@@ -4311,6 +4321,37 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f'[OUTPUT FORMAT]\nReturn JSON: {{"status": "DONE", "gate_score": <float>, '
             f'"pass": true/false, "failing_dims": [...], "commit": "<hash or null>", '
             f'"summary": "<under 50 chars>"}}'
+        )
+
+    if step == "TEST-FIX":
+        # Dispatched when _classify_snapshot_failure returns "ISOLATION":
+        # tests fail because infrastructure (HMAC, DB, HTTP) intercepts before
+        # feature logic runs. Fix is to add autouse fixtures — not to touch source.
+        return (
+            f"You are a test isolation fixer for {fr_id}.\n\n"
+            f"[FORBIDDEN — read first]\n"
+            f"- Modifying source files in `{src_dir}/`\n"
+            f"- Deleting or xfail-marking tests\n\n"
+            f"[PROBLEM]\n"
+            f"Gate 1 tests are failing because of EXTERNAL SIDE-EFFECTS, not because the "
+            f"feature is missing. Tests call real infrastructure (HMAC verification, DB "
+            f"connections, HTTP calls) that short-circuits before feature logic is reached. "
+            f"Every test returns the same infrastructure error (e.g. 401 Unauthorized).\n\n"
+            f"[ACTUAL TOOL OUTPUT]\n"
+            f"{tool_snapshot or '(not available)'}\n\n"
+            f"[TASK]\n"
+            f"1. Identify the infrastructure call that intercepts (HMAC verifier, DB, HTTP).\n"
+            f"2. Add a pytest autouse fixture to `{test_file}` (or `tests/conftest.py`) "
+            f"that mocks it so tests reach the feature logic:\n"
+            f"   @pytest.fixture(autouse=True)\n"
+            f"   def _bypass_infra(monkeypatch):\n"
+            f"       monkeypatch.setattr(InfraClass, 'verify', lambda *a, **kw: True)\n"
+            f"3. Run `pytest {test_file} -q` — tests must now fail for the RIGHT reason "
+            f"(AssertionError or NameError from missing feature, NOT 401/auth error).\n"
+            f"4. Commit: `git add {test_file} tests/conftest.py && "
+            f"git commit -m \"test({fr_id}): fix test isolation — add autouse infra mock\"`\n\n"
+            f'[OUTPUT FORMAT]\nReturn JSON: {{"status": "DONE", "fixture_added": true, '
+            f'"commit": "<hash>", "summary": "<under 50 chars>"}}'
         )
 
     if step == "CODE-FIX":
@@ -4447,6 +4488,8 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
 
         return (
             f"You are a code fixer. Gate 1 FAILED for {fr_id}. Fix the failing dimensions.\n\n"
+            f"[FORBIDDEN — read before anything else]\n"
+            f"{forbidden}\n\n"
             f"[FAILING DIMENSIONS]\n"
             f"{dims_str}\n"
             f"{test_cov_section}"
@@ -4454,9 +4497,7 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"{gap}"
             f"[TASK]\n"
             + "\n".join(task_lines) + "\n\n"
-            + f"[FORBIDDEN]\n"
-            f"{forbidden}\n\n"
-            f'[OUTPUT FORMAT]\nReturn JSON: {{"status": "DONE", "dims_fixed": [...], '
+            + f'[OUTPUT FORMAT]\nReturn JSON: {{"status": "DONE", "dims_fixed": [...], '
             f'"commit": "<hash>", "summary": "<under 50 chars>"}}'
         )
 
@@ -4509,6 +4550,32 @@ def _capture_tool_snapshot(
     except Exception:
         pass
     return "\n".join(lines)[:2000]
+
+
+def _classify_snapshot_failure(snapshot: str) -> str:
+    """Classify the root cause of a Gate 1 failure from tool snapshot output.
+
+    Returns one of:
+      "ENV"             — ModuleNotFoundError / ImportError (environment not set up)
+      "ISOLATION"       — tests fail due to auth/HMAC short-circuit, not missing feature
+      "PATCH_OBJECT"    — AttributeError: obj has no attribute 'method' (stub missing)
+      "MISSING_FEATURE" — AssertionError / genuine logic failure (CODE-FIX can help)
+      "UNKNOWN"         — cannot classify (fall through to CODE-FIX)
+    """
+    if not snapshot:
+        return "UNKNOWN"
+    s = snapshot.lower()
+    if "no module named" in s or "modulenotfounderror" in s or "importerror" in s:
+        return "ENV"
+    if "attributeerror" in s and "has no attribute" in s:
+        return "PATCH_OBJECT"
+    # Isolation: infrastructure intercepts before feature logic — all tests return 401/auth
+    if ("status_code=401" in s or "source='auth'" in s
+            or 'source="auth"' in s or "401 unauthorized" in s):
+        return "ISOLATION"
+    if "assertionerror" in s or "failed" in s or "error" in s:
+        return "MISSING_FEATURE"
+    return "UNKNOWN"
 
 
 def cmd_run_fr_step(args: argparse.Namespace) -> int:
@@ -4620,6 +4687,10 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
             gate_pass = _fr_step_already_done(step, fr_id, project)
 
         max_fix_rounds = getattr(args, "max_fix_rounds", 3)
+        # B: progress tracking — detect lateral variation (same error, no progress)
+        prev_snapshot_sig: str = ""
+        no_progress_count: int = 0
+
         for fix_round in range(1, max_fix_rounds + 1):
             if gate_pass or _fr_step_already_done(step, fr_id, project):
                 break
@@ -4631,28 +4702,79 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
             # what went wrong with its predecessor's gate1_result.json.
             is_s3 = bool(block_reason and "tool_evidence_missing" in block_reason)
             if not is_s3:
-                print(f"[run-fr-step] {fr_id} GATE1 FAIL (round {fix_round}/{max_fix_rounds})"
-                      f" — dispatching CODE-FIX sub-agent")
-                # ── Pre-run tools at orchestration time (Fix 1) ──────────────────
-                # Capture actual ruff + pytest output and embed it in CODE-FIX prompt
-                # so agents can fix targeted errors without re-discovering them.
+                # ── Pre-run tools at orchestration time ──────────────────────────
+                # Capture actual ruff + pytest output so fix agents target real errors.
                 tool_snapshot = _capture_tool_snapshot(project, fr_id, src_dir, test_file)
-                fix_prompt = _build_fr_step_prompt(
-                    "CODE-FIX", fr_id, phase, project, srs_path,
-                    failing_dims=failing_dims,
-                    tool_snapshot=tool_snapshot,
-                )
+
+                # ── B: lateral variation detection ───────────────────────────────
+                curr_sig = tool_snapshot[:300] if tool_snapshot else ""
+                if curr_sig and curr_sig == prev_snapshot_sig:
+                    no_progress_count += 1
+                    print(f"[run-fr-step] {fr_id} NO PROGRESS detected (round {fix_round})"
+                          f" — same error signature as previous round")
+                    if no_progress_count >= 2:
+                        print(f"[run-fr-step] {fr_id} BLOCKED: 2 consecutive no-progress rounds"
+                              f" — human intervention required\n"
+                              f"  Error pattern: {curr_sig[:150]}")
+                        return 2
+                else:
+                    no_progress_count = 0
+                prev_snapshot_sig = curr_sig
+
+                # ── A: classify failure → route to the correct fixer ─────────────
+                failure_class = _classify_snapshot_failure(tool_snapshot)
+
+                if failure_class == "ENV":
+                    print(f"[run-fr-step] {fr_id} ENV error — human intervention required\n"
+                          f"  Hint: check PYTHONPATH / package installation")
+                    break
+
+                if failure_class == "ISOLATION":
+                    print(f"[run-fr-step] {fr_id} ISOLATION failure "
+                          f"(round {fix_round}/{max_fix_rounds})"
+                          f" — dispatching TEST-FIX (add autouse infra mock)")
+                    fix_prompt = _build_fr_step_prompt(
+                        "TEST-FIX", fr_id, phase, project, srs_path,
+                        tool_snapshot=tool_snapshot,
+                    )
+                    fix_step_name = "TEST-FIX"
+                elif failure_class == "PATCH_OBJECT":
+                    print(f"[run-fr-step] {fr_id} PATCH_OBJECT failure "
+                          f"(round {fix_round}/{max_fix_rounds})"
+                          f" — dispatching CODE-FIX with stub hint")
+                    patch_hint = (
+                        "[PATCH_OBJECT HINT]\n"
+                        "A test uses patch.object() on a method that does not exist yet.\n"
+                        "Add the missing method stub to your implementation FIRST, "
+                        "before any other logic.\n\n"
+                    )
+                    fix_prompt = patch_hint + _build_fr_step_prompt(
+                        "CODE-FIX", fr_id, phase, project, srs_path,
+                        failing_dims=failing_dims, tool_snapshot=tool_snapshot,
+                    )
+                    fix_step_name = "CODE-FIX"
+                else:
+                    print(f"[run-fr-step] {fr_id} GATE1 FAIL (round {fix_round}/{max_fix_rounds})"
+                          f" — dispatching CODE-FIX sub-agent"
+                          f" [failure_class={failure_class}]")
+                    fix_prompt = _build_fr_step_prompt(
+                        "CODE-FIX", fr_id, phase, project, srs_path,
+                        failing_dims=failing_dims, tool_snapshot=tool_snapshot,
+                    )
+                    fix_step_name = "CODE-FIX"
+
                 fix_result = spawner.spawn(
                     role="developer", prompt=fix_prompt,
-                    context={"phase": phase, "fr_id": fr_id, "step": "CODE-FIX"},
+                    context={"phase": phase, "fr_id": fr_id, "step": fix_step_name},
                     phase=phase, fr_id=fr_id, phase_sop_override="",
                     task_timeout=getattr(args, "timeout", 600),
-                    max_turns=_max_turns("CODE-FIX"),
+                    max_turns=_max_turns(fix_step_name),
                     mcp_config=phase_ctx["mcp_config"],
                     setting_sources=phase_ctx["setting_sources"],
                 )
                 if fix_result.get("status") in _DISPATCH_ERROR_STATUSES:
-                    print(f"[run-fr-step] CODE-FIX failed: {fix_result.get('output','')[:200]}")
+                    print(f"[run-fr-step] {fix_step_name} failed: "
+                          f"{fix_result.get('output','')[:200]}")
                     break
             else:
                 print(f"[run-fr-step] {fr_id} GATE1 S3 block (round {fix_round}/{max_fix_rounds})"
