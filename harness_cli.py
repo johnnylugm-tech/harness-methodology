@@ -4364,7 +4364,8 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"You are a coverage fixer for {fr_id}.\n\n"
             f"[FORBIDDEN — read first]\n"
             f"- Deleting or xfail-marking existing tests\n"
-            f"- Modifying source files in `{src_dir}/`\n\n"
+            f"- Adding `# pragma: no cover` to lines that CAN be tested (only use it as a "
+            f"last resort for genuinely untestable lines — see ESCAPE HATCH below)\n\n"
             f"[SITUATION]\n"
             f"All Gate 1 tests currently PASS, but the test_coverage dimension is FAILING.\n"
             f"Coverage is below the 80% threshold. Two possible root causes:\n"
@@ -4377,14 +4378,29 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"to identify which source lines are not covered (Miss column).\n"
             f"2. Read `02-architecture/TEST_SPEC.md` section for {fr_id} to identify required "
             f"test function names. For each function missing from `{test_file}` — add it.\n"
-            f"3. For source lines shown as uncovered: add targeted unit tests that exercise "
-            f"those code paths.\n"
+            f"3. For each uncovered line: decide which approach applies:\n"
+            f"   a. Line CAN be reached by a test → add a targeted unit test.\n"
+            f"   b. Line is genuinely untestable → apply ESCAPE HATCH (see below).\n"
             f"4. Re-run until coverage reaches ≥ 80%: "
             f"`pytest {test_file} --cov={src_dir} --cov-report=term-missing -q`\n"
-            f"5. Commit: `git add {test_file} && "
-            f"git commit -m \"test({fr_id}): add coverage tests to reach ≥80% threshold\"`\n\n"
+            f"5. Commit both `{test_file}` and any source changes from ESCAPE HATCH:\n"
+            f"   `git add {src_dir}/ {test_file} && "
+            f"git commit -m \"test({fr_id}): add coverage tests and pragma exclusions\"`\n\n"
+            f"[ESCAPE HATCH — pragma: no cover]\n"
+            f"If after adding all reasonable tests coverage is still < 80%, you MAY annotate "
+            f"lines in `{src_dir}/` with `# pragma: no cover` ONLY for lines that are "
+            f"genuinely impossible or unreasonable to test:\n"
+            f"  ✓ Allowed: defensive `raise NotImplementedError` / abstract stubs, "
+            f"infrastructure fallback branches (e.g. `except OSError: sys.exit(1)`), "
+            f"`if __name__ == '__main__':` blocks, platform-specific dead branches.\n"
+            f"  ✗ Not allowed: ordinary business logic, error-handling paths that CAN be "
+            f"triggered by passing a bad argument, any line reachable via monkeypatching.\n"
+            f"Each `# pragma: no cover` annotation MUST be accompanied by a one-line comment "
+            f"explaining WHY it is untestable, e.g.:\n"
+            f"  `raise NotImplementedError  # pragma: no cover — abstract base, subclass must implement`\n\n"
             f'[OUTPUT FORMAT]\nReturn JSON: {{"status": "DONE", "coverage_pct": <number>, '
-            f'"tests_added": <count>, "commit": "<hash>", "summary": "<under 50 chars>"}}'
+            f'"tests_added": <count>, "pragmas_added": <count>, '
+            f'"commit": "<hash>", "summary": "<under 50 chars>"}}'
         )
 
     if step == "CODE-FIX":
