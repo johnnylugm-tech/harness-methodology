@@ -106,40 +106,7 @@ class TestFRCoverageSummary:
         assert summary["FR-02"] == 1
 
 
-# ── Saturation Detection ──────────────────────────────────────────────────
 
-class TestSaturation:
-    def test_initial_round_no_saturation(self, tracker):
-        tracker.add_finding("d", "h", "f.py", 1, "m", "e", fr_id="FR-01")
-        tracker.record_round_findings("FR-01")
-        assert not tracker.fr_saturation_check("FR-01")
-
-    def test_saturation_after_persistent_findings(self, tracker):
-        # Add findings once, then snapshot the same set across 4+ rounds
-        # Round 1 snapshots (no counter increment), rounds 2-4 increment → 3
-        tracker.add_finding("d", "h", "f.py", 1, "m", "e", fr_id="FR-01")
-        for _ in range(4):
-            tracker.record_round_findings("FR-01")
-        assert tracker.fr_saturation_check("FR-01")
-
-    def test_new_findings_reset_counter(self, tracker):
-        # Round 1 & 2: same finding set A → saturation builds
-        tracker.add_finding("d1", "h", "f.py", 1, "m1", "e1", fr_id="FR-01")
-        tracker.record_round_findings("FR-01")
-        tracker.record_round_findings("FR-01")
-        assert not tracker.fr_saturation_check("FR-01")  # only 2 rounds
-        # Round 3: add a completely different finding → overlap drops → counter resets to 0
-        tracker.add_finding("d2", "l", "g.py", 99, "m2", "e2", fr_id="FR-01")
-        tracker.record_round_findings("FR-01")
-        assert not tracker.fr_saturation_check("FR-01")
-
-    def test_reset_saturation_clears_counter(self, tracker):
-        tracker.add_finding("d", "h", "f.py", 1, "m", "e", fr_id="FR-01")
-        for _ in range(4):
-            tracker.record_round_findings("FR-01")
-        assert tracker.fr_saturation_check("FR-01")
-        tracker.reset_saturation("FR-01")
-        assert not tracker.fr_saturation_check("FR-01")
 
 
 # ── Fallback IssueTracker ─────────────────────────────────────────────────

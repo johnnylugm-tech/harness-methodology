@@ -444,7 +444,9 @@ class GateContext:
                 sab_lines += f"  high_risk_modules: {high_risk}\n"
             qt = self.sab_data.get("quality_targets", {})
             if qt:
-                sab_lines += f"  quality_targets: {qt}\n"
+                sab_lines += "  quality_targets:\n"
+                for k, v in qt.items():
+                    sab_lines += f"    {k}: {v}\n"
                 sab_lines += (
                     "  > Treat these as project-specific NFR thresholds "
                     "when evaluating dimensions.\n"
@@ -662,6 +664,7 @@ class HarnessBridge:
                 "nfr_fr_mapping":           manifest.get("nfr_fr_mapping", {}),
                 "quality_targets":          manifest.get("quality_targets", {}),
                 "fr_module_traceability":   manifest.get("fr_module_traceability", {}),
+                "gate_score_overrides":     manifest.get("gate_score_overrides", {}),
                 "architecture_constraints": manifest.get("architecture_constraints", []),
                 "high_risk_modules":        manifest.get("high_risk_modules", []),
             }
@@ -1000,15 +1003,9 @@ class HarnessBridge:
 
         # Apply gate_score_overrides from quality_manifest as threshold floor.
         # Never lower a threshold below what the gate YAML / Claude set — only raise it.
+        # sab_data is already loaded in prepare_gate() — no need to re-read the manifest.
         import dataclasses as _dc
-        _manifest_path = Path(ctx.project_root) / ".methodology" / "quality_manifest.json"
-        _overrides: dict[str, float] = {}
-        try:
-            _overrides = json.loads(
-                _manifest_path.read_text(encoding="utf-8")
-            ).get("gate_score_overrides", {})
-        except Exception:
-            pass
+        _overrides: dict[str, float] = ctx.sab_data.get("gate_score_overrides", {})
         if _overrides:
             dims = [
                 _dc.replace(d, threshold=max(d.threshold, float(_overrides[d.name])))
