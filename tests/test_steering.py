@@ -4,6 +4,7 @@ All LLM/API calls mocked.
 """
 import json
 import pytest
+from typing import Dict
 from unittest.mock import MagicMock, patch
 from pathlib import Path
 
@@ -130,7 +131,7 @@ class TestLLMJudgeScorer:
     def test_generate_feedback_no_significant_diffs_skips_prompt_diff(self):
         """When all deltas <= 0.1, diffs dict is empty but still calls provider."""
         s = self._scorer()
-        eq = dict.fromkeys(_DIM_KEYS, 0.6)
+        eq: Dict[str, float] = dict.fromkeys(_DIM_KEYS, 0.6)
         fb = s.generate_feedback(_OUT_A, _OUT_B, eq, eq, "A")
         assert "direction" in fb
 
@@ -196,7 +197,7 @@ class TestComputeWeightedScore:
 
     def test_all_half_scores(self):
         loop = _loop()
-        scores = dict.fromkeys(_DIM_KEYS, 0.5)
+        scores: Dict[str, float] = dict.fromkeys(_DIM_KEYS, 0.5)
         result = loop._compute_weighted_score(scores)
         # quality=0.5, clarity=0.5, efficiency=0.5, consistency=0.5
         # total = 0.5*0.4 + 0.5*0.2 + 0.5*0.2 + 0.5*0.2 = 0.5
@@ -204,7 +205,7 @@ class TestComputeWeightedScore:
 
     def test_high_correctness_dominates(self):
         loop = _loop()
-        scores = dict.fromkeys(_DIM_KEYS, 0.0)
+        scores: Dict[str, float] = dict.fromkeys(_DIM_KEYS, 0.0)
         scores["correctness"] = 1.0
         result = loop._compute_weighted_score(scores)
         # quality = 1.0*0.7 + 0.0*0.3 = 0.7; total = 0.7*0.4 = 0.28
@@ -338,9 +339,11 @@ class TestSteeringLoopIterate:
         ]
         loop = SteeringLoop(p, history_path="")
         loop.iterate(_OUT_A, _OUT_B)
+        assert loop.best_output is not None
         first_best = loop.best_output.total_score
         loop.iterate(_OUT_A, _OUT_B)
         # best should remain the high score
+        assert loop.best_output is not None
         assert loop.best_output.total_score >= first_best
 
     def test_feedback_direction_in_result(self):
@@ -409,7 +412,7 @@ class TestShouldContinue:
         )
         loop = _loop(scores=_SCORES_EQUAL, config=cfg)
         # need 3 iterations to pass min, then stage must be CONVERGENCE
-        for i in range(3):
+        for _ in range(3):
             loop.iterate(_OUT_A, _OUT_B)
         # Force CONVERGENCE stage manually
         loop.stage = IterationStage.CONVERGENCE
@@ -608,7 +611,7 @@ class TestSteeringConstitutionIntegrator:
 
     def test_non_dict_non_str_returns_error(self):
         intg = self._integrator()
-        result = intg.check_output_compliance(12345, phase=1)
+        result = intg.check_output_compliance(12345, phase=1)  # type: ignore[arg-type]
         assert result.hr_compliant is False
         assert any("TypeError" in v for v in result.violations)
 
@@ -883,7 +886,7 @@ class TestSteeringIntegrator:
         si = self._integrator()
         # bvs_integrator property will raise ImportError when loading BVSRunner
         with patch.dict("sys.modules", {"constitution.bvs_runner": None}):
-            result, checks = si.iterate_with_full_check(
+            _, checks = si.iterate_with_full_check(
                 _OUT_A, _OUT_B, run_bvs=True, run_constitution=False
             )
         assert len(checks) == 1
@@ -894,7 +897,7 @@ class TestSteeringIntegrator:
         si = self._integrator()
         with patch.dict("sys.modules", {"constitution.citation_parser": None,
                                          "constitution.verification_constitution_checker": None}):
-            result, checks = si.iterate_with_full_check(
+            _, checks = si.iterate_with_full_check(
                 _OUT_A, _OUT_B, run_bvs=False, run_constitution=True
             )
         assert len(checks) == 1
@@ -913,7 +916,7 @@ class TestSteeringIntegrator:
         # 3 iterations to pass min_iterations (3)
         for _ in range(3):
             si.iterate_with_full_check(_OUT_A, _OUT_B, run_bvs=False, run_constitution=False)
-        cont, reason = si.should_continue
+        cont, _ = si.should_continue
         assert cont is False
 
     def test_get_full_summary_structure(self):
