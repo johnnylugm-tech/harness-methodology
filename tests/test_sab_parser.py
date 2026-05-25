@@ -164,7 +164,8 @@ class TestSABSpecToDict:
         d = self._make_spec().to_dict()
         for key in ("version", "created_at", "phase", "project", "layers",
                     "dependencies", "quality_targets", "nfr_dimension_mapping",
-                    "nfr_traceability", "architecture_constraints", "high_risk_modules"):
+                    "nfr_traceability", "fr_module_traceability",
+                    "architecture_constraints", "high_risk_modules"):
             assert key in d, f"Missing key: {key}"
 
     def test_to_dict_dependencies_built_from_allowed(self):
@@ -301,6 +302,61 @@ class TestNfrTraceability:
         for t in ("performance", "security", "reliability", "maintainability",
                   "deployability", "scalability", "usability", "testability"):
             assert t in _NFR_TYPE_TO_DIM, f"Missing standard type: {t}"
+
+
+_SAD_FR_MODULE_TRACEABILITY = """\
+<!-- SAB:START -->
+```yaml
+sab:
+  version: "1.0"
+  phase: 3
+  project: "testapp"
+  fr_module_traceability:
+    FR-01: app.models
+    FR-02: app.api.webhooks
+    FR-14: app.infrastructure.health
+```
+<!-- SAB:END -->
+"""
+
+
+class TestFrModuleTraceability:
+    """Tests for fr_module_traceability parsing and propagation."""
+
+    def test_parses_fr_module_traceability(self, tmp_path):
+        sad = tmp_path / "SAD.md"
+        sad.write_text(_SAD_FR_MODULE_TRACEABILITY)
+        spec = extract_sab_from_sad(sad)
+        assert spec is not None
+        assert spec.fr_module_traceability == {
+            "FR-01": "app.models",
+            "FR-02": "app.api.webhooks",
+            "FR-14": "app.infrastructure.health",
+        }
+
+    def test_absent_fr_module_traceability_gives_empty_dict(self, tmp_path):
+        sad = tmp_path / "SAD.md"
+        sad.write_text(_MINIMAL_SAD)
+        spec = extract_sab_from_sad(sad)
+        assert spec is not None
+        assert spec.fr_module_traceability == {}
+
+    def test_to_dict_includes_fr_module_traceability(self, tmp_path):
+        sad = tmp_path / "SAD.md"
+        sad.write_text(_SAD_FR_MODULE_TRACEABILITY)
+        spec = extract_sab_from_sad(sad)
+        assert spec is not None
+        d = spec.to_dict()
+        assert "fr_module_traceability" in d
+        assert d["fr_module_traceability"]["FR-01"] == "app.models"
+
+    def test_to_dict_fr_module_traceability_json_serialisable(self, tmp_path):
+        sad = tmp_path / "SAD.md"
+        sad.write_text(_SAD_FR_MODULE_TRACEABILITY)
+        spec = extract_sab_from_sad(sad)
+        assert spec is not None
+        raw = json.dumps(spec.to_dict())
+        assert json.loads(raw)["fr_module_traceability"]["FR-14"] == "app.infrastructure.health"
 
 
 class TestRoundTrip:

@@ -448,3 +448,226 @@ class TestSabManifestIntegration:
         result = bridge.check_post_round_drift(str(tmp_path))
         assert result["drifted"] is False
         assert result["structural_drift"] == 0.0
+
+
+class TestSabClosureGaps:
+    """Tests for the 5 SAB closure gaps: new manifest fields and threshold enforcement."""
+
+    # ── Gap 1+2: _load_manifest_sab returns all new fields ────────────────
+
+    def test_load_manifest_sab_returns_nfr_traceability(self, tmp_path):
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        manifest = {
+            "nfr_traceability": {"NFR-01": {"type": "performance", "target": "p95<3s", "module": "app.pipeline"}},
+            "nfr_fr_mapping": {"NFR-01": ["FR-19"]},
+        }
+        (method_dir / "quality_manifest.json").write_text(json.dumps(manifest))
+        sab = HarnessBridge()._load_manifest_sab(str(tmp_path))
+        assert sab["nfr_traceability"] == manifest["nfr_traceability"]
+        assert sab["nfr_fr_mapping"] == {"NFR-01": ["FR-19"]}
+
+    def test_load_manifest_sab_returns_quality_targets(self, tmp_path):
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        manifest = {"quality_targets": {"min_coverage": 80, "max_complexity": 10}}
+        (method_dir / "quality_manifest.json").write_text(json.dumps(manifest))
+        sab = HarnessBridge()._load_manifest_sab(str(tmp_path))
+        assert sab["quality_targets"] == {"min_coverage": 80, "max_complexity": 10}
+
+    def test_load_manifest_sab_returns_fr_module_traceability(self, tmp_path):
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        manifest = {"fr_module_traceability": {"FR-01": "app.models", "FR-14": "app.infrastructure.health"}}
+        (method_dir / "quality_manifest.json").write_text(json.dumps(manifest))
+        sab = HarnessBridge()._load_manifest_sab(str(tmp_path))
+        assert sab["fr_module_traceability"]["FR-01"] == "app.models"
+
+    def test_load_manifest_sab_returns_gate_score_overrides(self, tmp_path):
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        manifest = {"gate_score_overrides": {"coverage": 80.0}}
+        (method_dir / "quality_manifest.json").write_text(json.dumps(manifest))
+        sab = HarnessBridge()._load_manifest_sab(str(tmp_path))
+        assert sab["gate_score_overrides"] == {"coverage": 80.0}
+
+    def test_load_manifest_sab_defaults_new_fields_to_empty(self, tmp_path):
+        """Manifest without new fields returns empty dicts (backwards compat)."""
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        (method_dir / "quality_manifest.json").write_text('{"fr_ids": ["FR-01"]}')
+        sab = HarnessBridge()._load_manifest_sab(str(tmp_path))
+        assert sab["nfr_traceability"] == {}
+        assert sab["nfr_fr_mapping"] == {}
+        assert sab["quality_targets"] == {}
+        assert sab["fr_module_traceability"] == {}
+        assert sab["gate_score_overrides"] == {}
+
+    # ── Gap 2: generate_quality_manifest auto-populates gate_score_overrides ──
+
+    def test_generate_quality_manifest_populates_gate_score_overrides(self, tmp_path):
+        """min_coverage in quality_targets → gate_score_overrides.coverage populated."""
+        bridge = HarnessBridge()
+        sab_return = {
+            "quality_targets": {"min_coverage": 85},
+            "constraints": [],
+            "high_risk": [],
+            "nfr_dim_map": {},
+            "nfr_traceability": {},
+            "fr_module_traceability": {},
+        }
+        with patch("scripts.generate_sab.parse_sad", return_value=sab_return):
+            with patch.object(bridge, "_parse_nfr_from_srs", return_value={}):
+                with patch.object(bridge, "_parse_nfr_fr_xref", return_value={}):
+                    import os
+                    old_cwd = os.getcwd()
+                    os.chdir(tmp_path)
+                    try:
+                        p = bridge.generate_quality_manifest(["FR-01"], "SAD.md")
+                        # Read while CWD is still tmp_path — p is a relative Path
+                        data = json.loads(p.read_text())
+                    finally:
+                        os.chdir(old_cwd)
+        assert data["gate_score_overrides"] == {"coverage": 85.0}
+        assert data["quality_targets"] == {"min_coverage": 85}
+
+    def test_generate_quality_manifest_no_override_when_no_min_coverage(self, tmp_path):
+        """quality_targets without min_coverage → gate_score_overrides stays empty."""
+        bridge = HarnessBridge()
+        sab_return = {
+            "quality_targets": {"max_complexity": 10},
+            "constraints": [], "high_risk": [], "nfr_dim_map": {},
+            "nfr_traceability": {}, "fr_module_traceability": {},
+        }
+        with patch("scripts.generate_sab.parse_sad", return_value=sab_return):
+            with patch.object(bridge, "_parse_nfr_from_srs", return_value={}):
+                with patch.object(bridge, "_parse_nfr_fr_xref", return_value={}):
+                    import os
+                    old_cwd = os.getcwd()
+                    os.chdir(tmp_path)
+                    try:
+                        p = bridge.generate_quality_manifest(["FR-01"], "SAD.md")
+                        data = json.loads(p.read_text())
+                    finally:
+                        os.chdir(old_cwd)
+        assert data["gate_score_overrides"] == {}
+
+    # ── Gap 4: evaluation_prompt injects fr_module_traceability ────────────
+
+    def test_evaluation_prompt_injects_fr_module_for_gate1(self):
+        ctx = GateContext(
+            gate_num=1, config={"dimensions": [{"name": "coverage"}], "score_gate": 80},
+            project_root="/t", phase=3, fr_id="FR-14",
+            ssi_scripts_dir="/t", ssi_prompts_dir="/t", ssi_schemas_dir="/t",
+            work_dir="/t/.sessi-work",
+            sab_data={"fr_module_traceability": {"FR-14": "app.infrastructure.health"}},
+        )
+        prompt = ctx.evaluation_prompt()
+        assert "FR-14 responsible module: app.infrastructure.health" in prompt
+
+    def test_evaluation_prompt_skips_fr_module_when_no_fr_id(self):
+        """Gate 2–4 (fr_id=None) should not inject fr_module_traceability."""
+        ctx = GateContext(
+            gate_num=2, config={"dimensions": [], "score_gate": 80},
+            project_root="/t", phase=4, fr_id=None,
+            ssi_scripts_dir="/t", ssi_prompts_dir="/t", ssi_schemas_dir="/t",
+            work_dir="/t/.sessi-work",
+            sab_data={"fr_module_traceability": {"FR-01": "app.models"}},
+        )
+        prompt = ctx.evaluation_prompt()
+        assert "responsible module" not in prompt
+
+    # ── Gap 2: evaluation_prompt quality_targets YAML format ───────────────
+
+    def test_evaluation_prompt_quality_targets_yaml_format(self):
+        """quality_targets rendered as indented key: value, not Python dict repr."""
+        ctx = GateContext(
+            gate_num=2, config={"dimensions": [], "score_gate": 80},
+            project_root="/t", phase=4, fr_id=None,
+            ssi_scripts_dir="/t", ssi_prompts_dir="/t", ssi_schemas_dir="/t",
+            work_dir="/t/.sessi-work",
+            sab_data={"quality_targets": {"min_coverage": 80, "p95_latency_ms": 3000}},
+        )
+        prompt = ctx.evaluation_prompt()
+        assert "    min_coverage: 80" in prompt
+        assert "    p95_latency_ms: 3000" in prompt
+        # Must NOT use Python dict repr
+        assert "{'min_coverage'" not in prompt
+
+    # ── Gap 5: finalize_gate applies gate_score_overrides as threshold floor ──
+
+    def _write_gate1_result(self, ctx: GateContext, breakdown: dict) -> None:
+        import os
+        result_path = Path(ctx.work_dir) / f"gate{ctx.gate_num}_result.json"
+        result_path.parent.mkdir(parents=True, exist_ok=True)
+        result_path.write_text(json.dumps({
+            "overall_score": 90.0, "quality_complete": True,
+            "open_critical_count": 0, "open_high_count": 0,
+            "breakdown": breakdown,
+        }))
+
+    def test_finalize_gate_raises_when_override_exceeds_agent_threshold(self, tmp_path):
+        """coverage override=80 with agent threshold=60 and score=70 → blocked."""
+        bridge = HarnessBridge()
+        methodology = tmp_path / ".methodology"
+        methodology.mkdir()
+        ctx = GateContext(
+            gate_num=1, config={"gate": 1, "dimensions": []},
+            project_root=str(tmp_path), phase=3, fr_id="FR-01",
+            ssi_scripts_dir="/t", ssi_prompts_dir="/t", ssi_schemas_dir="/t",
+            work_dir=str(tmp_path / ".sessi-work"),
+            sab_data={"gate_score_overrides": {"coverage": 80.0}},
+        )
+        self._write_gate1_result(ctx, {
+            "coverage": {"score": 70.0, "threshold": 60.0, "issues": []},
+        })
+        with patch("harness.harness_bridge._check_tool_evidence", return_value=[]):
+            with patch("harness.harness_bridge._run_harness_cross_validation", return_value=[]):
+                with patch.object(bridge, "_update_quality_manifest"):
+                    with patch.object(bridge, "_log"):
+                        with patch.object(bridge, "_effort"):
+                            with pytest.raises(GateBlockedError):
+                                bridge.finalize_gate(ctx)
+
+    def test_finalize_gate_passes_when_score_meets_override(self, tmp_path):
+        """coverage override=80, score=85 → passes even if agent threshold was 60."""
+        bridge = HarnessBridge()
+        ctx = GateContext(
+            gate_num=1, config={"gate": 1, "dimensions": []},
+            project_root=str(tmp_path), phase=3, fr_id="FR-01",
+            ssi_scripts_dir="/t", ssi_prompts_dir="/t", ssi_schemas_dir="/t",
+            work_dir=str(tmp_path / ".sessi-work"),
+            sab_data={"gate_score_overrides": {"coverage": 80.0}},
+        )
+        self._write_gate1_result(ctx, {
+            "coverage": {"score": 85.0, "threshold": 60.0, "issues": []},
+        })
+        with patch("harness.harness_bridge._check_tool_evidence", return_value=[]):
+            with patch("harness.harness_bridge._run_harness_cross_validation", return_value=[]):
+                with patch.object(bridge, "_update_quality_manifest"):
+                    with patch.object(bridge, "_log"):
+                        with patch.object(bridge, "_effort"):
+                            result = bridge.finalize_gate(ctx)
+        assert result.quality_complete is True
+
+    def test_finalize_gate_override_is_floor_not_ceiling(self, tmp_path):
+        """Override=80, agent threshold=90 → effective threshold stays 90 (override never lowers)."""
+        bridge = HarnessBridge()
+        ctx = GateContext(
+            gate_num=1, config={"gate": 1, "dimensions": []},
+            project_root=str(tmp_path), phase=3, fr_id="FR-01",
+            ssi_scripts_dir="/t", ssi_prompts_dir="/t", ssi_schemas_dir="/t",
+            work_dir=str(tmp_path / ".sessi-work"),
+            sab_data={"gate_score_overrides": {"coverage": 80.0}},
+        )
+        # score=85 passes override=80 but fails agent threshold=90
+        self._write_gate1_result(ctx, {
+            "coverage": {"score": 85.0, "threshold": 90.0, "issues": []},
+        })
+        with patch("harness.harness_bridge._check_tool_evidence", return_value=[]):
+            with patch("harness.harness_bridge._run_harness_cross_validation", return_value=[]):
+                with patch.object(bridge, "_update_quality_manifest"):
+                    with patch.object(bridge, "_log"):
+                        with patch.object(bridge, "_effort"):
+                            with pytest.raises(GateBlockedError):
+                                bridge.finalize_gate(ctx)
