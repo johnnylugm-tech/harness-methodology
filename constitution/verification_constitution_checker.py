@@ -56,8 +56,12 @@ class VerificationConstitutionChecker:
                 "passed": len(violations) == 0,
                 "violations": [v.error_message for v in violations],
             }
-        except Exception:  # pylint: disable=broad-exception-caught
-            return {"passed": True, "violations": []}
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            return {
+                "passed": False,
+                "violations": [f"Constitution checking error: {e}"],
+            }
+
 
     def enforce(self, context: dict[str, Any]) -> None:
         """

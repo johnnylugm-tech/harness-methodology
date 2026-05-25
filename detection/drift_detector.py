@@ -447,13 +447,17 @@ class DriftDetector:
         normalized = import_path.replace(".", "/")
         for layer_name, modules in layer_to_modules.items():
             for mod in modules:
-                if normalized == mod or normalized.startswith(mod + "/"):
+                # 1. Exact match
+                if normalized == mod:
                     return layer_name
-                # Also match dotted form (e.g. harness.harness_bridge against harness/harness_bridge)
-                dotted_mod = mod.replace("/", ".")
-                if import_path == dotted_mod or import_path.startswith(dotted_mod + "."):
+                # 2. Parent-directory match (e.g. from core import quality_gate matches core/quality_gate/sab_parser)
+                if mod.startswith(normalized + "/"):
+                    return layer_name
+                # 3. Child-object match (e.g. from core.quality_gate.sab_parser import SABSpec)
+                if normalized.startswith(mod + "/"):
                     return layer_name
         return None
+
 
     def _load_sab_baseline(self) -> dict:
         """Load SAB baseline from .methodology/SAB.json, falling back to SAD.md parse."""

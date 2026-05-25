@@ -2109,7 +2109,9 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
                       file=sys.stderr)
                 return 5
         except Exception as _e:  # pylint: disable=broad-exception-caught
-            print(f"\n[WARN] HR-10: sessions_spawn.log parse error ({_e}) — skipping enforcement to avoid deadlock.")
+            print(f"\n[BLOCKED] HR-10: sessions_spawn.log parse error ({_e}) — blocking to prevent bypass.")
+            return 5
+
 
     # ── I-2: FR test file existence check (Gate 1 per-FR) ──────────────
     # Only applies when project has a tests/ directory (real project, not test fixture).
@@ -3415,7 +3417,10 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
         except ImportError:
             print("  [WARN] PhaseTruthVerifier not available — skipping HR-11 check")
         except Exception as e:
-            print(f"  [WARN] Phase Truth check failed: {e} — proceeding without block")
+            print(f"\n  [BLOCKED] Phase Truth check failed with unexpected error: {e}")
+            print("  Please resolve this engineering exception before advancing.")
+            return 11
+
 
     # ── Phase Auditor: full C1-C12 for all phases ────────────────────
     audit_rc = _run_phase_auditor(project, completed_phase)

@@ -335,6 +335,8 @@ class SteeringLoop:
         Fixes defect B: corrects Efficiency logic.
         - Wrong: fewer tokens = higher score
         - Correct: quality / tokens (high quality AND token-efficient)
+        - Since token data is not directly supplied in scores, we use 'concision'
+          as a reliable proxy for token efficiency, mapped to w["efficiency"].
         """
         w = self.config.weights
 
@@ -344,16 +346,26 @@ class SteeringLoop:
         concision = scores.get("concision", 0.5)
         maintainability = scores.get("maintainability", 0.5)
 
-        # Quality dimension (correctness weighted highest)
-        quality = correctness * w["quality"] + completeness * w["quality"] * 0.5
+        # Quality dimension (normalized correctness + completeness: weight = 1.0 total internally)
+        quality_score = correctness * 0.7 + completeness * 0.3
 
-        # Clarity dimension
-        clarity = concision * w["clarity"] + maintainability * w["clarity"] * 0.5
+        # Clarity dimension (normalized concision + maintainability)
+        clarity_score = concision * 0.6 + maintainability * 0.4
 
-        # Consistency
-        consistency_score = consistency * w["consistency"]
+        # Efficiency dimension (use concision as a robust proxy for token efficiency)
+        efficiency_score = scores.get("efficiency", concision)
 
-        return quality + clarity + consistency_score
+        # Consistency dimension
+        consistency_score = consistency
+
+        # Compute total weighted score where sum(w) = w["quality"] + w["clarity"] + w["consistency"] + w["efficiency"] = 1.0
+        return (
+            quality_score * w.get("quality", 0.4) +
+            clarity_score * w.get("clarity", 0.2) +
+            consistency_score * w.get("consistency", 0.2) +
+            efficiency_score * w.get("efficiency", 0.2)
+        )
+
 
     def _update_stage(self, iteration_num: int):
         """Update iteration stage."""

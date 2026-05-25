@@ -533,8 +533,9 @@ class TestAgentProofHook:
     def test_init_sets_paths(self, tmp_path):
         h = self._hook(tmp_path)
         assert h.project_root == tmp_path
-        assert "pre-commit" in str(h.hook_path)
+        assert "commit-msg" in str(h.hook_path)
         assert "agent_hook_core" in str(h.core_path)
+
 
     def test_generate_core_module_contains_enforce(self, tmp_path):
         h = self._hook(tmp_path)
