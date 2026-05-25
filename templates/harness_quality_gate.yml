@@ -475,10 +475,13 @@ except Exception as e:
               print(f"ERROR: {sab_path} is not valid JSON: {e}")
               sys.exit(1)
           modules = d.get("modules", [])
+          layers = d.get("layers", [])
+          if not modules and layers:
+              for layer in layers:
+                  modules.extend(layer.get("modules", []))
           if not modules:
               print(f"ERROR: SAB.json has no modules. Re-run generate_sab.py.")
               sys.exit(1)
-          layers = d.get("layers", [])
           print(f"OK: SAB.json valid — {len(modules)} module(s), {len(layers)} layer(s).")
           EOF
 

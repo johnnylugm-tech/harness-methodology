@@ -1476,7 +1476,7 @@ class TestRunFrStep:
         assert "test_feature_a" in prompt
         assert "test_feature_b" in prompt
         assert "MISSING" in prompt
-        assert "ADD each as a real" in prompt
+        assert "ADD ALL of them as real" in prompt
         assert "Deleting existing tests" in prompt
         assert "Skipping or xfail-marking" in prompt
         assert "git add tests/test_fr01.py" in prompt

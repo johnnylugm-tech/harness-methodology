@@ -1,4 +1,4 @@
-# SAD — Harness Methodology v2.4 (As-Built — Audit: 2026-05-16)
+# SAD — Harness Methodology v2.6.0 (As-Built — Audit: 2026-05-16)
 
 > **Sync guarantee**: This document is reverse-engineered from the live codebase.
 > Any change to the code **must** be reflected here, and vice-versa.
@@ -98,8 +98,8 @@ python harness_cli.py push-milestone    --type p3-mid|p3-pre-ssi|p4-mid|p4-pre-s
 python harness_cli.py dispatch          --role developer|reviewer --fr-id FR-01 --prompt "..." [--phase 3] [--project .] [--timeout 300] [--max-turns 20]
 python harness_cli.py verify-agent-b-approvals --phase N [--fr-ids FR-01,FR-02] [--project .]
 python harness_cli.py audit-structure   [--project .] [--json]
-python harness_cli.py check-test-inventory [--project .] [--strict] [--threshold N] [--diff-mode]  # deprecated v2.6 — delegates to spec-coverage-check
-python harness_cli.py spec-coverage-check  [--project .] [--threshold N] [--fr-id FR-XX]  # D4 unified (v2.6)
+python harness_cli.py check-test-inventory [--project .] [--strict] [--threshold N] [--diff-mode]  # deprecated v2.6.0 — delegates to spec-coverage-check
+python harness_cli.py spec-coverage-check  [--project .] [--threshold N] [--fr-id FR-XX]  # D4 unified (v2.6.0)
 ```
 
 **Gate evaluation (two-phase)**: `run-gate` prepares context and prints evaluation instructions; Claude evaluates inline and writes `.sessi-work/gate{N}_result.json`; `finalize-gate` reads the result and checks thresholds. SSI assets are embedded in `harness/ssi/`.
@@ -132,7 +132,7 @@ per the direct-push model). Without `gh`, prints a manual setup guide. Verified 
 This is the **only truly bypass-proof** layer — even `--no-verify` + missing ECC hooks
 cannot bypass GitHub's server-side enforcement.
 
-**Agent A TDD mandate** (SKILL.md §6): Agent A must follow the **RED → GREEN → IMPROVE** cycle per FR before returning results.
+**TDD mandate** (SKILL.md §3): The Sub-Agent must follow the **RED → GREEN → IMPROVE** cycle per FR before returning results.
 
 - **[TDD-1 RED]** Write a failing test first (`tests/test_frNN.py`). Commit before any implementation: `git commit -m "test(RED): failing test for FR-NN"`. `harness_cli.py finalize-gate` enforces **D1-RED**: the test file's git commit timestamp must predate the source file's commit timestamp; the gate blocks if implementation was committed first. D1-RED is bypass-proof — timestamps are read from `.git/` directly, not from agent-reported metadata.
 - **[TDD-2 GREEN]** Implement the FR until the test passes: `git commit -m "feat(FR-NN): GREEN"`. Every implemented function must carry a `[FR-NN]` docstring tag and a `Citations:` block with line-number references to SRS.md and SAD.md (HR-15).
@@ -328,7 +328,7 @@ class HarnessBridge:
 Schema: `harness/ssi/schemas/harness_gate_result.schema.json`
 
 **`_require_hermes_approve`** (Gate 4 only):
-- **REMOVED in v2.4** — Gate 4 no longer blocks on Hermes APPROVE.
+- **REMOVED in v2.6.0** — Gate 4 no longer blocks on Hermes APPROVE.
 
 **`generate_quality_manifest` logic**:
 - Called at P2 exit
@@ -1196,7 +1196,7 @@ class KillSwitch:
 | `reporter.py` | `GapReporter` | Formats gap findings for reporting |
 | `scanner.py` | `CodeScanner` | Scans codebase for coverage evidence |
 
-### §3.18 — `core/auto_fix/` — Proactive Auto-Repair Engine (v2.4)
+### §3.18 — `core/auto_fix/` — Proactive Auto-Repair Engine (v2.6.0)
 
 **Responsibility**: Transforms the system from detect→block→wait_for_human into detect→classify→auto_fix→verify→loop. Provides a unified AutoFixEngine that sits between detection modules and the pipeline loop. Reference: methodology-v2 SKILL.md "fail → FIX + RETRY" execution protocol.
 
@@ -1248,7 +1248,7 @@ Phase Truth < 90% → AutoFixEngine.fix() → re-verify → loop
 python harness_cli.py finalize-gate --gate 2 --phase 3 --project . --auto-fix-rounds 3
 python harness_cli.py finalize-gate --gate 2 --phase 3 --project . --no-auto-fix
 ```
-(Removed in v2.5: the `run-pipeline` autonomous pipeline was unstable for the current maturity level.)
+(Removed in v2.6.0: the `run-pipeline` autonomous pipeline was unstable for the current maturity level.)
 
 ### §3.21 — `scripts/check_spec_trace.py` — FR Spec Trace Validator (v2 Content-Level)
 
@@ -1933,7 +1933,7 @@ CREATE TABLE IF NOT EXISTS effort (
 **Imports**: stdlib only (`re`, `json`, `pathlib`). No external dependencies.  
 **Integration**: `SteeringIntegrator.bvs_integrator` property and `iterate_with_full_check()` now call real code instead of hitting `ImportError`.
 
-**Constitution keyword scan exclusions** (v2.5): Meta-documents
+**Constitution keyword scan exclusions** (v2.6.0): Meta-documents
 (`DEVELOPMENT_LOG.md`, `HANDOVER.md`, `*STAGE_PASS.md`) are excluded from
 keyword-density scanning by default. These files are mandatory per
 `phase_auditor.py` but contain operational content that inherently scores
@@ -2573,7 +2573,7 @@ within this repository.
 | ① SSI runner stub | `harness_bridge._invoke_harness()` (removed) | Replaced `NotImplementedError` with subprocess call, then subprocess replaced with two-phase inline API (prepare_gate → Claude eval → finalize_gate). `_invoke_harness()` no longer exists. |
 | ② `parse_sad` import failure | `harness_bridge.generate_quality_manifest()` | Fixed by adding `parse_sad()` to `scripts/generate_sab.py` |
 | ③ P7/P8 Claude routing not wired | `core/agent_spawner.spawn()` | `get_reviewer_model(phase, role)` now checked before Hermes dispatch; P7/P8 auto-route to Claude |
-| ④ ~~Gate 4 Hermes APPROVE not enforced~~ | ~~`harness_bridge.run_gate()`~~ | **REMOVED in v2.4** — `run_gate()` deleted; `finalize_gate()` does NOT require Hermes APPROVE (Gate 4 is score + quality_complete only). |
+| ④ ~~Gate 4 Hermes APPROVE not enforced~~ | ~~`harness_bridge.run_gate()`~~ | **REMOVED in v2.6.0** — `run_gate()` deleted; `finalize_gate()` does NOT require Hermes APPROVE (Gate 4 is score + quality_complete only). |
 | ⑤ `parse_sad` alias missing | `scripts/generate_sab.py` | Added `parse_sad()` function wrapping `extract_sab_from_sad`, with correct key mapping |
 
 
@@ -2680,7 +2680,7 @@ The agent has **exactly one source of truth at any moment**:
 | Mode | Command | When to use |
 |------|---------|-------------|
 | **Manual (default)** | Follow `phaseN_plan.md` checklist top-to-bottom | Normal autonomous execution |
-> The `run-pipeline` automated mode was removed in v2.5 (unstable at current maturity level).
+> The `run-pipeline` automated mode was removed in v2.6.0 (unstable at current maturity level).
 
 ### Execution Loop (per phase) — Manual Mode
 

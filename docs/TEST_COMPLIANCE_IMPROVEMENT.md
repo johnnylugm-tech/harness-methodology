@@ -65,20 +65,22 @@ harness 未阻擋。
 
 ## 改善方案
 
-### 改善 I-1：TEST_INVENTORY.yaml 成為 P1 法定交付物
+### 改善 I-1：TEST_SPEC.md 成為 P1 法定交付物
 
+> **v2.6 Migration Note (2026-05-24):**
+> I-1 (D4 TEST_SPEC.md forward check) has been merged into I-4/I-5 (TEST_SPEC.md spec-coverage backward check). TEST_SPEC.md is now the single source of truth for all test traceability. The `check-test-inventory` CLI command is deprecated and delegates to `spec-coverage-check`. The bidirectional loop is closed at generation time: `derive_test_cases.md` reads TEST_SPEC.md (Step 0) and preserves its names in TEST_SPEC.md. See `harness/ssi/prompts/derive_test_cases.md` for the updated protocol.
 **影響**：HIGH｜**實作難度**：MEDIUM
 
 #### 說明
 
-P1 在產出 SRS.md 的同時，必須產出 `TEST_INVENTORY.yaml`——一份機器可讀的
+P1 在產出 SRS.md 的同時，必須產出 `TEST_SPEC.md`——一份機器可讀的
 「必需測試函式清單」，涵蓋 unit、integration、security、kpi 四個測試層次，以及
 所有 cross-cutting 跨切面測試（§41-50 類型）。
 
-#### TEST_INVENTORY.yaml 格式
+#### TEST_SPEC.md 格式
 
 ```yaml
-# TEST_INVENTORY.yaml  (P1 交付物，P3/P4 Gate 驗證用)
+# TEST_SPEC.md  (P1 交付物，P3/P4 Gate 驗證用)
 format_version: "1.0"
 
 fr_tests:
@@ -119,15 +121,15 @@ cross_cutting:
 
 ```python
 def cmd_check_test_inventory(args: argparse.Namespace) -> int:
-    """D4: Test Inventory Compliance — compare TEST_INVENTORY.yaml against actual test files."""
+    """D4: Test Inventory Compliance — compare TEST_SPEC.md against actual test files."""
     project = Path(args.project).resolve()
-    inventory_path = project / "TEST_INVENTORY.yaml"
+    inventory_path = project / "TEST_SPEC.md"
 
     if not inventory_path.exists():
         if args.strict:
-            print("[BLOCKED] TEST_INVENTORY.yaml not found. P1 must produce this file.")
+            print("[BLOCKED] TEST_SPEC.md not found. P1 must produce this file.")
             return 8
-        print("[WARN] TEST_INVENTORY.yaml not found — skipping D4 check.")
+        print("[WARN] TEST_SPEC.md not found — skipping D4 check.")
         return 0
 
     # 掃描 tests/*.py 取得所有函式名
@@ -168,7 +170,7 @@ def cmd_check_test_inventory(args: argparse.Namespace) -> int:
 #### P1 checklist 新增強制項
 
 ```
-□ 產出 TEST_INVENTORY.yaml（格式：fr_tests + cross_cutting，含 unit/integration/security/kpi 分層）
+□ 產出 TEST_SPEC.md（格式：fr_tests + cross_cutting，含 unit/integration/security/kpi 分層）
 □ 每個 FR 的 integration 層至少列出對應 API endpoint 的 2xx + 4xx 測試名稱
 □ cross_cutting.security 至少涵蓋 prompt injection、rate limit、PII 三類
 □ cross_cutting.deployment 至少涵蓋 docker-compose health + DB migration
@@ -176,11 +178,11 @@ def cmd_check_test_inventory(args: argparse.Namespace) -> int:
 
 #### 生命週期管理（P1→P3 同步機制）
 
-TEST_INVENTORY.yaml 由 P1 產出，但 P3 開發過程中 FR 可能拆分、合併、新增。
+TEST_SPEC.md 由 P1 產出，但 P3 開發過程中 FR 可能拆分、合併、新增。
 為防止「P1 灌水少列規避 threshold」以及「P3 加新 FR 但 YAML 未更新」：
 
 1. **P1→P2 transition**：`advance-phase --completed 1` 時對 YAML 做 checksum
-   （記錄 `sha256(TEST_INVENTORY.yaml)` 到 state.json）
+   （記錄 `sha256(TEST_SPEC.md)` 到 state.json）
 2. **Gate 1 per-FR**：每次 `finalize-gate --gate 1 --fr-id FR-XX` 時檢查該 FR
    是否在 YAML 中聲明。未聲明 → 非關鍵 block，但記錄 warn 到 gate 日誌
 3. **P2/P3 diff 檢測**：`check-test-inventory --diff-mode` 比較當前 YAML 與 P1 checksum，
@@ -473,7 +475,7 @@ P3: code + tests
     看不出「少了什麼測試」——coverage 98.4% 但 90 條測試從未被要求寫
 
 【改善後的流程】
-P1: SRS.md + TEST_INVENTORY.yaml
+P1: SRS.md + TEST_SPEC.md
     └─ 含 unit/integration/security/kpi/cross-cutting 全分層清單
            ↓
 P3: Gate 1 per-FR
@@ -481,7 +483,7 @@ P3: Gate 1 per-FR
     └─ I-3: test commit 時間 < source commit 時間，否則 exit 1
            ↓
 P4: Gate 3
-    ├─ I-1: D4 TEST_INVENTORY coverage ≥ 80%（逐一比對函式名）
+    ├─ I-1: D4 TEST_SPEC coverage ≥ 80%（逐一比對函式名）
     ├─ I-5: integration_coverage 維度（每 endpoint ≥ 1 整合測試）
     └─ ruff / mypy / pytest-cov（現有維度保留）
            ↓
@@ -498,7 +500,7 @@ P6: Gate 4
 | Knowledge CRUD API 完全無測試 | ❌ coverage 98% 不報 | ✅ I-1 D4 missing 清單 |
 | Webhook 429 端點整合缺失 | ❌ | ✅ I-5 integration marker check |
 | Redis Streams / Retry 無 FR 測試檔 | ❌ | ✅ I-2 Gate 1 block |
-| Phase 3 整組（§25-40）缺失 | ❌ | ✅ I-1 TEST_INVENTORY 清點 |
+| Phase 3 整組（§25-40）缺失 | ❌ | ✅ I-1 TEST_SPEC 清點 |
 | RED 階段未遵守（test = source 同 commit） | ❌ D1 只看時間 | ✅ I-3 commit ordering |
 | 安全紅隊測試無規劃 | ❌ | ✅ I-4 SRS cross-cutting 強制 |
 | KPI / 部署測試落入 FR 縫隙 | ❌ | ✅ I-4 + I-1 cross_cutting 節 |
@@ -646,11 +648,11 @@ mutation_testing:
 
 **強化方案**：在 D4（I-1 `check-test-inventory`）中加 `--crg-gaps` flag，
 讀取 `.sessi-work/crg_reconnaissance.json` 的 `untested_hotspots` 清單，
-與 TEST_INVENTORY.yaml 的 fr_tests 比對：
+與 TEST_SPEC.md 的 fr_tests 比對：
 
 ```python
 def _check_crg_test_gaps(project: Path) -> list[str]:
-    """Cross-reference CRG untested hotspots against TEST_INVENTORY.yaml."""
+    """Cross-reference CRG untested hotspots against TEST_SPEC.md."""
     crg_path = project / ".sessi-work" / "crg_reconnaissance.json"
     if not crg_path.exists():
         return []
@@ -659,14 +661,14 @@ def _check_crg_test_gaps(project: Path) -> list[str]:
     if not untested:
         return []
 
-    inventory = project / "TEST_INVENTORY.yaml"
+    inventory = project / "TEST_SPEC.md"
     if not inventory.exists():
-        return [f"CRG reports {len(untested)} untested hotspots, but TEST_INVENTORY.yaml missing"]
+        return [f"CRG reports {len(untested)} untested hotspots, but TEST_SPEC.md missing"]
 
     required = _flatten_test_names(yaml.safe_load(inventory.read_text()))
     # CRG hotspot names are function names; check if any are NOT in the inventory
     gaps = [h for h in untested if h.get("name") not in required]
-    return [f"TEST_INVENTORY missing CRG-reported hotspot: {g['name']} (fan_in={g.get('fan_in','?')})"
+    return [f"TEST_SPEC missing CRG-reported hotspot: {g['name']} (fan_in={g.get('fan_in','?')})"
             for g in gaps[:10]]
 ```
 
@@ -695,7 +697,7 @@ def _check_crg_test_gaps(project: Path) -> list[str]:
 
 ## 導入策略（Backward Compatibility）
 
-**決定：不實作 migration helpers。** 既有專案只需手動補 `TEST_INVENTORY.yaml` 後即可
+**決定：不實作 migration helpers。** 既有專案只需手動補 `TEST_SPEC.md` 後即可
 正常 advance，無需特殊 migration code。新專案從 P1 開始自動適用完整生命週期。
 
 ---
@@ -723,7 +725,7 @@ def _check_crg_test_gaps(project: Path) -> list[str]:
 | P0（立即） | I-3 RED phase ordering（`%at` + 批次化） | `harness_cli.py` | ~55 |
 | P1（本週） | I-4 SRS cross-cutting section | `templates/SRS.md` + `harness_cli.py` (checklist scan) | ~50 |
 | P1（本週） | I-5 integration marker | `templates/conftest.target.yaml` + `gate_3.yaml` | ~30 |
-| P2（下週） | ~~I-1 TEST_INVENTORY + check command + lifecycle~~ | `harness_cli.py` + new YAML schema | ~150 ✅ |
+| P2（下週） | ~~I-1 TEST_SPEC + check command + lifecycle~~ | `harness_cli.py` + new YAML schema | ~150 ✅ |
 | P2（下週） | Harness self-tests（I-1~I-5） | `tests/test_test_compliance.py` | ~200 |
 | ~~P3（下下週）~~ | ~~Migration helpers（`--warn-only`, `--threshold`）~~ | ~~`harness_cli.py`~~ | ~~~40~~ 🚫 |
 
@@ -731,7 +733,7 @@ def _check_crg_test_gaps(project: Path) -> list[str]:
 
 ## I-1 完成狀態
 
-- `templates/TEST_INVENTORY.yaml` — ✅ 已完成
+- `templates/TEST_SPEC.md` — ✅ 已完成
 - `harness_cli.py` — `cmd_check_test_inventory` + `_run_test_inventory_check` helper
 - Lifecycle:
   - P1 `advance-phase` — checksum 寫入 state.json ✅
@@ -743,11 +745,3 @@ def _check_crg_test_gaps(project: Path) -> list[str]:
 
 ---
 
-## v2.6 Migration Note (2026-05-24)
-
-I-1 (D4 TEST_INVENTORY.yaml forward check) has been merged into I-4/I-5 (TEST_SPEC.md
-spec-coverage backward check). TEST_SPEC.md is now the single source of truth for all
-test traceability. The `check-test-inventory` CLI command is deprecated and delegates
-to `spec-coverage-check`. The bidirectional loop is closed at generation time:
-`derive_test_cases.md` reads TEST_INVENTORY.yaml (Step 0) and preserves its names in
-TEST_SPEC.md. See `harness/ssi/prompts/derive_test_cases.md` for the updated protocol.

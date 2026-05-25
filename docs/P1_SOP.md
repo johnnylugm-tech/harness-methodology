@@ -60,6 +60,7 @@ Agent B 審查重點：
 - [ ] Agent B 審查通過（review_status: APPROVE）
 - [ ] `sessions_spawn.log` 有 A/B 各 1 筆記錄（HR-10）
 - [ ] HANDOVER.md 已寫入（P1 摘要 + 下一步 P2 提示）
+- [ ] HR-12 A/B Iteration Limit enforced (Max 5 rounds per FR)
 
 ---
 

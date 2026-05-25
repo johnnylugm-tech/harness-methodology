@@ -3,7 +3,7 @@
 > **Scope**: How to maintain the framework itself, and how to wire it into a target development project.
 > For gate embedding and SSI evaluation model, see [`docs/HARNESS_INTEGRATION.md`](docs/HARNESS_INTEGRATION.md).
 >
-> **Last verified**: 2026-05-12 &nbsp;|&nbsp; **Synced with**: SAD.md v2.4
+> **Last verified**: 2026-05-12 &nbsp;|&nbsp; **Synced with**: SAD.md v2.6.0
 
 ---
 
@@ -45,8 +45,8 @@ python scripts/validate_cross_refs.py
 python -m pytest tests/ -v --tb=short
 
 # Tag and push (CI takes over — see .github/workflows/release.yml)
-git tag v2.4.0
-git push origin v2.4.0
+git tag v2.6.0
+git push origin v2.6.0
 
 # Regenerate machine-readable SAD block
 python scripts/generate_sab.py --project .
@@ -162,7 +162,7 @@ Run from target project root with harness on `PYTHONPATH` (or via submodule).
 
 **Full pipeline execution**:
 ```bash
-# Manual step-by-step (recommended — run-pipeline removed in v2.5)
+# Manual step-by-step (recommended — run-pipeline removed in v2.6.0)
 python harness_cli.py plan-phase --phase 1 --project .
 python harness_cli.py run-phase --phase 1 --project .
 python harness_cli.py plan-phase --phase 2 --project .
@@ -327,7 +327,7 @@ Phase is auto-detected from `.methodology/state.json` — no GitHub Variable req
 
 ## 5.2 Migration Notes
 
-### CV-1 — `sessions_spawn.log` canonical path (harness v2.5+)
+### CV-1 — `sessions_spawn.log` canonical path (harness v2.6.0+)
 
 The canonical location of the A/B session log changed from `sessions_spawn.log` (project root) to `.methodology/sessions_spawn.log`.
 
@@ -341,7 +341,7 @@ git commit -m "chore: migrate sessions_spawn.log to .methodology/ (CV-1)"
 
 `SessionsSpawnLogger` and `PhaseTruthVerifier` now read and write exclusively from `.methodology/sessions_spawn.log`. The root-level file is no longer consulted.
 
-### SG-11 — `session_id` required in sessions_spawn.log (harness v2.5+)
+### SG-11 — `session_id` required in sessions_spawn.log (harness v2.6.0+)
 
 `sessions_spawn.log` entries without a `session_id` field are now counted as malformed. If your project has entries that lack `session_id`, re-run the A/B dispatch for those FRs, or manually add synthetic IDs:
 

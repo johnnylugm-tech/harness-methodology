@@ -16,7 +16,7 @@ fr_list = parse_fr_ids("SAD.md")  # e.g. ["FR-001", "FR-002", "FR-003"]
 ### 0.1a 驗證 FR→Test 檔案對應（Test Compliance Check）
 
 Gate 前自動驗證（`cmd_finalize_gate` 內建 hook）：
-- **I-1 D4**: Gate 2+ 檢查 TEST_INVENTORY.yaml 涵蓋率（Gate 2≥60%, Gate 3≥80%, Gate 4≥90%）
+- **I-1 D4**: Gate 1+ 檢查 TEST_SPEC.md 涵蓋率（Gate 1≥40%, Gate 2≥60%, Gate 3≥80%, Gate 4≥90%）
 - **I-2**: 每個 FR 必須有對應的 `tests/test_fr_{id}.py` 才算完整（FR→test file check）
 - **I-3**: 測試檔案 commit 必須早於實作程式碼（RED-first ordering）
 

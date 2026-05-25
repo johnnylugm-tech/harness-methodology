@@ -140,6 +140,7 @@ Agent B 審查重點：
 - [ ] `sessions_spawn.log` 有 A/B 各 1 筆記錄（HR-10）
 - [ ] `python scripts/list-modules.py --validate` 通過
 - [ ] HANDOVER.md 已寫入（P2 摘要 + 下一步 P3 提示）
+- [ ] HR-12 A/B Iteration Limit enforced (Max 5 rounds per FR)
 
 ---
 

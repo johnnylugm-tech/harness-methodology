@@ -10,7 +10,7 @@ description: |
 
 # SKILL.md — harness-methodology
 
-> **Version**: v2.4.0 | **Framework**: harness-methodology | **Academic Benchmark**: 91/100
+> **Version**: v2.6.0 | **Framework**: harness-methodology | **Academic Benchmark**: 91/100
 
 ---
 
@@ -93,7 +93,7 @@ do NOT start work until every item is checked.
 | P1/P2 exit | Human peer review (no automated gate) | Deliverables: SRS.md / SAD.md + ADR.md |
 | After crash | Current position + next checkpoint | `generate-next-plan` |
 
-> ¹ **D4_SpecCoverage** (v2.6 unified): TEST_SPEC.md is the single source of truth for all test traceability. The previous two-check model (TEST_INVENTORY.yaml forward + TEST_SPEC.md backward) is retired. A single spec-coverage check runs at Gates 1-4 with thresholds: Gate1(per-FR)=40%, Gate2=60%, Gate3=80%, Gate4=90%. Use `python harness_cli.py spec-coverage-check --project . --threshold N`. The `check-test-inventory` CLI is deprecated and delegates to `spec-coverage-check`.
+> ¹ **D4_SpecCoverage** (v2.6.0 unified): TEST_SPEC.md is the single source of truth for all test traceability. The previous two-check model (TEST_INVENTORY.yaml forward + TEST_SPEC.md backward) is retired. A single spec-coverage check runs at Gates 1-4 with thresholds: Gate1(per-FR)=40%, Gate2=60%, Gate3=80%, Gate4=90%. Use `python harness_cli.py spec-coverage-check --project . --threshold N`. The `check-test-inventory` CLI is deprecated and delegates to `spec-coverage-check`.
 
 ### 0.4 Phase Completion Checklist (Mandatory — Every Phase)
 
@@ -431,4 +431,4 @@ Full reference: `docs/CRG_DEEP_INTEGRATION.md`
 
 ---
 
-*harness-methodology v2.4.0 — Academic Benchmark 91/100*
+*harness-methodology v2.6.0 — Academic Benchmark 91/100*

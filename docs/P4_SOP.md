@@ -53,7 +53,16 @@ python3 scripts/check_spec_trace.py SAD.md tests/
 
 ---
 
-## Gate 3 — Phase Exit (replaces auto-research P4)
+## Step 4 — Gate 1 (per-FR)
+
+```bash
+python harness_cli.py run-gate --gate 1 --phase 4 --fr-id FR-001
+# Blocking: any dim < threshold → auto-fix → re-run gate
+```
+
+---
+
+## Step 5 — Gate 3 — Phase Exit (replaces auto-research P4)
 
 ```bash
 python harness_cli.py run-gate --gate 3 --phase 4

@@ -57,7 +57,11 @@
     "max_complexity": 15,
     "min_coverage": 80,
     "max_coupling": 0.3
-  }
+  },
+  "nfr_traceability": {},
+  "fr_module_traceability": {},
+  "architecture_constraints": [],
+  "high_risk_modules": []
 }
 ```
 <!-- SAB:END -->

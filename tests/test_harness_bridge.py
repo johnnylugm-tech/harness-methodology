@@ -676,6 +676,34 @@ class TestSabClosureGaps:
                             result = bridge.finalize_gate(ctx)
         assert result.quality_complete is True
 
+    def test_finalize_gate_caps_test_coverage_at_spec_coverage_pct(self, tmp_path):
+        """test_coverage score is capped at spec coverage pct, causing a block if it drops below threshold."""
+        bridge = HarnessBridge()
+        ctx = GateContext(
+            gate_num=1, config={"gate": 1, "dimensions": []},
+            project_root=str(tmp_path), phase=3, fr_id="FR-01",
+            ssi_scripts_dir="/t", ssi_prompts_dir="/t", ssi_schemas_dir="/t",
+            work_dir=str(tmp_path / ".sessi-work"),
+            sab_data={},
+        )
+        ctx._spec_test_names = ["test_a", "test_b", "test_c", "test_d"]
+        ctx._existing_spec_tests = {"test_a"}  # 25% spec coverage
+        self._write_gate1_result(ctx, {
+            # Agent claims 90% coverage, but threshold is 60%.
+            # Cap applies: 25% < 60% threshold -> GateBlockedError
+            "test_coverage": {"score": 90.0, "threshold": 60.0, "issues": []},
+        })
+        with patch("harness.harness_bridge._check_tool_evidence", return_value=[]):
+            with patch("harness.harness_bridge._run_harness_cross_validation", return_value=[]):
+                with patch.object(bridge, "_update_quality_manifest"):
+                    with patch.object(bridge, "_log"):
+                        with patch.object(bridge, "_effort"):
+                            with pytest.raises(GateBlockedError) as exc_info:
+                                bridge.finalize_gate(ctx)
+                            
+                            failed_dims = [d.name for d in exc_info.value.result.dimensions if d.score < d.threshold]
+                            assert "test_coverage" in failed_dims
+
     def test_finalize_gate_override_is_floor_not_ceiling(self, tmp_path):
         """Override=80, agent threshold=90 → effective threshold stays 90 (override never lowers)."""
         bridge = HarnessBridge()

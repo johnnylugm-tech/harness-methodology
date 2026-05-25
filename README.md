@@ -39,7 +39,7 @@ Design Score: **91/100** Academic Benchmark
 
 ### 分步執行（推薦）
 
-人類僅需介入 3 次：提供 SRS.md (P1)、提供 SAD.md (P2)、Gate 4 Telegram APPROVE。
+人類僅需介入 2 次：提供 SRS.md (P1)、提供 SAD.md (P2)。
 9 項嚴格的人類介入條件見 SAD.md §3.18。
 
 步驟依序執行：
@@ -48,7 +48,9 @@ Design Score: **91/100** Academic Benchmark
 python harness_cli.py plan-phase  --phase 3
 python harness_cli.py run-phase   --phase 3
 python harness_cli.py run-gate    --gate 1 --phase 3 --fr-id FR-01 --auto-fix-rounds 3
+python harness_cli.py finalize-gate --gate 1 --phase 3 --fr-id FR-01 --project .
 python harness_cli.py run-gate    --gate 2 --phase 3 --auto-fix-rounds 3
+python harness_cli.py finalize-gate --gate 2 --phase 3 --project .
 python harness_cli.py status
 ```
 
@@ -74,4 +76,4 @@ final_score = tool_score   # LLM scoring abolished — all 14 dimensions are too
 Early-stop (Gates 2–4): PASS → CONTINUE (anti-pattern guard) → PLATEAU → BLOCKED
 
 ---
-*harness-methodology v2.4.0 | Academic Benchmark 91/100 | [SAD.md](SAD.md) | [INTEGRATION.md](INTEGRATION.md)*
+*harness-methodology v2.6.0 | Academic Benchmark 91/100 | [SAD.md](SAD.md) | [INTEGRATION.md](INTEGRATION.md)*
