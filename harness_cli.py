@@ -3936,12 +3936,16 @@ def _extract_srs_fr_section(srs_path: Path, fr_id: str) -> str:
     return (m.group(1) + m.group(2)).strip() if m else ""
 
 
-def _parse_gate_output(out: str) -> tuple[bool, list]:
-    """Extract gate_pass and failing_dims from sub-agent output.
+def _parse_gate_output(out: str) -> tuple[bool, list, str]:
+    """Extract gate_pass, failing_dims, and block_reason from sub-agent output.
 
     Tries full-string JSON parse first, then scans for embedded JSON objects
     by tracking brace depth — handles nested structures in failing_dims.
-    Returns (gate_pass, failing_dims); falls back to (False, []) on failure.
+    Also scans for finalize-gate [BLOCKED] lines to surface S3/S4 details.
+
+    Returns (gate_pass, failing_dims, block_reason).
+    block_reason is a non-empty string when finalize-gate blocked with S3/S4;
+    empty string otherwise.  Falls back to (False, [], "") on parse failure.
     """
     def _try(s: str) -> dict | None:
         try:
@@ -3957,10 +3961,21 @@ def _parse_gate_output(out: str) -> tuple[bool, list]:
         # schema key ("failing_dimensions") — agents sometimes copy the wrong one.
         return obj.get("failing_dims") or obj.get("failing_dimensions") or []
 
+    def _extract_block_reason(text: str) -> str:
+        """Scan agent output for finalize-gate [BLOCKED] lines (S3/S4 errors)."""
+        for line in text.splitlines():
+            if "[BLOCKED]" in line and (
+                "tool_evidence_missing" in line or "tool_score_fabrication" in line
+            ):
+                return line.strip()
+        return ""
+
+    block_reason = _extract_block_reason(out)
+
     # Try whole string first (agent returned bare JSON)
     obj = _try(out.strip())
     if obj:
-        return bool(obj.get("pass", False)), _extract_dims(obj)
+        return bool(obj.get("pass", False)), _extract_dims(obj), block_reason
 
     # Scan for any embedded JSON object via brace-depth tracking
     i = 0
@@ -3975,11 +3990,11 @@ def _parse_gate_output(out: str) -> tuple[bool, list]:
                     if depth == 0:
                         obj = _try(out[i : j + 1])
                         if obj is not None:
-                            return bool(obj.get("pass", False)), _extract_dims(obj)
+                            return bool(obj.get("pass", False)), _extract_dims(obj), block_reason
                         break
         i += 1
 
-    return False, []
+    return False, [], block_reason
 
 
 def _resolve_phase3_context(project: Path) -> dict:
@@ -4056,7 +4071,9 @@ def _extract_test_spec_names(project: Path, fr_id: str) -> tuple[list[str], str]
 
 def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
                            project: Path, srs_path: Path | None,
-                           failing_dims: list | None = None) -> str:
+                           failing_dims: list | None = None,
+                           tool_snapshot: str | None = None,
+                           block_reason: str | None = None) -> str:
     """Build a minimal need-to-know prompt for a single FR TDD step.
 
     Each prompt is self-contained — the sub-agent receives only what it needs
@@ -4065,6 +4082,12 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
     Args:
         failing_dims: Required for CODE-FIX step — list of failing Gate 1
             dimension names.  Ignored for all other steps.
+        tool_snapshot: Optional pre-run tool output (ruff + pytest) captured
+            at orchestration time.  Injected into CODE-FIX prompt so agents
+            can fix targeted errors without re-discovering them.
+        block_reason: Optional finalize-gate block reason (e.g. S3/S4 detail)
+            extracted from previous GATE1 sub-agent output.  Injected into
+            GATE1 and CODE-FIX prompts so agents understand WHY gate blocked.
     """
     step = step.upper()
     num_match = re.match(r"FR-(\d+)", fr_id)
@@ -4165,18 +4188,49 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
                 f"regardless of raw coverage %\n\n"
             )
 
+        # ── Previous block reason (S3/S4) surfaced for retry ──
+        block_section = ""
+        if block_reason:
+            block_section = (
+                f"\n[PREVIOUS ATTEMPT BLOCKED — read carefully]\n"
+                f"{block_reason}\n"
+                f"Ensure the gate1_result.json you write this time satisfies the\n"
+                f"tool_evidence requirement described in step 3 below.\n\n"
+            )
+
         return (
             f"You are a Gate 1 evaluator. Your task: run Gate 1 evaluation for {fr_id}.\n"
             f"{spec_section}"
+            f"{block_section}"
             f"[TASK — follow EXACTLY in order]\n"
             f"1. Run: `python3 harness_cli.py run-gate --gate 1 --phase {phase} "
             f"--fr-id {fr_id} --project .`\n"
-            f"   Read the evaluation prompt printed above carefully.\n"
-            f"2. Evaluate ALL dimensions following `harness/ssi/prompts/evaluate_dimension.md`.\n"
-            f"3. Write results to `.sessi-work/gate1_result.json` "
-            f"(schema: `harness/ssi/schemas/harness_gate_result.schema.json`).\n"
+            f"   The output contains FR-SCOPED TOOL OVERRIDES — exact commands for each\n"
+            f"   dimension.  Use those commands, not the generic ones in evaluate_dimension.md.\n\n"
+            f"2. Run the three tool commands from step 1's FR-SCOPED TOOL OVERRIDES:\n"
+            f"   a. linting:      ruff check ... (exact command shown in run-gate output)\n"
+            f"   b. type_safety:  pyright ... (exact command shown in run-gate output)\n"
+            f"   c. test_coverage: coverage run / pytest ... (exact command shown in run-gate output)\n"
+            f"   Save each tool's output to .sessi-work/round_1/tools/<dimension>.txt\n\n"
+            f"3. Write `.sessi-work/gate1_result.json` with this EXACT schema:\n"
+            f"   {{\n"
+            f'     "gate": 1, "phase": {phase}, "fr_id": "{fr_id}",\n'
+            f'     "breakdown": {{\n'
+            f'       "linting":       {{"score": <0-100>, "tool_evidence": "<first 500 chars of ruff stdout>"}},\n'
+            f'       "type_safety":   {{"score": <0-100>, "tool_evidence": "<first 500 chars of pyright stdout>"}},\n'
+            f'       "test_coverage": {{"score": <0-100>, "tool_evidence": "<first 500 chars of coverage/pytest stdout>"}}\n'
+            f'     }}\n'
+            f"   }}\n"
+            f"   CRITICAL: `tool_evidence` is REQUIRED for every dimension.\n"
+            f"   If you omit it, finalize-gate will BLOCK with S3 error regardless of scores.\n"
+            f"   Score fabrication (writing a score without running the tool) also causes S3 block.\n\n"
+            f"   Scoring formulas:\n"
+            f"   - linting:      ruff exit 0 → 100; else count violations: max(0, 100 - violations×5)\n"
+            f"   - type_safety:  parse pyright JSON summary.errorCount: max(0, 100 - errorCount×5)\n"
+            f"   - test_coverage: parse coverage % from output; score = coverage_pct\n\n"
             f"4. Run: `python3 harness_cli.py finalize-gate --gate 1 --phase {phase} "
             f"--fr-id {fr_id} --project .`\n"
+            f"   If finalize-gate prints [BLOCKED], include the exact error in your output summary.\n\n"
             f"5. Report pass/fail and failing dimensions (if any).\n\n"
             f'[OUTPUT FORMAT]\nReturn JSON: {{"status": "DONE", "gate_score": <float>, '
             f'"pass": true/false, "failing_dims": [...], "commit": "<hash or null>", '
@@ -4330,11 +4384,23 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
         # test_cov_section ends with \n\n when non-empty, so it provides the gap
         # before [TASK]. When empty, insert the gap explicitly.
         gap = "\n" if not test_cov_section else ""
+
+        # ── Tool snapshot captured at orchestration time (Fix 1) ──
+        snapshot_section = ""
+        if tool_snapshot:
+            snapshot_section = (
+                f"\n[ACTUAL TOOL OUTPUT — captured at orchestration time]\n"
+                f"Use these exact errors as your fix targets. "
+                f"Do NOT re-run the tools to re-discover them — fix what is shown here.\n"
+                f"{tool_snapshot}\n\n"
+            )
+
         return (
             f"You are a code fixer. Gate 1 FAILED for {fr_id}. Fix the failing dimensions.\n\n"
             f"[FAILING DIMENSIONS]\n"
             f"{dims_str}\n"
             f"{test_cov_section}"
+            f"{snapshot_section}"
             f"{gap}"
             f"[TASK]\n"
             + "\n".join(task_lines) + "\n\n"
@@ -4345,6 +4411,44 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
         )
 
     return f"[ERROR] Unknown step: {step}"
+
+
+def _capture_tool_snapshot(
+    project: Path, fr_id: str, src_dir: str, test_file: str
+) -> str:
+    """Run ruff + pytest at orchestration time and return combined output (max 2000 chars).
+
+    Used to give CODE-FIX agents concrete, targeted error messages rather than
+    forcing them to re-discover failures from scratch.  Failures are non-fatal —
+    returns "" on any subprocess error so the CODE-FIX prompt degrades gracefully.
+    """
+    import subprocess as _sp
+    lines: list[str] = []
+    try:
+        r = _sp.run(
+            ["ruff", "check", f"{src_dir}/"],
+            capture_output=True, text=True, cwd=str(project), timeout=30,
+        )
+        if r.stdout.strip() or r.stderr.strip():
+            lines.append(f"ruff check {src_dir}/ (exit {r.returncode}):")
+            lines.append((r.stdout + r.stderr).strip()[:600])
+            lines.append("")
+    except Exception:
+        pass
+    try:
+        r = _sp.run(
+            ["python3", "-m", "pytest", test_file, "-v", "--tb=short", "-q"],
+            capture_output=True, text=True, cwd=str(project),
+            timeout=60, env={**__import__("os").environ, "PYTHONPATH": str(project)},
+        )
+        output = (r.stdout + r.stderr).strip()
+        if output:
+            lines.append(f"pytest {test_file} -v --tb=short (exit {r.returncode}):")
+            # Tail: most useful failures are at the end
+            lines.append(output[-800:])
+    except Exception:
+        pass
+    return "\n".join(lines)[:2000]
 
 
 def cmd_run_fr_step(args: argparse.Namespace) -> int:
@@ -4363,6 +4467,14 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
     step = args.step.upper()
     project = Path(args.project).resolve()
     srs_path = Path(args.srs).resolve() if getattr(args, "srs", None) else None
+
+    # Compute src_dir and test_file — used by GATE1 retry and _capture_tool_snapshot.
+    _num_match = re.match(r"FR-(\d+)", fr_id)
+    _num_str = _num_match.group(1).zfill(2) if _num_match else re.sub(
+        r"[^a-z0-9]", "_", fr_id.lower()
+    ).strip("_")
+    src_dir = "03-development/src"
+    test_file = f"tests/test_fr{_num_str}.py"
 
     # 1. Idempotency — skip if already committed
     if _fr_step_already_done(step, fr_id, project):
@@ -4439,9 +4551,10 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
         # failing_dims cannot be parsed. Signal full re-check to CODE-FIX.
         if _status in {"ERROR", "TIMEOUT"}:
             gate_pass = False
-            failing_dims = None
+            failing_dims: list | None = None
+            block_reason = ""
         else:
-            gate_pass, failing_dims = _parse_gate_output(result.get("output", ""))
+            gate_pass, failing_dims, block_reason = _parse_gate_output(result.get("output", ""))
         if not gate_pass:
             gate_pass = _fr_step_already_done(step, fr_id, project)
 
@@ -4449,26 +4562,46 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
         for fix_round in range(1, max_fix_rounds + 1):
             if gate_pass or _fr_step_already_done(step, fr_id, project):
                 break
-            print(f"[run-fr-step] {fr_id} GATE1 FAIL (round {fix_round}/{max_fix_rounds})"
-                  f" — dispatching CODE-FIX sub-agent")
-            fix_prompt = _build_fr_step_prompt(
-                "CODE-FIX", fr_id, phase, project, srs_path,
-                failing_dims=failing_dims,
+
+            # ── S3 short-circuit: evaluation JSON was malformed, not code error ──
+            # tool_evidence_missing means the sub-agent fabricated scores.
+            # CODE-FIX (source code fixer) cannot help — skip it and retry GATE1
+            # directly with the block_reason injected so the evaluator understands
+            # what went wrong with its predecessor's gate1_result.json.
+            is_s3 = bool(block_reason and "tool_evidence_missing" in block_reason)
+            if not is_s3:
+                print(f"[run-fr-step] {fr_id} GATE1 FAIL (round {fix_round}/{max_fix_rounds})"
+                      f" — dispatching CODE-FIX sub-agent")
+                # ── Pre-run tools at orchestration time (Fix 1) ──────────────────
+                # Capture actual ruff + pytest output and embed it in CODE-FIX prompt
+                # so agents can fix targeted errors without re-discovering them.
+                tool_snapshot = _capture_tool_snapshot(project, fr_id, src_dir, test_file)
+                fix_prompt = _build_fr_step_prompt(
+                    "CODE-FIX", fr_id, phase, project, srs_path,
+                    failing_dims=failing_dims,
+                    tool_snapshot=tool_snapshot,
+                )
+                fix_result = spawner.spawn(
+                    role="developer", prompt=fix_prompt,
+                    context={"phase": phase, "fr_id": fr_id, "step": "CODE-FIX"},
+                    phase=phase, fr_id=fr_id, phase_sop_override="",
+                    task_timeout=getattr(args, "timeout", 600),
+                    max_turns=_max_turns("CODE-FIX"),
+                    mcp_config=phase_ctx["mcp_config"],
+                    setting_sources=phase_ctx["setting_sources"],
+                )
+                if fix_result.get("status") in _DISPATCH_ERROR_STATUSES:
+                    print(f"[run-fr-step] CODE-FIX failed: {fix_result.get('output','')[:200]}")
+                    break
+            else:
+                print(f"[run-fr-step] {fr_id} GATE1 S3 block (round {fix_round}/{max_fix_rounds})"
+                      f" — retrying GATE1 directly (no CODE-FIX needed for tool_evidence issue)")
+
+            # Re-dispatch GATE1 (with block_reason if S3, otherwise clean)
+            gate_prompt = _build_fr_step_prompt(
+                step, fr_id, phase, project, srs_path,
+                block_reason=block_reason if is_s3 else None,
             )
-            fix_result = spawner.spawn(
-                role="developer", prompt=fix_prompt,
-                context={"phase": phase, "fr_id": fr_id, "step": "CODE-FIX"},
-                phase=phase, fr_id=fr_id, phase_sop_override="",
-                task_timeout=getattr(args, "timeout", 600),
-                max_turns=_max_turns("CODE-FIX"),
-                mcp_config=phase_ctx["mcp_config"],
-                setting_sources=phase_ctx["setting_sources"],
-            )
-            if fix_result.get("status") in _DISPATCH_ERROR_STATUSES:
-                print(f"[run-fr-step] CODE-FIX failed: {fix_result.get('output','')[:200]}")
-                break
-            # Re-dispatch GATE1
-            gate_prompt = _build_fr_step_prompt(step, fr_id, phase, project, srs_path)
             result = spawner.spawn(
                 role="developer", prompt=gate_prompt,
                 context={"phase": phase, "fr_id": fr_id, "step": step},
@@ -4479,7 +4612,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                 setting_sources=phase_ctx["setting_sources"],
                 permission_mode=_pmode,
             )
-            gate_pass, failing_dims = _parse_gate_output(result.get("output", ""))
+            gate_pass, failing_dims, block_reason = _parse_gate_output(result.get("output", ""))
             if not gate_pass:
                 gate_pass = _fr_step_already_done(step, fr_id, project)
         else:
