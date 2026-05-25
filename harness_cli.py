@@ -2110,7 +2110,17 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
                 "  The seal will be added on the next advance-phase / _advance_fsm() call.\n"
                 "  Until then, direct edits to state.json cannot be detected."
             )
-        else:  # TAMPERED
+        elif args.gate == 1:
+            # Gate 1 is per-FR; operator manual fixes (direct state.json edits) are
+            # an expected recovery path.  The seal is restored at S3 by
+            # _update_state_checkpoint() — blocking here creates an unresolvable
+            # deadlock.  Gate 2/3/4 remain blocking (codebase should be stable).
+            print(
+                "  [WARN] state.json seal invalid — likely from a manual operator fix.\n"
+                "  Gate 1 allows this: seal will be restored at finalize S3.\n"
+                "  Gate 2 / 3 / 4 will block on any seal violation."
+            )
+        else:  # TAMPERED, gate >= 2
             print(
                 "\n[BLOCKED] state.json integrity seal is INVALID.\n"
                 "  The file was edited directly instead of through advance-phase.\n"
