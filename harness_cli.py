@@ -4130,9 +4130,10 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"- Example: a pipeline.process() call performs HMAC verification internally.\n"
             f"  Add an autouse fixture: monkeypatch.setattr(Verifier, 'verify', lambda *a: True)\n"
             f"  so the test fails because the pipeline logic is absent, not because of bad sig.\n"
-            f"- If you use patch.object(obj, 'method_name', ...) in a test, the method_name\n"
-            f"  MUST be added as a stub to the source class — document it in a comment so\n"
-            f"  the GREEN agent knows to implement it.\n\n"
+            f"- If you use patch.object(obj, 'method_name', ...) in a test, add a comment\n"
+            f"  directly above that test explaining what the GREEN agent must implement:\n"
+            f"  # GREEN TODO: <ClassName> must have <method_name>(self, *args) -> <return_type>\n"
+            f"  Do NOT add stubs to source files yourself — GREEN does that.\n\n"
             f"[FORBIDDEN]\n"
             f"- Implementing any source code (test file only)\n"
             f"- app/infrastructure/ paths\n"
@@ -4160,8 +4161,10 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"     attributes cause AttributeError before the test even runs.\n"
             f"  2. autouse fixtures that mock verifiers — means the test bypasses real HMAC/auth.\n"
             f"     Do NOT add HMAC bypass to production code; the fixture already handles it.\n"
-            f"  3. Any test that calls process() or similar — ensure the implementation has\n"
-            f"     an outer try/except that returns 500 on unhandled exceptions (never crashes).\n\n"
+            f"  3. Any test that asserts on status codes (200/500/429/401) from a top-level\n"
+            f"     orchestrator or pipeline method — verify the implementation handles unexpected\n"
+            f"     exceptions and returns a structured error response rather than propagating.\n"
+            f"     Only add try/except if the tests actually require it; do not add for utilities.\n\n"
             f"[TASK]\n"
             f"1. Scan test file per [IMPLEMENTATION CONTRACT] above before writing any code.\n"
             f"2. Create/edit source files in `{src_dir}/` to make `{test_file}` pass.\n"
@@ -4471,10 +4474,16 @@ def _capture_tool_snapshot(
     """
     import subprocess as _sp
     lines: list[str] = []
-    # PYTHONPATH must point at the src root, not the project root.
-    # For src-layout projects (e.g. 03-development/src/) using PYTHONPATH=project
-    # causes ModuleNotFoundError, masking the real assertion failures from fixers.
-    _pythonpath = str(project / src_dir) if src_dir else str(project)
+    # PYTHONPATH must include the src root for src-layout projects.
+    # Using PYTHONPATH=project alone causes ModuleNotFoundError for packages
+    # under 03-development/src/, masking the real assertion failures from fixers.
+    # We include BOTH project root (original behaviour) and src_dir (new) so
+    # that nothing that previously worked can regress.
+    import os as _os
+    _pythonpath = (
+        _os.pathsep.join([str(project / src_dir), str(project)])
+        if src_dir else str(project)
+    )
     try:
         r = _sp.run(
             ["ruff", "check", f"{src_dir}/"],
