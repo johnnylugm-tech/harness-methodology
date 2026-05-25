@@ -442,6 +442,22 @@ class GateContext:
                 sab_lines += f"  architecture_constraints: {constraints}\n"
             if high_risk:
                 sab_lines += f"  high_risk_modules: {high_risk}\n"
+            qt = self.sab_data.get("quality_targets", {})
+            if qt:
+                sab_lines += f"  quality_targets: {qt}\n"
+                sab_lines += (
+                    "  > Treat these as project-specific NFR thresholds "
+                    "when evaluating dimensions.\n"
+                )
+            fr_mod_trace = self.sab_data.get("fr_module_traceability", {})
+            if fr_mod_trace and self.fr_id:
+                mod = fr_mod_trace.get(self.fr_id)
+                if mod:
+                    sab_lines += f"  {self.fr_id} responsible module: {mod}\n"
+                    sab_lines += (
+                        "  > Focus code review on this module "
+                        "when evaluating implementation.\n"
+                    )
             nfr_trace = self.sab_data.get("nfr_traceability", {})
             # Only show the flat mapping when detailed traceability is absent
             # (traceability is a strict superset of nfr_dimension_mapping).
@@ -641,9 +657,13 @@ class HarnessBridge:
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             return {
-                "nfr_dimension_mapping": manifest.get("nfr_dimension_mapping", {}),
+                "nfr_dimension_mapping":    manifest.get("nfr_dimension_mapping", {}),
+                "nfr_traceability":         manifest.get("nfr_traceability", {}),
+                "nfr_fr_mapping":           manifest.get("nfr_fr_mapping", {}),
+                "quality_targets":          manifest.get("quality_targets", {}),
+                "fr_module_traceability":   manifest.get("fr_module_traceability", {}),
                 "architecture_constraints": manifest.get("architecture_constraints", []),
-                "high_risk_modules": manifest.get("high_risk_modules", []),
+                "high_risk_modules":        manifest.get("high_risk_modules", []),
             }
         except Exception:
             return {}
@@ -978,6 +998,24 @@ class HarnessBridge:
                 issues=dim_data.get("issues", []),
             ))
 
+        # Apply gate_score_overrides from quality_manifest as threshold floor.
+        # Never lower a threshold below what the gate YAML / Claude set — only raise it.
+        import dataclasses as _dc
+        _manifest_path = Path(ctx.project_root) / ".methodology" / "quality_manifest.json"
+        _overrides: dict[str, float] = {}
+        try:
+            _overrides = json.loads(
+                _manifest_path.read_text(encoding="utf-8")
+            ).get("gate_score_overrides", {})
+        except Exception:
+            pass
+        if _overrides:
+            dims = [
+                _dc.replace(d, threshold=max(d.threshold, float(_overrides[d.name])))
+                if d.name in _overrides else d
+                for d in dims
+            ]
+
         # SG-2 (robustness audit): per-dimension variance sanity check.
         # If ≥3 dimensions all share the SAME score, that's suspiciously uniform
         # — Claude's per-dim evaluation should produce naturally varied scores.
@@ -1211,6 +1249,11 @@ class HarnessBridge:
         # NFR→[FR] reverse mapping from §2 cross-reference table
         nfr_fr_map = self._parse_nfr_fr_xref(_project_root)
 
+        qt = sab.get("quality_targets", {})
+        gate_score_overrides: dict[str, float] = {}
+        if "min_coverage" in qt:
+            gate_score_overrides["coverage"] = float(qt["min_coverage"])
+
         manifest: dict[str, Any] = {
             "schema_version": "1.0",
             "generated_at_phase": 2,
@@ -1218,9 +1261,11 @@ class HarnessBridge:
             "nfr_dimension_mapping": nfr_map,
             "nfr_fr_mapping": nfr_fr_map,
             "nfr_traceability": sab.get("nfr_traceability", {}),
+            "quality_targets": qt,
+            "fr_module_traceability": sab.get("fr_module_traceability", {}),
             "architecture_constraints": sab.get("constraints", []),
             "high_risk_modules": sab.get("high_risk", []),
-            "gate_score_overrides": {},
+            "gate_score_overrides": gate_score_overrides,
             "gate_results": {"gate1": {}, "gate2": None, "gate3": None, "gate4": None},
         }
         out = Path(".methodology/quality_manifest.json")

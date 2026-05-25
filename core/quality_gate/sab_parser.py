@@ -25,6 +25,7 @@ class SABSpec:
     quality_targets: dict = field(default_factory=dict)
     nfr_dimension_mapping: dict = field(default_factory=dict)
     nfr_traceability: dict = field(default_factory=dict)
+    fr_module_traceability: dict = field(default_factory=dict)
     architecture_constraints: list = field(default_factory=list)
     high_risk_modules: list = field(default_factory=list)
 
@@ -64,6 +65,7 @@ class SABSpec:
             "quality_targets": self.quality_targets,
             "nfr_dimension_mapping": self.nfr_dimension_mapping,
             "nfr_traceability": self.nfr_traceability,
+            "fr_module_traceability": self.fr_module_traceability,
             "architecture_constraints": self.architecture_constraints,
             "high_risk_modules": self.high_risk_modules,
         }
@@ -149,6 +151,7 @@ def extract_sab_from_sad(sad_path) -> Optional[SABSpec]:
         quality_targets=sab_data.get("quality_targets", {}),
         nfr_dimension_mapping=nfr_dim_mapping,
         nfr_traceability=nfr_traceability,
+        fr_module_traceability=sab_data.get("fr_module_traceability", {}),
         architecture_constraints=sab_data.get("architecture_constraints", []),
         high_risk_modules=sab_data.get("high_risk_modules", []),
     )

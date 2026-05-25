@@ -37,6 +37,16 @@
         }
       }
     },
+    "quality_targets": {
+      "type": "object",
+      "description": "SAB quality targets (min_coverage, max_complexity, p95_latency_ms, etc.) for context in gate prompts.",
+      "additionalProperties": true
+    },
+    "fr_module_traceability": {
+      "type": "object",
+      "description": "FR-ID -> responsible module path from SAD.md fr_module_traceability block.",
+      "additionalProperties": { "type": "string" }
+    },
     "architecture_constraints": {
       "type": "array",
       "items": { "type": "string" },
@@ -49,11 +59,8 @@
     },
     "gate_score_overrides": {
       "type": "object",
-      "description": "FR-level threshold overrides: { 'FR-001': { 'test_coverage': 90 } }",
-      "additionalProperties": {
-        "type": "object",
-        "additionalProperties": { "type": "number" }
-      }
+      "description": "Dimension-level threshold overrides auto-derived from quality_targets (e.g. {coverage: 80}). Applied as a floor in finalize_gate().",
+      "additionalProperties": { "type": "number" }
     },
     "gate_results": {
       "type": "object",
