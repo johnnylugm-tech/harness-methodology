@@ -59,7 +59,7 @@
     },
     "gate_score_overrides": {
       "type": "object",
-      "description": "Dimension-level threshold overrides auto-derived from quality_targets (e.g. {coverage: 80}). Applied as a floor in finalize_gate().",
+      "description": "Dimension-level threshold overrides auto-derived from quality_targets. Currently mapped: min_coverage → test_coverage (e.g. {test_coverage: 80}). Applied as a floor in finalize_gate().",
       "additionalProperties": { "type": "number" }
     },
     "gate_results": {

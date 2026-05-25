@@ -68,6 +68,8 @@ class DriftResult:
                     "severity": i.severity.value,
                     "location": i.location,
                     "description": i.description,
+                    "expected": i.expected,
+                    "actual": i.actual,
                 }
                 for i in self.drift_items
             ],

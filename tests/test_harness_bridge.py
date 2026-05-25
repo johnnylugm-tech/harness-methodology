@@ -529,7 +529,7 @@ class TestSabClosureGaps:
                     with patch("harness.harness_bridge.Path", side_effect=_path_redirect):
                         p = bridge.generate_quality_manifest(["FR-01"], "SAD.md")
         data = json.loads(p.read_text())
-        assert data["gate_score_overrides"] == {"coverage": 85.0}
+        assert data["gate_score_overrides"] == {"test_coverage": 85.0}
         assert data["quality_targets"] == {"min_coverage": 85}
 
     def test_generate_quality_manifest_no_override_when_no_min_coverage(self, tmp_path):
@@ -591,6 +591,34 @@ class TestSabClosureGaps:
         # Must NOT use Python dict repr
         assert "{'min_coverage'" not in prompt
 
+    # ── Gap B: evaluation_prompt injects nfr_fr_mapping ───────────────────────
+
+    def test_evaluation_prompt_injects_nfr_fr_mapping(self):
+        """nfr_fr_mapping from sab_data is injected into the prompt."""
+        ctx = GateContext(
+            gate_num=2, config={"dimensions": [], "score_gate": 80},
+            project_root="/t", phase=4, fr_id=None,
+            ssi_scripts_dir="/t", ssi_prompts_dir="/t", ssi_schemas_dir="/t",
+            work_dir="/t/.sessi-work",
+            sab_data={"nfr_fr_mapping": {"NFR-02": ["FR-04", "FR-05"], "NFR-03": ["FR-08"]}},
+        )
+        prompt = ctx.evaluation_prompt()
+        assert "nfr_fr_mapping" in prompt
+        assert "NFR-02" in prompt
+        assert "FR-04" in prompt
+
+    def test_evaluation_prompt_skips_nfr_fr_mapping_when_empty(self):
+        """Empty nfr_fr_mapping does not add noise to the prompt."""
+        ctx = GateContext(
+            gate_num=2, config={"dimensions": [], "score_gate": 80},
+            project_root="/t", phase=4, fr_id=None,
+            ssi_scripts_dir="/t", ssi_prompts_dir="/t", ssi_schemas_dir="/t",
+            work_dir="/t/.sessi-work",
+            sab_data={"nfr_fr_mapping": {}},
+        )
+        prompt = ctx.evaluation_prompt()
+        assert "nfr_fr_mapping" not in prompt
+
     # ── Gap 5: finalize_gate applies gate_score_overrides as threshold floor ──
 
     def _write_gate1_result(self, ctx: GateContext, breakdown: dict) -> None:
@@ -603,17 +631,17 @@ class TestSabClosureGaps:
         }))
 
     def test_finalize_gate_raises_when_override_exceeds_agent_threshold(self, tmp_path):
-        """coverage override=80 with agent threshold=60 and score=70 → blocked."""
+        """test_coverage override=80 with agent threshold=60 and score=70 → blocked."""
         bridge = HarnessBridge()
         ctx = GateContext(
             gate_num=1, config={"gate": 1, "dimensions": []},
             project_root=str(tmp_path), phase=3, fr_id="FR-01",
             ssi_scripts_dir="/t", ssi_prompts_dir="/t", ssi_schemas_dir="/t",
             work_dir=str(tmp_path / ".sessi-work"),
-            sab_data={"gate_score_overrides": {"coverage": 80.0}},
+            sab_data={"gate_score_overrides": {"test_coverage": 80.0}},
         )
         self._write_gate1_result(ctx, {
-            "coverage": {"score": 70.0, "threshold": 60.0, "issues": []},
+            "test_coverage": {"score": 70.0, "threshold": 60.0, "issues": []},
         })
         with patch("harness.harness_bridge._check_tool_evidence", return_value=[]):
             with patch("harness.harness_bridge._run_harness_cross_validation", return_value=[]):
@@ -624,17 +652,17 @@ class TestSabClosureGaps:
                                 bridge.finalize_gate(ctx)
 
     def test_finalize_gate_passes_when_score_meets_override(self, tmp_path):
-        """coverage override=80, score=85 → passes even if agent threshold was 60."""
+        """test_coverage override=80, score=85 → passes even if agent threshold was 60."""
         bridge = HarnessBridge()
         ctx = GateContext(
             gate_num=1, config={"gate": 1, "dimensions": []},
             project_root=str(tmp_path), phase=3, fr_id="FR-01",
             ssi_scripts_dir="/t", ssi_prompts_dir="/t", ssi_schemas_dir="/t",
             work_dir=str(tmp_path / ".sessi-work"),
-            sab_data={"gate_score_overrides": {"coverage": 80.0}},
+            sab_data={"gate_score_overrides": {"test_coverage": 80.0}},
         )
         self._write_gate1_result(ctx, {
-            "coverage": {"score": 85.0, "threshold": 60.0, "issues": []},
+            "test_coverage": {"score": 85.0, "threshold": 60.0, "issues": []},
         })
         with patch("harness.harness_bridge._check_tool_evidence", return_value=[]):
             with patch("harness.harness_bridge._run_harness_cross_validation", return_value=[]):
@@ -652,11 +680,11 @@ class TestSabClosureGaps:
             project_root=str(tmp_path), phase=3, fr_id="FR-01",
             ssi_scripts_dir="/t", ssi_prompts_dir="/t", ssi_schemas_dir="/t",
             work_dir=str(tmp_path / ".sessi-work"),
-            sab_data={"gate_score_overrides": {"coverage": 80.0}},
+            sab_data={"gate_score_overrides": {"test_coverage": 80.0}},
         )
         # score=85 passes override=80 but fails agent threshold=90
         self._write_gate1_result(ctx, {
-            "coverage": {"score": 85.0, "threshold": 90.0, "issues": []},
+            "test_coverage": {"score": 85.0, "threshold": 90.0, "issues": []},
         })
         with patch("harness.harness_bridge._check_tool_evidence", return_value=[]):
             with patch("harness.harness_bridge._run_harness_cross_validation", return_value=[]):

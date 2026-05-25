@@ -22,7 +22,15 @@ logger = logging.getLogger(__name__)
 
 
 class HookEvent(Enum):
-    """Lifecycle events that can trigger hooks."""
+    """Lifecycle events that can trigger hooks.
+
+    Currently triggered by the pipeline:
+      - AFTER_GATE_PASS  — fired after a gate passes in HarnessBridge._trigger_hooks()
+      - ON_GATE_FAIL     — fired after a gate is blocked in HarnessBridge._trigger_hooks()
+
+    Defined but NOT yet triggered (hooks registered for these events will never fire):
+      - BEFORE_PHASE, ON_ESCALATE, AFTER_FR_COMPLETE, BEFORE_PHASE_ADVANCE
+    """
     BEFORE_PHASE = "before_phase"
     AFTER_GATE_PASS = "after_gate_pass"
     ON_GATE_FAIL = "on_gate_fail"

@@ -477,6 +477,15 @@ class GateContext:
                     "  > When evaluating NFR-related dimensions, "
                     "refer to the module and target above for concrete scope.\n"
                 )
+            nfr_fr_map = self.sab_data.get("nfr_fr_mapping", {})
+            if nfr_fr_map:
+                sab_lines += "  nfr_fr_mapping (NFR → FR scope):\n"
+                for nfr_id, fr_list in nfr_fr_map.items():
+                    sab_lines += f"    {nfr_id}: {fr_list}\n"
+                sab_lines += (
+                    "  > When evaluating NFR-related dimensions, "
+                    "these FRs are in scope for each NFR.\n"
+                )
             sab_lines += (
                 "  > When evaluating the `architecture` dimension, validate code "
                 "against these constraints.\n"
@@ -1249,7 +1258,8 @@ class HarnessBridge:
         qt = sab.get("quality_targets", {})
         gate_score_overrides: dict[str, float] = {}
         if "min_coverage" in qt:
-            gate_score_overrides["coverage"] = float(qt["min_coverage"])
+            # Key must match the dimension name in gate YAML configs ("test_coverage").
+            gate_score_overrides["test_coverage"] = float(qt["min_coverage"])
 
         manifest: dict[str, Any] = {
             "schema_version": "1.0",
@@ -1272,11 +1282,17 @@ class HarnessBridge:
 
     def _trigger_hooks(self, ctx: GateContext, event_name: str) -> None:
         """Trigger lifecycle hooks for gate events (non-fatal)."""
+        import logging as _logging
         try:
             from core.lifecycle_hooks import HookRunner, HookEvent
             event = HookEvent(event_name)
             runner = HookRunner(Path(ctx.project_root))
-            runner.run_hooks(event, {"gate_num": str(ctx.gate_num), "phase": str(ctx.phase)})
+            results = runner.run_hooks(event, {"gate_num": str(ctx.gate_num), "phase": str(ctx.phase)})
+            for r in results:
+                if not r.success and r.hook.required:
+                    _logging.getLogger(__name__).warning(
+                        "Required hook '%s' failed: %s", r.hook.name, r.output
+                    )
         except Exception:
             pass  # hooks are non-fatal
 
