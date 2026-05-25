@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from enum import Enum
 import json
 import os
+from pathlib import Path
 
 
 class IterationStage(Enum):
@@ -152,11 +153,36 @@ Output JSON:
         b_text = self._extract_text(output_b)
 
         # 1. Critic Round
+        # ODD Optimization: Inject runtime trace for semantic self-healing
+        import json
+        from pathlib import Path
+        runtime_trace = ""
+        project_root = Path.cwd()
+        trace_file = project_root / ".methodology" / "runtime_trace.json"
+        if trace_file.exists():
+            try:
+                trace_data = trace_file.read_text(encoding="utf-8")
+                runtime_trace += f"\n\n=== Runtime Execution Trace ===\n{trace_data}\n"
+            except Exception:
+                pass
+                
+        # CRG Optimization: Inject Minimal Viable Context (MVC)
+        try:
+            from harness.crg_bridge import CRGBridge
+            crg_bridge = CRGBridge()
+            crg_context = crg_bridge.get_minimal_context(str(project_root), "architecture_or_logic")
+            if crg_context:
+                runtime_trace += f"\n\n=== Minimal Viable Context (CRG) ===\n{json.dumps(crg_context, indent=2)}\n"
+        except Exception:
+            pass
+
         critic_prompt = (
             "You are an adversarial critic. Contrast the following outputs under strict boundary conditions:\n"
             f"=== Output A ===\n{a_text}\n\n"
-            f"=== Output B ===\n{b_text}\n\n"
+            f"=== Output B ===\n{b_text}\n"
+            f"{runtime_trace}\n"
             "Expose the gaps, edge-case vulnerabilities, and code safety flaws in both outputs. "
+            "If a runtime execution trace is provided, use it to identify logic semantic errors.\n"
             "Output JSON directly, with no other text: "
             '{"A_gaps": ["gap 1", ...], "B_gaps": ["gap 1", ...]}'
         )
@@ -290,6 +316,15 @@ class SteeringLoop:
         self.scorer = LLMJudgeScorer(provider)
         self.iterations: List[IterationResult] = []
         self.best_output: Optional[ScoredOutput] = None
+        self.tracer: Any = None
+        
+        try:
+            from core.observability import init_tracer
+            # Assume current working directory is project root or pass default
+            self.tracer = init_tracer(Path.cwd())
+        except ImportError:
+            # Fallback if observability is not configured
+            pass
         self.stage = IterationStage.EXPLORATION
 
     # Sensitive module prefixes that trigger critic debate when changed
@@ -306,20 +341,33 @@ class SteeringLoop:
         changed_modules: Optional[List[str]] = None,
     ) -> IterationResult:
         """
-        Execute a single iteration.
-
-        Args:
-            output_a: A-side output (dict or str)
-            output_b: B-side output (dict or str)
-            changed_modules: Optional list of module paths touched by this change.
-                             Used by Dynamic Activation to decide whether to invoke
-                             the full Critic debate loop.
-
-        Returns:
-            IterationResult: this round's result
+        Execute a single iteration, wrapped in an OpenTelemetry span if available.
         """
         iteration_num = len(self.iterations) + 1
+        
+        if self.tracer:
+            with self.tracer.start_as_current_span(f"steering_iteration_{iteration_num}") as span:
+                span.set_attribute("iteration", iteration_num)
+                span.set_attribute("stage", self.stage.value)
+                if changed_modules:
+                    span.set_attribute("changed_modules", json.dumps(changed_modules))
+                
+                result = self._do_iterate(output_a, output_b, changed_modules, iteration_num)
+                
+                span.set_attribute("score_delta", result.score_delta)
+                span.set_attribute("convergence_score", result.convergence_score)
+                span.set_attribute("winner", result.winner)
+                return result
+        else:
+            return self._do_iterate(output_a, output_b, changed_modules, iteration_num)
 
+    def _do_iterate(
+        self,
+        output_a: Union[Dict[str, Any], str],
+        output_b: Union[Dict[str, Any], str],
+        changed_modules: Optional[List[str]],
+        iteration_num: int,
+    ) -> IterationResult:
         # 1. Update current stage
         self._update_stage(iteration_num)
 

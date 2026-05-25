@@ -73,6 +73,13 @@ class PhaseHooks:
         if enable_kill_switch:
             self._kill_switch = KillSwitch()
 
+        self.tracer: Any = None
+        try:
+            from core.observability import init_tracer
+            self.tracer = init_tracer(self.project_path)
+        except ImportError:
+            pass
+
     # PRE-FLIGHT HOOKS
 
     def preflight_fsm_check(self) -> Dict[str, Any]:
@@ -519,6 +526,16 @@ class PhaseHooks:
             return {"passed": True, "skipped": True, "error": str(e)}
 
     def preflight_all(self) -> Dict[str, Any]:
+        """Run all pre-flight checks wrapped in an OpenTelemetry span."""
+        if getattr(self, "tracer", None):
+            with self.tracer.start_as_current_span(f"phase_{self.phase}_preflight") as span:
+                span.set_attribute("phase", self.phase if self.phase is not None else -1)
+                result = self._do_preflight_all()
+                span.set_attribute("all_passed", result.get("all_passed", False))
+                return result
+        return self._do_preflight_all()
+
+    def _do_preflight_all(self) -> Dict[str, Any]:
         """Run all pre-flight checks."""
         print(f"\n{'='*60}\nPRE-FLIGHT: Phase {self.phase}\n{'='*60}")
         results = {
@@ -825,6 +842,16 @@ class PhaseHooks:
             return {"passed": True, "skipped": True, "error": str(e)}
 
     def postflight_all(self) -> Dict[str, Any]:
+        """Run all post-flight checks wrapped in an OpenTelemetry span."""
+        if getattr(self, "tracer", None):
+            with self.tracer.start_as_current_span(f"phase_{self.phase}_postflight") as span:
+                span.set_attribute("phase", self.phase if self.phase is not None else -1)
+                result = self._do_postflight_all()
+                span.set_attribute("success", result.get("success", False))
+                return result
+        return self._do_postflight_all()
+
+    def _do_postflight_all(self) -> Dict[str, Any]:
         """Run all post-flight checks."""
         print(f"\n{'='*60}\nPOST-FLIGHT: Phase {self.phase}\n{'='*60}")
         const_result = self.postflight_constitution()

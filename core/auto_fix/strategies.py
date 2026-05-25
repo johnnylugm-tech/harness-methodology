@@ -187,9 +187,10 @@ def fix_pytest_failures(context, project_root: Path) -> Tuple[bool, str, float]:
     Confidence is based on the fraction of failures fixed and verified.
     """
     # Run pytest with line-level failure output
+    # ODD Optimization: Load runtime_tracer hook to capture test failure state
     try:
         result = subprocess.run(  # nosec B603 B607
-            ["pytest", "--tb=line", "-q", "--no-header"],
+            ["pytest", "-p", "core.auto_fix.runtime_tracer", "--tb=line", "-q", "--no-header"],
             cwd=project_root,
             capture_output=True,
             text=True,

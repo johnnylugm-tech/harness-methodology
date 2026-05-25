@@ -21,7 +21,6 @@ if TYPE_CHECKING:
     from core.auto_fix.error_class import ErrorClass
 
 import time
-import ast
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -190,27 +189,22 @@ class AutoFixEngine:
                     pass
 
         error_line = context.details.get("line")
-        if error_line and files:
+        if files:
             target_file = files[0]
-            if isinstance(target_file, Path) and target_file.suffix == ".py" and target_file.exists() and target_file in pre_fix_content_map:
-                try:
-                    tree = ast.parse(pre_fix_content_map[target_file])
-                    for node in ast.walk(tree):
-                        if isinstance(node, (ast.FunctionDef, ast.ClassDef, ast.AsyncFunctionDef)):
-                            start = node.lineno
-                            end = getattr(node, "end_lineno", start)
-                            if not hasattr(node, "end_lineno"):
-                                max_line = start
-                                for child in ast.walk(node):
-                                    if hasattr(child, "lineno"):
-                                        max_line = max(max_line, child.lineno)
-                                end = max_line
-                            
-                            if start <= int(error_line) <= end:
-                                allowed_node = node.name
-                                break
-                except Exception:
-                    pass
+            if isinstance(target_file, Path) and target_file.suffix == ".py" and target_file.exists():
+                from core.auto_fix.segment_slicing import extract_minimal_viable_context
+                
+                # ODD Optimization: Extract Minimal Viable Context (MVC) dynamically
+                mvc_text, allowed_node = extract_minimal_viable_context(
+                    file_path=target_file,
+                    error_line=int(error_line) if error_line else None,
+                    crg_bridge=self._crg,
+                    project_root=self.project_root,
+                )
+                
+                # Provide the MVC to strategies instead of full file content
+                context.details["mvc_text"] = mvc_text
+
         if allowed_node:
             context.details["allowed_node_name"] = allowed_node
 
