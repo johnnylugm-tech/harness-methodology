@@ -1004,16 +1004,20 @@ class HarnessBridge:
         # Gate config dimension metadata (for fallback when agent omits top-level fields).
         _dim_weights: dict[str, float] = {}
         _dim_thresholds: dict[str, float] = {}
-        _config_dim_list = getattr(ctx.config, 'dimensions', []) if hasattr(ctx.config, 'dimensions') else []
+        # ctx.config is either a GateConfig object or a plain dict — handle both.
+        if isinstance(ctx.config, dict):
+            _config_dim_list = ctx.config.get('dimensions', [])
+        else:
+            _config_dim_list = getattr(ctx.config, 'dimensions', [])
         for _d in _config_dim_list:
-            _dname = getattr(_d, 'name', '')
-            _dweight = getattr(_d, 'weight', 0.0)
-            _dt = getattr(_d, 'threshold', 0.0)
+            _dname = _d.get('name') if isinstance(_d, dict) else getattr(_d, 'name', '')
+            _dweight = _d.get('weight') if isinstance(_d, dict) else getattr(_d, 'weight', 0.0)
+            _dt = _d.get('threshold') if isinstance(_d, dict) else getattr(_d, 'threshold', 0.0)
             if _dname:
-                if _dweight:
-                    _dim_weights[_dname] = _dweight
-                if _dt:
-                    _dim_thresholds[_dname] = _dt
+                if _dweight is not None:
+                    _dim_weights[_dname] = float(_dweight)
+                if _dt is not None:
+                    _dim_thresholds[_dname] = float(_dt)
 
         dims: list[DimResult] = []
         for dim_name, dim_data in raw.get("breakdown", {}).items():
