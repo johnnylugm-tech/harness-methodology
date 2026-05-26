@@ -319,7 +319,7 @@ def _fr_step_preflight(step: str, project: Path, fr_id: str | None) -> tuple[boo
 # Non-dotfile (consistent with other .methodology/ files like state.json, sessions_spawn.log).
 # Replaces the old ".gate_timestamps.jsonl" hidden file name used before 2026-05-18.
 _GATE_TIMESTAMPS_FILE = "gate_timestamps.jsonl"
-_GATE_TIMESTAMPS_MAX_ENTRIES = 60  # Ring-buffer upper bound
+_GATE_TIMESTAMPS_MAX_ENTRIES = 200  # Ring-buffer upper bound (22 FRs × ≥3 phases + retries)
 
 def _record_gate_timestamp(project: Path, phase: int, gate_num: int, fr_id: str | None) -> None:
     """Append gate commit timestamp to .methodology/gate_timestamps.jsonl (P1 persistence).
@@ -3372,6 +3372,64 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
         _rc = _check_gate_score_variance(project, completed_phase)
         if _rc != 0:
             return _rc
+
+    # ── Gate 1 per-FR coverage check (phases 3+) ─────────────────────
+    # Catches the "batch-commit bypass": an agent claims all FRs passed Gate 1
+    # without calling finalize-gate --gate 1 per FR.  gate_timestamps.jsonl
+    # only records entries on SUCCESSFUL finalize-gate calls — so absence of
+    # per-FR entries for a phase means the per-FR gate was never actually run.
+    #
+    # Applies to phases 3+ where run-fr-step --step GATE1 (or GATE1-DELTA)
+    # is expected once per FR.  Phase 1/2 use a deliverable-based gate flow
+    # (not per-FR) so they are excluded.
+    if completed_phase >= 3:
+        _manifest_path = project / ".methodology" / "quality_manifest.json"
+        _fr_ids_manifest: list[str] = []
+        if _manifest_path.exists():
+            try:
+                _fr_ids_manifest = json.loads(
+                    _manifest_path.read_text(encoding="utf-8")
+                ).get("fr_ids", [])
+            except (json.JSONDecodeError, OSError):
+                pass
+        if _fr_ids_manifest:
+            _ts_file = project / ".methodology" / _GATE_TIMESTAMPS_FILE
+            _g1_covered: set[str] = set()
+            if _ts_file.exists():
+                try:
+                    for _tl in _ts_file.read_text(encoding="utf-8").splitlines():
+                        _tl = _tl.strip()
+                        if not _tl:
+                            continue
+                        try:
+                            _te = json.loads(_tl)
+                            if (
+                                _te.get("phase") == completed_phase
+                                and _te.get("gate") == 1
+                                and _te.get("fr_id") not in (None, "phase", "")
+                            ):
+                                _g1_covered.add(_te["fr_id"])
+                        except json.JSONDecodeError:
+                            pass
+                except OSError:
+                    pass
+            _g1_missing = [fr for fr in _fr_ids_manifest if fr not in _g1_covered]
+            if _g1_missing:
+                print(
+                    f"\n[BLOCKED] Phase {completed_phase} Gate 1 per-FR re-eval incomplete:\n"
+                    f"  {len(_g1_covered)}/{len(_fr_ids_manifest)} FRs have"
+                    f" finalize-gate --gate 1 records in gate_timestamps.jsonl.\n"
+                    f"  Missing ({len(_g1_missing)}): "
+                    + ", ".join(_g1_missing[:10])
+                    + (" ..." if len(_g1_missing) > 10 else "")
+                    + f"\n  Run: python3 harness_cli.py run-fr-step --step GATE1"
+                    f" --phase {completed_phase} --fr-id <FR-ID> --project ."
+                )
+                return 14
+            print(
+                f"  [Gate 1 coverage] Phase {completed_phase}:"
+                f" {len(_g1_covered)}/{len(_fr_ids_manifest)} FRs ✓"
+            )
 
     # ── Phase Truth check (HR-11 ≥90%) ────────────────────────────────
     if completed_phase >= 3:
