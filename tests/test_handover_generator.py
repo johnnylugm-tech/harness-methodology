@@ -1320,7 +1320,7 @@ class TestCmdAdvancePhase:
         # Also need state.json so finalize doesn't crash on advance
         import json
         (method_dir / "state.json").write_text(json.dumps({
-            "state": "ACTIVE", "current_phase": 4,
+            "state": "ACTIVE", "current_phase": 4, "phase_truth_passed": True,
         }))
         (method_dir / "quality_manifest.json").write_text(json.dumps({
             "fr_ids": [], "gate_results": {"gate1": {}, "gate3": {}},
@@ -1347,7 +1347,7 @@ class TestCmdAdvancePhase:
         (tmp_path / "04-testing" / "TEST_RESULTS.md").write_text("Results\n")
 
         (method_dir / "state.json").write_text(_json.dumps({
-            "state": "ACTIVE", "current_phase": 4,
+            "state": "ACTIVE", "current_phase": 4, "phase_truth_passed": True,
         }))
         (method_dir / "quality_manifest.json").write_text(_json.dumps({
             "fr_ids": [], "gate_results": {"gate1": {}, "gate3": {}},
@@ -1385,7 +1385,7 @@ class TestCmdAdvancePhase:
         (tmp_path / "04-testing" / "TEST_RESULTS.md").write_text("Results\n")
 
         (method_dir / "state.json").write_text(_json.dumps({
-            "state": "ACTIVE", "current_phase": 4,
+            "state": "ACTIVE", "current_phase": 4, "phase_truth_passed": True,
         }))
         (method_dir / "quality_manifest.json").write_text(_json.dumps({
             "fr_ids": [], "gate_results": {"gate1": {}, "gate3": {}},
@@ -1415,7 +1415,7 @@ class TestCmdAdvancePhase:
         method_dir = tmp_path / ".methodology"
         method_dir.mkdir(parents=True)
         (method_dir / "state.json").write_text(_json.dumps({
-            "state": "ACTIVE", "current_phase": 3,
+            "state": "ACTIVE", "current_phase": 3, "phase_truth_passed": True,
         }))
         (method_dir / "quality_manifest.json").write_text(_json.dumps({
             "fr_ids": ["FR-01", "FR-02", "FR-03"],
@@ -1459,7 +1459,7 @@ class TestCmdAdvancePhase:
         method_dir = tmp_path / ".methodology"
         method_dir.mkdir(parents=True)
         (method_dir / "state.json").write_text(_json.dumps({
-            "state": "ACTIVE", "current_phase": 3,
+            "state": "ACTIVE", "current_phase": 3, "phase_truth_passed": True,
         }))
         (method_dir / "quality_manifest.json").write_text(_json.dumps({
             "fr_ids": ["FR-01", "FR-02", "FR-03"],

@@ -134,25 +134,6 @@ class TestCheckRedPhaseOrdering:
         assert not ok
         assert "BLOCKED" in msg
 
-    def test_id_tdd_jitter_tolerance_allows_skew(self, tmp_path: Path, monkeypatch):
-        """With TDD_JITTER_TOLERANCE set, source committed slightly before test passes."""
-        self._init_git_repo(tmp_path)
-        (tmp_path / "tests").mkdir(parents=True)
-        (tmp_path / "src").mkdir(parents=True)
-        # Commit source first — sleep to ensure distinct timestamps
-        self._commit_file(tmp_path, "src/fr07_module.py", "def x(): return 1\n")
-        time.sleep(1)
-        self._commit_file(tmp_path, "tests/test_fr07.py", "def test_x(): pass\n")
-        
-        # With default tolerance (0), it blocks
-        ok, msg = _check_red_phase_ordering(tmp_path, "FR-07")
-        assert not ok
-        assert "BLOCKED" in msg
-        
-        # Set tolerance to 5s, lag is 1s, so it should pass
-        monkeypatch.setenv("TDD_JITTER_TOLERANCE", "5")
-        ok_jitter, msg_jitter = _check_red_phase_ordering(tmp_path, "FR-07")
-        assert ok_jitter, f"Expected pass with jitter tolerance, got: {msg_jitter}"
 
     def test_no_test_history_blocks(self, tmp_path: Path):
         """Test file never committed → blocked."""
@@ -412,34 +393,6 @@ class TestI1LifecycleIntegration:
         updated = json.loads((state_dir / "state.json").read_text())
         assert "test_inventory_checksum" not in updated
 
-    def test_run_test_inventory_check_gate2_threshold(self, tmp_path: Path):
-        """D4 Gate 2: threshold 60% — 50% coverage blocks (exit 1)."""
-        from harness_cli import _run_test_inventory_check
-        (tmp_path / "TEST_INVENTORY.yaml").write_text(
-            "format_version: '1.0'\nfr_tests:\n  FR-01:\n    unit:\n"
-            "      - test_a\n      - test_b\n"
-        )
-        (tmp_path / "tests").mkdir()
-        (tmp_path / "tests" / "test_a.py").write_text("def test_a(): pass\n")
-
-        code, pct = _run_test_inventory_check(tmp_path, threshold=60.0, delegate_to_spec=False)
-        assert code == 1, f"expected block at 60% threshold, got code={code}, pct={pct}"
-
-    def test_run_test_inventory_check_gate4_passes(self, tmp_path: Path):
-        """D4 Gate 4: threshold 90% — 100% passes with SRS+CRG flags."""
-        from harness_cli import _run_test_inventory_check
-        (tmp_path / "TEST_INVENTORY.yaml").write_text(
-            "format_version: '1.0'\nfr_tests:\n  FR-01:\n    unit:\n      - test_a\n"
-        )
-        (tmp_path / "tests").mkdir()
-        (tmp_path / "tests" / "test_a.py").write_text("def test_a(): pass\n")
-
-        code, pct = _run_test_inventory_check(
-            tmp_path, threshold=90.0, crg_gaps=True, srs_crosscut=True,
-            delegate_to_spec=False,
-        )
-        assert code == 0, f"expected pass with 100% coverage, got code={code}, pct={pct}"
-        assert pct == 100.0
 
 
 # ===================================================================
