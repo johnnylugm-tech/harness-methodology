@@ -123,10 +123,13 @@ class TestFrameworkEnforcer:
         assert result["passed"] is True
 
     def test_check_coverage_threshold_no_file_phase3(self, tmp_path):
-        """P3 requires coverage report to exist."""
+        """P3 requires coverage report to exist; subprocess is mocked to avoid real test run."""
         from enforcement.framework_enforcer import FrameworkEnforcer
         fe = FrameworkEnforcer(str(tmp_path), phase=3)
-        result = fe.check_coverage_threshold()
+        # Mock subprocess.run so the slow-path pytest invocation returns no coverage output
+        with patch("enforcement.framework_enforcer.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(stdout="", stderr="")
+            result = fe.check_coverage_threshold()
         assert result["passed"] is False
         assert "not found" in result["message"]
         assert result["threshold"] == 70
@@ -197,6 +200,76 @@ class TestFrameworkEnforcer:
         with patch.object(fe, "run", return_value=MagicMock(passed=True, violations=[], warnings=[])):
             code = fe.run_with_exit()
         assert code == 0
+
+    def test_run_constitution_infra_error_is_warning_not_block(self, tmp_path):
+        """'docs/ directory not found' must be a warning, not a BLOCK violation."""
+        fe = self._fe(tmp_path)
+        with patch.object(fe, "check_spec_tracking", return_value={"exists": True, "completeness": 95}):
+            with patch.object(fe, "check_constitution",
+                              return_value={"score": 0, "passed": False,
+                                            "error": "docs/ directory not found"}):
+                with patch.object(fe, "check_phase_traceability",
+                                  return_value={"all_verified": True, "missing_links": []}):
+                    with patch.object(fe, "check_aspice_completeness",
+                                      return_value={"complete": True}):
+                        with patch.object(fe, "check_traceability_matrix",
+                                          return_value={"exists": True, "complete": True}):
+                            result = fe.run(level="BLOCK")
+        assert result.block_checks.get("CONSTITUTION_SCORE") is True  # not blocked
+        assert len(result.warnings) >= 1
+        assert any("Constitution" in w[0] for w in result.warnings)
+
+    def test_run_constitution_code_error_is_block(self, tmp_path):
+        """An ImportError from the constitution module must block."""
+        fe = self._fe(tmp_path)
+        with patch.object(fe, "check_spec_tracking", return_value={"exists": True, "completeness": 95}):
+            with patch.object(fe, "check_constitution",
+                              return_value={"score": 0, "passed": False,
+                                            "error": "No module named 'constitution'"}):
+                with patch.object(fe, "check_phase_traceability",
+                                  return_value={"all_verified": True, "missing_links": []}):
+                    with patch.object(fe, "check_aspice_completeness",
+                                      return_value={"complete": True}):
+                        with patch.object(fe, "check_traceability_matrix",
+                                          return_value={"exists": True, "complete": True}):
+                            result = fe.run(level="BLOCK")
+        assert result.block_checks.get("CONSTITUTION_SCORE") is False
+        assert not result.passed
+
+    def test_check_traceability_matrix_phase4_uses_checked_count(self, tmp_path):
+        """Phase 4+ completeness should count only ✅-verified rows."""
+        from enforcement.framework_enforcer import FrameworkEnforcer
+        # 2 rows: one ✅, one not ticked — completeness should be 50%, not 100%
+        content = "| src/a.py | ✅ |\n| src/b.py | PENDING |\n"
+        (tmp_path / "01-requirements").mkdir()
+        (tmp_path / "01-requirements" / "TRACEABILITY_MATRIX.md").write_text(content)
+        fe = FrameworkEnforcer(str(tmp_path), phase=4)
+        result = fe.check_traceability_matrix()
+        assert result["exists"] is True
+        assert result["completeness"] < 100
+
+
+# ===========================================================================
+# cov_utils
+# ===========================================================================
+
+class TestReadCovercrcSource:
+    def test_reads_source_from_coveragerc(self, tmp_path):
+        """read_coveragerc_source() returns the [run] source value."""
+        from core.quality_gate.cov_utils import read_coveragerc_source
+        (tmp_path / ".coveragerc").write_text("[run]\nsource = 03-development/src\n")
+        assert read_coveragerc_source(tmp_path) == "03-development/src"
+
+    def test_defaults_to_dot_when_missing(self, tmp_path):
+        from core.quality_gate.cov_utils import read_coveragerc_source
+        assert read_coveragerc_source(tmp_path) == "."
+
+    def test_defaults_to_dot_on_malformed_file(self, tmp_path):
+        from core.quality_gate.cov_utils import read_coveragerc_source
+        (tmp_path / ".coveragerc").write_text("NOT_INI_FORMAT{{{\n")
+        # Should not raise; falls back to "."
+        result = read_coveragerc_source(tmp_path)
+        assert result == "."
 
 
 # ===========================================================================

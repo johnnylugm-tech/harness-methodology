@@ -120,19 +120,32 @@ class TestSpecTrackingParserHasUpdateLog:
 
 class TestSpecTrackingParserCountStatus:
     def test_counts_all_statuses(self):
-        content = "✅ done\n⚠️ pending\n❌ not done\n✅ done again"
+        # Status markers must appear inside Markdown table rows (lines containing "|")
+        content = (
+            "| FR-01 | feature a | ✅ Done |\n"
+            "| FR-02 | feature b | ⚠️ Pending |\n"
+            "| FR-03 | feature c | ❌ Not Implemented |\n"
+            "| FR-04 | feature d | ✅ Done |\n"
+        )
         stats = SpecTrackingParser.count_status(content)
         assert stats["✅ Done"] == 2
         assert stats["⚠️ Pending"] == 1
         assert stats["❌ Not Implemented"] == 1
 
+    def test_ignores_status_in_non_table_lines(self):
+        # A heading or comment containing "DRAFT" must not be counted
+        content = "## DRAFT Architecture\nSome prose with ✅ inline text\n"
+        stats = SpecTrackingParser.count_status(content)
+        assert all(v == 0 for v in stats.values())
+
+    def test_ignores_separator_rows(self):
+        content = "|---|---|---|\n| FR-01 | impl | ✅ Done |\n"
+        stats = SpecTrackingParser.count_status(content)
+        assert stats["✅ Done"] == 1
+
     def test_empty_content(self):
         stats = SpecTrackingParser.count_status("")
-        # All counts must be 0; additional keys (DRAFT, IN_PROGRESS, etc.) are allowed
-        assert stats.get("✅ Done", 0) == 0
-        assert stats.get("⚠️ Pending", 0) == 0
-        assert stats.get("❌ Not Implemented", 0) == 0
-        assert sum(stats.values()) == 0
+        assert all(v == 0 for v in stats.values())
 
 
 class TestSpecTrackingParserFindEntriesWithoutStatus:

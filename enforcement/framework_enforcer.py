@@ -16,7 +16,10 @@ Usage::
             print(f"FAIL: {msg}")
 """
 
+import re
+import subprocess  # nosec B404
 import sys
+import xml.etree.ElementTree as ET  # nosec B405
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
 
@@ -186,7 +189,6 @@ class FrameworkEnforcer:
         threshold = 70 if self.phase == 3 else 80
 
         # ── Fast path: parse existing coverage.xml ────────────────────────
-        import xml.etree.ElementTree as ET  # nosec B405
         for candidate in [
             self.project_root / "coverage.xml",
             self.project_root / "03-development" / "coverage.xml",
@@ -204,35 +206,23 @@ class FrameworkEnforcer:
                         "message": f"Coverage {coverage:.1f}% {'>=' if passed else '<'} {threshold}%",
                     }
                 except Exception:
-                    break  # malformed XML — fall through to pytest
+                    continue  # malformed XML — try next candidate
 
         # ── Slow path: run pytest --cov directly ──────────────────────────
         # Respect the project's .coveragerc `source` setting (if present) so
         # helper/script files are not counted and inflate or deflate results.
-        import subprocess  # nosec B404
-        import re as _re
-        _cov_source = "."
-        _coveragerc = self.project_root / ".coveragerc"
-        if _coveragerc.exists():
-            try:
-                import configparser as _cp
-                _cfg = _cp.ConfigParser()
-                _cfg.read(_coveragerc)
-                _src = _cfg.get("run", "source", fallback=".").strip()
-                if _src:
-                    _cov_source = _src
-            except Exception:
-                pass
+        from core.quality_gate.cov_utils import read_coveragerc_source  # pyright: ignore[reportMissingImports]
+        cov_source = read_coveragerc_source(self.project_root)
         try:
             proc = subprocess.run(  # nosec B603 B607
-                ["pytest", f"--cov={_cov_source}", "--cov-report=term-missing", "--tb=no", "-q"],
+                ["pytest", f"--cov={cov_source}", "--cov-report=term-missing", "--tb=no", "-q"],
                 cwd=self.project_root,
                 capture_output=True,
                 text=True,
                 timeout=300,
             )
             output = proc.stdout + proc.stderr
-            match = _re.search(r"TOTAL\s+\d+\s+\d+\s+(\d+)%", output)
+            match = re.search(r"TOTAL\s+\d+\s+\d+\s+(\d+)%", output)
             if match:
                 coverage = int(match.group(1))
                 passed = coverage >= threshold
@@ -415,10 +405,19 @@ class FrameworkEnforcer:
             const = self.check_constitution()
             const_error = const.get("error")
             if const_error:
-                # Infrastructure unavailable (e.g. docs/ not found) — warn but
-                # don't block. This is a tool-setup gap, not a quality failure.
-                result.add_block_check("CONSTITUTION_SCORE", True)
-                result.add_warning(f"Constitution check skipped: {const_error}")
+                # "docs/ directory not found" is an infrastructure path gap
+                # (project uses numbered dirs like 01-requirements/).  Treat as
+                # warning so it doesn't block, but a genuine code error (e.g.
+                # ImportError from the constitution module) should still block.
+                if "not found" in const_error or "directory" in const_error:
+                    result.add_block_check("CONSTITUTION_SCORE", True)
+                    result.add_warning(f"Constitution check skipped: {const_error}")
+                else:
+                    result.add_block_check("CONSTITUTION_SCORE", False)
+                    result.add_violation(
+                        f"Constitution check failed: {const_error}",
+                        "Fix the constitution module import error",
+                    )
             else:
                 const_passed = const.get("passed", False)
                 result.add_block_check("CONSTITUTION_SCORE", const_passed)

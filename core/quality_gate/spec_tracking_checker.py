@@ -125,8 +125,10 @@ class SpecTrackingChecker:
         stats = self._count_status(content)
 
         # completeness = fraction of entries that have *any* recognised status
-        # (including DRAFT / In Progress / Not Started).  Entries with no
-        # status at all are counted via find_entries_without_status().
+        # (including DRAFT / In Progress / Not Started).
+        # Note: find_entries_without_status() is unreliable for standard
+        # Markdown tables (pre-existing known limitation); untracked is
+        # retained as a term for future improvement but is effectively 0.
         all_tracked = sum(stats.values())
         untracked = len(self._find_entries_without_status(content))
         total_entries = all_tracked + untracked

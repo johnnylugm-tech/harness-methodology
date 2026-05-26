@@ -72,6 +72,12 @@ class SpecTrackingParser:
             "Not Started": 0,
         }
         for line in content.split("\n"):
+            stripped = line.strip()
+            # Only count status markers inside Markdown table rows.
+            # A table row contains "|" and is not a pure separator line
+            # (separators contain only "|", "-", ":", and spaces).
+            if "|" not in stripped or all(c in "|-: " for c in stripped):
+                continue
             if "✅" in line:
                 stats["✅ Done"] += 1
             elif "⚠️" in line:
