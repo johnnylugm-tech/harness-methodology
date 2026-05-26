@@ -128,7 +128,11 @@ class TestSpecTrackingParserCountStatus:
 
     def test_empty_content(self):
         stats = SpecTrackingParser.count_status("")
-        assert stats == {"✅ Done": 0, "⚠️ Pending": 0, "❌ Not Implemented": 0}
+        # All counts must be 0; additional keys (DRAFT, IN_PROGRESS, etc.) are allowed
+        assert stats.get("✅ Done", 0) == 0
+        assert stats.get("⚠️ Pending", 0) == 0
+        assert stats.get("❌ Not Implemented", 0) == 0
+        assert sum(stats.values()) == 0
 
 
 class TestSpecTrackingParserFindEntriesWithoutStatus:

@@ -29,10 +29,14 @@ class SpecTrackingParser:
         """
         Return table-row entries whose last non-empty column lacks a
         recognised status marker (✅ / ⚠️ / ❌ / Done / Pending /
-        Not Implemented).
+        Not Implemented / DRAFT / In Progress / Not Started).
         """
         entries: List[str] = []
-        _status_markers = ("✅", "⚠️", "❌", "Done", "Pending", "Not Implemented")
+        _status_markers = (
+            "✅", "⚠️", "❌",
+            "Done", "Pending", "Not Implemented",
+            "DRAFT", "IN_PROGRESS", "In Progress", "Not Started", "NOT_STARTED",
+        )
         _header_markers = ("Spec", "Requirement", "Item")
 
         for line in content.split("\n"):
@@ -54,12 +58,18 @@ class SpecTrackingParser:
         """
         Count lines containing each status emoji/keyword.
 
-        Returns dict with keys "✅ Done", "⚠️ Pending", "❌ Not Implemented".
+        Returns dict with keys "✅ Done", "⚠️ Pending", "❌ Not Implemented",
+        "DRAFT", "IN_PROGRESS", "Not Started".  Projects that use prose status
+        words instead of emoji (e.g. during Phase 1 spec tracking) are counted
+        correctly so completeness is not reported as 0%.
         """
         stats: Dict[str, int] = {
             "✅ Done": 0,
             "⚠️ Pending": 0,
             "❌ Not Implemented": 0,
+            "DRAFT": 0,
+            "IN_PROGRESS": 0,
+            "Not Started": 0,
         }
         for line in content.split("\n"):
             if "✅" in line:
@@ -68,4 +78,10 @@ class SpecTrackingParser:
                 stats["⚠️ Pending"] += 1
             elif "❌" in line:
                 stats["❌ Not Implemented"] += 1
+            elif "DRAFT" in line:
+                stats["DRAFT"] += 1
+            elif "IN_PROGRESS" in line or "In Progress" in line:
+                stats["IN_PROGRESS"] += 1
+            elif "Not Started" in line or "NOT_STARTED" in line:
+                stats["Not Started"] += 1
         return stats

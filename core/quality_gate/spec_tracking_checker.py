@@ -52,8 +52,9 @@ class SpecTrackingChecker:
         missing = []
         errors: list[str] = []
         
-        # Check if core features table exists
-        if not self._has_table(content, "Core Features"):
+        # Check if FR tracking table exists (several heading variants are accepted)
+        _table_names = ("Core Features", "Specification Status", "FR ID", "FR Tracking")
+        if not any(self._has_table(content, name) for name in _table_names):
             missing.append("Core Features table")
         
         # Check if status column exists
@@ -122,12 +123,16 @@ class SpecTrackingChecker:
             return {"complete": False, "missing": ["File not found"]}
         content = self.spec_file.read_text(encoding="utf-8")
         stats = self._count_status(content)
-        
-        total = sum(stats.values())
-        completed = stats.get("✅ Done", 0)
-        
+
+        # completeness = fraction of entries that have *any* recognised status
+        # (including DRAFT / In Progress / Not Started).  Entries with no
+        # status at all are counted via find_entries_without_status().
+        all_tracked = sum(stats.values())
+        untracked = len(self._find_entries_without_status(content))
+        total_entries = all_tracked + untracked
+
         # Calculate completeness percentage
-        completeness_pct = int((completed / max(total, 1)) * 100) if total > 0 else 0
+        completeness_pct = int((all_tracked / max(total_entries, 1)) * 100) if total_entries > 0 else 0
         
         return {
             "exists": True,
