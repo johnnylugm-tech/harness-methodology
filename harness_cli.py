@@ -3373,7 +3373,7 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
         if src_dir.is_dir():
             import subprocess as _subp
             r = _subp.run(
-                ["python", "-m", "pytest", "--tb=short", "-q",
+                [sys.executable, "-m", "pytest", "--tb=short", "-q",
                  "--cov=03-development/src", "--cov-fail-under=100"],
                 cwd=str(project),
             )
