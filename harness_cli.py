@@ -4231,14 +4231,22 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f'     "breakdown": {{\n'
             f'       "linting":       {{"score": <0-100>, "threshold": 90, "tool_evidence": "<first 500 chars of ruff stdout>"}},\n'
             f'       "type_safety":   {{"score": <0-100>, "threshold": 85, "tool_evidence": "<first 500 chars of pyright stdout>"}},\n'
-            f'       "test_coverage": {{"score": <0-100>, "threshold": 80, "tool_evidence": "<first 500 chars of coverage/pytest stdout>"}}\n'
+            f'       "test_coverage": {{\n'
+            f'           "score": <0-100>, "threshold": 80,\n'
+            f'           "tests_passed": <int>,   // REQUIRED: count from pytest summary line\n'
+            f'           "tests_failed": <int>,   // REQUIRED: must be 0 — any failed test blocks the gate\n'
+            f'           "tests_skipped": <int>,  // REQUIRED: count skipped tests\n'
+            f'           "tool_evidence": "<first 500 chars of coverage/pytest stdout>"\n'
+            f'       }}\n'
             f'     }}\n'
             f"   }}\n"
             f"   overall_score = (linting.score × 0.33 + type_safety.score × 0.33 + test_coverage.score × 0.34).\n"
             f"   quality_complete = (overall_score >= 80) AND (every dimension score >= its threshold).\n"
             f"   CRITICAL: `tool_evidence` is REQUIRED for every dimension.\n"
             f"   If you omit it, finalize-gate will BLOCK with S3 error regardless of scores.\n"
-            f"   Score fabrication (writing a score without running the tool) also causes S3 block.\n\n"
+            f"   Score fabrication (writing a score without running the tool) also causes S3 block.\n"
+            f"   CRITICAL: `tests_failed` MUST be 0. finalize-gate parses tool_evidence for\n"
+            f"   '{{N}} failed' and blocks immediately if any test is red — even at 96% coverage.\n\n"
             f"   Scoring formulas:\n"
             f"   - linting:      ruff exit 0 → 100; else count violations: max(0, 100 - violations×5)\n"
             f"   - type_safety:  parse pyright JSON summary.errorCount: max(0, 100 - errorCount×5)\n"

@@ -238,6 +238,76 @@ def _check_tool_evidence(ctx: "GateContext", raw: dict) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# S4-B: Failed-tests assertion
+# ---------------------------------------------------------------------------
+
+def _check_tests_failed(raw: dict) -> list[str]:
+    """S4-B: Verify no tests failed according to test_coverage tool_evidence.
+
+    S4 cross-validates coverage *percentage* but does not check whether any
+    tests actually failed.  A gate cannot pass when tests are red — even if
+    coverage stays above threshold (e.g. 432 pass + 5 fail, coverage 91%).
+
+    Parse the pytest summary line from ``breakdown.test_coverage.tool_evidence``
+    and block when *failed > 0*.
+
+    Returns list of violation messages (empty = all clear).
+    """
+    breakdown = raw.get("breakdown", {})
+    evidence = str(breakdown.get("test_coverage", {}).get("tool_evidence", "") or "")
+    if not evidence:
+        return []  # S3 already blocks on missing evidence
+
+    m = re.search(r"(\d+)\s+failed", evidence)
+    if m and int(m.group(1)) > 0:
+        failed = int(m.group(1))
+        return [
+            f"test_coverage: {failed} test(s) FAILED in tool_evidence — "
+            f"gate cannot pass with failing tests. Fix all failures before re-submitting."
+        ]
+    return []
+
+
+def _check_test_skip_ratio(raw: dict, threshold: float = 0.10) -> str | None:
+    """W1: Warn when a high fraction of tests are skipped.
+
+    Skipped tests contribute 0 coverage lines.  A skip ratio above *threshold*
+    (default 10 %) means coverage is computed from a subset of the suite and
+    may miss infrastructure code paths (e.g. DB schema, async sessions).
+
+    This is a **WARN** (not BLOCK) — some projects legitimately skip tests
+    that require real external services.
+
+    Returns a warning string, or ``None`` if the skip ratio is within threshold.
+    """
+    breakdown = raw.get("breakdown", {})
+    evidence = str(breakdown.get("test_coverage", {}).get("tool_evidence", "") or "")
+    if not evidence:
+        return None
+
+    passed_m = re.search(r"(\d+)\s+passed", evidence)
+    skipped_m = re.search(r"(\d+)\s+skipped", evidence)
+    if not (passed_m and skipped_m):
+        return None
+
+    passed = int(passed_m.group(1))
+    skipped = int(skipped_m.group(1))
+    total = passed + skipped
+    if total == 0:
+        return None
+
+    skip_ratio = skipped / total
+    if skip_ratio > threshold:
+        return (
+            f"[WARN] {skipped} of {total} tests ({skip_ratio:.0%}) are SKIPPED — "
+            f"skipped tests contribute 0 coverage lines. Coverage score reflects only "
+            f"non-skipped tests. Consider mocking infrastructure to run skipped tests, "
+            f"or document why the skips are architectural constraints in TODO.md."
+        )
+    return None
+
+
+# ---------------------------------------------------------------------------
 # S4: Harness cross-validation (Solution B)
 # ---------------------------------------------------------------------------
 
@@ -1059,6 +1129,34 @@ class HarnessBridge:
                 ),
                 details={"tool_score_fabrication": _s4_violations},
             )
+
+        # ── S4-B: Failed-tests assertion (Gate 1 only) ───────────────────────
+        # S4 validates coverage % but not whether tests are red.  Parse
+        # tool_evidence for "N failed" and block immediately — a passing
+        # coverage score with failing tests is always a fabrication signal.
+        if ctx.gate_num == 1:
+            _s4b_violations = _check_tests_failed(raw)
+            if _s4b_violations:
+                raise GateBlockedError(
+                    ctx.gate_num,
+                    GateResult(
+                        gate_num=ctx.gate_num,
+                        score=0.0,
+                        dimensions=[],
+                        open_critical=len(_s4b_violations),
+                        open_high=0,
+                        quality_complete=False,
+                        rounds_used=0,
+                    ),
+                    details={"tool_score_fabrication": _s4b_violations},
+                )
+
+            # ── W1: High skip-ratio warning (non-blocking) ───────────────────
+            # Skipped tests contribute 0 coverage lines.  High skip ratio means
+            # coverage is measured on a subset of the suite — flag for review.
+            _skip_warn = _check_test_skip_ratio(raw)
+            if _skip_warn:
+                print(_skip_warn)
 
         # Build per-dimension results from breakdown if provided.
         # Gate config dimension metadata (for fallback when agent omits top-level fields).

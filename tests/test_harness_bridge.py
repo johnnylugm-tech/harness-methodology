@@ -9,7 +9,10 @@ from typing import Any
 pytestmark = pytest.mark.core
 from unittest.mock import patch, MagicMock
 from pathlib import Path
-from harness.harness_bridge import HarnessBridge, GateResult, GateBlockedError, GateContext
+from harness.harness_bridge import (
+    HarnessBridge, GateResult, GateBlockedError, GateContext,
+    _check_tests_failed, _check_test_skip_ratio,
+)
 
 
 class TestHarnessBridge:
@@ -760,3 +763,88 @@ class TestSabClosureGaps:
                             result = bridge.finalize_gate(ctx)
         assert result.quality_complete is True
         assert result.score == 80.0
+
+
+# ===========================================================================
+# _check_tests_failed (S4-B)
+# ===========================================================================
+
+class TestCheckTestsFailed:
+    def _raw(self, evidence: str) -> dict:
+        return {"breakdown": {"test_coverage": {"tool_evidence": evidence}}}
+
+    def test_no_failures_returns_empty(self):
+        raw = self._raw("432 passed, 12 skipped in 1.58s")
+        assert _check_tests_failed(raw) == []
+
+    def test_with_failures_returns_violation(self):
+        raw = self._raw("5 failed, 427 passed in 2.1s")
+        violations = _check_tests_failed(raw)
+        assert len(violations) == 1
+        assert "5 test(s) FAILED" in violations[0]
+
+    def test_one_failure(self):
+        raw = self._raw("1 failed, 100 passed in 0.5s")
+        violations = _check_tests_failed(raw)
+        assert "1 test(s) FAILED" in violations[0]
+
+    def test_missing_evidence_returns_empty(self):
+        # S3 handles missing evidence; S4-B should not double-block
+        raw = {"breakdown": {"test_coverage": {}}}
+        assert _check_tests_failed(raw) == []
+
+    def test_missing_test_coverage_key_returns_empty(self):
+        raw = {"breakdown": {}}
+        assert _check_tests_failed(raw) == []
+
+    def test_passed_only_no_skipped(self):
+        raw = self._raw("443 passed in 1.2s")
+        assert _check_tests_failed(raw) == []
+
+
+# ===========================================================================
+# _check_test_skip_ratio (W1)
+# ===========================================================================
+
+class TestCheckTestSkipRatio:
+    def _raw(self, evidence: str) -> dict:
+        return {"breakdown": {"test_coverage": {"tool_evidence": evidence}}}
+
+    def test_low_skip_ratio_returns_none(self):
+        # 12 skipped / 444 total = 2.7% < 10% threshold
+        raw = self._raw("432 passed, 12 skipped in 1.58s")
+        assert _check_test_skip_ratio(raw) is None
+
+    def test_high_skip_ratio_returns_warning(self):
+        # 50 skipped / 150 total = 33% > 10%
+        raw = self._raw("100 passed, 50 skipped in 2.0s")
+        result = _check_test_skip_ratio(raw)
+        assert result is not None
+        assert "WARN" in result
+        assert "50 of 150" in result
+
+    def test_exactly_at_threshold_returns_none(self):
+        # 10 skipped / 100 total = exactly 10%, not > threshold
+        raw = self._raw("90 passed, 10 skipped in 1.0s")
+        assert _check_test_skip_ratio(raw) is None
+
+    def test_just_above_threshold_returns_warning(self):
+        # 11 skipped / 100 total = 11% > 10%
+        raw = self._raw("89 passed, 11 skipped in 1.0s")
+        result = _check_test_skip_ratio(raw)
+        assert result is not None
+
+    def test_no_skipped_in_evidence_returns_none(self):
+        raw = self._raw("443 passed in 1.2s")
+        assert _check_test_skip_ratio(raw) is None
+
+    def test_missing_evidence_returns_none(self):
+        raw = {"breakdown": {"test_coverage": {}}}
+        assert _check_test_skip_ratio(raw) is None
+
+    def test_custom_threshold(self):
+        # 5 skipped / 50 total = 10%, default threshold 10% → None
+        # With custom threshold 5% → warning
+        raw = self._raw("45 passed, 5 skipped in 0.5s")
+        assert _check_test_skip_ratio(raw, threshold=0.10) is None
+        assert _check_test_skip_ratio(raw, threshold=0.05) is not None
