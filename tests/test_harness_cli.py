@@ -2217,3 +2217,65 @@ class TestRunFrStepSkipSideEffects:
         harness_cli.cmd_run_fr_step(args)
 
         assert not recorded, "gate timestamp should not be recorded for TDD-RED skip"
+
+
+# =============================================================================
+# _mark_p5_baseline_plan_items + _mark_generate_next_plan_item
+# =============================================================================
+
+class TestP5PlanMarking:
+    """Deliverable plan items must be auto-marked by push-milestone / advance-phase."""
+
+    def _make_plan(self, tmp_path: Path, content: str) -> Path:
+        plan = tmp_path / ".methodology" / "phase5_plan.md"
+        plan.parent.mkdir(parents=True, exist_ok=True)
+        plan.write_text(content, encoding="utf-8")
+        return plan
+
+    def test_baseline_items_marked_by_push_milestone(self, tmp_path):
+        import harness_cli
+        content = (
+            "- [ ] Integration tests pass\n"
+            "- [ ] Performance tests meet targets\n"
+            "- [ ] Security scan passes\n"
+            "- [ ] Baseline established\n"
+            "- [ ] **PUSH ⑦ — P5-baseline** (after BASELINE.md is generated):\n"
+            "- [ ] `BASELINE.md` - System baseline\n"
+            "- [ ] `VERIFICATION_REPORT.md` - Verification report\n"
+        )
+        plan = self._make_plan(tmp_path, content)
+        harness_cli._mark_p5_baseline_plan_items(tmp_path)
+        result = plan.read_text()
+        assert result.count("- [x]") == 7, f"Expected 7 checked, got:\n{result}"
+        assert "- [ ]" not in result
+
+    def test_no_false_positive_on_other_items(self, tmp_path):
+        import harness_cli
+        content = (
+            "- [ ] Something unrelated\n"
+            "- [ ] Integration tests pass\n"
+        )
+        plan = self._make_plan(tmp_path, content)
+        harness_cli._mark_p5_baseline_plan_items(tmp_path)
+        result = plan.read_text()
+        assert "- [ ] Something unrelated" in result  # not touched
+        assert "- [x] Integration tests pass" in result
+
+    def test_generate_next_plan_item_marked(self, tmp_path):
+        import harness_cli
+        content = "- [ ] Generate Phase 6 plan:\n"
+        plan = tmp_path / ".methodology" / "phase5_plan.md"
+        plan.parent.mkdir(parents=True, exist_ok=True)
+        plan.write_text(content)
+        harness_cli._mark_generate_next_plan_item(tmp_path, completed_phase=5, next_phase=6)
+        assert "- [x] Generate Phase 6 plan:" in plan.read_text()
+
+    def test_generate_next_plan_wrong_phase_not_marked(self, tmp_path):
+        import harness_cli
+        content = "- [ ] Generate Phase 7 plan:\n"
+        plan = tmp_path / ".methodology" / "phase5_plan.md"
+        plan.parent.mkdir(parents=True, exist_ok=True)
+        plan.write_text(content)
+        harness_cli._mark_generate_next_plan_item(tmp_path, completed_phase=5, next_phase=6)
+        # Phase 7 item should NOT be touched when we're advancing to Phase 6
+        assert "- [ ] Generate Phase 7 plan:" in plan.read_text()

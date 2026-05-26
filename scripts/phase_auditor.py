@@ -1959,7 +1959,24 @@ class PhaseAuditor:
 
         skip_re = re.compile(
             r"\[A-DISPATCH\]|\[B-DISPATCH\]|\[INFO\]|\[OPTIONAL\]|\[SKIP\]"
-            r"|Gate \d+.*score|Phase \d+.*complete",
+            r"|Gate \d+.*score|Phase \d+.*complete"
+            # Framework-verified or auto-filled tags — no agent manual action needed
+            r"|\*\*\[(ENTRY-CHECK|PREFLIGHT|PREFLIGHT-CI|PHASE-TRUTH|TDD-PRECHECK"
+            r"|ORCH-POST|ASPICE)\]\*\*"
+            # Per-FR sub-bullets: confirmed implicitly by GATE1 / GATE1-DELTA pass
+            r"|for FR-\d+"
+            r"|Verify edge cases and error paths"
+            r"|Confirm ≥80% branch coverage"
+            # Gate 1 coverage: verified by _check_gate1_per_fr_coverage (exit 14)
+            r"|Gate 1 PASS for every FR"
+            # Chicken-and-egg: advance-phase IS what does these; can't pre-check
+            r"|Advance FSM to Phase \d+"
+            # Post-advance instructions — belong to the NEXT phase entry
+            r"|Confirm.*HANDOVER\.md"
+            r"|Open.*phase\d+_plan\.md"
+            r"|If session crashes"
+            # Meta-item: C11 itself verifies all items are checked; redundant
+            r"|Confirm ALL checkpoints",
             re.IGNORECASE,
         )
         unchecked = [
