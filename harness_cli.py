@@ -3475,6 +3475,21 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
             return 11
 
 
+    # ── Auto-generate Phase{N}_STAGE_PASS.md if missing ─────────────
+    # The file is machine-generated from quality_manifest.json (no LLM).
+    # In phases where ALL GATE1-DELTA steps skip (no code changes), finalize-gate
+    # is never called and the file never gets written — even though the gate data
+    # in quality_manifest is valid.  Regenerate here so PhaseAuditor C1 passes.
+    _stage_pass_path = project / "00-summary" / f"Phase{completed_phase}_STAGE_PASS.md"
+    if not _stage_pass_path.exists():
+        # Use gate 1 for FR-based phases (3+), gate 4 for delivery phases (6+)
+        _sp_gate = 4 if completed_phase >= 6 else 1
+        print(
+            f"  [advance-phase] Phase{completed_phase}_STAGE_PASS.md missing — "
+            f"auto-generating from quality_manifest (gate {_sp_gate})"
+        )
+        _generate_stage_pass(project, _sp_gate, completed_phase)
+
     # ── Phase Auditor: full C1-C12 for all phases ────────────────────
     audit_rc = _run_phase_auditor(project, completed_phase)
     if audit_rc != 0:
@@ -4912,6 +4927,13 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
     # 1. Idempotency — skip if already committed
     if _fr_step_already_done(step, fr_id, project):
         print(f"[run-fr-step] {fr_id} {step}: already done → skip")
+        # Still record completion side-effects even on legitimate skip:
+        #   _mark_plan_item  — prevents C11 CRITICAL at advance-phase
+        #   _record_gate_timestamp (GATE1-DELTA only) — prevents exit-14 block
+        #     from _check_gate1_per_fr_coverage when ALL FRs skip (no code changes)
+        _mark_plan_item(project, phase, step, fr_id)
+        if step.upper() == "GATE1-DELTA":
+            _record_gate_timestamp(project, phase, 1, fr_id)
         return 0
 
     # 2. Pre-flight checks — must pass before agent dispatch

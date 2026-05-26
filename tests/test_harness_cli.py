@@ -2123,3 +2123,97 @@ class TestParseSpecNamesForFr:
         names = self._parse(spec, "FR-03")
         assert "test_fr03_legacy" in names
         assert "test_fr03_also_legacy" in names
+
+
+# =============================================================================
+# run-fr-step idempotency skip: side-effects must fire even when skipping
+# =============================================================================
+
+class TestRunFrStepSkipSideEffects:
+    """When _fr_step_already_done returns True, _mark_plan_item and
+    _record_gate_timestamp (for GATE1-DELTA) must still be called."""
+
+    def _make_plan(self, tmp_path: Path, phase: int, fr_id: str) -> Path:
+        plan = tmp_path / ".methodology" / f"phase{phase}_plan.md"
+        plan.parent.mkdir(parents=True, exist_ok=True)
+        plan.write_text(
+            f"- [ ] **[ORCH-GATE1]** run-fr-step --step GATE1-DELTA for {fr_id}:\n",
+            encoding="utf-8",
+        )
+        return plan
+
+    def _make_manifest(self, tmp_path: Path, fr_id: str, score: float = 95.0) -> None:
+        import json
+        m = tmp_path / ".methodology" / "quality_manifest.json"
+        m.parent.mkdir(parents=True, exist_ok=True)
+        m.write_text(json.dumps({
+            "fr_ids": [fr_id],
+            "quality_targets": {"min_coverage": 80.0},
+            "gate_results": {"gate1": {fr_id: {"score": score, "quality_complete": True}}},
+        }), encoding="utf-8")
+
+    def test_mark_plan_item_called_on_skip(self, tmp_path, monkeypatch):
+        """_mark_plan_item must be called even when step is skipped (already done)."""
+        import harness_cli
+        called = []
+        monkeypatch.setattr(harness_cli, "_fr_step_already_done", lambda *a, **k: True)
+        monkeypatch.setattr(harness_cli, "_record_gate_timestamp", lambda *a, **k: None)
+        original_mark = harness_cli._mark_plan_item
+        def mock_mark(project, phase, step, fr_id):
+            called.append((phase, step, fr_id))
+            return original_mark(project, phase, step, fr_id)
+        monkeypatch.setattr(harness_cli, "_mark_plan_item", mock_mark)
+
+        plan = self._make_plan(tmp_path, 5, "FR-01")
+        self._make_manifest(tmp_path, "FR-01")
+
+        args = argparse.Namespace(
+            phase=5, fr_id="FR-01", step="GATE1-DELTA",
+            project=str(tmp_path), srs=None,
+            timeout=600, max_fix_rounds=3, no_push=True,
+            no_mcp=False, permission_mode=None, max_turns=None,
+        )
+        harness_cli.cmd_run_fr_step(args)
+
+        assert ("FR-01" in str(called)), f"_mark_plan_item not called: {called}"
+        assert "- [x] **[ORCH-GATE1]**" in plan.read_text()
+
+    def test_gate_timestamp_recorded_on_gate1_delta_skip(self, tmp_path, monkeypatch):
+        """_record_gate_timestamp must be called for GATE1-DELTA skip."""
+        import harness_cli
+        recorded = []
+        monkeypatch.setattr(harness_cli, "_fr_step_already_done", lambda *a, **k: True)
+        monkeypatch.setattr(harness_cli, "_mark_plan_item", lambda *a, **k: None)
+        monkeypatch.setattr(harness_cli, "_record_gate_timestamp",
+                            lambda project, phase, gate, fr_id: recorded.append((phase, gate, fr_id)))
+
+        self._make_manifest(tmp_path, "FR-03")
+        args = argparse.Namespace(
+            phase=5, fr_id="FR-03", step="GATE1-DELTA",
+            project=str(tmp_path), srs=None,
+            timeout=600, max_fix_rounds=3, no_push=True,
+            no_mcp=False, permission_mode=None, max_turns=None,
+        )
+        harness_cli.cmd_run_fr_step(args)
+
+        assert (5, 1, "FR-03") in recorded, f"gate timestamp not recorded: {recorded}"
+
+    def test_no_gate_timestamp_for_non_delta_skip(self, tmp_path, monkeypatch):
+        """_record_gate_timestamp must NOT be called for non-DELTA step skips."""
+        import harness_cli
+        recorded = []
+        monkeypatch.setattr(harness_cli, "_fr_step_already_done", lambda *a, **k: True)
+        monkeypatch.setattr(harness_cli, "_mark_plan_item", lambda *a, **k: None)
+        monkeypatch.setattr(harness_cli, "_record_gate_timestamp",
+                            lambda *a, **k: recorded.append(True))
+
+        self._make_manifest(tmp_path, "FR-01")
+        args = argparse.Namespace(
+            phase=3, fr_id="FR-01", step="TDD-RED",
+            project=str(tmp_path), srs=None,
+            timeout=600, max_fix_rounds=3, no_push=True,
+            no_mcp=False, permission_mode=None, max_turns=None,
+        )
+        harness_cli.cmd_run_fr_step(args)
+
+        assert not recorded, "gate timestamp should not be recorded for TDD-RED skip"
