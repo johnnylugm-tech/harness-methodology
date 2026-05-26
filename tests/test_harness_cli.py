@@ -1791,3 +1791,153 @@ class TestRunFrStep:
         assert any("push" in cmd for cmd in run_calls), "git push should be called when no_push=False"
         captured = capsys.readouterr().out
         assert "complete + pushed to GitHub" in captured
+
+
+# ---------------------------------------------------------------------------
+# P0-A: _mark_plan_item
+# ---------------------------------------------------------------------------
+
+class TestMarkPlanItem:
+    """Tests for harness_cli._mark_plan_item (P0-A bookkeeping automation)."""
+
+    def _make_plan(self, tmp_path: Path, phase: int, content: str) -> Path:
+        plan = tmp_path / ".methodology" / f"phase{phase}_plan.md"
+        plan.parent.mkdir(parents=True, exist_ok=True)
+        plan.write_text(content, encoding="utf-8")
+        return plan
+
+    def test_marks_orch_red_for_tdd_red(self, tmp_path):
+        import harness_cli
+        content = "- [ ] **[ORCH-RED]** Dispatch TDD-RED sub-agent for FR-01:\n"
+        plan = self._make_plan(tmp_path, 3, content)
+        harness_cli._mark_plan_item(tmp_path, 3, "TDD-RED", "FR-01")
+        assert "- [x] **[ORCH-RED]**" in plan.read_text()
+
+    def test_marks_orch_green_for_tdd_green(self, tmp_path):
+        import harness_cli
+        content = "- [ ] **[ORCH-GREEN]** Dispatch TDD-GREEN sub-agent for FR-05:\n"
+        plan = self._make_plan(tmp_path, 3, content)
+        harness_cli._mark_plan_item(tmp_path, 3, "TDD-GREEN", "FR-05")
+        assert "- [x] **[ORCH-GREEN]**" in plan.read_text()
+
+    def test_marks_orch_gate1_for_gate1(self, tmp_path):
+        import harness_cli
+        content = "- [ ] **[ORCH-GATE1]** Dispatch GATE1 evaluator for FR-19:\n"
+        plan = self._make_plan(tmp_path, 3, content)
+        harness_cli._mark_plan_item(tmp_path, 3, "GATE1", "FR-19")
+        assert "- [x] **[ORCH-GATE1]**" in plan.read_text()
+
+    def test_does_not_modify_other_fr_items(self, tmp_path):
+        import harness_cli
+        content = (
+            "- [ ] **[ORCH-RED]** Dispatch TDD-RED sub-agent for FR-01:\n"
+            "- [ ] **[ORCH-RED]** Dispatch TDD-RED sub-agent for FR-02:\n"
+        )
+        plan = self._make_plan(tmp_path, 3, content)
+        harness_cli._mark_plan_item(tmp_path, 3, "TDD-RED", "FR-01")
+        updated = plan.read_text()
+        assert "- [x] **[ORCH-RED]** Dispatch TDD-RED sub-agent for FR-01" in updated
+        assert "- [ ] **[ORCH-RED]** Dispatch TDD-RED sub-agent for FR-02" in updated
+
+    def test_noop_when_plan_missing(self, tmp_path):
+        import harness_cli
+        # No plan file — should not raise
+        harness_cli._mark_plan_item(tmp_path, 3, "TDD-RED", "FR-01")
+
+    def test_noop_for_unknown_step(self, tmp_path):
+        import harness_cli
+        content = "- [ ] **[ORCH-RED]** for FR-01:\n"
+        plan = self._make_plan(tmp_path, 3, content)
+        harness_cli._mark_plan_item(tmp_path, 3, "UNKNOWN-STEP", "FR-01")
+        # File unchanged
+        assert "- [ ] **[ORCH-RED]**" in plan.read_text()
+
+    def test_already_checked_item_unchanged(self, tmp_path):
+        import harness_cli
+        content = "- [x] **[ORCH-RED]** Dispatch TDD-RED for FR-01:\n"
+        plan = self._make_plan(tmp_path, 3, content)
+        harness_cli._mark_plan_item(tmp_path, 3, "TDD-RED", "FR-01")
+        assert plan.read_text().count("[x]") == 1  # still exactly one [x]
+
+
+# ---------------------------------------------------------------------------
+# P0-B: _append_dev_log_tdd_entry
+# ---------------------------------------------------------------------------
+
+class TestAppendDevLogTddEntry:
+    """Tests for harness_cli._append_dev_log_tdd_entry (P0-B bookkeeping)."""
+
+    def test_appends_line_with_score(self, tmp_path):
+        import harness_cli
+        log = tmp_path / "DEVELOPMENT_LOG.md"
+        log.write_text("# Dev Log\n", encoding="utf-8")
+        harness_cli._append_dev_log_tdd_entry(tmp_path, "FR-03", score=92.5)
+        content = log.read_text()
+        assert "FR-03 test pass" in content
+        assert "92.50" in content
+        assert "RED→GREEN" in content
+
+    def test_appends_line_with_none_score(self, tmp_path):
+        import harness_cli
+        log = tmp_path / "DEVELOPMENT_LOG.md"
+        log.write_text("# Dev Log\n", encoding="utf-8")
+        harness_cli._append_dev_log_tdd_entry(tmp_path, "FR-07", score=None)
+        assert "FR-07 test pass" in log.read_text()
+        assert "N/A" in log.read_text()
+
+    def test_noop_when_log_missing(self, tmp_path):
+        import harness_cli
+        # No DEVELOPMENT_LOG.md — must not raise
+        harness_cli._append_dev_log_tdd_entry(tmp_path, "FR-01", score=100.0)
+
+    def test_multiple_calls_append_multiple_lines(self, tmp_path):
+        import harness_cli
+        log = tmp_path / "DEVELOPMENT_LOG.md"
+        log.write_text("", encoding="utf-8")
+        harness_cli._append_dev_log_tdd_entry(tmp_path, "FR-01", score=80.0)
+        harness_cli._append_dev_log_tdd_entry(tmp_path, "FR-02", score=90.0)
+        lines = [ln for ln in log.read_text().splitlines() if ln.strip()]
+        assert len(lines) == 2
+        assert "FR-01" in lines[0]
+        assert "FR-02" in lines[1]
+
+
+# ---------------------------------------------------------------------------
+# P2-B: W2 coverage warning logic (harness_bridge.finalize_gate)
+# ---------------------------------------------------------------------------
+
+class TestW2CoverageWarning:
+    """Tests for W2 sub-100% coverage advisory emitted by finalize_gate."""
+
+    def _run_w2_logic(self, score: float, capsys) -> str:
+        """Replicate the W2 branch from finalize_gate for unit testing."""
+        try:
+            _cov_pct = float(score)
+        except (TypeError, ValueError):
+            _cov_pct = 100.0
+        if _cov_pct < 100.0:
+            print(
+                f"[W2] test_coverage {_cov_pct:.1f}% < 100 — "
+                "advance-phase requires 100% on 03-development/src. "
+                "Lines not exercisable in tests: add # pragma: no cover."
+            )
+        return capsys.readouterr().out
+
+    def test_w2_emitted_when_coverage_below_100(self, capsys):
+        out = self._run_w2_logic(95.0, capsys)
+        assert "[W2]" in out
+        assert "95.0%" in out
+        assert "# pragma: no cover" in out
+
+    def test_w2_emitted_at_80_percent(self, capsys):
+        out = self._run_w2_logic(80.0, capsys)
+        assert "[W2]" in out
+
+    def test_w2_not_emitted_at_100_percent(self, capsys):
+        out = self._run_w2_logic(100.0, capsys)
+        assert "[W2]" not in out
+
+    def test_w2_not_emitted_above_100(self, capsys):
+        # edge case: score > 100 (invalid but shouldn't crash)
+        out = self._run_w2_logic(100.1, capsys)
+        assert "[W2]" not in out

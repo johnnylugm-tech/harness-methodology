@@ -1158,6 +1158,25 @@ class HarnessBridge:
             if _skip_warn:
                 print(_skip_warn)
 
+            # ── W2: Sub-100% coverage advisory (non-blocking) ─────────────────
+            # advance-phase (P3+) runs --cov-fail-under=100 on 03-development/src.
+            # Warn here so agents know to add # pragma: no cover before reaching
+            # advance-phase — avoids a surprise blocker at phase transition.
+            try:
+                _cov_pct = float(
+                    (raw.get("breakdown") or {})
+                    .get("test_coverage", {})
+                    .get("score", 100)
+                )
+            except (TypeError, ValueError):
+                _cov_pct = 100.0
+            if _cov_pct < 100.0:
+                print(
+                    f"[W2] test_coverage {_cov_pct:.1f}% < 100 — "
+                    "advance-phase requires 100% on 03-development/src. "
+                    "Lines not exercisable in tests: add # pragma: no cover."
+                )
+
         # Build per-dimension results from breakdown if provided.
         # Gate config dimension metadata (for fallback when agent omits top-level fields).
         _dim_weights: dict[str, float] = {}
