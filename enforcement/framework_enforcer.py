@@ -268,10 +268,21 @@ class FrameworkEnforcer:
                     missing_constitution.append(line)
                 if "\u2705" in line:
                     completed += 1
-        # completeness = items listed without a constitution failure (\u274c/\u26a0\ufe0f).
-        # "Not Started" / "DRAFT" items are tracked but not yet verified \u2014
-        # they count as compliant here; only confirmed failures reduce the score.
-        compliant = total - len(missing_constitution)
+        # Completeness semantics are phase-dependent:
+        #
+        # Phase \u2264 3 (IMPLEMENT): items are not yet verified; "Not Started" /
+        # "DRAFT" items are tracked but pending implementation.  Completeness
+        # counts items that are listed without a constitution failure (\u274c/\u26a0\ufe0f).
+        #
+        # Phase 4+ (VERIFY and beyond): all items should be verified (\u2705).
+        # Un-ticked items indicate missing test evidence \u2014 reduce completeness.
+        if self.phase <= 3:
+            # Compliant = listed and not failed
+            compliant = total - len(missing_constitution)
+        else:
+            # Compliant = verified (\u2705) and not failed
+            compliant = completed - len(missing_constitution)
+            compliant = max(compliant, 0)
         completeness = (compliant / total * 100) if total > 0 else 0
         return {
             "exists": True,

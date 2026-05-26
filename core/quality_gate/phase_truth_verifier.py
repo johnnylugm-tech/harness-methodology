@@ -253,15 +253,36 @@ class PhaseTruthVerifier:
             return 70
         return 80
 
+    def _get_cov_source(self) -> str:
+        """Read coverage source from .coveragerc [run] source, defaulting to '.'.
+
+        Using --cov=. overrides .coveragerc and includes helper/script files that
+        inflate or deflate the coverage number. Reading the project's own config
+        respects intentional source scoping (e.g. source = 03-development/src).
+        """
+        coveragerc = self.project_root / ".coveragerc"
+        if coveragerc.exists():
+            try:
+                import configparser as _cp
+                parser = _cp.ConfigParser()
+                parser.read(coveragerc)
+                src = parser.get("run", "source", fallback=".").strip()
+                if src:
+                    return src
+            except Exception:
+                pass
+        return "."
+
     def check_coverage(self) -> Tuple[bool, float, str]:
         """Check coverage against phase-dependent threshold."""
         threshold = self._get_coverage_threshold()
         if threshold == 0:
             return True, 100.0, "No coverage requirement for P1-P2"
 
+        cov_source = self._get_cov_source()
         try:
             result = subprocess.run(  # nosec B603 B607
-                ["pytest", "--cov=.","--cov-report=term-missing","--tb=no","-q"],
+                ["pytest", f"--cov={cov_source}", "--cov-report=term-missing", "--tb=no", "-q"],
                 cwd=self.project_root,
                 capture_output=True,
                 text=True,
