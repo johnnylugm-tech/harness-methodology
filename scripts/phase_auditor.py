@@ -746,7 +746,21 @@ class PhaseAuditor:
 
     # -- C3: A/B Session Separation Verification ---------------------────
     def check_c3_session_separation(self):
-        """C3: .methodology/sessions_spawn.log A/B different session verification"""
+        """C3: .methodology/sessions_spawn.log A/B different session verification.
+
+        Phase 3+: A/B pair programming removed (Phase End Audit replaces it).
+        C3 only validates session role separation for Phase 1-2 where A/B is
+        still mandatory per HR-10.
+        """
+        if self.phase >= 3:
+            self.result.add(Finding(
+                check_id="C3", dimension="A/B Session Separation",
+                severity="PASS",
+                title=f"Phase {self.phase}: A/B pair review not required (Phase End Audit active)",
+                detail="HR-10 applies to Phase 1-2 only; Phase 3+ uses PhaseAuditor.",
+            ))
+            return
+
         content = self._content([".methodology/sessions_spawn.log", "sessions_spawn.log"])
         if not content:
             self.result.add(Finding(

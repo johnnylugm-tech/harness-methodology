@@ -1215,6 +1215,8 @@ class TestCmdAdvancePhase:
         (tmp_path / "00-summary" / "Phase3_STAGE_PASS.md").write_text(
             "## Gate Score\n80\n## Quality Status\nquality_complete: True\n## Deliverables\nok\n"
         )
+        # next-phase plan required by _advance_prechecks (phase >= 3)
+        (method_dir / "phase4_plan.md").touch()
         monkeypatch.setattr("harness_cli._check_gate_score_variance", lambda p, ph: 0)
         class _FakeVer:
             def __init__(self, *a, **kw): pass
@@ -1240,6 +1242,8 @@ class TestCmdAdvancePhase:
         plan.write_text("- [ ] [A-DISPATCH] Dispatch Agent A\n"
                         "- [ ] [B-DISPATCH] Dispatch Agent B\n"
                         "- [x] TESTS_PASS\n")
+        # next-phase plan required by _advance_prechecks (phase >= 3)
+        (method_dir / "phase4_plan.md").touch()
         # P3 deliverables: src + tests dirs now required by PhaseArtifactRegistry
         (tmp_path / "03-development").mkdir()
         (tmp_path / "03-development" / "src").mkdir()
@@ -1325,6 +1329,8 @@ class TestCmdAdvancePhase:
         (method_dir / "quality_manifest.json").write_text(json.dumps({
             "fr_ids": [], "gate_results": {"gate1": {}, "gate3": {}},
         }))
+        # next-phase plan required by _advance_prechecks (phase >= 3)
+        (method_dir / "phase5_plan.md").touch()
 
         exit_code, output = self._call_advance_phase(
             monkeypatch, tmp_path, completed=4, skip_prechecks=False,
@@ -1352,6 +1358,8 @@ class TestCmdAdvancePhase:
         (method_dir / "quality_manifest.json").write_text(_json.dumps({
             "fr_ids": [], "gate_results": {"gate1": {}, "gate3": {}},
         }))
+        # next-phase plan required by _advance_prechecks (phase >= 3)
+        (method_dir / "phase5_plan.md").touch()
 
         # git ls-files --error-unmatch returns non-zero for untracked files
         def fake_run(cmd, **kw):
@@ -1390,6 +1398,8 @@ class TestCmdAdvancePhase:
         (method_dir / "quality_manifest.json").write_text(_json.dumps({
             "fr_ids": [], "gate_results": {"gate1": {}, "gate3": {}},
         }))
+        # next-phase plan required by _advance_prechecks (phase >= 3)
+        (method_dir / "phase5_plan.md").touch()
 
         # git ls-files --error-unmatch returns 0 for tracked files
         def fake_run(cmd, **kw):
@@ -1481,6 +1491,8 @@ class TestCmdAdvancePhase:
             for fr in ["FR-01", "FR-02", "FR-03"]
         ]
         (method_dir / "gate_timestamps.jsonl").write_text("\n".join(ts_lines) + "\n")
+        # next-phase plan required by _advance_prechecks (phase >= 3)
+        (method_dir / "phase4_plan.md").touch()
 
         # P3 deliverables: src + tests dirs now required by PhaseArtifactRegistry
         (tmp_path / "03-development").mkdir()

@@ -881,6 +881,8 @@ class TestAdvancePrechecksTDD:
         """Minimal P3 project skeleton (PhaseAuditor will be mocked)."""
         (tmp_path / ".methodology").mkdir()
         (tmp_path / "03-development" / "src").mkdir(parents=True)
+        # Next-phase plan required by _advance_prechecks (phase >= 3)
+        (tmp_path / ".methodology" / "phase4_plan.md").touch()
 
     def test_pytest_failure_returns_9(self, tmp_path, monkeypatch):
         """pytest non-zero exit → _advance_prechecks returns 9."""
@@ -923,6 +925,8 @@ class TestAdvancePrechecksTDD:
         # spec-coverage returns pass (unified D4, v2.6)
         monkeypatch.setattr("harness_cli._run_spec_coverage_check",
                             lambda p, t, **kw: (0, 100.0))
+        # next-phase plan required by _advance_prechecks (phase >= 3)
+        (tmp_path / ".methodology" / "phase4_plan.md").touch()
 
         rc = _advance_prechecks(tmp_path, completed_phase=3)
         assert rc == 0
@@ -943,6 +947,8 @@ class TestAdvancePrechecksTDD:
         )
         monkeypatch.setattr("harness_cli._run_spec_coverage_check",
                             lambda p, t, **kw: (1, 30.0))
+        # next-phase plan required by _advance_prechecks (phase >= 3)
+        (tmp_path / ".methodology" / "phase4_plan.md").touch()
 
         rc = _advance_prechecks(tmp_path, completed_phase=3)
         assert rc == 10
@@ -980,6 +986,7 @@ class TestAdvancePrechecksTDD:
             return (0, 100.0)
 
         monkeypatch.setattr("harness_cli._run_spec_coverage_check", _fake_sc)
+        (tmp_path / ".methodology" / "phase5_plan.md").touch()
 
         _advance_prechecks(tmp_path, completed_phase=4)
         assert captured_sc["threshold"] == 80.0  # unified v2.6
@@ -1005,6 +1012,7 @@ class TestAdvancePrechecksTDD:
             return (0, 100.0)
 
         monkeypatch.setattr("harness_cli._run_spec_coverage_check", _fake_sc)
+        (tmp_path / ".methodology" / "phase7_plan.md").touch()
 
         _advance_prechecks(tmp_path, completed_phase=6)
         assert captured["sc"] == 90.0  # unified v2.6
@@ -1086,6 +1094,8 @@ class TestAdvancePreChecksAgentB:
         )
         monkeypatch.setattr("harness_cli._run_spec_coverage_check",
                             lambda p, t, **kw: (0, 100.0))
+        # next-phase plan required by _advance_prechecks (phase >= 3)
+        (tmp_path / ".methodology" / "phase4_plan.md").touch()
 
         # No agent_b_approvals dir at all — should not matter for P3
         rc = _advance_prechecks(tmp_path, completed_phase=3)

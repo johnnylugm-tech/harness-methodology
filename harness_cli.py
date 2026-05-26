@@ -460,12 +460,19 @@ def _mark_plan_item(project: Path, phase: int, step: str, fr_id: str) -> None:
     try:
         content = plan_file.read_text(encoding="utf-8")
         # Match: - [ ] **[ORCH-RED]** ... FR-01 (any text on same line)
-        pattern = rf"(- \[ \] \*\*\[{re.escape(tag)}\]\*\*[^\n]*\b{re.escape(fr_id)}\b)"
-        updated = re.sub(
-            pattern,
-            lambda m: m.group(0).replace("- [ ]", "- [x]", 1),
-            content,
-        )
+        # Also try the -DELTA variant (e.g. ORCH-GATE1-DELTA) which some plan
+        # generators emit for Phase 5/7/8 carry-forward steps.
+        tags_to_try = [tag]
+        if step.endswith("-DELTA"):
+            tags_to_try.append(tag + "-DELTA")
+        updated = content
+        for _t in tags_to_try:
+            pattern = rf"(- \[ \] \*\*\[{re.escape(_t)}\]\*\*[^\n]*\b{re.escape(fr_id)}\b)"
+            updated = re.sub(
+                pattern,
+                lambda m: m.group(0).replace("- [ ]", "- [x]", 1),
+                updated,
+            )
         if updated != content:
             plan_file.write_text(updated, encoding="utf-8")
     except OSError:
@@ -3484,6 +3491,7 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
       11 = Phase Truth < 90% (P3+)
       13 = Agent B approvals missing / rejected (P1/P2)
       14 = Gate 1 per-FR coverage incomplete (P3+)
+      15 = Phase{N+1}_plan.md not found (generate-next-plan not run)
     """
     # ── P1 checksum: TEST_INVENTORY.yaml baseline ────────────────────
     if completed_phase == 1:
@@ -3554,6 +3562,24 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
             f"auto-generating from quality_manifest (gate {_sp_gate})"
         )
         _generate_stage_pass(project, _sp_gate, completed_phase)
+
+    # ── Next-phase plan: must exist before advancing (Phase 3+) ─────
+    # Prevents "advance first, plan later" ordering bugs. generate-next-plan
+    # must be run BEFORE advance-phase so the agent has a plan to follow.
+    # Phase 1-2 use HANDOVER.md entry flow; plan generation starts at Phase 3.
+    if completed_phase >= 3:
+        _next_phase = completed_phase + 1
+        _next_plan = project / ".methodology" / f"phase{_next_phase}_plan.md"
+        if not _next_plan.exists():
+            print(
+                f"\n[BLOCKED] Phase{_next_phase}_plan.md not found.\n"
+                f"  Run generate-next-plan BEFORE advance-phase:\n"
+                f"    python3 harness_cli.py generate-next-plan --phase {_next_phase}"
+                f" --project .\n"
+                f"  Then re-run: python3 harness_cli.py advance-phase"
+                f" --completed-phase {completed_phase} --project ."
+            )
+            return 15
 
     # ── Phase Auditor: full C1-C12 for all phases ────────────────────
     audit_rc = _run_phase_auditor(project, completed_phase)

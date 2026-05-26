@@ -65,7 +65,7 @@ class TestC3SessionSeparation:
         """When .methodology/sessions_spawn.log is absent but root sessions_spawn.log
         exists, C3 must produce at least one PASS finding and must NOT produce a CRITICAL
         about the log file being missing/absent."""
-        auditor = auditor_factory({"sessions_spawn.log": VALID_AB_JSONL})
+        auditor = auditor_factory({"sessions_spawn.log": VALID_AB_JSONL}, phase=2)
         auditor.check_c3_session_separation()
         passes = [f for f in auditor.result.findings if f.severity == "PASS"]
         # Check that the log-not-found CRITICAL is absent (the fallback worked)
@@ -87,23 +87,23 @@ class TestC3SessionSeparation:
         auditor = auditor_factory({
             ".methodology/sessions_spawn.log": VALID_AB_JSONL,
             "sessions_spawn.log": "{}",
-        })
+        }, phase=1)
         auditor.check_c3_session_separation()
         passes = [f for f in auditor.result.findings if f.severity == "PASS"]
         assert len(passes) >= 1
 
     def test_c3_missing_log_is_critical(self, auditor_factory):
-        """When neither path exists, C3 must produce a CRITICAL finding."""
-        auditor = auditor_factory({})
+        """When neither path exists, C3 must produce a CRITICAL finding (Phase 1)."""
+        auditor = auditor_factory({}, phase=1)
         auditor.check_c3_session_separation()
         criticals = [f for f in auditor.result.findings if f.severity == "CRITICAL"]
         assert len(criticals) >= 1
 
     def test_c3_empty_log_is_critical(self, auditor_factory):
-        """When the log exists but has no parseable entries, C3 is CRITICAL."""
+        """When the log exists but has no parseable entries, C3 is CRITICAL (Phase 2)."""
         auditor = auditor_factory({
             ".methodology/sessions_spawn.log": "\n\n\n",
-        })
+        }, phase=2)
         auditor.check_c3_session_separation()
         criticals = [f for f in auditor.result.findings if f.severity == "CRITICAL"]
         assert len(criticals) >= 1
