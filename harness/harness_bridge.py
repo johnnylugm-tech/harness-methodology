@@ -718,6 +718,63 @@ class EnvCheckContext:
         )
 
 
+def _parse_spec_names_for_fr(spec_text: str, fr_id: str) -> list[str]:
+    """Extract test function names for *fr_id* from TEST_SPEC.md text.
+
+    Canonical parser used by both prepare_gate() and _parse_test_spec().
+    Terminates the current FR section on:
+      - A new ### FR-XX / ### NFR-XX header
+      - Any H2 heading (## …) — e.g. ## Cross-Cutting Integration Tests
+      - A horizontal rule (---) — used as section divider in some spec styles
+    Supports both old bullet-list format and the current Markdown-table format.
+    """
+    import re as _re
+    names: list[str] = []
+    current_fr = ""
+    in_table = False
+    for line in spec_text.splitlines():
+        stripped = line.strip()
+        # H3 FR/NFR header → switch section
+        m = _re.match(r"^###\s+([A-Z]+-\d+)(?:[:\s]|$)", stripped)
+        if m:
+            current_fr = m.group(1)
+            in_table = False
+            continue
+        # H2 heading (including ## Cross-Cutting) → close current section
+        if _re.match(r"^##\s+\S", stripped) and not stripped.startswith("###"):
+            current_fr = ""
+            in_table = False
+            continue
+        # Horizontal rule → close current table (but stay in same FR until next header)
+        if _re.match(r"^---+$", stripped) or _re.match(r"^\*\*\*+$", stripped):
+            in_table = False
+            continue
+        if current_fr != fr_id:
+            continue
+        # Old bullet-list format: - `test_foo`
+        fn_m = _re.match(r"^\s*-\s*`?(test_[^`\s]+)`?", line)
+        if fn_m:
+            names.append(fn_m.group(1))
+            continue
+        # Markdown table header row
+        if "|" in stripped and _re.search(r"Test Function", stripped, _re.IGNORECASE):
+            in_table = True
+            continue
+        # Table separator row
+        if in_table and _re.match(r"^\|[-| ]+\|$", stripped):
+            continue
+        # Table data row
+        if in_table and stripped.startswith("|") and stripped.endswith("|"):
+            cols = [c.strip() for c in stripped.split("|")[1:-1]]
+            if len(cols) >= 2:
+                raw_fn = cols[1].strip("`").strip()
+                if raw_fn.startswith("test_"):
+                    names.append(raw_fn)
+        elif in_table and not stripped.startswith("|") and stripped:
+            in_table = False
+    return names
+
+
 class HarnessBridge:
     """
     Gate lifecycle controller — two-phase API (prepare_gate → finalize_gate).
@@ -997,36 +1054,21 @@ class HarnessBridge:
             if _spec_path.exists():
                 try:
                     _spec_text = _spec_path.read_text(encoding="utf-8")
-                    _current_fr = ""
-                    _in_table = False
-                    for _line in _spec_text.splitlines():
-                        _stripped = _line.strip()
-                        _m = _re.match(r"^###\s+([A-Z]+-\d+)(?:[:\s]|$)", _stripped)
-                        if _m:
-                            _current_fr = _m.group(1)
-                            _in_table = False
-                            continue
-                        if _current_fr != fr_id:
-                            continue
-                        # Backward compatibility: old list format
-                        _fn_m = _re.match(r"^\s*-\s*`?(test_[^`\s]+)`?", _line)
-                        if _fn_m:
-                            _spec_names.append(_fn_m.group(1))
-                            continue
-                        # New Markdown table format
-                        if "|" in _stripped and _re.search(r"Test Function", _stripped, _re.IGNORECASE):
-                            _in_table = True
-                            continue
-                        if _in_table and _re.match(r"^\|[-| ]+\|$", _stripped):
-                            continue
-                        if _in_table and _stripped.startswith("|") and _stripped.endswith("|"):
-                            _cols = [_c.strip() for _c in _stripped.split("|")[1:-1]]
-                            if len(_cols) >= 3:
-                                _raw_fn = _cols[1].strip("`").strip()
-                                if _raw_fn.startswith("test_"):
-                                    _spec_names.append(_raw_fn)
-                        elif _in_table and not _stripped.startswith("|") and _stripped:
-                            _in_table = False
+                    _spec_names = _parse_spec_names_for_fr(_spec_text, fr_id)
+                    # Validate: warn if FR section exists but has no table header
+                    # (missing header means 0 spec names even though rows exist)
+                    import re as _re2
+                    _fr_section_exists = bool(
+                        _re2.search(r"^###\s+" + fr_id + r"(?:[:\s]|$)", _spec_text, _re2.MULTILINE)
+                    )
+                    if _fr_section_exists and not _spec_names:
+                        print(
+                            f"  [WARN] TEST_SPEC.md: {fr_id} section found but no test functions "
+                            f"parsed. Check that the section contains a valid table header row:\n"
+                            f"    | # | Test Function | Type | Derivation |\n"
+                            f"    |---|---|---|---|\n"
+                            f"  If the header row is missing, insert it above the data rows."
+                        )
                 except OSError:
                     pass
             if _spec_names and _test_file.exists():

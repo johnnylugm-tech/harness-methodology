@@ -2029,3 +2029,97 @@ class TestGate1PerFrCoverageCheck:
             {"phase": 4, "gate": 1, "fr_id": "FR-02", "ts": 3.0},
         ])
         assert self._run_check(tmp_path, 4) == 0
+
+
+# =============================================================================
+# _parse_spec_names_for_fr (harness_bridge)
+# =============================================================================
+
+class TestParseSpecNamesForFr:
+    """Tests for _parse_spec_names_for_fr — the canonical TEST_SPEC.md parser."""
+
+    def _parse(self, spec_text, fr_id):
+        from harness.harness_bridge import _parse_spec_names_for_fr
+        return _parse_spec_names_for_fr(spec_text, fr_id)
+
+    def test_basic_table(self):
+        spec = (
+            "### FR-01: Foo\n"
+            "| # | Test Function | Type | Derivation |\n"
+            "|---|---|---|---|\n"
+            "| 1 | `test_fr01_happy` | happy_path | Q1 |\n"
+        )
+        assert self._parse(spec, "FR-01") == ["test_fr01_happy"]
+
+    def test_cross_cutting_h2_stops_collection(self):
+        """Rows under ## Cross-Cutting must NOT be attributed to the previous FR."""
+        spec = (
+            "### FR-22: Last\n"
+            "| # | Test Function | Type | Derivation |\n"
+            "|---|---|---|---|\n"
+            "| 1 | `test_fr22_real` | happy_path | Q1 |\n"
+            "\n"
+            "## Cross-Cutting Integration Tests\n"
+            "| # | Test Function | Type | Derivation |\n"
+            "|---|---|---|---|\n"
+            "| 1 | `test_cross_something` | integration | Q5 |\n"
+        )
+        names = self._parse(spec, "FR-22")
+        assert "test_fr22_real" in names
+        assert "test_cross_something" not in names
+
+    def test_h2_non_cross_cutting_also_stops(self):
+        """Any H2 heading (not only ## Cross-Cutting) must close the current FR."""
+        spec = (
+            "### FR-01: Foo\n"
+            "| # | Test Function | Type | Derivation |\n"
+            "|---|---|---|---|\n"
+            "| 1 | `test_fr01_a` | happy_path | Q1 |\n"
+            "\n"
+            "## Security Red Team\n"
+            "| # | Test Function | Type | Derivation |\n"
+            "|---|---|---|---|\n"
+            "| 1 | `test_redteam_x` | security | Q9 |\n"
+        )
+        names = self._parse(spec, "FR-01")
+        assert "test_fr01_a" in names
+        assert "test_redteam_x" not in names
+
+    def test_horizontal_rule_closes_table(self):
+        """--- between FR section and next section must not cause bleed."""
+        spec = (
+            "### FR-05: Bar\n"
+            "| # | Test Function | Type | Derivation |\n"
+            "|---|---|---|---|\n"
+            "| 1 | `test_fr05_ok` | happy_path | Q1 |\n"
+            "\n"
+            "---\n"
+            "\n"
+            "## Other Section\n"
+            "| # | Test Function | Type | Derivation |\n"
+            "|---|---|---|---|\n"
+            "| 1 | `test_other_z` | integration | Q2 |\n"
+        )
+        names = self._parse(spec, "FR-05")
+        assert "test_fr05_ok" in names
+        assert "test_other_z" not in names
+
+    def test_missing_table_header_returns_empty(self):
+        """FR section with data rows but no header row → returns [] (warns caller)."""
+        spec = (
+            "### FR-22: Missing header\n"
+            "| 1 | `test_fr22_no_header` | happy_path | Q1 |\n"
+        )
+        # Without the table header row, parser cannot identify the table
+        assert self._parse(spec, "FR-22") == []
+
+    def test_old_bullet_list_format(self):
+        """Backward-compat: bullet-list format `- test_foo` still works."""
+        spec = (
+            "### FR-03: Old\n"
+            "- `test_fr03_legacy`\n"
+            "- test_fr03_also_legacy\n"
+        )
+        names = self._parse(spec, "FR-03")
+        assert "test_fr03_legacy" in names
+        assert "test_fr03_also_legacy" in names

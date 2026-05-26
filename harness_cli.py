@@ -767,11 +767,19 @@ def _parse_test_spec(spec_path: Path) -> list[dict]:
             header_skipped = False
             continue
 
-        # Detect Cross-Cutting section
-        if re.match(r"^##\s+Cross-Cutting", stripped):
-            current_fr = "cross_cutting"
+        # Detect any H2 section (## …) — prevents last FR bleeding into next section.
+        # Tags items under a normalised slug so they're traceable but won't be
+        # confused with real FR-IDs (which follow the FR-\d+ pattern).
+        if re.match(r"^##\s+\S", stripped) and not stripped.startswith("###"):
+            h2_text = re.sub(r"^##\s+", "", stripped).strip()
+            current_fr = re.sub(r"\W+", "_", h2_text.lower()).rstrip("_")[:30]
             in_table = False
             header_skipped = False
+            continue
+
+        # Horizontal rule — close current table without changing FR context
+        if re.match(r"^---+$", stripped) or re.match(r"^\*\*\*+$", stripped):
+            in_table = False
             continue
 
         # Detect table header row (| # | Test Function | ...)
