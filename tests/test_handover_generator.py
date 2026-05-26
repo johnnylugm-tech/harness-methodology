@@ -1476,9 +1476,8 @@ class TestCmdAdvancePhase:
             }))
 
         # Gate 1 per-FR coverage: gate_timestamps.jsonl must have one entry per FR
-        import time as _time
         ts_lines = [
-            _json.dumps({"phase": 3, "gate": 1, "fr_id": fr, "ts": _time.time()})
+            _json.dumps({"phase": 3, "gate": 1, "fr_id": fr, "ts": 1.0})
             for fr in ["FR-01", "FR-02", "FR-03"]
         ]
         (method_dir / "gate_timestamps.jsonl").write_text("\n".join(ts_lines) + "\n")

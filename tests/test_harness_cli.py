@@ -1968,42 +1968,8 @@ class TestGate1PerFrCoverageCheck:
         )
 
     def _run_check(self, tmp_path: Path, completed_phase: int) -> int:
-        """Extract just the Gate 1 per-FR logic from _advance_prechecks."""
-        import json as _json
         import harness_cli
-        manifest_path = tmp_path / ".methodology" / "quality_manifest.json"
-        fr_ids_manifest = []
-        if manifest_path.exists():
-            try:
-                fr_ids_manifest = _json.loads(
-                    manifest_path.read_text(encoding="utf-8")
-                ).get("fr_ids", [])
-            except Exception:
-                pass
-        if not fr_ids_manifest:
-            return 0
-        ts_file = tmp_path / ".methodology" / harness_cli._GATE_TIMESTAMPS_FILE
-        g1_covered = set()
-        if ts_file.exists():
-            try:
-                for tl in ts_file.read_text(encoding="utf-8").splitlines():
-                    tl = tl.strip()
-                    if not tl:
-                        continue
-                    try:
-                        te = _json.loads(tl)
-                        if (
-                            te.get("phase") == completed_phase
-                            and te.get("gate") == 1
-                            and te.get("fr_id") not in (None, "phase", "")
-                        ):
-                            g1_covered.add(te["fr_id"])
-                    except _json.JSONDecodeError:
-                        pass
-            except OSError:
-                pass
-        missing = [fr for fr in fr_ids_manifest if fr not in g1_covered]
-        return 14 if missing else 0
+        return harness_cli._check_gate1_per_fr_coverage(tmp_path, completed_phase)
 
     def test_all_frs_covered_returns_0(self, tmp_path):
         self._make_manifest(tmp_path, ["FR-01", "FR-02", "FR-03"])
