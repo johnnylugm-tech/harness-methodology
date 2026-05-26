@@ -75,8 +75,8 @@ def scan_test_fr_coverage(tests_dir: Path) -> Dict[str, List[str]]:
     if not tests_dir.is_dir():
         return fr_to_tests
     for test_file in tests_dir.rglob("test_*.py"):
-        # FR from filename: test_fr_01.py → FR-01
-        name_match = re.match(r'test_fr_(\d+)', test_file.name)
+        # FR from filename: test_fr_01.py or test_fr01.py → FR-01
+        name_match = re.match(r'test_fr_?(\d+)', test_file.name)
         if name_match:
             fr_id = _norm_fr(name_match.group(1))
             rel = str(test_file.relative_to(tests_dir.parent))
@@ -121,7 +121,7 @@ def _skip_path(p: Path) -> bool:
     """Exclude virtualenvs, caches, and harness internals."""
     skip_tokens = {"venv", "__pycache__", ".sessi-work", ".methodology",
                    ".git", "node_modules", ".mypy_cache", ".pytest_cache",
-                   ".ruff_cache", "dist", "build"}
+                   ".ruff_cache", "dist", "build", "harness"}
     parts = set(p.parts)
     if parts & skip_tokens:
         return True

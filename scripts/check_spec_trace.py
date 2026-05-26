@@ -93,7 +93,7 @@ def check_traceability(
     fr_to_tests: Dict[str, List[str]] = {}
     if tests_dir.is_dir():
         for test_file in tests_dir.rglob("test_*.py"):
-            name_match = re.match(r'test_fr_(\d+)', test_file.name)
+            name_match = re.match(r'test_fr_?(\d+)', test_file.name)
             if name_match:
                 fr_id = _norm_fr(name_match.group(1))
                 tested.add(fr_id)
@@ -242,7 +242,7 @@ def _find_sad(project: Path) -> Optional[Path]:
 def _skip_path(p: Path) -> bool:
     skip_tokens = {"venv", "__pycache__", ".sessi-work", ".methodology",
                    ".git", "node_modules", ".mypy_cache", ".pytest_cache",
-                   ".ruff_cache", "dist", "build"}
+                   ".ruff_cache", "dist", "build", "harness"}
     parts = set(p.parts)
     if parts & skip_tokens:
         return True
