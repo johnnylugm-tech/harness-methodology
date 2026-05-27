@@ -5562,7 +5562,13 @@ _DIMENSION_HINTS: dict[str, str] = {
     "secrets_scanning":   "Remove hard-coded secrets; move to env vars / vault; run `gitleaks detect`",
     "license_compliance": "Run `pip-licenses`; replace or vendor GPL/incompatible dependencies",
     "mutation_testing":   "Run `mutmut run`; add assertions that kill every surviving mutant",
-    "architecture":       "Verify imports comply with SAD.md layer boundaries; fix all violations",
+    "architecture":       (
+        "Two distinct failure modes — check tool_evidence to identify which applies: "
+        "(1) CRG community issues: if god-module (size>50) or low cohesion (all communities <0.4) — "
+        "either complete Devil's Advocate challenge to justify the design (Tier 3 prerequisite) "
+        "then re-run run-gate, OR reduce cross-package coupling so CRG detects sub-communities; "
+        "(2) Import boundary violations: verify imports comply with SAD.md layer boundaries and fix violations."
+    ),
     "readability":        "Add [FR-XX] docstrings with Citations:; split functions >30 lines",
     "error_handling":     "Wrap I/O and network calls in try/except with specific exception types",
     "documentation":      "All public APIs need [FR-XX] docstrings with Citations: + line numbers",
@@ -5614,9 +5620,7 @@ def _format_block_diagnostic(
         "",
         "Fix the failing dimensions above, then resume:",
         f"  python harness_cli.py run-gate --gate {gate_num} --phase {phase}"
-        f"{fr_flag} --project {project} --auto-fix-rounds {max_rounds}",
-        "  # or restart pipeline from this phase:",
-        f" --project {project} --auto-fix-rounds {max_rounds}",
+        f"{fr_flag} --project {project}",
         "─" * 60,
     ])
 
@@ -5646,9 +5650,7 @@ def _format_block_diagnostic(
         "```bash",
         f"python harness_cli.py run-gate --gate {gate_num} --phase {phase}"
         + (f" --fr-id {fr_id}" if fr_id else "")
-        + f" --project {project} --auto-fix-rounds {max_rounds}",
-        "# or:",
-        f" --project {project} --auto-fix-rounds {max_rounds}",
+        + f" --project {project}",
         "```",
     ]
     try:
