@@ -191,6 +191,29 @@ Tool command (for findings enrichment only — does not affect score):
 radon cc src/ -j --min A 2>&1 | head -200
 ```
 
+#### ⚠ Orchestrator Pattern False Positive (Expected CRG Score: 0)
+
+If your project has a single hub module (`pipeline.py`, `main.py`, `app.py`, etc.)
+that imports from ≥5 sub-packages, CRG Leiden algorithm will report `score = 0` because:
+- The hub creates a star topology → Leiden treats the whole codebase as one large community
+- `cohesion < 0.4` is expected (hub fan_out >> leaf fan_in ≤ 1)
+- This is **NOT** architectural debt — it is a valid hub-and-spoke / orchestrator design
+
+**Detection**: `list_communities` shows 1 large community (size > 50) AND
+`get_hub_nodes` shows 1 node with fan_out > 8, all other nodes fan_in ≤ 2.
+
+**Gate 3 path**: Complete the Devil's Advocate challenge (verify_round.md Step 4) and
+document that the orchestrator pattern is intentional. Gate 3 will block on score — note
+the justification in findings and proceed to Gate 4 with DA evidence.
+
+**Gate 4 path**: Set both fields in `gate4_result.json`:
+```json
+"devil_advocate": {"architecture": true, ...},
+"da_waiver":      {"architecture": true}
+```
+The harness `finalize_gate()` will bypass the architecture score threshold when both
+`devil_advocate.architecture` and `da_waiver.architecture` are `true`.
+
 ### readability (Tier 3)
 
 ```bash
@@ -209,6 +232,28 @@ Tool command (for findings enrichment only — does not affect score):
 ```bash
 grep -rn --include="*.py" "except\s*:" src/ 2>&1 | head -100
 ```
+
+#### What CRG Measures for Error Handling
+
+`flow_coverage.score` = `(flows_with_handler / total_flows) × 100`.
+
+A "flow" is a call-chain path traced by CRG between two functions.
+A flow "has a handler" when at least one node in the path is wrapped in a documented
+`try/except` block with a **specific** exception type (not bare `except:`).
+
+**Bare `except:` does NOT count** as a handler in CRG flow analysis — it is detected
+by the grep tool above and listed as a finding, but it does not improve the CRG score.
+
+**To identify which flows lack handlers:**
+```bash
+# Use CRG tools in findings enrichment step:
+# get_affected_flows  — lists flows by name and whether they have handlers
+# semantic_search_nodes "except"  — shows existing handlers for context
+```
+
+**Fix priority**: flows that call I/O, network, database, or external service functions
+with no `try/except SpecificException` wrapping.
+**Score formula**: `tool_score = round(100 × flows_with_handler / total_flows, 1)`
 
 ### documentation (Tier 3)
 ```bash

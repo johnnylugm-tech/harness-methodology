@@ -270,6 +270,18 @@ def classify(
     if is_hard_rule_violation(details):
         return (FixStrategy.HUMAN_REQUIRED, 0.0, 0, "hard_rule_violation", ErrorClass.HARD_VIOLATION)
 
+    # CRG-ONLY dimensions cannot be auto-fixed: architecture/error_handling scores are
+    # determined by CRG structural analysis; no automated code change can predictably
+    # improve community cohesion or flow coverage without human design decisions.
+    _CRG_ONLY_DIMS = {"architecture", "error_handling"}
+    _dimension = details.get("dimension", "")
+    if _dimension in _CRG_ONLY_DIMS:
+        return (
+            FixStrategy.HUMAN_REQUIRED, 0.0, 0,
+            f"crg_{_dimension}_low",
+            ErrorClass.GATE_FAILURE,
+        )
+
     # Check for actual secrets
     content = details.get("content", "")
     if content and is_actual_secret(content):

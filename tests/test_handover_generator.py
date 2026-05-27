@@ -2226,7 +2226,7 @@ class TestGate4Prerequisites:
         """When all prerequisites are satisfied, returns False (not blocked)."""
         from harness_cli import _check_gate4_prerequisites
         project = self._make_project(tmp_path)
-        assert _check_gate4_prerequisites(project) is False
+        assert _check_gate4_prerequisites(project)[0] is False
 
     def test_missing_hermes_receipt_not_blocked(self, tmp_path):
         """Hermes receipt is no longer required (A1 removed) — Gate 4 proceeds without it."""
@@ -2234,7 +2234,7 @@ class TestGate4Prerequisites:
         project = self._make_project(tmp_path)
         # Receipt file is never created — A1 check removed, missing receipt must NOT block
         assert not (project / ".methodology" / "hermes_g4_receipt.json").exists()
-        assert _check_gate4_prerequisites(project) is False
+        assert _check_gate4_prerequisites(project)[0] is False
 
     def test_tier1_dim_using_claude_blocked(self, tmp_path):
         """Tier 1/2 dim (linting) evaluated with Claude instead of gemini blocks (A2)."""
@@ -2246,7 +2246,7 @@ class TestGate4Prerequisites:
         data = _copy.deepcopy(_json.loads(result_file.read_text()))
         data["model_used"]["linting"] = "claude-sonnet"   # wrong — Tier 1 must use gemini
         result_file.write_text(_json.dumps(data))
-        assert _check_gate4_prerequisites(project) is True
+        assert _check_gate4_prerequisites(project)[0] is True
 
     def test_devil_advocate_missing_dim_blocked(self, tmp_path):
         """Tier 3 dim without devil_advocate=True blocks (A3)."""
@@ -2258,7 +2258,7 @@ class TestGate4Prerequisites:
         data = _copy.deepcopy(_json.loads(result_file.read_text()))
         data["devil_advocate"]["architecture"] = False
         result_file.write_text(_json.dumps(data))
-        assert _check_gate4_prerequisites(project) is True
+        assert _check_gate4_prerequisites(project)[0] is True
 
     def test_high_score_missing_confirmation_blocked(self, tmp_path):
         """Dim with llm_score ≥ 85 without full confirmation blocks (A4)."""
@@ -2271,7 +2271,7 @@ class TestGate4Prerequisites:
         # Remove one confirmation key
         data["high_score_confirmations"]["linting"]["crg_cited"] = False
         result_file.write_text(_json.dumps(data))
-        assert _check_gate4_prerequisites(project) is True
+        assert _check_gate4_prerequisites(project)[0] is True
 
     def test_missing_issue_registry_blocked(self, tmp_path):
         """Missing issue_registry file blocks (A5)."""
@@ -2279,7 +2279,7 @@ class TestGate4Prerequisites:
         from harness_cli import _check_gate4_prerequisites
         project = self._make_project(tmp_path)
         (project / ".methodology" / "issue_registry.json").unlink()
-        assert _check_gate4_prerequisites(project) is True
+        assert _check_gate4_prerequisites(project)[0] is True
 
     def test_empty_scores_dir_blocked(self, tmp_path):
         """Empty per-dim scores directory blocks (B2)."""
@@ -2287,7 +2287,7 @@ class TestGate4Prerequisites:
         project = self._make_project(tmp_path)
         for f in (project / ".sessi-work" / "round_1" / "scores").glob("*.json"):
             f.unlink()
-        assert _check_gate4_prerequisites(project) is True
+        assert _check_gate4_prerequisites(project)[0] is True
 
     def test_missing_scores_dir_blocked(self, tmp_path):
         """Missing scores directory blocks (B2)."""
@@ -2295,4 +2295,4 @@ class TestGate4Prerequisites:
         from harness_cli import _check_gate4_prerequisites
         project = self._make_project(tmp_path)
         _shutil.rmtree(project / ".sessi-work" / "round_1" / "scores")
-        assert _check_gate4_prerequisites(project) is True
+        assert _check_gate4_prerequisites(project)[0] is True

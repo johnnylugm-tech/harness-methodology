@@ -1866,23 +1866,51 @@ _TIER3_DIMS: frozenset[str] = frozenset({
 })
 # Score threshold that triggers the high-score confirmation requirement (A4)
 _HIGH_SCORE_THRESHOLD: float = 85.0
-# Per-dim score file directory (relative to project root)
+# Per-dim score file directory (relative to project root) — legacy fallback only
 _SCORES_SUBDIR = Path(".sessi-work") / "round_1" / "scores"
 
-def _check_gate4_prerequisites(project: Path) -> bool:
+
+def _find_latest_round_dir(project: Path) -> "tuple[Path, int] | None":
+    """Return (scores_dir, round_number) for the highest-numbered round_N with score files.
+
+    Looks for .sessi-work/round_N/scores/*.json directories and returns the one
+    with the largest N that actually contains score files.  Falls back to None
+    if .sessi-work doesn't exist or no round directories have score files.
+    """
+    sessi = project / ".sessi-work"
+    if not sessi.is_dir():
+        return None
+    rounds: list[tuple[Path, int]] = []
+    for d in sessi.iterdir():
+        if d.is_dir() and d.name.startswith("round_"):
+            suffix = d.name[len("round_"):]
+            if suffix.isdigit():
+                rounds.append((d, int(suffix)))
+    rounds.sort(key=lambda x: x[1], reverse=True)
+    for rd, rn in rounds:
+        scores_dir = rd / "scores"
+        if list(scores_dir.glob("*.json")):
+            return scores_dir, rn
+    return None
+
+
+def _check_gate4_prerequisites(project: Path) -> "tuple[bool, set[str]]":
     """
     Run all Gate 4 blocking prerequisites before calling bridge.finalize_gate.
 
-    Returns True (blocked) if any prerequisite fails, False (clear) otherwise.
+    Returns (blocked, da_waivers):
+        blocked    — True if any prerequisite fails
+        da_waivers — set of dimension names whose score threshold is waived via DA challenge
 
     Checks:
         A2 — model_used field: Tier 1/2 dims used gemini-flash
         A3 — devil_advocate field: all Tier 3 dims marked done
         A4 — high_score_confirmations: dims with llm_score ≥ 85 have 3-item confirmation
         A5 — issue_registry_path: file exists and is non-empty
-        B2 — per-dim score files exist under .sessi-work/round_1/scores/
+        B2 — per-dim score files exist in latest round_N/scores/ and have correct round field
     """
     blocked = False
+    da_waivers: set[str] = set()
 
     # ── Load gate4_result.json for A2/A3/A4/A5 ───────────────────────
     result_candidates = [
@@ -1946,6 +1974,21 @@ def _check_gate4_prerequisites(project: Path) -> bool:
                     file=sys.stderr,
                 )
                 blocked = True
+            else:
+                # DA challenge complete — collect any explicit score-threshold waivers.
+                # A waiver allows a CRG-ONLY dim (e.g. architecture) to pass even when its
+                # score is below the gate threshold, provided the DA challenge concluded the
+                # design is intentional (e.g. Orchestrator / hub-and-spoke pattern).
+                # Requires BOTH devil_advocate.<dim>=true AND da_waiver.<dim>=true.
+                _da_waiver_raw: dict = g4.get("da_waiver", {})
+                for _dim, _waived in _da_waiver_raw.items():
+                    if _waived and devil_advocate.get(_dim, False):
+                        da_waivers.add(_dim)
+                        print(
+                            f"[Gate 4] A3: DA waiver active for '{_dim}' "
+                            "(score threshold bypassed — DA challenge confirmed intentional design).",
+                            file=sys.stderr,
+                        )
 
         # ── A4: High-score confirmation (llm_score ≥ 85) ─────────────
         breakdown: dict = g4.get("breakdown", g4.get("dimensions", {}))
@@ -2020,8 +2063,15 @@ def _check_gate4_prerequisites(project: Path) -> bool:
                     )
                     blocked = True
 
-    # ── B2: Per-dim score files ───────────────────────────────────────
-    scores_dir = project / _SCORES_SUBDIR
+    # ── B2: Per-dim score files (latest round, stale-round detection) ────
+    _b2_latest = _find_latest_round_dir(project)
+    _b2_round: int | None = None
+    if _b2_latest is None:
+        # Fallback to hardcoded round_1 path for backward compat
+        scores_dir = project / _SCORES_SUBDIR
+    else:
+        scores_dir, _b2_round = _b2_latest
+
     if not scores_dir.is_dir():
         print(
             f"\n[BLOCKED] Gate 4 (B2): Per-dimension score directory not found.\n"
@@ -2031,7 +2081,6 @@ def _check_gate4_prerequisites(project: Path) -> bool:
         )
         blocked = True
     else:
-        # Check that at least one score file exists (exact dim names vary by config)
         score_files = list(scores_dir.glob("*.json"))
         if not score_files:
             print(
@@ -2041,7 +2090,38 @@ def _check_gate4_prerequisites(project: Path) -> bool:
             )
             blocked = True
         else:
-            print(f"[Gate 4] B2: {len(score_files)} per-dim score file(s) found ✅", file=sys.stderr)
+            # Stale-round detection: each score file's "round" field must match the directory number.
+            if _b2_round is not None:
+                stale_files = []
+                for sf in score_files:
+                    try:
+                        _sf_data = json.loads(sf.read_text(encoding="utf-8"))
+                        _sf_round = _sf_data.get("round")
+                        # Only flag if "round" is explicitly set to a different value.
+                        # Missing "round" is caught by score.py R1 (required field) — not stale.
+                        if _sf_round is not None and _sf_round != _b2_round:
+                            stale_files.append(
+                                f"{sf.name} (round={_sf_round!r}, expected {_b2_round})"
+                            )
+                    except Exception:
+                        pass  # unparseable files are caught by score.py R1 later
+                if stale_files:
+                    print(
+                        f"\n[BLOCKED] Gate 4 (B2): Stale score files detected in {scores_dir}:\n"
+                        + "\n".join(f"  - {s}" for s in stale_files) + "\n"
+                        "  Score files were copied from an earlier round without re-evaluation.\n"
+                        "  Re-run the SSI evaluation for each stale dimension.",
+                        file=sys.stderr,
+                    )
+                    blocked = True
+                else:
+                    print(
+                        f"[Gate 4] B2: {len(score_files)} per-dim score file(s) found "
+                        f"(round={_b2_round}) ✅",
+                        file=sys.stderr,
+                    )
+            else:
+                print(f"[Gate 4] B2: {len(score_files)} per-dim score file(s) found ✅", file=sys.stderr)
 
     # ── B3: CRG recon output existence ────────────────────────────────
     # If the gate config declares crg.reconnaissance: true, the CRG bridge
@@ -2090,7 +2170,7 @@ def _check_gate4_prerequisites(project: Path) -> bool:
     except Exception as _b3exc:
         print(f"[Gate 4] B3: CRG recon check error ({_b3exc}) — skipping", file=sys.stderr)
 
-    return blocked
+    return blocked, da_waivers
 
 # ---------------------------------------------------------------------------
 # finalize-gate  (Phase 2 of two-phase evaluation)
@@ -2249,8 +2329,9 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
             return 1
 
     # ── Gate 4 extra enforcement (A1/A2/A3/A4/A5/B2) ─────────────────
+    _da_waivers: set[str] = set()
     if args.gate == 4:
-        _gate4_block = _check_gate4_prerequisites(Path(project))
+        _gate4_block, _da_waivers = _check_gate4_prerequisites(Path(project))
         if _gate4_block:
             return 5
 
@@ -2263,7 +2344,7 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
     )
 
     try:
-        result = bridge.finalize_gate(ctx)
+        result = bridge.finalize_gate(ctx, da_waivers=_da_waivers)
         print(f"\nGATE {args.gate} PASSED")
         print(f"  score           : {result.score:.1f}")
         print(f"  quality_complete: {result.quality_complete}")
@@ -5570,7 +5651,12 @@ _DIMENSION_HINTS: dict[str, str] = {
         "(2) Import boundary violations: verify imports comply with SAD.md layer boundaries and fix violations."
     ),
     "readability":        "Add [FR-XX] docstrings with Citations:; split functions >30 lines",
-    "error_handling":     "Wrap I/O and network calls in try/except with specific exception types",
+    "error_handling":     (
+        "CRG flow_coverage score: percent of call-chain flows with at least one specific error handler. "
+        "Use `get_affected_flows` CRG tool to identify which flows lack handlers. "
+        "Fix: add try/except with specific exception types (not bare `except:`) to I/O, "
+        "network, and external service calls. Bare `except:` does NOT improve CRG score."
+    ),
     "documentation":      "All public APIs need [FR-XX] docstrings with Citations: + line numbers",
     "performance":        "Profile with cProfile; fix N+1 queries; add caching where needed",
 }

@@ -1111,7 +1111,11 @@ class HarnessBridge:
             _existing_spec_tests=_existing_spec,
         )
 
-    def finalize_gate(self, ctx: GateContext) -> GateResult:
+    def finalize_gate(
+        self,
+        ctx: GateContext,
+        da_waivers: "set[str] | None" = None,
+    ) -> GateResult:
         """
         Phase 2 of the two-phase gate evaluation API.
 
@@ -1120,6 +1124,9 @@ class HarnessBridge:
 
         Args:
             ctx: The GateContext returned by prepare_gate().
+            da_waivers: Optional set of dimension names whose score threshold is
+                bypassed because a Devil's Advocate challenge confirmed intentional
+                design (e.g. Orchestrator/hub-and-spoke architecture).
 
         Returns:
             GateResult if gate passes all thresholds.
@@ -1286,6 +1293,52 @@ class HarnessBridge:
                 for d in dims
             ]
 
+        # CRG-ONLY dimension override: harness enforces CRG scores for structural dimensions.
+        # architecture  ← crg_metrics.community_cohesion.score
+        # error_handling ← crg_metrics.flow_coverage.score
+        # Prevents LLM score fabrication for CRG-ONLY dims (score.py._apply_crg_subscores
+        # runs only when score.py is invoked; this enforces the same rule at finalize time).
+        _crg_overrides_applied = False
+        _crg_metrics_path = Path(ctx.work_dir) / "crg_metrics.json"
+        _CRG_ONLY_DIMS = {"architecture", "error_handling"}
+        if _crg_metrics_path.exists() and any(d.name in _CRG_ONLY_DIMS for d in dims):
+            try:
+                _crg_m = json.loads(_crg_metrics_path.read_text(encoding="utf-8"))
+                _cohesion = (_crg_m.get("community_cohesion") or {}).get("score")
+                _flow = (_crg_m.get("flow_coverage") or {}).get("score")
+                _new_dims = []
+                for _d in dims:
+                    if _d.name == "architecture" and _cohesion is not None:
+                        if abs(_d.score - _cohesion) > 1.5:
+                            print(
+                                f"[harness] CRG override architecture: {_d.score:.1f} → {_cohesion:.1f} "
+                                "(crg_metrics.community_cohesion.score)"
+                            )
+                            _crg_overrides_applied = True
+                        _new_dims.append(_dc.replace(_d, score=float(_cohesion)))
+                    elif _d.name == "error_handling" and _flow is not None:
+                        if abs(_d.score - _flow) > 1.5:
+                            print(
+                                f"[harness] CRG override error_handling: {_d.score:.1f} → {_flow:.1f} "
+                                "(crg_metrics.flow_coverage.score)"
+                            )
+                            _crg_overrides_applied = True
+                        _new_dims.append(_dc.replace(_d, score=float(_flow)))
+                    else:
+                        _new_dims.append(_d)
+                dims = _new_dims
+            except Exception as _crg_err:
+                print(
+                    f"[harness] WARNING: crg_metrics.json parse error ({_crg_err}) "
+                    "— using agent scores for CRG-ONLY dimensions"
+                )
+        elif any(d.name in _CRG_ONLY_DIMS for d in dims):
+            print(
+                "[harness] WARNING: crg_metrics.json not found — "
+                "architecture/error_handling scores are unverified (agent-reported values used). "
+                "Run crg_analysis.py metrics before finalize-gate."
+            )
+
         # SG-2 (robustness audit): per-dimension variance sanity check.
         # If ≥3 dimensions all share the SAME score, that's suspiciously uniform
         # — Claude's per-dim evaluation should produce naturally varied scores.
@@ -1313,8 +1366,10 @@ class HarnessBridge:
             pass  # variance check is advisory — never block finalize
 
         # ── Fallback: derive overall_score from breakdown if agent omitted it ──
+        # When CRG overrides changed dim scores, skip the agent-reported overall_score
+        # (it was computed before the override) and recompute from corrected dims.
         _raw_overall = raw.get("overall_score", raw.get("score"))
-        if _raw_overall is not None:
+        if _raw_overall is not None and not _crg_overrides_applied:
             _overall_score = float(_raw_overall)
         elif dims and _dim_weights:
             # Compute weighted average from breakdown using gate config weights
@@ -1371,9 +1426,18 @@ class HarnessBridge:
             scores={"gate_score": result.score},
         ))
 
+        # DA waivers: zero out threshold for dimensions whose design was justified by a
+        # Devil's Advocate challenge (e.g. Orchestrator pattern → architecture score 0 is OK).
+        _effective_dims = result.dimensions
+        if da_waivers:
+            _effective_dims = [
+                _dc.replace(d, threshold=0.0) if d.name in da_waivers else d
+                for d in result.dimensions
+            ]
+
         # Gate 1: per-dimension threshold check
         if ctx.gate_num == 1:
-            if any(d.score < d.threshold for d in result.dimensions):
+            if any(d.score < d.threshold for d in _effective_dims):
                 self._trigger_hooks(ctx, "on_gate_fail")
                 raise GateBlockedError(ctx.gate_num, result)
         else:
@@ -1381,7 +1445,13 @@ class HarnessBridge:
                 score_gate = ctx.config.score_gate
             else:
                 score_gate = ctx.config.get("score_gate", 0)
-            if result.score < score_gate or not result.quality_complete:
+            # Recompute quality_complete against effective (waived) thresholds when waivers apply.
+            _eff_qc = result.quality_complete
+            if da_waivers and result.dimensions:
+                _eff_qc = result.score >= score_gate and all(
+                    d.score >= d.threshold for d in _effective_dims
+                )
+            if result.score < score_gate or not _eff_qc:
                 self._trigger_hooks(ctx, "on_gate_fail")
                 raise GateBlockedError(ctx.gate_num, result)
 
