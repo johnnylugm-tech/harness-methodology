@@ -336,7 +336,9 @@ class ReviewerRouter:
 
         Subtasks with no pending dependencies form a wave and run concurrently.
         Each wave waits for completion before the next wave begins.
-        Any REJECT short-circuits: pending futures are cancelled and REJECT is returned.
+        Any REJECT short-circuits: not-yet-started futures are cancelled, in-progress
+        futures are abandoned (shutdown wait=False) so the caller returns immediately
+        without blocking on slow sibling reviewers.
         """
         label_to_subtask = {s.label: s for s in subtasks}
         approved_context: list[str] = []
@@ -360,39 +362,45 @@ class ReviewerRouter:
 
             remaining = [s for s in remaining if s not in wave]
 
-            with ThreadPoolExecutor(max_workers=len(wave)) as executor:
-                futures = {
-                    executor.submit(
-                        self._try_chain,
-                        role,
-                        self._enrich_with_context(s, approved_context),
-                        phase,
-                        fr_id,
-                        timeout_ms,
-                        s.index,
-                        s.total,
-                    ): s
-                    for s in wave
-                }
+            # Create executor explicitly (not as context manager) so that on REJECT we
+            # can call shutdown(wait=False) and return immediately without blocking on
+            # in-progress sibling futures.
+            executor = ThreadPoolExecutor(max_workers=len(wave))
+            futures = {
+                executor.submit(
+                    self._try_chain,
+                    role,
+                    self._enrich_with_context(s, approved_context),
+                    phase,
+                    fr_id,
+                    timeout_ms,
+                    s.index,
+                    s.total,
+                ): s
+                for s in wave
+            }
 
-                for future in as_completed(futures):
-                    subtask = futures[future]
-                    result = future.result()
-                    all_results.append(result)
+            for future in as_completed(futures):
+                subtask = futures[future]
+                result = future.result()
+                all_results.append(result)
 
-                    if result.get("review_status") == "REJECT":
-                        # Cancel remaining futures in this wave
-                        for f in futures:
-                            f.cancel()
-                        result["_stopped_at"] = subtask.label
-                        result["_completed_subtasks"] = len(all_results)
-                        result["_total_subtasks"] = subtasks[-1].total if subtasks else 1
-                        return self._merge_results(all_results)
+                if result.get("review_status") == "REJECT":
+                    # cancel_futures=True drops not-yet-started futures.
+                    # wait=False abandons in-progress ones — they complete in the
+                    # background but we don't block on them.
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    result["_stopped_at"] = subtask.label
+                    result["_completed_subtasks"] = len(all_results)
+                    result["_total_subtasks"] = subtasks[-1].total if subtasks else 1
+                    return self._merge_results(all_results)
 
-                    summary = result.get("summary", "")
-                    if summary:
-                        with lock:
-                            approved_context.append(f"✅ [{subtask.label}] {summary}")
+                summary = result.get("summary", "")
+                if summary:
+                    with lock:
+                        approved_context.append(f"✅ [{subtask.label}] {summary}")
+
+            executor.shutdown(wait=True)
 
             # Update pending_deps for the next wave
             for s in remaining:
