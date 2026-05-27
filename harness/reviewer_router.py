@@ -7,6 +7,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -176,36 +178,12 @@ class ReviewerRouter:
           _reviewer_used, _degraded, _degradation, _degradation_note
           _subtask_count (if multi-subtask), _stopped_at (if REJECT mid-chain)
         """
-        subtasks = self._decompose_with_deps(prompt, role)
+        subtasks = self._decompose_with_deps(prompt, role, phase)
 
         if len(subtasks) == 1:
             return self._try_chain(role, subtasks[0].content, phase, fr_id, timeout_ms)
 
-        # Sequential A/B execution: one complete review cycle per subtask
-        results: list[dict] = []
-        approved_context: list[str] = []   # Summaries of approved subtasks for context injection
-
-        for subtask in subtasks:
-            enriched = self._enrich_with_context(subtask, approved_context)
-            result = self._try_chain(
-                role, enriched, phase, fr_id, timeout_ms,
-                task_idx=subtask.index, task_total=subtask.total,
-            )
-            results.append(result)
-
-            if result.get("review_status") == "REJECT":
-                # Stop — do NOT proceed to dependent subtasks
-                result["_stopped_at"] = subtask.label
-                result["_completed_subtasks"] = len(results)
-                result["_total_subtasks"] = subtask.total
-                return self._merge_results(results)
-
-            # Accumulate approved summary for context injection into future subtasks
-            summary = result.get("summary", "")
-            if summary:
-                approved_context.append(f"✅ [{subtask.label}] {summary}")
-
-        return self._merge_results(results)
+        return self._execute_parallel_waves(role, subtasks, phase, fr_id, timeout_ms)
 
     # ------------------------------------------------------------------
     # Chain execution (per individual subtask)
@@ -231,7 +209,10 @@ class ReviewerRouter:
                 continue
 
             if spec.name == "subagent":
-                result = self._try_subagent(role, prompt, phase, fr_id)
+                # Use the caller-supplied timeout, not a per-spec timeout that may have
+                # been set by a prior backend (e.g. Gemini's 60 s). Fall back to 300 s.
+                task_timeout_s = int(timeout_ms / 1000) if timeout_ms is not None else 300
+                result = self._try_subagent(role, prompt, phase, fr_id, task_timeout_s=task_timeout_s)
                 result["_reviewer_used"] = "subagent"
                 result["_degradation"] = degradation_log
                 if degradation_log:
@@ -316,7 +297,8 @@ class ReviewerRouter:
                 break
         return raw.strip()
 
-    def _try_subagent(self, role: str, prompt: str, phase: int, fr_id: str | None) -> dict:
+    def _try_subagent(self, role: str, prompt: str, phase: int, fr_id: str | None,
+                      task_timeout_s: int = 300) -> dict:
         """Graceful degradation to current-model sub-agent. Never fails."""
         try:
             from core.agent_spawner import AgentSpawner  # lazy import — avoids circular dep
@@ -325,6 +307,7 @@ class ReviewerRouter:
                 role=role, prompt=prompt,
                 context={"degraded": True, "reason": "reviewer_chain_exhausted"},
                 model="claude", phase=phase, fr_id=fr_id,
+                task_timeout=task_timeout_s,
             )
             return result if isinstance(result, dict) else {"output": str(result), "status": "complete"}
         except Exception as exc:
@@ -340,7 +323,84 @@ class ReviewerRouter:
     # Task decomposition — structured + dependency-aware
     # ------------------------------------------------------------------
 
-    def _decompose_with_deps(self, prompt: str, role: str) -> list[SubTask]:
+    def _execute_parallel_waves(
+        self,
+        role: str,
+        subtasks: list[SubTask],
+        phase: int,
+        fr_id: str | None,
+        timeout_ms: int | None,
+    ) -> dict:
+        """
+        Execute subtasks in dependency-ordered waves using ThreadPoolExecutor.
+
+        Subtasks with no pending dependencies form a wave and run concurrently.
+        Each wave waits for completion before the next wave begins.
+        Any REJECT short-circuits: pending futures are cancelled and REJECT is returned.
+        """
+        label_to_subtask = {s.label: s for s in subtasks}
+        approved_context: list[str] = []
+        lock = threading.Lock()
+
+        # Compute remaining in-degree for each subtask
+        pending_deps: dict[str, set[str]] = {
+            s.label: set(d for d in s.dependencies if d in label_to_subtask)
+            for s in subtasks
+        }
+
+        all_results: list[dict] = []
+        remaining = list(subtasks)
+
+        while remaining:
+            # Collect subtasks whose dependencies are all satisfied
+            wave = [s for s in remaining if not pending_deps[s.label]]
+            if not wave:
+                # Dependency cycle guard: break by taking the first remaining
+                wave = [remaining[0]]
+
+            remaining = [s for s in remaining if s not in wave]
+
+            with ThreadPoolExecutor(max_workers=len(wave)) as executor:
+                futures = {
+                    executor.submit(
+                        self._try_chain,
+                        role,
+                        self._enrich_with_context(s, approved_context),
+                        phase,
+                        fr_id,
+                        timeout_ms,
+                        s.index,
+                        s.total,
+                    ): s
+                    for s in wave
+                }
+
+                for future in as_completed(futures):
+                    subtask = futures[future]
+                    result = future.result()
+                    all_results.append(result)
+
+                    if result.get("review_status") == "REJECT":
+                        # Cancel remaining futures in this wave
+                        for f in futures:
+                            f.cancel()
+                        result["_stopped_at"] = subtask.label
+                        result["_completed_subtasks"] = len(all_results)
+                        result["_total_subtasks"] = subtasks[-1].total if subtasks else 1
+                        return self._merge_results(all_results)
+
+                    summary = result.get("summary", "")
+                    if summary:
+                        with lock:
+                            approved_context.append(f"✅ [{subtask.label}] {summary}")
+
+            # Update pending_deps for the next wave
+            for s in remaining:
+                pending_deps[s.label] -= {w.label for w in wave}
+
+        return self._merge_results(all_results)
+
+    def _decompose_with_deps(self, prompt: str, role: str, phase: int = 0) -> list[SubTask]:
         """
         Decompose large prompts into dependency-ordered SubTask list.
 
@@ -354,8 +414,13 @@ class ReviewerRouter:
         (label A's content mentions label B → A depends on B).
         Kahn's topological sort produces execution order with no cycles.
 
+        P1/P2: always returns a single SubTask (holistic deliverable review).
         Returns [single SubTask] unchanged if decomposition not needed.
         """
+        # P1/P2: whole-deliverable review — never decompose into FR subtasks
+        if phase in {1, 2}:
+            return [SubTask(content=prompt, label="full_deliverable", index=1, total=1)]
+
         if len(prompt) <= TASK_SIZE_THRESHOLD:
             return [SubTask(content=prompt, label="full_task", index=1, total=1)]
 

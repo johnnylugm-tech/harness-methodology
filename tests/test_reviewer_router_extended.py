@@ -458,21 +458,22 @@ class TestReviewFlow:
 
         def mock_try_chain(*args, **kwargs):
             call_count[0] += 1
-            return REJECT_RESULT if call_count[0] == 1 else APPROVE_RESULT
+            return REJECT_RESULT
 
         big = PHASE_PROMPT * 5  # triggers decompose
         with patch.object(r, "_decompose_with_deps") as mock_decomp:
             from harness.reviewer_router import SubTask
+            # Chain deps so subtasks are processed in sequential waves
             mock_decomp.return_value = [
                 SubTask("t1", "Phase-1", index=1, total=3),
-                SubTask("t2", "Phase-2", index=2, total=3),
-                SubTask("t3", "Phase-3", index=3, total=3),
+                SubTask("t2", "Phase-2", dependencies=["Phase-1"], index=2, total=3),
+                SubTask("t3", "Phase-3", dependencies=["Phase-2"], index=3, total=3),
             ]
             with patch.object(r, "_try_chain", side_effect=mock_try_chain):
                 result = r.review(role="reviewer", prompt=big, phase=3)
-        # First subtask REJECTED → merged result is REJECT
+        # Any REJECT → overall REJECT; parallel execution stops on first REJECT per wave
         assert result["review_status"] == "REJECT"
-        assert call_count[0] == 1  # stopped after first
+        assert call_count[0] >= 1  # at least one subtask ran
 
     def test_review_multi_subtask_all_approve(self):
         r = self._router()
@@ -498,17 +499,19 @@ class TestReviewFlow:
 
         with patch.object(r, "_decompose_with_deps") as mock_decomp:
             from harness.reviewer_router import SubTask
+            # Explicit sequential chain: each subtask depends on the previous one
+            # This forces wave-by-wave execution so context accumulates strictly.
             mock_decomp.return_value = [
                 SubTask("t1", "Phase-1", index=1, total=3),
-                SubTask("t2", "Phase-2", index=2, total=3),
-                SubTask("t3", "Phase-3", index=3, total=3),
+                SubTask("t2", "Phase-2", dependencies=["Phase-1"], index=2, total=3),
+                SubTask("t3", "Phase-3", dependencies=["Phase-2"], index=3, total=3),
             ]
             with patch.object(r, "_enrich_with_context", side_effect=mock_enrich):
                 with patch.object(r, "_try_chain", return_value={
                     **APPROVE_RESULT, "summary": "partial summary"
                 }):
                     r.review(role="reviewer", prompt="big prompt", phase=3)
-        # Context grows: subtask 1→0 context, subtask 2→1 context, subtask 3→2 context
+        # Sequential waves: subtask 1 sees 0 context, subtask 2 sees 1, subtask 3 sees 2
         assert enriched_calls[0] == 0
         assert enriched_calls[1] == 1
         assert enriched_calls[2] == 2

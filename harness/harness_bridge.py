@@ -718,6 +718,19 @@ class EnvCheckContext:
         )
 
 
+def _extract_fr_section(srs_text: str, fr_id: str) -> str:
+    """Extract the ### FR-XX: section from SRS.md for a given fr_id.
+
+    Falls back to the full text (up to 60K chars) if the section is not found.
+    """
+    pattern = re.compile(
+        rf"(^### {re.escape(fr_id)}[:\s].*?)(?=^###\s+(?:FR|NFR)-|^##\s+|^---+|\Z)",
+        re.MULTILINE | re.DOTALL,
+    )
+    m = pattern.search(srs_text)
+    return m.group(1).strip() if m else srs_text[:60_000]
+
+
 def _parse_spec_names_for_fr(spec_text: str, fr_id: str) -> list[str]:
     """Extract test function names for *fr_id* from TEST_SPEC.md text.
 
@@ -843,7 +856,7 @@ class HarnessBridge:
                 break
         sad_excerpt = ""
         if sad_full:
-            max_sad = 8000
+            max_sad = 60_000
             if len(sad_full) > max_sad:
                 sad_excerpt = (
                     sad_full[:max_sad]
@@ -866,8 +879,10 @@ class HarnessBridge:
                 break
         srs_excerpt = ""
         if srs_full:
-            max_srs = 6000
-            if len(srs_full) > max_srs:
+            max_srs = 60_000
+            if fr_id:
+                srs_excerpt = _extract_fr_section(srs_full, fr_id)
+            elif len(srs_full) > max_srs:
                 srs_excerpt = (
                     srs_full[:max_srs]
                     + f"\n\n[... truncated at {max_srs} chars — full content at {srs_path} ...]"

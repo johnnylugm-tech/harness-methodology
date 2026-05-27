@@ -3953,13 +3953,18 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
     # Reviewer dispatches only need a single response turn; cap at 3 to prevent runaway.
     _explicit_max_turns = getattr(args, "max_turns", None)
     effective_max_turns = _explicit_max_turns if _explicit_max_turns is not None else (3 if is_reviewer else 20)
+    # P1/P2 developer dispatches need more time to process large SPEC documents.
+    # Use None sentinel to distinguish "user didn't specify" from explicit --timeout 300.
+    _raw_timeout: int | None = args.timeout
+    if _raw_timeout is None:
+        _raw_timeout = 1200 if (args.phase in {1, 2} and not is_reviewer) else 300
     result = spawner.spawn(
         role=args.role,
         prompt=_prompt,
         context={"phase": args.phase, "fr_id": args.fr_id},
         phase=args.phase,
         fr_id=args.fr_id,
-        task_timeout=getattr(args, "timeout", 300),
+        task_timeout=_raw_timeout,
         max_turns=effective_max_turns,
         persona_override=persona_override,
         phase_sop_override=sop_override,
@@ -6914,8 +6919,8 @@ def build_parser() -> argparse.ArgumentParser:
     dp.add_argument("--prompt",  default="", help="Task prompt for the agent")
     dp.add_argument("--phase",   type=int, default=0, help="Phase number")
     dp.add_argument("--project", default=".", help="Project root (default: .)")
-    dp.add_argument("--timeout", type=int, default=300, dest="timeout",
-                    help="Max execution time in seconds (default: 300). Increase for large-document phases (P1/P2).")
+    dp.add_argument("--timeout", type=int, default=None, dest="timeout",
+                    help="Max execution time in seconds (default: 1200 for P1/P2 developer, 300 otherwise).")
     dp.add_argument("--max-turns", type=int, default=None, dest="max_turns",
                     help="Max tool-using turns (default: 3 for reviewer roles, 20 for others).")
     dp.add_argument("--no-persona", action="store_true", dest="no_persona",

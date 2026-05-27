@@ -848,3 +848,80 @@ class TestCheckTestSkipRatio:
         raw = self._raw("45 passed, 5 skipped in 0.5s")
         assert _check_test_skip_ratio(raw, threshold=0.10) is None
         assert _check_test_skip_ratio(raw, threshold=0.05) is not None
+
+
+# ── Layer 4: SRS/SAD truncation fix + FR extraction ──────────────────────────
+
+class TestPrepareEnvCheckLargeDocuments:
+    """Verify that large SRS/SAD files are no longer truncated at 6K/8K chars."""
+
+    def _make_bridge(self, tmp_path: Path, srs_content: str = "", sad_content: str = "") -> "HarnessBridge":
+        if srs_content:
+            (tmp_path / "SRS.md").write_text(srs_content, encoding="utf-8")
+        if sad_content:
+            (tmp_path / "SAD.md").write_text(sad_content, encoding="utf-8")
+        return HarnessBridge()
+
+    def test_srs_within_60k_not_truncated(self, tmp_path):
+        srs = "x" * 55_000  # 55KB < 60K new limit (was truncated at old 6K)
+        bridge = self._make_bridge(tmp_path, srs_content=srs)
+        ctx = bridge.prepare_env_check(project_root=str(tmp_path), phase=1)
+        assert "[... truncated" not in ctx.srs_excerpt
+        assert len(ctx.srs_excerpt) == 55_000
+
+    def test_sad_within_60k_not_truncated(self, tmp_path):
+        sad = "y" * 58_000  # 58KB < 60K new limit (was truncated at old 8K)
+        bridge = self._make_bridge(tmp_path, sad_content=sad)
+        ctx = bridge.prepare_env_check(project_root=str(tmp_path), phase=2)
+        assert "[... truncated" not in ctx.sad_excerpt
+        assert len(ctx.sad_excerpt) == 58_000
+
+    def test_srs_over_60k_truncated_at_new_limit(self, tmp_path):
+        srs = "z" * 70_000  # 70KB > new 60K limit
+        bridge = self._make_bridge(tmp_path, srs_content=srs)
+        ctx = bridge.prepare_env_check(project_root=str(tmp_path), phase=1)
+        assert "[... truncated at 60000 chars" in ctx.srs_excerpt
+
+    def test_fr_specific_extraction_returns_section(self, tmp_path):
+        srs = (
+            "# SRS\n\n"
+            "### FR-01: Login\nAcceptance: user can log in.\n\n"
+            "### FR-02: Logout\nAcceptance: user can log out.\n\n"
+            "### FR-03: Profile\nAcceptance: user can update profile.\n"
+        )
+        bridge = self._make_bridge(tmp_path, srs_content=srs)
+        ctx = bridge.prepare_env_check(project_root=str(tmp_path), phase=1, fr_id="FR-02")
+        assert "FR-02" in ctx.srs_excerpt
+        assert "FR-01" not in ctx.srs_excerpt
+        assert "FR-03" not in ctx.srs_excerpt
+
+    def test_fr_extraction_fallback_when_section_missing(self, tmp_path):
+        srs = "# SRS\n\n### FR-01: Login\ndetails\n"
+        bridge = self._make_bridge(tmp_path, srs_content=srs)
+        ctx = bridge.prepare_env_check(project_root=str(tmp_path), phase=1, fr_id="FR-99")
+        # FR-99 not found → returns up to 60K of full text
+        assert "FR-01" in ctx.srs_excerpt
+
+
+class TestExtractFrSection:
+    """Unit tests for the _extract_fr_section helper."""
+
+    def test_extracts_correct_section(self):
+        from harness.harness_bridge import _extract_fr_section
+        srs = "### FR-01: A\ndetail a\n\n### FR-02: B\ndetail b\n\n### FR-03: C\ndetail c\n"
+        result = _extract_fr_section(srs, "FR-02")
+        assert "detail b" in result
+        assert "detail a" not in result
+        assert "detail c" not in result
+
+    def test_returns_fallback_when_not_found(self):
+        from harness.harness_bridge import _extract_fr_section
+        srs = "some content without matching FR"
+        result = _extract_fr_section(srs, "FR-42")
+        assert result == srs[:60_000]
+
+    def test_handles_last_section_in_file(self):
+        from harness.harness_bridge import _extract_fr_section
+        srs = "### FR-01: A\ndetail a\n\n### FR-02: Last\nfinal content here\n"
+        result = _extract_fr_section(srs, "FR-02")
+        assert "final content here" in result
