@@ -1235,9 +1235,9 @@ def _phase_advance_step(phase: int, dynamic: bool = False) -> List[str]:
 
 
 
-def _dynamic_phase_context_block(phase: int) -> List[str]:
+def _dynamic_phase_context_block(phase: int, has_fr_template: bool = True) -> List[str]:
     """[PHASE-CONTEXT] block — load FR data at execution time (dynamic plans only)."""
-    return [
+    result = [
         "### 🔄 [PHASE-CONTEXT] — Load Before Starting",
         "",
         "```bash",
@@ -1245,9 +1245,11 @@ def _dynamic_phase_context_block(phase: int) -> List[str]:
         f"  > .sessi-work/phase{phase}_ctx.json",
         "```",
         "> Outputs `fr_ids`, `fr_details`, `modules` from current project state.",
-        "> All `{FR-ID}` references in tasks below come from this file.",
-        "",
     ]
+    if has_fr_template:
+        result.append("> All `{FR-ID}` references in tasks below come from this file.")
+    result.append("")
+    return result
 
 
 def _dynamic_fr_template_block(phase: int) -> List[str]:
@@ -1282,15 +1284,16 @@ def _dynamic_fr_template_block(phase: int) -> List[str]:
     ]
 
 
-def _p3_milestone_push_steps(fr_ids: List[str]) -> List[str]:
+def _p3_milestone_push_steps(fr_ids: List[str], dynamic: bool = False) -> List[str]:
     """P3 milestone push instructions (PUSH ③ at ≥50% FRs, PUSH ④ pre-Gate2)."""
-    return _milestone_push_steps(fr_ids, phase=3, pre_gate=2, push_prefixes=("③", "④"))
+    return _milestone_push_steps(fr_ids, phase=3, pre_gate=2, push_prefixes=("③", "④"), dynamic=dynamic)
 
 
 def _milestone_push_steps(fr_ids: List[str], phase: int,
                           pre_gate: int | None = None,
                           push_prefixes: tuple[str, str] = ("", ""),
-                          header_note: str = "") -> List[str]:
+                          header_note: str = "",
+                          dynamic: bool = False) -> List[str]:
     """Phase milestone push instructions (mid + pre-gate push checkpoints).
 
     Args:
@@ -1299,17 +1302,26 @@ def _milestone_push_steps(fr_ids: List[str], phase: int,
         push_prefixes: (mid_label, pre_gate_label) — e.g. ("③", "④") for P3.
             Omit for phases without dedicated push numbers (P4+).
         header_note: Optional note appended to the section header (e.g. for P4 variant labels).
+        dynamic: If True, output placeholder instructions when fr_ids is empty
+            (execution-time user fills in FR IDs from load-context).
     """
     if not fr_ids:
-        return []
-    total = len(fr_ids)
-    mid = max(1, total // 2)
-    mid_ids = ",".join(fr_ids[:mid])
-    full_ids = ",".join(fr_ids)
-    if len(fr_ids) > 5:
-        _visual = ",".join(fr_ids[:5]) + f",…+{len(fr_ids) - 5}"
+        if not dynamic:
+            return []
+        total = "N"
+        mid = "≥50%"
+        mid_ids = "<comma-separated FR-IDs with Gate 1 PASS>"
+        full_ids = "<comma-separated FR-IDs with Gate 1 PASS>"
+        _visual = "<FR-01,FR-02,…>"
     else:
-        _visual = full_ids
+        total = len(fr_ids)
+        mid = max(1, total // 2)
+        mid_ids = ",".join(fr_ids[:mid])
+        full_ids = ",".join(fr_ids)
+        if len(fr_ids) > 5:
+            _visual = ",".join(fr_ids[:5]) + f",…+{len(fr_ids) - 5}"
+        else:
+            _visual = full_ids
 
     _mid_prefix = f"PUSH {push_prefixes[0]} — " if push_prefixes[0] else ""
     _pre_prefix = f"PUSH {push_prefixes[1]} — " if push_prefixes[1] else ""
@@ -1524,7 +1536,7 @@ def generate_phase1_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
         lines.extend(_deliverable_ab_block(1, d, i, total, label_to_sub_n))
 
     if dynamic:
-        lines.extend(_dynamic_phase_context_block(1))
+        lines.extend(_dynamic_phase_context_block(1, has_fr_template=False))
     else:
         # FR/NFR summary (informational — parsed from already-APPROVED SRS.md if exists)
         frs = parse_srs_fr_sections(srs_path)
@@ -1606,7 +1618,7 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
         lines.extend(_deliverable_ab_block(2, d, i, total, label_to_sub_n))
 
     if dynamic:
-        lines.extend(_dynamic_phase_context_block(2))
+        lines.extend(_dynamic_phase_context_block(2, has_fr_template=False))
     else:
         frs = parse_srs_fr_sections(srs_path)
         modules = parse_sad_modules(repo_path)
@@ -1674,6 +1686,7 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
         lines.extend(_preflight_steps(3))
         lines.extend(_dynamic_phase_context_block(3))
         lines.extend(_dynamic_fr_template_block(3))
+        lines.extend(_p3_milestone_push_steps(fr_ids, dynamic=True))
     else:
         frs = parse_srs_fr_sections(srs_path)
         modules = parse_sad_modules(repo_path)
@@ -1856,7 +1869,24 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
         lines.extend(_entry_gate_check(4))
         lines.extend(_preflight_steps(4))
         lines.extend(_dynamic_phase_context_block(4))
+        # ── CHECKPOINT-0: Generate TEST_PLAN.md before any FR testing ─────────
+        lines.append("### CHECKPOINT-0: Generate TEST_PLAN.md")
+        lines.append("")
+        lines.append("> Generate `04-testing/TEST_PLAN.md` from SRS.md FR acceptance criteria.")
+        lines.append("> This step runs once before per-FR test execution.")
+        lines.append("")
+        lines.append("**Generate TEST_PLAN.md** (orchestrator runs directly — not a sub-agent dispatch):")
+        lines.append("- [ ] Read SRS.md FR acceptance criteria → write TEST_PLAN.md with per-FR test cases")
+        lines.append("  - For each FR: test case ID, description, input, expected output, priority")
+        lines.append("  - Include positive, negative, boundary, and edge case categories")
+        lines.append("  - Output: `04-testing/TEST_PLAN.md`")
+        lines.append("- [ ] Verify TEST_PLAN.md covers all FRs from manifest/quality_manifest.json")
+        lines.append("- [ ] **[TP-DONE]** TEST_PLAN.md written: all FRs have ≥1 test case, NFRs addressed")
+        lines.append("")
         lines.extend(_dynamic_fr_template_block(4))
+        lines.extend(_milestone_push_steps(fr_ids, phase=4, pre_gate=3,
+                                           header_note="P4 variants of PUSH ③④",
+                                           dynamic=True))
     else:
         frs = parse_srs_fr_sections(srs_path)
         test_plans = parse_test_plan(repo_path)
@@ -2083,7 +2113,7 @@ def generate_phase6_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     lines.extend(_preflight_steps(6))
 
     if dynamic:
-        lines.extend(_dynamic_phase_context_block(6))
+        lines.extend(_dynamic_phase_context_block(6, has_fr_template=False))
 
     qr = parse_quality_report(repo_path)
     lines.append("### P6 Phase End Audit (Replaces A/B)")
