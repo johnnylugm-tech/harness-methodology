@@ -1308,15 +1308,17 @@ def _milestone_push_steps(fr_ids: List[str], phase: int,
     if not fr_ids:
         if not dynamic:
             return []
-        total = "N"
-        mid = "50%"
+        total_str = "N"
+        mid_str = "50%"
         mid_ids = "<comma-separated FR-IDs with Gate 1 PASS>"
         full_ids = "<comma-separated FR-IDs with Gate 1 PASS>"
         _visual = "<FR-01,FR-02,…>"
     else:
-        total = len(fr_ids)
-        mid = max(1, total // 2)
-        mid_ids = ",".join(fr_ids[:mid])
+        total_int = len(fr_ids)
+        mid_int = max(1, total_int // 2)
+        total_str = str(total_int)
+        mid_str = str(mid_int)
+        mid_ids = ",".join(fr_ids[:mid_int])
         full_ids = ",".join(fr_ids)
         if len(fr_ids) > 5:
             _visual = ",".join(fr_ids[:5]) + f",…+{len(fr_ids) - 5}"
@@ -1337,10 +1339,10 @@ def _milestone_push_steps(fr_ids: List[str], phase: int,
         "> also write `HANDOVER.md` with phase/FR/status summary and push to origin.",
         f"> All FR IDs in this project: {_visual}",
         "",
-        f"- [ ] **{_mid_prefix}P{phase}-mid** (trigger when ≥{mid}/{total} FRs have Gate 1 PASS):",
+        f"- [ ] **{_mid_prefix}P{phase}-mid** (trigger when ≥{mid_str}/{total_str} FRs have Gate 1 PASS):",
         "  ```bash",
         f"  python3 harness_cli.py push-milestone --type p{phase}-mid --project . \\",
-        f"    --fr-done {mid} --fr-total {total} --fr-ids {mid_ids}",
+        f"    --fr-done {mid_str} --fr-total {total_str} --fr-ids {mid_ids}",
         "  ```",
         f"  > `--fr-ids` lists the FRs with Gate 1 PASS so far. Replace `{mid_ids}` with actual.",
         "  > Writes HANDOVER.md + commits + pushes. Next session reads HANDOVER.md to resume.",
@@ -1348,7 +1350,7 @@ def _milestone_push_steps(fr_ids: List[str], phase: int,
     ]
     if pre_gate_type:
         result += [
-            f"- [ ] **{_pre_prefix}P{phase}-{pre_gate_type}** (trigger when all {total} FRs Gate 1 PASS, before Gate {pre_gate}):",
+            f"- [ ] **{_pre_prefix}P{phase}-{pre_gate_type}** (trigger when all {total_str} FRs Gate 1 PASS, before Gate {pre_gate}):",
             "  ```bash",
             f"  python3 harness_cli.py push-milestone --type p{phase}-{pre_gate_type} --project . \\",
             f"    --fr-ids {full_ids}",
