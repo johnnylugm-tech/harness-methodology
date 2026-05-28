@@ -1169,7 +1169,7 @@ def _sessions_spawn_deliverable(phase: int) -> str:
     return "- [x] `.methodology/sessions_spawn.log` — auto-populated by AgentSpawner"
 
 
-def _phase_advance_step(phase: int) -> List[str]:
+def _phase_advance_step(phase: int, dynamic: bool = False) -> List[str]:
     """Instruction to advance to the next phase after all checkpoints PASS."""
     if phase >= 8:
         return [
@@ -1195,11 +1195,13 @@ def _phase_advance_step(phase: int) -> List[str]:
         f"### Phase {phase} → Phase {next_phase}: {next_name}",
         "",
         "- [ ] Confirm ALL checkpoints in this plan are ✓  (no skips — HR-03)",
-        f"- [ ] Generate Phase {next_phase} plan:",
-        "  ```bash",
-        f"  python3 harness_cli.py plan-phase --phase {next_phase} --project . \\",
-        f"    --output .methodology/phase{next_phase}_plan.md",
-        "  ```",
+        *([] if dynamic else [
+            f"- [ ] Generate Phase {next_phase} plan:",
+            "  ```bash",
+            f"  python3 harness_cli.py plan-phase --phase {next_phase} --project . \\",
+            f"    --output .methodology/phase{next_phase}_plan.md",
+            "  ```",
+        ]),
         # Git tag step: SKILL.md §0.4 requires Gate 4 tag only (P6→P7 transition)
         *(["- [ ] **[GIT-TAG]** Push Gate 4 git tag (SKILL.md §0.4):",
            "  ```bash",
@@ -1231,6 +1233,53 @@ def _phase_advance_step(phase: int) -> List[str]:
     return lines
 
 
+
+
+def _dynamic_phase_context_block(phase: int) -> List[str]:
+    """[PHASE-CONTEXT] block — load FR data at execution time (dynamic plans only)."""
+    return [
+        "### 🔄 [PHASE-CONTEXT] — Load Before Starting",
+        "",
+        "```bash",
+        f"python3 harness_cli.py load-context --phase {phase} --project . --json \\",
+        f"  > .sessi-work/phase{phase}_ctx.json",
+        "```",
+        "> Outputs `fr_ids`, `fr_details`, `modules` from current project state.",
+        "> All `{FR-ID}` references in tasks below come from this file.",
+        "",
+    ]
+
+
+def _dynamic_fr_template_block(phase: int) -> List[str]:
+    """FR task template for dynamic plans — each {FR-ID} is expanded at execution time."""
+    use_carryforward = phase in (5, 7, 8)
+    if use_carryforward:
+        fr_steps = [
+            f"- [ ] **[ORCH-GATE1-DELTA]** `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step GATE1-DELTA --project .`",
+            "> Crash recovery: `resume-fr-phase` auto-detects code changes → switches to full TDD if needed.",
+        ]
+    else:
+        fr_steps = [
+            f"- [ ] **[ORCH-RED]**     `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step TDD-RED --project . --srs 01-requirements/SRS.md`",
+            f"- [ ] **[ORCH-GREEN]**   `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step TDD-GREEN --project . --srs 01-requirements/SRS.md`",
+            f"- [ ] **[ORCH-IMPROVE]** `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step TDD-IMPROVE --project .`",
+            f"- [ ] **[ORCH-GATE1]**   `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step GATE1 --project .`",
+            f"> Crash recovery: `resume-fr-phase --phase {phase} --project .`",
+        ]
+    return [
+        "### FR Tasks — Expanded at Execution Time",
+        "",
+        f"> Read `fr_ids` from `.sessi-work/phase{phase}_ctx.json`.",
+        "> For each `{FR-ID}` in the list, execute the template below:",
+        "",
+        "---",
+        "**{FR-ID} — {FR-TITLE from fr_details}**",
+        "",
+        *fr_steps,
+        "",
+        "---",
+        "",
+    ]
 
 
 def _p3_milestone_push_steps(fr_ids: List[str]) -> List[str]:
@@ -1434,7 +1483,7 @@ def _load_manifest_fr_ids(repo_path: Path) -> List[str]:
 # Phase Task Generators
 # ============================================================================
 
-def generate_phase1_tasks(repo_path: Path, srs_path: Path) -> List[str]:
+def generate_phase1_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False) -> List[str]:
     """Generate Phase 1 detailed tasks (Requirements Specification).
 
     Exit gate = Agent B peer review (NOT harness run-gate).
@@ -1474,34 +1523,37 @@ def generate_phase1_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     for i, d in enumerate(deliverables, 1):
         lines.extend(_deliverable_ab_block(1, d, i, total, label_to_sub_n))
 
-    # FR/NFR summary (informational — parsed from already-APPROVED SRS.md if exists)
-    frs = parse_srs_fr_sections(srs_path)
-    nfrs = parse_srs_nfr_sections(srs_path)
+    if dynamic:
+        lines.extend(_dynamic_phase_context_block(1))
+    else:
+        # FR/NFR summary (informational — parsed from already-APPROVED SRS.md if exists)
+        frs = parse_srs_fr_sections(srs_path)
+        nfrs = parse_srs_nfr_sections(srs_path)
 
-    if frs:
-        lines.append("### FR Requirements ({} total)".format(len(frs)))
-        lines.append("")
-        for fr in frs:
-            title = fr['title']
-            fr_prefix = f"{fr['fr']}: "
-            if title.startswith(fr_prefix):
-                title = title[len(fr_prefix):]
-            lines.append(f"#### {fr['fr']}: {title}")
-            lines.append(f"**Task**: {fr['desc']}")
-            if fr['requirements']:
-                lines.append("**Requirements**:")
-                for req in fr['requirements'][:5]:
-                    lines.append(f"- {req}")
+        if frs:
+            lines.append("### FR Requirements ({} total)".format(len(frs)))
             lines.append("")
+            for fr in frs:
+                title = fr['title']
+                fr_prefix = f"{fr['fr']}: "
+                if title.startswith(fr_prefix):
+                    title = title[len(fr_prefix):]
+                lines.append(f"#### {fr['fr']}: {title}")
+                lines.append(f"**Task**: {fr['desc']}")
+                if fr['requirements']:
+                    lines.append("**Requirements**:")
+                    for req in fr['requirements'][:5]:
+                        lines.append(f"- {req}")
+                lines.append("")
 
-    if nfrs:
-        lines.append("### NFR Non-Functional Requirements ({} total)".format(len(nfrs)))
-        lines.append("")
-        for nfr in nfrs:
-            _nfr_title = nfr['title'].replace(f"{nfr['nfr']}: ", '', 1)
-            lines.append(f"#### {nfr['nfr']}: {_nfr_title}")
-            lines.append(f"**Requirement**: {nfr['details'][:200]}")
+        if nfrs:
+            lines.append("### NFR Non-Functional Requirements ({} total)".format(len(nfrs)))
             lines.append("")
+            for nfr in nfrs:
+                _nfr_title = nfr['title'].replace(f"{nfr['nfr']}: ", '', 1)
+                lines.append(f"#### {nfr['nfr']}: {_nfr_title}")
+                lines.append(f"**Requirement**: {nfr['details'][:200]}")
+                lines.append("")
 
     lines.append("### Phase 1 Deliverables")
     lines.append("- [ ] `SRS.md` - Software Requirements Specification (FRs + NFRs)")
@@ -1512,11 +1564,11 @@ def generate_phase1_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("")
 
     lines.extend(_review_checkpoint(1, checkpoint_n=1))
-    lines.extend(_phase_advance_step(1))
+    lines.extend(_phase_advance_step(1, dynamic=dynamic))
     return lines
 
 
-def generate_phase2_tasks(repo_path: Path, srs_path: Path) -> List[str]:
+def generate_phase2_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False) -> List[str]:
     """Generate Phase 2 detailed tasks (Architecture Design).
 
     Entry = P1 human APPROVE.  Exit gate = Agent B peer review of SAD + ADR (NOT harness run-gate).
@@ -1553,26 +1605,29 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     for i, d in enumerate(deliverables, 1):
         lines.extend(_deliverable_ab_block(2, d, i, total, label_to_sub_n))
 
-    frs = parse_srs_fr_sections(srs_path)
-    modules = parse_sad_modules(repo_path)
+    if dynamic:
+        lines.extend(_dynamic_phase_context_block(2))
+    else:
+        frs = parse_srs_fr_sections(srs_path)
+        modules = parse_sad_modules(repo_path)
 
-    if frs:
-        lines.append("### FR Architecture Mapping ({} total)".format(len(frs)))
-        lines.append("")
-        for fr in frs:
-            title = fr['title']
-            fr_prefix = f"{fr['fr']}: "
-            if title.startswith(fr_prefix):
-                title = title[len(fr_prefix):]
-            lines.append(f"#### {fr['fr']}: {title}")
-            lines.append(f"**Requirement**: {fr['desc']}")
-
-            mod = modules.get(fr['fr'], {})
-            if mod:
-                lines.append("**Module Mapping**:")
-                lines.append(f"- Module: `{mod.get('module', 'N/A')}`")
-                lines.append(f"- File:   `{mod.get('file', 'N/A')}`")
+        if frs:
+            lines.append("### FR Architecture Mapping ({} total)".format(len(frs)))
             lines.append("")
+            for fr in frs:
+                title = fr['title']
+                fr_prefix = f"{fr['fr']}: "
+                if title.startswith(fr_prefix):
+                    title = title[len(fr_prefix):]
+                lines.append(f"#### {fr['fr']}: {title}")
+                lines.append(f"**Requirement**: {fr['desc']}")
+
+                mod = modules.get(fr['fr'], {})
+                if mod:
+                    lines.append("**Module Mapping**:")
+                    lines.append(f"- Module: `{mod.get('module', 'N/A')}`")
+                    lines.append(f"- File:   `{mod.get('file', 'N/A')}`")
+                lines.append("")
 
     lines.extend([
         "### SAB Generation (Machine-Readable Architecture Baseline)",
@@ -1596,11 +1651,11 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("")
 
     lines.extend(_review_checkpoint(2, checkpoint_n=1))
-    lines.extend(_phase_advance_step(2))
+    lines.extend(_phase_advance_step(2, dynamic=dynamic))
     return lines
 
 
-def generate_phase3_tasks(repo_path: Path, srs_path: Path) -> List[str]:
+def generate_phase3_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False) -> List[str]:
     """Generate Phase 3 detailed tasks (Implementation + Gate 1 per-FR + Gate 2 exit)"""
     phase = 3
     lines = []
@@ -1611,153 +1666,162 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("Each FR ends with a Gate 1 quality evaluation (CHECKPOINT). Phase exits via Gate 2.")
     lines.append("")
 
-    frs = parse_srs_fr_sections(srs_path)
-    modules = parse_sad_modules(repo_path)
+    if dynamic:
+        fr_ids: List[str] = []
+        checkpoint_n = 1
+        lines.extend(_checkpoint_index(fr_ids, phase=3))
+        lines.extend(_entry_gate_check(3))
+        lines.extend(_preflight_steps(3))
+        lines.extend(_dynamic_phase_context_block(3))
+        lines.extend(_dynamic_fr_template_block(3))
+    else:
+        frs = parse_srs_fr_sections(srs_path)
+        modules = parse_sad_modules(repo_path)
 
-    # Try manifest for definitive FR list
-    manifest_fr_ids = _load_manifest_fr_ids(repo_path)
-    fr_ids = manifest_fr_ids if manifest_fr_ids else [fr['fr'] for fr in frs]
+        # Try manifest for definitive FR list
+        manifest_fr_ids = _load_manifest_fr_ids(repo_path)
+        fr_ids = manifest_fr_ids if manifest_fr_ids else [fr['fr'] for fr in frs]
 
-    lines.extend(_checkpoint_index(fr_ids, phase=3))
-    lines.extend(_entry_gate_check(3))
-    lines.extend(_preflight_steps(3))
+        lines.extend(_checkpoint_index(fr_ids, phase=3))
+        lines.extend(_entry_gate_check(3))
+        lines.extend(_preflight_steps(3))
 
-    if frs and fr_ids:
-        srs_fr_map = {fr['fr']: fr for fr in frs}
-        srs_fr_set = set(srs_fr_map.keys())
-        carry_forward = [fid for fid in fr_ids if fid not in srs_fr_set]
+        if frs and fr_ids:
+            srs_fr_map = {fr['fr']: fr for fr in frs}
+            srs_fr_set = set(srs_fr_map.keys())
+            carry_forward = [fid for fid in fr_ids if fid not in srs_fr_set]
 
-        if carry_forward:
-            lines.append("### FR Implementation Tasks ({} total: {} new + {} carry-forward)".format(
-                len(fr_ids), len(frs), len(carry_forward)))
+            if carry_forward:
+                lines.append("### FR Implementation Tasks ({} total: {} new + {} carry-forward)".format(
+                    len(fr_ids), len(frs), len(carry_forward)))
+                lines.append("")
+                lines.append(f"> **Carry-forward from Phase 1**: {', '.join(carry_forward)} — "
+                             "already implemented; Gate 1 re-evaluation only.")
+                lines.append("")
+            else:
+                lines.append("### FR Implementation Tasks ({} total)".format(len(frs)))
+                lines.append("")
+
+            checkpoint_n = 1
+            for fr_id in fr_ids:
+                if fr_id in srs_fr_map:
+                    fr = srs_fr_map[fr_id]
+                    title = fr['title']
+                    fr_prefix = f"{fr['fr']}: "
+                    if title.startswith(fr_prefix):
+                        title = title[len(fr_prefix):]
+                    lines.append(f"#### {fr['fr']}: {title}")
+                    lines.append(f"**Task**: {fr['desc']}")
+
+                    if fr['requirements']:
+                        lines.append("**SRS Requirements**:")
+                        for req in fr['requirements'][:5]:
+                            lines.append(f"- {req}")
+
+                    if fr['test_cases']:
+                        lines.append("**Test Cases**:")
+                        for inp, out in fr['test_cases']:
+                            lines.append(f"- Input [{inp}] -> Output [{out}]")
+
+                    mod = modules.get(fr['fr'], {})
+                    if mod:
+                        lines.append("**SAD Mapping**:")
+                        lines.append(f"- Module: `{mod.get('module', 'N/A')}`")
+                        lines.append(f"- File:   `{mod.get('file', 'N/A')}`")
+
+                    lines.append("**Forbidden**:")
+                    lines.append("- app/infrastructure/ (deprecated)")
+                    lines.append("- @covers: L1 Error")
+                    lines.append("- @type: edge")
+                    lines.append("")
+
+                    lines.extend(_fr_dev_steps(fr['fr'], phase=3))
+                else:
+                    lines.append(f"#### {fr_id}: Re-evaluation (carry-forward)")
+                    lines.append("> Already implemented in Phase 1. Gate 1 re-run to verify no regressions.")
+                    lines.append("")
+                    lines.extend(_fr_carryforward_steps(fr_id, phase=3))
+
+                # Gate 1 is handled inside the sub-agent dispatch (run-fr-step).
+                # _gate1_checkpoint() removed — no duplicate inline G1a/G1b/G1c/G1d.
+                checkpoint_n += 1
+
+        elif fr_ids:
+            lines.append("### FR Implementation Tasks ({} total)".format(len(fr_ids)))
             lines.append("")
-            lines.append(f"> **Carry-forward from Phase 1**: {', '.join(carry_forward)} — "
-                         "already implemented; Gate 1 re-evaluation only.")
+            checkpoint_n = 1
+            for fr_id in fr_ids:
+                lines.append(f"#### {fr_id}: [See SRS.md and SAD.md for implementation details]")
+                lines.append("")
+                lines.extend(_fr_dev_steps(fr_id, phase=3))
+                # Gate 1 handled inside run-fr-step sub-agent dispatch.
+                checkpoint_n += 1
+
+        else:
+            lines.append("### ⚠️  FR Implementation Tasks — NONE FOUND")
+            lines.append("")
+            lines.append("> **WARNING**: `parse_srs_fr_sections()` returned zero FRs and no")
+            lines.append("> `quality_manifest.json` FR list was found. The plan has **no per-FR")
+            lines.append("> task blocks**.  Verify SRS.md format: use `### FR-01: Title` sections")
+            lines.append("> or `| FR-01 | description |` table rows.")
+            lines.append("")
+            lines.append("To fix: update SRS.md format and re-run `plan-phase --phase 3`.")
+            lines.append("")
+            checkpoint_n = 1
+
+        # NFR summary — informational, shows which NFRs each FR implements
+        nfrs = parse_srs_nfr_sections(srs_path)
+        if nfrs:
+            # Build NFR→FRs reverse map.  Primary source: §2 cross-reference table
+            # (parse_srs_fr_nfr_xref).  Fallback: search raw FR description text for
+            # NFR IDs (works when SRS embeds NFR refs inside FR sections directly).
+            _fr_nfr_xref = parse_srs_fr_nfr_xref(srs_path)
+            _nfr_to_frs: Dict[str, List[str]] = {}
+            for _fr_id, _nfr_ids in _fr_nfr_xref.items():
+                for _nfr_id in _nfr_ids:
+                    _nfr_to_frs.setdefault(_nfr_id, []).append(_fr_id)
+
+            lines.append("### NFR Coverage ({} total)".format(len(nfrs)))
+            lines.append("")
+            lines.append("> NFRs are implemented **within FRs** — each FR satisfies one or more NFRs.")
+            lines.append("> Verify NFR compliance via Gate 2/3 tool-scored dimensions, not separate tasks.")
+            lines.append("")
+            lines.append("| NFR | Type | FRs Implementing |")
+            lines.append("|-----|------|-----------------|")
+            for nfr in nfrs:
+                nfr_id = nfr['nfr']
+                nfr_type = nfr.get('title', '').replace(f'{nfr_id}: ', '')
+                # Primary: cross-reference table lookup
+                _ref_frs = _nfr_to_frs.get(nfr_id, [])
+                # Fallback: grep NFR ID from FR raw_details text
+                if not _ref_frs:
+                    _ref_frs = [
+                        fr['fr'] for fr in frs
+                        if nfr_id.lower() in fr.get('raw_details', '').lower()
+                    ] if frs else []
+                fr_list = ', '.join(_ref_frs)
+                if not fr_list:
+                    fr_list = '—'
+                lines.append(f"| {nfr_id} | {nfr_type[:30]} | {fr_list} |")
+            lines.append("")
+            if not _fr_nfr_xref:
+                lines.append("> ⚠️ **NFR→FR mapping not found** — `—` entries above indicate no `NFR Association`")
+                lines.append("> column was detected in SRS.md FR tables. To enable auto-mapping, add an")
+                lines.append("> `NFR Association` column to each FR row in `01-requirements/SRS.md §2`.")
+                lines.append("")
+            lines.append("**Gate 2 NFR dimensions** (tool-scored, see Gate 2 config):")
+            lines.append("- `security` (bandit), `secrets_scanning` (gitleaks), `mutation_testing` (mutmut)")
+            lines.append("- `integration_coverage` (pytest), `test_assertion_quality` (pytest)")
             lines.append("")
         else:
-            lines.append("### FR Implementation Tasks ({} total)".format(len(frs)))
+            # NFRs couldn't be parsed — remind the user to check manually
+            lines.append("### NFR Coverage")
+            lines.append("")
+            lines.append("> ⚠️  NFR sections could not be parsed from SRS.md.")
+            lines.append("> Verify NFR compliance manually against `01-requirements/SRS.md` §3.")
             lines.append("")
 
-        checkpoint_n = 1
-        for fr_id in fr_ids:
-            if fr_id in srs_fr_map:
-                fr = srs_fr_map[fr_id]
-                title = fr['title']
-                fr_prefix = f"{fr['fr']}: "
-                if title.startswith(fr_prefix):
-                    title = title[len(fr_prefix):]
-                lines.append(f"#### {fr['fr']}: {title}")
-                lines.append(f"**Task**: {fr['desc']}")
-
-                if fr['requirements']:
-                    lines.append("**SRS Requirements**:")
-                    for req in fr['requirements'][:5]:
-                        lines.append(f"- {req}")
-
-                if fr['test_cases']:
-                    lines.append("**Test Cases**:")
-                    for inp, out in fr['test_cases']:
-                        lines.append(f"- Input [{inp}] -> Output [{out}]")
-
-                mod = modules.get(fr['fr'], {})
-                if mod:
-                    lines.append("**SAD Mapping**:")
-                    lines.append(f"- Module: `{mod.get('module', 'N/A')}`")
-                    lines.append(f"- File:   `{mod.get('file', 'N/A')}`")
-
-                lines.append("**Forbidden**:")
-                lines.append("- app/infrastructure/ (deprecated)")
-                lines.append("- @covers: L1 Error")
-                lines.append("- @type: edge")
-                lines.append("")
-
-                lines.extend(_fr_dev_steps(fr['fr'], phase=3))
-            else:
-                lines.append(f"#### {fr_id}: Re-evaluation (carry-forward)")
-                lines.append("> Already implemented in Phase 1. Gate 1 re-run to verify no regressions.")
-                lines.append("")
-                lines.extend(_fr_carryforward_steps(fr_id, phase=3))
-
-            # Gate 1 is handled inside the sub-agent dispatch (run-fr-step).
-            # _gate1_checkpoint() removed — no duplicate inline G1a/G1b/G1c/G1d.
-            checkpoint_n += 1
-
-    elif fr_ids:
-        lines.append("### FR Implementation Tasks ({} total)".format(len(fr_ids)))
-        lines.append("")
-        checkpoint_n = 1
-        for fr_id in fr_ids:
-            lines.append(f"#### {fr_id}: [See SRS.md and SAD.md for implementation details]")
-            lines.append("")
-            lines.extend(_fr_dev_steps(fr_id, phase=3))
-            # Gate 1 handled inside run-fr-step sub-agent dispatch.
-            checkpoint_n += 1
-
-    else:
-        lines.append("### ⚠️  FR Implementation Tasks — NONE FOUND")
-        lines.append("")
-        lines.append("> **WARNING**: `parse_srs_fr_sections()` returned zero FRs and no")
-        lines.append("> `quality_manifest.json` FR list was found. The plan has **no per-FR")
-        lines.append("> task blocks**.  Verify SRS.md format: use `### FR-01: Title` sections")
-        lines.append("> or `| FR-01 | description |` table rows.")
-        lines.append("")
-        lines.append("To fix: update SRS.md format and re-run `plan-phase --phase 3`.")
-        lines.append("")
-        checkpoint_n = 1
-
-    # NFR summary — informational, shows which NFRs each FR implements
-    nfrs = parse_srs_nfr_sections(srs_path)
-    if nfrs:
-        # Build NFR→FRs reverse map.  Primary source: §2 cross-reference table
-        # (parse_srs_fr_nfr_xref).  Fallback: search raw FR description text for
-        # NFR IDs (works when SRS embeds NFR refs inside FR sections directly).
-        _fr_nfr_xref = parse_srs_fr_nfr_xref(srs_path)
-        _nfr_to_frs: Dict[str, List[str]] = {}
-        for _fr_id, _nfr_ids in _fr_nfr_xref.items():
-            for _nfr_id in _nfr_ids:
-                _nfr_to_frs.setdefault(_nfr_id, []).append(_fr_id)
-
-        lines.append("### NFR Coverage ({} total)".format(len(nfrs)))
-        lines.append("")
-        lines.append("> NFRs are implemented **within FRs** — each FR satisfies one or more NFRs.")
-        lines.append("> Verify NFR compliance via Gate 2/3 tool-scored dimensions, not separate tasks.")
-        lines.append("")
-        lines.append("| NFR | Type | FRs Implementing |")
-        lines.append("|-----|------|-----------------|")
-        for nfr in nfrs:
-            nfr_id = nfr['nfr']
-            nfr_type = nfr.get('title', '').replace(f'{nfr_id}: ', '')
-            # Primary: cross-reference table lookup
-            _ref_frs = _nfr_to_frs.get(nfr_id, [])
-            # Fallback: grep NFR ID from FR raw_details text
-            if not _ref_frs:
-                _ref_frs = [
-                    fr['fr'] for fr in frs
-                    if nfr_id.lower() in fr.get('raw_details', '').lower()
-                ] if frs else []
-            fr_list = ', '.join(_ref_frs)
-            if not fr_list:
-                fr_list = '—'
-            lines.append(f"| {nfr_id} | {nfr_type[:30]} | {fr_list} |")
-        lines.append("")
-        if not _fr_nfr_xref:
-            lines.append("> ⚠️ **NFR→FR mapping not found** — `—` entries above indicate no `NFR Association`")
-            lines.append("> column was detected in SRS.md FR tables. To enable auto-mapping, add an")
-            lines.append("> `NFR Association` column to each FR row in `01-requirements/SRS.md §2`.")
-            lines.append("")
-        lines.append("**Gate 2 NFR dimensions** (tool-scored, see Gate 2 config):")
-        lines.append("- `security` (bandit), `secrets_scanning` (gitleaks), `mutation_testing` (mutmut)")
-        lines.append("- `integration_coverage` (pytest), `test_assertion_quality` (pytest)")
-        lines.append("")
-    else:
-        # NFRs couldn't be parsed — remind the user to check manually
-        lines.append("### NFR Coverage")
-        lines.append("")
-        lines.append("> ⚠️  NFR sections could not be parsed from SRS.md.")
-        lines.append("> Verify NFR compliance manually against `01-requirements/SRS.md` §3.")
-        lines.append("")
-
-    lines.extend(_p3_milestone_push_steps(fr_ids))
+        lines.extend(_p3_milestone_push_steps(fr_ids))
 
     lines.extend(_gate_exit_checkpoint(gate_num=2, phase=3, checkpoint_n=checkpoint_n))
 
@@ -1770,11 +1834,11 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("")
 
     # audit-phase runs inside advance-phase — no separate local step needed
-    lines.extend(_phase_advance_step(3))
+    lines.extend(_phase_advance_step(3, dynamic=dynamic))
     return lines
 
 
-def generate_phase4_tasks(repo_path: Path, srs_path: Path) -> List[str]:
+def generate_phase4_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False) -> List[str]:
     """Generate Phase 4 detailed tasks (Testing + Gate 1 per-FR + Gate 3 exit)"""
     phase = 4
     lines = []
@@ -1785,107 +1849,116 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). Phase exits via Gate 3 (14 dims).")
     lines.append("")
 
-    frs = parse_srs_fr_sections(srs_path)
-    test_plans = parse_test_plan(repo_path)
-    manifest_fr_ids = _load_manifest_fr_ids(repo_path)
-    fr_ids = manifest_fr_ids if manifest_fr_ids else [fr['fr'] for fr in frs]
+    if dynamic:
+        fr_ids: List[str] = []
+        checkpoint_n = 1
+        lines.extend(_checkpoint_index(fr_ids, phase=4))
+        lines.extend(_entry_gate_check(4))
+        lines.extend(_preflight_steps(4))
+        lines.extend(_dynamic_phase_context_block(4))
+        lines.extend(_dynamic_fr_template_block(4))
+    else:
+        frs = parse_srs_fr_sections(srs_path)
+        test_plans = parse_test_plan(repo_path)
+        manifest_fr_ids = _load_manifest_fr_ids(repo_path)
+        fr_ids = manifest_fr_ids if manifest_fr_ids else [fr['fr'] for fr in frs]
 
-    lines.extend(_checkpoint_index(fr_ids, phase=4))
-    lines.extend(_entry_gate_check(4))
-    lines.extend(_preflight_steps(4))
+        lines.extend(_checkpoint_index(fr_ids, phase=4))
+        lines.extend(_entry_gate_check(4))
+        lines.extend(_preflight_steps(4))
 
-    # ── CHECKPOINT-0: Generate TEST_PLAN.md before any FR testing ─────────
-    lines.append("### CHECKPOINT-0: Generate TEST_PLAN.md")
-    lines.append("")
-    lines.append("> Generate `04-testing/TEST_PLAN.md` from SRS.md FR acceptance criteria.")
-    lines.append("> This step runs once before per-FR test execution.")
-    lines.append("")
-    lines.append("**Generate TEST_PLAN.md** (orchestrator runs directly — not a sub-agent dispatch):")
-    lines.append("- [ ] Read SRS.md FR acceptance criteria → write TEST_PLAN.md with per-FR test cases")
-    lines.append("  - For each FR: test case ID, description, input, expected output, priority")
-    lines.append("  - Include positive, negative, boundary, and edge case categories")
-    lines.append("  - Output: `04-testing/TEST_PLAN.md`")
-    lines.append("- [ ] Verify TEST_PLAN.md covers all FRs from manifest/quality_manifest.json")
-    lines.append("- [ ] **[TP-DONE]** TEST_PLAN.md written: all FRs have ≥1 test case, NFRs addressed")
-    lines.append("")
-
-    checkpoint_n = 1
-    if test_plans:
-        # Test plan exists — show items; Gate 1 still runs per FR from manifest
-        lines.append("### Test Plan Items ({} total from TEST_PLAN.md)".format(len(test_plans)))
+        # ── CHECKPOINT-0: Generate TEST_PLAN.md before any FR testing ─────────
+        lines.append("### CHECKPOINT-0: Generate TEST_PLAN.md")
         lines.append("")
-        for tp in test_plans:
-            lines.append(f"#### {tp['title']}")
-            lines.append(f"**Content**: {tp['details'][:200]}")
+        lines.append("> Generate `04-testing/TEST_PLAN.md` from SRS.md FR acceptance criteria.")
+        lines.append("> This step runs once before per-FR test execution.")
+        lines.append("")
+        lines.append("**Generate TEST_PLAN.md** (orchestrator runs directly — not a sub-agent dispatch):")
+        lines.append("- [ ] Read SRS.md FR acceptance criteria → write TEST_PLAN.md with per-FR test cases")
+        lines.append("  - For each FR: test case ID, description, input, expected output, priority")
+        lines.append("  - Include positive, negative, boundary, and edge case categories")
+        lines.append("  - Output: `04-testing/TEST_PLAN.md`")
+        lines.append("- [ ] Verify TEST_PLAN.md covers all FRs from manifest/quality_manifest.json")
+        lines.append("- [ ] **[TP-DONE]** TEST_PLAN.md written: all FRs have ≥1 test case, NFRs addressed")
+        lines.append("")
+
+        checkpoint_n = 1
+        if test_plans:
+            # Test plan exists — show items; Gate 1 still runs per FR from manifest
+            lines.append("### Test Plan Items ({} total from TEST_PLAN.md)".format(len(test_plans)))
             lines.append("")
-        if fr_ids:
-            lines.append("### FR Gate 1 Evaluations ({} FRs from manifest)".format(len(fr_ids)))
-            lines.append("> **Cross-reference**: Agent A's test scope for each FR = TEST_PLAN.md items above.")
-            lines.append("> Match TEST_PLAN.md items to this FR's module before writing/executing tests.")
+            for tp in test_plans:
+                lines.append(f"#### {tp['title']}")
+                lines.append(f"**Content**: {tp['details'][:200]}")
+                lines.append("")
+            if fr_ids:
+                lines.append("### FR Gate 1 Evaluations ({} FRs from manifest)".format(len(fr_ids)))
+                lines.append("> **Cross-reference**: Agent A's test scope for each FR = TEST_PLAN.md items above.")
+                lines.append("> Match TEST_PLAN.md items to this FR's module before writing/executing tests.")
+                lines.append("")
+                for fr_id in fr_ids:
+                    lines.append(f"#### {fr_id}: Test Execution")
+                    lines.append("")
+                    lines.extend(_fr_dev_steps(fr_id, phase=4))
+                    # Gate 1 handled inside run-fr-step sub-agent dispatch.
+                    checkpoint_n += 1
+        elif frs and fr_ids:
+            srs_fr_map = {fr['fr']: fr for fr in frs}
+            srs_fr_set = set(srs_fr_map.keys())
+            carry_forward = [fid for fid in fr_ids if fid not in srs_fr_set]
+
+            if carry_forward:
+                lines.append("### FR Test Coverage ({} total: {} new + {} carry-forward)".format(
+                    len(fr_ids), len(frs), len(carry_forward)))
+                lines.append("")
+                lines.append(f"> **Carry-forward from Phase 1**: {', '.join(carry_forward)} — "
+                             "already implemented; Gate 1 re-evaluation only.")
+                lines.append("")
+            else:
+                lines.append("### FR Test Coverage")
+                lines.append("")
+
+            checkpoint_n = 1
+            for fr_id in fr_ids:
+                if fr_id in srs_fr_map:
+                    fr = srs_fr_map[fr_id]
+                    title = fr['title']
+                    fr_prefix = f"{fr['fr']}: "
+                    if title.startswith(fr_prefix):
+                        title = title[len(fr_prefix):]
+                    lines.append(f"#### {fr['fr']}: {title}")
+                    lines.append(f"**Test Target**: Verify {fr['desc']}")
+                    if fr['test_cases']:
+                        lines.append("**Test Cases**:")
+                        for inp, out in fr['test_cases']:
+                            lines.append(f"- Input [{inp}] -> Output [{out}]")
+                    lines.append("")
+                    lines.extend(_fr_dev_steps(fr['fr'], phase=4))
+                else:
+                    lines.append(f"#### {fr_id}: Re-evaluation (carry-forward)")
+                    lines.append("> Already implemented. Gate 1 re-run to verify no regressions.")
+                    lines.append("")
+                    lines.extend(_fr_carryforward_steps(fr_id, phase=4))
+
+                # Gate 1 handled inside run-fr-step sub-agent dispatch.
+                checkpoint_n += 1
+        elif fr_ids:
+            lines.append("### FR Test Coverage ({} FRs)".format(len(fr_ids)))
             lines.append("")
             for fr_id in fr_ids:
-                lines.append(f"#### {fr_id}: Test Execution")
+                lines.append(f"#### {fr_id}: [See SRS.md for test targets]")
                 lines.append("")
                 lines.extend(_fr_dev_steps(fr_id, phase=4))
                 # Gate 1 handled inside run-fr-step sub-agent dispatch.
                 checkpoint_n += 1
-    elif frs and fr_ids:
-        srs_fr_map = {fr['fr']: fr for fr in frs}
-        srs_fr_set = set(srs_fr_map.keys())
-        carry_forward = [fid for fid in fr_ids if fid not in srs_fr_set]
-
-        if carry_forward:
-            lines.append("### FR Test Coverage ({} total: {} new + {} carry-forward)".format(
-                len(fr_ids), len(frs), len(carry_forward)))
-            lines.append("")
-            lines.append(f"> **Carry-forward from Phase 1**: {', '.join(carry_forward)} — "
-                         "already implemented; Gate 1 re-evaluation only.")
-            lines.append("")
         else:
-            lines.append("### FR Test Coverage")
+            lines.append("### ⚠️  FR Test Coverage — NONE FOUND")
             lines.append("")
-
-        checkpoint_n = 1
-        for fr_id in fr_ids:
-            if fr_id in srs_fr_map:
-                fr = srs_fr_map[fr_id]
-                title = fr['title']
-                fr_prefix = f"{fr['fr']}: "
-                if title.startswith(fr_prefix):
-                    title = title[len(fr_prefix):]
-                lines.append(f"#### {fr['fr']}: {title}")
-                lines.append(f"**Test Target**: Verify {fr['desc']}")
-                if fr['test_cases']:
-                    lines.append("**Test Cases**:")
-                    for inp, out in fr['test_cases']:
-                        lines.append(f"- Input [{inp}] -> Output [{out}]")
-                lines.append("")
-                lines.extend(_fr_dev_steps(fr['fr'], phase=4))
-            else:
-                lines.append(f"#### {fr_id}: Re-evaluation (carry-forward)")
-                lines.append("> Already implemented. Gate 1 re-run to verify no regressions.")
-                lines.append("")
-                lines.extend(_fr_carryforward_steps(fr_id, phase=4))
-
-            # Gate 1 handled inside run-fr-step sub-agent dispatch.
-            checkpoint_n += 1
-    elif fr_ids:
-        lines.append("### FR Test Coverage ({} FRs)".format(len(fr_ids)))
-        lines.append("")
-        for fr_id in fr_ids:
-            lines.append(f"#### {fr_id}: [See SRS.md for test targets]")
+            lines.append("> **WARNING**: No FR sections parsed and no manifest FR list found.")
+            lines.append("> Verify SRS.md format or re-run `plan-phase --phase 4` after")
+            lines.append("> quality_manifest.json is generated.")
             lines.append("")
-            lines.extend(_fr_dev_steps(fr_id, phase=4))
-            # Gate 1 handled inside run-fr-step sub-agent dispatch.
-            checkpoint_n += 1
-    else:
-        lines.append("### ⚠️  FR Test Coverage — NONE FOUND")
-        lines.append("")
-        lines.append("> **WARNING**: No FR sections parsed and no manifest FR list found.")
-        lines.append("> Verify SRS.md format or re-run `plan-phase --phase 4` after")
-        lines.append("> quality_manifest.json is generated.")
-        lines.append("")
-        checkpoint_n = 1
+            checkpoint_n = 1
 
     lines.extend([
         "### TEST_RESULTS.md Summary (required for C5 P4 audit)",
@@ -1898,8 +1971,9 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path) -> List[str]:
         "",
     ])
 
-    lines.extend(_milestone_push_steps(fr_ids, phase=4, pre_gate=3,
-                                       header_note="P4 variants of PUSH ③④"))
+    if not dynamic:
+        lines.extend(_milestone_push_steps(fr_ids, phase=4, pre_gate=3,
+                                           header_note="P4 variants of PUSH ③④"))
 
     lines.extend(_gate_exit_checkpoint(gate_num=3, phase=4, checkpoint_n=checkpoint_n))
 
@@ -1914,11 +1988,11 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path) -> List[str]:
     lines.append("")
 
     # audit-phase runs inside advance-phase — no separate local step needed
-    lines.extend(_phase_advance_step(4))
+    lines.extend(_phase_advance_step(4, dynamic=dynamic))
     return lines
 
 
-def generate_phase5_tasks(repo_path: Path) -> List[str]:
+def generate_phase5_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     """Generate Phase 5 detailed tasks (Verification & Delivery + Gate 1 per-FR)"""
     phase = 5
     lines = []
@@ -1937,11 +2011,14 @@ def generate_phase5_tasks(repo_path: Path) -> List[str]:
     lines.append("")
 
     manifest_fr_ids = _load_manifest_fr_ids(repo_path)
-    lines.extend(_checkpoint_index(manifest_fr_ids, phase=5))
+    lines.extend(_checkpoint_index(manifest_fr_ids if not dynamic else [], phase=5))
     lines.extend(_entry_gate_check(5))
     lines.extend(_preflight_steps(5))
 
-    if manifest_fr_ids:
+    if dynamic:
+        lines.extend(_dynamic_phase_context_block(5))
+        lines.extend(_dynamic_fr_template_block(5))
+    elif manifest_fr_ids:
         lines.append("### FR Verification Tasks ({} total)".format(len(manifest_fr_ids)))
         lines.append("")
         for fr_id in manifest_fr_ids:
@@ -1982,11 +2059,11 @@ def generate_phase5_tasks(repo_path: Path) -> List[str]:
     lines.append("")
 
     # audit-phase runs inside advance-phase — no separate local step needed
-    lines.extend(_phase_advance_step(5))
+    lines.extend(_phase_advance_step(5, dynamic=dynamic))
     return lines
 
 
-def generate_phase6_tasks(repo_path: Path) -> List[str]:
+def generate_phase6_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     """Generate Phase 6 detailed tasks (Quality Assurance — Gate 4 full replacement)"""
     phase = 6
     lines = []
@@ -2004,6 +2081,9 @@ def generate_phase6_tasks(repo_path: Path) -> List[str]:
 
     lines.extend(_entry_gate_check(6))
     lines.extend(_preflight_steps(6))
+
+    if dynamic:
+        lines.extend(_dynamic_phase_context_block(6))
 
     qr = parse_quality_report(repo_path)
     lines.append("### P6 Phase End Audit (Replaces A/B)")
@@ -2035,11 +2115,11 @@ def generate_phase6_tasks(repo_path: Path) -> List[str]:
     lines.append("")
 
     # audit-phase runs inside advance-phase — no separate local step needed
-    lines.extend(_phase_advance_step(6))
+    lines.extend(_phase_advance_step(6, dynamic=dynamic))
     return lines
 
 
-def generate_phase7_tasks(repo_path: Path) -> List[str]:
+def generate_phase7_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     """Generate Phase 7 detailed tasks (Risk Management + Gate 1 per-FR)"""
     phase = 7
     lines = []
@@ -2058,38 +2138,42 @@ def generate_phase7_tasks(repo_path: Path) -> List[str]:
     lines.append("")
 
     manifest_fr_ids = _load_manifest_fr_ids(repo_path)
-    lines.extend(_checkpoint_index(manifest_fr_ids, phase=7))
+    lines.extend(_checkpoint_index(manifest_fr_ids if not dynamic else [], phase=7))
     lines.extend(_entry_gate_check(7))
     lines.extend(_preflight_steps(7))
 
-    risks = parse_risk_register(repo_path)
-    if risks:
-        lines.append("### Risk Register ({} total)".format(len(risks)))
-        lines.append("")
-        for risk in risks:
-            lines.append(f"- **{risk['name']}**: Define likelihood/impact scores and mitigation approach → document in RISK_REGISTER.md")
-        lines.append("")
+    if dynamic:
+        lines.extend(_dynamic_phase_context_block(7))
+        lines.extend(_dynamic_fr_template_block(7))
     else:
-        lines.append("### Risk Categories")
-        lines.append("- Technical risks")
-        lines.append("- Schedule risks")
-        lines.append("- Resource risks")
-        lines.append("- External risks")
-        lines.append("")
-
-    if manifest_fr_ids:
-        lines.append("### FR Risk Evaluation ({} total)".format(len(manifest_fr_ids)))
-        lines.append("")
-        for fr_id in manifest_fr_ids:
-            lines.append(f"#### {fr_id}: Risk Assessment")
-            lines.append(f"- [ ] Review open issues from previous gates for {fr_id}")
-            lines.append(f"- [ ] Check `deferred_fixes.md` for {fr_id} entries")
-            lines.append("- [ ] Confirm no new defects introduced")
+        risks = parse_risk_register(repo_path)
+        if risks:
+            lines.append("### Risk Register ({} total)".format(len(risks)))
             lines.append("")
-            lines.extend(_fr_carryforward_steps(fr_id, phase=7))
-    else:
-        lines.append("(No FR list found in manifest — run Gate 1 per FR manually)")
-        lines.append("")
+            for risk in risks:
+                lines.append(f"- **{risk['name']}**: Define likelihood/impact scores and mitigation approach → document in RISK_REGISTER.md")
+            lines.append("")
+        else:
+            lines.append("### Risk Categories")
+            lines.append("- Technical risks")
+            lines.append("- Schedule risks")
+            lines.append("- Resource risks")
+            lines.append("- External risks")
+            lines.append("")
+
+        if manifest_fr_ids:
+            lines.append("### FR Risk Evaluation ({} total)".format(len(manifest_fr_ids)))
+            lines.append("")
+            for fr_id in manifest_fr_ids:
+                lines.append(f"#### {fr_id}: Risk Assessment")
+                lines.append(f"- [ ] Review open issues from previous gates for {fr_id}")
+                lines.append(f"- [ ] Check `deferred_fixes.md` for {fr_id} entries")
+                lines.append("- [ ] Confirm no new defects introduced")
+                lines.append("")
+                lines.extend(_fr_carryforward_steps(fr_id, phase=7))
+        else:
+            lines.append("(No FR list found in manifest — run Gate 1 per FR manually)")
+            lines.append("")
 
     lines.extend([
         "### P7 Milestone Push (10-Push Strategy ⑨)",
@@ -2112,11 +2196,11 @@ def generate_phase7_tasks(repo_path: Path) -> List[str]:
     lines.append("")
 
     # audit-phase runs inside advance-phase — no separate local step needed
-    lines.extend(_phase_advance_step(7))
+    lines.extend(_phase_advance_step(7, dynamic=dynamic))
     return lines
 
 
-def generate_phase8_tasks(repo_path: Path) -> List[str]:
+def generate_phase8_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     """Generate Phase 8 detailed tasks (Configuration Management + Gate 1 per-FR)"""
     phase = 8
     lines = []
@@ -2135,38 +2219,42 @@ def generate_phase8_tasks(repo_path: Path) -> List[str]:
     lines.append("")
 
     manifest_fr_ids = _load_manifest_fr_ids(repo_path)
-    lines.extend(_checkpoint_index(manifest_fr_ids, phase=8))
+    lines.extend(_checkpoint_index(manifest_fr_ids if not dynamic else [], phase=8))
     lines.extend(_entry_gate_check(8))
     lines.extend(_preflight_steps(8))
 
-    configs = parse_config_records(repo_path)
-    if configs:
-        lines.append("### Configuration Items ({} total)".format(len(configs)))
-        lines.append("")
-        for config in configs:
-            lines.append(f"- **{config['name']}**: Document value/source/access method → update CONFIG_RECORDS.md")
-        lines.append("")
+    if dynamic:
+        lines.extend(_dynamic_phase_context_block(8))
+        lines.extend(_dynamic_fr_template_block(8))
     else:
-        lines.append("### Configuration Categories")
-        lines.append("- Environment configuration")
-        lines.append("- Deployment configuration")
-        lines.append("- Security configuration")
-        lines.append("- Monitoring configuration")
-        lines.append("")
-
-    if manifest_fr_ids:
-        lines.append("### FR Configuration Evaluation ({} total)".format(len(manifest_fr_ids)))
-        lines.append("")
-        for fr_id in manifest_fr_ids:
-            lines.append(f"#### {fr_id}: Configuration Record")
-            lines.append(f"- [ ] Confirm {fr_id} configuration items are documented in CONFIG_RECORDS.md")
-            lines.append("- [ ] Confirm environment variables / secrets are managed (not hardcoded)")
-            lines.append(f"- [ ] Confirm deployment checklist entries for {fr_id}")
+        configs = parse_config_records(repo_path)
+        if configs:
+            lines.append("### Configuration Items ({} total)".format(len(configs)))
             lines.append("")
-            lines.extend(_fr_carryforward_steps(fr_id, phase=8))
-    else:
-        lines.append("(No FR list found in manifest — run Gate 1 per FR manually)")
-        lines.append("")
+            for config in configs:
+                lines.append(f"- **{config['name']}**: Document value/source/access method → update CONFIG_RECORDS.md")
+            lines.append("")
+        else:
+            lines.append("### Configuration Categories")
+            lines.append("- Environment configuration")
+            lines.append("- Deployment configuration")
+            lines.append("- Security configuration")
+            lines.append("- Monitoring configuration")
+            lines.append("")
+
+        if manifest_fr_ids:
+            lines.append("### FR Configuration Evaluation ({} total)".format(len(manifest_fr_ids)))
+            lines.append("")
+            for fr_id in manifest_fr_ids:
+                lines.append(f"#### {fr_id}: Configuration Record")
+                lines.append(f"- [ ] Confirm {fr_id} configuration items are documented in CONFIG_RECORDS.md")
+                lines.append("- [ ] Confirm environment variables / secrets are managed (not hardcoded)")
+                lines.append(f"- [ ] Confirm deployment checklist entries for {fr_id}")
+                lines.append("")
+                lines.extend(_fr_carryforward_steps(fr_id, phase=8))
+        else:
+            lines.append("(No FR list found in manifest — run Gate 1 per FR manually)")
+            lines.append("")
 
     lines.extend([
         "### P8 Archive — REQUIRED before push-milestone (CI p8-archive-check)",
@@ -2209,7 +2297,7 @@ def generate_phase8_tasks(repo_path: Path) -> List[str]:
     lines.append("")
 
     # audit-phase runs inside advance-phase — no separate local step needed
-    lines.extend(_phase_advance_step(8))
+    lines.extend(_phase_advance_step(8, dynamic=dynamic))
     return lines
 
 
@@ -2217,7 +2305,8 @@ def generate_phase8_tasks(repo_path: Path) -> List[str]:
 # Main Generator
 # ============================================================================
 
-def generate_full_plan(phase: int, repo_path: Path, output_path: Optional[Path] = None) -> Optional[str]:
+def generate_full_plan(phase: int, repo_path: Path, output_path: Optional[Path] = None,
+                       dynamic: bool = False) -> Optional[str]:
     """Generate full plan with phase-specific detailed tasks"""
 
     srs_paths = [
@@ -2225,21 +2314,21 @@ def generate_full_plan(phase: int, repo_path: Path, output_path: Optional[Path] 
     ]
     srs_path = next((p for p in srs_paths if p.exists()), None)
 
-    # Phase 2-4 need existing SRS; Phase 1 CREATES SRS, 5-8 use other artifacts
-    if srs_path is None and phase in (2, 3, 4):
+    # Phase 2-4 need existing SRS; dynamic mode skips this requirement
+    if srs_path is None and phase in (2, 3, 4) and not dynamic:
         print(f"[ERROR] SRS.md not found for phase {phase}")
         return None
-    _srs = cast(Path, srs_path)  # safe: phases 1 and 5-8 don't use srs_path
+    _srs = cast(Path, srs_path)  # safe: phases 1 and 5-8 don't use srs_path; dynamic skips it
 
     generators = {
-        1: lambda: generate_phase1_tasks(repo_path, _srs),
-        2: lambda: generate_phase2_tasks(repo_path, _srs),
-        3: lambda: generate_phase3_tasks(repo_path, _srs),
-        4: lambda: generate_phase4_tasks(repo_path, _srs),
-        5: lambda: generate_phase5_tasks(repo_path),
-        6: lambda: generate_phase6_tasks(repo_path),
-        7: lambda: generate_phase7_tasks(repo_path),
-        8: lambda: generate_phase8_tasks(repo_path),
+        1: lambda: generate_phase1_tasks(repo_path, _srs, dynamic=dynamic),
+        2: lambda: generate_phase2_tasks(repo_path, _srs, dynamic=dynamic),
+        3: lambda: generate_phase3_tasks(repo_path, _srs, dynamic=dynamic),
+        4: lambda: generate_phase4_tasks(repo_path, _srs, dynamic=dynamic),
+        5: lambda: generate_phase5_tasks(repo_path, dynamic=dynamic),
+        6: lambda: generate_phase6_tasks(repo_path, dynamic=dynamic),
+        7: lambda: generate_phase7_tasks(repo_path, dynamic=dynamic),
+        8: lambda: generate_phase8_tasks(repo_path, dynamic=dynamic),
     }
 
     generator = generators.get(phase)
@@ -2262,6 +2351,7 @@ def generate_full_plan(phase: int, repo_path: Path, output_path: Optional[Path] 
         8: "Configuration Management",
     }
 
+    mode_line = [f"> **Mode**: Dynamic (load-context at execution time)", ""] if dynamic else []
     plan_lines = [
         f"# Phase {phase} Full Execution Plan -- {repo_path.name}",
         "",
@@ -2271,6 +2361,7 @@ def generate_full_plan(phase: int, repo_path: Path, output_path: Optional[Path] 
         f"> **Framework**: harness-methodology v{_HARNESS_VERSION}",
         f"> **Phase**: {phase} - {phase_names.get(phase, 'Unknown')}",
         f"> **Status**: Full version (including Phase {phase} detailed tasks)",
+        *mode_line,
         "",
         "---",
         "",

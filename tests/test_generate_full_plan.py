@@ -1560,3 +1560,119 @@ class TestFe3e429Fixes:
             result = generate_full_plan(phase, project)
             assert "No harness run-gate" in result, f"P{phase}: missing 'No harness run-gate'"
             assert "TDD-PRECHECK" in result, f"P{phase}: missing 'TDD-PRECHECK'"
+
+
+class TestDynamicMode:
+    """Tests for generate_full_plan dynamic=True mode."""
+
+    def test_dynamic_p3_no_srs_required(self, tmp_path: Path):
+        """Phase 3 dynamic plan generates without SRS.md present."""
+        (tmp_path / ".methodology").mkdir()
+        result = generate_full_plan(3, tmp_path, dynamic=True)
+        assert result is not None
+
+    def test_dynamic_plan_has_phase_context_block(self, tmp_path: Path):
+        """P3-P8 dynamic plans contain [PHASE-CONTEXT] block."""
+        (tmp_path / ".methodology").mkdir()
+        for phase in range(3, 9):
+            result = generate_full_plan(phase, tmp_path, dynamic=True)
+            assert result is not None, f"P{phase} returned None"
+            assert "[PHASE-CONTEXT]" in result, f"P{phase}: missing [PHASE-CONTEXT]"
+
+    def test_dynamic_plan_no_expanded_fr_blocks(self, tmp_path: Path):
+        """Dynamic P3 does not contain individual expanded FR-01 blocks."""
+        (tmp_path / ".methodology").mkdir()
+        # create minimal SRS with FR-01 so JIT mode would expand it
+        srs = tmp_path / "01-requirements"
+        srs.mkdir()
+        (srs / "SRS.md").write_text(
+            "### FR-01: Test Feature\n\nDescription.\n\n---\n", encoding="utf-8"
+        )
+        result = generate_full_plan(3, tmp_path, dynamic=True)
+        assert result is not None
+        # JIT would produce "#### FR-01: Test Feature"; dynamic must not
+        assert "#### FR-01: Test Feature" not in result
+
+    def test_dynamic_plan_has_fr_template(self, tmp_path: Path):
+        """Dynamic P3 contains {FR-ID} template placeholder."""
+        (tmp_path / ".methodology").mkdir()
+        result = generate_full_plan(3, tmp_path, dynamic=True)
+        assert result is not None
+        assert "{FR-ID}" in result
+
+    def test_dynamic_p1_no_fr_details_section(self, tmp_path: Path):
+        """Dynamic P1 does not contain ### FR Requirements section."""
+        (tmp_path / ".methodology").mkdir()
+        srs = tmp_path / "01-requirements"
+        srs.mkdir()
+        (srs / "SRS.md").write_text(
+            "### FR-01: Test Feature\n\nDescription.\n\n---\n", encoding="utf-8"
+        )
+        result = generate_full_plan(1, tmp_path, dynamic=True)
+        assert result is not None
+        assert "### FR Requirements" not in result
+
+    def test_dynamic_p2_without_srs(self, tmp_path: Path):
+        """Dynamic P2 generates without SRS.md (no hard fail)."""
+        (tmp_path / ".methodology").mkdir()
+        result = generate_full_plan(2, tmp_path, dynamic=True)
+        assert result is not None
+
+    def test_dynamic_mode_flag_in_header(self, tmp_path: Path):
+        """Dynamic plan header contains Mode: Dynamic."""
+        (tmp_path / ".methodology").mkdir()
+        result = generate_full_plan(3, tmp_path, dynamic=True)
+        assert result is not None
+        assert "Mode" in result and "Dynamic" in result
+
+    def test_dynamic_advance_step_no_plan_phase(self, tmp_path: Path):
+        """Dynamic P3 plan does not contain plan-phase command in advance step."""
+        (tmp_path / ".methodology").mkdir()
+        result = generate_full_plan(3, tmp_path, dynamic=True)
+        assert result is not None
+        assert "plan-phase --phase 4" not in result
+
+
+class TestPlanAll:
+    """Tests for cmd_plan_all / plan-all CLI command."""
+
+    def test_plan_all_requires_methodology_dir(self, tmp_path: Path):
+        """plan-all exits with code 1 when .methodology/ doesn't exist."""
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from harness_cli import cmd_plan_all
+        import argparse
+        args = argparse.Namespace(project=str(tmp_path), output_dir=None)
+        assert cmd_plan_all(args) == 1
+
+    def test_plan_all_generates_8_files(self, tmp_path: Path):
+        """plan-all generates 8 phase plan files."""
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from harness_cli import cmd_plan_all
+        import argparse
+        (tmp_path / ".methodology").mkdir()
+        args = argparse.Namespace(project=str(tmp_path), output_dir=None)
+        result = cmd_plan_all(args)
+        assert result == 0
+        for phase_num in range(1, 9):
+            plan_file = tmp_path / ".methodology" / f"phase{phase_num}_plan.md"
+            assert plan_file.exists(), f"phase{phase_num}_plan.md not created"
+
+    def test_plan_all_no_fr_expansion(self, tmp_path: Path):
+        """Plans from plan-all do not contain expanded run-fr-step --fr-id FR-01 form."""
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from harness_cli import cmd_plan_all
+        import argparse
+        (tmp_path / ".methodology").mkdir()
+        srs = tmp_path / "01-requirements"
+        srs.mkdir()
+        (srs / "SRS.md").write_text(
+            "### FR-01: Test Feature\n\nDescription.\n\n---\n", encoding="utf-8"
+        )
+        args = argparse.Namespace(project=str(tmp_path), output_dir=None)
+        cmd_plan_all(args)
+        plan3 = (tmp_path / ".methodology" / "phase3_plan.md").read_text(encoding="utf-8")
+        # expanded form would be --fr-id FR-01 with a specific FR ID (not the template)
+        assert "--fr-id FR-01" not in plan3

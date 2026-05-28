@@ -639,6 +639,54 @@ def cmd_plan_phase(args: argparse.Namespace) -> int:
     return 0
 
 # ---------------------------------------------------------------------------
+# plan-all
+# ---------------------------------------------------------------------------
+
+def cmd_plan_all(args: argparse.Namespace) -> int:
+    """Generate all 8 phase plans in dynamic mode at project start."""
+    import json as _json
+    from scripts.generate_full_plan import generate_full_plan
+
+    project = Path(args.project).resolve()
+    out_dir = Path(args.output_dir) if args.output_dir else project / ".methodology"
+
+    if not (project / ".methodology").is_dir():
+        print(f"[ERROR] .methodology/ not found. Run init-project first.")
+        return 1
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    results = []
+    for phase_num in range(1, 9):
+        out_path = out_dir / f"phase{phase_num}_plan.md"
+        plan = generate_full_plan(phase_num, project, out_path, dynamic=True)
+        status = "OK" if plan else "FAIL"
+        results.append((phase_num, status, str(out_path)))
+        print(f"  Phase {phase_num}: {status} → {out_path}")
+
+    # Write plan_status.md
+    status_path = out_dir / "plan_status.md"
+    status_lines = [
+        "# Plan Generation Status",
+        "",
+        f"Generated: {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        f"Mode: Dynamic",
+        "",
+        "| Phase | Status | File |",
+        "|-------|--------|------|",
+    ]
+    for phase_num, status, path in results:
+        status_lines.append(f"| {phase_num} | {status} | {Path(path).name} |")
+    status_lines.append("")
+    status_path.write_text("\n".join(status_lines), encoding="utf-8")
+    print(f"\nplan_status.md → {status_path}")
+
+    failed = [p for p, s, _ in results if s == "FAIL"]
+    if failed:
+        print(f"[ERROR] Failed phases: {failed}")
+        return 1
+    return 0
+
+# ---------------------------------------------------------------------------
 # run-phase
 # ---------------------------------------------------------------------------
 
@@ -3372,6 +3420,76 @@ def cmd_status(args: argparse.Namespace) -> int:
         print(f"\n[Auto-Fix]")
         print(f"  rounds_used    : {auto_fix_rounds_used}")
 
+    return 0
+
+# ---------------------------------------------------------------------------
+# load-context
+# ---------------------------------------------------------------------------
+
+def cmd_load_context(args: argparse.Namespace) -> int:
+    """Load project context for a phase and output as JSON."""
+    import json as _json
+
+    project = Path(args.project).resolve()
+    phase = args.phase
+
+    manifest_path = project / ".methodology" / "quality_manifest.json"
+    state_path = project / ".methodology" / "state.json"
+
+    # fr_ids and gate_results from manifest
+    fr_ids: list = []
+    gate_results: dict = {}
+    if manifest_path.exists():
+        try:
+            manifest = _json.loads(manifest_path.read_text(encoding="utf-8"))
+            fr_ids = manifest.get("fr_ids", [])
+            gate_results = manifest.get("gate_results", {})
+        except Exception:  # pylint: disable=broad-exception-caught
+            pass
+
+    # current_phase from state.json
+    current_phase = 0
+    if state_path.exists():
+        try:
+            state = _json.loads(state_path.read_text(encoding="utf-8"))
+            current_phase = state.get("current_phase", 0)
+        except Exception:  # pylint: disable=broad-exception-caught
+            pass
+
+    # fr_details from SRS.md (optional)
+    fr_details: dict = {}
+    try:
+        from scripts.generate_full_plan import parse_srs_fr_sections
+        srs_path = project / "01-requirements" / "SRS.md"
+        frs = parse_srs_fr_sections(srs_path if srs_path.exists() else None)
+        for fr in frs:
+            fr_details[fr["fr"]] = {
+                "title": fr.get("title", ""),
+                "desc": fr.get("desc", ""),
+                "acceptance": fr.get("requirements", []),
+            }
+    except Exception:  # pylint: disable=broad-exception-caught
+        pass
+
+    # modules from SAD.md (optional)
+    modules: dict = {}
+    try:
+        from scripts.generate_full_plan import parse_sad_modules
+        modules = parse_sad_modules(project)
+    except Exception:  # pylint: disable=broad-exception-caught
+        pass
+
+    result = {
+        "phase": phase,
+        "project_name": project.name,
+        "fr_ids": fr_ids,
+        "fr_details": fr_details,
+        "modules": modules,
+        "gate_results": gate_results,
+        "current_phase": current_phase,
+    }
+
+    print(_json.dumps(result, indent=2, default=str))
     return 0
 
 # ---------------------------------------------------------------------------
@@ -6834,6 +6952,14 @@ def build_parser() -> argparse.ArgumentParser:
     pp.add_argument("--output", default=None, help="Output file path (default: stdout)")
     pp.set_defaults(func=cmd_plan_phase)
 
+    # plan-all
+    pa = sub.add_parser("plan-all",
+                        help="Generate all 8 phase plans (dynamic mode) at project start")
+    pa.add_argument("--project", default=".", help="Project root path (default: .)")
+    pa.add_argument("--output-dir", default=None, dest="output_dir",
+                    help="Output directory (default: <project>/.methodology/)")
+    pa.set_defaults(func=cmd_plan_all)
+
     # run-phase
     rp = sub.add_parser("run-phase", help="Run preflight checks before entering a phase")
     rp.add_argument("--phase",   type=int, required=True, help="Phase number (1-8)")
@@ -6981,6 +7107,14 @@ def build_parser() -> argparse.ArgumentParser:
     st.add_argument("--json", action="store_true", help="Machine-readable JSON output")
     st.add_argument("--full", action="store_true", help="Include test stats and auto-fix rounds")
     st.set_defaults(func=cmd_status)
+
+    # load-context
+    lc = sub.add_parser("load-context",
+                        help="Load project context for a phase (JSON output)")
+    lc.add_argument("--phase",   type=int, required=True, help="Phase number (1-8)")
+    lc.add_argument("--project", default=".", help="Project root (default: .)")
+    lc.add_argument("--json",    action="store_true", help="Output as JSON (default behavior)")
+    lc.set_defaults(func=cmd_load_context)
 
     # effort
     ef = sub.add_parser("effort", help="Show gate effort metrics summary")
