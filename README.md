@@ -27,7 +27,7 @@ Design Score: **91/100** Academic Benchmark
 |------|---------|
 | `SKILL.md` | Framework spec (YAML frontmatter + HR rules, thresholds, phase SOPs) |
 | `CONTRIBUTING.md` | Maintainer SOP: module structure, versioning, release flow, troubleshooting |
-| `harness_cli.py` | Standalone CLI entry point (plan-phase, run-gate, etc.) |
+| `harness_cli.py` | Standalone CLI entry point (plan-all, load-context, plan-phase, run-gate, etc.) |
 | `harness/harness_bridge.py` | Gate trigger + CRG integration |
 | `harness/gate_configs/` | 4 Gate YAML configurations |
 | `core/auto_fix/` | AutoFixEngine: classify → fix → verify → loop (13 strategies, 9 escalation conditions) |
@@ -45,7 +45,12 @@ Design Score: **91/100** Academic Benchmark
 步驟依序執行：
 
 ```bash
-python harness_cli.py plan-phase  --phase 3
+# One-time project setup
+python harness_cli.py init-project --project . --phase 1
+python harness_cli.py plan-all --project .
+
+# Per-phase execution
+python harness_cli.py load-context --phase 3 --project . --json > .sessi-work/phase3_ctx.json
 python harness_cli.py run-phase   --phase 3
 python harness_cli.py run-gate    --gate 1 --phase 3 --fr-id FR-01 --auto-fix-rounds 3
 python harness_cli.py finalize-gate --gate 1 --phase 3 --fr-id FR-01 --project .
