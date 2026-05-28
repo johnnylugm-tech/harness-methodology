@@ -1481,3 +1481,82 @@ class TestTddDevSteps:
         result = generate_full_plan(8, project)
         assert "ORCH-GATE1-DELTA" in result
         assert "GATE1-DELTA" in result
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Regression tests for bugs fixed in commit fe3e429
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestFe3e429Fixes:
+    # C1: push-checkpoint must not carry hardcoded --fr-ids
+    def test_c1_push_checkpoint_no_fr_ids(self, project: Path):
+        for phase in (1, 2):
+            result = generate_full_plan(phase, project)
+            assert "--fr-ids" not in result, f"P{phase}: --fr-ids still present"
+        # command itself must still appear
+        assert "push-checkpoint" in generate_full_plan(1, project)
+
+    # R4: NFR headings must not repeat the NFR ID (e.g., "#### NFR-01: NFR-01: ...")
+    def test_r4_nfr_heading_no_double_id(self, project: Path):
+        srs = project / "01-requirements" / "SRS.md"
+        srs.write_text(
+            "# SRS\n\n| NFR-01 | Performance | Response ≤ 200ms |\n|---|---|---|\n",
+            encoding="utf-8",
+        )
+        result = generate_full_plan(1, project)
+        assert "NFR-01: NFR-01:" not in result
+        assert "#### NFR-01: Performance" in result
+
+    # C3: NFR coverage table must show "—" (not the old placeholder) when no mapping found
+    def test_c3_nfr_coverage_no_placeholder(self, project: Path):
+        srs = project / "01-requirements" / "SRS.md"
+        srs.write_text(
+            "# SRS\n\n### NFR-01: Performance\n\nFast response time.\n\n",
+            encoding="utf-8",
+        )
+        result = "\n".join(generate_phase3_tasks(project, srs))
+        assert "(see SRS.md §3)" not in result
+        assert "—" in result  # fallback sentinel present
+
+    # C3 follow-up: ⚠️ note must appear when no NFR Association column in SRS
+    def test_c3_nfr_coverage_warning_note(self, project: Path):
+        srs = project / "01-requirements" / "SRS.md"
+        srs.write_text(
+            "# SRS\n\n### NFR-01: Performance\n\nFast response time.\n\n",
+            encoding="utf-8",
+        )
+        result = "\n".join(generate_phase3_tasks(project, srs))
+        assert "NFR→FR mapping not found" in result
+
+    # C4: P4 milestone section header must label the push variants
+    def test_c4_p4_milestone_header_note(self, project: Path):
+        result = generate_full_plan(4, project)
+        assert "P4 variants of PUSH" in result
+
+    # C5: P6 plan must include G4e and G4f task steps (now inside _gate_exit_checkpoint)
+    def test_c5_p6_has_g4e_g4f(self, project: Path):
+        result = generate_full_plan(6, project)
+        assert "G4e" in result
+        assert "G4f" in result
+        assert "RELEASE_NOTES.md" in result
+        assert "FINAL_SIGN_OFF.md" in result
+
+    # C5 structural: G4e/G4f must come from _gate_exit_checkpoint, not a separate block
+    def test_c5_gate_exit_checkpoint_gate4_has_g4e_g4f(self):
+        lines = _gate_exit_checkpoint(4, 6, 1)
+        joined = "\n".join(lines)
+        assert "G4e" in joined
+        assert "G4f" in joined
+        assert "RELEASE_NOTES.md" in joined
+
+    # C6: P3 entry gate check must contain [P2-ARTIFACTS] verification block
+    def test_c6_p3_entry_gate_has_p2_artifacts(self, project: Path):
+        result = generate_full_plan(3, project)
+        assert "[P2-ARTIFACTS]" in result
+
+    # I3: P5/P7/P8 overviews must say "No harness run-gate" and mention TDD-PRECHECK
+    def test_i3_no_harness_run_gate_wording(self, project: Path):
+        for phase in (5, 7, 8):
+            result = generate_full_plan(phase, project)
+            assert "No harness run-gate" in result, f"P{phase}: missing 'No harness run-gate'"
+            assert "TDD-PRECHECK" in result, f"P{phase}: missing 'TDD-PRECHECK'"
