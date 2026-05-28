@@ -76,6 +76,7 @@ class CodeComponent:
 
 @dataclass
 class TestCoverage:
+    __test__ = False
     test_file: str
     test_functions: List[str] = field(default_factory=list)
     fr_id: Optional[str] = None

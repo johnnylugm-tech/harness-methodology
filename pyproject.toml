@@ -40,6 +40,10 @@ select = ["E", "F", "W", "I", "N", "UP"]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = "-v --tb=short"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::UserWarning",
+]
 markers = [
     "core: Core pipeline tests (fast, always run)",
     "extended: Extended integration tests (medium, run on PR)",
