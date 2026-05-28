@@ -878,6 +878,18 @@ def _entry_gate_check(phase: int) -> List[str]:
             "  以上 4 個檔案必須全部存在。若有缺失 → 返回 Phase 1 補齊後再進入 Phase 2。",
             "",
         ])
+    # Phase 3 entry: verify P2 output artifacts exist before starting implementation
+    if phase == 3:
+        lines.extend([
+            "- [ ] **[P2-ARTIFACTS]** Verify Phase 2 output artifacts exist:",
+            "  ```bash",
+            "  ls -la 02-architecture/SAD.md 02-architecture/ADR.md 02-architecture/TEST_SPEC.md \\",
+            "     .methodology/quality_manifest.json .methodology/SAB.json",
+            "  git log --oneline --grep=\"APPROVE\" -1",
+            "  ```",
+            "  If any file missing: return to Phase 2 and complete missing deliverables.",
+            "",
+        ])
     # Phase 6 entry: also verify P5 output artifacts per SAD.md §2.4.3
     if phase == 6:
         lines.insert(3, "  Verify P5 output artifacts exist: `05-verification/VERIFICATION_REPORT.md` + `05-verification/BASELINE.md`")
@@ -958,8 +970,7 @@ def _review_checkpoint(phase: int, checkpoint_n: int) -> List[str]:
         "  > Run `push-checkpoint` → if blocked, read the error → fix → re-run until green.",
         "  > Do NOT use `--no-verify` to bypass.",
         "  ```bash",
-        f"  python3 harness_cli.py push-checkpoint --phase {phase} --project . \\",
-        "    --fr-ids FR-01,FR-02,FR-03",
+        f"  python3 harness_cli.py push-checkpoint --phase {phase} --project .",
         "  ```",
         "  > This writes `HANDOVER.md` (crash-recovery checkpoint) to project root,",
         "  > then commits + pushes all changes to origin.",
@@ -1229,7 +1240,8 @@ def _p3_milestone_push_steps(fr_ids: List[str]) -> List[str]:
 
 def _milestone_push_steps(fr_ids: List[str], phase: int,
                           pre_gate: int | None = None,
-                          push_prefixes: tuple[str, str] = ("", "")) -> List[str]:
+                          push_prefixes: tuple[str, str] = ("", ""),
+                          header_note: str = "") -> List[str]:
     """Phase milestone push instructions (mid + pre-gate push checkpoints).
 
     Args:
@@ -1237,6 +1249,7 @@ def _milestone_push_steps(fr_ids: List[str], phase: int,
             None = no pre-gate milestone generated.
         push_prefixes: (mid_label, pre_gate_label) — e.g. ("③", "④") for P3.
             Omit for phases without dedicated push numbers (P4+).
+        header_note: Optional note appended to the section header (e.g. for P4 variant labels).
     """
     if not fr_ids:
         return []
@@ -1253,10 +1266,11 @@ def _milestone_push_steps(fr_ids: List[str], phase: int,
     _pre_prefix = f"PUSH {push_prefixes[1]} — " if push_prefixes[1] else ""
     _strategy_label = (f" (10-Push Strategy {push_prefixes[0]}{push_prefixes[1]})"
                        if push_prefixes[0] else "")
+    _header_note = f" — {header_note}" if header_note else ""
 
     pre_gate_type = f"pre-gate{pre_gate}" if pre_gate else None
     result = [
-        f"### P{phase} Milestone Pushes{_strategy_label}",
+        f"### P{phase} Milestone Pushes{_strategy_label}{_header_note}",
         "",
         "> Per-FR steps push automatically via `run-fr-step`. The two **milestone pushes** below",
         "> also write `HANDOVER.md` with phase/FR/status summary and push to origin.",
@@ -1469,7 +1483,8 @@ def generate_phase1_tasks(repo_path: Path, srs_path: Path) -> List[str]:
         lines.append("### NFR Non-Functional Requirements ({} total)".format(len(nfrs)))
         lines.append("")
         for nfr in nfrs:
-            lines.append(f"#### {nfr['nfr']}: {nfr['title']}")
+            _nfr_title = nfr['title'].replace(f"{nfr['nfr']}: ", '', 1)
+            lines.append(f"#### {nfr['nfr']}: {_nfr_title}")
             lines.append(f"**Requirement**: {nfr['details'][:200]}")
             lines.append("")
 
@@ -1707,7 +1722,7 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path) -> List[str]:
                 ] if frs else []
             fr_list = ', '.join(_ref_frs)
             if not fr_list:
-                fr_list = '(see SRS.md §3)'
+                fr_list = '—'
             lines.append(f"| {nfr_id} | {nfr_type[:30]} | {fr_list} |")
         lines.append("")
         lines.append("**Gate 2 NFR dimensions** (tool-scored, see Gate 2 config):")
@@ -1863,7 +1878,8 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path) -> List[str]:
         "",
     ])
 
-    lines.extend(_milestone_push_steps(fr_ids, phase=4, pre_gate=3))
+    lines.extend(_milestone_push_steps(fr_ids, phase=4, pre_gate=3,
+                                       header_note="P4 variants of PUSH ③④"))
 
     lines.extend(_gate_exit_checkpoint(gate_num=3, phase=4, checkpoint_n=checkpoint_n))
 
@@ -1890,7 +1906,7 @@ def generate_phase5_tasks(repo_path: Path) -> List[str]:
     lines.append("")
     lines.append("### Phase 5 Overview")
     lines.append("Phase 5 verifies the system against test results, ensuring all FRs meet acceptance criteria.")
-    lines.append("Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). No phase-exit gate — P5 was cleared by Gate 3 at P4 exit.")
+    lines.append("Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). No harness run-gate — P5 was cleared by Gate 3 at P4 exit. However, advance-phase still enforces TDD-PRECHECK (pytest 100% + D4 spec-coverage ≥80%) before FSM transition.")
     lines.append("")
     lines.append(
         "> If code changes are needed for any FR (e.g., bug fixes found during verification), "
@@ -1989,6 +2005,19 @@ def generate_phase6_tasks(repo_path: Path) -> List[str]:
 
     lines.extend(_gate_exit_checkpoint(gate_num=4, phase=6, checkpoint_n=1))
 
+    lines.extend([
+        "- [ ] **G4e** Generate Release Notes:",
+        "  Create `RELEASE_NOTES.md` at project root summarizing changes since Gate 3.",
+        "  Include: version, date, FR list, Gate 4 composite score, known limitations.",
+        "  Reference: `06-quality/QUALITY_REPORT.md` (auto-generated by G4c finalize-gate).",
+        "",
+        "- [ ] **G4f** Generate Final Sign-Off:",
+        "  Create `FINAL_SIGN_OFF.md` at project root.",
+        "  Include: project name, completion date, Gate 4 composite score, sign-off statement.",
+        "  Must reference `BASELINE.md` and `VERIFICATION_REPORT.md` (ASPICE traceability).",
+        "",
+    ])
+
     lines.append("### Phase 6 Deliverables")
     lines.append("- [ ] Gate 4 PASS (composite ≥ 85, all 14 dims, CRG recon done)")
     lines.append("- [ ] `QUALITY_REPORT.md` - Quality report (auto-generated by Gate 4)")
@@ -2011,7 +2040,7 @@ def generate_phase7_tasks(repo_path: Path) -> List[str]:
     lines.append("")
     lines.append("### Phase 7 Overview")
     lines.append("Phase 7 identifies, tracks, and mitigates all risks introduced during development.")
-    lines.append("Each FR gets a Gate 1 risk-aware re-evaluation (CHECKPOINT). No phase-exit gate — P7 cleared by Gate 4.")
+    lines.append("Each FR gets a Gate 1 risk-aware re-evaluation (CHECKPOINT). No harness run-gate — P7 cleared by Gate 4. However, advance-phase still enforces TDD-PRECHECK (pytest 100% + D4 spec-coverage ≥90%) before FSM transition.")
     lines.append("")
     lines.append(
         "> If risk mitigation requires code changes to any FR, run full TDD: "
@@ -2088,7 +2117,7 @@ def generate_phase8_tasks(repo_path: Path) -> List[str]:
     lines.append("")
     lines.append("### Phase 8 Overview")
     lines.append("Phase 8 establishes a complete configuration management system ensuring traceability.")
-    lines.append("Each FR gets a Gate 1 config-aware re-evaluation (CHECKPOINT). No phase-exit gate — P8 cleared by Gate 4.")
+    lines.append("Each FR gets a Gate 1 config-aware re-evaluation (CHECKPOINT). No harness run-gate — P8 cleared by Gate 4. However, advance-phase still enforces TDD-PRECHECK (pytest 100% + D4 spec-coverage ≥90%) before FSM transition.")
     lines.append("")
     lines.append(
         "> If configuration changes require code modifications to any FR, run full TDD: "
