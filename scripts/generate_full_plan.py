@@ -2351,7 +2351,7 @@ def generate_full_plan(phase: int, repo_path: Path, output_path: Optional[Path] 
         8: "Configuration Management",
     }
 
-    mode_line = [f"> **Mode**: Dynamic (load-context at execution time)", ""] if dynamic else []
+    mode_line = ["> **Mode**: Dynamic (load-context at execution time)", ""] if dynamic else []
     plan_lines = [
         f"# Phase {phase} Full Execution Plan -- {repo_path.name}",
         "",
