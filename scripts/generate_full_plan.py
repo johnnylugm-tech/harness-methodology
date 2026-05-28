@@ -1309,7 +1309,7 @@ def _milestone_push_steps(fr_ids: List[str], phase: int,
         if not dynamic:
             return []
         total = "N"
-        mid = "≥50%"
+        mid = "50%"
         mid_ids = "<comma-separated FR-IDs with Gate 1 PASS>"
         full_ids = "<comma-separated FR-IDs with Gate 1 PASS>"
         _visual = "<FR-01,FR-02,…>"
