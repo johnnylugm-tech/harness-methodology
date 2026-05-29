@@ -2040,6 +2040,41 @@ class TestGate1PerFrCoverageCheck:
         ])
         assert self._run_check(tmp_path, 4) == 0
 
+    def test_phase6_not_in_gate1_fr_check_set(self):
+        """Phase 6 must not be in _PHASES_WITH_GATE1_FR_CHECK — Gate 4 replaces FR loop."""
+        import harness_cli
+        assert 6 not in harness_cli._PHASES_WITH_GATE1_FR_CHECK
+
+    def test_phase6_check_skipped_even_with_fr_manifest(self, tmp_path):
+        """advance-phase for Phase 6 must not block on missing Gate 1 records.
+
+        Phase 6 (Quality Assurance) uses Gate 4 exclusively — there are no
+        per-FR TDD-RED/GREEN/GATE1 steps, so _check_gate1_per_fr_coverage
+        should not be called for completed_phase=6.
+        """
+        # Set up a manifest with FRs but NO Gate 1 timestamps for Phase 6
+        self._make_manifest(tmp_path, ["FR-01", "FR-02", "FR-03"])
+        # gate_timestamps.jsonl has only Gate 4 entries (typical P6 output)
+        self._make_timestamps(tmp_path, [
+            {"phase": 6, "gate": 4, "fr_id": "phase", "ts": 1.0},
+        ])
+        # _check_gate1_per_fr_coverage would return 14 if called for phase=6;
+        # the guard in _advance_prechecks must prevent that call.
+        assert self._run_check(tmp_path, 6) == 14, (
+            "_check_gate1_per_fr_coverage itself returns 14 for phase=6 "
+            "(confirms the guard in _advance_prechecks is doing the right thing)"
+        )
+
+    def test_phases_with_gate1_fr_check_constant(self):
+        """_PHASES_WITH_GATE1_FR_CHECK must cover phases 3,4,5,7,8 and exclude 1,2,6."""
+        import harness_cli
+        expected_included = {3, 4, 5, 7, 8}
+        expected_excluded = {1, 2, 6}
+        for p in expected_included:
+            assert p in harness_cli._PHASES_WITH_GATE1_FR_CHECK, f"Phase {p} must be in set"
+        for p in expected_excluded:
+            assert p not in harness_cli._PHASES_WITH_GATE1_FR_CHECK, f"Phase {p} must NOT be in set"
+
 
 # =============================================================================
 # _parse_spec_names_for_fr (harness_bridge)

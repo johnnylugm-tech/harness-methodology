@@ -603,6 +603,12 @@ from scripts.phase_auditor import _ENTRY_GATE_MAP  # noqa: E402 (module-level af
 # Phase → composite exit gate number
 _PHASE_EXIT_GATES: dict[int, int] = {3: 2, 4: 3, 6: 4}
 
+# Phases that require Gate 1 per-FR evaluation during advance-phase.
+# Phase 6 (Quality Assurance) has no FR loop — it uses Gate 4 exclusively —
+# so Gate 1 per-FR records are not expected for it.
+# Mirrors _PHASE_GATE1_PHASES in scripts/generate_full_plan.py.
+_PHASES_WITH_GATE1_FR_CHECK: frozenset[int] = frozenset({3, 4, 5, 7, 8})
+
 # P1/P2 deliverable labels used as approval-file keys in agent_b_approvals/
 _PHASE_DELIVERABLES: dict[int, list[str]] = {
     1: ["SRS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md", "TEST_INVENTORY.yaml"],
@@ -3719,8 +3725,8 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
         if _rc != 0:
             return _rc
 
-    # ── Gate 1 per-FR coverage check (phases 3+, except phase 6) ─────
-    if completed_phase >= 3 and completed_phase != 6:
+    # ── Gate 1 per-FR coverage check (FR-loop phases only) ───────────
+    if completed_phase in _PHASES_WITH_GATE1_FR_CHECK:
         _rc = _check_gate1_per_fr_coverage(project, completed_phase)
         if _rc != 0:
             return _rc
