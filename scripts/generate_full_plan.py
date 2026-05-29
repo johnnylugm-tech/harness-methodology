@@ -435,6 +435,11 @@ def parse_srs_nfr_sections(srs_path: Optional[Path]) -> List[Dict]:
 _PHASE_GATE1_PHASES: frozenset = frozenset({3, 4, 5, 7, 8})   # Gate 1 per-FR
 _PHASE_EXIT_GATES: dict = {3: 2, 4: 3, 6: 4}                  # phase → exit gate num
 
+# 10-Push Strategy labels for the P1/P2 checkpoint pushes (① ②).
+# Pushes ③–⑩ are emitted by _milestone_push_steps / _gate_exit_checkpoint;
+# ① and ② are the P1/P2 Agent-B-review checkpoint pushes.
+_PHASE_PUSH_LABELS: dict = {1: "PUSH ① — ", 2: "PUSH ② — "}
+
 # Gate metadata: (score_gate, dim_count, notes)
 _GATE_META: dict = {
     1: (None, 3,  "linting(90) · type_safety(85) · test_coverage(80)"),
@@ -868,14 +873,14 @@ def _entry_gate_check(phase: int) -> List[str]:
     # Phase 2 entry: explicitly verify all 4 P1 deliverables per CONSTITUTION.md §2.3
     if phase == 2:
         lines.extend([
-            "- [ ] **[P1-ARTIFACTS]** 確認 Phase 1 四項交付物存在（CONSTITUTION.md §2.3 P2 entry 要求）:",
+            "- [ ] **[P1-ARTIFACTS]** Verify all 4 Phase 1 deliverables exist (CONSTITUTION.md §2.3 P2 entry requirement):",
             "  ```bash",
             "  ls 01-requirements/SRS.md \\",
             "     01-requirements/SPEC_TRACKING.md \\",
             "     01-requirements/TRACEABILITY_MATRIX.md \\",
             "     TEST_INVENTORY.yaml",
             "  ```",
-            "  以上 4 個檔案必須全部存在。若有缺失 → 返回 Phase 1 補齊後再進入 Phase 2。",
+            "  All 4 files must exist. If any is missing → return to Phase 1 to complete them before entering Phase 2.",
             "",
         ])
     # Phase 3 entry: verify P2 output artifacts exist before starting implementation
@@ -966,7 +971,7 @@ def _review_checkpoint(phase: int, checkpoint_n: int) -> List[str]:
         "    > If round 5 REJECT: escalate to human — orchestrator cannot self-resolve.",
         "    > Human fix → re-dispatch Agent B (same prompt + updated content) → `APPROVE` required before continuing.",
         "",
-        f"- [ ] **[B-PUSH]** ✅ Push to GitHub + HANDOVER.md — retry until success (CHECKPOINT-{checkpoint_n} saved):",
+        f"- [ ] **[B-PUSH]** ✅ {_PHASE_PUSH_LABELS.get(phase, '')}Push to GitHub + HANDOVER.md — retry until success (CHECKPOINT-{checkpoint_n} saved):",
         "  > Run `push-checkpoint` → if blocked, read the error → fix → re-run until green.",
         "  > Do NOT use `--no-verify` to bypass.",
         "  ```bash",

@@ -1723,16 +1723,29 @@ class TestCrossProjectFixes:
         assert "[RISK-MITIGATION]" in result, "dynamic P7 must include [RISK-MITIGATION] step"
         assert "[RISK-STATUS]" in result, "dynamic P7 must include [RISK-STATUS] step"
 
-    # Fix 9: P8 must not contain Chinese characters
-    def test_p8_no_chinese_text(self, tmp_path: Path):
+    # Fix 9 + A: NO phase plan may contain Chinese characters (all-English consistency)
+    def test_no_phase_plan_has_chinese_text(self, tmp_path: Path):
         (tmp_path / ".methodology").mkdir()
-        result = generate_full_plan(8, tmp_path, dynamic=True)
-        assert result is not None
-        # CJK Unified Ideographs U+4E00–U+9FFF
-        chinese_chars = [c for c in result if "一" <= c <= "鿿"]
-        assert not chinese_chars, (
-            f"P8 plan must not contain Chinese text; found: {''.join(chinese_chars[:10])!r}"
+        for phase in range(1, 9):
+            result = generate_full_plan(phase, tmp_path, dynamic=True)
+            assert result is not None, f"P{phase} plan generation returned None"
+            # CJK Unified Ideographs U+4E00–U+9FFF
+            chinese_chars = [c for c in result if "一" <= c <= "鿿"]
+            assert not chinese_chars, (
+                f"P{phase} plan must not contain Chinese text; "
+                f"found: {''.join(chinese_chars[:10])!r}"
+            )
+
+    # Fix B: 10-Push Strategy must label all ten pushes ①–⑩ across the 8 plans
+    def test_ten_push_strategy_all_labeled(self, tmp_path: Path):
+        (tmp_path / ".methodology").mkdir()
+        combined = "".join(
+            generate_full_plan(p, tmp_path, dynamic=True) or "" for p in range(1, 9)
         )
+        for label in "①②③④⑤⑥⑦⑧⑨⑩":
+            assert f"PUSH {label}" in combined, (
+                f"10-Push Strategy is missing label PUSH {label}"
+            )
 
     # Fix 5: dynamic P1 PHASE-CONTEXT must appear before Sub-Task 1/4
     def test_p1_phase_context_before_subtasks(self, tmp_path: Path):
