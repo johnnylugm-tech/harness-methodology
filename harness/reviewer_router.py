@@ -373,6 +373,7 @@ class ReviewerRouter:
             remaining = [s for s in remaining if s not in wave]
 
             cancel_event = threading.Event()
+            _rejected = False
             executor = ThreadPoolExecutor(max_workers=len(wave))
             try:
                 futures = {
@@ -397,9 +398,11 @@ class ReviewerRouter:
 
                     if result.get("review_status") == "REJECT":
                         cancel_event.set()
+                        _rejected = True
                         # cancel_futures=True drops not-yet-started futures.
-                        # wait=False abandons in-progress ones — they complete in the
-                        # background but we don't block on them.
+                        # wait=False abandons in-progress ones so the caller returns
+                        # immediately without blocking on slow sibling reviewers.
+                        # The finally block skips wait=True on the reject path.
                         executor.shutdown(wait=False, cancel_futures=True)
                         result["_stopped_at"] = subtask.label
                         result["_completed_subtasks"] = len(all_results)
@@ -411,8 +414,11 @@ class ReviewerRouter:
                         with lock:
                             approved_context.append(f"✅ [{subtask.label}] {summary}")
             finally:
-                # Idempotent: calling shutdown() on an already-shut-down executor is a no-op.
-                executor.shutdown(wait=True)
+                # On the APPROVE path: wait=True joins threads cleanly.
+                # On the REJECT path: shutdown(wait=False) was already called above;
+                # skip the blocking join so the fast-exit intent is preserved.
+                if not _rejected:
+                    executor.shutdown(wait=True)
 
             # Update pending_deps for the next wave
             for s in remaining:
