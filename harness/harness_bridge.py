@@ -1386,8 +1386,10 @@ class HarnessBridge:
             _overall_score = 0.0
 
         # ── Fallback: derive quality_complete if agent omitted it ──
+        # If CRG overrides changed dim scores, the agent's quality_complete was based on
+        # pre-override values — force recompute from corrected dims instead of trusting it.
         _raw_qc = raw.get("quality_complete")
-        if _raw_qc is not None:
+        if _raw_qc is not None and not _crg_overrides_applied:
             _quality_complete = bool(_raw_qc)
         elif dims:
             # Gate 1 pass condition: overall >= score_gate AND every dim >= its threshold.
@@ -1410,6 +1412,38 @@ class HarnessBridge:
             rounds_used=raw.get("rounds_used", 1),
         )
 
+        # DA waivers: zero out threshold for dimensions whose design was justified by a
+        # Devil's Advocate challenge (e.g. Orchestrator pattern → architecture score 0 is OK).
+        _effective_dims = result.dimensions
+        if da_waivers:
+            _effective_dims = [
+                _dc.replace(d, threshold=0.0) if d.name in da_waivers else d
+                for d in result.dimensions
+            ]
+
+        # Determine final pass/fail state (using effective thresholds) BEFORE writing
+        # manifest/log so that manifest and decision log reflect the actual gate outcome.
+        _gate_passes: bool
+        if ctx.gate_num == 1:
+            _gate_passes = not any(d.score < d.threshold for d in _effective_dims)
+        else:
+            if isinstance(ctx.config, GateConfig):
+                score_gate = ctx.config.score_gate
+            else:
+                score_gate = ctx.config.get("score_gate", 0)
+            # Recompute quality_complete against effective (waived) thresholds.
+            _eff_qc = result.quality_complete
+            if da_waivers and result.dimensions:
+                _eff_qc = result.score >= score_gate and all(
+                    d.score >= d.threshold for d in _effective_dims
+                )
+            _gate_passes = result.score >= score_gate and _eff_qc
+
+        # If DA waivers (or CRG override recompute) changed the pass state,
+        # update result.quality_complete so manifest + log reflect the real outcome.
+        if _gate_passes and not result.quality_complete:
+            result = _dc.replace(result, quality_complete=True)
+
         self._update_quality_manifest(ctx.gate_num, ctx.fr_id, result)
 
         self._effort.record(EffortRecord(
@@ -1426,34 +1460,9 @@ class HarnessBridge:
             scores={"gate_score": result.score},
         ))
 
-        # DA waivers: zero out threshold for dimensions whose design was justified by a
-        # Devil's Advocate challenge (e.g. Orchestrator pattern → architecture score 0 is OK).
-        _effective_dims = result.dimensions
-        if da_waivers:
-            _effective_dims = [
-                _dc.replace(d, threshold=0.0) if d.name in da_waivers else d
-                for d in result.dimensions
-            ]
-
-        # Gate 1: per-dimension threshold check
-        if ctx.gate_num == 1:
-            if any(d.score < d.threshold for d in _effective_dims):
-                self._trigger_hooks(ctx, "on_gate_fail")
-                raise GateBlockedError(ctx.gate_num, result)
-        else:
-            if isinstance(ctx.config, GateConfig):
-                score_gate = ctx.config.score_gate
-            else:
-                score_gate = ctx.config.get("score_gate", 0)
-            # Recompute quality_complete against effective (waived) thresholds when waivers apply.
-            _eff_qc = result.quality_complete
-            if da_waivers and result.dimensions:
-                _eff_qc = result.score >= score_gate and all(
-                    d.score >= d.threshold for d in _effective_dims
-                )
-            if result.score < score_gate or not _eff_qc:
-                self._trigger_hooks(ctx, "on_gate_fail")
-                raise GateBlockedError(ctx.gate_num, result)
+        if not _gate_passes:
+            self._trigger_hooks(ctx, "on_gate_fail")
+            raise GateBlockedError(ctx.gate_num, result)
 
         self._trigger_hooks(ctx, "after_gate_pass")
 

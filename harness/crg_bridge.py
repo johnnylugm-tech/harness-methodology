@@ -107,9 +107,12 @@ class CRGBridge:
         """Return True if CRG core tools are importable. Warn once on first failure."""
         if not _CRG_AVAILABLE and not self._warned:
             print(
-                "[CRG] WARNING: CRG MCP server not available — structural analysis skipped.\n"
-                "  Gate 3/4 architecture/error-handling dimensions require CRG.\n"
-                "  Install: code-review-graph MCP server + pip install code-review-graph",
+                "[CRG] INFO: CRG Python library not importable in this subprocess "
+                "(mcp_tools is only injected in Claude Code sessions).\n"
+                "  Structural analysis via crg_bridge is skipped — this is expected when "
+                "harness_cli.py runs as a Bash subprocess.\n"
+                "  If crg_metrics.json exists in .sessi-work/, finalize_gate() will "
+                "still enforce CRG scores from that file.",
                 file=sys.stderr,
             )
             self._warned = True
