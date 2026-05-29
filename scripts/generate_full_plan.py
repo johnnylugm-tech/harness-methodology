@@ -1423,6 +1423,7 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
         "  ```bash",
         f"  python3 harness_cli.py finalize-gate --gate {gate_num} --phase {phase} --project .",
         "  ```",
+        *(["  > **PUSH ⑧ in the 10-Push Strategy**: `finalize-gate --gate 4` writes HANDOVER.md + commits + pushes."] if gate_num == 4 else []),
         f"- [ ] **[D4]** D4 spec-coverage-check — unified v2.6 (Gate {gate_num} threshold {_SPEC_COVERAGE_THRESHOLDS[gate_num]:.0f}%):",
         "  ```bash",
         f"  python3 harness_cli.py spec-coverage-check --project . --threshold {_SPEC_COVERAGE_THRESHOLDS[gate_num]}",
@@ -1462,6 +1463,9 @@ def _checkpoint_index(fr_ids: List[str], phase: int) -> List[str]:
     if phase == 3:
         lines.append("> - MILESTONE: P3-mid push (≥50% FRs Gate 1 PASS) → **HANDOVER.md**")
         lines.append("> - MILESTONE: P3-pre-gate2 push (all FRs done) → **HANDOVER.md**")
+    if phase == 4:
+        lines.append("> - MILESTONE: P4-mid push (≥50% FRs Gate 1 PASS) → **HANDOVER.md**")
+        lines.append("> - MILESTONE: P4-pre-gate3 push (all FRs done, before Gate 3) → **HANDOVER.md**")
     if phase == 5:
         lines.append("> - MILESTONE: P5-baseline push (BASELINE.md generated) → **HANDOVER.md**")
     if phase == 7:
@@ -1525,6 +1529,10 @@ def generate_phase1_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
 
     lines.extend(_preflight_steps(1))
 
+    # Load execution-time context BEFORE starting any sub-task (dynamic mode only).
+    if dynamic:
+        lines.extend(_dynamic_phase_context_block(1, has_fr_template=False))
+
     # Task decomposition: 3 deliverables with sequential dependencies
     lines.extend(_decomposition_section(1))
 
@@ -1537,9 +1545,7 @@ def generate_phase1_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
     for i, d in enumerate(deliverables, 1):
         lines.extend(_deliverable_ab_block(1, d, i, total, label_to_sub_n))
 
-    if dynamic:
-        lines.extend(_dynamic_phase_context_block(1, has_fr_template=False))
-    else:
+    if not dynamic:
         # FR/NFR summary (informational — parsed from already-APPROVED SRS.md if exists)
         frs = parse_srs_fr_sections(srs_path)
         nfrs = parse_srs_nfr_sections(srs_path)
@@ -1607,6 +1613,10 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
     lines.extend(_entry_gate_check(2))  # confirm P1 human APPROVE
     lines.extend(_preflight_steps(2))
 
+    # Load execution-time context BEFORE starting any sub-task (dynamic mode only).
+    if dynamic:
+        lines.extend(_dynamic_phase_context_block(2, has_fr_template=False))
+
     # Task decomposition: 3 deliverables with sequential dependencies
     lines.extend(_decomposition_section(2))
 
@@ -1619,9 +1629,7 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
     for i, d in enumerate(deliverables, 1):
         lines.extend(_deliverable_ab_block(2, d, i, total, label_to_sub_n))
 
-    if dynamic:
-        lines.extend(_dynamic_phase_context_block(2, has_fr_template=False))
-    else:
+    if not dynamic:
         frs = parse_srs_fr_sections(srs_path)
         modules = parse_sad_modules(repo_path)
 
@@ -1887,7 +1895,7 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
         lines.append("")
         lines.extend(_dynamic_fr_template_block(4))
         lines.extend(_milestone_push_steps(fr_ids, phase=4, pre_gate=3,
-                                           header_note="P4 variants of PUSH ③④",
+                                           push_prefixes=("⑤", "⑥"),
                                            dynamic=True))
     else:
         frs = parse_srs_fr_sections(srs_path)
@@ -2005,7 +2013,7 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
 
     if not dynamic:
         lines.extend(_milestone_push_steps(fr_ids, phase=4, pre_gate=3,
-                                           header_note="P4 variants of PUSH ③④"))
+                                           push_prefixes=("⑤", "⑥")))
 
     lines.extend(_gate_exit_checkpoint(gate_num=3, phase=4, checkpoint_n=checkpoint_n))
 
@@ -2065,11 +2073,21 @@ def generate_phase5_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
         lines.append("### Verification Items")
         lines.append("(No FR list found — add per-FR verification steps based on SRS.md)")
         lines.append("")
-    lines.append("- [ ] Integration tests pass")
-    lines.append("- [ ] Performance tests meet targets")
-    lines.append("- [ ] Security scan passes")
-    lines.append("- [ ] Baseline established")
-    lines.append("")
+    lines.extend([
+        "### P5 System Verification",
+        "",
+        "- [ ] **[BASELINE]** Generate `05-verification/BASELINE.md` (system state snapshot):",
+        "  - Document: current version, test results summary, coverage %, Gate 3 composite score",
+        "  - Reference: `04-testing/TEST_RESULTS.md` and `03-development/src/` module list",
+        "- [ ] **[VERIFY-REPORT]** Generate `05-verification/VERIFICATION_REPORT.md`:",
+        "  - For each FR: verification status, acceptance criteria result (PASS/FAIL), evidence",
+        "  - Include: test coverage %, mutation score, deferred issues from Gate 3",
+        "  - Certify: all Gate 3 open issues addressed or deferred with justification",
+        "- [ ] Re-run integration tests: `pytest tests/integration/ -q` (or equivalent per NFRs)",
+        "- [ ] Confirm performance NFRs met: review benchmark entries in `04-testing/TEST_RESULTS.md`",
+        "- [ ] Re-run security scan clean: `bandit -r 03-development/src/ -ll` + `gitleaks detect`",
+        "",
+    ])
 
     lines.extend([
         "### P5 Milestone Push (10-Push Strategy ⑦)",
@@ -2083,8 +2101,8 @@ def generate_phase5_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     ])
 
     lines.append("### Phase 5 Deliverables")
-    lines.append("- [ ] `BASELINE.md` - System baseline")
-    lines.append("- [ ] `VERIFICATION_REPORT.md` - Verification report")
+    lines.append("- [ ] `05-verification/BASELINE.md` - System baseline")
+    lines.append("- [ ] `05-verification/VERIFICATION_REPORT.md` - Verification report")
     lines.append(_sessions_spawn_deliverable(phase))
     lines.append("- [ ] Gate 1 PASS for every FR")
     lines.extend(_aspice_output_requirements(5))
@@ -2117,18 +2135,22 @@ def generate_phase6_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     if dynamic:
         lines.extend(_dynamic_phase_context_block(6, has_fr_template=False))
 
-    qr = parse_quality_report(repo_path)
     lines.append("### P6 Phase End Audit (Replaces A/B)")
     lines.append("")
     lines.append("> Phase 6 does not use A/B collaboration. Gate 4 evaluation + Phase End Audit replace it.")
     lines.append("")
 
-    if qr.get('metrics'):
-        lines.append("### Existing Quality Metrics (from QUALITY_REPORT.md)")
-        lines.append("")
-        for metric, value in qr['metrics']:
-            lines.append(f"- **{metric}**: {value}")
-        lines.append("")
+    # Only embed static quality metrics from QUALITY_REPORT.md in non-dynamic mode.
+    # In dynamic mode the plan is generated at project start (before any Gate 4 data exists),
+    # so parsing the current QUALITY_REPORT.md would embed stale project-specific values.
+    if not dynamic:
+        qr = parse_quality_report(repo_path)
+        if qr.get('metrics'):
+            lines.append("### Existing Quality Metrics (from QUALITY_REPORT.md)")
+            lines.append("")
+            for metric, value in qr['metrics']:
+                lines.append(f"- **{metric}**: {value}")
+            lines.append("")
 
     lines.append("### Pre-Gate Preparation")
     lines.append("- [ ] Confirm all FRs are merged to main branch")
@@ -2177,6 +2199,20 @@ def generate_phase7_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     if dynamic:
         lines.extend(_dynamic_phase_context_block(7))
         lines.extend(_dynamic_fr_template_block(7))
+        lines.extend([
+            "### P7 Risk Register Generation",
+            "",
+            "> Generate risk deliverables ONCE before per-FR evaluation (orchestrator runs directly).",
+            "",
+            "- [ ] **[RISK-REGISTER]** Generate `07-risk/RISK_REGISTER.md`:",
+            "  - Review open issues from Gate 3/4, `deferred_fixes.md`, and `.sessi-work/issue_registry.json`",
+            "  - For each risk: ID, name, likelihood (1–5), impact (1–5), category, mitigation approach",
+            "- [ ] **[RISK-MITIGATION]** Generate `07-risk/RISK_MITIGATION_PLANS.md`:",
+            "  - For HIGH risks (likelihood × impact ≥ 9): write formal mitigation plan with owner + deadline",
+            "- [ ] **[RISK-STATUS]** Generate `07-risk/RISK_STATUS_REPORT.md`:",
+            "  - Summary of all risks, current status, mitigation owner, target date",
+            "",
+        ])
     else:
         risks = parse_risk_register(repo_path)
         if risks:
@@ -2291,21 +2327,21 @@ def generate_phase8_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     lines.extend([
         "### P8 Archive — REQUIRED before push-milestone (CI p8-archive-check)",
         "",
-        "- [ ] **[P8-ARCHIVE]** 建立 `.methodology-archive/` 目錄（CI `p8-archive-check` 驗證此目錄存在）:",
+        "- [ ] **[P8-ARCHIVE]** Create `.methodology-archive/` directory (required for CI `p8-archive-check`):",
         "  ```bash",
         "  mkdir -p .methodology-archive",
         "  cp -r .sessi-work/ .methodology-archive/",
         "  ```",
-        "  > 此步驟必須在 `push-milestone --type p8` 之前完成；`_validate_p8_completion()` 在 push-milestone 內部自動驗證。",
-        "  > CI job `p8-archive-check` 也會在 push to main 時驗證此目錄存在。",
+        "  > Must run BEFORE `push-milestone --type p8`; `_validate_p8_completion()` in push-milestone auto-verifies.",
+        "  > CI job `p8-archive-check` also validates this directory on push to main.",
         "",
-        "- [ ] **[P8-HANDOVER-CHECK]** 確認 `HANDOVER.md` 無 Phase 9 引用（CI `p8-archive-check` 驗證）:",
+        "- [ ] **[P8-HANDOVER-CHECK]** Verify `HANDOVER.md` has no Phase 9 references (validated by CI `p8-archive-check`):",
         "  ```bash",
         '  grep -qi "phase 9\\|phase9\\|phase9_plan" HANDOVER.md \\',
         '    && echo "ERROR: Phase 9 refs found — remove them" \\',
         '    || echo "OK: no Phase 9 refs"',
         "  ```",
-        "  Phase 8 為最終 Phase，任何 Phase 9 引用都必須移除。",
+        "  Phase 8 is the final phase. Any Phase 9 references must be removed.",
         "",
     ])
 

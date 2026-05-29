@@ -1528,10 +1528,11 @@ class TestFe3e429Fixes:
         result = "\n".join(generate_phase3_tasks(project, srs))
         assert "NFR→FR mapping not found" in result
 
-    # C4: P4 milestone section header must label the push variants
+    # C4: P4 milestone section must use 10-Push Strategy labels ⑤ and ⑥
     def test_c4_p4_milestone_header_note(self, project: Path):
         result = generate_full_plan(4, project)
-        assert "P4 variants of PUSH" in result
+        assert "⑤" in result
+        assert "⑥" in result
 
     # C5: P6 plan must include G4e and G4f task steps (now inside _gate_exit_checkpoint)
     def test_c5_p6_has_g4e_g4f(self, project: Path):
@@ -1676,3 +1677,90 @@ class TestPlanAll:
         plan3 = (tmp_path / ".methodology" / "phase3_plan.md").read_text(encoding="utf-8")
         # expanded form would be --fr-id FR-01 with a specific FR ID (not the template)
         assert "--fr-id FR-01" not in plan3
+
+
+# ─── Cross-project usability fixes ────────────────────────────────────────────
+
+class TestCrossProjectFixes:
+    """Audit-driven fixes: completeness, correctness, cross-project usability."""
+
+    # Fix 4: P4 checkpoint index must list milestone pushes (⑤ mid, ⑥ pre-gate3)
+    def test_p4_checkpoint_index_has_milestones(self):
+        lines = _checkpoint_index([], phase=4)
+        joined = "\n".join(lines)
+        assert "P4-mid" in joined, "P4 checkpoint index must include P4-mid milestone"
+        assert "P4-pre-gate3" in joined, "P4 checkpoint index must include P4-pre-gate3 milestone"
+
+    # Fix 2: P5 deliverables must use full 05-verification/ path
+    def test_p5_baseline_has_full_path(self, tmp_path: Path):
+        result = generate_full_plan(5, tmp_path)
+        assert result is not None
+        assert "05-verification/BASELINE.md" in result, "P5 must reference 05-verification/BASELINE.md"
+        assert "05-verification/VERIFICATION_REPORT.md" in result
+
+    # Fix 1: dynamic P6 must NOT embed static quality metric numbers
+    def test_p6_dynamic_no_static_quality_metrics(self, tmp_path: Path):
+        (tmp_path / ".methodology").mkdir()
+        result = generate_full_plan(6, tmp_path, dynamic=True)
+        assert result is not None
+        # These patterns appear in parse_quality_report output — must not appear in dynamic plan
+        assert "Overall Score" not in result, "dynamic P6 must not embed static quality metrics"
+        assert "Generated:" not in result, "dynamic P6 must not embed static generation date"
+
+    # Fix 7: P5 must have concrete generation steps for BASELINE and VERIFICATION_REPORT
+    def test_p5_has_baseline_generation_step(self, tmp_path: Path):
+        result = generate_full_plan(5, tmp_path)
+        assert result is not None
+        assert "[BASELINE]" in result, "P5 must include [BASELINE] generation step"
+        assert "[VERIFY-REPORT]" in result, "P5 must include [VERIFY-REPORT] generation step"
+
+    # Fix 8: dynamic P7 must have risk register generation steps
+    def test_p7_dynamic_has_risk_generation_steps(self, tmp_path: Path):
+        (tmp_path / ".methodology").mkdir()
+        result = generate_full_plan(7, tmp_path, dynamic=True)
+        assert result is not None
+        assert "[RISK-REGISTER]" in result, "dynamic P7 must include [RISK-REGISTER] step"
+        assert "[RISK-MITIGATION]" in result, "dynamic P7 must include [RISK-MITIGATION] step"
+        assert "[RISK-STATUS]" in result, "dynamic P7 must include [RISK-STATUS] step"
+
+    # Fix 9: P8 must not contain Chinese characters
+    def test_p8_no_chinese_text(self, tmp_path: Path):
+        (tmp_path / ".methodology").mkdir()
+        result = generate_full_plan(8, tmp_path, dynamic=True)
+        assert result is not None
+        # CJK Unified Ideographs U+4E00–U+9FFF
+        chinese_chars = [c for c in result if "一" <= c <= "鿿"]
+        assert not chinese_chars, (
+            f"P8 plan must not contain Chinese text; found: {''.join(chinese_chars[:10])!r}"
+        )
+
+    # Fix 5: dynamic P1 PHASE-CONTEXT must appear before Sub-Task 1/4
+    def test_p1_phase_context_before_subtasks(self, tmp_path: Path):
+        result = generate_full_plan(1, tmp_path, dynamic=True)
+        assert result is not None
+        ctx_pos = result.find("[PHASE-CONTEXT]")
+        subtask_pos = result.find("Sub-Task 1/")
+        assert ctx_pos != -1, "dynamic P1 must contain [PHASE-CONTEXT]"
+        assert subtask_pos != -1, "P1 must contain Sub-Task 1/"
+        assert ctx_pos < subtask_pos, (
+            f"[PHASE-CONTEXT] (pos {ctx_pos}) must appear before Sub-Task 1/ (pos {subtask_pos})"
+        )
+
+    # Fix 5: dynamic P2 PHASE-CONTEXT must appear before Sub-Task 1/3
+    def test_p2_phase_context_before_subtasks(self, tmp_path: Path):
+        (tmp_path / ".methodology").mkdir()
+        result = generate_full_plan(2, tmp_path, dynamic=True)
+        assert result is not None
+        ctx_pos = result.find("[PHASE-CONTEXT]")
+        subtask_pos = result.find("Sub-Task 1/")
+        assert ctx_pos != -1, "dynamic P2 must contain [PHASE-CONTEXT]"
+        assert subtask_pos != -1, "P2 must contain Sub-Task 1/"
+        assert ctx_pos < subtask_pos, (
+            f"[PHASE-CONTEXT] (pos {ctx_pos}) must appear before Sub-Task 1/ (pos {subtask_pos})"
+        )
+
+    # Fix 6: Gate 4 exit checkpoint must label PUSH ⑧
+    def test_push_8_labeled_in_gate4_exit(self):
+        lines = _gate_exit_checkpoint(4, 6, 1)
+        joined = "\n".join(lines)
+        assert "PUSH ⑧" in joined, "_gate_exit_checkpoint(gate_num=4) must mention PUSH ⑧"
