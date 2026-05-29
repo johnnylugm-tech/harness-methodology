@@ -7,6 +7,7 @@ Handles gate execution, results parsing, and quality manifest updates.
 from __future__ import annotations
 import json
 import re
+import dataclasses
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -1284,11 +1285,10 @@ class HarnessBridge:
         # Apply gate_score_overrides from quality_manifest as threshold floor.
         # Never lower a threshold below what the gate YAML / Claude set — only raise it.
         # sab_data is already loaded in prepare_gate() — no need to re-read the manifest.
-        import dataclasses as _dc
         _overrides: dict[str, float] = ctx.sab_data.get("gate_score_overrides", {})
         if _overrides:
             dims = [
-                _dc.replace(d, threshold=max(d.threshold, float(_overrides[d.name])))
+                dataclasses.replace(d, threshold=max(d.threshold, float(_overrides[d.name])))
                 if d.name in _overrides else d
                 for d in dims
             ]
@@ -1315,7 +1315,7 @@ class HarnessBridge:
                                 "(crg_metrics.community_cohesion.score)"
                             )
                             _crg_overrides_applied = True
-                        _new_dims.append(_dc.replace(_d, score=float(_cohesion)))
+                        _new_dims.append(dataclasses.replace(_d, score=float(_cohesion)))
                     elif _d.name == "error_handling" and _flow is not None:
                         if abs(_d.score - _flow) > 1.5:
                             print(
@@ -1323,7 +1323,7 @@ class HarnessBridge:
                                 "(crg_metrics.flow_coverage.score)"
                             )
                             _crg_overrides_applied = True
-                        _new_dims.append(_dc.replace(_d, score=float(_flow)))
+                        _new_dims.append(dataclasses.replace(_d, score=float(_flow)))
                     else:
                         _new_dims.append(_d)
                 dims = _new_dims
@@ -1417,7 +1417,7 @@ class HarnessBridge:
         _effective_dims = result.dimensions
         if da_waivers:
             _effective_dims = [
-                _dc.replace(d, threshold=0.0) if d.name in da_waivers else d
+                dataclasses.replace(d, threshold=0.0) if d.name in da_waivers else d
                 for d in result.dimensions
             ]
 
@@ -1446,7 +1446,7 @@ class HarnessBridge:
         # If DA waivers (or CRG override recompute) changed the pass state,
         # update result.quality_complete so manifest + log reflect the real outcome.
         if _gate_passes and not result.quality_complete:
-            result = _dc.replace(result, quality_complete=True)
+            result = dataclasses.replace(result, quality_complete=True)
 
         self._update_quality_manifest(ctx.gate_num, ctx.fr_id, result)
 

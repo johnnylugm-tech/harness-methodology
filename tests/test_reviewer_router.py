@@ -231,7 +231,7 @@ class TestParallelWaves:
         call_order: list[str] = []
         lock = threading.Lock()
 
-        def fake_try_chain(role, prompt, phase, fr_id, timeout_ms, task_idx=1, task_total=1):
+        def fake_try_chain(role, prompt, phase, fr_id, timeout_ms, task_idx=1, task_total=1, *args, **kwargs):
             # Extract label from prompt (enrich injects label in header)
             label = "FR-001" if "c1" in prompt else "FR-002"
             with lock:

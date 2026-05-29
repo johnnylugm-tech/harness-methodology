@@ -198,12 +198,22 @@ class ReviewerRouter:
         timeout_ms: int | None,
         task_idx: int = 1,
         task_total: int = 1,
+        cancel_event: threading.Event | None = None,
     ) -> dict:
         """Try each reviewer in priority order until one succeeds."""
         full_prompt = self._build_prompt(role, prompt, phase, fr_id, task_idx, task_total)
         degradation_log: list[dict] = []
 
         for spec in self._chain:
+            if cancel_event and cancel_event.is_set():
+                return {
+                    "review_status": "CANCELLED",
+                    "confidence": 1.0,
+                    "violations": [],
+                    "summary": f"[CANCELLED] Sibling reviewer returned REJECT. Skipped {spec.name}.",
+                    "_reviewer_used": spec.name,
+                }
+
             if not spec.enabled:
                 degradation_log.append({"reviewer": spec.name, "reason": "not_available_or_not_configured"})
                 continue
@@ -362,10 +372,7 @@ class ReviewerRouter:
 
             remaining = [s for s in remaining if s not in wave]
 
-            # Create executor explicitly (not as context manager) so that on REJECT we
-            # can call shutdown(wait=False) and return immediately without blocking on
-            # in-progress sibling futures.  Use try/finally to guarantee cleanup on
-            # any exception path (e.g. RuntimeError from future.result()).
+            cancel_event = threading.Event()
             executor = ThreadPoolExecutor(max_workers=len(wave))
             try:
                 futures = {
@@ -378,6 +385,7 @@ class ReviewerRouter:
                         timeout_ms,
                         s.index,
                         s.total,
+                        cancel_event,
                     ): s
                     for s in wave
                 }
@@ -388,6 +396,7 @@ class ReviewerRouter:
                     all_results.append(result)
 
                     if result.get("review_status") == "REJECT":
+                        cancel_event.set()
                         # cancel_futures=True drops not-yet-started futures.
                         # wait=False abandons in-progress ones — they complete in the
                         # background but we don't block on them.
