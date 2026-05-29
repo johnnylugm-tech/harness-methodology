@@ -1432,10 +1432,14 @@ class HarnessBridge:
             else:
                 score_gate = ctx.config.get("score_gate", 0)
             # Recompute quality_complete against effective (waived) thresholds.
+            # Must also preserve the open_critical == 0 requirement so that a DA waiver
+            # cannot allow a gate to pass with unresolved critical issues.
             _eff_qc = result.quality_complete
             if da_waivers and result.dimensions:
-                _eff_qc = result.score >= score_gate and all(
-                    d.score >= d.threshold for d in _effective_dims
+                _eff_qc = (
+                    result.score >= score_gate
+                    and result.open_critical == 0
+                    and all(d.score >= d.threshold for d in _effective_dims)
                 )
             _gate_passes = result.score >= score_gate and _eff_qc
 

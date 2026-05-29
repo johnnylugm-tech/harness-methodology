@@ -364,43 +364,46 @@ class ReviewerRouter:
 
             # Create executor explicitly (not as context manager) so that on REJECT we
             # can call shutdown(wait=False) and return immediately without blocking on
-            # in-progress sibling futures.
+            # in-progress sibling futures.  Use try/finally to guarantee cleanup on
+            # any exception path (e.g. RuntimeError from future.result()).
             executor = ThreadPoolExecutor(max_workers=len(wave))
-            futures = {
-                executor.submit(
-                    self._try_chain,
-                    role,
-                    self._enrich_with_context(s, approved_context),
-                    phase,
-                    fr_id,
-                    timeout_ms,
-                    s.index,
-                    s.total,
-                ): s
-                for s in wave
-            }
+            try:
+                futures = {
+                    executor.submit(
+                        self._try_chain,
+                        role,
+                        self._enrich_with_context(s, approved_context),
+                        phase,
+                        fr_id,
+                        timeout_ms,
+                        s.index,
+                        s.total,
+                    ): s
+                    for s in wave
+                }
 
-            for future in as_completed(futures):
-                subtask = futures[future]
-                result = future.result()
-                all_results.append(result)
+                for future in as_completed(futures):
+                    subtask = futures[future]
+                    result = future.result()
+                    all_results.append(result)
 
-                if result.get("review_status") == "REJECT":
-                    # cancel_futures=True drops not-yet-started futures.
-                    # wait=False abandons in-progress ones — they complete in the
-                    # background but we don't block on them.
-                    executor.shutdown(wait=False, cancel_futures=True)
-                    result["_stopped_at"] = subtask.label
-                    result["_completed_subtasks"] = len(all_results)
-                    result["_total_subtasks"] = subtasks[-1].total if subtasks else 1
-                    return self._merge_results(all_results)
+                    if result.get("review_status") == "REJECT":
+                        # cancel_futures=True drops not-yet-started futures.
+                        # wait=False abandons in-progress ones — they complete in the
+                        # background but we don't block on them.
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        result["_stopped_at"] = subtask.label
+                        result["_completed_subtasks"] = len(all_results)
+                        result["_total_subtasks"] = subtasks[-1].total if subtasks else 1
+                        return self._merge_results(all_results)
 
-                summary = result.get("summary", "")
-                if summary:
-                    with lock:
-                        approved_context.append(f"✅ [{subtask.label}] {summary}")
-
-            executor.shutdown(wait=True)
+                    summary = result.get("summary", "")
+                    if summary:
+                        with lock:
+                            approved_context.append(f"✅ [{subtask.label}] {summary}")
+            finally:
+                # Idempotent: calling shutdown() on an already-shut-down executor is a no-op.
+                executor.shutdown(wait=True)
 
             # Update pending_deps for the next wave
             for s in remaining:
