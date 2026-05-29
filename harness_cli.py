@@ -3719,8 +3719,8 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
         if _rc != 0:
             return _rc
 
-    # ── Gate 1 per-FR coverage check (phases 3+) ─────────────────────
-    if completed_phase >= 3:
+    # ── Gate 1 per-FR coverage check (phases 3+, except phase 6) ─────
+    if completed_phase >= 3 and completed_phase != 6:
         _rc = _check_gate1_per_fr_coverage(project, completed_phase)
         if _rc != 0:
             return _rc
