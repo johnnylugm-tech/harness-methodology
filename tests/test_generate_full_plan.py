@@ -1777,3 +1777,118 @@ class TestCrossProjectFixes:
         lines = _gate_exit_checkpoint(4, 6, 1)
         joined = "\n".join(lines)
         assert "PUSH ⑧" in joined, "_gate_exit_checkpoint(gate_num=4) must mention PUSH ⑧"
+
+
+# ─── Reviewer design completeness fixes ──────────────────────────────────────
+
+class TestReviewerDesignFixes:
+    """12 fixes for reviewer completeness/correctness/consistency audit."""
+
+    # C1: P6 must contain Gate 4 A2-A5 prerequisites block
+    def test_p6_has_gate4_prerequisites_block(self, tmp_path: Path):
+        (tmp_path / ".methodology").mkdir()
+        result = generate_full_plan(6, tmp_path, dynamic=True)
+        assert result is not None
+        assert "[A2]" in result, "P6 must have A2 model_used field documentation"
+        assert "[A3]" in result, "P6 must have A3 devil_advocate field documentation"
+        assert "[A4]" in result, "P6 must have A4 high_score_confirmations documentation"
+        assert "[A5]" in result, "P6 must have A5 issue_registry_path documentation"
+
+    # C2: P6 must document DA challenge and DA waiver for CRG-ONLY dims
+    def test_p6_da_challenge_documented(self, tmp_path: Path):
+        (tmp_path / ".methodology").mkdir()
+        result = generate_full_plan(6, tmp_path, dynamic=True)
+        assert result is not None
+        assert "devil_advocate" in result, "P6 must document devil_advocate field"
+        assert "da_waiver" in result, "P6 must document da_waiver for Orchestrator Pattern"
+        assert "Orchestrator" in result, "P6 must mention Orchestrator Pattern false positive"
+
+    # C2: P4 Gate 3 (which has architecture dim) must also mention CRG-ONLY dims
+    def test_p4_gate3_mentions_crg_only(self, project: Path):
+        result = generate_full_plan(4, project)
+        assert result is not None
+        assert "CRG-ONLY" in result, "P4 Gate 3 must document CRG-ONLY architecture/error_handling"
+
+    # R1: P5 advance step must warn about spec-coverage 80%→90% gap
+    def test_p5_advance_has_d4_gap_warning(self, tmp_path: Path):
+        result = generate_full_plan(5, tmp_path, dynamic=True)
+        assert result is not None
+        assert "D4-GAP WARNING" in result, "P5 advance must warn about 80%→90% spec-coverage gap to Gate 4"
+        assert "90%" in result or "90.0" in result, "P5 advance must mention 90% as Gate 4 requirement"
+
+    # C3 + I1: dynamic P5/P7/P8 must have GATE1-DELTA CASE 1/2/3 escalation
+    @pytest.mark.parametrize("phase", [5, 7, 8])
+    def test_gate1_delta_has_case_escalation(self, tmp_path: Path, phase: int):
+        (tmp_path / ".methodology").mkdir()
+        result = generate_full_plan(phase, tmp_path, dynamic=True)
+        assert result is not None
+        assert "GATE1-DELTA outcomes" in result, f"P{phase} must have GATE1-DELTA outcomes CASE 1-3"
+        assert "CASE 1 PASS" in result
+        assert "CASE 2 FAIL" in result
+        assert "CASE 3 BLOCKED" in result
+
+    # Gate 1 closed loop: dynamic P3/P4 must have Gate 1 CASE 1/2/3 escalation
+    @pytest.mark.parametrize("phase", [3, 4])
+    def test_gate1_full_has_case_escalation(self, tmp_path: Path, phase: int):
+        (tmp_path / ".methodology").mkdir()
+        result = generate_full_plan(phase, tmp_path, dynamic=True)
+        assert result is not None
+        assert "Gate 1 outcomes" in result, f"P{phase} must have Gate 1 CASE 1-3"
+        assert "CASE 1 PASS" in result
+        assert "CASE 2 FAIL" in result
+        assert "CASE 3 BLOCKED" in result
+
+    # R2: P7 deliverables must use 07-risk/ prefix
+    def test_p7_deliverables_have_07risk_prefix(self, tmp_path: Path):
+        (tmp_path / ".methodology").mkdir()
+        result = generate_full_plan(7, tmp_path, dynamic=True)
+        assert result is not None
+        assert "07-risk/RISK_REGISTER.md" in result
+        assert "07-risk/RISK_MITIGATION_PLANS.md" in result
+        assert "07-risk/RISK_STATUS_REPORT.md" in result
+
+    # C4 + I3: Agent B JSON must have severity/message/fr_id schema; no orphan confidence
+    def test_gaps_json_has_schema(self, project: Path):
+        result = generate_full_plan(1, project)
+        assert result is not None
+        assert '"severity":"low|medium|high"' in result or '"severity": "low|medium|high"' in result
+        assert '"message"' in result
+        assert '"fr_id"' in result
+        assert '"confidence"' not in result, "confidence field was orphaned — must be removed from JSON format"
+
+    # I2: Gate 1 meta must have 4 dims (including test_assertion_quality)
+    def test_gate1_meta_has_4_dims(self):
+        from scripts.generate_full_plan import _GATE_META
+        assert _GATE_META[1][1] == 4, "_GATE_META[1] dim_count must be 4 after adding test_assertion_quality"
+        assert "test_assertion_quality" in _GATE_META[1][2]
+
+    # R3: P4 checkpoint index must have CHECKPOINT-0 for TEST_PLAN.md
+    def test_p4_checkpoint_index_has_cp0(self):
+        lines = _checkpoint_index([], phase=4)
+        joined = "\n".join(lines)
+        assert "CHECKPOINT-0" in joined, "P4 checkpoint index must list CHECKPOINT-0: TEST_PLAN.md"
+        assert "TEST_PLAN" in joined
+
+    # C5: P1 must have PROJECT-BRIEF precondition section
+    def test_p1_has_project_brief_precondition(self, tmp_path: Path):
+        result = generate_full_plan(1, tmp_path, dynamic=True)
+        assert result is not None
+        assert "PROJECT-BRIEF" in result, "P1 must have [PROJECT-BRIEF] precondition step"
+        assert "PROJECT_BRIEF.md" in result
+
+    # Auto-fix: Gate 2/3 must mention auto-fix engine; Gate 4 must NOT
+    def test_gate_exit_has_autofix_note(self):
+        for gate_num in (2, 3):
+            lines = _gate_exit_checkpoint(gate_num, gate_num + 1, 1)
+            joined = "\n".join(lines)
+            assert "Auto-fix engine" in joined, f"Gate {gate_num} must mention auto-fix engine"
+        # Gate 4 has HUMAN_REQUIRED for all — auto-fix note not needed
+        g4_lines = _gate_exit_checkpoint(4, 6, 1)
+        g4_joined = "\n".join(g4_lines)
+        assert "Auto-fix engine" not in g4_joined, "Gate 4 auto-fix note was already covered by prerequisites block"
+
+    # I4: P2 holistic review must explain machine-generated deliverables exclusion
+    def test_p2_review_checkpoint_explains_machine_deliverables(self, project: Path):
+        result = generate_full_plan(2, project)
+        assert result is not None
+        assert "machine-generated" in result, "P2 review must explain quality_manifest.json/SAB.json are machine-generated"
