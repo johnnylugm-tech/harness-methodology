@@ -170,7 +170,10 @@ class AgentSpawner:
 
     def _log_dispatch(self, role: str, task: str, result: dict,
                       phase: int, fr_id: str | None) -> None:
-        """Auto-record agent dispatch to sessions_spawn.log (HR-10)."""
+        """Auto-record agent dispatch to .methodology/sessions_spawn.log as a
+        non-blocking debug trail. (The HR-10 entry-count audit that consumed this
+        log was removed — it was agent-writable / not tamper-evident. This stays as
+        a dispatch trace for debugging; nothing gates on it.)"""
         if not self.project_path:
             return
         try:

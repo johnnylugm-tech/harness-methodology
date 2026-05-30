@@ -178,9 +178,9 @@ This section uses normative language per **RFC 2119**:
 | HR-01: A≠B (dispatched as separate sub-agent sessions) | **SHOULD** (workflow) | `harness_cli.py` dispatch (P1-P2) | Workflow only — the `sessions_spawn.log` role-count audit was removed (agent-writable, not tamper-evident) |
 | HR-02: Cannot skip phases | **MUST** | `harness_cli.py` FSM | `state.json` phase ordering |
 | HR-03: Kill switch blocks dispatch | **MUST** | `kill_switch/kill_switch.py` | `kill_switch.status()` check before dispatch |
-| HR-04: HybridWorkflow mode=ON for P2+ | **MUST** | `core/hybrid_workflow.py` | `HybridWorkflow.is_active()` |
+| HR-04: HybridWorkflow mode=ON for P2+ | **MUST** | `core/hybrid_workflow.py` | `HybridWorkflow.mode` / `should_review()` (mode != OFF) |
 | HR-05: P2 must exist before P3+ | **MUST** | `core/quality_gate/phase_artifact_enforcer.py` | `quality_manifest.json` existence |
-| HR-06: No secrets in codebase | **MUST** | `enforcement/framework_enforcer.py` | `detect-secrets` scan |
+| HR-06: No secrets in codebase | **MUST** | `harness/gate_configs/` (`secrets_scanning` dim) | `gitleaks` scan at Gate 2/3/4 (threshold 100 = zero leaks) |
 | HR-07: Constitution score ≥ phase threshold | **MUST** | `core/quality_gate/constitution/runner.py` | `run_constitution_check()` |
 | HR-08: Gate must pass before phase advance | **MUST** | `harness/harness_bridge.py` | `finalize_gate()` threshold check |
 | HR-09: Claims verifier checks A/B authenticity | **MAY** | `core/quality_gate/stage_pass_generator.py` (standalone script only) | `verify_sessions_spawn_log()` — not wired into the active FSM/finalize-gate path |
@@ -376,8 +376,10 @@ Schema: `harness/ssi/schemas/harness_gate_result.schema.json`
 
 **Responsibility**: Routes review requests to a **Claude sub-agent** (single backend, no MCP
 dependencies). Supports **dependency-ordered decomposition** of large/complex tasks with
-**sequential / parallel-wave A/B execution** (one subtask completes full review before the
-next dependent one starts). Setup requires only the `claude` CLI — no env vars.
+**parallel-wave A/B execution** (`_execute_parallel_waves`, a `ThreadPoolExecutor`): subtasks
+with no pending dependencies form a wave and run **concurrently**; each wave completes before
+the next dependent wave begins (a single subtask is just a one-item wave). Setup requires only
+the `claude` CLI — no env vars.
 
 > **v3.0 change**: The earlier Hermes MCP → Gemini CLI MCP → sub-agent priority chain was
 > removed. Score integrity is tool-enforced (`score.py R4`: `score == tool_score`), so the
@@ -521,7 +523,7 @@ _CRG_MCP_AVAILABLE = True  # True if mcp__code_review_graph__* imports succeed
 | `run_reconnaissance(project_root) -> dict` | `_crg_build(full_rebuild=True)` + reads `.sessi-work/crg_reconnaissance.json` | dict or {} |
 | `get_minimal_context(project_root, dimension) -> dict` | `_crg_minimal_context(task=dimension)` | dict or {} |
 | `check_impact(project_root, ref="HEAD", threshold=0.7) -> bool` | `_crg_detect_changes()` — `risk_score >= threshold` | bool |
-| `check_drift(project_root, threshold=0.4) -> bool` | reads `.sessi-work/crg_metrics.json` | `structural_drift > threshold` |
+| `check_drift(project_root, threshold=0.4, base="HEAD~1") -> bool` | `_crg_detect_changes(detail_level="minimal")` — `risk_score >= threshold` (does NOT read crg_metrics.json) | bool |
 | `load_metrics(project_root) -> dict` | reads `.sessi-work/crg_metrics.json` | full metrics dict (6 formula-driven signals) |
 
 **Environment dependency**:

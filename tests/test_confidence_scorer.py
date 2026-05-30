@@ -30,34 +30,35 @@ from core.quality_gate.confidence_scorer import (
 
 class TestArtifactCompleteness:
     def test_all_present_returns_100(self, tmp_path):
-        # Create P1 artifacts
+        # Create all 4 P1 artifacts (SRS/SPEC_TRACKING/TRACEABILITY + TEST_INVENTORY.yaml at root)
         (tmp_path / "01-requirements").mkdir(parents=True)
         for name in ["SRS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md"]:
             (tmp_path / "01-requirements" / name).write_text("content", encoding="utf-8")
+        (tmp_path / "TEST_INVENTORY.yaml").write_text("content", encoding="utf-8")
 
         score, detail = _score_artifact_completeness(tmp_path, phase=1)
         assert score == pytest.approx(100.0)
-        assert "3/3" in detail
+        assert "4/4" in detail
 
     def test_partial_returns_proportional(self, tmp_path):
-        # Only 1 of 3 P1 artifacts
+        # Only 1 of 4 P1 artifacts
         (tmp_path / "01-requirements").mkdir(parents=True)
         (tmp_path / "01-requirements" / "SRS.md").write_text("content", encoding="utf-8")
 
         score, detail = _score_artifact_completeness(tmp_path, phase=1)
-        assert score == pytest.approx(100 / 3, abs=1)
-        assert "1/3" in detail
+        assert score == pytest.approx(100 / 4, abs=1)
+        assert "1/4" in detail
 
     def test_empty_file_not_counted(self, tmp_path):
         (tmp_path / "01-requirements").mkdir(parents=True)
-        # Empty file should not count as present
+        # Empty file should not count as present → 2 of 4 (SRS empty, TEST_INVENTORY missing)
         (tmp_path / "01-requirements" / "SRS.md").write_text("", encoding="utf-8")
         (tmp_path / "01-requirements" / "SPEC_TRACKING.md").write_text("content", encoding="utf-8")
         (tmp_path / "01-requirements" / "TRACEABILITY_MATRIX.md").write_text("content", encoding="utf-8")
 
         score, detail = _score_artifact_completeness(tmp_path, phase=1)
-        assert score == pytest.approx(200 / 3, abs=1)   # 2/3
-        assert "2/3" in detail
+        assert score == pytest.approx(100.0 * 2 / 4, abs=1)   # 2/4
+        assert "2/4" in detail
 
     def test_phase_with_all_artifacts_present_returns_100(self, tmp_path):
         # Phase 3 (IMPLEMENT) requires src + tests dirs; both present → 100%

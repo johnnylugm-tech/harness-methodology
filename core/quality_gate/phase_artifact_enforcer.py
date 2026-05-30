@@ -79,6 +79,7 @@ class PhaseArtifactRegistry:
                 "01-requirements/SRS.md",
                 "01-requirements/SPEC_TRACKING.md",
                 "01-requirements/TRACEABILITY_MATRIX.md",
+                "TEST_INVENTORY.yaml",
             ],
             "depends_on": [],
         },
