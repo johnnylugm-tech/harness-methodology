@@ -11,12 +11,9 @@ from unittest.mock import patch, MagicMock
 # Fixtures
 # ---------------------------------------------------------------------------
 
-def _make_router(target="telegram:test"):
-    with patch.dict(os.environ, {"HERMES_REVIEWER_TARGET": target}):
-        import importlib
-        import harness.reviewer_router as rr
-        importlib.reload(rr)  # ensure env var picked up
-        return rr.ReviewerRouter(target=target)
+def _make_router():
+    from harness.reviewer_router import ReviewerRouter
+    return ReviewerRouter()
 
 
 APPROVE_RESULT = {
@@ -62,48 +59,6 @@ HEADING_PROMPT = (
     "## §2.3 Design\nMore details.\n\n"
     "## §3.0 Testing\nTest plan.\n\n"
 )
-
-
-# ===========================================================================
-# _parse_chain
-# ===========================================================================
-
-class TestParseChain:
-    def test_default_chain_has_subagent(self):
-        from harness.reviewer_router import _parse_chain
-        specs = _parse_chain("hermes,gemini")
-        names = [s.name for s in specs]
-        assert "subagent" in names
-
-    def test_subagent_always_appended(self):
-        from harness.reviewer_router import _parse_chain
-        specs = _parse_chain("hermes")
-        assert specs[-1].name == "subagent"
-
-    def test_hermes_disabled_when_not_available(self):
-        from harness.reviewer_router import _parse_chain
-        with patch("harness.reviewer_router._HERMES_AVAILABLE", False):
-            specs = _parse_chain("hermes")
-            hermes = next((s for s in specs if s.name == "hermes"), None)
-            assert hermes is None or hermes.enabled is False
-
-    def test_gemini_disabled_when_not_available(self):
-        from harness.reviewer_router import _parse_chain
-        with patch("harness.reviewer_router._GEMINI_AVAILABLE", False):
-            specs = _parse_chain("gemini")
-            gemini = next((s for s in specs if s.name == "gemini"), None)
-            assert gemini is None or gemini.enabled is False
-
-    def test_subagent_always_enabled(self):
-        from harness.reviewer_router import _parse_chain
-        specs = _parse_chain("hermes")
-        subagent = next(s for s in specs if s.name == "subagent")
-        assert subagent.enabled is True
-
-    def test_empty_chain_still_has_subagent(self):
-        from harness.reviewer_router import _parse_chain
-        specs = _parse_chain("")
-        assert specs[0].name == "subagent"
 
 
 # ===========================================================================
@@ -525,39 +480,32 @@ class TestTryChain:
     def _router(self):
         return _make_router()
 
-    def test_subagent_fallback_when_all_disabled(self):
+    def test_routes_to_subagent(self):
         r = self._router()
-        # Disable hermes and gemini
-        for spec in r._chain:
-            if spec.name != "subagent":
-                spec.enabled = False
-        with patch.object(r, "_try_subagent", return_value=APPROVE_RESULT) as mock_sub:
+        with patch.object(r, "_try_subagent", return_value=dict(APPROVE_RESULT)) as mock_sub:
             result = r._try_chain("reviewer", "prompt", 3, None, None)
         mock_sub.assert_called_once()
         assert result["review_status"] == "APPROVE"
+        assert result["_reviewer_used"] == "subagent"
 
-    def test_degradation_note_when_hermes_times_out(self):
+    def test_reviewer_used_marked_subagent(self):
         r = self._router()
-        # Enable hermes, disable gemini so chain falls through to subagent
-        for spec in r._chain:
-            if spec.name == "hermes":
-                spec.enabled = True
-            elif spec.name == "gemini":
-                spec.enabled = False
-        with patch.object(r, "_try_hermes", side_effect=TimeoutError("timeout")):
-            with patch.object(r, "_try_subagent", return_value=APPROVE_RESULT):
-                result = r._try_chain("reviewer", "prompt", 3, None, None)
-        assert result.get("_degraded") is True
-        assert "subagent" == result.get("_reviewer_used")
-
-    def test_subagent_result_marked_degraded_when_chain_skipped(self):
-        r = self._router()
-        for spec in r._chain:
-            if spec.name != "subagent":
-                spec.enabled = False
-        with patch.object(r, "_try_subagent", return_value={"review_status": "APPROVE", "confidence": 0.5, "violations": [], "summary": "ok", "_reviewer_used": "subagent", "_degradation": []}):
+        with patch.object(r, "_try_subagent", return_value={
+            "review_status": "APPROVE", "confidence": 0.5,
+            "violations": [], "summary": "ok",
+        }):
             result = r._try_chain("reviewer", "prompt", 3, None, None)
         assert result["_reviewer_used"] == "subagent"
+
+    def test_cancel_event_short_circuits(self):
+        import threading
+        r = self._router()
+        ev = threading.Event()
+        ev.set()
+        with patch.object(r, "_try_subagent") as mock_sub:
+            result = r._try_chain("reviewer", "prompt", 3, None, None, cancel_event=ev)
+        mock_sub.assert_not_called()
+        assert result["review_status"] == "CANCELLED"
 
 
 # ===========================================================================
@@ -598,31 +546,3 @@ class TestTrySubagent:
         with patch.dict("sys.modules", {"core.agent_spawner": mock_module}):
             result = r._try_subagent("reviewer", "prompt", 3, None)
         assert "output" in result
-
-
-# ===========================================================================
-# _clean_gemini_response
-# ===========================================================================
-
-class TestCleanGeminiResponse:
-    def _router(self):
-        return _make_router()
-
-    def test_clean_removes_contamination(self):
-        r = self._router()
-        raw = 'Good review output.\n\nsession-end-marker and more garbage after'
-        result = r._clean_gemini_response(raw)
-        assert "session-end-marker" not in result
-        assert "Good review" in result
-
-    def test_clean_no_contamination_unchanged(self):
-        r = self._router()
-        raw = "Clean response text."
-        result = r._clean_gemini_response(raw)
-        assert result == "Clean response text."
-
-    def test_clean_plugin_root_marker(self):
-        r = self._router()
-        raw = "Output here\nplugin_root garbage\n"
-        result = r._clean_gemini_response(raw)
-        assert "plugin_root" not in result

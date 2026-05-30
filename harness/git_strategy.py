@@ -137,8 +137,6 @@ class GitStrategy:
         gaps = self._gap_register_summary()
         committed = self._recently_committed_files()
         deliverables = self._deliverable_files(1)
-        hermes = os.environ.get("HERMES_REVIEWER_TARGET", "")
-        hermes_status = f"✅ set ({hermes})" if hermes else "❌ not set (required before P6)"
 
         p1_deliverable_count = sum(1 for d in deliverables if "✅" in d)
         status_parts = [
@@ -170,12 +168,10 @@ class GitStrategy:
                 p2_step,
                 "Follow SKILL.md §0.1 for P2 entry",
                 "Review carry-forward gaps before starting P2 (SPEC_TRACKING.md gap register)",
-                "Confirm HERMES_REVIEWER_TARGET is exported in shell",
             ],
             notes=notes,
             extra={
                 "fr_count": str(len(fr_ids)),
-                "HERMES_REVIEWER_TARGET": hermes_status,
             },
             plan_override=".methodology/phase2_plan.md" if self._next_phase_plan_exists(1) else None,
             deliverables=deliverables,
@@ -279,8 +275,6 @@ class GitStrategy:
 
         ab = self._ab_session_summary()
         committed = self._recently_committed_files()
-        hermes = os.environ.get("HERMES_REVIEWER_TARGET", "")
-        hermes_status = f"✅ set ({hermes})" if hermes else "❌ not set (required before P6)"
 
         status_parts = [
             f"{fr_done}/{fr_total} FRs Gate 1 PASS [{fr_list}]. "
@@ -307,7 +301,6 @@ class GitStrategy:
                 "fr_done": str(fr_done),
                 "fr_total": str(fr_total),
                 "remaining_frs": remaining_str,
-                "HERMES_REVIEWER_TARGET": hermes_status,
             },
             resume_phase=3,
         )
@@ -342,8 +335,6 @@ class GitStrategy:
 
         ab = self._ab_session_summary()
         committed = self._recently_committed_files()
-        hermes = os.environ.get("HERMES_REVIEWER_TARGET", "")
-        hermes_status = f"✅ set ({hermes})" if hermes else "❌ not set (required before P6)"
 
         status_parts = [
             f"All {len(fr_ids)} FR(s) Gate 1 PASS [{fr_list}]. "
@@ -368,7 +359,6 @@ class GitStrategy:
             notes=notes,
             extra={
                 "fr_count": str(len(fr_ids)),
-                "HERMES_REVIEWER_TARGET": hermes_status,
             },
             resume_phase=3,
         )
@@ -403,8 +393,6 @@ class GitStrategy:
 
         ab = self._ab_session_summary()
         committed = self._recently_committed_files()
-        hermes = os.environ.get("HERMES_REVIEWER_TARGET", "")
-        hermes_status = f"✅ set ({hermes})" if hermes else "❌ not set (required before P6)"
 
         status_parts = [
             f"{fr_done}/{fr_total} FRs Gate 1 PASS [{fr_list}]. "
@@ -430,7 +418,6 @@ class GitStrategy:
             extra={
                 "fr_done": str(fr_done),
                 "fr_total": str(fr_total),
-                "HERMES_REVIEWER_TARGET": hermes_status,
             },
             resume_phase=4,
         )
@@ -452,8 +439,6 @@ class GitStrategy:
 
         ab = self._ab_session_summary()
         committed = self._recently_committed_files()
-        hermes = os.environ.get("HERMES_REVIEWER_TARGET", "")
-        hermes_status = f"✅ set ({hermes})" if hermes else "❌ not set (required before P6)"
 
         status_parts = [
             f"All {len(fr_ids)} FR(s) Gate 1 re-eval PASS [{fr_list}]. "
@@ -478,7 +463,6 @@ class GitStrategy:
             notes=notes,
             extra={
                 "fr_count": str(len(fr_ids)),
-                "HERMES_REVIEWER_TARGET": hermes_status,
             },
             resume_phase=4,
         )

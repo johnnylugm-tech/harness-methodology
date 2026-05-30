@@ -1,4 +1,4 @@
-"""Tests for harness/ssi/scripts/llm_router.py — LLM tier routing logic."""
+"""Tests for harness/ssi/scripts/llm_router.py — LLM tier routing (Claude-only)."""
 
 from pathlib import Path
 
@@ -6,26 +6,24 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent / "harness" / "ssi" / "scripts"))
 
-from llm_router import route, build_gemini_prompt, TIER_MAP, TIER_CONFIG, IMPROVE_CONFIG, _parse_int_env  # pyright: ignore[reportMissingImports]
+from llm_router import route, TIER_MAP, TIER_CONFIG, IMPROVE_CONFIG  # pyright: ignore[reportMissingImports]
 
 
 class TestRoute:
     def test_tier1_dimension(self):
         result = route("linting")
         assert result["tier"] == 1
-        assert result["provider"] == "gemini"
-        assert result["use_gemini"] is True
+        assert result["provider"] == "claude_native"
 
     def test_tier2_dimension(self):
         result = route("security")
         assert result["tier"] == 2
-        assert result["provider"] == "gemini"
+        assert result["provider"] == "claude_native"
 
     def test_tier3_dimension(self):
         result = route("architecture")
         assert result["tier"] == 3
         assert result["provider"] == "claude_native"
-        assert result["use_gemini"] is False
 
     def test_unknown_dimension_defaults_to_tier3(self):
         result = route("nonexistent_dim")
@@ -42,65 +40,29 @@ class TestRoute:
             assert result["tier"] in (1, 2, 3), f"{dim} returned tier {result['tier']}"
             assert "provider" in result
 
-    def test_tier3_no_gemini_prompt_template(self):
-        result = route("architecture")
-        assert result["gemini_prompt_template"] is None
-
-    def test_tier1_has_gemini_prompt_template(self):
+    def test_no_gemini_key_in_output(self):
+        """Gemini-specific keys must not appear in routing output."""
         result = route("linting")
-        assert result["gemini_prompt_template"] is not None
+        assert "use_gemini" not in result
+        assert "gemini_prompt_template" not in result
 
-    def test_hermes_disabled_by_default(self):
+    def test_no_hermes_notification(self):
         result = route("linting")
         assert "hermes_notification" not in result
 
-    def test_tier1_provider_chain_hermes_first(self):
-        result = route("linting")
-        assert "provider_chain" in result
-        assert result["provider_chain"][0] == "hermes"
-        assert result["provider_chain"][1] == "gemini"
-        assert result["provider_chain"][2] == "claude_native"
-
-    def test_tier2_provider_chain_hermes_first(self):
-        result = route("security")
-        assert result["provider_chain"][0] == "hermes"
-
-    def test_tier3_provider_chain_claude_only(self):
-        result = route("architecture")
-        assert result["provider_chain"] == ["claude_native"]
-
-    def test_unknown_dim_provider_chain_claude_only(self):
-        result = route("nonexistent_dim")
-        assert result["provider_chain"] == ["claude_native"]
-
-
-class TestBuildGeminiPrompt:
-    def test_basic_prompt(self):
-        prompt = build_gemini_prompt("linting", "tool output here")
-        assert "linting" in prompt
-        assert "tool output here" in prompt
-        assert "JSON" in prompt
-
-    def test_with_code_sample(self):
-        prompt = build_gemini_prompt("type_safety", "tool out", code_sample="def foo(): pass")
-        assert "def foo(): pass" in prompt
-
-    def test_truncates_long_output(self):
-        long_output = "x" * 10000
-        prompt = build_gemini_prompt("linting", long_output)
-        # Truncation must have occurred: original 10000-char string must not appear intact
-        assert "x" * 10000 not in prompt
-        # Output portion is capped at ~6000 chars, so prompt must be substantially shorter
-        assert len(prompt) < 8000
+    def test_all_tiers_provider_chain_claude_only(self):
+        for dim in ("linting", "security", "architecture", "nonexistent_dim"):
+            result = route(dim)
+            assert result["provider_chain"] == ["claude_native"], dim
 
 
 class TestTierMap:
-    def test_tier1_dims_use_gemini(self):
+    def test_tier1_dims(self):
         tier1 = [d for d, t in TIER_MAP.items() if t == 1]
         assert "linting" in tier1
         assert "mutation_testing" in tier1
 
-    def test_tier3_dims_use_claude(self):
+    def test_tier3_dims(self):
         tier3 = [d for d, t in TIER_MAP.items() if t == 3]
         assert "architecture" in tier3
         assert "readability" in tier3
@@ -112,24 +74,6 @@ class TestImproveConfig:
         assert IMPROVE_CONFIG["provider"] == "claude_native"
 
 
-class TestParseIntEnv:
-    def test_valid_value(self, monkeypatch):
-        monkeypatch.setenv("HERMES_TIMEOUT_MS", "60000")
-        assert _parse_int_env("HERMES_TIMEOUT_MS", 90000) == 60000
-
-    def test_invalid_value_returns_default(self, monkeypatch):
-        monkeypatch.setenv("HERMES_TIMEOUT_MS", "foo")
-        assert _parse_int_env("HERMES_TIMEOUT_MS", 90000) == 90000
-
-    def test_missing_var_returns_default(self, monkeypatch):
-        monkeypatch.delenv("HERMES_TIMEOUT_MS", raising=False)
-        assert _parse_int_env("HERMES_TIMEOUT_MS", 90000) == 90000
-
-    def test_empty_string_returns_default(self, monkeypatch):
-        monkeypatch.setenv("HERMES_TIMEOUT_MS", "")
-        assert _parse_int_env("HERMES_TIMEOUT_MS", 90000) == 90000
-
-
 class TestTierConfig:
     def test_tier1_token_budget(self):
         assert TIER_CONFIG[1]["token_budget"]["input"] == 8000
@@ -138,3 +82,7 @@ class TestTierConfig:
     def test_tier3_token_budget(self):
         assert TIER_CONFIG[3]["token_budget"]["input"] == 20000
         assert TIER_CONFIG[3]["token_budget"]["output"] == 3000
+
+    def test_all_tiers_claude_native(self):
+        for tier in (1, 2, 3):
+            assert TIER_CONFIG[tier]["provider"] == "claude_native"

@@ -12,7 +12,10 @@ The architecture is driven by five strict non-functional requirements defined in
 
 ### Driver 1 — Reviewer Independence (NFR-4)
 - **Requirement**: Eliminate confirmation bias from "AI reviewing itself."
-- **Decision**: Created `ReviewerRouter` + Hermes MCP external interface. All review responsibility is architecturally separated into an independently configurable external service.
+- **Decision**: `ReviewerRouter` dispatches Agent B as a **stateless Claude sub-agent** with a distinct
+  reviewer persona and structured checklist. Independence comes from session isolation (Agent B has
+  zero access to Agent A's reasoning) and tool-enforced scoring (`score.py R4`: `score == tool_score`),
+  not from a separate model vendor. (v3.0 removed the earlier Hermes/Gemini MCP backends.)
 
 ### Driver 2 — Traceability & Auditability (NFR-3, NFR-6)
 - **Requirement**: Every development step and decision must be traceable and post-hoc auditable.
@@ -54,10 +57,9 @@ The system uses this macro architecture:
 | Pattern | Applied In | Purpose |
 |---|---|---|
 | Lazy-Loading Factory | parent-system CLI | Deferred subsystem init across 30+ modules |
-| Strategy Pattern | `core/agent_spawner.py` | Switch between Claude headless CLI vs Hermes reviewer |
 | Bridge Pattern | `harness/` directory | Decouple methodology flow from quality tools |
 | Façade Pattern | `harness_cli.py` (standalone) | Minimal harness-only CLI facade |
-| Proxy Pattern | `harness/reviewer_router.py` | Local proxy to remote Hermes MCP service |
+| Dispatcher | `harness/reviewer_router.py` | Decompose + route review tasks to Claude sub-agents |
 | Circuit Breaker | `kill_switch/` | Safety backstop independent of main flow |
 | Graceful Degradation | `harness/crg_bridge.py` | All CRG methods no-op if CRG not installed |
 | LLM-as-Judge | `steering/steering_loop.py` | Objective A/B output evaluation via LLM (default: NoopProvider; requires `STEERING_PROVIDER_TYPE=anthropic` to activate) |
@@ -363,24 +365,25 @@ Schema: `harness/ssi/schemas/harness_gate_result.schema.json`
 
 ---
 
-### §3.2 — `harness/reviewer_router.py` — Reviewer Proxy (v2.1)
+### §3.2 — `harness/reviewer_router.py` — Reviewer Proxy (v3.0)
 
-**Responsibility**: Routes review requests through a **priority-ordered chain** of backends
-(Hermes MCP → Gemini CLI MCP → sub-agent). Supports **dependency-ordered decomposition** of
-large/complex tasks with **sequential A/B execution** (one subtask completes full A/B chain
-before the next starts) and graceful degradation with full audit trail.
+**Responsibility**: Routes review requests to a **Claude sub-agent** (single backend, no MCP
+dependencies). Supports **dependency-ordered decomposition** of large/complex tasks with
+**sequential / parallel-wave A/B execution** (one subtask completes full review before the
+next dependent one starts). Setup requires only the `claude` CLI — no env vars.
+
+> **v3.0 change**: The earlier Hermes MCP → Gemini CLI MCP → sub-agent priority chain was
+> removed. Score integrity is tool-enforced (`score.py R4`: `score == tool_score`), so the
+> reviewing LLM never affects gate scores. Collapsing to Claude-only removes two external MCP
+> dependencies and the `HERMES_REVIEWER_TARGET`/`REVIEWER_CHAIN` configuration burden.
 
 **Module-level constants** (all overridable via env vars):
 
 | Constant | Env Var | Default | Purpose |
 |---|---|---|---|
-| `HERMES_TARGET` | `HERMES_REVIEWER_TARGET` | `""` | Hermes channel (e.g. `telegram:6308981865`) |
-| `HERMES_TIMEOUT_MS` | `HERMES_TIMEOUT_MS` | `120000` | Hermes wait timeout (ms) — per CLAUDE.md protocol; shared with HarnessBridge.GATE4_HERMES_TIMEOUT_MS |
-| `GEMINI_TIMEOUT_MS` | `GEMINI_TIMEOUT_MS` | `60000` | Gemini CLI MCP timeout (ms) |
 | `TASK_SIZE_THRESHOLD` | `TASK_SIZE_THRESHOLD` | `2000` | Chars above which task is auto-decomposed |
 | `SUBTASK_MAX_SIZE` | `SUBTASK_MAX_SIZE` | `800` | Target chars per subtask (paragraph fallback) |
 | `MAX_CONTEXT_LINES` | `MAX_CONTEXT_LINES` | `6` | Approved-subtask summaries injected as context |
-| `REVIEWER_CHAIN_CONFIG` | `REVIEWER_CHAIN` | `"hermes,gemini"` | Priority-ordered chain; `subagent` always appended |
 
 ```python
 @dataclass
@@ -392,20 +395,16 @@ class SubTask:
     total: int = 1        # total subtask count
 
 def get_reviewer_model(phase: int, role: str = "reviewer") -> str:
-    """Returns 'claude' if phase in {7, 8}, else REVIEWER_POLICY[role] (defaults to 'hermes')."""
-    return "claude" if phase in _CLAUDE_PHASES else REVIEWER_POLICY.get(role, "hermes")
+    """All phases use the Claude sub-agent."""
+    return "claude"
 ```
-
-> **Note**: P7/P8 phase routing to Claude is enforced at the caller level — `agent_spawner.spawn()`
-> calls `get_reviewer_model(phase, role)` before dispatching to `ReviewerRouter` (see §3.7).
 
 **Public API**:
 
 ```python
 class ReviewerRouter:
-    def __init__(self, target: str = HERMES_TARGET, chain_config: str = REVIEWER_CHAIN_CONFIG):
-        # target: Hermes channel (empty string OK if hermes not in chain)
-        # chain_config: "hermes,gemini" | "hermes" | "gemini" (subagent always appended)
+    def __init__(self, project_path: "Path | None" = None):
+        # No backend configuration required — Claude sub-agent is the sole reviewer.
 
     def review(
         self,
@@ -417,26 +416,17 @@ class ReviewerRouter:
     ) -> dict:
         # Returns: {"review_status": "APPROVE|REJECT", "confidence": 0-1,
         #           "violations": [], "summary": "",
-        #           "_reviewer_used": "hermes|gemini|subagent",
-        #           "_degraded": bool,         # True if primary(s) timed out
-        #           "_degradation": list,      # [{reviewer, reason}, ...]
-        #           "_degradation_note": str,  # human-readable degradation summary
+        #           "_reviewer_used": "subagent",
         #           "_stopped_at": str,        # label of REJECT subtask (multi-subtask only)
         #           "_completed_subtasks": int,
         #           "_total_subtasks": int}
 ```
 
-**Priority chain execution** (`_try_chain`):
+**Dispatch** (`_try_chain`):
 ```
-For each ReviewerSpec in chain (hermes → gemini → subagent):
-  1. hermes: send → events_wait(90s) → messages_read → parse
-             TimeoutError on: events_wait fail | messages_read "Session database unavailable" | no msgs
-  2. gemini: mcp__gemini_cli__ask_gemini → _clean_gemini_response() → parse
-             RuntimeError on: import fail | API error
-  3. subagent: AgentSpawner.spawn(model="claude") — always succeeds (lazy import, no circular)
-               Returns _degraded=True if any previous step failed
-
-On timeout/error: log to _degradation, try next in chain.
+1. If cancel_event is set (sibling REJECTed in same wave) → return CANCELLED.
+2. AgentSpawner.spawn(model="claude") — stateless sub-agent, always returns a result
+   (lazy import to avoid circular dep). Emergency fallback APPROVE@0.3 only if spawn raises.
 ```
 
 **Task decomposition** (`_decompose_with_deps`):
@@ -472,8 +462,7 @@ for subtask in subtasks:
 
     result = self._try_chain(role, enriched, phase, fr_id, timeout_ms,
                              task_idx=subtask.index, task_total=subtask.total)
-    # ↑ Full A/B chain (hermes → gemini → subagent) runs to completion for THIS subtask
-    #   before moving to the next subtask
+    # ↑ Claude sub-agent reviews THIS subtask to completion before the next dependent one
 
     if result.get("review_status") == "REJECT":
         result["_stopped_at"] = subtask.label       # which subtask caused REJECT
@@ -503,16 +492,8 @@ Output JSON: {"review_status": "APPROVE|REJECT", "confidence": 0-1, "violations"
 - On success: `json.loads(match.group())`
 - On failure: `{"review_status": "REJECT", "confidence": 0.0, "violations": ["parse_error"], "summary": raw[:200]}`
 
-**Hermes MCP imports** (with graceful fallback):
-```python
-try:
-    from mcp_tools import (mcp__hermes__messages_send,
-                           mcp__hermes__events_wait,
-                           mcp__hermes__messages_read)
-    _HERMES_AVAILABLE = True
-except ImportError:
-    _HERMES_AVAILABLE = False
-```
+**Backend**: Claude sub-agent only (`_try_subagent` → `AgentSpawner.spawn(model="claude")`).
+No MCP imports — the module has no optional external dependencies.
 
 ---
 
@@ -703,9 +684,10 @@ def fr_coverage_summary(self) -> dict[str, int]:
 
 ---
 
-### §3.7 — `core/agent_spawner.py` — Agent Strategy Router
+### §3.7 — `core/agent_spawner.py` — Agent Spawner
 
-**Responsibility**: Routes agent invocations to Task tool (Claude Code) or ReviewerRouter (Hermes MCP). Implements Gap G2 (heterogeneous reviewer). Applies need-to-know isolation: each agent receives only its persona + current-phase SOP + task.
+**Responsibility**: Spawns developer and reviewer agents via the Claude Code headless CLI.
+Applies need-to-know isolation: each agent receives only its persona + current-phase SOP + task.
 
 **File layout helpers** (module-level):
 ```python
@@ -720,33 +702,25 @@ def _load_phase_sop(phase: int) -> str:
 
 ```python
 class AgentSpawner:
-    _reviewer = None   # class-level lazy-init: avoids crash if HERMES env not set
-
     def spawn(
         self,
         role: str,
         prompt: str,
         context: dict,
-        model: str = "claude",   # "claude" | "hermes"
+        model: str = "claude",   # always 'claude' — only Claude CLI supported
         task_timeout: int = 300,
         phase: int = 0,
         fr_id: str | None = None,
     ) -> dict: ...
 ```
 
-**`spawn()` routing** (with phase policy enforcement):
+**`spawn()` routing**:
 ```
-model == "hermes":
-    effective = get_reviewer_model(phase, role)   # defined in harness/reviewer_router.py:113; checks _CLAUDE_PHASES = {7, 8}
-    if effective == "hermes":
-        → ReviewerRouter.review(role, full_prompt, phase, fr_id)  [return]
-    # effective == "claude" for P7/P8 — fall through to Claude headless CLI
-
-model == "claude" (or P7/P8 auto-routed):
-    → claude -p --output-format json --bare --max-turns 1 --no-session-persistence
-      raises RuntimeError if claude CLI not found on PATH
+All spawns → claude -p --output-format json --no-session-persistence ...
+             raises RuntimeError if claude CLI not found on PATH
 ```
-- P7 (Risk Assessment) and P8 (Config Mgmt) **always use Claude**, even when caller passes `model="hermes"`
+Reviewer A/B dispatch goes through `ReviewerRouter.review()`, which itself calls back into
+`AgentSpawner.spawn(model="claude")` for each subtask (single backend, all phases).
 
 **`_build_prompt(role, prompt, context, phase) -> str`** — constructs:
 ```
@@ -1533,17 +1507,17 @@ Phase 3 — Finalize:
     └─ 6. return GateResult
 ```
 
-### 4.2 A/B Review via Hermes MCP (v2.1 — Sequential + Dep-Ordered)
+### 4.2 A/B Review via Claude Sub-agent (v3.0 — Dep-Ordered + Parallel Waves)
 
 ```
-AgentSpawner.spawn(model="hermes", role="Reviewer", prompt, context, phase, fr_id)
+AgentSpawner.spawn(model="claude", role="Reviewer", prompt, context, phase, fr_id)
   │
   └─ ReviewerRouter.review(role, full_prompt, phase, fr_id)
        │
        ├─ 1. _decompose_with_deps(prompt) → list[SubTask] (topologically sorted)
        │
-       │      IF len(prompt) <= 2000 chars:
-       │        → [SubTask(prompt, label="full")]   — no decomposition
+       │      P1/P2: ALWAYS single subtask (whole-deliverable review, no decomposition)
+       │      Else IF len(prompt) <= 2000 chars: → [SubTask(prompt, label="full_task")]
        │
        │      Detection pipeline (tried in order):
        │        A. _extract_phase_sections(): "Phase N" / "PX" (SRS.md style)
@@ -1554,39 +1528,22 @@ AgentSpawner.spawn(model="hermes", role="Reviewer", prompt, context, phase, fr_i
        │      _build_dep_graph(): cross-ref scan + implicit Phase-N → Phase-(N-1)
        │      _topological_sort(): Kahn's BFS, cycle-safe
        │
-       ├─ 2. Sequential execution (ONE subtask completes A/B chain → NEXT starts):
+       ├─ 2. Wave execution (independent subtasks run in parallel; waves are dep-ordered):
        │
        │      approved_context = []
-       │      FOR subtask IN subtasks (dependency order):
-       │        enriched = subtask.content + last 6 ✅ approved summaries
+       │      FOR EACH wave (set of subtasks with satisfied deps):
+       │        run wave subtasks concurrently via ThreadPoolExecutor:
+       │          enriched = subtask.content + last 6 ✅ approved summaries
+       │          result = _try_chain(role, enriched, phase, fr_id, cancel_event)
+       │          │
+       │          _try_chain → _try_subagent → AgentSpawner.spawn(model="claude")
+       │            (stateless Claude sub-agent; emergency APPROVE@0.3 only if spawn raises)
        │        │
-       │        result = _try_chain(role, enriched, phase, fr_id) ◄── FULL A/B runs here
-       │        │
-       │        IF result == REJECT:
-       │          result._stopped_at = subtask.label
-       │          STOP → _merge_results(completed so far)    ← early exit
+       │        IF any result == REJECT:
+       │          cancel_event.set()  → sibling subtasks return CANCELLED
+       │          STOP → _merge_results(completed so far)    ← early exit, fast (wait=False)
        │        ELSE:
-       │          approved_context.append(f"✅ [{subtask.label}] {result['summary']}")
-       │          CONTINUE to next subtask
-       │
-       │    _try_chain priority loop (runs to completion for each subtask):
-       │    ├─ [P1] Hermes MCP (HERMES_TIMEOUT_MS = 90000ms):
-       │    │    ├─ mcp__hermes__messages_send(target, enriched)
-       │    │    ├─ mcp__hermes__events_wait(timeout_ms=90000)
-       │    │    │    └─ Timeout/error → TimeoutError → try P2
-       │    │    ├─ mcp__hermes__messages_read(limit=1)
-       │    │    │    └─ "Session database unavailable" → TimeoutError → try P2
-       │    │    └─ No msgs → TimeoutError → try P2
-       │    │
-       │    ├─ [P2] Gemini CLI MCP (GEMINI_TIMEOUT_MS = 60000ms):
-       │    │    ├─ mcp__gemini_cli__ask_gemini(enriched, model="gemini-2.5-flash")
-       │    │    ├─ _clean_gemini_response() → strip ECC hook contamination
-       │    │    └─ RuntimeError on any failure → try P3
-       │    │
-       │    └─ [P3] Sub-agent (graceful degradation — always succeeds):
-       │         ├─ AgentSpawner.spawn(model="claude", ...) — lazy import (no circular)
-       │         ├─ result["_degraded"] = True
-       │         └─ result["_degradation_note"] = "[DEGRADED] Fell back to sub-agent after: ..."
+       │          approved_context += [f"✅ [{label}] {summary}" for each]
        │
        └─ 3. _merge_results([subtask_results]):
               ├─ Any REJECT → return REJECT (with _stopped_at, _completed_subtasks)
@@ -1595,7 +1552,7 @@ AgentSpawner.spawn(model="hermes", role="Reviewer", prompt, context, phase, fr_i
               └─ summary = " | ".join(all summaries)
 
 Result keys: review_status, confidence, violations, summary,
-             _reviewer_used, _degraded, _degradation, _degradation_note,
+             _reviewer_used="subagent",
              _stopped_at (REJECT only), _completed_subtasks, _total_subtasks
 ```
 
@@ -1669,7 +1626,7 @@ Four files: `gate1_per_fr.yaml`, `gate2_p3_exit.yaml`, `gate3_p4_exit.yaml`, `ga
 | `dimensions` | `list[dict]` | Yes | Scoring dimensions (see below) |
 | `dimensions[].name` | `str` | Yes | Dimension name |
 | `dimensions[].tier` | `int` | Yes | LLM tier: 1=fastest, 3=most capable |
-| `dimensions[].model` | `str` | Yes | `gemini-flash` or `claude` |
+| `dimensions[].model` | `str` | Yes | `claude` (all dims use Claude sub-agent) |
 | `dimensions[].threshold` | `int` | Yes | Pass threshold (0–100) |
 | `dimensions[].weight` | `float` | Yes | Weight in composite score (must sum to 1.0) |
 | `blocking` | `bool` | Yes | Whether gate is blocking |
@@ -1695,9 +1652,9 @@ gate: 1
 trigger: per_fr_completion
 scope: single_fr
 dimensions:
-  - { name: linting,       tier: 1, model: gemini-flash, threshold: 90, weight: 0.33 }
-  - { name: type_safety,   tier: 1, model: gemini-flash, threshold: 85, weight: 0.33 }
-  - { name: test_coverage, tier: 1, model: gemini-flash, threshold: 80, weight: 0.34 }
+  - { name: linting,       tier: 1, model: claude, threshold: 90, weight: 0.33 }
+  - { name: type_safety,   tier: 1, model: claude, threshold: 85, weight: 0.33 }
+  - { name: test_coverage, tier: 1, model: claude, threshold: 80, weight: 0.34 }
 blocking: true
 early_stop: false
 max_rounds: 1
@@ -1715,13 +1672,13 @@ trigger: phase_exit
 phase: 3
 scope: full_phase
 dimensions:
-  - { name: linting,            tier: 1, model: gemini-flash, threshold: 90,  weight: 0.15 }
-  - { name: type_safety,        tier: 1, model: gemini-flash, threshold: 85,  weight: 0.15 }
-  - { name: test_coverage,      tier: 1, model: gemini-flash, threshold: 80,  weight: 0.15 }
-  - { name: security,           tier: 2, model: gemini-flash, threshold: 80,  weight: 0.15 }
-  - { name: secrets_scanning,   tier: 1, model: gemini-flash, threshold: 100, weight: 0.10 }
-  - { name: license_compliance, tier: 1, model: gemini-flash, threshold: 100, weight: 0.10 }
-  - { name: mutation_testing,   tier: 1, model: gemini-flash, threshold: 70,  weight: 0.20 }
+  - { name: linting,            tier: 1, model: claude, threshold: 90,  weight: 0.15 }
+  - { name: type_safety,        tier: 1, model: claude, threshold: 85,  weight: 0.15 }
+  - { name: test_coverage,      tier: 1, model: claude, threshold: 80,  weight: 0.15 }
+  - { name: security,           tier: 2, model: claude, threshold: 80,  weight: 0.15 }
+  - { name: secrets_scanning,   tier: 1, model: claude, threshold: 100, weight: 0.10 }
+  - { name: license_compliance, tier: 1, model: claude, threshold: 100, weight: 0.10 }
+  - { name: mutation_testing,   tier: 1, model: claude, threshold: 70,  weight: 0.20 }
 blocking: true
 score_gate: 75
 max_rounds: 3
@@ -1739,13 +1696,13 @@ trigger: phase_exit
 phase: 4
 scope: full_phase
 dimensions:
-  - { name: linting,            tier: 1, model: gemini-flash, threshold: 90,  weight: 0.10 }
-  - { name: type_safety,        tier: 1, model: gemini-flash, threshold: 85,  weight: 0.10 }
-  - { name: test_coverage,      tier: 1, model: gemini-flash, threshold: 80,  weight: 0.10 }
-  - { name: security,           tier: 2, model: gemini-flash, threshold: 80,  weight: 0.10 }
-  - { name: secrets_scanning,   tier: 1, model: gemini-flash, threshold: 100, weight: 0.08 }
-  - { name: license_compliance, tier: 1, model: gemini-flash, threshold: 100, weight: 0.07 }
-  - { name: mutation_testing,   tier: 1, model: gemini-flash, threshold: 70,  weight: 0.10 }
+  - { name: linting,            tier: 1, model: claude, threshold: 90,  weight: 0.10 }
+  - { name: type_safety,        tier: 1, model: claude, threshold: 85,  weight: 0.10 }
+  - { name: test_coverage,      tier: 1, model: claude, threshold: 80,  weight: 0.10 }
+  - { name: security,           tier: 2, model: claude, threshold: 80,  weight: 0.10 }
+  - { name: secrets_scanning,   tier: 1, model: claude, threshold: 100, weight: 0.08 }
+  - { name: license_compliance, tier: 1, model: claude, threshold: 100, weight: 0.07 }
+  - { name: mutation_testing,   tier: 1, model: claude, threshold: 70,  weight: 0.10 }
   - { name: architecture,       tier: 3, model: claude,       threshold: 80,  weight: 0.10 }
   - { name: readability,        tier: 3, model: claude,       threshold: 80,  weight: 0.07 }
   - { name: error_handling,     tier: 3, model: claude,       threshold: 80,  weight: 0.10 }
@@ -1773,13 +1730,13 @@ trigger: phase_exit
 phase: 6
 scope: full_project
 dimensions:
-  - { name: linting,            tier: 1, model: gemini-flash, threshold: 90,  weight: 0.08 }
-  - { name: type_safety,        tier: 1, model: gemini-flash, threshold: 85,  weight: 0.08 }
-  - { name: test_coverage,      tier: 1, model: gemini-flash, threshold: 80,  weight: 0.08 }
-  - { name: security,           tier: 2, model: gemini-flash, threshold: 80,  weight: 0.10 }
-  - { name: secrets_scanning,   tier: 1, model: gemini-flash, threshold: 100, weight: 0.07 }
-  - { name: license_compliance, tier: 1, model: gemini-flash, threshold: 100, weight: 0.07 }
-  - { name: mutation_testing,   tier: 1, model: gemini-flash, threshold: 70,  weight: 0.08 }
+  - { name: linting,            tier: 1, model: claude, threshold: 90,  weight: 0.08 }
+  - { name: type_safety,        tier: 1, model: claude, threshold: 85,  weight: 0.08 }
+  - { name: test_coverage,      tier: 1, model: claude, threshold: 80,  weight: 0.08 }
+  - { name: security,           tier: 2, model: claude, threshold: 80,  weight: 0.10 }
+  - { name: secrets_scanning,   tier: 1, model: claude, threshold: 100, weight: 0.07 }
+  - { name: license_compliance, tier: 1, model: claude, threshold: 100, weight: 0.07 }
+  - { name: mutation_testing,   tier: 1, model: claude, threshold: 70,  weight: 0.08 }
   - { name: architecture,       tier: 3, model: claude,       threshold: 80,  weight: 0.14 }
   - { name: readability,        tier: 3, model: claude,       threshold: 80,  weight: 0.08 }
   - { name: error_handling,     tier: 3, model: claude,       threshold: 80,  weight: 0.10 }
@@ -1899,7 +1856,7 @@ CREATE TABLE IF NOT EXISTS effort (
     },
     {
       "name": "1_Integration_Bridge",
-      "description": "Bridge layer connecting methodology workflow to external tools: Quality Gates, CRG, Hermes MCP, git strategy, handover, and audit/metrics sinks.",
+      "description": "Bridge layer connecting methodology workflow to external tools: Quality Gates, CRG, Claude sub-agent reviewer, git strategy, handover, and audit/metrics sinks.",
       "modules": [
         "harness/harness_bridge.py",
         "harness/reviewer_router.py",
@@ -2389,11 +2346,9 @@ class HandoverGenerator:
 
 **Checkpoint**: {checkpoint_id} | **Phase**: {phase} | **Generated**: {UTC ISO timestamp}
 
-## ▶ 立即開始（三步）
-1. Clone repo / enter project directory
-2. Set env vars (all optional):
-   export HERMES_REVIEWER_TARGET=telegram:YOUR_CHAT_ID   # Enables Hermes in P1–P2 A/B reviewer chain (Hermes→Gemini→Claude)
-3. Read the plan: `.methodology/phase{N}_plan.md`
+## ▶ 立即開始（兩步）
+1. Clone repo / enter project directory (the `claude` CLI is the only prerequisite)
+2. Read the plan: `.methodology/phase{N}_plan.md`
 
 ## 快速接手指令（詳細）
 Alternative git details and metadata table (phase, plan path, resume command, etc.)
@@ -2699,7 +2654,7 @@ within this repository.
 | File | Miss (current) | Blocking reason |
 |---|---|---|
 | `enforcement/framework_enforcer.py` | ~94 | `run()`, `check_*()` paths call `subprocess.run(git)` + multi-file I/O; integration-test territory |
-| `harness/harness_bridge.py` | 26 (78%) | Gates 2–4 require live Hermes MCP + real SSI subprocess; cannot stub without full integration env |
+| `harness/harness_bridge.py` | 26 (78%) | Gates 2–4 require a real SSI subprocess; cannot stub without full integration env |
 | `core/quality_gate/stage_pass_generator.py` | ~104 | `git_push()`, `_log_to_development_log()` — require real git repo + subprocess chain |
 
 **Verdict**: Block behind `@pytest.mark.integration`; run in CI with full Docker env.

@@ -407,7 +407,7 @@ class TestR8bObjectivePrimary:
             "dimension": "mutation_testing",
             "round": 1,
             "llm_tier": 1,
-            "llm_provider": "gemini",
+            "llm_provider": "claude",
             "tool_outputs": "",
             "findings": [],
         }

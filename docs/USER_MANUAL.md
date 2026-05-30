@@ -69,8 +69,7 @@ cd harness-methodology
 ```bash
 # SSI is embedded at harness/ssi/ — no external install needed for gate runs
 
-# Hermes MCP — optional, used for Agent B A/B reviews
-export HERMES_REVIEWER_TARGET=telegram:YOUR_CHAT_ID   # or other target
+# Reviewer backend: Claude sub-agent (built-in, no extra config needed)
 
 # CRG (Code Review Graph) — optional, enhances Gate 3/4 scoring
 # Gracefully skipped if not installed
@@ -398,14 +397,14 @@ Phase 7：風險管理。
 1. 識別所有技術、進度、資源、外部風險
 2. 建立 RISK_REGISTER.md
 3. 為每個高風險項制定緩解計畫
-4. 使用 Claude（非 Hermes）進行審查（Phase 7 自動路由至 Claude）
+4. 使用 Claude sub-agent 進行審查（所有 Phase 統一使用 Claude）
 ```
 
 ```bash
 python harness_cli.py run-gate --gate 1 --phase 7 --project /project --fr-id FR-RISK-01
 ```
 
-> **Note**: Phase 7 and 8 automatically route to Claude reviewer (not Hermes). This is enforced by `get_reviewer_model(phase=7)` returning `"claude"`.
+> **Note**: All phases use Claude sub-agent as the reviewer backend. No MCP configuration required.
 
 ---
 
@@ -435,9 +434,10 @@ python harness_cli.py effort --project /project   # review total effort
 
 | Dimension | Tier | Model | Threshold | Weight |
 |---|---|---|---|---|
-| linting | 1 | gemini-flash | 90 | 0.33 |
-| type_safety | 1 | gemini-flash | 85 | 0.33 |
-| test_coverage | 1 | gemini-flash | 80 | 0.34 |
+| linting | 1 | claude | 90 | 0.30 |
+| type_safety | 1 | claude | 85 | 0.30 |
+| test_coverage | 1 | claude | 80 | 0.30 |
+| test_assertion_quality | 2 | claude | 50 | 0.10 |
 
 - Blocking: **per-dimension** (not composite score)
 - On fail: fix the specific dimension and re-run Gate 1 for that FR
@@ -1004,15 +1004,13 @@ Hooks 是可選的 shell/Python 指令，在特定 phase/gate/FR 事件自動執
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `HERMES_REVIEWER_TARGET` | `""` | Hermes reviewer target (e.g. `telegram:6308981865`). Used for Agent B reviewer for A/B collaboration (`reviewer_router.py`) — active from P1, degrades gracefully to Gemini→Claude sub-agent if unset. |
-| `HERMES_TIMEOUT_MS` | `120000` | Hermes long-poll timeout in ms (default: 2 minutes) |
+| `HARNESS_CLAUDE_MODEL` | `claude-sonnet-4-5` | Override the Claude model used for all dimension evaluation and review (all tiers use Claude sub-agent). |
 | `SSI_ROOT` | `harness/ssi` | Path to embedded SSI package (auto-detected from harness_cli.py) |
 | `DRIFT_PROJECT_PATH` | cwd | **Required for drift monitor** — absolute path to target project. Without this, `cron_drift_monitor.py` silently analyses the cron job's working directory instead of your project. |
 | `PYTHONPATH` | — | Must include harness-methodology repo root for imports. **Only needed for Option B (global clone)** — not required for Option A (submodule) or Option C (copy). |
 
 **Setup example**:
 ```bash
-export HERMES_REVIEWER_TARGET=telegram:1234567890
 export DRIFT_PROJECT_PATH=/path/to/your/project
 # Option B (global clone) only:
 export PYTHONPATH=/path/to/harness-methodology:$PYTHONPATH
@@ -1242,9 +1240,6 @@ echo "--- 6. SSI embedded ---"
 python3 -c "import sys; sys.path.insert(0,'$HARNESS_DIR'); import ssi; print('OK: ssi importable')" \
   2>/dev/null || echo "WARN: SSI not importable — gate evaluation will fall back to static scoring"
 
-echo "--- 7. HERMES_REVIEWER_TARGET ---"
-  || echo "WARN: not set — A/B Agent B reviews degrade to Gemini/Claude fallback (P1+). export HERMES_REVIEWER_TARGET=telegram:YOUR_ID"
-
 echo "--- done ---"
 ```
 
@@ -1256,7 +1251,6 @@ OK: harness_cli.py found (./harness/harness_cli.py)
 OK: pyyaml
 OK: gate config
 OK: ssi importable
-OK: HERMES_REVIEWER_TARGET=telegram:6308981865
 ```
 
 Any `FAIL` line is a blocking issue. `WARN: SSI` is non-blocking (gates still run with reduced scoring).

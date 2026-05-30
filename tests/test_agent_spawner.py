@@ -23,26 +23,8 @@ class TestAgentSpawner:
                 assert "[SOP]\nTest SOP" in prompt
                 assert "[TASK]\nWrite code" in prompt
 
-    def test_spawn_routes_to_hermes(self):
-        """Verify routing to Hermes reviewer for appropriate phases."""
-        spawner = AgentSpawner()
-        mock_reviewer = MagicMock()
-        mock_reviewer.review.return_value = {"review_status": "APPROVE"}
-        spawner._reviewer = mock_reviewer
-
-        with patch("harness.reviewer_router.get_reviewer_model", return_value="hermes"):
-            result = spawner.spawn(
-                role="reviewer",
-                prompt="Check this",
-                context={"phase": 3},
-                model="hermes",
-                phase=3
-            )
-            assert result["review_status"] == "APPROVE"
-            mock_reviewer.review.assert_called_once()
-
-    def test_spawn_routes_to_claude_on_p7(self):
-        """Verify routing to Claude for phase 7 even if hermes requested."""
+    def test_spawn_routes_to_claude_cli(self):
+        """All spawns route to the Claude headless CLI (sole backend)."""
         spawner = AgentSpawner()
         mock_proc = MagicMock()
         mock_proc.returncode = 0
@@ -50,30 +32,29 @@ class TestAgentSpawner:
             "result": "risk assessed",
             "session_id": "abc123",
         })
-        with patch("harness.reviewer_router.get_reviewer_model", return_value="claude"):
-            with patch("shutil.which", return_value="/usr/bin/claude"):
-                with patch("subprocess.run", return_value=mock_proc) as mock_run:
-                    result = spawner.spawn(
-                        role="reviewer",
-                        prompt="Assess risk",
-                        context={"phase": 7},
-                        model="hermes",
-                        phase=7
-                    )
-                    assert result["status"] == "complete"
-                    assert "risk assessed" in str(result["output"])
-                    # Verify CLI flags for need-to-know isolation
-                    mock_run.assert_called_once()
-                    cmd = mock_run.call_args[0][0]
-                    assert "--setting-sources" in cmd
-                    assert "" in cmd
-                    assert "--disable-slash-commands" in cmd
-                    assert "--strict-mcp-config" in cmd
-                    assert "--max-turns" in cmd
-                    assert "20" in cmd
-                    assert "--no-session-persistence" in cmd
-                    assert "--output-format" in cmd
-                    assert "json" in cmd
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            with patch("subprocess.run", return_value=mock_proc) as mock_run:
+                result = spawner.spawn(
+                    role="reviewer",
+                    prompt="Assess risk",
+                    context={"phase": 7},
+                    model="claude",
+                    phase=7
+                )
+                assert result["status"] == "complete"
+                assert "risk assessed" in str(result["output"])
+                # Verify CLI flags for need-to-know isolation
+                mock_run.assert_called_once()
+                cmd = mock_run.call_args[0][0]
+                assert "--setting-sources" in cmd
+                assert "" in cmd
+                assert "--disable-slash-commands" in cmd
+                assert "--strict-mcp-config" in cmd
+                assert "--max-turns" in cmd
+                assert "20" in cmd
+                assert "--no-session-persistence" in cmd
+                assert "--output-format" in cmd
+                assert "json" in cmd
 
     def test_spawn_raises_error_when_cli_not_found(self):
         """Verify RuntimeError when claude CLI is not on PATH."""

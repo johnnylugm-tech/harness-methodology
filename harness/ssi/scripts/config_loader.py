@@ -22,12 +22,6 @@ CLAUDE_MODELS = {
     "claude": "claude-sonnet-4-5",  # generic alias → sonnet
 }
 
-GEMINI_MODELS = {
-    "gemini-2.5-flash": "gemini-2.5-flash",  # fast + cheap (default)
-    "gemini-2.5-pro": "gemini-2.5-pro",  # higher accuracy
-    "gemini": "gemini-2.5-flash",  # generic alias → flash
-}
-
 DEFAULT_CONFIG = {
     "version": "1.0",
     "quality": {
@@ -116,8 +110,8 @@ DEFAULT_CONFIG = {
     "llm_routing": {
         "enabled": True,
         "tier1": {
-            "provider": "gemini",
-            "model": "gemini-2.5-flash",
+            "provider": "claude_native",
+            "model": "claude",
             "dimensions": [
                 "linting",
                 "type_safety",
@@ -128,8 +122,8 @@ DEFAULT_CONFIG = {
             ],
         },
         "tier2": {
-            "provider": "gemini",
-            "model": "gemini-2.5-flash",
+            "provider": "claude_native",
+            "model": "claude",
             "dimensions": ["security", "integration_coverage", "test_assertion_quality"],
         },
         "tier3": {
@@ -240,8 +234,7 @@ def apply_env_overrides(config):
     Apply environment variable overrides to llm_routing model selection.
 
     Supported env vars:
-      HARNESS_GEMINI_MODEL   — override Tier 1/2 model  (e.g. gemini-2.5-pro)
-      HARNESS_CLAUDE_MODEL   — override Tier 3 model    (e.g. claude-opus-4)
+      HARNESS_CLAUDE_MODEL   — override the model for all tiers (e.g. claude-opus-4)
       HARNESS_IMPROVE_MODEL  — override improve model   (defaults to HARNESS_CLAUDE_MODEL)
 
     These override config.yaml values, which override built-in defaults.
@@ -249,21 +242,14 @@ def apply_env_overrides(config):
     """
     routing = config.setdefault("llm_routing", {})
 
-    gemini_env = os.environ.get("HARNESS_GEMINI_MODEL")
     claude_env = os.environ.get("HARNESS_CLAUDE_MODEL")
     improve_env = os.environ.get("HARNESS_IMPROVE_MODEL") or claude_env
 
-    if gemini_env:
-        resolved = GEMINI_MODELS.get(gemini_env, gemini_env)
-        routing.setdefault("tier1", {})["model"] = resolved
-        routing.setdefault("tier2", {})["model"] = resolved
-        config["_env_overrides"] = config.get("_env_overrides", [])
-        config["_env_overrides"].append(
-            f"HARNESS_GEMINI_MODEL={gemini_env} → {resolved}"
-        )
-
     if claude_env:
         resolved = CLAUDE_MODELS.get(claude_env, claude_env)
+        # All tiers use Claude — apply override uniformly.
+        routing.setdefault("tier1", {})["model"] = resolved
+        routing.setdefault("tier2", {})["model"] = resolved
         routing.setdefault("tier3", {})["model"] = resolved
         config["_env_overrides"] = config.get("_env_overrides", [])
         config["_env_overrides"].append(
@@ -305,10 +291,6 @@ def main():
     if len(sys.argv) < 2:
         print(f"Usage: {sys.argv[0]} <config.yaml>", file=sys.stderr)
         print("\nEnv var model overrides (highest precedence):", file=sys.stderr)
-        print(
-            "  HARNESS_GEMINI_MODEL   gemini-2.5-flash | gemini-2.5-pro",
-            file=sys.stderr,
-        )
         print(
             "  HARNESS_CLAUDE_MODEL   claude-sonnet-4-5 | claude-sonnet-4-6 | claude-opus-4",
             file=sys.stderr,

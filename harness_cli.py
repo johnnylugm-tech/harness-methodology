@@ -1957,7 +1957,7 @@ def _check_gate4_prerequisites(project: Path) -> "tuple[bool, set[str]]":
         da_waivers — set of dimension names whose score threshold is waived via DA challenge
 
     Checks:
-        A2 — model_used field: Tier 1/2 dims used gemini-flash
+        A2 — model_used field: all dims must have model recorded (any model accepted)
         A3 — devil_advocate field: all Tier 3 dims marked done
         A4 — high_score_confirmations: dims with llm_score ≥ 85 have 3-item confirmation
         A5 — issue_registry_path: file exists and is non-empty
@@ -1982,30 +1982,18 @@ def _check_gate4_prerequisites(project: Path) -> "tuple[bool, set[str]]":
                 print(f"[Gate 4] ⚠ Could not parse {candidate}: {_e} — skipping extended checks", file=sys.stderr)
 
     if g4:
-        # ── A2: model_used routing ────────────────────────────────────
+        # ── A2: model_used audit trail ────────────────────────────────
+        # Any model is accepted — all dims now use Claude sub-agent.
+        # The field is kept as a mandatory audit record of which model evaluated each dim.
         model_used: dict = g4.get("model_used", {})
         if not model_used:
             print(
                 "\n[BLOCKED] Gate 4 (A2): 'model_used' field missing from gate4_result.json.\n"
-                "  Add a 'model_used' dict mapping each dimension name to the model/provider used.\n"
-                "  Tier 1/2 dims must use gemini-flash; Tier 3 dims must use claude.",
+                "  Add a 'model_used' dict mapping each dimension name to the model used.\n"
+                "  Example: {\"linting\": \"claude\", \"architecture\": \"claude\"}",
                 file=sys.stderr,
             )
             blocked = True
-        else:
-            wrong_tier = [
-                f"{dim}={model}" for dim, model in model_used.items()
-                if dim not in _TIER3_DIMS and "claude" in str(model).lower()
-            ]
-            if wrong_tier:
-                print(
-                    f"\n[BLOCKED] Gate 4 (A2): Tier 1/2 dimensions evaluated with Claude "
-                    f"instead of Gemini Flash:\n"
-                    + "\n".join(f"  - {w}" for w in wrong_tier) + "\n"
-                    "  Re-evaluate these dims using llm_router.py (Tier 1/2 → gemini-flash).",
-                    file=sys.stderr,
-                )
-                blocked = True
 
         # ── A3: Devil's Advocate for Tier 3 dims ─────────────────────
         devil_advocate: dict = g4.get("devil_advocate", {})
@@ -6583,15 +6571,11 @@ def cmd_init_project(args: argparse.Namespace) -> int:
         _checklist += [
             "  ║  [ ] SRS.md written with ### FR-XX: sections                ║",
             "  ║  [ ] SPEC_TRACKING.md + TRACEABILITY_MATRIX.md ready        ║",
-            "  ║  [ ] Hermes reviewer target (optional, for A/B dispatch)    ║",
-            "  ║      → export HERMES_REVIEWER_TARGET=telegram:CHAT_ID       ║",
         ]
     elif phase == 2:
         _checklist += [
             "  ║  [ ] SAD.md + ADR.md written (architecture design)          ║",
             "  ║  [ ] TEST_SPEC.md ready (from derive_test_cases.md)         ║",
-            "  ║  [ ] Hermes reviewer target (optional, for A/B dispatch)    ║",
-            "  ║      → export HERMES_REVIEWER_TARGET=telegram:CHAT_ID       ║",
         ]
     else:
         _checklist += [

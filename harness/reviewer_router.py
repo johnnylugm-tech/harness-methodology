@@ -1,7 +1,8 @@
 # harness/reviewer_router.py
-# Gap G2: Heterogeneous Reviewer via priority-chained MCP backends.
-# v2.1: Sequential A/B execution with dependency-ordered decomposition.
-#        Subtask N completes full A/B collaboration before N+1 starts.
+# Gap G2: Claude sub-agent reviewer — single backend, no MCP dependencies.
+# v3.0: Simplified from priority-chained Hermes→Gemini→sub-agent to Claude-only.
+#        Stateless sub-agent provides per-task isolation identical to the old
+#        sub-agent backstop; setup requires only the claude CLI (no env vars).
 from __future__ import annotations
 
 import json
@@ -12,30 +13,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-
-# ---------------------------------------------------------------------------
-# MCP imports (graceful degradation if not available)
-# ---------------------------------------------------------------------------
-
-try:
-    from mcp_tools import (  # pyright: ignore[reportMissingImports]
-        mcp__hermes__messages_send,
-        mcp__hermes__events_wait,
-        mcp__hermes__messages_read,
-    )
-    _HERMES_AVAILABLE = True
-except ImportError:
-    _HERMES_AVAILABLE = False
-    mcp__hermes__messages_send = None  # pyright: ignore[reportAssignmentType]
-    mcp__hermes__events_wait = None  # pyright: ignore[reportAssignmentType]
-    mcp__hermes__messages_read = None  # pyright: ignore[reportAssignmentType]
-
-try:
-    from mcp_tools import mcp__gemini_cli__ask_gemini  # pyright: ignore[reportMissingImports]
-    _GEMINI_AVAILABLE = True
-except ImportError:
-    _GEMINI_AVAILABLE = False
-    mcp__gemini_cli__ask_gemini = None  # pyright: ignore[reportAssignmentType]
 
 # ---------------------------------------------------------------------------
 # Constants (all overridable via environment variables)
@@ -52,36 +29,14 @@ def _parse_int_env(key: str, default: int) -> int:
         return default
 
 
-HERMES_TARGET = os.environ.get("HERMES_REVIEWER_TARGET", "")
-HERMES_TIMEOUT_MS   = _parse_int_env("HERMES_TIMEOUT_MS",   120000)  # 120s default
-GEMINI_TIMEOUT_MS   = _parse_int_env("GEMINI_TIMEOUT_MS",   60000)   # 60s for Gemini CLI MCP
 TASK_SIZE_THRESHOLD = _parse_int_env("TASK_SIZE_THRESHOLD", 2000)    # chars — decompose if exceeded
 SUBTASK_MAX_SIZE    = _parse_int_env("SUBTASK_MAX_SIZE",    800)     # chars/subtask (paragraph split)
 MAX_CONTEXT_LINES   = _parse_int_env("MAX_CONTEXT_LINES",  6)        # approved-summaries injected
-
-# Reviewer priority chain (sub-agent always appended as final backstop)
-_DEFAULT_CHAIN = "hermes,gemini"
-REVIEWER_CHAIN_CONFIG = os.environ.get("REVIEWER_CHAIN", _DEFAULT_CHAIN)
-
-# Phase policy: P7/P8 always route to Claude
-_CLAUDE_PHASES = {7, 8}
-REVIEWER_POLICY = {"default": "hermes", "p7_risk": "claude", "p8_config": "claude"}
-
-_GEMINI_REVIEW_MODEL = "gemini-2.5-flash"
-_GEMINI_CONTAMINATION_MARKERS = ["session-end-marker", "plugin_root", "#!/usr/bin/env node"]
 
 
 # ---------------------------------------------------------------------------
 # Data structures
 # ---------------------------------------------------------------------------
-
-@dataclass
-class ReviewerSpec:
-    """One reviewer in the priority chain."""
-    name: str        # "hermes" | "gemini" | "subagent"
-    timeout_ms: int
-    enabled: bool = True
-
 
 @dataclass
 class SubTask:
@@ -93,28 +48,17 @@ class SubTask:
     total: int = 1
 
 
-def _parse_chain(config: str) -> list[ReviewerSpec]:
-    """Parse REVIEWER_CHAIN env var → ordered ReviewerSpec list.
-    Sub-agent is always appended as final backstop (never times out).
-    """
-    specs: list[ReviewerSpec] = []
-    for name in (n.strip() for n in config.split(",") if n.strip()):
-        if name == "hermes":
-            specs.append(ReviewerSpec("hermes", HERMES_TIMEOUT_MS,
-                                      _HERMES_AVAILABLE and bool(HERMES_TARGET)))
-        elif name == "gemini":
-            specs.append(ReviewerSpec("gemini", GEMINI_TIMEOUT_MS, _GEMINI_AVAILABLE))
-    specs.append(ReviewerSpec("subagent", 300_000, True))
-    return specs
-
-
 # ---------------------------------------------------------------------------
 # Public helper
 # ---------------------------------------------------------------------------
 
 def get_reviewer_model(phase: int, role: str = "reviewer") -> str:
-    """Return effective reviewer model for this phase/role."""
-    return "claude" if phase in _CLAUDE_PHASES else REVIEWER_POLICY.get(role, "hermes")
+    """Return effective reviewer model for this phase/role.
+
+    All phases use Claude sub-agent as the sole reviewer backend.
+    No MCP dependencies required — only the claude CLI.
+    """
+    return "claude"
 
 
 # ---------------------------------------------------------------------------
@@ -123,36 +67,24 @@ def get_reviewer_model(phase: int, role: str = "reviewer") -> str:
 
 class ReviewerRouter:
     """
-    Routes review requests through a priority-ordered chain of backends,
-    with structured task decomposition and sequential A/B execution.
+    Routes review requests to Claude sub-agent with structured task decomposition.
 
     Execution model:
       1. Decompose prompt into dependency-ordered SubTask list.
       2. For each SubTask IN ORDER (respecting dependencies):
          a. Inject context from previously approved subtasks.
-         b. Attempt review via priority chain (Hermes → Gemini → sub-agent).
+         b. Dispatch to Claude sub-agent (stateless, isolated session).
          c. On APPROVE: accumulate summary → proceed to next SubTask.
          d. On REJECT:  stop immediately, return REJECT with audit trail.
       3. Merge all APPROVE results into final response.
 
-    Priority chain:
-      Hermes MCP (90s) → Gemini CLI MCP (60s) → sub-agent (always succeeds)
-      Configurable via REVIEWER_CHAIN env var.
+    Backend: Claude sub-agent (all phases, no MCP dependencies required).
+    No environment variables needed — only the claude CLI must be installed.
     """
 
-    def __init__(
-        self,
-        target: str = HERMES_TARGET,
-        chain_config: str = REVIEWER_CHAIN_CONFIG,
-        project_path: "Path | None" = None,
-    ):
-        if not target:
-            raise ValueError(
-                "HERMES_REVIEWER_TARGET env var not set or target is empty"
-            )
-        self.target = target
+    def __init__(self, project_path: "Path | None" = None):
+        """Initialise the router. No MCP backend configuration needed."""
         self.project_path = Path(project_path) if project_path else None
-        self._chain: list[ReviewerSpec] = _parse_chain(chain_config)
 
     # ------------------------------------------------------------------
     # Primary entry point
@@ -200,122 +132,33 @@ class ReviewerRouter:
         task_total: int = 1,
         cancel_event: threading.Event | None = None,
     ) -> dict:
-        """Try each reviewer in priority order until one succeeds."""
-        full_prompt = self._build_prompt(role, prompt, phase, fr_id, task_idx, task_total)
-        degradation_log: list[dict] = []
-
-        for spec in self._chain:
-            if cancel_event and cancel_event.is_set():
-                return {
-                    "review_status": "CANCELLED",
-                    "confidence": 1.0,
-                    "violations": [],
-                    "summary": f"[CANCELLED] Sibling reviewer returned REJECT. Skipped {spec.name}.",
-                    "_reviewer_used": spec.name,
-                }
-
-            if not spec.enabled:
-                degradation_log.append({"reviewer": spec.name, "reason": "not_available_or_not_configured"})
-                continue
-
-            if spec.name == "subagent":
-                # Use the caller-supplied timeout, not a per-spec timeout that may have
-                # been set by a prior backend (e.g. Gemini's 60 s). Fall back to 300 s.
-                task_timeout_s = int(timeout_ms / 1000) if timeout_ms is not None else 300
-                result = self._try_subagent(role, prompt, phase, fr_id, task_timeout_s=task_timeout_s)
-                result["_reviewer_used"] = "subagent"
-                result["_degradation"] = degradation_log
-                if degradation_log:
-                    result["_degraded"] = True
-                    skipped = ", ".join(f"{d['reviewer']}({d['reason']})" for d in degradation_log)
-                    result["_degradation_note"] = (
-                        f"[DEGRADED] Fell back to sub-agent after: {skipped}. "
-                        "Review quality may differ from external reviewer."
-                    )
-                return result
-
-            try:
-                eff_timeout = timeout_ms if timeout_ms is not None else spec.timeout_ms
-                if spec.name == "hermes":
-                    raw = self._try_hermes(full_prompt, eff_timeout)
-                elif spec.name == "gemini":
-                    raw = self._try_gemini(full_prompt, eff_timeout)
-                else:
-                    continue
-
-                result = self._parse_response(raw)
-                result["_reviewer_used"] = spec.name
-                result["_degradation"] = degradation_log
-                if degradation_log:
-                    result["_degraded"] = True
-                    result["_degradation_note"] = (
-                        f"[NOTE] {spec.name} succeeded after: "
-                        + ", ".join(f"{d['reviewer']} timed out" for d in degradation_log)
-                    )
-                return result
-
-            except (TimeoutError, RuntimeError) as exc:
-                degradation_log.append({"reviewer": spec.name, "reason": str(exc)[:120]})
-                continue
-
-        raise RuntimeError("Reviewer chain exhausted (subagent should always succeed)")
+        """Dispatch review to Claude sub-agent (sole backend)."""
+        if cancel_event and cancel_event.is_set():
+            return {
+                "review_status": "CANCELLED",
+                "violations": [],
+                "summary": "[CANCELLED] Sibling reviewer returned REJECT. Skipped subagent.",
+                "_reviewer_used": "subagent",
+            }
+        # Use the caller-supplied timeout; fall back to 300 s.
+        task_timeout_s = int(timeout_ms / 1000) if timeout_ms is not None else 300
+        result = self._try_subagent(role, prompt, phase, fr_id, task_timeout_s=task_timeout_s)
+        result["_reviewer_used"] = "subagent"
+        return result
 
     # ------------------------------------------------------------------
-    # Backend implementations
+    # Backend: Claude sub-agent
     # ------------------------------------------------------------------
-
-    def _try_hermes(self, prompt: str, timeout_ms: int) -> str:
-        """Attempt review via Hermes MCP. Raises TimeoutError on any failure."""
-        if not _HERMES_AVAILABLE:
-            raise RuntimeError("Hermes MCP not imported")
-        if not self.target:
-            raise RuntimeError("HERMES_REVIEWER_TARGET not set")
-
-        mcp__hermes__messages_send(target=self.target, message=prompt)  # pyright: ignore[reportOptionalCall]
-        try:
-            mcp__hermes__events_wait(session_key=self.target, timeout_ms=timeout_ms)  # pyright: ignore[reportOptionalCall]
-        except Exception as exc:
-            raise TimeoutError(f"events_wait failed: {exc}") from exc
-
-        try:
-            msgs = mcp__hermes__messages_read(session_key=self.target, limit=1)  # pyright: ignore[reportOptionalCall]
-        except Exception as exc:
-            raise TimeoutError(f"messages_read failed: {exc}") from exc  # incl. "Session database unavailable"
-
-        if not msgs:
-            raise TimeoutError(f"Hermes: no response within {timeout_ms}ms")
-        return msgs[-1].get("content", "")
-
-    def _try_gemini(self, prompt: str, timeout_ms: int) -> str:  # noqa: ARG002
-        """Attempt review via Gemini CLI MCP. Raises RuntimeError on any failure."""
-        if not _GEMINI_AVAILABLE:
-            raise RuntimeError("Gemini CLI MCP not imported")
-        try:
-            result = mcp__gemini_cli__ask_gemini(prompt=prompt, model=_GEMINI_REVIEW_MODEL)  # pyright: ignore[reportOptionalCall]
-            raw = result.get("response", result.get("text", str(result)))
-            return self._clean_gemini_response(raw)
-        except Exception as exc:
-            raise RuntimeError(f"Gemini CLI MCP error: {exc}") from exc
-
-    def _clean_gemini_response(self, raw: str) -> str:
-        """Strip ECC plugin SessionEnd hook contamination from Gemini responses."""
-        for marker in _GEMINI_CONTAMINATION_MARKERS:
-            if marker in raw:
-                idx = raw.index(marker)
-                clean_end = raw.rfind("\n", 0, idx)
-                raw = (raw[:clean_end] if clean_end > 0 else raw[:idx]).strip()
-                break
-        return raw.strip()
 
     def _try_subagent(self, role: str, prompt: str, phase: int, fr_id: str | None,
                       task_timeout_s: int = 300) -> dict:
-        """Graceful degradation to current-model sub-agent. Never fails."""
+        """Dispatch review to a stateless Claude sub-agent. Never fails."""
         try:
             from core.agent_spawner import AgentSpawner  # lazy import — avoids circular dep
             spawner = AgentSpawner(project_path=self.project_path)
             result = spawner.spawn(
                 role=role, prompt=prompt,
-                context={"degraded": True, "reason": "reviewer_chain_exhausted"},
+                context={},
                 model="claude", phase=phase, fr_id=fr_id,
                 task_timeout=task_timeout_s,
             )

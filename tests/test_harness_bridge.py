@@ -395,7 +395,7 @@ class TestSabManifestIntegration:
         yaml_path.write_text(yaml.dump({
             "gate": 3, "trigger": "phase_exit", "phase": 4, "scope": "full_phase",
             "dimensions": [
-                {"name": "linting", "tier": 1, "model": "gemini-flash", "threshold": 90, "weight": 0.5},
+                {"name": "linting", "tier": 1, "model": "claude", "threshold": 90, "weight": 0.5},
                 {"name": "architecture", "tier": 3, "model": "claude", "threshold": 80, "weight": 0.5},
             ],
             "blocking": True, "score_gate": 80, "max_rounds": 3,

@@ -7,7 +7,7 @@
 - Quality Manifest: .methodology/quality_manifest.json
 - Active Phase: {CURRENT_PHASE}  <!-- e.g. P3 -->
 - Last Gate: {LAST_GATE} (Score: {LAST_GATE_SCORE})  <!-- e.g. Gate2 (Score: 78) -->
-- Reviewer Chain: ${REVIEWER_CHAIN:-hermes,gemini}  (P1–P2 A/B; Hermes optional, configure via REVIEWER_CHAIN env var)
+- Reviewer Backend: claude-subagent (stateless, all phases — only claude CLI required)
 
 ## FR Registry
 {FR_TABLE}
@@ -37,7 +37,7 @@ Johnny: "執行 Phase N"
   → Agent: load-context --phase N   (loads FR IDs and module mappings)
   → Johnny: reviews plan
   → Agent: run-phase N              (executes plan)
-  → POST-FLIGHT: gate check + Hermes reviewer
+  → POST-FLIGHT: gate check + Claude sub-agent review
 ```
 
 ## Gate Status

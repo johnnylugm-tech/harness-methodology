@@ -1015,7 +1015,7 @@ class TestHermesReceiptIntegrity:
         sessi.mkdir(parents=True, exist_ok=True)
         (sessi / "gate4_result.json").write_text(json.dumps({
             "overall_score": 90,
-            "model_used": {"linting": "gemini-flash"},
+            "model_used": {"linting": "claude"},
             "devil_advocate": {"architecture": True, "readability": True,
                                "error_handling": True, "documentation": True,
                                "performance": True},
@@ -1217,7 +1217,7 @@ class TestCRGReconCheck:
         sessi.mkdir(parents=True, exist_ok=True)
         (sessi / "gate4_result.json").write_text(json.dumps({
             "overall_score": 90,
-            "model_used": {"linting": "gemini-flash"},
+            "model_used": {"linting": "claude"},
             "devil_advocate": {"architecture": True, "readability": True,
                                "error_handling": True, "documentation": True,
                                "performance": True},

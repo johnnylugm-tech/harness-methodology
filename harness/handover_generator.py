@@ -266,15 +266,6 @@ class HandoverGenerator:
         _repo_name = (remote.rstrip("/").split("/")[-1].removesuffix(".git")
                       if remote else "project")
 
-        # Hermes reviewer target (optional — only used for P1/P2 A/B dispatch).
-        # P3+ uses automated Phase End Audit; Hermes is unused in later phases.
-        _hermes_entry = extra.get("HERMES_REVIEWER_TARGET", "")
-        if _hermes_entry.startswith("✅ set (") and _hermes_entry.endswith(")"):
-            _hermes_val = _hermes_entry[len("✅ set ("):-1]
-        else:
-            _hermes_val = "<value>"   # not set or unknown format
-        _show_hermes = phase in (1, 2) or (resume_phase is not None and resume_phase in (1, 2))
-
         # Three-step startup sequence — visible to a new session immediately
         _target_phase = target_phase if target_phase is not None else (resume_phase if resume_phase is not None else phase + 1)
         _is_continue = _target_phase == phase
@@ -284,20 +275,13 @@ class HandoverGenerator:
             if _is_continue else
             f"# Follow SKILL.md §0.1 Phase {_target_phase} entry check, then execute"
         )
-        _hermes_line = (
-            f"# P1/P2 only — enables Hermes MCP A/B reviewer dispatch\n"
-            f"export HERMES_REVIEWER_TARGET={_hermes_val}\n"
-        ) if _show_hermes else ""
         resume_section = (
-            f"## ▶ 立即開始（三步）\n\n"
+            f"## ▶ 立即開始（兩步）\n\n"
             f"```bash\n"
             f"# 1. Clone (if working directory cleared)\n"
             f"git clone --recurse-submodules {remote or '<repo-url>'} && cd {_repo_name}\n"
             f"\n"
-            f"# 2. Set env vars (all optional)\n"
-            f"{_hermes_line}"
-            f"\n"
-            f"# 3. Read plan and {_action}\n"
+            f"# 2. Read plan and {_action}\n"
             f"cat {plan or f'.methodology/phase{_target_phase}_plan.md'}\n"
             f"{_skill_step}\n"
             f"```\n"

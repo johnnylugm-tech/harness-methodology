@@ -41,7 +41,7 @@
 |-----------|-----------|--------|--------|
 | Gate 4 composite score | ≥ 85 | {value} | PASS/FAIL |
 | Critical issues open | = 0 | {value} | PASS/FAIL |
-| Hermes reviewer status | APPROVE | {value} | PASS/FAIL |
+| Claude sub-agent reviewer | APPROVE | {value} | PASS/FAIL |
 
 ## 5. Root Cause Analysis
 

@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 """
-LLM Router: Routes dimension evaluation to appropriate LLM tier
+LLM Router: Routes dimension evaluation to Claude native (all tiers)
 
-Tier 1 → Gemini Flash  (tool-output summarization, cheap)
-Tier 2 → Gemini Flash  (light judgment, cheap)
-Tier 3 → Claude native (deep reasoning, always)
-Improve → Claude native (code generation, always)
+All tiers → Claude native (uniform backend, simpler setup)
+No Gemini or Hermes MCP dependencies required — only the claude CLI.
 
 Outputs routing decision JSON for evaluate_dimension.md to consume.
 """
@@ -17,21 +15,9 @@ import json
 # ---------------------------------------------------------------------------
 # Env var model overrides (same vars as config_loader.py)
 # ---------------------------------------------------------------------------
-_GEMINI_MODEL = os.environ.get("HARNESS_GEMINI_MODEL", "gemini-2.5-flash")
 _CLAUDE_MODEL = os.environ.get("HARNESS_CLAUDE_MODEL", "claude-sonnet-4-5")
 _IMPROVE_MODEL = os.environ.get("HARNESS_IMPROVE_MODEL", _CLAUDE_MODEL)
-_HERMES_TARGET = os.environ.get("HARNESS_HERMES_TARGET", "slack:#quality-audit")  # Default target
 
-
-def _parse_int_env(key: str, default: int) -> int:
-    """Parse an integer env var; return default on missing or non-numeric value."""
-    raw = os.environ.get(key, "")
-    if not raw:
-        return default
-    try:
-        return int(raw)
-    except ValueError:
-        return default
 
 # Routing table: dimension → tier
 TIER_MAP = {
@@ -60,19 +46,17 @@ TIER_MAP = {
 
 TIER_CONFIG = {
     1: {
-        "model": _GEMINI_MODEL,
-        "provider": "gemini",
-        # Hermes AI agent is tried first (cheaper, async, avoids Gemini plugin issues).
-        # Falls back to Gemini Flash, then Claude native (degraded — log _degraded=true).
-        "provider_chain": ["hermes", "gemini", "claude_native"],
+        "model": _CLAUDE_MODEL,
+        "provider": "claude_native",
+        "provider_chain": ["claude_native"],
         "rationale": "Tool output is deterministic; LLM role is summarization only",
         "token_budget": {"input": 8000, "output": 800},
     },
     2: {
-        "model": _GEMINI_MODEL,
-        "provider": "gemini",
-        "provider_chain": ["hermes", "gemini", "claude_native"],
-        "rationale": "Light judgment; Gemini Flash sufficient for pattern analysis",
+        "model": _CLAUDE_MODEL,
+        "provider": "claude_native",
+        "provider_chain": ["claude_native"],
+        "rationale": "Light judgment; Claude sub-agent handles pattern analysis",
         "token_budget": {"input": 10000, "output": 1200},
     },
     3: {
@@ -84,51 +68,11 @@ TIER_CONFIG = {
     },
 }
 
-HERMES_CONFIG = {
-    "enabled": os.environ.get("HARNESS_HERMES_ENABLED", "false").lower() == "true",
-    "target": _HERMES_TARGET,
-    # Full round-trip (send → events_wait → messages_read) mirrors reviewer_router._try_hermes().
-    # See evaluate_dimension.md Step 2 Provider 1 for the exact tool sequence.
-    "timeout_ms": _parse_int_env("HERMES_TIMEOUT_MS", 90000),
-    "provider": "hermes",
-    "action": "mcp_hermes_messages_send",
-}
-
 # Improve step always Claude — separate override available
 IMPROVE_CONFIG = {
     "model": _IMPROVE_MODEL,
     "provider": "claude_native",
 }
-
-GEMINI_PROMPT_TEMPLATE = """\
-You are a code quality evaluator. Analyze the following tool output for the '{dimension}' dimension and return a JSON evaluation.
-
-## Tool Output
-{tool_output}
-
-## Code Sample (if provided)
-{code_sample}
-
-## Task
-1. Score the dimension 0-100 based ONLY on the tool output evidence
-2. List up to 5 concrete findings with line references where available
-3. Identify the top gap to fix
-
-Return ONLY valid JSON in this exact format:
-{{
-  "dimension": "{dimension}",
-  "tool_score": <0-100>,
-  "llm_score": <0-100>,
-  "score": <same as tool_score — gate scoring uses tool_score only; llm_score is read by verify.py for consistency checks>,
-  "findings": [
-    {{"line": <int or null>, "severity": "critical|warning|info", "message": "<text>", "evidence": "<tool output excerpt>"}}
-  ],
-  "gaps": ["<top gap 1>", "<top gap 2>"],
-  "tool_outputs": "<raw tool output summary>",
-  "reconcile": "tool_first"
-}}
-"""
-
 
 def route(dimension: str) -> dict:
     """Return routing decision for a dimension."""
@@ -142,34 +86,11 @@ def route(dimension: str) -> dict:
         "provider_chain": config.get("provider_chain", ["claude_native"]),
         "rationale": config["rationale"],
         "token_budget": config["token_budget"],
-        "use_gemini": config["provider"] == "gemini",
-        "gemini_prompt_template": GEMINI_PROMPT_TEMPLATE
-        if config["provider"] == "gemini"
-        else None,
     }
-
-    if HERMES_CONFIG["enabled"]:
-        result["hermes_notification"] = {
-            "target": HERMES_CONFIG["target"],
-            "timeout_ms": HERMES_CONFIG["timeout_ms"],
-            "tool": HERMES_CONFIG["action"],
-            "message": f"[Harness Audit] Routing dimension '{dimension}' to {config['provider']} ({config['model']})"
-        }
-    # Surface env overrides for transparency
-    if _GEMINI_MODEL != "gemini-2.5-flash" and config["provider"] == "gemini":
-        result["_env_override"] = f"HARNESS_GEMINI_MODEL={_GEMINI_MODEL}"
-    if _CLAUDE_MODEL != "claude-sonnet-4-5" and config["provider"] == "claude_native":
+    # Surface env override for transparency
+    if _CLAUDE_MODEL != "claude-sonnet-4-5":
         result["_env_override"] = f"HARNESS_CLAUDE_MODEL={_CLAUDE_MODEL}"
     return result
-
-
-def build_gemini_prompt(dimension: str, tool_output: str, code_sample: str = "") -> str:
-    """Build Gemini prompt for a tool-first dimension."""
-    return GEMINI_PROMPT_TEMPLATE.format(
-        dimension=dimension,
-        tool_output=tool_output[:6000],  # Hard cap to stay in budget
-        code_sample=code_sample[:2000] if code_sample else "(not provided)",
-    )
 
 
 def main():
@@ -178,19 +99,7 @@ def main():
         sys.exit(1)
 
     dimension = sys.argv[1]
-    tool_output = ""
-
-    if len(sys.argv) > 2:
-        with open(sys.argv[2]) as f:
-            tool_output = f.read()
-
     decision = route(dimension)
-
-    if decision["use_gemini"] and tool_output:
-        decision["gemini_prompt"] = build_gemini_prompt(dimension, tool_output)
-    else:
-        decision.pop("gemini_prompt_template", None)
-
     print(json.dumps(decision, indent=2))
 
 

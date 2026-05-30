@@ -580,22 +580,12 @@ class TestHandoverGeneratorFixes:
         content = (tmp_path / "HANDOVER.md").read_text()
         assert "phase2_plan.md" in content
 
-    def test_p1_handover_includes_hermes_status(self, tmp_path: Path, monkeypatch):
-        """P1 HANDOVER 附加資訊 includes HERMES_REVIEWER_TARGET status."""
-        monkeypatch.setenv("HERMES_REVIEWER_TARGET", "telegram:123456")
+    def test_p1_handover_no_hermes_env(self, tmp_path: Path):
+        """P1 HANDOVER must not reference HERMES_REVIEWER_TARGET (backend removed)."""
         gs = self._make_strategy(tmp_path)
         gs.commit_and_push_p1(fr_ids=["FR-01"])
         content = (tmp_path / "HANDOVER.md").read_text()
-        assert "HERMES_REVIEWER_TARGET" in content
-        assert "✅ set" in content
-
-    def test_p1_handover_hermes_not_set(self, tmp_path: Path, monkeypatch):
-        """P1 HANDOVER flags HERMES_REVIEWER_TARGET as not set when absent."""
-        monkeypatch.delenv("HERMES_REVIEWER_TARGET", raising=False)
-        gs = self._make_strategy(tmp_path)
-        gs.commit_and_push_p1(fr_ids=["FR-01"])
-        content = (tmp_path / "HANDOVER.md").read_text()
-        assert "❌ not set" in content
+        assert "HERMES_REVIEWER_TARGET" not in content
 
     def test_p1_handover_includes_gap_register(self, tmp_path: Path):
         """P1 HANDOVER includes gap register summary when SPEC_TRACKING.md exists."""
@@ -699,16 +689,12 @@ class TestHandoverGeneratorFixes:
         assert isinstance(files, list)
         assert len(files) == len(set(files))   # no duplicates
 
-    def test_hermes_value_substituted_in_startup_section(self, tmp_path: Path, monkeypatch):
-        """HERMES_REVIEWER_TARGET real value appears in ▶ 立即開始 (not <value> placeholder)."""
-        monkeypatch.setenv("HERMES_REVIEWER_TARGET", "telegram:12345")
+    def test_startup_section_no_hermes_export(self, tmp_path: Path):
+        """▶ 立即開始 startup block must not contain a Hermes env export line."""
         gs = self._make_strategy(tmp_path)
         gs.commit_and_push_p1(fr_ids=["FR-01"])
         content = (tmp_path / "HANDOVER.md").read_text()
-        # real value must appear in the startup block
-        assert "telegram:12345" in content
-        # generic placeholder must NOT appear
-        assert "=<value>" not in content
+        assert "HERMES_REVIEWER_TARGET" not in content
 
     def test_deliverables_section_has_blank_line_before_status(self, tmp_path: Path):
         """交付物清單 section must be followed by a blank line before ## 目前執行狀況."""
@@ -2196,7 +2182,7 @@ class TestGate4Prerequisites:
             },
             "model_used": {
                 "architecture": "claude-sonnet",
-                "linting": "gemini-flash",
+                "linting": "claude",
             },
             "devil_advocate": {
                 "architecture": True,
@@ -2236,17 +2222,18 @@ class TestGate4Prerequisites:
         assert not (project / ".methodology" / "hermes_g4_receipt.json").exists()
         assert _check_gate4_prerequisites(project)[0] is False
 
-    def test_tier1_dim_using_claude_blocked(self, tmp_path):
-        """Tier 1/2 dim (linting) evaluated with Claude instead of gemini blocks (A2)."""
+    def test_tier1_dim_using_claude_allowed(self, tmp_path):
+        """A2 accepts Claude for all dims — model name is no longer restricted."""
         import copy as _copy
         import json as _json
         from harness_cli import _check_gate4_prerequisites
         project = self._make_project(tmp_path)
         result_file = project / ".sessi-work" / "gate4_result.json"
         data = _copy.deepcopy(_json.loads(result_file.read_text()))
-        data["model_used"]["linting"] = "claude-sonnet"   # wrong — Tier 1 must use gemini
+        data["model_used"]["linting"] = "claude-sonnet"   # now valid — all dims use Claude
         result_file.write_text(_json.dumps(data))
-        assert _check_gate4_prerequisites(project)[0] is True
+        # A2 only checks presence; not blocked by model name.
+        assert _check_gate4_prerequisites(project)[0] is False
 
     def test_devil_advocate_missing_dim_blocked(self, tmp_path):
         """Tier 3 dim without devil_advocate=True blocks (A3)."""

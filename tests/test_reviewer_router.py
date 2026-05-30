@@ -1,22 +1,19 @@
 # tests/test_reviewer_router.py
-# Phase B deliverable B14 — M4: framework self-tests for ReviewerRouter.
-import pytest
-from unittest.mock import patch
+# Framework self-tests for ReviewerRouter (Claude sub-agent — no MCP backends).
 
 
 # ── ReviewerRouter unit tests ────────────────────────────────────────────────
 
 class TestReviewerRouter:
-    def _make_router(self, target="telegram:12345"):
-        with patch.dict("os.environ", {"HERMES_REVIEWER_TARGET": target}):
-            with patch("harness.reviewer_router._HERMES_AVAILABLE", True):
-                from harness.reviewer_router import ReviewerRouter
-                return ReviewerRouter(target=target)
-
-    def test_raises_when_no_target(self):
+    def _make_router(self):
         from harness.reviewer_router import ReviewerRouter
-        with pytest.raises(ValueError, match="HERMES_REVIEWER_TARGET"):
-            ReviewerRouter(target="")
+        return ReviewerRouter()
+
+    def test_no_target_required(self):
+        """ReviewerRouter initialises with no env vars or target argument."""
+        from harness.reviewer_router import ReviewerRouter
+        router = ReviewerRouter()
+        assert router is not None
 
     def test_build_prompt_includes_phase(self):
         router = self._make_router()
@@ -63,39 +60,19 @@ class TestReviewerRouter:
 # ── get_reviewer_model ───────────────────────────────────────────────────────
 
 class TestGetReviewerModel:
-    def test_p3_uses_hermes(self):
+    def test_all_phases_use_claude(self):
+        """Every phase routes to Claude sub-agent (no Hermes/Gemini)."""
         from harness.reviewer_router import get_reviewer_model
-        assert get_reviewer_model(phase=3) == "hermes"
-
-    def test_p4_uses_hermes(self):
-        from harness.reviewer_router import get_reviewer_model
-        assert get_reviewer_model(phase=4) == "hermes"
-
-    def test_p6_uses_hermes(self):
-        from harness.reviewer_router import get_reviewer_model
-        assert get_reviewer_model(phase=6) == "hermes"
-
-    def test_p7_uses_claude(self):
-        from harness.reviewer_router import get_reviewer_model
-        assert get_reviewer_model(phase=7) == "claude"
-
-    def test_p8_uses_claude(self):
-        from harness.reviewer_router import get_reviewer_model
-        assert get_reviewer_model(phase=8) == "claude"
+        for phase in (1, 2, 3, 4, 5, 6, 7, 8):
+            assert get_reviewer_model(phase=phase) == "claude", f"phase {phase}"
 
 
 # ── Phase-aware decomposition (Layer 1) ─────────────────────────────────────
 
 class TestPhaseAwareDecomposition:
-    def _make_router(self, target="telegram:12345"):
-        with __import__("unittest.mock", fromlist=["patch"]).patch.dict(
-            "os.environ", {"HERMES_REVIEWER_TARGET": target}
-        ):
-            with __import__("unittest.mock", fromlist=["patch"]).patch(
-                "harness.reviewer_router._HERMES_AVAILABLE", True
-            ):
-                from harness.reviewer_router import ReviewerRouter
-                return ReviewerRouter(target=target)
+    def _make_router(self):
+        from harness.reviewer_router import ReviewerRouter
+        return ReviewerRouter()
 
     def test_p1_always_single_subtask_regardless_of_size(self):
         router = self._make_router()
@@ -140,15 +117,9 @@ class TestPhaseAwareDecomposition:
 # ── Timeout propagation (Layer 2) ────────────────────────────────────────────
 
 class TestTimeoutPropagation:
-    def _make_router(self, target="telegram:12345"):
-        with __import__("unittest.mock", fromlist=["patch"]).patch.dict(
-            "os.environ", {"HERMES_REVIEWER_TARGET": target}
-        ):
-            with __import__("unittest.mock", fromlist=["patch"]).patch(
-                "harness.reviewer_router._HERMES_AVAILABLE", True
-            ):
-                from harness.reviewer_router import ReviewerRouter
-                return ReviewerRouter(target=target)
+    def _make_router(self):
+        from harness.reviewer_router import ReviewerRouter
+        return ReviewerRouter()
 
     def test_try_subagent_accepts_task_timeout_s(self):
         from unittest.mock import patch, MagicMock
@@ -176,19 +147,24 @@ class TestTimeoutPropagation:
         call_kwargs = mock_spawner.spawn.call_args
         assert call_kwargs.kwargs.get("task_timeout") == 300
 
+    def test_try_chain_routes_to_subagent(self):
+        """_try_chain dispatches directly to the Claude sub-agent."""
+        from unittest.mock import patch
+        router = self._make_router()
+        approve = {"review_status": "APPROVE", "confidence": 0.9, "violations": [], "summary": "ok"}
+        with patch.object(router, "_try_subagent", return_value=dict(approve)) as mock_sub:
+            result = router._try_chain("reviewer", "prompt", 3, "FR-01", timeout_ms=None)
+        assert result["review_status"] == "APPROVE"
+        assert result["_reviewer_used"] == "subagent"
+        mock_sub.assert_called_once()
+
 
 # ── Parallel waves (Layer 3) ─────────────────────────────────────────────────
 
 class TestParallelWaves:
-    def _make_router(self, target="telegram:12345"):
-        with __import__("unittest.mock", fromlist=["patch"]).patch.dict(
-            "os.environ", {"HERMES_REVIEWER_TARGET": target}
-        ):
-            with __import__("unittest.mock", fromlist=["patch"]).patch(
-                "harness.reviewer_router._HERMES_AVAILABLE", True
-            ):
-                from harness.reviewer_router import ReviewerRouter
-                return ReviewerRouter(target=target)
+    def _make_router(self):
+        from harness.reviewer_router import ReviewerRouter
+        return ReviewerRouter()
 
     def test_parallel_waves_all_approve_merges_results(self):
         from unittest.mock import patch

@@ -297,14 +297,12 @@ Phase is auto-detected from `.methodology/state.json` — no GitHub Variable req
 
 | Variable | Used by | Default | Purpose |
 |---|---|---|---|
-| `HERMES_REVIEWER_TARGET` | `reviewer_router.py` | — | Optional. Enables Hermes as primary reviewer in the P1–P2 A/B priority chain (Hermes→Gemini→Claude). Falls back gracefully if unset. Not required for P6 Gate 4. |
-| `REVIEWER_CHAIN` | `CLAUDE.md.template` | `hermes,gemini` | Optional. Ordered A/B reviewer chain for P1–P2. Overrides default Hermes→Gemini order. Example: `export REVIEWER_CHAIN=gemini,claude`. |
-| `HERMES_TIMEOUT_MS` | `reviewer_router.py` | `120000` | Hermes long-poll timeout in ms (default: 2 min) |
 | `DRIFT_PROJECT_PATH` | `cron_drift_monitor.py` | cwd | Path to target project for drift analysis |
 | `PYTHONPATH` | All scripts | — | Must include harness-methodology root if not using submodule |
 | `SSI_ROOT` | All scripts | `harness/ssi` | Path to embedded SSI package (auto-detected from harness_cli.py location) |
+| `HARNESS_CLAUDE_MODEL` | `llm_router.py` | `claude-sonnet-4-5` | Override Claude model for all dimension evaluation and review (all tiers use Claude). |
 
-> **Note**: `HERMES_REVIEWER_TARGET` requires the `mcp_tools` package to be importable at runtime. `harness/reviewer_router.py` degrades gracefully if MCP is unavailable (falls back to Gemini→Claude sub-agent for A/B reviews). Email/Slack notification channels (`drift_notifier`) are planned but not yet implemented.
+> **Reviewer backend**: `harness/reviewer_router.py` uses Claude sub-agent for all A/B reviews (all phases). No Hermes MCP or Gemini CLI MCP configuration required — only the `claude` CLI must be installed.
 
 ---
 

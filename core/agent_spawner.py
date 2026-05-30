@@ -30,33 +30,21 @@ def _load_phase_sop(phase: int) -> str:
 
 class AgentSpawner:
     """
-    Routes agent invocations to heterogeneous backends.
+    Spawns developer and reviewer agents via the Claude Code headless CLI.
 
-    - Developer/Primary agents -> Claude Code headless CLI (claude -p).
-    - Reviewer agents -> ReviewerRouter (Hermes MCP).
-
-    Phase routing policy (via get_reviewer_model):
-    - Phases 7, 8 -> Claude (for Risk Assessment + Config Mgmt).
-    - All others  -> Hermes (default).
+    All agents use Claude sub-agent for review — no MCP backend configuration required.
+    Only the claude CLI must be installed.
     """
 
     def __init__(self, project_path: Optional[Path] = None):
         self.project_path = Path(project_path) if project_path else None
-        self._reviewer = None  # lazy-init: avoids crash when HERMES env not set
-
-    def _get_reviewer(self):
-        """Lazy-initialize the ReviewerRouter."""
-        if self._reviewer is None:
-            from harness.reviewer_router import ReviewerRouter
-            self._reviewer = ReviewerRouter(project_path=self.project_path)
-        return self._reviewer
 
     def spawn(
         self,
         role: str,
         prompt: str,
         context: dict,
-        model: str = "claude",      # "claude" | "hermes"
+        model: str = "claude",
         task_timeout: int = 300,
         max_turns: int = 20,
         phase: int = 0,
@@ -74,7 +62,7 @@ class AgentSpawner:
             role: The agent's persona role (e.g., 'developer', 'reviewer').
             prompt: The specific task description.
             context: Additional metadata and state.
-            model: Preferred backend ('claude' or 'hermes').
+            model: Backend model (always 'claude' — only Claude CLI supported).
             task_timeout: Max execution time in seconds.
             max_turns: Max tool-using turns (default 20).
             phase: Current methodology phase.
@@ -94,24 +82,6 @@ class AgentSpawner:
         full_prompt = self._build_prompt(role, prompt, context, phase,
                                          phase_sop_override=phase_sop_override,
                                          persona_override=persona_override)
-
-        if model == "hermes":
-            # Honor phase-level routing policy: P7/P8 stay on Claude
-            from harness.reviewer_router import get_reviewer_model
-            effective = get_reviewer_model(phase, role)
-            if effective == "hermes":
-                result = self._get_reviewer().review(
-                    role=role, prompt=full_prompt, phase=phase, fr_id=fr_id,
-                )
-                parsed = self._parse_result(result)
-                # Surface degradation metadata to callers (for audit trail)
-                if result.get("_degraded"):
-                    parsed["_degraded"] = True
-                    parsed["_reviewer_used"] = result.get("_reviewer_used", "unknown")
-                    parsed["_degradation_note"] = result.get("_degradation_note")
-                self._log_dispatch(role, prompt, parsed, phase, fr_id)
-                return parsed
-            # effective == "claude" for P7/P8 — fall through to Claude headless CLI
 
         # Claude Code headless CLI (replaces deprecated claude_code_sdk.Task).
         # Sub-agent isolation (need-to-know): by default, blocks CLAUDE.md,

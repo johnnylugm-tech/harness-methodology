@@ -73,7 +73,7 @@ def validate_score_file(
       R8 — tool_score must not be null for any dimension (all tiers require tools).
 
     Removed rules (LLM scoring abolished):
-      R3  — Tier 1/2 gemini/hermes provider requirement.
+      R3  — Tier 1/2 external LLM provider requirement (removed; all dims use Claude).
       R6  — Tier 3 + llm_score ≥ 85 inflation gate.
       R8b — objective_primary llm deviation warning.
 
