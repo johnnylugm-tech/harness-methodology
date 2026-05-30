@@ -212,14 +212,14 @@
 
 | ID | 規則 | 後果 |
 |----|------|------|
-| HR-01 | A/B 不同 Agent，禁自寫自審（Phase 1-2） | 終止 -25 |
+| HR-01 | A/B 為不同 sub-agent session 分派，禁自寫自審（Phase 1-2；log-count 審計已移除——不可獨立驗證） | Workflow |
 | HR-02 | Quality Gate 需實際命令輸出 | 終止 -20 |
 | HR-03 | Phase 順序執行，不可跳過 | 終止 -30 |
 | HR-04 | HybridWorkflow mode=ON，強制 A/B（Phase 1-2） | 終止 |
 | HR-07 | DEVELOPMENT_LOG 需記錄 session_id | -15 |
 | HR-08 | Phase 結束需執行 Quality Gate | 終止 -10 |
 | HR-09 | Claims Verifier 驗證需通過 | 終止 -20 |
-| HR-10 | sessions_spawn.log 需有 A/B 記錄（Phase 1-2） | 終止 -15 |
+| HR-10 | ~~sessions_spawn.log 需有 A/B 記錄~~ **已移除**——log 由代理自寫、非防竄改；A/B 品質改由 deliverable review + 工具計分 gate 把關 | — |
 | HR-11 | Phase Truth < 90% 禁進入下一 Phase | 終止 |
 | HR-12 | A/B 審查 > 5 輪 → PAUSE（Phase 1-2） | — |
 | HR-13 | Phase 執行 > 預估 ×3 → PAUSE | — |

@@ -728,7 +728,7 @@ def _deliverable_ab_block(phase: int, deliverable: Dict, sub_n: int, total: int,
         f"**Agent A**: {role_a}",
         f"**Agent B**: {role_b}",
         "",
-        "**A/B Work** (HR-01: A≠B · HR-04: HybridWorkflow ON · HR-10: log required):",
+        "**A/B Work** (HR-04: HybridWorkflow ON — Agent A authors, a separate Agent B sub-agent reviews):",
         f"- [ ] **[A-1]** Agent A ({role_a}): {task_hint}",
         "  - FORBIDDEN: vague/non-testable acceptance criteria",
         "- [ ] **[A-2]** Agent A returns `{status, files, confidence, citations, summary}`",
@@ -794,7 +794,7 @@ def _deliverable_ab_block(phase: int, deliverable: Dict, sub_n: int, total: int,
         "",
         "  > ⚠️ **BLOCKING**: Do NOT start the next Sub-Task until this sub-task's current",
         "  > round is fully APPROVED (including any required round 2).",
-        "  > AgentSpawner auto-logs round-2 re-dispatch to `.methodology/sessions_spawn.log` (HR-10).",
+        "  > AgentSpawner records dispatches to `.methodology/sessions_spawn.log` (non-blocking debug trail).",
         "",
         f"  > fr_id uses P{phase} as phase-level placeholder; replace with FR-XX for FR-specific plans.",
         "",
@@ -1071,7 +1071,7 @@ def _fr_dev_steps(fr_id: str, phase: int) -> List[str]:
             phase, ("DEVELOPER", "REVIEWER", "Implement per SRS + SAD")
         )
         lines = [
-            f"**A/B Work — {fr_id}** (HR-01: A≠B · HR-10: log required):",
+            f"**A/B Work — {fr_id}** (HR-04: Agent A authors, a separate Agent B sub-agent reviews):",
             f"- [ ] **[A-1]** Agent A ({role_a}): {task_hint}",
             f"  - Docstrings: `[{fr_id}]` tag + `Citations:` with line numbers (HR-15)",
             "  - FORBIDDEN: `app/infrastructure/` · `@covers: L1 Error` · `@type: edge`",
@@ -1089,7 +1089,7 @@ def _fr_dev_steps(fr_id: str, phase: int) -> List[str]:
             f"  python3 harness_cli.py dispatch --role reviewer --fr-id {fr_id} \\",
             f"    --prompt \"Review {fr_id} against SRS + SAD\" --phase {phase} --project .",
             "  ```",
-            "  > AgentSpawner auto-logs to `.methodology/sessions_spawn.log` on dispatch (HR-10).",
+            "  > AgentSpawner records dispatches to `.methodology/sessions_spawn.log` (non-blocking debug trail).",
             "",
         ])
         return lines
@@ -1180,11 +1180,12 @@ def _fr_carryforward_steps(fr_id: str, phase: int) -> List[str]:
     ]
 
 
-def _sessions_spawn_deliverable(phase: int) -> str:
-    """sessions_spawn.log deliverable line — HR-10 only applies to Phase 1-2."""
-    if phase <= 2:
-        return "- [x] `.methodology/sessions_spawn.log` — auto-populated by AgentSpawner (HR-10)"
-    return "- [x] `.methodology/sessions_spawn.log` — auto-populated by AgentSpawner"
+def _sessions_spawn_deliverable() -> str:
+    """sessions_spawn.log deliverable line — non-blocking debug trail (HR-10 enforcement removed)."""
+    return (
+        "- [x] `.methodology/sessions_spawn.log` — auto-populated by AgentSpawner "
+        "(non-blocking debug trail)"
+    )
 
 
 def _phase_advance_step(phase: int, dynamic: bool = False) -> List[str]:
@@ -1284,6 +1285,9 @@ def _dynamic_fr_template_block(phase: int) -> List[str]:
         fr_steps = [
             f"- [ ] **[ORCH-GATE1-DELTA]** `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step GATE1-DELTA --project .`",
             "> Crash recovery: `resume-fr-phase` auto-detects code changes → switches to full TDD if needed.",
+            f"> **Auto-skip**: if NO FR's code changed since its last Gate 1 PASS, `advance-phase --completed {phase}`",
+            "> treats this entire DELTA loop as satisfied automatically — you may skip the per-FR steps.",
+            "> Only FRs whose code actually changed need a re-evaluation.",
             ">",
             "> **GATE1-DELTA outcomes:**",
             "> - CASE 1 PASS:    Gate 1 PASS → continue to next {FR-ID}",
@@ -1435,29 +1439,26 @@ def _gate4_prerequisites_block() -> List[str]:
         "  ```",
         "  > All dims use the Claude sub-agent (no external MCP backend required).",
         "",
-        "- [ ] **[A3] `devil_advocate`** — complete DA challenge for all Tier 3 dimensions:",
+        "- [ ] **[A3] `devil_advocate`** + **`devil_advocate_evidence`** — artifact-backed DA challenge for all Tier 3 dims:",
         "  ```json",
         '  "devil_advocate": {',
         '    "architecture": true, "readability": true, "error_handling": true,',
         '    "documentation": true, "performance": true',
-        '  }',
-        "  ```",
-        "  > For each Tier 3 dim: dispatch a Claude sub-agent with a challenger persona to",
-        "  > question the evaluation findings from a different angle.",
-        "  > **Orchestrator Pattern** (architecture/error_handling score = 0 due to hub-and-spoke):",
-        "  > complete DA challenge AND add `\"da_waiver\": {\"architecture\": true}` to bypass",
-        "  > the score threshold. See `harness/ssi/prompts/evaluate_dimension.md` §Orchestrator.",
-        "",
-        "- [ ] **[A4] `high_score_confirmations`** — for each dim with score ≥ 85:",
-        "  ```json",
-        '  "high_score_confirmations": {',
-        '    "<dim_name>": {',
-        '      "negative_space_verified": true,',
-        '      "crg_cited": true,',
-        '      "tool_triangulated": true',
+        '  },',
+        '  "devil_advocate_evidence": {',
+        '    "architecture": {',
+        '      "challenger_model": "claude",',
+        '      "challenge": "<≥120 chars: the challenger persona\'s actual critique of the design/score>",',
+        '      "response": "<≥120 chars: the defence / justification>"',
         '    }',
         '  }',
         "  ```",
+        "  > A bare boolean is **not** accepted (A3 is artifact-backed): for each Tier 3 dim, dispatch a",
+        "  > Claude sub-agent with a challenger persona, then record its `challenge` + `response` text.",
+        "  > **Orchestrator Pattern** (architecture/error_handling score = 0 due to hub-and-spoke):",
+        "  > complete the DA challenge AND add `\"da_waiver\": {\"architecture\": true}` to bypass the",
+        "  > score threshold — the waiver also requires the `devil_advocate_evidence.architecture` artifact.",
+        "  > See `harness/ssi/prompts/evaluate_dimension.md` §Orchestrator.",
         "",
         "- [ ] **[A5] `issue_registry_path`** — path to the populated issue registry:",
         "  ```json",
@@ -1623,7 +1624,6 @@ def generate_phase1_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
     A/B is serial per-deliverable: SRS → SPEC_TRACKING → TRACEABILITY.
     Each deliverable has its own A/B loop; REJECT only backtracks one step.
     """
-    phase = 1
     _ = repo_path  # reserved for future use (e.g. reading .methodology/state.json)
     lines = []
     lines.append("## Phase 1 Tasks: Requirements Specification")
@@ -1707,7 +1707,7 @@ def generate_phase1_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
     lines.append("- [ ] `SPEC_TRACKING.md` - Spec tracking matrix")
     lines.append("- [ ] `TRACEABILITY_MATRIX.md` - Requirements traceability matrix")
     lines.append("- [ ] `TEST_INVENTORY.yaml` - Test inventory (P1 naming authority — feeds TEST_SPEC.md)")
-    lines.append(_sessions_spawn_deliverable(phase))
+    lines.append(_sessions_spawn_deliverable())
     lines.append("")
 
     lines.extend(_review_checkpoint(1, checkpoint_n=1))
@@ -1720,7 +1720,6 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
 
     Entry = P1 human APPROVE.  Exit gate = Agent B peer review of SAD + ADR (NOT harness run-gate).
     """
-    phase = 2
     lines = []
     lines.append("## Phase 2 Tasks: Architecture Design")
     lines.append("")
@@ -1796,7 +1795,7 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
     lines.append("- [ ] `TEST_SPEC.md` — Test specification catalog (named test cases from SRS, single source of truth — D4 unified check)")
     lines.append("- [ ] `.methodology/quality_manifest.json` — Quality manifest (FR list + SAB data)")
     lines.append("- [ ] `.methodology/SAB.json` — Machine-readable architecture baseline")
-    lines.append(_sessions_spawn_deliverable(phase))
+    lines.append(_sessions_spawn_deliverable())
     lines.append("")
 
     lines.extend(_review_checkpoint(2, checkpoint_n=1))
@@ -1806,7 +1805,6 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
 
 def generate_phase3_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False) -> List[str]:
     """Generate Phase 3 detailed tasks (Implementation + Gate 1 per-FR + Gate 2 exit)"""
-    phase = 3
     lines = []
     lines.append("## Phase 3 Tasks: Implementation")
     lines.append("")
@@ -1978,7 +1976,7 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
     lines.append("### Phase 3 Deliverables")
     lines.append("- [ ] `03-development/src/` - All FR modules implemented")
     lines.append("- [ ] `tests/` - Unit tests (≥80% coverage per FR)")
-    lines.append(_sessions_spawn_deliverable(phase))
+    lines.append(_sessions_spawn_deliverable())
     lines.append("- [ ] Gate 1 PASS for every FR")
     lines.append("- [ ] Gate 2 PASS (phase exit, composite ≥ 75)")
     lines.append("")
@@ -1990,7 +1988,6 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
 
 def generate_phase4_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False) -> List[str]:
     """Generate Phase 4 detailed tasks (Testing + Gate 1 per-FR + Gate 3 exit)"""
-    phase = 4
     lines = []
     lines.append("## Phase 4 Tasks: Test Planning & Execution")
     lines.append("")
@@ -2148,7 +2145,7 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
     lines.append("- [ ] `TEST_PLAN.md` - Test plan")
     lines.append("- [ ] `TEST_RESULTS.md` - Test results (pass rate summary + ≥3 TC/TR refs required)")
     lines.append("- [ ] `COVERAGE_REPORT.md` - Coverage report")
-    lines.append(_sessions_spawn_deliverable(phase))
+    lines.append(_sessions_spawn_deliverable())
     lines.append("- [ ] Gate 1 PASS for every FR")
     lines.append("- [ ] Gate 3 PASS (phase exit, composite ≥ 80, 14 dims)")
     lines.extend(_aspice_output_requirements(4))
@@ -2161,7 +2158,6 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
 
 def generate_phase5_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     """Generate Phase 5 detailed tasks (Verification & Delivery + Gate 1 per-FR)"""
-    phase = 5
     lines = []
     lines.append("## Phase 5 Tasks: Verification & Delivery")
     lines.append("")
@@ -2230,7 +2226,7 @@ def generate_phase5_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     lines.append("### Phase 5 Deliverables")
     lines.append("- [ ] `05-verification/BASELINE.md` - System baseline")
     lines.append("- [ ] `05-verification/VERIFICATION_REPORT.md` - Verification report")
-    lines.append(_sessions_spawn_deliverable(phase))
+    lines.append(_sessions_spawn_deliverable())
     lines.append("- [ ] Gate 1 PASS for every FR")
     lines.extend(_aspice_output_requirements(5))
     lines.append("")
@@ -2242,7 +2238,6 @@ def generate_phase5_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
 
 def generate_phase6_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     """Generate Phase 6 detailed tasks (Quality Assurance — Gate 4 full replacement)"""
-    phase = 6
     lines = []
     lines.append("## Phase 6 Tasks: Quality Assurance")
     lines.append("")
@@ -2293,7 +2288,7 @@ def generate_phase6_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     lines.append("- [ ] `QUALITY_REPORT.md` - Quality report (auto-generated by Gate 4)")
     lines.append("- [ ] `RELEASE_NOTES.md` - Release notes")
     lines.append("- [ ] `FINAL_SIGN_OFF.md` - Final sign-off")
-    lines.append(_sessions_spawn_deliverable(phase))
+    lines.append(_sessions_spawn_deliverable())
     lines.extend(_aspice_output_requirements(6))
     lines.append("")
 
@@ -2304,7 +2299,6 @@ def generate_phase6_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
 
 def generate_phase7_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     """Generate Phase 7 detailed tasks (Risk Management + Gate 1 per-FR)"""
-    phase = 7
     lines = []
     lines.append("## Phase 7 Tasks: Risk Management")
     lines.append("")
@@ -2387,7 +2381,7 @@ def generate_phase7_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     lines.append("- [ ] `07-risk/RISK_REGISTER.md` - Risk register")
     lines.append("- [ ] `07-risk/RISK_MITIGATION_PLANS.md` - Mitigation plans")
     lines.append("- [ ] `07-risk/RISK_STATUS_REPORT.md` - Risk status report")
-    lines.append(_sessions_spawn_deliverable(phase))
+    lines.append(_sessions_spawn_deliverable())
     lines.append("- [ ] Gate 1 PASS for every FR")
     lines.extend(_aspice_output_requirements(7))
     lines.append("")
@@ -2399,7 +2393,6 @@ def generate_phase7_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
 
 def generate_phase8_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     """Generate Phase 8 detailed tasks (Configuration Management + Gate 1 per-FR)"""
-    phase = 8
     lines = []
     lines.append("## Phase 8 Tasks: Configuration Management")
     lines.append("")
@@ -2488,7 +2481,7 @@ def generate_phase8_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     lines.append("### Phase 8 Deliverables")
     lines.append("- [ ] `CONFIG_RECORDS.md` - Configuration records")
     lines.append("- [ ] `RELEASE_CHECKLIST.md` - Release checklist")
-    lines.append(_sessions_spawn_deliverable(phase))
+    lines.append(_sessions_spawn_deliverable())
     lines.append("- [ ] Gate 1 PASS for every FR")
     lines.extend(_aspice_output_requirements(8))
     lines.append("")

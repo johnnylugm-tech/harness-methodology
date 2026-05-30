@@ -2075,6 +2075,24 @@ class TestGate1PerFrCoverageCheck:
         for p in expected_excluded:
             assert p not in harness_cli._PHASES_WITH_GATE1_FR_CHECK, f"Phase {p} must NOT be in set"
 
+    def test_delta_loop_autoskip_when_unchanged(self, tmp_path):
+        """Layer 4: P7 with all FRs unchanged since last gate → coverage auto-satisfied (return 0),
+        even with NO per-FR Gate 1 timestamps for phase 7."""
+        from unittest.mock import patch
+        self._make_manifest(tmp_path, ["FR-01", "FR-02", "FR-03"])
+        # No gate_timestamps for phase 7 at all → without auto-skip this would return 14.
+        with patch("harness_cli._fr_code_changed_since_last_gate1", return_value=False):
+            assert self._run_check(tmp_path, 7) == 0
+
+    def test_delta_loop_no_skip_when_changed(self, tmp_path):
+        """Layer 4: if any FR changed, the normal per-FR coverage requirement still applies."""
+        from unittest.mock import patch
+        self._make_manifest(tmp_path, ["FR-01", "FR-02"])
+        # One FR changed → not all unchanged → falls through to timestamp check → missing → 14.
+        with patch("harness_cli._fr_code_changed_since_last_gate1",
+                   side_effect=lambda fr, project: fr == "FR-02"):
+            assert self._run_check(tmp_path, 7) == 14
+
 
 # =============================================================================
 # _parse_spec_names_for_fr (harness_bridge)

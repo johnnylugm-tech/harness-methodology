@@ -399,14 +399,51 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
             pass  # Audit write failure is non-fatal
 
         if returncode == -1:
-            # Tool is on the skip list (mutmut / scancode) — S3-A covers it
-            print(
-                f"  [S4] {dim_name}: '{tool}' skipped for cross-validation "
-                f"(too slow/complex) — S3-A content check still applies"
+            # Skip-list tool (mutmut / scancode) — too slow to re-run here, but a
+            # passing score must still be backed by a real, committed tool_output
+            # FILE (not inline tool_evidence). Verify the file exists, is non-empty,
+            # and matches the tool's output format. Missing/empty/malformed → block.
+            _dim_data = breakdown.get(dim_name, {})
+            _tout = _dim_data.get("tool_output")
+            _problem = None
+            if not _tout:
+                _problem = ("no tool_output file — skip-list tools (mutmut/scancode) "
+                            "require a committed output file, not inline tool_evidence")
+            else:
+                _tpath = _Path(ctx.project_root) / _tout
+                if not _tpath.exists() or _tpath.stat().st_size < _TOOL_OUTPUT_MIN_BYTES:
+                    _problem = f"tool_output file missing or empty: {_tout}"
+                else:
+                    _fmt = _validate_tool_content(
+                        _tpath.read_text(encoding="utf-8", errors="replace"),
+                        tool, dim_name, inline=False,
+                    )
+                    if _fmt:
+                        _problem = "; ".join(_fmt)
+            if _problem:
+                violations.append(
+                    f"{dim_name}: skip-list tool '{tool}' score is unverifiable — {_problem}. "
+                    f"A passing score requires genuine '{tool}' output committed to a file."
+                )
+            else:
+                print(
+                    f"  [S4] {dim_name}: '{tool}' skip-list — tool_output file verified "
+                    f"(format OK); not re-run (too slow)"
+                )
+            continue
+        if returncode == -2:
+            # Timed out — a passing score MUST be independently reproducible. A tool
+            # that cannot finish within budget cannot confirm the agent's claim, and
+            # a slow run is an exploitable fabrication path → block.
+            violations.append(
+                f"{dim_name}: '{tool}' timed out during harness cross-validation — "
+                f"cannot verify agent score {agent_score:.1f}. A passing score must be "
+                f"independently reproducible; reduce tool runtime or fix the tool, then re-finalize."
             )
             continue
-        if returncode in (-2, -3, -4):
-            # Timed out / not found / error — cannot cross-validate; warn only
+        if returncode in (-3, -4):
+            # -3 not-found (already guarded by S2 _verify_gate_tools before finalize) /
+            # -4 tool error (framework-side, not agent-controllable) — warn only.
             print(
                 f"  [S4-WARN] {dim_name}: '{tool}' cross-validation skipped "
                 f"(returncode={returncode}) — verify manually"

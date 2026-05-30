@@ -59,54 +59,26 @@ def auditor_factory():
 
 
 class TestC3SessionSeparation:
-    """C3: A/B session separation via sessions_spawn.log."""
+    """C3: A/B session separation — now a deprecated non-blocking PASS.
 
-    def test_c3_fallback_to_root_log(self, auditor_factory):
-        """When .methodology/sessions_spawn.log is absent but root sessions_spawn.log
-        exists, C3 must produce at least one PASS finding and must NOT produce a CRITICAL
-        about the log file being missing/absent."""
-        auditor = auditor_factory({"sessions_spawn.log": VALID_AB_JSONL}, phase=2)
-        auditor.check_c3_session_separation()
-        passes = [f for f in auditor.result.findings if f.severity == "PASS"]
-        # Check that the log-not-found CRITICAL is absent (the fallback worked)
-        missing_log_criticals = [
-            f for f in auditor.result.findings
-            if f.severity == "CRITICAL" and "does not exist" in f.title
-        ]
-        assert len(passes) >= 1, (
-            f"Expected at least one PASS finding, got: "
-            f"{[(f.check_id, f.severity, f.title) for f in auditor.result.findings]}"
-        )
-        assert len(missing_log_criticals) == 0, (
-            f"Expected no 'log does not exist' CRITICAL, got: "
-            f"{[(f.check_id, f.severity, f.title) for f in missing_log_criticals]}"
-        )
+    The HR-10/HR-01 audit was removed (sessions_spawn.log is agent-writable and was not
+    tamper-evident). C3 is kept as a stable PASS so check indexing is unaffected.
+    """
 
-    def test_c3_prefers_methodology_over_root(self, auditor_factory):
-        """When both exist, .methodology/sessions_spawn.log is resolved first."""
-        auditor = auditor_factory({
-            ".methodology/sessions_spawn.log": VALID_AB_JSONL,
-            "sessions_spawn.log": "{}",
-        }, phase=1)
-        auditor.check_c3_session_separation()
-        passes = [f for f in auditor.result.findings if f.severity == "PASS"]
-        assert len(passes) >= 1
-
-    def test_c3_missing_log_is_critical(self, auditor_factory):
-        """When neither path exists, C3 must produce a CRITICAL finding (Phase 1)."""
-        auditor = auditor_factory({}, phase=1)
-        auditor.check_c3_session_separation()
-        criticals = [f for f in auditor.result.findings if f.severity == "CRITICAL"]
-        assert len(criticals) >= 1
-
-    def test_c3_empty_log_is_critical(self, auditor_factory):
-        """When the log exists but has no parseable entries, C3 is CRITICAL (Phase 2)."""
-        auditor = auditor_factory({
-            ".methodology/sessions_spawn.log": "\n\n\n",
-        }, phase=2)
-        auditor.check_c3_session_separation()
-        criticals = [f for f in auditor.result.findings if f.severity == "CRITICAL"]
-        assert len(criticals) >= 1
+    def test_c3_always_pass_regardless_of_log(self, auditor_factory):
+        """C3 yields a single PASS and never a CRITICAL, whatever the log state."""
+        for files, phase in (
+            ({}, 1),                                              # no log
+            ({".methodology/sessions_spawn.log": "\n\n\n"}, 2),  # empty log
+            ({".methodology/sessions_spawn.log": VALID_AB_JSONL}, 1),  # valid log
+            ({"sessions_spawn.log": VALID_AB_JSONL}, 4),         # P3+ root log
+        ):
+            auditor = auditor_factory(files, phase=phase)
+            auditor.check_c3_session_separation()
+            criticals = [f for f in auditor.result.findings if f.severity == "CRITICAL"]
+            passes = [f for f in auditor.result.findings if f.severity == "PASS"]
+            assert criticals == [], f"C3 must not block (files={files}, phase={phase})"
+            assert len(passes) == 1, f"C3 must emit exactly one PASS (files={files})"
 
 
 class TestC9GatePass:

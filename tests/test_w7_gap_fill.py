@@ -455,36 +455,34 @@ class TestPhaseTruthVerifier:
         assert len(result["checks"]) == 2
 
     def test_verify_phase3_seven_checks(self, tmp_path):
-        """Phase 3-4 uses 7 checks (includes cross-artifact D3 + A/B coverage)."""
+        """Phase 3-4 uses 5 independently-computed checks (A/B-log checks removed)."""
         v = self._make_verifier(tmp_path, phase=3)
         with patch.object(v, "check_framework_block", return_value=(True, 100.0, "ok")), \
-             patch.object(v, "check_session_log", return_value=(True, 100.0, "ok")), \
              patch.object(v, "check_pytest", return_value=(True, 100.0, "ok")), \
              patch.object(v, "check_coverage", return_value=(True, 100.0, "ok")), \
              patch.object(v, "check_previous_phase_artifacts", return_value=(True, 100.0, "ok")), \
-             patch.object(v, "check_cross_artifact", return_value=(True, 100.0, "ok")), \
-             patch.object(v, "check_ab_coverage", return_value=(True, 100.0, "ok")):
+             patch.object(v, "check_cross_artifact", return_value=(True, 100.0, "ok")):
             result = v.verify()
-        assert len(result["checks"]) == 7
+        assert len(result["checks"]) == 5
         assert result["passed"] is True
 
-    def test_verify_phase6_three_checks(self, tmp_path):
-        """Phase 5-8 uses 3 checks (includes previous phase artifacts)."""
+    def test_verify_phase6_two_checks(self, tmp_path):
+        """Phase 5-8 uses 2 checks (framework block + previous phase artifacts)."""
         v = self._make_verifier(tmp_path, phase=6)
         with patch.object(v, "check_framework_block", return_value=(False, 0.0, "fail")), \
-             patch.object(v, "check_session_log", return_value=(False, 0.0, "fail")), \
              patch.object(v, "check_previous_phase_artifacts", return_value=(False, 0.0, "fail")):
             result = v.verify()
-        assert len(result["checks"]) == 3
+        assert len(result["checks"]) == 2
         assert result["passed"] is False
 
     def test_verify_total_score_threshold(self, tmp_path):
-        """Score >=90 → passed, <90 → failed."""
+        """Score >=threshold → passed, < → failed (renormalized over active checks)."""
         v = self._make_verifier(tmp_path, phase=1)
-        with patch.object(v, "check_framework_block", return_value=(True, 100.0, "ok")), \
-             patch.object(v, "check_session_log", return_value=(False, 0.0, "fail")):
+        # P1-2: framework_block 0.70 + previous 0.30. framework fail → 0*0.70 + 100*0.30
+        # = 30 (renormalized: 30/1.0) → < threshold → not passed.
+        with patch.object(v, "check_framework_block", return_value=(False, 0.0, "fail")), \
+             patch.object(v, "check_previous_phase_artifacts", return_value=(True, 100.0, "ok")):
             result = v.verify()
-        # total_score = 100*0.60 + 0*0.40 = 60 → <90 → not passed
         assert result["passed"] is False
 
 

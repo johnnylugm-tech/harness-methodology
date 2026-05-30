@@ -343,29 +343,13 @@ git add .methodology/sessions_spawn.log sessions_spawn.log
 git commit -m "chore: migrate sessions_spawn.log to .methodology/ (CV-1)"
 ```
 
-`SessionsSpawnLogger` and `PhaseTruthVerifier` now read and write exclusively from `.methodology/sessions_spawn.log`. The root-level file is no longer consulted.
+`SessionsSpawnLogger` writes exclusively to `.methodology/sessions_spawn.log`. The root-level file is no longer consulted.
 
-### SG-11 — `session_id` required in sessions_spawn.log (harness v2.7.0+)
+> **Superseded (anti-fabrication hardening):** the HR-10 entry-count audit and the `PhaseTruthVerifier` session-log check were **removed** — the log is agent-writable and not tamper-evident, so it never independently verified A/B collaboration. The file is now a **non-blocking debug trail**; no gate, finalize, or phase-advance path consults its contents. The path migration above is still worth doing for tooling consistency, but is no longer required for any check to pass.
 
-`sessions_spawn.log` entries without a `session_id` field are now counted as malformed. If your project has entries that lack `session_id`, re-run the A/B dispatch for those FRs, or manually add synthetic IDs:
+### SG-11 — ~~`session_id` required in sessions_spawn.log~~ **REMOVED**
 
-```python
-# One-off repair script:
-import json
-from pathlib import Path
-
-log = Path(".methodology/sessions_spawn.log")
-lines = log.read_text().splitlines()
-repaired = []
-for line in lines:
-    if not line.strip():
-        continue
-    d = json.loads(line)
-    if not d.get("session_id"):
-        d["session_id"] = f"legacy-{d.get('role','?')}-{len(repaired)}"
-    repaired.append(json.dumps(d))
-log.write_text("\n".join(repaired) + "\n")
-```
+This rule is obsolete. `sessions_spawn.log` is no longer enforced (see the Superseded note above), so entries missing `session_id` no longer count as malformed and no repair is required.
 
 ---
 

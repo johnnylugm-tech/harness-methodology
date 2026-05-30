@@ -40,8 +40,7 @@ Exit codes:
     0   All phases complete
     1   Hard failure (investigate error)
     2   run-gap-analysis: critical gaps detected (distinct from hard error)
-    5   HR-01/HR-10 block — A/B self-review or missing sessions_spawn.log entries;
-        also Gate 4 prerequisites (A2-A5 schema, B2 score files)
+    5   Gate 4 prerequisites block (A2/A3/A5 schema, B2 score files)
     7   Plan incompletion block — unchecked mandatory steps in phaseN_plan.md
     8   Missing deliverables block — required artifacts not found on disk or not git-tracked
     10  PAUSE — Claude must evaluate gate; run finalize-gate then re-run pipeline
@@ -1206,65 +1205,6 @@ def _verify_entry_gate(project: Path, phase: int) -> dict:
 
     return {"passed": False, "gate": "Unknown", "reason": f"No entry gate defined for phase {phase}"}
 
-def _audit_sessions_spawn(project: Path, phase: int) -> None:
-    """Audit sessions_spawn.log completeness against quality_manifest FR list.
-
-    Prints a WARNING (not BLOCKED) for each FR missing ≥2 A/B entries.
-    Pre-push hooks use this to surface HR-10 gaps before they reach CI.
-
-    Phase 3+: A/B removed — skip (Phase End Audit替代).
-    """
-    if phase > 2:
-        return
-    manifest_path = project / ".methodology" / "quality_manifest.json"
-    log_path = project / ".methodology" / "sessions_spawn.log"
-    try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        fr_ids = manifest.get("fr_ids", [])
-    except Exception:  # pylint: disable=broad-exception-caught
-        return
-
-    entries: list[dict] = []
-    if log_path.exists():
-        try:
-            entries = [json.loads(line) for line in
-                       log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
-        except Exception as _e:  # pylint: disable=broad-exception-caught
-            print(f"\n[WARN] HR-10: sessions_spawn.log parse error ({_e}) — treating as empty.")
-
-    missing = []
-    shallow_reviewer: list[str] = []  # reviewers with suspiciously short task strings
-    for fr_id in fr_ids:
-        fr_entries = [e for e in entries if e.get("fr_id") == fr_id]
-        distinct = len({e.get("role") for e in fr_entries})
-        if len(fr_entries) < 2 or distinct < 2:
-            missing.append(f"{fr_id}({len(fr_entries)}e/{distinct}r)")
-        # HR-STATELESS: reviewer task must embed full context (SRS/SAD/RISK_REGISTER).
-        # A task string < 500 chars cannot contain a full document — flag as likely
-        # non-stateless (agent passed a short description instead of full context).
-        for e in fr_entries:
-            if e.get("role") == "reviewer":
-                task_len = len(e.get("task", ""))
-                if task_len < 500:
-                    shallow_reviewer.append(
-                        f"{fr_id} (session={e.get('session_id', '?')!r}, {task_len} chars)"
-                    )
-
-    if missing:
-        print(f"\n[WARN] HR-10: sessions_spawn.log incomplete for {len(missing)}/{len(fr_ids)} FRs: {', '.join(missing[:8])}{'...' if len(missing) > 8 else ''}")
-        print(f"  Missing A/B entries will block Gate 1 finalize-gate. Dispatch via AgentSpawner before finalizing.")
-    else:
-        print(f"\n[HR-10] sessions_spawn.log: {len(fr_ids)}/{len(fr_ids)} FRs OK")
-
-    if shallow_reviewer:
-        print(f"\n[WARN] HR-STATELESS: {len(shallow_reviewer)} reviewer task(s) < 500 chars "
-              f"— full SRS/SAD content was likely NOT embedded (non-stateless review):")
-        for item in shallow_reviewer[:5]:
-            print(f"   - {item}")
-        if len(shallow_reviewer) > 5:
-            print(f"   ... and {len(shallow_reviewer) - 5} more")
-        print("  Re-dispatch Agent B with full document content pasted verbatim into the prompt.")
-
 def cmd_run_phase(args: argparse.Namespace) -> int:
     """Run preflight checks for a phase.
 
@@ -1309,10 +1249,6 @@ def cmd_run_phase(args: argparse.Namespace) -> int:
         print(f"  # or run run-fr-step directly — _fr_step_preflight also guards each step")
 
     print("\n[INFO] Preflight passed. Phase execution hooks ready.")
-
-    # HR-10 audit: warn if sessions_spawn.log is missing expected FR entries
-    if args.phase in _PER_FR_GATE1_PHASES:
-        _audit_sessions_spawn(project, args.phase)
 
     print("[INFO] Next steps:")
     if args.phase in _PER_FR_GATE1_PHASES:
@@ -1376,9 +1312,6 @@ def cmd_pre_commit_check(args: argparse.Namespace) -> int:
 
     print("\n[INFO] Fast preflight passed (FSM + constitution + kill-switch).")
     print("[INFO] Full enforcement (drift, traceability) runs at run-phase / finalize-gate.")
-
-    if args.phase in _PER_FR_GATE1_PHASES:
-        _audit_sessions_spawn(project, args.phase)
 
     print("[INFO] Skipped: drift, traceability, gap analysis, CI readiness.")
     print("[INFO] Next steps:")
@@ -1895,8 +1828,6 @@ def cmd_finalize_env_check(args: argparse.Namespace) -> int:
 _TIER3_DIMS: frozenset[str] = frozenset({
     "architecture", "readability", "error_handling", "documentation", "performance",
 })
-# Score threshold that triggers the high-score confirmation requirement (A4)
-_HIGH_SCORE_THRESHOLD: float = 85.0
 # Per-dim score file directory (relative to project root) — legacy fallback only
 _SCORES_SUBDIR = Path(".sessi-work") / "round_1" / "scores"
 
@@ -1925,6 +1856,33 @@ def _find_latest_round_dir(project: Path) -> "tuple[Path, int] | None":
     return None
 
 
+_DA_EVIDENCE_MIN_CHARS = 120  # minimum length for challenge / response to count as real
+
+
+def _validate_da_evidence(dim: str, g4: dict) -> "str | None":
+    """A3 hardening: verify a Tier 3 dim's Devil's Advocate challenge is artifact-backed.
+
+    A bare `devil_advocate.<dim>: true` is no longer sufficient — the agent must record
+    the actual challenge under `devil_advocate_evidence.<dim>` with substantive
+    `challenge` and `response` text. Returns a violation message, or None if valid.
+    """
+    evidence = g4.get("devil_advocate_evidence", {})
+    if not isinstance(evidence, dict) or dim not in evidence:
+        return (f"'{dim}': devil_advocate.{dim}=true but devil_advocate_evidence.{dim} is missing. "
+                f"Record the actual DA challenge (a Claude sub-agent challenger persona's "
+                f"critique + the defence) — a bare boolean is not accepted.")
+    entry = evidence[dim]
+    if not isinstance(entry, dict):
+        return f"'{dim}': devil_advocate_evidence.{dim} must be an object with challenge + response."
+    for field in ("challenge", "response"):
+        val = str(entry.get(field, "")).strip()
+        if len(val) < _DA_EVIDENCE_MIN_CHARS:
+            return (f"'{dim}': devil_advocate_evidence.{dim}.{field} is too short "
+                    f"({len(val)} chars < {_DA_EVIDENCE_MIN_CHARS}) — provide the real "
+                    f"{field}, not a placeholder.")
+    return None
+
+
 def _check_gate4_prerequisites(project: Path) -> "tuple[bool, set[str]]":
     """
     Run all Gate 4 blocking prerequisites before calling bridge.finalize_gate.
@@ -1935,10 +1893,13 @@ def _check_gate4_prerequisites(project: Path) -> "tuple[bool, set[str]]":
 
     Checks:
         A2 — model_used field: all dims must have model recorded (any model accepted)
-        A3 — devil_advocate field: all Tier 3 dims marked done
-        A4 — high_score_confirmations: dims with llm_score ≥ 85 have 3-item confirmation
+        A3 — devil_advocate: each marked-done Tier 3 dim (and every da_waiver) must carry a
+             real `devil_advocate_evidence` artifact (challenge + response, not a bare boolean)
         A5 — issue_registry_path: file exists and is non-empty
         B2 — per-dim score files exist in latest round_N/scores/ and have correct round field
+
+    (A4 high_score_confirmations was removed — it was a pure self-attested boolean check
+    that added ceremony without independent verification.)
     """
     blocked = False
     da_waivers: set[str] = set()
@@ -1988,62 +1949,48 @@ def _check_gate4_prerequisites(project: Path) -> "tuple[bool, set[str]]":
                 print(
                     f"\n[BLOCKED] Gate 4 (A3): Devil's Advocate challenge not completed for:\n"
                     + "\n".join(f"  - {d}" for d in sorted(not_done)) + "\n"
-                    "  For each Tier 3 dim, have a second model (Gemini) challenge Claude's findings,\n"
-                    "  then set devil_advocate.<dim> = true in gate4_result.json.",
+                    "  For each Tier 3 dim, dispatch a Claude sub-agent with a challenger persona\n"
+                    "  to critique the evaluation, then set devil_advocate.<dim> = true AND record\n"
+                    "  the challenge under devil_advocate_evidence.<dim> in gate4_result.json.",
                     file=sys.stderr,
                 )
                 blocked = True
             else:
-                # DA challenge complete — collect any explicit score-threshold waivers.
-                # A waiver allows a CRG-ONLY dim (e.g. architecture) to pass even when its
-                # score is below the gate threshold, provided the DA challenge concluded the
-                # design is intentional (e.g. Orchestrator / hub-and-spoke pattern).
-                # Requires BOTH devil_advocate.<dim>=true AND da_waiver.<dim>=true.
-                _da_waiver_raw: dict = g4.get("da_waiver", {})
-                for _dim, _waived in _da_waiver_raw.items():
-                    if _waived and devil_advocate.get(_dim, False):
+                # A3 hardening: each marked-done Tier 3 dim must be artifact-backed.
+                _da_problems = [
+                    msg for d in sorted(_TIER3_DIMS)
+                    if devil_advocate.get(d, False) and (msg := _validate_da_evidence(d, g4))
+                ]
+                if _da_problems:
+                    print(
+                        "\n[BLOCKED] Gate 4 (A3): Devil's Advocate evidence missing or insufficient:\n"
+                        + "\n".join(f"  - {m}" for m in _da_problems),
+                        file=sys.stderr,
+                    )
+                    blocked = True
+                else:
+                    # DA challenge complete + artifact-backed — collect score-threshold waivers.
+                    # A waiver lets a CRG-ONLY dim (e.g. architecture) pass below threshold when the
+                    # DA challenge concluded the design is intentional (Orchestrator/hub-and-spoke).
+                    # Requires devil_advocate.<dim>=true, da_waiver.<dim>=true, AND DA evidence.
+                    _da_waiver_raw: dict = g4.get("da_waiver", {})
+                    for _dim, _waived in _da_waiver_raw.items():
+                        if not (_waived and devil_advocate.get(_dim, False)):
+                            continue
+                        _w_problem = _validate_da_evidence(_dim, g4)
+                        if _w_problem:
+                            print(
+                                f"\n[BLOCKED] Gate 4 (A3): da_waiver for '{_dim}' requires DA evidence — {_w_problem}",
+                                file=sys.stderr,
+                            )
+                            blocked = True
+                            continue
                         da_waivers.add(_dim)
                         print(
                             f"[Gate 4] A3: DA waiver active for '{_dim}' "
-                            "(score threshold bypassed — DA challenge confirmed intentional design).",
+                            "(score threshold bypassed — artifact-backed DA challenge confirmed intentional design).",
                             file=sys.stderr,
                         )
-
-        # ── A4: High-score confirmation (llm_score ≥ 85) ─────────────
-        breakdown: dict = g4.get("breakdown", g4.get("dimensions", {}))
-        high_score_confirmations: dict = g4.get("high_score_confirmations", {})
-        _confirmation_keys = ("negative_space_verified", "crg_cited", "tool_triangulated")
-        high_dims = [
-            dim for dim, data in breakdown.items()
-            if isinstance(data, dict) and data.get("llm_score", data.get("score", 0)) >= _HIGH_SCORE_THRESHOLD
-        ]
-        if high_dims and not high_score_confirmations:
-            print(
-                f"\n[BLOCKED] Gate 4 (A4): 'high_score_confirmations' field missing.\n"
-                f"  {len(high_dims)} dimension(s) have llm_score ≥ {_HIGH_SCORE_THRESHOLD}:\n"
-                + "\n".join(f"  - {d}" for d in sorted(high_dims)) + "\n"
-                "  For each, add high_score_confirmations.<dim> with:\n"
-                "    negative_space_verified: true/false\n"
-                "    crg_cited: true/false\n"
-                "    tool_triangulated: true/false",
-                file=sys.stderr,
-            )
-            blocked = True
-        else:
-            incomplete_confirmations = []
-            for dim in high_dims:
-                conf = high_score_confirmations.get(dim, {})
-                missing_keys = [k for k in _confirmation_keys if not conf.get(k, False)]
-                if missing_keys:
-                    incomplete_confirmations.append(f"{dim}: missing {missing_keys}")
-            if incomplete_confirmations:
-                print(
-                    f"\n[BLOCKED] Gate 4 (A4): High-score confirmations incomplete:\n"
-                    + "\n".join(f"  - {c}" for c in incomplete_confirmations) + "\n"
-                    "  All three confirmations required: negative_space_verified, crg_cited, tool_triangulated.",
-                    file=sys.stderr,
-                )
-                blocked = True
 
         # ── A5: Issue Registry ────────────────────────────────────────
         issue_registry_path_str: str = g4.get("issue_registry_path", "")
@@ -2245,62 +2192,13 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
         )
         return 1
 
-    # HR-10 enforcement: Gate 1 requires ≥2 A/B entries per FR in sessions_spawn.log
-    # P3+: Phase End Audit替代A/B — only Phase 1-2 requires HR-10/HR-01
-    if args.gate == 1 and fr_id and args.phase in (1, 2):
-        spawn_log = Path(project) / ".methodology" / "sessions_spawn.log"
-        if not spawn_log.exists():
-            print(f"\n[BLOCKED] HR-10: sessions_spawn.log not found.")
-            print(f"  Gate 1 requires ≥2 entries (Agent A + Agent B) for {fr_id}.")
-            print(f"  Dispatch A/B via AgentSpawner, then re-run finalize-gate.")
-            return 5
-        try:
-            entries = [json.loads(line) for line in
-                       spawn_log.read_text(encoding="utf-8").splitlines() if line.strip()]
-            fr_entries = [e for e in entries if e.get("fr_id") == fr_id]
-            distinct_roles = len({e.get("role") for e in fr_entries})
-            session_ids = {e.get("session_id") for e in fr_entries} - {None, ""}
-            distinct_sessions = len(session_ids)
-            if len(fr_entries) < 2 or distinct_roles < 2:
-                print(f"\n[BLOCKED] HR-10: {fr_id} has {len(fr_entries)} session log entries "
-                      f"({distinct_roles} distinct role(s) — need ≥2 entries, ≥2 distinct roles).")
-                print(f"  Dispatch Agent A + Agent B for {fr_id}, then re-run finalize-gate.")
-                return 5
-            # HR-01: empty session_id is a hard error (SG-11). Previously
-            # entries without session_id were grandfathered, which created a
-            # bypass: one entry without session_id disabled the self-review
-            # check for the whole FR. Now we require ALL entries to carry a
-            # session_id; missing values block the gate.
-            missing_sids = [e for e in fr_entries if not e.get("session_id")]
-            if missing_sids:
-                print(f"\n[BLOCKED] HR-01: {fr_id} has {len(missing_sids)} entry/entries "
-                      f"with empty session_id — cannot verify Agent A/B separation.")
-                print(f"  Re-dispatch via the `dispatch` CLI (every spawn must record "
-                      f"a non-empty session_id) and re-run finalize-gate.")
-                return 5
-            if distinct_sessions < 2:
-                print(f"\n[BLOCKED] HR-01: {fr_id} A/B share same session_id "
-                      f"({distinct_sessions} distinct session(s)) — self-review violation.")
-                print(f"  Re-dispatch Agent B via `dispatch` CLI with a separate subagent session.")
-                return 5
-            # HR-10b: explicit null timestamp indicates manually injected entry.
-            # AgentSpawner always records a numeric `ts` field; a JSON null means
-            # the entry was hand-written to bypass the spawner requirement.
-            null_ts_entries = [e for e in fr_entries if "ts" in e and e["ts"] is None]
-            if null_ts_entries:
-                print(f"\n[BLOCKED] HR-10b: {fr_id} has {len(null_ts_entries)} "
-                      f"entry/entries with null timestamp (ts: null).", file=sys.stderr)
-                print(f"  AgentSpawner always records a numeric ts. A null value indicates",
-                      file=sys.stderr)
-                print(f"  the entry was manually written to bypass the spawner requirement.",
-                      file=sys.stderr)
-                print(f"  Re-dispatch via the `dispatch` CLI and re-run finalize-gate.",
-                      file=sys.stderr)
-                return 5
-        except Exception as _e:  # pylint: disable=broad-exception-caught
-            print(f"\n[BLOCKED] HR-10: sessions_spawn.log parse error ({_e}) — blocking to prevent bypass.")
-            return 5
-
+    # NOTE: HR-10/HR-01 A/B audit (sessions_spawn.log entry-count + distinct-session
+    # enforcement) was REMOVED. The log is a plain agent-writable file, so counting
+    # entries / roles / session_ids could not actually prove an independent Agent B
+    # review occurred (the orchestrator can hand-write entries). P1/P2 quality is
+    # enforced by the Agent B deliverable review itself; P3+ by the tool-scored gates
+    # and S4 cross-validation. AgentSpawner still records dispatches to sessions_spawn.log
+    # as a non-blocking debug trail.
 
     # ── I-2: FR test file existence check (Gate 1 per-FR) ──────────────
     # Only applies when project has a tests/ directory (real project, not test fixture).
@@ -3627,6 +3525,24 @@ def _check_gate1_per_fr_coverage(project: Path, completed_phase: int) -> int:
             pass
     if not fr_ids_manifest:
         return 0  # Non-FR project or unreadable manifest — skip
+
+    # DELTA-phase auto-skip: P5/P7/P8 re-run Gate 1 as a delta check. When NO FR's
+    # code has changed since its last Gate 1 PASS, the per-FR DELTA loop is a no-op
+    # (every run-fr-step would `already done → skip`). Recognise this and treat the
+    # whole loop as satisfied, instead of demanding a fresh timestamp per FR.
+    if completed_phase in (5, 7, 8):
+        try:
+            _all_unchanged = all(
+                not _fr_code_changed_since_last_gate1(fr, project) for fr in fr_ids_manifest
+            )
+        except Exception:  # pylint: disable=broad-exception-caught
+            _all_unchanged = False
+        if _all_unchanged:
+            print(
+                f"  [Gate 1 coverage] Phase {completed_phase}: all {len(fr_ids_manifest)} FR(s) "
+                f"unchanged since last gate — DELTA loop auto-satisfied (no per-FR re-eval needed)."
+            )
+            return 0
 
     ts_file = project / ".methodology" / _GATE_TIMESTAMPS_FILE
     g1_covered: set[str] = set()

@@ -49,9 +49,8 @@ When the user says "execute Phase N", "start P3", "implement FR-X", or any phase
    [PREFLIGHT]     → python harness_cli.py run-phase --phase N
    [A/B Work]      → Agent A: `harness_cli.py dispatch --role developer --fr-id FR-XX --prompt "..." --phase N`
                    → Agent B: `harness_cli.py dispatch --role reviewer --fr-id FR-XX --prompt "..." --phase N`
-                   → sessions_spawn.log auto-written by AgentSpawner (HR-01, HR-10)
-                   → NEVER role-play A or B yourself — they MUST be separate sessions (HR-01: A≠B)
-                   → finalize-gate --gate 1 blocks if sessions_spawn.log is missing A/B entries
+                   → sessions_spawn.log auto-written by AgentSpawner (non-blocking debug trail)
+                   → NEVER role-play A or B yourself — dispatch them as separate sub-agent sessions (workflow requirement)
    [CHECKPOINT-K]  → run-gate → Claude evaluates inline → finalize-gate → git push
 
 ### 0.1a Pre-Execution Mandatory Checklist (Learn-Before-Process)
@@ -130,8 +129,7 @@ Before advancing to Phase N+1, confirm ALL:
 - Advance phase after gate failure (HR-08)
 - Mix manual mode and automated execution in the same phase
 - Re-read SKILL.md for task details mid-phase (use plan file)
-- Skip `sessions_spawn.log` entries (HR-10 — Phase 1-2 only)
-- **Role-play both Agent A and Agent B in the same session (HR-01 — Phase 1-2 only)**
+- **Role-play both Agent A and Agent B in the same session — dispatch them as separate sub-agent sessions (HR-01 workflow; Phase 1-2)**
 - **Send Agent B file paths as input (Phase 1-2 only) — Agent B is stateless, embed content in prompt**
 - **Treat evaluate_dimension.md as reference — it is the mandatory tool-execution protocol. Skipping tool steps, using wrong LLM tiers, or fabricating scores without tool output = HR violation. score.py enforces this at machine level.**
 
@@ -223,7 +221,7 @@ Dynamic plans contain `Mode: Dynamic` in the header.
 
 | ID | Rule | Score Impact |
 |----|------|--------------|
-| HR-01 | A/B must be different Agents; self-review forbidden | -25 / Terminate |
+| HR-01 | A/B are dispatched as separate sub-agent sessions (workflow; the log-count audit was removed — not independently verifiable) | Workflow |
 | HR-02 | Quality Gate requires actual stdout output | -20 / Terminate |
 | HR-03 | Phase order must be sequential; no skipping | -30 / Terminate |
 | HR-04 | HybridWorkflow mode=ON mandatory | Terminate |
@@ -232,7 +230,7 @@ Dynamic plans contain `Mode: Dynamic` in the header.
 | HR-07 | DEVELOPMENT_LOG must record session_id | -15 |
 | HR-08 | Phase end requires Quality Gate pass | -10 / Terminate |
 | HR-09 | Claims Verifier citations must pass | -20 / Terminate |
-| HR-10 | sessions_spawn.log must have A/B entries | -15 / Terminate |
+| HR-10 | ~~sessions_spawn.log must have A/B entries~~ **REMOVED** — log is agent-writable, not tamper-evident; A/B quality enforced by the deliverable review + tool-scored gates | — |
 | HR-11 | Phase Truth < 90% blocks phase advance (P3–P8) | Terminate |
 | HR-12 | A/B review > 5 rounds triggers PAUSE | — |
 | HR-13 | Phase execution > 3× estimate triggers PAUSE | — |
@@ -270,7 +268,7 @@ Agent B (REVIEWER / architect)
 > **P6 Gate 4 注意**：原 Agent B (ARCHITECT) 負責審查 QUALITY_REPORT.md 並確認所有 FR 已合併且 Gate 4 ≥ 85。
 > A/B 移除後此責任由 **Phase End Audit** 分擔（確認 quality_manifest.json 中 Gate 4 分數與所有 FR 的合併狀態，以及 QUALITY_REPORT.md 內容完整性）。
 
-> Phase 1-2 only: Agent A ≠ Agent B (HR-01). Both write `sessions_spawn.log` (HR-10).
+> Phase 1-2 only: Agent A ≠ Agent B (HR-01 workflow — dispatched as separate sub-agent sessions). `sessions_spawn.log` is written as a non-blocking debug trail (the HR-10 log-count audit was removed — agent-writable, not tamper-evident).
 > Phase 3-8: no A/B requirement. Phase End Audit runs at phase completion.
 
 ### FORBIDDEN in any agent output
@@ -283,9 +281,10 @@ Agent B (REVIEWER / architect)
 
 ---
 
-## 4. sessions_spawn.log & Agent B Approval Format (Phase 1-2 only, HR-10)
+## 4. sessions_spawn.log & Agent B Approval Format (Phase 1-2 only — non-blocking debug trail)
 
-Two entries per FR/deliverable (developer + reviewer):
+Two entries per FR/deliverable (developer + reviewer). This log is no longer
+enforced at finalize-gate (HR-10 removed); it remains a useful dispatch trace:
 
 ```json
 {"timestamp": "2026-04-26T10:00:00", "fr_id": "FR-01", "role": "developer",
@@ -375,7 +374,7 @@ State stored in `.methodology/state.json`:
 - **Plan governs**: task sequence within a phase; specific file paths; CLI commands.
 - **Conflict**: SKILL.md wins on rules; plan wins on task order / phase-specific steps.
 - **Never skip checkpoints**: If a gate fails, fix and re-run — never advance without PASS.
-- **Phase 1-2**: A/B mandatory — HR-01 (A≠B), HR-04, HR-10 apply.
+- **Phase 1-2**: A/B mandatory — HR-01 (A≠B, separate sub-agent sessions) + HR-04 apply (HR-10 log-count audit removed).
 - **Phase 3-8**: No A/B. Phase End Audit runs at advance-phase / push-milestone.
 
 ---

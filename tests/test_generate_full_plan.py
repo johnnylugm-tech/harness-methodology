@@ -249,10 +249,12 @@ class TestFrDevSteps:
             joined = "\n".join(_fr_dev_steps("FR-01", phase))
             assert "DEVELOPER" not in joined, f"Phase {phase} should not have role label"
 
-    def test_hr01_note_present_for_phase1(self):
-        """HR-01: A≠B must be called out for Phase 1-2 only."""
+    def test_ab_review_structure_present_for_phase1(self):
+        """P1 FR steps still describe the A/B workflow (Agent A authors, Agent B reviews);
+        the HR-01/HR-10 log-count ceremony is removed."""
         joined = "\n".join(_fr_dev_steps("FR-01", 1))
-        assert "HR-01" in joined or "DIFFERENT agent" in joined
+        assert "Agent B" in joined or "reviewer" in joined.lower()
+        assert "HR-01" not in joined and "HR-10" not in joined
 
     def test_no_hr01_for_phase3_plus(self):
         """Phase 3+: no HR-01 reference since A/B is removed."""
@@ -886,11 +888,12 @@ class TestDeliverableAbBlock:
         assert "BLOCKING" in joined, "Missing BLOCKING enforcement note"
         assert "do not start the next sub-task" in joined.lower(), "Must block early advance"
 
-    def test_b2_log_includes_round2_example(self, srs_deliverable: Dict):
-        """[LOG] section notes sessions_spawn.log is auto-populated by AgentSpawner."""
+    def test_b2_log_note_is_nonblocking_debug_trail(self, srs_deliverable: Dict):
+        """sessions_spawn.log is described as a non-blocking debug trail (HR-10 enforcement removed)."""
         lines = _deliverable_ab_block(1, srs_deliverable, 1, 3)
         joined = "\n".join(lines)
-        assert "auto-logs round-2 re-dispatch" in joined, "Missing auto-logging note"
+        assert "non-blocking debug trail" in joined
+        assert "HR-10" not in joined
         assert "sessions_spawn.log" in joined, "Missing log reference"
 
     def test_b2_last_subtask_three_branches(self):
@@ -1361,25 +1364,22 @@ class TestCarryForwardP4:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestSessionsSpawnLabel:
-    def test_phase1_has_hr10_label(self, project: Path):
-        """P1 plan must include HR-10 in sessions_spawn.log deliverable."""
-        result = generate_full_plan(1, project)
+    @pytest.mark.parametrize("phase", [1, 2])
+    def test_phase1_2_sessions_spawn_is_nonblocking(self, project: Path, phase: int):
+        """P1/P2 keep the sessions_spawn.log deliverable but as a non-blocking
+        debug trail — the HR-10 enforcement label was removed."""
+        result = generate_full_plan(phase, project)
         assert "sessions_spawn.log" in result
-        assert "HR-10" in result
-
-    def test_phase2_has_hr10_label(self, project: Path):
-        """P2 plan must include HR-10 in sessions_spawn.log deliverable."""
-        result = generate_full_plan(2, project)
-        assert "sessions_spawn.log" in result
-        assert "HR-10" in result
+        assert "non-blocking debug trail" in result
+        assert "HR-10" not in result
 
     @pytest.mark.parametrize("phase", [3, 4, 5, 6, 7, 8])
     def test_phase3_plus_no_hr10_label(self, project: Path, phase: int):
-        """P3-P8 plans must NOT include (HR-10) in sessions_spawn.log line."""
+        """P3-P8 plans must NOT include any HR-10 label in the sessions_spawn.log line."""
         result = generate_full_plan(phase, project)
         assert "sessions_spawn.log" in result
-        # The HR-10 label should not appear in the deliverable line
         assert "auto-populated by AgentSpawner (HR-10)" not in result
+        assert "HR-10" not in result
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1791,7 +1791,8 @@ class TestReviewerDesignFixes:
         assert result is not None
         assert "[A2]" in result, "P6 must have A2 model_used field documentation"
         assert "[A3]" in result, "P6 must have A3 devil_advocate field documentation"
-        assert "[A4]" in result, "P6 must have A4 high_score_confirmations documentation"
+        assert "devil_advocate_evidence" in result, "P6 A3 must require the artifact-backed evidence field"
+        assert "[A4]" not in result, "A4 high_score_confirmations was removed"
         assert "[A5]" in result, "P6 must have A5 issue_registry_path documentation"
 
     # C2: P6 must document DA challenge and DA waiver for CRG-ONLY dims

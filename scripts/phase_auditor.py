@@ -81,7 +81,7 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
             (["DEVELOPMENT_LOG.md"],
              "DEVELOPMENT_LOG.md -- Development Log", True),
             ([".methodology/sessions_spawn.log", "sessions_spawn.log"],
-             ".methodology/sessions_spawn.log -- A/B session records", True),
+             ".methodology/sessions_spawn.log -- A/B session records", False),  # non-blocking: A/B audit removed
             (["TEST_INVENTORY.yaml"],
              "TEST_INVENTORY.yaml -- Test Specification Inventory", True),
             (["00-summary/Phase1_STAGE_PASS.md"],
@@ -115,7 +115,7 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
             (["02-architecture/adr/"],
              "ADR -- Architecture Decision Records", False),
             (["DEVELOPMENT_LOG.md"], "DEVELOPMENT_LOG.md", True),
-            ([".methodology/sessions_spawn.log", "sessions_spawn.log"], ".methodology/sessions_spawn.log", True),
+            ([".methodology/sessions_spawn.log", "sessions_spawn.log"], ".methodology/sessions_spawn.log", False),  # non-blocking: A/B audit removed
             (["00-summary/Phase2_STAGE_PASS.md"],
              "Phase2_STAGE_PASS.md -- Phase pass certificate", False),
         ],
@@ -138,7 +138,7 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
             (["03-development/tests/"],
              "tests/ -- Unit tests", True),
             (["DEVELOPMENT_LOG.md"], "DEVELOPMENT_LOG.md", True),
-            ([".methodology/sessions_spawn.log", "sessions_spawn.log"], ".methodology/sessions_spawn.log", True),
+            ([".methodology/sessions_spawn.log", "sessions_spawn.log"], ".methodology/sessions_spawn.log", False),  # non-blocking: A/B audit removed
             (["00-summary/Phase3_STAGE_PASS.md"],
              "Phase3_STAGE_PASS.md", True),
         ],
@@ -160,7 +160,7 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
             (["04-testing/TEST_RESULTS.md"],
              "TEST_RESULTS.md", True),
             (["DEVELOPMENT_LOG.md"], "DEVELOPMENT_LOG.md", True),
-            ([".methodology/sessions_spawn.log", "sessions_spawn.log"], ".methodology/sessions_spawn.log", True),
+            ([".methodology/sessions_spawn.log", "sessions_spawn.log"], ".methodology/sessions_spawn.log", False),  # non-blocking: A/B audit removed
             (["00-summary/Phase4_STAGE_PASS.md"],
              "Phase4_STAGE_PASS.md", True),
         ],
@@ -182,7 +182,7 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
             (["05-verification/VERIFICATION_REPORT.md"],
              "VERIFICATION_REPORT.md", True),
             (["DEVELOPMENT_LOG.md"], "DEVELOPMENT_LOG.md", True),
-            ([".methodology/sessions_spawn.log", "sessions_spawn.log"], ".methodology/sessions_spawn.log", True),
+            ([".methodology/sessions_spawn.log", "sessions_spawn.log"], ".methodology/sessions_spawn.log", False),  # non-blocking: A/B audit removed
             (["00-summary/Phase5_STAGE_PASS.md"],
              "Phase5_STAGE_PASS.md", True),
         ],
@@ -206,7 +206,7 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
             (["FINAL_SIGN_OFF.md"],
              "FINAL_SIGN_OFF.md -- Final Sign-off Document", True),
             (["DEVELOPMENT_LOG.md"], "DEVELOPMENT_LOG.md", True),
-            ([".methodology/sessions_spawn.log", "sessions_spawn.log"], ".methodology/sessions_spawn.log", True),
+            ([".methodology/sessions_spawn.log", "sessions_spawn.log"], ".methodology/sessions_spawn.log", False),  # non-blocking: A/B audit removed
             (["00-summary/Phase6_STAGE_PASS.md"],
              "Phase6_STAGE_PASS.md", True),
         ],
@@ -230,7 +230,7 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
             (["07-risk/RISK_MITIGATION_PLANS.md"],
              "RISK_MITIGATION_PLANS.md -- Risk Mitigation Plans", True),
             (["DEVELOPMENT_LOG.md"], "DEVELOPMENT_LOG.md", True),
-            ([".methodology/sessions_spawn.log", "sessions_spawn.log"], ".methodology/sessions_spawn.log", True),
+            ([".methodology/sessions_spawn.log", "sessions_spawn.log"], ".methodology/sessions_spawn.log", False),  # non-blocking: A/B audit removed
             (["00-summary/Phase7_STAGE_PASS.md"],
              "Phase7_STAGE_PASS.md", True),
         ],
@@ -251,7 +251,7 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
             (["08-config/RELEASE_CHECKLIST.md"],
              "RELEASE_CHECKLIST.md -- Release Validation Checklist", True),
             (["DEVELOPMENT_LOG.md"], "DEVELOPMENT_LOG.md", True),
-            ([".methodology/sessions_spawn.log", "sessions_spawn.log"], ".methodology/sessions_spawn.log", True),
+            ([".methodology/sessions_spawn.log", "sessions_spawn.log"], ".methodology/sessions_spawn.log", False),  # non-blocking: A/B audit removed
             (["00-summary/Phase8_STAGE_PASS.md"],
              "Phase8_STAGE_PASS.md", True),
         ],
@@ -746,51 +746,20 @@ class PhaseAuditor:
 
     # -- C3: A/B Session Separation Verification ---------------------────
     def check_c3_session_separation(self):
-        """C3: .methodology/sessions_spawn.log A/B different session verification.
+        """C3: A/B session separation — DEPRECATED / always PASS.
 
-        Phase 3+: A/B pair programming removed (Phase End Audit replaces it).
-        C3 only validates session role separation for Phase 1-2 where A/B is
-        still mandatory per HR-10.
+        The HR-10/HR-01 A/B audit was removed framework-wide: sessions_spawn.log is an
+        agent-writable file, so counting entries / distinct session_ids could not actually
+        prove an independent Agent B review occurred. P1/P2 quality is enforced by the Agent B
+        deliverable review itself; P3+ by tool-scored gates + S4 cross-validation. C3 is kept
+        as a stable, non-blocking PASS so downstream check indexing is unaffected.
         """
-        if self.phase >= 3:
-            self.result.add(Finding(
-                check_id="C3", dimension="A/B Session Separation",
-                severity="PASS",
-                title=f"Phase {self.phase}: A/B pair review not required (Phase End Audit active)",
-                detail="HR-10 applies to Phase 1-2 only; Phase 3+ uses PhaseAuditor.",
-            ))
-            return
-
-        content = self._content([".methodology/sessions_spawn.log", "sessions_spawn.log"])
-        if not content:
-            self.result.add(Finding(
-                check_id="C3", dimension="A/B Session Separation",
-                severity="CRITICAL",
-                title="sessions_spawn.log does not exist (checked .methodology/ and repo root)",
-                detail="HR-10 mandates this file; absence means A/B collaboration cannot be verified",
-                rule_ref="HR-10",
-            ))
-            return
-
-        sessions = self._parse_session_records(content)
-        if sessions is None:
-            return
-
         self.result.add(Finding(
             check_id="C3", dimension="A/B Session Separation",
             severity="PASS",
-            title=f"sessions_spawn.log exists — {len(sessions)} records found",
-            detail="",
+            title="A/B session-separation audit removed (sessions_spawn.log was not tamper-evident)",
+            detail="Enforcement moved to deliverable-quality gates + S4 cross-validation.",
         ))
-
-        roles, session_ids = self._extract_roles_and_ids(sessions)
-        expected_a = self.spec.get("agent_a", "")
-        expected_b = self.spec.get("agent_b", "")
-
-        self._check_session_roles(roles, expected_a, expected_b)
-        self._check_session_id_uniqueness(session_ids)
-        self._check_empty_tasks(sessions)
-        self._check_agent_b_approvals()
 
     def _parse_session_records(self, content: str) -> Optional[list]:
         """Parse line-delimited JSON from .methodology/sessions_spawn.log (or sessions_spawn.log fallback)."""

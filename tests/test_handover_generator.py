@@ -1795,78 +1795,9 @@ class TestDispatch:
         assert _captured_kwargs.get("max_turns") == 20
 
 
-class TestAuditSessionsSpawn:
-    """Tests for _audit_sessions_spawn — pre-push HR-10 warning."""
 
-    def test_all_missing_warns(self, tmp_path, monkeypatch, capsys):
-        """13 FRs in manifest, no log → warns for all 13 (Phase 1)."""
-        import json
-        manifest_dir = tmp_path / ".methodology"
-        manifest_dir.mkdir()
-        fr_ids = [f"FR-{i:02d}" for i in range(1, 14)]
-        (manifest_dir / "quality_manifest.json").write_text(json.dumps({"fr_ids": fr_ids}))
-
-        from harness_cli import _audit_sessions_spawn
-        _audit_sessions_spawn(tmp_path, 1)
-        captured = capsys.readouterr().out
-        assert "HR-10" in captured
-        assert "incomplete for 13/13 FRs" in captured
-
-    def test_all_ok_silent(self, tmp_path, monkeypatch, capsys):
-        """All FRs have 2 entries → prints OK (Phase 2)."""
-        import json
-        manifest_dir = tmp_path / ".methodology"
-        manifest_dir.mkdir()
-        fr_ids = ["FR-01", "FR-02"]
-        (manifest_dir / "quality_manifest.json").write_text(json.dumps({"fr_ids": fr_ids}))
-        (manifest_dir / "sessions_spawn.log").write_text(
-            json.dumps({"fr_id": "FR-01", "role": "developer", "session_id": "d1"}) + "\n" +
-            json.dumps({"fr_id": "FR-01", "role": "reviewer", "session_id": "r1"}) + "\n" +
-            json.dumps({"fr_id": "FR-02", "role": "developer", "session_id": "d2"}) + "\n" +
-            json.dumps({"fr_id": "FR-02", "role": "reviewer", "session_id": "r2"}) + "\n"
-        )
-
-        from harness_cli import _audit_sessions_spawn
-        _audit_sessions_spawn(tmp_path, 2)
-        captured = capsys.readouterr().out
-        assert "2/2 FRs OK" in captured
-
-    def test_corrupt_log_warns_and_treats_as_empty(self, tmp_path, capsys):
-        """Issue #3: corrupt JSON in sessions_spawn.log → parse error warning."""
-        import json
-        manifest_dir = tmp_path / ".methodology"
-        manifest_dir.mkdir()
-        fr_ids = ["FR-01", "FR-02"]
-        (manifest_dir / "quality_manifest.json").write_text(json.dumps({"fr_ids": fr_ids}))
-        # Mix of 1 valid line + 1 corrupt line
-        (manifest_dir / "sessions_spawn.log").write_text(
-            json.dumps({"fr_id": "FR-01", "role": "developer", "session_id": "d1"}) + "\n"
-            + "NOT-VALID-JSON\n"
-        )
-
-        from harness_cli import _audit_sessions_spawn
-        _audit_sessions_spawn(tmp_path, 2)
-        captured = capsys.readouterr().out
-        assert "parse error" in captured.lower()
-        assert "HR-10" in captured
-        # corrupt log → entries empty → both FRs flagged as missing
-        assert "incomplete for 2/2 FRs" in captured
-
-    def test_phase3_plus_skips_silently(self, tmp_path, capsys):
-        """Phase 3+ skips audit (A/B removed) without warning."""
-        import json
-        manifest_dir = tmp_path / ".methodology"
-        manifest_dir.mkdir()
-        (manifest_dir / "quality_manifest.json").write_text(json.dumps({"fr_ids": ["FR-01"]}))
-
-        from harness_cli import _audit_sessions_spawn
-        _audit_sessions_spawn(tmp_path, 3)
-        captured = capsys.readouterr().out
-        assert captured == ""
-
-
-class TestFinalizeGateHR10:
-    """HR-10: finalize-gate --gate 1 blocks for Phase 1-2 when sessions_spawn.log is missing."""
+class TestFinalizeGate1:
+    """finalize-gate --gate 1 pass path + gate-result persistence (HR-10/HR-01 audit removed)."""
 
     @staticmethod
     def _call_finalize(monkeypatch, tmp_path, gate=1, phase=1, fr_id="FR-01",
@@ -1974,34 +1905,8 @@ class TestFinalizeGateHR10:
         assert "BLOCKED" in captured.getvalue()
         assert "run-gate" in captured.getvalue()
 
-    def test_missing_spawn_log_blocks(self, tmp_path, monkeypatch):
-        """Exit code 5 when sessions_spawn.log doesn't exist."""
-        exit_code, output = self._call_finalize(monkeypatch, tmp_path,
-                                                spawn_entries=None)
-        assert exit_code == 5
-        assert "HR-10" in output
-        assert "not found" in output.lower()
 
-    def test_single_entry_blocks(self, tmp_path, monkeypatch):
-        """Exit code 5 when only 1 entry (no reviewer)."""
-        exit_code, output = self._call_finalize(monkeypatch, tmp_path, spawn_entries=[
-            {"fr_id": "FR-01", "role": "developer", "session_id": "d1",
-             "status": "success", "confidence": 9},
-        ])
-        assert exit_code == 5
-        assert "HR-10" in output
-        assert "1 session log" in output
 
-    def test_same_role_blocks(self, tmp_path, monkeypatch):
-        """Exit code 5 when 2 entries have same role (no distinct roles)."""
-        exit_code, output = self._call_finalize(monkeypatch, tmp_path, spawn_entries=[
-            {"fr_id": "FR-01", "role": "developer", "session_id": "d1",
-             "status": "success", "confidence": 9},
-            {"fr_id": "FR-01", "role": "developer", "session_id": "d2",
-             "status": "success", "confidence": 8},
-        ])
-        assert exit_code == 5
-        assert "HR-10" in output
 
     def test_dev_and_reviewer_passes(self, tmp_path, monkeypatch):
         """Gate 1 passes when 2 distinct roles with different session_ids exist."""
@@ -2014,6 +1919,12 @@ class TestFinalizeGateHR10:
         assert exit_code == 0
         assert "HR-10" not in output
         assert "HR-01" not in output
+
+    def test_missing_spawn_log_no_longer_blocks(self, tmp_path, monkeypatch):
+        """HR-10 removed: a Gate 1 finalize with NO sessions_spawn.log is not blocked on that basis."""
+        exit_code, output = self._call_finalize(monkeypatch, tmp_path, spawn_entries=None)
+        assert exit_code == 0
+        assert "HR-10" not in output
 
     def test_gate_result_persisted_to_methodology(self, tmp_path, monkeypatch):
         """A (Bug 1/2): a passed gate copies gate{N}_result.json to .methodology/
@@ -2028,90 +1939,8 @@ class TestFinalizeGateHR10:
         persisted = tmp_path / ".methodology" / "gate1_result.json"
         assert persisted.exists(), "gate result must be persisted to .methodology/ on pass"
 
-    def test_same_session_id_blocks_hr01(self, tmp_path, monkeypatch):
-        """HR-01 blocks when A/B entries share the same session_id."""
-        exit_code, output = self._call_finalize(monkeypatch, tmp_path, spawn_entries=[
-            {"fr_id": "FR-01", "role": "developer", "session_id": "same-session",
-             "status": "success", "confidence": 9},
-            {"fr_id": "FR-01", "role": "reviewer", "session_id": "same-session",
-             "status": "success", "review_status": "APPROVE"},
-        ])
-        assert exit_code == 5
-        assert "HR-01" in output
-        assert "self-review" in output.lower()
 
-    def test_old_log_no_session_id_now_blocks(self, tmp_path, monkeypatch):
-        """SG-11: empty/missing session_id is now a HARD ERROR.
 
-        Previously old logs without session_id were grandfathered (skip HR-01
-        and let HR-10 distinct-role pass). That was a self-review bypass: one
-        entry without session_id disabled the check for the entire FR.
-
-        New behavior: every entry MUST carry a non-empty session_id. Old logs
-        must be regenerated by re-dispatching via the canonical CLI.
-        """
-        exit_code, output = self._call_finalize(monkeypatch, tmp_path, spawn_entries=[
-            {"fr_id": "FR-01", "role": "developer",
-             "status": "success", "confidence": 9},
-            {"fr_id": "FR-01", "role": "reviewer",
-             "status": "success", "review_status": "APPROVE"},
-        ])
-        assert exit_code == 5, f"exit={exit_code}: {output}"
-        assert "HR-01" in output
-        assert "session_id" in output.lower()
-
-    def test_corrupt_log_warns_and_does_not_block(self, tmp_path, monkeypatch):
-        """Bug #2: corrupt sessions_spawn.log → warning printed, NOT blocked (exit != 5)."""
-        import json as _json
-        # Set up the standard directories manually (mirrors _call_finalize internals)
-        sessi = tmp_path / ".sessi-work"
-        sessi.mkdir(parents=True)
-        gate1_result = {
-            "gate": 1, "phase": 3, "fr_id": "FR-01",
-            "score": 95.0, "quality_complete": True,
-            "dimensions": {"linting": 95, "type_safety": 95, "test_coverage": 95},
-        }
-        (sessi / "gate1_result.json").write_text(_json.dumps(gate1_result))
-        manifest_dir = tmp_path / ".methodology"
-        manifest_dir.mkdir(parents=True)
-        (manifest_dir / "quality_manifest.json").write_text(_json.dumps({
-            "fr_ids": ["FR-01"],
-            "gate_results": {"gate1": {}},
-        }))
-        (manifest_dir / "state.json").write_text(_json.dumps({
-            "state": "ACTIVE", "current_phase": 3,
-        }))
-        # Write corrupt log (not valid JSON)
-        (manifest_dir / "sessions_spawn.log").write_text("NOT-VALID-JSON\n{broken\n")
-
-        # Write run-gate sentinel so sentinel check passes
-        _sentinel_dir = sessi / "sentinels"
-        _sentinel_dir.mkdir(parents=True, exist_ok=True)
-        (_sentinel_dir / "g1_fr01.flag").write_text("test")
-
-        import io
-        from harness_cli import cmd_finalize_gate
-        monkeypatch.setattr(
-            "harness_cli._make_git",
-            lambda args, project: __import__("harness.git_strategy").git_strategy.GitStrategy(
-                project, enabled=False),
-        )
-        captured = io.StringIO()
-        monkeypatch.setattr("sys.stdout", captured)
-        try:
-            exit_code = cmd_finalize_gate(
-                type("Args", (), {
-                    "gate": 1, "phase": 1, "project": str(tmp_path), "fr_id": "FR-01",
-                })()
-            )
-        except SystemExit as e:
-            exit_code = e.code
-
-        output = captured.getvalue()
-        assert exit_code == 5, f"Expected exit 5 (hard-block), got {exit_code}"
-        assert "parse error" in output.lower()
-        assert "hr-10" in output.lower()
-        assert "blocked" in output.lower()
 
     def test_phase3_skips_hr10_check(self, tmp_path, monkeypatch):
         """Phase 3+ does not enforce HR-10/HR-01 (A/B removed)."""
@@ -2204,17 +2033,14 @@ class TestGate4Prerequisites:
                 "documentation": True,
                 "performance": True,
             },
-            "high_score_confirmations": {
-                "linting": {
-                    "negative_space_verified": True,
-                    "crg_cited": True,
-                    "tool_triangulated": True,
-                },
-                "architecture": {
-                    "negative_space_verified": True,
-                    "crg_cited": True,
-                    "tool_triangulated": True,
-                },
+            "devil_advocate_evidence": {
+                d: {
+                    "challenger_model": "claude",
+                    "challenge": ("Challenger critique of the " + d + " evaluation: " + "x" * 130),
+                    "response": ("Defence of the " + d + " design and score: " + "y" * 130),
+                }
+                for d in ("architecture", "readability", "error_handling",
+                          "documentation", "performance")
             },
             "issue_registry_path": ".methodology/issue_registry.json",
         }))
@@ -2260,18 +2086,56 @@ class TestGate4Prerequisites:
         result_file.write_text(_json.dumps(data))
         assert _check_gate4_prerequisites(project)[0] is True
 
-    def test_high_score_missing_confirmation_blocked(self, tmp_path):
-        """Dim with llm_score ≥ 85 without full confirmation blocks (A4)."""
+    def test_a4_high_score_confirmations_removed(self, tmp_path):
+        """A4 removed: a project with NO high_score_confirmations is not blocked."""
         import copy as _copy
         import json as _json
         from harness_cli import _check_gate4_prerequisites
         project = self._make_project(tmp_path)
         result_file = project / ".sessi-work" / "gate4_result.json"
         data = _copy.deepcopy(_json.loads(result_file.read_text()))
-        # Remove one confirmation key
-        data["high_score_confirmations"]["linting"]["crg_cited"] = False
+        data.pop("high_score_confirmations", None)  # field gone entirely
+        result_file.write_text(_json.dumps(data))
+        assert _check_gate4_prerequisites(project)[0] is False
+
+    def test_a3_requires_da_evidence(self, tmp_path):
+        """A3 hardened: devil_advocate=true without devil_advocate_evidence → blocked."""
+        import copy as _copy
+        import json as _json
+        from harness_cli import _check_gate4_prerequisites
+        project = self._make_project(tmp_path)
+        result_file = project / ".sessi-work" / "gate4_result.json"
+        data = _copy.deepcopy(_json.loads(result_file.read_text()))
+        data.pop("devil_advocate_evidence", None)  # bare boolean only
         result_file.write_text(_json.dumps(data))
         assert _check_gate4_prerequisites(project)[0] is True
+
+    def test_a3_da_evidence_too_short_blocked(self, tmp_path):
+        """A3: placeholder/too-short challenge text is rejected."""
+        import copy as _copy
+        import json as _json
+        from harness_cli import _check_gate4_prerequisites
+        project = self._make_project(tmp_path)
+        result_file = project / ".sessi-work" / "gate4_result.json"
+        data = _copy.deepcopy(_json.loads(result_file.read_text()))
+        data["devil_advocate_evidence"]["architecture"]["challenge"] = "too short"
+        result_file.write_text(_json.dumps(data))
+        assert _check_gate4_prerequisites(project)[0] is True
+
+    def test_a3_da_waiver_requires_evidence(self, tmp_path):
+        """da_waiver only takes effect when artifact-backed; missing evidence → blocked."""
+        import copy as _copy
+        import json as _json
+        from harness_cli import _check_gate4_prerequisites
+        project = self._make_project(tmp_path)
+        result_file = project / ".sessi-work" / "gate4_result.json"
+        data = _copy.deepcopy(_json.loads(result_file.read_text()))
+        data["da_waiver"] = {"architecture": True}
+        data["devil_advocate_evidence"].pop("architecture", None)
+        result_file.write_text(_json.dumps(data))
+        blocked, waivers = _check_gate4_prerequisites(project)
+        assert blocked is True
+        assert "architecture" not in waivers
 
     def test_missing_issue_registry_blocked(self, tmp_path):
         """Missing issue_registry file blocks (A5)."""

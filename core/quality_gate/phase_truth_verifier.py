@@ -505,36 +505,31 @@ class PhaseTruthVerifier:
         print("=" * 60)
         print()
 
-        # Execute checks (adjust weights based on Phase)
-        # Phase 1-2: BLOCK + session_log, no previous phase artifacts
-        if self.phase <= 1:
+        # Execute checks (adjust weights based on Phase).
+        # NOTE: the sessions_spawn.log and A/B-coverage checks were removed — they read
+        # an agent-writable file and could not prove an independent Agent B review.
+        # Remaining checks are independently computed (framework block state, real pytest/
+        # coverage subprocess runs, on-disk predecessor artifacts, cross-artifact consistency).
+        # Weights below are renormalized via active_weight at scoring time.
+        if self.phase <= 2:
             checks = [
-                ("FrameworkEnforcer BLOCK", self.check_framework_block, 0.60),
-                ("Sessions_spawn.log", self.check_session_log, 0.40),
+                ("FrameworkEnforcer BLOCK", self.check_framework_block, 0.70),
+                ("Previous phase artifacts", self.check_previous_phase_artifacts, 0.30),
             ]
-        elif self.phase <= 2:
-            checks = [
-                ("FrameworkEnforcer BLOCK", self.check_framework_block, 0.50),
-                ("Sessions_spawn.log", self.check_session_log, 0.35),
-                ("Previous phase artifacts", self.check_previous_phase_artifacts, 0.15),
-            ]
-        # Phase 3-4: 7 checks (includes pytest/coverage + previous phase + cross-artifact + A/B)
+        # Phase 3-4: framework block + real pytest/coverage + predecessor + cross-artifact
         elif self.phase <= 4:
             checks = [
-                ("FrameworkEnforcer BLOCK", self.check_framework_block, 0.22),
-                ("Sessions_spawn.log", self.check_session_log, 0.16),
-                ("pytest actually passes", self.check_pytest, 0.16),
-                ("test coverage meets threshold", self.check_coverage, 0.10),
-                ("Previous phase artifacts", self.check_previous_phase_artifacts, 0.10),
-                ("Cross-artifact consistency", self.check_cross_artifact, 0.14),
-                ("A/B coverage per deliverable", self.check_ab_coverage, 0.12),
+                ("FrameworkEnforcer BLOCK", self.check_framework_block, 0.28),
+                ("pytest actually passes", self.check_pytest, 0.24),
+                ("test coverage meets threshold", self.check_coverage, 0.16),
+                ("Previous phase artifacts", self.check_previous_phase_artifacts, 0.14),
+                ("Cross-artifact consistency", self.check_cross_artifact, 0.18),
             ]
-        # Phase 5-8: BLOCK + session_log + previous phase (non-code phases)
+        # Phase 5-8: framework block + previous phase (non-code phases)
         else:
             checks = [
-                ("FrameworkEnforcer BLOCK", self.check_framework_block, 0.50),
-                ("Sessions_spawn.log", self.check_session_log, 0.35),
-                ("Previous phase artifacts", self.check_previous_phase_artifacts, 0.15),
+                ("FrameworkEnforcer BLOCK", self.check_framework_block, 0.70),
+                ("Previous phase artifacts", self.check_previous_phase_artifacts, 0.30),
             ]
 
         total_weighted = 0.0

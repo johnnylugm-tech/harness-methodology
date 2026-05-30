@@ -845,8 +845,12 @@ class TestHarnessCrossValidation:
 
         assert violations == []
 
-    def test_skipped_tool_no_block(self, tmp_path):
-        """Slow/complex tools (mutmut, scancode) are skipped without blocking."""
+    def test_skiplist_tool_requires_output_file(self, tmp_path):
+        """S4 hardened: skip-list tools (mutmut/scancode) require a real tool_output file.
+
+        Without a committed file, a high agent score is unverifiable → block.
+        With a valid file present, it passes (not re-run).
+        """
         from harness.harness_bridge import _run_harness_cross_validation
 
         self._make_gate_yaml(tmp_path, 4, [
@@ -854,14 +858,24 @@ class TestHarnessCrossValidation:
              "threshold": 70},
         ])
         ctx = self._make_ctx(tmp_path, gate=4)
-        raw = {"breakdown": {"mutation_testing": {"score": 99}}}  # agent claims high score
 
-        # run_tool("mutmut", ...) returns ("", -1) — skipped
-        violations = _run_harness_cross_validation(ctx, raw)
-        assert violations == []
+        # (a) no tool_output → blocked
+        raw_missing = {"breakdown": {"mutation_testing": {"score": 99}}}
+        v_missing = _run_harness_cross_validation(ctx, raw_missing)
+        assert len(v_missing) == 1
+        assert "unverifiable" in v_missing[0]
 
-    def test_tool_timeout_no_block(self, tmp_path):
-        """A timed-out tool produces a warning but does not block the gate."""
+        # (b) real committed mutmut output file → passes
+        out = tmp_path / ".sessi-work" / "mutmut_out.txt"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text("Killed 80 mutants\nSurvived 5\nmutation score: 94%\n", encoding="utf-8")
+        raw_ok = {"breakdown": {"mutation_testing": {"score": 99,
+                                                     "tool_output": ".sessi-work/mutmut_out.txt"}}}
+        v_ok = _run_harness_cross_validation(ctx, raw_ok)
+        assert v_ok == []
+
+    def test_tool_timeout_blocks(self, tmp_path):
+        """S4 hardened: a timed-out tool now BLOCKS (passing score must be reproducible)."""
         from unittest.mock import patch
         from harness.harness_bridge import _run_harness_cross_validation
 
@@ -872,11 +886,12 @@ class TestHarnessCrossValidation:
         ctx = self._make_ctx(tmp_path, gate=4)
         raw = {"breakdown": {"type_safety": {"score": 95}}}
 
-        # Simulate timeout
+        # Simulate timeout — agent claims a passing score (95 ≥ 85) but the tool can't confirm it.
         with patch("harness.tool_runners.run_tool", return_value=("TIMEOUT: mypy exceeded 60s", -2)):
             violations = _run_harness_cross_validation(ctx, raw)
 
-        assert violations == []
+        assert len(violations) == 1
+        assert "timed out" in violations[0]
 
     def test_multiple_dims_one_fabricated(self, tmp_path):
         """Only the dimension whose harness score < threshold is reported."""
@@ -1019,6 +1034,11 @@ class TestHermesReceiptIntegrity:
             "devil_advocate": {"architecture": True, "readability": True,
                                "error_handling": True, "documentation": True,
                                "performance": True},
+            "devil_advocate_evidence": {d: {"challenger_model": "claude",
+                                            "challenge": "Challenge for " + d + ": " + "c" * 130,
+                                            "response": "Response for " + d + ": " + "r" * 130}
+                                        for d in ("architecture", "readability", "error_handling",
+                                                  "documentation", "performance")},
             "high_score_confirmations": {},
             "issue_registry_path": ".methodology/issues.json",
             "breakdown": {},
@@ -1098,91 +1118,6 @@ class TestHermesReceiptIntegrity:
         assert not blocked, "Missing receipt must not block — A1 check removed"
 
 
-# ---------------------------------------------------------------------------
-# Enhancement 2 — HR-10b: sessions_spawn.log null-ts detection
-# ---------------------------------------------------------------------------
-
-class TestSpawnLogNullTimestamp:
-    """HR-10b: entries with ts: null in sessions_spawn.log are blocked."""
-
-    @staticmethod
-    def _setup_gate1_env(tmp_path: Path, fr_id: str = "FR-07") -> Path:
-        """Create minimal Gate 1 environment (sentinel + test dir)."""
-        from harness_cli import _sentinel_path
-        methodology = tmp_path / ".methodology"
-        methodology.mkdir(parents=True)
-        # Write sentinel so run-gate check passes
-        sf = _sentinel_path(tmp_path, 1, fr_id)
-        sf.parent.mkdir(parents=True, exist_ok=True)
-        sf.write_text("2026-05-19T00:00:00Z\n")
-        # Create tests/ dir so I-2/I-3 checks run
-        (tmp_path / "tests").mkdir(parents=True)
-        return methodology
-
-    def _run_finalize(self, tmp_path: Path, fr_id: str = "FR-07") -> int:
-        """Run finalize-gate --gate 1 and return exit code."""
-        import argparse
-        from harness_cli import cmd_finalize_gate
-        args = argparse.Namespace(
-            gate=1, phase=1, project=str(tmp_path),
-            fr_id=fr_id,
-        )
-        import sys
-        try:
-            return cmd_finalize_gate(args)
-        except SystemExit as e:
-            return e.code if e.code is not None else 0
-
-    def test_null_ts_entry_blocked(self, tmp_path):
-        """An entry with explicit ts: null is blocked with exit 5."""
-        methodology = self._setup_gate1_env(tmp_path)
-        # Write entries: one with ts: null (bypass indicator)
-        (methodology / "sessions_spawn.log").write_text(
-            json.dumps({"fr_id": "FR-07", "role": "developer",
-                        "session_id": "sid-a", "ts": None}) + "\n" +
-            json.dumps({"fr_id": "FR-07", "role": "reviewer",
-                        "session_id": "sid-b", "ts": None}) + "\n"
-        )
-        code = self._run_finalize(tmp_path)
-        assert code == 5, f"Expected exit 5 (HR-10b), got {code}"
-
-    def test_missing_ts_key_allowed(self, tmp_path):
-        """Entries without a ts key at all are not blocked (legacy compatibility)."""
-        methodology = self._setup_gate1_env(tmp_path)
-        # No ts field at all (legacy entries from before timestamp requirement)
-        (methodology / "sessions_spawn.log").write_text(
-            json.dumps({"fr_id": "FR-07", "role": "developer",
-                        "session_id": "sid-a"}) + "\n" +
-            json.dumps({"fr_id": "FR-07", "role": "reviewer",
-                        "session_id": "sid-b"}) + "\n"
-        )
-        code = self._run_finalize(tmp_path)
-        # HR-10b should NOT block (ts key absent ≠ ts null)
-        # Exit 5 could happen for other HR-10 reasons, but NOT for null-ts
-        # We just check it doesn't come from HR-10b specifically.
-        # Since I-2 test file check may block (8), and finalize may pass or
-        # fail for other reasons, just verify it's not 5 from our ts check.
-        assert code != 5, f"Missing ts key should not trigger HR-10b, got exit {code}"
-
-    def test_valid_ts_passes(self, tmp_path):
-        """Entries with a numeric ts pass HR-10b."""
-        import time
-        methodology = self._setup_gate1_env(tmp_path)
-        now = time.time()
-        (methodology / "sessions_spawn.log").write_text(
-            json.dumps({"fr_id": "FR-07", "role": "developer",
-                        "session_id": "sid-a", "ts": now}) + "\n" +
-            json.dumps({"fr_id": "FR-07", "role": "reviewer",
-                        "session_id": "sid-b", "ts": now + 1.0}) + "\n"
-        )
-        code = self._run_finalize(tmp_path)
-        assert code != 5, f"Valid ts should not trigger HR-10b, got exit {code}"
-
-
-# ---------------------------------------------------------------------------
-# Enhancement 3 — B3: CRG recon output existence
-# ---------------------------------------------------------------------------
-
 class TestCRGReconCheck:
     """Gate 4 B3: .sessi-work/crg_reconnaissance.json must exist when reconnaissance: true."""
 
@@ -1221,6 +1156,11 @@ class TestCRGReconCheck:
             "devil_advocate": {"architecture": True, "readability": True,
                                "error_handling": True, "documentation": True,
                                "performance": True},
+            "devil_advocate_evidence": {d: {"challenger_model": "claude",
+                                            "challenge": "Challenge for " + d + ": " + "c" * 130,
+                                            "response": "Response for " + d + ": " + "r" * 130}
+                                        for d in ("architecture", "readability", "error_handling",
+                                                  "documentation", "performance")},
             "high_score_confirmations": {},
             "issue_registry_path": ".methodology/issues.json",
             "breakdown": {},

@@ -175,7 +175,7 @@ This section uses normative language per **RFC 2119**:
 
 | Rule | RFC 2119 | Enforcement Module | Verification |
 |------|----------|--------------------|-------------|
-| HR-01: A≠B (separate sessions) | **MUST** | `harness_cli.py` (P1-P2) / `claims_verifier.py` (P3+) | `sessions_spawn.log` ≥2 distinct roles |
+| HR-01: A≠B (dispatched as separate sub-agent sessions) | **SHOULD** (workflow) | `harness_cli.py` dispatch (P1-P2) | Workflow only — the `sessions_spawn.log` role-count audit was removed (agent-writable, not tamper-evident) |
 | HR-02: Cannot skip phases | **MUST** | `harness_cli.py` FSM | `state.json` phase ordering |
 | HR-03: Kill switch blocks dispatch | **MUST** | `kill_switch/kill_switch.py` | `kill_switch.status()` check before dispatch |
 | HR-04: HybridWorkflow mode=ON for P2+ | **MUST** | `core/hybrid_workflow.py` | `HybridWorkflow.is_active()` |
@@ -183,8 +183,8 @@ This section uses normative language per **RFC 2119**:
 | HR-06: No secrets in codebase | **MUST** | `enforcement/framework_enforcer.py` | `detect-secrets` scan |
 | HR-07: Constitution score ≥ phase threshold | **MUST** | `core/quality_gate/constitution/runner.py` | `run_constitution_check()` |
 | HR-08: Gate must pass before phase advance | **MUST** | `harness/harness_bridge.py` | `finalize_gate()` threshold check |
-| HR-09: Claims verifier checks A/B authenticity | **MUST** | `core/quality_gate/claims_verifier.py` | `verify_sessions_spawn_log()` |
-| HR-10: sessions_spawn.log entries required | **MUST** | `harness_cli.py` (P1-P2) / `claims_verifier.py` (P3+) | ≥2 records per FR |
+| HR-09: Claims verifier checks A/B authenticity | **MAY** | `core/quality_gate/stage_pass_generator.py` (standalone script only) | `verify_sessions_spawn_log()` — not wired into the active FSM/finalize-gate path |
+| HR-10: ~~sessions_spawn.log entries required~~ **REMOVED** | — | — | Log is agent-writable / not tamper-evident; A/B quality is enforced by deliverable review + tool-scored gates instead |
 | HR-11: Phase Truth ≥90% | **MUST** | `core/quality_gate/phase_truth_verifier.py` | `PhaseTruthVerifier.verify()` |
 | HR-12: A/B review ≤5 rounds | **MUST** | `steering/steering_loop.py` | Round counter in iteration loop |
 | HR-13: Auto-fix timeout enforcement | **MUST** | `core/auto_fix/__init__.py` | `check_escalation()` HR-13 condition |
@@ -1150,8 +1150,8 @@ class KillSwitch:
 
 | File | Class | Purpose |
 |---|---|---|
-| `ab_enforcer.py` | `ABEnforcer` | **DEPRECATED**. Retained for backward-compatible unit tests. Production HR-01/HR-10 checks live in `harness_cli.py` & `claims_verifier.py` |
-| `phase_truth_verifier.py` | `PhaseTruthVerifier` | Verifies phase completion truth via sessions_spawn.log, pytest, coverage, framework BLOCK |
+| `ab_enforcer.py` | `ABEnforcer` | **DEPRECATED**. Retained for backward-compatible unit tests. The HR-10 log-count audit was removed; HR-01 is now a workflow expectation (separate sub-agent dispatch), not a log-enforced check |
+| `phase_truth_verifier.py` | `PhaseTruthVerifier` | Verifies phase completion truth via independently-reproducible signals — framework BLOCK, pytest, coverage subprocess, previous-phase artifacts, cross-artifact checks (the self-reported `sessions_spawn.log` / A/B-coverage checks were removed; remaining weights renormalize) |
 | `phase_artifact_enforcer.py` | `PhaseArtifactRegistry`, `Phase` | ASPICE traceability chain enforcement; validates phase artifact dependencies (P2+) |
 | `spec_tracking_checker.py` | `SpecTrackingChecker` | Tracks SPEC_TRACKING.md completeness. Delegates parsing to `parsers.SpecTrackingParser` |
 | `stage_pass_generator.py` | `IntegratedStagePassGenerator` | Generates stage pass certificates; integrates FrameworkEnforcer + ClaimsVerifier |
@@ -1432,7 +1432,12 @@ def compute_tool_score(tool: str, output: str, returncode: int) -> float | None:
     Returns None when the tool is skipped or unavailable."""
 ```
 
-**Skip list**: `mutmut` and `scancode` are excluded from inline cross-validation (too slow / complex). They remain covered by Solution-A content validation.
+**Skip list**: `mutmut` and `scancode` are excluded from *inline subprocess* cross-validation (too slow / complex). They are **not** treated as a free pass: `HarnessBridge._run_harness_cross_validation()` requires each skip-list dimension to point at a committed, non-empty `tool_output` file that passes `_validate_tool_content()` (a real tool report, not inline agent text). A missing/empty/malformed file → BLOCK.
+
+**Cross-validation return-code handling** (in `_run_harness_cross_validation`, when the agent-reported score ≥ threshold):
+- `-1` skip-list → must supply a verifiable committed `tool_output` file (above), else BLOCK.
+- `-2` timeout → **BLOCK**. A passing score must be independently reproducible; a timeout means the harness could not verify it, which is treated as a fabrication risk (reduce test runtime / fix the tool, then re-finalize).
+- `-3` tool-not-found / `-4` harness error → warn-only (S2 `_verify_gate_tools` already gates tool availability pre-finalize; `-4` is a framework-side fault, not agent-controllable).
 
 **Default timeouts** (seconds): `ruff` 30; `mypy`/`pyright` 60; `pytest`/`pytest-cov` 120; `gitleaks` 30; `bandit` 60; `radon-cc`/`radon-mi` 30; `pydocstyle` 30; `grep-bare-except` 15.
 
@@ -2098,7 +2103,7 @@ class TaskSplitter:
 
 ### §3.23 — `core/sessions_spawn_logger.py` — Spawn Event Logger
 
-**Responsibility**: Records agent spawn events to `.methodology/sessions_spawn.log` (HR-10 compliance). Supports two-phase write (PENDING → COMPLETED/FAILED via `log_update()`).
+**Responsibility**: Records agent spawn events to `.methodology/sessions_spawn.log` as a **non-blocking debug trail** (the HR-10 enforcement that consumed this log was removed — see §2.4.1). Supports two-phase write (PENDING → COMPLETED/FAILED via `log_update()`).
 
 **Public API**:
 
@@ -2134,7 +2139,7 @@ def log_spawn_event(repo_path, role, task, session_id, **kwargs) -> Dict
     # One-shot: SessionsSpawnLogger(repo_path).log_spawn(...)
 ```
 
-**HR-10 compliance**: `validate()` checks every entry has `role` + `session_id` fields. Two entries per FR (developer + reviewer) required by HR-10.
+**Note**: `validate()` checks every entry has `role` + `session_id` fields. This is advisory only — no gate/finalize path blocks on the log's contents (HR-10 removed).
 
 ---
 
@@ -2814,8 +2819,8 @@ Gate 4 needs my Telegram APPROVE — handle everything else."
 | **P7** | DEVOPS | ARCHITECT | Assess risk per FR (impact × likelihood); draft mitigation plans; populate RISK_REGISTER.md | Review risk assessments; verify mitigation plans are actionable; check RISK_STATUS_REPORT.md |
 | **P8** | DEVOPS | ARCHITECT | Document config per FR (env vars, feature flags, secrets); populate CONFIG_RECORDS.md | Review config records; verify environment parity (dev/staging/prod); confirm no secret leaks |
 
-> All phases: Agent A ≠ Agent B (HR-01). Both write to `sessions_spawn.log` (HR-10).
-> P3/P4/P5/P7/P8: 2 entries per FR. P1/P2/P6: 2 entries per phase.
+> All phases: Agent A ≠ Agent B (HR-01 workflow — dispatched as separate sub-agent sessions).
+> `sessions_spawn.log` is written as a non-blocking debug trail; the HR-10 entry-count audit was removed (agent-writable, not tamper-evident).
 
 ### Mandatory Human Checkpoints
 
