@@ -434,8 +434,8 @@ structural analysis — call graphs, community detection, flow analysis, dead co
 | # | Signal | Formula | Where |
 |---|--------|---------|-------|
 | 1 | `risk_score` | `eval_depth` gate | `evaluate_dimension.md` |
-| 2 | `community_cohesion` | Architecture score (CRG-only) | `score.py` |
-| 3 | `flow_coverage` | Error handling score (CRG-only) | `score.py` |
+| 2 | `community_cohesion` | Architecture score — framework-owned (`crg_independent.py`, overrides agent) | `harness_bridge.finalize_gate` |
+| 3 | ~~`flow_coverage`~~ | **Removed** — `error_handling` is now `ast-error-handling` (file-level try/except coverage); CRG had no `has_error_handler` field | `tool_runners.py` |
 | 4 | `dead_code_ratio` | Escalate severity if > 5% | `improvement_plan.md` |
 | 5 | `hub_risk_map` | Severity bucket by fan-in | `evaluate_dimension.md` |
 | 6 | `suggested_questions` | Auto-seed issue registry | `crg_reconnaissance.md` |

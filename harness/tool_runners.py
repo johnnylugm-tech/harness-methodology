@@ -42,7 +42,13 @@ _DEFAULT_TIMEOUTS: dict[str, int] = {
     "pydocstyle":       30,
     "grep-bare-except": 15,
     "pytest-benchmark": 180,
+    "ast-assertions":   30,
+    "ast-error-handling": 30,
+    "pytest-cov-integration": 180,
 }
+
+# Source directories scanned for file-level error-handling coverage.
+_SRC_DIRS: tuple[str, ...] = ("03-development/src", "src")
 
 
 def run_tool(
@@ -61,6 +67,12 @@ def run_tool(
     """
     if tool in _SKIP_TOOLS:
         return "", -1
+
+    # ast-assertions / ast-error-handling are computed in-process (AST scan).
+    if tool == "ast-assertions":
+        return _run_ast_assertions(str(project_root))
+    if tool == "ast-error-handling":
+        return _run_ast_error_handling(str(project_root))
 
     timeout = timeout_override if timeout_override is not None else _DEFAULT_TIMEOUTS.get(tool, 30)
     root = str(project_root)
@@ -136,6 +148,15 @@ def run_tool(
             "--tb", "no",
             "-q",
         ],
+        # Integration coverage: run only the integration suite and measure real
+        # line coverage of the source tree (NOT pass-rate).  Missing suite →
+        # pytest exits 4/5 and the cov table is absent → _score_pytest returns 0
+        # → cross-validation blocks (a passing agent score is then unverifiable).
+        "pytest-cov-integration": [
+            "pytest", "03-development/tests/integration",
+            "--cov=03-development/src", "--cov-report=term-missing",
+            "-q", "--tb=no", "--no-header",
+        ],
     }
 
     cmd = cmds.get(tool)
@@ -158,6 +179,132 @@ def run_tool(
         return f"Tool not found: {tool}", -3
     except Exception as exc:  # pylint: disable=broad-except
         return f"Error running {tool}: {exc}", -4
+
+
+# Test directories scanned for assertion-quality analysis (first existing wins is
+# NOT used — all are scanned and merged).
+_TEST_DIRS: tuple[str, ...] = ("tests", "03-development/tests")
+
+
+def _function_has_assertion(node: "object") -> bool:
+    """True if a (async)FunctionDef body contains a substantive assertion.
+
+    Recognises: bare `assert`, unittest `self.assertXxx(...)` / `self.fail()`,
+    `pytest.raises`/`pytest.warns` (call or `with` context manager), numpy
+    `np.testing.assert_*`, and bare `raises(...)`/`warns(...)` imports.
+    """
+    import ast as _ast
+
+    for sub in _ast.walk(node):  # type: ignore[arg-type]
+        if isinstance(sub, _ast.Assert):
+            return True
+        if isinstance(sub, _ast.Call):
+            fn = sub.func
+            if isinstance(fn, _ast.Attribute):
+                name = fn.attr
+                if name.startswith("assert") or name in ("fail", "raises", "warns"):
+                    return True
+            elif isinstance(fn, _ast.Name):
+                if fn.id in ("raises", "warns"):
+                    return True
+    return False
+
+
+def _run_ast_assertions(project_root: str) -> tuple[str, int]:
+    """Scan test files and report assertion coverage of test functions.
+
+    Returns (json_summary, 0) where summary = {total, asserted, zero_assert:[...]}.
+    A test function with NO substantive assertion (a "pass-and-still-green" shell)
+    is counted as zero_assert.  This is what test_assertion_quality means —
+    pytest pass-rate cannot detect it.
+    """
+    import ast as _ast
+    import json as _json
+    from pathlib import Path as _Path
+
+    root = _Path(project_root)
+    total = 0
+    asserted = 0
+    zero_assert: list[str] = []
+
+    seen: set[str] = set()
+    for rel in _TEST_DIRS:
+        base = root / rel
+        if not base.is_dir():
+            continue
+        for path in base.rglob("test_*.py"):
+            key = str(path.resolve())
+            if key in seen:
+                continue
+            seen.add(key)
+            try:
+                tree = _ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+            except (SyntaxError, ValueError, OSError):
+                continue
+            for fn in _ast.walk(tree):
+                if isinstance(fn, (_ast.FunctionDef, _ast.AsyncFunctionDef)) and fn.name.startswith("test"):
+                    total += 1
+                    if _function_has_assertion(fn):
+                        asserted += 1
+                    else:
+                        zero_assert.append(f"{path.relative_to(root)}::{fn.name}")
+
+    summary = {"total": total, "asserted": asserted, "zero_assert": zero_assert[:50]}
+    return _json.dumps(summary), 0
+
+
+def _run_ast_error_handling(project_root: str) -> tuple[str, int]:
+    """Scan source files and report file-level error-handling coverage.
+
+    Returns (json_summary, 0) where summary = {total, with_handler, no_handler:[...]}.
+    A source file counts as "handled" if it contains at least one try/except block
+    with a real handler.  This is a framework-owned, independently reproducible
+    measure of error_handling — it replaces the CRG flow path whose has_error_handler
+    field does not exist in the installed code-review-graph package.
+    """
+    import ast as _ast
+    import json as _json
+    from pathlib import Path as _Path
+
+    root = _Path(project_root)
+    total = 0
+    with_handler = 0
+    no_handler: list[str] = []
+
+    seen: set[str] = set()
+    for rel in _SRC_DIRS:
+        base = root / rel
+        if not base.is_dir():
+            continue
+        for path in base.rglob("*.py"):
+            key = str(path.resolve())
+            if key in seen:
+                continue
+            seen.add(key)
+            try:
+                tree = _ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+            except (SyntaxError, ValueError, OSError):
+                continue
+            # Skip files with no functions/classes (e.g. empty __init__.py) — they
+            # have nothing to handle and would unfairly dilute the ratio.
+            has_code = any(
+                isinstance(n, (_ast.FunctionDef, _ast.AsyncFunctionDef, _ast.ClassDef))
+                for n in _ast.walk(tree)
+            )
+            if not has_code:
+                continue
+            total += 1
+            handled = any(
+                isinstance(n, _ast.Try) and n.handlers
+                for n in _ast.walk(tree)
+            )
+            if handled:
+                with_handler += 1
+            else:
+                no_handler.append(str(path.relative_to(root)))
+
+    summary = {"total": total, "with_handler": with_handler, "no_handler": no_handler[:50]}
+    return _json.dumps(summary), 0
 
 
 def compute_tool_score(tool: str, output: str, returncode: int) -> Optional[float]:
@@ -183,6 +330,9 @@ def compute_tool_score(tool: str, output: str, returncode: int) -> Optional[floa
         "pydocstyle":       _score_pydocstyle,
         "grep-bare-except": _score_grep_bare_except,
         "pytest-benchmark": _score_pytest_benchmark,
+        "ast-assertions":   _score_assertion_quality,
+        "ast-error-handling": _score_error_handling_coverage,
+        "pytest-cov-integration": lambda o, _rc: _score_pytest(o, coverage=True),
     }
     fn = scorers.get(tool)
     return fn(output, returncode) if fn else None
@@ -384,3 +534,40 @@ def _score_pytest_benchmark(output: str, returncode: int) -> Optional[float]:
         elif mean_ms > 1000.0:
             score -= 25.0
     return max(0.0, score)
+
+
+def _score_assertion_quality(output: str, _returncode: int) -> Optional[float]:
+    """Score ast-assertions output.  100 × (asserted / total).
+
+    total == 0 (no test functions at all) → 0.0 — a project claiming a passing
+    assertion-quality score with zero tests is a fabrication.  JSON parse failure
+    → None (treat as tool error, do not silently award a score).
+    """
+    import json as _json
+    try:
+        data = _json.loads(output)
+        total = int(data.get("total", 0))
+        asserted = int(data.get("asserted", 0))
+    except (_json.JSONDecodeError, ValueError, TypeError):
+        return None
+    if total == 0:
+        return 0.0
+    return round(100.0 * asserted / total, 1)
+
+
+def _score_error_handling_coverage(output: str, _returncode: int) -> Optional[float]:
+    """Score ast-error-handling output.  100 × (files_with_handler / total_files).
+
+    total == 0 (no source files with code) → 100.0 — nothing to handle is not a
+    failure.  JSON parse failure → None.
+    """
+    import json as _json
+    try:
+        data = _json.loads(output)
+        total = int(data.get("total", 0))
+        with_handler = int(data.get("with_handler", 0))
+    except (_json.JSONDecodeError, ValueError, TypeError):
+        return None
+    if total == 0:
+        return 100.0
+    return round(100.0 * with_handler / total, 1)

@@ -2137,13 +2137,12 @@ class TestGate4Prerequisites:
         assert blocked is True
         assert "architecture" not in waivers
 
-    def test_missing_issue_registry_blocked(self, tmp_path):
-        """Missing issue_registry file blocks (A5)."""
-        import json as _json
+    def test_missing_issue_registry_no_longer_blocks(self, tmp_path):
+        """A5 is advisory now — a missing issue_registry file does NOT block Gate 4."""
         from harness_cli import _check_gate4_prerequisites
         project = self._make_project(tmp_path)
         (project / ".methodology" / "issue_registry.json").unlink()
-        assert _check_gate4_prerequisites(project)[0] is True
+        assert _check_gate4_prerequisites(project)[0] is False
 
     def test_empty_scores_dir_blocked(self, tmp_path):
         """Empty per-dim scores directory blocks (B2)."""

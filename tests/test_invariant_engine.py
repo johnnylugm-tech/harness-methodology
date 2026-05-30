@@ -1,11 +1,9 @@
 """Tests for constitution/invariant_engine.py — behavioral invariant checking."""
 
-import pytest
 from constitution.invariant_engine import (
     InvariantEngine,
     BehavioralInvariant,
     InvariantViolation,
-    _check_hr09_invariant,
 )
 
 
@@ -80,11 +78,14 @@ class TestInvariantEngine:
 
     def test_from_constitution_rules(self):
         engine = InvariantEngine.from_constitution_rules()
-        assert len(engine.invariants) >= 7
+        assert len(engine.invariants) >= 6
         names = {i.name for i in engine.invariants}
         assert "Phase execution order" in names
         assert "Artifact citation required" in names
-        assert "Subagent isolation" in names
+        # The A/B log-based invariants were removed framework-wide — they re-checked
+        # A≠B / claims from the agent-writable sessions_spawn.log (not tamper-evident).
+        assert "Subagent isolation" not in names
+        assert "HR-09: Claims verification" not in names
 
     def test_check_passing_invariant(self):
         bi = BehavioralInvariant(
@@ -225,12 +226,6 @@ class TestHRConstitutionInvariants:
         bi = [i for i in engine.invariants if i.name == "Artifact citation required"][0]
         assert bi.check_func({"citations": [], "confidence": 3}, {}) is False
 
-    def test_subagent_isolation(self):
-        engine = InvariantEngine.from_constitution_rules()
-        bi = [i for i in engine.invariants if i.name == "Subagent isolation"][0]
-        assert bi.check_func({"session_id": "child"}, {"parent_session_id": "parent"}) is True
-        assert bi.check_func({"session_id": "same"}, {"parent_session_id": "same"}) is False
-
     def test_ab_review_threshold(self):
         engine = InvariantEngine.from_constitution_rules()
         bi = [i for i in engine.invariants if i.name == "A/B review threshold"][0]
@@ -244,50 +239,3 @@ class TestHRConstitutionInvariants:
         assert bi.check_func({"confidence": 5}, {}) is True
         assert bi.check_func({"confidence": 1, "status": "error"}, {}) is True
         assert bi.check_func({"confidence": 1}, {}) is False
-
-
-class TestHR09Invariant:
-    def test_no_result_text(self):
-        """Returns True when no result text to verify (pass-through)."""
-        assert _check_hr09_invariant(
-            {"result": "", "citations": ["SRS.md"]},
-            {"artifact_contents": {"SRS.md": "content"}},
-        ) is True
-
-    def test_no_citations(self):
-        """Returns True when no citations to check against (pass-through)."""
-        assert _check_hr09_invariant(
-            {"result": "some implementation text"},
-            {"artifact_contents": {"SRS.md": "content"}},
-        ) is True
-
-    def test_no_artifact_contents(self):
-        """Returns True when no artifact content (pass-through)."""
-        assert _check_hr09_invariant(
-            {"result": "implement LRU cache for performance", "citations": ["SRS.md#45"]},
-            {},
-        ) is True
-
-    def test_unverifiable_english_text(self):
-        """English text without Chinese claim patterns → unverifiable → False."""
-        assert _check_hr09_invariant(
-            {
-                "result": "The system shall use LRU cache strategy.",
-                "citations": ["SRS.md#45"],
-            },
-            {
-                "artifact_contents": {
-                    "SRS.md": "The system shall use LRU cache for performance optimization.",
-                },
-            },
-        ) is False  # non-strict with 0 claims → False
-
-    def test_hr09_invariant_from_rules(self):
-        """HR-09 invariant check_func is callable and returns bool."""
-        engine = InvariantEngine.from_constitution_rules()
-        bi = [i for i in engine.invariants if i.name == "HR-09: Claims verification"][0]
-        result = bi.check_func(
-            {"result": "some text", "citations": []},
-            {"artifact_contents": {}},
-        )
-        assert isinstance(result, bool)

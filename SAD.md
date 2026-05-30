@@ -1434,14 +1434,24 @@ def compute_tool_score(tool: str, output: str, returncode: int) -> float | None:
 
 **Skip list**: `mutmut` and `scancode` are excluded from *inline subprocess* cross-validation (too slow / complex). They are **not** treated as a free pass: `HarnessBridge._run_harness_cross_validation()` requires each skip-list dimension to point at a committed, non-empty `tool_output` file that passes `_validate_tool_content()` (a real tool report, not inline agent text). A missing/empty/malformed file → BLOCK.
 
+**In-process pseudo-tools** (computed by the harness itself, not external CLIs — replace former "fake" tool mappings that re-used pytest pass-rate):
+- `ast-assertions` (`test_assertion_quality`) — AST scan of test functions; `score = 100 × asserted/total`. A test with no substantive assertion (`assert` / `self.assertXxx` / `pytest.raises`) is "zero-assert" and lowers the score — what pytest pass-rate cannot detect.
+- `ast-error-handling` (`error_handling`) — file-level coverage `100 × files_with_try_except / total_source_files` over `03-development/src` / `src`. Replaces the CRG flow `has_error_handler` path (that field does not exist in the installed code-review-graph package).
+- `pytest-cov-integration` (`integration_coverage`) — runs `pytest 03-development/tests/integration --cov=…` and scores the real coverage `TOTAL%` (not pass-rate). Missing suite → exit 4/5 → score 0 → cross-validation blocks.
+
+> `architecture` is NOT scored here — it is framework-owned via the independent CRG run (`harness/crg_independent.py`, below) and overridden in `finalize_gate`. Cross-validation skips it.
+
 **Cross-validation return-code handling** (in `_run_harness_cross_validation`, when the agent-reported score ≥ threshold):
 - `-1` skip-list → must supply a verifiable committed `tool_output` file (above), else BLOCK.
 - `-2` timeout → **BLOCK**. A passing score must be independently reproducible; a timeout means the harness could not verify it, which is treated as a fabrication risk (reduce test runtime / fix the tool, then re-finalize).
+- `5` (pytest-family "no tests/benchmarks collected") → **BLOCK**. A passing score for a dimension whose verifying suite (`pytest-benchmark` / integration tests) does not exist is unverifiable.
 - `-3` tool-not-found / `-4` harness error → warn-only (S2 `_verify_gate_tools` already gates tool availability pre-finalize; `-4` is a framework-side fault, not agent-controllable).
 
 **Default timeouts** (seconds): `ruff` 30; `mypy`/`pyright` 60; `pytest`/`pytest-cov` 120; `gitleaks` 30; `bandit` 60; `radon-cc`/`radon-mi` 30; `pydocstyle` 30; `grep-bare-except` 15.
 
 **Integration**: Called by `HarnessBridge` during `run_gate()` preflight to produce harness-owned tool scores. Results are compared against agent-reported scores in `cross_artifact.py` (§3.15) and logged to `.sessi-work/harness_verification/` for audit.
+
+**Companion — `harness/crg_independent.py` (framework-owned `architecture`)**: The CRG Python API lives under its own interpreter (the `code-review-graph` console-script shebang), not the harness interpreter. `run_independent_crg(project_root, work_dir)` drives `code-review-graph build` + `postprocess` as subprocesses, dumps communities via `crg_dump_communities.py` (run under CRG's interpreter), reuses `crg_analysis.compute_community_cohesion_score`, and **writes** `.sessi-work/crg_metrics.json` itself. `finalize_gate` then overrides `architecture ← community_cohesion.score` — the agent never produces this value. CRG is a hard dependency: a missing binary or failed run raises `CrgIndependentError` → gate BLOCKED (no graceful degradation). `_verify_all_gate_tools` (run at each `run-phase`) surfaces a missing `code-review-graph` at project setup.
 
 ---
 

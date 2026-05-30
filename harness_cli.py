@@ -235,6 +235,25 @@ def _verify_gate_tools(gate_num: int, project: str) -> tuple[bool, list[str]]:
             missing.append(diag)
     return len(missing) == 0, missing
 
+
+def _verify_all_gate_tools(project: str) -> tuple[bool, list[str]]:
+    """Check that every tool required by ANY gate config is installed.
+
+    Run at each phase entry so missing required components (notably
+    `code-review-graph`, which scores the architecture dimension) surface at
+    project setup rather than deep inside Gate 3/4. CRG and the other SSI tools
+    are hard dependencies — there is no graceful degradation.
+    """
+    all_missing: list[str] = []
+    seen: set[str] = set()
+    for gate_num in (1, 2, 3, 4):
+        _, missing = _verify_gate_tools(gate_num, project)
+        for m in missing:
+            if m not in seen:
+                seen.add(m)
+                all_missing.append(m)
+    return len(all_missing) == 0, all_missing
+
 def _fr_step_preflight(step: str, project: Path, fr_id: str | None) -> tuple[bool, list[str]]:
     """Verify environment and artifacts are ready before spawning a sub-agent for an FR step.
 
@@ -1237,6 +1256,19 @@ def cmd_run_phase(args: argparse.Namespace) -> int:
         print(f"\nPRE-FLIGHT FAILED: {pre['details']}")
         return 1
 
+    # Required-component check (hard dependencies — incl. code-review-graph, which
+    # scores the architecture dimension). Verified at every phase entry so a missing
+    # component surfaces at setup, not deep inside Gate 3/4. No graceful degradation.
+    _tools_ok, _missing_components = _verify_all_gate_tools(str(project))
+    if not _tools_ok:
+        print(
+            "\n[BLOCKED] run-phase: required components not installed:\n"
+            + "\n".join(f"  - {m}" for m in _missing_components)
+            + "\n  These are hard dependencies (no degradation). Install them, then re-run.\n"
+            "  See SKILL.md / harness/ssi/prompts/evaluate_dimension.md for install commands."
+        )
+        return 1
+
     # Phase 3+: point to LLM-driven env check (project-aware, reads SAD.md + SRS.md).
     # preflight_all() validates governance artifacts but does not check runtime
     # dependencies (env vars, CLI tools, DB/cache connectivity, docker services)
@@ -1892,14 +1924,13 @@ def _check_gate4_prerequisites(project: Path) -> "tuple[bool, set[str]]":
         da_waivers — set of dimension names whose score threshold is waived via DA challenge
 
     Checks:
-        A2 — model_used field: all dims must have model recorded (any model accepted)
         A3 — devil_advocate: each marked-done Tier 3 dim (and every da_waiver) must carry a
              real `devil_advocate_evidence` artifact (challenge + response, not a bare boolean)
-        A5 — issue_registry_path: file exists and is non-empty
         B2 — per-dim score files exist in latest round_N/scores/ and have correct round field
 
-    (A4 high_score_confirmations was removed — it was a pure self-attested boolean check
-    that added ceremony without independent verification.)
+    Non-blocking advisory: A5 issue_registry_path (contents are agent-written).
+    Removed: A2 model_used (constant "claude" after MCP backends dropped),
+    A4 high_score_confirmations (self-attested boolean ceremony).
     """
     blocked = False
     da_waivers: set[str] = set()
@@ -1920,18 +1951,9 @@ def _check_gate4_prerequisites(project: Path) -> "tuple[bool, set[str]]":
                 print(f"[Gate 4] ⚠ Could not parse {candidate}: {_e} — skipping extended checks", file=sys.stderr)
 
     if g4:
-        # ── A2: model_used audit trail ────────────────────────────────
-        # Any model is accepted — all dims now use Claude sub-agent.
-        # The field is kept as a mandatory audit record of which model evaluated each dim.
-        model_used: dict = g4.get("model_used", {})
-        if not model_used:
-            print(
-                "\n[BLOCKED] Gate 4 (A2): 'model_used' field missing from gate4_result.json.\n"
-                "  Add a 'model_used' dict mapping each dimension name to the model used.\n"
-                "  Example: {\"linting\": \"claude\", \"architecture\": \"claude\"}",
-                file=sys.stderr,
-            )
-            blocked = True
+        # (A2 model_used removed — after the MCP backends were dropped every dim
+        # is evaluated by the Claude sub-agent, so the field was a constant "claude"
+        # with zero verification value.)
 
         # ── A3: Devil's Advocate for Tier 3 dims ─────────────────────
         devil_advocate: dict = g4.get("devil_advocate", {})
@@ -1992,42 +2014,28 @@ def _check_gate4_prerequisites(project: Path) -> "tuple[bool, set[str]]":
                             file=sys.stderr,
                         )
 
-        # ── A5: Issue Registry ────────────────────────────────────────
+        # ── A5: Issue Registry (advisory only — no longer blocks) ─────
+        # The registry contents are agent-written; "exists + non-empty" never
+        # verified anything an agent couldn't trivially satisfy. Downgraded to a
+        # non-blocking advisory.
         issue_registry_path_str: str = g4.get("issue_registry_path", "")
         if not issue_registry_path_str:
-            print(
-                "\n[BLOCKED] Gate 4 (A5): 'issue_registry_path' field missing from gate4_result.json.\n"
-                "  Run: python harness/ssi/scripts/issue_tracker.py add <finding> ...\n"
-                "  Then set issue_registry_path to the registry file path.",
-                file=sys.stderr,
-            )
-            blocked = True
+            print("[Gate 4] (A5, advisory): 'issue_registry_path' not set in gate4_result.json.",
+                  file=sys.stderr)
         else:
             issue_registry = (project / issue_registry_path_str) if not Path(issue_registry_path_str).is_absolute() else Path(issue_registry_path_str)
             if not issue_registry.exists():
-                print(
-                    f"\n[BLOCKED] Gate 4 (A5): Issue registry not found: {issue_registry}\n"
-                    "  Populate the registry using issue_tracker.py before finalizing Gate 4.",
-                    file=sys.stderr,
-                )
-                blocked = True
+                print(f"[Gate 4] (A5, advisory): issue registry not found: {issue_registry}",
+                      file=sys.stderr)
             else:
                 try:
                     registry_data = json.loads(issue_registry.read_text(encoding="utf-8"))
                     if not registry_data:
-                        print(
-                            f"\n[BLOCKED] Gate 4 (A5): Issue registry is empty: {issue_registry}\n"
-                            "  Add findings via issue_tracker.py.",
-                            file=sys.stderr,
-                        )
-                        blocked = True
+                        print(f"[Gate 4] (A5, advisory): issue registry is empty: {issue_registry}",
+                              file=sys.stderr)
                 except json.JSONDecodeError:
-                    print(
-                        f"\n[BLOCKED] Gate 4 (A5): Issue registry is not valid JSON: {issue_registry}\n"
-                        "  Ensure the registry was written by issue_tracker.py.",
-                        file=sys.stderr,
-                    )
-                    blocked = True
+                    print(f"[Gate 4] (A5, advisory): issue registry is not valid JSON: {issue_registry}",
+                          file=sys.stderr)
 
     # ── B2: Per-dim score files (latest round, stale-round detection) ────
     _b2_latest = _find_latest_round_dir(project)

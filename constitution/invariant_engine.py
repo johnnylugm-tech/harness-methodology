@@ -19,14 +19,6 @@ import logging
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional, Callable
 
-# HR-09: Claims Verifier availability
-try:
-    from constitution.claim_verifier import verify_result
-    HR09_AVAILABLE = True
-except ImportError as e:
-    HR09_AVAILABLE = False
-    _hr09_import_error = str(e)
-
 logger = logging.getLogger(__name__)
 
 
@@ -95,17 +87,9 @@ class InvariantEngine:
                 severity="high",
                 source="HR-07",
             ),
-            # HR-10: Subagent isolation (Phase 1-2 only; P3+ replaces A/B with Phase End Audit)
-            BehavioralInvariant(
-                name="Subagent isolation",
-                description="Subagent sessions must not share context with other subagents",
-                check_func=lambda log, ctx: (
-                    log.get("session_id") != ctx.get("parent_session_id")
-                ),
-                severity="high",
-                phase_scope=[1, 2],
-                source="HR-10",
-            ),
+            # (HR-10/HR-01 "Subagent isolation" invariant removed — it re-checked A≠B
+            # by reading session_id from the agent-writable sessions_spawn.log, which is
+            # not tamper-evident. The A/B log audit was retired framework-wide.)
             # HR-12: A/B review threshold
             BehavioralInvariant(
                 name="A/B review threshold",
@@ -141,14 +125,9 @@ class InvariantEngine:
                 severity="critical",
                 source="HR-15",
             ),
-            # HR-09: Claims must be verified
-            BehavioralInvariant(
-                name="HR-09: Claims verification",
-                description="Claims must be supported by actual citation content",
-                check_func=lambda log, ctx: _check_hr09_invariant(log, ctx),
-                severity="high",
-                source="HR-09",
-            ),
+            # (HR-09 "Claims verification" invariant removed — it re-validated claims
+            # from the agent-writable sessions_spawn.log; superseded by gate-level
+            # claims/tool-score verification.)
             # TH-07: Confidence calibration
             BehavioralInvariant(
                 name="Confidence calibration",
@@ -254,35 +233,6 @@ class InvariantEngine:
                 for v in violations
             ],
         }
-
-
-# ─── HR-09 Helper ──────────────────────────────────────────────────────────────
-
-def _check_hr09_invariant(log: dict, ctx: dict) -> bool:
-    """HR-09 check: verify claim content is supported by citations."""
-    if not HR09_AVAILABLE:
-        return True
-
-    result_text = log.get("result", "") or ""
-    citations = log.get("citations", [])
-
-    if not result_text or not citations:
-        return True
-
-    artifact_content = ctx.get("artifact_contents", {})
-    if not artifact_content:
-        return True
-
-    try:
-        verification = verify_result(
-            result_text=result_text,
-            citations=citations,
-            artifact_content=artifact_content,
-            strict=False,
-        )
-        return verification.get("verified", True)
-    except Exception:
-        return True
 
 
 # ─── CLI ──────────────────────────────────────────────────────────────────────

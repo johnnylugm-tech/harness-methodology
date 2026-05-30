@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from harness.tool_runners import (
     compute_tool_score,
+    run_tool,
     _score_radon_cc,
     _score_radon_cc_high,
     _score_radon_mi,
@@ -29,6 +30,8 @@ from harness.tool_runners import (
     _score_pydocstyle,
     _score_grep_bare_except,
     _score_pytest_benchmark,
+    _score_assertion_quality,
+    _score_error_handling_coverage,
 )
 
 
@@ -422,3 +425,91 @@ class TestScorePytestBenchmark:
     def test_empty_output_returns_100(self):
         """Empty output (e.g. pytest ran but produced no table) → 100."""
         assert _score_pytest_benchmark("", 0) == 100.0
+
+
+# ---------------------------------------------------------------------------
+# _score_assertion_quality + ast-assertions (Layer 1a)
+# ---------------------------------------------------------------------------
+
+class TestScoreAssertionQuality:
+    def test_all_asserted_returns_100(self):
+        assert _score_assertion_quality('{"total": 4, "asserted": 4}', 0) == 100.0
+
+    def test_partial_ratio(self):
+        assert _score_assertion_quality('{"total": 4, "asserted": 3}', 0) == 75.0
+
+    def test_zero_tests_returns_0(self):
+        """A passing assertion-quality score with no tests at all is a fabrication."""
+        assert _score_assertion_quality('{"total": 0, "asserted": 0}', 0) == 0.0
+
+    def test_non_json_returns_none(self):
+        assert _score_assertion_quality("not json", 0) is None
+
+
+class TestRunAstAssertions:
+    def test_detects_zero_assert_and_real_assertions(self, tmp_path):
+        (tmp_path / "tests").mkdir()
+        (tmp_path / "tests" / "test_x.py").write_text(
+            "def test_real():\n    assert 1 == 1\n"
+            "def test_empty():\n    pass\n"
+            "def test_raises():\n    import pytest\n    with pytest.raises(ValueError):\n        raise ValueError()\n"
+            "def test_unittest():\n    import unittest\n    unittest.TestCase().assertEqual(1, 1)\n",
+            encoding="utf-8",
+        )
+        out, rc = run_tool("ast-assertions", str(tmp_path))
+        assert rc == 0
+        data = json.loads(out)
+        assert data["total"] == 4
+        assert data["asserted"] == 3  # test_empty is the only zero-assert
+        assert any("test_empty" in z for z in data["zero_assert"])
+        assert compute_tool_score("ast-assertions", out, rc) == 75.0
+
+
+# ---------------------------------------------------------------------------
+# _score_error_handling_coverage + ast-error-handling (Layer 3, error_handling)
+# ---------------------------------------------------------------------------
+
+class TestScoreErrorHandlingCoverage:
+    def test_all_handled_returns_100(self):
+        assert _score_error_handling_coverage('{"total": 3, "with_handler": 3}', 0) == 100.0
+
+    def test_partial_ratio(self):
+        assert _score_error_handling_coverage('{"total": 4, "with_handler": 2}', 0) == 50.0
+
+    def test_no_source_returns_100(self):
+        """No source files with code → nothing to handle, not a failure."""
+        assert _score_error_handling_coverage('{"total": 0, "with_handler": 0}', 0) == 100.0
+
+    def test_non_json_returns_none(self):
+        assert _score_error_handling_coverage("not json", 0) is None
+
+
+class TestRunAstErrorHandling:
+    def test_file_level_coverage(self, tmp_path):
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "a.py").write_text(
+            "def f():\n    try:\n        x = 1\n    except Exception:\n        pass\n", encoding="utf-8")
+        (src / "b.py").write_text("def g():\n    return 1\n", encoding="utf-8")
+        (src / "__init__.py").write_text("", encoding="utf-8")  # no code → skipped
+        out, rc = run_tool("ast-error-handling", str(tmp_path))
+        assert rc == 0
+        data = json.loads(out)
+        assert data["total"] == 2  # __init__ skipped
+        assert data["with_handler"] == 1
+        assert compute_tool_score("ast-error-handling", out, rc) == 50.0
+
+
+# ---------------------------------------------------------------------------
+# pytest-cov-integration (Layer 1b)
+# ---------------------------------------------------------------------------
+
+class TestPytestCovIntegration:
+    def test_score_uses_coverage_not_passrate(self):
+        """integration tool is scored on the coverage TOTAL%, never pass-rate."""
+        cov_output = "TOTAL      100     20    80%\n5 passed in 0.1s"
+        assert compute_tool_score("pytest-cov-integration", cov_output, 0) == 80.0
+
+    def test_missing_suite_scores_zero(self):
+        """No integration suite → no TOTAL line, no passes → 0 (cross-validation blocks)."""
+        assert compute_tool_score("pytest-cov-integration", "no tests ran", 0) == 0.0

@@ -60,7 +60,15 @@ nyc --reporter=json npm test
 > Do NOT write a score file. Fix the pytest/coverage configuration and restart from Step 1.
 > (`tool_score=null` is not accepted for Tier 1 — score.py R8 will block gate scoring.)
 
-### test_assertion_quality (Tier 2)
+### test_assertion_quality (Tier 2 — framework tool: ast-assertions)
+
+> Framework-scored: during S4 the harness runs `ast-assertions` and scores
+> `100 × asserted_tests / total_tests` — a test function with NO substantive
+> assertion (`assert` / `self.assertXxx` / `pytest.raises`) is "zero-assert" and
+> lowers the score. Your recorded score is cross-checked; fabrication is blocked.
+> The snippet below reproduces the analysis for findings (its density value is
+> diagnostic only — the gate uses asserted/total).
+
 ```bash
 # Assertion density & zero-assert detection via Python AST.
 # No external tool needed — uses stdlib ast.
@@ -178,17 +186,20 @@ fi
 > `llm_score` field is recorded for annotation purposes only; it does not affect gate scoring.
 > score.py R8b deviation warning was removed when LLM scoring was abolished.
 
-### architecture (Tier 3 — CRG-ONLY)
+### architecture (Tier 3 — CRG-ONLY, framework-owned)
 
-**Scored by CRG, not LLM.** The score comes from `crg_analysis.py metrics` output:
-`community_cohesion.score` — percent of healthy communities (cohesion >= 0.4 AND size <= 50).
+**Scored by the framework's OWN independent CRG run — not the LLM, not the agent.**
+At finalize-gate the harness itself runs `code-review-graph build` + `postprocess`
+(via `harness/crg_independent.py`) and computes `community_cohesion.score` — percent of
+healthy communities (cohesion >= 0.4 AND size <= 50). Whatever value you record is
+**overwritten** by this framework-computed score, so do not fabricate it.
 
-No LLM evaluation is performed for this dimension. CRG is the authoritative scorer,
-same as ruff for linting or mypy for type_safety.
+`code-review-graph` is a REQUIRED component (like ruff/mypy); a missing binary BLOCKS
+the gate (verified at run-phase preflight — no graceful degradation).
 
-Tool command (for findings enrichment only — does not affect score):
+Findings enrichment (via CRG MCP tools — does not affect the score):
 ```bash
-radon cc src/ -j --min A 2>&1 | head -200
+# list_communities / get_community — name low-cohesion communities in findings evidence
 ```
 
 #### ⚠ Orchestrator Pattern False Positive (Expected CRG Score: 0)
@@ -221,39 +232,25 @@ radon mi src/ -j 2>&1 | head -100
 ```
 **Score formula:** `tool_score = avg(mi for all files)` — `radon mi -j` outputs `{"file.py": {"mi": 0-100, "rank": "A-F"}}`. Average the `mi` values across all files.
 
-### error_handling (Tier 3 — CRG-ONLY)
+### error_handling (Tier 3 — tool-scored: ast-error-handling)
 
-**Scored by CRG, not LLM.** The score comes from `crg_analysis.py metrics` output:
-`flow_coverage.score` — percent of flows with documented error handlers.
+**Scored by the framework, not the LLM and not CRG.** The harness scans the source
+tree (`03-development/src`, `src`) and computes **file-level error-handling coverage**:
+the percentage of source files (that contain code) with at least one real `try/except`
+handler block.
 
-No LLM evaluation is performed for this dimension. CRG is the authoritative scorer.
+`error_handling.score = round(100 × files_with_handler / total_source_files, 1)`
 
-Tool command (for findings enrichment only — does not affect score):
-```bash
-grep -rn --include="*.py" "except\s*:" src/ 2>&1 | head -100
-```
+This replaces the former CRG flow `has_error_handler` path — that field does **not
+exist** in the installed code-review-graph package. S4 cross-validation re-runs this
+AST scan independently, so a fabricated score is blocked.
 
-#### What CRG Measures for Error Handling
+- Files with no functions/classes (e.g. empty `__init__.py`) are excluded.
+- A file counts as handled if it contains any `try/except` with handlers (bare-except
+  *quality* is a separate concern; this metric is coverage of error handling).
 
-`flow_coverage.score` = `(flows_with_handler / total_flows) × 100`.
-
-A "flow" is a call-chain path traced by CRG between two functions.
-A flow "has a handler" when at least one node in the path is wrapped in a documented
-`try/except` block with a **specific** exception type (not bare `except:`).
-
-**Bare `except:` does NOT count** as a handler in CRG flow analysis — it is detected
-by the grep tool above and listed as a finding, but it does not improve the CRG score.
-
-**To identify which flows lack handlers:**
-```bash
-# Use CRG tools in findings enrichment step:
-# get_affected_flows  — lists flows by name and whether they have handlers
-# semantic_search_nodes "except"  — shows existing handlers for context
-```
-
-**Fix priority**: flows that call I/O, network, database, or external service functions
-with no `try/except SpecificException` wrapping.
-**Score formula**: `tool_score = round(100 × flows_with_handler / total_flows, 1)`
+**Fix priority**: source files performing I/O, network, database, or external-service
+calls with no `try/except` anywhere in the file.
 
 ### documentation (Tier 3)
 ```bash
@@ -284,13 +281,14 @@ Score = formula from Step 1. Findings = each tool violation becomes one finding 
 
 ### Tier 3: CRG-scored dimensions vs tool-scored dimensions
 
-**CRG-ONLY dimensions** (architecture, error_handling):
-- Score comes directly from `crg_analysis.py metrics` → `community_cohesion.score` / `flow_coverage.score`
-- `score.py` applies the CRG score as the authoritative score (not min with LLM)
-- LLM does NOT compute or adjust the numeric score for these dimensions
-- Tool output (radon, grep) is used only for findings enrichment, not scoring
+**CRG-ONLY dimension** (architecture):
+- Score comes from the framework's OWN independent CRG run (`harness/crg_independent.py`
+  at finalize) → `community_cohesion.score`. It OVERWRITES any agent-recorded value.
+- LLM does NOT compute or adjust the numeric score for this dimension
+- `code-review-graph` is a required component; missing → gate BLOCKED (no degradation)
 
-**Tool-scored Tier 3 dimensions** (readability, documentation, performance):
+**Tool-scored Tier 3 dimensions** (readability, documentation, performance, error_handling):
+- `error_handling` → `ast-error-handling` (file-level try/except coverage, framework AST)
 - Score = formula from Step 1 tool output
 - Optionally query CRG (`get_minimal_context_tool`) to enrich finding descriptions
 - CRG data enriches findings but does not change the score

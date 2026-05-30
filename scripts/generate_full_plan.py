@@ -998,67 +998,6 @@ def _review_checkpoint(phase: int, checkpoint_n: int) -> List[str]:
     return lines
 
 
-def _aspice_output_requirements(phase: int) -> List[str]:
-    """Return ASPICE traceability checklist items for the current phase's outputs.
-
-    Reads PhaseArtifactRegistry to discover which predecessor artifact stems
-    the current phase's output files must reference.  These items are injected
-    into the phase deliverables section so the agent knows the requirement
-    *before* writing any artifact (prevent, not just detect).
-    """
-    try:
-        import sys as _sys
-        _root = str(Path(__file__).resolve().parent.parent)
-        if _root not in _sys.path:
-            _sys.path.insert(0, _root)
-        from core.quality_gate.phase_artifact_enforcer import (  # type: ignore
-            Phase, PhaseArtifactRegistry,
-        )
-    except ImportError:
-        return []
-
-    try:
-        current_enum = Phase.from_int(phase)
-    except KeyError:
-        return []
-
-    deps = PhaseArtifactRegistry.PHASE_ARTIFACTS.get(current_enum, {}).get("depends_on", [])
-    if not deps:
-        return []
-
-    lines = ["", "#### ASPICE Traceability Requirements (enforced by postflight)", ""]
-    visited: set[int] = set()
-    _queue = list(deps)
-    while _queue:
-        dep_enum = _queue.pop(0)
-        if dep_enum.value in visited:
-            continue
-        visited.add(dep_enum.value)
-        dep_info = PhaseArtifactRegistry.PHASE_ARTIFACTS.get(dep_enum, {})
-        artifacts = dep_info.get("artifacts", [])
-        if artifacts:
-            for artifact in artifacts:
-                stem = Path(artifact).stem
-                lines.append(
-                    f"- [ ] **[ASPICE]** Artifact for Phase {phase} MUST reference "
-                    f"`{artifact}` by filename keyword `{stem}` "
-                    f"(ASPICE traceability — `postflight_artifact_links()` enforces this)"
-                )
-        else:
-            # Predecessor has no artifacts (e.g. code-only phase) — traverse its deps
-            for ancestor in dep_info.get("depends_on", []):
-                if ancestor.value not in visited:
-                    _queue.append(ancestor)
-    # Fallback: ensure at least one item for phases with no traceable dependencies
-    if len(lines) == 3:  # only header present, no items added
-        lines.append(
-            f"- [ ] **[ASPICE]** Artifact for Phase {phase} MUST reference `SRS.md` "
-            f"by filename keyword `SRS` (ASPICE traceability — default fallback)"
-        )
-    lines.append("")
-    return lines
-
-
 
 def _fr_dev_steps(fr_id: str, phase: int) -> List[str]:
     """Per-FR implementation steps.
@@ -1418,26 +1357,11 @@ def _milestone_push_steps(fr_ids: List[str], phase: int,
 
 
 def _gate4_prerequisites_block() -> List[str]:
-    """Gate 4 result JSON required fields (A2–A5) — inserted before _gate_exit_checkpoint(4)."""
+    """Gate 4 result JSON required fields (A3) — inserted before _gate_exit_checkpoint(4)."""
     return [
-        "### Gate 4 Result JSON — Required Fields (A2–A5)",
+        "### Gate 4 Result JSON — Required Fields",
         "",
-        "> `finalize-gate --gate 4` validates these fields **before** scoring.",
-        "> Missing any field → `[BLOCKED]` with a specific error message.",
-        "",
-        "- [ ] **[A2] `model_used`** — record which model evaluated each dimension (audit trail):",
-        "  ```json",
-        '  "model_used": {',
-        '    "linting": "claude", "type_safety": "claude",',
-        '    "test_coverage": "claude", "security": "claude",',
-        '    "secrets_scanning": "claude", "license_compliance": "claude",',
-        '    "mutation_testing": "claude", "integration_coverage": "claude",',
-        '    "test_assertion_quality": "claude",',
-        '    "architecture": "claude", "readability": "claude",',
-        '    "error_handling": "claude", "documentation": "claude", "performance": "claude"',
-        '  }',
-        "  ```",
-        "  > All dims use the Claude sub-agent (no external MCP backend required).",
+        "> `finalize-gate --gate 4` validates A3 **before** scoring. Missing/insufficient → `[BLOCKED]`.",
         "",
         "- [ ] **[A3] `devil_advocate`** + **`devil_advocate_evidence`** — artifact-backed DA challenge for all Tier 3 dims:",
         "  ```json",
@@ -1460,11 +1384,12 @@ def _gate4_prerequisites_block() -> List[str]:
         "  > score threshold — the waiver also requires the `devil_advocate_evidence.architecture` artifact.",
         "  > See `harness/ssi/prompts/evaluate_dimension.md` §Orchestrator.",
         "",
-        "- [ ] **[A5] `issue_registry_path`** — path to the populated issue registry:",
+        "- [ ] **[A5] `issue_registry_path`** (advisory — no longer blocks) — path to the issue registry:",
         "  ```json",
         '  "issue_registry_path": ".sessi-work/issue_registry.json"',
         "  ```",
-        "  > Must be non-empty. Populate via `issue_tracker.py add` during G4b dimension evaluation.",
+        "  > Advisory only: the registry is agent-written, so its presence never verified anything.",
+        "  > Populate via `issue_tracker.py add` during G4b for a useful audit trail.",
         "",
     ]
 
@@ -1505,7 +1430,7 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
             "- [ ] **G4f** Generate Final Sign-Off:",
             "  Create `FINAL_SIGN_OFF.md` at project root.",
             "  Include: project name, completion date, Gate 4 composite score, sign-off statement.",
-            "  Must reference `BASELINE.md` and `VERIFICATION_REPORT.md` (ASPICE traceability).",
+            "  Must reference `BASELINE.md` and `VERIFICATION_REPORT.md` (verification provenance).",
             "",
         ]
 
@@ -2125,13 +2050,12 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
             checkpoint_n = 1
 
     lines.extend([
-        "### TEST_RESULTS.md Summary (required for C5 P4 audit)",
+        "### TEST_RESULTS.md Summary",
         "",
         "- [ ] **[TEST-RESULTS-SUMMARY]** Finalize `04-testing/TEST_RESULTS.md` before milestone push:",
-        "  - Add execution summary line: `N passed, M failed` or `Pass Rate: N%`"
-        " (required — C5 P4 audit checks for pass rate pattern)",
-        "  - Ensure ≥3 TC-XX or TR-XX references appear across the document"
-        " (C5 P4 audit requires tc_refs + tr_refs ≥ 3)",
+        "  - Summarise test execution: test cases run, pass/fail outcome, any deferred issues",
+        "  - Real test execution is enforced by advance-phase TDD-PRECHECK "
+        "(`pytest --cov-fail-under=100`), not by string-matching this document",
         "",
     ])
 
@@ -2143,12 +2067,11 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
 
     lines.append("### Phase 4 Deliverables")
     lines.append("- [ ] `TEST_PLAN.md` - Test plan")
-    lines.append("- [ ] `TEST_RESULTS.md` - Test results (pass rate summary + ≥3 TC/TR refs required)")
+    lines.append("- [ ] `TEST_RESULTS.md` - Test results (test execution summary)")
     lines.append("- [ ] `COVERAGE_REPORT.md` - Coverage report")
     lines.append(_sessions_spawn_deliverable())
     lines.append("- [ ] Gate 1 PASS for every FR")
     lines.append("- [ ] Gate 3 PASS (phase exit, composite ≥ 80, 14 dims)")
-    lines.extend(_aspice_output_requirements(4))
     lines.append("")
 
     # audit-phase runs inside advance-phase — no separate local step needed
@@ -2228,7 +2151,6 @@ def generate_phase5_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     lines.append("- [ ] `05-verification/VERIFICATION_REPORT.md` - Verification report")
     lines.append(_sessions_spawn_deliverable())
     lines.append("- [ ] Gate 1 PASS for every FR")
-    lines.extend(_aspice_output_requirements(5))
     lines.append("")
 
     # audit-phase runs inside advance-phase — no separate local step needed
@@ -2289,7 +2211,6 @@ def generate_phase6_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     lines.append("- [ ] `RELEASE_NOTES.md` - Release notes")
     lines.append("- [ ] `FINAL_SIGN_OFF.md` - Final sign-off")
     lines.append(_sessions_spawn_deliverable())
-    lines.extend(_aspice_output_requirements(6))
     lines.append("")
 
     # audit-phase runs inside advance-phase — no separate local step needed
@@ -2383,7 +2304,6 @@ def generate_phase7_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     lines.append("- [ ] `07-risk/RISK_STATUS_REPORT.md` - Risk status report")
     lines.append(_sessions_spawn_deliverable())
     lines.append("- [ ] Gate 1 PASS for every FR")
-    lines.extend(_aspice_output_requirements(7))
     lines.append("")
 
     # audit-phase runs inside advance-phase — no separate local step needed
@@ -2483,7 +2403,6 @@ def generate_phase8_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     lines.append("- [ ] `RELEASE_CHECKLIST.md` - Release checklist")
     lines.append(_sessions_spawn_deliverable())
     lines.append("- [ ] Gate 1 PASS for every FR")
-    lines.extend(_aspice_output_requirements(8))
     lines.append("")
 
     # audit-phase runs inside advance-phase — no separate local step needed

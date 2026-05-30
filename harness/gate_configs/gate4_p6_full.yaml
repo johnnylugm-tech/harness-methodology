@@ -12,13 +12,13 @@ dimensions:
   - { name: secrets_scanning,      tier: 1, threshold: 100, weight: 0.07, tool: gitleaks,          requires_tool_execution: true }
   - { name: license_compliance,    tier: 1, threshold: 100, weight: 0.07, tool: scancode,          requires_tool_execution: true }
   - { name: mutation_testing,      tier: 1, threshold: 70,  weight: 0.08, tool: mutmut,            requires_tool_execution: true }
-  - { name: architecture,          tier: 3, threshold: 80,  weight: 0.14, tool: radon-cc,          requires_tool_execution: true }
+  - { name: architecture,          tier: 3, threshold: 80,  weight: 0.14, tool: code-review-graph,          requires_tool_execution: true }
   - { name: readability,           tier: 3, threshold: 80,  weight: 0.08, tool: radon-mi,          requires_tool_execution: true }
-  - { name: error_handling,        tier: 3, threshold: 80,  weight: 0.08, tool: grep-bare-except,  requires_tool_execution: true }
+  - { name: error_handling,        tier: 3, threshold: 80,  weight: 0.08, tool: ast-error-handling,  requires_tool_execution: true }
   - { name: documentation,         tier: 3, threshold: 75,  weight: 0.06, tool: pydocstyle,        requires_tool_execution: true }
   - { name: performance,           tier: 3, threshold: 75,  weight: 0.06, tool: pytest-benchmark,  requires_tool_execution: true }
-  - { name: integration_coverage,  tier: 2, threshold: 75,  weight: 0.05, tool: pytest,            requires_tool_execution: true }
-  - { name: test_assertion_quality, tier: 2, threshold: 70,  weight: 0.02, tool: pytest,            requires_tool_execution: true }
+  - { name: integration_coverage,  tier: 2, threshold: 75,  weight: 0.05, tool: pytest-cov-integration,            requires_tool_execution: true }
+  - { name: test_assertion_quality, tier: 2, threshold: 70,  weight: 0.02, tool: ast-assertions,            requires_tool_execution: true }
 blocking: true
 score_gate: 85
 max_rounds: 3

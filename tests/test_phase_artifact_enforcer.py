@@ -94,8 +94,13 @@ class TestVerifyPhaseLink:
         assert result.passed is True, f"Expected pass, got: {result.reason}"
         assert "verified" in result.reason.lower()
 
-    def test_existing_artifacts_no_reference_fails(self, tmp_path):
-        """Phase link fails if the dependent artifact doesn't reference the predecessor."""
+    def test_existing_artifacts_without_reference_now_passes(self, tmp_path):
+        """The substring 'reference' check was removed — existence is enough.
+
+        Previously an artifact that didn't mention the predecessor's filename
+        failed; now traceability means both artifacts exist (the substring scan
+        was pure theatre an agent passes by pasting a keyword).
+        """
         req_dir = tmp_path / "01-requirements"
         req_dir.mkdir()
         (req_dir / "SRS.md").write_text("# SRS\n\nRequirements.\n")
@@ -108,8 +113,8 @@ class TestVerifyPhaseLink:
 
         registry = PhaseArtifactRegistry(str(tmp_path))
         result = registry.verify_phase_link(Phase.SPECIFY, Phase.PLAN)
-        assert result.passed is False
-        assert "traceability" in result.reason.lower()
+        assert result.passed is True
+        assert "verified" in result.reason.lower()
 
     def test_specify_to_nonexistent_specify_fails_missing_artifacts(self, tmp_path):
         """SPECIFY->SPECIFY self-link fails when P1 artifacts don't exist."""
@@ -221,11 +226,12 @@ class TestVerifyPhaseChain:
             f"P3 entry should pass with only P1+P2 artifacts; missing: {result['missing_links']}"
         )
 
-    def test_phase3_entry_fails_when_p2_missing_traceability(self, tmp_path):
-        """P3 entry: P2 references P1 is checked (not skip_to_side at P3 entry).
+    def test_phase3_entry_no_longer_fails_on_missing_reference(self, tmp_path):
+        """P3 entry: the predecessor-reference substring check was removed.
 
-        If P2's SAD.md does not reference P1 artifacts, the SPECIFY→PLAN
-        link should fail even though the IMPLEMENT links are relaxed.
+        P2's SAD.md no longer needs to mention P1 artifacts by name. As long as
+        both phases' artifacts exist, the SPECIFY→PLAN link verifies — no link
+        should fail with a 'traceability reference' reason any more.
         """
         # P1: SPECIFY
         (tmp_path / "01-requirements").mkdir()
@@ -233,7 +239,7 @@ class TestVerifyPhaseChain:
         (tmp_path / "01-requirements" / "SPEC_TRACKING.md").write_text("# Tracking\n")
         (tmp_path / "01-requirements" / "TRACEABILITY_MATRIX.md").write_text("# Matrix\n")
 
-        # P2: PLAN — NO reference to P1 artifacts
+        # P2: PLAN — no textual reference to P1 artifacts (now acceptable)
         (tmp_path / "02-architecture").mkdir()
         (tmp_path / "02-architecture" / "SAD.md").write_text(
             "# Architecture\n\nA standalone architecture document.\n"
@@ -241,10 +247,9 @@ class TestVerifyPhaseChain:
 
         registry = PhaseArtifactRegistry(str(tmp_path))
         result = registry.verify_phase_chain(current_phase=3)
-        assert result["all_verified"] is False
-        assert any("traceability" in m.lower() for m in result["missing_links"]), (
-            f"Expected traceability failure; got: {result['missing_links']}"
-        )
+        assert not any(
+            "traceability reference" in m.lower() for m in result["missing_links"]
+        ), f"reference-substring failures should be gone; got: {result['missing_links']}"
 
     def test_phase4_chain_with_all_artifacts_passes(self, tmp_path):
         """Full P1-P4 chain should pass when all artifacts exist with references."""

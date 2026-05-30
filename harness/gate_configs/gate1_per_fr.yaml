@@ -8,7 +8,7 @@ dimensions:
   - { name: linting,               tier: 1, threshold: 90, weight: 0.30, tool: ruff,        requires_tool_execution: true }
   - { name: type_safety,           tier: 1, threshold: 85, weight: 0.30, tool: pyright,     requires_tool_execution: true }
   - { name: test_coverage,         tier: 1, threshold: 80, weight: 0.30, tool: pytest-cov,  requires_tool_execution: true }
-  - { name: test_assertion_quality, tier: 2, threshold: 50, weight: 0.10, tool: pytest,     requires_tool_execution: true }
+  - { name: test_assertion_quality, tier: 2, threshold: 50, weight: 0.10, tool: ast-assertions,     requires_tool_execution: true }
 blocking: true
 early_stop: false
 max_rounds: 1

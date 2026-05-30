@@ -1784,16 +1784,16 @@ class TestCrossProjectFixes:
 class TestReviewerDesignFixes:
     """12 fixes for reviewer completeness/correctness/consistency audit."""
 
-    # C1: P6 must contain Gate 4 A2-A5 prerequisites block
+    # C1: P6 must contain the Gate 4 A3 prerequisites block (A2/A4 removed, A5 advisory)
     def test_p6_has_gate4_prerequisites_block(self, tmp_path: Path):
         (tmp_path / ".methodology").mkdir()
         result = generate_full_plan(6, tmp_path, dynamic=True)
         assert result is not None
-        assert "[A2]" in result, "P6 must have A2 model_used field documentation"
+        assert "[A2]" not in result, "A2 model_used was removed (constant 'claude' — no value)"
         assert "[A3]" in result, "P6 must have A3 devil_advocate field documentation"
         assert "devil_advocate_evidence" in result, "P6 A3 must require the artifact-backed evidence field"
         assert "[A4]" not in result, "A4 high_score_confirmations was removed"
-        assert "[A5]" in result, "P6 must have A5 issue_registry_path documentation"
+        assert "[A5]" in result, "P6 must still document A5 issue_registry_path (advisory)"
 
     # C2: P6 must document DA challenge and DA waiver for CRG-ONLY dims
     def test_p6_da_challenge_documented(self, tmp_path: Path):

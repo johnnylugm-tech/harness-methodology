@@ -367,13 +367,18 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
     violations: list[str] = []
     breakdown = raw.get("breakdown", {})
 
+    # architecture is scored by the framework's independent CRG run (community_cohesion)
+    # inside finalize_gate, not by re-running a tool here. Its tool field is
+    # `code-review-graph` (no inline scorer); skip it in cross-validation.
+    _crg_owned = {"architecture"}
+
     for dim in cfg.get("dimensions", []):
         dim_name = dim.get("name", "")
         requires_tool = dim.get("requires_tool_execution", False)
         tool = dim.get("tool")
         threshold = float(dim.get("threshold", 0))
 
-        if not requires_tool or not tool:
+        if not requires_tool or not tool or dim_name in _crg_owned:
             continue
 
         agent_score = float(breakdown.get(dim_name, {}).get("score", 0))
@@ -447,6 +452,18 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
             print(
                 f"  [S4-WARN] {dim_name}: '{tool}' cross-validation skipped "
                 f"(returncode={returncode}) — verify manually"
+            )
+            continue
+
+        if returncode == 5:
+            # pytest-family exit 5 = "no tests/benchmarks collected". A passing agent
+            # score for a dimension whose verifying suite does not exist is unverifiable
+            # — treat as a fabrication risk and BLOCK (no free pass for missing suites).
+            violations.append(
+                f"{dim_name}: '{tool}' collected no tests/benchmarks (exit 5) — "
+                f"cannot verify agent score {agent_score:.1f}. This dimension requires a "
+                f"real suite (e.g. pytest-benchmark / integration tests) to exist; "
+                f"add it, then re-finalize."
             )
             continue
 
@@ -1330,51 +1347,46 @@ class HarnessBridge:
                 for d in dims
             ]
 
-        # CRG-ONLY dimension override: harness enforces CRG scores for structural dimensions.
-        # architecture  ← crg_metrics.community_cohesion.score
-        # error_handling ← crg_metrics.flow_coverage.score
-        # Prevents LLM score fabrication for CRG-ONLY dims (score.py._apply_crg_subscores
-        # runs only when score.py is invoked; this enforces the same rule at finalize time).
+        # CRG-ONLY dimension override: the *architecture* dimension is scored by the
+        # framework's OWN independent CRG run (community_cohesion), never the agent.
+        # error_handling was moved to a tool-scored dimension (ast-error-handling) —
+        # the CRG flow `has_error_handler` field does not exist in the package.
         _crg_overrides_applied = False
         _crg_metrics_path = Path(ctx.work_dir) / "crg_metrics.json"
-        _CRG_ONLY_DIMS = {"architecture", "error_handling"}
-        if _crg_metrics_path.exists() and any(d.name in _CRG_ONLY_DIMS for d in dims):
+        _CRG_ONLY_DIMS = {"architecture"}
+        if any(d.name in _CRG_ONLY_DIMS for d in dims):
+            # Regenerate crg_metrics.json from an independent CRG run, overwriting any
+            # agent-written file. CRG is a hard dependency (verified at preflight); a
+            # failure is a real error → BLOCK, never a fallback to agent scores.
+            from harness.crg_independent import run_independent_crg, CrgIndependentError
             try:
+                run_independent_crg(ctx.project_root, ctx.work_dir)
                 _crg_m = json.loads(_crg_metrics_path.read_text(encoding="utf-8"))
                 _cohesion = (_crg_m.get("community_cohesion") or {}).get("score")
-                _flow = (_crg_m.get("flow_coverage") or {}).get("score")
+            except (CrgIndependentError, json.JSONDecodeError, OSError) as _crg_err:
+                raise GateBlockedError(
+                    ctx.gate_num,
+                    GateResult(
+                        gate_num=ctx.gate_num, score=0.0, dimensions=[],
+                        open_critical=1, open_high=0,
+                        quality_complete=False, rounds_used=0,
+                    ),
+                    details={"crg_independent_failed": [str(_crg_err)]},
+                ) from _crg_err
+            if _cohesion is not None:
                 _new_dims = []
                 for _d in dims:
-                    if _d.name == "architecture" and _cohesion is not None:
-                        if abs(_d.score - _cohesion) > 1.5:
+                    if _d.name == "architecture":
+                        if abs(_d.score - float(_cohesion)) > 1.5:
                             print(
-                                f"[harness] CRG override architecture: {_d.score:.1f} → {_cohesion:.1f} "
-                                "(crg_metrics.community_cohesion.score)"
+                                f"[harness] CRG override architecture: {_d.score:.1f} → "
+                                f"{float(_cohesion):.1f} (framework-independent community_cohesion)"
                             )
                             _crg_overrides_applied = True
                         _new_dims.append(dataclasses.replace(_d, score=float(_cohesion)))
-                    elif _d.name == "error_handling" and _flow is not None:
-                        if abs(_d.score - _flow) > 1.5:
-                            print(
-                                f"[harness] CRG override error_handling: {_d.score:.1f} → {_flow:.1f} "
-                                "(crg_metrics.flow_coverage.score)"
-                            )
-                            _crg_overrides_applied = True
-                        _new_dims.append(dataclasses.replace(_d, score=float(_flow)))
                     else:
                         _new_dims.append(_d)
                 dims = _new_dims
-            except Exception as _crg_err:
-                print(
-                    f"[harness] WARNING: crg_metrics.json parse error ({_crg_err}) "
-                    "— using agent scores for CRG-ONLY dimensions"
-                )
-        elif any(d.name in _CRG_ONLY_DIMS for d in dims):
-            print(
-                "[harness] WARNING: crg_metrics.json not found — "
-                "architecture/error_handling scores are unverified (agent-reported values used). "
-                "Run crg_analysis.py metrics before finalize-gate."
-            )
 
         # SG-2 (robustness audit): per-dimension variance sanity check.
         # If ≥3 dimensions all share the SAME score, that's suspiciously uniform
@@ -1486,7 +1498,7 @@ class HarnessBridge:
         if _gate_passes and not result.quality_complete:
             result = dataclasses.replace(result, quality_complete=True)
 
-        self._update_quality_manifest(ctx.gate_num, ctx.fr_id, result)
+        self._update_quality_manifest(ctx.gate_num, ctx.fr_id, result, da_waivers=da_waivers)
 
         self._effort.record(EffortRecord(
             phase=ctx.phase, gate_num=ctx.gate_num, agent_id="GATE",
@@ -1736,7 +1748,8 @@ class HarnessBridge:
         return GateConfig.from_dict(raw, gate_num)
 
     def _update_quality_manifest(
-        self, gate_num: int, fr_id: str | None, result: GateResult
+        self, gate_num: int, fr_id: str | None, result: GateResult,
+        da_waivers: "set[str] | None" = None,
     ) -> None:
         """Update the persistent manifest with latest gate results."""
         p = Path(".methodology/quality_manifest.json")
@@ -1749,6 +1762,12 @@ class HarnessBridge:
             "rounds_used": result.rounds_used, "open_critical": result.open_critical,
             "open_high": result.open_high,
         }
+        if da_waivers:
+            # A DA waiver bypassed a dimension's score threshold (e.g. architecture=0
+            # for an intentional Orchestrator pattern). Record it for human review —
+            # it overrides a framework-owned score, so it must not pass silently.
+            payload["da_waiver_applied"] = sorted(da_waivers)
+            payload["da_waiver_needs_human_review"] = True
         if fr_id:
             if not isinstance(manifest["gate_results"][key], dict):
                 manifest["gate_results"][key] = {}

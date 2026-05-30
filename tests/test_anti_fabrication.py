@@ -893,6 +893,42 @@ class TestHarnessCrossValidation:
         assert len(violations) == 1
         assert "timed out" in violations[0]
 
+    def test_no_benchmark_blocks(self, tmp_path):
+        """Layer 1c: pytest-benchmark exit 5 (no benchmarks) BLOCKS a passing perf score."""
+        from unittest.mock import patch
+        from harness.harness_bridge import _run_harness_cross_validation
+
+        self._make_gate_yaml(tmp_path, 4, [
+            {"name": "performance", "requires_tool_execution": True, "tool": "pytest-benchmark",
+             "threshold": 75},
+        ])
+        ctx = self._make_ctx(tmp_path, gate=4)
+        raw = {"breakdown": {"performance": {"score": 90}}}
+
+        with patch("harness.tool_runners.run_tool", return_value=("no benchmarks ran", 5)):
+            violations = _run_harness_cross_validation(ctx, raw)
+
+        assert len(violations) == 1
+        assert "no tests/benchmarks" in violations[0]
+
+    def test_architecture_skipped_crg_owned(self, tmp_path):
+        """Layer 3: architecture is framework-CRG-owned in finalize → skipped by S4."""
+        from unittest.mock import patch
+        from harness.harness_bridge import _run_harness_cross_validation
+
+        self._make_gate_yaml(tmp_path, 4, [
+            {"name": "architecture", "requires_tool_execution": True, "tool": "code-review-graph",
+             "threshold": 80},
+        ])
+        ctx = self._make_ctx(tmp_path, gate=4)
+        raw = {"breakdown": {"architecture": {"score": 95}}}
+
+        with patch("harness.tool_runners.run_tool") as mock_run:
+            violations = _run_harness_cross_validation(ctx, raw)
+
+        assert violations == []
+        mock_run.assert_not_called()  # architecture skipped before any tool run
+
     def test_multiple_dims_one_fabricated(self, tmp_path):
         """Only the dimension whose harness score < threshold is reported."""
         from unittest.mock import patch

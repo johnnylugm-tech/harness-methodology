@@ -136,21 +136,21 @@ class PhaseArtifactRegistry:
 
     def verify_phase_link(self, from_phase: Phase, to_phase: Phase,
                           skip_to_side: bool = False) -> PhaseLinkResult:
-        """Verify that to_phase's artifacts exist and reference from_phase.
+        """Verify that from_phase's and to_phase's required artifacts exist.
 
         Invariant: when *entering* to_phase, its artifacts do not yet exist
         (they are the output of the phase we are about to execute).  Pass
-        skip_to_side=True to suppress the existence + traceability checks on
-        the "to" side while still validating that all predecessor artifacts
-        are in place.
+        skip_to_side=True to suppress the existence check on the "to" side
+        while still validating that all predecessor artifacts are in place.
 
         Checks:
         1. from_phase's required artifacts exist (predecessor produced output)
         2. to_phase's required artifacts exist (unless skip_to_side —
            the current phase has not yet produced them)
-        3. At least one to_phase artifact references from_phase artifacts
-           (skipped when to_phase artifacts don't exist yet, i.e. when
-           skip_to_side is True)
+
+        The former check 3 (substring scan of the current artifact for the
+        predecessor's filename) was removed — it was pure theatre (an agent
+        passes it by pasting a filename keyword anywhere in the document).
         """
         from_info = self.PHASE_ARTIFACTS.get(from_phase, {})
         to_info = self.PHASE_ARTIFACTS.get(to_phase, {})
@@ -163,50 +163,20 @@ class PhaseArtifactRegistry:
         found_to = [a for a in to_artifacts if (self.project_root / a).exists()]
         missing_to = [a for a in to_artifacts if not (self.project_root / a).exists()]
 
-        ref_found = False
-        try:
-            for artifact_path in found_to:
-                full_path = self.project_root / artifact_path
-                if not full_path.is_file():
-                    continue
-                try:
-                    content = full_path.read_text(encoding="utf-8", errors="ignore")
-                    for prev_artifact in from_artifacts:
-                        prev_name = Path(prev_artifact).stem
-                        if prev_name.lower() in content.lower():
-                            ref_found = True
-                            break
-                except (OSError, UnicodeError):
-                    pass
-                if ref_found:
-                    break
-        except Exception:
-            pass  # is_file() or iteration error — treat as no reference found
-
-        # Traceability only applies to readable files; directory-only artifacts
-        # (e.g. code/tests dirs) are exempt from text-reference checks.
-        found_to_files = [
-            a for a in found_to if (self.project_root / a).is_file()
-        ]
+        # NOTE: the text "reference" check (substring scan of the current artifact
+        # for the predecessor's filename) was removed — it was a pure-theatre check
+        # an agent passes by pasting a filename keyword anywhere in the document.
+        # Traceability now means: the predecessor and current artifacts actually exist.
         from_ok = len(found_from) > 0 or len(from_artifacts) == 0
         to_ok = len(found_to) > 0 or len(to_artifacts) == 0 or skip_to_side
-        ref_ok = (
-            ref_found
-            or len(from_artifacts) == 0
-            or len(to_artifacts) == 0
-            or skip_to_side
-            or len(found_to_files) == 0  # no readable files → skip text traceability
-        )
-        passed = from_ok and to_ok and ref_ok
+        passed = from_ok and to_ok
 
         if not from_ok:
             reason = f"Previous phase {from_phase.name} missing artifacts: {missing_from}"
         elif not to_ok:
             reason = f"Current phase {to_phase.name} missing artifacts: {missing_to}"
-        elif not ref_ok:
-            reason = f"No traceability reference from {to_phase.name} to {from_phase.name}"
         else:
-            reason = f"Phase link {from_phase.name}->{to_phase.name} verified"
+            reason = f"Phase link {from_phase.name}->{to_phase.name} verified (artifact existence)"
 
         return PhaseLinkResult(
             from_phase=from_phase,

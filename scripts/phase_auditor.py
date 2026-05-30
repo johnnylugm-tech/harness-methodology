@@ -1348,7 +1348,13 @@ class PhaseAuditor:
             ))
 
     def _check_test_results_depth(self):
-        """C5 P4: Verify TEST_RESULTS.md contains pass rate and TC/TR references."""
+        """C5 P4: Verify TEST_RESULTS.md exists.
+
+        The former pass-rate + TC/TR-count regex gate was removed — it was pure
+        theatre an agent passes by pasting "100 passed" and "TC-1 TC-2 TC-3".
+        Real test execution is enforced by advance-phase TDD-PRECHECK
+        (pytest --cov-fail-under=100) and the Gate tool-scored dimensions.
+        """
         content = self._content(["04-testing/TEST_RESULTS.md"])
         if not content:
             self.result.add(Finding(
@@ -1356,38 +1362,14 @@ class PhaseAuditor:
                 severity="CRITICAL",
                 title="TEST_RESULTS.md missing — cannot verify test execution.",
                 detail="",
-                rule_ref="HR-10",
             ))
             return
-
-        # Pass rate: "X passed" or "pass rate: N%"
-        has_rate = bool(
-            re.search(r"\d+\s*(?:passed|pass(?:ed)?)", content, re.IGNORECASE)
-            or re.search(r"pass\s*rate[:\s]+\d+", content, re.IGNORECASE)
-        )
-        tc_refs = len(re.findall(r"TC-\d+", content))
-        tr_refs = len(re.findall(r"TR-\d+", content))
-
-        if has_rate and (tc_refs + tr_refs) >= 3:
-            self.result.add(Finding(
-                check_id="C5", dimension="Document Content Depth",
-                severity="PASS",
-                title=(f"TEST_RESULTS.md contains pass rate data and "
-                       f"{tc_refs} TC/{tr_refs} TR reference(s)."),
-                detail="",
-            ))
-        else:
-            missing = []
-            if not has_rate:
-                missing.append("pass rate")
-            if tc_refs + tr_refs < 3:
-                missing.append(f"TC/TR references (found {tc_refs}+{tr_refs})")
-            self.result.add(Finding(
-                check_id="C5", dimension="Document Content Depth",
-                severity="WARNING",
-                title=f"TEST_RESULTS.md insufficient: missing {', '.join(missing)}.",
-                detail="",
-            ))
+        self.result.add(Finding(
+            check_id="C5", dimension="Document Content Depth",
+            severity="PASS",
+            title="TEST_RESULTS.md present.",
+            detail="",
+        ))
 
     def _check_baseline_depth(self):
         content = self._content(["05-verification/BASELINE.md"])
