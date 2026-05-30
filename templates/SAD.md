@@ -22,9 +22,9 @@
 ## 3. Error Handling
 | Level | Handling Strategy |
 |-------|------------------|
-| L1 | Immediate return |
-| L2 | Retry 3 times |
-| L3 | Graceful degradation |
+| Level 1 | Immediate return |
+| Level 2 | Retry 3 times |
+| Level 3 | Graceful degradation |
 
 ## 4. Technology Choices
 | Technology | Rationale |
@@ -58,7 +58,13 @@
     "min_coverage": 80,
     "max_coupling": 0.3
   },
-  "nfr_traceability": {},
+  "nfr_traceability": {
+    "NFR-01": {
+      "type": "performance|security|reliability|maintainability",
+      "target": "{measurable target, e.g. p95 < 200ms}",
+      "module": "{responsible module path, e.g. app.processing}"
+    }
+  },
   "fr_module_traceability": {},
   "architecture_constraints": [],
   "high_risk_modules": []
