@@ -909,7 +909,7 @@ class TestHarnessCrossValidation:
             violations = _run_harness_cross_validation(ctx, raw)
 
         assert len(violations) == 1
-        assert "no tests/benchmarks" in violations[0]
+        assert "no tests" in violations[0] and "unverifiable" in violations[0]
 
     def test_architecture_skipped_crg_owned(self, tmp_path):
         """Layer 3: architecture is framework-CRG-owned in finalize → skipped by S4."""

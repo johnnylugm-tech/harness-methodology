@@ -19,6 +19,7 @@ Return-code conventions (negative = harness-internal, not tool exit codes):
 
 from __future__ import annotations
 
+import ast
 import re
 import subprocess
 from typing import Optional
@@ -40,7 +41,6 @@ _DEFAULT_TIMEOUTS: dict[str, int] = {
     "radon-cc-high":    30,
     "radon-mi":         30,
     "pydocstyle":       30,
-    "grep-bare-except": 15,
     "pytest-benchmark": 180,
     "ast-assertions":   30,
     "ast-error-handling": 30,
@@ -132,11 +132,6 @@ def run_tool(
             "pydocstyle", root,
             "--count",
         ],
-        "grep-bare-except": [
-            "grep", "-rn", "--include=*.py",
-            r"except\s*:",
-            root,
-        ],
         # --benchmark-only: run only tests using the `benchmark` fixture.
         # If none exist, pytest exits with code 5 (no tests collected) → scorer returns None.
         # Text output (not --benchmark-json) so results flow through stdout capture.
@@ -186,25 +181,23 @@ def run_tool(
 _TEST_DIRS: tuple[str, ...] = ("tests", "03-development/tests")
 
 
-def _function_has_assertion(node: "object") -> bool:
+def _function_has_assertion(node: ast.AST) -> bool:
     """True if a (async)FunctionDef body contains a substantive assertion.
 
     Recognises: bare `assert`, unittest `self.assertXxx(...)` / `self.fail()`,
     `pytest.raises`/`pytest.warns` (call or `with` context manager), numpy
     `np.testing.assert_*`, and bare `raises(...)`/`warns(...)` imports.
     """
-    import ast as _ast
-
-    for sub in _ast.walk(node):  # type: ignore[arg-type]
-        if isinstance(sub, _ast.Assert):
+    for sub in ast.walk(node):
+        if isinstance(sub, ast.Assert):
             return True
-        if isinstance(sub, _ast.Call):
+        if isinstance(sub, ast.Call):
             fn = sub.func
-            if isinstance(fn, _ast.Attribute):
+            if isinstance(fn, ast.Attribute):
                 name = fn.attr
                 if name.startswith("assert") or name in ("fail", "raises", "warns"):
                     return True
-            elif isinstance(fn, _ast.Name):
+            elif isinstance(fn, ast.Name):
                 if fn.id in ("raises", "warns"):
                     return True
     return False
@@ -242,7 +235,11 @@ def _run_ast_assertions(project_root: str) -> tuple[str, int]:
             except (SyntaxError, ValueError, OSError):
                 continue
             for fn in _ast.walk(tree):
-                if isinstance(fn, (_ast.FunctionDef, _ast.AsyncFunctionDef)) and fn.name.startswith("test"):
+                # pytest convention: `test_*` (or bare `test`). Avoid matching helpers
+                # like `testing_*` / `tests_*` that are not test cases.
+                if isinstance(fn, (_ast.FunctionDef, _ast.AsyncFunctionDef)) and (
+                    fn.name.startswith("test_") or fn.name == "test"
+                ):
                     total += 1
                     if _function_has_assertion(fn):
                         asserted += 1
@@ -328,7 +325,6 @@ def compute_tool_score(tool: str, output: str, returncode: int) -> Optional[floa
         "radon-cc-high":    _score_radon_cc_high,
         "radon-mi":         _score_radon_mi,
         "pydocstyle":       _score_pydocstyle,
-        "grep-bare-except": _score_grep_bare_except,
         "pytest-benchmark": _score_pytest_benchmark,
         "ast-assertions":   _score_assertion_quality,
         "ast-error-handling": _score_error_handling_coverage,
@@ -490,12 +486,6 @@ def _score_pydocstyle(output: str, _returncode: int) -> float:
     m = re.search(r"(\d+)\s+violation", output)
     count = int(m.group(1)) if m else len(re.findall(r":\s*D\d{3}", output))
     return max(0.0, 100.0 - count * 2.0)
-
-
-def _score_grep_bare_except(output: str, _returncode: int) -> float:
-    """Score grep-bare-except.  Each matching line costs 5 pts."""
-    count = len(output.strip().splitlines()) if output.strip() else 0
-    return max(0.0, 100.0 - count * 5.0)
 
 
 def _score_pytest_benchmark(output: str, returncode: int) -> Optional[float]:

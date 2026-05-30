@@ -456,14 +456,15 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
             continue
 
         if returncode == 5:
-            # pytest-family exit 5 = "no tests/benchmarks collected". A passing agent
-            # score for a dimension whose verifying suite does not exist is unverifiable
-            # — treat as a fabrication risk and BLOCK (no free pass for missing suites).
+            # pytest-family exit 5 = "no tests collected". A passing agent score for a
+            # dimension whose measuring suite does not exist is unverifiable — treat as a
+            # fabrication risk and BLOCK (no free pass for a missing suite). The message is
+            # dimension-generic: exit 5 can come from any pytest-family tool (benchmark,
+            # integration-cov, or pytest-cov when a conftest import fails).
             violations.append(
-                f"{dim_name}: '{tool}' collected no tests/benchmarks (exit 5) — "
-                f"cannot verify agent score {agent_score:.1f}. This dimension requires a "
-                f"real suite (e.g. pytest-benchmark / integration tests) to exist; "
-                f"add it, then re-finalize."
+                f"{dim_name}: '{tool}' collected no tests (exit 5) — a passing score for "
+                f"'{dim_name}' (agent={agent_score:.1f}) is unverifiable when its measuring "
+                f"suite does not exist or fails to import. Add/repair the suite, then re-finalize."
             )
             continue
 

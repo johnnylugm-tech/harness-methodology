@@ -77,6 +77,26 @@ def _run(cmd: list[str], *, cwd: str | None, timeout: int, label: str) -> str:
     return proc.stdout
 
 
+def _ensure_gitignored(project_root: str) -> None:
+    """Ensure `.code-review-graph/` is git-ignored.
+
+    `build` writes a tens-of-MB graph DB there; without this entry
+    `commit_and_push_gate` could commit it. CRG's own `init` adds the entry, but a
+    manually-installed binary may not have run it. Non-fatal hygiene only.
+    """
+    gi = Path(project_root) / ".gitignore"
+    try:
+        existing = gi.read_text(encoding="utf-8") if gi.exists() else ""
+        if ".code-review-graph" in existing:
+            return
+        with gi.open("a", encoding="utf-8") as fh:
+            if existing and not existing.endswith("\n"):
+                fh.write("\n")
+            fh.write("# Added by harness crg_independent\n.code-review-graph/\n")
+    except OSError:
+        pass
+
+
 def run_independent_crg(project_root: str, work_dir: str) -> dict:
     """Build the graph, dump communities, compute crg_metrics, write crg_metrics.json.
 
@@ -85,8 +105,16 @@ def run_independent_crg(project_root: str, work_dir: str) -> dict:
     binary = crg_binary()
     root = str(Path(project_root).resolve())
 
-    # 1. Build + post-process (idempotent — produces communities in the graph DB).
-    _run([binary, "build"], cwd=root, timeout=_BUILD_TIMEOUT, label="code-review-graph build")
+    # 0. Keep the graph DB out of version control.
+    _ensure_gitignored(root)
+
+    # 1. Build (first time) or incremental update (only re-parses changed files), then
+    #    post-process to (re)compute communities. Using `update` when a graph already
+    #    exists keeps re-finalize cheap — important under the Gate 4 auto-fix loop, which
+    #    re-runs finalize_gate (and thus this) every round.
+    _graph_db = Path(root) / ".code-review-graph" / "graph.db"
+    _sub = "update" if _graph_db.exists() else "build"
+    _run([binary, _sub], cwd=root, timeout=_BUILD_TIMEOUT, label=f"code-review-graph {_sub}")
     _run([binary, "postprocess"], cwd=root, timeout=_POST_TIMEOUT, label="code-review-graph postprocess")
 
     # 2. Dump communities via CRG's own interpreter.

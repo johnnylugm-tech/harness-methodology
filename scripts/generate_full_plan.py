@@ -1531,7 +1531,7 @@ def _checkpoint_index(fr_ids: List[str], phase: int) -> List[str]:
     if phase in _PHASE_EXIT_GATES:
         gate_num = _PHASE_EXIT_GATES[phase]
         if phase == 6:
-            lines.append(f"> - CHECKPOINT-GATE-4: Gate 4 (Full Project — 14 dims, fully automated) → **push + HANDOVER.md**")
+            lines.append("> - CHECKPOINT-GATE-4: Gate 4 (Full Project — 14 dims, fully automated) → **push + HANDOVER.md**")
         else:
             lines.append(f"> - CHECKPOINT-GATE-{gate_num}: Gate {gate_num} (Phase {phase} Exit) → **push + HANDOVER.md**")
     lines.append("")

@@ -8,7 +8,6 @@ Covers:
 - _score_pyright   (JSON summary.errorCount path + text fallback)
 - _score_bandit    (HIGH/MEDIUM/LOW severity accounting)
 - _score_pydocstyle (violation-count parsing)
-- _score_grep_bare_except (line-count scoring)
 - _score_pytest_benchmark (NFR-01/06 latency-based performance scorer)
 - compute_tool_score  (None propagation from radon scorers)
 """
@@ -28,7 +27,6 @@ from harness.tool_runners import (
     _score_pyright,
     _score_bandit,
     _score_pydocstyle,
-    _score_grep_bare_except,
     _score_pytest_benchmark,
     _score_assertion_quality,
     _score_error_handling_coverage,
@@ -274,27 +272,6 @@ class TestScorePydocstyle:
         # If no "violations found" line, count D-code matches
         text = "src/a.py:1 in -: D100: Missing docstring\nsrc/b.py:2 in foo: D103: Missing"
         assert _score_pydocstyle(text, 1) == 96.0  # 2 violations × 2
-
-
-# ---------------------------------------------------------------------------
-# _score_grep_bare_except
-# ---------------------------------------------------------------------------
-
-class TestScoreGrepBareExcept:
-
-    def test_no_matches_returns_100(self):
-        assert _score_grep_bare_except("", 1) == 100.0  # grep rc=1 = no match
-
-    def test_one_match_costs_5(self):
-        assert _score_grep_bare_except("src/a.py:12:    except:", 0) == 95.0
-
-    def test_multiple_matches(self):
-        output = "src/a.py:12:    except:\nsrc/b.py:5:  except:\n"
-        assert _score_grep_bare_except(output, 0) == 90.0
-
-    def test_floor_at_zero(self):
-        lines = "\n".join(f"src/a.py:{i}:    except:" for i in range(21))
-        assert _score_grep_bare_except(lines, 0) == 0.0
 
 
 # ---------------------------------------------------------------------------
