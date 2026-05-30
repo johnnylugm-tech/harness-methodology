@@ -442,7 +442,7 @@ _PHASE_PUSH_LABELS: dict = {1: "PUSH ① — ", 2: "PUSH ② — "}
 
 # Gate metadata: (score_gate, dim_count, notes)
 _GATE_META: dict = {
-    1: (None, 4,  "linting(90) · type_safety(85) · test_coverage(80) · test_assertion_quality(50)"),
+    1: (None, 3,  "linting(90) · type_safety(85) · test_coverage(80)"),
     2: (75,   9,  "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · integration_coverage(60) · test_assertion_quality(60)  [D4 spec-coverage unified ≥60%]"),
     3: (80,   14, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · integration_coverage(60) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · test_assertion_quality(60) · performance(75)  [CRG recon inside run-gate · D4 spec-coverage unified ≥80%]"),
     4: (85,   14, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · performance(75) · integration_coverage(75) · test_assertion_quality(70)  [CRG recon inside run-gate · D4 spec-coverage unified ≥90%]"),
@@ -929,7 +929,7 @@ def _review_checkpoint(phase: int, checkpoint_n: int) -> List[str]:
 
     lines: List[str] = [
         "",
-        f"### 🔒 CHECKPOINT-{checkpoint_n}: Agent B Peer Review — Phase {phase} Exit",
+        f"### 🔒 CHECKPOINT-PEER-REVIEW: Agent B Peer Review — Phase {phase} Exit",
         "> Phase 1/2 exit gate = Agent B document review (NOT `harness run-gate --gate 1`).",
         "> APPROVE criteria: all FRs addressed, no critical gaps, terminology consistent.",
         "",
@@ -984,7 +984,7 @@ def _review_checkpoint(phase: int, checkpoint_n: int) -> List[str]:
         "    > If round 5 REJECT: escalate to human — orchestrator cannot self-resolve.",
         "    > Human fix → re-dispatch Agent B (same prompt + updated content) → `APPROVE` required before continuing.",
         "",
-        f"- [ ] **[B-PUSH]** ✅ {_PHASE_PUSH_LABELS.get(phase, '')}Push to GitHub + HANDOVER.md — retry until success (CHECKPOINT-{checkpoint_n} saved):",
+        f"- [ ] **[B-PUSH]** ✅ {_PHASE_PUSH_LABELS.get(phase, '')}Push to GitHub + HANDOVER.md — retry until success (CHECKPOINT-PEER-REVIEW saved):",
         "  > Run `push-checkpoint` → if blocked, read the error → fix → re-run until green.",
         "  > Do NOT use `--no-verify` to bypass.",
         "  ```bash",
@@ -1005,6 +1005,9 @@ def _fr_dev_steps(fr_id: str, phase: int) -> List[str]:
     Phase 1-2: A/B collaboration (Agent A + Agent B with dispatch).
     Phase 3-8: Direct implementation (no A/B — Phase End Audit替代).
     """
+    if phase >= 4:
+        return _fr_carryforward_steps(fr_id, phase)
+
     if phase <= 2:
         role_a, role_b, task_hint = _PHASE_ROLES.get(
             phase, ("DEVELOPER", "REVIEWER", "Implement per SRS + SAD")
@@ -1170,6 +1173,10 @@ def _phase_advance_step(phase: int, dynamic: bool = False) -> List[str]:
            ""] if phase == 6 else []),
         # Phase Truth (HR-11): gates cover P3/P4/P6; P5/P7 have no exit gate so add here
         *(["- [ ] **[PHASE-TRUTH]** Phase Truth ≥ 90% (HR-11) — verified by advance-phase",
+           "  > **FAIL** → check `phase_truth_verifier` output in `.sessi-work/`",
+           "  >   → identify which phase link or gate artifact failed",
+           "  >   → fix artifacts → re-run `advance-phase`",
+           "  >   → If 3 consecutive failures: escalate to human with `phase_truth_verifier` log",
            "",
            ] if phase >= 3 and phase not in _PHASE_EXIT_GATES else []),
         # TDD prechecks: advance-phase enforces pytest 100% cov + spec-coverage (exit 9/10)
@@ -1219,7 +1226,7 @@ def _dynamic_phase_context_block(phase: int, has_fr_template: bool = True) -> Li
 
 def _dynamic_fr_template_block(phase: int) -> List[str]:
     """FR task template for dynamic plans — each {FR-ID} is expanded at execution time."""
-    use_carryforward = phase in (5, 7, 8)
+    use_carryforward = phase in (4, 5, 7, 8)
     if use_carryforward:
         fr_steps = [
             f"- [ ] **[ORCH-GATE1-DELTA]** `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step GATE1-DELTA --project .`",
@@ -1412,6 +1419,10 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
     phase_truth_step = (
         [
             "- [ ] **[PHASE-TRUTH]** Phase Truth ≥ 90% (HR-11) — verified by advance-phase",
+            "  > **FAIL** → check `phase_truth_verifier` output in `.sessi-work/`",
+            "  >   → identify which phase link or gate artifact failed",
+            "  >   → fix artifacts → re-run `advance-phase`",
+            "  >   → If 3 consecutive failures: escalate to human with `phase_truth_verifier` log",
             "",
         ] if phase >= 3 else [
             f"- [ ] **[PHASE-TRUTH]** Phase Truth — N/A (P{phase} prerequisite only)",
@@ -1432,11 +1443,15 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
             "  Include: project name, completion date, Gate 4 composite score, sign-off statement.",
             "  Must reference `BASELINE.md` and `VERIFICATION_REPORT.md` (verification provenance).",
             "",
+            "- [ ] **G4g** Agent B Peer Review (HR-01):",
+            "  Agent B (ARCHITECT) reviews `06-quality/QUALITY_REPORT.md` and `RELEASE_NOTES.md`.",
+            "  Confirm all FRs are merged and Gate 4 score ≥ 85.",
+            "",
         ]
 
     return [
         "",
-        f"### 🔒 CHECKPOINT-{checkpoint_n}: Gate {gate_num} — Phase {phase} Exit",
+        f"### 🔒 CHECKPOINT-GATE-{gate_num}: Phase {phase} Exit",
         f"> {meta[2]}",
         "",
         f"- [ ] **G{gate_num}a** Prepare Gate {gate_num}:",
@@ -1516,9 +1531,9 @@ def _checkpoint_index(fr_ids: List[str], phase: int) -> List[str]:
     if phase in _PHASE_EXIT_GATES:
         gate_num = _PHASE_EXIT_GATES[phase]
         if phase == 6:
-            lines.append(f"> - CHECKPOINT-{cp}: Gate 4 (Full Project — 14 dims, fully automated) → **push + HANDOVER.md**")
+            lines.append(f"> - CHECKPOINT-GATE-4: Gate 4 (Full Project — 14 dims, fully automated) → **push + HANDOVER.md**")
         else:
-            lines.append(f"> - CHECKPOINT-{cp}: Gate {gate_num} (Phase {phase} Exit) → **push + HANDOVER.md**")
+            lines.append(f"> - CHECKPOINT-GATE-{gate_num}: Gate {gate_num} (Phase {phase} Exit) → **push + HANDOVER.md**")
     lines.append("")
     return lines
 
@@ -2170,7 +2185,7 @@ def generate_phase6_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
 
     # P6 has exactly one checkpoint: Gate 4
     lines.append("> **Checkpoint Index** (push to GitHub = checkpoint saved):")
-    lines.append("> - CHECKPOINT-1: Gate 4 (Full Project — 14 dims, fully automated)")
+    lines.append("> - CHECKPOINT-GATE-4: Gate 4 (Full Project — 14 dims, fully automated)")
     lines.append("")
 
     lines.extend(_entry_gate_check(6))
@@ -2179,9 +2194,11 @@ def generate_phase6_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     if dynamic:
         lines.extend(_dynamic_phase_context_block(6, has_fr_template=False))
 
-    lines.append("### P6 Phase End Audit (Replaces A/B)")
+    lines.append("### P6 Phase End Audit (+ A/B Review)")
     lines.append("")
-    lines.append("> Phase 6 does not use A/B collaboration. Gate 4 evaluation + Phase End Audit replace it.")
+    lines.append("> A/B collaboration is active for Phase 6 deliverables (HR-01).")
+    lines.append("> Agent A generates QUALITY_REPORT.md and RELEASE_NOTES.md.")
+    lines.append("> Agent B (ARCHITECT) reviews the deliverables and verifies Gate 4 score.")
     lines.append("")
 
     # Only embed static quality metrics from QUALITY_REPORT.md in non-dynamic mode.

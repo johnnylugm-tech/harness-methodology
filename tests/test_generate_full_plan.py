@@ -72,8 +72,7 @@ class TestGateExitCheckpoint:
     def test_gate2_label(self):
         lines = _gate_exit_checkpoint(2, 3, 5)
         joined = "\n".join(lines)
-        assert "CHECKPOINT-5" in joined
-        assert "Gate 2" in joined
+        assert "CHECKPOINT-GATE-2" in joined
         assert "Phase 3 Exit" in joined
 
     def test_gate3_command(self):
@@ -459,8 +458,7 @@ class TestPhase6GateInjection:
 
     def test_single_checkpoint(self, project: Path):
         joined = "\n".join(generate_phase6_tasks(project))
-        assert "CHECKPOINT-1" in joined
-        assert "CHECKPOINT-2" not in joined
+        assert "CHECKPOINT-GATE-4" in joined
 
     def test_no_ab_roles_section(self, project: Path):
         """P6 no longer has A/B Roles section — replaced by Phase End Audit."""
@@ -620,7 +618,7 @@ class TestReviewCheckpoint:
         """GAP-K3 fix: P1 review checkpoint lists SRS deliverables."""
         joined = "\n".join(_review_checkpoint(1, 1))
         assert "SRS.md" in joined
-        assert "CHECKPOINT-1" in joined
+        assert "CHECKPOINT-PEER-REVIEW" in joined
 
     def test_phase2_lists_sad_deliverables(self):
         """GAP-K3 fix: P2 review checkpoint lists SAD deliverables."""
@@ -639,7 +637,7 @@ class TestReviewCheckpoint:
 
     def test_heading_h3(self):
         lines = _review_checkpoint(1, 1)
-        assert any(line.startswith("### 🔒 CHECKPOINT-1") for line in lines)
+        assert any(line.startswith("### 🔒 CHECKPOINT-PEER-REVIEW") for line in lines)
 
     def test_not_harness_gate(self):
         """GAP-K fix: P1/P2 checkpoint must clarify it's NOT harness run-gate."""
@@ -1817,8 +1815,8 @@ class TestReviewerDesignFixes:
         assert "D4-GAP WARNING" in result, "P5 advance must warn about 80%→90% spec-coverage gap to Gate 4"
         assert "90%" in result or "90.0" in result, "P5 advance must mention 90% as Gate 4 requirement"
 
-    # C3 + I1: dynamic P5/P7/P8 must have GATE1-DELTA CASE 1/2/3 escalation
-    @pytest.mark.parametrize("phase", [5, 7, 8])
+    # C3 + I1: dynamic P4/P5/P7/P8 must have GATE1-DELTA CASE 1/2/3 escalation
+    @pytest.mark.parametrize("phase", [4, 5, 7, 8])
     def test_gate1_delta_has_case_escalation(self, tmp_path: Path, phase: int):
         (tmp_path / ".methodology").mkdir()
         result = generate_full_plan(phase, tmp_path, dynamic=True)
@@ -1828,8 +1826,8 @@ class TestReviewerDesignFixes:
         assert "CASE 2 FAIL" in result
         assert "CASE 3 BLOCKED" in result
 
-    # Gate 1 closed loop: dynamic P3/P4 must have Gate 1 CASE 1/2/3 escalation
-    @pytest.mark.parametrize("phase", [3, 4])
+    # Gate 1 closed loop: dynamic P3 must have Gate 1 CASE 1/2/3 escalation
+    @pytest.mark.parametrize("phase", [3])
     def test_gate1_full_has_case_escalation(self, tmp_path: Path, phase: int):
         (tmp_path / ".methodology").mkdir()
         result = generate_full_plan(phase, tmp_path, dynamic=True)
@@ -1857,11 +1855,12 @@ class TestReviewerDesignFixes:
         assert '"fr_id"' in result
         assert '"confidence"' not in result, "confidence field was orphaned — must be removed from JSON format"
 
-    # I2: Gate 1 meta must have 4 dims (including test_assertion_quality)
-    def test_gate1_meta_has_4_dims(self):
+    # I2: Gate 1 meta must have 3 dims (standard)
+    def test_gate1_meta_has_3_dims(self):
         from scripts.generate_full_plan import _GATE_META
-        assert _GATE_META[1][1] == 4, "_GATE_META[1] dim_count must be 4 after adding test_assertion_quality"
-        assert "test_assertion_quality" in _GATE_META[1][2]
+        assert _GATE_META[1][1] == 3, "_GATE_META[1] dim_count must be 3"
+        assert "test_coverage" in _GATE_META[1][2]
+        assert "test_assertion_quality" not in _GATE_META[1][2]
 
     # R3: P4 checkpoint index must have CHECKPOINT-0 for TEST_PLAN.md
     def test_p4_checkpoint_index_has_cp0(self):
