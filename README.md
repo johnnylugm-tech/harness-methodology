@@ -81,4 +81,4 @@ final_score = tool_score   # LLM scoring abolished — all 14 dimensions are too
 Early-stop (Gates 2–4): PASS → CONTINUE (anti-pattern guard) → PLATEAU → BLOCKED
 
 ---
-*harness-methodology v2.6.0 | Academic Benchmark 91/100 | [SAD.md](SAD.md) | [INTEGRATION.md](INTEGRATION.md)*
+*harness-methodology v2.7.0 | Academic Benchmark 91/100 | [SAD.md](SAD.md) | [INTEGRATION.md](INTEGRATION.md)*

@@ -1,4 +1,4 @@
-# SAD — Harness Methodology v2.6.0 (As-Built — Audit: 2026-05-16)
+# SAD — Harness Methodology v2.7.0 (As-Built — Audit: 2026-05-16)
 
 > **Sync guarantee**: This document is reverse-engineered from the live codebase.
 > Any change to the code **must** be reflected here, and vice-versa.

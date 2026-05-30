@@ -3,7 +3,7 @@
 > **Scope**: How to maintain the framework itself, and how to wire it into a target development project.
 > For gate embedding and SSI evaluation model, see [`docs/HARNESS_INTEGRATION.md`](docs/HARNESS_INTEGRATION.md).
 >
-> **Last verified**: 2026-05-12 &nbsp;|&nbsp; **Synced with**: SAD.md v2.6.0
+> **Last verified**: 2026-05-12 &nbsp;|&nbsp; **Synced with**: SAD.md v2.7.0
 
 ---
 
@@ -45,8 +45,8 @@ python scripts/validate_cross_refs.py
 python -m pytest tests/ -v --tb=short
 
 # Tag and push (CI takes over — see .github/workflows/release.yml)
-git tag v2.6.0
-git push origin v2.6.0
+git tag v2.7.0
+git push origin v2.7.0
 
 # Regenerate machine-readable SAD block
 python scripts/generate_sab.py --project .
@@ -68,7 +68,7 @@ pip install -r harness/requirements.txt
 ```
 Entry point: `harness/harness_cli.py`. Python path: `harness/` root on `sys.path`.
 
-> **`requirements.txt` contents** (repo-bundled, not generated): `pyyaml>=6.0` (gate config loading — required), `pytest>=7.0` (framework self-tests). The `anthropic` SDK is **not** included — it is installed as part of `software_self_improvement`. If `requirements.txt` is missing (e.g. Option C copy forgot to include it), `pip install -r ... || true` in CI will silently succeed, and `run-gate` will later fail with `ModuleNotFoundError: No module named 'yaml'`.
+> **`requirements.txt` contents** (repo-bundled, not generated): `pyyaml>=6.0` (gate config loading — required), `pytest>=7.0` (framework self-tests). The harness operates inline as a zero-dependency system. If `requirements.txt` is missing (e.g. Option C copy forgot to include it), `pip install -r ... || true` in CI will silently succeed, and `run-gate` will later fail with `ModuleNotFoundError: No module named 'yaml'`.
 
 **Option B — Direct clone alongside project**
 ```bash
@@ -331,7 +331,7 @@ Phase is auto-detected from `.methodology/state.json` — no GitHub Variable req
 
 ## 5.2 Migration Notes
 
-### CV-1 — `sessions_spawn.log` canonical path (harness v2.6.0+)
+### CV-1 — `sessions_spawn.log` canonical path (harness v2.7.0+)
 
 The canonical location of the A/B session log changed from `sessions_spawn.log` (project root) to `.methodology/sessions_spawn.log`.
 
@@ -345,7 +345,7 @@ git commit -m "chore: migrate sessions_spawn.log to .methodology/ (CV-1)"
 
 `SessionsSpawnLogger` and `PhaseTruthVerifier` now read and write exclusively from `.methodology/sessions_spawn.log`. The root-level file is no longer consulted.
 
-### SG-11 — `session_id` required in sessions_spawn.log (harness v2.6.0+)
+### SG-11 — `session_id` required in sessions_spawn.log (harness v2.7.0+)
 
 `sessions_spawn.log` entries without a `session_id` field are now counted as malformed. If your project has entries that lack `session_id`, re-run the A/B dispatch for those FRs, or manually add synthetic IDs:
 

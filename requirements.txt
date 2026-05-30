@@ -6,5 +6,4 @@ pytest>=7.0
 pytest-benchmark>=4.0
 # Optional: mutmut for mutation testing (Gate 2/3/4)
 # mutmut>=2.4
-# Optional: software_self_improvement (harness runner)
-# Install separately from johnnylugm-tech/software_self_improvement
+# harness/ssi/ contains vendor-copied assets from software_self_improvement (embedded, zero-dependency).

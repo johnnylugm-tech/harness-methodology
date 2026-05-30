@@ -1,7 +1,7 @@
-# Harness Methodology — User Manual v2.4
+# Harness Methodology — User Manual v2.7.0
 
 > **Audience**: Engineers using Claude (AI agent) + harness-methodology to execute software development projects.
-> **Framework version**: v2.4 | **Document date**: 2026-05-11
+> **Framework version**: v2.7.0 | **Document date**: 2026-05-30
 
 ---
 
@@ -508,20 +508,9 @@ run-phase → "PRE-FLIGHT FAILED"
        HR violations and fix them before I re-run."
 ```
 
-### AF-04 — SSI Runner Not Installed
+### AF-04 — SSI Runner Fully Embedded (Zero-Dependency)
 
-```
-run-gate → "[ERROR] Install software_self_improvement..."
-  │
-  ├─ Install SSI:
-  │    pip install -e /path/to/software_self_improvement
-  │    # or: pip install software_self_improvement
-  │
-  ├─ Verify:
-  │    python3 -c "import software_self_improvement"
-  │
-  └─ Re-run gate
-```
+SSI (Software Self-Improvement) tools are fully vendor-copied and embedded within `harness/ssi/` as of v2.4.0. No external dependencies or manual repository installations are required. The legacy error `[ERROR] Install software_self_improvement...` is retired.
 
 ### AF-05 — HR-12 Iteration Limit Hit
 
@@ -1033,11 +1022,9 @@ cd /path/to/harness-methodology
 python harness_cli.py ...
 ```
 
-### `[ERROR] Install software_self_improvement...`
-```bash
-pip install -e /path/to/software_self_improvement
-python3 -c "import software_self_improvement; print('OK')"
-```
+### `[Retired] Install software_self_improvement...`
+
+Retired in v2.4.0+. The software self-improvement module is now fully vendor-copied and embedded in `harness/ssi/` and has zero external package dependencies.
 
 ### `Gate 1 always fails — linting threshold 90`
 ```
