@@ -2580,6 +2580,11 @@ Phase 3 — finalize_gate(ctx)
   crg_metrics.json             ← crg_bridge + crg_analysis.py write
   crg_reconnaissance.json      ← CRG recon protocol output (Gate 3/4)
   harness_verification/        ← tool_runners.py audit trail
+
+.methodology/
+  gate{N}_result.json          ← Persistent gate passed evidence (copied on finalize-gate pass)
+  quality_manifest.json        ← Comprehensive project quality manifest
+  state.json                   ← FSM state persistence
 ```
 
 ### 7.4 External Dependencies (All Resolved)
@@ -2715,6 +2720,7 @@ The agent has **exactly one source of truth at any moment**:
 2. FOLLOW PLAN
    Execute checklist items top-to-bottom. Key block types:
      [PREFLIGHT]    run-phase --phase N   (FSM + Constitution + kill-switch + drift)
+     [ENV-CHECK]    run-env-check → finalize-env-check (one-time preamble, P3+ FR-loop only)
      [A/B Work]     Agent A develops → Agent B reviews → sessions_spawn.log
      [CHECKPOINT-K] run-gate → evaluate inline → finalize-gate → git push
 

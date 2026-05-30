@@ -1048,6 +1048,7 @@ def cmd_check_test_inventory(args: argparse.Namespace) -> int:
     print("  Delegating to spec-coverage-check.")
     print("  Please use: python harness_cli.py spec-coverage-check --project . --threshold <N>")
     print()
+
     project = Path(args.project).resolve()
     inventory_path = project / "TEST_INVENTORY.yaml"
     spec_path = project / "02-architecture" / "TEST_SPEC.md"
@@ -1059,33 +1060,7 @@ def cmd_check_test_inventory(args: argparse.Namespace) -> int:
                   "P1/P2 must produce these files.")
             return 8
 
-    # --diff-mode: preserved for backward compat (TEST_INVENTORY.yaml checksum)
-    if getattr(args, "diff_mode", False):
-        state_path = project / ".methodology" / "state.json"
-        if state_path.exists() and inventory_path.exists():
-            try:
-                state = json.loads(state_path.read_text())
-                p1_checksum = state.get("test_inventory_checksum")
-                if p1_checksum:
-                    current = hashlib.sha256(inventory_path.read_bytes()).hexdigest()
-                    if current != p1_checksum:
-                        print("[WARN] TEST_INVENTORY.yaml has changed since P1 baseline — "
-                              "review if FRs were removed.")
-            except (json.JSONDecodeError, OSError):
-                pass
-
-    # --srs-crosscut: deprecated
-    if getattr(args, "srs_crosscut", False):
-        print("[INFO] --srs-crosscut: run `python harness_cli.py verify-spec --project .` instead.")
-
-    # --crg-gaps: deprecated
-    if getattr(args, "crg_gaps", False):
-        print("[INFO] --crg-gaps: run `python harness_cli.py run-gap-analysis --project .` instead.")
-
-    # Delegate to unified spec-coverage check
-    threshold = getattr(args, "threshold", 80.0)
-    code, _ = _run_spec_coverage_check(project, threshold, verbose=True)
-    return code
+    return cmd_spec_coverage_check(args)
 
 def _parse_inventory_fallback(text: str) -> dict:
     """Minimal YAML-free parser for flat test name lists."""
