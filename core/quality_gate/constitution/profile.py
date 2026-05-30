@@ -42,14 +42,12 @@ class DimensionProfile:
     threshold: Optional[float] = None
     keywords: List[str] = field(default_factory=list)
     rule: str = "TH-02"
-    hardcoded_secret_patterns: List[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
             "threshold": self.threshold,
             "keywords": self.keywords,
             "rule": self.rule,
-            "hardcoded_secret_patterns": self.hardcoded_secret_patterns,
         }
 
     @classmethod
@@ -58,7 +56,6 @@ class DimensionProfile:
             threshold=d.get("threshold"),
             keywords=d.get("keywords", []),
             rule=d.get("rule", "TH-02"),
-            hardcoded_secret_patterns=d.get("hardcoded_secret_patterns", []),
         )
 
 
@@ -187,11 +184,6 @@ class ConstitutionProfile:
             return p.dimension_keywords[dim]
         return self.dimension_keywords(dim)
 
-    def secret_patterns(self) -> List[str]:
-        """Return hardcoded-secret detection patterns."""
-        d = self.dimensions.get("security")
-        return d.hardcoded_secret_patterns if d else []
-
     def dimension_rule(self, dim: str) -> str:
         """Return the TH rule reference for a dimension."""
         d = self.dimensions.get(dim)
@@ -288,7 +280,6 @@ class ConstitutionProfile:
                     threshold=dv.threshold if dv.threshold is not None else existing_dim.threshold,
                     keywords=dv.keywords or existing_dim.keywords,
                     rule=dv.rule or existing_dim.rule,
-                    hardcoded_secret_patterns=dv.hardcoded_secret_patterns or existing_dim.hardcoded_secret_patterns,
                 )
             else:
                 result.dimensions[dk] = dv
@@ -626,12 +617,6 @@ def _build_defaults() -> ConstitutionProfile:
                     "pii", "mask", "secret", "whitelist", "tls",
                     "compare_digest", "input sanitizer", "rate limit",
                     "security", "vulnerability",
-                ],
-                hardcoded_secret_patterns=[
-                    "password = \"", "password = '",
-                    "secret_key = \"", "secret_key = '",
-                    "api_key = \"", "api_key = '",
-                    "token = \"", "token = '",
                 ],
             ),
             "maintainability": DimensionProfile(

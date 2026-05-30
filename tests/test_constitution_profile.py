@@ -89,11 +89,6 @@ class TestDefaults:
         # Global (non-phase-specific) security keywords still have 20 entries.
         assert len(defaults().dimension_keywords("security")) == 20
 
-    def test_secret_patterns(self):
-        patterns = defaults().secret_patterns()
-        assert len(patterns) == 8
-        assert "password = \"" in patterns
-
     def test_file_filter_srs(self):
         k = defaults().file_filter_keywords("srs")
         assert "srs" in k

@@ -110,25 +110,6 @@ Test plan includes regression coverage for security patterns.
         finally:
             path.unlink()
 
-    def test_hardcoded_secrets_penalize_security(self):
-        content = """# Config
-
-## FR-01: Auth module
-password = "admin123"
-api_key = "sk-1234567890abcdef"
-This module handles authentication and encryption with HMAC signatures.
-"""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
-            f.write(content)
-            path = Path(f.name)
-        try:
-            dims = _scan_file_compliance(path)
-            # Security should be penalized for hardcoded secrets
-            assert dims["security"] < 80, f"Expected security <80 due to secrets, got {dims}"
-        finally:
-            path.unlink()
-
-
 class TestIsStubTemplate:
     """Tests for _is_stub_template() — detects {placeholder}-ridden template files.
 

@@ -13,7 +13,8 @@ Provides:
 
 Multi-dimensional scoring (aligned with methodology-v2 TH-03~TH-06):
     - correctness: FR-ID format, acceptance criteria, test cases, section structure
-    - security: auth/validation/encryption/sanitize keywords, no hardcoded secrets
+    - security: auth/validation/encryption/sanitize keyword density (actual secret
+      scanning is gitleaks at Gate 2/3/4, not this doc-level heuristic)
     - maintainability: docstring, module structure, naming conventions
     - coverage: test coverage references, FR↔test traceability
 """
@@ -258,15 +259,6 @@ def _keyword_stuffing_penalty(content: str, keywords: List[str]) -> float:
     return 1.0
 
 
-def _has_hardcoded_secrets(content: str) -> bool:
-    """Check for hardcoded secret patterns in content."""
-    content_lower = content.lower()
-    for pattern in get_profile().secret_patterns():
-        if pattern in content_lower:
-            return True
-    return False
-
-
 def _scan_file_compliance(file_path: Path, phase: Optional[int] = None) -> Dict[str, float]:
     """Scan a single file for constitution compliance across 4 dimensions.
 
@@ -311,13 +303,17 @@ def _scan_file_compliance(file_path: Path, phase: Optional[int] = None) -> Dict[
     c_refs = ((1 if has_fr else 0) + (1 if has_nfr else 0) + (1 if has_ac else 0)) / 3.0 * 100.0
     correctness = c_kw * 0.4 + c_structure * 0.3 + c_refs * 0.3
 
-    # ── Security (keyword density + no hardcoded secrets) ──
+    # ── Security (keyword density only) ──
+    # Hardcoded-secret detection was removed: it was a weak substring check
+    # (a handful of literal `var = "..."` patterns, docs-only) that almost always
+    # returned 100 and gave a false sense of secrets coverage. Real secret scanning
+    # is gitleaks at Gate 2/3/4 (P3+, secrets_scanning dim, threshold 100), which is
+    # independently re-run by S4 cross-validation and cannot be faked.
     s_keywords = profile.dimension_keywords_for_phase("security", phase)
     s_kw = _keyword_density(content, s_keywords)
     s_stuff_penalty = _keyword_stuffing_penalty(content, s_keywords)
     s_kw *= s_stuff_penalty
-    s_secrets = 0.0 if _has_hardcoded_secrets(content) else 100.0
-    security = s_kw * 0.6 + s_secrets * 0.4
+    security = s_kw
 
     # ── Maintainability (keyword density + structure signals) ──
     m_keywords = profile.dimension_keywords_for_phase("maintainability", phase)
