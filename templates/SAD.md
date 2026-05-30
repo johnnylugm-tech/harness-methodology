@@ -60,12 +60,14 @@
   },
   "nfr_traceability": {
     "NFR-01": {
-      "type": "performance|security|reliability|maintainability",
+      "type": "{performance|security|reliability|maintainability}",
       "target": "{measurable target, e.g. p95 < 200ms}",
       "module": "{responsible module path, e.g. app.processing}"
     }
   },
-  "fr_module_traceability": {},
+  "fr_module_traceability": {
+    "FR-01": "{responsible module name, e.g. app.models}"
+  },
   "architecture_constraints": [],
   "high_risk_modules": []
 }
