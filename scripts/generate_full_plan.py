@@ -1254,8 +1254,7 @@ def _dynamic_fr_template_block(phase: int) -> List[str]:
             "> **Gate 1 outcomes:**",
             "> - CASE 1 PASS:    Gate 1 PASS → continue to next {FR-ID}",
             "> - CASE 2 FAIL:    Fix failing dims → re-run `run-fr-step --step GATE1`",
-            ">   (linting: `ruff check . --fix`; coverage: add tests; type_safety: fix mypy errors;",
-            ">   test_assertion_quality: add assertions to zero-assert test functions)",
+            ">   (linting: `ruff check . --fix`; coverage: add tests; type_safety: fix pyright errors)",
             "> - CASE 3 BLOCKED: 3 rounds still failing → escalate to human.",
             ">   Provide: Gate 1 output + failing dimension details.",
         ]
@@ -1467,8 +1466,10 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
         *(["  - Failing dim: fix code → re-evaluate → re-score"] if gate_num > 1 else []),
         *(["  > Auto-fix engine may attempt to correct linting/coverage/type_safety issues automatically.",
            ] if gate_num <= 4 else []),
-        *(["  > **CRG-ONLY dims** (architecture, error_handling): scores come from `crg_metrics.json`.",
-           "  > If score = 0 due to Orchestrator/hub-and-spoke pattern: complete DA challenge (A3 above)",
+        *(["  > **architecture** is framework-owned: the harness runs an independent CRG build itself",
+           "  > (`harness/crg_independent.py`) and overrides any agent-recorded score with",
+           "  > `community_cohesion`. error_handling is tool-scored (`ast-error-handling`), not CRG.",
+           "  > If architecture = 0 due to Orchestrator/hub-and-spoke pattern: complete DA challenge (A3 above)",
            "  > and set `da_waiver` in gate4_result.json to bypass the threshold.",
            "  > See `harness/ssi/prompts/evaluate_dimension.md` §Orchestrator Pattern False Positive.",
            ] if gate_num in (3, 4) else []),
@@ -1531,7 +1532,7 @@ def _checkpoint_index(fr_ids: List[str], phase: int) -> List[str]:
     if phase in _PHASE_EXIT_GATES:
         gate_num = _PHASE_EXIT_GATES[phase]
         if phase == 6:
-            lines.append("> - CHECKPOINT-GATE-4: Gate 4 (Full Project — 14 dims, fully automated) → **push + HANDOVER.md**")
+            lines.append("> - CHECKPOINT-GATE-4: Gate 4 (Full Project — 14 dims) + Agent B peer review → **push + HANDOVER.md**")
         else:
             lines.append(f"> - CHECKPOINT-GATE-{gate_num}: Gate {gate_num} (Phase {phase} Exit) → **push + HANDOVER.md**")
     lines.append("")
@@ -1579,7 +1580,7 @@ def generate_phase1_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
 
     # P1 has exactly one checkpoint: human sign-off at phase end
     lines.append("> **Checkpoint Index** (push to GitHub = checkpoint + HANDOVER.md saved):")
-    lines.append("> - CHECKPOINT-1: Agent B Peer Review (Phase 1 Exit) → `push-checkpoint --phase 1`")
+    lines.append("> - CHECKPOINT-PEER-REVIEW: Agent B Peer Review (Phase 1 Exit) → `push-checkpoint --phase 1`")
     lines.append("")
 
     lines.extend([
@@ -1673,7 +1674,7 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
 
     # P2 has exactly one checkpoint: human sign-off at phase end
     lines.append("> **Checkpoint Index** (push to GitHub = checkpoint + HANDOVER.md saved):")
-    lines.append("> - CHECKPOINT-1: Agent B Peer Review (Phase 2 Exit) → `push-checkpoint --phase 2`")
+    lines.append("> - CHECKPOINT-PEER-REVIEW: Agent B Peer Review (Phase 2 Exit) → `push-checkpoint --phase 2`")
     lines.append("")
 
     lines.extend(_entry_gate_check(2))  # confirm P1 human APPROVE
@@ -2179,13 +2180,14 @@ def generate_phase6_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     lines.append("## Phase 6 Tasks: Quality Assurance")
     lines.append("")
     lines.append("### Phase 6 Overview")
-    lines.append("Phase 6 is a complete Gate 4 evaluation. Gate 4 replaces the entire P6 SOP.")
-    lines.append("No FR loop — Gate 4 evaluates the full project (14 dims, CRG recon, fully automated).")
+    lines.append("Phase 6 centres on Gate 4 — the full-project quality evaluation.")
+    lines.append("No FR loop. Gate 4 = tool-scored automated evaluation (14 dims, CRG recon) PLUS")
+    lines.append("Agent B peer review of the QA deliverables (HR-01) — both are required to exit.")
     lines.append("")
 
     # P6 has exactly one checkpoint: Gate 4
     lines.append("> **Checkpoint Index** (push to GitHub = checkpoint saved):")
-    lines.append("> - CHECKPOINT-GATE-4: Gate 4 (Full Project — 14 dims, fully automated)")
+    lines.append("> - CHECKPOINT-GATE-4: Gate 4 (Full Project — 14 dims) + Agent B peer review")
     lines.append("")
 
     lines.extend(_entry_gate_check(6))

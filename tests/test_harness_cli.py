@@ -2093,6 +2093,14 @@ class TestGate1PerFrCoverageCheck:
                    side_effect=lambda fr, project: fr == "FR-02"):
             assert self._run_check(tmp_path, 7) == 14
 
+    def test_delta_loop_autoskip_includes_p4(self, tmp_path):
+        """Audit Fix C: P4 is carryforward — its plan promises auto-skip, so advance-phase
+        must also auto-satisfy P4 coverage when no FR's code changed (range is 4,5,7,8)."""
+        from unittest.mock import patch
+        self._make_manifest(tmp_path, ["FR-01", "FR-02"])
+        with patch("harness_cli._fr_code_changed_since_last_gate1", return_value=False):
+            assert self._run_check(tmp_path, 4) == 0
+
 
 # =============================================================================
 # _parse_spec_names_for_fr (harness_bridge)

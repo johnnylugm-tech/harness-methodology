@@ -1802,11 +1802,13 @@ class TestReviewerDesignFixes:
         assert "da_waiver" in result, "P6 must document da_waiver for Orchestrator Pattern"
         assert "Orchestrator" in result, "P6 must mention Orchestrator Pattern false positive"
 
-    # C2: P4 Gate 3 (which has architecture dim) must also mention CRG-ONLY dims
-    def test_p4_gate3_mentions_crg_only(self, project: Path):
+    # C2: P4 Gate 3 (which has architecture dim) must document framework-owned architecture.
+    # error_handling is NOT CRG-ONLY any more — it is the ast-error-handling tool.
+    def test_p4_gate3_mentions_framework_architecture(self, project: Path):
         result = generate_full_plan(4, project)
         assert result is not None
-        assert "CRG-ONLY" in result, "P4 Gate 3 must document CRG-ONLY architecture/error_handling"
+        assert "framework-owned" in result, "P4 Gate 3 must document framework-owned architecture (independent CRG)"
+        assert "ast-error-handling" in result, "P4 Gate 3 must clarify error_handling is tool-scored, not CRG"
 
     # R1: P5 advance step must warn about spec-coverage 80%→90% gap
     def test_p5_advance_has_d4_gap_warning(self, tmp_path: Path):

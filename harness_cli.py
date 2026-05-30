@@ -3534,11 +3534,13 @@ def _check_gate1_per_fr_coverage(project: Path, completed_phase: int) -> int:
     if not fr_ids_manifest:
         return 0  # Non-FR project or unreadable manifest — skip
 
-    # DELTA-phase auto-skip: P5/P7/P8 re-run Gate 1 as a delta check. When NO FR's
+    # DELTA-phase auto-skip: P4/P5/P7/P8 re-run Gate 1 as a delta check. When NO FR's
     # code has changed since its last Gate 1 PASS, the per-FR DELTA loop is a no-op
     # (every run-fr-step would `already done → skip`). Recognise this and treat the
     # whole loop as satisfied, instead of demanding a fresh timestamp per FR.
-    if completed_phase in (5, 7, 8):
+    # P4 is carryforward too (its plan template promises this auto-skip); a real P4
+    # test addition is still caught — _fr_code_changed_since_last_gate1 watches tests/.
+    if completed_phase in (4, 5, 7, 8):
         try:
             _all_unchanged = all(
                 not _fr_code_changed_since_last_gate1(fr, project) for fr in fr_ids_manifest
