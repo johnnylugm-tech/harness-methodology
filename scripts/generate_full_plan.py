@@ -1451,7 +1451,7 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
         f"  - Write result to `.sessi-work/gate{gate_num}_result.json`",
         *(["  - Failing dim: fix code → re-evaluate → re-score"] if gate_num > 1 else []),
         *(["  > Auto-fix engine may attempt to correct linting/coverage/type_safety issues automatically.",
-           ] if gate_num <= 3 else []),
+           ] if gate_num <= 4 else []),
         *(["  > **CRG-ONLY dims** (architecture, error_handling): scores come from `crg_metrics.json`.",
            "  > If score = 0 due to Orchestrator/hub-and-spoke pattern: complete DA challenge (A3 above)",
            "  > and set `da_waiver` in gate4_result.json to bypass the threshold.",

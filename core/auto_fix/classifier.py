@@ -212,10 +212,10 @@ CLASSIFICATION_TABLE: Dict[str, Dict[str, Any]] = {
         "problem_type": "low_constitution_score",
     },
     "gate/gate4_blocked": {
-        "strategy": FixStrategy.HUMAN_REQUIRED,
-        "confidence": 0.0,
-        "max_rounds": 0,
-        "problem_type": "hard_rule_violation",
+        "strategy": FixStrategy.AUTO_FIX_WITH_VERIFICATION,
+        "confidence": 60.0,
+        "max_rounds": 3,
+        "problem_type": "low_constitution_score",
     },
 
     # ── phase_hooks / preflight ──
@@ -287,11 +287,6 @@ def classify(
     if content and is_actual_secret(content):
         return (FixStrategy.HUMAN_REQUIRED, 0.0, 0, "hardcoded_secrets", ErrorClass.HARD_VIOLATION)
 
-    # Special case: gate 4 always human-required
-    gate_num = details.get("gate_num")
-    if gate_num == 4:
-        return (FixStrategy.HUMAN_REQUIRED, 0.0, 0, "hard_rule_violation", ErrorClass.GATE_FAILURE)
-
     # Look up in classification table
     problem_type = details.get("problem_type", "")
 
@@ -326,6 +321,8 @@ def classify(
         confidence = DIMENSION_CONFIDENCE[dimension]
 
     error_class = get_error_class(source, resolved_type)
+    if details.get("gate_num") == 4:
+        error_class = ErrorClass.GATE_FAILURE
     return (strategy, confidence, max_rounds, resolved_type, error_class)
 
 

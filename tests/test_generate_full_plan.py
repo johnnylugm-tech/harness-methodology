@@ -1877,16 +1877,12 @@ class TestReviewerDesignFixes:
         assert "PROJECT-BRIEF" in result, "P1 must have [PROJECT-BRIEF] precondition step"
         assert "PROJECT_BRIEF.md" in result
 
-    # Auto-fix: Gate 2/3 must mention auto-fix engine; Gate 4 must NOT
+    # Auto-fix: Gate 2/3/4 must mention auto-fix engine
     def test_gate_exit_has_autofix_note(self):
-        for gate_num in (2, 3):
-            lines = _gate_exit_checkpoint(gate_num, gate_num + 1, 1)
+        for gate_num in (2, 3, 4):
+            lines = _gate_exit_checkpoint(gate_num, gate_num + 1 if gate_num < 4 else 6, 1)
             joined = "\n".join(lines)
             assert "Auto-fix engine" in joined, f"Gate {gate_num} must mention auto-fix engine"
-        # Gate 4 has HUMAN_REQUIRED for all — auto-fix note not needed
-        g4_lines = _gate_exit_checkpoint(4, 6, 1)
-        g4_joined = "\n".join(g4_lines)
-        assert "Auto-fix engine" not in g4_joined, "Gate 4 auto-fix note was already covered by prerequisites block"
 
     # I4: P2 holistic review must explain machine-generated deliverables exclusion
     def test_p2_review_checkpoint_explains_machine_deliverables(self, project: Path):

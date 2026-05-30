@@ -75,12 +75,25 @@ class TestClassifier:
         assert strat == FixStrategy.AUTO_FIX_WITH_VERIFICATION
         assert 0 <= conf <= 100
 
-    def test_classify_gate4_human_required(self):
+    def test_classify_gate4_auto_fix_verify(self):
         strat, conf, max_r, pt, *_ = classify(
             "gate/gate4_blocked",
-            {"gate_num": 4, "problem_type": "hard_rule_violation"},
+            {"gate_num": 4, "problem_type": "low_constitution_score"},
         )
-        assert strat == FixStrategy.HUMAN_REQUIRED
+        assert strat == FixStrategy.AUTO_FIX_WITH_VERIFICATION
+        assert max_r == 3
+
+    def test_gate4_error_class_and_max_rounds(self):
+        from core.auto_fix.error_class import ErrorClass
+        # Even if source is generic or non-gate, as long as details show gate_num=4,
+        # it should resolve to ErrorClass.GATE_FAILURE to prevent regression
+        _, _, max_r, _, err_cls = classify(
+            "constitution_runner",
+            {"gate_num": 4, "problem_type": "low_constitution_score"},
+        )
+        assert err_cls == ErrorClass.GATE_FAILURE
+        assert max_r == 3
+
 
     def test_classify_hard_rule_never_auto_fix(self):
         strat, conf, max_r, pt, *_ = classify(
@@ -387,8 +400,8 @@ class TestAutoFixEngine:
         assert result.strategy == FixStrategy.HUMAN_REQUIRED
         assert result.escalation == EscalationCondition.HARDCODED_SECRETS
 
-    def test_gate4_escalates_immediately(self, tmp_path: Path):
-        engine = AutoFixEngine(project_root=tmp_path, phase=3)
+    def test_gate4_escalates_after_max_rounds(self, tmp_path: Path):
+        engine = AutoFixEngine(project_root=tmp_path, phase=6)
         context = FixContext(
             source="gate",
             problem_type="gate4_blocked",
@@ -396,10 +409,13 @@ class TestAutoFixEngine:
             phase=6,
             project_root=tmp_path,
             gate_num=4,
-            details={"gate_num": 4, "score": 70.0, "problem_type": "hard_rule_violation"},
+            details={"gate_num": 4, "score": 70.0, "problem_type": "low_constitution_score", "dimension": "correctness", "files": [str(tmp_path / "test.py")]},
+            retry_count=3,
         )
+        (tmp_path / "test.py").write_text("dummy", encoding="utf-8")
         result = engine.fix(context)
-        assert result.strategy == FixStrategy.HUMAN_REQUIRED
+        assert result.strategy == FixStrategy.AUTO_FIX_WITH_VERIFICATION
+        assert result.escalation == EscalationCondition.GATE4_BLOCKED
 
     def test_hr12_escalation_after_max_rounds(self, tmp_path: Path):
         engine = AutoFixEngine(project_root=tmp_path, phase=3, max_rounds=1)

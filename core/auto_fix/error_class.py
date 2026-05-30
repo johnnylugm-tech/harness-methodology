@@ -120,6 +120,7 @@ ERROR_CLASS_MAP: dict[str, ErrorClass] = {
     "gate/gate2_blocked": ErrorClass.GATE_FAILURE,
     "gate/gate3_blocked": ErrorClass.GATE_FAILURE,
     "gate/gate4_blocked": ErrorClass.GATE_FAILURE,
+    "gate/low_constitution_score": ErrorClass.GATE_FAILURE,
 
     # Phase hooks
     "phase_hooks/low_constitution_score": ErrorClass.QUALITY_DEFICIT,

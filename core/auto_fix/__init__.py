@@ -316,8 +316,12 @@ class AutoFixEngine:
             if score < self.gate_min_score and rounds >= self.gate_min_rounds:
                 return EscalationCondition.GATE_SCORE_LOW
 
-        # Confidence < threshold after max_rounds per problem
+        # Gate 4 specifically escalates to GATE4_BLOCKED if max rounds reached
         max_for_type = self._max_rounds_for(context)
+        if context.gate_num == 4 and rounds >= max_for_type:
+            return EscalationCondition.GATE4_BLOCKED
+
+        # Confidence < threshold after max_rounds per problem
         if result.confidence < self.confidence_threshold and rounds >= max_for_type:
             return EscalationCondition.LOW_CONFIDENCE
 
@@ -369,11 +373,11 @@ class AutoFixEngine:
         return EscalationCondition.HARD_RULE_VIOLATION  # conservative default for unknown HUMAN_REQUIRED
 
     def _max_rounds_for(self, context: FixContext) -> int:
-        from core.auto_fix.classifier import CLASSIFICATION_TABLE
-
-        key = f"{context.source}/{context.problem_type}"
-        entry = CLASSIFICATION_TABLE.get(key, {})
-        return entry.get("max_rounds", 3)
+        try:
+            _, _, max_rounds, _, _ = self.classify(context)
+            return max_rounds
+        except Exception:
+            return 3
 
     def _is_phase_timed_out(self) -> bool:
         if self._phase_start_time is None or self._phase_estimate is None:
