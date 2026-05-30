@@ -73,13 +73,16 @@ The system uses this macro architecture:
 
 The full-system CLI (`cli.py`) lives in the parent system that contains harness-methodology as a sub-component. It requires 30+ external modules (`progress_dashboard`, `gantt_chart`, `sprint_planner`, `enterprise_hub`, `steering`, etc.) and is not part of this repository. Any work within harness-methodology uses `harness_cli.py`.
 
-**`harness_cli.py` commands** (26 total):
+**`harness_cli.py` commands** (33 total):
 ```
 python harness_cli.py plan-phase        --phase 3 [--project .] [--output plan.md]
+python harness_cli.py plan-all          [--project .] [--output plan.md]
 python harness_cli.py run-phase         --phase 3 [--project .]
 python harness_cli.py pre-commit-check  --phase 3 [--project .]   # git hook only (FSM/constitution/kill-switch)
 python harness_cli.py run-gate          --gate 2 --phase 3 [--project .] [--fr-id FR-01] [--skip-preflight] [--delta]
 python harness_cli.py finalize-gate     --gate 2 --phase 3 [--project .] [--fr-id FR-01] [--no-git]
+python harness_cli.py run-env-check     [--project .] [--phase N] [--fr-id FR-XX]
+python harness_cli.py finalize-env-check [--project .]
 python harness_cli.py generate-next-plan [--project .] [--phase N]
 python harness_cli.py push-checkpoint   --phase 1|2 [--project .] [--fr-ids FR-01,FR-02] [--no-git]
 python harness_cli.py manifest          --fr-ids FR-01 FR-02 [--sad SAD.md] [--no-git]
@@ -102,6 +105,10 @@ python harness_cli.py verify-agent-b-approvals --phase N [--fr-ids FR-01,FR-02] 
 python harness_cli.py audit-structure   [--project .] [--json]
 python harness_cli.py check-test-inventory [--project .] [--strict] [--threshold N] [--diff-mode]  # deprecated v2.6.0 — delegates to spec-coverage-check
 python harness_cli.py spec-coverage-check  [--project .] [--threshold N] [--fr-id FR-XX]  # D4 unified (v2.6.0)
+python harness_cli.py gate4-tag         [--project .] [--fr-id FR-XX] [--no-git]
+python harness_cli.py load-context      [--project .] [--output FILE]
+python harness_cli.py run-fr-step       --fr-id FR-XX [--phase N] [--project .]
+python harness_cli.py resume-fr-phase   --fr-id FR-XX [--phase N] [--project .]
 ```
 
 **Gate evaluation (two-phase)**: `run-gate` prepares context and prints evaluation instructions; Claude evaluates inline and writes `.sessi-work/gate{N}_result.json`; `finalize-gate` reads the result and checks thresholds. SSI assets are embedded in `harness/ssi/`.
