@@ -52,9 +52,9 @@ python harness_cli.py plan-all --project .
 # Per-phase execution
 python harness_cli.py load-context --phase 3 --project . --json > .sessi-work/phase3_ctx.json
 python harness_cli.py run-phase   --phase 3
-python harness_cli.py run-gate    --gate 1 --phase 3 --fr-id FR-01 --auto-fix-rounds 3
+python harness_cli.py run-gate    --gate 1 --phase 3 --fr-id FR-01
 python harness_cli.py finalize-gate --gate 1 --phase 3 --fr-id FR-01 --project .
-python harness_cli.py run-gate    --gate 2 --phase 3 --auto-fix-rounds 3
+python harness_cli.py run-gate    --gate 2 --phase 3
 python harness_cli.py finalize-gate --gate 2 --phase 3 --project .
 python harness_cli.py status
 ```

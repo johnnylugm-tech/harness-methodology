@@ -80,8 +80,7 @@ git commit -m "test: TDD stubs [RED] for all FRs + TEST_PLAN.md"
 python harness_cli.py run-gate --gate 1 --phase 3 --fr-id FR-001
 # 3 dims: linting(90) / type_safety(85) / test_coverage(80)
 # test_coverage(80) 語義更新: TDD tests 需覆蓋此 FR 的 AC，非僅 line coverage
-# Blocking: any dim < threshold → auto-fix (up to --auto-fix-rounds) → re-run gate
-# Use --no-auto-fix to disable automatic repair
+# Blocking: any dim < threshold → fix that dimension → re-run gate (CASE 1-4 early-stop)
 ```
 
 > **SPEC alignment**: Gate 1 的 `test_coverage` 確認 TDD tests 覆蓋 FR 的

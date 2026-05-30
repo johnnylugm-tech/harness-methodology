@@ -68,9 +68,9 @@ do NOT start work until every item is checked.
 - [ ] 已確認 WorkspaceManager 為每個 FR 建立了隔離的工作區（`.methodology/workspaces/phase_{N}/FR-XX/`）
 - [ ] ⏭️ 以上全部確認後，才能開始執行
 
-5. GATE FAIL? → auto-fix (up to `--auto-fix-rounds` attempts) → re-run gate. NEVER advance past a failing gate (HR-08).
-   If auto-fix exhausts all rounds → escalated to human (see SAD.md §3.18 for 9 escalation conditions).
-   Use `--no-auto-fix` to fall back to detect→block→wait_for_human.
+5. GATE FAIL? → fix the failing dimensions → re-run `run-gate` → `finalize-gate`. NEVER advance past a failing gate (HR-08).
+   Follow the CASE 1–4 early-stop logic in the gate checkpoint (PASS / CONTINUE / PLATEAU / BLOCKED).
+   After `max_rounds` without convergence → escalate to human (see SAD.md §3.18 for the 9 escalation conditions).
 
 6. PHASE COMPLETE → Verify Phase Completion Checklist (§0.4) → advance to Phase N+1 (back to step 1).
 ```

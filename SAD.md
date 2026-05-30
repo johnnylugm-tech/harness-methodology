@@ -125,7 +125,7 @@ python harness_cli.py resume-fr-phase   --fr-id FR-XX [--phase N] [--project .]
 
 M1 kill-switch circuit state is checked before each phase. M3 gap analysis runs for phases ≥ 3.
 
-**Gate BLOCKED diagnostic** (`finalize-gate` exit 1): The command emits a structured per-dimension diagnosis on block. Output includes: composite score, open_critical/high counts, per-failing-dimension score/threshold/gap and a fix hint, passing dimension summary, auto-fix round count (if `--auto-fix-rounds > 0`), and copy-pasteable resume commands. Full report written to `.methodology/last_block.md`. Fix hints cover all 14 dimension names: `linting`, `type_safety`, `test_coverage`, `security`, `secrets_scanning`, `license_compliance`, `mutation_testing`, `architecture`, `readability`, `error_handling`, `documentation`, `performance`, `integration_coverage`, `test_assertion_quality`. Implemented in `_format_block_diagnostic()` (module-level helper in `harness_cli.py`); the dict `_DIMENSION_HINTS` maps dimension name → actionable fix string. Auto-fix runs during preflight (`_preflight()` calls `AutoFixEngine.fix()` on preflight failures).
+**Gate BLOCKED diagnostic** (`finalize-gate` exit 1): The command emits a structured per-dimension diagnosis on block. Output includes: composite score, open_critical/high counts, per-failing-dimension score/threshold/gap and a fix hint, passing dimension summary, auto-fix round count (if auto-fix ran), and copy-pasteable resume commands. Full report written to `.methodology/last_block.md`. Fix hints cover all 14 dimension names: `linting`, `type_safety`, `test_coverage`, `security`, `secrets_scanning`, `license_compliance`, `mutation_testing`, `architecture`, `readability`, `error_handling`, `documentation`, `performance`, `integration_coverage`, `test_assertion_quality`. Implemented in `_format_block_diagnostic()` (module-level helper in `harness_cli.py`); the dict `_DIMENSION_HINTS` maps dimension name → actionable fix string. Auto-fix runs during preflight (`_preflight()` calls `AutoFixEngine.fix()` on preflight failures).
 
 **ECC hooks (Claude Code session layer)**: `~/.claude/hooks/hooks.json` runs ECC hooks across all Claude Code sessions. Harness-provided hooks:
 - `pre:bash:dispatcher` — blocks `git --no-verify` (prevents HR violation from bypassing hooks), push reminders
@@ -1238,27 +1238,23 @@ Thresholds are configurable via `AutoFixEngine.__init__` parameters:
 `gate_min_score=60.0`, `gate_min_rounds=3`, `confidence_threshold=70.0`.
 
 **Integration points**:
-- `harness_cli.py`: `--auto-fix-rounds N` (default 3, max 5), `--no-auto-fix` flags
+- `harness/harness_bridge.py`: `GateContext.auto_fix_rounds` field + `prepare_gate(auto_fix_rounds=...)` parameter — the programmatic entry point (default 0 = disabled). There is **no** `--auto-fix-rounds` CLI flag; auto-fix is invoked internally by callers that pass `auto_fix_rounds` to `prepare_gate`.
 - `orchestration/__init__.py`: exports `run_constitution_check_with_feedback`, `run_enforcement_check_with_feedback`, `run_policy_check_with_feedback` — retry-aware wrappers that delegate auto-fix to AutoFixEngine on failure
 - `core/phase_hooks.py`: `auto_fix_enabled` parameter, `to_fix_context()` method
-- `harness/harness_bridge.py`: `GateContext.auto_fix_rounds`, `prepare_gate(auto_fix_rounds=...)`
 
 **`ast_mutation_guard(file_path, pre_content, post_content, allowed_node_name) -> bool`** (guardrails.py):
 Validates that a fix touched only the AST node named `allowed_node_name`. Dumps invariants of all _other_ top-level nodes (FunctionDef, ClassDef, AsyncFunctionDef) and compares pre/post. For nested methods inside a ClassDef, deep-copies the parent class, strips the target method, then dumps the remainder — so decorator/base-class changes on the parent class are also caught. Returns `False` (unsafe) if: post-fix has a syntax error, or any out-of-bounds node changed. Returns `True` unconditionally for non-.py files or when `allowed_node_name` is None.
 
-**Pipeline integration** (in `cmd_run_pipeline`):
+**Auto-fix loop** (when a caller enables it via `prepare_gate(auto_fix_rounds=N)`):
 ```
 preflight fail → AutoFixEngine.fix() → re-check → loop (up to N rounds)
 Gate BLOCKED  → AutoFixEngine.fix() → re-evaluate → loop
 Phase Truth < 90% → AutoFixEngine.fix() → re-verify → loop
 ```
-
-**CLI usage**:
-```bash
-# Auto-fix is enabled by default in finalize-gate
-python harness_cli.py finalize-gate --gate 2 --phase 3 --project . --auto-fix-rounds 3
-python harness_cli.py finalize-gate --gate 2 --phase 3 --project . --no-auto-fix
-```
+> The `cmd_run_pipeline` driver that previously wired this end-to-end was **removed in v2.5**.
+> The `AutoFixEngine` infrastructure remains and is reachable programmatically through
+> `prepare_gate(auto_fix_rounds=...)`. The manual gate flow is: fix failing dimensions →
+> re-run `run-gate` → `finalize-gate` (see the CASE 1–4 early-stop logic per gate checkpoint).
 (Removed in v2.6.0: the `run-pipeline` autonomous pipeline was unstable for the current maturity level.)
 
 ### §3.21 — `scripts/check_spec_trace.py` — FR Spec Trace Validator (v2 Content-Level)

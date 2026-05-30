@@ -744,11 +744,11 @@ python harness_cli.py run-phase --phase $N --project $PROJECT
 
 # 每 FR Gate 1（FR IDs 自動從 quality_manifest.json 讀取）
 python harness_cli.py run-gate --gate 1 --phase $N \
-  --project $PROJECT --fr-id FR-01 --auto-fix-rounds 3
+  --project $PROJECT --fr-id FR-01
 
 # Phase exit gate
 python harness_cli.py run-gate --gate 2 --phase 3 \
-  --project $PROJECT --auto-fix-rounds 3
+  --project $PROJECT
 
 # 確認狀態
 python harness_cli.py status --project $PROJECT
@@ -761,8 +761,8 @@ python harness_cli.py status --project $PROJECT
 | P1 需求 | SRS.md 不存在，pipeline exit 10 | 提供 `SRS.md`（含 `### FR-XX:` 段落） | ~5 min |
 | P2 架構 | SAD.md 不存在，pipeline exit 10 | 提供 `SAD.md`（含 FR ID） | ~10 min |
 
-> **Gate block 自動處理**：`--auto-fix-rounds 3` 讓 SSI 內部自行修復最多 3 輪。
-> 3 輪後仍 BLOCKED → pipeline exit 10，Claude 報告根因，等待人類指示後 `--phase-from N` 重跑。
+> **Gate block 處理**：BLOCKED 時，修復失敗的維度 → 重跑 `run-gate` → `finalize-gate`（依各 gate 的 CASE 1–4 早停邏輯）。
+> 多輪仍 BLOCKED → Claude 報告根因，等待人類指示後重跑。
 
 #### Pipeline 退出碼
 
