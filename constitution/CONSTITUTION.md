@@ -182,7 +182,7 @@
 |----------|--------|----------|
 | Phase 1-2 交付物 | Agent B¹ | Agent B APPROVE |
 | Phase 3-8 程式碼 | Gate check (Quality Gate) | Gate check ≥ threshold + Phase End Audit |
-| Gate 4 全專案 | Final check | score ≥ 85 + quality_complete |
+| Gate 4 全專案 | Gate check (Quality Gate) | score ≥ 85 + quality_complete |
 | 緊急修復 | Human (Johnny) | Minimum Gate 1 check + Phase End Audit |
 
 ---

@@ -2800,7 +2800,7 @@ python harness_cli.py generate-next-plan --project $REPO
 ## 10. Autonomous Execution Protocol
 
 Claude Code can run the **full P1→P8 pipeline autonomously** using the Bash tool.
-Humans are required at only **3 checkpoints**.
+The pipeline executes 100% autonomously with zero mandatory human checkpoints, fully relying on automated Quality Gates and Phase End Audits for progression control.
 
 ### One-Prompt Launch
 
@@ -2831,14 +2831,6 @@ Gate 4 needs my Telegram APPROVE — handle everything else."
 
 > All phases: Agent A ≠ Agent B (HR-01 workflow — dispatched as separate sub-agent sessions).
 > `sessions_spawn.log` is written as a non-blocking debug trail; the HR-10 entry-count audit was removed (agent-writable, not tamper-evident).
-
-### Mandatory Human Checkpoints
-
-| # | Phase | When | Required Action |
-|---|---|---|---|
-| 1 | P1 exit | SRS.md ready | Human reads SRS.md → APPROVE / REJECT |
-| 2 | P2 exit | SAD.md + ADR.md ready | Human reads deliverables → APPROVE / REJECT |
-| 3 | P6 exit | Gate 4 evaluation done | Gate 4 score ≥ 85 + quality_complete |
 
 ### Pipeline Exit Codes
 
