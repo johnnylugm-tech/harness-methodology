@@ -1386,11 +1386,12 @@ class HarnessBridge:
             _overall_score = 0.0
 
         # ── Fallback: derive quality_complete if agent omitted it ──
-        # If CRG overrides changed dim scores, the agent's quality_complete was based on
-        # pre-override values — force recompute from corrected dims instead of trusting it.
+        # Only an explicit `true` is trusted verbatim. `false`/`null` fall through to the
+        # fallback recompute from corrected dim scores — an agent's stale/default `false`
+        # must not bypass the real pass/fail computation. (CRG overrides also force recompute.)
         _raw_qc = raw.get("quality_complete")
-        if _raw_qc is not None and not _crg_overrides_applied:
-            _quality_complete = bool(_raw_qc)
+        if _raw_qc is True and not _crg_overrides_applied:
+            _quality_complete = True
         elif dims:
             # Gate 1 pass condition: overall >= score_gate AND every dim >= its threshold.
             # Use config thresholds as fallback when agent didn't include per-dim thresholds.

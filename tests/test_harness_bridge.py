@@ -250,6 +250,28 @@ class TestFinalizeGate:
                     with pytest.raises(GateBlockedError, match="Gate 2 BLOCKED"):
                         bridge.finalize_gate(ctx)
 
+    def test_finalize_gate_explicit_false_recomputes_pass(self, tmp_path):
+        """D (Bug 3): an explicit quality_complete:false must NOT bypass the fallback
+        recompute. With passing score + all dims above threshold, the gate passes
+        despite the agent writing false."""
+        bridge = HarnessBridge()
+        ctx = self._make_context(tmp_path, gate_num=2)
+        self._write_result(ctx, {
+            "overall_score": 88.0,
+            "quality_complete": False,   # agent wrote false (stale/default)
+            "open_critical_count": 0, "open_high_count": 0,
+            "breakdown": {
+                "coverage": {"score": 90.0, "threshold": 75.0},
+                "linting": {"score": 85.0, "threshold": 75.0},
+            },
+        })
+        with patch.object(bridge, "_update_quality_manifest"):
+            with patch.object(bridge, "_log"):
+                with patch.object(bridge, "_effort"):
+                    result = bridge.finalize_gate(ctx)
+        # Recomputed from dims (all pass, score >= gate) → quality_complete True
+        assert result.quality_complete is True
+
     def test_finalize_gate_raises_blocked_on_open_critical(self, tmp_path):
         bridge = HarnessBridge()
         ctx = self._make_context(tmp_path, gate_num=2)

@@ -633,7 +633,8 @@ def cmd_plan_phase(args: argparse.Namespace) -> int:
 
     print(f"\n{'='*60}\nplan-phase: Phase {args.phase} | repo={repo_path}\n{'='*60}")
 
-    plan = generate_full_plan(args.phase, repo_path, output_path)
+    plan = generate_full_plan(args.phase, repo_path, output_path,
+                              force=getattr(args, "force", False))
     if plan is None:
         print(f"\n[ERROR] Failed to generate plan for phase {args.phase}")
         return 1
@@ -660,11 +661,12 @@ def cmd_plan_all(args: argparse.Namespace) -> int:
         print(f"[ERROR] .methodology/ not found. Run init-project first.")
         return 1
 
+    _force = getattr(args, "force", False)
     out_dir.mkdir(parents=True, exist_ok=True)
     results = []
     for phase_num in range(1, 9):
         out_path = out_dir / f"phase{phase_num}_plan.md"
-        plan = generate_full_plan(phase_num, project, out_path, dynamic=True)
+        plan = generate_full_plan(phase_num, project, out_path, dynamic=True, force=_force)
         status = "OK" if plan else "FAIL"
         results.append((phase_num, status, str(out_path)))
         print(f"  Phase {phase_num}: {status} → {out_path}")
@@ -2392,6 +2394,26 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
         print(f"  quality_complete: {result.quality_complete}")
         print(f"  open_critical   : {result.open_critical}")
         print(f"  open_high       : {result.open_high}")
+
+        # ── Persist gate result to .methodology/ (phase-persistent evidence) ──
+        # gate{N}_result.json is written by the agent to .sessi-work/, which is
+        # (a) gitignored and (b) wiped by advance-phase's rmtree. The PhaseAuditor
+        # C10 check needs gate4_result.json as Gate 4 PASS evidence in CI. Copy the
+        # just-finalized result to .methodology/ where it is committable and survives
+        # the phase-transition cleanup.
+        for _gp_src in (
+            project_path / ".sessi-work" / f"gate{args.gate}_result.json",
+            project_path / f"gate{args.gate}_result.json",
+        ):
+            if _gp_src.exists():
+                _gp_dst = project_path / ".methodology" / f"gate{args.gate}_result.json"
+                try:
+                    _gp_dst.parent.mkdir(parents=True, exist_ok=True)
+                    _gp_dst.write_text(_gp_src.read_text(encoding="utf-8"), encoding="utf-8")
+                    print(f"  persisted       : {_gp_dst.relative_to(project_path)} (committable)")
+                except OSError as _gp_err:
+                    print(f"  [WARN] Could not persist gate result to .methodology/: {_gp_err}")
+                break
 
         # ── Structural post-flight for phase-exit gates (gate ≥ 2) ──────────
         # Checks ASPICE artifact cross-references and drift against artifacts
@@ -6940,6 +6962,8 @@ def build_parser() -> argparse.ArgumentParser:
     pp.add_argument("--phase",  type=int, required=True, help="Phase number (1-8)")
     pp.add_argument("--project", default=".", help="Project root path (default: .)")
     pp.add_argument("--output", default=None, help="Output file path (default: stdout)")
+    pp.add_argument("--force", action="store_true",
+                    help="Overwrite an existing plan even if it has progress marks ([x])")
     pp.set_defaults(func=cmd_plan_phase)
 
     # plan-all
@@ -6948,6 +6972,8 @@ def build_parser() -> argparse.ArgumentParser:
     pa.add_argument("--project", default=".", help="Project root path (default: .)")
     pa.add_argument("--output-dir", default=None, dest="output_dir",
                     help="Output directory (default: <project>/.methodology/)")
+    pa.add_argument("--force", action="store_true",
+                    help="Regenerate all plans even those with progress marks ([x])")
     pa.set_defaults(func=cmd_plan_all)
 
     # run-phase

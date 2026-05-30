@@ -2015,6 +2015,19 @@ class TestFinalizeGateHR10:
         assert "HR-10" not in output
         assert "HR-01" not in output
 
+    def test_gate_result_persisted_to_methodology(self, tmp_path, monkeypatch):
+        """A (Bug 1/2): a passed gate copies gate{N}_result.json to .methodology/
+        (committable + survives advance-phase rmtree of .sessi-work/)."""
+        exit_code, _ = self._call_finalize(monkeypatch, tmp_path, spawn_entries=[
+            {"fr_id": "FR-01", "role": "developer", "session_id": "d1",
+             "status": "success", "confidence": 9},
+            {"fr_id": "FR-01", "role": "reviewer", "session_id": "r1",
+             "status": "success", "review_status": "APPROVE"},
+        ])
+        assert exit_code == 0
+        persisted = tmp_path / ".methodology" / "gate1_result.json"
+        assert persisted.exists(), "gate result must be persisted to .methodology/ on pass"
+
     def test_same_session_id_blocks_hr01(self, tmp_path, monkeypatch):
         """HR-01 blocks when A/B entries share the same session_id."""
         exit_code, output = self._call_finalize(monkeypatch, tmp_path, spawn_entries=[

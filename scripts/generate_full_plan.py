@@ -1312,6 +1312,16 @@ def _dynamic_fr_template_block(phase: int) -> List[str]:
     return [
         "### FR Tasks — Expanded at Execution Time",
         "",
+        "- [ ] **[ENV-CHECK]** Run ONCE before the FR loop — `GATE1`/`GATE1-DELTA` preflight"
+        " requires `.sessi-work/env_check_result.json`:",
+        "  ```bash",
+        f"  python3 harness_cli.py run-env-check --phase {phase} --project .",
+        "  # evaluate inline → write .sessi-work/env_check_result.json →",
+        f"  python3 harness_cli.py finalize-env-check --phase {phase} --project .",
+        "  ```",
+        f"  > Without this, every `run-fr-step --step GATE1{'-DELTA' if use_carryforward else ''}` blocks on"
+        " 'env_check_result.json not found'.",
+        "",
         f"> Read `fr_ids` from `.sessi-work/phase{phase}_ctx.json`.",
         "> For each `{FR-ID}` in the list, execute the template below:",
         "",
@@ -2493,8 +2503,26 @@ def generate_phase8_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
 # ============================================================================
 
 def generate_full_plan(phase: int, repo_path: Path, output_path: Optional[Path] = None,
-                       dynamic: bool = False) -> Optional[str]:
-    """Generate full plan with phase-specific detailed tasks"""
+                       dynamic: bool = False, force: bool = False) -> Optional[str]:
+    """Generate full plan with phase-specific detailed tasks.
+
+    Idempotency guard: if *output_path* already exists and contains completed
+    checklist items (`- [x]`), the plan is NOT overwritten unless *force* is True.
+    This prevents `plan-all`/`plan-phase` re-runs from wiping in-progress marks on
+    a phase that is already underway. Returns the existing content unchanged in
+    that case.
+    """
+    if output_path and output_path.exists() and not force:
+        try:
+            _existing = output_path.read_text(encoding="utf-8")
+        except OSError:
+            _existing = ""
+        if "- [x]" in _existing:
+            print(
+                f"[SKIP] Phase {phase}: {output_path.name} has progress marks — "
+                "preserved (use --force to regenerate)."
+            )
+            return _existing
 
     srs_paths = [
         repo_path / "01-requirements" / "SRS.md",

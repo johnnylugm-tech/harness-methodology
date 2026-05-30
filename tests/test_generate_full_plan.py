@@ -1892,3 +1892,50 @@ class TestReviewerDesignFixes:
         result = generate_full_plan(2, project)
         assert result is not None
         assert "machine-generated" in result, "P2 review must explain quality_manifest.json/SAB.json are machine-generated"
+
+
+# ─── Phase 7-8 execution review fixes (A/B/C/D) ──────────────────────────────
+
+class TestPhase78ReviewFixes:
+    """Fixes B (env-check in FR template) and C (idempotent plan generation)."""
+
+    # B (Issue 2): every FR-loop dynamic plan must include the [ENV-CHECK] preamble
+    @pytest.mark.parametrize("phase", [3, 4, 5, 7, 8])
+    def test_env_check_prereq_in_fr_loop(self, tmp_path: Path, phase: int):
+        (tmp_path / ".methodology").mkdir(exist_ok=True)
+        result = generate_full_plan(phase, tmp_path, dynamic=True)
+        assert result is not None
+        assert "[ENV-CHECK]" in result, f"P{phase} FR loop must include [ENV-CHECK] step"
+        assert "run-env-check" in result
+        assert "env_check_result.json" in result
+
+    # C (Bug 4/5): a plan with progress marks is preserved, not clobbered
+    def test_existing_plan_with_progress_preserved(self, tmp_path: Path):
+        (tmp_path / ".methodology").mkdir(exist_ok=True)
+        out = tmp_path / ".methodology" / "phase3_plan.md"
+        out.write_text("# My Phase 3\n\n- [x] done step\n- [ ] todo step\n", encoding="utf-8")
+        result = generate_full_plan(3, tmp_path, out, dynamic=True)
+        # Returned unchanged — original progress preserved
+        assert result is not None
+        assert "- [x] done step" in result
+        assert out.read_text(encoding="utf-8").count("- [x] done step") == 1
+        assert "FR Tasks — Expanded" not in out.read_text(encoding="utf-8")
+
+    # C: --force overrides the preservation guard
+    def test_force_regenerates_over_progress(self, tmp_path: Path):
+        (tmp_path / ".methodology").mkdir(exist_ok=True)
+        out = tmp_path / ".methodology" / "phase3_plan.md"
+        out.write_text("# Old\n\n- [x] done step\n", encoding="utf-8")
+        result = generate_full_plan(3, tmp_path, out, dynamic=True, force=True)
+        assert result is not None
+        # Regenerated → fresh template content present, old marks gone
+        assert "FR Tasks — Expanded" in out.read_text(encoding="utf-8")
+
+    # C: a fresh (no-progress) plan is regenerated normally
+    def test_no_progress_plan_regenerated(self, tmp_path: Path):
+        (tmp_path / ".methodology").mkdir(exist_ok=True)
+        out = tmp_path / ".methodology" / "phase3_plan.md"
+        out.write_text("# Stale template\n\n- [ ] only todos\n", encoding="utf-8")
+        result = generate_full_plan(3, tmp_path, out, dynamic=True)
+        assert result is not None
+        assert "FR Tasks — Expanded" in out.read_text(encoding="utf-8")
