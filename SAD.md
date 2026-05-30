@@ -2873,6 +2873,7 @@ P6 does NOT have a per-FR loop. Gate 4 evaluates all 14 dimensions across the en
 
 **Phase Truth (HR-11/TH-15, P1–P8)**
 `PhaseTruthVerifier` runs automatically after each phase exit gate. Requires ≥ 90%:
+> **Sync Note**: If weights in `phase_truth_verifier.py` are modified, this table **must** be updated synchronously.
 
 | Phase | FrameworkEnforcer | pytest pass | coverage | previous_phase_artifacts | Cross-artifact |
 |---|----|----|----|----|----|
