@@ -2874,12 +2874,11 @@ P6 does NOT have a per-FR loop. Gate 4 evaluates all 14 dimensions across the en
 **Phase Truth (HR-11/TH-15, P1–P8)**
 `PhaseTruthVerifier` runs automatically after each phase exit gate. Requires ≥ 90%:
 
-| Phase | FrameworkEnforcer | sessions_spawn.log | pytest pass | coverage | previous_phase_artifacts |
+| Phase | FrameworkEnforcer | pytest pass | coverage | previous_phase_artifacts | Cross-artifact |
 |---|----|----|----|----|----|
-| P1 | 60% | 40% | — | — | — |
-| P2 | 50% | 35% | — | — | 15% |
-| P3–P4 | 30% | 22% | 22% | 13% | 13% |
-| P5–P8 | 50% | 35% | — | — | 15% |
+| P1–P2 | 70% | — | — | 30% | — |
+| P3–P4 | 28% | 24% | 16% | 14% | 18% |
+| P5–P8 | 70% | — | — | 30% | — |
 
 **Preflight Hooks (all phases)**
 `run-phase` runs before each phase work loop: FSM state check → KillSwitch status → Previous phase artifacts (ASPICE chain, P2+) → Constitution validation → SAB check (P3+) → Traceability check (P3 info, P4+ block) → CI readiness → Tool registry → DriftDetector (P3+, now includes SAB drift) → GapDetector (P4+).
