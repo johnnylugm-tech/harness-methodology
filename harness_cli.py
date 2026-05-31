@@ -1792,7 +1792,6 @@ def _verify_env_check_claims(project: Path) -> "list[str]":
     absent/optional are not forced. infra_services (DB/docker) stay agent-reported
     (the framework cannot reliably probe them here).
     """
-    import os
     result_path = project / ".sessi-work" / "env_check_result.json"
     if not result_path.exists():
         return []
@@ -1801,18 +1800,11 @@ def _verify_env_check_claims(project: Path) -> "list[str]":
     except (ValueError, OSError):
         return []
     findings: list[str] = []
-    import concurrent.futures
-    import shutil
-    claimed_tools = [
-        str(t["name"]) for t in data.get("cli_tools", {}).get("required", [])
-        if isinstance(t, dict) and t.get("present") and t.get("name")
-    ]
-    if claimed_tools:
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            results = list(executor.map(lambda t: (t, shutil.which(t) is not None), claimed_tools))
-            for m, is_present in results:
-                if not is_present:
-                    findings.append(f"cli_tool '{m}': claimed present, but not found on PATH")
+    for t in data.get("cli_tools", {}).get("required", []):
+        if isinstance(t, dict) and t.get("present") and t.get("name"):
+            name = str(t["name"])
+            if shutil.which(name) is None:
+                findings.append(f"cli_tool '{name}': claimed present, but not found on PATH")
     for v in data.get("env_vars", {}).get("required", []):
         if isinstance(v, dict) and v.get("present") and v.get("name"):
             if v["name"] not in os.environ:
