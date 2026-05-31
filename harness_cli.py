@@ -6733,10 +6733,11 @@ def cmd_audit_structure(args: argparse.Namespace) -> int:
         issues = []
         if len(content.strip()) < 200:
             issues.append("content < 200 chars")
-        if content.count("\n## ") + content.count("\n# ") < 2:
+        is_yaml = fpath.name.endswith(".yaml") or fpath.name.endswith(".yml")
+        if not is_yaml and content.count("\n## ") + content.count("\n# ") < 2:
             issues.append("< 2 markdown sections")
         if phase_num in _FR_REF_PHASES and not _re.search(
-            r"\[(TASK|FR|NFR)-\d+\]", content, _re.IGNORECASE
+            r"\[?(TASK|FR|NFR)-(\d+)\]?", content, _re.IGNORECASE
         ):
             issues.append("no [TASK/FR/NFR-XX] references")
         return {"quality": "good" if not issues else "suspicious", "issues": issues}
@@ -6789,6 +6790,8 @@ def cmd_audit_structure(args: argparse.Namespace) -> int:
     found_dirs = set()
     for child in project.iterdir():
         if not child.is_dir():
+            continue
+        if child.name in ("00-summary",):
             continue
         m = _re.match(r"^(\d{2})-", child.name)
         if m:
