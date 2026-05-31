@@ -302,7 +302,7 @@ class PhaseTruthVerifier:
 
         # A/B reviewer check applies only to phases that use Agent B collaboration.
         if self.phase in (1, 2, 6):
-            fr_reviewers = {}
+            fr_reviewers: dict[str, set[str]] = {}
             for e in valid_entries:
                 role = str(e.get("role", "")).strip()
                 if not role:

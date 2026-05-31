@@ -58,7 +58,7 @@ import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from harness.git_strategy import GitStrategy
@@ -6686,7 +6686,7 @@ def cmd_audit_structure(args: argparse.Namespace) -> int:
         8: ["08-config/CONFIG_RECORDS.md", "08-config/RELEASE_CHECKLIST.md"],
     }
 
-    results = {
+    results: dict[str, Any] = {
         "project": str(project),
         "dimensions": {},
     }

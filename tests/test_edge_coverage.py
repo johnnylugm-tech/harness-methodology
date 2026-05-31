@@ -544,7 +544,9 @@ class TestPhaseTruthVerifierEdge:
     def test_verify_phase_lt_3(self, tmp_path, capsys):
         from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
         verifier = PhaseTruthVerifier(str(tmp_path), phase=1)
-        with patch.object(verifier, "check_framework_block", return_value=(True, 100.0, "ok")):
+        with patch.object(verifier, "check_framework_block", return_value=(True, 100.0, "ok")), \
+             patch.object(verifier, "check_previous_phase_artifacts", return_value=(True, 100.0, "ok")), \
+             patch.object(verifier, "check_session_log", return_value=(True, 100.0, "ok")):
             result = verifier.verify()
         assert result["passed"] is True
 
@@ -552,7 +554,8 @@ class TestPhaseTruthVerifierEdge:
         from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
         verifier = PhaseTruthVerifier(str(tmp_path), phase=6)
         with patch.object(verifier, "check_framework_block", return_value=(True, 100.0, "ok")), \
-             patch.object(verifier, "check_previous_phase_artifacts", return_value=(True, 100.0, "ok")):
+             patch.object(verifier, "check_previous_phase_artifacts", return_value=(True, 100.0, "ok")), \
+             patch.object(verifier, "check_session_log", return_value=(True, 100.0, "ok")):
             result = verifier.verify()
         assert result["passed"] is True
 

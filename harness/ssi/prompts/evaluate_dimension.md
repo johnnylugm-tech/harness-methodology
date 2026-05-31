@@ -284,11 +284,16 @@ scan independently, so a fabricated score is blocked.
 - A project with no public API (`total_public == 0`) scores 100 (nothing to document).
 - `_`-prefixed (private) symbols and nested defs are excluded.
 
-### performance (Tier 3)
+### performance (Tier 3 — tool-scored: pytest-benchmark)
+
+**Scored by the framework via `pytest-benchmark` (measured latency), not radon.** The
+harness runs the benchmark suite and scores real mean latencies:
 ```bash
-radon cc src/ -j --min A 2>&1 | head -100
+pytest 03-development/tests --benchmark-only --benchmark-disable-gc --benchmark-columns mean,max --tb no -q
 ```
-**Score formula:** `tool_score = max(0, 100 - count(CC > 10) × 5)` — same as `architecture`. Both dimensions use radon cc; the distinction lies in findings context (architecture focuses on coupling/layering, performance on hot-path bottlenecks).
+**Score formula:** start at 100; per benchmark, `mean > 3000 ms → −50`, `mean > 1000 ms → −25`, otherwise no penalty. **No benchmark tests collected** (pytest exit 5) → score is *None* (dimension not yet applicable — not a free 100). S4 cross-validation re-runs this independently, so a fabricated score is blocked.
+
+> Add `pytest-benchmark` micro-benchmarks (functions taking the `benchmark` fixture) for hot-path code so this dimension produces a real score rather than being skipped.
 
 ---
 
@@ -316,6 +321,7 @@ Score = formula from Step 1. Findings = each tool violation becomes one finding 
 - `error_handling` → `ast-error-handling` (file-level try/except coverage, framework AST)
 - `documentation` → `ast-docstrings` (public-API docstring coverage, framework AST)
 - `readability` → `radon-mi` (maintainability-index *proxy*; no analysable file → no score, not 100)
+- `performance` → `pytest-benchmark` (measured benchmark latency; no benchmark tests → no score, not 100)
 - Score = formula from Step 1 tool output
 - Optionally query CRG (`get_minimal_context_tool`) to enrich finding descriptions
 - CRG data enriches findings but does not change the score

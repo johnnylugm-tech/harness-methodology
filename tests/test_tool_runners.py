@@ -7,7 +7,6 @@ Covers:
 - _score_radon_mi  (Issue 1: None on parse error; JSON structure)
 - _score_pyright   (JSON summary.errorCount path + text fallback)
 - _score_bandit    (HIGH/MEDIUM/LOW severity accounting)
-- _score_pydocstyle (violation-count parsing)
 - _score_pytest_benchmark (NFR-01/06 latency-based performance scorer)
 - compute_tool_score  (None propagation from radon scorers)
 """
