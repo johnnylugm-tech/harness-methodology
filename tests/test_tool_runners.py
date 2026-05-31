@@ -3,7 +3,6 @@ Unit tests for harness/tool_runners.py — scorer functions.
 
 Covers:
 - _score_radon_cc  (Issue 1: None on parse error; JSON structure)
-- _score_radon_cc_high (Issue 2: differentiated performance scorer)
 - _score_radon_mi  (Issue 1: None on parse error; JSON structure)
 - _score_pyright   (JSON summary.errorCount path + text fallback)
 - _score_bandit    (HIGH/MEDIUM/LOW severity accounting)
@@ -21,7 +20,6 @@ from harness.tool_runners import (
     compute_tool_score,
     run_tool,
     _score_radon_cc,
-    _score_radon_cc_high,
     _score_radon_mi,
     _score_pyright,
     _score_bandit,
@@ -91,51 +89,6 @@ class TestScoreRadonCc:
     def test_entry_missing_complexity_key_ignored(self):
         data = {"src/a.py": [{"name": "foo"}]}  # no "complexity" key
         assert _score_radon_cc(json.dumps(data), 0) == 100.0
-
-
-# ---------------------------------------------------------------------------
-# _score_radon_cc_high
-# ---------------------------------------------------------------------------
-
-class TestScoreRadonCcHigh:
-    """radon cc -j --min D: only CC ≥ 16 entries returned.  Each costs 10 pts."""
-
-    def test_no_severe_complexity_returns_100(self):
-        # --min D filters to CC ≥ 16; empty output means nothing severe
-        assert _score_radon_cc_high(json.dumps({}), 0) == 100.0
-
-    def test_one_severe_function_costs_10(self):
-        data = {"src/a.py": [{"name": "monster", "complexity": 20}]}
-        assert _score_radon_cc_high(json.dumps(data), 0) == 90.0
-
-    def test_boundary_exactly_16_is_counted(self):
-        data = {"src/a.py": [{"name": "f", "complexity": 16}]}
-        assert _score_radon_cc_high(json.dumps(data), 0) == 90.0
-
-    def test_complexity_15_not_counted(self):
-        # CC = 15 is grade C, not D — should not be penalised by high scorer
-        data = {"src/a.py": [{"name": "f", "complexity": 15}]}
-        assert _score_radon_cc_high(json.dumps(data), 0) == 100.0
-
-    def test_multiple_severe_functions(self):
-        data = {
-            "src/a.py": [
-                {"name": "f1", "complexity": 25},
-                {"name": "f2", "complexity": 18},
-            ]
-        }
-        # 2 entries → 100 - 2×10 = 80
-        assert _score_radon_cc_high(json.dumps(data), 0) == 80.0
-
-    def test_score_floor_is_zero(self):
-        data = {"src/a.py": [{"name": f"f{i}", "complexity": 20} for i in range(11)]}
-        assert _score_radon_cc_high(json.dumps(data), 0) == 0.0
-
-    def test_non_json_returns_none(self):
-        assert _score_radon_cc_high("not json", 1) is None
-
-    def test_empty_string_returns_none(self):
-        assert _score_radon_cc_high("", 0) is None
 
 
 # ---------------------------------------------------------------------------
@@ -260,10 +213,6 @@ class TestComputeToolScoreNonePropagation:
         result = compute_tool_score("radon-cc", "not json", 0)
         assert result is None
 
-    def test_radon_cc_high_parse_error_propagates_none(self):
-        result = compute_tool_score("radon-cc-high", "not json", 0)
-        assert result is None
-
     def test_radon_mi_parse_error_propagates_none(self):
         result = compute_tool_score("radon-mi", "not json", 0)
         assert result is None
@@ -272,11 +221,6 @@ class TestComputeToolScoreNonePropagation:
         data = {"src/a.py": [{"complexity": 5}]}
         result = compute_tool_score("radon-cc", json.dumps(data), 0)
         assert result == 100.0
-
-    def test_radon_cc_high_valid_json_returns_score(self):
-        data = {"src/a.py": [{"complexity": 20}]}  # CC > 15 → penalty
-        result = compute_tool_score("radon-cc-high", json.dumps(data), 0)
-        assert result == 90.0
 
     def test_negative_returncode_always_returns_none(self):
         # Harness-internal error codes: skip regardless of output

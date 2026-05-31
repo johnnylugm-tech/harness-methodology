@@ -38,7 +38,6 @@ _DEFAULT_TIMEOUTS: dict[str, int] = {
     "gitleaks":         30,
     "bandit":           60,
     "radon-cc":         30,
-    "radon-cc-high":    30,
     "radon-mi":         30,
     "pytest-benchmark": 180,
     "ast-assertions":   30,
@@ -120,11 +119,6 @@ def run_tool(
             "radon", "cc", root,
             "-j",           # JSON output
             "--min", "A",   # include all grades (A-F)
-        ],
-        "radon-cc-high": [
-            "radon", "cc", root,
-            "-j",           # JSON output
-            "--min", "D",   # grade D+ only (CC ≥ 16) — performance hot-path focus
         ],
         "radon-mi": [
             "radon", "mi", root,
@@ -413,7 +407,6 @@ def compute_tool_score(tool: str, output: str, returncode: int) -> Optional[floa
         "gitleaks":         _score_gitleaks,
         "bandit":           _score_bandit,
         "radon-cc":         _score_radon_cc,
-        "radon-cc-high":    _score_radon_cc_high,
         "radon-mi":         _score_radon_mi,
         "pytest-benchmark": _score_pytest_benchmark,
         "ast-assertions":   _score_assertion_quality,
@@ -525,28 +518,6 @@ def _score_radon_cc(output: str, _returncode: int) -> Optional[float]:
             if isinstance(entry, dict) and entry.get("complexity", 0) > 10
         )
         return max(0.0, 100.0 - complex_count * 5.0)
-    except (_json.JSONDecodeError, ValueError):
-        return None  # Tool crash / non-JSON stderr — cannot score
-
-
-def _score_radon_cc_high(output: str, _returncode: int) -> Optional[float]:
-    """Score radon cc -j --min D.  Functions with CC > 15 (grade D+) each cost 10 pts.
-
-    Used for the *performance* dimension to focus on severe hot-path complexity.
-    Returns None on JSON parse failure.
-    """
-    import json as _json
-    try:
-        data = _json.loads(output)
-        # radon cc -j --min D: {"file.py": [{"complexity": N, ...}, ...]}
-        # All returned entries have CC ≥ 16; filter defensively.
-        complex_count = sum(
-            1
-            for entries in data.values() if isinstance(entries, list)
-            for entry in entries
-            if isinstance(entry, dict) and entry.get("complexity", 0) > 15
-        )
-        return max(0.0, 100.0 - complex_count * 10.0)
     except (_json.JSONDecodeError, ValueError):
         return None  # Tool crash / non-JSON stderr — cannot score
 
