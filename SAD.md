@@ -761,11 +761,12 @@ File paths used:
 - `.methodology/run-phase.log` — append-only run log
 - `docs/` — for constitution checks
 
-**Pre-flight hooks** (`preflight_all() -> dict` calls all ten):
+**Pre-flight hooks** (`preflight_all() -> dict` calls all eleven):
 
 | Method | Check | Blocks if |
 |---|---|---|
 | `preflight_fsm_check()` | reads `state.json` | state in `{"FREEZE", "PAUSED"}` or phase regression |
+| `preflight_bvs_phase_order()` | runs `constitution.bvs_runner.BVSRunner` to check phase prerequisites | HR-03 phase prerequisites violated |
 | `preflight_constitution(check_mode="preflight")` | calls `quality_gate.constitution.run_constitution_check` | violations found |
 | `preflight_kill_switch()` | verifies M1 kill-switch is operational | skipped if `enable_kill_switch=False` |
 | `preflight_previous_phase_artifacts()` | runs `PhaseArtifactRegistry.verify_phase_chain()` for ASPICE traceability | P2+ only; blocks if previous phase artifacts missing |
@@ -786,16 +787,19 @@ File paths used:
 | `monitoring_after_rev` | `(fr_id, result=None, agent_id="agent-b")` | `review_status`, `status`, `confidence` |
 | `monitoring_hr12_check` | `(fr_id, iteration, max_iterations=5)` | Returns `False` if `iteration >= max_iterations` |
 
-**Post-flight hooks** (`postflight_all() -> dict` calls all four):
+**Post-flight hooks** (`postflight_all() -> dict` calls all seven):
 
 | Method | Action |
 |---|---|
 | `postflight_constitution()` | Re-runs constitution check with `check_mode="postflight"` |
+| `postflight_bvs_invariants()` | Re-runs BVS invariants from sessions_spawn.log |
+| `postflight_steering_summary()` | Generates summary of LLM-as-Judge steering operations |
 | `postflight_drift_check()` | Re-runs M2 drift detection; blocks if score < `drift_threshold` |
+| `postflight_artifact_links()` | Verifies ASPICE traceability (current phase artifacts cite predecessors) |
 | `postflight_update_state(success=True)` | Advances `state.json` current_phase if `self.phase > old_phase` |
 | `postflight_summary()` | Returns `{total_frs, approved, fr_results, monitoring_events}` |
 
-**Success condition for `postflight_all`**: `constitution.passed AND drift check passed AND all FR results have review_status == "APPROVE"`.
+**Success condition for `postflight_all`**: `constitution.passed AND bvs_invariants.passed AND drift check passed AND artifact_links passed AND all FR results have review_status == "APPROVE"`.
 
 **OpenTelemetry span wrapping** (v2.7.0+): `PhaseHooks` lazily imports `core.observability.init_tracer` during `__init__` and stores it as `self.tracer`. Both `preflight_all()` and `postflight_all()` wrap their execution in a named OTel span (`phase_{N}_preflight` / `phase_{N}_postflight`) with `phase` and `all_passed`/`success` attributes. Tracing is a no-op when `core.observability` is unavailable (import guarded by `try/except`).
 
