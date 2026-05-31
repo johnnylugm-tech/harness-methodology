@@ -116,27 +116,27 @@ jobs:
           # CV-5: safe JSON parsing — corrupt/empty state.json defaults to 0
           # so CI emits a clear error instead of dying with a Python traceback.
           PHASE=$(python3 -c "
-import json, sys
-try:
-    d = json.load(open('$STATE_FILE'))
-    print(d.get('current_phase', 0))
-except Exception as e:
-    print(f'[WARN] state.json unreadable: {e}', file=sys.stderr)
-    print(0)
-")
+          import json, sys
+          try:
+              d = json.load(open('$STATE_FILE'))
+              print(d.get('current_phase', 0))
+          except Exception as e:
+              print(f'[WARN] state.json unreadable: {e}', file=sys.stderr)
+              print(0)
+          ")
           if [ "$PHASE" -lt 3 ]; then
             echo "INFO: Phase $PHASE < 3 — push-milestone not yet required."
             exit 0
           fi
           CMD=$(python3 -c "
-import json, sys
-try:
-    d = json.load(open('$STATE_FILE'))
-    print(d.get('last_milestone_command', ''))
-except Exception as e:
-    print(f'[WARN] state.json unreadable: {e}', file=sys.stderr)
-    print('')
-")
+          import json, sys
+          try:
+              d = json.load(open('$STATE_FILE'))
+              print(d.get('last_milestone_command', ''))
+          except Exception as e:
+              print(f'[WARN] state.json unreadable: {e}', file=sys.stderr)
+              print('')
+          ")
           if [ -z "$CMD" ]; then
             echo "ERROR: state.json has no last_milestone_command field."
             echo "Direct git push detected. Use instead:"
@@ -150,13 +150,13 @@ except Exception as e:
         # P1/P2 HANDOVER.md is already checked by p1p2-enforcement job.
         run: |
           PHASE=$(python3 -c "
-import json, sys
-try:
-    d = json.load(open('.methodology/state.json', encoding='utf-8'))
-    print(int(d.get('current_phase', 0)))
-except Exception:
-    print(0)
-" 2>/dev/null || echo "0")
+          import json, sys
+          try:
+              d = json.load(open('.methodology/state.json', encoding='utf-8'))
+              print(int(d.get('current_phase', 0)))
+          except Exception:
+              print(0)
+          " 2>/dev/null || echo "0")
           if [ "$PHASE" -lt 3 ]; then
             echo "INFO: Phase $PHASE < 3 — HANDOVER.md managed by p1p2-enforcement."
             exit 0
@@ -332,14 +332,14 @@ except Exception:
           if [ -f "$STATE_FILE" ]; then
             # CV-5: safe parse — corrupt state.json defaults to empty string.
             CMD=$(python3 -c "
-import json, sys
-try:
-    d = json.load(open('$STATE_FILE'))
-    print(d.get('last_milestone_command', ''))
-except Exception as e:
-    print(f'[WARN] state.json unreadable: {e}', file=sys.stderr)
-    print('')
-")
+          import json, sys
+          try:
+              d = json.load(open('$STATE_FILE'))
+              print(d.get('last_milestone_command', ''))
+          except Exception as e:
+              print(f'[WARN] state.json unreadable: {e}', file=sys.stderr)
+              print('')
+          ")
             if echo "$CMD" | grep -q "p8"; then
               IS_P8="true"
             fi
