@@ -276,7 +276,9 @@ jobs:
     # P1/P2 approval checks are already covered by p1p2-enforcement above.
     name: Agent B Approval Verification (P1/P2 only)
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && fromJSON(steps.phase.outputs.PHASE) <= 2
+    # NOTE: job-level if cannot use `steps` context (only github/inputs/needs/vars).
+    # P1/P2 gating is enforced by the step-level if on "Verify Agent B approvals" below.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
         with:
