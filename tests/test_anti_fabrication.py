@@ -419,72 +419,6 @@ class TestPhaseTruthPassed:
 # A/B coverage per deliverable
 # ---------------------------------------------------------------------------
 
-class TestABCoveragePerDeliverable:
-    """check_ab_coverage verifies each fr_id has a reviewer entry."""
-
-    def _make_verifier(self, tmp_path, phase=1):
-        from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
-        return PhaseTruthVerifier(str(tmp_path), phase)
-
-    def test_all_paired_passes(self, tmp_path):
-        import json
-        log = tmp_path / ".methodology" / "sessions_spawn.log"
-        log.parent.mkdir()
-        log.write_text(
-            json.dumps({"fr_id": "FR-01", "role": "developer", "session_id": "s1"}) + "\n" +
-            json.dumps({"fr_id": "FR-01", "role": "reviewer", "session_id": "s2"}) + "\n" +
-            json.dumps({"fr_id": "FR-02", "role": "developer", "session_id": "s3"}) + "\n" +
-            json.dumps({"fr_id": "FR-02", "role": "architect", "session_id": "s4"}) + "\n"
-        )
-        v = self._make_verifier(tmp_path)
-        ok, score, msg = v.check_ab_coverage()
-        assert ok
-        assert score == 100.0
-
-    def test_missing_reviewer_fails(self, tmp_path):
-        import json
-        log = tmp_path / ".methodology" / "sessions_spawn.log"
-        log.parent.mkdir()
-        log.write_text(
-            json.dumps({"fr_id": "FR-01", "role": "developer", "session_id": "s1"}) + "\n" +
-            json.dumps({"fr_id": "FR-02", "role": "developer", "session_id": "s2"}) + "\n" +
-            json.dumps({"fr_id": "FR-02", "role": "reviewer", "session_id": "s3"}) + "\n"
-        )
-        v = self._make_verifier(tmp_path)
-        ok, score, msg = v.check_ab_coverage()
-        assert not ok
-        assert "FR-01" in msg
-        assert score < 100.0
-
-    def test_no_log_fails(self, tmp_path):
-        v = self._make_verifier(tmp_path)
-        ok, score, msg = v.check_ab_coverage()
-        assert not ok
-        assert score == 0.0
-
-    def test_architect_role_accepted(self, tmp_path):
-        import json
-        log = tmp_path / ".methodology" / "sessions_spawn.log"
-        log.parent.mkdir()
-        log.write_text(
-            json.dumps({"fr_id": "FR-01", "role": "developer", "session_id": "s1"}) + "\n" +
-            json.dumps({"fr_id": "FR-01", "role": "architect", "session_id": "s2"}) + "\n"
-        )
-        v = self._make_verifier(tmp_path)
-        ok, score, _ = v.check_ab_coverage()
-        assert ok
-        assert score == 100.0
-
-    def test_phase3_plus_raises_infra_skip(self, tmp_path):
-        """Phase 3+ check_ab_coverage raises InfraSkip (A/B removed)."""
-        from core.quality_gate.phase_truth_verifier import InfraSkip
-        for phase in (3, 4, 5, 6, 7, 8):
-            v = self._make_verifier(tmp_path, phase=phase)
-            try:
-                v.check_ab_coverage()
-                pytest.fail(f"Phase {phase} should raise InfraSkip")
-            except InfraSkip:
-                pass
 
 
 # ---------------------------------------------------------------------------
@@ -910,6 +844,26 @@ class TestHarnessCrossValidation:
 
         assert len(violations) == 1
         assert "no tests" in violations[0] and "unverifiable" in violations[0]
+
+    def test_readability_no_source_blocks(self, tmp_path):
+        """Layer B2: radon-mi returns None (no analysable source) → a passing
+        readability score is unverifiable and BLOCKS (no free 100)."""
+        from unittest.mock import patch
+        from harness.harness_bridge import _run_harness_cross_validation
+
+        self._make_gate_yaml(tmp_path, 4, [
+            {"name": "readability", "requires_tool_execution": True, "tool": "radon-mi",
+             "threshold": 80},
+        ])
+        ctx = self._make_ctx(tmp_path, gate=4)
+        raw = {"breakdown": {"readability": {"score": 95}}}
+
+        # radon-mi over an empty graph → "{}" → _score_radon_mi returns None.
+        with patch("harness.tool_runners.run_tool", return_value=("{}", 0)):
+            violations = _run_harness_cross_validation(ctx, raw)
+
+        assert len(violations) == 1
+        assert "readability" in violations[0] and "no analysable" in violations[0]
 
     def test_architecture_skipped_crg_owned(self, tmp_path):
         """Layer 3: architecture is framework-CRG-owned in finalize → skipped by S4."""

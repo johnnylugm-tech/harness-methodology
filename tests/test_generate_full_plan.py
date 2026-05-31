@@ -1791,7 +1791,16 @@ class TestReviewerDesignFixes:
         assert "[A3]" in result, "P6 must have A3 devil_advocate field documentation"
         assert "devil_advocate_evidence" in result, "P6 A3 must require the artifact-backed evidence field"
         assert "[A4]" not in result, "A4 high_score_confirmations was removed"
-        assert "[A5]" in result, "P6 must still document A5 issue_registry_path (advisory)"
+        assert "[A5]" in result, "P6 must still document A5 issue_registry (advisory)"
+
+    def test_p6_a5_issue_registry_is_advisory_note_not_step(self, tmp_path: Path):
+        """C8: A5 issue_registry is an advisory note, no longer a `- [ ]` gate step."""
+        (tmp_path / ".methodology").mkdir()
+        result = generate_full_plan(6, tmp_path, dynamic=True)
+        assert result is not None
+        assert "[A5]" in result, "A5 must still be documented"
+        assert "- [ ] **[A5]" not in result, "A5 issue_registry must not be a checklist action"
+        assert "not a gate step" in result, "A5 must be marked advisory/optional"
 
     # C2: P6 must document DA challenge and DA waiver for CRG-ONLY dims
     def test_p6_da_challenge_documented(self, tmp_path: Path):

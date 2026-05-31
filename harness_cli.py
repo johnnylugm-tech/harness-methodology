@@ -1778,6 +1778,38 @@ def cmd_run_env_check(args: argparse.Namespace) -> int:
     print(f"[INFO] env-check complete. Result: {result_path}")
     return 0
 
+
+def _verify_env_check_claims(project: Path) -> "list[str]":
+    """A2: independently re-verify the cli_tools / env_vars the env-check agent
+    claimed present. Returns fabrication findings (empty = all claims hold up).
+
+    Only claims of `present: true` are checked — tools/vars the agent reported as
+    absent/optional are not forced. infra_services (DB/docker) stay agent-reported
+    (the framework cannot reliably probe them here).
+    """
+    import os
+    result_path = project / ".sessi-work" / "env_check_result.json"
+    if not result_path.exists():
+        return []
+    try:
+        data = json.loads(result_path.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return []
+    findings: list[str] = []
+    claimed_tools = [
+        str(t["name"]) for t in data.get("cli_tools", {}).get("required", [])
+        if isinstance(t, dict) and t.get("present") and t.get("name")
+    ]
+    if claimed_tools:
+        for m in check_cli_tools(claimed_tools):
+            findings.append(f"cli_tool '{m}': claimed present, but not found on PATH")
+    for v in data.get("env_vars", {}).get("required", []):
+        if isinstance(v, dict) and v.get("present") and v.get("name"):
+            if not os.environ.get(v["name"]):
+                findings.append(f"env_var '{v['name']}': claimed present, but not set")
+    return findings
+
+
 def cmd_finalize_env_check(args: argparse.Namespace) -> int:
     """Verify env_check_result.json and report environment readiness.
 
@@ -1846,6 +1878,16 @@ def cmd_finalize_env_check(args: argparse.Namespace) -> int:
     print(f"\n{message}")
 
     if ready:
+        # A2 framework spot-check: the env-check agent self-reports cli_tools/env_vars
+        # status. Independently re-verify the ones it claims present — a claim that does
+        # not hold up is fabrication, so BLOCK even when the agent reported ready.
+        _fab = _verify_env_check_claims(project)
+        if _fab:
+            print("\n[BLOCKED] env_check claims could not be independently verified:")
+            for _v in _fab:
+                print(f"  • {_v}")
+            print("  Fix the environment (or the report), then re-run run-env-check.")
+            return 1
         print(f"\n[READY] Environment is ready for Phase {args.phase} development.")
         return 0
     else:
@@ -1889,6 +1931,7 @@ def _find_latest_round_dir(project: Path) -> "tuple[Path, int] | None":
 
 
 _DA_EVIDENCE_MIN_CHARS = 120  # minimum length for challenge / response to count as real
+_MIN_REVIEW_REASON_CHARS = 40  # minimum length for an Agent B APPROVE reason to count as substantive
 
 
 def _validate_da_evidence(dim: str, g4: dict) -> "str | None":
@@ -2908,6 +2951,22 @@ def _verify_agent_b_approvals_core(
         status = data.get("review_status", "")
         if status != "APPROVE":
             rejected.append(f"{did}: review_status={status!r} (expected APPROVE)")
+            continue
+        # A1 structure guard: an APPROVE must carry a substantive review, not an empty
+        # rubber-stamp. This cannot verify Agent B authenticity (a structural limit of a
+        # document-phase review) but it blocks the trivially-faked empty APPROVE.
+        _reason = str(data.get("reason", "")).strip()
+        _citations = data.get("citations", [])
+        if len(_reason) < _MIN_REVIEW_REASON_CHARS:
+            errors.append(
+                f"{did}: APPROVE with empty/too-short reason "
+                f"(need ≥{_MIN_REVIEW_REASON_CHARS} chars of review rationale)"
+            )
+            continue
+        if not isinstance(_citations, list) or not _citations:
+            errors.append(
+                f"{did}: APPROVE without citations[] — Agent B must cite what it reviewed."
+            )
             continue
         embedded = data.get("docs_embedded", [])
         missing_docs = [d for d in required_docs if d not in embedded]

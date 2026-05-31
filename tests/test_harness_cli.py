@@ -336,7 +336,7 @@ class TestVerifyAgentBApprovals:
             (approvals_dir / f"{fr}.json").write_text(json.dumps({
                 "fr": fr,
                 "review_status": "APPROVE",
-                "docs_embedded": ["SRS.md", "SAD.md"],
+                "docs_embedded": ["SRS.md", "SAD.md"], "reason": "Reviewed all deliverables; acceptance criteria covered, no critical gaps found.", "citations": ["SRS.md:1"],
                 "confidence": 0.92,
             }))
         args = argparse.Namespace(project=str(tmp_path), phase=3, fr_ids="FR-01,FR-02")
@@ -350,7 +350,7 @@ class TestVerifyAgentBApprovals:
         (approvals_dir / "FR-01.json").write_text(json.dumps({
             "fr": "FR-01",
             "review_status": "REJECT",
-            "docs_embedded": ["SRS.md", "SAD.md"],
+            "docs_embedded": ["SRS.md", "SAD.md"], "reason": "Reviewed all deliverables; acceptance criteria covered, no critical gaps found.", "citations": ["SRS.md:1"],
         }))
         args = argparse.Namespace(project=str(tmp_path), phase=3, fr_ids="FR-01")
         from harness_cli import cmd_verify_agent_b_approvals
@@ -372,6 +372,33 @@ class TestVerifyAgentBApprovals:
         rc = cmd_verify_agent_b_approvals(args)
         assert rc == 1
 
+    def test_approve_empty_reason_returns_1(self, tmp_path, capsys):
+        """A1: APPROVE with too-short reason → reject (shell approval)."""
+        approvals_dir = tmp_path / ".methodology" / "agent_b_approvals"
+        approvals_dir.mkdir(parents=True)
+        (approvals_dir / "FR-01.json").write_text(json.dumps({
+            "fr": "FR-01", "review_status": "APPROVE",
+            "docs_embedded": ["SRS.md", "SAD.md"],
+            "reason": "ok", "citations": ["SRS.md:1"],
+        }))
+        args = argparse.Namespace(project=str(tmp_path), phase=3, fr_ids="FR-01")
+        from harness_cli import cmd_verify_agent_b_approvals
+        assert cmd_verify_agent_b_approvals(args) == 1
+
+    def test_approve_no_citations_returns_1(self, tmp_path, capsys):
+        """A1: APPROVE without citations[] → reject."""
+        approvals_dir = tmp_path / ".methodology" / "agent_b_approvals"
+        approvals_dir.mkdir(parents=True)
+        (approvals_dir / "FR-01.json").write_text(json.dumps({
+            "fr": "FR-01", "review_status": "APPROVE",
+            "docs_embedded": ["SRS.md", "SAD.md"],
+            "reason": "Reviewed all deliverables; acceptance criteria covered fully.",
+            "citations": [],
+        }))
+        args = argparse.Namespace(project=str(tmp_path), phase=3, fr_ids="FR-01")
+        from harness_cli import cmd_verify_agent_b_approvals
+        assert cmd_verify_agent_b_approvals(args) == 1
+
     def test_no_fr_ids_no_manifest_returns_1(self, tmp_path, capsys):
         args = argparse.Namespace(project=str(tmp_path), phase=3, fr_ids="")
         from harness_cli import cmd_verify_agent_b_approvals
@@ -389,7 +416,7 @@ class TestVerifyAgentBApprovals:
         (approvals_dir / "FR-01.json").write_text(json.dumps({
             "fr": "FR-01",
             "review_status": "APPROVE",
-            "docs_embedded": ["SRS.md", "SAD.md"],
+            "docs_embedded": ["SRS.md", "SAD.md"], "reason": "Reviewed all deliverables; acceptance criteria covered, no critical gaps found.", "citations": ["SRS.md:1"],
             "confidence": 0.9,
         }))
         args = argparse.Namespace(project=str(tmp_path), phase=3, fr_ids="")
@@ -405,7 +432,7 @@ class TestVerifyAgentBApprovals:
             (approvals_dir / f"{did}.json").write_text(json.dumps({
                 "fr": did,
                 "review_status": "APPROVE",
-                "docs_embedded": ["SRS.md", "SAD.md"],
+                "docs_embedded": ["SRS.md", "SAD.md"], "reason": "Reviewed all deliverables; acceptance criteria covered, no critical gaps found.", "citations": ["SRS.md:1"],
                 "confidence": 0.9,
             }))
         # Pass FR IDs — they must be ignored for phase=2
@@ -413,6 +440,52 @@ class TestVerifyAgentBApprovals:
         from harness_cli import cmd_verify_agent_b_approvals
         rc = cmd_verify_agent_b_approvals(args)
         assert rc == 0  # SAD.md + ADR.md + TEST_SPEC.md approvals present → pass
+
+
+class TestVerifyEnvCheckClaims:
+    """A2: framework spot-check of env_check_result.json self-reported claims."""
+
+    def _write(self, project: Path, payload: dict) -> None:
+        work = project / ".sessi-work"
+        work.mkdir(parents=True, exist_ok=True)
+        (work / "env_check_result.json").write_text(json.dumps(payload))
+
+    def test_claimed_cli_tool_missing_blocks(self, tmp_path):
+        from harness_cli import _verify_env_check_claims
+        self._write(tmp_path, {"cli_tools": {"required": [
+            {"name": "definitely_not_a_real_tool_xyz", "present": True},
+        ]}})
+        findings = _verify_env_check_claims(tmp_path)
+        assert any("definitely_not_a_real_tool_xyz" in f for f in findings)
+
+    def test_claimed_absent_tool_not_flagged(self, tmp_path):
+        """present:false tools are not force-verified."""
+        from harness_cli import _verify_env_check_claims
+        self._write(tmp_path, {"cli_tools": {"required": [
+            {"name": "definitely_not_a_real_tool_xyz", "present": False},
+        ]}})
+        assert _verify_env_check_claims(tmp_path) == []
+
+    def test_claimed_env_var_unset_blocks(self, tmp_path, monkeypatch):
+        from harness_cli import _verify_env_check_claims
+        monkeypatch.delenv("HARNESS_A2_PROBE", raising=False)
+        self._write(tmp_path, {"env_vars": {"required": [
+            {"name": "HARNESS_A2_PROBE", "present": True},
+        ]}})
+        findings = _verify_env_check_claims(tmp_path)
+        assert any("HARNESS_A2_PROBE" in f for f in findings)
+
+    def test_present_cli_tool_passes(self, tmp_path):
+        """A real tool claimed present is not flagged."""
+        from harness_cli import _verify_env_check_claims
+        self._write(tmp_path, {"cli_tools": {"required": [
+            {"name": "python3", "present": True},
+        ]}})
+        assert _verify_env_check_claims(tmp_path) == []
+
+    def test_no_result_file_no_findings(self, tmp_path):
+        from harness_cli import _verify_env_check_claims
+        assert _verify_env_check_claims(tmp_path) == []
 
 
 class TestValidateP8Completion:
@@ -482,6 +555,8 @@ class TestVerifyEntryGate:
             (approvals / f"{did}.json").write_text(json.dumps({
                 "fr": did, "review_status": status,
                 "docs_embedded": docs, "confidence": 0.9,
+                "reason": "Reviewed deliverable; acceptance criteria covered, no critical gaps.",
+                "citations": ["SRS.md:1"],
             }))
 
     def test_p1_passes_without_gate(self, tmp_path):
@@ -590,7 +665,7 @@ class TestExtractReviewJson:
         from harness_cli import _extract_review_json
         text = (
             "```json\n"
-            '{"fr": "FR-03", "review_status": "APPROVE", "docs_embedded": ["SRS.md", "SAD.md"], "confidence": 0.85}\n'
+            '{"fr": "FR-03", "review_status": "APPROVE", "docs_embedded": ["SRS.md", "SAD.md"], "reason": "Reviewed all deliverables; acceptance criteria covered, no critical gaps found.", "citations": ["SRS.md:1"], "confidence": 0.85}\n'
             "```"
         )
         result = _extract_review_json(text)
@@ -1046,7 +1121,7 @@ class TestAdvancePreChecksAgentB:
         (method_dir / "agent_b_approvals").mkdir(parents=True)
         for did in _PHASE_DELIVERABLES[1]:
             (method_dir / "agent_b_approvals" / f"{did}.json").write_text(
-                json.dumps({"review_status": "APPROVE", "docs_embedded": ["SRS.md"]}),
+                json.dumps({"review_status": "APPROVE", "docs_embedded": ["SRS.md"], "reason": "Reviewed deliverable; acceptance criteria covered, no critical gaps.", "citations": ["SRS.md:1"]}),
                 encoding="utf-8",
             )
 
@@ -1069,7 +1144,7 @@ class TestAdvancePreChecksAgentB:
             (method_dir / "agent_b_approvals" / f"{did}.json").write_text(
                 json.dumps({
                     "review_status": status,
-                    "docs_embedded": ["SRS.md", "SAD.md"],
+                    "docs_embedded": ["SRS.md", "SAD.md"], "reason": "Reviewed all deliverables; acceptance criteria covered, no critical gaps found.", "citations": ["SRS.md:1"],
                 }),
                 encoding="utf-8",
             )

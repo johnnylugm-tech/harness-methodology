@@ -157,7 +157,7 @@ class TestC3AgentBApprovals:
     def test_p3_with_approve_passes(self):
         """P3 with one APPROVE file should give PASS."""
         a = self._make_auditor(3, {
-            ".methodology/agent_b_approvals/FR-01.json": {"review_status": "APPROVE"}
+            ".methodology/agent_b_approvals/FR-01.json": {"review_status": "APPROVE", "reason": "Reviewed deliverable; acceptance criteria covered, no critical gaps.", "citations": ["SRS.md:1"]}
         })
         a._check_agent_b_approvals()
         assert any(f.severity == "PASS" and f.check_id == "C3"
@@ -188,8 +188,8 @@ class TestC3AgentBApprovals:
     def test_all_approved_is_pass(self):
         """All files APPROVE → PASS."""
         a = self._make_auditor(3, {
-            ".methodology/agent_b_approvals/FR-01.json": {"review_status": "APPROVE"},
-            ".methodology/agent_b_approvals/FR-02.json": {"review_status": "APPROVE"},
+            ".methodology/agent_b_approvals/FR-01.json": {"review_status": "APPROVE", "reason": "Reviewed deliverable; acceptance criteria covered, no critical gaps.", "citations": ["SRS.md:1"]},
+            ".methodology/agent_b_approvals/FR-02.json": {"review_status": "APPROVE", "reason": "Reviewed deliverable; acceptance criteria covered, no critical gaps.", "citations": ["SRS.md:1"]},
         })
         a._check_agent_b_approvals()
         assert any(f.severity == "PASS" and f.check_id == "C3"
@@ -198,7 +198,7 @@ class TestC3AgentBApprovals:
     def test_mixed_approvals_is_warning_not_pass(self):
         """Partial approval (some REQUEST_CHANGES) should be WARNING, not PASS."""
         a = self._make_auditor(3, {
-            ".methodology/agent_b_approvals/FR-01.json": {"review_status": "APPROVE"},
+            ".methodology/agent_b_approvals/FR-01.json": {"review_status": "APPROVE", "reason": "Reviewed deliverable; acceptance criteria covered, no critical gaps.", "citations": ["SRS.md:1"]},
             ".methodology/agent_b_approvals/FR-02.json": {"review_status": "REQUEST_CHANGES"},
         })
         a._check_agent_b_approvals()

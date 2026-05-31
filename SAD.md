@@ -82,7 +82,7 @@ python harness_cli.py pre-commit-check  --phase 3 [--project .]   # git hook onl
 python harness_cli.py run-gate          --gate 2 --phase 3 [--project .] [--fr-id FR-01] [--skip-preflight] [--delta]
 python harness_cli.py finalize-gate     --gate 2 --phase 3 [--project .] [--fr-id FR-01] [--no-git]
 python harness_cli.py run-env-check     [--project .] [--phase N] [--fr-id FR-XX]
-python harness_cli.py finalize-env-check [--project .]
+python harness_cli.py finalize-env-check [--project .]   # A2: re-verifies cli_tools/env_vars claimed-present (PATH / os.environ); claimed-but-missing → BLOCK
 python harness_cli.py generate-next-plan [--project .] [--phase N]
 python harness_cli.py push-checkpoint   --phase 1|2 [--project .] [--fr-ids FR-01,FR-02] [--no-git]
 python harness_cli.py manifest          --fr-ids FR-01 FR-02 [--sad SAD.md] [--no-git]
@@ -154,7 +154,7 @@ Gate 1 `test_coverage` dimension verifies outcomes; implementations without prio
 | Mechanism | CLI command | State written | CI job |
 |-----------|-------------|---------------|--------|
 | Push-milestone sentinel | `push-milestone --type <type>` | `state.json:.last_milestone_command` | `push-milestone-enforcement` — blocks push to `main` if P3+ and field absent |
-| Agent B approval gate | `verify-agent-b-approvals --phase N` | `.methodology/agent_b_approvals/FR-XX.json` (per-FR, `review_status=APPROVE`, `docs_embedded=[SRS.md,SAD.md]`) | `agent-b-approval-check` — blocks push if any FR missing APPROVE |
+| Agent B approval gate | `verify-agent-b-approvals --phase N` | `.methodology/agent_b_approvals/FR-XX.json` (per-FR, `review_status=APPROVE`, `docs_embedded=[SRS.md,SAD.md]`, `reason` ≥40 chars, non-empty `citations[]`) | `agent-b-approval-check` (A1 guard) — blocks push if any FR missing APPROVE **or** an APPROVE carries no review rationale / `citations[]` (shell-approval guard; same structural check mirrored in `phase_auditor` C3) |
 | P8 archive check | `push-milestone --type p8` (pre-flight in CLI) | `.methodology-archive/` directory + HANDOVER.md clean | `p8-archive-check` — blocks push if archive absent or HANDOVER references Phase 9 |
 
 These three mechanisms were added to address the class of failures where an agent uses `git push --no-verify` to bypass local hooks. GitHub Actions CI cannot be bypassed by hook-skip flags. `init-project --ci-only` installs all three jobs into the target project's `.github/workflows/harness_quality_gate.yml`.
@@ -1439,6 +1439,7 @@ def compute_tool_score(tool: str, output: str, returncode: int) -> float | None:
 **In-process pseudo-tools** (computed by the harness itself, not external CLIs — replace former "fake" tool mappings that re-used pytest pass-rate):
 - `ast-assertions` (`test_assertion_quality`) — AST scan of test functions; `score = 100 × asserted/total`. A test with no substantive assertion (`assert` / `self.assertXxx` / `pytest.raises`) is "zero-assert" and lowers the score — what pytest pass-rate cannot detect.
 - `ast-error-handling` (`error_handling`) — file-level coverage `100 × files_with_try_except / total_source_files` over `03-development/src` / `src`. Replaces the CRG flow `has_error_handler` path (that field does not exist in the installed code-review-graph package).
+- `ast-docstrings` (`documentation`) — public-API docstring coverage `100 × public_defs_with_docstring / total_public_defs` over `03-development/src` / `src` (`def`/`class` whose name is not `_`-prefixed; `ast.get_docstring`). Replaces the former `pydocstyle`/`interrogate` style-existence proxy that an agent could satisfy with one-line stubs. `total_public == 0` → 100 (no public API to document). S4 re-runs this AST scan independently → not fabricable.
 - `pytest-cov-integration` (`integration_coverage`) — runs `pytest 03-development/tests/integration --cov=…` and scores the real coverage `TOTAL%` (not pass-rate). Missing suite → exit 4/5 → score 0 → cross-validation blocks.
 
 > `architecture` is NOT scored here — it is framework-owned via the independent CRG run (`harness/crg_independent.py`, below) and overridden in `finalize_gate`. Cross-validation skips it.

@@ -888,14 +888,24 @@ class PhaseAuditor:
             ))
             return
 
+        # A1 parity (mirror harness_cli._MIN_REVIEW_REASON_CHARS): an APPROVE must
+        # carry real review rationale + citations, otherwise it is a shell approval
+        # the main agent can self-issue without reviewing anything.
+        _min_reason = 40
         approved = 0
         for path in approval_files:
             c = self.gh.get_file_content(path)
             try:
-                if c and json.loads(c).get("review_status") == "APPROVE":
-                    approved += 1
+                data = json.loads(c) if c else {}
             except json.JSONDecodeError:
-                pass
+                continue
+            if data.get("review_status") != "APPROVE":
+                continue
+            reason = str(data.get("reason", "")).strip()
+            citations = data.get("citations", [])
+            if len(reason) < _min_reason or not isinstance(citations, list) or not citations:
+                continue
+            approved += 1
 
         total = len(approval_files)
         if approved == total:
@@ -913,7 +923,7 @@ class PhaseAuditor:
         self.result.add(Finding(
             check_id="C3", dimension="A/B Session Separation",
             severity=sev,
-            title=f"{icon} {approved}/{total} Agent B approval file(s) have review_status=APPROVE.",
+            title=f"{icon} {approved}/{total} Agent B approval file(s) have a substantiated APPROVE (review_status + reason + citations).",
             detail=f"Files checked: {[p.split('/')[-1] for p in approval_files[:5]]}",
             rule_ref=rule_ref,
         ))

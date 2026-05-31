@@ -522,42 +522,8 @@ class TestGapDetectorEdge:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestPhaseTruthVerifierEdge:
-    def test_check_session_log_line_by_line(self, tmp_path):
-        from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
-        # CV-1: canonical path is .methodology/sessions_spawn.log
-        method_dir = tmp_path / ".methodology"
-        method_dir.mkdir(parents=True, exist_ok=True)
-        log = method_dir / "sessions_spawn.log"
-        log.write_text(
-            '{"role":"architect","session_id":"s1"}\n'
-            '{"role":"reviewer","session_id":"s2"}\n'
-        )
-        verifier = PhaseTruthVerifier(str(tmp_path), phase=1)
-        passed, score, details = verifier.check_session_log()
-        assert passed is True
-        assert score == 100.0
 
-    def test_check_session_log_single_json_dict(self, tmp_path):
-        """SG-14: legacy {"sessions":[...]} format is no longer accepted."""
-        from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
-        method_dir = tmp_path / ".methodology"
-        method_dir.mkdir(parents=True, exist_ok=True)
-        log = method_dir / "sessions_spawn.log"
-        log.write_text(json.dumps({"sessions": [
-            {"role": "architect", "session_id": "s1"},
-            {"role": "reviewer", "session_id": "s2"},
-        ]}))
-        verifier = PhaseTruthVerifier(str(tmp_path), phase=1)
-        passed, _, _ = verifier.check_session_log()
-        # Legacy single-dict format is now treated as malformed (JSONL only).
-        assert passed is False
 
-    def test_check_session_log_not_found(self, tmp_path):
-        from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
-        verifier = PhaseTruthVerifier(str(tmp_path), phase=1)
-        passed, score, _ = verifier.check_session_log()
-        assert passed is False
-        assert score == 0.0
 
     def test_check_pytest_not_found(self, tmp_path):
         from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
@@ -578,8 +544,7 @@ class TestPhaseTruthVerifierEdge:
     def test_verify_phase_lt_3(self, tmp_path, capsys):
         from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
         verifier = PhaseTruthVerifier(str(tmp_path), phase=1)
-        with patch.object(verifier, "check_framework_block", return_value=(True, 100.0, "ok")), \
-             patch.object(verifier, "check_session_log", return_value=(True, 100.0, "ok")):
+        with patch.object(verifier, "check_framework_block", return_value=(True, 100.0, "ok")):
             result = verifier.verify()
         assert result["passed"] is True
 
@@ -587,7 +552,6 @@ class TestPhaseTruthVerifierEdge:
         from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
         verifier = PhaseTruthVerifier(str(tmp_path), phase=6)
         with patch.object(verifier, "check_framework_block", return_value=(True, 100.0, "ok")), \
-             patch.object(verifier, "check_session_log", return_value=(True, 100.0, "ok")), \
              patch.object(verifier, "check_previous_phase_artifacts", return_value=(True, 100.0, "ok")):
             result = verifier.verify()
         assert result["passed"] is True

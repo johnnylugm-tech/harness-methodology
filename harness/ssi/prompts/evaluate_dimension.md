@@ -225,12 +225,28 @@ the justification in findings and proceed to Gate 4 with DA evidence.
 The harness `finalize_gate()` will bypass the architecture score threshold when both
 `devil_advocate.architecture` and `da_waiver.architecture` are `true`.
 
-### readability (Tier 3)
+> **Structural defence only (A3):** the `devil_advocate.architecture` evidence
+> (challenge + response prose) is agent-authored — the harness checks it is present and
+> non-trivial, not that the reasoning is *true*. The bypass is nonetheless safe because
+> the architecture **score itself** comes from the framework independently re-running CRG
+> (`harness/crg_independent.py`), not from the agent; the waiver only zeroes the threshold
+> for a known orchestrator false-positive, and `finalize_gate` marks it
+> `da_waiver_needs_human_review = true`. The prose is a documentation artifact, not a
+> correctness guarantee.
+
+### readability (Tier 3 — proxy metric: radon-mi)
 
 ```bash
 radon mi src/ -j 2>&1 | head -100
 ```
 **Score formula:** `tool_score = avg(mi for all files)` — `radon mi -j` outputs `{"file.py": {"mi": 0-100, "rank": "A-F"}}`. Average the `mi` values across all files.
+
+> **Proxy caveat:** maintainability-index (MI) is an *approximation* of readability, not
+> a direct measure — it weighs Halstead volume / cyclomatic complexity / LOC, which
+> correlate with but do not equal human readability. It is kept as the best automatable
+> signal. When there is **no analysable source file**, the harness returns *no score*
+> (not 100), and S4 cross-validation blocks an agent score it cannot independently
+> reproduce — a missing metric is never silently treated as a pass.
 
 ### error_handling (Tier 3 — tool-scored: ast-error-handling)
 
@@ -252,12 +268,21 @@ AST scan independently, so a fabricated score is blocked.
 **Fix priority**: source files performing I/O, network, database, or external-service
 calls with no `try/except` anywhere in the file.
 
-### documentation (Tier 3)
-```bash
-pydocstyle src/ --count 2>&1 | head -100
-interrogate src/ -v 2>&1 | head -100
-```
-**Score formula:** `tool_score = max(0, 100 - violations × 2)` — `--count` appends a final line `"N violations found"`; parse N. Each docstring violation deducts 2 points.
+### documentation (Tier 3 — tool-scored: ast-docstrings)
+
+**Scored by the framework, not the LLM and not CRG.** The harness scans the source
+tree (`03-development/src`, `src`) and computes **public-API docstring coverage**:
+the percentage of public `def`/`class` (names not starting with `_`) that carry a
+docstring (`ast.get_docstring`).
+
+`documentation.score = round(100 × public_with_docstring / total_public, 1)`
+
+This replaces the former `pydocstyle`/`interrogate` proxy (a style/existence count the
+agent could satisfy with trivial one-line stubs). S4 cross-validation re-runs this AST
+scan independently, so a fabricated score is blocked.
+
+- A project with no public API (`total_public == 0`) scores 100 (nothing to document).
+- `_`-prefixed (private) symbols and nested defs are excluded.
 
 ### performance (Tier 3)
 ```bash
@@ -289,6 +314,8 @@ Score = formula from Step 1. Findings = each tool violation becomes one finding 
 
 **Tool-scored Tier 3 dimensions** (readability, documentation, performance, error_handling):
 - `error_handling` → `ast-error-handling` (file-level try/except coverage, framework AST)
+- `documentation` → `ast-docstrings` (public-API docstring coverage, framework AST)
+- `readability` → `radon-mi` (maintainability-index *proxy*; no analysable file → no score, not 100)
 - Score = formula from Step 1 tool output
 - Optionally query CRG (`get_minimal_context_tool`) to enrich finding descriptions
 - CRG data enriches findings but does not change the score

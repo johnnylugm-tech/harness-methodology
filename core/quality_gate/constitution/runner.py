@@ -192,6 +192,13 @@ def _keyword_density(content: str, keywords: List[str]) -> float:
 
     Content is expected to be pre-lowered by _scan_file_compliance.
     Keywords may be mixed-case — we lower them for matching consistency.
+
+    Heuristic, not a correctness guarantee: keyword *presence* is a weak proxy for
+    whether a concern (auth / validation / encryption / …) was actually addressed —
+    text can mention a keyword without implementing it. It is paired with
+    `_keyword_stuffing_penalty` (D1 anti-stuffing) to deter gaming, and applies to
+    documentation/spec artifacts; the authoritative quality signal for code dimensions
+    is the framework AST / independent tool scores, not this density.
     """
     if not keywords:
         return 100.0

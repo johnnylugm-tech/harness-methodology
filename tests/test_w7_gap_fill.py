@@ -291,81 +291,16 @@ class TestABEnforcer:
 
 # ─── PhaseTruthVerifier ───────────────────────────────────────────────────────
 
-def _make_sessions_log(tmp_path, content: str = None) -> Path:
-    # CV-1: canonical path is .methodology/sessions_spawn.log
-    method_dir = tmp_path / ".methodology"
-    method_dir.mkdir(parents=True, exist_ok=True)
-    f = method_dir / "sessions_spawn.log"
-    if content is None:
-        content = (
-            '{"role": "developer", "session_id": "dev-001"}\n'
-            '{"role": "reviewer", "session_id": "rev-002"}\n'
-        )
-    f.write_text(content)
-    return f
-
-
 class TestPhaseTruthVerifier:
     def _make_verifier(self, tmp_path, phase=1):
         from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
         return PhaseTruthVerifier(str(tmp_path), phase)
 
-    def test_check_session_log_not_found(self, tmp_path):
-        v = self._make_verifier(tmp_path)
-        passed, score, detail = v.check_session_log()
-        assert passed is False
-        assert score == 0.0
-        assert "not found" in detail
 
-    def test_check_session_log_jsonl_two_roles(self, tmp_path):
-        _make_sessions_log(tmp_path)
-        v = self._make_verifier(tmp_path)
-        passed, score, detail = v.check_session_log()
-        assert passed is True
-        assert score == 100.0
 
-    def test_check_session_log_dict_sessions_format(self, tmp_path):
-        """SG-14: legacy {"sessions":[...]} format is no longer accepted."""
-        data = {"sessions": [
-            {"role": "dev", "session_id": "s1"},
-            {"role": "rev", "session_id": "s2"},
-        ]}
-        method_dir = tmp_path / ".methodology"
-        method_dir.mkdir(parents=True, exist_ok=True)
-        (method_dir / "sessions_spawn.log").write_text(json.dumps(data))
-        v = self._make_verifier(tmp_path)
-        passed, _, _ = v.check_session_log()
-        # Legacy single-dict format → treated as malformed under JSONL contract.
-        assert passed is False
 
-    def test_check_session_log_list_format(self, tmp_path):
-        """SG-14: legacy JSON-array-on-one-line format is no longer accepted."""
-        data = [{"role": "a", "session_id": "s1"}, {"role": "b", "session_id": "s2"}]
-        method_dir = tmp_path / ".methodology"
-        method_dir.mkdir(parents=True, exist_ok=True)
-        (method_dir / "sessions_spawn.log").write_text(json.dumps(data))
-        v = self._make_verifier(tmp_path)
-        passed, _, _ = v.check_session_log()
-        assert passed is False
 
-    def test_check_session_log_single_entry(self, tmp_path):
-        method_dir = tmp_path / ".methodology"
-        method_dir.mkdir(parents=True, exist_ok=True)
-        (method_dir / "sessions_spawn.log").write_text(
-            json.dumps({"role": "dev", "session_id": "s1"}) + "\n"
-        )
-        v = self._make_verifier(tmp_path)
-        passed, score, _ = v.check_session_log()
-        assert passed is False
 
-    def test_check_session_log_exception(self, tmp_path):
-        method_dir = tmp_path / ".methodology"
-        method_dir.mkdir(parents=True, exist_ok=True)
-        log = method_dir / "sessions_spawn.log"
-        log.write_bytes(b"\xff\xfe\xfd")
-        v = self._make_verifier(tmp_path)
-        passed, score, detail = v.check_session_log()
-        assert passed is False
 
     def test_check_framework_block_import_error(self, tmp_path):
         """CV-4: ImportError now raises InfraSkip instead of returning 0 score."""
@@ -446,10 +381,10 @@ class TestPhaseTruthVerifier:
                    for item in checklist)
 
     def test_verify_phase1_two_checks(self, tmp_path):
-        """Phase 1-2 uses only BLOCK + session_log (2 checks)."""
+        """Phase 1-2 uses only BLOCK + previous-phase artifacts (2 checks)."""
         v = self._make_verifier(tmp_path, phase=1)
         with patch.object(v, "check_framework_block", return_value=(True, 100.0, "ok")), \
-             patch.object(v, "check_session_log", return_value=(True, 100.0, "ok")):
+             patch.object(v, "check_previous_phase_artifacts", return_value=(True, 100.0, "ok")):
             result = v.verify()
         assert result["passed"] is True
         assert len(result["checks"]) == 2

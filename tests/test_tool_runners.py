@@ -30,6 +30,7 @@ from harness.tool_runners import (
     _score_pytest_benchmark,
     _score_assertion_quality,
     _score_error_handling_coverage,
+    _score_docstring_coverage,
 )
 
 
@@ -157,9 +158,10 @@ class TestScoreRadonMi:
         }
         assert _score_radon_mi(json.dumps(data), 0) == 70.0
 
-    def test_empty_project_returns_100(self):
-        # No Python files → nothing to average → perfect score
-        assert _score_radon_mi(json.dumps({}), 0) == 100.0
+    def test_empty_project_returns_none(self):
+        # No analysable files → None (no longer a free 100); cross-validation blocks
+        # a passing readability score that has nothing to verify.
+        assert _score_radon_mi(json.dumps({}), 0) is None
 
     def test_non_dict_file_value_ignored(self):
         data = {"src/a.py": "bad", "src/b.py": {"mi": 50.0, "rank": "B"}}
@@ -167,8 +169,8 @@ class TestScoreRadonMi:
 
     def test_missing_mi_key_ignored(self):
         data = {"src/a.py": {"rank": "A"}}  # no "mi" key
-        # Falls through to empty list → 100.0
-        assert _score_radon_mi(json.dumps(data), 0) == 100.0
+        # Falls through to empty list → None (not a free 100)
+        assert _score_radon_mi(json.dumps(data), 0) is None
 
     def test_non_json_returns_none(self):
         """Issue 1: tool crash must not award 100."""
@@ -475,6 +477,44 @@ class TestRunAstErrorHandling:
         assert data["total"] == 2  # __init__ skipped
         assert data["with_handler"] == 1
         assert compute_tool_score("ast-error-handling", out, rc) == 50.0
+
+
+# ---------------------------------------------------------------------------
+# _score_docstring_coverage + ast-docstrings (Layer B1)
+# ---------------------------------------------------------------------------
+
+class TestScoreDocstringCoverage:
+    def test_all_documented_returns_100(self):
+        assert _score_docstring_coverage('{"total": 3, "with_doc": 3}', 0) == 100.0
+
+    def test_partial_ratio(self):
+        assert _score_docstring_coverage('{"total": 4, "with_doc": 1}', 0) == 25.0
+
+    def test_no_public_api_returns_100(self):
+        """No public def/class → nothing to document, not a failure."""
+        assert _score_docstring_coverage('{"total": 0, "with_doc": 0}', 0) == 100.0
+
+    def test_non_json_returns_none(self):
+        assert _score_docstring_coverage("not json", 0) is None
+
+
+class TestRunAstDocstrings:
+    def test_public_only_coverage(self, tmp_path):
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "a.py").write_text(
+            'def public_fn():\n    """doc."""\n    return 1\n'
+            "def undocumented():\n    return 2\n"
+            "class _Private:\n    pass\n"          # _-prefixed → excluded
+            "def _helper():\n    pass\n",          # _-prefixed → excluded
+            encoding="utf-8")
+        out, rc = run_tool("ast-docstrings", str(tmp_path))
+        assert rc == 0
+        data = json.loads(out)
+        assert data["total"] == 2  # public_fn + undocumented (privates excluded)
+        assert data["with_doc"] == 1
+        assert any("undocumented" in m for m in data["missing"])
+        assert compute_tool_score("ast-docstrings", out, rc) == 50.0
 
 
 # ---------------------------------------------------------------------------

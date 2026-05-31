@@ -470,6 +470,16 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
 
         harness_score = compute_tool_score(tool, output, returncode)
         if harness_score is None:
+            # readability (radon-mi) returns None only when there is NO analysable
+            # source (radon availability is already gated by S2 _verify_gate_tools).
+            # A passing readability score with nothing to analyse is unverifiable.
+            if dim_name == "readability":
+                violations.append(
+                    f"readability: '{tool}' produced no analysable maintainability score "
+                    f"(no source files to analyse) — cannot verify agent score "
+                    f"{agent_score:.1f}. A passing readability score requires analysable "
+                    f"code; add it, then re-finalize."
+                )
             continue
 
         print(

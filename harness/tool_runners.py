@@ -44,6 +44,7 @@ _DEFAULT_TIMEOUTS: dict[str, int] = {
     "pytest-benchmark": 180,
     "ast-assertions":   30,
     "ast-error-handling": 30,
+    "ast-docstrings":   30,
     "pytest-cov-integration": 180,
 }
 
@@ -68,11 +69,13 @@ def run_tool(
     if tool in _SKIP_TOOLS:
         return "", -1
 
-    # ast-assertions / ast-error-handling are computed in-process (AST scan).
+    # ast-assertions / ast-error-handling / ast-docstrings are computed in-process (AST scan).
     if tool == "ast-assertions":
         return _run_ast_assertions(str(project_root))
     if tool == "ast-error-handling":
         return _run_ast_error_handling(str(project_root))
+    if tool == "ast-docstrings":
+        return _run_ast_docstrings(str(project_root))
 
     timeout = timeout_override if timeout_override is not None else _DEFAULT_TIMEOUTS.get(tool, 30)
     root = str(project_root)
@@ -304,6 +307,52 @@ def _run_ast_error_handling(project_root: str) -> tuple[str, int]:
     return _json.dumps(summary), 0
 
 
+def _run_ast_docstrings(project_root: str) -> tuple[str, int]:
+    """Scan source files and report public-API docstring coverage.
+
+    Returns (json_summary, 0) where summary = {total, with_doc, missing:[...]}.
+    A "public" def/class is one whose name does not start with '_' (excludes
+    private members and dunders like __init__). This is a framework-owned,
+    independently reproducible documentation measure — it replaces pydocstyle's
+    style-only check with actual docstring presence on the public surface.
+    """
+    import ast as _ast
+    import json as _json
+    from pathlib import Path as _Path
+
+    root = _Path(project_root)
+    total = 0
+    with_doc = 0
+    missing: list[str] = []
+
+    seen: set[str] = set()
+    for rel in _SRC_DIRS:
+        base = root / rel
+        if not base.is_dir():
+            continue
+        for path in base.rglob("*.py"):
+            key = str(path.resolve())
+            if key in seen:
+                continue
+            seen.add(key)
+            try:
+                tree = _ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+            except (SyntaxError, ValueError, OSError):
+                continue
+            for node in _ast.walk(tree):
+                if isinstance(
+                    node, (_ast.FunctionDef, _ast.AsyncFunctionDef, _ast.ClassDef)
+                ) and not node.name.startswith("_"):
+                    total += 1
+                    if _ast.get_docstring(node):
+                        with_doc += 1
+                    else:
+                        missing.append(f"{path.relative_to(root)}::{node.name}")
+
+    summary = {"total": total, "with_doc": with_doc, "missing": missing[:50]}
+    return _json.dumps(summary), 0
+
+
 def compute_tool_score(tool: str, output: str, returncode: int) -> Optional[float]:
     """Compute a 0-100 score from *tool* output.
 
@@ -328,6 +377,7 @@ def compute_tool_score(tool: str, output: str, returncode: int) -> Optional[floa
         "pytest-benchmark": _score_pytest_benchmark,
         "ast-assertions":   _score_assertion_quality,
         "ast-error-handling": _score_error_handling_coverage,
+        "ast-docstrings":   _score_docstring_coverage,
         "pytest-cov-integration": lambda o, _rc: _score_pytest(o, coverage=True),
     }
     fn = scorers.get(tool)
@@ -475,7 +525,9 @@ def _score_radon_mi(output: str, _returncode: int) -> Optional[float]:
             for v in data.values()
             if isinstance(v, dict) and isinstance(v.get("mi"), (int, float))
         ]
-        return round(sum(mis) / len(mis), 1) if mis else 100.0
+        # No analysable file → None (NOT a free 100). A passing readability score
+        # with nothing to analyse is unverifiable; cross-validation blocks it.
+        return round(sum(mis) / len(mis), 1) if mis else None
     except (_json.JSONDecodeError, ValueError):
         return None  # Tool crash / non-JSON stderr — cannot score
 
@@ -561,3 +613,21 @@ def _score_error_handling_coverage(output: str, _returncode: int) -> Optional[fl
     if total == 0:
         return 100.0
     return round(100.0 * with_handler / total, 1)
+
+
+def _score_docstring_coverage(output: str, _returncode: int) -> Optional[float]:
+    """Score ast-docstrings output.  100 × (public_with_docstring / total_public).
+
+    total == 0 (no public API) → 100.0 — nothing to document is not a failure.
+    JSON parse failure → None.
+    """
+    import json as _json
+    try:
+        data = _json.loads(output)
+        total = int(data.get("total", 0))
+        with_doc = int(data.get("with_doc", 0))
+    except (_json.JSONDecodeError, ValueError, TypeError):
+        return None
+    if total == 0:
+        return 100.0
+    return round(100.0 * with_doc / total, 1)

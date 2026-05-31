@@ -15,7 +15,7 @@ dimensions:
   - { name: architecture,          tier: 3, threshold: 80,  weight: 0.14, tool: code-review-graph,          requires_tool_execution: true }
   - { name: readability,           tier: 3, threshold: 80,  weight: 0.08, tool: radon-mi,          requires_tool_execution: true }
   - { name: error_handling,        tier: 3, threshold: 80,  weight: 0.08, tool: ast-error-handling,  requires_tool_execution: true }
-  - { name: documentation,         tier: 3, threshold: 75,  weight: 0.06, tool: pydocstyle,        requires_tool_execution: true }
+  - { name: documentation,         tier: 3, threshold: 75,  weight: 0.06, tool: ast-docstrings,        requires_tool_execution: true }
   - { name: performance,           tier: 3, threshold: 75,  weight: 0.06, tool: pytest-benchmark,  requires_tool_execution: true }
   - { name: integration_coverage,  tier: 2, threshold: 75,  weight: 0.05, tool: pytest-cov-integration,            requires_tool_execution: true }
   - { name: test_assertion_quality, tier: 2, threshold: 70,  weight: 0.02, tool: ast-assertions,            requires_tool_execution: true }
