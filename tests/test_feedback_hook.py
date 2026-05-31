@@ -57,7 +57,7 @@ class TestAutoQualityGateWithFeedback:
         gate = AutoQualityGateWithFeedback(feedback_store=store)
         with patch.object(gate, "_get_adapter", return_value=mock_adapter):
             # Manually craft a result where phase=None would be returned
-            with patch.object(gate, "check", wraps=gate.check) as wrapped:
+            with patch.object(gate, "check", wraps=gate.check):
                 # The base check() always returns the passed phase kwarg, so
                 # we verify adapter is not invoked when result["phase"] is None
                 pass

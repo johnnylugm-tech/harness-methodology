@@ -431,8 +431,8 @@ class TestSpecTrackingCheckerEdge:
 class TestGapDetectorEdge:
     def _make_detector(self, spec_items=None, code_items=None):
         from gap_detector.detector import GapDetector
-        from gap_detector.parser import ParsedSpec, FeatureItem
-        from gap_detector.scanner import ScannedCode, CodeFile, CodeItem
+        from gap_detector.parser import ParsedSpec
+        from gap_detector.scanner import ScannedCode, CodeFile
 
         spec = ParsedSpec(feature_items=spec_items or [])
         modules = [

@@ -3,9 +3,7 @@
 Unit tests for the 14-feature system audit fixes.
 """
 
-from pathlib import Path
-from unittest.mock import MagicMock, patch
-import pytest
+from unittest.mock import MagicMock
 
 # ─── 1. Test SAB Drift Detector Import Parsing ─────────────────────────────────
 

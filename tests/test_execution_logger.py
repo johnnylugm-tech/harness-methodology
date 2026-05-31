@@ -1,8 +1,6 @@
 """Tests for constitution/execution_logger.py — execution log collection."""
 
 import json
-import pytest
-from pathlib import Path
 from constitution.execution_logger import (
     ExecutionLogger,
     ExecutionLogEntry,

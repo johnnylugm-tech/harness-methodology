@@ -248,7 +248,7 @@ class TestCodeScanner:
         from gap_detector.scanner import CodeScanner
         make_py_file(tmp_path, "module_a.py", SIMPLE_PY)
         result = CodeScanner(tmp_path).scan()
-        public = [item for mod in result.modules for item in mod.items if not item.is_public]
+        [item for mod in result.modules for item in mod.items if not item.is_public]
         # _private_helper should be is_public=False
         private_names = [item.name for mod in result.modules for item in mod.items if not item.is_public]
         assert "_private_helper" in private_names

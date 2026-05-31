@@ -1,9 +1,6 @@
 """Tests for kill_switch/state_manager.py — persistent circuit breaker state."""
 
-import json
-import pytest
 from datetime import datetime, timezone
-from pathlib import Path
 from kill_switch.enums import CircuitState
 from kill_switch.models import CircuitBreakerState
 from kill_switch.state_manager import StateManager, DEFAULT_STATE_PATH

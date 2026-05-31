@@ -1,15 +1,14 @@
 """Integration tests for auto-fix pipeline."""
 
 import json
-import os
 import pytest
 from pathlib import Path
 
-pytestmark = [pytest.mark.auto_fix, pytest.mark.integration]
-
 from core.auto_fix import AutoFixEngine, FixContext, FixStrategy, EscalationCondition
-from core.auto_fix.classifier import classify, CLASSIFICATION_TABLE
+from core.auto_fix.classifier import CLASSIFICATION_TABLE
 from core.auto_fix.strategies import STRATEGY_REGISTRY
+
+pytestmark = [pytest.mark.auto_fix, pytest.mark.integration]
 
 
 class TestAutoFixPipelineIntegration:

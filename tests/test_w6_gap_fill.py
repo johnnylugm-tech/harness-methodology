@@ -1112,7 +1112,7 @@ class TestEffortTracker:
     def test_init_creates_db(self, tmp_path):
         from harness.effort_tracker import EffortTracker
         db = str(tmp_path / "effort.db")
-        t = EffortTracker(db_path=db)
+        EffortTracker(db_path=db)
         assert (tmp_path / "effort.db").exists()
 
     def test_record_and_summary(self, tmp_path):

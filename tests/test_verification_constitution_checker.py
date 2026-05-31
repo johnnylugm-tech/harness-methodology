@@ -1,6 +1,5 @@
 """Tests for constitution/verification_constitution_checker.py."""
 
-import pytest
 from constitution.verification_constitution_checker import VerificationConstitutionChecker
 
 

@@ -4,8 +4,6 @@ Verifies scripts are importable, prompts exist, schema is valid JSON.
 """
 
 import json
-import importlib
-import sys
 from pathlib import Path
 import pytest
 

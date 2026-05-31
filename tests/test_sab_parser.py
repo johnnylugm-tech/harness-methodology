@@ -174,9 +174,9 @@ class TestSABSpecToDict:
 
     def test_to_dict_layers_include_allowed_deps(self):
         d = self._make_spec().to_dict()
-        api_layer = next(l for l in d["layers"] if l["name"] == "api")
+        api_layer = next(layer for layer in d["layers"] if layer["name"] == "api")
         assert api_layer["allowed_dependencies"] == ["data_layer"]
-        data_layer = next(l for l in d["layers"] if l["name"] == "data_layer")
+        data_layer = next(layer for layer in d["layers"] if layer["name"] == "data_layer")
         assert data_layer["allowed_dependencies"] == []
 
     def test_to_dict_is_json_serialisable(self):

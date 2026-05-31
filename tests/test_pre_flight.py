@@ -4,7 +4,6 @@ import subprocess
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch, MagicMock
 
-import pytest
 
 from core.pre_flight import (
     check_env_vars,

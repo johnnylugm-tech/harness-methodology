@@ -6,8 +6,6 @@ import pytest
 import tempfile
 from pathlib import Path
 
-pytestmark = pytest.mark.constitution
-
 from core.quality_gate.constitution.profile import (
     ConstitutionProfile,
     defaults,
@@ -15,6 +13,8 @@ from core.quality_gate.constitution.profile import (
     get_profile,
     reset_profile,
 )
+
+pytestmark = pytest.mark.constitution
 
 
 class TestDefaults:

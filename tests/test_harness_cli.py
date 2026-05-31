@@ -157,7 +157,7 @@ class TestCmdAuditStructure:
         old = sys.stdout
         sys.stdout = buf
         try:
-            rc = cmd_audit_structure(args)
+            cmd_audit_structure(args)
         finally:
             sys.stdout = old
 
@@ -192,7 +192,8 @@ class TestCmdAuditStructure:
             (tmp_path / d).mkdir()
 
         args = self._make_args(str(tmp_path), json_out=True)
-        import io, sys
+        import io
+        import sys
         buf = io.StringIO()
         old = sys.stdout
         sys.stdout = buf
@@ -212,7 +213,8 @@ class TestCmdAuditStructure:
         (tmp_path / "09-unknown").mkdir()  # not in the canonical set
 
         args = self._make_args(str(tmp_path), json_out=True)
-        import io, sys
+        import io
+        import sys
         buf = io.StringIO()
         old = sys.stdout
         sys.stdout = buf
@@ -254,7 +256,8 @@ class TestCmdAuditStructure:
         )
 
         args = self._make_args(str(tmp_path), json_out=True)
-        import io, sys
+        import io
+        import sys
         buf = io.StringIO()
         old = sys.stdout
         sys.stdout = buf
@@ -286,7 +289,8 @@ class TestInitThenAudit:
     def test_init_then_audit_reports_dirs_and_artifacts(self, tmp_path):
         """After init-project, audit-structure should pass directory existence."""
         import argparse
-        import io, sys
+        import io
+        import sys
 
         from harness_cli import _init_phase_dirs, cmd_audit_structure
 
@@ -300,7 +304,7 @@ class TestInitThenAudit:
         old = sys.stdout
         sys.stdout = buf
         try:
-            rc = cmd_audit_structure(args)
+            cmd_audit_structure(args)
         finally:
             sys.stdout = old
 
@@ -696,7 +700,8 @@ class TestDispatchWritesApprovalJson:
 
     def test_reviewer_complete_writes_approval_json(self, tmp_path, monkeypatch):
         from harness_cli import cmd_dispatch
-        import sys, types
+        import sys
+        import types
         output = '{"fr": "FR-01", "review_status": "APPROVE", "docs_embedded": ["SRS.md"], "confidence": 0.9}'
         fake_mod = types.ModuleType("core.agent_spawner")
         fake_mod.AgentSpawner = self._make_spawner_mock("complete", output)
@@ -715,7 +720,8 @@ class TestDispatchWritesApprovalJson:
 
     def test_reviewer_complete_no_json_warns(self, tmp_path, monkeypatch, capsys):
         from harness_cli import cmd_dispatch
-        import sys, types
+        import sys
+        import types
         fake_mod = types.ModuleType("core.agent_spawner")
         fake_mod.AgentSpawner = self._make_spawner_mock("complete", "Looks good, no JSON here.")
         monkeypatch.setitem(sys.modules, "core.agent_spawner", fake_mod)
@@ -733,7 +739,8 @@ class TestDispatchWritesApprovalJson:
 
     def test_developer_role_does_not_write_approval(self, tmp_path, monkeypatch):
         from harness_cli import cmd_dispatch
-        import sys, types
+        import sys
+        import types
         output = '{"fr": "FR-01", "review_status": "APPROVE", "docs_embedded": ["SRS.md"]}'
         fake_mod = types.ModuleType("core.agent_spawner")
         fake_mod.AgentSpawner = self._make_spawner_mock("complete", output)
@@ -826,7 +833,8 @@ class TestDispatchSavesAgentAOutput:
 
     def test_developer_complete_writes_output_json(self, tmp_path, monkeypatch):
         from harness_cli import cmd_dispatch
-        import sys, types
+        import sys
+        import types
         output = '{"status": "complete", "files": ["SRS.md"], "confidence": 0.9, "citations": ["FR-01"], "summary": "done"}'
         fake_mod = types.ModuleType("core.agent_spawner")
         fake_mod.AgentSpawner = self._make_spawner_mock("complete", output)
@@ -845,7 +853,8 @@ class TestDispatchSavesAgentAOutput:
 
     def test_developer_no_json_warns(self, tmp_path, monkeypatch, capsys):
         from harness_cli import cmd_dispatch
-        import sys, types
+        import sys
+        import types
         fake_mod = types.ModuleType("core.agent_spawner")
         fake_mod.AgentSpawner = self._make_spawner_mock("complete", "All done, no JSON.")
         monkeypatch.setitem(sys.modules, "core.agent_spawner", fake_mod)
@@ -1436,7 +1445,9 @@ class TestRunFrStep:
 
     def test_dispatch_called_when_not_done(self, tmp_path, monkeypatch):
         """Sub-agent is dispatched when step has not yet been committed."""
-        import sys, types, harness_cli
+        import sys
+        import types
+        import harness_cli
 
         _setup_preflight_fixtures(tmp_path, step="TDD-RED")
 
@@ -1624,7 +1635,9 @@ class TestRunFrStep:
 
     def test_resume_fr_phase_finds_first_pending_step(self, tmp_path, monkeypatch):
         """resume-fr-phase prints the first step that is not yet done."""
-        import harness_cli, sys, io
+        import harness_cli
+        import sys
+        import io
 
         (tmp_path / ".methodology").mkdir()
         (tmp_path / ".methodology" / "quality_manifest.json").write_text(
@@ -1647,7 +1660,9 @@ class TestRunFrStep:
 
     def test_resume_fr_phase_all_done(self, tmp_path, monkeypatch):
         """resume-fr-phase reports all complete when every step is done."""
-        import harness_cli, sys, io
+        import harness_cli
+        import sys
+        import io
 
         (tmp_path / ".methodology").mkdir()
         (tmp_path / ".methodology" / "quality_manifest.json").write_text(
@@ -1664,7 +1679,9 @@ class TestRunFrStep:
 
     def test_resume_fr_phase_falls_back_to_fr_progress(self, tmp_path, monkeypatch):
         """resume-fr-phase uses fr_progress.json when quality_manifest.json is absent."""
-        import harness_cli, sys, io
+        import harness_cli
+        import sys
+        import io
 
         (tmp_path / ".methodology").mkdir()
         (tmp_path / ".methodology" / "fr_progress.json").write_text(
@@ -1682,7 +1699,9 @@ class TestRunFrStep:
 
     def test_gate1_blocked_after_max_rounds(self, tmp_path, monkeypatch):
         """Returns exit 2 (BLOCKED) when GATE1 never passes after max_fix_rounds."""
-        import sys, types, harness_cli
+        import sys
+        import types
+        import harness_cli
 
         _setup_preflight_fixtures(tmp_path, step="GATE1")
 
@@ -1710,7 +1729,9 @@ class TestRunFrStep:
 
     def test_resume_fr_phase_carryforward_uses_gate1_delta(self, tmp_path, monkeypatch):
         """resume-fr-phase emits GATE1-DELTA for carry-forward phases when code unchanged."""
-        import harness_cli, sys, io
+        import harness_cli
+        import sys
+        import io
 
         (tmp_path / ".methodology").mkdir()
         (tmp_path / ".methodology" / "quality_manifest.json").write_text(
@@ -1737,7 +1758,9 @@ class TestRunFrStep:
         self, tmp_path, monkeypatch,
     ):
         """Carry-forward phases switch to full TDD when code changed since last Gate 1."""
-        import harness_cli, sys, io
+        import harness_cli
+        import sys
+        import io
 
         (tmp_path / ".methodology").mkdir()
         (tmp_path / ".methodology" / "quality_manifest.json").write_text(
@@ -1791,7 +1814,9 @@ class TestRunFrStep:
 
     def test_run_fr_step_handles_git_push_failure_as_fatal(self, tmp_path, monkeypatch, capsys):
         """cmd_run_fr_step prints an error and returns 1 when git push fails (fatal check-recovery)."""
-        import sys, types, harness_cli
+        import sys
+        import types
+        import harness_cli
         import subprocess as _sp
 
         _setup_preflight_fixtures(tmp_path, step="TDD-RED")
@@ -1828,7 +1853,9 @@ class TestRunFrStep:
 
     def test_run_fr_step_respects_no_push_argument(self, tmp_path, monkeypatch, capsys):
         """cmd_run_fr_step skips git push when no_push is True."""
-        import sys, types, harness_cli
+        import sys
+        import types
+        import harness_cli
         import subprocess as _sp
 
         _setup_preflight_fixtures(tmp_path, step="TDD-RED")

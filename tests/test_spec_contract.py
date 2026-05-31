@@ -68,7 +68,7 @@ def test_id_06_type_safety_clean():
         line for line in (stdout + stderr).split("\n")
         if "error:" in line and "Library stubs not installed" not in line
     ]
-    assert not real_errors, f"Mypy found errors:\n" + "\n".join(real_errors)
+    assert not real_errors, "Mypy found errors:\n" + "\n".join(real_errors)
 
 @pytest.mark.quality
 def test_id_07_coverage_threshold():

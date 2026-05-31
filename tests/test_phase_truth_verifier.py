@@ -9,9 +9,9 @@ import pytest
 from unittest.mock import MagicMock, patch
 import unittest.mock
 
-pytestmark = pytest.mark.gate
-
 from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
+
+pytestmark = pytest.mark.gate
 
 
 # ---------------------------------------------------------------------------

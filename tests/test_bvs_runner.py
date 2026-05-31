@@ -1,7 +1,6 @@
 """Tests for constitution/bvs_runner.py — behavioral verification system runner."""
 
 import json
-import pytest
 from pathlib import Path
 from constitution.bvs_runner import BVSRunner
 

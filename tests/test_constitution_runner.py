@@ -5,8 +5,6 @@ import pytest
 import tempfile
 from pathlib import Path
 
-pytestmark = pytest.mark.constitution
-
 from core.quality_gate.constitution.runner import (  # pyright: ignore[reportMissingImports]
     ConstitutionResult,
     _scan_file_compliance,
@@ -20,6 +18,8 @@ from core.quality_gate.constitution.runner import (  # pyright: ignore[reportMis
 from core.quality_gate.constitution.profile import defaults
 
 from constitution import get_phase_thresholds  # pyright: ignore[reportMissingImports]
+
+pytestmark = pytest.mark.constitution
 
 
 class TestConstitutionResult:
@@ -452,7 +452,8 @@ class TestDimensionsForPhase:
 
     def test_scan_file_compliance_default_phase_uses_global_keywords(self):
         """_scan_file_compliance called without phase uses global (P1-P4) correctness vocabulary."""
-        import tempfile, os
+        import tempfile
+        import os
         # SRS-vocabulary content — should score well under global correctness keywords.
         content = "\n".join([
             "# SRS Document", "## Overview", "## FR-01 Requirements",

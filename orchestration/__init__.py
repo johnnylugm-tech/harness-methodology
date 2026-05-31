@@ -36,7 +36,7 @@ def run_constitution_check_with_feedback(
     Returns:
         ConstitutionResult with .score, .passed, .violations.
     """
-    from core.quality_gate.constitution.runner import run_constitution_check, ConstitutionResult
+    from core.quality_gate.constitution.runner import run_constitution_check
 
     result = run_constitution_check(
         check_type=check_type,
@@ -74,7 +74,7 @@ def run_enforcement_check_with_feedback(
     *,
     max_retries: int = 3,
     auto_fix: bool = False,
-) -> "EnforcementResult":
+) -> "any":
     """Run enforcement check with retry and auto-fix loop.
 
     Args:
@@ -86,7 +86,7 @@ def run_enforcement_check_with_feedback(
     Returns:
         EnforcementResult with .passed, .violations.
     """
-    from enforcement.framework_enforcer import FrameworkEnforcer, EnforcementResult
+    from enforcement.framework_enforcer import FrameworkEnforcer
 
     enforcer = FrameworkEnforcer(project_root, phase=phase)
     result = enforcer.run(level="BLOCK")

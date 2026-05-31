@@ -1,10 +1,9 @@
 # tests/test_handover_generator.py
 # Tests for HandoverGenerator and GitStrategy handover integration.
-import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from harness.handover_generator import HandoverGenerator, DEFAULT_NOTES
+from harness.handover_generator import HandoverGenerator
 from harness.git_strategy import GitStrategy
 
 
@@ -769,7 +768,6 @@ class TestCmdPushMilestone:
     @staticmethod
     def _call_push_milestone(monkeypatch, tmp_path, milestone_type, **kwargs):
         """Call cmd_push_milestone with given args and return (exit_code, printed)."""
-        import sys
         import io
         from harness_cli import cmd_push_milestone
 
@@ -1211,7 +1209,10 @@ class TestCmdAdvancePhase:
             "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier", _FakeVer,
         )
         def _fake_run(cmd, **kw):
-            class R: returncode = 0; stdout = ""; stderr = ""
+            class R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
             return R()
 
         exit_code, output = self._call_advance_phase(
@@ -1263,7 +1264,10 @@ class TestCmdAdvancePhase:
         (tmp_path / ".methodology").mkdir()
 
         def _fake_run(cmd, **kw):
-            class R: returncode = 0; stdout = ""; stderr = ""
+            class R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
             return R()
 
         exit_code, _ = self._call_advance_phase(
@@ -1289,7 +1293,10 @@ class TestCmdAdvancePhase:
         (tmp_path / "TEST_INVENTORY.yaml").write_text("tests: []")
 
         def _fake_run(cmd, **kw):
-            class R: returncode = 0; stdout = ""; stderr = ""
+            class R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
             return R()
 
         exit_code, _ = self._call_advance_phase(

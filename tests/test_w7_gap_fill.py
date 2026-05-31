@@ -578,7 +578,7 @@ class TestTaskSplitter:
     def test_get_ready_tasks(self):
         from core.task_splitter import TaskSplitter
         s = TaskSplitter()
-        tasks = s.split_from_goal("design a system")
+        s.split_from_goal("design a system")
         ready = s.get_ready_tasks()
         # First task has no deps → ready
         assert len(ready) >= 1

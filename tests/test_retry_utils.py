@@ -1,5 +1,4 @@
 # tests/test_retry_utils.py
-import time
 import pytest
 from harness.retry_utils import retry_with_backoff, _compute_delay
 

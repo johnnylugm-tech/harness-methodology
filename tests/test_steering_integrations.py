@@ -1,6 +1,5 @@
 """Tests for steering/integrations.py — HR12Resolution, CQG, integration points."""
 
-import pytest
 from steering.integrations import (
     HRConstraints,
     IntegrationResult,

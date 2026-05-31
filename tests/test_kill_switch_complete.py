@@ -94,7 +94,8 @@ class TestCircuitBreaker:
         cb = self._cb()
         cb.initialize_circuit("a1")
         cb.open_circuit("a1", cooldown_seconds=0)
-        import time; time.sleep(0.01)
+        import time
+        time.sleep(0.01)
         # After cooldown, should be HALF_OPEN (not OPEN)
         result = cb.is_open("a1")
         assert result is False  # half-open means allow probe
@@ -546,7 +547,7 @@ class TestKillSwitchFacade:
 
     def test_evaluate_and_trigger_opens_circuit_on_threshold(self, tmp_path):
         from datetime import datetime, timezone
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import patch
         ks = self._ks(tmp_path)
         ks.start_monitoring("a1", MonitorConfig("a1", failure_threshold=1))
         ks.circuit_breaker.initialize_circuit("a1")

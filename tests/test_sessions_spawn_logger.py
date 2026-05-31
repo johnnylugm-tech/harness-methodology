@@ -2,7 +2,6 @@
 
 import json
 import pytest
-from pathlib import Path
 
 from core.sessions_spawn_logger import SessionsSpawnLogger, log_spawn_event
 

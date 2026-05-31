@@ -1,6 +1,5 @@
 """Tests for constitution/claim_extractor.py — Chinese-pattern claim extraction."""
 
-import pytest
 from constitution.claim_extractor import (
     extract_claims,
     _extract_keywords,

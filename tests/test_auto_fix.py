@@ -3,8 +3,6 @@
 import pytest
 from pathlib import Path
 
-pytestmark = pytest.mark.auto_fix
-
 from core.auto_fix import (
     AutoFixEngine,
     FixContext,
@@ -34,6 +32,8 @@ from core.auto_fix.guardrails import (
     verify_no_secrets_introduced,
     rollback_if_unsafe,
 )
+
+pytestmark = pytest.mark.auto_fix
 
 
 # ── Classifier tests ────────────────────────────────────────────────────────

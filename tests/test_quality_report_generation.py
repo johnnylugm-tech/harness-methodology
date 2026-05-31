@@ -85,7 +85,7 @@ class TestGenerateQualityReport:
             json.dumps({"score": 90}))
 
         custom = tmp_path / "custom" / "QR.md"
-        out_path = generate_quality_report(str(project), output_path=str(custom))
+        generate_quality_report(str(project), output_path=str(custom))
         assert custom.exists()
         assert "Quality Report" in custom.read_text()
 
@@ -135,6 +135,6 @@ class TestGenerateReleaseNotes:
         project = tmp_path / "proj"
         project.mkdir()
         custom = tmp_path / "custom" / "RN.md"
-        out_path = generate_release_notes(str(project), output_path=str(custom))
+        generate_release_notes(str(project), output_path=str(custom))
         assert custom.exists()
         assert "Release Notes" in custom.read_text()

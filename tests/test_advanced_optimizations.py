@@ -99,7 +99,7 @@ def foo():
         """Graceful fallback: ast.parse raises SyntaxError → scanner should not be called."""
         from detection.drift_detector import ASTDependencyScanner
         import ast
-        scanner = ASTDependencyScanner("foo.py")
+        ASTDependencyScanner("foo.py")
         with pytest.raises(SyntaxError):
             ast.parse("def broken(")
 

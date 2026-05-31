@@ -1,7 +1,5 @@
 """Tests for harness/git_strategy.py — gate-aligned git commit + push strategy."""
 
-import os
-import pytest
 from pathlib import Path
 from harness.git_strategy import GitStrategy
 

@@ -6,13 +6,14 @@ import json
 import pytest
 from typing import Any
 
-pytestmark = pytest.mark.core
 from unittest.mock import patch, MagicMock
 from pathlib import Path
 from harness.harness_bridge import (
     HarnessBridge, GateResult, GateBlockedError, GateContext,
     _check_tests_failed, _check_test_skip_ratio,
 )
+
+pytestmark = pytest.mark.core
 
 
 class TestHarnessBridge:
@@ -297,7 +298,7 @@ class TestFinalizeGate:
                 with patch.object(bridge, "_effort"):
                     bridge.finalize_gate(ctx)
         mock_update.assert_called_once()
-        call_args = mock_update.call_args[1] if mock_update.call_args[1] else mock_update.call_args[0]
+        mock_update.call_args[1] if mock_update.call_args[1] else mock_update.call_args[0]
 
     def test_finalize_gate_gate1_dimension_threshold(self, tmp_path):
         """Gate 1 uses per-dimension thresholds, not composite score_gate."""
@@ -410,7 +411,7 @@ class TestSabManifestIntegration:
         })
 
         # Create minimal gate config with tier3_guidance
-        gate_config_dir = Path(__file__).parent.parent / "harness" / "gate_configs"
+        Path(__file__).parent.parent / "harness" / "gate_configs"
         yaml_path = tmp_path / "test_gate.yaml"
         yaml_path.parent.mkdir(parents=True, exist_ok=True)
         import yaml
@@ -551,7 +552,8 @@ class TestSabClosureGaps:
             "nfr_traceability": {},
             "fr_module_traceability": {},
         }
-        _path_redirect = lambda *a: tmp_path / Path(*a) if ".methodology" in str(a) else Path(*a)
+        def _path_redirect(*a):
+            return tmp_path / Path(*a) if ".methodology" in str(a) else Path(*a)
         with patch("scripts.generate_sab.parse_sad", return_value=sab_return):
             with patch.object(bridge, "_parse_nfr_from_srs", return_value={}):
                 with patch.object(bridge, "_parse_nfr_fr_xref", return_value={}):
@@ -574,7 +576,8 @@ class TestSabClosureGaps:
             "high_risk": [], "nfr_dim_map": {},
             "nfr_traceability": {}, "fr_module_traceability": {},
         }
-        _path_redirect = lambda *a: tmp_path / Path(*a) if ".methodology" in str(a) else Path(*a)
+        def _path_redirect(*a):
+            return tmp_path / Path(*a) if ".methodology" in str(a) else Path(*a)
         with patch("scripts.generate_sab.parse_sad", return_value=sab_return):
             with patch.object(bridge, "_parse_nfr_from_srs", return_value={}):
                 with patch.object(bridge, "_parse_nfr_fr_xref", return_value={}):

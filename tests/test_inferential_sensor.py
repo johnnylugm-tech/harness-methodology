@@ -1,6 +1,5 @@
 """Tests for constitution/inferential_sensor.py — reasoning chain quality quantification."""
 
-import pytest
 from constitution.inferential_sensor import InferentialSensor, ReasoningChainAssessment
 
 

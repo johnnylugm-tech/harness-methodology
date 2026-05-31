@@ -10,7 +10,6 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 # Make scripts/ importable without installation
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
@@ -559,7 +558,7 @@ class TestRunAuditIntegration:
             patch("phase_end_audit._is_git_tracked", return_value=True),
             patch("subprocess.run", return_value=_git_log_mock("abc p8\n")),
         ):
-            rc = run_audit(tmp_path, phase=8)
+            run_audit(tmp_path, phase=8)
         # Gate results may still warn (no gate4 in manifest), but deliverables pass
         report = (methodology / "audit_gaps_8.md").read_text()
         assert "CONFIG_RECORDS.md" not in report.split("CRITICAL")[1] if "CRITICAL" in report else True

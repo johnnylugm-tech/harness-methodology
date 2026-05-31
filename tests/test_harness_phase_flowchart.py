@@ -13,7 +13,7 @@ The test is designed to catch drift where:
 
 import re
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
+from typing import Dict
 
 
 def get_code_phase_routing() -> Dict[int, Dict]:
@@ -320,8 +320,8 @@ class TestFlowchartVsCode:
             diagram_entry = diagram_routing[phase]['entry']
 
             if phase == 1:
-                assert code_entry is None, f"Phase 1 should have no entry gate"
-                assert "None" in diagram_entry, f"Phase 1 diagram should say 'None'"
+                assert code_entry is None, "Phase 1 should have no entry gate"
+                assert "None" in diagram_entry, "Phase 1 diagram should say 'None'"
             else:
                 # Verify gate type is mentioned
                 gate_type = expected.split()[0]  # "Human¹", "Gate", etc.
@@ -369,7 +369,7 @@ class TestFlowchartVsCode:
 
     def test_artifact_names_match(self):
         """Phase artifact names in diagram must match deliverables in code hints."""
-        code_routing = get_code_phase_routing()
+        get_code_phase_routing()
         diagram_routing = get_diagram_phase_routing()
 
         # Map phase to key artifact names

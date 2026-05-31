@@ -177,7 +177,7 @@ class TestCommitIntervals:
         ok, _ = _check_commit_intervals(str(tmp_path), 4, 1)
         assert not ok
         ts_file = tmp_path / ".methodology" / _GATE_TIMESTAMPS_FILE
-        lines = [l for l in ts_file.read_text(encoding="utf-8").splitlines() if l.strip()]
+        lines = [line for line in ts_file.read_text(encoding="utf-8").splitlines() if line.strip()]
         assert len(lines) == 2  # no extra entry from the failed attempt
 
     def test_different_gates_independent(self, tmp_path):
@@ -215,7 +215,8 @@ class TestToolEvidence:
 
     def test_tool_evidence_accepted(self):
         from harness.harness_bridge import _check_tool_evidence, GateContext
-        import tempfile, yaml
+        import tempfile
+        import yaml
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             (root / "harness" / "gate_configs").mkdir(parents=True)
@@ -242,7 +243,8 @@ class TestToolEvidence:
 
     def test_short_tool_evidence_rejected(self):
         from harness.harness_bridge import _check_tool_evidence, GateContext
-        import tempfile, yaml
+        import tempfile
+        import yaml
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             (root / "harness" / "gate_configs").mkdir(parents=True)
@@ -315,7 +317,7 @@ class TestPersistentCommitIntervals:
         for i in range(_GATE_TIMESTAMPS_MAX_ENTRIES + 20):
             _record_gate_timestamp(tmp_path, 4, 1, f"FR-{i:03d}")
         ts_file = tmp_path / ".methodology" / _GATE_TIMESTAMPS_FILE
-        lines = [l for l in ts_file.read_text(encoding="utf-8").splitlines() if l.strip()]
+        lines = [line for line in ts_file.read_text(encoding="utf-8").splitlines() if line.strip()]
         assert len(lines) == _GATE_TIMESTAMPS_MAX_ENTRIES
 
     def test_dotfile_migration(self, tmp_path):
@@ -332,7 +334,7 @@ class TestPersistentCommitIntervals:
         assert not old_file.exists(), "Old dotfile should have been renamed"
         new_file = methodology / _GATE_TIMESTAMPS_FILE
         assert new_file.exists()
-        lines = [l for l in new_file.read_text(encoding="utf-8").splitlines() if l.strip()]
+        lines = [line for line in new_file.read_text(encoding="utf-8").splitlines() if line.strip()]
         assert len(lines) == 2  # migrated entry + new entry
 
 

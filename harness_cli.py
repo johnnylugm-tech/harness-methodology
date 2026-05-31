@@ -49,7 +49,6 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -72,7 +71,7 @@ sys.path.insert(0, str(_REPO_ROOT))
 
 # Atomic state-file writers (CV-3 / SG-12 from robustness audit)
 from core.atomic_io import atomic_write_json, file_lock, state_lock_path  # noqa: E402
-from core.pre_flight import check_cli_tools
+from core.pre_flight import check_cli_tools  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # .env file loader (no external dependency)
@@ -367,7 +366,7 @@ def _record_gate_timestamp(project: Path, phase: int, gate_num: int, fr_id: str 
             f.write(json.dumps(entry) + "\n")
         # Trim to last _GATE_TIMESTAMPS_MAX_ENTRIES lines
         raw = ts_file.read_text(encoding="utf-8")
-        lines = [l for l in raw.splitlines() if l.strip()]
+        lines = [line for line in raw.splitlines() if line.strip()]
         if len(lines) > _GATE_TIMESTAMPS_MAX_ENTRIES:
             ts_file.write_text(
                 "\n".join(lines[-_GATE_TIMESTAMPS_MAX_ENTRIES:]) + "\n",
@@ -530,7 +529,7 @@ def _mark_p5_baseline_plan_items(project: Path) -> None:
             )
         if updated != content:
             plan_file.write_text(updated, encoding="utf-8")
-            print(f"  [push-milestone] Phase 5 deliverable plan items auto-marked ✓")
+            print("  [push-milestone] Phase 5 deliverable plan items auto-marked ✓")
     except OSError:
         pass  # non-fatal
 
@@ -669,14 +668,13 @@ def cmd_plan_phase(args: argparse.Namespace) -> int:
 
 def cmd_plan_all(args: argparse.Namespace) -> int:
     """Generate all 8 phase plans in dynamic mode at project start."""
-    import json as _json
     from scripts.generate_full_plan import generate_full_plan
 
     project = Path(args.project).resolve()
     out_dir = Path(args.output_dir) if args.output_dir else project / ".methodology"
 
     if not (project / ".methodology").is_dir():
-        print(f"[ERROR] .methodology/ not found. Run init-project first.")
+        print("[ERROR] .methodology/ not found. Run init-project first.")
         return 1
 
     _force = getattr(args, "force", False)
@@ -695,7 +693,7 @@ def cmd_plan_all(args: argparse.Namespace) -> int:
         "# Plan Generation Status",
         "",
         f"Generated: {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M')}",
-        f"Mode: Dynamic",
+        "Mode: Dynamic",
         "",
         "| Phase | Status | File |",
         "|-------|--------|------|",
@@ -995,7 +993,7 @@ def _run_spec_coverage_check(
 
     if not items:
         if verbose:
-            print(f"[spec-coverage] No test cases found in TEST_SPEC.md"
+            print("[spec-coverage] No test cases found in TEST_SPEC.md"
                   + (f" for {fr_id}" if fr_id else "") + ".")
         return (0, 100.0)
 
@@ -1277,8 +1275,8 @@ def cmd_run_phase(args: argparse.Namespace) -> int:
     if args.phase in _PER_FR_GATE1_PHASES:
         print(f"\n[INFO] Phase {args.phase} requires environment validation. Run:")
         print(f"  python harness_cli.py run-env-check --phase {args.phase} --project {project}")
-        print(f"  # then evaluate inline and run finalize-env-check")
-        print(f"  # or run run-fr-step directly — _fr_step_preflight also guards each step")
+        print("  # then evaluate inline and run finalize-env-check")
+        print("  # or run run-fr-step directly — _fr_step_preflight also guards each step")
 
     print("\n[INFO] Preflight passed. Phase execution hooks ready.")
 
@@ -1297,7 +1295,7 @@ def cmd_run_phase(args: argparse.Namespace) -> int:
                 print(f"          python harness_cli.py run-gate --gate 1 --phase {args.phase} --project {project} --fr-id {fr_id}")
         else:
             print(f"        python harness_cli.py run-gate --gate 1 --phase {args.phase} --project {project} --fr-id FR-XX")
-            print(f"        (quality_manifest.json not found — run 'plan-phase' first to populate FR IDs)")
+            print("        (quality_manifest.json not found — run 'plan-phase' first to populate FR IDs)")
     return 0
 
 def _run_fast_preflight(hooks) -> dict:
@@ -1541,7 +1539,7 @@ def cmd_run_gate(args: argparse.Namespace) -> int:
             if prev_score is not None:
                 print(f"\n{'='*60}")
                 print(f"DELTA-CHECK: {fr_id} — reusing previous Gate 1 score ({prev_score})")
-                print(f"  (No code changes detected or delta-mode active)")
+                print("  (No code changes detected or delta-mode active)")
                 print(f"{'='*60}")
                 return 0
 
@@ -1884,7 +1882,7 @@ def cmd_finalize_env_check(args: argparse.Namespace) -> int:
         print(f"\n[READY] Environment is ready for Phase {args.phase} development.")
         return 0
     else:
-        print(f"\n[BLOCKED] Fix the missing items above, then re-run run-env-check.")
+        print("\n[BLOCKED] Fix the missing items above, then re-run run-env-check.")
         return 1
 
 # ---------------------------------------------------------------------------
@@ -2005,7 +2003,7 @@ def _check_gate4_prerequisites(project: Path) -> "tuple[bool, set[str]]":
             not_done = [d for d in _TIER3_DIMS if not devil_advocate.get(d, False)]
             if not_done:
                 print(
-                    f"\n[BLOCKED] Gate 4 (A3): Devil's Advocate challenge not completed for:\n"
+                    "\n[BLOCKED] Gate 4 (A3): Devil's Advocate challenge not completed for:\n"
                     + "\n".join(f"  - {d}" for d in sorted(not_done)) + "\n"
                     "  For each Tier 3 dim, dispatch a Claude sub-agent with a challenger persona\n"
                     "  to critique the evaluation, then set devil_advocate.<dim> = true AND record\n"
@@ -2348,7 +2346,7 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
                 _pf_ok = _art.get("passed", True) and _drft.get("passed", True)
                 if not _pf_ok:
                     print(f"\n[BLOCKED] Post-flight structural check failed after Gate {args.gate}.")
-                    print(f"  Fix the issues listed above, then re-run:")
+                    print("  Fix the issues listed above, then re-run:")
                     print(f"  python harness_cli.py finalize-gate --gate {args.gate} "
                           f"--phase {args.phase} --project {project}")
                     return 5
@@ -2440,7 +2438,7 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
                         f"\n[BLOCKED] Phase {args.phase} truth = "
                         f"{truth_result['total_score']:.0f}% < 90% (HR-11)"
                     )
-                    print(f"  Fix gaps then re-run finalize-gate.")
+                    print("  Fix gaps then re-run finalize-gate.")
                     return 11
                 print(f"  [HR-11] Phase Truth = {truth_result['total_score']:.0f}% ≥ 90% ✓")
             except ImportError:
@@ -2671,7 +2669,7 @@ def cmd_generate_next_plan(args: argparse.Namespace) -> int:
         print("Next ckpt  : (all checkpoints complete in this phase)")
         if current_phase >= 1:
             print(f"\n  Phase Truth ≥ 90% (HR-11): verify before advancing to Phase {next_phase}:")
-            print(f"    (Exits 0 on PASS, 11 if Phase Truth < 90%)")
+            print("    (Exits 0 on PASS, 11 if Phase Truth < 90%)")
         print(f"\n✓ Phase {current_phase} complete — start Phase {next_phase}:")
         print(f"  python harness_cli.py run-phase --phase {next_phase} "
               f"--project {project}")
@@ -3348,25 +3346,25 @@ def cmd_status(args: argparse.Namespace) -> int:
                 if recon_path.is_file() and recon_path.stat().st_size > 0:
                     print(f"  recon     : available ({recon_path.stat().st_size} bytes)")
                 else:
-                    print(f"  recon     : not yet run")
+                    print("  recon     : not yet run")
                 # Metrics
                 metrics_path = project / ".sessi-work" / "crg_metrics.json"
                 if metrics_path.is_file():
                     print(f"  metrics   : available ({metrics_path.stat().st_size} bytes)")
                 else:
-                    print(f"  metrics   : not yet computed")
+                    print("  metrics   : not yet computed")
             else:
                 print(f"  status    : unavailable — {crg_status.get('reason', 'unknown')}")
         except (json.JSONDecodeError, OSError):
-            print(f"  status    : error reading crg_status.json")
+            print("  status    : error reading crg_status.json")
     else:
-        print(f"  status    : not initialized — run Gate 3 or Gate 4 to build graph")
+        print("  status    : not initialized — run Gate 3 or Gate 4 to build graph")
 
     if full:
-        print(f"\n[Test Stats]")
+        print("\n[Test Stats]")
         print(f"  tests collected: {test_count if test_count is not None else 'N/A'}")
         print(f"  coverage       : {coverage_pct}%" if coverage_pct is not None else "  coverage       : N/A")
-        print(f"\n[Auto-Fix]")
+        print("\n[Auto-Fix]")
         print(f"  rounds_used    : {auto_fix_rounds_used}")
 
     return 0
@@ -3541,7 +3539,7 @@ def _run_phase_auditor(project: Path, completed_phase: int) -> int:
                 print(f"    ❌ [{c.check_id}] {c.title}")
             if len(criticals) > 5:
                 print(f"    ... and {len(criticals) - 5} more")
-            print(f"\n  Full report:")
+            print("\n  Full report:")
             print(f"    python harness_cli.py audit-phase --phase {completed_phase}"
                   f" --project {project}")
 
@@ -3765,10 +3763,10 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
                 print(f"\n[BLOCKED] Agent B approvals incomplete for Phase {completed_phase}:")
                 print(report_ab)
                 print(
-                    f"\n  Each deliverable needs "
-                    f".methodology/agent_b_approvals/<id>.json "
-                    f"with review_status=APPROVE and "
-                    f"docs_embedded containing the required source documents."
+                    "\n  Each deliverable needs "
+                    ".methodology/agent_b_approvals/<id>.json "
+                    "with review_status=APPROVE and "
+                    "docs_embedded containing the required source documents."
                 )
                 return 13
             print(f"  [Agent B] Phase {completed_phase} approvals verified ✓")
@@ -3833,7 +3831,7 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
                 )
                 for _item in _sab_medium:
                     print(f"  [{_item.location}] expected: {_item.expected}")
-                    print(f"    → Create the file OR remove its declaration from SAD.md")
+                    print("    → Create the file OR remove its declaration from SAD.md")
                 return 12
         except ImportError:
             print("  [WARN] DriftDetector not available — skipping SAB pre-advance check")
@@ -4008,7 +4006,7 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
 
     # Commit locally (no push — next milestone push publishes to origin)
     if os.environ.get("HARNESS_NO_GIT"):
-        print(f"[advance-phase] HARNESS_NO_GIT=1 — skipping git commit")
+        print("[advance-phase] HARNESS_NO_GIT=1 — skipping git commit")
     else:
         add_result = subprocess.run(
             ["git", "-C", str(project), "add",
@@ -4025,7 +4023,7 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                 capture_output=True, text=True,
             )
             if commit_result.returncode == 0:
-                print(f"[advance-phase] Committed HANDOVER.md + state.json locally.")
+                print("[advance-phase] Committed HANDOVER.md + state.json locally.")
             elif "nothing to commit" in (commit_result.stdout + commit_result.stderr):
                 print("[advance-phase] Nothing to commit (already clean).")
             else:
@@ -4645,11 +4643,11 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
                 f"\n[TEST SPEC — required test cases for {fr_id}]\n"
                 f"TEST_SPEC.md requires these EXACT test functions:\n"
                 + "\n".join(f"  - {fn}" for fn in spec_test_names)
-                + f"\n\nWhen evaluating test_coverage, verify:\n"
-                f"  - EVERY required test EXISTS in the test file\n"
-                f"  - EVERY required test PASSES (not skipped, not failing)\n"
-                f"  - Missing or failing required test = test_coverage FAIL, "
-                f"regardless of raw coverage %\n\n"
+                + "\n\nWhen evaluating test_coverage, verify:\n"
+                "  - EVERY required test EXISTS in the test file\n"
+                "  - EVERY required test PASSES (not skipped, not failing)\n"
+                "  - Missing or failing required test = test_coverage FAIL, "
+                "regardless of raw coverage %\n\n"
             )
 
         # ── Previous block reason (S3/S4) surfaced for retry ──
@@ -5032,8 +5030,8 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"{gap}"
             f"[TASK]\n"
             + "\n".join(task_lines) + "\n\n"
-            + f'[OUTPUT FORMAT]\nReturn JSON: {{"status": "DONE", "dims_fixed": [...], '
-            f'"commit": "<hash>", "summary": "<under 50 chars>"}}'
+            + '[OUTPUT FORMAT]\nReturn JSON: {"status": "DONE", "dims_fixed": [...], '
+            '"commit": "<hash>", "summary": "<under 50 chars>"}'
         )
 
     return f"[ERROR] Unknown step: {step}"
@@ -5658,7 +5656,7 @@ def _advance_fsm(project: Path, completed_phase: int,
                 existing_state = validate_fsm_state(raw_state)
             except FSMError as e:
                 print(f"\n  [FSM ERROR] {e}")
-                print(f"  Fix state.json manually or run `advance-phase` with a clean state.")
+                print("  Fix state.json manually or run `advance-phase` with a clean state.")
                 sys.exit(11)
             except Exception:  # pylint: disable=broad-exception-caught
                 existing_state = "INIT"
@@ -6099,7 +6097,7 @@ def _init_copy_templates(project: Path, harness_root: Path, *, overwrite: bool =
     if parts:
         print(f"   OK — {', '.join(parts)}")
     else:
-        print(f"   SKIP: nothing to copy")
+        print("   SKIP: nothing to copy")
 
 def _setup_branch_protection(project: Path) -> int:
     """Configure GitHub branch protection for main with required status checks.
@@ -6196,7 +6194,7 @@ def _setup_branch_protection(project: Path) -> int:
         )
         if result.returncode == 0:
             print(f"   OK — Branch protection configured for {owner}/{repo}/main")
-            print(f"   Direct-push model: force pushes + deletions blocked.")
+            print("   Direct-push model: force pushes + deletions blocked.")
             _verify_no_pr_requirement(owner, repo)
             return 0
         else:
@@ -6246,9 +6244,9 @@ def _verify_no_pr_requirement(owner: str, repo: str) -> None:
         pr_reviews = cfg.get("required_pull_request_reviews")
         if pr_reviews:
             print(f"   WARNING: 'Require a pull request' is still enabled on {owner}/{repo}/main.")
-            print(f"   This will block push-checkpoint. Disable it manually:")
-            print(f"     GitHub repo → Settings → Branches → Edit (main)")
-            print(f"     → Uncheck 'Require a pull request before merging'")
+            print("   This will block push-checkpoint. Disable it manually:")
+            print("     GitHub repo → Settings → Branches → Edit (main)")
+            print("     → Uncheck 'Require a pull request before merging'")
     except (FileNotFoundError, _sp.TimeoutExpired, json.JSONDecodeError) as exc:
         print(
             f"   [WARN] PR-requirement verification skipped: {type(exc).__name__}: {exc}",
@@ -6356,7 +6354,7 @@ def _print_manual_branch_protection_guide() -> None:
     print("   ═══════════════════════════════════════════════════════════════")
     print("   Or install gh CLI for automatic setup:")
     print("     brew install gh && gh auth login")
-    print(f"     Then re-run: python3 harness_cli.py init-project --project . --setup-branch-protection")
+    print("     Then re-run: python3 harness_cli.py init-project --project . --setup-branch-protection")
 
 
 def cmd_init_project(args: argparse.Namespace) -> int:
@@ -6470,18 +6468,18 @@ def cmd_init_project(args: argparse.Namespace) -> int:
         print(f"   OK — state.json initialized (phase={phase})")
 
     # 8. Drift monitor hint
-    print(f"\n[8/11] Drift Monitor hint (optional cronjob)")
+    print("\n[8/11] Drift Monitor hint (optional cronjob)")
     print("  Add this crontab entry (edit with: crontab -e):")
     print(f"  0 * * * * DRIFT_PROJECT_PATH={project} \\")
     print(f"    python3 {harness_root}/scripts/cron_drift_monitor.py \\")
     print(f"    >> {project}/logs/drift_monitor.log 2>&1")
 
     # 9. ECC hooks (Claude Code session layer — blocks git --no-verify)
-    print(f"\n[9/11] ECC hooks (git --no-verify blocker)...")
+    print("\n[9/11] ECC hooks (git --no-verify blocker)...")
     _check_and_offer_ecc_hooks(harness_root)
 
     # 10. Branch protection (GitHub server-side — bypass-proof)
-    print(f"\n[10/11] GitHub branch protection...")
+    print("\n[10/11] GitHub branch protection...")
     if args.setup_branch_protection:
         rc = _setup_branch_protection(project)
         if rc != 0:
@@ -6839,7 +6837,7 @@ def cmd_audit_structure(args: argparse.Namespace) -> int:
 def _print_audit_report(results: dict) -> None:
     """Print human-readable audit-structure report."""
     print(f"\n{'='*60}")
-    print(f"Audit-Structure Report")
+    print("Audit-Structure Report")
     print(f"Project: {results['project']}")
     print(f"{'='*60}")
 

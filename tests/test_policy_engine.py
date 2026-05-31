@@ -3,7 +3,6 @@
 import os
 import json
 import pytest
-from pathlib import Path
 from enforcement.policy_engine import (
     PolicyEngine,
     Policy,

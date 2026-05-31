@@ -1,5 +1,4 @@
 # tests/test_fr_progress_tracker.py
-import json
 import pytest
 from pathlib import Path
 

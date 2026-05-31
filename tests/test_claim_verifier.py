@@ -1,6 +1,5 @@
 """Tests for constitution/claim_verifier.py — claims-to-citations verification."""
 
-import pytest
 from constitution.claim_verifier import (
     ClaimVerifier,
     VerifiedClaim,

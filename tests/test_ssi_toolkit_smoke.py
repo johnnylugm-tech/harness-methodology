@@ -33,7 +33,7 @@ def test_ssi_module_import(module_name):
 
 def test_checkpoint_save_load_round(tmp_path):
     """checkpoint.create_round_snapshot and create_round_summary work."""
-    from checkpoint import create_round_snapshot, create_round_summary
+    from checkpoint import create_round_snapshot
 
     data = {"overall_score": 85.0, "dimensions": {"linting": {"score": 100}}}
     snap = create_round_snapshot(1, data["dimensions"], data["overall_score"])

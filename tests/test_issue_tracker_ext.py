@@ -33,7 +33,7 @@ class TestAddFinding:
         assert any(i["id"] == fid for i in by_fr)
 
     def test_add_finding_without_fr_id(self, tracker):
-        fid = tracker.add_finding(
+        tracker.add_finding(
             dimension="quality", severity="low", file="README.md",
             line=1, message="Missing section", evidence="empty",
         )

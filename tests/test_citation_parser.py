@@ -1,6 +1,5 @@
 """Tests for constitution/citation_parser.py — regex-based citation and claims extraction."""
 
-import pytest
 from constitution.citation_parser import CitationParser
 
 

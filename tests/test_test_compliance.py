@@ -11,13 +11,11 @@ Covers:
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sys
 import time
 from pathlib import Path
 
-import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -32,7 +30,6 @@ from harness_cli import (  # pyright: ignore[reportMissingImports]
 sys.path.insert(0, str(Path(__file__).parent.parent / "harness" / "ssi" / "scripts"))
 from score import (  # pyright: ignore[reportMissingImports]
     validate_score_file,
-    ScoreProtocolError,
 )
 
 
@@ -237,7 +234,7 @@ class TestFlattenTestNames:
 class TestCmdCheckTestInventory:
     """cmd_check_test_inventory(args)."""
 
-    def _make_args(self, tmp_path: Path, **overrides) -> argparse.Namespace:
+    def _make_args(self, tmp_path: Path, **overrides) -> "any":
         import argparse
         ns = argparse.Namespace()
         ns.project = str(tmp_path)
@@ -511,7 +508,8 @@ class TestFinalizeGateCompliance:
 
     def _run(self, monkeypatch, tmp_path: Path,
              gate: int = 1, phase: int = 3, fr_id: str = "FR-07") -> tuple[int, str]:
-        import argparse, io
+        import argparse
+        import io
         from harness_cli import cmd_finalize_gate
         monkeypatch.setattr(
             "harness_cli._make_git",

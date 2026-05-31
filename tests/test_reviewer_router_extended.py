@@ -4,7 +4,6 @@ tests/test_reviewer_router_extended.py — Extended ReviewerRouter coverage (W3)
 Covers: decompose_with_deps, section extractors, dep graph, topo sort,
         enrich_with_context, merge_results, try_chain (mocked), review() flow.
 """
-import os
 from unittest.mock import patch, MagicMock
 
 # ---------------------------------------------------------------------------
