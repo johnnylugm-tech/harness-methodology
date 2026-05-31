@@ -72,8 +72,8 @@
 | secrets_scanning | 8% | ≥100 | gitleaks |
 | license_compliance | 8% | ≥100 | scancode |
 | mutation_testing | 20% | ≥70 | mutmut |
-| integration_coverage | 10% | ≥60 | pytest |
-| test_assertion_quality | 6% | ≥60 | pytest |
+| integration_coverage | 10% | ≥60 | pytest-cov-integration |
+| test_assertion_quality | 6% | ≥60 | ast-assertions |
 
 #### Gate 3（P4 exit — 14 維度, composite ≥80）
 | 維度 | 權重 | 門檻 | 工具 |
@@ -85,13 +85,13 @@
 | secrets_scanning | 8% | ≥100 | gitleaks |
 | license_compliance | 7% | ≥100 | scancode |
 | mutation_testing | 10% | ≥70 | mutmut |
-| integration_coverage | 5% | ≥60 | pytest |
-| architecture | 10% | ≥80 | radon-cc |
+| integration_coverage | 5% | ≥60 | pytest-cov-integration |
+| architecture | 10% | ≥80 | code-review-graph |
 | readability | 6% | ≥80 | radon-mi |
 | error_handling | 7% | ≥80 | ast-error-handling |
 | documentation | 1% | ≥75 | ast-docstrings |
-| test_assertion_quality | 2% | ≥60 | pytest |
-| performance | 4% | ≥75 | radon-cc-high |
+| test_assertion_quality | 2% | ≥60 | ast-assertions |
+| performance | 4% | ≥75 | pytest-benchmark |
 
 #### Gate 4（P6 exit — 14 維度, composite ≥85）
 | 維度 | 權重 | 門檻 | 工具 |
@@ -103,13 +103,13 @@
 | secrets_scanning | 7% | ≥100 | gitleaks |
 | license_compliance | 7% | ≥100 | scancode |
 | mutation_testing | 8% | ≥70 | mutmut |
-| architecture | 14% | ≥80 | radon-cc |
+| architecture | 14% | ≥80 | code-review-graph |
 | readability | 8% | ≥80 | radon-mi |
 | error_handling | 8% | ≥80 | ast-error-handling |
 | documentation | 6% | ≥75 | ast-docstrings |
-| performance | 6% | ≥75 | radon-cc-high |
-| integration_coverage | 5% | ≥75 | pytest |
-| test_assertion_quality | 2% | ≥70 | pytest |
+| performance | 6% | ≥75 | pytest-benchmark |
+| integration_coverage | 5% | ≥75 | pytest-cov-integration |
+| test_assertion_quality | 2% | ≥70 | ast-assertions |
 
 > ¹ **D4_SpecCoverage**（v2.6 統一）: TEST_SPEC.md 為唯一溯源來源。單一 spec-coverage 檢查驗證 TEST_SPEC.md 中宣告的每一個測試案例都有對應的測試函式存在於 tests/。閾值: Gate1(per-FR)=40%, Gate2=60%, Gate3=80%, Gate4=90%。使用 `harness_cli.py spec-coverage-check --project . --threshold N`。`check-test-inventory` CLI 已棄用，會自動委派至 `spec-coverage-check`。
 
