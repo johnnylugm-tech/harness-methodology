@@ -1775,6 +1775,11 @@ def cmd_run_env_check(args: argparse.Namespace) -> int:
         print("[ERROR] env-check sub-agent did not write env_check_result.json.", file=sys.stderr)
         return 1
 
+    _fab = _verify_env_check_claims(Path(project))
+    if _fab:
+        print("[ERROR] env-check agent fabricated claims:\n  " + "\n  ".join(_fab), file=sys.stderr)
+        return 1
+
     print(f"[INFO] env-check complete. Result: {result_path}")
     return 0
 
@@ -1796,16 +1801,21 @@ def _verify_env_check_claims(project: Path) -> "list[str]":
     except (ValueError, OSError):
         return []
     findings: list[str] = []
+    import concurrent.futures
+    import shutil
     claimed_tools = [
         str(t["name"]) for t in data.get("cli_tools", {}).get("required", [])
         if isinstance(t, dict) and t.get("present") and t.get("name")
     ]
     if claimed_tools:
-        for m in check_cli_tools(claimed_tools):
-            findings.append(f"cli_tool '{m}': claimed present, but not found on PATH")
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            results = list(executor.map(lambda t: (t, shutil.which(t) is not None), claimed_tools))
+            for m, is_present in results:
+                if not is_present:
+                    findings.append(f"cli_tool '{m}': claimed present, but not found on PATH")
     for v in data.get("env_vars", {}).get("required", []):
         if isinstance(v, dict) and v.get("present") and v.get("name"):
-            if not os.environ.get(v["name"]):
+            if v["name"] not in os.environ:
                 findings.append(f"env_var '{v['name']}': claimed present, but not set")
     return findings
 
@@ -1873,12 +1883,12 @@ def cmd_finalize_env_check(args: argparse.Namespace) -> int:
     ready, message = bridge.finalize_env_check(ctx)
 
     print(f"\n{'='*60}")
-    print(f"finalize-env-check: Phase {args.phase} | project: {project.name}")
+    # Ensure independent verifier agrees with the agent's env claims (A2 check).
+    # (Verification was moved to run-env-check to fail early and save resources) print(f"finalize-env-check: Phase {args.phase} | project: {project.name}")
     print(f"{'='*60}")
     print(f"\n{message}")
 
     if ready:
-        # A2 framework spot-check: the env-check agent self-reports cli_tools/env_vars
         # status. Independently re-verify the ones it claims present — a claim that does
         # not hold up is fabrication, so BLOCK even when the agent reported ready.
         _fab = _verify_env_check_claims(project)

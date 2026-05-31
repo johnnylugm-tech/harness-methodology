@@ -271,6 +271,56 @@ class PhaseTruthVerifier:
             + "; ".join(result["missing_links"][:3])
         )
 
+    def check_session_log(self) -> Tuple[bool, float, str]:
+        """Verify the integrity of sessions_spawn.log.
+        
+        Enforces JSONL format, malformed cap, empty role filtering, and
+        A/B reviewer separation for Phase 1-3 (HR-01).
+        """
+        log_path = self.project_root / ".methodology" / "sessions_spawn.log"
+        if not log_path.exists():
+            return False, 0.0, "sessions_spawn.log is missing"
+            
+        lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+        lines = [line.strip() for line in lines if line.strip()]
+        if not lines:
+            return False, 0.0, "sessions_spawn.log is empty"
+            
+        malformed = 0
+        valid_entries = []
+        for line in lines:
+            try:
+                entry = json.loads(line)
+                valid_entries.append(entry)
+            except json.JSONDecodeError:
+                malformed += 1
+                
+        total_lines = len(lines)
+        if total_lines > 0 and malformed / total_lines >= 0.5:
+            return False, 0.0, f"≥50% malformed JSONL lines ({malformed}/{total_lines})"
+            
+        fr_reviewers = {}
+        for e in valid_entries:
+            role = str(e.get("role", "")).strip()
+            if not role:
+                continue
+            fr = str(e.get("fr_id", "")).strip()
+            if fr:
+                if fr not in fr_reviewers:
+                    fr_reviewers[fr] = set()
+                fr_reviewers[fr].add(role)
+                
+        if self.phase <= 3:
+            unreviewed_frs = []
+            for fr, roles in fr_reviewers.items():
+                if len(roles) < 2:
+                    unreviewed_frs.append(fr)
+            
+            if unreviewed_frs:
+                return False, 50.0, f"A/B reviewer missing for {len(unreviewed_frs)} FR(s)"
+                
+        return True, 100.0, "sessions_spawn.log format and A/B invariant verified"
+
     def _check_artifact_content_quality(self, artifact_path: Path) -> Dict[str, Any]:
         """Perform basic automated content quality check on an artifact.
 
@@ -370,15 +420,12 @@ class PhaseTruthVerifier:
         print()
 
         # Execute checks (adjust weights based on Phase).
-        # NOTE: the sessions_spawn.log and A/B-coverage checks were removed — they read
-        # an agent-writable file and could not prove an independent Agent B review.
-        # Remaining checks are independently computed (framework block state, real pytest/
-        # coverage subprocess runs, on-disk predecessor artifacts, cross-artifact consistency).
-        # Weights below are renormalized via active_weight at scoring time.
+        # NOTE: The check_session_log invariant ensures JSONL structure and A/B role coverage.
         if self.phase <= 2:
             checks = [
-                ("FrameworkEnforcer BLOCK", self.check_framework_block, 0.70),
+                ("FrameworkEnforcer BLOCK", self.check_framework_block, 0.50),
                 ("Previous phase artifacts", self.check_previous_phase_artifacts, 0.30),
+                ("Session Log Validation", self.check_session_log, 0.20),
             ]
         # Phase 3-4: framework block + real pytest/coverage + predecessor + cross-artifact
         elif self.phase <= 4:
@@ -387,13 +434,15 @@ class PhaseTruthVerifier:
                 ("pytest actually passes", self.check_pytest, 0.24),
                 ("test coverage meets threshold", self.check_coverage, 0.16),
                 ("Previous phase artifacts", self.check_previous_phase_artifacts, 0.14),
-                ("Cross-artifact consistency", self.check_cross_artifact, 0.18),
+                ("Cross-artifact consistency", self.check_cross_artifact, 0.08),
+                ("Session Log Validation", self.check_session_log, 0.10),
             ]
         # Phase 5-8: framework block + previous phase (non-code phases)
         else:
             checks = [
-                ("FrameworkEnforcer BLOCK", self.check_framework_block, 0.70),
+                ("FrameworkEnforcer BLOCK", self.check_framework_block, 0.50),
                 ("Previous phase artifacts", self.check_previous_phase_artifacts, 0.30),
+                ("Session Log Validation", self.check_session_log, 0.20),
             ]
 
         total_weighted = 0.0

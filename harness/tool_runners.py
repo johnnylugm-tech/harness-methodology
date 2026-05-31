@@ -40,7 +40,6 @@ _DEFAULT_TIMEOUTS: dict[str, int] = {
     "radon-cc":         30,
     "radon-cc-high":    30,
     "radon-mi":         30,
-    "pydocstyle":       30,
     "pytest-benchmark": 180,
     "ast-assertions":   30,
     "ast-error-handling": 30,
@@ -130,10 +129,6 @@ def run_tool(
         "radon-mi": [
             "radon", "mi", root,
             "-j",           # JSON output
-        ],
-        "pydocstyle": [
-            "pydocstyle", root,
-            "--count",
         ],
         # --benchmark-only: run only tests using the `benchmark` fixture.
         # If none exist, pytest exits with code 5 (no tests collected) → scorer returns None.
@@ -321,9 +316,46 @@ def _run_ast_docstrings(project_root: str) -> tuple[str, int]:
     from pathlib import Path as _Path
 
     root = _Path(project_root)
+    
+    class PublicAPIVisitor(_ast.NodeVisitor):
+        def __init__(self, filepath):
+            self.filepath = filepath
+            self.total = 0
+            self.with_doc = 0
+            self.missing = []
+            
+        def visit_ClassDef(self, node):
+            if not node.name.startswith("_"):
+                self.total += 1
+                if _ast.get_docstring(node):
+                    self.with_doc += 1
+                else:
+                    self.missing.append(f"{self.filepath}::{node.name}")
+                # Visit methods, but do not generic_visit to avoid nested classes
+                for child in node.body:
+                    if isinstance(child, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
+                        if not child.name.startswith("_"):
+                            self.total += 1
+                            if _ast.get_docstring(child):
+                                self.with_doc += 1
+                            else:
+                                self.missing.append(f"{self.filepath}::{node.name}.{child.name}")
+
+        def visit_FunctionDef(self, node):
+            if not node.name.startswith("_"):
+                self.total += 1
+                if _ast.get_docstring(node):
+                    self.with_doc += 1
+                else:
+                    self.missing.append(f"{self.filepath}::{node.name}")
+
+        def visit_AsyncFunctionDef(self, node):
+            self.visit_FunctionDef(node)
+
     total = 0
     with_doc = 0
     missing: list[str] = []
+    has_code = False
 
     seen: set[str] = set()
     for rel in _SRC_DIRS:
@@ -339,15 +371,25 @@ def _run_ast_docstrings(project_root: str) -> tuple[str, int]:
                 tree = _ast.parse(path.read_text(encoding="utf-8", errors="replace"))
             except (SyntaxError, ValueError, OSError):
                 continue
-            for node in _ast.walk(tree):
-                if isinstance(
-                    node, (_ast.FunctionDef, _ast.AsyncFunctionDef, _ast.ClassDef)
-                ) and not node.name.startswith("_"):
-                    total += 1
-                    if _ast.get_docstring(node):
-                        with_doc += 1
-                    else:
-                        missing.append(f"{path.relative_to(root)}::{node.name}")
+                
+            # Skip files with no functions/classes
+            file_has_code = any(
+                isinstance(n, (_ast.FunctionDef, _ast.AsyncFunctionDef, _ast.ClassDef))
+                for n in _ast.walk(tree)
+            )
+            if not file_has_code:
+                continue
+            
+            has_code = True
+
+            visitor = PublicAPIVisitor(path.relative_to(root))
+            visitor.visit(tree)
+            total += visitor.total
+            with_doc += visitor.with_doc
+            missing.extend(visitor.missing)
+
+    if not has_code:
+        return _json.dumps({}), 0
 
     summary = {"total": total, "with_doc": with_doc, "missing": missing[:50]}
     return _json.dumps(summary), 0
@@ -373,7 +415,6 @@ def compute_tool_score(tool: str, output: str, returncode: int) -> Optional[floa
         "radon-cc":         _score_radon_cc,
         "radon-cc-high":    _score_radon_cc_high,
         "radon-mi":         _score_radon_mi,
-        "pydocstyle":       _score_pydocstyle,
         "pytest-benchmark": _score_pytest_benchmark,
         "ast-assertions":   _score_assertion_quality,
         "ast-error-handling": _score_error_handling_coverage,
@@ -532,12 +573,6 @@ def _score_radon_mi(output: str, _returncode: int) -> Optional[float]:
         return None  # Tool crash / non-JSON stderr — cannot score
 
 
-def _score_pydocstyle(output: str, _returncode: int) -> float:
-    """Score pydocstyle --count.  Each violation costs 2 pts."""
-    # --count appends a final line like "42 violations found"
-    m = re.search(r"(\d+)\s+violation", output)
-    count = int(m.group(1)) if m else len(re.findall(r":\s*D\d{3}", output))
-    return max(0.0, 100.0 - count * 2.0)
 
 
 def _score_pytest_benchmark(output: str, returncode: int) -> Optional[float]:

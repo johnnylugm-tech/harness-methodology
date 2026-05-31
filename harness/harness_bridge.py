@@ -480,6 +480,12 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
                     f"{agent_score:.1f}. A passing readability score requires analysable "
                     f"code; add it, then re-finalize."
                 )
+            else:
+                violations.append(
+                    f"{dim_name}: '{tool}' produced no score (returned None) "
+                    f"— cannot verify agent score {agent_score:.1f}. Ensure the tool "
+                    f"is configured correctly and the target files exist."
+                )
             continue
 
         print(

@@ -891,7 +891,8 @@ class PhaseAuditor:
         # A1 parity (mirror harness_cli._MIN_REVIEW_REASON_CHARS): an APPROVE must
         # carry real review rationale + citations, otherwise it is a shell approval
         # the main agent can self-issue without reviewing anything.
-        _min_reason = 40
+        from harness_cli import _MIN_REVIEW_REASON_CHARS
+        _min_reason = _MIN_REVIEW_REASON_CHARS
         approved = 0
         for path in approval_files:
             c = self.gh.get_file_content(path)
