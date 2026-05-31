@@ -287,7 +287,7 @@ For **Tier 1/2 dimensions** (linting, type_safety, etc.):
 - Do NOT use Gemini to verify fixes (use tool output directly)
 
 For **Tier 3 dimensions** (architecture, readability, etc.):
-- Use tool where available (radon, pydocstyle)
+- Use tool where available (radon, ast-docstrings)
 - Claude judgment for subjective dimensions — but require concrete evidence
 
 ---

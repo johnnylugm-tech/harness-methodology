@@ -1883,21 +1883,11 @@ def cmd_finalize_env_check(args: argparse.Namespace) -> int:
     ready, message = bridge.finalize_env_check(ctx)
 
     print(f"\n{'='*60}")
-    # Ensure independent verifier agrees with the agent's env claims (A2 check).
-    # (Verification was moved to run-env-check to fail early and save resources) print(f"finalize-env-check: Phase {args.phase} | project: {project.name}")
+    print(f"finalize-env-check: Phase {args.phase} | project: {project.name}")
     print(f"{'='*60}")
     print(f"\n{message}")
 
     if ready:
-        # status. Independently re-verify the ones it claims present — a claim that does
-        # not hold up is fabrication, so BLOCK even when the agent reported ready.
-        _fab = _verify_env_check_claims(project)
-        if _fab:
-            print("\n[BLOCKED] env_check claims could not be independently verified:")
-            for _v in _fab:
-                print(f"  • {_v}")
-            print("  Fix the environment (or the report), then re-run run-env-check.")
-            return 1
         print(f"\n[READY] Environment is ready for Phase {args.phase} development.")
         return 0
     else:

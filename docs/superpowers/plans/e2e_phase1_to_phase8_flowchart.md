@@ -636,7 +636,7 @@ SESSION START (P6 entry — automated preflight, Phase Truth from P5 PASS is pre
     │                          coupling analysis               │
     │      readability      → radon mi / maintainability index │
     │      error_handling   → [CRG] error path flow analysis   │
-    │      documentation    → pydocstyle / doc coverage        │
+    │      documentation    → ast-docstrings / doc coverage    │
     │      performance      → radon cc / lizard complexity     │
     │    Round 3: Score dimension (0–100) vs threshold         │
     │    Round 4: Record issues → issue_tracker.py             │

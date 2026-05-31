@@ -26,7 +26,6 @@ from harness.tool_runners import (
     _score_radon_mi,
     _score_pyright,
     _score_bandit,
-    _score_pydocstyle,
     _score_pytest_benchmark,
     _score_assertion_quality,
     _score_error_handling_coverage,
@@ -249,31 +248,6 @@ class TestScoreBandit:
     def test_non_json_returns_zero(self):
         # Conservative: tool crash → 0, not 100
         assert _score_bandit("bandit: command not found", 127) == 0.0
-
-
-# ---------------------------------------------------------------------------
-# _score_pydocstyle
-# ---------------------------------------------------------------------------
-
-class TestScorePydocstyle:
-
-    def test_zero_violations_returns_100(self):
-        # --count appends line like "0 violations found"
-        assert _score_pydocstyle("0 violations found", 0) == 100.0
-
-    def test_one_violation_costs_2(self):
-        assert _score_pydocstyle("src/a.py:1: D100: ...\n1 violation found", 1) == 98.0
-
-    def test_many_violations(self):
-        assert _score_pydocstyle("42 violations found", 1) == max(0.0, 100.0 - 42 * 2)
-
-    def test_floor_at_zero(self):
-        assert _score_pydocstyle("60 violations found", 1) == 0.0
-
-    def test_fallback_counts_D_codes(self):
-        # If no "violations found" line, count D-code matches
-        text = "src/a.py:1 in -: D100: Missing docstring\nsrc/b.py:2 in foo: D103: Missing"
-        assert _score_pydocstyle(text, 1) == 96.0  # 2 violations × 2
 
 
 # ---------------------------------------------------------------------------

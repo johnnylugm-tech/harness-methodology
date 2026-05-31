@@ -310,15 +310,15 @@ class PhaseTruthVerifier:
                     fr_reviewers[fr] = set()
                 fr_reviewers[fr].add(role)
                 
-        if self.phase <= 3:
-            unreviewed_frs = []
-            for fr, roles in fr_reviewers.items():
-                if len(roles) < 2:
-                    unreviewed_frs.append(fr)
+        _REVIEWER_ROLES = {"reviewer", "architect", "tech_lead", "qa_lead", "senior_dev"}
+        unreviewed_frs = []
+        for fr, roles in fr_reviewers.items():
+            if not roles.intersection(_REVIEWER_ROLES):
+                unreviewed_frs.append(fr)
+        
+        if unreviewed_frs:
+            return False, 50.0, f"A/B reviewer missing for {len(unreviewed_frs)} FR(s)"
             
-            if unreviewed_frs:
-                return False, 50.0, f"A/B reviewer missing for {len(unreviewed_frs)} FR(s)"
-                
         return True, 100.0, "sessions_spawn.log format and A/B invariant verified"
 
     def _check_artifact_content_quality(self, artifact_path: Path) -> Dict[str, Any]:

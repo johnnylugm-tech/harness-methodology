@@ -1450,7 +1450,7 @@ def compute_tool_score(tool: str, output: str, returncode: int) -> float | None:
 - `5` (pytest-family "no tests/benchmarks collected") → **BLOCK**. A passing score for a dimension whose verifying suite (`pytest-benchmark` / integration tests) does not exist is unverifiable.
 - `-3` tool-not-found / `-4` harness error → warn-only (S2 `_verify_gate_tools` already gates tool availability pre-finalize; `-4` is a framework-side fault, not agent-controllable).
 
-**Default timeouts** (seconds): `ruff` 30; `mypy`/`pyright` 60; `pytest`/`pytest-cov` 120; `gitleaks` 30; `bandit` 60; `radon-cc`/`radon-mi` 30; `pydocstyle` 30; `grep-bare-except` 15.
+**Default timeouts** (seconds): `ruff` 30; `mypy`/`pyright` 60; `pytest`/`pytest-cov` 120; `gitleaks` 30; `bandit` 60; `radon-cc`/`radon-mi` 30; `ast-docstrings` 30; `ast-error-handling` 30.
 
 **Integration**: Called by `HarnessBridge` during `run_gate()` preflight to produce harness-owned tool scores. Results are compared against agent-reported scores in `cross_artifact.py` (§3.15) and logged to `.sessi-work/harness_verification/` for audit.
 

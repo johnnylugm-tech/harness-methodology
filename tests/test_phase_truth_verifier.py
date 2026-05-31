@@ -147,3 +147,29 @@ class TestVerifyIntegration:
             result = v.verify()
         assert result["passed"] is True
         assert result["total_score"] >= 90.0
+
+class TestCheckSessionLog:
+    def test_missing_log(self, tmp_path):
+        v = PhaseTruthVerifier(str(tmp_path), 1)
+        passed, score, msg = v.check_session_log()
+        assert not passed
+        assert score == 0.0
+        assert "missing" in msg
+
+    def test_empty_log(self, tmp_path):
+        (tmp_path / ".methodology").mkdir(exist_ok=True)
+        (tmp_path / ".methodology" / "sessions_spawn.log").write_text("   \n")
+        v = PhaseTruthVerifier(str(tmp_path), 1)
+        passed, score, msg = v.check_session_log()
+        assert not passed
+        assert score == 0.0
+        assert "empty" in msg
+
+    def test_malformed_jsonl(self, tmp_path):
+        (tmp_path / ".methodology").mkdir(exist_ok=True)
+        (tmp_path / ".methodology" / "sessions_spawn.log").write_text('{"a": 1}\nnot json\n')
+        v = PhaseTruthVerifier(str(tmp_path), 1)
+        passed, score, msg = v.check_session_log()
+        assert not passed
+        assert score == 0.0
+        assert "malformed" in msg

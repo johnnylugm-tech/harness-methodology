@@ -1187,3 +1187,30 @@ class TestCRGReconCheck:
         self._make_prereqs_with_crg_config(tmp_path, recon=False)
         blocked, _ = _check_gate4_prerequisites(tmp_path)
         assert not blocked, f"reconnaissance: false should not block Gate 4, got blocked={blocked}"
+
+class TestABCoveragePerDeliverable:
+    def test_ab_coverage_rejects_developer_only(self, tmp_path):
+        from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
+        (tmp_path / ".methodology").mkdir(exist_ok=True)
+        # developer is NOT in _REVIEWER_ROLES
+        (tmp_path / ".methodology" / "sessions_spawn.log").write_text(
+            '{"fr_id": "FR-01", "role": "developer"}\n'
+            '{"fr_id": "FR-01", "role": "developer"}\n'
+        )
+        v = PhaseTruthVerifier(str(tmp_path), 1)
+        passed, score, msg = v.check_session_log()
+        assert not passed
+        assert score == 50.0
+        assert "missing for 1 FR" in msg
+
+    def test_ab_coverage_passes_with_reviewer(self, tmp_path):
+        from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
+        (tmp_path / ".methodology").mkdir(exist_ok=True)
+        (tmp_path / ".methodology" / "sessions_spawn.log").write_text(
+            '{"fr_id": "FR-01", "role": "developer"}\n'
+            '{"fr_id": "FR-01", "role": "reviewer"}\n'
+        )
+        v = PhaseTruthVerifier(str(tmp_path), 1)
+        passed, score, msg = v.check_session_log()
+        assert passed
+        assert score == 100.0
