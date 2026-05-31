@@ -1707,11 +1707,14 @@ class HarnessBridge:
             k: float(v) for k, v in sab.get("gate_score_overrides", {}).items()
         }
 
-        # Only quality_targets that map to a REAL gate dimension (max_complexity→complexity
-        # and min_reliability→reliability were dead — no such gate dimension).
+        # Only quality_targets whose VALUE is itself a 0-100 dimension score may seed a
+        # threshold floor. max_complexity→complexity / min_reliability→reliability were
+        # dead (no such gate dimension). p95_latency_ms is milliseconds — NOT a 0-100
+        # score — feeding it here set performance's floor to 3000, which no score can
+        # clear; performance's floor comes from NFR derive_gate_score_overrides, and p95
+        # is enforced inside the performance dimension's benchmark scorer.
         _qt_map = {
             "min_coverage": "test_coverage",
-            "p95_latency_ms": "performance",
             "min_security_score": "security",
         }
         for qt_key, dim_name in _qt_map.items():

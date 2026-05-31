@@ -542,8 +542,9 @@ class TestSabClosureGaps:
     # ── Gap 2: generate_quality_manifest auto-populates gate_score_overrides ──
 
     def test_generate_quality_manifest_populates_gate_score_overrides(self, tmp_path):
-        """quality_targets that map to REAL gate dimensions → gate_score_overrides.
-        max_complexity→complexity was a dead override (no such gate dimension) → dropped."""
+        """quality_targets whose VALUE is a 0-100 score → gate_score_overrides.
+        max_complexity→complexity was dead (no such dimension) → dropped.
+        p95_latency_ms is milliseconds, not a score → must NOT seed performance's floor."""
         bridge = HarnessBridge()
         sab_return = {
             "quality_targets": {"min_coverage": 85, "max_complexity": 10, "p95_latency_ms": 200},
@@ -563,8 +564,9 @@ class TestSabClosureGaps:
         data = json.loads(p.read_text())
         assert data["gate_score_overrides"] == {
             "test_coverage": 85.0,
-            "performance": 200.0,
         }
+        # p95_latency_ms (ms) must NOT become performance's floor — it is not a 0-100 score
+        assert "performance" not in data["gate_score_overrides"]
         assert data["quality_targets"]["min_coverage"] == 85
 
     def test_generate_quality_manifest_no_override_when_no_mapping(self, tmp_path):
