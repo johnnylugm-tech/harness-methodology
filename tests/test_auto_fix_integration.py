@@ -220,7 +220,8 @@ class TestRunAutoFixLoopWiring:
         import harness_cli
         from unittest.mock import patch, MagicMock
         eng = MagicMock()
-        esc = MagicMock(); esc.value = "hr12_max_rounds"
+        esc = MagicMock()
+        esc.value = "hr12_max_rounds"
         eng.fix.return_value = MagicMock(escalation=esc, action_taken="maxed")
         with patch("core.auto_fix.AutoFixEngine", return_value=eng):
             assert harness_cli._run_auto_fix_loop(
