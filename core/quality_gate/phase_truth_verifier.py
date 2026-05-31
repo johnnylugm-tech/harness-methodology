@@ -273,19 +273,20 @@ class PhaseTruthVerifier:
 
     def check_session_log(self) -> Tuple[bool, float, str]:
         """Verify the integrity of sessions_spawn.log.
-        
-        Enforces JSONL format, malformed cap, empty role filtering, and
-        A/B reviewer separation for Phase 1-3 (HR-01).
+
+        Enforces JSONL format and malformed-line cap for all phases.
+        A/B reviewer separation (HR-01) only applies to Phase 1, 2, and 6
+        where Agent B collaboration is part of the workflow.
         """
         log_path = self.project_root / ".methodology" / "sessions_spawn.log"
         if not log_path.exists():
             return False, 0.0, "sessions_spawn.log is missing"
-            
+
         lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
         lines = [line.strip() for line in lines if line.strip()]
         if not lines:
             return False, 0.0, "sessions_spawn.log is empty"
-            
+
         malformed = 0
         valid_entries = []
         for line in lines:
@@ -294,32 +295,34 @@ class PhaseTruthVerifier:
                 valid_entries.append(entry)
             except json.JSONDecodeError:
                 malformed += 1
-                
+
         total_lines = len(lines)
         if total_lines > 0 and malformed / total_lines >= 0.5:
             return False, 0.0, f"≥50% malformed JSONL lines ({malformed}/{total_lines})"
-            
-        fr_reviewers = {}
-        for e in valid_entries:
-            role = str(e.get("role", "")).strip()
-            if not role:
-                continue
-            fr = str(e.get("fr_id", "")).strip()
-            if fr:
-                if fr not in fr_reviewers:
-                    fr_reviewers[fr] = set()
-                fr_reviewers[fr].add(role)
-                
-        _REVIEWER_ROLES = {"reviewer", "architect", "tech_lead", "qa_lead", "senior_dev"}
-        unreviewed_frs = []
-        for fr, roles in fr_reviewers.items():
-            if not roles.intersection(_REVIEWER_ROLES):
-                unreviewed_frs.append(fr)
-        
-        if unreviewed_frs:
-            return False, 50.0, f"A/B reviewer missing for {len(unreviewed_frs)} FR(s)"
-            
-        return True, 100.0, "sessions_spawn.log format and A/B invariant verified"
+
+        # A/B reviewer check applies only to phases that use Agent B collaboration.
+        if self.phase in (1, 2, 6):
+            fr_reviewers = {}
+            for e in valid_entries:
+                role = str(e.get("role", "")).strip()
+                if not role:
+                    continue
+                fr = str(e.get("fr_id", "")).strip()
+                if fr:
+                    if fr not in fr_reviewers:
+                        fr_reviewers[fr] = set()
+                    fr_reviewers[fr].add(role)
+
+            _REVIEWER_ROLES = {"reviewer", "architect", "tech_lead", "qa_lead", "senior_dev"}
+            unreviewed_frs = []
+            for fr, roles in fr_reviewers.items():
+                if not roles.intersection(_REVIEWER_ROLES):
+                    unreviewed_frs.append(fr)
+
+            if unreviewed_frs:
+                return False, 50.0, f"A/B reviewer missing for {len(unreviewed_frs)} FR(s)"
+
+        return True, 100.0, "sessions_spawn.log JSONL structure verified (A/B N/A for this phase)"
 
     def _check_artifact_content_quality(self, artifact_path: Path) -> Dict[str, Any]:
         """Perform basic automated content quality check on an artifact.
