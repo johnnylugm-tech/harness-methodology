@@ -88,7 +88,7 @@
 | integration_coverage | 5% | ≥60 | pytest |
 | architecture | 10% | ≥80 | radon-cc |
 | readability | 6% | ≥80 | radon-mi |
-| error_handling | 7% | ≥80 | grep-bare-except |
+| error_handling | 7% | ≥80 | ast-error-handling |
 | documentation | 1% | ≥75 | ast-docstrings |
 | test_assertion_quality | 2% | ≥60 | pytest |
 | performance | 4% | ≥75 | radon-cc-high |
@@ -105,7 +105,7 @@
 | mutation_testing | 8% | ≥70 | mutmut |
 | architecture | 14% | ≥80 | radon-cc |
 | readability | 8% | ≥80 | radon-mi |
-| error_handling | 8% | ≥80 | grep-bare-except |
+| error_handling | 8% | ≥80 | ast-error-handling |
 | documentation | 6% | ≥75 | ast-docstrings |
 | performance | 6% | ≥75 | radon-cc-high |
 | integration_coverage | 5% | ≥75 | pytest |
