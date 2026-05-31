@@ -1807,8 +1807,9 @@ def _verify_env_check_claims(project: Path) -> "list[str]":
                 findings.append(f"cli_tool '{name}': claimed present, but not found on PATH")
     for v in data.get("env_vars", {}).get("required", []):
         if isinstance(v, dict) and v.get("present") and v.get("name"):
-            if v["name"] not in os.environ:
-                findings.append(f"env_var '{v['name']}': claimed present, but not set")
+            name = str(v["name"])
+            if name not in os.environ:
+                findings.append(f"env_var '{name}': claimed present, but not set")
     return findings
 
 

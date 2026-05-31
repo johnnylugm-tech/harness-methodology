@@ -891,8 +891,9 @@ class PhaseAuditor:
         # A1 parity (mirror harness_cli._MIN_REVIEW_REASON_CHARS): an APPROVE must
         # carry real review rationale + citations, otherwise it is a shell approval
         # the main agent can self-issue without reviewing anything.
-        from harness_cli import _MIN_REVIEW_REASON_CHARS
-        _min_reason = _MIN_REVIEW_REASON_CHARS
+        # Kept as a local literal so this standalone audit script does not import the
+        # harness_cli entry-point module (decouples the GitHub-side audit from the CLI).
+        _min_reason = 40
         approved = 0
         for path in approval_files:
             c = self.gh.get_file_content(path)
