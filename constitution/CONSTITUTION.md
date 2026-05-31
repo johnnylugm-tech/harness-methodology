@@ -113,6 +113,8 @@
 
 > ¹ **D4_SpecCoverage**（v2.6 統一）: TEST_SPEC.md 為唯一溯源來源。單一 spec-coverage 檢查驗證 TEST_SPEC.md 中宣告的每一個測試案例都有對應的測試函式存在於 tests/。閾值: Gate1(per-FR)=40%, Gate2=60%, Gate3=80%, Gate4=90%。使用 `harness_cli.py spec-coverage-check --project . --threshold N`。`check-test-inventory` CLI 已棄用，會自動委派至 `spec-coverage-check`。
 
+> ² **NFR enforcement（SAB → gate_score_overrides）**: SAD.md `nfr_traceability` 的每個 NFR 依 `type` 映射到**實際 gate 維度** — `performance→performance`、`security→security`、`maintainability→readability`、`reliability→error_handling`、`testability→test_assertion_quality`（`sab_parser._NFR_TYPE_TO_DIM`）。命中的維度自動衍生 `gate_score_overrides`（threshold floor，只升不降）：「有 NFR 背書的維度不可被 da_waiver 降到標準門檻以下」；NFR target 含 `≥N` 時取較嚴者。`deployability/scalability/usability` 無對應評分工具 → 標 `advisory_only`（人工/文件審查，誠實不假裝 enforce）。`finalize_gate` 經 `_load_manifest_sab → gate_score_overrides` 套用。
+
 ### 2.3 Entry Gate 前提條件
 
 每個 Phase 進入前必須驗證前置條件：

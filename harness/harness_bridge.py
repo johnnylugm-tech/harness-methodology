@@ -1700,19 +1700,25 @@ class HarnessBridge:
         nfr_fr_map = self._parse_nfr_fr_xref(_project_root)
 
         qt = sab.get("quality_targets", {})
-        gate_score_overrides: dict[str, float] = {}
-        
+        # (7) Start from NFR-backed dimension floors (sab_parser.derive_gate_score_overrides):
+        # an NFR mapped to a gate dimension forces that dimension to clear its standard
+        # threshold. quality_targets below merge on top (floor only ever rises).
+        gate_score_overrides: dict[str, float] = {
+            k: float(v) for k, v in sab.get("gate_score_overrides", {}).items()
+        }
+
+        # Only quality_targets that map to a REAL gate dimension (max_complexity→complexity
+        # and min_reliability→reliability were dead — no such gate dimension).
         _qt_map = {
             "min_coverage": "test_coverage",
-            "max_complexity": "complexity",
             "p95_latency_ms": "performance",
-            "min_reliability": "reliability",
-            "min_security_score": "security"
+            "min_security_score": "security",
         }
         for qt_key, dim_name in _qt_map.items():
             if qt_key in qt:
                 try:
-                    gate_score_overrides[dim_name] = float(qt[qt_key])
+                    gate_score_overrides[dim_name] = max(
+                        gate_score_overrides.get(dim_name, 0.0), float(qt[qt_key]))
                 except (ValueError, TypeError):
                     pass
 

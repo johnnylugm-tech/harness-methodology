@@ -326,6 +326,13 @@ Score = formula from Step 1. Findings = each tool violation becomes one finding 
 - Optionally query CRG (`get_minimal_context_tool`) to enrich finding descriptions
 - CRG data enriches findings but does not change the score
 
+> **NFR-backed dimensions (SAB)**: when the project's SAB maps an NFR to a dimension —
+> `performance` / `security` / `readability`(maintainability) / `error_handling`(reliability) /
+> `test_assertion_quality`(testability) — that dimension carries a `gate_score_overrides`
+> threshold *floor* (raised, never lowered, not waivable). Treat NFR-mapped dimensions as
+> non-negotiable: clear at least the floor. NFR types `deployability`/`scalability`/`usability`
+> have no scoring tool → advisory-only (human review, not gated).
+
 **For all Tier 3 dimensions**, first check CRG is available:
 ```bash
 cat .sessi-work/crg_status.json

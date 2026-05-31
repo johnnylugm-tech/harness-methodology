@@ -25,6 +25,8 @@ class SABSpec:
     quality_targets: dict = field(default_factory=dict)
     nfr_dimension_mapping: dict = field(default_factory=dict)
     nfr_traceability: dict = field(default_factory=dict)
+    advisory_only: list = field(default_factory=list)         # NFR types with no gate dimension
+    gate_score_overrides: dict = field(default_factory=dict)  # NFR-derived threshold floors
     fr_module_traceability: dict = field(default_factory=dict)
     architecture_constraints: list = field(default_factory=list)
     high_risk_modules: list = field(default_factory=list)
@@ -65,25 +67,66 @@ class SABSpec:
             "quality_targets": self.quality_targets,
             "nfr_dimension_mapping": self.nfr_dimension_mapping,
             "nfr_traceability": self.nfr_traceability,
+            "advisory_only": self.advisory_only,
+            "gate_score_overrides": self.gate_score_overrides,
             "fr_module_traceability": self.fr_module_traceability,
             "architecture_constraints": self.architecture_constraints,
             "high_risk_modules": self.high_risk_modules,
         }
 
 
-# Canonical map from SAD.md nfr_traceability type values to harness dimension names.
-# NFRs whose type is not in this map are omitted from auto-derived nfr_dimension_mapping
-# (no harness dimension covers them — they require manual / out-of-band verification).
+# Canonical map from SAD.md nfr_traceability `type` values to ACTUAL harness gate
+# dimension names (must exist in the gate config 14-dimension set — otherwise the NFR
+# maps to a non-existent dimension and is silently un-enforced).
 _NFR_TYPE_TO_DIM: dict[str, str] = {
-    "performance":    "performance",
-    "reliability":    "reliability",
-    "maintainability": "maintainability",
-    "deployability":  "deployability",
-    "security":       "security",
-    "scalability":    "scalability",
-    "usability":      "usability",
-    "testability":    "testability",
+    "performance":     "performance",             # native gate dimension
+    "security":        "security",                # native gate dimension
+    "maintainability": "readability",             # radon-mi maintainability index
+    "reliability":     "error_handling",          # try/except coverage ≈ reliability
+    "testability":     "test_assertion_quality",  # assertion quality ≈ testability
 }
+
+# NFR types with NO corresponding automated scoring tool. They are still recorded in
+# nfr_traceability (context injection + human review) but are NOT mapped to any gate
+# dimension — honestly surfaced as advisory_only rather than faking enforcement.
+_NFR_ADVISORY_TYPES: frozenset[str] = frozenset(
+    {"deployability", "scalability", "usability"}
+)
+
+# Standard gate-4 dimension thresholds — the floor an NFR-backed dimension must clear.
+# Kept in sync with harness/gate_configs/gate4_p6_full.yaml (test enforces parity).
+_GATE_DIMENSION_STANDARD: dict[str, float] = {
+    "linting": 90, "type_safety": 85, "test_coverage": 80, "security": 80,
+    "secrets_scanning": 100, "license_compliance": 100, "mutation_testing": 70,
+    "architecture": 80, "readability": 80, "error_handling": 80,
+    "documentation": 75, "performance": 75, "integration_coverage": 75,
+    "test_assertion_quality": 70,
+}
+
+# Only an explicit "at least N" target (≥N / >=N) is read as a dimension-score floor.
+# Free-form targets like "p95 < 3s" are intentionally NOT parsed (different semantics).
+_NFR_TARGET_NUM_RE = re.compile(r"(?:≥|>=)\s*(\d+(?:\.\d+)?)")
+
+
+def derive_gate_score_overrides(nfr_dim_mapping: dict, nfr_traceability: dict) -> dict:
+    """(7) SAB enforcement: turn NFR-backed dimensions into gate_score_overrides
+    (threshold floors, only-raise). An NFR mapped to a dimension means that dimension
+    must clear at least its standard gate threshold — a da_waiver cannot drop it below.
+    If the NFR target carries an explicit "≥N" floor, the stricter value wins.
+    """
+    overrides: dict = {}
+    for nfr_id, dim in nfr_dim_mapping.items():
+        floor = _GATE_DIMENSION_STANDARD.get(dim)
+        if floor is None:
+            continue
+        v = nfr_traceability.get(nfr_id)
+        if isinstance(v, dict):
+            m = _NFR_TARGET_NUM_RE.search(str(v.get("target", "")))
+            if m:
+                floor = max(floor, float(m.group(1)))
+        overrides[dim] = max(overrides.get(dim, 0.0), float(floor))
+    return overrides
+
 
 _SAB_BLOCK_RE = re.compile(
     r"<!--\s*SAB:START\s*-->(.*?)<!--\s*SAB:END\s*-->",
@@ -141,6 +184,18 @@ def extract_sab_from_sad(sad_path) -> Optional[SABSpec]:
             if isinstance(v, dict) and v.get("type", "").lower() in _NFR_TYPE_TO_DIM
         }
 
+    # NFR types with no scoring tool → advisory_only (honestly surfaced, not enforced).
+    advisory_only = sorted({
+        v.get("type", "").lower()
+        for v in nfr_traceability.values()
+        if isinstance(v, dict) and v.get("type", "").lower() in _NFR_ADVISORY_TYPES
+    })
+
+    # (7) NFR-backed dimensions → gate_score_overrides (threshold floors, applied by
+    # harness_bridge.finalize_gate). An explicit block value takes precedence.
+    gate_score_overrides = sab_data.get("gate_score_overrides") or \
+        derive_gate_score_overrides(nfr_dim_mapping, nfr_traceability)
+
     return SABSpec(
         version=str(sab_data.get("version", "1.0")),
         created_at=str(sab_data.get("created_at", "")),
@@ -151,6 +206,8 @@ def extract_sab_from_sad(sad_path) -> Optional[SABSpec]:
         quality_targets=sab_data.get("quality_targets", {}),
         nfr_dimension_mapping=nfr_dim_mapping,
         nfr_traceability=nfr_traceability,
+        advisory_only=advisory_only,
+        gate_score_overrides=gate_score_overrides,
         fr_module_traceability=sab_data.get("fr_module_traceability", {}),
         architecture_constraints=sab_data.get("architecture_constraints", []),
         high_risk_modules=sab_data.get("high_risk_modules", []),

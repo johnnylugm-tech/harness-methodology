@@ -1222,6 +1222,55 @@ def _verify_entry_gate(project: Path, phase: int) -> dict:
 
     return {"passed": False, "gate": "Unknown", "reason": f"No entry gate defined for phase {phase}"}
 
+
+def _run_auto_fix_loop(
+    fix_ctx: dict,
+    project: Path,
+    phase: int,
+    reverify_fn,
+    gate_num: "int | None" = None,
+    max_rounds: int = 5,
+) -> bool:
+    """(6) Auto-fix driver: detect → fix → re-verify → retry until the check passes or
+    the engine escalates. Returns True when reverify_fn() passes after a fix (caller
+    proceeds); False when escalated or rounds exhausted (caller BLOCKs).
+
+    Wires the existing core/auto_fix AutoFixEngine (engine + 5 guardrails + 12 strategies)
+    into the failure path — previously the engine had no production caller.
+    """
+    try:
+        from core.auto_fix import AutoFixEngine, FixContext
+    except Exception as _exc:  # engine optional — never crash the gate on its absence
+        print(f"[AUTO-FIX] engine unavailable ({_exc}) — blocking without auto-fix.")
+        return False
+
+    engine = AutoFixEngine(project_root=str(project), phase=phase, max_rounds=max_rounds)
+    context = FixContext(
+        source=str(fix_ctx.get("source", "unknown")),
+        problem_type=str(fix_ctx.get("problem_type", "")),
+        severity=str(fix_ctx.get("severity", "high")),
+        phase=phase,
+        project_root=Path(project),
+        details=fix_ctx,
+        gate_num=gate_num,
+    )
+    print("\n[AUTO-FIX] failure detected — attempting detect→fix→re-verify…")
+    for _ in range(max_rounds + 1):
+        result = engine.fix(context)
+        if result.escalation:
+            print(
+                f"[AUTO-FIX ESCALATED] {result.escalation.value} — {result.action_taken}\n"
+                "  Human intervention required; not auto-fixable."
+            )
+            return False
+        if result.success and reverify_fn():
+            print(f"[AUTO-FIX] resolved ({result.problem_type}): {result.action_taken}")
+            return True
+        context.retry_count += 1
+    print(f"[AUTO-FIX] {max_rounds} rounds exhausted without passing re-verification.")
+    return False
+
+
 def cmd_run_phase(args: argparse.Namespace) -> int:
     """Run preflight checks for a phase.
 
@@ -1251,8 +1300,14 @@ def cmd_run_phase(args: argparse.Namespace) -> int:
 
     pre = hooks.preflight_all()
     if not pre["all_passed"]:
-        print(f"\nPRE-FLIGHT FAILED: {pre['details']}")
-        return 1
+        # (6) Auto-fix: detect→fix→re-verify before blocking. preflight covers FSM /
+        # constitution / governance artifacts — all non-interactive and re-runnable.
+        if not _run_auto_fix_loop(
+            hooks.to_fix_context(), project, args.phase,
+            reverify_fn=lambda: hooks.preflight_all()["all_passed"],
+        ):
+            print(f"\nPRE-FLIGHT FAILED: {pre['details']}")
+            return 1
 
     # Required-component check (hard dependencies — incl. code-review-graph, which
     # scores the architecture dimension). Verified at every phase entry so a missing
@@ -2345,11 +2400,36 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
                 _drft = _ph.postflight_drift_check()
                 _pf_ok = _art.get("passed", True) and _drft.get("passed", True)
                 if not _pf_ok:
-                    print(f"\n[BLOCKED] Post-flight structural check failed after Gate {args.gate}.")
-                    print("  Fix the issues listed above, then re-run:")
-                    print(f"  python harness_cli.py finalize-gate --gate {args.gate} "
-                          f"--phase {args.phase} --project {project}")
-                    return 5
+                    # (6) Auto-fix: structural postflight (artifact links / drift) is
+                    # non-interactive + re-runnable — attempt fix→re-verify before blocking.
+                    # (Gate score failures are NOT auto-fixable in CI — those still block.)
+                    # Route to the source/problem_type the classifier actually recognises
+                    # (artifact-links → framework_enforcer/missing_traceability;
+                    #  drift → drift_detector/drift_detected) so the right strategy runs.
+                    if not _art.get("passed", True):
+                        _pf_src, _pf_pt = "framework_enforcer", "missing_traceability"
+                    else:
+                        _pf_src, _pf_pt = "drift_detector", "drift_detected"
+                    _pf_fix_ctx = {
+                        "source": _pf_src,
+                        "problem_type": _pf_pt,
+                        "severity": "high",
+                        "details": {"problem_type": _pf_pt, "artifact_links": _art, "drift": _drft},
+                    }
+                    if _run_auto_fix_loop(
+                        _pf_fix_ctx, Path(project), args.phase, gate_num=args.gate,
+                        reverify_fn=lambda: (
+                            _ph.postflight_artifact_links().get("passed", True)
+                            and _ph.postflight_drift_check().get("passed", True)
+                        ),
+                    ):
+                        print("[POST-FLIGHT] Structural checks PASS (after auto-fix)")
+                    else:
+                        print(f"\n[BLOCKED] Post-flight structural check failed after Gate {args.gate}.")
+                        print("  Fix the issues listed above, then re-run:")
+                        print(f"  python harness_cli.py finalize-gate --gate {args.gate} "
+                              f"--phase {args.phase} --project {project}")
+                        return 5
                 print("[POST-FLIGHT] Structural checks PASS")
             except ImportError:
                 print("[WARN] PhaseHooks unavailable — postflight structural checks skipped")

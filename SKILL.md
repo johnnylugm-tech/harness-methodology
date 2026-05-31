@@ -98,6 +98,8 @@ do NOT start work until every item is checked.
 
 > ¹ **D4_SpecCoverage** (v2.6.0 unified): TEST_SPEC.md is the single source of truth for all test traceability. The previous two-check model (TEST_INVENTORY.yaml forward + TEST_SPEC.md backward) is retired. A single spec-coverage check runs at Gates 1-4 with thresholds: Gate1(per-FR)=40%, Gate2=60%, Gate3=80%, Gate4=90%. Use `python harness_cli.py spec-coverage-check --project . --threshold N`. The `check-test-inventory` CLI is deprecated and delegates to `spec-coverage-check`.
 
+> ² **Auto-fix is live + NFR enforcement**: `run-phase` preflight and `finalize-gate` structural postflight failures route through `_run_auto_fix_loop` (detect→fix→re-verify→retry; 9 HUMAN_REQUIRED escalations BLOCK). Gate *score* failures are not auto-fixed in CI. SAB NFRs mapped to gate dimensions (`performance`/`security`/`readability`/`error_handling`/`test_assertion_quality`) raise a non-waivable `gate_score_overrides` floor; `deployability`/`scalability`/`usability` are advisory-only.
+
 ### 0.4 Phase Completion Checklist (Mandatory — Every Phase)
 
 Before advancing to Phase N+1, confirm ALL:

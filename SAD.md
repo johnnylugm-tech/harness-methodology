@@ -125,7 +125,9 @@ python harness_cli.py resume-fr-phase   --fr-id FR-XX [--phase N] [--project .]
 
 M1 kill-switch circuit state is checked before each phase. M3 gap analysis runs for phases ≥ 3.
 
-**Gate BLOCKED diagnostic** (`finalize-gate` exit 1): The command emits a structured per-dimension diagnosis on block. Output includes: composite score, open_critical/high counts, per-failing-dimension score/threshold/gap and a fix hint, passing dimension summary, auto-fix round count (if auto-fix ran), and copy-pasteable resume commands. Full report written to `.methodology/last_block.md`. Fix hints cover all 14 dimension names: `linting`, `type_safety`, `test_coverage`, `security`, `secrets_scanning`, `license_compliance`, `mutation_testing`, `architecture`, `readability`, `error_handling`, `documentation`, `performance`, `integration_coverage`, `test_assertion_quality`. Implemented in `_format_block_diagnostic()` (module-level helper in `harness_cli.py`); the dict `_DIMENSION_HINTS` maps dimension name → actionable fix string. Auto-fix runs during preflight (`_preflight()` calls `AutoFixEngine.fix()` on preflight failures).
+**Gate BLOCKED diagnostic** (`finalize-gate` exit 1): The command emits a structured per-dimension diagnosis on block. Output includes: composite score, open_critical/high counts, per-failing-dimension score/threshold/gap and a fix hint, passing dimension summary, auto-fix round count (if auto-fix ran), and copy-pasteable resume commands. Full report written to `.methodology/last_block.md`. Fix hints cover all 14 dimension names: `linting`, `type_safety`, `test_coverage`, `security`, `secrets_scanning`, `license_compliance`, `mutation_testing`, `architecture`, `readability`, `error_handling`, `documentation`, `performance`, `integration_coverage`, `test_assertion_quality`. Implemented in `_format_block_diagnostic()` (module-level helper in `harness_cli.py`); the dict `_DIMENSION_HINTS` maps dimension name → actionable fix string.
+
+**Auto-fix wiring**: the engine is driven by `harness_cli._run_auto_fix_loop()` (detect→fix→re-verify→retry), wired into the two non-interactive failure paths: `cmd_run_phase` preflight failures (FSM / constitution / governance artifacts — re-verified via `PhaseHooks.preflight_all()`) and `cmd_finalize_gate` structural postflight failures (artifact-links / drift — re-verified via `postflight_*`). The loop BLOCKs on any of the 9 HUMAN_REQUIRED escalation conditions. Gate **score** failures are intentionally NOT auto-fixed in CI (re-scoring needs an interactive session) — those still block.
 
 **ECC hooks (Claude Code session layer)**: `~/.claude/hooks/hooks.json` runs ECC hooks across all Claude Code sessions. Harness-provided hooks:
 - `pre:bash:dispatcher` — blocks `git --no-verify` (prevents HR violation from bypassing hooks), push reminders
@@ -343,6 +345,13 @@ Schema: `harness/ssi/schemas/harness_gate_result.schema.json`
 - Called at P2 exit
 - Calls `from scripts.generate_sab import parse_sad` — functional (added in fix ②+⑤)
 - `parse_sad` returns `{nfr_dim_map, constraints, high_risk, ...}` from SAD.md SAB block
+- **NFR enforcement (`sab_parser`)**: `nfr_traceability` `type` → real gate dimension via
+  `_NFR_TYPE_TO_DIM` (`performance`/`security` native; `maintainability→readability`,
+  `reliability→error_handling`, `testability→test_assertion_quality`). Mapped dimensions
+  auto-derive `gate_score_overrides` (threshold floor, only-raise) via
+  `derive_gate_score_overrides()`; `deployability/scalability/usability` have no scoring
+  tool → `advisory_only`. `_load_manifest_sab` feeds `gate_score_overrides` into
+  `finalize_gate` (applied as a non-waivable floor).
 - Writes JSON to `.methodology/quality_manifest.json` with schema:
   ```json
   {

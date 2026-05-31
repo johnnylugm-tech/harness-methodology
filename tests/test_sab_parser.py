@@ -254,7 +254,9 @@ class TestNfrTraceability:
         spec = extract_sab_from_sad(sad)
         assert spec.nfr_dimension_mapping.get("NFR-01") == "performance"
         assert spec.nfr_dimension_mapping.get("NFR-02") == "security"
-        assert spec.nfr_dimension_mapping.get("NFR-09") == "deployability"
+        # deployability has no scoring tool → advisory_only, NOT in the dimension mapping
+        assert "NFR-09" not in spec.nfr_dimension_mapping
+        assert "deployability" in spec.advisory_only
 
     def test_unknown_nfr_type_silently_omitted(self, tmp_path):
         """NFRs with a type not in _NFR_TYPE_TO_DIM are excluded from auto-derivation."""
@@ -297,11 +299,62 @@ class TestNfrTraceability:
         assert "nfr_traceability" in d
         assert d["nfr_traceability"]["NFR-02"]["module"] == "app.security"
 
-    def test_nfr_type_to_dim_module_constant_covers_standard_types(self):
-        """_NFR_TYPE_TO_DIM must map every standard NFR type used in SAD templates."""
-        for t in ("performance", "security", "reliability", "maintainability",
-                  "deployability", "scalability", "usability", "testability"):
-            assert t in _NFR_TYPE_TO_DIM, f"Missing standard type: {t}"
+    def test_nfr_type_to_dim_maps_to_real_gate_dimensions(self):
+        """The 5 enforceable NFR types must map to ACTUAL gate-14 dimensions; the 3
+        advisory types (no scoring tool) are tracked separately, never faked into the map."""
+        from core.quality_gate.sab_parser import _NFR_ADVISORY_TYPES
+        _GATE_14_DIMS = {
+            "linting", "type_safety", "test_coverage", "security", "secrets_scanning",
+            "license_compliance", "mutation_testing", "architecture", "readability",
+            "error_handling", "documentation", "performance", "integration_coverage",
+            "test_assertion_quality",
+        }
+        for t in ("performance", "security", "maintainability", "reliability", "testability"):
+            assert t in _NFR_TYPE_TO_DIM, f"Missing enforceable type: {t}"
+            assert _NFR_TYPE_TO_DIM[t] in _GATE_14_DIMS, \
+                f"{t}→{_NFR_TYPE_TO_DIM[t]} is not a real gate dimension"
+        for t in ("deployability", "scalability", "usability"):
+            assert t in _NFR_ADVISORY_TYPES
+            assert t not in _NFR_TYPE_TO_DIM
+
+    def test_derive_gate_score_overrides_standard_floor(self):
+        """NFR-mapped dimension → its standard gate-4 threshold floor; free-form
+        targets ('p95 < 3s') are NOT parsed as a score floor."""
+        from core.quality_gate.sab_parser import derive_gate_score_overrides
+        m = {"NFR-01": "performance", "NFR-02": "security"}
+        t = {"NFR-01": {"type": "performance", "target": "p95 < 3s"},
+             "NFR-02": {"type": "security", "target": "no plaintext secrets"}}
+        assert derive_gate_score_overrides(m, t) == {"performance": 75.0, "security": 80.0}
+
+    def test_derive_gate_score_overrides_explicit_numeric_wins(self):
+        """An explicit ≥N target raises the floor above the standard threshold."""
+        from core.quality_gate.sab_parser import derive_gate_score_overrides
+        m = {"NFR-01": "security"}
+        t = {"NFR-01": {"type": "security", "target": "≥95"}}
+        assert derive_gate_score_overrides(m, t) == {"security": 95.0}
+
+    def test_extract_auto_derives_gate_score_overrides(self, tmp_path):
+        """SABSpec.gate_score_overrides is auto-derived from nfr_dimension_mapping."""
+        sad = tmp_path / "SAD.md"
+        sad.write_text(_SAD_NFR_TRACEABILITY_ONLY)
+        spec = extract_sab_from_sad(sad)
+        assert spec.gate_score_overrides.get("performance") == 75.0
+        assert spec.gate_score_overrides.get("security") == 80.0
+        # advisory NFR (deployability) contributes no override
+        assert "deployability" not in spec.gate_score_overrides
+
+    def test_gate_dimension_standard_in_sync_with_gate4_config(self):
+        """_GATE_DIMENSION_STANDARD (the NFR floor source) must not drift from the
+        gate-4 config thresholds it mirrors."""
+        import yaml
+        from pathlib import Path
+        from core.quality_gate.sab_parser import _GATE_DIMENSION_STANDARD
+        cfg = yaml.safe_load(
+            Path("harness/gate_configs/gate4_p6_full.yaml").read_text(encoding="utf-8"))
+        for dim in cfg["dimensions"]:
+            name, thr = dim["name"], float(dim["threshold"])
+            assert _GATE_DIMENSION_STANDARD.get(name) == thr, \
+                f"{name}: standard {_GATE_DIMENSION_STANDARD.get(name)} != gate4 {thr}"
 
 
 _SAD_FR_MODULE_TRACEABILITY = """\
