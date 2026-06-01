@@ -38,6 +38,14 @@ def pytest_configure(config):
 _MUTMUT_TEST_SCOPE = frozenset({
     "test_tool_runners.py",
     "test_sab_parser.py",
+    "test_core_flows_mutation.py",
+    "test_score_validator.py",
+    "test_score_compute.py",
+    "test_constitution_runner.py",
+    "test_constitution_oracle.py",
+    "test_harness_bridge.py",
+    "test_anti_fabrication.py",
+    "test_harness_bridge_oracle.py",
 })
 
 
