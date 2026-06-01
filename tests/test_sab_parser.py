@@ -349,8 +349,18 @@ class TestNfrTraceability:
         import yaml
         from pathlib import Path
         from core.quality_gate.sab_parser import _GATE_DIMENSION_STANDARD
-        cfg = yaml.safe_load(
-            Path("harness/gate_configs/gate4_p6_full.yaml").read_text(encoding="utf-8"))
+        # Resolve the gate config path regardless of cwd (normal pytest or mutmut).
+        # Under mutmut: __file__ = .../mutants/tests/test_sab_parser.py
+        #   → parent.parent = .../mutants/ → gate4_yaml not there
+        #   → fall back to parent.parent.parent = repo root ✓
+        # Normal pytest: __file__ = .../tests/test_sab_parser.py
+        #   → parent.parent = repo root ✓
+        _test_dir = Path(__file__).resolve().parent
+        _repo_root = _test_dir.parent
+        if not (_repo_root / "harness" / "gate_configs").exists():
+            _repo_root = _repo_root.parent  # mutmut: step up from mutants/
+        gate4_yaml = _repo_root / "harness" / "gate_configs" / "gate4_p6_full.yaml"
+        cfg = yaml.safe_load(gate4_yaml.read_text(encoding="utf-8"))
         for dim in cfg["dimensions"]:
             name, thr = dim["name"], float(dim["threshold"])
             assert _GATE_DIMENSION_STANDARD.get(name) == thr, \

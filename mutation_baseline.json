@@ -2,7 +2,7 @@
   "_note": "Mutation baseline for harness-methodology core scorers. Fill after first run:",
   "_command": "mutmut run && mutmut results",
   "_scope": "harness/tool_runners.py + core/quality_gate/sab_parser.py (see setup.cfg [mutmut])",
-  "_known_issue": "mutmut 3.x stats collection may fail in non-standard project layouts; if so use: cd /tmp && git clone harness-methodology && cd harness-methodology && mutmut run",
+  "_known_issue": "mutmut 3.x requires tests to import from mutants/ (trampoline) not from repo root. Forced-fail pre-check aborts the run when tests import originals. Alternative: use mutmut 2.x (pip install 'mutmut<3') or pytest-mutagen.",
   "harness/tool_runners.py": {
     "killed": 0,
     "survived": 0,
