@@ -2543,6 +2543,7 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
             Path(args.project).resolve(), args.gate, fr_id,
             gate_score=result.score, phase=args.phase,
         )
+        _update_claude_md(Path(args.project).resolve())  # gate pass → refresh CLAUDE.md
 
         # P1: Record successful finalization timestamp HERE (after all checks pass),
         # not inside _check_commit_intervals.  Failed attempts must not leave a trace
@@ -4070,6 +4071,7 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
     print(f"\n[advance-phase] Completed phase {args.completed_phase} → advancing to {next_phase}")
     _advance_fsm(project, args.completed_phase,
                  last_gate=last_gate_num, last_fr=last_fr_id)
+    _update_claude_md(project)  # phase number just changed → refresh CLAUDE.md
 
     # CV-13: Stale .sessi-work/ artifacts can cause the next phase's gate
     # evaluation to skip re-computation (agent sees old result JSONs and
@@ -5691,6 +5693,162 @@ def _make_git(args: argparse.Namespace, project: Path) -> "GitStrategy":  # noqa
     no_git = getattr(args, "no_git", False)
     return GitStrategy(project=project, enabled=not no_git)
 
+# ---------------------------------------------------------------------------
+# CLAUDE.md auto-update helpers
+# ---------------------------------------------------------------------------
+
+_CLAUDE_AUTO_START = "<!-- harness:auto-start -->"
+_CLAUDE_AUTO_END   = "<!-- harness:auto-end -->"
+
+_PHASE_NAMES = {
+    1: "Requirements", 2: "Architecture", 3: "Implementation",
+    4: "Testing", 5: "Verification", 6: "Quality", 7: "Risk", 8: "Config Management",
+}
+
+
+def _build_claude_md_auto_section(project_path: Path) -> str:
+    """Build the harness status markdown block from state.json + quality_manifest.json.
+
+    Gracefully degrades: missing files → empty dicts → "Not Started" placeholders.
+    """
+    from datetime import datetime, timezone as _tz
+
+    manifest: dict = {}
+    state: dict = {}
+    for fpath, store_key in (
+        (project_path / ".methodology" / "quality_manifest.json", "manifest"),
+        (project_path / ".methodology" / "state.json", "state"),
+    ):
+        if fpath.exists():
+            try:
+                data = json.loads(fpath.read_text(encoding="utf-8"))
+                if store_key == "manifest":
+                    manifest = data
+                else:
+                    state = data
+            except Exception:  # pylint: disable=broad-exception-caught
+                pass
+
+    current_phase = state.get("current_phase", 1)
+    phase_name = _PHASE_NAMES.get(current_phase, f"Phase {current_phase}")
+    last_gate = state.get("last_gate", "—")
+    last_fr_str = f" | Last FR: {state['last_fr']}" if state.get("last_fr") else ""
+    updated = datetime.now(_tz.utc).strftime("%Y-%m-%d")
+
+    gates = manifest.get("gate_results", {})
+    fr_ids: list = manifest.get("fr_ids", [])
+
+    # Gate progress rows (G1 shows done/total FRs; G2-G4 show numeric score)
+    gate_rows: list[str] = []
+    for gn in (1, 2, 3, 4):
+        g = gates.get(f"gate{gn}")
+        if isinstance(g, dict) and "score" in g:
+            score_str = f"{g['score']:.1f}"
+            status = "✅ PASS" if g.get("quality_complete") else "🔄 In Progress"
+        elif isinstance(g, dict):
+            # gate1: {FR-XX: {score, quality_complete, ...}}
+            fr_vals = [v for v in g.values() if isinstance(v, dict) and "score" in v]
+            done = sum(1 for v in fr_vals if v.get("quality_complete"))
+            total = len(fr_ids) if fr_ids else len(fr_vals)
+            score_str = f"{done}/{total} FRs" if total else "—"
+            status = "✅ PASS" if (total and done == total) else "🔄 In Progress"
+        else:
+            score_str, status = "—", "⬜ Not Started"
+        gate_rows.append(f"| Gate {gn} | {score_str} | {status} |")
+
+    gate_table = "\n".join(gate_rows)
+
+    # FR Registry rows (from gate1 results)
+    gate1 = gates.get("gate1")
+    fr_rows: list[str] = []
+    if fr_ids:
+        for fr_id in fr_ids:
+            r = gate1.get(fr_id) if isinstance(gate1, dict) else None
+            if isinstance(r, dict) and "score" in r:
+                fr_score = f"{r['score']:.1f}"
+                fr_status = "✅ COMPLETE" if r.get("quality_complete") else "🔄 In Progress"
+            else:
+                fr_score, fr_status = "—", "⬜ Pending"
+            fr_rows.append(f"| {fr_id} | {fr_score} | {fr_status} |")
+    fr_table_body = ("\n".join(fr_rows)
+                     if fr_rows else "| — | — | No FRs registered yet |")
+
+    # Optional sections (only when non-empty)
+    extra_sections = ""
+    arch = manifest.get("architecture_constraints", [])
+    if arch:
+        items = "\n".join(f"- {c}" for c in arch)
+        extra_sections += f"\n### Architecture Constraints\n{items}\n"
+    high_risk = manifest.get("high_risk_modules", [])
+    if high_risk:
+        items = "\n".join(f"- {m}" for m in high_risk)
+        extra_sections += f"\n### High-Risk Modules\n{items}\n"
+    nfr_map = manifest.get("nfr_dimension_mapping", {})
+    if nfr_map:
+        items = "\n".join(f"- {k} → {v}" for k, v in nfr_map.items())
+        extra_sections += f"\n### NFR → Dimension Mapping\n{items}\n"
+
+    return (
+        f"## Harness Status _(auto-generated — do not edit this block)_\n\n"
+        f"> Phase: **{current_phase} — {phase_name}**"
+        f" | Last Gate: **Gate {last_gate}**{last_fr_str}"
+        f" | Updated: {updated}\n\n"
+        f"### Gate Progress\n"
+        f"| Gate | Score / FRs | Status |\n"
+        f"|------|-------------|--------|\n"
+        f"{gate_table}\n\n"
+        f"### FR Registry (Gate 1)\n"
+        f"| FR ID | Score | Status |\n"
+        f"|-------|-------|--------|\n"
+        f"{fr_table_body}\n"
+        f"{extra_sections}"
+    )
+
+
+def _update_claude_md(project_path: Path) -> None:
+    """Refresh the harness-managed block in project_path/CLAUDE.md (non-blocking).
+
+    Called at: init-project, finalize-gate (pass), advance-phase.
+    Replaces content between <!-- harness:auto-start/end --> markers.
+    Preserves all content outside the markers (user customizations).
+    Legacy CLAUDE.md without markers: auto block prepended, existing content kept.
+    """
+    try:
+        auto = _build_claude_md_auto_section(project_path)
+        claude_path = project_path / "CLAUDE.md"
+
+        if not claude_path.exists():
+            claude_path.write_text(
+                f"# Project: {project_path.name}\n\n"
+                + _CLAUDE_AUTO_START + "\n" + auto + _CLAUDE_AUTO_END + "\n",
+                encoding="utf-8",
+            )
+            return
+
+        existing = claude_path.read_text(encoding="utf-8")
+        if _CLAUDE_AUTO_START in existing and _CLAUDE_AUTO_END in existing:
+            s = existing.index(_CLAUDE_AUTO_START)
+            e = existing.index(_CLAUDE_AUTO_END) + len(_CLAUDE_AUTO_END)
+            new_content = (
+                existing[:s]
+                + _CLAUDE_AUTO_START + "\n"
+                + auto
+                + _CLAUDE_AUTO_END
+                + existing[e:]
+            )
+        else:
+            # Legacy CLAUDE.md: prepend auto block, keep all existing content
+            new_content = (
+                _CLAUDE_AUTO_START + "\n"
+                + auto
+                + _CLAUDE_AUTO_END + "\n\n"
+                + existing
+            )
+        claude_path.write_text(new_content, encoding="utf-8")
+    except Exception as _exc:  # pylint: disable=broad-exception-caught
+        print(f"  [WARN] CLAUDE.md update skipped: {_exc}")
+
+
 def _update_state_checkpoint(
     project: Path, gate_num: int, fr_id: str | None,
     gate_score: float | None = None, phase: int | None = None,
@@ -6175,6 +6333,14 @@ def _init_copy_templates(project: Path, harness_root: Path, *, overwrite: bool =
         skipped += 1
     elif claude_tmpl.exists():
         shutil.copy2(claude_tmpl, claude_dst)
+        # Substitute {PROJECT_NAME} so the header is immediately readable
+        try:
+            raw = claude_dst.read_text(encoding="utf-8").replace(
+                "{PROJECT_NAME}", project.name
+            )
+            claude_dst.write_text(raw, encoding="utf-8")
+        except Exception:  # pylint: disable=broad-exception-caught
+            pass
         copied += 1
     else:
         missing += 1
@@ -6558,6 +6724,8 @@ def cmd_init_project(args: argparse.Namespace) -> int:
             "last_update": datetime.now(timezone.utc).isoformat(),
         })
         print(f"   OK — state.json initialized (phase={phase})")
+    # Refresh CLAUDE.md harness status block now that state.json exists
+    _update_claude_md(project)
 
     # 8. Drift monitor hint
     print("\n[8/11] Drift Monitor hint (optional cronjob)")
