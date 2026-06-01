@@ -16,5 +16,12 @@
     "survived": 37,
     "kill_rate": 78.0,
     "measured_at": "2026-06-02"
+  },
+  "harness/ssi/scripts/score.py": {
+    "killed": 210,
+    "survived": 125,
+    "kill_rate": 62.7,
+    "measured_at": "2026-06-02",
+    "_ceiling_note": "~54 main() CLI mutants + ~29 error-string equivalents = ~83 untestable; adjusted kill rate ~82%"
   }
 }
