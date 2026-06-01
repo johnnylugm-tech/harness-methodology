@@ -3,8 +3,6 @@ Unit tests for HarnessBridge.
 """
 import pytest
 
-pytestmark = [pytest.mark.mutation_oracle, pytest.mark.core]
-
 
 import json
 from typing import Any
@@ -16,6 +14,7 @@ from harness.harness_bridge import (
     _check_tests_failed, _check_test_skip_ratio,
 )
 
+pytestmark = [pytest.mark.mutation_oracle, pytest.mark.core]
 
 
 class TestHarnessBridge:

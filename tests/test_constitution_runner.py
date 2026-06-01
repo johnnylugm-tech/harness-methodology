@@ -1,8 +1,6 @@
 """Tests for core/quality_gate/constitution/runner.py — Constitution compliance checker."""
 import pytest
 
-pytestmark = [pytest.mark.mutation_oracle, pytest.mark.constitution]
-
 
 import json
 import tempfile
@@ -22,6 +20,7 @@ from core.quality_gate.constitution.profile import defaults
 
 from constitution import get_phase_thresholds  # pyright: ignore[reportMissingImports]
 
+pytestmark = [pytest.mark.mutation_oracle, pytest.mark.constitution]
 
 
 class TestConstitutionResult:
