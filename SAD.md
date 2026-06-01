@@ -127,7 +127,7 @@ M1 kill-switch circuit state is checked before each phase. M3 gap analysis runs 
 
 **Gate BLOCKED diagnostic** (`finalize-gate` exit 1): The command emits a structured per-dimension diagnosis on block. Output includes: composite score, open_critical/high counts, per-failing-dimension score/threshold/gap and a fix hint, passing dimension summary, auto-fix round count (if auto-fix ran), and copy-pasteable resume commands. Full report written to `.methodology/last_block.md`. Fix hints cover all 14 dimension names: `linting`, `type_safety`, `test_coverage`, `security`, `secrets_scanning`, `license_compliance`, `mutation_testing`, `architecture`, `readability`, `error_handling`, `documentation`, `performance`, `integration_coverage`, `test_assertion_quality`. Implemented in `_format_block_diagnostic()` (module-level helper in `harness_cli.py`); the dict `_DIMENSION_HINTS` maps dimension name → actionable fix string.
 
-**Auto-fix wiring**: the engine is driven by `harness_cli._run_auto_fix_loop()` (detect→fix→re-verify→retry), wired into the two non-interactive failure paths: `cmd_run_phase` preflight failures (FSM / constitution / governance artifacts — re-verified via `PhaseHooks.preflight_all()`) and `cmd_finalize_gate` structural postflight failures (artifact-links / drift — re-verified via `postflight_*`). The loop BLOCKs on any of the 9 HUMAN_REQUIRED escalation conditions. Gate **score** failures are intentionally NOT auto-fixed in CI (re-scoring needs an interactive session) — those still block.
+**Auto-fix wiring — removed (engine NOT wired)**: the preflight (`cmd_run_phase`) and postflight (`cmd_finalize_gate`) wirings, plus the `_run_auto_fix_loop` driver, were removed after end-to-end verification proved the strategies cannot clear the checks they target — every strategy only emits an empty stub (`fix_gap_critical`, `fix_missing_artifact`) or appends a comment (`fix_drift`), while the checks measure substantive gaps (FR→code→test coverage, drift score, phase artifact chain). Preflight/postflight failures now block honestly. `core/auto_fix` (engine + 5 guardrails) is retained but has **no production caller** — see §3.18.
 
 **ECC hooks (Claude Code session layer)**: `~/.claude/hooks/hooks.json` runs ECC hooks across all Claude Code sessions. Harness-provided hooks:
 - `pre:bash:dispatcher` — blocks `git --no-verify` (prevents HR violation from bypassing hooks), push reminders
@@ -1253,23 +1253,22 @@ Thresholds are configurable via `AutoFixEngine.__init__` parameters:
 `gate_min_score=60.0`, `gate_min_rounds=3`, `confidence_threshold=70.0`.
 
 **Integration points**:
-- `harness/harness_bridge.py`: `GateContext.auto_fix_rounds` field + `prepare_gate(auto_fix_rounds=...)` parameter — the programmatic entry point (default 0 = disabled). There is **no** `--auto-fix-rounds` CLI flag; auto-fix is invoked internally by callers that pass `auto_fix_rounds` to `prepare_gate`.
-- `orchestration/__init__.py`: exports `run_constitution_check_with_feedback`, `run_enforcement_check_with_feedback`, `run_policy_check_with_feedback` — retry-aware wrappers that delegate auto-fix to AutoFixEngine on failure
-- `core/phase_hooks.py`: `auto_fix_enabled` parameter, `to_fix_context()` method
+- `harness/harness_bridge.py`: `GateContext.auto_fix_rounds` field + `prepare_gate(auto_fix_rounds=...)` parameter only set `config.max_rounds`; they do **not** invoke `AutoFixEngine.fix()` (no production path does).
+- `orchestration/__init__.py`: exports `run_constitution_check_with_feedback`, `run_enforcement_check_with_feedback`, `run_policy_check_with_feedback` — retry-aware wrappers that would delegate to AutoFixEngine, but they have **no production caller** (dead since the wirings were removed).
 
 **`ast_mutation_guard(file_path, pre_content, post_content, allowed_node_name) -> bool`** (guardrails.py):
 Validates that a fix touched only the AST node named `allowed_node_name`. Dumps invariants of all _other_ top-level nodes (FunctionDef, ClassDef, AsyncFunctionDef) and compares pre/post. For nested methods inside a ClassDef, deep-copies the parent class, strips the target method, then dumps the remainder — so decorator/base-class changes on the parent class are also caught. Returns `False` (unsafe) if: post-fix has a syntax error, or any out-of-bounds node changed. Returns `True` unconditionally for non-.py files or when `allowed_node_name` is None.
 
-**Auto-fix loop** (when a caller enables it via `prepare_gate(auto_fix_rounds=N)`):
+**Auto-fix loop** (the engine's intended detect→fix→re-verify shape — NOT currently wired):
 ```
-preflight fail → AutoFixEngine.fix() → re-check → loop (up to N rounds)
-Gate BLOCKED  → AutoFixEngine.fix() → re-evaluate → loop
-Phase Truth < 90% → AutoFixEngine.fix() → re-verify → loop
+check fail → AutoFixEngine.fix() → re-check → loop (up to N rounds)
 ```
-> The `cmd_run_pipeline` driver that previously wired this end-to-end was **removed in v2.5**.
-> The `AutoFixEngine` infrastructure remains and is reachable programmatically through
-> `prepare_gate(auto_fix_rounds=...)`. The manual gate flow is: fix failing dimensions →
-> re-run `run-gate` → `finalize-gate` (see the CASE 1–4 early-stop logic per gate checkpoint).
+> No production code calls `AutoFixEngine.fix()`. The preflight/postflight wirings were
+> removed after end-to-end verification (every strategy emits a stub/comment that never
+> clears the substantive checks); `prepare_gate(auto_fix_rounds=N)` only sets
+> `config.max_rounds` and does not invoke the engine. The manual gate flow is: fix failing
+> dimensions → re-run `run-gate` → `finalize-gate` (see the CASE 1–4 early-stop logic per
+> gate checkpoint).
 (Removed in v2.6.0: the `run-pipeline` autonomous pipeline was unstable for the current maturity level.)
 
 ### §3.21 — `scripts/check_spec_trace.py` — FR Spec Trace Validator (v2 Content-Level)
