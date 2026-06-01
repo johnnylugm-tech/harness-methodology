@@ -1,9 +1,29 @@
-# harness-methodology runtime dependencies
-pyyaml>=6.0
-# pytest for framework self-tests (B13-B15)
-pytest>=7.0
-# pytest-benchmark for performance dimension in Gate 3/4
-pytest-benchmark>=4.0
-# Optional: mutmut for mutation testing (Gate 2/3/4)
-# mutmut>=2.4
+# harness-methodology tool dependencies — pinned == for scorer reproducibility.
+# Floating versions risk score drift across environments: the same code must
+# produce the same dimension scores regardless of when/where it is installed.
+# gitleaks / mutmut / scancode are external binaries (not pip-managed).
+# opentelemetry-api/sdk in pyproject.toml stay >= (runtime library, not a scorer).
+
+# linting (gate 1-4: linting dimension)
+ruff==0.15.13
+
+# type_safety (gate 1-4: type_safety dimension)
+mypy==1.19.1
+pyright==1.1.409
+
+# test_coverage + performance (gate 1-4)
+pytest==8.4.2
+pytest-cov==7.1.0
+pytest-benchmark==5.2.3
+
+# security (gate 2-4: security dimension)
+bandit==1.8.6
+
+# readability (gate 3-4: readability dimension via radon-mi)
+radon==6.0.1
+
+# runtime (YAML config parsing — not a scorer)
+pyyaml==6.0.3
+
 # harness/ssi/ contains vendor-copied assets from software_self_improvement (embedded, zero-dependency).
+# Optional: mutmut for mutation testing (Gate 2/3/4) — external binary, pin separately if needed.

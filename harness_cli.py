@@ -1229,6 +1229,23 @@ def _verify_entry_gate(project: Path, phase: int) -> dict:
 
 
 def cmd_run_phase(args: argparse.Namespace) -> int:
+    """OTEL span wrapper for run-phase. Business logic in _cmd_run_phase_impl."""
+    try:
+        from core.observability import init_tracer
+        _tracer = init_tracer(Path(args.project).resolve())
+    except Exception:
+        _tracer = None
+    if _tracer is None:
+        return _cmd_run_phase_impl(args)
+    with _tracer.start_as_current_span("run_phase") as _span:
+        _span.set_attribute("phase", args.phase)
+        _exit = _cmd_run_phase_impl(args)
+        _span.set_attribute("exit_code", _exit)
+        _span.set_attribute("blocked", _exit != 0)
+        return _exit
+
+
+def _cmd_run_phase_impl(args: argparse.Namespace) -> int:
     """Run preflight checks for a phase.
 
     Preflight scans the most recently completed phase's artifacts (via
@@ -1519,6 +1536,28 @@ def _fr_source_files_from_imports(
 
 
 def cmd_run_gate(args: argparse.Namespace) -> int:
+    """OTEL span wrapper for run-gate. Business logic in _cmd_run_gate_impl."""
+    try:
+        from core.observability import init_tracer
+        _tracer = init_tracer(Path(getattr(args, "project", ".")).resolve())
+    except Exception:
+        _tracer = None
+    if _tracer is None:
+        return _cmd_run_gate_impl(args)
+    with _tracer.start_as_current_span("run_gate") as _span:
+        _span.set_attribute("gate", getattr(args, "gate", 1))
+        _span.set_attribute("phase", getattr(args, "phase", 0))
+        _fr = getattr(args, "fr_id", None)
+        if _fr:
+            _span.set_attribute("fr_id", str(_fr))
+        _span.set_attribute("delta", bool(getattr(args, "delta", False)))
+        _exit = _cmd_run_gate_impl(args)
+        _span.set_attribute("exit_code", _exit)
+        _span.set_attribute("blocked", _exit != 0)
+        return _exit
+
+
+def _cmd_run_gate_impl(args: argparse.Namespace) -> int:
     """
     Phase 1: prepare gate context and print evaluation instructions for Claude.
 
@@ -2196,6 +2235,27 @@ def _check_gate4_prerequisites(project: Path) -> "tuple[bool, set[str]]":
 # ---------------------------------------------------------------------------
 
 def cmd_finalize_gate(args: argparse.Namespace) -> int:
+    """OTEL span wrapper for finalize-gate. Business logic in _cmd_finalize_gate_impl."""
+    try:
+        from core.observability import init_tracer
+        _tracer = init_tracer(Path(getattr(args, "project", ".")).resolve())
+    except Exception:
+        _tracer = None
+    if _tracer is None:
+        return _cmd_finalize_gate_impl(args)
+    with _tracer.start_as_current_span("finalize_gate") as _span:
+        _span.set_attribute("gate", args.gate)
+        _span.set_attribute("phase", args.phase)
+        _fr = getattr(args, "fr_id", None)
+        if _fr:
+            _span.set_attribute("fr_id", str(_fr))
+        _exit = _cmd_finalize_gate_impl(args)
+        _span.set_attribute("exit_code", _exit)
+        _span.set_attribute("blocked", _exit != 0)
+        return _exit
+
+
+def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
     """
     Phase 2: read gate{N}_result.json, check thresholds, update manifest, git.
 
