@@ -1,0 +1,49 @@
+# otel-collector.yml — minimal OTel Collector configuration for harness-methodology
+#
+# Usage
+# ─────
+# 1. Start the Collector (Docker, one-off):
+#      docker run --rm \
+#        -p 4318:4318 \
+#        -v $(pwd)/otel-collector.yml:/etc/otelcol/config.yaml \
+#        otel/opentelemetry-collector-contrib:latest \
+#        --config /etc/otelcol/config.yaml
+#
+# 2. Set env var before running harness commands:
+#      export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+#      python3 harness_cli.py run-phase --phase 3 --project .
+#
+# 3. Spans appear in /tmp/harness-spans.jsonl and on the Collector's stdout.
+#
+# Alternatives
+# ────────────
+# • OTEL_EXPORTER=console  → ConsoleSpanExporter (no Collector needed; built-in)
+# • (neither set)          → local JSONL at <project>/.harness/traces/agent_trajectory.jsonl
+#
+# Backend integration (replace "debug" + "file" exporters):
+# • Datadog:  otlpdatadog exporter  (pip install opentelemetry-exporter-datadog)
+# • Grafana:  otlphttp to Grafana Cloud OTLP endpoint
+# • Elastic:  otlp to APM server at http://elastic-apm:8200
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: "0.0.0.0:4318"
+
+exporters:
+  debug:
+    verbosity: detailed        # prints every span to stdout (useful for local debug)
+  file:
+    path: /tmp/harness-spans.jsonl
+
+processors:
+  batch:                       # buffer spans before export (reduces I/O overhead)
+    timeout: 1s
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug, file]

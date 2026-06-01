@@ -1509,10 +1509,22 @@ def get_tracer() -> trace.Tracer:
 following OTel's custom-namespace convention. The `gen_ai.*` namespace is reserved for
 LLM inference calls (model, tokens, finish_reason) per GenAI Semantic Conventions v1.37.
 
-> **TODO — OTel Collector**: spans currently write only to local JSONL. Next step: add
-> `otel-collector.yml` (file/stdout receiver + Prometheus exporter) and update
-> `core/observability.py` to switch exporter when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
-> Datadog / Grafana / Elastic all support OTel GenAI Semantic Conventions v1.37 natively.
+**Exporter selection** (`core/observability.py:init_tracer`):
+
+| Environment variable | Exporter | Requirement |
+|---|---|---|
+| `OTEL_EXPORTER_OTLP_ENDPOINT=http://host:4318` | OTLP HTTP → OTel Collector | `pip install opentelemetry-exporter-otlp-proto-http` |
+| `OTEL_EXPORTER=console` | ConsoleSpanExporter (stdout) | built-in, no extras |
+| (neither set) | Local JSONL at `<project>/.harness/traces/agent_trajectory.jsonl` | default, zero deps |
+
+Graceful fallback: if `OTEL_EXPORTER_OTLP_ENDPOINT` is set but the OTLP package is not
+installed, harness silently falls back to JSONL — the gate pipeline is never blocked by a
+missing observability package.
+
+**Collector reference config**: `otel-collector.yml` in the repository root shows a
+minimal Docker-based setup (OTLP HTTP receiver → debug stdout + file exporter).
+Swap the `file` exporter for `otlpdatadog`, `otlphttp` (Grafana Cloud), or an
+Elastic APM endpoint to connect to a production backend.
 
 ---
 

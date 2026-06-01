@@ -96,6 +96,38 @@ _TOOL_CONTENT_PATTERNS: dict[str, list[str]] = {
 _TOOL_OUTPUT_MIN_BYTES: int = 5
 
 
+def _extract_mutmut_kill_rate(content: str) -> "float | None":
+    """Parse a mutmut tool_output file and return the computed kill rate (0-100).
+
+    Supports both v2 and v3 output formats:
+      - "Killed XX Survived YY"  (plain text or table)
+      - "mutation score: NN%"    (summary line)
+
+    Returns None when no parseable statistics are found (e.g. empty output or
+    an unrecognised format — treated as a non-blocking parse failure).
+    """
+    import re as _re
+
+    # Format A: explicit "Killed N" and "Survived N" counts
+    killed_m = _re.search(r'\bKilled\s+(\d+)', content, _re.IGNORECASE)
+    survived_m = _re.search(r'\bSurvived\s+(\d+)', content, _re.IGNORECASE)
+    if killed_m and survived_m:
+        killed = int(killed_m.group(1))
+        survived = int(survived_m.group(1))
+        total = killed + survived
+        if total > 0:
+            return killed / total * 100.0
+
+    # Format B: explicit "mutation score: NN%" / "mutation score NN%"
+    score_m = _re.search(
+        r'mutation\s+score[:\s]+(\d+(?:\.\d+)?)\s*%', content, _re.IGNORECASE
+    )
+    if score_m:
+        return float(score_m.group(1))
+
+    return None
+
+
 def _validate_tool_content(
     content: str,
     tool: str | None,
@@ -435,6 +467,29 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
                     f"  [S4] {dim_name}: '{tool}' skip-list — tool_output file verified "
                     f"(format OK); not re-run (too slow)"
                 )
+                # mutmut: cross-check computed kill_rate vs agent_score (±5% tolerance).
+                # mutmut is too slow to re-run, but we CAN verify the kill_rate that is
+                # derivable from its tool_output and compare it to the agent's claimed score.
+                # _tpath is guaranteed to be assigned here: we are in the else-branch
+                # of `if _problem`, which is only reached when _tout was non-empty AND
+                # _tpath.exists() — the pyright possibly-unbound warning is a false positive.
+                if tool == "mutmut" and _tout:
+                    _kill_rate = _extract_mutmut_kill_rate(
+                        (_Path(ctx.project_root) / _tout).read_text(
+                            encoding="utf-8", errors="replace"
+                        )
+                    )
+                    if _kill_rate is not None and abs(_kill_rate - agent_score) > 5.0:
+                        violations.append(
+                            f"{dim_name}: tool_output kill_rate={_kill_rate:.1f}% "
+                            f"≠ agent_score={agent_score:.1f} (diff > 5 pp) — "
+                            f"suspected fabrication; re-run mutmut and report the actual score."
+                        )
+                    elif _kill_rate is not None:
+                        print(
+                            f"  [S4] {dim_name}: mutmut kill_rate={_kill_rate:.1f}% "
+                            f"≈ agent_score={agent_score:.1f} ✓"
+                        )
             continue
         if returncode == -2:
             # Timed out — a passing score MUST be independently reproducible. A tool

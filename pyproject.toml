@@ -59,3 +59,7 @@ markers = [
 
 [project.optional-dependencies]
 watch = ["watchdog>=3.0"]
+
+# mutmut 3.x reads setup.cfg [mutmut], not pyproject.toml.
+# See setup.cfg for the mutation test configuration.
+# Run: mutmut run && mutmut results

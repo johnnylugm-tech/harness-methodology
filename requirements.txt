@@ -27,3 +27,8 @@ pyyaml==6.0.3
 
 # harness/ssi/ contains vendor-copied assets from software_self_improvement (embedded, zero-dependency).
 # Optional: mutmut for mutation testing (Gate 2/3/4) — external binary, pin separately if needed.
+
+# OTel OTLP exporter — needed when OTEL_EXPORTER_OTLP_ENDPOINT is set.
+# Without this, harness falls back to local JSONL (zero-dependency default).
+# Install to connect spans to Datadog / Grafana / Elastic via an OTel Collector.
+opentelemetry-exporter-otlp-proto-http==1.41.1

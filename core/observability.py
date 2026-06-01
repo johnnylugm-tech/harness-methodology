@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 from opentelemetry import trace
@@ -9,6 +10,7 @@ from opentelemetry.sdk.trace.export import (
     SpanExportResult,
 )
 from opentelemetry.sdk.resources import Resource
+
 
 # A simple JSON file exporter to record agent trajectories
 class JsonFileSpanExporter(SpanExporter):
@@ -44,13 +46,34 @@ class JsonFileSpanExporter(SpanExporter):
     def shutdown(self):
         pass
 
+
 # Module-level flag: tracks whether WE set up the provider and attached our exporter.
 # Avoids falsely skipping setup when a third-party lib has already set a TracerProvider.
 _HARNESS_TRACER_INITIALIZED: bool = False
 
 
+def _add_jsonl_exporter(provider: TracerProvider, project_root: Path) -> None:
+    """Attach the local JSONL exporter to *provider* (default, zero extra dependencies)."""
+    log_dir = project_root / ".harness" / "traces"
+    provider.add_span_processor(BatchSpanProcessor(JsonFileSpanExporter(log_dir)))
+
+
 def init_tracer(project_root: Path) -> trace.Tracer:
-    """Initializes and returns the OpenTelemetry tracer for Agentic Trajectory Logging."""
+    """Initialise and return the OpenTelemetry tracer.
+
+    Exporter selection (checked in order):
+      1. ``OTEL_EXPORTER_OTLP_ENDPOINT`` set → OTLP HTTP exporter
+         (requires ``opentelemetry-exporter-otlp-proto-http``; graceful fallback
+         to JSONL if the package is not installed).
+      2. ``OTEL_EXPORTER=console`` → ConsoleSpanExporter (built-in, no extra deps;
+         useful in CI for inline span inspection).
+      3. Neither set → local JSONL at
+         ``<project_root>/.harness/traces/agent_trajectory.jsonl`` (default,
+         zero-dependency, backward-compatible).
+
+    Set env vars *before* the first harness_cli.py invocation — the tracer provider
+    is initialised once per process and the exporter cannot be changed mid-run.
+    """
     global _HARNESS_TRACER_INITIALIZED
     if _HARNESS_TRACER_INITIALIZED:
         return trace.get_tracer("harness_agent")
@@ -58,14 +81,33 @@ def init_tracer(project_root: Path) -> trace.Tracer:
     resource = Resource.create({"service.name": "harness-methodology"})
     provider = TracerProvider(resource=resource)
 
-    # Export to a local JSONL file for offline time-travel debugging
-    log_dir = project_root / ".harness" / "traces"
-    file_exporter = JsonFileSpanExporter(log_dir)
-    provider.add_span_processor(BatchSpanProcessor(file_exporter))
+    otlp_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "").strip()
+    otel_mode = os.environ.get("OTEL_EXPORTER", "").strip().lower()
+
+    if otlp_endpoint:
+        # OTLP HTTP — requires: pip install opentelemetry-exporter-otlp-proto-http
+        try:
+            from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+                OTLPSpanExporter,
+            )
+            otlp_exporter = OTLPSpanExporter(
+                endpoint=f"{otlp_endpoint.rstrip('/')}/v1/traces"
+            )
+            provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
+        except ImportError:
+            # Package not installed — fall back silently to local JSONL so the
+            # gate pipeline is never blocked by a missing observability package.
+            _add_jsonl_exporter(provider, project_root)
+    elif otel_mode == "console":
+        from opentelemetry.sdk.trace.export import ConsoleSpanExporter
+        provider.add_span_processor(BatchSpanProcessor(ConsoleSpanExporter()))
+    else:
+        _add_jsonl_exporter(provider, project_root)
 
     trace.set_tracer_provider(provider)
     _HARNESS_TRACER_INITIALIZED = True
     return trace.get_tracer("harness_agent")
+
 
 def get_tracer() -> trace.Tracer:
     """Returns the globally configured tracer."""
