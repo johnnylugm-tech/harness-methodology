@@ -14,8 +14,8 @@ mutmut run -b 10              # -b 10 sets baseline time budget to 10s
 mutmut results                # show survived/killed summary
 ```
 
-Current baseline: **tool_runners.py 62.8% / sab_parser.py 78.0% / TOTAL 66.6%**
-Adjusted (excl. 8 confirmed equivalent mutants): **~70%+**
+Current baseline: **tool_runners.py 75.1% / sab_parser.py 78.0% / TOTAL 75.8%**
+Adjusted (excl. 8 confirmed equivalent mutants): **~77%+**
 
 ---
 
@@ -157,8 +157,8 @@ Raw kill rate    = killed / total
 Adjusted         = killed / (total - confirmed_equivalent)
 ```
 
-Current: 454/682 = 66.6% raw → 454/674 = **67.4%** adjusted (8 equiv confirmed).
-With `~22` estimated equivalent: 454/660 = **68.8%** adjusted.
+Current: 517/682 = 75.8% raw → 517/674 = **76.7%** adjusted (8 equiv confirmed).
+With `~22` estimated equivalent: 517/660 = **78.3%** adjusted.
 
 ---
 
@@ -257,9 +257,9 @@ def pytest_ignore_collect(collection_path, config):
 ### Reading `mutmut results`
 
 ```
-Survived 🙁 (191)
----- harness/tool_runners.py (154) ----
-33, 37, 39, 47, 54-55, 59-60, ...
+Survived 🙁 (128)
+---- harness/tool_runners.py (91) ----
+33, 37, 47, 161, 163, ...
 ---- core/quality_gate/sab_parser.py (37) ----
 516-523, 526, ...
 ```
@@ -287,7 +287,7 @@ Categories:
 | Target | Context |
 |---|---|
 | 70% (raw) | Gate 2/3/4 `mutation_testing` dimension threshold (adjust if project differs) |
-| 70%+ (adjusted) | This repo's current state after 13 core flow tests |
+| 75%+ (adjusted) | This repo's current state after 25 core flow tests |
 | 80%+ | Aspirational — requires deep AST visitor + error path tests |
 | 100% | Not achievable (equivalent mutants exist in every real codebase) |
 
@@ -370,7 +370,7 @@ The runner is limited to the 110 tests that cover the mutated modules. Running t
 | `setup.cfg [mutmut]` | mutmut 2.x configuration (paths, runner) |
 | `conftest.py` | sys.path fix + `pytest_ignore_collect` for mutmut scope |
 | `mutation_baseline.json` | Measured kill rates + equivalent mutant notes |
-| `tests/test_core_flows_mutation.py` | 13 mutation-targeted tests for main dispatch paths |
+| `tests/test_core_flows_mutation.py` | 25 mutation-targeted tests: dispatch paths + scorer oracle |
 | `tests/test_tool_runners.py` | 67 scorer pure-function tests |
 | `tests/test_sab_parser.py` | 30 SAB/NFR parsing tests |
 | `.mutmut-cache` | SQLite results cache (committed for CI reference; rm to force re-run) |

@@ -4,11 +4,11 @@
   "_scope": "harness/tool_runners.py + core/quality_gate/sab_parser.py (see setup.cfg [mutmut])",
   "_tool": "mutmut==2.5.1 (2.x; not 3.x — see setup.cfg for runner config)",
   "_test_suite": "tests/test_tool_runners.py + tests/test_sab_parser.py + tests/test_core_flows_mutation.py (110 tests)",
-  "_equivalent_mutants_note": "~8 confirmed equivalent (_SKIP_TOOLS members + ast-* timeout values). Adjusted kill rate excl. equivalent: ~70%+",
+  "_equivalent_mutants_note": "~8 confirmed equivalent (_SKIP_TOOLS members + ast-* timeout values). Adjusted kill rate excl. equivalent: ~77%+",
   "harness/tool_runners.py": {
-    "killed": 323,
-    "survived": 191,
-    "kill_rate": 62.8,
+    "killed": 386,
+    "survived": 128,
+    "kill_rate": 75.1,
     "measured_at": "2026-06-02"
   },
   "core/quality_gate/sab_parser.py": {

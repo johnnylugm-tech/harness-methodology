@@ -10,6 +10,7 @@ Selection rationale:
 
 Targeted kill rate: ≥ 70%.
 """
+import json
 import subprocess
 from unittest.mock import MagicMock, patch
 
@@ -52,7 +53,9 @@ def test_run_tool_dispatches_correct_ruff_command(tmp_path):
     assert args[0] == "ruff"               # binary name correct
     assert "check" in args                 # subcommand present
     assert str(tmp_path) in args           # project root passed
-    assert "--output-format" in args       # json format flag present
+    assert "--output-format" in args       # format flag key present
+    fmt_idx = args.index("--output-format")
+    assert args[fmt_idx + 1] == "json", "ruff --output-format value must be 'json'"  # kills id=54
     assert rc == 0
 
 
@@ -71,6 +74,8 @@ def test_run_tool_dispatches_correct_mypy_command(tmp_path):
     assert args[0] == "mypy"
     assert str(tmp_path) in args
     assert "--ignore-missing-imports" in args
+    assert "--no-color-output" in args
+    assert "Success" in out   # stdout passthrough confirmed
     assert rc == 0
 
 
@@ -289,25 +294,26 @@ def test_run_tool_dispatches_all_cmds_tools(tmp_path):
 
     mock_result = MagicMock(stdout="", stderr="", returncode=0)
 
-    # Each entry: (tool_name, expected_binary, required_flag_or_None)
+    # Each entry: (tool_name, expected_binary, required_flags)
+    # Flags listed are literals from tool_runners.py — mutations to any one are caught.
     tool_checks = [
-        ("ruff",               "ruff",    "--output-format"),
-        ("mypy",               "mypy",    "--ignore-missing-imports"),
-        ("pyright",            "pyright", "--outputjson"),
-        ("pytest-cov",         "pytest",  "--cov"),
-        ("pytest",             "pytest",  "-q"),
-        ("gitleaks",           "gitleaks","detect"),
-        ("bandit",             "bandit",  "-r"),
-        ("radon-cc",           "radon",   "cc"),
-        ("radon-mi",           "radon",   "mi"),
+        ("ruff",       "ruff",     ["--output-format", "json", "check"]),
+        ("mypy",       "mypy",     ["--ignore-missing-imports", "--no-color-output", "--no-error-summary"]),
+        ("pyright",    "pyright",  ["--outputjson"]),
+        ("pytest-cov", "pytest",   ["--cov", "--cov-report=term-missing", "-q", "--tb=no", "--no-header"]),
+        ("pytest",     "pytest",   ["-q", "--tb=no", "--no-header"]),
+        ("gitleaks",   "gitleaks", ["detect"]),
+        ("bandit",     "bandit",   ["-r", "-f", "json", "--exit-zero"]),
+        ("radon-cc",   "radon",    ["cc", "-j", "--min"]),
+        ("radon-mi",   "radon",    ["mi", "-j"]),
     ]
-    for tool_name, expected_bin, required_flag in tool_checks:
+    for tool_name, expected_bin, required_flags in tool_checks:
         with patch("subprocess.run", return_value=mock_result) as mock_sp:
             run_tool(tool_name, str(tmp_path))
         args = mock_sp.call_args[0][0]
         assert args[0] == expected_bin, f"{tool_name}: expected binary '{expected_bin}', got '{args[0]}'"
-        if required_flag:
-            assert required_flag in args, f"{tool_name}: required flag '{required_flag}' missing from {args}"
+        for flag in required_flags:
+            assert flag in args, f"{tool_name}: flag '{flag}' missing from {args}"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -323,3 +329,145 @@ def test_run_tool_scancode_also_skipped():
     assert rc == -1
     assert out == ""
     mock_sp.assert_not_called()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# T14-T25: compute_tool_score oracle tests
+#
+# Rationale: score_dict (L400-449, 38 mutants) and scorer_logic (L450-649,
+# ~67 mutants) survived because existing tests call run_tool() with stdout=""
+# — the scorer is dispatched but never validated.  These tests call
+# compute_tool_score() with realistic outputs and assert exact numeric scores.
+#
+# Design rule: expected values are HARD-CODED literals; never reference the
+# constant or formula being tested (re-reads the mutated value → always passes).
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_compute_tool_score_ruff_scorer():
+    """1 violation → 98.0. Kills score_dict["ruff"] dispatch and -2 deduction."""
+    from harness.tool_runners import compute_tool_score
+
+    out = '[{"code": "E501", "message": "line too long", "filename": "f.py"}]'
+    assert compute_tool_score("ruff", out, 0) == 98.0
+
+
+def test_compute_tool_score_mypy_scorer():
+    """2 errors → 90.0. Kills score_dict["mypy"] dispatch and -5-per-error deduction."""
+    from harness.tool_runners import compute_tool_score
+
+    out = "f.py:1: error: incompatible type\nf.py:2: error: no attribute"
+    assert compute_tool_score("mypy", out, 1) == 90.0
+
+
+def test_compute_tool_score_pytest_pass_rate():
+    """5 passed / 7 total → 71.4. Kills passed_m/failed_m regex and pass-rate arithmetic."""
+    from harness.tool_runners import compute_tool_score
+
+    out = "5 passed, 2 failed in 1.23s"
+    # Hard-code 71.4 — never compute from the mutated source.
+    assert compute_tool_score("pytest", out, 1) == 71.4
+
+
+def test_compute_tool_score_pytest_cov_coverage():
+    """TOTAL line with 80% → 80.0. Kills TOTAL regex and float conversion."""
+    from harness.tool_runners import compute_tool_score
+
+    out = "TOTAL  1000  200  80%\n5 passed in 1.23s"
+    assert compute_tool_score("pytest-cov", out, 0) == 80.0
+
+
+def test_compute_tool_score_bandit_severity():
+    """1 HIGH issue → 90.0. Kills score_dict["bandit"] and HIGH deduction (-10)."""
+    from harness.tool_runners import compute_tool_score
+
+    out = json.dumps({"results": [{"issue_severity": "HIGH", "issue_text": "exec used"}]})
+    assert compute_tool_score("bandit", out, 0) == 90.0
+
+
+def test_compute_tool_score_radon_cc_complexity():
+    """Function with CC=12 (>10 threshold) → 95.0. Kills >10 comparison and -5 deduction."""
+    from harness.tool_runners import compute_tool_score
+
+    out = json.dumps({"file.py": [{"complexity": 12, "type": "function", "name": "foo"}]})
+    assert compute_tool_score("radon-cc", out, 0) == 95.0
+
+
+def test_compute_tool_score_radon_mi_average():
+    """Two files MI 80.0 + 60.0 → avg 70.0. Kills mi field access and average arithmetic."""
+    from harness.tool_runners import compute_tool_score
+
+    out = json.dumps({"a.py": {"mi": 80.0, "rank": "A"}, "b.py": {"mi": 60.0, "rank": "B"}})
+    assert compute_tool_score("radon-mi", out, 0) == 70.0
+
+
+def test_compute_tool_score_benchmark_unit_scaling():
+    """Kills to_ms literal mutations (1.0→2.0) and both comparison thresholds.
+
+    600ms < 1000ms → 100.0 (no penalty)
+    1500ms > 1000ms → 75.0 (−25)
+    3500ms > 3000ms → 50.0 (−50)
+
+    With to_ms["ms"]=2.0 mutation: 600*2=1200>1000 → 75.0 ≠ 100.0 → KILL.
+    """
+    from harness.tool_runners import compute_tool_score
+
+    fast = "Name (time in ms)\n  test_fast   600.0   700.0\n"
+    assert compute_tool_score("pytest-benchmark", fast, 0) == 100.0
+
+    slow = "Name (time in ms)\n  test_slow   1500.0   2000.0\n"
+    assert compute_tool_score("pytest-benchmark", slow, 0) == 75.0
+
+    heavy = "Name (time in ms)\n  test_heavy   3500.0   4000.0\n"
+    assert compute_tool_score("pytest-benchmark", heavy, 0) == 50.0
+
+
+def test_compute_tool_score_gitleaks_leak_detected():
+    """Leaks found → 0.0. Kills 'No leaks' string check and rc==0 condition."""
+    from harness.tool_runners import compute_tool_score
+
+    out = "WRN leaks found: 2 leaks detected"
+    assert compute_tool_score("gitleaks", out, 1) == 0.0
+
+
+def test_compute_tool_score_assertion_quality():
+    """7/10 test fns asserted → 70.0. Kills asserted/total arithmetic and round()."""
+    from harness.tool_runners import compute_tool_score
+
+    out = json.dumps({"total": 10, "asserted": 7, "zero_assert": []})
+    assert compute_tool_score("ast-assertions", out, 0) == 70.0
+
+
+def test_compute_tool_score_error_handling_coverage():
+    """4/5 files have handlers → 80.0. Kills with_handler/total arithmetic."""
+    from harness.tool_runners import compute_tool_score
+
+    out = json.dumps({"total": 5, "with_handler": 4, "no_handler": ["plain.py"]})
+    assert compute_tool_score("ast-error-handling", out, 0) == 80.0
+
+
+def test_compute_tool_score_all_tools_dispatch():
+    """All 9 subprocess tools return the expected score for valid output.
+
+    Kills every score_dict key mutation ("ruff"→"XXruffXX" etc.):
+    a wrong scorer produces a different numeric result for tool-specific output.
+    """
+    from harness.tool_runners import compute_tool_score
+
+    cases = [
+        # tool, output, returncode, expected_score
+        ("ruff",      "[]",                                        0,  100.0),
+        ("mypy",      "Success: no issues found",                  0,  100.0),
+        ("pyright",   '{"summary": {"errorCount": 0}}',            0,  100.0),
+        ("pytest",    "10 passed in 1.2s",                         0,  100.0),
+        # pytest-cov: no TOTAL line → fallback to pass-rate (10/10 = 100)
+        ("pytest-cov","10 passed in 1.2s",                         0,  100.0),
+        ("gitleaks",  "No leaks found",                            0,  100.0),
+        ("bandit",    '{"results": []}',                           0,  100.0),
+        ("radon-cc",  "{}",                                        0,  100.0),
+        # radon-mi with one file: MI=90.0 → 90.0 (distinguishes from radon-cc which → 100)
+        ("radon-mi",  '{"f.py": {"mi": 90.0, "rank": "A"}}',      0,  90.0),
+    ]
+    for tool, output, rc, expected in cases:
+        score = compute_tool_score(tool, output, rc)
+        assert score == expected, f"{tool}: expected {expected}, got {score}"
