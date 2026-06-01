@@ -4071,7 +4071,8 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
     print(f"\n[advance-phase] Completed phase {args.completed_phase} → advancing to {next_phase}")
     _advance_fsm(project, args.completed_phase,
                  last_gate=last_gate_num, last_fr=last_fr_id)
-    _update_claude_md(project)  # phase number just changed → refresh CLAUDE.md
+    _update_claude_md(project)               # phase number just changed → refresh CLAUDE.md
+    _llm_clean_stale_claude_md(project)      # remove stale manual harness status text
 
     # CV-13: Stale .sessi-work/ artifacts can cause the next phase's gate
     # evaluation to skip re-computation (agent sees old result JSONs and
@@ -5847,6 +5848,102 @@ def _update_claude_md(project_path: Path) -> None:
         claude_path.write_text(new_content, encoding="utf-8")
     except Exception as _exc:  # pylint: disable=broad-exception-caught
         print(f"  [WARN] CLAUDE.md update skipped: {_exc}")
+
+
+# Patterns that indicate stale harness phase/gate status in manual content.
+# Deliberately narrow to avoid false-positives on architecture descriptions.
+_STALE_HARNESS_RE = re.compile(
+    r"Current\s+state:.*Phase\s+\d"           # "Current state: Phase 7"
+    r"|Working\s+in\s+Phase\s+\d"             # "Working in Phase 7+"
+    r"|Gate\s+[1-4]\s+\(\d+\s+dimensions"     # "Gate 4 (14 dimensions..."
+    r"|Gate\s+[1-4]\s+(?:PASS|FAIL)"          # "Gate 4 PASS"
+    r"|score\s+\d+(?:\.\d+)?\s*\)",           # "score 96.5)"
+    re.IGNORECASE,
+)
+
+
+def _llm_clean_stale_claude_md(project_path: Path) -> None:
+    """Remove stale harness phase/gate status text from CLAUDE.md via LLM.
+
+    Called only on advance-phase (major milestone, acceptable 30-60s overhead).
+    Pre-screens for stale patterns — skips LLM call when content is already clean.
+    Non-blocking: any failure prints [WARN] and returns without modifying the file.
+    """
+    import shutil as _shutil
+    try:
+        claude_path = project_path / "CLAUDE.md"
+        if not claude_path.exists():
+            return
+
+        content = claude_path.read_text(encoding="utf-8")
+
+        # Extract content outside auto block for stale pattern detection
+        if _CLAUDE_AUTO_START in content and _CLAUDE_AUTO_END in content:
+            s = content.index(_CLAUDE_AUTO_START)
+            e = content.index(_CLAUDE_AUTO_END) + len(_CLAUDE_AUTO_END)
+            outside = content[:s] + content[e:]
+        else:
+            outside = content
+
+        # Pre-screen: skip LLM call if no stale harness patterns found
+        if not _STALE_HARNESS_RE.search(outside):
+            return
+
+        cli = _shutil.which("claude")
+        if not cli:
+            return  # claude CLI unavailable — skip silently
+
+        prompt = (
+            "Edit the following CLAUDE.md file. Rules:\n"
+            "1. The block between <!-- harness:auto-start --> and "
+            "<!-- harness:auto-end --> is auto-managed — preserve it EXACTLY as-is.\n"
+            "2. Outside that block, remove or condense into a single short line "
+            "any text that describes harness phase/gate status — e.g. "
+            "'Current state: Phase 7', 'Gate 4 PASS (score 96.5)', "
+            "'Working in Phase 7+', phase-specific task lists, "
+            "gate dimension counts, completed gate result paths.\n"
+            "3. Keep all architecture descriptions, commands, code blocks, "
+            "and non-harness-status content exactly unchanged.\n"
+            "4. Return ONLY the complete updated file content — "
+            "no explanation, no markdown fencing.\n\n"
+            f"File:\n{content}"
+        )
+
+        proc = subprocess.run(
+            [
+                cli, "-p", prompt,
+                "--output-format", "text",
+                "--setting-sources", "",
+                "--disable-slash-commands",
+                "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
+                "--no-session-persistence",
+            ],
+            capture_output=True, text=True, timeout=60,
+            cwd=str(project_path),
+            env=os.environ.copy(),
+        )
+
+        if proc.returncode != 0:
+            print(f"  [WARN] CLAUDE.md stale cleanup failed (exit {proc.returncode})")
+            return
+
+        cleaned = proc.stdout.strip()
+        if not cleaned:
+            print("  [WARN] CLAUDE.md stale cleanup: empty LLM output — skipping")
+            return
+
+        # Safety: auto block must survive the LLM edit intact
+        if _CLAUDE_AUTO_START not in cleaned or _CLAUDE_AUTO_END not in cleaned:
+            print("  [WARN] CLAUDE.md stale cleanup: LLM dropped auto markers — skipping")
+            return
+
+        claude_path.write_text(cleaned, encoding="utf-8")
+        print("  [CLAUDE.md] Stale harness status cleaned")
+
+    except subprocess.TimeoutExpired:
+        print("  [WARN] CLAUDE.md stale cleanup timed out — skipping")
+    except Exception as _exc:  # pylint: disable=broad-exception-caught
+        print(f"  [WARN] CLAUDE.md stale cleanup skipped: {_exc}")
 
 
 def _update_state_checkpoint(

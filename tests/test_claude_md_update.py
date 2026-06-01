@@ -15,7 +15,9 @@ if str(_repo) not in sys.path:
 from harness_cli import (  # noqa: E402
     _CLAUDE_AUTO_END,
     _CLAUDE_AUTO_START,
+    _STALE_HARNESS_RE,
     _build_claude_md_auto_section,
+    _llm_clean_stale_claude_md,
     _update_claude_md,
 )
 
@@ -102,3 +104,79 @@ def test_update_prepends_to_legacy_claude_md(tmp_path):
     assert "some legacy content" in text
     # Markers properly closed
     assert _CLAUDE_AUTO_END in text
+
+
+# ─── _STALE_HARNESS_RE ───────────────────────────────────────────────────────
+
+def test_stale_re_detects_current_state_line():
+    """'Current state: Phase 7' matches _STALE_HARNESS_RE."""
+    assert _STALE_HARNESS_RE.search(
+        "Current state: **Phase 7 (Risk Management)**, Gate 4 PASS (score 96.5)."
+    )
+
+
+def test_stale_re_detects_gate_pass_line():
+    """'Gate 4 PASS' matches _STALE_HARNESS_RE."""
+    assert _STALE_HARNESS_RE.search("Gate 4 PASS")
+
+
+def test_stale_re_detects_working_in_phase():
+    """'Working in Phase 7+' matches _STALE_HARNESS_RE."""
+    assert _STALE_HARNESS_RE.search("### Working in Phase 7+")
+
+
+def test_stale_re_ignores_generic_commands():
+    """Generic commands and architecture text do NOT trigger _STALE_HARNESS_RE."""
+    clean_lines = [
+        "python3 harness_cli.py run-phase --phase N --project .",
+        "State tracked in `.methodology/state.json`.",
+        "### Phase FSM",
+        "## Architecture",
+        "| Gate | Trigger | Score |",  # table header without PASS/score value
+    ]
+    for line in clean_lines:
+        assert not _STALE_HARNESS_RE.search(line), f"False positive: {line!r}"
+
+
+# ─── _llm_clean_stale_claude_md ──────────────────────────────────────────────
+
+def test_llm_clean_skips_when_no_stale_patterns(tmp_path, monkeypatch):
+    """No stale harness patterns outside auto block → subprocess never called."""
+    calls: list = []
+
+    def mock_run(*_args, **_kwargs):
+        calls.append(_args)
+
+    monkeypatch.setattr("subprocess.run", mock_run)
+    (tmp_path / "CLAUDE.md").write_text(
+        _CLAUDE_AUTO_START + "\nHarness Status\n" + _CLAUDE_AUTO_END
+        + "\n\n## Commands\n```bash\nnpm test\n```\n"
+    )
+    _llm_clean_stale_claude_md(tmp_path)
+    assert len(calls) == 0  # LLM not called when content is already clean
+
+
+def test_llm_clean_preserves_file_when_llm_drops_markers(tmp_path, monkeypatch):
+    """LLM output missing auto markers → file left unchanged (safety check)."""
+    original = (
+        _CLAUDE_AUTO_START + "\nHarness Status\n" + _CLAUDE_AUTO_END
+        + "\n\nCurrent state: Phase 7, Gate 4 PASS (score 96.5)\n"
+    )
+    (tmp_path / "CLAUDE.md").write_text(original)
+
+    monkeypatch.setattr("shutil.which", lambda _: "/usr/bin/claude")
+
+    class _FakeResult:
+        returncode = 0
+        stdout = "## Some content without the auto markers\n"
+        stderr = ""
+
+    monkeypatch.setattr("subprocess.run", lambda *_a, **_k: _FakeResult())
+    _llm_clean_stale_claude_md(tmp_path)
+    # File must be unchanged because LLM dropped auto markers
+    assert (tmp_path / "CLAUDE.md").read_text() == original
+
+
+def test_llm_clean_skips_when_no_claude_md(tmp_path):
+    """No CLAUDE.md → no-op, no exception."""
+    _llm_clean_stale_claude_md(tmp_path)  # must not raise
