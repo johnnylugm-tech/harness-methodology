@@ -6,6 +6,14 @@ Transforms detect->block->wait_for_human into detect->classify->auto_fix->verify
 
 Reference: methodology-v2 SKILL.md "fail -> FIX + RETRY" execution protocol.
 
+STATUS — NOT WIRED (no production caller). The preflight (cmd_run_phase) and postflight
+(cmd_finalize_gate) wirings were removed after end-to-end verification showed the current
+strategies (which only emit empty stubs / append a comment) cannot clear the checks they
+target — coverage, drift score, phase artifact chain are substantive gaps that need real
+development, not a stub. The engine + 5 guardrails are kept intact for a future redesign
+whose strategies actually produce the missing implementation; until then nothing calls
+engine.fix() in production.
+
 Exports:
     AutoFixEngine: main engine class
     FixResult: outcome of a fix attempt
