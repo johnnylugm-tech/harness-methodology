@@ -47,8 +47,7 @@ class PhaseHooks:
     """
 
     def __init__(self, project_path: str, phase: Optional[int] = None,
-                 enable_kill_switch: bool = True, drift_threshold: float = 85.0,
-                 auto_fix_enabled: bool = True):
+                 enable_kill_switch: bool = True, drift_threshold: float = 85.0):
         """
         Initialize the hooks manager.
 
@@ -57,7 +56,6 @@ class PhaseHooks:
             phase: Optional integer representing the current methodology phase.
             enable_kill_switch: Enable M1 kill-switch circuit breaker (default: True).
             drift_threshold: M2 drift detection ensemble score threshold (0-100, default: 85.0).
-            auto_fix_enabled: Enable auto-fix integration (default: True).
         """
         self.project_path = Path(project_path)
         self.phase = phase
@@ -68,7 +66,6 @@ class PhaseHooks:
         self.preflight_results: Dict[str, Dict[str, Any]] = {}
         self.monitoring_events: List[Dict] = []
         self.drift_threshold = drift_threshold
-        self.auto_fix_enabled = auto_fix_enabled
         self._kill_switch: Optional[KillSwitch] = None
         if enable_kill_switch:
             self._kill_switch = KillSwitch()
@@ -554,70 +551,8 @@ class PhaseHooks:
         self.preflight_results = results
         all_passed = all(r.get("passed", False) for r in results.values())
 
-        if not all_passed and self.auto_fix_enabled:
-            results["_fix_context"] = {
-                "source": "phase_hooks",
-                "problem_type": "preflight_failure",
-                "severity": "high",
-                "phase": self.phase,
-                "failing_checks": [
-                    name for name, r in results.items()
-                    if not r.get("passed", False) and not name.startswith("_")
-                ],
-                "project_root": str(self.project_path),
-            }
-
         print(f"\nPRE-FLIGHT: {'PASS' if all_passed else 'FAIL'}")
         return {"all_passed": all_passed, "details": results}
-
-    def to_fix_context(self) -> dict:
-        """Serialize preflight failures for AutoFixEngine consumption.
-
-        Maps the first failing check to the problem_type its registered strategy
-        handles (a missing TRACEABILITY_MATRIX → missing_traceability, not a blanket
-        low_constitution_score), and surfaces that check's own result fields so the
-        strategy can read what it needs (dimension, files, …). Failing checks with no
-        registered strategy fall through to preflight_failure, which the classifier
-        escalates to HUMAN_REQUIRED rather than silently mis-fixing.
-        """
-        # check name → the problem_type whose registered strategy can fix it.
-        # Checks absent here have no auto-fix strategy (state/env problems) →
-        # preflight_failure, which the classifier escalates to a human.
-        _CHECK_TO_PROBLEM_TYPE = {
-            "constitution": "low_constitution_score",
-            "previous_phase_artifacts": "missing_artifact",
-            "traceability": "missing_traceability",
-            "drift_detection": "drift_detected",
-            "gap_analysis": "gap_critical",
-        }
-        # A check result is a dict; a check FAILS when its "passed" is falsy. The old
-        # `if not r` tested the dict's truthiness (always True for a non-empty dict),
-        # so `failing` was always empty → problem_type wrongly fixed to a constant.
-        failing = [
-            name for name, r in self.preflight_results.items()
-            if not name.startswith("_") and isinstance(r, dict)
-            and not r.get("passed", False)
-        ]
-        problem_type = "preflight_failure"
-        matched: dict = {}
-        for name in failing:
-            if name in _CHECK_TO_PROBLEM_TYPE:
-                problem_type = _CHECK_TO_PROBLEM_TYPE[name]
-                matched = self.preflight_results.get(name, {})
-                break
-        ctx = {
-            "source": "phase_hooks",
-            "problem_type": problem_type,
-            "severity": "high",
-            "phase": self.phase,
-            "failing_checks": failing,
-            "project_root": str(self.project_path),
-        }
-        # Surface the matched check's own fields (dimension, files, artifact_name, …)
-        # without clobbering the core keys above.
-        for k, v in matched.items():
-            ctx.setdefault(k, v)
-        return ctx
 
     # MONITORING HOOKS
 

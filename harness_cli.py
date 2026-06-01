@@ -1305,14 +1305,13 @@ def cmd_run_phase(args: argparse.Namespace) -> int:
 
     pre = hooks.preflight_all()
     if not pre["all_passed"]:
-        # (6) Auto-fix: detect→fix→re-verify before blocking. preflight covers FSM /
-        # constitution / governance artifacts — all non-interactive and re-runnable.
-        if not _run_auto_fix_loop(
-            hooks.to_fix_context(), project, args.phase,
-            reverify_fn=lambda: hooks.preflight_all()["all_passed"],
-        ):
-            print(f"\nPRE-FLIGHT FAILED: {pre['details']}")
-            return 1
+        # Preflight covers FSM / constitution / governance artifacts. A failure here is
+        # a substantive gap — FR→code→test coverage, spec↔code drift, SPEC↔code gap, a
+        # broken artifact chain — that needs real development work or a human, NOT an
+        # auto-fix: every auto_fix strategy only emits an empty stub / a comment, which
+        # can never clear these checks (verified end-to-end). Block honestly instead.
+        print(f"\nPRE-FLIGHT FAILED: {pre['details']}")
+        return 1
 
     # Required-component check (hard dependencies — incl. code-review-graph, which
     # scores the architecture dimension). Verified at every phase entry so a missing
