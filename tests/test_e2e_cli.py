@@ -9,8 +9,6 @@ import json
 import subprocess
 from pathlib import Path
 
-import pytest
-
 HARNESS_CLI = Path(__file__).parent.parent / "harness_cli.py"
 
 
