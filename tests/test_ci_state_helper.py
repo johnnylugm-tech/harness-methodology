@@ -11,7 +11,6 @@ import pytest
 
 from scripts.ci_state_helper import _read_state, build_parser, cmd_get, cmd_is_p8, main
 
-pytestmark = pytest.mark.gate
 
 
 # ---------------------------------------------------------------------------
@@ -206,3 +205,5 @@ class TestMain:
     def test_invalid_command_exits_nonzero(self):
         with pytest.raises(SystemExit):
             main(["bad-command"])
+
+pytestmark = pytest.mark.gate

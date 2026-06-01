@@ -7,7 +7,6 @@ All formula mutations (weights 0.4/0.3/0.3, decile threshold 0.5, tail 0.85, etc
 Design rule: expected values hard-coded; never re-derive from the mutated source.
 """
 import pytest
-pytestmark = pytest.mark.mutation_oracle
 
 from pathlib import Path
 
@@ -291,3 +290,5 @@ def test_keyword_density_min_cap_is_1():
     Need content where hits==len to confirm cap=1.0 (score==100, not 200)."""
     score = _keyword_density("auth validation encrypt", ["auth", "validation", "encrypt"])
     assert score == 100.0   # not 200.0 — cap holds
+
+pytestmark = pytest.mark.mutation_oracle

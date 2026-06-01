@@ -7,7 +7,6 @@ Design rule: expected values are HARD-CODED literals; never derive from the
 function's own constants (mutations to those constants make the test trivial).
 """
 import pytest
-pytestmark = pytest.mark.mutation_oracle
 
 
 import sys
@@ -487,3 +486,5 @@ def test_load_scores_raises_when_dir_missing(tmp_path):
     round_dir.mkdir(parents=True)   # no "scores" subdir
     with _pytest.raises(FileNotFoundError):
         load_scores(str(round_dir))
+
+pytestmark = pytest.mark.mutation_oracle

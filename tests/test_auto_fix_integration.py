@@ -8,7 +8,6 @@ from core.auto_fix import AutoFixEngine, FixContext, FixStrategy, EscalationCond
 from core.auto_fix.classifier import CLASSIFICATION_TABLE
 from core.auto_fix.strategies import STRATEGY_REGISTRY
 
-pytestmark = [pytest.mark.auto_fix, pytest.mark.integration]
 
 
 class TestAutoFixPipelineIntegration:
@@ -195,3 +194,5 @@ class TestNoAutoFixFlag:
             auto_fix=False,
         )
         assert result is not None
+
+pytestmark = [pytest.mark.auto_fix, pytest.mark.integration]

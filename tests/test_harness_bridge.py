@@ -2,11 +2,9 @@
 Unit tests for HarnessBridge.
 """
 import pytest
-pytestmark = pytest.mark.mutation_oracle
 
 
 import json
-import pytest
 from typing import Any
 
 from unittest.mock import patch, MagicMock
@@ -16,7 +14,6 @@ from harness.harness_bridge import (
     _check_tests_failed, _check_test_skip_ratio,
 )
 
-pytestmark = pytest.mark.core
 
 
 class TestHarnessBridge:
@@ -955,3 +952,6 @@ class TestExtractFrSection:
         srs = "### FR-01: A\ndetail a\n\n### FR-02: Last\nfinal content here\n"
         result = _extract_fr_section(srs, "FR-02")
         assert "final content here" in result
+
+pytestmark = pytest.mark.mutation_oracle
+pytestmark = pytest.mark.core

@@ -14,7 +14,6 @@ import pytest
 
 from scripts.rotate_decision_logs import _archive_dir, _parse_date, main, rotate
 
-pytestmark = pytest.mark.gate
 
 
 # ---------------------------------------------------------------------------
@@ -223,3 +222,5 @@ class TestMain:
         rc = main(["--project", str(tmp_path), "--dry-run"])
         assert rc == 0
         assert old_dir.exists()  # not actually removed
+
+pytestmark = pytest.mark.gate

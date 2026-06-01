@@ -33,7 +33,6 @@ from core.auto_fix.guardrails import (
     rollback_if_unsafe,
 )
 
-pytestmark = pytest.mark.auto_fix
 
 
 # ── Classifier tests ────────────────────────────────────────────────────────
@@ -564,3 +563,5 @@ class TestAutoFixEngine:
         )
         result = engine.fix(context)
         assert result.escalation == EscalationCondition.HARD_RULE_VIOLATION
+
+pytestmark = pytest.mark.auto_fix

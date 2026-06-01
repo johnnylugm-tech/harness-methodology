@@ -7,7 +7,6 @@ Gap: test_harness_bridge.py has 50% presence-only assertions ('in result', 'is n
 Design rule: expected values hard-coded.  Never re-derive from the mutated source.
 """
 import pytest
-pytestmark = pytest.mark.mutation_oracle
 
 from harness.harness_bridge import (
     _extract_mutmut_kill_rate,
@@ -235,3 +234,5 @@ def test_skip_ratio_zero_total_guard():
     Kills total == 0 guard."""
     raw = {"breakdown": {"test_coverage": {"tool_evidence": "0 passed, 0 skipped"}}}
     assert _check_test_skip_ratio(raw) is None
+
+pytestmark = pytest.mark.mutation_oracle

@@ -11,7 +11,6 @@ Selection rationale:
 Targeted kill rate: ≥ 70%.
 """
 import pytest
-pytestmark = pytest.mark.mutation_oracle
 
 import json
 import subprocess
@@ -474,3 +473,5 @@ def test_compute_tool_score_all_tools_dispatch():
     for tool, output, rc, expected in cases:
         score = compute_tool_score(tool, output, rc)
         assert score == expected, f"{tool}: expected {expected}, got {score}"
+
+pytestmark = pytest.mark.mutation_oracle

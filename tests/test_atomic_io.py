@@ -18,7 +18,6 @@ from core.atomic_io import (
     state_lock_path,
 )
 
-pytestmark = pytest.mark.gate
 
 
 # ---------------------------------------------------------------------------
@@ -210,3 +209,5 @@ class TestStateLockPath:
         proj_a = tmp_path / "proj_a"
         proj_b = tmp_path / "proj_b"
         assert state_lock_path(proj_a) != state_lock_path(proj_b)
+
+pytestmark = pytest.mark.gate

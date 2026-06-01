@@ -10,7 +10,6 @@ Covers:
 - compute_tool_score  (None propagation from radon scorers)
 """
 import pytest
-pytestmark = pytest.mark.mutation_oracle
 
 
 import json
@@ -450,3 +449,5 @@ class TestPytestCovIntegration:
     def test_missing_suite_scores_zero(self):
         """No integration suite → no TOTAL line, no passes → 0 (cross-validation blocks)."""
         assert compute_tool_score("pytest-cov-integration", "no tests ran", 0) == 0.0
+
+pytestmark = pytest.mark.mutation_oracle

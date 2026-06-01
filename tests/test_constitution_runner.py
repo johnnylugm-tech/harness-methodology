@@ -1,10 +1,8 @@
 """Tests for core/quality_gate/constitution/runner.py — Constitution compliance checker."""
 import pytest
-pytestmark = pytest.mark.mutation_oracle
 
 
 import json
-import pytest
 import tempfile
 from pathlib import Path
 
@@ -22,7 +20,6 @@ from core.quality_gate.constitution.profile import defaults
 
 from constitution import get_phase_thresholds  # pyright: ignore[reportMissingImports]
 
-pytestmark = pytest.mark.constitution
 
 
 class TestConstitutionResult:
@@ -1109,3 +1106,6 @@ class TestDoubleScanPrevention:
         )
         result = _scan_directory(docs, phase=3, check_type="all")
         assert result.score > 0
+
+pytestmark = pytest.mark.mutation_oracle
+pytestmark = pytest.mark.constitution

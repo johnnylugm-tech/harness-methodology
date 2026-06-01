@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import pytest
-pytestmark = pytest.mark.mutation_oracle
 
 import json
 from pathlib import Path
@@ -1219,3 +1218,5 @@ class TestABCoveragePerDeliverable:
         passed, score, msg = v.check_session_log()
         assert passed
         assert score == 100.0
+
+pytestmark = pytest.mark.mutation_oracle

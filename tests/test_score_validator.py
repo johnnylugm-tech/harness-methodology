@@ -11,9 +11,7 @@ Covers:
   _validate_all_scores()  — orchestration + ScoreProtocolError
 """
 import pytest
-pytestmark = pytest.mark.mutation_oracle
 
-import pytest
 from pathlib import Path
 import sys
 
@@ -343,3 +341,5 @@ class TestValidateAllScores:
             _validate_all_scores(scores, project_root=tmp_path)
         msg = str(exc.value)
         assert "linting" in msg and "security" in msg
+
+pytestmark = pytest.mark.mutation_oracle

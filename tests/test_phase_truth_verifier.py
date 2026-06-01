@@ -11,7 +11,6 @@ import unittest.mock
 
 from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
 
-pytestmark = pytest.mark.gate
 
 
 # ---------------------------------------------------------------------------
@@ -173,3 +172,5 @@ class TestCheckSessionLog:
         assert not passed
         assert score == 0.0
         assert "malformed" in msg
+
+pytestmark = pytest.mark.gate

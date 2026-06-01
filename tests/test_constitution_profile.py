@@ -14,7 +14,6 @@ from core.quality_gate.constitution.profile import (
     reset_profile,
 )
 
-pytestmark = pytest.mark.constitution
 
 
 class TestDefaults:
@@ -267,3 +266,5 @@ class TestLoadProfile:
             bad.write_text("not json")
             p = load_profile(path=str(bad))
             assert p.composite_threshold(1) == 75.0  # falls back to built-in defaults
+
+pytestmark = pytest.mark.constitution

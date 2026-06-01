@@ -1,10 +1,8 @@
 """Unit tests for core.quality_gate.sab_parser."""
 import pytest
-pytestmark = pytest.mark.mutation_oracle
 
 
 import json
-import pytest
 
 from core.quality_gate.sab_parser import SABSpec, extract_sab_from_sad, _NFR_TYPE_TO_DIM
 
@@ -441,3 +439,5 @@ class TestRoundTrip:
         assert data["project"] == "omnibot"
         assert len(data["layers"]) == 2
         assert data["dependencies"] == {"api": ["data_layer"]}
+
+pytestmark = pytest.mark.mutation_oracle
