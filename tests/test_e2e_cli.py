@@ -7,16 +7,22 @@ when manifest has gate=None; auto-fix teardown: no [AUTO-FIX] on preflight block
 """
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 HARNESS_CLI = Path(__file__).parent.parent / "harness_cli.py"
 
 
-def _run(args: list[str], project: Path) -> subprocess.CompletedProcess:
+def _run(
+    args: list[str],
+    project: Path,
+    env: "dict | None" = None,
+) -> subprocess.CompletedProcess:
     return subprocess.run(
-        ["python3", str(HARNESS_CLI)] + args + ["--project", str(project)],
+        [sys.executable, str(HARNESS_CLI)] + args + ["--project", str(project)],
         capture_output=True,
         text=True,
+        env=env,
     )
 
 
@@ -82,3 +88,35 @@ class TestRunPhaseCLI:
         assert "Traceback" not in result.stderr, (
             "KeyError crash must not occur — Bug 3 regression"
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# finalize-gate fail-to-pass: tool enforcement (S0 _verify_gate_tools)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestRunPhasePassCLI:
+
+    def test_run_phase_p1_no_entry_gate_passes_preflight(self, tmp_path):
+        """run-phase --phase 1 with clean state → preflight PASS (exit 0).
+
+        P1 has no entry gate. With a healthy RUNNING state and empty project,
+        all preflight checks either PASS or skip gracefully.
+        This is the fail-to-pass scenario complement: after fixing a FREEZE (which
+        blocks, verified in test_fsm_freeze_blocks_with_exit_1_and_no_autofix),
+        restoring RUNNING state lets the phase proceed.
+
+        fail  : state=FREEZE → exit 1 (covered by prior test)
+        to pass: state=RUNNING → exit 0, PRE-FLIGHT: PASS in output
+        """
+        (tmp_path / ".methodology").mkdir()
+        (tmp_path / ".methodology" / "state.json").write_text(
+            json.dumps({"state": "RUNNING", "current_phase": 1})
+        )
+
+        result = _run(["run-phase", "--phase", "1"], tmp_path)
+
+        assert result.returncode == 0, (
+            f"Expected exit 0 (preflight PASS), got {result.returncode}\n"
+            f"stdout: {result.stdout[:600]}"
+        )
+        assert "PRE-FLIGHT: PASS" in result.stdout

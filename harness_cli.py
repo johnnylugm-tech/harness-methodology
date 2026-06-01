@@ -1238,10 +1238,10 @@ def cmd_run_phase(args: argparse.Namespace) -> int:
     if _tracer is None:
         return _cmd_run_phase_impl(args)
     with _tracer.start_as_current_span("run_phase") as _span:
-        _span.set_attribute("phase", args.phase)
+        _span.set_attribute("harness.phase", args.phase)
         _exit = _cmd_run_phase_impl(args)
-        _span.set_attribute("exit_code", _exit)
-        _span.set_attribute("blocked", _exit != 0)
+        _span.set_attribute("harness.exit_code", _exit)
+        _span.set_attribute("harness.blocked", _exit != 0)
         return _exit
 
 
@@ -1545,15 +1545,15 @@ def cmd_run_gate(args: argparse.Namespace) -> int:
     if _tracer is None:
         return _cmd_run_gate_impl(args)
     with _tracer.start_as_current_span("run_gate") as _span:
-        _span.set_attribute("gate", getattr(args, "gate", 1))
-        _span.set_attribute("phase", getattr(args, "phase", 0))
+        _span.set_attribute("harness.gate", getattr(args, "gate", 1))
+        _span.set_attribute("harness.phase", getattr(args, "phase", 0))
         _fr = getattr(args, "fr_id", None)
         if _fr:
-            _span.set_attribute("fr_id", str(_fr))
-        _span.set_attribute("delta", bool(getattr(args, "delta", False)))
+            _span.set_attribute("harness.fr_id", str(_fr))
+        _span.set_attribute("harness.delta", bool(getattr(args, "delta", False)))
         _exit = _cmd_run_gate_impl(args)
-        _span.set_attribute("exit_code", _exit)
-        _span.set_attribute("blocked", _exit != 0)
+        _span.set_attribute("harness.exit_code", _exit)
+        _span.set_attribute("harness.blocked", _exit != 0)
         return _exit
 
 
@@ -2244,14 +2244,26 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
     if _tracer is None:
         return _cmd_finalize_gate_impl(args)
     with _tracer.start_as_current_span("finalize_gate") as _span:
-        _span.set_attribute("gate", args.gate)
-        _span.set_attribute("phase", args.phase)
+        _span.set_attribute("harness.gate", args.gate)
+        _span.set_attribute("harness.phase", args.phase)
         _fr = getattr(args, "fr_id", None)
         if _fr:
-            _span.set_attribute("fr_id", str(_fr))
-        _exit = _cmd_finalize_gate_impl(args)
-        _span.set_attribute("exit_code", _exit)
-        _span.set_attribute("blocked", _exit != 0)
+            _span.set_attribute("harness.fr_id", str(_fr))
+        try:
+            _exit = _cmd_finalize_gate_impl(args)
+        except Exception as _exc:
+            from opentelemetry.trace import StatusCode
+            _span.record_exception(_exc)
+            _span.set_status(StatusCode.ERROR, str(_exc))
+            raise
+        _span.set_attribute("harness.exit_code", _exit)
+        _span.set_attribute("harness.blocked", _exit != 0)
+        # score/quality_complete are set by _impl on the success path via args._span_*
+        _score = getattr(args, "_span_score", None)
+        if _score is not None:
+            _span.set_attribute("harness.score", float(_score))
+            _span.set_attribute("harness.quality_complete",
+                                bool(getattr(args, "_span_quality_complete", False)))
         return _exit
 
 
@@ -2375,6 +2387,10 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
 
     try:
         result = bridge.finalize_gate(ctx, da_waivers=_da_waivers)
+        # Surface score/quality_complete to OTEL span wrapper via args (Namespace allows
+        # dynamic attributes; wrapper reads _span_score/_span_quality_complete after _impl).
+        args._span_score = result.score  # type: ignore[attr-defined]
+        args._span_quality_complete = result.quality_complete  # type: ignore[attr-defined]
         print(f"\nGATE {args.gate} PASSED")
         print(f"  score           : {result.score:.1f}")
         print(f"  quality_complete: {result.quality_complete}")

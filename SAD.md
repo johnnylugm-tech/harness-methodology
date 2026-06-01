@@ -1504,6 +1504,16 @@ def get_tracer() -> trace.Tracer:
 
 **Activation**: `PhaseHooks.__init__` lazy-imports `init_tracer` and stores the tracer as `self.tracer`. Any downstream code calling `preflight_all()` or `postflight_all()` automatically emits spans. `get_tracer()` is available for custom instrumentation in other modules.
 
+**Span attribute namespace**: all harness-specific attributes use the `harness.*` prefix
+(`harness.phase`, `harness.gate`, `harness.fr_id`, `harness.score`, `harness.blocked`, etc.)
+following OTel's custom-namespace convention. The `gen_ai.*` namespace is reserved for
+LLM inference calls (model, tokens, finish_reason) per GenAI Semantic Conventions v1.37.
+
+> **TODO — OTel Collector**: spans currently write only to local JSONL. Next step: add
+> `otel-collector.yml` (file/stdout receiver + Prometheus exporter) and update
+> `core/observability.py` to switch exporter when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
+> Datadog / Grafana / Elastic all support OTel GenAI Semantic Conventions v1.37 natively.
+
 ---
 
 ## 4. Core Workflow Sequences

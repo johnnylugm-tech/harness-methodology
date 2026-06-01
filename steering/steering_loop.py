@@ -356,10 +356,10 @@ class SteeringLoop:
         
         if self.tracer:
             with self.tracer.start_as_current_span(f"steering_iteration_{iteration_num}") as span:
-                span.set_attribute("iteration", iteration_num)
-                span.set_attribute("stage", self.stage.value)
+                span.set_attribute("harness.iteration", iteration_num)
+                span.set_attribute("harness.stage", self.stage.value)
                 if changed_modules:
-                    span.set_attribute("changed_modules", json.dumps(changed_modules))
+                    span.set_attribute("harness.changed_modules", json.dumps(changed_modules))
                 
                 result = self._do_iterate(output_a, output_b, changed_modules, iteration_num)
                 

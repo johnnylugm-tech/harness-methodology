@@ -36,6 +36,7 @@ def retry_with_backoff(
     jitter: float = 0.25,
     retryable: Optional[Callable[[Exception], bool]] = None,
     on_retry: Optional[Callable[[int, Exception, float], None]] = None,
+    jitter_seed: "int | None" = None,
 ) -> T:
     """
     Call *fn* up to *max_attempts* times with exponential back-off + jitter.
@@ -97,7 +98,7 @@ def retry_with_backoff(
             last_exc = exc
             if attempt == max_attempts:
                 break  # no more retries
-            delay = _compute_delay(attempt, base_delay, max_delay, jitter)
+            delay = _compute_delay(attempt, base_delay, max_delay, jitter, seed=jitter_seed)
             if on_retry is not None:
                 on_retry(attempt, exc, delay)
             else:
@@ -111,8 +112,17 @@ def retry_with_backoff(
     raise last_exc
 
 
-def _compute_delay(attempt: int, base: float, cap: float, jitter: float) -> float:
-    """Compute capped exponential delay with uniform jitter."""
+def _compute_delay(
+    attempt: int, base: float, cap: float, jitter: float,
+    seed: "int | None" = None,
+) -> float:
+    """Compute capped exponential delay with uniform jitter.
+
+    Args:
+        seed: Optional random seed for deterministic delays (e.g. seed=0 in tests).
+              Production callers omit this (None = new seed each call).
+    """
     raw = min(base * (2 ** (attempt - 1)), cap)
     spread = raw * jitter
-    return raw + random.uniform(-spread, spread)  # nosec B311
+    rng = random.Random(seed)  # isolated instance; seed=None gives random behaviour
+    return raw + rng.uniform(-spread, spread)  # nosec B311

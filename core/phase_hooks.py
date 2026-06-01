@@ -526,9 +526,9 @@ class PhaseHooks:
         """Run all pre-flight checks wrapped in an OpenTelemetry span."""
         if getattr(self, "tracer", None):
             with self.tracer.start_as_current_span(f"phase_{self.phase}_preflight") as span:
-                span.set_attribute("phase", self.phase if self.phase is not None else -1)
+                span.set_attribute("harness.phase", self.phase if self.phase is not None else -1)
                 result = self._do_preflight_all()
-                span.set_attribute("all_passed", result.get("all_passed", False))
+                span.set_attribute("harness.all_passed", result.get("all_passed", False))
                 return result
         return self._do_preflight_all()
 
@@ -814,9 +814,9 @@ class PhaseHooks:
         """Run all post-flight checks wrapped in an OpenTelemetry span."""
         if getattr(self, "tracer", None):
             with self.tracer.start_as_current_span(f"phase_{self.phase}_postflight") as span:
-                span.set_attribute("phase", self.phase if self.phase is not None else -1)
+                span.set_attribute("harness.phase", self.phase if self.phase is not None else -1)
                 result = self._do_postflight_all()
-                span.set_attribute("success", result.get("success", False))
+                span.set_attribute("harness.success", result.get("success", False))
                 return result
         return self._do_postflight_all()
 
