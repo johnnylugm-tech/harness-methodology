@@ -571,19 +571,53 @@ class PhaseHooks:
         return {"all_passed": all_passed, "details": results}
 
     def to_fix_context(self) -> dict:
-        """Serialize preflight failures for AutoFixEngine consumption."""
-        failing = {
-            name: r for name, r in self.preflight_results.items()
-            if not r and not name.startswith("_")
+        """Serialize preflight failures for AutoFixEngine consumption.
+
+        Maps the first failing check to the problem_type its registered strategy
+        handles (a missing TRACEABILITY_MATRIX → missing_traceability, not a blanket
+        low_constitution_score), and surfaces that check's own result fields so the
+        strategy can read what it needs (dimension, files, …). Failing checks with no
+        registered strategy fall through to preflight_failure, which the classifier
+        escalates to HUMAN_REQUIRED rather than silently mis-fixing.
+        """
+        # check name → the problem_type whose registered strategy can fix it.
+        # Checks absent here have no auto-fix strategy (state/env problems) →
+        # preflight_failure, which the classifier escalates to a human.
+        _CHECK_TO_PROBLEM_TYPE = {
+            "constitution": "low_constitution_score",
+            "previous_phase_artifacts": "missing_artifact",
+            "traceability": "missing_traceability",
+            "drift_detection": "drift_detected",
+            "gap_analysis": "gap_critical",
         }
-        return {
+        # A check result is a dict; a check FAILS when its "passed" is falsy. The old
+        # `if not r` tested the dict's truthiness (always True for a non-empty dict),
+        # so `failing` was always empty → problem_type wrongly fixed to a constant.
+        failing = [
+            name for name, r in self.preflight_results.items()
+            if not name.startswith("_") and isinstance(r, dict)
+            and not r.get("passed", False)
+        ]
+        problem_type = "preflight_failure"
+        matched: dict = {}
+        for name in failing:
+            if name in _CHECK_TO_PROBLEM_TYPE:
+                problem_type = _CHECK_TO_PROBLEM_TYPE[name]
+                matched = self.preflight_results.get(name, {})
+                break
+        ctx = {
             "source": "phase_hooks",
-            "problem_type": "preflight_failure" if len(failing) > 1 else "low_constitution_score",
+            "problem_type": problem_type,
             "severity": "high",
             "phase": self.phase,
-            "failing_checks": list(failing.keys()),
+            "failing_checks": failing,
             "project_root": str(self.project_path),
         }
+        # Surface the matched check's own fields (dimension, files, artifact_name, …)
+        # without clobbering the core keys above.
+        for k, v in matched.items():
+            ctx.setdefault(k, v)
+        return ctx
 
     # MONITORING HOOKS
 

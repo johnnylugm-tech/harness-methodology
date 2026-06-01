@@ -793,3 +793,56 @@ class TestVerifyEntryGate:
         result = _verify_entry_gate(tmp_path, phase=8)
         assert result["passed"] is False
         assert "Manifest parse error" in result["reason"]
+        assert "gate" in result  # Bug 3: the except path must not omit 'gate'
+
+    def test_p8_manifest_gate_none_no_crash(self, tmp_path):
+        """Bug 3: a freshly generated manifest seeds gate2/3/4 as None. The P8 entry
+        gate must not crash on None.get(...) and must always include a 'gate' key —
+        otherwise the caller's entry_gate['gate'] KeyError-crashes run-phase."""
+        manifest_dir = tmp_path / ".methodology"
+        manifest_dir.mkdir()
+        manifest = {"gate_results": {"gate1": {}, "gate2": None, "gate3": None, "gate4": None}}
+        (manifest_dir / "quality_manifest.json").write_text(json.dumps(manifest))
+
+        _verify_entry_gate = self._import()
+        result = _verify_entry_gate(tmp_path, phase=8)
+        assert result["passed"] is False
+        assert result["gate"] == "Gate 4"
+        assert "not PASS" in result["reason"]
+
+
+class TestToFixContext:
+    """Bug 1+2 regression: preflight failures must map to the right strategy
+    problem_type. The old `if not r` tested dict truthiness (always True), so
+    `failing` was always empty and problem_type collapsed to a constant."""
+
+    @staticmethod
+    def _hooks(phase=3):
+        from core.phase_hooks import PhaseHooks
+        return PhaseHooks(".", phase=phase)
+
+    def test_failing_check_detected(self):
+        h = self._hooks()
+        h.preflight_results = {"traceability": {"passed": False}, "fsm": {"passed": True}}
+        assert h.to_fix_context()["failing_checks"] == ["traceability"]
+
+    def test_maps_to_strategy_problem_type(self):
+        h = self._hooks()
+        h.preflight_results = {"traceability": {"passed": False}}
+        assert h.to_fix_context()["problem_type"] == "missing_traceability"
+
+    def test_unmapped_check_escalates(self):
+        """Checks with no registered strategy → preflight_failure (classifier escalates)."""
+        h = self._hooks()
+        h.preflight_results = {"fsm": {"passed": False}, "kill_switch": {"passed": False}}
+        assert h.to_fix_context()["problem_type"] == "preflight_failure"
+
+    def test_matched_check_fields_passed_through(self):
+        """Strategy-needed fields (dimension, files) must surface in the context."""
+        h = self._hooks()
+        h.preflight_results = {"constitution": {"passed": False, "dimension": "security",
+                                                "files": ["a.md"]}}
+        ctx = h.to_fix_context()
+        assert ctx["problem_type"] == "low_constitution_score"
+        assert ctx["dimension"] == "security"
+        assert ctx["files"] == ["a.md"]

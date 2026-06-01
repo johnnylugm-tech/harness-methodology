@@ -1211,14 +1211,19 @@ def _verify_entry_gate(project: Path, phase: int) -> dict:
         gates = manifest.get("gate_results", {})
         prev_gate = _ENTRY_GATE_MAP.get(phase)
         if prev_gate:
-            gate_status = gates.get(f"gate{prev_gate}", {})
+            # A freshly generated manifest seeds gate2/3/4 as None (not yet run).
+            # `gates.get(key, {})` returns that None, and None.get(...) raised
+            # AttributeError → caught below → a return that OMITTED "gate" → the
+            # caller's entry_gate['gate'] then KeyError-crashed. `or {}` makes a
+            # not-yet-run gate read as a clean "not PASS".
+            gate_status = gates.get(f"gate{prev_gate}") or {}
             if gate_status.get("quality_complete"):
                 return {"passed": True, "gate": f"Gate {prev_gate}",
                         "reason": f"Gate {prev_gate} PASS confirmed"}
             return {"passed": False, "gate": f"Gate {prev_gate}",
                     "reason": f"Gate {prev_gate} not PASS in manifest"}
     except Exception as e:
-        return {"passed": False, "reason": f"Manifest parse error: {e}"}
+        return {"passed": False, "gate": "Unknown", "reason": f"Manifest parse error: {e}"}
 
     return {"passed": False, "gate": "Unknown", "reason": f"No entry gate defined for phase {phase}"}
 
