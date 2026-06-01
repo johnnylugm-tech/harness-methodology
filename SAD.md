@@ -99,7 +99,7 @@ python harness_cli.py init-project      --project /path/to/target [--phase 3] [-
                                         # Step 10/10: checks all Tier 1 gate tools (ruff,mypy,pytest-cov,gitleaks,scancode,mutmut); BLOCKS if any missing
 python harness_cli.py advance-phase     --completed N [--project .] [--force]  # --force bypasses CV-2 FSM check
 python harness_cli.py kill-switch       trigger|reset|status [--project .] [--reason "..."]
-python harness_cli.py push-milestone    --type p3-mid|p3-pre-ssi|p4-mid|p4-pre-ssi|p5-baseline|p7|p8 [--project .] [--fr-ids FR-01,FR-02] [--fr-done N] [--fr-total N] [--no-git]
+python harness_cli.py push-milestone    --type p3-mid|p3-pre-gate2|p4-mid|p4-pre-gate3|p5-baseline|p7|p8 [--project .] [--fr-ids FR-01,FR-02] [--fr-done N] [--fr-total N] [--no-git]
 python harness_cli.py dispatch          --role developer|reviewer --fr-id FR-01 --prompt "..." [--phase 3] [--project .] [--timeout 300] [--max-turns 20]
 python harness_cli.py verify-agent-b-approvals --phase N [--fr-ids FR-01,FR-02] [--project .]
 python harness_cli.py audit-structure   [--project .] [--json]
@@ -2297,7 +2297,7 @@ python core/requirement_traceability.py --project-id <id> [--verify] [--export r
 | ① | `P1-exit-YYYYMMDD` | P1 exit: task plan complete | `phase1(human-review): SRS + P1 deliverables; N FR(s) [list]` |
 | ② | `P2-exit-YYYYMMDD` | P2 exit: `manifest` command success | `phase2(human-review): SAD + ADR + quality manifest complete [fr_ids=...]` |
 | ③ | `P3-mid-YYYYMMDD` | P3 mid: FR completion ratio ≥ 50% | `feat(P3-mid): N/T FR(s) Gate1 PASS [list]` |
-| ④ | `P3-pre-ssi-YYYYMMDD` | P3 pre-SSI: all FRs at Gate 1 PASS | `feat(P3-pre-ssi): all N FR(s) Gate1 PASS; ready for SSI` |
+| ④ | `P3-pre-gate2-YYYYMMDD` | P3 pre-Gate2: all FRs at Gate 1 PASS | `feat(P3-pre-gate2): all N FR(s) Gate1 PASS; ready for Gate 2` |
 | ⑤ | `P3-gate2-YYYYMMDD` | Gate 2 PASS (P3 exit, score ≥75) | `feat(P3): Gate2 PASS score=XX — N FR(s) implemented` |
 | ⑥ | `P4-gate3-YYYYMMDD` | Gate 3 PASS (P4 exit, score ≥80) | `test(P4): Gate3 PASS score=XX — full test suite` |
 | ⑦ | `P5-baseline-YYYYMMDD` | P5: BASELINE.md written | `docs(P5): BASELINE.md — review baseline checkpoint` |
@@ -2334,12 +2334,12 @@ class GitStrategy:
     def commit_and_push_p2(fr_ids, background="", notes=None) -> bool   # PUSH ②
     def commit_and_push_p3_mid(fr_done, fr_total, fr_ids,
                                background="", notes=None) -> bool       # PUSH ③
-    def commit_and_push_p3_pre_ssi(fr_ids, background="",
-                                   notes=None) -> bool                    # PUSH ④
+    def commit_and_push_p3_pre_gate2(fr_ids, background="",
+                                     notes=None) -> bool                    # PUSH ④
     def commit_and_push_p4_mid(fr_done, fr_total, fr_ids,
                                background="", notes=None) -> bool       # P4 mid checkpoint (Gate 1 re-eval)
-    def commit_and_push_p4_pre_ssi(fr_ids, background="",
-                                   notes=None) -> bool                    # P4 pre-SSI checkpoint
+    def commit_and_push_p4_pre_gate3(fr_ids, background="",
+                                     notes=None) -> bool                    # P4 pre-Gate3 checkpoint
     def commit_and_push_gate(gate_num, phase, score, n_frs=0,
                              background="", notes=None) -> bool         # PUSH ⑤⑥⑧ + tag
     def commit_and_push_p5_baseline(background="", notes=None) -> bool  # PUSH ⑦
@@ -2380,7 +2380,7 @@ class HandoverGenerator:
 
     def write(
         self,
-        checkpoint_id: str,   # e.g. "P3-pre-ssi-20260504"
+        checkpoint_id: str,   # e.g. "P3-pre-gate2-20260504"
         phase: int,
         task_background: str,
         current_status: str,
