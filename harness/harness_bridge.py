@@ -1557,7 +1557,10 @@ class HarnessBridge:
         """
         CRG Point 4: Post-round drift check — verify no structural drift introduced.
 
-        Call after each improvement round. Triggers revert protocol if drift detected.
+        NOT WIRED: only ever called inside an auto-fix fix round, which was removed
+        (see the core/auto_fix NOT-WIRED note). Kept as infra for a future redesign.
+        Designed to run after each improvement round; triggers revert protocol if
+        drift detected.
         """
         threshold = 0.4
         if self._last_gate_num is not None:
