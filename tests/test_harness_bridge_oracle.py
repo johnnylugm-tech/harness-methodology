@@ -14,6 +14,8 @@ from harness.harness_bridge import (
     _check_tests_failed,
     _check_test_skip_ratio,
     _TOOL_OUTPUT_MIN_BYTES,
+    _extract_fr_section,
+    _parse_spec_names_for_fr,
 )
 
 
@@ -234,5 +236,72 @@ def test_skip_ratio_zero_total_guard():
     Kills total == 0 guard."""
     raw = {"breakdown": {"test_coverage": {"tool_evidence": "0 passed, 0 skipped"}}}
     assert _check_test_skip_ratio(raw) is None
+
+# ─── _extract_fr_section ────────────────────────────────────────────────────────
+
+def test_extract_fr_section_exact_match():
+    """Extracts exactly the target section and stops at next H3.
+    Kills Regex match group and boundary conditions."""
+    text = "### FR-01: Login\nfoo\n### FR-02: Logout\nbar"
+    assert _extract_fr_section(text, "FR-01") == "### FR-01: Login\nfoo"
+
+
+def test_extract_fr_section_stops_at_h2():
+    """Stops extracting when hitting an H2 heading."""
+    text = "### FR-10\ncontent\n## Next Phase"
+    assert _extract_fr_section(text, "FR-10") == "### FR-10\ncontent"
+
+
+def test_extract_fr_section_stops_at_hr():
+    """Stops extracting when hitting a horizontal rule (---)."""
+    text = "### FR-99\nbody\n---\nfooter"
+    assert _extract_fr_section(text, "FR-99") == "### FR-99\nbody"
+
+
+def test_extract_fr_section_not_found_fallback():
+    """If FR not found, returns up to 60K of original text.
+    Kills the fallback `srs_text[:60_000]` literal."""
+    text = "some text without headers" * 10000
+    res = _extract_fr_section(text, "FR-01")
+    assert len(res) == min(len(text), 60000)
+    assert res.startswith("some text")
+
+
+# ─── _parse_spec_names_for_fr ─────────────────────────────────────────────────
+
+def test_parse_spec_names_bullet_format():
+    """Parses old bullet format: - `test_foo`.
+    Kills regex matching for bullet lists."""
+    text = "### FR-01\n- `test_alpha`\n- test_beta"
+    names = _parse_spec_names_for_fr(text, "FR-01")
+    assert names == ["test_alpha", "test_beta"]
+
+
+def test_parse_spec_names_table_format():
+    """Parses markdown table format extracting from column 2.
+    Kills table parsing index logic (cols[1])."""
+    text = (
+        "### FR-02\n"
+        "| ID | Test Function | Desc |\n"
+        "|---|---|---|\n"
+        "| 1 | `test_gamma` | yes |\n"
+        "| 2 | test_delta | no |\n"
+        "| 3 | not_a_test | skip |"
+    )
+    names = _parse_spec_names_for_fr(text, "FR-02")
+    assert names == ["test_gamma", "test_delta"]
+
+
+def test_parse_spec_names_stops_at_h2_and_ignores_others():
+    """Only parses tests belonging to the target FR.
+    Stops parsing on new section headers."""
+    text = (
+        "### FR-01\n- test_a\n"
+        "### FR-02\n- test_b\n"
+        "## Cross-Cutting\n- test_c\n"
+        "### FR-01\n- test_d\n"
+    )
+    names = _parse_spec_names_for_fr(text, "FR-01")
+    assert names == ["test_a", "test_d"]
 
 pytestmark = pytest.mark.mutation_oracle

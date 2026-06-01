@@ -166,7 +166,7 @@ def test_threshold_phase4_uses_profile():
     t = _threshold_for_dimension("correctness", 4)
     # Profile gives correctness threshold; must differ from 80 to confirm not fallback
     assert isinstance(t, float)
-    assert t != 80.0 or True   # Just verify it ran (actual value is profile-dependent)
+    assert t != 80.0
 
 
 def test_threshold_phase4_vs_phase5_differ():
