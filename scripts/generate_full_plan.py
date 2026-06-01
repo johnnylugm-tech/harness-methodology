@@ -1897,7 +1897,7 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
                 lines.append("> `NFR Association` column to each FR row in `01-requirements/SRS.md §2`.")
                 lines.append("")
             lines.append("**Gate 2 NFR dimensions** (tool-scored, see Gate 2 config):")
-            lines.append("- `security` (bandit), `secrets_scanning` (gitleaks), `mutation_testing` (mutmut)")
+            lines.append("- `security` (bandit), `secrets_scanning` (gitleaks), `mutation_testing` (mutmut 2.x — `pip install 'mutmut<3'`)")
             lines.append("- `integration_coverage` (pytest), `test_assertion_quality` (pytest)")
             lines.append("")
         else:

@@ -6597,7 +6597,7 @@ def cmd_init_project(args: argparse.Namespace) -> int:
             "\n  All tools must be available before starting the project.\n"
             "  tool_score=null is not accepted for Tier 1/2 dimensions (score.py R8).\n"
             "  Install commands:\n"
-            "    pip install ruff mypy pytest pytest-cov mutmut\n"
+            "    pip install ruff mypy pytest pytest-cov 'mutmut<3'  # mutmut 2.x (3.x incompatible with most project layouts)\n"
             "    pip install scancode-toolkit\n"
             "    brew install gitleaks  # or: go install github.com/gitleaks/gitleaks/v8@latest\n"
             "  Re-run init-project after installing."
