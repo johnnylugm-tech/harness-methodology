@@ -4,4 +4,5 @@
 extend-exclude = [
     "harness/ssi/scripts",
     "harness/ssi/prompts",
+    "mutants",
 ]

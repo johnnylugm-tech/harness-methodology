@@ -274,8 +274,8 @@ def test_breakdown_target_matches_config():
 # ─── _apply_crg_subscores ─────────────────────────────────────────────────────
 # 56 survivors at L250-299 — entire function was untested.
 
-import json as _json
-import pytest as _pytest
+import json as _json  # noqa: E402
+import pytest as _pytest  # noqa: E402
 
 from score import _apply_crg_subscores, _auto_fix_scores, _resolve_tool_outputs, load_scores  # noqa: E402
 
