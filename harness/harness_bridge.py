@@ -648,7 +648,7 @@ class GateContext:
             )
 
         # CRG Point 3: pre-computed safety context.
-        # Point 4 (drift) is per-round — handled by AutoFixEngine, not pre-computed here.
+        # Point 4 (post-round drift guardrail) only ran inside auto-fix rounds — no longer wired.
         if self.crg_safety_context:
             crg_lines += "\n[CRG Safety Context — pre-computed by HarnessBridge]\n"
             pre_fix = self.crg_safety_context.get("pre_fix_safety", {})
@@ -1109,8 +1109,7 @@ class HarnessBridge:
                     )
 
         # CRG Point 3: pre-compute pre-fix safety context (not just text hints).
-        # Point 4 (drift check) is per-round, not pre-computed here — it fires
-        # in AutoFixEngine.fix() after each fix round.
+        # Point 4 (post-round drift check) only ran inside auto-fix rounds — no longer wired.
         crg_safety_context: dict[str, dict] = {}
         if _cross_phase_drift is not None:
             crg_safety_context["cross_phase_drift"] = _cross_phase_drift
