@@ -3,6 +3,8 @@ Unit tests for HarnessBridge.
 """
 import pytest
 
+pytestmark = [pytest.mark.mutation_oracle, pytest.mark.core]
+
 
 import json
 from typing import Any
@@ -953,5 +955,3 @@ class TestExtractFrSection:
         result = _extract_fr_section(srs, "FR-02")
         assert "final content here" in result
 
-pytestmark = pytest.mark.mutation_oracle
-pytestmark = pytest.mark.core
