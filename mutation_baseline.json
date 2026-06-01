@@ -30,5 +30,12 @@
     "kill_rate": 53.3,
     "measured_at": "2026-06-02",
     "_ceiling_note": "~45 module-constant/dataclass equiv + ~34 log/error string equiv + ~29 filesystem-traversal = ~108 untestable; adjusted kill rate 72.0%"
+  },
+  "harness/harness_bridge.py": {
+    "killed": 445,
+    "survived": 1040,
+    "kill_rate": 30.0,
+    "measured_at": "2026-06-02",
+    "_ceiling_note": "1486 total mutants; L600-899 evaluation_prompt() template strings (~265) + other string/log equiv (~85) = ~350 untestable; adjusted kill rate ~39%. Integration layer with large prompt templates makes 70% raw unachievable without E2E tests."
   }
 }

@@ -6,7 +6,6 @@ All formula mutations (weights 0.4/0.3/0.3, decile threshold 0.5, tail 0.85, etc
 
 Design rule: expected values hard-coded; never re-derive from the mutated source.
 """
-import math
 from pathlib import Path
 
 from core.quality_gate.constitution.runner import (
@@ -170,7 +169,7 @@ def test_threshold_phase4_uses_profile():
 
 def test_threshold_phase4_vs_phase5_differ():
     """phase=4 uses profile, phase=5 uses 80 — must produce different logic path."""
-    t4 = _threshold_for_dimension("correctness", 4)
+    _threshold_for_dimension("correctness", 4)   # exercises profile path
     t5 = _threshold_for_dimension("correctness", 5)
     # phase 5 is always 80.0; phase 4 is profile-driven
     assert t5 == 80.0
@@ -284,7 +283,7 @@ def test_stuffing_boundary_exactly_200_chars():
     assert 0 < result <= 1.0
 
 
-def test_keyword_density_min_cap_is_1(tmp_path):
+def test_keyword_density_min_cap_is_1():
     """min(hits/len, 1.0) cap is 1.0, not 2.0.  Kills 1.0→2.0 literal mutation.
     Need content where hits==len to confirm cap=1.0 (score==100, not 200)."""
     score = _keyword_density("auth validation encrypt", ["auth", "validation", "encrypt"])
