@@ -1,6 +1,9 @@
 """Tests for anti-fabrication defenses (D1, D2, D3, P1, P3, S2, S3)."""
 from __future__ import annotations
 
+import pytest
+pytestmark = pytest.mark.mutation_oracle
+
 import json
 from pathlib import Path
 

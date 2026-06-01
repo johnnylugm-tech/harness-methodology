@@ -10,6 +10,9 @@ Selection rationale:
 
 Targeted kill rate: ≥ 70%.
 """
+import pytest
+pytestmark = pytest.mark.mutation_oracle
+
 import json
 import subprocess
 from unittest.mock import MagicMock, patch

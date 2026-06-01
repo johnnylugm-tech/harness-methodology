@@ -1,4 +1,7 @@
 """Unit tests for core.quality_gate.sab_parser."""
+import pytest
+pytestmark = pytest.mark.mutation_oracle
+
 
 import json
 import pytest

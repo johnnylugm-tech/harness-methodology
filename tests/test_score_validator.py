@@ -11,6 +11,9 @@ Covers:
   _validate_all_scores()  — orchestration + ScoreProtocolError
 """
 import pytest
+pytestmark = pytest.mark.mutation_oracle
+
+import pytest
 from pathlib import Path
 import sys
 

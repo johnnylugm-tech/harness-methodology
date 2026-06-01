@@ -6,6 +6,9 @@ All formula mutations (weights 0.4/0.3/0.3, decile threshold 0.5, tail 0.85, etc
 
 Design rule: expected values hard-coded; never re-derive from the mutated source.
 """
+import pytest
+pytestmark = pytest.mark.mutation_oracle
+
 from pathlib import Path
 
 from core.quality_gate.constitution.runner import (

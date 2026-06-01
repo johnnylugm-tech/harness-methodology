@@ -219,36 +219,20 @@ without the full suite overhead.
 
 ---
 
-## §6 — conftest.py: mutmut 3.x Compatibility Hook
+## §6 — Dynamic Test Collection (mutation_oracle)
 
-Even though we use 2.x, `conftest.py` contains guards that were added during the 3.x
-investigation. They are safe with 2.x (no effect) and document the 3.x failure mode.
+Instead of manually maintaining a list of test files in `setup.cfg` or `conftest.py`, we use a Pytest marker to dynamically collect tests that target mutated code.
 
+**Rule**: Any test file intended to run during mutation testing MUST include this at the top:
 ```python
-# sys.path: when running under mutmut 3.x (rootdir = mutants/),
-# point to the real repo root so imports resolve correctly.
-_this_dir = Path(__file__).resolve().parent
-if _this_dir.name == "mutants":
-    sys.path.insert(0, str(_this_dir.parent))
-else:
-    sys.path.insert(0, str(_this_dir))
-
-# pytest_ignore_collect: limit test collection to scope files only
-# (prevents ImportError from tests whose modules weren't copied to mutants/)
-_MUTMUT_TEST_SCOPE = frozenset({
-    "test_tool_runners.py",
-    "test_sab_parser.py",
-})
-def pytest_ignore_collect(collection_path, config):
-    if Path(str(config.rootdir)).name == "mutants":
-        if collection_path.is_file() and collection_path.suffix == ".py":
-            if collection_path.name not in _MUTMUT_TEST_SCOPE:
-                return True
-    return None
+import pytest
+pytestmark = pytest.mark.mutation_oracle
 ```
 
-**If you add new test files to the mutation scope**, update `_MUTMUT_TEST_SCOPE` in
-`conftest.py` AND the `runner=` line in `setup.cfg`.
+`setup.cfg` is configured to run `pytest -m mutation_oracle`. This prevents pytest from running the entire 3000-test suite (which would take hours per mutant), limiting the scope strictly to the oracle tests.
+
+**Note on Pytest Collection Overhead**:
+`pytest -m` still *collects* all tests before filtering. In this repository, collecting 3000 tests takes ~0.4 seconds. Across 700 mutants, this adds about ~5 minutes of overhead. This is an acceptable trade-off for the convenience of dynamic collection compared to hardcoding 10+ file paths in `setup.cfg`.
 
 ---
 
@@ -341,10 +325,9 @@ The runner is limited to the 110 tests that cover the mutated modules. Running t
 ### Adding a new module to mutation scope
 
 1. Add to `paths_to_mutate` in `setup.cfg`.
-2. Add the corresponding test files to `runner=`.
-3. Add the test file names to `_MUTMUT_TEST_SCOPE` in `conftest.py`.
-4. Run `mutmut run -b 10` to establish baseline.
-5. Update `mutation_baseline.json`.
+2. Add `import pytest; pytestmark = pytest.mark.mutation_oracle` to the corresponding test files.
+3. Run `make mutation` (or `mutmut run -b 10`) to establish baseline.
+4. Update `mutation_baseline.json`.
 
 ---
 
@@ -356,9 +339,9 @@ The runner is limited to the 110 tests that cover the mutated modules. Running t
 | `exit_code=-11` in cache | SIGSEGV from C extension + 3.x | Same — downgrade to 2.x |
 | `FileNotFoundError: 'python'` | macOS has no `python` | Use `python3` in `runner=` |
 | `⏰ Timeout` on all mutants | baseline time too small | Add `-b 10` to `mutmut run` |
-| `failed to collect stats` | test collection error | Check `conftest.py` `_MUTMUT_TEST_SCOPE` |
-| `ModuleNotFoundError` during stats | test imports module not in `mutants/` | Add file to `_MUTMUT_TEST_SCOPE` or use `also_copy=` in `setup.cfg` |
-| Kill rate suddenly drops | Runner changed to smaller test set | Check `runner=` in `setup.cfg` |
+| `failed to collect stats` | test collection error | Check that tests have `@pytest.mark.mutation_oracle` |
+| `ModuleNotFoundError` during stats | test imports module missing | Check virtualenv and PYTHONPATH |
+| Kill rate suddenly drops | Marker missing on test file | Check `pytestmark = pytest.mark.mutation_oracle` |
 | Cache has stale results | Old run partial; added new tests | `rm .mutmut-cache && mutmut run -b 10` |
 
 ---
@@ -368,7 +351,7 @@ The runner is limited to the 110 tests that cover the mutated modules. Running t
 | File | Purpose |
 |---|---|
 | `setup.cfg [mutmut]` | mutmut 2.x configuration (paths, runner) |
-| `conftest.py` | sys.path fix + `pytest_ignore_collect` for mutmut scope |
+| `conftest.py` | Registers the `mutation_oracle` marker |
 | `mutation_baseline.json` | Measured kill rates + equivalent mutant notes |
 | `tests/test_core_flows_mutation.py` | 25 mutation-targeted tests: dispatch paths + scorer oracle |
 | `tests/test_tool_runners.py` | 67 scorer pure-function tests |

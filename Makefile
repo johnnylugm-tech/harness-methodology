@@ -18,6 +18,7 @@ help:
 	@echo "Targets:"
 	@echo "  test          Run full test suite (requires Python $(PYTHON_MIN)+)"
 	@echo "  lint          Run ruff linter"
+	@echo "  mutation      Run mutmut mutation testing"
 	@echo "  check-python  Verify Python $(PYTHON_MIN)+ is in use"
 	@echo ""
 	@echo "Override interpreter:  make PYTHON=/usr/local/bin/python3.11 test"
@@ -42,3 +43,7 @@ test: check-python
 
 lint: check-python
 	$(PYTHON) -m ruff check .
+
+mutation: check-python
+	@echo "Running mutation testing (baseline 10s)..."
+	mutmut run -b 10

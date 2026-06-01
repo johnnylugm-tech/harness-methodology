@@ -1,4 +1,7 @@
 """Tests for core/quality_gate/constitution/runner.py — Constitution compliance checker."""
+import pytest
+pytestmark = pytest.mark.mutation_oracle
+
 
 import json
 import pytest

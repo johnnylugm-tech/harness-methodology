@@ -1,6 +1,9 @@
 """
 Unit tests for HarnessBridge.
 """
+import pytest
+pytestmark = pytest.mark.mutation_oracle
+
 
 import json
 import pytest

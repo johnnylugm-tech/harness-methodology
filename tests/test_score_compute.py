@@ -6,6 +6,9 @@ Gap: test_score_validator.py covers validate_score_file rules (R1-R8).
 Design rule: expected values are HARD-CODED literals; never derive from the
 function's own constants (mutations to those constants make the test trivial).
 """
+import pytest
+pytestmark = pytest.mark.mutation_oracle
+
 
 import sys
 from pathlib import Path

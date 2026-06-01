@@ -9,6 +9,9 @@ Covers:
 - _score_pytest_benchmark (NFR-01/06 latency-based performance scorer)
 - compute_tool_score  (None propagation from radon scorers)
 """
+import pytest
+pytestmark = pytest.mark.mutation_oracle
+
 
 import json
 import sys

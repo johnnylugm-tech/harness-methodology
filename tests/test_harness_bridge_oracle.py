@@ -6,6 +6,9 @@ Gap: test_harness_bridge.py has 50% presence-only assertions ('in result', 'is n
 
 Design rule: expected values hard-coded.  Never re-derive from the mutated source.
 """
+import pytest
+pytestmark = pytest.mark.mutation_oracle
+
 from harness.harness_bridge import (
     _extract_mutmut_kill_rate,
     _validate_tool_content,

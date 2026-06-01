@@ -28,39 +28,11 @@ def pytest_configure(config):
         "smoke: Quick smoke tests (run on every commit)",
         "contract: Spec contract compliance tests",
         "quality: Quality gate dimension tests",
+        "mutation_oracle: Mutation-targeted oracle tests",
     ]
     for marker in markers:
         config.addinivalue_line("markers", marker)
 
-
-# Test files that cover the mutated modules (see setup.cfg [mutmut] paths_to_mutate).
-# All other test files are ignored when mutmut runs pytest from mutants/.
-_MUTMUT_TEST_SCOPE = frozenset({
-    "test_tool_runners.py",
-    "test_sab_parser.py",
-    "test_core_flows_mutation.py",
-    "test_score_validator.py",
-    "test_score_compute.py",
-    "test_constitution_runner.py",
-    "test_constitution_oracle.py",
-    "test_harness_bridge.py",
-    "test_anti_fabrication.py",
-    "test_harness_bridge_oracle.py",
-})
-
-
-def pytest_ignore_collect(collection_path, config):
-    """When running under mutmut (rootdir = mutants/), only collect test files
-    that directly cover the mutated modules.  All other test files import
-    modules that were not copied into mutants/ and would raise ImportError,
-    aborting the entire stats-collection run before any mutant is tested.
-    """
-    rootdir = Path(str(config.rootdir))
-    if rootdir.name == "mutants":
-        if collection_path.is_file() and collection_path.suffix == ".py":
-            if collection_path.name not in _MUTMUT_TEST_SCOPE:
-                return True  # tell pytest to skip this file
-    return None
 
 
 def pytest_collection_modifyitems(config, items):
