@@ -15,10 +15,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import List, Optional, Set
 
 # Ensure harness-methodology root is on path for core imports
 _SCRIPT_DIR = Path(__file__).resolve().parent
@@ -28,104 +27,15 @@ from core.requirement_traceability import (  # noqa: E402
     RequirementTraceability,
     TraceStatus,
 )
-
-
-FR_TAG_PATTERN = re.compile(r'\[FR-(\d+)\]', re.IGNORECASE)
-FR_SAD_PATTERN = re.compile(r'\bFR-(\d+)\b', re.IGNORECASE)
-
-
-def _norm_fr(num_str: str) -> str:
-    """Normalize FR number to 2-digit zero-padded format."""
-    return f"FR-{int(num_str):02d}"
-
-
-# ---------------------------------------------------------------------------
-# Scanners
-# ---------------------------------------------------------------------------
-
-def extract_fr_ids_from_sad(sad_path: Path) -> List[str]:
-    """Extract all unique FR-XX IDs from SAD.md, zero-padded to 2 digits."""
-    if not sad_path.exists():
-        return []
-    text = sad_path.read_text(encoding="utf-8", errors="replace")
-    ids = {_norm_fr(m) for m in FR_SAD_PATTERN.findall(text)}
-    return sorted(ids)
-
-
-def scan_python_fr_annotations(project: Path) -> Dict[str, List[str]]:
-    """Scan all .py files for [FR-XX] annotations. Returns {FR-XX: [file_path]}."""
-    fr_to_files: Dict[str, List[str]] = {}
-    for py_file in project.rglob("*.py"):
-        if _skip_path(py_file):
-            continue
-        try:
-            text = py_file.read_text(encoding="utf-8", errors="replace")
-        except Exception:
-            continue
-        found = {_norm_fr(m) for m in FR_TAG_PATTERN.findall(text)}
-        rel = str(py_file.relative_to(project))
-        for fr_id in found:
-            fr_to_files.setdefault(fr_id, []).append(rel)
-    return fr_to_files
-
-
-def scan_test_fr_coverage(tests_dir: Path) -> Dict[str, List[str]]:
-    """Scan test files for FR references. Returns {FR-XX: [test_file]}."""
-    fr_to_tests: Dict[str, List[str]] = {}
-    if not tests_dir.is_dir():
-        return fr_to_tests
-    for test_file in tests_dir.rglob("test_*.py"):
-        # FR from filename: test_fr_01.py or test_fr01.py → FR-01
-        name_match = re.match(r'test_fr_?(\d+)', test_file.name)
-        if name_match:
-            fr_id = _norm_fr(name_match.group(1))
-            rel = str(test_file.relative_to(tests_dir.parent))
-            fr_to_tests.setdefault(fr_id, []).append(rel)
-        # FR from content
-        try:
-            text = test_file.read_text(encoding="utf-8", errors="replace")
-        except Exception:
-            continue
-        for m in FR_TAG_PATTERN.finditer(text):
-            fr_id = _norm_fr(m.group(1))
-            rel = str(test_file.relative_to(tests_dir.parent))
-            if rel not in fr_to_tests.get(fr_id, []):
-                fr_to_tests.setdefault(fr_id, []).append(rel)
-    return fr_to_tests
-
-
-def scan_sad_fr_modules(sad_path: Path) -> Dict[str, List[str]]:
-    """Extract FR→module mappings from SAD.md component table rows.
-
-    Matches patterns like:
-      | `module.py` | FR-01 | ...
-      FR-01 → `module.py`
-    """
-    fr_to_modules: Dict[str, List[str]] = {}
-    if not sad_path.exists():
-        return fr_to_modules
-    text = sad_path.read_text(encoding="utf-8", errors="replace")
-    # Pattern: FR-XX and backtick-quoted .py file on same table row
-    for line in text.splitlines():
-        if "|" not in line:
-            continue
-        for m in re.finditer(r'FR-(\d+)[^\n]*?`([^`]+\.py)`', line):
-            fr_id = _norm_fr(m.group(1))
-            module = m.group(2)
-            if module not in fr_to_modules.get(fr_id, []):
-                fr_to_modules.setdefault(fr_id, []).append(module)
-    return fr_to_modules
-
-
-def _skip_path(p: Path) -> bool:
-    """Exclude virtualenvs, caches, and harness internals."""
-    skip_tokens = {"venv", "__pycache__", ".sessi-work", ".methodology",
-                   ".git", "node_modules", ".mypy_cache", ".pytest_cache",
-                   ".ruff_cache", "dist", "build", "harness"}
-    parts = set(p.parts)
-    if parts & skip_tokens:
-        return True
-    return any(part.endswith(".egg-info") for part in p.parts)
+from core.traceability.overlay import (  # noqa: E402
+    render_merged_markdown,
+)
+from core.traceability.scanner import (  # noqa: E402
+    extract_fr_ids_from_sad,
+    scan_python_fr_annotations,
+    scan_test_fr_coverage,
+    scan_sad_fr_modules,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -207,87 +117,41 @@ def build_traceability(
 # Report generators
 # ---------------------------------------------------------------------------
 
-def generate_markdown_matrix(rt: RequirementTraceability, output_path: Path) -> None:
-    """Generate TRACEABILITY_MATRIX.md from the traceability model."""
-    completeness = rt.verify_completeness()
-    lines = [
-        "# Traceability Matrix",
-        "",
-        "> Auto-generated by `scripts/build_traceability.py`",
-        f"> Project: `{rt.project_id}`",
-        "",
-        "## ASPICE Compliance Summary",
-        "",
-        "| Metric | Value | Target |",
-        "|--------|-------|--------|",
-        f"| Total Requirements | {completeness['total_requirements']} | — |",
-        f"| SRS Coverage | {completeness['srs_coverage']} | 100% |",
-        f"| Code Coverage | {completeness['code_coverage']} | 100% |",
-        f"| Test Coverage | {completeness['test_coverage']} | 100% |",
-        f"| Verification Rate | {completeness['verification_rate']} | 100% |",
-        f"| Total Links | {completeness['total_links']} | — |",
-        "",
-    ]
+def generate_markdown_matrix(rt: RequirementTraceability, output_path: Path,
+                            overlay_path: Optional[Path] = None) -> None:
+    """Generate TRACEABILITY_MATRIX.md from atomic + overlay (PR 2).
 
-    # ASPICE SWE.3 compliance
-    aspice = completeness.get("missing_mappings", {})
-    frs_srs = set(rt.requirements.keys()) - set(aspice.get("fr_without_srs", []))
-    frs_code = set(rt.requirements.keys()) - set(aspice.get("fr_without_code", []))
-    frs_test = set(rt.requirements.keys()) - set(aspice.get("fr_without_test", []))
-    total = max(len(rt.requirements), 1)
-    lines.extend([
-        "### ASPICE SWE.3 Compliance",
-        "",
-        "| Practice | Status | Coverage |",
-        "|----------|--------|----------|",
-        f"| SWE.3 BP1: FR→SRS | {'PASS' if len(frs_srs) == total else 'FAIL'} | {len(frs_srs)}/{total} |",
-        f"| SWE.3 BP2: SRS→Code | {'PASS' if len(frs_code) == total else 'FAIL'} | {len(frs_code)}/{total} |",
-        f"| SWE.3 BP3: Code→Test | {'PASS' if len(frs_test) == total else 'FAIL'} | {len(frs_test)}/{total} |",
-        "",
-    ])
+    If the existing file has `<!-- AUTO-GEN:START/END -->` sentinels, content
+    above START is preserved (manual intro); content between sentinels is
+    replaced. If no sentinels exist, the file is treated as legacy and
+    fully replaced — the user is expected to run `migrate-trace-overlay`
+    first if any manual content needs to survive.
+    """
+    if overlay_path is None:
+        overlay_path = output_path.parent / "TRACEABILITY_MATRIX.overlay.yaml"
+    markdown, errors = render_merged_markdown(rt, overlay_path)
+    if errors:
+        for err in errors:
+            print(f"  overlay error: {err}", file=sys.stderr)
 
-    # Detailed matrix
-    lines.extend([
-        "## Detailed Traceability Matrix",
-        "",
-        "| Requirement | Status | Code Files | Test Files | SAD Module |",
-        "|-------------|--------|------------|------------|------------|",
-    ])
-
-    for rid, req in sorted(rt.requirements.items()):
-        meta = req.metadata
-        code_files = meta.get("code_files", [])
-        test_files = meta.get("test_files", [])
-        sad_mods = meta.get("sad_modules", [])
-        code_str = ", ".join(code_files[:3]) or "—"
-        test_str = ", ".join(test_files[:3]) or "—"
-        sad_str = ", ".join(sad_mods[:3]) or "—"
-        if len(code_files) > 3:
-            code_str += f" (+{len(code_files)-3})"
-        if len(test_files) > 3:
-            test_str += f" (+{len(test_files)-3})"
-        lines.append(
-            f"| {rid} | {req.status.value} | {code_str} | {test_str} | {sad_str} |"
-        )
-
-    # Missing mappings
-    missing = completeness.get("missing_mappings", {})
-    if any(missing.values()):
-        lines.extend([
-            "",
-            "## Gaps",
-            "",
-        ])
-        for label, ids in [
-            ("FR without SRS mapping", missing.get("fr_without_srs", [])),
-            ("FR without Code", missing.get("fr_without_code", [])),
-            ("FR without Test", missing.get("fr_without_test", [])),
-        ]:
-            if ids:
-                lines.append(f"- **{label}**: {', '.join(sorted(ids))}")
-
-    lines.append("")
-    output_path.write_text("\n".join(lines), encoding="utf-8")
+    intro = ""
+    if output_path.exists():
+        existing = output_path.read_text(encoding="utf-8", errors="replace")
+        if "<!-- AUTO-GEN:START -->" in existing:
+            head = existing.split("<!-- AUTO-GEN:START -->", 1)[0]
+            intro = head.rstrip() + "\n\n"
+        else:
+            # Legacy file without sentinels. Print a one-time warning so the
+            # user knows to run `migrate-trace-overlay` if they had manual
+            # content above the auto-gen block. We do NOT preserve the
+            # legacy content here — it's all regenerable from atomic+overlay.
+            print(
+                f"  WARN: {output_path.name} has no AUTO-GEN sentinels; "
+                f"running `migrate-trace-overlay` first preserves any "
+                f"manual intro.",
+                file=sys.stderr,
+            )
+    output_path.write_text(intro + markdown, encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------

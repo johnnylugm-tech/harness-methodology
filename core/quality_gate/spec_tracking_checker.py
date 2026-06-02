@@ -182,6 +182,128 @@ class SpecTrackingChecker:
         return SpecTrackingParser.count_status(content)
 
 
+# ---------------------------------------------------------------------------
+# PR 4: gate-dimension trace score
+# Fuses 4a (FR → code → test) with 4b (TEST_SPEC → test) into a single
+# `traceability` dimension. 4a is 100% at G2/G3/G4 over FRs with status
+# ∈ {IN_PROGRESS, VERIFIED} (PENDING excluded from denominator).
+# 4b is unchanged (60/80/90%). Merged score = min(4a, 4b). Fail-closed.
+# ---------------------------------------------------------------------------
+
+TRACE_THRESHOLDS = {2: 100, 3: 100, 4: 100}  # 4a: 100% at G2/G3/G4
+SPEC_COV_THRESHOLDS = {2: 60.0, 3: 80.0, 4: 90.0}  # 4b: unchanged
+
+ACTIVE_STATUSES = {"in_progress", "verified"}
+
+
+def _filter_active_frs(rt, missing: dict) -> tuple[set, set]:
+    """Return (active_uncoded, active_untested) — sets of FR-IDs in the denominator.
+
+    `missing` is the `missing_mappings` dict from `verify_completeness` (or
+    the raw report). An FR is in the denominator iff its status in
+    `rt.requirements` is IN_PROGRESS or VERIFIED.
+
+    `verify_completeness` uses `total = len(self.requirements)` (all FRs);
+    we must filter PENDING/UNIMPLEMENTED ourselves before computing the %.
+    """
+    active_uncoded = set()
+    active_untested = set()
+    for fr_id in missing.get("fr_without_code", []):
+        req = rt.requirements.get(fr_id)
+        if req is not None and req.status.value in ACTIVE_STATUSES:
+            active_uncoded.add(fr_id)
+    for fr_id in missing.get("fr_without_test", []):
+        req = rt.requirements.get(fr_id)
+        if req is not None and req.status.value in ACTIVE_STATUSES:
+            active_untested.add(fr_id)
+    return active_uncoded, active_untested
+
+
+def compute_trace_dimension(project, gate: int) -> dict:
+    """Compute the `traceability` gate dimension (PR 4).
+
+    Returns a dict suitable for inclusion in the gate's dimension scores:
+      {
+        "name": "traceability",
+        "4a_fr_to_test_pct": 100.0,
+        "4b_test_spec_pct": 85.0,
+        "merged_pct": 85.0,
+        "passed": True/False,
+        "threshold_4a": 100,
+        "threshold_4b": 60.0/80.0/90.0,
+        "active_uncoded": [...],   # FRs in denominator without code
+        "active_untested": [...],  # FRs in denominator without test
+        "blocking": True/False,
+        "error": str | None,
+      }
+    """
+    from core.traceability.scanner import check_traceability
+    from scripts.build_traceability import build_traceability
+
+    threshold_4a = TRACE_THRESHOLDS.get(gate, 100)
+    threshold_4b = SPEC_COV_THRESHOLDS.get(gate, 60.0)
+
+    result: dict = {
+        "name": "traceability",
+        "4a_fr_to_test_pct": 0.0,
+        "4b_test_spec_pct": 0.0,
+        "merged_pct": 0.0,
+        "passed": False,
+        "threshold_4a": threshold_4a,
+        "threshold_4b": threshold_4b,
+        "active_uncoded": [],
+        "active_untested": [],
+        "blocking": True,
+        "error": None,
+    }
+
+    # 4a: FR → code → test, PENDING excluded from denominator
+    try:
+        project_path = Path(project) if not isinstance(project, Path) else project
+        _rt, report = check_traceability(project_path)  # noqa: F841 (rt not needed; we re-build)
+        # Need the original rt (with status metadata) — re-build via the
+        # high-level entry so we get the same model as `preflight_traceability`.
+        rt_full = build_traceability(project_path)
+        # `missing_mappings` lives under `completeness` in the report shape
+        # produced by scanner.check_traceability.
+        completeness = report.get("completeness", {}) or {}
+        missing = completeness.get("missing_mappings", {}) or {}
+        active_uncoded, active_untested = _filter_active_frs(rt_full, missing)
+        total_active = sum(
+            1 for req in rt_full.requirements.values()
+            if req.status.value in ACTIVE_STATUSES
+        )
+        if total_active == 0:
+            # No active FRs → 4a is vacuously 100%.
+            pct_4a = 100.0
+        else:
+            complete = (total_active - len(active_uncoded)
+                        - len(active_untested))
+            pct_4a = round(complete / total_active * 100, 2)
+        result["4a_fr_to_test_pct"] = pct_4a
+        result["active_uncoded"] = sorted(active_uncoded)
+        result["active_untested"] = sorted(active_untested)
+    except Exception as e:
+        result["error"] = f"4a: {e}"
+        return result
+
+    # 4b: TEST_SPEC → test (delegated to existing D4 spec-coverage)
+    try:
+        from harness_cli import _run_spec_coverage_check
+        _sc_code, sc_pct = _run_spec_coverage_check(project_path, threshold_4b)  # noqa: F841
+        result["4b_test_spec_pct"] = sc_pct
+    except Exception as e:
+        result["4b_test_spec_pct"] = 0.0
+        result["error"] = (result["error"] or "") + f" 4b: {e}"
+
+    # Merged: min — fail-closed
+    merged = min(result["4a_fr_to_test_pct"], result["4b_test_spec_pct"])
+    result["merged_pct"] = merged
+    result["passed"] = (pct_4a >= threshold_4a
+                        and result["4b_test_spec_pct"] >= threshold_4b)
+    return result
+
+
 def main():
     """Command-line entry point"""
     import argparse

@@ -277,14 +277,19 @@ class PhaseHooks:
         return {"passed": passed, "violations": violations, "layers": len(layers)}
 
     def preflight_traceability(self) -> Dict[str, Any]:
-        """Check ASPICE traceability: FR→code→test bidirectional links (P3+)."""
+        """Check ASPICE traceability: FR→code→test bidirectional links (P3+).
+
+        PR 3: also verifies the git-anchored attestation exists at P3+
+        (informational at P3/P4, blocking at P5+). Mismatched / missing
+        attestations must NOT silently pass at P5+.
+        """
         print("\n[PRE-FLIGHT] ASPICE Traceability Check")
         if self.phase and self.phase < 3:
             print("   Skipped: traceability matrix not required before P3")
             return {"passed": True, "skipped": True, "message": "Traceability not required before P3"}
 
         try:
-            from scripts.check_spec_trace import check_traceability
+            from core.traceability.scanner import check_traceability
             _, report = check_traceability(self.project_path)
         except Exception as e:
             print(f"   Traceability check error: {e}")
@@ -292,6 +297,18 @@ class PhaseHooks:
             blocking = self.phase is not None and self.phase >= 5
             return {"passed": not blocking, "skipped": True,
                     "error": str(e), "blocking": blocking}
+
+        # PR 3: also verify the attestation (P3+ informational, P5+ blocking)
+        att_status = "skipped"
+        att_msg = ""
+        try:
+            from scripts.verify_trace_attestation import verify_attestation
+            att_code, att_msg = verify_attestation(self.project_path)
+            att_status = {0: "clean", 1: "mismatch", 2: "missing",
+                          3: "schema-error"}.get(att_code, "unknown")
+        except Exception as e:
+            att_status = "error"
+            att_msg = str(e)
 
         total = report["total"]
         untested = len(report["untested"])
@@ -303,11 +320,14 @@ class PhaseHooks:
         # P5+: blocking (full FR→code→test traceability required)
         blocking = self.phase is not None and self.phase >= 5
         passed = complete if blocking else True
+        if blocking and att_status in ("mismatch", "missing", "schema-error", "error"):
+            passed = False
 
         c = report["completeness"]
         print(f"   FRs: {total} | Code: {c['code_coverage']} | "
               f"Test: {c['test_coverage']} | "
               f"{'BLOCKING' if blocking else 'INFO'}")
+        print(f"   Attestation: {att_status}  {att_msg}")
         if untested:
             print(f"   Untested FRs: {', '.join(report['untested'])}")
         if uncoded:
@@ -323,6 +343,8 @@ class PhaseHooks:
             "untested": report["untested"],
             "uncoded": report["uncoded"],
             "completeness": c,
+            "attestation": att_status,
+            "attestation_message": att_msg,
             "blocking": blocking,
         }
 

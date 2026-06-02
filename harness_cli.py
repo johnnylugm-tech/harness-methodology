@@ -2370,6 +2370,47 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
             print(f"\n[BLOCKED] Gate {args.gate} spec-coverage {_sc_pct:.1f}% < {_sc_threshold}%")
             return 1
 
+    # ── I-6: PR 4 closed-loop trace dimension (Gates 2-4) ───────────
+    # Fuses 4a (FR→code→test, 100% over IN_PROGRESS+VERIFIED FRs) with
+    # 4b (TEST_SPEC→test, gate-specific threshold). Merged = min(4a, 4b).
+    # Skipped if no SAD.md and no [FR-XX] annotations (project not at P3+).
+    if args.gate >= 2:
+        try:
+            from core.quality_gate.spec_tracking_checker import (
+                compute_trace_dimension,
+            )
+            _trace = compute_trace_dimension(project_path, args.gate)
+            if _trace.get("error"):
+                print(f"\n[WARN] trace dimension error: {_trace['error']}",
+                      file=sys.stderr)
+            _t_4a = _trace["4a_fr_to_test_pct"]
+            _t_4b = _trace["4b_test_spec_pct"]
+            _t_merged = _trace["merged_pct"]
+            _t_passed = _trace["passed"]
+            print(
+                f"\n[trace] Gate {args.gate} | "
+                f"4a (FR→code→test): {_t_4a:.1f}% ≥ {_trace['threshold_4a']}%  "
+                f"4b (TEST_SPEC→test): {_t_4b:.1f}% ≥ {_trace['threshold_4b']:.1f}%  "
+                f"merged: {_t_merged:.1f}%  "
+                f"{'PASS' if _t_passed else 'FAIL'}"
+            )
+            if _trace["active_uncoded"]:
+                print(f"  active FRs without code: {_trace['active_uncoded']}")
+            if _trace["active_untested"]:
+                print(f"  active FRs without test: {_trace['active_untested']}")
+            if not _t_passed:
+                print(
+                    f"\n[BLOCKED] Gate {args.gate} trace dimension "
+                    f"merged {_t_merged:.1f}% < threshold "
+                    f"(4a={_trace['threshold_4a']}%, "
+                    f"4b={_trace['threshold_4b']:.1f}%)"
+                )
+                return 1
+        except Exception as e:
+            # Framework-side error: fail-closed at G2+ (don't silently pass)
+            print(f"\n[WARN] compute_trace_dimension raised: {e}",
+                  file=sys.stderr)
+
     # ── Gate 4 extra enforcement (A1/A2/A3/A4/A5/B2) ─────────────────
     _da_waivers: set[str] = set()
     if args.gate == 4:
@@ -6316,6 +6357,84 @@ def cmd_verify_spec(args: argparse.Namespace) -> int:
     return 0 if not result["issues"] else 1
 
 # ---------------------------------------------------------------------------
+# migrate-trace-overlay (PR 2 of closed-loop traceability plan)
+# ---------------------------------------------------------------------------
+
+def cmd_migrate_trace_overlay(args: argparse.Namespace) -> int:
+    """Wrap a sentinel-less TRACEABILITY_MATRIX.md in AUTO-GEN sentinels.
+
+    Idempotent. Re-running on an already-migrated file is a no-op. The
+    migration does NOT extract manual rows into the overlay — that's a
+    per-project human task; this tool only makes the file forward-compatible
+    with `build_traceability.py`'s regeneration (which wipes non-sentinel
+    content on subsequent runs).
+    """
+    from core.traceability.overlay import migrate_existing_matrix
+
+    project = Path(args.project).resolve()
+    matrix_path = project / "TRACEABILITY_MATRIX.md"
+    overlay_path = project / "TRACEABILITY_MATRIX.overlay.yaml"
+
+    result = migrate_existing_matrix(
+        matrix_path, overlay_path, dry_run=args.dry_run
+    )
+    print(f"\nmigrate-trace-overlay  project={project}")
+    print(f"  status: {result['status']}")
+    if result["status"] == "wrapped":
+        verb = "would wrap" if args.dry_run else "wrapped"
+        print(f"  {verb} {result['matrix']} (+{result['lines_added']} sentinel lines)")
+        if result["overlay_created"]:
+            print(f"  created empty overlay {result['overlay']}")
+    elif result["status"] == "already-migrated":
+        print("  no-op: AUTO-GEN sentinels already present")
+    elif result["status"] == "missing":
+        print(f"  {result['matrix']} not found; nothing to migrate")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# build-trace-attestation / verify-trace (PR 3)
+# ---------------------------------------------------------------------------
+
+def cmd_build_trace_attestation(args: argparse.Namespace) -> int:
+    """Re-derive the matrix and write a git-anchored SHA-256 attestation."""
+    from scripts.build_trace_attestation import build_attestation, write_attestation
+
+    project = Path(args.project).resolve()
+    overlay = Path(args.overlay).resolve() if args.overlay else None
+    trace_dir = Path(args.trace_dir)
+    attestation = build_attestation(project, overlay_path=overlay)
+    canonical, latest = write_attestation(project, attestation, trace_dir)
+    print(f"\nbuild-trace-attestation  project={project}")
+    print(f"  git_sha:         {attestation['git_sha']}")
+    print(f"  content_sha256:  {attestation['content_sha256']}")
+    print(f"  wrote canonical: {canonical}")
+    print(f"  wrote latest:    {latest}  (gitignored)")
+    if attestation.get("overlay_errors"):
+        for err in attestation["overlay_errors"]:
+            print(f"  overlay error: {err}", file=sys.stderr)
+    return 0
+
+
+def cmd_verify_trace(args: argparse.Namespace) -> int:
+    """Verify committed attestation matches re-derived matrix.
+
+    Exit codes (must match scripts/verify_trace_attestation.py):
+      0 clean / 1 mismatch / 2 missing / 3 schema error.
+    """
+    from scripts.verify_trace_attestation import verify_attestation
+
+    project = Path(args.project).resolve()
+    overlay = Path(args.overlay).resolve() if args.overlay else None
+    trace_dir = Path(args.trace_dir)
+    code, msg = verify_attestation(project, overlay, trace_dir)
+    gate_tag = f" [gate {args.gate}]" if getattr(args, "gate", None) else ""
+    print(f"\nverify-trace{gate_tag}  project={project}")
+    print(f"  {msg}")
+    return code
+
+
+# ---------------------------------------------------------------------------
 # check-logic
 # ---------------------------------------------------------------------------
 
@@ -7631,6 +7750,37 @@ def build_parser() -> argparse.ArgumentParser:
     aus.add_argument("--project", required=True, help="Target project root path")
     aus.add_argument("--json", action="store_true", help="Output as JSON")
     aus.set_defaults(func=cmd_audit_structure)
+
+    # migrate-trace-overlay (PR 2)
+    mto = sub.add_parser(
+        "migrate-trace-overlay",
+        help="Wrap TRACEABILITY_MATRIX.md in AUTO-GEN sentinels (one-time)",
+    )
+    mto.add_argument("--project", default=".", help="Target project root path")
+    mto.add_argument("--dry-run", action="store_true",
+                     help="Print the change without writing files")
+    mto.set_defaults(func=cmd_migrate_trace_overlay)
+
+    # build-trace-attestation (PR 3)
+    bta = sub.add_parser(
+        "build-trace-attestation",
+        help="Re-derive matrix and write git-anchored SHA-256 attestation",
+    )
+    bta.add_argument("--project", required=True)
+    bta.add_argument("--overlay", default=None)
+    bta.add_argument("--trace-dir", default=".methodology/trace")
+    bta.set_defaults(func=cmd_build_trace_attestation)
+
+    # verify-trace (PR 3)
+    vt = sub.add_parser(
+        "verify-trace",
+        help="Re-derive and verify committed attestation (CI/gate use)",
+    )
+    vt.add_argument("--project", required=True)
+    vt.add_argument("--overlay", default=None)
+    vt.add_argument("--gate", type=int, default=None)
+    vt.add_argument("--trace-dir", default=".methodology/trace")
+    vt.set_defaults(func=cmd_verify_trace)
 
     # kill-switch (CV-6 — operator CLI for M1 KillSwitch)
     ks = sub.add_parser(

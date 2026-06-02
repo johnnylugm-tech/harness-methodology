@@ -213,9 +213,9 @@ Dynamic plans contain `Mode: Dynamic` in the header.
 | Gate | Phases | score_gate | Dims | Blocking |
 |------|--------|------------|------|----------|
 | Gate1 | P3, P4, P5, P7, P8 per-FR | per-dim (linting≥90, type_safety≥85, test_coverage≥80; no composite) | 3 (Tier 1) | yes |
-| Gate2 | P3 exit | 75 | 9 (Tier 1+2) | yes |
-| Gate3 | P4 exit | 80 | 14 (all tiers) | yes |
-| Gate4 | P6 full | 85 | 14 (all tiers) | yes |
+| Gate2 | P3 exit | 75 | 10 (Tier 1+2 + traceability) | yes |
+| Gate3 | P4 exit | 80 | 15 (all tiers + traceability) | yes |
+| Gate4 | P6 full | 85 | 15 (all tiers + traceability) | yes |
 
 ---
 
@@ -238,6 +238,7 @@ Dynamic plans contain `Mode: Dynamic` in the header.
 | HR-13 | Phase execution > 3× estimate triggers PAUSE | — |
 | HR-14 | Integrity < 40 triggers FREEZE | — |
 | HR-15 | citations must include line numbers + artifact_verification | -15 |
+| HR-16 | trace dimension (4a=100% over IN_PROGRESS+VERIFIED FRs at G2/G3/G4) must pass; manual override requires explicit `gate_score_overrides` entry in `quality_manifest.json` | Terminate |
 
 ---
 

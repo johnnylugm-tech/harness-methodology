@@ -17,8 +17,10 @@ dimensions:
   - { name: readability,           tier: 3, threshold: 80,  weight: 0.06, tool: radon-mi,           requires_tool_execution: true }
   - { name: error_handling,        tier: 3, threshold: 80,  weight: 0.07, tool: ast-error-handling,   requires_tool_execution: true }
   - { name: documentation,         tier: 3, threshold: 75,  weight: 0.01, tool: ast-docstrings,         requires_tool_execution: true }
-  - { name: test_assertion_quality, tier: 2, threshold: 60,  weight: 0.02, tool: ast-assertions,             requires_tool_execution: true }
+  - { name: test_assertion_quality, tier: 2, threshold: 60,  weight: 0.01, tool: ast-assertions,             requires_tool_execution: true }
   - { name: performance,           tier: 3, threshold: 75,  weight: 0.04, tool: pytest-benchmark,   requires_tool_execution: true }
+  # PR 4: see gate2_p3_exit.yaml for semantics.
+  - { name: traceability,          tier: 2, threshold: 100, weight: 0.04, tool: harness-trace,  requires_tool_execution: false }
 blocking: true
 score_gate: 80
 max_rounds: 3

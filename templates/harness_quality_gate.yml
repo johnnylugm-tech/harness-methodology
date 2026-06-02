@@ -477,6 +477,15 @@ jobs:
           " 2>/dev/null || echo "0")
           echo "PHASE=$PHASE" >> $GITHUB_OUTPUT
 
+      - name: Verify trace attestation (PR 3, P3+)
+        if: steps.phase.outputs.PHASE >= 3
+        # Exit 0/2 are acceptable at P3/P4 (informational / first run);
+        # exit 1 (mismatch) and exit 3 (schema error) block the gate at P5+.
+        run: |
+          python harness/harness_cli.py verify-trace \
+            --project . --gate ${{ steps.phase.outputs.PHASE }} \
+            || [ $? -eq 2 ]   # exit 2 = missing, OK on first run
+
       - name: Run ASPICE traceability audit (P4+)
         if: steps.phase.outputs.PHASE >= 4
         run: python harness/harness_cli.py audit-structure --project .

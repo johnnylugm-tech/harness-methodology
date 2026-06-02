@@ -48,17 +48,76 @@ def fix_missing_spec_tracking(context, project_root: Path) -> Tuple[bool, str, f
 
 
 def fix_missing_traceability(context, project_root: Path) -> Tuple[bool, str, float]:
-    """Generate TRACEABILITY_MATRIX.md from existing artifacts."""
-    from core.quality_gate.constitution.profile import get_profile
-    phase_dir = get_profile().phase_directory(1)
-    file_path = project_root / phase_dir / "TRACEABILITY_MATRIX.md"
-    if file_path.exists():
-        return (True, "TRACEABILITY_MATRIX.md already exists", 90.0)
-    fr_ids = _load_fr_ids(project_root)
-    content = _build_traceability_content(fr_ids, project_root)
-    file_path.parent.mkdir(parents=True, exist_ok=True)
-    file_path.write_text(content, encoding="utf-8")
-    return (True, f"Generated TRACEABILITY_MATRIX.md with {len(fr_ids)} FR(s)", 90.0)
+    """PR 5 auto-fix: re-verify loop with bounded retries; escalate on max_rounds.
+
+    Behavior:
+      1. propose_fixes() emits a unified diff of candidate [FR-XX] annotations
+         and test stubs.
+      2. Apply diff to source tree via `git apply --3way`.
+      3. Re-run `check_traceability` to verify.
+      4. If passed → return success (True, "Auto-fixed: N changes", 90.0).
+      5. If failed → context.retry_count += 1; if < max_rounds → loop.
+      6. If max_rounds exhausted → write final diff to
+         `.methodology/trace/proposed_fix.diff` and return
+         (False, "HUMAN_REQUIRED: apply git apply ...", 0.0) — the
+         AutoFixEngine treats `False` as escalation and surfaces the
+         message to the user.
+
+    The legacy stub-matrix path is removed (it produced an artifact that
+    could never pass `check_spec_trace`).
+    """
+    from core.traceability.auto_fix_propose import (
+        apply_diff, propose_fixes, rollback, write_proposed_diff,
+    )
+    from core.traceability.scanner import check_traceability
+
+    # Bound the loop by the strategy's max_rounds (or a hard ceiling of 5).
+    try:
+        max_rounds = int(context.details.get("max_rounds", 5))
+    except (AttributeError, TypeError, ValueError):
+        max_rounds = 5
+
+    last_diff = ""
+    last_msg = ""
+    for round_idx in range(max_rounds):
+        # 1. Re-derive the current gaps
+        _rt, report = check_traceability(project_root)
+        uncoded = report.get("uncoded", [])
+        untested = report.get("untested", [])
+        if not uncoded and not untested:
+            return (True, "All FRs already fully traced", 90.0)
+
+        # 2. Propose a diff
+        diff_text = propose_fixes(_rt, report, project_root)
+        if not diff_text.strip():
+            return (True, "No additional fixes proposed", 90.0)
+        last_diff = diff_text
+
+        # 3. Apply
+        ok, apply_msg = apply_diff(project_root, diff_text)
+        if not ok:
+            rollback(project_root)
+            last_msg = f"round {round_idx+1}: apply failed ({apply_msg})"
+            continue
+
+        # 4. Re-verify
+        _rt2, report2 = check_traceability(project_root)
+        still_uncoded = report2.get("uncoded", [])
+        still_untested = report2.get("untested", [])
+        if not still_uncoded and not still_untested:
+            n = len(uncoded) + len(untested)
+            return (True, f"Auto-fixed: {n} gap(s) closed in {round_idx+1} round(s)", 90.0)
+        last_msg = (f"round {round_idx+1}: applied but {len(still_uncoded)} "
+                    f"uncoded / {len(still_untested)} untested remain")
+
+    # 5. Exhausted: write diff and escalate
+    out_path = write_proposed_diff(project_root, last_diff)
+    return (
+        False,
+        f"Auto-fix exhausted {max_rounds} rounds ({last_msg}). "
+        f"Human review required. Apply: git apply {out_path}",
+        0.0,
+    )
 
 
 def fix_missing_aspice_docs(context, project_root: Path) -> Tuple[bool, str, float]:
@@ -561,21 +620,16 @@ def _build_spec_tracking_content(fr_ids: list) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _build_traceability_content(fr_ids: list, project_root: Path) -> str:
-    lines = [
-        "# TRACEABILITY_MATRIX.md",
-        "",
-        "## Overview",
-        "Auto-generated FR-to-code-to-test traceability matrix.",
-        "",
-        "## Matrix",
-        "| FR ID | Source File | Test File | Status |",
-        "|-------|------------|-----------|--------|",
-    ]
-    for frid in fr_ids:
-        lines.append(f"| {frid} | TBD | TBD | Pending |")
-    lines.extend(["", "## Coverage Summary", f"- Total FRs: {len(fr_ids)}", "- Mapped: 0", "- Pending: TBD"])
-    return "\n".join(lines) + "\n"
+def _render_proposed_diff(fr_ids: list, project_root: Path) -> str:  # noqa: ARG001
+    """DEPRECATED stub removed (PR 5). See `core.traceability.auto_fix_propose`.
+
+    Kept as a stub for any legacy caller; delegates to the new module's
+    `propose_fixes` to keep the old import path working.
+    """
+    from core.traceability.auto_fix_propose import propose_fixes
+    from core.traceability.scanner import check_traceability
+    _rt, report = check_traceability(project_root)
+    return propose_fixes(_rt, report, project_root)
 
 
 def _write_stub(file_path: Path, name: str, phase: int) -> None:

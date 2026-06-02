@@ -156,7 +156,7 @@ class TestBuildTraceability:
         assert "FR-05" in rt.requirements
 
     def test_norm_fr_normalization(self):
-        from scripts.build_traceability import _norm_fr
+        from core.traceability.scanner import _norm_fr
         assert _norm_fr("1") == "FR-01"
         assert _norm_fr("01") == "FR-01"
         assert _norm_fr("001") == "FR-01"
@@ -381,9 +381,9 @@ class TestPreflightTraceability:
         assert "FR-02" in result["uncoded"]
 
     def test_traceability_handles_import_error(self, tmp_path):
-        """Graceful fallback when check_spec_trace can't be imported."""
+        """Graceful fallback when check_traceability can't be imported."""
         h = PhaseHooks(str(tmp_path), phase=3, enable_kill_switch=False)
-        with patch("scripts.check_spec_trace.check_traceability",
+        with patch("core.traceability.scanner.check_traceability",
                    side_effect=ImportError):
             result = h.preflight_traceability()
             assert result["passed"] is True
@@ -392,7 +392,7 @@ class TestPreflightTraceability:
     def test_traceability_import_error_blocks_p5(self, tmp_path):
         """ImportError at P5+ → blocks (was silent-pass before fix)."""
         h = PhaseHooks(str(tmp_path), phase=5, enable_kill_switch=False)
-        with patch("scripts.check_spec_trace.check_traceability",
+        with patch("core.traceability.scanner.check_traceability",
                    side_effect=ImportError):
             result = h.preflight_traceability()
             assert result["passed"] is False
@@ -400,7 +400,7 @@ class TestPreflightTraceability:
     def test_traceability_runtime_error_blocks_p5(self, tmp_path):
         """RuntimeError at P5+ → blocks."""
         h = PhaseHooks(str(tmp_path), phase=5, enable_kill_switch=False)
-        with patch("scripts.check_spec_trace.check_traceability",
+        with patch("core.traceability.scanner.check_traceability",
                    side_effect=RuntimeError("crash")):
             result = h.preflight_traceability()
             assert result["passed"] is False
@@ -408,7 +408,7 @@ class TestPreflightTraceability:
     def test_traceability_runtime_error_passes_p3(self, tmp_path):
         """RuntimeError at P3 → passes (informational only)."""
         h = PhaseHooks(str(tmp_path), phase=3, enable_kill_switch=False)
-        with patch("scripts.check_spec_trace.check_traceability",
+        with patch("core.traceability.scanner.check_traceability",
                    side_effect=RuntimeError("crash")):
             result = h.preflight_traceability()
             assert result["passed"] is True

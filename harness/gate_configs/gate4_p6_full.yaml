@@ -19,6 +19,8 @@ dimensions:
   - { name: performance,           tier: 3, threshold: 75,  weight: 0.06, tool: pytest-benchmark,  requires_tool_execution: true }
   - { name: integration_coverage,  tier: 2, threshold: 75,  weight: 0.05, tool: pytest-cov-integration,            requires_tool_execution: true }
   - { name: test_assertion_quality, tier: 2, threshold: 70,  weight: 0.02, tool: ast-assertions,            requires_tool_execution: true }
+  # PR 4: see gate2_p3_exit.yaml for semantics.
+  - { name: traceability,          tier: 2, threshold: 100, weight: 0.02, tool: harness-trace,  requires_tool_execution: false }
 blocking: true
 score_gate: 85
 max_rounds: 3
