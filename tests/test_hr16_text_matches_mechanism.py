@@ -13,7 +13,6 @@ regression (someone rewrites HR-16 to claim a bypass that doesn't
 exist) is caught at test time.
 """
 import re
-import subprocess
 from pathlib import Path
 
 import pytest
