@@ -105,7 +105,11 @@ class CircuitBreaker:
         """Open circuit."""
         with self._lock:
             if agent_id not in self._circuits:
-                state = CircuitBreakerState(agent_id=agent_id)
+                state = CircuitBreakerState(
+                    agent_id=agent_id,
+                    state=CircuitState.CLOSED,
+                    failure_count=0,
+                )
                 self._circuits[agent_id] = state
             else:
                 state = self._circuits[agent_id]

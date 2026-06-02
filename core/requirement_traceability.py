@@ -127,7 +127,13 @@ class RequirementTraceability:
         self.code_components: Dict[str, CodeComponent] = {}
         self.test_coverage: Dict[str, TestCoverage] = {}
         self.links: List[TraceLink] = []
+        # Forward: req_id/component_id → [link_id]. Populated for all FR-/NFR-
+        # endpoints regardless of direction. Used by get_downstream.
         self._link_index: Dict[str, List[str]] = {}
+        # Reverse: target_id → [link_id], only populated for bidirectional links.
+        # Used by get_upstream (O(1) fast path). The field was previously dead
+        # code; PR 1 of the closed-loop traceability plan materializes it.
+        self._reverse_link_index: Dict[str, List[str]] = {}
 
     def add_requirement(self, req_id: str, title: str, srs_section: Optional[str] = None, description: str = "", priority: str = "HIGH", metadata: Optional[dict[str, Any]] = None):
         req = Requirement(req_id=req_id, title=title, description=description,
@@ -165,6 +171,13 @@ class RequirementTraceability:
         for rid in [source_id, target_id]:
             if rid.startswith(("FR-", "NFR-")):
                 self._link_index.setdefault(rid, []).append(link_id)
+        # Reverse index is only meaningful when the link is bidirectional.
+        # Unidirectional links (e.g., FR-04 → §3.4.1) deliberately do NOT
+        # poison the reverse map; otherwise get_upstream() would report false
+        # parents for spec sections that no implementation links back to.
+        if bidirectional:
+            self._reverse_link_index.setdefault(target_id, []).append(link_id)
+            self._reverse_link_index.setdefault(source_id, []).append(link_id)
         return link
 
     def get_downstream(self, req_id):
@@ -175,6 +188,21 @@ class RequirementTraceability:
         return d
 
     def get_upstream(self, component_id):
+        # O(1) fast path via the reverse index. Falls back to a linear scan
+        # only if the component was never indexed (legacy callers, unidirectional
+        # links that pre-date the index).
+        if component_id in self._reverse_link_index:
+            u: Dict[str, list] = {"fr": [], "srs": [], "code": []}
+            seen_link_ids = set()
+            for lid in self._reverse_link_index[component_id]:
+                if lid in seen_link_ids:
+                    continue
+                seen_link_ids.add(lid)
+                lnk = next((link_obj for link_obj in self.links if link_obj.link_id == lid), None)
+                if lnk is not None and lnk.target_id == component_id:
+                    u.setdefault(lnk.source_type, []).append(lnk.source_id)
+            return u
+        # Legacy fallback (linear scan).
         u = {"fr": [], "srs": [], "code": []}
         for lnk in self.links:
             if lnk.target_id == component_id:
