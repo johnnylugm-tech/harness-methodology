@@ -443,9 +443,9 @@ _PHASE_PUSH_LABELS: dict = {1: "PUSH ① — ", 2: "PUSH ② — "}
 # Gate metadata: (score_gate, dim_count, notes)
 _GATE_META: dict = {
     1: (None, 3,  "linting(90) · type_safety(85) · test_coverage(80)"),
-    2: (75,   9,  "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · integration_coverage(60) · test_assertion_quality(60)  [D4 spec-coverage unified ≥60%]"),
-    3: (80,   14, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · integration_coverage(60) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · test_assertion_quality(60) · performance(75)  [CRG recon inside run-gate · D4 spec-coverage unified ≥80%]"),
-    4: (85,   14, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · performance(75) · integration_coverage(75) · test_assertion_quality(70)  [CRG recon inside run-gate · D4 spec-coverage unified ≥90%]"),
+    2: (75,   10, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · integration_coverage(60) · test_assertion_quality(60) · traceability(100)  [traceability: framework-owned, harness-computed · D4 spec-coverage unified ≥60%]"),
+    3: (80,   15, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · integration_coverage(60) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · test_assertion_quality(60) · performance(75) · traceability(100)  [traceability: framework-owned, harness-computed · CRG recon inside run-gate · D4 spec-coverage unified ≥80%]"),
+    4: (85,   15, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · performance(75) · integration_coverage(75) · test_assertion_quality(70) · traceability(100)  [traceability: framework-owned, harness-computed · CRG recon inside run-gate · D4 spec-coverage unified ≥90%]"),
 }
 
 # D4 spec-coverage-check thresholds per exit gate (unified v2.6)
@@ -838,6 +838,15 @@ def _preflight_steps(phase: int) -> List[str]:
         "  Re-run `run-phase` after each fix. Max 3 attempts.",
         f"  After 3 FAIL: escalate to human — provide last `run-phase --phase {phase}` full output.",
         f"  Human fix → re-run `run-phase --phase {phase} --project .` → PASS required before continuing.",
+        *([] if phase < 5 else [
+            "  **Attestation fix** (P5+ — if ASPICE Traceability preflight shows `attestation: missing` or `mismatch`):",
+            "  ```bash",
+            "  python3 harness_cli.py build-trace-attestation --project . --write",
+            "  git add .methodology/trace/attestation.json",
+            "  git commit -m 'trace: regenerate attestation'",
+            "  ```",
+            "  Re-run `run-phase` to confirm `Attestation: clean` before continuing.",
+        ]),
         "",
         *ci_check,
         "",
@@ -1470,6 +1479,11 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
            "  > If architecture = 0 due to Orchestrator/hub-and-spoke pattern: complete DA challenge (A3 above)",
            "  > and set `da_waiver` in gate4_result.json to bypass the threshold.",
            "  > See `harness/ssi/prompts/evaluate_dimension.md` §Orchestrator Pattern False Positive.",
+           "  > **traceability** is also framework-owned: the harness calls `compute_trace_dimension()`",
+           "  > inside `finalize-gate` and injects the score automatically. Do NOT report a traceability",
+           "  > score in gate_result.json. If the gate is blocked by traceability, fix gaps then run:",
+           "  > `python3 harness_cli.py build-trace-attestation --project . --write`",
+           "  > `git add .methodology/trace/attestation.json && git commit -m 'trace: regen attestation'`",
            ] if gate_num in (3, 4) else []),
         "",
         f"- [ ] **G{gate_num}c** Finalize Gate {gate_num}:",
@@ -1530,7 +1544,7 @@ def _checkpoint_index(fr_ids: List[str], phase: int) -> List[str]:
     if phase in _PHASE_EXIT_GATES:
         gate_num = _PHASE_EXIT_GATES[phase]
         if phase == 6:
-            lines.append("> - CHECKPOINT-GATE-4: Gate 4 (Full Project — 14 dims) + Agent B peer review → **push + HANDOVER.md**")
+            lines.append("> - CHECKPOINT-GATE-4: Gate 4 (Full Project — 15 dims) + Agent B peer review → **push + HANDOVER.md**")
         else:
             lines.append(f"> - CHECKPOINT-GATE-{gate_num}: Gate {gate_num} (Phase {phase} Exit) → **push + HANDOVER.md**")
     lines.append("")
@@ -1932,7 +1946,7 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
     lines.append("")
     lines.append("### Phase 4 Overview")
     lines.append("Phase 4 formulates and executes a complete test plan based on Phase 3 code.")
-    lines.append("Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). Phase exits via Gate 3 (14 dims).")
+    lines.append("Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). Phase exits via Gate 3 (15 dims).")
     lines.append("")
 
     if dynamic:
@@ -2071,6 +2085,21 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
         "  - Real test execution is enforced by advance-phase TDD-PRECHECK "
         "(`pytest --cov-fail-under=100`), not by string-matching this document",
         "",
+        "### COVERAGE_REPORT.md — Coverage Summary",
+        "",
+        "- [ ] **[COVERAGE-REPORT]** Generate `04-testing/COVERAGE_REPORT.md`:",
+        "  ```bash",
+        "  pytest --cov=03-development/src --cov-report=term-missing -q \\",
+        "    | tee 04-testing/coverage_raw.txt",
+        "  python3 -m coverage report --format=total  # → overall %",
+        "  ```",
+        "  Write `04-testing/COVERAGE_REPORT.md` including:",
+        "  - Overall coverage % (must be ≥80% for Gate 3)",
+        "  - Per-module breakdown (from term-missing output)",
+        "  - Uncovered lines (if any)",
+        "  > cross_artifact.py validates this file's numbers against live `pytest --cov` at Gate 3.",
+        "  > Fabricated numbers will be caught by the cross-artifact check.",
+        "",
     ])
 
     if not dynamic:
@@ -2085,7 +2114,7 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
     lines.append("- [ ] `COVERAGE_REPORT.md` - Coverage report")
     lines.append(_sessions_spawn_deliverable())
     lines.append("- [ ] Gate 1 PASS for every FR")
-    lines.append("- [ ] Gate 3 PASS (phase exit, composite ≥ 80, 14 dims)")
+    lines.append("- [ ] Gate 3 PASS (phase exit, composite ≥ 80, 15 dims)")
     lines.append("")
 
     # audit-phase runs inside advance-phase — no separate local step needed
@@ -2179,13 +2208,13 @@ def generate_phase6_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     lines.append("")
     lines.append("### Phase 6 Overview")
     lines.append("Phase 6 centres on Gate 4 — the full-project quality evaluation.")
-    lines.append("No FR loop. Gate 4 = tool-scored automated evaluation (14 dims, CRG recon) PLUS")
+    lines.append("No FR loop. Gate 4 = tool-scored automated evaluation (15 dims incl. traceability, CRG recon) PLUS")
     lines.append("Agent B peer review of the QA deliverables (HR-01) — both are required to exit.")
     lines.append("")
 
     # P6 has exactly one checkpoint: Gate 4
     lines.append("> **Checkpoint Index** (push to GitHub = checkpoint saved):")
-    lines.append("> - CHECKPOINT-GATE-4: Gate 4 (Full Project — 14 dims) + Agent B peer review")
+    lines.append("> - CHECKPOINT-GATE-4: Gate 4 (Full Project — 15 dims) + Agent B peer review")
     lines.append("")
 
     lines.extend(_entry_gate_check(6))
@@ -2223,7 +2252,7 @@ def generate_phase6_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     lines.extend(_gate_exit_checkpoint(gate_num=4, phase=6, checkpoint_n=1))
 
     lines.append("### Phase 6 Deliverables")
-    lines.append("- [ ] Gate 4 PASS (composite ≥ 85, all 14 dims, CRG recon done)")
+    lines.append("- [ ] Gate 4 PASS (composite ≥ 85, all 15 dims, CRG recon done)")
     lines.append("- [ ] `QUALITY_REPORT.md` - Quality report (auto-generated by Gate 4)")
     lines.append("- [ ] `RELEASE_NOTES.md` - Release notes")
     lines.append("- [ ] `FINAL_SIGN_OFF.md` - Final sign-off")
