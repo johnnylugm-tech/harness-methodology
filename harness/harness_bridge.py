@@ -101,10 +101,11 @@ def _override_traceability_dim_score(
     dims: list,
     project_root: str,
     gate_num: int,
-) -> list:
+) -> "tuple[list[DimResult], bool]":
     """PR 4 (audit F-1.1 fix): replace the agent's `traceability` score
-    with the framework-computed one. Returns a new list of DimResult;
-    the input is not mutated. On any error, returns the input unchanged.
+    with the framework-computed one. Returns (new_dims, changed) where
+    changed=True means the traceability score was actually modified.
+    The input is not mutated. On any error, returns (input, False).
 
     Why: the agent has no tool to scan SAD.md + [FR-XX] annotations +
     test references. Without this override, the agent either reports
@@ -122,11 +123,12 @@ def _override_traceability_dim_score(
             f"[WARN] trace dimension override skipped: {_trace_err}",
             file=sys.stderr,
         )
-        return dims
+        return dims, False
     if _trace_dim.get("error"):
-        return dims
+        return dims, False
     _framework_score = _trace_dim["merged_pct"]
     _new_dims = []
+    _changed = False
     for _d in dims:
         if _d.name == "traceability":
             if abs(_d.score - _framework_score) > 0.5:
@@ -136,10 +138,12 @@ def _override_traceability_dim_score(
                     f"(4a={_trace_dim['4a_fr_to_test_pct']:.1f}% "
                     f"4b={_trace_dim['4b_test_spec_pct']:.1f}%)"
                 )
+            if _d.score != _framework_score:
+                _changed = True
             _new_dims.append(dataclasses.replace(_d, score=_framework_score))
         else:
             _new_dims.append(_d)
-    return _new_dims
+    return _new_dims, _changed
 
 
 def _extract_mutmut_kill_rate(content: str) -> "float | None":
@@ -234,9 +238,11 @@ def _crg_enrich_gate_findings(
     project_root: str,
     work_dir: str,
     gate_num: int,
-) -> list:
+) -> "tuple[list[DimResult], bool]":
     """CRG MCP enrichment: append findings to DimResult.issues and gate_result.json.
 
+    Returns (new_dims, score_overridden) where score_overridden=True means the
+    Phase 2 hub penalty (step 9) actually changed a test_coverage score.
     Never raises. All enrichment degrades gracefully when MCP is unavailable
     (CRGBridge._check_available() returns False inside each method).
     Mostly evidence-only, with ONE score override (Phase 2 gatekeeper):
@@ -427,6 +433,7 @@ def _crg_enrich_gate_findings(
         res = crg.query_graph(project_root, "tests_for", fn_name)
         if not (res or {}).get("results"):
             untested_hubs.append(fn_name)
+    _score_overridden = False
     if untested_hubs:
         _hub_penalty = min(len(untested_hubs) * 3, 15)
         _new_dims = []
@@ -447,12 +454,14 @@ def _crg_enrich_gate_findings(
                     f"{_new_score:.1f} "
                     f"(-{_hub_penalty} for {len(untested_hubs)} untested critical hub(s))"
                 )
+                if _new_score != _d.score:
+                    _score_overridden = True
                 _new_dims.append(dataclasses.replace(_d, score=_new_score))
             else:
                 _new_dims.append(_d)
         dims = _new_dims
 
-    return dims
+    return dims, _score_overridden
 
 
 def _check_tool_evidence(ctx: "GateContext", raw: dict) -> list[str]:
@@ -1756,17 +1765,25 @@ class HarnessBridge:
         # runs `compute_trace_dimension` and overrides whatever the agent
         # wrote. Mirrors the CRG override pattern above: replace the
         # score in-place; log the change; never silently lose it.
-        dims = _override_traceability_dim_score(dims, ctx.project_root, ctx.gate_num)
+        dims, _trace_overridden = _override_traceability_dim_score(
+            dims, ctx.project_root, ctx.gate_num
+        )
+        if _trace_overridden:
+            _crg_overrides_applied = True
 
         # ── CRG findings enrichment (MCP path, graceful degrade) ──────────
         # Runs after CRG independent score override so score is already final.
         # All enrichment writes to DimResult.issues (evidence only) or appends
-        # auxiliary fields to gate_result.json. Never changes scores or blocks.
+        # auxiliary fields to gate_result.json. The Phase 2 hub penalty (step 9)
+        # is the one exception: it changes test_coverage score and must therefore
+        # set _crg_overrides_applied so overall_score is recomputed from corrected dims.
         if ctx.gate_num >= 2:
             try:
-                dims = _crg_enrich_gate_findings(
+                dims, _enrich_overridden = _crg_enrich_gate_findings(
                     self.crg, dims, ctx.project_root, ctx.work_dir, ctx.gate_num
                 )
+                if _enrich_overridden:
+                    _crg_overrides_applied = True
             except Exception as _enrich_err:  # pragma: no cover
                 print(
                     f"[WARN] CRG enrichment skipped: {_enrich_err}",

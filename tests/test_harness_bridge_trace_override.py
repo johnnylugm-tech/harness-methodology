@@ -6,12 +6,15 @@ in harness_bridge. The helper mirrors the architecture CRG override:
 runs `compute_trace_dimension` and replaces the agent's `traceability`
 score in-place.
 
-Four cases covered:
-  1. Agent reports optimistic score (100%) → framework 50% wins
-  2. Agent reports pessimistic score (0%) → framework 80% wins
-  3. Agent's score matches framework's → no churn
-  4. compute_trace_dimension errors → agent's score preserved (no crash)
-  5. compute_trace_dimension returns error key → agent preserved
+Returns (new_dims, changed: bool) — changed=True when the score was
+actually modified. Tests verify both the new_dims content and the flag.
+
+Cases covered:
+  1. Agent reports optimistic score (100%) → framework 50% wins, changed=True
+  2. Agent reports pessimistic score (0%) → framework 80% wins, changed=True
+  3. Agent's score matches framework's → no churn, changed=False
+  4. compute_trace_dimension errors → agent's score preserved (no crash), changed=False
+  5. compute_trace_dimension returns error key → agent preserved, changed=False
   6. Non-traceability dims are passed through unchanged
   7. Input dims are not mutated (returns a new list)
 """
@@ -57,7 +60,7 @@ def _trace_dim_result(merged_pct: float, **kwargs) -> dict:
 
 
 def test_bridge_overrides_optimistic_agent_score():
-    """Agent claims 100%; framework says 50% → framework wins."""
+    """Agent claims 100%; framework says 50% → framework wins, changed=True."""
     sys_path = str(Path(__file__).resolve().parent.parent).replace("\\", "/")
     import sys
     if sys_path not in sys.path:
@@ -66,13 +69,14 @@ def test_bridge_overrides_optimistic_agent_score():
     dims = _dims_with_traceability(trace_score=100.0)
     with patch("core.quality_gate.spec_tracking_checker.compute_trace_dimension",
                return_value=_trace_dim_result(50.0)):
-        out = _override_traceability_dim_score(dims, "/fake", 2)
+        out, changed = _override_traceability_dim_score(dims, "/fake", 2)
     trace_dim = next(d for d in out if d.name == "traceability")
     assert trace_dim.score == 50.0
+    assert changed is True
 
 
 def test_bridge_overrides_pessimistic_agent_score():
-    """Agent claims 0%; framework says 80% → framework wins."""
+    """Agent claims 0%; framework says 80% → framework wins, changed=True."""
     sys_path = str(Path(__file__).resolve().parent.parent).replace("\\", "/")
     import sys
     if sys_path not in sys.path:
@@ -81,13 +85,14 @@ def test_bridge_overrides_pessimistic_agent_score():
     dims = _dims_with_traceability(trace_score=0.0)
     with patch("core.quality_gate.spec_tracking_checker.compute_trace_dimension",
                return_value=_trace_dim_result(80.0)):
-        out = _override_traceability_dim_score(dims, "/fake", 2)
+        out, changed = _override_traceability_dim_score(dims, "/fake", 2)
     trace_dim = next(d for d in out if d.name == "traceability")
     assert trace_dim.score == 80.0
+    assert changed is True
 
 
 def test_bridge_no_op_when_scores_already_match():
-    """If the agent happens to write the framework's exact score, no change."""
+    """If the agent happens to write the framework's exact score, changed=False."""
     sys_path = str(Path(__file__).resolve().parent.parent).replace("\\", "/")
     import sys
     if sys_path not in sys.path:
@@ -96,13 +101,14 @@ def test_bridge_no_op_when_scores_already_match():
     dims = _dims_with_traceability(trace_score=75.0)
     with patch("core.quality_gate.spec_tracking_checker.compute_trace_dimension",
                return_value=_trace_dim_result(75.0)):
-        out = _override_traceability_dim_score(dims, "/fake", 2)
+        out, changed = _override_traceability_dim_score(dims, "/fake", 2)
     trace_dim = next(d for d in out if d.name == "traceability")
     assert trace_dim.score == 75.0
+    assert changed is False
 
 
 def test_bridge_falls_back_to_agent_when_compute_errors():
-    """If compute_trace_dimension raises, agent's score is preserved (no crash)."""
+    """If compute_trace_dimension raises, agent's score is preserved, changed=False."""
     sys_path = str(Path(__file__).resolve().parent.parent).replace("\\", "/")
     import sys
     if sys_path not in sys.path:
@@ -111,13 +117,14 @@ def test_bridge_falls_back_to_agent_when_compute_errors():
     dims = _dims_with_traceability(trace_score=80.0)
     with patch("core.quality_gate.spec_tracking_checker.compute_trace_dimension",
                side_effect=RuntimeError("scanner crashed")):
-        out = _override_traceability_dim_score(dims, "/fake", 2)
+        out, changed = _override_traceability_dim_score(dims, "/fake", 2)
     trace_dim = next(d for d in out if d.name == "traceability")
     assert trace_dim.score == 80.0
+    assert changed is False
 
 
 def test_bridge_keeps_input_when_compute_returns_error_key():
-    """If compute_trace_dimension returns error key, keep input unchanged."""
+    """If compute_trace_dimension returns error key, keep input unchanged, changed=False."""
     sys_path = str(Path(__file__).resolve().parent.parent).replace("\\", "/")
     import sys
     if sys_path not in sys.path:
@@ -126,9 +133,10 @@ def test_bridge_keeps_input_when_compute_returns_error_key():
     dims = _dims_with_traceability(trace_score=42.0)
     with patch("core.quality_gate.spec_tracking_checker.compute_trace_dimension",
                return_value=_trace_dim_result(0.0, error="scanner unavailable")):
-        out = _override_traceability_dim_score(dims, "/fake", 2)
+        out, changed = _override_traceability_dim_score(dims, "/fake", 2)
     trace_dim = next(d for d in out if d.name == "traceability")
     assert trace_dim.score == 42.0  # unchanged from input
+    assert changed is False
 
 
 def test_bridge_passes_through_non_traceability_dims_unchanged():
@@ -141,7 +149,7 @@ def test_bridge_passes_through_non_traceability_dims_unchanged():
     dims = _dims_with_traceability(trace_score=100.0)
     with patch("core.quality_gate.spec_tracking_checker.compute_trace_dimension",
                return_value=_trace_dim_result(50.0)):
-        out = _override_traceability_dim_score(dims, "/fake", 2)
+        out, _ = _override_traceability_dim_score(dims, "/fake", 2)
     linting = next(d for d in out if d.name == "linting")
     security = next(d for d in out if d.name == "security")
     assert linting.score == 95.0

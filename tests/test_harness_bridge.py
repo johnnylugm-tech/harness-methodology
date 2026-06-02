@@ -1022,7 +1022,7 @@ class TestCrgGatekeeperPhases:
         # query_graph(tests_for) returns no tests → untested hub
         crg.query_graph.return_value = {"results": []}
 
-        result_dims = _crg_enrich_gate_findings(
+        result_dims, score_overridden = _crg_enrich_gate_findings(
             crg, dims, str(tmp_path), str(tmp_path), gate_num=3
         )
 
@@ -1030,6 +1030,7 @@ class TestCrgGatekeeperPhases:
         # 1 untested hub × 3 pts = -3 → 85.0 - 3 = 82.0
         assert tc.score == 82.0
         assert any("Phase 2 gatekeeper" in i.get("message", "") for i in tc.issues)
+        assert score_overridden is True
 
     def test_phase2_penalty_capped_at_15(self, tmp_path):
         """Hub penalty capped at 15 pts regardless of untested hub count."""
@@ -1052,13 +1053,14 @@ class TestCrgGatekeeperPhases:
         crg.list_flows.return_value = {}
         crg.query_graph.return_value = {"results": []}  # all untested
 
-        result_dims = _crg_enrich_gate_findings(
+        result_dims, score_overridden = _crg_enrich_gate_findings(
             crg, dims, str(tmp_path), str(tmp_path), gate_num=3
         )
 
         tc = next(d for d in result_dims if d.name == "test_coverage")
         # 5 hubs queried ([:5] cap) × 3 = 15, capped at 15 → 90 - 15 = 75
         assert tc.score == 75.0
+        assert score_overridden is True
 
     def test_phase2_no_penalty_when_hubs_are_tested(self, tmp_path):
         """When all hubs have test linkage, no penalty applied."""
@@ -1080,9 +1082,10 @@ class TestCrgGatekeeperPhases:
         # tests_for returns results → hub IS tested
         crg.query_graph.return_value = {"results": [{"name": "test_fn"}]}
 
-        result_dims = _crg_enrich_gate_findings(
+        result_dims, score_overridden = _crg_enrich_gate_findings(
             crg, dims, str(tmp_path), str(tmp_path), gate_num=3
         )
 
         tc = next(d for d in result_dims if d.name == "test_coverage")
         assert tc.score == 85.0  # unchanged
+        assert score_overridden is False
