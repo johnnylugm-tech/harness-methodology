@@ -100,6 +100,18 @@ do NOT start work until every item is checked.
 
 > ² **Auto-fix wiring (post-PR 5/9) + NFR enforcement**: the `core/auto_fix` engine has **one production caller** (`fix_missing_traceability`) dispatched from `PhaseHooks.preflight_traceability` at P5+ when a trace gap is detected. Dispatch policy: per-strategy allowlist (only problem_type=`missing_traceability`); bounded retry (max_rounds=1); escalation to HUMAN_REQUIRED with `.methodology/trace/proposed_fix.diff` on failure. The other 4 strategies (coverage, drift score, phase artifact chain, key keyword density) still emit stubs and are not production-wired — preflight/postflight failures from those dims block honestly. The engine + 5 guardrails are kept for a future redesign. SAB NFRs mapped to gate dimensions (`performance`/`security`/`readability`/`error_handling`/`test_assertion_quality`) raise a non-waivable `gate_score_overrides` floor; `deployability`/`scalability`/`usability` are advisory-only.
 
+> ³ **Closed-loop wiring (PR 6-10, commit `dedf560` + audit fixes)**: the trace closed loop is fully tight end-to-end. Five pre-existing blind spots are now wired:
+>
+> | PR | Mechanism | File | Effect |
+> |----|-----------|------|--------|
+> | PR 6 | `_trace_dirty_state(project_path)` mtime probe (SAD.md + newest `tests/test_fr*.py` vs `attestation.json`) | `harness_cli.py:1345` | Pre-commit `git commit` is blocked if attestation is stale; sub-50ms, no rglob |
+> | PR 7 | `PhaseHooks.preflight_fr_spec_consistency` — symmetric difference of SAD.md FRs vs `02-architecture/TEST_SPEC.md` FRs (`sad_only` / `spec_only` orphans) | `core/phase_hooks.py:479` | P3+ informational, P5+ blocking; prevents silent 4a/4b disagreement |
+> | PR 8 | `make attest` target: `build-trace-attestation --project . --write && git add .methodology/trace/attestation.json` | `Makefile:61` | One-command refresh + stage of the git_sha-anchored attestation |
+> | PR 9 | `_dispatch_trace_auto_fix(project_path, untested, uncoded)` — P5+ allowlist dispatch to `AutoFixEngine.fix(problem_type='missing_traceability', max_rounds=1)`, then re-verify | `core/phase_hooks.py:39`, called at `:426` | Trace gap auto-fills `core/auto_*.py` annotation + `tests/test_fr_*.py` stub; re-verifies; escalates to HUMAN_REQUIRED on failure |
+> | PR 10 | `make setup-hooks` and `make setup` — install `scripts/setup-git-hooks.sh` `pre-push` hook that runs full preflight | `Makefile:69`, `:76` | `git push` runs `run-phase` preflight before remote receives the push |
+>
+> Regression tests: `tests/test_trace_dirty_state.py` (PR 6), `tests/test_preflight_fr_spec_consistency.py` (PR 7), `tests/test_makefile_attest_target.py` (PR 8), `tests/test_preflight_auto_fix_dispatch.py` (PR 9), `tests/test_makefile_setup_hooks_target.py` (PR 10). Manual end-to-end checks for each PR are in `~/.claude/plans/compressed-tinkering-mccarthy.md` §"End-to-end verification".
+
 ### 0.4 Phase Completion Checklist (Mandatory — Every Phase)
 
 Before advancing to Phase N+1, confirm ALL:
