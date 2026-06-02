@@ -357,9 +357,27 @@ class PhaseHooks:
             att_msg = str(e)
 
         total = report["total"]
-        untested = len(report["untested"])
-        uncoded = len(report["uncoded"])
-        complete = report["complete"]
+
+        # PR 13: Re-apply overlay to filter out manually VERIFIED FRs.
+        # This fixes a gap where `check_traceability` (which is atomic and pure-regex)
+        # sees intentionally manual FRs as 'untested' and triggers auto-fix stubs.
+        untested_set = set(report["untested"])
+        uncoded_set = set(report["uncoded"])
+        try:
+            from core.traceability.overlay import load_overlay, merge_overlay
+            overlay = load_overlay(self.project_path)
+            if overlay:
+                merged = merge_overlay(report, overlay)
+                for fr_id, row in merged.get("requirements", {}).items():
+                    if row.get("status") == "VERIFIED" or "Manual" in str(row.get("test_files", [])):
+                        untested_set.discard(fr_id)
+                        uncoded_set.discard(fr_id)
+        except Exception as e:
+            print(f"   [WARN] Overlay merge failed: {e}")
+
+        untested_list = list(untested_set)
+        uncoded_list = list(uncoded_set)
+        complete = total > 0 and len(untested_list) == 0 and len(uncoded_list) == 0
 
         # P3: informational only (code being built)
         # P4: informational only (tests being built)
@@ -370,26 +388,28 @@ class PhaseHooks:
             passed = False
 
         c = report["completeness"]
+        # Recalculate coverages if overlay mitigated them? Keep display atomic, but block state uses merged.
         print(f"   FRs: {total} | Code: {c['code_coverage']} | "
               f"Test: {c['test_coverage']} | "
               f"{'BLOCKING' if blocking else 'INFO'}")
         print(f"   Attestation: {att_status}  {att_msg}")
-        if untested:
-            print(f"   Untested FRs: {', '.join(report['untested'])}")
-        if uncoded:
-            print(f"   Uncoded FRs: {', '.join(report['uncoded'])}")
+        if untested_list:
+            print(f"   Untested FRs: {', '.join(untested_list)}")
+        if uncoded_list:
+            print(f"   Uncoded FRs: {', '.join(uncoded_list)}")
 
         # PR 9: dispatch one bounded auto-fix attempt at P5+ when blocked.
         # Per-strategy allowlist lives inside AutoFixEngine — only
         # `fix_missing_traceability` (problem_type='missing_traceability')
         # is dispatched. Other strategies still emit stubs.
-        if blocking and not passed and (untested or uncoded):
+        if blocking and not passed and (untested_list or uncoded_list):
             _fixed = _dispatch_trace_auto_fix(
-                self.project_path, untested, uncoded,
+                self.project_path, untested_list, uncoded_list,
             )
             if _fixed:
                 try:
                     _rt2, report2 = check_traceability(self.project_path)  # noqa: F841
+                    # Note: Ideally we re-apply overlay here too, but if it was fixed, it should be atomic-clean
                     still_untested = report2.get("untested", [])
                     still_uncoded = report2.get("uncoded", [])
                     if not still_untested and not still_uncoded:
@@ -409,11 +429,12 @@ class PhaseHooks:
             "passed": passed,
             "skipped": False,
             "total_frs": total,
-            "untested": report["untested"],
-            "uncoded": report["uncoded"],
+            "untested": untested_list,
+            "uncoded": uncoded_list,
             "completeness": c,
             "attestation": att_status,
             "attestation_message": att_msg,
+        
             "blocking": blocking,
         }
 
@@ -446,9 +467,17 @@ class PhaseHooks:
 
         spec_frs: set = set()
         if not spec_path.exists():
+            # PR 13: If SAD has FRs, TEST_SPEC.md MUST exist.
+            # D4 also silently skipped missing TEST_SPEC.md, creating a major loophole.
+            if sad_frs:
+                blocking = self.phase is not None and self.phase >= 5
+                print(f"   TEST_SPEC.md is missing but SAD.md contains {len(sad_frs)} FRs.")
+                return {"passed": not blocking, "skipped": False, 
+                        "error": "TEST_SPEC.md is missing but SAD.md has FRs.",
+                        "orphans": len(sad_frs), "missing_spec": True}
             print("   Skipped: TEST_SPEC.md not present at 02-architecture/")
             return {"passed": True, "skipped": True,
-                    "reason": "TEST_SPEC.md missing — covered by D4 spec-coverage"}
+                    "reason": "TEST_SPEC.md missing and no SAD FRs to track"}
 
         try:
             spec_text = spec_path.read_text(encoding="utf-8", errors="replace")

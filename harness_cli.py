@@ -983,8 +983,21 @@ def _run_spec_coverage_check(
     """
     spec_path = project / "02-architecture" / "TEST_SPEC.md"
     if not spec_path.exists():
+        sad_path = project / "02-architecture" / "SAD.md"
+        sad_has_frs = False
+        if sad_path.exists():
+            import re
+            sad_text = sad_path.read_text(encoding="utf-8", errors="replace")
+            if re.search(r"\bFR-\d+\b", sad_text):
+                sad_has_frs = True
+                
+        if sad_has_frs:
+            if verbose:
+                print("[spec-coverage] ERROR: TEST_SPEC.md not found at 02-architecture/TEST_SPEC.md but SAD.md has FRs.")
+            return (1, 0.0)
+            
         if verbose:
-            print("[spec-coverage] TEST_SPEC.md not found at 02-architecture/TEST_SPEC.md — skipping.")
+            print("[spec-coverage] TEST_SPEC.md not found and SAD.md has no FRs — skipping.")
         return (0, 100.0)
 
     items = _parse_test_spec(spec_path)

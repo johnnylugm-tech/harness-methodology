@@ -83,12 +83,13 @@ def test_p3_informational_p5_blocking(fixture_repo):
     assert r5["passed"] is False
 
 
-def test_skips_when_test_spec_missing(tmp_path):
-    """No TEST_SPEC.md → skip the check (4b covers that case)."""
+def test_blocks_when_test_spec_missing_but_sad_has_frs(tmp_path):
+    """No TEST_SPEC.md with FRs in SAD.md → block at P5+ (PR 13 gap fix)."""
     arch = tmp_path / "02-architecture"
     arch.mkdir()
     (arch / "SAD.md").write_text("# SAD\n\n## FR-01\n")
     h = _phase_hooks(tmp_path, phase=5)
     result = h.preflight_fr_spec_consistency()
-    assert result["passed"] is True
-    assert result.get("skipped") is True
+    assert result["passed"] is False
+    assert result.get("skipped") is False
+    assert result.get("missing_spec") is True
