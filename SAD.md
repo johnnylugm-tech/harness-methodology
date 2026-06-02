@@ -192,7 +192,7 @@ This section uses normative language per **RFC 2119**:
 | HR-13: Auto-fix timeout enforcement | **MUST** | `core/auto_fix/__init__.py` | `check_escalation()` HR-13 condition |
 | HR-14: No integrity violations after auto-fix | **MUST** | `core/auto_fix/guardrails.py` | `post_fix_drift_check()` |
 | HR-15: Citations must include line numbers | **MUST** | `detection/ensemble_scorer.py` / `pattern_matcher.py` / `steering` | Grep confirmation in review |
-| HR-16: `gate_score_overrides` acts as a Threshold Floor | **MUST** | `harness/gate_configs/sab_parser.py` | No automated override; fix code, re-architect, or escalate |
+| HR-16: `gate_score_overrides` acts as a Threshold Floor | **MUST** | `core/quality_gate/sab_parser.py` | No automated override; fix code, re-architect, or escalate |
 
 #### 2.4.2 Gate Pass Criteria
 
@@ -316,7 +316,7 @@ class HarnessBridge:
 1. Reads `.sessi-work/gate{N}_result.json` (raises `FileNotFoundError` if missing)
 2. Parses JSON into `GateResult` (accepts both `overall_score`/`score` and `open_critical_count`/`open_critical` field names)
 3. `self._update_quality_manifest(gate_num, fr_id, result)` — writes to `.methodology/quality_manifest.json`
-4. Applies framework overrides (traceability/CRG). If trace/hub overrides fire, functions return `tuple[list[DimResult], bool]`. If the `bool` flag (`_crg_overrides_applied`) is `True`, the overall composite score is dynamically recomputed via weighted-average.
+4. Applies framework overrides (traceability/CRG). Override helpers return `tuple[list[DimResult], bool]`; when the `bool` is `True`, caller sets the local `_crg_overrides_applied` flag. When that flag is `True`, the overall composite score is dynamically recomputed via weighted-average from the corrected dims rather than using the agent-reported value.
 5. `self._effort.record(EffortRecord(phase, gate_num, "GATE", "gate_finalize", ...))`
 6. `self._log.write(DecisionLogEntry(... decision="GATE_PASS"|"GATE_BLOCK" ...))`
 7. **Blocking logic**:
