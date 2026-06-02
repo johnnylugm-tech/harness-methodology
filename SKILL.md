@@ -238,7 +238,7 @@ Dynamic plans contain `Mode: Dynamic` in the header.
 | HR-13 | Phase execution > 3× estimate triggers PAUSE | — |
 | HR-14 | Integrity < 40 triggers FREEZE | — |
 | HR-15 | citations must include line numbers + artifact_verification | -15 |
-| HR-16 | trace dimension (4a=100% over IN_PROGRESS+VERIFIED FRs at G2/G3/G4) must pass; manual override requires explicit `gate_score_overrides` entry in `quality_manifest.json` | Terminate |
+| HR-16 | trace dimension (4a=100% over IN_PROGRESS+VERIFIED FRs at G2/G3/G4) must pass. `gate_score_overrides` is a **threshold floor** (raises, not lowers) per `sab_parser.derive_gate_score_overrides` — it cannot bypass a failing trace dim. The only remediation paths are: (a) fix the underlying code/FRs to reach 100%, (b) accept the gate block and re-architect, or (c) escalate to human. There is no automated override. | Terminate |
 
 ---
 
