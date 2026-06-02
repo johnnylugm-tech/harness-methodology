@@ -10,6 +10,53 @@ from unittest.mock import MagicMock, patch
 import unittest.mock
 
 from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
+import json
+
+class TestLoadThreshold:
+    def test_default_threshold_when_no_config(self, tmp_path):
+        v = PhaseTruthVerifier(str(tmp_path), 1)
+        assert v.threshold == 90.0
+
+    def test_threshold_from_config(self, tmp_path):
+        cfg_dir = tmp_path / ".methodology"
+        cfg_dir.mkdir(exist_ok=True)
+        cfg_file = cfg_dir / "enforcement.json"
+        cfg_file.write_text(json.dumps({"hr_overrides": {"HR-11_phase_truth_threshold": 95.5}}), encoding="utf-8")
+        v = PhaseTruthVerifier(str(tmp_path), 1)
+        assert v.threshold == 95.5
+
+    def test_threshold_none_in_config_uses_default(self, tmp_path):
+        cfg_dir = tmp_path / ".methodology"
+        cfg_dir.mkdir(exist_ok=True)
+        cfg_file = cfg_dir / "enforcement.json"
+        cfg_file.write_text(json.dumps({"hr_overrides": {"HR-11_phase_truth_threshold": None}}), encoding="utf-8")
+        v = PhaseTruthVerifier(str(tmp_path), 1)
+        assert v.threshold == 90.0
+
+    def test_override_threshold_via_init(self, tmp_path):
+        v = PhaseTruthVerifier(str(tmp_path), 1, threshold=85.0)
+        assert v.threshold == 85.0
+
+    def test_pytest_timeout_config(self, tmp_path):
+        cfg_dir = tmp_path / ".methodology"
+        cfg_dir.mkdir(exist_ok=True)
+        cfg_file = cfg_dir / "enforcement.json"
+        cfg_file.write_text(json.dumps({"phase_truth": {"pytest_timeout_seconds": 60}}), encoding="utf-8")
+        v = PhaseTruthVerifier(str(tmp_path), 1)
+        assert v._get_pytest_timeout() == 60
+
+    def test_pytest_timeout_default(self, tmp_path):
+        v = PhaseTruthVerifier(str(tmp_path), 1)
+        assert v._get_pytest_timeout() == 300
+
+    def test_pytest_timeout_floor(self, tmp_path):
+        cfg_dir = tmp_path / ".methodology"
+        cfg_dir.mkdir(exist_ok=True)
+        cfg_file = cfg_dir / "enforcement.json"
+        cfg_file.write_text(json.dumps({"phase_truth": {"pytest_timeout_seconds": 10}}), encoding="utf-8")
+        v = PhaseTruthVerifier(str(tmp_path), 1)
+        # Should floor at 30
+        assert v._get_pytest_timeout() == 30
 
 
 
@@ -88,7 +135,18 @@ class TestCheckCoverage:
         )
         passed, score, details = PhaseTruthVerifier(str(tmp_path), 3).check_coverage()
         assert passed is True
+        assert score == 80.0
         assert "80%" in details
+
+    @patch("subprocess.run")
+    def test_parses_fallback_coverage_line(self, mock_run, tmp_path):
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="some other output coverage: 75% end", stderr=""
+        )
+        passed, score, details = PhaseTruthVerifier(str(tmp_path), 3).check_coverage()
+        assert passed is True
+        assert score == 75.0
+        assert "75%" in details
 
     @patch("subprocess.run")
     def test_below_threshold_fails(self, mock_run, tmp_path):
@@ -97,18 +155,20 @@ class TestCheckCoverage:
         )
         passed, score, _ = PhaseTruthVerifier(str(tmp_path), 3).check_coverage()
         assert passed is False
+        assert score == 20.0
 
     @patch("subprocess.run")
     def test_no_coverage_output(self, mock_run, tmp_path):
         mock_run.return_value = MagicMock(returncode=0, stdout="no match", stderr="")
         passed, score, _ = PhaseTruthVerifier(str(tmp_path), 3).check_coverage()
         assert passed is False
-        assert score == 0
+        assert score == 0.0
 
     @patch("subprocess.run", side_effect=FileNotFoundError)
     def test_coverage_not_found(self, _, tmp_path):
-        passed, _, details = PhaseTruthVerifier(str(tmp_path), 3).check_coverage()
+        passed, score, details = PhaseTruthVerifier(str(tmp_path), 3).check_coverage()
         assert passed is False
+        assert score == 0.0
 
     def test_verify_method(self, tmp_path):
         v = PhaseTruthVerifier(str(tmp_path), 3)
@@ -164,13 +224,50 @@ class TestCheckSessionLog:
         assert score == 0.0
         assert "empty" in msg
 
-    def test_malformed_jsonl(self, tmp_path):
+    def test_malformed_jsonl_exactly_half(self, tmp_path):
         (tmp_path / ".methodology").mkdir(exist_ok=True)
         (tmp_path / ".methodology" / "sessions_spawn.log").write_text('{"a": 1}\nnot json\n')
-        v = PhaseTruthVerifier(str(tmp_path), 1)
+        v = PhaseTruthVerifier(str(tmp_path), 3) # phase 3 has no AB check
         passed, score, msg = v.check_session_log()
         assert not passed
         assert score == 0.0
         assert "malformed" in msg
+
+    def test_malformed_jsonl_below_half_passes(self, tmp_path):
+        (tmp_path / ".methodology").mkdir(exist_ok=True)
+        # 2 valid, 1 invalid = 0.33 malformed
+        (tmp_path / ".methodology" / "sessions_spawn.log").write_text('{"a": 1}\n{"b": 2}\nnot json\n')
+        v = PhaseTruthVerifier(str(tmp_path), 3)
+        passed, score, msg = v.check_session_log()
+        assert passed is True
+        assert score == 100.0
+
+    def test_ab_reviewer_missing_fails(self, tmp_path):
+        (tmp_path / ".methodology").mkdir(exist_ok=True)
+        # 1 FR, only developer
+        (tmp_path / ".methodology" / "sessions_spawn.log").write_text('{"fr_id": "FR-1", "role": "developer"}\n')
+        v = PhaseTruthVerifier(str(tmp_path), 1)
+        passed, score, msg = v.check_session_log()
+        assert not passed
+        assert score == 50.0
+        assert "A/B reviewer missing" in msg
+
+    def test_ab_reviewer_present_passes(self, tmp_path):
+        (tmp_path / ".methodology").mkdir(exist_ok=True)
+        # 1 FR, both dev and reviewer
+        (tmp_path / ".methodology" / "sessions_spawn.log").write_text('{"fr_id": "FR-1", "role": "developer"}\n{"fr_id": "FR-1", "role": "reviewer"}\n')
+        v = PhaseTruthVerifier(str(tmp_path), 1)
+        passed, score, msg = v.check_session_log()
+        assert passed is True
+        assert score == 100.0
+
+    def test_ab_reviewer_ignored_in_other_phases(self, tmp_path):
+        (tmp_path / ".methodology").mkdir(exist_ok=True)
+        # 1 FR, only developer, but phase 3 ignores AB
+        (tmp_path / ".methodology" / "sessions_spawn.log").write_text('{"fr_id": "FR-1", "role": "developer"}\n')
+        v = PhaseTruthVerifier(str(tmp_path), 3)
+        passed, score, msg = v.check_session_log()
+        assert passed is True
+        assert score == 100.0
 
 pytestmark = pytest.mark.gate
