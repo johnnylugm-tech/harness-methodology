@@ -2437,7 +2437,11 @@ def _finalize_gate_cross_checks(args: argparse.Namespace, project_path: Path) ->
     # I-5: D4 Spec Coverage (Gates 2-4, unified v2.6)
     # Thresholds: Gate2=60%, Gate3=80%, Gate4=90%.
     if args.gate >= 2 and (project_path / "02-architecture" / "TEST_SPEC.md").exists():
-        _sc_threshold = {2: 60.0, 3: 80.0, 4: 90.0}.get(args.gate, 60.0)
+        # F-2.4 fix: source the threshold from the canonical constant
+        # in `spec_tracking_checker` to prevent silent divergence if
+        # either side is updated independently.
+        from core.quality_gate.spec_tracking_checker import SPEC_COV_THRESHOLDS
+        _sc_threshold = SPEC_COV_THRESHOLDS.get(args.gate, 60.0)
         _sc_code, _sc_pct = _run_spec_coverage_check(
             project_path, _sc_threshold, verbose=True
         )

@@ -197,6 +197,7 @@ def check_traceability(
     sad_frs: List[str] = scan["sad_frs"]  # type: ignore[assignment]
     fr_to_code: Dict[str, List[str]] = scan["fr_to_code"]  # type: ignore[assignment]
     fr_to_tests: Dict[str, List[str]] = scan["fr_to_tests"]  # type: ignore[assignment]
+    fr_to_modules: Dict[str, List[str]] = scan["fr_to_modules"]  # type: ignore[assignment]
     all_frs: List[str] = scan["all_frs"]  # type: ignore[assignment]
     ghost_frs: List[str] = scan["ghost_frs"]  # type: ignore[assignment]
 
@@ -209,9 +210,18 @@ def check_traceability(
     for fr_id in all_frs:
         has_code = fr_id in coded
         has_test = fr_id in tested
+        # F-2.2 fix: align with build_traceability — `has_module` (SAD
+        # table row mapping) is sufficient to mark an FR IN_PROGRESS.
+        # Without this, an FR with only a module-table entry falls
+        # through to PENDING here, but build_traceability marks it
+        # IN_PROGRESS, causing the two reports to disagree on the
+        # active FR denominator. The 4a pct computation (which uses
+        # the scanner's status filter) then drops the FR from the
+        # denominator entirely, masking the gap.
+        has_module = fr_id in fr_to_modules
         if has_code and has_test:
             status = TraceStatus.VERIFIED
-        elif has_code:
+        elif has_code or has_module:
             status = TraceStatus.IN_PROGRESS
         elif fr_id in sad_frs:
             status = TraceStatus.PENDING

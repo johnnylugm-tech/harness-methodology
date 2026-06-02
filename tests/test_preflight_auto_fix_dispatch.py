@@ -71,6 +71,64 @@ def test_dispatch_returns_false_on_engine_exception(fixture_repo):
     assert result is False
 
 
+def test_dispatch_returns_false_on_fixresult_success_false(fixture_repo):
+    """PR 9 audit F-4.1: FixResult(success=False) must NOT be truthy-passed.
+
+    The old dispatch did `bool(result)` on a dataclass, which is always
+    True. The fix uses `result.success` explicitly. This test uses a
+    real-shaped FixResult (with named attributes, not a tuple) to
+    catch the regression.
+    """
+    _, dispatch = _phase_hooks(fixture_repo, phase=5)
+    # Simulate a real FixResult-style object with success=False
+    from types import SimpleNamespace
+    fake_result = SimpleNamespace(
+        success=False, action_taken="escalated", error="exhausted",
+    )
+    fake_engine = MagicMock()
+    fake_engine.fix.return_value = fake_result
+    with patch("core.auto_fix.AutoFixEngine", return_value=fake_engine):
+        result = dispatch(fixture_repo, untested=["FR-99"], uncoded=[])
+    assert result is False, "FixResult(success=False) must NOT truthy-pass"
+
+
+def test_dispatch_returns_true_on_fixresult_success_true(fixture_repo):
+    """FixResult(success=True) → returns True."""
+    _, dispatch = _phase_hooks(fixture_repo, phase=5)
+    from types import SimpleNamespace
+    fake_result = SimpleNamespace(
+        success=True, action_taken="Auto-fixed: 1 stub", error=None,
+    )
+    fake_engine = MagicMock()
+    fake_engine.fix.return_value = fake_result
+    with patch("core.auto_fix.AutoFixEngine", return_value=fake_engine):
+        result = dispatch(fixture_repo, untested=["FR-99"], uncoded=[])
+    assert result is True
+
+
+def test_dispatch_uses_success_field_not_truthiness(fixture_repo):
+    """Regression test for F-4.1: a FixResult with success=False
+    but other attributes set (which would make any truthy attribute
+    return True for the old code) must still report False."""
+    _, dispatch = _phase_hooks(fixture_repo, phase=5)
+    from types import SimpleNamespace
+    # Pre-fix code: bool(this) → True because SimpleNamespace with
+    # any attributes is truthy. The fix: dispatch uses .success, which
+    # is False, so dispatch returns False.
+    fake_result = SimpleNamespace(
+        success=False,
+        strategy="fix_missing_traceability",
+        problem_type="missing_traceability",
+        action_taken="exhausted 5 rounds",
+        error="could not converge",
+    )
+    fake_engine = MagicMock()
+    fake_engine.fix.return_value = fake_result
+    with patch("core.auto_fix.AutoFixEngine", return_value=fake_engine):
+        result = dispatch(fixture_repo, untested=["FR-99"], uncoded=[])
+    assert result is False, "must use result.success, not bool(result)"
+
+
 def test_dispatch_returns_true_on_fix_success(fixture_repo):
     """Successful fix → returns True (caller re-verifies)."""
     _, dispatch = _phase_hooks(fixture_repo, phase=5)

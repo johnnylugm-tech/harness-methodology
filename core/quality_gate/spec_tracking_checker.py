@@ -277,9 +277,14 @@ def compute_trace_dimension(project, gate: int) -> dict:
             # No active FRs → 4a is vacuously 100%.
             pct_4a = 100.0
         else:
-            complete = (total_active - len(active_uncoded)
-                        - len(active_untested))
-            pct_4a = round(complete / total_active * 100, 2)
+            # F-2.1 fix: an FR with `has_module` (SAD table mapping) but no
+            # actual code/test appears in BOTH `fr_without_code` and
+            # `fr_without_test`. Subtracting both counts double-counts
+            # the same FR. Use the set union (incomplete-FR set) so
+            # each incomplete FR is counted once.
+            incomplete = active_uncoded | active_untested
+            complete = total_active - len(incomplete)
+            pct_4a = round(max(0, complete) / total_active * 100, 2)
         result["4a_fr_to_test_pct"] = pct_4a
         result["active_uncoded"] = sorted(active_uncoded)
         result["active_untested"] = sorted(active_untested)

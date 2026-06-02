@@ -36,7 +36,7 @@ class KillSwitchBlockedError(RuntimeError):
 # preflight_constitution() to avoid a heavy import at module load time.
 
 
-def _dispatch_trace_auto_fix(project_path, untested, uncoded) -> bool:
+def _dispatch_trace_auto_fix(project_path, untested, uncoded, phase=None) -> bool:
     """PR 9: dispatch one bounded auto-fix attempt for missing traceability.
 
     Returns True if the fix closed the gap (caller should re-verify);
@@ -47,6 +47,10 @@ def _dispatch_trace_auto_fix(project_path, untested, uncoded) -> bool:
     `fix_missing_traceability` (problem_type='missing_traceability') is
     the only strategy that actually re-derives and re-verifies. Other
     strategies still emit stubs and are not invoked by this path.
+
+    F-2.6 fix: `phase` defaults to None (caller passes the real phase
+    when available). Currently `fix_missing_traceability` doesn't
+    consume the phase, but new strategies may.
     """
     try:
         from core.auto_fix import AutoFixEngine, FixContext
@@ -54,17 +58,18 @@ def _dispatch_trace_auto_fix(project_path, untested, uncoded) -> bool:
         print(f"   [auto-fix] engine import failed: {e}", file=sys.stderr)
         return False
 
+    actual_phase = phase if phase is not None else 1
     try:
         engine = AutoFixEngine(
             project_root=project_path,
-            phase=1,
+            phase=actual_phase,
             max_rounds=1,
         )
         ctx = FixContext(
             source="phase_hooks/preflight_traceability",
             problem_type="missing_traceability",
             severity="high",
-            phase=1,
+            phase=actual_phase,
             project_root=project_path,
             details={
                 "max_rounds": 1,
@@ -73,8 +78,19 @@ def _dispatch_trace_auto_fix(project_path, untested, uncoded) -> bool:
             },
         )
         result = engine.fix(ctx)
-        ok = bool(result and result[0]) if isinstance(result, tuple) else bool(result)
-        msg = result[1] if isinstance(result, tuple) and len(result) > 1 else ""
+        # CRITICAL FIX (audit F-4.1): engine.fix returns FixResult (a
+        # dataclass). `bool(FixResult(success=False, ...))` is True
+        # because dataclasses are truthy by default. The previous
+        # `isinstance(result, tuple)` branch was dead for FixResult
+        # returns and unblocked the gate even on failure/escalation.
+        # Use the structured `success` field instead.
+        if isinstance(result, tuple):  # pragma: no cover (legacy path)
+            ok = bool(result and result[0])
+            msg = result[1] if len(result) > 1 else ""
+        else:
+            ok = bool(getattr(result, "success", False))
+            msg = (getattr(result, "action_taken", "")
+                   or getattr(result, "error", ""))
         print(f"   [auto-fix] round 1: {msg or ('passed' if ok else 'failed')}")
         return ok
     except Exception as e:
@@ -405,6 +421,7 @@ class PhaseHooks:
         if blocking and not passed and (untested_list or uncoded_list):
             _fixed = _dispatch_trace_auto_fix(
                 self.project_path, untested_list, uncoded_list,
+                phase=self.phase,
             )
             if _fixed:
                 try:
@@ -415,6 +432,23 @@ class PhaseHooks:
                     if not still_untested and not still_uncoded:
                         passed = True
                         print("   [auto-fix] re-verify: all gaps closed")
+                        # F-2.5 fix: auto-fix modified the source tree, so
+                        # attestation.json is now stale. Re-derive and
+                        # write it in-place so the next verify-trace
+                        # call (or CI step) doesn't fire on a phantom
+                        # mismatch. Developer still needs to `make attest`
+                        # (which stages) — this only refreshes the
+                        # canonical file.
+                        try:
+                            from scripts.build_trace_attestation import (
+                                build_attestation, write_attestation,
+                            )
+                            _att = build_attestation(self.project_path)
+                            write_attestation(self.project_path, _att)
+                            print("   [auto-fix] attestation.json refreshed")
+                        except Exception as _att_err:
+                            print(f"   [auto-fix] attestation refresh failed: {_att_err}",
+                                  file=sys.stderr)
                     else:
                         print(f"   [auto-fix] re-verify: {len(still_untested)} "
                               f"untested, {len(still_uncoded)} uncoded remain")
