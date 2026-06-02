@@ -100,7 +100,7 @@ _GATE_DIMENSION_STANDARD: dict[str, float] = {
     "secrets_scanning": 100, "license_compliance": 100, "mutation_testing": 70,
     "architecture": 80, "readability": 80, "error_handling": 80,
     "documentation": 75, "performance": 75, "integration_coverage": 75,
-    "test_assertion_quality": 70,
+    "test_assertion_quality": 70, "traceability": 100,
 }
 
 # Only an explicit "at least N" target (≥N / >=N) is read as a dimension-score floor.
