@@ -24,7 +24,7 @@ def test_makefile_attest_target_in_phony():
     makefile = Path(__file__).resolve().parent.parent / "Makefile"
     text = makefile.read_text(encoding="utf-8")
     # `.PHONY: ... attest ...` — locate the .PHONY line and confirm attest is there
-    phony_line = next((l for l in text.splitlines() if l.startswith(".PHONY:")), None)
+    phony_line = next((line for line in text.splitlines() if line.startswith(".PHONY:")), None)
     assert phony_line is not None, "Makefile must have a .PHONY line"
     assert "attest" in phony_line, f"attest must be in .PHONY; got: {phony_line}"
 

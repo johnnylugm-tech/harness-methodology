@@ -25,7 +25,7 @@ def test_makefile_has_setup_target():
 def test_makefile_setup_targets_in_phony():
     makefile = Path(__file__).resolve().parent.parent / "Makefile"
     text = makefile.read_text(encoding="utf-8")
-    phony_line = next((l for l in text.splitlines() if l.startswith(".PHONY:")), None)
+    phony_line = next((line for line in text.splitlines() if line.startswith(".PHONY:")), None)
     assert phony_line is not None
     assert "setup-hooks" in phony_line, f"setup-hooks must be in .PHONY; got: {phony_line}"
     assert "setup" in phony_line, f"setup must be in .PHONY; got: {phony_line}"
