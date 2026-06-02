@@ -50,6 +50,44 @@ class TestPolicyEngine:
     def test_init_has_default_policies(self):
         engine = PolicyEngine()
         assert len(engine.policies) >= 6
+        policies = {p.id: p for p in engine.policies}
+        
+        # Test exact attributes for "commit-has-task-id"
+        p1 = policies["commit-has-task-id"]
+        assert p1.enforcement == EnforcementLevel.BLOCK
+        assert p1.severity == "critical"
+        assert p1.metadata.get("problem_type") == "missing_commit_task_id"
+        
+        # Test "no-bypass-commands"
+        p2 = policies["no-bypass-commands"]
+        assert p2.enforcement == EnforcementLevel.BLOCK
+        assert p2.severity == "critical"
+        assert p2.metadata.get("problem_type") == "hard_rule_violation"
+        
+        # Test "test-coverage-80"
+        p3 = policies["test-coverage-80"]
+        assert p3.enforcement == EnforcementLevel.BLOCK
+        assert p3.severity == "high"
+        assert p3.metadata.get("problem_type") == "low_coverage"
+        
+        # Test "quality-gate-90"
+        p4 = policies["quality-gate-90"]
+        assert p4.enforcement == EnforcementLevel.BLOCK
+        assert p4.severity == "critical"
+        assert p4.metadata.get("problem_type") == "low_constitution_score"
+        
+        # Test "security-score-95"
+        p5 = policies["security-score-95"]
+        assert p5.enforcement == EnforcementLevel.BLOCK
+        assert p5.severity == "high"
+        assert p5.metadata.get("problem_type") == "low_constitution_score"
+        
+        # Test "aspice-docs-required"
+        p6 = policies["aspice-docs-required"]
+        assert p6.enforcement == EnforcementLevel.BLOCK
+        assert p6.severity == "critical"
+        assert p6.metadata.get("category") == "documentation"
+        assert p6.metadata.get("problem_type") == "missing_aspice_docs"
 
     def test_add_policy(self):
         engine = PolicyEngine()
@@ -168,6 +206,32 @@ class TestPolicyEngine:
             mp.chdir("/tmp")
         engine = PolicyEngine()
         assert engine._check_quality_score() is True
+
+    def test_check_test_coverage_success(self, tmp_path):
+        engine = PolicyEngine()
+        coverage_dir = tmp_path / ".methodology"
+        coverage_dir.mkdir(parents=True, exist_ok=True)
+        (coverage_dir / ".coverage").write_text("80.0", encoding="utf-8")
+        
+        with pytest.MonkeyPatch.context() as mp:
+            mp.chdir(str(tmp_path))
+            assert engine._check_test_coverage() is True
+            
+            (coverage_dir / ".coverage").write_text("75.0", encoding="utf-8")
+            assert engine._check_test_coverage() is False
+
+    def test_check_quality_score_success(self, tmp_path):
+        engine = PolicyEngine()
+        score_file = tmp_path / ".methodology" / ".quality_score"
+        score_file.parent.mkdir(parents=True, exist_ok=True)
+        score_file.write_text('90.0', encoding="utf-8")
+        
+        with pytest.MonkeyPatch.context() as mp:
+            mp.chdir(str(tmp_path))
+            assert engine._check_quality_score() is True
+            
+            score_file.write_text('85.0', encoding="utf-8")
+            assert engine._check_quality_score() is False
 
 
 class TestPolicyViolationException:

@@ -90,6 +90,12 @@ class TestLLMJudgeScorer:
         s = self._scorer()
         s.score(_OUT_A, _OUT_B)
         assert s.provider.chat.call_count == 1
+        call_args = s.provider.chat.call_args[0][0]
+        assert isinstance(call_args, list)
+        assert len(call_args) == 1
+        assert call_args[0]["role"] == "user"
+        assert "Output A" in call_args[0]["content"]
+        assert "Output B" in call_args[0]["content"]
 
     def test_score_invalid_json_returns_fallback(self):
         from steering.steering_loop import LLMJudgeScorer
@@ -97,8 +103,9 @@ class TestLLMJudgeScorer:
         p.chat.return_value = "not-json"
         s = LLMJudgeScorer(p)
         result = s.score(_OUT_A, _OUT_B)
-        assert result["A"]["correctness"] == 0.5
-        assert result["B"]["correctness"] == 0.5
+        expected = {"correctness": 0.5, "completeness": 0.5, "consistency": 0.5, "concision": 0.5, "maintainability": 0.5}
+        assert result["A"] == expected
+        assert result["B"] == expected
 
     def test_score_missing_keys_returns_fallback(self):
         from steering.steering_loop import LLMJudgeScorer
@@ -106,7 +113,9 @@ class TestLLMJudgeScorer:
         p.chat.return_value = json.dumps({"X": {}})   # no A/B
         s = LLMJudgeScorer(p)
         result = s.score(_OUT_A, _OUT_B)
-        assert result["A"]["correctness"] == 0.5
+        expected = {"correctness": 0.5, "completeness": 0.5, "consistency": 0.5, "concision": 0.5, "maintainability": 0.5}
+        assert result["A"] == expected
+        assert result["B"] == expected
 
     def test_score_provider_exception_returns_fallback(self):
         from steering.steering_loop import LLMJudgeScorer
@@ -114,7 +123,9 @@ class TestLLMJudgeScorer:
         p.chat.side_effect = RuntimeError("timeout")
         s = LLMJudgeScorer(p)
         result = s.score(_OUT_A, _OUT_B)
-        assert result["A"]["completeness"] == 0.5
+        expected = {"correctness": 0.5, "completeness": 0.5, "consistency": 0.5, "concision": 0.5, "maintainability": 0.5}
+        assert result["A"] == expected
+        assert result["B"] == expected
 
     def test_generate_feedback_contains_direction(self):
         s = self._scorer()
@@ -127,6 +138,13 @@ class TestLLMJudgeScorer:
         fb = s.generate_feedback(_OUT_A, _OUT_B,
                                  _SCORES_B_HIGH["A"], _SCORES_B_HIGH["B"], "B")
         assert fb["direction"] == "prefer_B"
+        
+        # Verify the mock payload
+        call_args = s.provider.chat.call_args[0][0]
+        assert call_args[0]["role"] == "user"
+        content = call_args[0]["content"]
+        assert "B's output lead" in content
+        assert "A's output need" in content
 
     def test_generate_feedback_no_significant_diffs_skips_prompt_diff(self):
         """When all deltas <= 0.1, diffs dict is empty but still calls provider."""
@@ -142,7 +160,12 @@ class TestLLMJudgeScorer:
         s = LLMJudgeScorer(p)
         fb = s.generate_feedback(_OUT_A, _OUT_B,
                                  _SCORES_A_HIGH["A"], _SCORES_A_HIGH["B"], "A")
-        assert "Manual review required" in fb["loser_improvements"]
+        assert fb == {
+            "direction": "prefer_A",
+            "winner_advantages": [],
+            "loser_improvements": ["Manual review required"],
+            "actionable_guidance": "Request human judge intervention"
+        }
 
     def test_extract_text_str(self):
         from steering.steering_loop import LLMJudgeScorer
@@ -164,6 +187,93 @@ class TestLLMJudgeScorer:
         s = LLMJudgeScorer(MagicMock())
         result = s._extract_text({"other": "val"})
         assert "other" in result
+
+
+class TestScoreWithCriticDebate:
+
+    def _scorer(self, *responses):
+        from steering.steering_loop import LLMJudgeScorer
+        p = MagicMock()
+        p.chat.side_effect = responses
+        return LLMJudgeScorer(p)
+
+    def test_score_success(self):
+        s = self._scorer(
+            json.dumps({"A_gaps": ["gap A"], "B_gaps": ["gap B"]}),  # Critic
+            "A defends",  # A defense
+            "B defends",  # B defense
+            json.dumps({"A": {"correctness": 0.8}, "B": {"correctness": 0.6}, "reason": "ok"})  # Decider
+        )
+        res = s.score_with_critic_debate({"text": "out A"}, {"text": "out B"})
+        assert "A" in res and "B" in res
+        assert s.provider.chat.call_count == 4
+        
+        # Verify critic prompt
+        critic_args = s.provider.chat.call_args_list[0][0][0]
+        assert "out A" in critic_args[0]["content"]
+        assert "gap 1" in critic_args[0]["content"]  # checking instruction string
+
+        # Verify decider prompt
+        decider_args = s.provider.chat.call_args_list[3][0][0]
+        assert "gap A" in decider_args[0]["content"]
+        assert "A defends" in decider_args[0]["content"]
+
+    def test_critic_json_failure_uses_fallback_gaps(self):
+        s = self._scorer(
+            "not json",  # Critic fails
+            "A defends",
+            "B defends",
+            json.dumps({"A": {"correctness": 0.8}, "B": {"correctness": 0.6}})
+        )
+        res = s.score_with_critic_debate("out A", "out B")
+        assert "A" in res
+        # Fallback gaps injected into decider
+        decider_args = s.provider.chat.call_args_list[3][0][0]
+        assert "Failed to extract gaps" in decider_args[0]["content"]
+
+    def test_defense_failure_uses_fallback_defense(self):
+        s = self._scorer(
+            json.dumps({"A_gaps": [], "B_gaps": []}),
+            RuntimeError("A fail"),
+            RuntimeError("B fail"),
+            json.dumps({"A": {"correctness": 0.8}, "B": {"correctness": 0.6}})
+        )
+        res = s.score_with_critic_debate("out A", "out B")
+        assert "A" in res
+        decider_args = s.provider.chat.call_args_list[3][0][0]
+        assert "Implicitly acceptable implementation." in decider_args[0]["content"]
+
+    def test_decider_failure_falls_back_to_normal_score(self):
+        # We need normal score to succeed
+        s = self._scorer(
+            json.dumps({"A_gaps": [], "B_gaps": []}),
+            "A defends",
+            "B defends",
+            "not json",  # Decider fails
+            json.dumps({"A": {"correctness": 0.9}, "B": {"correctness": 0.1}})  # Normal score fallback
+        )
+        res = s.score_with_critic_debate("out A", "out B")
+        assert res["A"]["correctness"] == 0.9
+        assert s.provider.chat.call_count == 5
+
+    def test_runtime_trace_injection(self, tmp_path):
+        import json
+        with pytest.MonkeyPatch.context() as mp:
+            mp.chdir(str(tmp_path))
+            trace_dir = tmp_path / ".methodology"
+            trace_dir.mkdir()
+            trace_file = trace_dir / "runtime_trace.json"
+            trace_file.write_text("TRACE_CONTENT")
+            
+            s = self._scorer(
+                json.dumps({"A_gaps": [], "B_gaps": []}),
+                "A", "B", json.dumps({"A": {}, "B": {}})
+            )
+            s.score_with_critic_debate("A", "B")
+            
+            critic_args = s.provider.chat.call_args_list[0][0][0]
+            assert "TRACE_CONTENT" in critic_args[0]["content"]
+            assert not trace_file.exists()  # Ensure consume-once unlink
 
 
 # ─── SteeringConfig ────────────────────────────────────────────────────────────
@@ -224,6 +334,13 @@ class TestComputeWeightedScore:
 
 
 # ─── SteeringLoop._update_stage ───────────────────────────────────────────────
+
+class TestIterationStage:
+    def test_values(self):
+        from steering.steering_loop import IterationStage
+        assert IterationStage.EXPLORATION.value == "exploration"
+        assert IterationStage.COMPETITION.value == "competition"
+        assert IterationStage.CONVERGENCE.value == "convergence"
 
 class TestUpdateStage:
 

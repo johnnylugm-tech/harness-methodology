@@ -376,9 +376,23 @@ class TestLevenshtein:
         from gap_detector.detector import _levenshtein_distance
         assert _levenshtein_distance("abc", "") == 3
 
+    def test_one_char(self):
+        from gap_detector.detector import _levenshtein_distance
+        assert _levenshtein_distance("a", "b") == 1
+        assert _levenshtein_distance("ab", "c") == 2
+        assert _levenshtein_distance("abc", "a") == 2
+        assert _levenshtein_distance("a", "abc") == 2
+
     def test_single_substitution(self):
         from gap_detector.detector import _levenshtein_distance
         assert _levenshtein_distance("abc", "axc") == 1
+        
+    def test_complex_mutations(self):
+        from gap_detector.detector import _levenshtein_distance
+        assert _levenshtein_distance("kitten", "sitting") == 3
+        assert _levenshtein_distance("flaw", "lawn") == 2
+        assert _levenshtein_distance("intention", "execution") == 5
+        assert _levenshtein_distance("xabxcdxxefxgx", "1ab2cd34ef5g6") == 6
 
     def test_transposition(self):
         from gap_detector.detector import _levenshtein_distance
@@ -460,8 +474,10 @@ class TestGapDetector:
         detector = GapDetector(spec, code)
         detector.detect()
         s = detector.get_summary()
-        assert s.missing >= 1
-        assert s.total_gaps == s.missing + s.incomplete + s.orphaned
+        assert s.missing == 1
+        assert s.incomplete == 1
+        assert s.orphaned == 0
+        assert s.total_gaps == 2
 
     def test_get_summary_calls_detect_if_not_run(self):
         from gap_detector.detector import GapDetector
