@@ -46,6 +46,29 @@ class TestBehavioralInvariant:
         assert bi.source == "HR-03"
 
 
+class TestInvariantRules:
+    """Test the specific rules from constitution to kill mutants."""
+
+    def test_hr03_phase_execution_order(self):
+        from constitution.invariant_engine import InvariantEngine
+        engine = InvariantEngine.from_constitution_rules()
+        hr03 = next(i for i in engine.invariants if i.source == "HR-03")
+        
+        # log.get("phase", 1) <= ctx.get("max_allowed_phase", 999) boundary tests
+        
+        # Exact boundary: phase == max_allowed_phase (Should PASS)
+        assert hr03.check_func({"status": "completed", "phase": 2}, {"max_allowed_phase": 2}) is True
+        
+        # Exceeds boundary: phase > max_allowed_phase (Should FAIL)
+        assert hr03.check_func({"status": "completed", "phase": 3}, {"max_allowed_phase": 2}) is False
+        
+        # Defaults: log.get("phase", 1) and ctx.get("max_allowed_phase", 999)
+        assert hr03.check_func({"status": "completed"}, {}) is True  # 1 <= 999
+        
+        # unable_to_proceed escapes the phase check
+        assert hr03.check_func({"status": "unable_to_proceed", "phase": 5}, {"max_allowed_phase": 2}) is True
+
+
 class TestInvariantViolation:
     def test_default_evidence(self):
         v = InvariantViolation(

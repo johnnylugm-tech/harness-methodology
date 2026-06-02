@@ -189,10 +189,23 @@ class TestCircuitBreaker:
         metrics = HealthMetrics("a1", error_rate=0.10, latency_p99_ms=100.0,
                                 memory_usage_percent=50.0, output_rate_kbps=10.0,
                                 last_health_check=now, timestamp=now)
-        config = MonitorConfig("a1", error_rate_threshold=0.10)
+        config = MonitorConfig("a1", error_rate_threshold=0.10, latency_p99_threshold_ms=100.0,
+                               memory_usage_threshold=50.0, output_rate_threshold_kbps=10.0)
         assert cb.should_trigger("a1", metrics, config) is False  # Must strictly exceed
         
         metrics.error_rate = 0.10001
+        assert cb.should_trigger("a1", metrics, config) is True
+        
+        metrics.error_rate = 0.10
+        metrics.latency_p99_ms = 100.001
+        assert cb.should_trigger("a1", metrics, config) is True
+        
+        metrics.latency_p99_ms = 100.0
+        metrics.memory_usage_percent = 50.001
+        assert cb.should_trigger("a1", metrics, config) is True
+
+        metrics.memory_usage_percent = 50.0
+        metrics.output_rate_kbps = 10.001
         assert cb.should_trigger("a1", metrics, config) is True
 
     def test_should_trigger_latency(self):
@@ -601,6 +614,7 @@ class TestKillSwitchFacade:
     def test_evaluate_and_trigger_opens_circuit_on_threshold(self, tmp_path):
         from datetime import datetime, timezone
         from unittest.mock import patch
+        from kill_switch.enums import KillReason
         ks = self._ks(tmp_path)
         ks.start_monitoring("a1", MonitorConfig("a1", failure_threshold=1))
         ks.circuit_breaker.initialize_circuit("a1")
@@ -610,8 +624,15 @@ class TestKillSwitchFacade:
                               last_health_check=now, timestamp=now)
         with patch.object(ks.health_monitor, 'get_metrics', return_value=bad_m):
             with patch.object(ks.circuit_breaker, 'should_trigger', return_value=True):
-                result = ks.evaluate_and_trigger("a1", MonitorConfig("a1", failure_threshold=1))
+                with patch.object(ks.interrupt_engine, 'trigger_interrupt') as mock_trigger:
+                    result = ks.evaluate_and_trigger("a1", MonitorConfig("a1", failure_threshold=1))
         assert result is True
+        mock_trigger.assert_called_once()
+        args, kwargs = mock_trigger.call_args
+        assert kwargs["agent_id"] == "a1"
+        assert kwargs["triggered_by"] == "SYSTEM"
+        assert kwargs["reason_type"] == KillReason.ERROR_RATE_EXCEEDED
+        assert "Threshold exceeded" in kwargs["reason"]
 
     def test_start_monitoring_default_config(self, tmp_path):
         ks = self._ks(tmp_path)
@@ -635,6 +656,63 @@ class TestKillSwitchFacade:
                     result = ks.evaluate_and_trigger("a1", MonitorConfig("a1", failure_threshold=1))
         assert result is False
 
+
+# ===========================================================================
+# KillSwitch Extras
+# ===========================================================================
+
+class TestKillSwitchExtras:
+    def test_init_state_manager(self):
+        from kill_switch.kill_switch import KillSwitch
+        ks = KillSwitch()
+        assert ks.state_manager is not None
+        assert ks.health_monitor is not None
+        assert ks.circuit_breaker is not None
+        assert ks.interrupt_engine is not None
+
+    def test_start_monitoring_none_config(self, tmp_path):
+        from kill_switch.kill_switch import KillSwitch
+        ks = KillSwitch()
+        ks.start_monitoring("test-agent", None)
+        assert ks.health_monitor.is_monitoring("test-agent")
+        
+    def test_is_agent_circuit_open_state_manager_killed(self):
+        from kill_switch.kill_switch import KillSwitch
+        from kill_switch.enums import CircuitState
+        from kill_switch.models import CircuitBreakerState
+        ks = KillSwitch()
+        state = CircuitBreakerState(agent_id="test-agent", state=CircuitState.OPEN)
+        ks.state_manager.save_state("test-agent", state)
+        assert ks.is_agent_circuit_open("test-agent") is True
+
+    def test_re_enable_not_open(self):
+        from kill_switch.kill_switch import KillSwitch
+        ks = KillSwitch()
+        # Circuit not open, should return True immediately
+        assert ks.re_enable("test-agent", "op1", "ack") is True
+
+    def test_evaluate_and_trigger_get_metrics_fails(self):
+        from kill_switch.kill_switch import KillSwitch
+        from kill_switch.models import MonitorConfig
+        ks = KillSwitch()
+        # evaluate_and_trigger when get_metrics fails (e.g. not monitored)
+        assert ks.evaluate_and_trigger("test-agent", MonitorConfig("test-agent")) is False
+
+    def test_evaluate_and_trigger_record_failure_unregistered(self):
+        from kill_switch.kill_switch import KillSwitch
+        from kill_switch.models import MonitorConfig
+        from unittest.mock import patch
+        ks = KillSwitch()
+        ks.start_monitoring("test-agent")
+        # remove from circuit breaker to trigger AgentNotFoundError
+        ks.circuit_breaker._circuits.pop("test-agent", None)
+        # mock should_trigger to True
+        with patch.object(ks.circuit_breaker, 'should_trigger', return_value=True):
+            # record_failure should raise AgentNotFoundError, which is caught and skipped.
+            # But the failure count is checked. Since it's unregistered, get_failure_count raises AgentNotFoundError!
+            # Wait, get_failure_count will raise if not registered. Let's mock it.
+            with patch.object(ks.circuit_breaker, 'get_failure_count', return_value=0):
+                assert ks.evaluate_and_trigger("test-agent", MonitorConfig("test-agent")) is False
 
 # ===========================================================================
 # IssueTrackerExt
