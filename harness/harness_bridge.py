@@ -363,7 +363,12 @@ def _crg_enrich_gate_findings(
             except (OSError, json.JSONDecodeError):
                 pass
 
-    # ── 9. query_graph(tests_for) → test_coverage findings (hubs) ────
+    # ── 9. query_graph(tests_for) → test_coverage score override (Phase 2 gatekeeper) ──
+    # Fan_in ≥ 8 hubs with no TESTED_BY edge = confirmed structural blind spot.
+    # CRG MCP is a required install (same tier as ruff/mypy), so this score
+    # penalty is reliable. Penalty: 3 pts per untested critical hub, capped at 15.
+    # Falls back to advisory-only when CRG MCP is unavailable (crg._check_available()=False),
+    # which can only happen when harness runs as a bare subprocess outside Claude Code.
     high_hubs = [h.get("name") for h in hub_hubs if (h.get("fan_in") or 0) >= 8][:5]
     untested_hubs = []
     for fn_name in high_hubs:
@@ -373,16 +378,29 @@ def _crg_enrich_gate_findings(
         if not (res or {}).get("results"):
             untested_hubs.append(fn_name)
     if untested_hubs:
+        _hub_penalty = min(len(untested_hubs) * 3, 15)
+        _new_dims = []
         for _d in dims:
             if _d.name == "test_coverage":
                 _d.issues.append({
                     "severity": "high",
                     "message": (
-                        f"Hub functions with no test linkage: {len(untested_hubs)} found."
+                        f"Hub functions with no test linkage: {len(untested_hubs)} found. "
+                        f"Penalising test_coverage by {_hub_penalty} pts (Phase 2 gatekeeper)."
                     ),
                     "evidence": "; ".join(untested_hubs),
                     "source": "crg:query_graph(tests_for)",
                 })
+                _new_score = round(max(0.0, _d.score - _hub_penalty), 1)
+                print(
+                    f"[harness] CRG hub penalty test_coverage: {_d.score:.1f} → "
+                    f"{_new_score:.1f} "
+                    f"(-{_hub_penalty} for {len(untested_hubs)} untested critical hub(s))"
+                )
+                _new_dims.append(dataclasses.replace(_d, score=_new_score))
+            else:
+                _new_dims.append(_d)
+        dims = _new_dims
 
     return dims
 
@@ -1644,7 +1662,13 @@ class HarnessBridge:
             try:
                 run_independent_crg(ctx.project_root, ctx.work_dir)
                 _crg_m = json.loads(_crg_metrics_path.read_text(encoding="utf-8"))
-                _cohesion = (_crg_m.get("community_cohesion") or {}).get("score")
+                # Phase 1 gatekeeper: use architecture_score (cohesion − large_fn_penalty)
+                # if available; fall back to raw cohesion for backward compatibility with
+                # older crg_metrics.json that predate the large-function penalty field.
+                _arch_score = _crg_m.get("architecture_score")
+                if _arch_score is None:
+                    _arch_score = (_crg_m.get("community_cohesion") or {}).get("score")
+                _lf_penalty = _crg_m.get("large_functions_penalty", 0)
             except (CrgIndependentError, json.JSONDecodeError, OSError) as _crg_err:
                 raise GateBlockedError(
                     ctx.gate_num,
@@ -1655,17 +1679,23 @@ class HarnessBridge:
                     ),
                     details={"crg_independent_failed": [str(_crg_err)]},
                 ) from _crg_err
-            if _cohesion is not None:
+            if _arch_score is not None:
                 _new_dims = []
                 for _d in dims:
                     if _d.name == "architecture":
-                        if abs(_d.score - float(_cohesion)) > 1.5:
+                        _old = _d.score
+                        _new = float(_arch_score)
+                        if abs(_old - _new) > 1.5:
+                            _cohesion_raw = (_crg_m.get("community_cohesion") or {}).get("score", _new)
+                            _detail = f"community_cohesion={_cohesion_raw:.1f}"
+                            if _lf_penalty:
+                                _detail += f" − large_fn_penalty={_lf_penalty}"
                             print(
-                                f"[harness] CRG override architecture: {_d.score:.1f} → "
-                                f"{float(_cohesion):.1f} (framework-independent community_cohesion)"
+                                f"[harness] CRG override architecture: {_old:.1f} → "
+                                f"{_new:.1f} ({_detail})"
                             )
                             _crg_overrides_applied = True
-                        _new_dims.append(dataclasses.replace(_d, score=float(_cohesion)))
+                        _new_dims.append(dataclasses.replace(_d, score=_new))
                     else:
                         _new_dims.append(_d)
                 dims = _new_dims

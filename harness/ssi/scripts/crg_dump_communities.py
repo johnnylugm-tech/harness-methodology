@@ -1,20 +1,30 @@
 #!/usr/bin/env python3
-"""crg_dump_communities.py — dump CRG communities as JSON.
+"""crg_dump_communities.py — dump CRG structural metrics as JSON.
 
 Runs under the code-review-graph interpreter (the one with code_review_graph
 installed), NOT the harness interpreter. Invoked as a subprocess by
 harness/crg_independent.py against an already-built + post-processed graph.
 
 Emits to stdout:
-    {"communities": [{"name": str, "cohesion": float, "size": int}, ...]}
+    {
+      "communities": [{"name": str, "cohesion": float, "size": int}, ...],
+      "large_functions_critical": [
+          {"name": str, "line_count": int, "file_path": str}, ...
+      ]
+    }
 
-This is the framework's independent source of architecture (community_cohesion)
-scores — produced from the real graph with no agent involvement.
+`large_functions_critical` contains functions ≥ 500 lines and feeds the
+large-function penalty in `crg_independent.run_independent_crg()` (Phase 1
+gatekeeper: each critical function penalises architecture_score by 5 pts,
+capped at 20). If `find_large_functions_func` is unavailable in this
+version of code_review_graph, the key is omitted (no penalty applied).
 
 Usage: <crg-python> crg_dump_communities.py <repo_root>
 """
 import json
 import sys
+
+_LARGE_FN_THRESHOLD = 500  # lines; functions at or above this are "critical"
 
 
 def main() -> int:
@@ -28,6 +38,7 @@ def main() -> int:
         print(f"code_review_graph not importable: {exc}", file=sys.stderr)
         return 3
 
+    # ── communities (required) ────────────────────────────────────────
     resp = t.list_communities_func(repo_root=repo)
     communities = [
         {
@@ -37,7 +48,30 @@ def main() -> int:
         }
         for c in resp.get("communities", [])
     ]
-    json.dump({"communities": communities}, sys.stdout)
+
+    # ── large functions ≥ 500 lines (optional — gatekeeper Phase 1) ──
+    large_functions_critical: list[dict] = []
+    try:
+        lf_resp = t.find_large_functions_func(
+            repo_root=repo, min_lines=_LARGE_FN_THRESHOLD, kind="Function",
+        )
+        for fn in lf_resp.get("results", []):
+            lc = fn.get("line_count") or 0
+            if lc >= _LARGE_FN_THRESHOLD:
+                large_functions_critical.append({
+                    "name": fn.get("name", "?"),
+                    "line_count": lc,
+                    "file_path": fn.get("relative_path") or fn.get("file_path", "?"),
+                })
+    except AttributeError:
+        # find_large_functions_func not available in this version — no penalty
+        pass
+
+    output: dict = {"communities": communities}
+    if large_functions_critical is not None:
+        output["large_functions_critical"] = large_functions_critical
+
+    json.dump(output, sys.stdout)
     return 0
 
 

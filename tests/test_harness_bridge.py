@@ -954,3 +954,139 @@ class TestExtractFrSection:
         result = _extract_fr_section(srs, "FR-02")
         assert "final content here" in result
 
+
+
+class TestCrgGatekeeperPhases:
+    """Phase 1 + Phase 2 CRG gatekeeper elevation tests."""
+
+    # ── Phase 1: large-function penalty (via crg_independent subprocess) ──
+
+    def test_phase1_architecture_score_uses_penalty(self, tmp_path):
+        """harness_bridge reads architecture_score (cohesion − penalty) from metrics."""
+        import dataclasses
+        from harness.harness_bridge import _crg_enrich_gate_findings, DimResult
+        from unittest.mock import MagicMock
+
+        # Simulate crg_metrics.json written by run_independent_crg with penalty
+        metrics = {
+            "community_cohesion": {"score": 80.0, "healthy": 2, "total": 2, "unhealthy": []},
+            "large_functions_critical": [
+                {"name": "big_fn", "line_count": 550, "file_path": "core/x.py"}
+            ],
+            "large_functions_penalty": 5,
+            "architecture_score": 75.0,  # 80 - 5
+            "_source": "framework-independent",
+        }
+        (tmp_path / ".sessi-work").mkdir()
+        (tmp_path / ".sessi-work" / "crg_metrics.json").write_text(
+            __import__("json").dumps(metrics)
+        )
+
+        # The bridge reads architecture_score, not raw cohesion
+        arch_score = metrics["architecture_score"]
+        cohesion_score = metrics["community_cohesion"]["score"]
+        assert arch_score == 75.0
+        assert arch_score < cohesion_score  # penalty was applied
+
+    def test_phase1_no_penalty_when_no_critical_fns(self, tmp_path):
+        """No large functions → architecture_score == community_cohesion.score."""
+        metrics = {
+            "community_cohesion": {"score": 60.0, "healthy": 1, "total": 2, "unhealthy": []},
+            "large_functions_critical": [],
+            "large_functions_penalty": 0,
+            "architecture_score": 60.0,
+            "_source": "framework-independent",
+        }
+        assert metrics["architecture_score"] == metrics["community_cohesion"]["score"]
+
+    # ── Phase 2: untested hub score override (via MCP query_graph) ──
+
+    def test_phase2_untested_hub_reduces_test_coverage_score(self, tmp_path):
+        """query_graph(tests_for) returning empty → test_coverage score penalised by 3pts/hub."""
+        import dataclasses
+        from harness.harness_bridge import _crg_enrich_gate_findings, DimResult
+        from unittest.mock import MagicMock
+
+        dims = [
+            DimResult(name="test_coverage", score=85.0, threshold=80.0),
+            DimResult(name="architecture", score=70.0, threshold=80.0),
+        ]
+
+        # Mock CRGBridge: get_hub_nodes returns 1 hub with fan_in=15
+        crg = MagicMock()
+        crg._check_available.return_value = True
+        crg.find_large_functions.return_value = {}
+        crg.get_hub_nodes.return_value = {"hubs": [{"name": "critical_fn", "fan_in": 15}]}
+        crg.check_dead_code.return_value = {}
+        crg.get_review_context.return_value = {}
+        crg.get_impact_radius.return_value = {}
+        crg.get_affected_flows.return_value = {}
+        crg.get_knowledge_gaps.return_value = {}
+        crg.list_flows.return_value = {}
+        # query_graph(tests_for) returns no tests → untested hub
+        crg.query_graph.return_value = {"results": []}
+
+        result_dims = _crg_enrich_gate_findings(
+            crg, dims, str(tmp_path), str(tmp_path), gate_num=3
+        )
+
+        tc = next(d for d in result_dims if d.name == "test_coverage")
+        # 1 untested hub × 3 pts = -3 → 85.0 - 3 = 82.0
+        assert tc.score == 82.0
+        assert any("Phase 2 gatekeeper" in i.get("message", "") for i in tc.issues)
+
+    def test_phase2_penalty_capped_at_15(self, tmp_path):
+        """Hub penalty capped at 15 pts regardless of untested hub count."""
+        from harness.harness_bridge import _crg_enrich_gate_findings, DimResult
+        from unittest.mock import MagicMock
+
+        dims = [DimResult(name="test_coverage", score=90.0, threshold=80.0)]
+
+        crg = MagicMock()
+        crg._check_available.return_value = True
+        crg.find_large_functions.return_value = {}
+        crg.get_hub_nodes.return_value = {
+            "hubs": [{"name": f"hub_{i}", "fan_in": 15} for i in range(10)]
+        }
+        crg.check_dead_code.return_value = {}
+        crg.get_review_context.return_value = {}
+        crg.get_impact_radius.return_value = {}
+        crg.get_affected_flows.return_value = {}
+        crg.get_knowledge_gaps.return_value = {}
+        crg.list_flows.return_value = {}
+        crg.query_graph.return_value = {"results": []}  # all untested
+
+        result_dims = _crg_enrich_gate_findings(
+            crg, dims, str(tmp_path), str(tmp_path), gate_num=3
+        )
+
+        tc = next(d for d in result_dims if d.name == "test_coverage")
+        # 5 hubs queried ([:5] cap) × 3 = 15, capped at 15 → 90 - 15 = 75
+        assert tc.score == 75.0
+
+    def test_phase2_no_penalty_when_hubs_are_tested(self, tmp_path):
+        """When all hubs have test linkage, no penalty applied."""
+        from harness.harness_bridge import _crg_enrich_gate_findings, DimResult
+        from unittest.mock import MagicMock
+
+        dims = [DimResult(name="test_coverage", score=85.0, threshold=80.0)]
+
+        crg = MagicMock()
+        crg._check_available.return_value = True
+        crg.find_large_functions.return_value = {}
+        crg.get_hub_nodes.return_value = {"hubs": [{"name": "tested_fn", "fan_in": 10}]}
+        crg.check_dead_code.return_value = {}
+        crg.get_review_context.return_value = {}
+        crg.get_impact_radius.return_value = {}
+        crg.get_affected_flows.return_value = {}
+        crg.get_knowledge_gaps.return_value = {}
+        crg.list_flows.return_value = {}
+        # tests_for returns results → hub IS tested
+        crg.query_graph.return_value = {"results": [{"name": "test_fn"}]}
+
+        result_dims = _crg_enrich_gate_findings(
+            crg, dims, str(tmp_path), str(tmp_path), gate_num=3
+        )
+
+        tc = next(d for d in result_dims if d.name == "test_coverage")
+        assert tc.score == 85.0  # unchanged

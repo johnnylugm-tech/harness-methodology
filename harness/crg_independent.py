@@ -136,8 +136,27 @@ def run_independent_crg(project_root: str, work_dir: str) -> dict:
 
     cohesion = compute_community_cohesion_score(recon.get("communities", []))
 
+    # 4. Large-function penalty (Phase 1 gatekeeper).
+    #    crg_dump_communities.py includes large_functions_critical when
+    #    find_large_functions_func is available. Each function ≥ 500 lines
+    #    penalises the architecture score by 5 pts, capped at 20.
+    critical_fns = recon.get("large_functions_critical", [])
+    lf_penalty = min(len(critical_fns) * 5, 20)
+    architecture_score = round(max(0.0, (cohesion.get("score") or 0.0) - lf_penalty), 1)
+
+    if lf_penalty > 0:
+        print(
+            f"[crg] large_functions_penalty: -{lf_penalty} pts "
+            f"({len(critical_fns)} function(s) ≥ 500 lines) "
+            f"cohesion {cohesion.get('score'):.1f} → architecture_score {architecture_score:.1f}",
+            file=sys.stderr,
+        )
+
     metrics = {
         "community_cohesion": cohesion,
+        "large_functions_critical": critical_fns,
+        "large_functions_penalty": lf_penalty,
+        "architecture_score": architecture_score,
         "_source": "framework-independent",
     }
     out = Path(work_dir) / "crg_metrics.json"

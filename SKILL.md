@@ -437,9 +437,9 @@ structural analysis — call graphs, community detection, flow analysis, dead co
 | # | Signal | Formula | Where |
 |---|--------|---------|-------|
 | 1 | `risk_score` | `eval_depth` gate | `evaluate_dimension.md` |
-| 2 | `community_cohesion` | Architecture score — framework-owned (`crg_independent.py`, overrides agent) | `harness_bridge.finalize_gate` |
-| 3 | ~~`flow_coverage`~~ | **Removed** — `error_handling` is now `ast-error-handling` (file-level try/except); CRG `has_error_handler` field does not exist | `tool_runners.py` |
-| 4 | `find_large_functions` (≥300 lines) | Architecture findings WARN (evidence only, no score impact) | `harness_bridge._crg_enrich_gate_findings` |
+| 2 | `community_cohesion` | Architecture base score — framework-owned (`crg_independent.py`) | `harness_bridge.finalize_gate` |
+| 3 | ~~`flow_coverage`~~ | **Removed** — `error_handling` is now `ast-error-handling` (file-level try/except) | `tool_runners.py` |
+| 4 | `find_large_functions` (≥500 lines) | **Phase 1 gatekeeper** — architecture_score = cohesion − (count×5, cap 20). Subprocess path: always deterministic. | `crg_independent.run_independent_crg` |
 | 5 | `get_hub_nodes` (fan_in≥15) | Architecture findings HIGH (evidence only) | `harness_bridge._crg_enrich_gate_findings` |
 | 6 | `refactor_tool(dead_code)` | Architecture findings MEDIUM if >10 items (evidence only) | `harness_bridge._crg_enrich_gate_findings` |
 | 7 | `get_review_context` | `crg_review_context` injected into gate_result.json | `harness_bridge._crg_enrich_gate_findings` |
@@ -447,7 +447,7 @@ structural analysis — call graphs, community detection, flow analysis, dead co
 | 9 | `get_affected_flows` | `crg_affected_flows` injected into gate_result.json | `harness_bridge._crg_enrich_gate_findings` |
 | 10 | `get_knowledge_gaps` | test_coverage findings MEDIUM (untested critical paths) | `harness_bridge._crg_enrich_gate_findings` + `prepare_gate` |
 | 11 | `list_flows` (criticality) | error_handling findings LOW + `crg_critical_flows` in gate_result | `harness_bridge._crg_enrich_gate_findings` |
-| 12 | `query_graph(tests_for)` | test_coverage findings HIGH (hub functions without test linkage) | `harness_bridge._crg_enrich_gate_findings` |
+| 12 | `query_graph(tests_for)` | **Phase 2 gatekeeper** — test_coverage score -= (untested_hubs×3, cap 15). MCP path; CRG mandatory. | `harness_bridge._crg_enrich_gate_findings` |
 | 13 | `semantic_search(fr_id)` | TDD-RED prompt enriched with related existing code | `harness_cli._build_fr_step_prompt` |
 | 14 | `generate_wiki_tool` | .code-review-graph/wiki/ auto-generated on P3+ advance | `harness_cli.cmd_advance_phase` |
 | 15 | `list_graph_stats_tool` | Graph health displayed in run-gate preflight | `harness_cli.cmd_status` |
