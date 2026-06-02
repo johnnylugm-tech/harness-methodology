@@ -140,7 +140,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.json:
         print(json.dumps(attestation, indent=2, ensure_ascii=False))
     else:
-        c = attestation["completeness"] if "completeness" in attestation["matrix"] else {}
+        c = attestation["matrix"].get("completeness", {})
         print(f"git_sha: {attestation['git_sha']}")
         print(f"content_sha256: {attestation['content_sha256']}")
         if c:

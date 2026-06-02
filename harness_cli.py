@@ -2408,8 +2408,9 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
                 return 1
         except Exception as e:
             # Framework-side error: fail-closed at G2+ (don't silently pass)
-            print(f"\n[WARN] compute_trace_dimension raised: {e}",
+            print(f"\n[BLOCKED] compute_trace_dimension raised: {e}",
                   file=sys.stderr)
+            return 1
 
     # ── Gate 4 extra enforcement (A1/A2/A3/A4/A5/B2) ─────────────────
     _da_waivers: set[str] = set()

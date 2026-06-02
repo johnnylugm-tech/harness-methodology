@@ -110,8 +110,13 @@ def fix_missing_traceability(context, project_root: Path) -> Tuple[bool, str, fl
         last_msg = (f"round {round_idx+1}: applied but {len(still_uncoded)} "
                     f"uncoded / {len(still_untested)} untested remain")
 
-    # 5. Exhausted: write diff and escalate
-    out_path = write_proposed_diff(project_root, last_diff)
+    # 5. Exhausted: rollback all partial applies, re-derive a clean cumulative
+    #    diff so proposed_fix.diff captures the full gap (not just last round's
+    #    incremental delta), and leave the source tree clean on escalation.
+    rollback(project_root)
+    _rt_clean, report_clean = check_traceability(project_root)
+    cumulative_diff = propose_fixes(_rt_clean, report_clean, project_root)
+    out_path = write_proposed_diff(project_root, cumulative_diff or last_diff)
     return (
         False,
         f"Auto-fix exhausted {max_rounds} rounds ({last_msg}). "
