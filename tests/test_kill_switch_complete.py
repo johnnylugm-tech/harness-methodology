@@ -4,6 +4,7 @@ tests/test_kill_switch_complete.py — Complete kill_switch/ coverage (W2).
 Covers: CircuitBreaker, StateManager, HealthMonitor, InterruptEngine, KillSwitch facade.
 """
 import pytest
+pytestmark = pytest.mark.mutation_oracle
 from unittest.mock import MagicMock, patch
 
 from kill_switch.enums import CircuitState, KillReason
@@ -21,6 +22,10 @@ class TestCircuitBreaker:
     def _cb(self):
         from kill_switch.circuit_breaker import CircuitBreaker
         return CircuitBreaker()
+
+    def test_default_failure_threshold(self):
+        cb = self._cb()
+        assert cb.failure_threshold == 5
 
     def test_initialize_circuit_returns_state(self):
         cb = self._cb()
@@ -56,15 +61,37 @@ class TestCircuitBreaker:
         cb.record_failure("a1")
         assert cb.get_failure_count("a1") == 1
 
+    def test_record_failure_exceeds_threshold(self):
+        cb = self._cb()
+        cb.failure_threshold = 3
+        cb.initialize_circuit("a1")
+        cb.record_failure("a1")
+        cb.record_failure("a1")
+        assert cb.get_state("a1") == CircuitState.CLOSED  # count=2
+        from kill_switch.exceptions import CircuitBreakerError
+        with pytest.raises(CircuitBreakerError):
+            cb.record_failure("a1")  # count=3 (>= 3) triggers threshold
+        assert cb.get_state("a1") == CircuitState.OPEN
+
     def test_record_success_clears_half_open(self):
         cb = self._cb()
         cb.initialize_circuit("a1")
         cb.open_circuit("a1", cooldown_seconds=0)
         # Force to HALF_OPEN
         cb._circuits["a1"].state = CircuitState.HALF_OPEN
+        
+        from datetime import datetime, timezone
+        before = datetime.now(timezone.utc)
         cb.record_success("a1")
+        after = datetime.now(timezone.utc)
+        
         assert cb.get_state("a1") == CircuitState.CLOSED
         assert cb.get_failure_count("a1") == 0
+        state = cb._circuits["a1"]
+        assert state.last_success_time is not None
+        assert before <= state.last_success_time <= after
+        assert state.closed_at is not None
+        assert before <= state.closed_at <= after
 
     def test_record_failure_in_half_open_reopens(self):
         cb = self._cb()
@@ -83,6 +110,15 @@ class TestCircuitBreaker:
         cb = self._cb()
         cb.open_circuit("new_agent", cooldown_seconds=60)
         assert cb.get_state("new_agent") == CircuitState.OPEN
+
+    def test_open_circuit_default_cooldown(self):
+        cb = self._cb()
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        cb.open_circuit("default_agent")
+        state = cb._circuits["default_agent"]
+        diff = (state.cooldown_end - now).total_seconds()
+        assert 59 <= diff <= 61
 
     def test_is_open_true_while_in_cooldown(self):
         cb = self._cb()
@@ -141,6 +177,22 @@ class TestCircuitBreaker:
                                 last_health_check=now, timestamp=now)
         config = MonitorConfig("a1")
         assert cb.should_trigger("a1", metrics, config) is False
+
+    def test_should_trigger_boundaries(self):
+        from kill_switch.circuit_breaker import CircuitBreaker
+        from datetime import datetime, timezone
+        cb = CircuitBreaker()
+        now = datetime.now(timezone.utc)
+        
+        # Test error_rate exactly at threshold
+        metrics = HealthMetrics("a1", error_rate=0.10, latency_p99_ms=100.0,
+                                memory_usage_percent=50.0, output_rate_kbps=10.0,
+                                last_health_check=now, timestamp=now)
+        config = MonitorConfig("a1", error_rate_threshold=0.10)
+        assert cb.should_trigger("a1", metrics, config) is False  # Must strictly exceed
+        
+        metrics.error_rate = 0.10001
+        assert cb.should_trigger("a1", metrics, config) is True
 
     def test_should_trigger_latency(self):
         from kill_switch.circuit_breaker import CircuitBreaker
