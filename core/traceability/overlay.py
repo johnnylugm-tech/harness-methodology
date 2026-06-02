@@ -246,7 +246,9 @@ def render_markdown(merged: Dict[str, Any]) -> str:
         test_str = _fmt_files(row.get("test_files", []))
         sad_str = row.get("sad_module") or "—"
         if annotations.get(rid):
-            sad_str += f" _(annotation: {annotations[rid][0]})_"
+            # Join multiple annotations with "; " so the renderer matches
+            # the bucketing design in merge_overlay (annotations is a list).
+            sad_str += f" _(annotation: {'; '.join(annotations[rid])})_"
         justification = row.get("justification")
         if justification:
             sad_str += f"<br><sub>{justification}</sub>"

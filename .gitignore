@@ -42,6 +42,8 @@ coverage.json
 .ruff_cache/
 .mypy_cache/
 .benchmarks/
+# mutmut 2.x cache (regenerated on every `mutmut run`)
+.mutmut-cache
 
 # ── Python build/test artifacts ────────────────────────────────────────────
 __pycache__/
