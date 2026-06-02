@@ -2340,22 +2340,17 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
         return _exit
 
 
-def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
-    """
-    Phase 2: read gate{N}_result.json, check thresholds, update manifest, git.
+# ---------------------------------------------------------------------------
+# _cmd_finalize_gate_impl section helpers
+# Return an int exit code when the gate should be blocked, None to continue.
+# ---------------------------------------------------------------------------
 
-    Called after Claude has completed inline evaluation and written the result file.
-    """
-    from harness.harness_bridge import HarnessBridge, GateBlockedError
-
-    project_path = Path(args.project).resolve()
+def _finalize_gate_preflight(args: argparse.Namespace, project_path: Path) -> "int | None":
+    """S0: tool availability + commit interval + sentinel check."""
     project = str(project_path)
-    bridge = HarnessBridge()
     fr_id = getattr(args, "fr_id", None) or None
 
-    print(f"\n{'='*60}\nfinalize-gate: Gate {args.gate} | Phase {args.phase}\n{'='*60}")
-
-    # ── S0: Tool availability enforcement (S2 — prevent LLM guessing) ────
+    # S0a: Tool availability
     _tools_ok, _missing_tools = _verify_gate_tools(args.gate, project)
     if not _tools_ok:
         print(
@@ -2366,7 +2361,7 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
         )
         return 8
 
-    # ── S0: Commit interval enforcement (P1 — prevent batch fabrication) ──
+    # S0b: Commit interval enforcement (P1 — prevent batch fabrication)
     _interval_ok, _interval_msg = _check_commit_intervals(
         project, args.phase, args.gate
     )
@@ -2375,48 +2370,42 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
         print("  Re-run per-FR evaluations with genuine evidence and natural spacing.")
         return 1
 
-    # ── Sentinel check: run-gate must have been called before finalize-gate ─
-    # Prevents agents from writing gate{N}_result.json directly and calling
-    # finalize-gate without actually going through run-gate evaluation.
-    sf = _sentinel_path(Path(project), args.gate, fr_id)
+    # Sentinel: run-gate must have been called before finalize-gate
+    sf = _sentinel_path(project_path, args.gate, fr_id)
     if not sf.exists():
         print(
             f"\n[BLOCKED] run-gate --gate {args.gate} --phase {args.phase}"
             + (f" --fr-id {fr_id}" if fr_id else "")
             + f" --project {args.project}"
             f"\n  must be called before finalize-gate."
-            f"\n  Missing sentinel: {sf.relative_to(Path(project))}"
+            f"\n  Missing sentinel: {sf.relative_to(project_path)}"
             f"\n  Writing gate{{N}}_result.json directly without run-gate is not permitted."
         )
         return 1
 
-    # NOTE: HR-10/HR-01 A/B audit (sessions_spawn.log entry-count + distinct-session
-    # enforcement) was REMOVED. The log is a plain agent-writable file, so counting
-    # entries / roles / session_ids could not actually prove an independent Agent B
-    # review occurred (the orchestrator can hand-write entries). P1/P2 quality is
-    # enforced by the Agent B deliverable review itself; P3+ by the tool-scored gates
-    # and S4 cross-validation. AgentSpawner still records dispatches to sessions_spawn.log
-    # as a non-blocking debug trail.
+    return None
 
-    # ── I-2: FR test file existence check (Gate 1 per-FR) ──────────────
-    # Only applies when project has a tests/ directory (real project, not test fixture).
-    if args.gate == 1 and fr_id and (Path(project) / "tests").is_dir():
-        _fr_ok, _fr_msg = _check_fr_test_file_exists(Path(project), fr_id)
+
+def _finalize_gate_fr_checks(args: argparse.Namespace, project_path: Path) -> "int | None":
+    """I-2/I-3/I-4: Gate 1 per-FR checks (test file existence, RED ordering, spec coverage)."""
+    fr_id = getattr(args, "fr_id", None) or None
+
+    # I-2: FR test file existence
+    if args.gate == 1 and fr_id and (project_path / "tests").is_dir():
+        _fr_ok, _fr_msg = _check_fr_test_file_exists(project_path, fr_id)
         if not _fr_ok:
             print(_fr_msg)
             return 8
 
-    # ── I-3: RED phase ordering (Gate 1 per-FR) ───────────────────────
-    if args.gate == 1 and fr_id and (Path(project) / "tests").is_dir():
-        _red_ok, _red_msg = _check_red_phase_ordering(Path(project), fr_id)
+    # I-3: RED phase ordering
+    if args.gate == 1 and fr_id and (project_path / "tests").is_dir():
+        _red_ok, _red_msg = _check_red_phase_ordering(project_path, fr_id)
         if not _red_ok:
             print(_red_msg)
             return 1
 
-    # ── I-4: Spec Coverage check (Gate 1 per-FR) ──────────────────────
-    # Verify that every TEST_SPEC.md entry for this FR has a matching test function.
-    # Threshold at Gate 1 is 40% — ensures at least skeleton tests exist before P3 proceeds.
-    if args.gate == 1 and fr_id and (Path(project) / "02-architecture" / "TEST_SPEC.md").exists():
+    # I-4: Spec Coverage (Gate 1, threshold 40%)
+    if args.gate == 1 and fr_id and (project_path / "02-architecture" / "TEST_SPEC.md").exists():
         _sc1_code, _sc1_pct = _run_spec_coverage_check(
             project_path, 40.0, fr_id=fr_id, verbose=True
         )
@@ -2424,17 +2413,17 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
             print(f"\n[BLOCKED] Gate 1 spec-coverage [{fr_id}] {_sc1_pct:.1f}% < 40% threshold")
             return 1
 
-    # ── I-1: D4 Test Inventory compliance (Gates 2-4) ──────────────
-    # REMOVED in v2.6 — unified with I-5 below. TEST_SPEC.md is now the
-    # single source of truth for all test traceability checks.
-    #
-    # ── I-5: D4 Spec Coverage check (Gates 2-4) ──────────────────────
-    # Unified v2.6: replaces prior two-check model (I-1 TEST_INVENTORY.yaml
-    # forward + I-5 TEST_SPEC.md backward). TEST_SPEC.md is the single source
-    # of truth since it carries names from TEST_INVENTORY.yaml (Step 0 of
-    # derive_test_cases.md).
+    return None
+
+
+def _finalize_gate_cross_checks(args: argparse.Namespace, project_path: Path) -> "int | None":
+    """I-5/I-6: Gates 2-4 D4 spec-coverage + PR 4 trace dimension.
+
+    NOTE: HR-10/HR-01 A/B audit removed — see comment in _cmd_finalize_gate_impl.
+    """
+    # I-5: D4 Spec Coverage (Gates 2-4, unified v2.6)
     # Thresholds: Gate2=60%, Gate3=80%, Gate4=90%.
-    if args.gate >= 2 and (Path(project) / "02-architecture" / "TEST_SPEC.md").exists():
+    if args.gate >= 2 and (project_path / "02-architecture" / "TEST_SPEC.md").exists():
         _sc_threshold = {2: 60.0, 3: 80.0, 4: 90.0}.get(args.gate, 60.0)
         _sc_code, _sc_pct = _run_spec_coverage_check(
             project_path, _sc_threshold, verbose=True
@@ -2514,6 +2503,38 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
             print(f"\n[BLOCKED] compute_trace_dimension raised: {e}",
                   file=sys.stderr)
             return 1
+
+    return None  # all cross-checks passed
+
+
+def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
+    """
+    Phase 2: read gate{N}_result.json, check thresholds, update manifest, git.
+
+    Called after Claude has completed inline evaluation and written the result file.
+    Delegates preflight/fr/cross-checks to section helpers; handles bridge + post-flight.
+
+    NOTE: HR-10/HR-01 A/B audit (sessions_spawn.log entry-count + distinct-session
+    enforcement) was REMOVED. The log is a plain agent-writable file; proof of an
+    independent Agent B review cannot be derived from it. P1/P2 quality is enforced
+    by the Agent B deliverable review itself; P3+ by tool-scored gates and S4.
+    AgentSpawner still records dispatches to sessions_spawn.log as a non-blocking debug trail.
+    """
+    from harness.harness_bridge import HarnessBridge, GateBlockedError
+
+    project_path = Path(args.project).resolve()
+    project = str(project_path)
+    bridge = HarnessBridge()
+    fr_id = getattr(args, "fr_id", None) or None
+
+    print(f"\n{'='*60}\nfinalize-gate: Gate {args.gate} | Phase {args.phase}\n{'='*60}")
+
+    if (code := _finalize_gate_preflight(args, project_path)) is not None:
+        return code
+    if (code := _finalize_gate_fr_checks(args, project_path)) is not None:
+        return code
+    if (code := _finalize_gate_cross_checks(args, project_path)) is not None:
+        return code
 
     # ── Gate 4 extra enforcement (A1/A2/A3/A4/A5/B2) ─────────────────
     _da_waivers: set[str] = set()
@@ -3591,6 +3612,19 @@ def cmd_status(args: argparse.Namespace) -> int:
                     print(f"  metrics   : available ({metrics_path.stat().st_size} bytes)")
                 else:
                     print("  metrics   : not yet computed")
+                # Graph stats (live from MCP — graceful degrade if unavailable)
+                try:
+                    from mcp_tools import (  # type: ignore[import-untyped]
+                        mcp__code_review_graph__list_graph_stats_tool as _gs_fn,
+                    )
+                    _gs = _gs_fn(repo_root=str(project))
+                    print(
+                        f"  graph_db  : {_gs.get('total_nodes','?')} nodes · "
+                        f"{_gs.get('total_edges','?')} edges · "
+                        f"updated {(_gs.get('last_updated') or '')[:10]}"
+                    )
+                except Exception:
+                    pass  # MCP not available in this subprocess context
             else:
                 print(f"  status    : unavailable — {crg_status.get('reason', 'unknown')}")
         except (json.JSONDecodeError, OSError):
@@ -4219,6 +4253,17 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
     _update_claude_md(project)               # phase number just changed → refresh CLAUDE.md
     _llm_clean_stale_claude_md(project)      # remove stale manual harness status text
 
+    # Generate CRG wiki on P3+ advance (architecture docs for agents, incremental)
+    if args.completed_phase >= 2:
+        try:
+            from mcp_tools import (  # type: ignore[import-untyped]
+                mcp__code_review_graph__generate_wiki_tool as _wiki_fn,
+            )
+            _wiki_fn(repo_root=str(project), force=False)
+            print(f"  [CRG] Wiki updated → .code-review-graph/wiki/")
+        except Exception:
+            pass  # graceful: wiki is informational, not gate-blocking
+
     # CV-13: Stale .sessi-work/ artifacts can cause the next phase's gate
     # evaluation to skip re-computation (agent sees old result JSONs and
     # assumes they are current). Clean aggressively at every phase transition.
@@ -4720,6 +4765,41 @@ def _extract_test_spec_names(project: Path, fr_id: str) -> tuple[list[str], str]
     return [], ""
 
 
+# ---------------------------------------------------------------------------
+# FR step prompt helpers — each builder returns the prompt string for one step.
+# Called from _build_fr_step_prompt() dispatcher below.
+# ---------------------------------------------------------------------------
+
+def _compute_fr_spec_data(project: Path, fr_id: str, test_file: str) -> dict:
+    """Compute spec test coverage data needed by GATE1, CODE-FIX, COVERAGE-FIX."""
+    spec_test_names, _ = _extract_test_spec_names(project, fr_id)
+    test_file_path = project / test_file
+    existing_spec_tests: set[str] = set()
+    if spec_test_names and test_file_path.exists():
+        try:
+            tf_content = test_file_path.read_text(encoding="utf-8")
+            existing_spec_tests = {fn for fn in spec_test_names if f"def {fn}" in tf_content}
+        except OSError:
+            pass
+    spec_cov_pct = (
+        round(len(existing_spec_tests) / max(len(spec_test_names), 1) * 100)
+        if spec_test_names else 100
+    )
+    missing_spec_count = len(spec_test_names) - len(existing_spec_tests)
+    spec_summary = (
+        f"SPEC COVERAGE: {len(existing_spec_tests)}/{len(spec_test_names)} "
+        f"({spec_cov_pct}%) — {missing_spec_count} missing"
+        if spec_test_names else ""
+    )
+    return {
+        "spec_test_names": spec_test_names,
+        "existing_spec_tests": existing_spec_tests,
+        "spec_cov_pct": spec_cov_pct,
+        "missing_spec_count": missing_spec_count,
+        "spec_summary": spec_summary,
+    }
+
+
 def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
                            project: Path, srs_path: Path | None,
                            failing_dims: list | None = None,
@@ -4739,6 +4819,9 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
         block_reason: Optional finalize-gate block reason (e.g. S3/S4 detail)
             extracted from previous GATE1 sub-agent output.  Injected into
             GATE1 and CODE-FIX prompts so agents understand WHY gate blocked.
+
+    Dispatches to step-specific builders.  Shared pre-computation (test_file,
+    src_dir, srs_path normalisation, spec data) done once here.
     """
     step = step.upper()
     num_match = re.match(r"FR-(\d+)", fr_id)
@@ -4755,9 +4838,30 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
         srs_section = _extract_srs_fr_section(srs_path, fr_id) if srs_path else ""
         _, spec_note = _extract_test_spec_names(project, fr_id)
 
+        # CRG semantic search: find existing related code to avoid re-implementing
+        _related_ctx = ""
+        try:
+            from harness.crg_bridge import CRGBridge as _CRGBridge
+            _crg_sr = _CRGBridge()
+            _sr = _crg_sr.semantic_search(str(project), fr_id, kind="Function", limit=5)
+            _hits = (_sr or {}).get("results", [])
+            if _hits:
+                _related_ctx = (
+                    "[RELATED EXISTING CODE — CRG semantic search]\n"
+                    + "\n".join(
+                        f"  - {h.get('name','?')} "
+                        f"({(h.get('file_path') or '').split('/')[-1]})"
+                        for h in _hits[:5]
+                    )
+                    + "\n\n"
+                )
+        except Exception:
+            pass  # graceful: CRG not available or no match
+
         return (
             f"You are a TDD developer. Your ONLY task: write failing pytest tests for {fr_id}.\n\n"
             f"{spec_note}"
+            f"{_related_ctx}"
             f"[FORBIDDEN — read before anything else]\n"
             f"- Implementing any source code (test file only)\n"
             f"- app/infrastructure/ paths\n"
@@ -4844,31 +4948,13 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f'"commit": "<hash or null>", "summary": "<under 50 chars>"}}'
         )
 
-    # Compute spec test coverage (ratio of required tests that exist + pass).
-    # Used both in GATE1 prompt (to make the evaluator report spec coverage)
-    # and in finalize_gate (to override dimension score when spec is incomplete).
-    spec_test_names, _ = _extract_test_spec_names(project, fr_id)
-    test_file_path = project / test_file
-    existing_spec_tests: set[str] = set()
-    if spec_test_names and test_file_path.exists():
-        try:
-            tf_content = test_file_path.read_text(encoding="utf-8")
-            existing_spec_tests = {
-                fn for fn in spec_test_names if f"def {fn}" in tf_content
-            }
-        except OSError:
-            pass
-
-    spec_cov_pct = (
-        round(len(existing_spec_tests) / max(len(spec_test_names), 1) * 100)
-        if spec_test_names else 100
-    )
-    missing_spec_count = len(spec_test_names) - len(existing_spec_tests)
-    spec_summary = (
-        f"SPEC COVERAGE: {len(existing_spec_tests)}/{len(spec_test_names)} "
-        f"({spec_cov_pct}%) — {missing_spec_count} missing"
-        if spec_test_names else ""
-    )
+    # Spec data: compute once, pass to GATE1 / CODE-FIX / COVERAGE-FIX builders.
+    spec = _compute_fr_spec_data(project, fr_id, test_file)
+    spec_test_names = spec["spec_test_names"]
+    existing_spec_tests = spec["existing_spec_tests"]
+    spec_cov_pct = spec["spec_cov_pct"]
+    missing_spec_count = spec["missing_spec_count"]
+    spec_summary = spec["spec_summary"]
 
     # GATE1-DELTA no longer passes --delta to run-gate. The skip-if-unchanged
     # decision is now made by _fr_step_already_done() via git diff before dispatch.

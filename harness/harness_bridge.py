@@ -7,6 +7,7 @@ Handles gate execution, results parsing, and quality manifest updates.
 from __future__ import annotations
 import json
 import re
+import sys
 import dataclasses
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -180,6 +181,210 @@ def _validate_tool_content(
             )
 
     return violations
+
+
+def _crg_enrich_gate_findings(
+    crg: "CRGBridge",
+    dims: list,
+    project_root: str,
+    work_dir: str,
+    gate_num: int,
+) -> list:
+    """CRG MCP enrichment: append findings to DimResult.issues and gate_result.json.
+
+    Never raises. All enrichment degrades gracefully when MCP is unavailable
+    (CRGBridge._check_available() returns False inside each method).
+    Does NOT change any dimension score — evidence only.
+
+    Wired tools (9 enrichment points):
+      Architecture: find_large_functions, get_hub_nodes, check_dead_code
+      Review context: get_review_context, get_impact_radius, get_affected_flows
+      Test coverage: get_knowledge_gaps, query_graph(tests_for)
+      Error handling: list_flows (critical flow list)
+    """
+    result_path = Path(work_dir) / f"gate{gate_num}_result.json"
+
+    # ── 1. find_large_functions → architecture findings ──────────────
+    lf_data = crg.find_large_functions(project_root, min_lines=300, kind="Function")
+    large_fns = (lf_data or {}).get("results", [])
+    warn_items = [
+        f"{r['name']} ({r.get('line_count', '?')} lines, {r.get('relative_path', '?')})"
+        for r in large_fns
+        if (r.get("line_count") or 0) >= 300
+    ]
+    if warn_items:
+        for _d in dims:
+            if _d.name == "architecture":
+                _d.issues.append({
+                    "severity": "medium",
+                    "message": (
+                        f"Large functions detected (≥300 lines): {len(warn_items)} function(s). "
+                        "Refactor to improve cohesion."
+                    ),
+                    "evidence": "; ".join(warn_items[:5]),
+                    "source": "crg:find_large_functions",
+                })
+
+    # ── 2. get_hub_nodes → architecture findings (re-used in step 8) ──
+    hub_data = crg.get_hub_nodes(project_root, min_fan_in=8)
+    hub_hubs = (hub_data or {}).get("hubs", [])
+    critical_hubs = [h for h in hub_hubs if (h.get("fan_in") or 0) >= 15]
+    if critical_hubs:
+        for _d in dims:
+            if _d.name == "architecture":
+                _d.issues.append({
+                    "severity": "high",
+                    "message": (
+                        f"Critical hub nodes (fan_in≥15): {len(critical_hubs)} found. "
+                        "Single-point failure risk."
+                    ),
+                    "evidence": "; ".join(
+                        f"{h.get('name')} (fan_in={h.get('fan_in')})"
+                        for h in critical_hubs[:5]
+                    ),
+                    "source": "crg:get_hub_nodes",
+                })
+
+    # ── 3. check_dead_code → architecture findings ────────────────────
+    dc_data = crg.check_dead_code(project_root, kind="Function")
+    dead_items = (dc_data or {}).get("dead_code", [])
+    prod_dead = [x for x in dead_items if "/tests/" not in (x.get("file") or "")]
+    if len(prod_dead) > 10:
+        ratio_pct = round(len(prod_dead) / max(1, len(prod_dead) + 100) * 100, 1)
+        sev = "medium" if ratio_pct > 5 else "low"
+        for _d in dims:
+            if _d.name == "architecture":
+                _d.issues.append({
+                    "severity": sev,
+                    "message": (
+                        f"Dead code: {len(prod_dead)} unreferenced functions/classes "
+                        "detected in production code."
+                    ),
+                    "evidence": "; ".join(
+                        x.get("name", "?") for x in prod_dead[:5]
+                    ),
+                    "source": "crg:refactor_tool(dead_code)",
+                })
+
+    # ── 4. get_review_context → crg_review_context in gate_result ─────
+    rc = crg.get_review_context(project_root, detail_level="minimal")
+    if rc and result_path.exists():
+        try:
+            _gr = json.loads(result_path.read_text(encoding="utf-8"))
+            _gr["crg_review_context"] = rc
+            result_path.write_text(
+                json.dumps(_gr, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    # ── 5. get_impact_radius → crg_impact_radius in gate_result ───────
+    ir = crg.get_impact_radius(project_root, detail_level="minimal")
+    if ir and result_path.exists():
+        try:
+            _gr = json.loads(result_path.read_text(encoding="utf-8"))
+            _gr["crg_impact_radius"] = ir
+            result_path.write_text(
+                json.dumps(_gr, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    # ── 6. get_affected_flows → crg_affected_flows in gate_result ─────
+    af = crg.get_affected_flows(project_root)
+    flows = (af or {}).get("affected_flows", [])
+    if flows and result_path.exists():
+        try:
+            _gr = json.loads(result_path.read_text(encoding="utf-8"))
+            _gr["crg_affected_flows"] = {
+                "total": len(flows),
+                "flows": [
+                    {
+                        "name": f.get("name"),
+                        "criticality": f.get("criticality"),
+                    }
+                    for f in flows[:10]
+                ],
+            }
+            result_path.write_text(
+                json.dumps(_gr, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    # ── 7. get_knowledge_gaps → test_coverage findings ─────────────────
+    kg_data = crg.get_knowledge_gaps(project_root)
+    kg_gaps = (kg_data or {}).get("gaps", [])
+    untested_gaps = [
+        g for g in kg_gaps
+        if "test" in str(g.get("type", "")).lower()
+        or "untested" in str(g.get("description", "")).lower()
+    ][:5]
+    if untested_gaps:
+        for _d in dims:
+            if _d.name == "test_coverage":
+                _d.issues.append({
+                    "severity": "medium",
+                    "message": (
+                        f"CRG knowledge gaps: {len(untested_gaps)} untested critical path(s) detected."
+                    ),
+                    "evidence": "; ".join(
+                        g.get("name") or g.get("description", "?")
+                        for g in untested_gaps
+                    ),
+                    "source": "crg:get_knowledge_gaps",
+                })
+
+    # ── 8. list_flows → error_handling context + crg_critical_flows ───
+    flow_data = crg.list_flows(project_root, limit=10, sort_by="criticality")
+    crit_flows = (flow_data or {}).get("flows", [])
+    if crit_flows:
+        for _d in dims:
+            if _d.name == "error_handling":
+                _d.issues.append({
+                    "severity": "low",
+                    "message": (
+                        f"Top {len(crit_flows)} critical execution flows — "
+                        "verify each has error handling coverage."
+                    ),
+                    "evidence": "; ".join(
+                        f"{f.get('name')}(crit={f.get('criticality', 0):.2f})"
+                        for f in crit_flows[:5]
+                    ),
+                    "source": "crg:list_flows",
+                })
+        if result_path.exists():
+            try:
+                _gr = json.loads(result_path.read_text(encoding="utf-8"))
+                _gr["crg_critical_flows"] = crit_flows[:10]
+                result_path.write_text(
+                    json.dumps(_gr, indent=2, ensure_ascii=False), encoding="utf-8"
+                )
+            except (OSError, json.JSONDecodeError):
+                pass
+
+    # ── 9. query_graph(tests_for) → test_coverage findings (hubs) ────
+    high_hubs = [h.get("name") for h in hub_hubs if (h.get("fan_in") or 0) >= 8][:5]
+    untested_hubs = []
+    for fn_name in high_hubs:
+        if not fn_name:
+            continue
+        res = crg.query_graph(project_root, "tests_for", fn_name)
+        if not (res or {}).get("results"):
+            untested_hubs.append(fn_name)
+    if untested_hubs:
+        for _d in dims:
+            if _d.name == "test_coverage":
+                _d.issues.append({
+                    "severity": "high",
+                    "message": (
+                        f"Hub functions with no test linkage: {len(untested_hubs)} found."
+                    ),
+                    "evidence": "; ".join(untested_hubs),
+                    "source": "crg:query_graph(tests_for)",
+                })
+
+    return dims
 
 
 def _check_tool_evidence(ctx: "GateContext", raw: dict) -> list[str]:
@@ -1130,6 +1335,15 @@ class HarnessBridge:
                         project_root, dim.name
                     )
 
+        # CRG Point 2b: knowledge gaps enrichment for test_coverage context
+        # get_knowledge_gaps surfaces untested hotspots (test_coverage is Tier 1
+        # so it's not in the tier3 loop; inject separately).
+        if config.crg.get("tier3_guidance") or config.crg.get("reconnaissance"):
+            _kg = self.crg.get_knowledge_gaps(project_root)
+            if _kg:
+                tier3_context.setdefault("test_coverage", {})
+                tier3_context["test_coverage"]["knowledge_gaps"] = _kg
+
         # CRG cross-phase drift: compare current structure against previous exit gate baseline.
         # Only meaningful for Gate 3 (P4, baseline=P3) and Gate 4 (P6, baseline=P4).
         # Gate 2 may lack metrics (no full recon), so baseline may be absent.
@@ -1455,6 +1669,21 @@ class HarnessBridge:
                     else:
                         _new_dims.append(_d)
                 dims = _new_dims
+
+        # ── CRG findings enrichment (MCP path, graceful degrade) ──────────
+        # Runs after CRG independent score override so score is already final.
+        # All enrichment writes to DimResult.issues (evidence only) or appends
+        # auxiliary fields to gate_result.json. Never changes scores or blocks.
+        if ctx.gate_num >= 2:
+            try:
+                dims = _crg_enrich_gate_findings(
+                    self.crg, dims, ctx.project_root, ctx.work_dir, ctx.gate_num
+                )
+            except Exception as _enrich_err:  # pragma: no cover
+                print(
+                    f"[WARN] CRG enrichment skipped: {_enrich_err}",
+                    file=sys.stderr,
+                )
 
         # SG-2 (robustness audit): per-dimension variance sanity check.
         # If ≥3 dimensions all share the SAME score, that's suspiciously uniform

@@ -56,6 +56,14 @@ coverage run -m pytest && coverage report --format=json \
 nyc --reporter=json npm test
 ```
 
+**Automatic CRG enrichment** (added to `test_coverage.issues` at finalize-gate):
+- `get_knowledge_gaps` → severity: medium (untested critical paths detected by CRG)
+- `query_graph(tests_for)` on hub functions (fan_in≥8) → severity: high (hub with no test linkage)
+- `tier3_context.test_coverage.knowledge_gaps` also injected into prepare_gate prompt context
+  for Gates 3/4 where `crg.tier3_guidance` or `crg.reconnaissance` is enabled.
+
+These are **advisory findings** — they do NOT change the tool-scored coverage percentage.
+
 > **If all variants return 0% or fail**: evaluation is **SUSPENDED** for `test_coverage`.
 > Do NOT write a score file. Fix the pytest/coverage configuration and restart from Step 1.
 > (`tool_score=null` is not accepted for Tier 1 — score.py R8 will block gate scoring.)
@@ -205,6 +213,17 @@ Findings enrichment (via CRG MCP tools — does not affect the score):
 ```bash
 # list_communities / get_community — name low-cohesion communities in findings evidence
 ```
+
+**Automatic framework enrichment** (added to `architecture.issues` by `_crg_enrich_gate_findings`
+at finalize-gate — visible in `.sessi-work/gate{N}_result.json`):
+- `find_large_functions` (≥300 lines) → severity: medium (refactoring advisory)
+- `get_hub_nodes` (fan_in≥15) → severity: high (single-point failure risk)
+- `refactor_tool(dead_code)` (>10 items) → severity: medium (dead code ratio)
+- `get_review_context` / `get_impact_radius` / `get_affected_flows` → `crg_review_context` /
+  `crg_impact_radius` / `crg_affected_flows` fields (review context for the current gate)
+
+These are **advisory findings only** — they enrich the evidence but do NOT change the
+`community_cohesion.score`. The architecture score remains fully framework-controlled.
 
 #### ⚠ Orchestrator Pattern False Positive (Expected CRG Score: 0)
 

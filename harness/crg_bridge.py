@@ -258,3 +258,75 @@ class CRGBridge:
         if kind:
             kwargs["kind"] = kind
         return _crg_refactor(**kwargs)
+
+    def get_review_context(
+        self,
+        project_root: str,
+        changed_files: list[str] | None = None,
+        max_depth: int = 2,
+        detail_level: str = "minimal",
+    ) -> dict[str, Any]:
+        """Return focused review context combining impact analysis and source snippets."""
+        if not self._check_available():
+            return {}
+        try:
+            from mcp_tools import (  # type: ignore[import-untyped]
+                mcp__code_review_graph__get_review_context_tool as _f,
+            )
+            kwargs: dict[str, Any] = {
+                "repo_root": project_root,
+                "max_depth": max_depth,
+                "detail_level": detail_level,
+            }
+            if changed_files is not None:
+                kwargs["changed_files"] = changed_files
+            return _f(**kwargs)
+        except (ImportError, Exception):  # pragma: no cover
+            return {}
+
+    def get_impact_radius(
+        self,
+        project_root: str,
+        changed_files: list[str] | None = None,
+        max_depth: int = 2,
+        base: str = "HEAD~1",
+        detail_level: str = "minimal",
+    ) -> dict[str, Any]:
+        """Return blast radius of recent changes."""
+        if not self._check_available():
+            return {}
+        try:
+            from mcp_tools import (  # type: ignore[import-untyped]
+                mcp__code_review_graph__get_impact_radius_tool as _f,
+            )
+            kwargs: dict[str, Any] = {
+                "repo_root": project_root,
+                "max_depth": max_depth,
+                "base": base,
+                "detail_level": detail_level,
+            }
+            if changed_files is not None:
+                kwargs["changed_files"] = changed_files
+            return _f(**kwargs)
+        except (ImportError, Exception):  # pragma: no cover
+            return {}
+
+    def get_affected_flows(
+        self,
+        project_root: str,
+        changed_files: list[str] | None = None,
+        base: str = "HEAD~1",
+    ) -> dict[str, Any]:
+        """Return execution flows affected by recent changes."""
+        if not self._check_available():
+            return {}
+        try:
+            from mcp_tools import (  # type: ignore[import-untyped]
+                mcp__code_review_graph__get_affected_flows_tool as _f,
+            )
+            kwargs: dict[str, Any] = {"repo_root": project_root, "base": base}
+            if changed_files is not None:
+                kwargs["changed_files"] = changed_files
+            return _f(**kwargs)
+        except (ImportError, Exception):  # pragma: no cover
+            return {}

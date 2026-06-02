@@ -438,10 +438,20 @@ structural analysis — call graphs, community detection, flow analysis, dead co
 |---|--------|---------|-------|
 | 1 | `risk_score` | `eval_depth` gate | `evaluate_dimension.md` |
 | 2 | `community_cohesion` | Architecture score — framework-owned (`crg_independent.py`, overrides agent) | `harness_bridge.finalize_gate` |
-| 3 | ~~`flow_coverage`~~ | **Removed** — `error_handling` is now `ast-error-handling` (file-level try/except coverage); CRG had no `has_error_handler` field | `tool_runners.py` |
-| 4 | `dead_code_ratio` | Escalate severity if > 5% | `improvement_plan.md` |
-| 5 | `hub_risk_map` | Severity bucket by fan-in | `evaluate_dimension.md` |
-| 6 | `suggested_questions` | Auto-seed issue registry | `crg_reconnaissance.md` |
+| 3 | ~~`flow_coverage`~~ | **Removed** — `error_handling` is now `ast-error-handling` (file-level try/except); CRG `has_error_handler` field does not exist | `tool_runners.py` |
+| 4 | `find_large_functions` (≥300 lines) | Architecture findings WARN (evidence only, no score impact) | `harness_bridge._crg_enrich_gate_findings` |
+| 5 | `get_hub_nodes` (fan_in≥15) | Architecture findings HIGH (evidence only) | `harness_bridge._crg_enrich_gate_findings` |
+| 6 | `refactor_tool(dead_code)` | Architecture findings MEDIUM if >10 items (evidence only) | `harness_bridge._crg_enrich_gate_findings` |
+| 7 | `get_review_context` | `crg_review_context` injected into gate_result.json | `harness_bridge._crg_enrich_gate_findings` |
+| 8 | `get_impact_radius` | `crg_impact_radius` injected into gate_result.json | `harness_bridge._crg_enrich_gate_findings` |
+| 9 | `get_affected_flows` | `crg_affected_flows` injected into gate_result.json | `harness_bridge._crg_enrich_gate_findings` |
+| 10 | `get_knowledge_gaps` | test_coverage findings MEDIUM (untested critical paths) | `harness_bridge._crg_enrich_gate_findings` + `prepare_gate` |
+| 11 | `list_flows` (criticality) | error_handling findings LOW + `crg_critical_flows` in gate_result | `harness_bridge._crg_enrich_gate_findings` |
+| 12 | `query_graph(tests_for)` | test_coverage findings HIGH (hub functions without test linkage) | `harness_bridge._crg_enrich_gate_findings` |
+| 13 | `semantic_search(fr_id)` | TDD-RED prompt enriched with related existing code | `harness_cli._build_fr_step_prompt` |
+| 14 | `generate_wiki_tool` | .code-review-graph/wiki/ auto-generated on P3+ advance | `harness_cli.cmd_advance_phase` |
+| 15 | `list_graph_stats_tool` | Graph health displayed in run-gate preflight | `harness_cli.cmd_status` |
+| 16 | `suggested_questions` | Auto-seed issue registry | `crg_reconnaissance.md` |
 
 ### 9.3 Key CRG MCP Tools
 
@@ -450,13 +460,19 @@ structural analysis — call graphs, community detection, flow analysis, dead co
 | `build_or_update_graph` | Gate 3/4 entry, post-edit auto-update |
 | `get_minimal_context` | Tier 3 per-dim context (~100 tokens) |
 | `detect_changes` | Pre-fix safety, post-round drift |
-| `get_hub_nodes` / `get_bridge_nodes` | Structural reconnaissance |
+| `get_hub_nodes` | Architecture findings enrichment (fan_in≥15 → HIGH issue) |
 | `list_communities` / `get_community` | Cohesion scoring |
-| `get_knowledge_gaps` | Untested hotspot detection |
-| `query_graph` | Callers/callees/tests tracing |
-| `semantic_search_nodes` | Codebase exploration |
-| `find_large_functions` | Readability evaluation |
-| `refactor_tool` | Dead code detection |
+| `get_knowledge_gaps` | test_coverage findings (untested hotspots → MEDIUM issue) |
+| `query_graph(tests_for)` | test_coverage findings (untested hub functions → HIGH issue) |
+| `semantic_search_nodes` | TDD-RED prompt enrichment (related existing code) |
+| `find_large_functions` | Architecture findings enrichment (≥300 lines → WARN issue) |
+| `refactor_tool(dead_code)` | Architecture findings enrichment (>10 dead items → MEDIUM issue) |
+| `get_review_context` | finalize-gate: `crg_review_context` in gate_result.json |
+| `get_impact_radius` | finalize-gate: `crg_impact_radius` in gate_result.json |
+| `get_affected_flows` | finalize-gate: `crg_affected_flows` in gate_result.json |
+| `list_flows` | finalize-gate: error_handling context + `crg_critical_flows` |
+| `list_graph_stats` | run-gate preflight graph health display |
+| `generate_wiki_tool` | cmd_advance_phase P3+: auto-generate .code-review-graph/wiki/ |
 
 ### 9.4 Gate-CRG Configuration
 

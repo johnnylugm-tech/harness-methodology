@@ -31,11 +31,21 @@ context but as the authoritative scorer for structural dimensions.
 | # | Location | Signal | Decision |
 |---|----------|--------|----------|
 | 1 | `evaluate_dimension.md` | `risk_score` | `eval_depth` = deep / standard / fast |
-| 2 | `score.py` | `community_cohesion.score` | Architecture = CRG score (authoritative) |
-| 3 | `score.py` | `flow_coverage.score` | Error handling = CRG score (authoritative) |
-| 4 | `improvement_plan.md` | `dead_code_ratio` | Escalate low→medium if ratio > 5% |
-| 5 | `evaluate_dimension.md` | `hub_risk_map[].severity` | Fan-in bucket: crit/high/med/low |
-| 6 | `crg_reconnaissance.md` | `suggested_questions[]` | Auto-seed issue registry (category→dim→severity) |
+| 2 | `harness_bridge.finalize_gate` | `community_cohesion.score` | Architecture = CRG score (authoritative, framework-owned) |
+| 3 | ~~`score.py` / `flow_coverage`~~ | **Removed** — `error_handling` is now `ast-error-handling` (file-level try/except; CRG `has_error_handler` field does not exist in package) | `tool_runners.py` |
+| 4 | `harness_bridge._crg_enrich_gate_findings` | `find_large_functions` (≥300 lines) | Architecture findings WARN (evidence only, no score change) |
+| 5 | `harness_bridge._crg_enrich_gate_findings` | `get_hub_nodes` (fan_in≥15) | Architecture findings HIGH (evidence only) |
+| 6 | `harness_bridge._crg_enrich_gate_findings` | `refactor_tool(dead_code)` | Architecture findings MEDIUM if >10 items (evidence only) |
+| 7 | `harness_bridge._crg_enrich_gate_findings` | `get_review_context` | `crg_review_context` field in gate_result.json |
+| 8 | `harness_bridge._crg_enrich_gate_findings` | `get_impact_radius` | `crg_impact_radius` field in gate_result.json |
+| 9 | `harness_bridge._crg_enrich_gate_findings` | `get_affected_flows` | `crg_affected_flows` field in gate_result.json |
+| 10 | `harness_bridge._crg_enrich_gate_findings` | `get_knowledge_gaps` | test_coverage findings MEDIUM (untested critical paths) |
+| 11 | `harness_bridge._crg_enrich_gate_findings` | `list_flows` (criticality) | error_handling findings LOW + `crg_critical_flows` in gate_result.json |
+| 12 | `harness_bridge._crg_enrich_gate_findings` | `query_graph(tests_for)` | test_coverage findings HIGH (hub functions without test linkage) |
+| 13 | `harness_bridge.prepare_gate` | `get_knowledge_gaps` | test_coverage tier3 context (knowledge_gaps field) |
+| 14 | `_build_fr_step_prompt(TDD-RED)` | `semantic_search(fr_id)` | Injects related existing code into TDD-RED agent prompt |
+| 15 | `cmd_advance_phase (P3+)` | `generate_wiki_tool` | Auto-generates .code-review-graph/wiki/ on phase advance |
+| 16 | `crg_reconnaissance.md` | `suggested_questions[]` | Auto-seed issue registry (category→dim→severity) |
 
 ## CRG Analysis Thresholds
 
@@ -71,10 +81,18 @@ LLM executes crg_reconnaissance.md (Steps 1-11):
   ├→ crg_analysis.py seed_issues           # Auto-seed registry
   └→ crg_analysis.py metrics               # → crg_metrics.json
 
-score.py::compute_overall_score():
-  └→ _apply_crg_subscores():
-      architecture  = community_cohesion.score   # CRG only
-      error_handling = flow_coverage.score       # CRG only
+HarnessBridge.finalize_gate() [Gate 2+]
+  ├→ run_independent_crg()            # subprocess: architecture score (community_cohesion)
+  └→ _crg_enrich_gate_findings()      # MCP path (graceful degrade if unavailable):
+      find_large_functions  → architecture issues WARN (≥300 lines)
+      get_hub_nodes         → architecture issues HIGH (fan_in≥15)
+      check_dead_code       → architecture issues MEDIUM (>10 dead items)
+      get_review_context    → crg_review_context in gate_result.json
+      get_impact_radius     → crg_impact_radius in gate_result.json
+      get_affected_flows    → crg_affected_flows in gate_result.json
+      get_knowledge_gaps    → test_coverage issues MEDIUM
+      list_flows            → error_handling issues LOW + crg_critical_flows
+      query_graph(tests_for)→ test_coverage issues HIGH (untested hubs)
 ```
 
 ## MCP Tool Coverage
@@ -114,8 +132,8 @@ CRG provides 27 MCP tools. Key tools used by harness-methodology:
 |------|-------|-------------|-----------------|
 | Gate 1 | P3/4/5/7/8 per-FR | None | None (Tier 1 only) |
 | Gate 2 | P3 exit | Graph refresh + impact check | None (Tier 1+2 only) |
-| Gate 3 | P4 exit | Full (Points 1-4) | Architecture, error_handling (CRG-only) |
-| Gate 4 | P6 full | Full + B3 mandatory recon | Architecture, error_handling (CRG-only) |
+| Gate 3 | P4 exit | Full (Points 1-4) + 9-tool enrichment | Architecture (CRG-only score) |
+| Gate 4 | P6 full | Full + B3 mandatory recon + 9-tool enrichment | Architecture (CRG-only score) |
 
 ## Verifying CRG Health
 
