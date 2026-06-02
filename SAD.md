@@ -192,6 +192,7 @@ This section uses normative language per **RFC 2119**:
 | HR-13: Auto-fix timeout enforcement | **MUST** | `core/auto_fix/__init__.py` | `check_escalation()` HR-13 condition |
 | HR-14: No integrity violations after auto-fix | **MUST** | `core/auto_fix/guardrails.py` | `post_fix_drift_check()` |
 | HR-15: Citations must include line numbers | **MUST** | `detection/ensemble_scorer.py` / `pattern_matcher.py` / `steering` | Grep confirmation in review |
+| HR-16: `gate_score_overrides` acts as a Threshold Floor | **MUST** | `harness/gate_configs/sab_parser.py` | No automated override; fix code, re-architect, or escalate |
 
 #### 2.4.2 Gate Pass Criteria
 
@@ -225,7 +226,7 @@ Full integration guide: **[INTEGRATION.md](INTEGRATION.md)**. Summary:
 
 | Mechanism | File | Context | Purpose |
 |---|---|---|---|
-| **GitHub Actions CI** | `.github/workflows/harness_ci.yml` | This repo (framework self-test) | Mutation testing (median-3, threshold ≥70) + `pytest tests/` on push/PR to `main` |
+| **GitHub Actions CI** | `.github/workflows/harness_ci.yml` | This repo (framework self-test) | Mutation testing (median-3, threshold ≥70, requires `pytest.mark.mutation_oracle` scoped testing via `setup.cfg`) + `pytest tests/` on push/PR to `main` |
 | **Git Hooks installer** | `scripts/setup-git-hooks.sh` | Target project | Installs `prepare-commit-msg` (block commit), `post-merge` (warn), `pre-push` (block push) keyed on `.methodology/state.json` `current_phase` |
 | **Drift Monitor cron** | `scripts/cron_drift_monitor.py` | Target project (crontab) | Hourly architecture drift detection; alert via log / email / Slack. Path via `DRIFT_PROJECT_PATH` env var |
 | **On-demand scripts** | `scripts/*.py` | Target project | FR audit, phase audit, spec compliance, FR mapping — see INTEGRATION.md §3.4 |
@@ -315,13 +316,14 @@ class HarnessBridge:
 1. Reads `.sessi-work/gate{N}_result.json` (raises `FileNotFoundError` if missing)
 2. Parses JSON into `GateResult` (accepts both `overall_score`/`score` and `open_critical_count`/`open_critical` field names)
 3. `self._update_quality_manifest(gate_num, fr_id, result)` — writes to `.methodology/quality_manifest.json`
-4. `self._effort.record(EffortRecord(phase, gate_num, "GATE", "gate_finalize", ...))`
-5. `self._log.write(DecisionLogEntry(... decision="GATE_PASS"|"GATE_BLOCK" ...))`
-6. **Blocking logic**:
+4. Applies framework overrides (traceability/CRG). If trace/hub overrides fire, functions return `tuple[list[DimResult], bool]`. If the `bool` flag (`_crg_overrides_applied`) is `True`, the overall composite score is dynamically recomputed via weighted-average.
+5. `self._effort.record(EffortRecord(phase, gate_num, "GATE", "gate_finalize", ...))`
+6. `self._log.write(DecisionLogEntry(... decision="GATE_PASS"|"GATE_BLOCK" ...))`
+7. **Blocking logic**:
    - Gate 1: `raise GateBlockedError` if any `d.score < d.threshold` in `result.dimensions`
    - Gate 2/3/4: `raise GateBlockedError` if `result.score < config["score_gate"]` OR `not result.quality_complete`
-7. Gate 4 only: Runs validation checks to ensure quality completeness.
-8. Return `GateResult`
+8. Gate 4 only: Runs validation checks to ensure quality completeness.
+9. Return `GateResult`
 
 **Result file contract** (`.sessi-work/gate{N}_result.json`):
 ```json
@@ -1454,7 +1456,7 @@ def compute_tool_score(tool: str, output: str, returncode: int) -> float | None:
 - `ast-docstrings` (`documentation`) — public-API docstring coverage `100 × public_defs_with_docstring / total_public_defs` over `03-development/src` / `src` (`def`/`class` whose name is not `_`-prefixed; `ast.get_docstring`). Replaces the former `pydocstyle`/`interrogate` style-existence proxy that an agent could satisfy with one-line stubs. `total_public == 0` → 100 (no public API to document). S4 re-runs this AST scan independently → not fabricable.
 - `pytest-cov-integration` (`integration_coverage`) — runs `pytest 03-development/tests/integration --cov=…` and scores the real coverage `TOTAL%` (not pass-rate). Missing suite → exit 4/5 → score 0 → cross-validation blocks.
 
-> `architecture` is NOT scored here — it is framework-owned via the independent CRG run (`harness/crg_independent.py`, below) and overridden in `finalize_gate`. Cross-validation skips it.
+> `architecture` and `traceability` are NOT scored here — they are framework-owned (`architecture` via independent CRG run, `traceability` verified via traceability matrices/attestation) and overridden in `finalize_gate`. The agent must NOT report scores for them in `gate_result.json` for Gates 2, 3, and 4. Cross-validation skips them.
 
 **Cross-validation return-code handling** (in `_run_harness_cross_validation`, when the agent-reported score ≥ threshold):
 - `-1` skip-list → must supply a verifiable committed `tool_output` file (above), else BLOCK.
