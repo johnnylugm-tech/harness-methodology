@@ -67,9 +67,8 @@ def main() -> int:
         # find_large_functions_func not available in this version — no penalty
         pass
 
-    output: dict = {"communities": communities}
-    if large_functions_critical is not None:
-        output["large_functions_critical"] = large_functions_critical
+    output: dict = {"communities": communities,
+                    "large_functions_critical": large_functions_critical}
 
     json.dump(output, sys.stdout)
     return 0

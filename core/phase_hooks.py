@@ -352,7 +352,7 @@ class PhaseHooks:
 
         try:
             from core.traceability.scanner import check_traceability
-            _, report = check_traceability(self.project_path)
+            _rt, report = check_traceability(self.project_path)
         except Exception as e:
             print(f"   Traceability check error: {e}")
             # P5+ is blocking — module errors must NOT silently pass
@@ -380,10 +380,14 @@ class PhaseHooks:
         untested_set = set(report["untested"])
         uncoded_set = set(report["uncoded"])
         try:
-            from core.traceability.overlay import load_overlay, merge_overlay
+            from core.traceability.overlay import (
+                atomic_to_dict, load_overlay, merge_overlay,
+            )
             overlay = load_overlay(self.project_path)
             if overlay:
-                merged = merge_overlay(report, overlay)
+                # merge_overlay expects an atomic dict (with "requirements" key),
+                # not the check_traceability report dict. Convert rt → atomic first.
+                merged = merge_overlay(atomic_to_dict(_rt), overlay)
                 for fr_id, row in merged.get("requirements", {}).items():
                     if row.get("status") == "VERIFIED" or "Manual" in str(row.get("test_files", [])):
                         untested_set.discard(fr_id)

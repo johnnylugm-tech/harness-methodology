@@ -194,12 +194,15 @@ def _crg_enrich_gate_findings(
 
     Never raises. All enrichment degrades gracefully when MCP is unavailable
     (CRGBridge._check_available() returns False inside each method).
-    Does NOT change any dimension score — evidence only.
+    Mostly evidence-only, with ONE score override (Phase 2 gatekeeper):
+      Step 9 (query_graph tests_for): applies a score penalty to test_coverage
+      when critical hub functions (fan_in≥8) have no TESTED_BY edge.
+      All other steps write to DimResult.issues or gate_result.json only.
 
     Wired tools (9 enrichment points):
       Architecture: find_large_functions, get_hub_nodes, check_dead_code
       Review context: get_review_context, get_impact_radius, get_affected_flows
-      Test coverage: get_knowledge_gaps, query_graph(tests_for)
+      Test coverage: get_knowledge_gaps, query_graph(tests_for) [score override]
       Error handling: list_flows (critical flow list)
     """
     result_path = Path(work_dir) / f"gate{gate_num}_result.json"
@@ -250,8 +253,10 @@ def _crg_enrich_gate_findings(
     dead_items = (dc_data or {}).get("dead_code", [])
     prod_dead = [x for x in dead_items if "/tests/" not in (x.get("file") or "")]
     if len(prod_dead) > 10:
-        ratio_pct = round(len(prod_dead) / max(1, len(prod_dead) + 100) * 100, 1)
-        sev = "medium" if ratio_pct > 5 else "low"
+        # Severity based on absolute count — total_nodes not available here without
+        # an extra MCP call. >20 is reliably > 5% of any non-trivial project,
+        # matching crg_analysis.DEAD_CODE_ESCALATE_RATIO intent.
+        sev = "medium" if len(prod_dead) > 20 else "low"
         for _d in dims:
             if _d.name == "architecture":
                 _d.issues.append({
@@ -1699,6 +1704,41 @@ class HarnessBridge:
                     else:
                         _new_dims.append(_d)
                 dims = _new_dims
+
+        # ── PR 4 (audit F-1.1 fix): framework trace score override ─────
+        # The agent cannot compute the trace dimension (no tool to scan
+        # SAD.md + [FR-XX] annotations + test references). The framework
+        # runs `compute_trace_dimension` and overrides whatever the agent
+        # wrote. Mirrors the CRG override pattern above: replace the
+        # score in-place; log the change; never silently lose it.
+        try:
+            from core.quality_gate.spec_tracking_checker import (
+                compute_trace_dimension,
+            )
+            _trace_dim = compute_trace_dimension(ctx.project_root, ctx.gate_num)
+            if not _trace_dim.get("error"):
+                _framework_score = _trace_dim["merged_pct"]
+                _new_dims = []
+                for _d in dims:
+                    if _d.name == "traceability":
+                        if abs(_d.score - _framework_score) > 0.5:
+                            print(
+                                f"[harness] trace override traceability: "
+                                f"{_d.score:.1f} → {_framework_score:.1f} "
+                                f"(4a={_trace_dim['4a_fr_to_test_pct']:.1f}% "
+                                f"4b={_trace_dim['4b_test_spec_pct']:.1f}%)"
+                            )
+                        _new_dims.append(dataclasses.replace(
+                            _d, score=_framework_score,
+                        ))
+                    else:
+                        _new_dims.append(_d)
+                dims = _new_dims
+        except Exception as _trace_err:  # pragma: no cover
+            print(
+                f"[WARN] trace dimension override skipped: {_trace_err}",
+                file=sys.stderr,
+            )
 
         # ── CRG findings enrichment (MCP path, graceful degrade) ──────────
         # Runs after CRG independent score override so score is already final.

@@ -62,3 +62,9 @@ uv.lock
 # ── OS metadata ─────────────────────────────────────────────────────────────
 .DS_Store
 .harness/
+
+# Debug artifacts
+*.bak
+*.diff
+*.patch
+XX.*
