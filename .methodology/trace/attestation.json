@@ -1,0 +1,237 @@
+{
+  "schema": "harness/traceability/attestation/v1",
+  "git_sha": "61b5fbb30b91a93c9d03db6580856d4e7ad14551",
+  "content_sha256": "8847bb606c393b29acdcad21526dcb4d2a2078d1845a9581a9d9c55f5a997ec3",
+  "tool": "scripts/build_trace_attestation.py",
+  "overlay_used": "/Users/johnny/projects/harness-methodology/TRACEABILITY_MATRIX.overlay.yaml",
+  "overlay_errors": [],
+  "matrix": {
+    "schema_version": "harness/traceability/overlay/v1",
+    "project_id": "harness-methodology",
+    "completeness": {
+      "total_requirements": 7,
+      "srs_coverage": "0.0%",
+      "code_coverage": "100.0%",
+      "test_coverage": "100.0%",
+      "verification_rate": "100.0%",
+      "total_links": 51,
+      "missing_mappings": {
+        "fr_without_srs": [
+          "FR-07",
+          "FR-01",
+          "FR-04",
+          "FR-99",
+          "FR-05",
+          "FR-02",
+          "FR-03"
+        ],
+        "fr_without_code": [],
+        "fr_without_test": []
+      }
+    },
+    "missing": {
+      "fr_without_srs": [
+        "FR-07",
+        "FR-01",
+        "FR-04",
+        "FR-99",
+        "FR-05",
+        "FR-02",
+        "FR-03"
+      ],
+      "fr_without_code": [],
+      "fr_without_test": []
+    },
+    "requirements": {
+      "FR-01": {
+        "fr_id": "FR-01",
+        "status": "verified",
+        "srs_section": null,
+        "code_files": [
+          "tests/test_policy_engine.py",
+          "tests/test_attestation_verify.py",
+          "tests/test_ensemble_scorer.py",
+          "tests/test_trace_dirty_state.py",
+          "tests/test_drift_detector.py",
+          "tests/test_citation_parser.py",
+          "tests/test_scanner_unification.py",
+          "tests/test_overlay_merge.py",
+          "tests/test_harness_cli.py",
+          "tests/test_traceability_pipeline.py",
+          "tests/test_gate_trace_dimension.py",
+          "tests/test_preflight_auto_fix_dispatch.py",
+          "constitution/citation_parser.py"
+        ],
+        "test_files": [
+          "tests/test_policy_engine.py",
+          "tests/test_attestation_verify.py",
+          "tests/test_ensemble_scorer.py",
+          "tests/test_trace_dirty_state.py",
+          "tests/test_drift_detector.py",
+          "tests/test_citation_parser.py",
+          "tests/test_scanner_unification.py",
+          "tests/test_overlay_merge.py",
+          "tests/test_harness_cli.py",
+          "tests/test_traceability_pipeline.py",
+          "tests/test_gate_trace_dimension.py",
+          "tests/test_preflight_auto_fix_dispatch.py"
+        ],
+        "sad_module": "—",
+        "priority": "HIGH"
+      },
+      "FR-02": {
+        "fr_id": "FR-02",
+        "status": "verified",
+        "srs_section": null,
+        "code_files": [
+          "tests/test_attestation_verify.py",
+          "tests/test_scanner_unification.py",
+          "tests/test_overlay_merge.py",
+          "tests/test_harness_cli.py",
+          "tests/test_traceability_pipeline.py",
+          "tests/test_gate_trace_dimension.py"
+        ],
+        "test_files": [
+          "tests/test_attestation_verify.py",
+          "tests/test_scanner_unification.py",
+          "tests/test_overlay_merge.py",
+          "tests/test_harness_cli.py",
+          "tests/test_traceability_pipeline.py",
+          "tests/test_gate_trace_dimension.py"
+        ],
+        "sad_module": "—",
+        "priority": "HIGH"
+      },
+      "FR-03": {
+        "fr_id": "FR-03",
+        "status": "verified",
+        "srs_section": null,
+        "code_files": [
+          "tests/test_traceability_pipeline.py"
+        ],
+        "test_files": [
+          "tests/test_traceability_pipeline.py"
+        ],
+        "sad_module": "—",
+        "priority": "HIGH"
+      },
+      "FR-04": {
+        "fr_id": "FR-04",
+        "status": "verified",
+        "srs_section": null,
+        "code_files": [
+          "tests/test_traceability_pipeline.py"
+        ],
+        "test_files": [
+          "tests/test_traceability_pipeline.py"
+        ],
+        "sad_module": "—",
+        "priority": "HIGH"
+      },
+      "FR-05": {
+        "fr_id": "FR-05",
+        "status": "verified",
+        "srs_section": null,
+        "code_files": [
+          "tests/test_traceability_pipeline.py"
+        ],
+        "test_files": [
+          "tests/test_traceability_pipeline.py"
+        ],
+        "sad_module": "—",
+        "priority": "HIGH"
+      },
+      "FR-07": {
+        "fr_id": "FR-07",
+        "status": "verified",
+        "srs_section": null,
+        "code_files": [
+          "tests/test_traceability_pipeline.py"
+        ],
+        "test_files": [
+          "tests/test_traceability_pipeline.py"
+        ],
+        "sad_module": "—",
+        "priority": "HIGH"
+      },
+      "FR-99": {
+        "fr_id": "FR-99",
+        "status": "verified",
+        "srs_section": null,
+        "code_files": [
+          "tests/test_4a_denominator_dedup.py",
+          "tests/test_traceability_auto_fix.py",
+          "tests/test_traceability_pipeline.py"
+        ],
+        "test_files": [
+          "tests/test_4a_denominator_dedup.py",
+          "tests/test_traceability_auto_fix.py",
+          "tests/test_traceability_pipeline.py"
+        ],
+        "sad_module": "—",
+        "priority": "HIGH"
+      },
+      "FR-06": {
+        "fr_id": "FR-06",
+        "status": "verified",
+        "code_files": [
+          "core/quality_gate/constitution/profile.py",
+          "core/quality_gate/constitution/runner.py"
+        ],
+        "test_files": [
+          "tests/test_constitution_runner.py",
+          "tests/test_constitution_profile.py"
+        ],
+        "sad_module": "§3.x Constitution Profile (per-phase keyword overrides P1–P8)",
+        "justification": "build_traceability.py does not yet parse constitution profile files; human-owned mapping until PR 4 wires the dimension scan."
+      },
+      "FR-ENF-01": {
+        "fr_id": "FR-ENF-01",
+        "status": "verified",
+        "code_files": [
+          "harness_cli.py:cmd_push_milestone",
+          "harness_cli.py:_validate_p8_completion"
+        ],
+        "test_files": [
+          "tests/test_harness_cli.py:TestValidateP8Completion"
+        ],
+        "sad_module": "§2.3 push-milestone sentinel enforcement"
+      },
+      "FR-ENF-02": {
+        "fr_id": "FR-ENF-02",
+        "status": "verified",
+        "code_files": [
+          "harness_cli.py:cmd_verify_agent_b_approvals"
+        ],
+        "test_files": [
+          "tests/test_harness_cli.py:TestVerifyAgentBApprovals"
+        ],
+        "sad_module": "§2.3 Agent B approval gate"
+      },
+      "FR-ENF-03": {
+        "fr_id": "FR-ENF-03",
+        "status": "verified",
+        "code_files": [
+          "templates/harness_quality_gate.yml",
+          ".github/workflows/harness_ci.yml"
+        ],
+        "test_files": [],
+        "sad_module": "§2.3 P8 archive & HANDOVER CI check"
+      }
+    },
+    "annotations": {
+      "FR-04": [
+        "Implementation FR; not back-linked to a top-level SRS section."
+      ],
+      "FR-05": [
+        "Implementation FR; not back-linked to a top-level SRS section."
+      ],
+      "FR-07": [
+        "Implementation FR; not back-linked to a top-level SRS section."
+      ],
+      "FR-99": [
+        "Implementation FR; not back-linked to a top-level SRS section."
+      ]
+    }
+  }
+}

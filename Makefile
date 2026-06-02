@@ -60,7 +60,7 @@ mutation: check-python
 # step exits 0 only when the committed attestation matches re-derivation.
 attest: check-python
 	@if [ ! -d .git ]; then echo "ERROR: not a git repo"; exit 1; fi
-	$(PYTHON) harness_cli.py build-trace-attestation --project . --write
+	$(PYTHON) harness_cli.py build-trace-attestation --project .
 	git add .methodology/trace/attestation.json
 	@echo "attestation.json staged. Run: git commit"
 
