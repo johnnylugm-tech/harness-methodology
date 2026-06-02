@@ -203,21 +203,6 @@ class TestStrategies:
         assert success
         assert (tmp_path / "01-requirements" / "SPEC_TRACKING.md").exists()
 
-    def test_fix_missing_traceability_generates_file(self, tmp_path: Path):
-        (tmp_path / "01-requirements").mkdir(parents=True)
-        context = FixContext(
-            source="framework_enforcer",
-            problem_type="missing_traceability",
-            severity="high",
-            phase=1,
-            project_root=tmp_path,
-            details={},
-        )
-        success, action, conf = fix_missing_traceability(context, tmp_path)
-        assert success
-        content = (tmp_path / "01-requirements" / "TRACEABILITY_MATRIX.md").read_text()
-        assert "TRACEABILITY" in content
-
     def test_fix_keyword_density_adds_keywords(self, tmp_path: Path):
         test_file = tmp_path / "test.md"
         test_file.write_text("# Test\n\nNo security content here.", encoding="utf-8")

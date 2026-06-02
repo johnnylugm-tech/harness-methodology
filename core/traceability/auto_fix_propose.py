@@ -82,16 +82,20 @@ def _build_annotation_block(fr_id: str) -> str:
     )
 
 
-def _diff_added_lines(file_path: str, new_text: str) -> str:  # noqa: ARG001 (file_path is for diff header)
-    """Render a unified diff that ADDS `new_text` to the end of `file_path`."""
-    # Use empty "before" so the diff shows the full addition.
+def _diff_added_lines(file_path: str, new_text: str) -> str:  # noqa: ARG001
+    """Render a unified diff that ADDS `new_text` to a new file at `file_path`.
+
+    Uses standard `a/path` / `b/path` format with `--git` style so that
+    `git apply -p1` (the default) places the file at the correct location
+    relative to the repo root.
+    """
     before_lines: List[str] = []
     after_lines = new_text.splitlines(keepends=True)
     if not after_lines or not after_lines[-1].endswith("\n"):
         after_lines[-1] = after_lines[-1] + "\n"
     diff = difflib.unified_diff(
         before_lines, after_lines,
-        fromfile="/dev/null", tofile=file_path,
+        fromfile=f"a/{file_path}", tofile=f"b/{file_path}",
         n=2,
     )
     return "".join(diff)
@@ -117,7 +121,7 @@ def _diff_append_to_existing(file_path: str, content: str) -> str:
         after_lines[-1] = after_lines[-1] + "\n"
     diff = difflib.unified_diff(
         before_lines, after_lines,
-        fromfile=file_path, tofile=file_path,
+        fromfile=f"a/{file_path}", tofile=f"b/{file_path}",
         n=2,
     )
     return "".join(diff)
@@ -189,17 +193,17 @@ def write_proposed_diff(project: Path, diff_text: str) -> Path:
 # ---------------------------------------------------------------------------
 
 def apply_diff(project: Path, diff_text: str) -> Tuple[bool, str]:
-    """Apply a unified diff to the project tree using `git apply --3way`.
+    """Apply a unified diff to the project tree using `git apply`.
 
     Returns (success, message). On failure, the working tree is left in
     whatever partial state `git apply` produced; the caller is expected
-    to `git checkout -- .` to rollback.
+    to call `rollback()` to restore.
     """
     import subprocess
     if not diff_text.strip():
         return True, "no changes"
     proc = subprocess.run(
-        ["git", "apply", "--3way", "-"],
+        ["git", "apply", "-p1", "-"],
         input=diff_text, text=True,
         cwd=project, capture_output=True,
     )
