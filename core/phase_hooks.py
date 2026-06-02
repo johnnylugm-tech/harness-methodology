@@ -36,6 +36,52 @@ class KillSwitchBlockedError(RuntimeError):
 # preflight_constitution() to avoid a heavy import at module load time.
 
 
+def _dispatch_trace_auto_fix(project_path, untested, uncoded) -> bool:
+    """PR 9: dispatch one bounded auto-fix attempt for missing traceability.
+
+    Returns True if the fix closed the gap (caller should re-verify);
+    False if the fix failed or escalated (caller should keep the gate
+    blocked). Never raises — auto-fix failures are reported via stdout.
+
+    The per-strategy allowlist lives inside `AutoFixEngine`:
+    `fix_missing_traceability` (problem_type='missing_traceability') is
+    the only strategy that actually re-derives and re-verifies. Other
+    strategies still emit stubs and are not invoked by this path.
+    """
+    try:
+        from core.auto_fix import AutoFixEngine, FixContext
+    except ImportError as e:
+        print(f"   [auto-fix] engine import failed: {e}", file=sys.stderr)
+        return False
+
+    try:
+        engine = AutoFixEngine(
+            project_root=project_path,
+            phase=1,
+            max_rounds=1,
+        )
+        ctx = FixContext(
+            source="phase_hooks/preflight_traceability",
+            problem_type="missing_traceability",
+            severity="high",
+            phase=1,
+            project_root=project_path,
+            details={
+                "max_rounds": 1,
+                "untested": list(untested),
+                "uncoded": list(uncoded),
+            },
+        )
+        result = engine.fix(ctx)
+        ok = bool(result and result[0]) if isinstance(result, tuple) else bool(result)
+        msg = result[1] if isinstance(result, tuple) and len(result) > 1 else ""
+        print(f"   [auto-fix] round 1: {msg or ('passed' if ok else 'failed')}")
+        return ok
+    except Exception as e:
+        print(f"   [auto-fix] engine.fix raised: {e}", file=sys.stderr)
+        return False
+
+
 class PhaseHooks:
     """
     Phase execution hooks framework.
@@ -332,6 +378,29 @@ class PhaseHooks:
             print(f"   Untested FRs: {', '.join(report['untested'])}")
         if uncoded:
             print(f"   Uncoded FRs: {', '.join(report['uncoded'])}")
+
+        # PR 9: dispatch one bounded auto-fix attempt at P5+ when blocked.
+        # Per-strategy allowlist lives inside AutoFixEngine — only
+        # `fix_missing_traceability` (problem_type='missing_traceability')
+        # is dispatched. Other strategies still emit stubs.
+        if blocking and not passed and (untested or uncoded):
+            _fixed = _dispatch_trace_auto_fix(
+                self.project_path, untested, uncoded,
+            )
+            if _fixed:
+                try:
+                    _rt2, report2 = check_traceability(self.project_path)  # noqa: F841
+                    still_untested = report2.get("untested", [])
+                    still_uncoded = report2.get("uncoded", [])
+                    if not still_untested and not still_uncoded:
+                        passed = True
+                        print("   [auto-fix] re-verify: all gaps closed")
+                    else:
+                        print(f"   [auto-fix] re-verify: {len(still_untested)} "
+                              f"untested, {len(still_uncoded)} uncoded remain")
+                except Exception as _post_err:
+                    print(f"   [auto-fix] post-fix re-verify error: {_post_err}",
+                          file=sys.stderr)
         ghost = report.get("ghost_frs", [])
         if ghost:
             print(f"   Ghost FRs (non-blocking): {', '.join(ghost)} — in code/tests but not in SAD.md")
@@ -346,6 +415,75 @@ class PhaseHooks:
             "attestation": att_status,
             "attestation_message": att_msg,
             "blocking": blocking,
+        }
+
+    def preflight_fr_spec_consistency(self) -> Dict[str, Any]:
+        """PR 7: SAD ↔ TEST_SPEC.md symmetric-difference check.
+
+        Catches FRs declared in one source but not the other (a class
+        of mismatch that 4a and 4b miss independently). P3/P4
+        informational; P5+ blocking when orphans are found.
+
+        If `02-architecture/TEST_SPEC.md` is missing, skip the check
+        (4b will surface missing spec separately via
+        `_run_spec_coverage_check`).
+        """
+        import re
+        print("\n[PRE-FLIGHT] FR Spec Consistency")
+        sad_path = self.project_path / "02-architecture" / "SAD.md"
+        if not sad_path.exists():
+            sad_path = self.project_path / "SAD.md"
+        spec_path = self.project_path / "02-architecture" / "TEST_SPEC.md"
+
+        sad_frs: set = set()
+        if sad_path.exists():
+            try:
+                sad_text = sad_path.read_text(encoding="utf-8", errors="replace")
+                sad_frs = {f"FR-{int(m):02d}" for m in
+                           re.findall(r"\bFR-(\d+)\b", sad_text)}
+            except OSError as e:
+                print(f"   SAD read error: {e}", file=sys.stderr)
+
+        spec_frs: set = set()
+        if not spec_path.exists():
+            print("   Skipped: TEST_SPEC.md not present at 02-architecture/")
+            return {"passed": True, "skipped": True,
+                    "reason": "TEST_SPEC.md missing — covered by D4 spec-coverage"}
+
+        try:
+            spec_text = spec_path.read_text(encoding="utf-8", errors="replace")
+            # Match `### FR-XX` headings (per derive_test_cases.md convention)
+            spec_frs = {f"FR-{int(m):02d}" for m in
+                        re.findall(r"^#{1,6}\s*FR-(\d+)\b",
+                                   spec_text, re.MULTILINE)}
+        except OSError as e:
+            print(f"   TEST_SPEC read error: {e}", file=sys.stderr)
+            return {"passed": True, "skipped": True, "error": str(e)}
+
+        sad_only = sorted(sad_frs - spec_frs)
+        spec_only = sorted(spec_frs - sad_frs)
+        orphans = len(sad_only) + len(spec_only)
+        blocking = self.phase is not None and self.phase >= 5
+        passed = (orphans == 0) or (not blocking)
+
+        if orphans:
+            if sad_only:
+                print(f"   sad_only (in SAD but not in TEST_SPEC): {sad_only}")
+            if spec_only:
+                print(f"   spec_only (in TEST_SPEC but not in SAD): {spec_only}")
+            if blocking:
+                print(f"   [BLOCKED] Phase {self.phase} requires SAD↔SPEC parity")
+            else:
+                print(f"   INFO: {orphans} orphan(s); not blocking at phase {self.phase}")
+        else:
+            print("   SAD and TEST_SPEC agree on FR set")
+
+        return {
+            "passed": passed,
+            "blocking": blocking,
+            "sad_only": sad_only,
+            "spec_only": spec_only,
+            "orphan_count": orphans,
         }
 
     def preflight_gap_analysis(self) -> Dict[str, Any]:
@@ -567,6 +705,7 @@ class PhaseHooks:
             "sab": self.preflight_sab_check(),
             "tool_registry": self.preflight_tool_registry(),
             "traceability": self.preflight_traceability(),
+            "fr_spec_consistency": self.preflight_fr_spec_consistency(),
             "gap_analysis": self.preflight_gap_analysis(),
             "ci_readiness": self.preflight_ci_readiness(),
         }

@@ -57,7 +57,7 @@ import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Dict
 
 if TYPE_CHECKING:
     from harness.git_strategy import GitStrategy
@@ -1274,11 +1274,14 @@ def _cmd_run_phase_impl(args: argparse.Namespace) -> int:
 
     pre = hooks.preflight_all()
     if not pre["all_passed"]:
-        # Preflight covers FSM / constitution / governance artifacts. A failure here is
-        # a substantive gap — FR→code→test coverage, spec↔code drift, SPEC↔code gap, a
-        # broken artifact chain — that needs real development work or a human, NOT an
-        # auto-fix: every auto_fix strategy only emits an empty stub / a comment, which
-        # can never clear these checks (verified end-to-end). Block honestly instead.
+        # PR 9: most preflight failures are substantive gaps that need real
+        # development work or a human. The exception is the trace gap
+        # (problem_type="missing_traceability"): PhaseHooks.preflight_traceability
+        # dispatches _dispatch_trace_auto_fix for one bounded attempt
+        # (per-strategy allowlist inside AutoFixEngine — only
+        # fix_missing_traceability is wired). Other strategies (coverage,
+        # drift, artifact chain) still emit stubs and are not production-wired.
+        # If we reach this point, all preflights are still failing — block.
         print(f"\nPRE-FLIGHT FAILED: {pre['details']}")
         return 1
 
@@ -1326,17 +1329,87 @@ def _cmd_run_phase_impl(args: argparse.Namespace) -> int:
             print("        (quality_manifest.json not found — run 'plan-phase' first to populate FR IDs)")
     return 0
 
+def _trace_dirty_state(project_path: Path) -> Dict[str, Any]:
+    """PR 6: mtime-based trace staleness probe — <50ms, no rglob.
+
+    Compares `attestation.json` mtime against `SAD.md` mtime and the
+    newest `tests/test_fr*.py` mtime. Returns the *first* staleness
+    cause found, in this order: missing attestation, SAD newer,
+    tests newer. Catches the common case where a developer edited
+    code or spec but forgot to re-derive `attestation.json`. False
+    negatives (edits to `core/foo.py` without FR tag changes) are
+    caught by the full preflight at `run-phase` time.
+    """
+    trace_dir = project_path / ".methodology" / "trace"
+    att_path = trace_dir / "attestation.json"
+
+    if not att_path.exists():
+        return {
+            "passed": False,
+            "reason": "attestation.json missing — run `make attest`",
+            "staler": None,
+            "newer": None,
+        }
+
+    try:
+        att_mtime = att_path.stat().st_mtime
+    except OSError as e:
+        return {"passed": False, "reason": f"attestation.json stat failed: {e}",
+                "staler": None, "newer": None}
+
+    # SAD.md (canonical locations)
+    for sad_candidate in ("02-architecture/SAD.md", "SAD.md"):
+        sad_path = project_path / sad_candidate
+        if sad_path.exists():
+            try:
+                if sad_path.stat().st_mtime > att_mtime:
+                    return {"passed": False,
+                            "reason": f"{sad_candidate} newer than attestation.json",
+                            "staler": str(sad_path.relative_to(project_path)),
+                            "newer": "attestation.json"}
+            except OSError:
+                pass
+            break
+
+    # Newest test_fr*.py
+    tests_dir = project_path / "tests"
+    if tests_dir.is_dir():
+        try:
+            candidates = list(tests_dir.rglob("test_fr_*.py"))
+        except OSError:
+            candidates = []
+        if candidates:
+            try:
+                newest_test = max(candidates,
+                                  key=lambda p: p.stat().st_mtime)
+                if newest_test.stat().st_mtime > att_mtime:
+                    rel = str(newest_test.relative_to(project_path))
+                    return {"passed": False,
+                            "reason": f"{rel} newer than attestation.json",
+                            "staler": rel, "newer": "attestation.json"}
+            except OSError:
+                pass
+
+    return {"passed": True, "reason": "trace attestation is current",
+            "staler": None, "newer": None}
+
+
 def _run_fast_preflight(hooks) -> dict:
-    """Lightweight preflight: FSM, constitution, BVS phase order, kill-switch only.
+    """Lightweight preflight: FSM, constitution, BVS phase order, kill-switch, trace mtime.
 
     Used exclusively by cmd_pre_commit_check (git commit hook path).
     Not exposed via run-phase to prevent agents from bypassing full enforcement.
+
+    PR 6: adds `_trace_dirty_state` mtime probe (cheaper than the full
+    `preflight_traceability` re-derive). Catches the common case of
+    "I edited [FR-XX] but forgot to re-attest" before commit.
     """
     results = {
         "fsm": hooks.preflight_fsm_check(),
         "bvs_phase_order": hooks.preflight_bvs_phase_order(),
         "constitution": hooks.preflight_constitution(),
         "kill_switch": hooks.preflight_kill_switch(),
+        "trace_dirt": _trace_dirty_state(hooks.project_path),
     }
     all_passed = all(r.get("passed", False) for r in results.values())
     return {"all_passed": all_passed, "details": results}

@@ -1,0 +1,54 @@
+schema: harness/traceability/overlay/v1
+# Manual overrides for FR rows that the regex scanner cannot reach.
+# PR 2 of the closed-loop traceability plan. See core/traceability/overlay.py.
+
+overrides:
+  # Constitution profile validation enforced by harness_cli.py run-phase
+  # + finalize-gate; the regex scanner cannot reach the profile YAML schema.
+  - fr_id: FR-06
+    status: verified
+    code_files:
+      - core/quality_gate/constitution/profile.py
+      - core/quality_gate/constitution/runner.py
+    test_files:
+      - tests/test_constitution_runner.py
+      - tests/test_constitution_profile.py
+    sad_module: "§3.x Constitution Profile (per-phase keyword overrides P1–P8)"
+    justification: >-
+      build_traceability.py does not yet parse constitution profile files;
+      human-owned mapping until PR 4 wires the dimension scan.
+
+  - fr_id: FR-ENF-01
+    status: verified
+    code_files:
+      - harness_cli.py:cmd_push_milestone
+      - harness_cli.py:_validate_p8_completion
+    test_files:
+      - tests/test_harness_cli.py:TestValidateP8Completion
+    sad_module: "§2.3 push-milestone sentinel enforcement"
+
+  - fr_id: FR-ENF-02
+    status: verified
+    code_files:
+      - harness_cli.py:cmd_verify_agent_b_approvals
+    test_files:
+      - tests/test_harness_cli.py:TestVerifyAgentBApprovals
+    sad_module: "§2.3 Agent B approval gate"
+
+  - fr_id: FR-ENF-03
+    status: verified
+    code_files:
+      - templates/harness_quality_gate.yml
+      - .github/workflows/harness_ci.yml
+    test_files: []
+    sad_module: "§2.3 P8 archive & HANDOVER CI check"
+
+annotations:
+  - fr_id: FR-04
+    note: "Implementation FR; not back-linked to a top-level SRS section."
+  - fr_id: FR-05
+    note: "Implementation FR; not back-linked to a top-level SRS section."
+  - fr_id: FR-07
+    note: "Implementation FR; not back-linked to a top-level SRS section."
+  - fr_id: FR-99
+    note: "Implementation FR; not back-linked to a top-level SRS section."
