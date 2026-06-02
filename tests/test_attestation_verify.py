@@ -15,6 +15,10 @@ from pathlib import Path
 import pytest
 
 
+# Playbook §6: dynamic mutation-oracle marker
+pytestmark = pytest.mark.mutation_oracle
+
+
 @pytest.fixture
 def fixture_repo(tmp_path: Path) -> Path:
     """Minimal repo with FR-01/02 traced; attestation can be built/verified."""

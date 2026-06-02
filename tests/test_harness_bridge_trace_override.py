@@ -26,6 +26,10 @@ from unittest.mock import patch
 import pytest  # noqa: F401 (test infra import)
 
 
+# Playbook §6: dynamic mutation-oracle marker
+pytestmark = pytest.mark.mutation_oracle
+
+
 @dataclass
 class _Dim:
     name: str

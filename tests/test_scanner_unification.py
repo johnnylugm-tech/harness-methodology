@@ -11,6 +11,10 @@ from pathlib import Path
 import pytest
 
 
+# Playbook §6: dynamic mutation-oracle marker
+pytestmark = pytest.mark.mutation_oracle
+
+
 @pytest.fixture
 def fixture_repo(tmp_path) -> Path:
     """Minimal repo with SAD.md, code [FR-XX] annotations, and a test file."""

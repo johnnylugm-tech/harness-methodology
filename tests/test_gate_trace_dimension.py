@@ -14,6 +14,10 @@ from unittest.mock import patch
 import pytest
 
 
+# Playbook §6: dynamic mutation-oracle marker
+pytestmark = pytest.mark.mutation_oracle
+
+
 @pytest.fixture
 def fixture_repo(tmp_path: Path) -> Path:
     """Minimal repo: 2 active FRs, 1 pending. Used to test 4a denominator."""

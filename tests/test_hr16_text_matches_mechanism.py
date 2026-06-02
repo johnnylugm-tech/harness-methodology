@@ -18,6 +18,10 @@ from pathlib import Path
 import pytest
 
 
+# Playbook §6: dynamic mutation-oracle marker
+pytestmark = pytest.mark.mutation_oracle
+
+
 @pytest.fixture
 def hr16_text() -> str:
     skill = (Path(__file__).resolve().parent.parent / "SKILL.md").read_text(

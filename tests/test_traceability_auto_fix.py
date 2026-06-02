@@ -15,6 +15,10 @@ from unittest.mock import MagicMock
 import pytest
 
 
+# Playbook §6: dynamic mutation-oracle marker
+pytestmark = pytest.mark.mutation_oracle
+
+
 @pytest.fixture
 def fixture_repo(tmp_path: Path) -> Path:
     """Minimal repo with one FR that has code but no test (auto-fixable)."""
