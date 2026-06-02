@@ -2374,6 +2374,9 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
     # Fuses 4a (FR→code→test, 100% over IN_PROGRESS+VERIFIED FRs) with
     # 4b (TEST_SPEC→test, gate-specific threshold). Merged = min(4a, 4b).
     # Skipped if no SAD.md and no [FR-XX] annotations (project not at P3+).
+    # The framework-computed score is patched into gate{N}_result.json
+    # breakdown so it flows through bridge.finalize_gate (same pattern as
+    # _crg_overrides_applied for the architecture dimension).
     if args.gate >= 2:
         try:
             from core.quality_gate.spec_tracking_checker import (
@@ -2398,6 +2401,33 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
                 print(f"  active FRs without code: {_trace['active_uncoded']}")
             if _trace["active_untested"]:
                 print(f"  active FRs without test: {_trace['active_untested']}")
+            # ── Patch trace score into gate{N}_result.json breakdown ─────
+            # Same pattern as the architecture CRG override in
+            # harness_bridge.finalize_gate (line ~1418): the framework
+            # overrides the agent's score for trace because the agent has
+            # no tool to compute it.
+            _gp = project_path / ".sessi-work" / f"gate{args.gate}_result.json"
+            if _gp.exists():
+                try:
+                    _gr = json.loads(_gp.read_text(encoding="utf-8"))
+                    _gr.setdefault("breakdown", {}).setdefault(
+                        "traceability", {}
+                    )["score"] = _t_merged
+                    _gr["breakdown"]["traceability"]["tool_evidence"] = (
+                        f"framework: compute_trace_dimension(gate={args.gate}) → "
+                        f"4a={_t_4a:.1f}% 4b={_t_4b:.1f}% merged={_t_merged:.1f}%"
+                    )
+                    _gr["breakdown"]["traceability"]["threshold"] = float(
+                        _trace["threshold_4a"]
+                    )
+                    _gr["breakdown"]["traceability"]["framework_override"] = True
+                    _gp.write_text(
+                        json.dumps(_gr, indent=2, ensure_ascii=False),
+                        encoding="utf-8",
+                    )
+                except (OSError, json.JSONDecodeError) as _gp_err:
+                    print(f"[WARN] could not patch trace score into result: {_gp_err}",
+                          file=sys.stderr)
             if not _t_passed:
                 print(
                     f"\n[BLOCKED] Gate {args.gate} trace dimension "

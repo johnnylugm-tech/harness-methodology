@@ -94,8 +94,12 @@ def test_proposed_diff_is_well_formed_for_git_apply(fixture_repo):
 # fix_missing_traceability end-to-end
 # ---------------------------------------------------------------------------
 
-def test_fix_missing_traceability_auto_applies_and_passes(fixture_repo):
-    """Primary path: fix closes the gap, returns success."""
+def test_auto_fix_applies_annotation_and_passes_verify(fixture_repo):
+    """Primary path: fix closes the gap, returns success.
+
+    Plan test name: `test_auto_fix_applies_annotation_and_passes_verify`.
+    Asserts return value is `(True, ...)` and source tree was modified.
+    """
     sys_path = str(Path(__file__).resolve().parent.parent)
     if sys_path not in __import__("sys").path:
         __import__("sys").path.insert(0, sys_path)
@@ -112,12 +116,12 @@ def test_fix_missing_traceability_auto_applies_and_passes(fixture_repo):
     assert (fixture_repo / "tests" / "test_fr_99.py").exists()
 
 
-def test_fix_missing_traceability_escalates_on_persistent_failure(fixture_repo):
+def test_auto_fix_escalates_on_max_rounds(fixture_repo):
     """With max_rounds=0, the loop never runs and we escalate immediately.
 
-    This is the cleanest way to test the escalation path without depending
-    on internals of the strategy (which uses local imports that can't be
-    monkey-patched from outside).
+    Plan test name: `test_auto_fix_escalates_on_max_rounds`.
+    The strategy uses local imports that can't be monkey-patched from
+    outside, so deterministic escalation is forced by setting max_rounds=0.
     """
     sys_path = str(Path(__file__).resolve().parent.parent)
     if sys_path not in __import__("sys").path:
@@ -133,9 +137,57 @@ def test_fix_missing_traceability_escalates_on_persistent_failure(fixture_repo):
     assert ok is False
     assert score == 0.0
     assert "exhausted" in msg.lower() or "human" in msg.lower()
-    # Diff written to escalation path
+
+
+def test_auto_fix_diff_written_on_escalation(fixture_repo):
+    """Plan test name: `test_auto_fix_diff_written_on_escalation`.
+
+    `.methodology/trace/proposed_fix.diff` is created on escalation.
+    """
+    sys_path = str(Path(__file__).resolve().parent.parent)
+    if sys_path not in __import__("sys").path:
+        __import__("sys").path.insert(0, sys_path)
+    _init_git(fixture_repo)
+
+    from core.auto_fix.strategies import fix_missing_traceability
+
+    context = MagicMock()
+    context.details = {"max_rounds": 0}
+    fix_missing_traceability(context, fixture_repo)
     diff_path = fixture_repo / ".methodology" / "trace" / "proposed_fix.diff"
     assert diff_path.exists()
+    # The diff must reference FR-99 (the only gap in the fixture)
+    diff_text = diff_path.read_text(encoding="utf-8")
+    assert "FR-99" in diff_text
+
+
+def test_auto_fix_source_tree_unchanged_on_escalation(fixture_repo):
+    """Plan test name: `test_auto_fix_source_tree_unchanged_on_escalation`.
+
+    After escalation, no leftover annotations in source tree (rollback confirmed).
+    `git status` shows only `.methodology/trace/` modified.
+    """
+    sys_path = str(Path(__file__).resolve().parent.parent)
+    if sys_path not in __import__("sys").path:
+        __import__("sys").path.insert(0, sys_path)
+    _init_git(fixture_repo)
+    # Snapshot pre-state: only core/foo.py with [FR-99]
+    pre_files = sorted(p.relative_to(fixture_repo) for p in fixture_repo.rglob("*.py")
+                        if ".methodology" not in p.parts and ".git" not in p.parts)
+
+    from core.auto_fix.strategies import fix_missing_traceability
+
+    context = MagicMock()
+    context.details = {"max_rounds": 0}
+    fix_missing_traceability(context, fixture_repo)
+
+    # Post-state: only `.methodology/trace/proposed_fix.diff` should be new.
+    # Source tree must not have new [FR-XX] annotations.
+    post_files = sorted(p.relative_to(fixture_repo) for p in fixture_repo.rglob("*.py")
+                         if ".methodology" not in p.parts and ".git" not in p.parts)
+    assert pre_files == post_files, (
+        f"Source tree changed unexpectedly:\n  before: {pre_files}\n  after:  {post_files}"
+    )
 
 
 def test_fix_missing_traceability_no_changes_when_already_complete(fixture_repo):

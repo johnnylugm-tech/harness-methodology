@@ -33,23 +33,23 @@ def test_test_coverage_to_dict():
 
 
 def test_get_upstream():
+    """PR 1: get_upstream uses the O(1) reverse-index fast path.
+
+    The reverse index is populated by add_link when `bidirectional=True`
+    (the default for add_code_component / add_test_coverage). This test
+    asserts BOTH the O(1) structural fact (the index entry exists) and
+    the user-facing behavior (the parent FR is returned).
+    """
     rt = RequirementTraceability(project_id="p")
     rt.add_requirement("FR-001", "T")
     rt.add_code_component("a.py", fr_id="FR-001")
     rt.add_test_coverage("t.py", fr_id="FR-001")
+    # O(1) fast-path: reverse index must contain the targets
+    assert "a.py" in rt._reverse_link_index
+    assert "t.py" in rt._reverse_link_index
+    # get_upstream should hit the O(1) path
     upstream = rt.get_upstream("a.py")
     assert "FR-001" in upstream["fr"]
-
-
-def test_reverse_link_index_populated_for_bidirectional():
-    """PR 1: bidirectional links materialize a reverse index for O(1) lookup."""
-    rt = RequirementTraceability(project_id="p")
-    rt.add_requirement("FR-001", "T")
-    rt.add_code_component("a.py", fr_id="FR-001")  # default bidirectional=True
-    assert "a.py" in rt._reverse_link_index
-    assert "FR-001" in rt._reverse_link_index
-    # get_upstream should hit the O(1) path
-    assert "FR-001" in rt.get_upstream("a.py")["fr"]
 
 
 def test_unidirectional_link_does_not_populate_reverse():
