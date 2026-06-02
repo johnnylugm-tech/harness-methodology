@@ -963,9 +963,6 @@ class TestCrgGatekeeperPhases:
 
     def test_phase1_architecture_score_uses_penalty(self, tmp_path):
         """harness_bridge reads architecture_score (cohesion − penalty) from metrics."""
-        import dataclasses
-        from harness.harness_bridge import _crg_enrich_gate_findings, DimResult
-        from unittest.mock import MagicMock
 
         # Simulate crg_metrics.json written by run_independent_crg with penalty
         metrics = {
@@ -1003,7 +1000,6 @@ class TestCrgGatekeeperPhases:
 
     def test_phase2_untested_hub_reduces_test_coverage_score(self, tmp_path):
         """query_graph(tests_for) returning empty → test_coverage score penalised by 3pts/hub."""
-        import dataclasses
         from harness.harness_bridge import _crg_enrich_gate_findings, DimResult
         from unittest.mock import MagicMock
 
