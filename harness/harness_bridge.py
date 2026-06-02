@@ -97,6 +97,51 @@ _TOOL_CONTENT_PATTERNS: dict[str, list[str]] = {
 _TOOL_OUTPUT_MIN_BYTES: int = 5
 
 
+def _override_traceability_dim_score(
+    dims: list,
+    project_root: str,
+    gate_num: int,
+) -> list:
+    """PR 4 (audit F-1.1 fix): replace the agent's `traceability` score
+    with the framework-computed one. Returns a new list of DimResult;
+    the input is not mutated. On any error, returns the input unchanged.
+
+    Why: the agent has no tool to scan SAD.md + [FR-XX] annotations +
+    test references. Without this override, the agent either reports
+    a wrong score (optimistic or pessimistic) or omits the dim entirely.
+    The framework-computed `compute_trace_dimension` is the source of
+    truth. This mirrors the architecture CRG override pattern (above).
+    """
+    try:
+        from core.quality_gate.spec_tracking_checker import (
+            compute_trace_dimension,
+        )
+        _trace_dim = compute_trace_dimension(project_root, gate_num)
+    except Exception as _trace_err:
+        print(
+            f"[WARN] trace dimension override skipped: {_trace_err}",
+            file=sys.stderr,
+        )
+        return dims
+    if _trace_dim.get("error"):
+        return dims
+    _framework_score = _trace_dim["merged_pct"]
+    _new_dims = []
+    for _d in dims:
+        if _d.name == "traceability":
+            if abs(_d.score - _framework_score) > 0.5:
+                print(
+                    f"[harness] trace override traceability: "
+                    f"{_d.score:.1f} → {_framework_score:.1f} "
+                    f"(4a={_trace_dim['4a_fr_to_test_pct']:.1f}% "
+                    f"4b={_trace_dim['4b_test_spec_pct']:.1f}%)"
+                )
+            _new_dims.append(dataclasses.replace(_d, score=_framework_score))
+        else:
+            _new_dims.append(_d)
+    return _new_dims
+
+
 def _extract_mutmut_kill_rate(content: str) -> "float | None":
     """Parse a mutmut tool_output file and return the computed kill rate (0-100).
 
@@ -1711,34 +1756,7 @@ class HarnessBridge:
         # runs `compute_trace_dimension` and overrides whatever the agent
         # wrote. Mirrors the CRG override pattern above: replace the
         # score in-place; log the change; never silently lose it.
-        try:
-            from core.quality_gate.spec_tracking_checker import (
-                compute_trace_dimension,
-            )
-            _trace_dim = compute_trace_dimension(ctx.project_root, ctx.gate_num)
-            if not _trace_dim.get("error"):
-                _framework_score = _trace_dim["merged_pct"]
-                _new_dims = []
-                for _d in dims:
-                    if _d.name == "traceability":
-                        if abs(_d.score - _framework_score) > 0.5:
-                            print(
-                                f"[harness] trace override traceability: "
-                                f"{_d.score:.1f} → {_framework_score:.1f} "
-                                f"(4a={_trace_dim['4a_fr_to_test_pct']:.1f}% "
-                                f"4b={_trace_dim['4b_test_spec_pct']:.1f}%)"
-                            )
-                        _new_dims.append(dataclasses.replace(
-                            _d, score=_framework_score,
-                        ))
-                    else:
-                        _new_dims.append(_d)
-                dims = _new_dims
-        except Exception as _trace_err:  # pragma: no cover
-            print(
-                f"[WARN] trace dimension override skipped: {_trace_err}",
-                file=sys.stderr,
-            )
+        dims = _override_traceability_dim_score(dims, ctx.project_root, ctx.gate_num)
 
         # ── CRG findings enrichment (MCP path, graceful degrade) ──────────
         # Runs after CRG independent score override so score is already final.

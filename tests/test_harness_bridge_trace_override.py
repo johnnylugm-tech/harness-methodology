@@ -1,201 +1,163 @@
 """PR 4 (audit F-1.1 fix) regression test: framework trace score is
 authoritative in the gate result, regardless of what the agent wrote.
 
-The harness_bridge.finalize_gate() now mirrors the architecture CRG
-override: it runs `compute_trace_dimension` and replaces the agent's
-traceability score in-place. This test confirms:
-  - When agent reports a wrong (optimistic) score, framework score wins.
-  - When agent reports a wrong (pessimistic) score, framework score wins.
-  - When the agent's score happens to match, no churn.
-  - When compute_trace_dimension errors out, the bridge falls back
-    to the agent's score (no exception propagated).
+Tests target the extracted helper `_override_traceability_dim_score`
+in harness_bridge. The helper mirrors the architecture CRG override:
+runs `compute_trace_dimension` and replaces the agent's `traceability`
+score in-place.
+
+Four cases covered:
+  1. Agent reports optimistic score (100%) → framework 50% wins
+  2. Agent reports pessimistic score (0%) → framework 80% wins
+  3. Agent's score matches framework's → no churn
+  4. compute_trace_dimension errors → agent's score preserved (no crash)
+  5. compute_trace_dimension returns error key → agent preserved
+  6. Non-traceability dims are passed through unchanged
+  7. Input dims are not mutated (returns a new list)
 """
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Dict, List, Any
 from unittest.mock import patch
 
-import pytest
+import pytest  # noqa: F401 (test infra import)
 
 
-def _build_fake_ctx(project_path: Path, work_dir: Path, gate_num: int = 2):
-    """Build a minimal GateContext-like object for finalize_gate."""
-    from harness.harness_bridge import GateContext
-    return GateContext(
-        gate_num=gate_num,
-        phase=3,
-        project_root=str(project_path),
-        work_dir=str(work_dir),
-        fr_id=None,
-        spec={"dimensions": []},
-    )
+@dataclass
+class _Dim:
+    name: str
+    score: float
+    threshold: float
+    issues: List[Dict[str, Any]] = field(default_factory=list)
 
 
-def _fake_dims_list():
-    """Return a list of DimResult-like objects for a 3-dim gate."""
-    from dataclasses import dataclass, field
-    from typing import List, Dict, Any
-
-    @dataclass
-    class _Dim:
-        name: str
-        score: float
-        threshold: float
-        issues: List[Dict[str, Any]] = field(default_factory=list)
-
+def _dims_with_traceability(trace_score: float) -> List[_Dim]:
     return [
         _Dim(name="linting", score=95.0, threshold=90),
-        _Dim(name="traceability", score=100.0, threshold=100),  # agent lies
+        _Dim(name="traceability", score=trace_score, threshold=100),
         _Dim(name="security", score=80.0, threshold=80),
     ]
 
 
-@pytest.fixture
-def fixture_repo(tmp_path: Path) -> Path:
-    """Minimal repo so compute_trace_dimension can scan."""
-    arch = tmp_path / "02-architecture"
-    arch.mkdir()
-    (arch / "SAD.md").write_text("FR-01: alpha\n")
-    (tmp_path / "core").mkdir()
-    (tmp_path / "core" / "a.py").write_text('"""[FR-01]"""\n')
-    (tmp_path / "tests").mkdir()
-    (tmp_path / "tests" / "test_a.py").write_text('"""[FR-01]"""\n')
-    (tmp_path / ".sessi-work").mkdir()
-    return tmp_path
+def _trace_dim_result(merged_pct: float, **kwargs) -> dict:
+    base = {
+        "merged_pct": merged_pct,
+        "4a_fr_to_test_pct": merged_pct,
+        "4b_test_spec_pct": merged_pct,
+        "passed": merged_pct >= 60.0,
+        "threshold_4a": 100,
+        "threshold_4b": 60.0,
+        "active_uncoded": [],
+        "active_untested": [],
+        "blocking": True,
+        "error": None,
+    }
+    base.update(kwargs)
+    return base
 
 
-def test_bridge_overrides_optimistic_agent_score(fixture_repo):
+def test_bridge_overrides_optimistic_agent_score():
     """Agent claims 100%; framework says 50% → framework wins."""
-    sys_path = str(Path(__file__).resolve().parent.parent)
-    if sys_path not in __import__("sys").path:
-        __import__("sys").path.insert(0, sys_path)
-
-    from harness.harness_bridge import HarnessBridge
-    bridge = HarnessBridge()
-    ctx = _build_fake_ctx(fixture_repo, fixture_repo / ".sessi-work", gate_num=2)
-    # Use real compute_trace_dimension with patched spec-coverage to 50%
-    # (we want to test the override; the 4b value doesn't matter for this assertion)
+    sys_path = str(Path(__file__).resolve().parent.parent).replace("\\", "/")
+    import sys
+    if sys_path not in sys.path:
+        sys.path.insert(0, sys_path)
+    from harness.harness_bridge import _override_traceability_dim_score
+    dims = _dims_with_traceability(trace_score=100.0)
     with patch("core.quality_gate.spec_tracking_checker.compute_trace_dimension",
-               return_value={"merged_pct": 50.0, "4a_fr_to_test_pct": 50.0,
-                              "4b_test_spec_pct": 50.0, "passed": False,
-                              "threshold_4a": 100, "threshold_4b": 60.0,
-                              "active_uncoded": [], "active_untested": [],
-                              "blocking": True, "error": None}):
-        # Build a fake _result with dims and a result.json
-        result_path = fixture_repo / ".sessi-work" / "gate2_result.json"
-        import json
-        result_path.write_text(json.dumps({
-            "overall_score": 91.6,
-            "breakdown": {
-                "linting": {"score": 95.0, "threshold": 90},
-                "traceability": {"score": 100.0, "threshold": 100},  # agent lies
-                "security": {"score": 80.0, "threshold": 80},
-            },
-            "failing_dimensions": [],
-        }))
-        try:
-            bridge.finalize_gate(ctx)
-        except Exception:
-            pass  # we only care about the dims mutation side-effect; gate
-                  # result may fail the threshold check which is expected
-                  # when we set score to 50 < threshold 100.
-    # After finalize_gate, the gate{N}_result.json on disk should have
-    # the framework's 50.0 in traceability.score, not the agent's 100.0.
-    import json
-    on_disk = json.loads(result_path.read_text())
-    assert on_disk["breakdown"]["traceability"]["score"] == 50.0
+               return_value=_trace_dim_result(50.0)):
+        out = _override_traceability_dim_score(dims, "/fake", 2)
+    trace_dim = next(d for d in out if d.name == "traceability")
+    assert trace_dim.score == 50.0
 
 
-def test_bridge_overrides_pessimistic_agent_score(fixture_repo):
+def test_bridge_overrides_pessimistic_agent_score():
     """Agent claims 0%; framework says 80% → framework wins."""
-    sys_path = str(Path(__file__).resolve().parent.parent)
-    if sys_path not in __import__("sys").path:
-        __import__("sys").path.insert(0, sys_path)
-
-    from harness.harness_bridge import HarnessBridge
-    bridge = HarnessBridge()
-    ctx = _build_fake_ctx(fixture_repo, fixture_repo / ".sessi-work", gate_num=2)
+    sys_path = str(Path(__file__).resolve().parent.parent).replace("\\", "/")
+    import sys
+    if sys_path not in sys.path:
+        sys.path.insert(0, sys_path)
+    from harness.harness_bridge import _override_traceability_dim_score
+    dims = _dims_with_traceability(trace_score=0.0)
     with patch("core.quality_gate.spec_tracking_checker.compute_trace_dimension",
-               return_value={"merged_pct": 80.0, "4a_fr_to_test_pct": 80.0,
-                              "4b_test_spec_pct": 80.0, "passed": True,
-                              "threshold_4a": 100, "threshold_4b": 60.0,
-                              "active_uncoded": [], "active_untested": [],
-                              "blocking": True, "error": None}):
-        result_path = fixture_repo / ".sessi-work" / "gate2_result.json"
-        import json
-        result_path.write_text(json.dumps({
-            "overall_score": 58.3,
-            "breakdown": {
-                "linting": {"score": 95.0, "threshold": 90},
-                "traceability": {"score": 0.0, "threshold": 100},  # agent lies low
-                "security": {"score": 80.0, "threshold": 80},
-            },
-        }))
-        try:
-            bridge.finalize_gate(ctx)
-        except Exception:
-            pass
-    on_disk = json.loads(result_path.read_text())
-    assert on_disk["breakdown"]["traceability"]["score"] == 80.0
+               return_value=_trace_dim_result(80.0)):
+        out = _override_traceability_dim_score(dims, "/fake", 2)
+    trace_dim = next(d for d in out if d.name == "traceability")
+    assert trace_dim.score == 80.0
 
 
-def test_bridge_no_op_when_scores_already_match(fixture_repo):
+def test_bridge_no_op_when_scores_already_match():
     """If the agent happens to write the framework's exact score, no change."""
-    sys_path = str(Path(__file__).resolve().parent.parent)
-    if sys_path not in __import__("sys").path:
-        __import__("sys").path.insert(0, sys_path)
-
-    from harness.harness_bridge import HarnessBridge
-    bridge = HarnessBridge()
-    ctx = _build_fake_ctx(fixture_repo, fixture_repo / ".sessi-work", gate_num=2)
+    sys_path = str(Path(__file__).resolve().parent.parent).replace("\\", "/")
+    import sys
+    if sys_path not in sys.path:
+        sys.path.insert(0, sys_path)
+    from harness.harness_bridge import _override_traceability_dim_score
+    dims = _dims_with_traceability(trace_score=75.0)
     with patch("core.quality_gate.spec_tracking_checker.compute_trace_dimension",
-               return_value={"merged_pct": 75.0, "4a_fr_to_test_pct": 75.0,
-                              "4b_test_spec_pct": 75.0, "passed": True,
-                              "threshold_4a": 100, "threshold_4b": 60.0,
-                              "active_uncoded": [], "active_untested": [],
-                              "blocking": True, "error": None}):
-        result_path = fixture_repo / ".sessi-work" / "gate2_result.json"
-        import json
-        result_path.write_text(json.dumps({
-            "overall_score": 83.3,
-            "breakdown": {
-                "linting": {"score": 95.0, "threshold": 90},
-                "traceability": {"score": 75.0, "threshold": 100},
-                "security": {"score": 80.0, "threshold": 80},
-            },
-        }))
-        try:
-            bridge.finalize_gate(ctx)
-        except Exception:
-            pass
-    on_disk = json.loads(result_path.read_text())
-    # Score stays 75.0 (no churn)
-    assert on_disk["breakdown"]["traceability"]["score"] == 75.0
+               return_value=_trace_dim_result(75.0)):
+        out = _override_traceability_dim_score(dims, "/fake", 2)
+    trace_dim = next(d for d in out if d.name == "traceability")
+    assert trace_dim.score == 75.0
 
 
-def test_bridge_falls_back_to_agent_when_compute_errors(fixture_repo):
+def test_bridge_falls_back_to_agent_when_compute_errors():
     """If compute_trace_dimension raises, agent's score is preserved (no crash)."""
-    sys_path = str(Path(__file__).resolve().parent.parent)
-    if sys_path not in __import__("sys").path:
-        __import__("sys").path.insert(0, sys_path)
-
-    from harness.harness_bridge import HarnessBridge
-    bridge = HarnessBridge()
-    ctx = _build_fake_ctx(fixture_repo, fixture_repo / ".sessi-work", gate_num=2)
+    sys_path = str(Path(__file__).resolve().parent.parent).replace("\\", "/")
+    import sys
+    if sys_path not in sys.path:
+        sys.path.insert(0, sys_path)
+    from harness.harness_bridge import _override_traceability_dim_score
+    dims = _dims_with_traceability(trace_score=80.0)
     with patch("core.quality_gate.spec_tracking_checker.compute_trace_dimension",
                side_effect=RuntimeError("scanner crashed")):
-        result_path = fixture_repo / ".sessi-work" / "gate2_result.json"
-        import json
-        result_path.write_text(json.dumps({
-            "overall_score": 85.0,
-            "breakdown": {
-                "linting": {"score": 95.0, "threshold": 90},
-                "traceability": {"score": 80.0, "threshold": 100},  # agent
-                "security": {"score": 80.0, "threshold": 80},
-            },
-        }))
-        try:
-            bridge.finalize_gate(ctx)
-        except Exception:
-            pass
-    on_disk = json.loads(result_path.read_text())
-    # Bridge swallowed the error → agent's 80.0 preserved
-    assert on_disk["breakdown"]["traceability"]["score"] == 80.0
+        out = _override_traceability_dim_score(dims, "/fake", 2)
+    trace_dim = next(d for d in out if d.name == "traceability")
+    assert trace_dim.score == 80.0
+
+
+def test_bridge_keeps_input_when_compute_returns_error_key():
+    """If compute_trace_dimension returns error key, keep input unchanged."""
+    sys_path = str(Path(__file__).resolve().parent.parent).replace("\\", "/")
+    import sys
+    if sys_path not in sys.path:
+        sys.path.insert(0, sys_path)
+    from harness.harness_bridge import _override_traceability_dim_score
+    dims = _dims_with_traceability(trace_score=42.0)
+    with patch("core.quality_gate.spec_tracking_checker.compute_trace_dimension",
+               return_value=_trace_dim_result(0.0, error="scanner unavailable")):
+        out = _override_traceability_dim_score(dims, "/fake", 2)
+    trace_dim = next(d for d in out if d.name == "traceability")
+    assert trace_dim.score == 42.0  # unchanged from input
+
+
+def test_bridge_passes_through_non_traceability_dims_unchanged():
+    """Non-traceability dims are passed through with their scores intact."""
+    sys_path = str(Path(__file__).resolve().parent.parent).replace("\\", "/")
+    import sys
+    if sys_path not in sys.path:
+        sys.path.insert(0, sys_path)
+    from harness.harness_bridge import _override_traceability_dim_score
+    dims = _dims_with_traceability(trace_score=100.0)
+    with patch("core.quality_gate.spec_tracking_checker.compute_trace_dimension",
+               return_value=_trace_dim_result(50.0)):
+        out = _override_traceability_dim_score(dims, "/fake", 2)
+    linting = next(d for d in out if d.name == "linting")
+    security = next(d for d in out if d.name == "security")
+    assert linting.score == 95.0
+    assert security.score == 80.0
+
+
+def test_bridge_does_not_mutate_input_dims():
+    """Input dims must not be mutated; a new list is returned."""
+    sys_path = str(Path(__file__).resolve().parent.parent).replace("\\", "/")
+    import sys
+    if sys_path not in sys.path:
+        sys.path.insert(0, sys_path)
+    from harness.harness_bridge import _override_traceability_dim_score
+    dims = _dims_with_traceability(trace_score=100.0)
+    with patch("core.quality_gate.spec_tracking_checker.compute_trace_dimension",
+               return_value=_trace_dim_result(50.0)):
+        _override_traceability_dim_score(dims, "/fake", 2)
+    # Input untouched
+    assert dims[1].score == 100.0

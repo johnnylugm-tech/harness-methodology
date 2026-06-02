@@ -1,0 +1,35 @@
+{
+    "include": [
+        "core",
+        "harness",
+        "scripts",
+        "tests"
+    ],
+    "exclude": [
+        "mutants",
+        ".sessi-work",
+        "build",
+        "dist",
+        ".methodology",
+        "node_modules",
+        ".git"
+    ],
+    "extraPaths": [
+        "."
+    ],
+    "pythonVersion": "3.10",
+    "pythonPlatform": "Darwin",
+    "typeCheckingMode": "basic",
+    "useLibraryCodeForTypes": true,
+    "reportMissingImports": "warning",
+    "reportMissingTypeStubs": "none",
+    "reportUnknownMemberType": "none",
+    "reportUnknownVariableType": "none",
+    "reportUnknownArgumentType": "none",
+    "reportUnknownParameterType": "none",
+    "reportUnknownLambdaType": "none",
+    "reportMissingTypeArgument": "none",
+    "reportInvalidTypeVarUse": "none",
+    "reportSelfClsParameterName": "none",
+    "reportImplicitStringConcatenation": "none"
+}
