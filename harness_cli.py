@@ -4273,7 +4273,7 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                 mcp__code_review_graph__generate_wiki_tool as _wiki_fn,
             )
             _wiki_fn(repo_root=str(project), force=False)
-            print(f"  [CRG] Wiki updated → .code-review-graph/wiki/")
+            print("  [CRG] Wiki updated → .code-review-graph/wiki/")
         except Exception:
             pass  # graceful: wiki is informational, not gate-blocking
 
