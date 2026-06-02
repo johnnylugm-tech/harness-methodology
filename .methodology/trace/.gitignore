@@ -1,0 +1,3 @@
+# PR 3: only the CI-regen attestation is gitignored.
+# The canonical attestation.json is committed as chain-of-custody.
+attestation.latest.json

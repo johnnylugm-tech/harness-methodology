@@ -1375,7 +1375,7 @@ def _trace_dirty_state(project_path: Path) -> Dict[str, Any]:
     tests_dir = project_path / "tests"
     if tests_dir.is_dir():
         try:
-            candidates = list(tests_dir.rglob("test_fr_*.py"))
+            candidates = list(tests_dir.rglob("test_*.py"))
         except OSError:
             candidates = []
         if candidates:

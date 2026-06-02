@@ -1,0 +1,12 @@
+{
+  "iterations": [
+    {
+      "iteration": 1,
+      "stage": "exploration",
+      "winner": "A",
+      "score_delta": 0.412,
+      "convergence_score": 1.0
+    }
+  ],
+  "best_score": 0.796
+}

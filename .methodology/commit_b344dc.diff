@@ -1,0 +1,53 @@
+commit b344dc88dcc9f7b34eafae3defdab811e8f7bb63
+Author: Johnny <johnny@JohnnydacStudio.Home>
+Date:   Sun May 31 17:05:55 2026 +0800
+
+    fix(review): phase_auditor 解耦 CLI + env_vars name str() 對稱
+    
+    外部 code-review 兩個成立 finding:
+    - #2 phase_auditor 從 harness_cli (CLI entry-point) import private 常量 → 反向耦合,
+      CLI refactor 易破。改本地 literal 40 (註解標明 mirror harness_cli A1),audit 解耦。
+    - #5 _verify_env_check_claims env_vars 分支 `v["name"] not in os.environ` 對非 str
+      name 會 TypeError (已驗證 123 in os.environ → crash),與 cli_tools str() 不對稱。
+      改 str(v["name"]) 對稱防禦。
+    
+    其餘 4 findings 評估不修: #1 P3+ session_log weight 是 2151256 intended design (JSONL
+    結構驗證 for all phases, A/B 才 gate 1/2/6); #3 nested class 合理 scope 外且 S4 一致;
+    #4 nested function 非 public API (REFUTED); #6 single-pass 會誤判未累加完的 roles (REFUTED)。
+    
+    全套件 2890 passed
+    
+    Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
+
+diff --git a/harness_cli.py b/harness_cli.py
+index 35988ec..b967733 100644
+--- a/harness_cli.py
++++ b/harness_cli.py
+@@ -1807,8 +1807,9 @@ def _verify_env_check_claims(project: Path) -> "list[str]":
+                 findings.append(f"cli_tool '{name}': claimed present, but not found on PATH")
+     for v in data.get("env_vars", {}).get("required", []):
+         if isinstance(v, dict) and v.get("present") and v.get("name"):
+-            if v["name"] not in os.environ:
+-                findings.append(f"env_var '{v['name']}': claimed present, but not set")
++            name = str(v["name"])
++            if name not in os.environ:
++                findings.append(f"env_var '{name}': claimed present, but not set")
+     return findings
+ 
+ 
+diff --git a/scripts/phase_auditor.py b/scripts/phase_auditor.py
+index 7f00d4d..7d67abb 100644
+--- a/scripts/phase_auditor.py
++++ b/scripts/phase_auditor.py
+@@ -891,8 +891,9 @@ class PhaseAuditor:
+         # A1 parity (mirror harness_cli._MIN_REVIEW_REASON_CHARS): an APPROVE must
+         # carry real review rationale + citations, otherwise it is a shell approval
+         # the main agent can self-issue without reviewing anything.
+-        from harness_cli import _MIN_REVIEW_REASON_CHARS
+-        _min_reason = _MIN_REVIEW_REASON_CHARS
++        # Kept as a local literal so this standalone audit script does not import the
++        # harness_cli entry-point module (decouples the GitHub-side audit from the CLI).
++        _min_reason = 40
+         approved = 0
+         for path in approval_files:
+             c = self.gh.get_file_content(path)

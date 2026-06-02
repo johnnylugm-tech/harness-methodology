@@ -212,10 +212,21 @@ def apply_diff(project: Path, diff_text: str) -> Tuple[bool, str]:
     return False, (proc.stderr or proc.stdout or "git apply failed").strip()
 
 
-def rollback(project: Path) -> None:
-    """Best-effort rollback of any uncommitted working-tree changes."""
+def rollback(project: Path, applied_diffs: Optional[List[str]] = None) -> None:
+    """Best-effort rollback of auto-fix changes.
+    
+    If applied_diffs is provided, reverses them in LIFO order using `git apply -R`.
+    This safely preserves the developer's uncommitted work.
+    """
     import subprocess
-    subprocess.run(
-        ["git", "checkout", "--", "."],
-        cwd=project, capture_output=True,
-    )
+    if not applied_diffs:
+        return
+        
+    for diff in reversed(applied_diffs):
+        if not diff.strip():
+            continue
+        subprocess.run(
+            ["git", "apply", "-R", "-p1", "-"],
+            input=diff, text=True,
+            cwd=project, capture_output=True,
+        )

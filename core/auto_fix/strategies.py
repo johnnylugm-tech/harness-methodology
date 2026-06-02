@@ -77,6 +77,7 @@ def fix_missing_traceability(context, project_root: Path) -> Tuple[bool, str, fl
     except (AttributeError, TypeError, ValueError):
         max_rounds = 5
 
+    applied_diffs: List[str] = []
     last_diff = ""
     last_msg = ""
     for round_idx in range(max_rounds):
@@ -96,7 +97,7 @@ def fix_missing_traceability(context, project_root: Path) -> Tuple[bool, str, fl
         # 3. Apply
         ok, apply_msg = apply_diff(project_root, diff_text)
         if not ok:
-            rollback(project_root)
+            rollback(project_root, applied_diffs)
             last_msg = f"round {round_idx+1}: apply failed ({apply_msg})"
             continue
 
@@ -109,11 +110,12 @@ def fix_missing_traceability(context, project_root: Path) -> Tuple[bool, str, fl
             return (True, f"Auto-fixed: {n} gap(s) closed in {round_idx+1} round(s)", 90.0)
         last_msg = (f"round {round_idx+1}: applied but {len(still_uncoded)} "
                     f"uncoded / {len(still_untested)} untested remain")
+        applied_diffs.append(diff_text)
 
     # 5. Exhausted: rollback all partial applies, re-derive a clean cumulative
     #    diff so proposed_fix.diff captures the full gap (not just last round's
     #    incremental delta), and leave the source tree clean on escalation.
-    rollback(project_root)
+    rollback(project_root, applied_diffs)
     _rt_clean, report_clean = check_traceability(project_root)
     cumulative_diff = propose_fixes(_rt_clean, report_clean, project_root)
     out_path = write_proposed_diff(project_root, cumulative_diff or last_diff)
