@@ -20,7 +20,6 @@ from core.auto_fix.strategies import (
     STRATEGY_REGISTRY,
     fix_missing_artifact,
     fix_missing_spec_tracking,
-    fix_missing_traceability,
     fix_keyword_density,
     fix_section_headers,
     fix_hollow_content,
