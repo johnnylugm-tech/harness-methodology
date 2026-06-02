@@ -4,7 +4,6 @@ tests/test_kill_switch_complete.py — Complete kill_switch/ coverage (W2).
 Covers: CircuitBreaker, StateManager, HealthMonitor, InterruptEngine, KillSwitch facade.
 """
 import pytest
-pytestmark = pytest.mark.mutation_oracle
 from unittest.mock import MagicMock, patch
 
 from kill_switch.enums import CircuitState, KillReason
@@ -12,6 +11,8 @@ from kill_switch.exceptions import AgentNotFoundError, StatePersistenceError, In
 from kill_switch.models import (
     CircuitBreakerState, HealthMetrics, MonitorConfig
 )
+
+pytestmark = pytest.mark.mutation_oracle
 
 
 # ===========================================================================
