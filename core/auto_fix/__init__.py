@@ -6,13 +6,10 @@ Transforms detect->block->wait_for_human into detect->classify->auto_fix->verify
 
 Reference: methodology-v2 SKILL.md "fail -> FIX + RETRY" execution protocol.
 
-STATUS — NOT WIRED (no production caller). The preflight (cmd_run_phase) and postflight
-(cmd_finalize_gate) wirings were removed after end-to-end verification showed the current
-strategies (which only emit empty stubs / append a comment) cannot clear the checks they
-target — coverage, drift score, phase artifact chain are substantive gaps that need real
-development, not a stub. The engine + 5 guardrails are kept intact for a future redesign
-whose strategies actually produce the missing implementation; until then nothing calls
-engine.fix() in production.
+PR 5 (closed-loop traceability): `fix_missing_traceability` is a fully wired strategy —
+AUTO-APPLY with re-verify loop, bounded by max_rounds. Escalates to HUMAN_REQUIRED on
+exhaustion; writes `.methodology/trace/proposed_fix.diff`. Other strategies (coverage,
+drift score, phase artifact chain) still emit stubs and are not yet production-wired.
 
 Exports:
     AutoFixEngine: main engine class
