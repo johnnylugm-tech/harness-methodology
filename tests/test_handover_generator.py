@@ -907,6 +907,17 @@ class TestCmdAdvancePhase:
                     "harness_cli._verify_agent_b_approvals_core",
                     lambda project, phase, ids: (True, "mocked"),
                 )
+                # Also mock constitution postflight (new in _advance_prechecks)
+                from core.quality_gate.constitution.runner import ConstitutionResult
+                _vacuous = ConstitutionResult(score=100.0, passed=True, violations=[])
+                monkeypatch.setattr(
+                    "core.quality_gate.constitution.run_constitution_check",
+                    lambda *a, **kw: _vacuous,
+                )
+                monkeypatch.setattr(
+                    "core.quality_gate.constitution.profile.get_profile",
+                    lambda: type("_P", (), {"composite_threshold": lambda s, p: 75.0})(),
+                )
         a = _Args()
         a.completed_phase = completed
         a.project = str(tmp_path)

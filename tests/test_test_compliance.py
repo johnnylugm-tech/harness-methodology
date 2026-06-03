@@ -362,9 +362,14 @@ class TestI1LifecycleIntegration:
         state = {"phase": 1, "last_gate": 0}
         (state_dir / "state.json").write_text(json.dumps(state))
 
-        # Mock auditor + agent-B: test focuses on checksum logic only
+        from core.quality_gate.constitution.runner import ConstitutionResult
+        _vacuous = ConstitutionResult(score=100.0, passed=True, violations=[])
+        _fake_profile = type("_P", (), {"composite_threshold": lambda s, p: 75.0})()
+        # Mock auditor + agent-B + constitution: test focuses on checksum logic only
         with patch("harness_cli._run_phase_auditor", return_value=0), \
-             patch("harness_cli._verify_agent_b_approvals_core", return_value=(True, "mocked")):
+             patch("harness_cli._verify_agent_b_approvals_core", return_value=(True, "mocked")), \
+             patch("core.quality_gate.constitution.run_constitution_check", return_value=_vacuous), \
+             patch("core.quality_gate.constitution.profile.get_profile", return_value=_fake_profile):
             code = _advance_prechecks(tmp_path, 1)
         assert code == 0, "expected P1 advance to proceed"
 
@@ -381,9 +386,14 @@ class TestI1LifecycleIntegration:
         state = {"phase": 1}
         (state_dir / "state.json").write_text(json.dumps(state))
 
-        # Mock auditor + agent-B: test focuses on checksum skip logic only
+        from core.quality_gate.constitution.runner import ConstitutionResult
+        _vacuous = ConstitutionResult(score=100.0, passed=True, violations=[])
+        _fake_profile = type("_P", (), {"composite_threshold": lambda s, p: 75.0})()
+        # Mock auditor + agent-B + constitution: test focuses on checksum skip logic only
         with patch("harness_cli._run_phase_auditor", return_value=0), \
-             patch("harness_cli._verify_agent_b_approvals_core", return_value=(True, "mocked")):
+             patch("harness_cli._verify_agent_b_approvals_core", return_value=(True, "mocked")), \
+             patch("core.quality_gate.constitution.run_constitution_check", return_value=_vacuous), \
+             patch("core.quality_gate.constitution.profile.get_profile", return_value=_fake_profile):
             code = _advance_prechecks(tmp_path, 1)
         assert code == 0
 

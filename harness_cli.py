@@ -44,6 +44,7 @@ Exit codes:
     8   Missing deliverables block — required artifacts not found on disk or not git-tracked
     10  PAUSE — Claude must evaluate gate; run finalize-gate then re-run pipeline
     11  Phase Truth < 90% (HR-11); fix and re-run with --phase-from N
+    16  Constitution postflight below phase threshold; fix document quality
 """
 from __future__ import annotations
 
@@ -3914,6 +3915,7 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
       13 = Agent B approvals missing / rejected (P1/P2)
       14 = Gate 1 per-FR coverage incomplete (P3+)
       15 = Phase{N+1}_plan.md not found (generate-next-plan not run)
+      16 = Constitution postflight below phase threshold (all phases)
     """
     # ── P1 checksum: TEST_INVENTORY.yaml baseline ────────────────────
     if completed_phase == 1:
@@ -4007,6 +4009,45 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
     audit_rc = _run_phase_auditor(project, completed_phase)
     if audit_rc != 0:
         return audit_rc
+
+    # ── Constitution postflight: check current phase's own docs ──────
+    # (all phases 1-8).  Closed-loop: each phase verifies its OWN
+    # document quality before advancing, not the next phase's preflight.
+    try:
+        from core.quality_gate.constitution import run_constitution_check
+        from core.quality_gate.constitution.profile import get_profile
+        _const_result = run_constitution_check(
+            check_type="all", docs_path=str(project),
+            current_phase=completed_phase, check_mode="postflight",
+        )
+        _const_threshold = get_profile().composite_threshold(completed_phase)
+        if not _const_result.passed:
+            print(
+                f"\n[BLOCKED] Phase {completed_phase} constitution = "
+                f"{_const_result.score:.0f}% "
+                f"(threshold={_const_threshold:.0f}%), "
+                f"violations={len(_const_result.violations)}"
+            )
+            for v in _const_result.violations[:5]:
+                print(f"  - [{v.get('dimension', '?')}] {v.get('message', str(v))[:120]}")
+            print(
+                f"\n  Re-dispatch Agent A to fix document quality:\n"
+                f"    python harness_cli.py dispatch --role developer "
+                f"--phase {completed_phase} --project . \\\n"
+                f'      --prompt "Constitution check failed '
+                f'(score {_const_result.score:.0f}%, '
+                f'threshold {_const_threshold:.0f}%). '
+                f'Improve document quality to meet keyword coverage thresholds."'
+            )
+            return 16
+        print(
+            f"  [Constitution] Phase {completed_phase} postflight = "
+            f"{_const_result.score:.0f}% (threshold={_const_threshold:.0f}%) ✓"
+        )
+    except ImportError:
+        print("  [WARN] Constitution checker not available — skipping postflight")
+    except Exception as _ce:
+        print(f"  [WARN] Constitution postflight failed: {_ce}")
 
     # ── Agent B approvals (P1/P2) — after C1 so deliverables confirmed ──
     if completed_phase in (1, 2):

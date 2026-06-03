@@ -958,6 +958,20 @@ class TestRunPhaseNoPostflight:
 # _advance_prechecks — TDD block (P3+)
 # =============================================================================
 
+def _mock_constitution_pass(monkeypatch):
+    """Make constitution postflight return vacuous pass (score 100%)."""
+    from core.quality_gate.constitution.runner import ConstitutionResult
+    _vacuous = ConstitutionResult(score=100.0, passed=True, violations=[])
+    monkeypatch.setattr(
+        "core.quality_gate.constitution.run_constitution_check",
+        lambda *a, **kw: _vacuous,
+    )
+    monkeypatch.setattr(
+        "core.quality_gate.constitution.profile.get_profile",
+        lambda: type("_P", (), {"composite_threshold": lambda s, p: 75.0})(),
+    )
+
+
 class TestAdvancePrechecksTDD:
     """Tests for the P3+ TDD block in _advance_prechecks."""
 
@@ -973,6 +987,7 @@ class TestAdvancePrechecksTDD:
         from harness_cli import _advance_prechecks
 
         self._make_p3_project(tmp_path)
+        _mock_constitution_pass(monkeypatch)
         monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
         monkeypatch.setattr("harness_cli._check_gate_score_variance", lambda p, ph: 0)
         monkeypatch.setattr(
@@ -997,6 +1012,7 @@ class TestAdvancePrechecksTDD:
         from harness_cli import _advance_prechecks
 
         (tmp_path / ".methodology").mkdir()  # no src dir
+        _mock_constitution_pass(monkeypatch)
         monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
         monkeypatch.setattr("harness_cli._check_gate_score_variance", lambda p, ph: 0)
         monkeypatch.setattr(
@@ -1020,6 +1036,7 @@ class TestAdvancePrechecksTDD:
         from harness_cli import _advance_prechecks
 
         (tmp_path / ".methodology").mkdir()
+        _mock_constitution_pass(monkeypatch)
         monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
         monkeypatch.setattr("harness_cli._check_gate_score_variance", lambda p, ph: 0)
         monkeypatch.setattr(
@@ -1042,6 +1059,7 @@ class TestAdvancePrechecksTDD:
         from harness_cli import _advance_prechecks
 
         (tmp_path / ".methodology").mkdir()
+        _mock_constitution_pass(monkeypatch)
         monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
         monkeypatch.setattr("harness_cli._verify_agent_b_approvals_core",
                             lambda p, ph, ids: (True, "mocked"))
@@ -1054,6 +1072,7 @@ class TestAdvancePrechecksTDD:
         from harness_cli import _advance_prechecks
 
         (tmp_path / ".methodology").mkdir()
+        _mock_constitution_pass(monkeypatch)
         monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
         monkeypatch.setattr("harness_cli._check_gate_score_variance", lambda p, ph: 0)
         monkeypatch.setattr(
@@ -1080,6 +1099,7 @@ class TestAdvancePrechecksTDD:
         from harness_cli import _advance_prechecks
 
         (tmp_path / ".methodology").mkdir()
+        _mock_constitution_pass(monkeypatch)
         monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
         monkeypatch.setattr("harness_cli._check_gate_score_variance", lambda p, ph: 0)
         monkeypatch.setattr(
@@ -1112,6 +1132,7 @@ class TestAdvancePreChecksAgentB:
     def _mock_p1_prechecks(self, monkeypatch):
         """Patch non-AB checks so only AB check is exercised."""
         monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
+        _mock_constitution_pass(monkeypatch)
 
     def test_p1_missing_approvals_returns_13(self, tmp_path, monkeypatch):
         """P1 with no agent_b_approvals/ → returns 13."""
@@ -1167,6 +1188,8 @@ class TestAdvancePreChecksAgentB:
         from harness_cli import _advance_prechecks
 
         (tmp_path / ".methodology").mkdir()
+        _mock_constitution_pass(monkeypatch)
+        _mock_constitution_pass(monkeypatch)
         monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
         monkeypatch.setattr("harness_cli._check_gate_score_variance", lambda p, ph: 0)
         monkeypatch.setattr(
