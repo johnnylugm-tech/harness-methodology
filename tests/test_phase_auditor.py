@@ -9,7 +9,7 @@ from typing import Optional
 import pytest
 
 from scripts.phase_auditor import (
-    PhaseAuditor, _ENTRY_GATE_MAP, _PHASE_MILESTONES, LocalFetcher,
+    PhaseAuditor, _ENTRY_GATE_MAP, LocalFetcher,
 )
 
 # Standard valid A/B JSONL for testing
