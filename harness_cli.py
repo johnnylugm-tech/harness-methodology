@@ -4173,10 +4173,12 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
     _saved_cwd = os.getcwd()
     project = Path(args.project).resolve()
 
-    # CV-2: Validate args.completed_phase matches state.json::current_phase.
-    # Without this check, an agent could pass --completed 7 while in phase 3
-    # and skip straight to phase 8 (state.json is the only authoritative
-    # source). No bypass flag — use the correct --completed value instead.
+    # CV-2: Validate args.completed_phase against state.json::current_phase.
+    #
+    # Three cases:
+    #   1. current == completed  → normal advance (run prechecks, advance FSM)
+    #   2. current >  completed  → re-verify (run prechecks only, no FSM change)
+    #   3. current <  completed  → skip attempt — BLOCKED (prevent phase skips)
     state_path = project / ".methodology" / "state.json"
     if state_path.exists():
         try:
@@ -4185,10 +4187,36 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
             with file_lock(state_lock_path(project)):
                 _state = json.loads(state_path.read_text(encoding="utf-8"))
             _current = int(_state.get("current_phase", 0))
-            if _current and _current != args.completed_phase:
+
+            if _current and _current > args.completed_phase:
+                # Re-verify mode: Phase N was already advanced past. Re-run
+                # exit checks so the user can fix document quality at the
+                # correct phase boundary without hacking state.json.
+                # Does NOT change current_phase or write state.
+                print(
+                    f"\n[RE-VERIFY] Phase {args.completed_phase} already advanced "
+                    f"(current_phase={_current}). Re-running exit checks…"
+                )
+                rc = _advance_prechecks(project, args.completed_phase)
+                if rc != 0:
+                    print(
+                        f"\n[BLOCKED] Phase {args.completed_phase} exit checks "
+                        f"failed (code={rc}). Fix issues above, then re-run:\n"
+                        f"    python3 harness_cli.py advance-phase "
+                        f"--completed {args.completed_phase} --project {project}"
+                    )
+                    return rc
+                print(
+                    f"\n[RE-VERIFY] Phase {args.completed_phase} exit checks "
+                    f"re-verified ✓ (already at Phase {_current})"
+                )
+                return 0
+
+            if _current and _current < args.completed_phase:
+                # Skip attempt: agent tried to jump ahead
                 print(
                     f"\n[BLOCKED] advance-phase: --completed={args.completed_phase} "
-                    f"does not match state.json::current_phase={_current}.\n"
+                    f"is ahead of state.json::current_phase={_current}.\n"
                     f"  This prevents accidental phase skips. To advance, use:\n"
                     f"    python3 harness_cli.py advance-phase --completed {_current} --project {project}",
                     file=sys.stderr,
