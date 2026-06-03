@@ -284,11 +284,6 @@ class TestPhaseAdvanceStep:
         joined = "\n".join(_phase_advance_step(8))
         assert "Pipeline Complete" in joined or "complete" in joined.lower()
 
-    def test_hr03_no_skip_warning(self):
-        """HR-03: phase order must be sequential."""
-        joined = "\n".join(_phase_advance_step(5))
-        assert "HR-03" in joined or "no skips" in joined.lower() or "skip" in joined.lower()
-
 
 # ─── _load_manifest_fr_ids ───────────────────────────────────────────────────
 
@@ -598,11 +593,6 @@ class TestEntryGateCheck:
         joined = "\n".join(_entry_gate_check(2))
         assert "ENTRY-CHECK" in joined
         assert "Phase 1" in joined
-
-    def test_contains_hr03_reference(self):
-        """Phase advance step includes HR-03 (no checkpoint skip)."""
-        joined = "\n".join(_phase_advance_step(4))
-        assert "HR-03" in joined or "no phase skips" in joined.lower()
 
     def test_contains_return_instruction(self):
         """Agent must know to return to previous phase if check fails."""

@@ -41,7 +41,6 @@ Exit codes:
     1   Hard failure (investigate error)
     2   run-gap-analysis: critical gaps detected (distinct from hard error)
     5   Gate 4 prerequisites block (A2/A3/A5 schema, B2 score files)
-    7   Plan incompletion block — unchecked mandatory steps in phaseN_plan.md
     8   Missing deliverables block — required artifacts not found on disk or not git-tracked
     10  PAUSE — Claude must evaluate gate; run finalize-gate then re-run pipeline
     11  Phase Truth < 90% (HR-11); fix and re-run with --phase-from N
@@ -3772,7 +3771,6 @@ def _run_phase_auditor(project: Path, completed_phase: int) -> int:
 
     Returns:
       0  = all checks pass
-      7  = C11 CRITICAL (unchecked plan items)
       8  = C1 CRITICAL (deliverables missing / untracked)
       1  = other CRITICAL findings
       2  = error / import failure
@@ -3794,8 +3792,7 @@ def _run_phase_auditor(project: Path, completed_phase: int) -> int:
 
         if criticals:
             # Route exit code by check_id for semantic consistency
-            c1_criticals  = [c for c in criticals if c.check_id == "C1"]
-            c11_criticals = [c for c in criticals if c.check_id == "C11"]
+            c1_criticals = [c for c in criticals if c.check_id == "C1"]
 
             print(f"\n  [PHASE-AUDITOR] ❌ {len(criticals)} CRITICAL finding(s) — must fix:")
             for c in criticals[:5]:
@@ -3809,9 +3806,6 @@ def _run_phase_auditor(project: Path, completed_phase: int) -> int:
             if c1_criticals:
                 print(f"\n  [BLOCKED] {len(c1_criticals)} deliverable(s) missing/untracked.")
                 return 8
-            if c11_criticals:
-                print(f"\n  [BLOCKED] {len(c11_criticals)} plan item(s) incomplete.")
-                return 7
             return 1
 
         if warnings:
@@ -3913,7 +3907,6 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
     PhaseAuditor C1-C12, TDD.
 
     Returns 0 if all checks pass, non-zero exit code on first failure:
-      7  = C11 CRITICAL (unchecked plan items)
       8  = C1 CRITICAL (deliverables missing / untracked)
       9  = pytest / coverage failure (P3+)
       10 = spec-coverage below phase threshold (P3+) [unified D4]

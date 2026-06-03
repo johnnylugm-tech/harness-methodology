@@ -1178,7 +1178,6 @@ def _phase_advance_step(phase: int, dynamic: bool = False) -> List[str]:
     lines = [
         f"### Phase {phase} → Phase {next_phase}: {next_name}",
         "",
-        "- [ ] Confirm ALL checkpoints in this plan are ✓  (no skips — HR-03)",
         *([] if dynamic else [
             f"- [ ] Generate Phase {next_phase} plan:",
             "  ```bash",

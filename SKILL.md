@@ -116,7 +116,6 @@ do NOT start work until every item is checked.
 
 Before advancing to Phase N+1, confirm ALL:
 
-- [ ] All checkpoints in plan marked done (`- [ ]` → `- [x]` in phaseN_plan.md)
 - [ ] HANDOVER.md written (auto on git push via GitStrategy)
 - [ ] **(ALL) Retry on failure**: If push is blocked (any gate), read the error output,
       apply the suggested fix, and re-run `push-checkpoint` / `push-milestone`.

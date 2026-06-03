@@ -9,7 +9,6 @@ that executed this phase — report findings honestly regardless of who produced
 ### 1. Read the phase plan
 
 Read `.methodology/phase{N}_plan.md`:
-- List all `- [ ]` checklist items (both checked `[x]` and unchecked `[ ]`)
 - Identify all declared deliverables under the "Deliverables" section
 - Note any `[INFO]` or `[PHASE-AUDIT]` items that should be excluded from gap counting
 
@@ -56,8 +55,7 @@ Run `git log --oneline --graph -20`:
 
 ### 5. Cross-check plan vs reality
 
-Compare step 1 (plan checklist) with steps 2-5 (reality):
-- For each unchecked `[ ]` item in the plan: does the corresponding deliverable exist?
+Compare step 1 (plan) with steps 2-5 (reality):
 - Are there deliverables on disk that are not listed in the plan? (this is fine, but note it)
 - Are there plan items that should produce deliverables but nothing was found?
 

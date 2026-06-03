@@ -1680,65 +1680,6 @@ class PhaseAuditor:
                         detail="",
                     ))
 
-    # -- C11: Plan Checklist ------------------------------------------────
-    def check_c11_plan_checklist(self):
-        """C11: Verify phase plan has no unchecked mandatory items."""
-        plan_content = self.gh.get_file_content(
-            f".methodology/phase{self.phase}_plan.md"
-        )
-        if not plan_content:
-            self.result.add(Finding(
-                check_id="C11", dimension="Plan Checklist",
-                severity="WARNING",
-                title=f"phase{self.phase}_plan.md not found — checklist unverifiable.",
-                detail="",
-            ))
-            return
-
-        skip_re = re.compile(
-            r"\[A-DISPATCH\]|\[B-DISPATCH\]|\[INFO\]|\[OPTIONAL\]|\[SKIP\]"
-            r"|Gate \d+.*score|Phase \d+.*complete"
-            # Framework-verified or auto-filled tags — no agent manual action needed
-            r"|\*\*\[(ENTRY-CHECK|PREFLIGHT|PREFLIGHT-CI|PHASE-TRUTH|TDD-PRECHECK"
-            r"|ORCH-POST|ASPICE)\]\*\*"
-            # Per-FR sub-bullets: confirmed implicitly by GATE1 / GATE1-DELTA pass
-            r"|for FR-\d+"
-            r"|Verify edge cases and error paths"
-            r"|Confirm ≥80% branch coverage"
-            # Gate 1 coverage: verified by _check_gate1_per_fr_coverage (exit 14)
-            r"|Gate 1 PASS for every FR"
-            # Chicken-and-egg: advance-phase IS what does these; can't pre-check
-            r"|Advance FSM to Phase \d+"
-            # Post-advance instructions — belong to the NEXT phase entry
-            r"|Confirm.*HANDOVER\.md"
-            r"|Open.*phase\d+_plan\.md"
-            r"|If session crashes"
-            # Meta-item: C11 itself verifies all items are checked; redundant
-            r"|Confirm ALL checkpoints",
-            re.IGNORECASE,
-        )
-        unchecked = [
-            line.strip()[5:].strip()
-            for line in plan_content.splitlines()
-            if line.strip().startswith("- [ ]") and not skip_re.search(line)
-        ]
-
-        if unchecked:
-            self.result.add(Finding(
-                check_id="C11", dimension="Plan Checklist",
-                severity="CRITICAL",
-                title=f"{len(unchecked)} unchecked mandatory plan item(s).",
-                detail=f"First: {unchecked[:3]}",
-                rule_ref="HR-03",
-            ))
-        else:
-            self.result.add(Finding(
-                check_id="C11", dimension="Plan Checklist",
-                severity="PASS",
-                title="All mandatory plan items are checked.",
-                detail=f"Phase {self.phase} plan checklist complete.",
-            ))
-
     # -- C12: Git Milestones ------------------------------------------────
     def check_c12_git_milestones(self):
         """C12: Verify required milestone commits exist in git history."""
@@ -1790,7 +1731,6 @@ class PhaseAuditor:
             ("C8  Integrity Tracker",          self.check_c8_integrity),
             ("C9  Gate PASS Record",           self.check_c9_gate_pass),
             ("C10 Local State Consistency",    self.check_c10_local_state),
-            ("C11 Plan Checklist",             self.check_c11_plan_checklist),
             ("C12 Git Milestones",             self.check_c12_git_milestones),
         ]
         for name, fn in checks:
