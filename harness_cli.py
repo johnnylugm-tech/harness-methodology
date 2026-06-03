@@ -4013,11 +4013,15 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
     # ── Constitution postflight: check current phase's own docs ──────
     # (all phases 1-8).  Closed-loop: each phase verifies its OWN
     # document quality before advancing, not the next phase's preflight.
+    # Scans only the phase-specific directory (e.g. 01-requirements/),
+    # NOT the entire project root — table/matrix/tracking docs in other
+    # directories dilute keyword density and produce false positives.
     try:
         from core.quality_gate.constitution import run_constitution_check
         from core.quality_gate.constitution.profile import get_profile
+        _phase_dir = project / get_profile().phase_directory(completed_phase)
         _const_result = run_constitution_check(
-            check_type="all", docs_path=str(project),
+            check_type="all", docs_path=str(_phase_dir),
             current_phase=completed_phase, check_mode="postflight",
         )
         _const_threshold = get_profile().composite_threshold(completed_phase)
