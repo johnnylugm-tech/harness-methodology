@@ -1976,44 +1976,6 @@ class TestMarkPlanItem:
 # P0-B: _append_dev_log_tdd_entry
 # ---------------------------------------------------------------------------
 
-class TestAppendDevLogTddEntry:
-    """Tests for harness_cli._append_dev_log_tdd_entry (P0-B bookkeeping)."""
-
-    def test_appends_line_with_score(self, tmp_path):
-        import harness_cli
-        log = tmp_path / "DEVELOPMENT_LOG.md"
-        log.write_text("# Dev Log\n", encoding="utf-8")
-        harness_cli._append_dev_log_tdd_entry(tmp_path, "FR-03", score=92.5)
-        content = log.read_text()
-        assert "FR-03 test pass" in content
-        assert "92.50" in content
-        assert "RED→GREEN" in content
-
-    def test_appends_line_with_none_score(self, tmp_path):
-        import harness_cli
-        log = tmp_path / "DEVELOPMENT_LOG.md"
-        log.write_text("# Dev Log\n", encoding="utf-8")
-        harness_cli._append_dev_log_tdd_entry(tmp_path, "FR-07", score=None)
-        assert "FR-07 test pass" in log.read_text()
-        assert "N/A" in log.read_text()
-
-    def test_noop_when_log_missing(self, tmp_path):
-        import harness_cli
-        # No DEVELOPMENT_LOG.md — must not raise
-        harness_cli._append_dev_log_tdd_entry(tmp_path, "FR-01", score=100.0)
-
-    def test_multiple_calls_append_multiple_lines(self, tmp_path):
-        import harness_cli
-        log = tmp_path / "DEVELOPMENT_LOG.md"
-        log.write_text("", encoding="utf-8")
-        harness_cli._append_dev_log_tdd_entry(tmp_path, "FR-01", score=80.0)
-        harness_cli._append_dev_log_tdd_entry(tmp_path, "FR-02", score=90.0)
-        lines = [ln for ln in log.read_text().splitlines() if ln.strip()]
-        assert len(lines) == 2
-        assert "FR-01" in lines[0]
-        assert "FR-02" in lines[1]
-
-
 # ---------------------------------------------------------------------------
 # P2-B: W2 coverage warning logic (harness_bridge.finalize_gate)
 # ---------------------------------------------------------------------------

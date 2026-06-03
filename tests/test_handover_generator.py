@@ -1358,7 +1358,8 @@ class TestCmdAdvancePhase:
         def fake_run(cmd, **kw):
             class R:
                 pass
-            if cmd[:2] == ["git", "ls-files"]:
+            # LocalFetcher calls ["git", "-C", root, "ls-files", "--error-unmatch", path]
+            if "ls-files" in cmd and "--error-unmatch" in cmd:
                 r = R()
                 r.returncode = 1  # file not tracked
                 return r

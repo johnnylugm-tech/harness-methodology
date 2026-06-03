@@ -492,13 +492,11 @@ def _build_defaults() -> ConstitutionProfile:
     ]
 
     # Meta-documents excluded from constitution keyword scans.
-    # These files (DEVELOPMENT_LOG.md, HANDOVER.md, STAGE_PASS.md) are mandatory
-    # per phase_auditor.py deliverables check but consist of operational logs and
+    # These files (HANDOVER.md, STAGE_PASS.md) consist of operational logs and
     # handover notes — they inherently contain zero constitution keywords and
     # would dilute the aggregate keyword density below the phase threshold.
     # Configurable via .methodology/constitution_profile.json → exclude_patterns.
     _META_EXCLUDE = [
-        "DEVELOPMENT_LOG.md",
         "HANDOVER.md",
         "*STAGE_PASS.md",
     ]

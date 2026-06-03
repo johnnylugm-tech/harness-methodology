@@ -643,10 +643,11 @@ class TestC1GitTracking:
         return PhaseAuditor(fetcher, 3)
 
     def test_tracked_file_no_git_critical(self, tmp_path):
+        # Use Phase3_STAGE_PASS.md — a required FILE deliverable in Phase 3 spec
         a = self._make_local(
             tmp_path,
-            {"DEVELOPMENT_LOG.md": "content"},
-            tracked=["DEVELOPMENT_LOG.md"],
+            {"00-summary/Phase3_STAGE_PASS.md": "content"},
+            tracked=["00-summary/Phase3_STAGE_PASS.md"],
         )
         a.check_c1_deliverables()
         assert not any(
@@ -656,9 +657,10 @@ class TestC1GitTracking:
         )
 
     def test_untracked_required_file_critical(self, tmp_path):
+        # File is on disk but NOT git-tracked → C1 CRITICAL
         a = self._make_local(
             tmp_path,
-            {"DEVELOPMENT_LOG.md": "content"},
+            {"00-summary/Phase3_STAGE_PASS.md": "content"},
             tracked=[],
         )
         a.check_c1_deliverables()
@@ -669,7 +671,7 @@ class TestC1GitTracking:
         )
 
     def test_remote_fetcher_skips_git_check(self):
-        a = PhaseAuditor(FakeGitHubFetcher({"DEVELOPMENT_LOG.md": "content"}), 3)
+        a = PhaseAuditor(FakeGitHubFetcher({"00-summary/Phase3_STAGE_PASS.md": "content"}), 3)
         a.check_c1_deliverables()
         assert not any(
             "git" in (f.title + f.detail).lower()

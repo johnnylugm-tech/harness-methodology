@@ -241,7 +241,7 @@ Dynamic plans contain `Mode: Dynamic` in the header.
 | HR-04 | HybridWorkflow mode=ON mandatory | Terminate |
 | HR-05 | harness-methodology wins all conflicts | Log |
 | HR-06 | External frameworks outside spec forbidden | -20 / Terminate |
-| HR-07 | DEVELOPMENT_LOG must record session_id | -15 |
+| HR-07 | ~~DEVELOPMENT_LOG must record session_id~~ **REMOVED** — agent-writable, not tamper-evident; same rationale as HR-10 | — |
 | HR-08 | Phase end requires Quality Gate pass | -10 / Terminate |
 | HR-09 | Claims Verifier citations must pass | -20 / Terminate |
 | HR-10 | ~~sessions_spawn.log must have A/B entries~~ **REMOVED** — log is agent-writable, not tamper-evident; A/B quality enforced by the deliverable review + tool-scored gates | — |
@@ -346,14 +346,13 @@ and stage-pass certificates. These files are mandatory for the phase auditor
 but should not be scored for keyword density.
 
 Default exclusion patterns (glob, matched against file basename):
-- `DEVELOPMENT_LOG.md`
 - `HANDOVER.md`
 - `*STAGE_PASS.md`
 
 Override via `.methodology/constitution_profile.json`:
 ```json
 {
-  "exclude_patterns": ["DEVELOPMENT_LOG.md", "HANDOVER.md", "*STAGE_PASS.md"],
+  "exclude_patterns": ["HANDOVER.md", "*STAGE_PASS.md"],
   "phases": {
     "3": {"exclude_patterns": ["migration_log.md"]}
   }

@@ -38,7 +38,6 @@ HARD_RULES = {
     "HR-01": "A/B must be different Agents; self-review is forbidden",
     "HR-02": "Quality Gate must include actual command output",
     "HR-03": "Phases must be executed in order; skipping is forbidden",
-    "HR-07": "DEVELOPMENT_LOG must record session_id",
     "HR-08": "Quality Gate must be executed at the end of every Phase",
     "HR-09": "Claims Verifier verification must pass",
     "HR-10": ".methodology/sessions_spawn.log must exist and contain A/B records",
@@ -78,8 +77,6 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
              "SPEC_TRACKING.md -- Specification Tracking Table", True),
             (["01-requirements/TRACEABILITY_MATRIX.md"],
              "TRACEABILITY_MATRIX.md -- Traceability Matrix", True),
-            (["DEVELOPMENT_LOG.md"],
-             "DEVELOPMENT_LOG.md -- Development Log", True),
             ([".methodology/sessions_spawn.log", "sessions_spawn.log"],
              ".methodology/sessions_spawn.log -- A/B session records", False),  # non-blocking: A/B audit removed
             (["TEST_INVENTORY.yaml"],
@@ -114,7 +111,6 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
              "SAD.md -- System Architecture Document", True),
             (["02-architecture/adr/"],
              "ADR -- Architecture Decision Records", False),
-            (["DEVELOPMENT_LOG.md"], "DEVELOPMENT_LOG.md", True),
             ([".methodology/sessions_spawn.log", "sessions_spawn.log"], ".methodology/sessions_spawn.log", False),  # non-blocking: A/B audit removed
             (["00-summary/Phase2_STAGE_PASS.md"],
              "Phase2_STAGE_PASS.md -- Phase pass certificate", False),
@@ -137,7 +133,6 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
              "src/ -- Source code directory", True),
             (["03-development/tests/"],
              "tests/ -- Unit tests", True),
-            (["DEVELOPMENT_LOG.md"], "DEVELOPMENT_LOG.md", True),
             ([".methodology/sessions_spawn.log", "sessions_spawn.log"], ".methodology/sessions_spawn.log", False),  # non-blocking: A/B audit removed
             (["00-summary/Phase3_STAGE_PASS.md"],
              "Phase3_STAGE_PASS.md", True),
@@ -159,7 +154,6 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
              "TEST_PLAN.md", True),
             (["04-testing/TEST_RESULTS.md"],
              "TEST_RESULTS.md", True),
-            (["DEVELOPMENT_LOG.md"], "DEVELOPMENT_LOG.md", True),
             ([".methodology/sessions_spawn.log", "sessions_spawn.log"], ".methodology/sessions_spawn.log", False),  # non-blocking: A/B audit removed
             (["00-summary/Phase4_STAGE_PASS.md"],
              "Phase4_STAGE_PASS.md", True),
@@ -181,7 +175,6 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
              "BASELINE.md (7 sections)", True),
             (["05-verification/VERIFICATION_REPORT.md"],
              "VERIFICATION_REPORT.md", True),
-            (["DEVELOPMENT_LOG.md"], "DEVELOPMENT_LOG.md", True),
             ([".methodology/sessions_spawn.log", "sessions_spawn.log"], ".methodology/sessions_spawn.log", False),  # non-blocking: A/B audit removed
             (["00-summary/Phase5_STAGE_PASS.md"],
              "Phase5_STAGE_PASS.md", True),
@@ -205,7 +198,6 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
              "RELEASE_NOTES.md -- Release Notes", True),
             (["FINAL_SIGN_OFF.md"],
              "FINAL_SIGN_OFF.md -- Final Sign-off Document", True),
-            (["DEVELOPMENT_LOG.md"], "DEVELOPMENT_LOG.md", True),
             ([".methodology/sessions_spawn.log", "sessions_spawn.log"], ".methodology/sessions_spawn.log", False),  # non-blocking: A/B audit removed
             (["00-summary/Phase6_STAGE_PASS.md"],
              "Phase6_STAGE_PASS.md", True),
@@ -229,7 +221,6 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
              "RISK_REGISTER.md", True),
             (["07-risk/RISK_MITIGATION_PLANS.md"],
              "RISK_MITIGATION_PLANS.md -- Risk Mitigation Plans", True),
-            (["DEVELOPMENT_LOG.md"], "DEVELOPMENT_LOG.md", True),
             ([".methodology/sessions_spawn.log", "sessions_spawn.log"], ".methodology/sessions_spawn.log", False),  # non-blocking: A/B audit removed
             (["00-summary/Phase7_STAGE_PASS.md"],
              "Phase7_STAGE_PASS.md", True),
@@ -250,7 +241,6 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
              "CONFIG_RECORDS.md (8 sections)", True),
             (["08-config/RELEASE_CHECKLIST.md"],
              "RELEASE_CHECKLIST.md -- Release Validation Checklist", True),
-            (["DEVELOPMENT_LOG.md"], "DEVELOPMENT_LOG.md", True),
             ([".methodology/sessions_spawn.log", "sessions_spawn.log"], ".methodology/sessions_spawn.log", False),  # non-blocking: A/B audit removed
             (["00-summary/Phase8_STAGE_PASS.md"],
              "Phase8_STAGE_PASS.md", True),
@@ -259,25 +249,6 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
         "min_duration_minutes": 10,
     },
 }
-
-# DEVELOPMENT_LOG quality keywords: valid QG output must contain at least one of these patterns
-QG_EVIDENCE_PATTERNS = [
-    r"Constitution.*?[\d.]+%",
-    r"Compliance Rate.*?[\d.]+%",
-    r"ASPICE.*?(?:PASS|FAIL|✅|❌)",
-    r"pytest.*?(?:passed|failed|error)",
-    r"coverage.*?[\d]+%",
-    r"stage.pass.*?(?:\d+)/100",
-    r"phase.verify.*?(?:PASS|FAIL|[\d]+%)",
-    r"enforce.*?(?:BLOCK|PASS|0.*?violation)",
-    r"Constitution Score.*?[\d.]+",
-]
-
-# DEVELOPMENT_LOG fake-pass detection (disallow these vague markers without actual output)
-FAKE_PASS_PATTERNS = [
-    r"^[\u2705\u2713]\s*(?:Passed|PASS|Done|pass|done)\s*$",
-    r"^[\u2705\u2713]\s*Phase\s*\d+\s*(?:Done|PASS|Passed)\s*$",
-]
 
 # Required sections in STAGE_PASS (machine-generated by finalize-gate since v2.5.0)
 STAGE_PASS_REQUIRED_SECTIONS = [
@@ -929,119 +900,6 @@ class PhaseAuditor:
             detail=f"Files checked: {[p.split('/')[-1] for p in approval_files[:5]]}",
             rule_ref=rule_ref,
         ))
-
-    # -- C4: DEVELOPMENT_LOG Quality ---------------------------------────
-    def check_c4_development_log(self):
-        """C4: Check DEVELOPMENT_LOG for actual command output (not vague records)"""
-        content = self._content(["DEVELOPMENT_LOG.md"])
-        if not content:
-            self.result.add(Finding(
-                check_id="C4",
-                dimension="DEVELOPMENT_LOG Quality",
-                severity="CRITICAL",
-                title="DEVELOPMENT_LOG.md does not exist",
-                detail="",
-                rule_ref="HR-07",
-            ))
-            return
-
-        # extract Phase-related content
-        phase_pattern = re.compile(
-            rf"##\s*Phase\s*{self.phase}[:\s]", re.IGNORECASE
-        )
-        has_phase_section = bool(phase_pattern.search(content))
-        if has_phase_section:
-            self.result.add(Finding(
-                check_id="C4",
-                dimension="DEVELOPMENT_LOG Quality",
-                severity="PASS",
-                title=f"DEVELOPMENT_LOG contains Phase {self.phase} section",
-                detail="",
-            ))
-        else:
-            self.result.add(Finding(
-                check_id="C4",
-                dimension="DEVELOPMENT_LOG Quality",
-                severity="WARNING",
-                title=f"DEVELOPMENT_LOG: no dedicated Phase {self.phase} section found",
-                detail="May be mixed with other Phases, or section heading format does not match",
-            ))
-
-        # session_id records
-        sid_match = re.search(r"session[_-]?id[:]\s*(\S+)", content, re.IGNORECASE)
-        if sid_match:
-            self.result.add(Finding(
-                check_id="C4",
-                dimension="DEVELOPMENT_LOG Quality",
-                severity="PASS",
-                title="DEVELOPMENT_LOG records session_id",
-                detail=f"Found: {sid_match.group(0)[:60]}",
-                rule_ref="HR-07",
-            ))
-        else:
-            self.result.add(Finding(
-                check_id="C4",
-                dimension="DEVELOPMENT_LOG Quality",
-                severity="WARNING",
-                title="DEVELOPMENT_LOG: no session_id record found",
-                detail="HR-07 requires this; absence deducts Integrity -15",
-                rule_ref="HR-07",
-            ))
-
-        # QG actual output evidence
-        qg_evidence_count = sum(
-            1 for pat in QG_EVIDENCE_PATTERNS
-            if re.search(pat, content, re.IGNORECASE)
-        )
-        if qg_evidence_count >= 2:
-            matched = [
-                pat for pat in QG_EVIDENCE_PATTERNS
-                if re.search(pat, content, re.IGNORECASE)
-            ]
-            self.result.add(Finding(
-                check_id="C4",
-                dimension="DEVELOPMENT_LOG Quality",
-                severity="PASS",
-                title=f"DEVELOPMENT_LOG contains QG actual output evidence ({qg_evidence_count}/{len(QG_EVIDENCE_PATTERNS)} patterns)",
-                detail=f"Matched patterns: {matched[:3]}",
-                rule_ref="HR-02",
-            ))
-        elif qg_evidence_count == 1:
-            self.result.add(Finding(
-                check_id="C4",
-                dimension="DEVELOPMENT_LOG Quality",
-                severity="WARNING",
-                title=f"DEVELOPMENT_LOG: insufficient QG output evidence (only {qg_evidence_count} pattern(s))",
-                detail="Expected to see Constitution scores, ASPICE results, and other tool outputs",
-                rule_ref="HR-02",
-            ))
-        else:
-            self.result.add(Finding(
-                check_id="C4",
-                dimension="DEVELOPMENT_LOG Quality",
-                severity="CRITICAL",
-                title="DEVELOPMENT_LOG: no recognizable QG tool output",
-                detail="No Constitution/ASPICE/pytest command output patterns found; suspected vague record",
-                rule_ref="HR-02",
-            ))
-
-        # fake-pass detection
-        lines = content.splitlines()
-        fake_lines = []
-        for i, line in enumerate(lines, 1):
-            for pat in FAKE_PASS_PATTERNS:
-                if re.match(pat, line.strip()):
-                    fake_lines.append(f"Line {i}: {line.strip()}")
-        if fake_lines:
-            self.result.add(Finding(
-                check_id="C4",
-                dimension="DEVELOPMENT_LOG Quality",
-                severity="WARNING",
-                title=f"Detected {len(fake_lines)} line(s) of suspected vague pass markers",
-                detail="\n".join(fake_lines[:3]),
-                evidence="SKILL.md forbids writing only '\u2705 Passed' without actual command output",
-            ))
-
     # -- C5: Phase Core Document Content Depth -----------------------
     def check_c5_content_depth(self):
         """C5: Content quality of core documents (SRS FR count, section completeness, etc.)"""
@@ -1683,7 +1541,7 @@ class PhaseAuditor:
                    f"{len(found)}/{len(fr_ids)} ({coverage:.0f}%)"),
             detail=(f"Missing FRs: {[fr for fr in fr_ids if fr not in devlog][:5]}"
                     if sev == "WARNING" else ""),
-            rule_ref="" if sev == "PASS" else "HR-07",
+            rule_ref="",
         ))
 
     # -- C8: Integrity Tracker Status ---------------------------------──
@@ -2024,7 +1882,6 @@ class PhaseAuditor:
             ("C1  Deliverable Completeness",   self.check_c1_deliverables),
             ("C2  STAGE_PASS Certificate",     self.check_c2_stage_pass),
             ("C3  A/B Session Separation",     self.check_c3_session_separation),
-            ("C4  DEVELOPMENT_LOG Quality",    self.check_c4_development_log),
             ("C5  Document Content Depth",     self.check_c5_content_depth),
             ("C6  Commit Timeline",            self.check_c6_commit_timeline),
             ("C7  Claims Cross-Verification",  self.check_c7_claims_crosscheck),

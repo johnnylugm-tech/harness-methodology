@@ -557,32 +557,6 @@ def _mark_generate_next_plan_item(project: Path, completed_phase: int, next_phas
         pass  # non-fatal
 
 
-def _append_dev_log_tdd_entry(
-    project: Path, fr_id: str, score: float | None = None
-) -> None:
-    """P0-B: Append TDD evidence to DEVELOPMENT_LOG.md after GATE1 PASS.
-
-    Prevents C5 CRITICAL at advance-phase by maintaining RED→GREEN evidence
-    automatically.  Non-fatal.
-    """
-    log_file = project / "DEVELOPMENT_LOG.md"
-    if not log_file.exists():
-        return
-    try:
-        import datetime as _datetime
-        ts = _datetime.datetime.now(_datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        score_str = f"{score:.2f}" if score is not None else "N/A"
-        line = (
-            f"- [x] {fr_id} test pass"
-            f" — Gate 1 score: {score_str}"
-            f" | RED→GREEN cycle complete | {ts}\n"
-        )
-        with open(log_file, "a", encoding="utf-8") as _f:
-            _f.write(line)
-    except OSError:
-        pass  # non-fatal
-
-
 def _check_inter_fr_score_variance(project: Path, phase: int) -> tuple[bool, str]:
     """D2 extension: Gate 1 score variance across all FRs in a phase.
 
@@ -4903,8 +4877,7 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"2. Every test function name MUST match the TEST SPEC names listed above exactly.\n"
             f"3. The tests MUST FAIL — do NOT implement the feature yet.\n"
             f"4. Run `pytest {test_file} -q` to confirm all tests fail.\n"
-            f"5. Commit: `git add {test_file} && git commit -m \"test(RED): failing test for {fr_id}\"`\n"
-            f"6. Append to DEVELOPMENT_LOG.md: `## RED phase — {fr_id} — failing test written`\n\n"
+            f"5. Commit: `git add {test_file} && git commit -m \"test(RED): failing test for {fr_id}\"`\n\n"
             f'[OUTPUT FORMAT]\nReturn JSON: {{"status": "DONE", "test_file": "{test_file}", '
             f'"commit": "<hash>", "summary": "<under 50 chars>"}}'
         )
@@ -4940,8 +4913,7 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"2. Create/edit source files in `{src_dir}/` to make `{test_file}` pass.\n"
             f"3. Run `pytest {test_file} -q` — all tests must pass.\n"
             f"4. Docstrings must include `[{fr_id}]` tag + `Citations:` with line numbers (HR-15).\n"
-            f"5. Commit: `git add {src_dir}/ && git commit -m \"feat({fr_id}): GREEN\"`\n"
-            f"6. Append to DEVELOPMENT_LOG.md: `## GREEN phase — {fr_id} — tests pass`\n\n"
+            f"5. Commit: `git add {src_dir}/ && git commit -m \"feat({fr_id}): GREEN\"`\n\n"
             f'[OUTPUT FORMAT]\nReturn JSON: {{"status": "DONE", "files_changed": [...], '
             f'"commit": "<hash>", "summary": "<under 50 chars>"}}'
         )
@@ -5772,17 +5744,6 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
             print(f"[run-fr-step] {fr_id} GATE1 BLOCKED after {max_fix_rounds} CODE-FIX rounds"
                   " — human intervention required")
             return 2  # BLOCKED
-
-        # P0-B: auto-append dev log after GATE1 PASS (prevents C5 CRITICAL at advance-phase)
-        # gate_pass is True here (otherwise we returned 2 above)
-        _gate1_score: float | None = None
-        _g1r_path = project / ".sessi-work" / "gate1_result.json"
-        try:
-            _g1r = json.loads(_g1r_path.read_text(encoding="utf-8"))
-            _gate1_score = float(_g1r.get("overall_score", 0.0))
-        except (OSError, json.JSONDecodeError, TypeError, ValueError):
-            pass
-        _append_dev_log_tdd_entry(project, fr_id, _gate1_score)
 
     # P0-A: auto-update plan checklist (prevents C11 CRITICAL at advance-phase)
     _mark_plan_item(project, phase, step, fr_id)
