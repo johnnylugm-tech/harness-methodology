@@ -622,12 +622,16 @@ def _agent_b_dispatch_block(phase: int, role_b: str, fr_id: str = "") -> List[st
     ]
     for check in checks:
         lines.append(f"  - {check}")
+    _docs_hint = {1: '["SRS.md"]', 2: '["SRS.md", "SAD.md"]'}.get(
+        phase, '["<basename of each source doc embedded above>"]'
+    )
     lines += [
         "",
         "  Return JSON only:",
         '  {"review_status":"APPROVE"|"REJECT",',
         '   "reason":"<concise summary>",',
         '   "citations":["file:line"],',
+        f'   "docs_embedded":{_docs_hint},',
         '   "gaps":[{"severity":"low|medium|high","message":"<issue>","fr_id":"<FR-XX or null>"}]}',
         "  ```",
         "",
@@ -767,12 +771,16 @@ def _deliverable_ab_block(phase: int, deliverable: Dict, sub_n: int, total: int,
     ]
     for check in checks:
         lines.append(f"  - {check}")
+    _docs_hint = {1: '["SRS.md"]', 2: '["SRS.md", "SAD.md"]'}.get(
+        phase, '["<basename of each source doc embedded above>"]'
+    )
     lines += [
         "",
         "  Return JSON only:",
         '  {"review_status":"APPROVE"|"REJECT",',
         '   "reason":"<concise summary>",',
         '   "citations":["file:line"],',
+        f'   "docs_embedded":{_docs_hint},',
         '   "gaps":[{"severity":"low|medium|high","message":"<issue>","fr_id":"<FR-XX or null>"}]}',
         "  ```",
         "",
@@ -978,10 +986,16 @@ def _review_checkpoint(phase: int, checkpoint_n: int) -> List[str]:
         "  - All gaps from sub-task reviews addressed?",
         "  - Terminology consistent across all documents?",
         "",
+    ]
+    _docs_hint = {1: '["SRS.md"]', 2: '["SRS.md", "SAD.md"]'}.get(
+        phase, '["<basename of each source doc embedded above>"]'
+    )
+    lines += [
         "  Return JSON only:",
         '  {"review_status":"APPROVE"|"REJECT",',
         '   "reason":"<concise summary>",',
         '   "citations":["file:line"],',
+        f'   "docs_embedded":{_docs_hint},',
         '   "gaps":[{"severity":"low|medium|high","message":"<issue>","fr_id":"<FR-XX or null>"}]}',
         "  ```",
         "",
