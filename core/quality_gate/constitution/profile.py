@@ -492,13 +492,26 @@ def _build_defaults() -> ConstitutionProfile:
     ]
 
     # Meta-documents excluded from constitution keyword scans.
-    # These files (HANDOVER.md, STAGE_PASS.md) consist of operational logs and
-    # handover notes — they inherently contain zero constitution keywords and
-    # would dilute the aggregate keyword density below the phase threshold.
+    # These files are operational/tracking/table documents — not prose
+    # deliverables. They inherently contain few or zero constitution keywords
+    # and would dilute the aggregate keyword density below the phase threshold.
+    #
+    # Excluded by nature:
+    #   HANDOVER.md              — operational handover log
+    #   *STAGE_PASS.md           — auto-generated gate certificates
+    #   SPEC_TRACKING.md         — spec tracking table (tabular, not prose)
+    #   TRACEABILITY_MATRIX.md   — traceability matrix (tabular, not prose)
+    #   TEST_INVENTORY.yaml      — YAML test inventory (not prose)
+    #   TEST_SPEC.md             — test spec table (tabular, not prose)
+    #
     # Configurable via .methodology/constitution_profile.json → exclude_patterns.
     _META_EXCLUDE = [
         "HANDOVER.md",
         "*STAGE_PASS.md",
+        "SPEC_TRACKING.md",
+        "TRACEABILITY_MATRIX.md",
+        "TEST_INVENTORY.yaml",
+        "TEST_SPEC.md",
     ]
 
     return ConstitutionProfile(
