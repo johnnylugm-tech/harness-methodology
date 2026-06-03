@@ -752,7 +752,8 @@ class TestCheckTypeFiltering:
 
 
 class TestGetCompletedPhases:
-    """Tests for _get_completed_phases() — reads state.json phase_completed."""
+    """Tests for _get_completed_phases() — derives from current_phase (closed-loop)
+    with phase_completed as legacy fallback."""
 
     def test_missing_state_file(self, tmp_path):
         state_path = tmp_path / "state.json"
@@ -763,19 +764,26 @@ class TestGetCompletedPhases:
         state_path.write_text("{}")
         assert _get_completed_phases(state_path) == []
 
-    def test_no_phase_completed_key(self, tmp_path):
+    def test_no_phase_completed_key_phase1_vacuous(self, tmp_path):
+        """Phase 1 (current_phase=1): nothing completed — vacuous pass."""
         state_path = tmp_path / "state.json"
-        state_path.write_text('{"state": "ACTIVE", "current_phase": 2}')
+        state_path.write_text('{"state": "ACTIVE", "current_phase": 1}')
         assert _get_completed_phases(state_path) == []
 
-    def test_single_completed_phase(self, tmp_path):
+    def test_no_phase_completed_key_phase2_implies_p1_completed(self, tmp_path):
+        """Closed-loop: current_phase=2 → phase 1 is implicitly completed."""
         state_path = tmp_path / "state.json"
-        state_path.write_text(
-            '{"phase_completed": {"1": {"sha": "abc123", "timestamp": "2026-01-01T00:00:00Z"}}}'
-        )
+        state_path.write_text('{"state": "ACTIVE", "current_phase": 2}')
         assert _get_completed_phases(state_path) == [1]
 
-    def test_multiple_completed_phases(self, tmp_path):
+    def test_no_phase_completed_key_phase4_implies_p1_p2_p3(self, tmp_path):
+        """Closed-loop: current_phase=4 → phases 1-3 are implicitly completed."""
+        state_path = tmp_path / "state.json"
+        state_path.write_text('{"state": "ACTIVE", "current_phase": 4}')
+        assert _get_completed_phases(state_path) == [1, 2, 3]
+
+    def test_legacy_phase_completed_still_read(self, tmp_path):
+        """Legacy fallback: phase_completed key (backward compat)."""
         state_path = tmp_path / "state.json"
         state_path.write_text('{"phase_completed": {"1": {}, "2": {}, "3": {}}}')
         assert _get_completed_phases(state_path) == [1, 2, 3]

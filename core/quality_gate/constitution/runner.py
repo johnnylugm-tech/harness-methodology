@@ -97,18 +97,29 @@ class ConstitutionResult:
 
 
 def _get_completed_phases(state_path: Path) -> List[int]:
-    """Read state.json and return sorted list of completed phase numbers.
+    """Return sorted list of completed phase numbers.
 
-    Returns empty list when state.json is missing, unreadable, or contains
-    no ``phase_completed`` key — callers treat this as "no prior artifacts"
-    (vacuous pass).
+    Primary source (closed-loop): ``current_phase`` from state.json.
+    If ``current_phase = N`` (N >= 2), phases 1..N-1 are implicitly
+    completed — no agent action needed; ``advance-phase`` writes this.
+    At Phase 1 nothing is completed (vacuous pass).
+
+    Legacy fallback: ``phase_completed`` key (for projects that have it
+    but whose state.json predates this fix).
     """
     if not state_path.exists():
         return []
     try:
         state = json.loads(state_path.read_text(encoding="utf-8"))
+        # ── Primary: derive from current_phase (closed-loop) ──────────
+        current = state.get("current_phase")
+        if isinstance(current, int) and current > 1:
+            return list(range(1, current))
+        # ── Legacy fallback: phase_completed key ──────────────────────
         completed = state.get("phase_completed", {})
-        return sorted(int(k) for k in completed.keys())
+        if completed:
+            return sorted(int(k) for k in completed.keys())
+        return []
     except (json.JSONDecodeError, OSError, ValueError, TypeError):
         return []
 
@@ -522,11 +533,12 @@ def _preflight_check(
 ) -> ConstitutionResult:
     """Preflight constitution check — scan only completed phases' artifacts.
 
-    Reads ``state.json`` from the project root to discover which phases have
-    been completed, then scans the **most recently completed** phase's
+    Derives completed phases from ``current_phase`` in state.json
+    (closed-loop: if current_phase = N, phases 1..N-1 are implicitly
+    completed).  Then scans the **most recently completed** phase's
     directory using that phase's own check_type and profile.
 
-    If no phases have been completed (or state.json is missing), returns a
+    If current_phase is 1 (or state.json is missing), returns a
     vacuous pass — there are simply no prior artifacts to verify.
 
     If the caller passed a specific ``requested_check_type`` (anything other
