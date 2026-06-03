@@ -1227,6 +1227,32 @@ def _phase_advance_step(phase: int, dynamic: bool = False) -> List[str]:
     return lines
 
 
+def _constitution_self_check(phase: int) -> List[str]:
+    """Generate constitution self-check step for iterative document quality.
+
+    Placed BEFORE _review_checkpoint so the agent can iterate
+    (write → check → fix → repeat → pass) before locking in Agent B review.
+    Applies to P1 (SRS.md) and P2 (SAD.md) — the document-heavy phases
+    where constitution keyword density matters.
+    """
+    return [
+        "### 📋 Constitution Quality Self-Check",
+        "",
+        "> **Verify document quality meets constitution standards BEFORE "
+        "peer review.**",
+        "> Run this check, fix gaps, and re-run until PASS. "
+        "This avoids cascading rewrites after Agent B review.",
+        "",
+        "- [ ] **[CONSTITUTION-CHECK]** Run constitution self-check:",
+        "  ```bash",
+        f"  python3 harness_cli.py check-constitution --phase {phase} --project .",
+        "  ```",
+        "  - Score must be ≥ constitution composite threshold",
+        "  - If **FAIL**: fix documents (add missing keywords), then "
+        "**re-run until PASS**",
+        "  - If **PASS**: proceed to CHECKPOINT-PEER-REVIEW",
+        "",
+    ]
 
 
 def _dynamic_phase_context_block(phase: int, has_fr_template: bool = True) -> List[str]:
@@ -1682,6 +1708,7 @@ def generate_phase1_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
     lines.append(_sessions_spawn_deliverable())
     lines.append("")
 
+    lines.extend(_constitution_self_check(1))
     lines.extend(_review_checkpoint(1, checkpoint_n=1))
     lines.extend(_phase_advance_step(1, dynamic=dynamic))
     return lines
@@ -1770,6 +1797,7 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
     lines.append(_sessions_spawn_deliverable())
     lines.append("")
 
+    lines.extend(_constitution_self_check(2))
     lines.extend(_review_checkpoint(2, checkpoint_n=1))
     lines.extend(_phase_advance_step(2, dynamic=dynamic))
     return lines

@@ -6694,6 +6694,65 @@ def cmd_check_logic(args: argparse.Namespace) -> int:
 
     return 0 if result.passed else 1
 
+
+def cmd_check_constitution(args: argparse.Namespace) -> int:
+    """Check constitution document quality for the current phase.
+
+    Runs constitution postflight on the phase-specific directory so agents
+    can self-check document quality during phase execution. Does NOT modify
+    state.json or advance FSM — purely a diagnostic tool for iterative
+    development (write → check → fix → repeat until pass).
+
+    Usage:
+      python3 harness_cli.py check-constitution --phase 1 --project .
+    """
+    from core.quality_gate.constitution import run_constitution_check
+    from core.quality_gate.constitution.profile import get_profile
+
+    project = Path(args.project).resolve()
+    phase = int(args.phase)
+
+    _phase_dir = project / get_profile().phase_directory(phase)
+    _const_threshold = get_profile().composite_threshold(phase)
+
+    if not _phase_dir.exists():
+        print(f"[SKIP] Phase {phase} directory not found: {_phase_dir}")
+        return 0
+
+    print(f"\n{'='*60}")
+    print(f"Constitution Self-Check — Phase {phase}")
+    print(f"Directory: {_phase_dir}")
+    print(f"Threshold: {_const_threshold:.0f}%")
+    print(f"{'='*60}")
+
+    result = run_constitution_check(
+        check_type="all", docs_path=str(_phase_dir),
+        current_phase=phase, check_mode="postflight",
+    )
+
+    # Per-dimension breakdown
+    print(f"\n  Score: {result.score:.0f}%  (threshold={_const_threshold:.0f}%)")
+    for dim, score in sorted(result.dimensions.items()):
+        dim_threshold = get_profile().dimension_threshold(dim, phase)
+        status = "✓" if score >= dim_threshold else "✗"
+        print(f"    {status} {dim}: {score:.0f}%  (threshold={dim_threshold:.0f}%)")
+
+    if result.violations:
+        print(f"\n  Violations ({len(result.violations)}):")
+        for v in result.violations[:10]:
+            print(f"    - [{v.get('dimension', '?')}] {v.get('message', str(v))[:120]}")
+        if len(result.violations) > 10:
+            print(f"    ... and {len(result.violations) - 10} more")
+
+    if result.passed:
+        print(f"\n  [PASS] Constitution quality ≥ {_const_threshold:.0f}% ✓")
+        return 0
+    else:
+        print(f"\n  [FAIL] Constitution quality {result.score:.0f}% < {_const_threshold:.0f}%")
+        print(f"  Fix document gaps and re-run check-constitution until PASS.")
+        return 1
+
+
 # ---------------------------------------------------------------------------
 # init-project
 # ---------------------------------------------------------------------------
@@ -7960,6 +8019,16 @@ def build_parser() -> argparse.ArgumentParser:
     cl.add_argument("--project", default=".", help="Project root (default: .)")
     cl.add_argument("--srs",     default=None, help="SRS.md path for semantic validation")
     cl.set_defaults(func=cmd_check_logic)
+
+    # check-constitution
+    cc = sub.add_parser(
+        "check-constitution",
+        help="Check document quality against constitution standards for a phase",
+    )
+    cc.add_argument("--phase",   required=True, type=int, choices=range(1, 9),
+                    help="Phase to check (1–8)")
+    cc.add_argument("--project", default=".", help="Project root (default: .)")
+    cc.set_defaults(func=cmd_check_constitution)
 
     # init-project
     ip = sub.add_parser(
