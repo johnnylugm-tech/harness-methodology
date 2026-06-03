@@ -1394,7 +1394,6 @@ def _run_fast_preflight(hooks) -> dict:
     results = {
         "fsm": hooks.preflight_fsm_check(),
         "bvs_phase_order": hooks.preflight_bvs_phase_order(),
-        "constitution": hooks.preflight_constitution(),
         "kill_switch": hooks.preflight_kill_switch(),
         "trace_dirt": _trace_dirty_state(hooks.project_path),
     }
@@ -1402,10 +1401,11 @@ def _run_fast_preflight(hooks) -> dict:
     return {"all_passed": all_passed, "details": results}
 
 def cmd_pre_commit_check(args: argparse.Namespace) -> int:
-    """Lightweight pre-commit hook check (FSM + constitution + kill-switch only).
+    """Lightweight pre-commit hook check (FSM + kill-switch only).
 
     Intended exclusively for git commit hooks where speed matters.
-    Skips drift, traceability, gap analysis, and CI readiness — those are
+    Skips constitution (verified at advance-phase postflight), drift,
+    traceability, gap analysis, and CI readiness — those are
     enforced by run-phase / finalize-gate.
 
     Do NOT use this command in pipelines or as a substitute for run-phase.

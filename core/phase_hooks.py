@@ -765,7 +765,6 @@ class PhaseHooks:
         results = {
             "fsm": self.preflight_fsm_check(),
             "bvs_phase_order": self.preflight_bvs_phase_order(),
-            "constitution": self.preflight_constitution(),
             "kill_switch": self.preflight_kill_switch(),
             "previous_phase_artifacts": self.preflight_previous_phase_artifacts(),
             "drift_detection": self.preflight_drift_detection(),
