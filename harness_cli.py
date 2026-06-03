@@ -138,10 +138,10 @@ _TOOL_CHECK_COMMANDS: dict[str, tuple[str, str]] = {
     "pytest": ("pytest --version 2>&1", "pytest"),
     "gitleaks": ("gitleaks version 2>&1", "gitleaks"),
     "scancode": ("scancode --version 2>&1", "scancode-toolkit"),
-    "mutmut": ("mutmut 2>&1", "mutmut"),
+    "mutmut": ("mutmut --help 2>&1", "mutmut"),
     # Fallback: dimension-name-based lookup for older YAML configs without tool field
     "secrets_scanning": ("gitleaks version 2>&1", "gitleaks"),
-    "mutation_testing": ("mutmut 2>&1", "mutmut"),
+    "mutation_testing": ("mutmut --help 2>&1", "mutmut"),
     "license_compliance": ("scancode --version 2>&1", "scancode-toolkit"),
     "linting": ("ruff --version 2>&1 || python3 -m ruff --version 2>&1", "ruff"),
     "type_safety": ("mypy --version 2>&1", "mypy"),
