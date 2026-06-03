@@ -124,7 +124,7 @@ class ConstitutionProfile:
     def is_excluded(self, file_path: Path, phase: Optional[int] = None) -> bool:
         """Check whether *file_path* matches any global or per-phase exclusion pattern.
 
-        Patterns use fnmatch against the file basename (e.g. ``DEVELOPMENT_LOG.md``,
+        Patterns use fnmatch against the file basename (e.g. ``HANDOVER.md``,
         ``*STAGE_PASS.md``).  Glob-style wildcards (``*``, ``?``, ``[seq]``) are
         supported per :func:`fnmatch.fnmatch`.
         """

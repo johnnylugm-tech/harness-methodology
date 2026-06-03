@@ -913,12 +913,9 @@ class PhaseAuditor:
         elif phase == 2:
             self._check_sad_depth()
 
-        elif phase in [3, 4]:
-            if phase == 3:
-                self._check_tdd_log_depth()
-            else:  # phase == 4
-                self._check_test_plan_depth()
-                self._check_test_results_depth()
+        elif phase == 4:
+            self._check_test_plan_depth()
+            self._check_test_results_depth()
 
         elif phase == 5:
             self._check_baseline_depth()
@@ -1095,46 +1092,6 @@ class PhaseAuditor:
                 detail="Fill in module assignments before Phase 2.",
             ))
 
-    def _check_tdd_log_depth(self):
-        """C5 P3: Verify DEVELOPMENT_LOG.md contains TDD evidence."""
-        content = self._content(["DEVELOPMENT_LOG.md"])
-        if not content:
-            self.result.add(Finding(
-                check_id="C5", dimension="Document Content Depth",
-                severity="WARNING",
-                title="DEVELOPMENT_LOG.md missing — TDD evidence unverifiable.",
-                detail="",
-            ))
-            return
-
-        tdd_patterns = [
-            r"\bRED\b", r"\bGREEN\b", r"\bREFACTOR\b",
-            r"test[_\s]commit", r"TR-\d+", r"- \[x\].*test",
-            r"test.*pass", r"pytest.*pass",
-        ]
-        hits = [p for p in tdd_patterns if re.search(p, content, re.IGNORECASE)]
-        if len(hits) >= 2:
-            self.result.add(Finding(
-                check_id="C5", dimension="Document Content Depth",
-                severity="PASS",
-                title=f"DEVELOPMENT_LOG.md contains TDD evidence ({len(hits)} pattern(s)).",
-                detail=f"Matched: {hits[:3]}",
-            ))
-        elif len(hits) == 1:
-            self.result.add(Finding(
-                check_id="C5", dimension="Document Content Depth",
-                severity="WARNING",
-                title="DEVELOPMENT_LOG.md has minimal TDD evidence (1 pattern).",
-                detail="Expected RED/GREEN cycle records or test commit references.",
-            ))
-        else:
-            self.result.add(Finding(
-                check_id="C5", dimension="Document Content Depth",
-                severity="CRITICAL",
-                title="DEVELOPMENT_LOG.md has no TDD evidence.",
-                detail="HR-06: P3 requires TDD. Log RED→GREEN cycles and test commits.",
-                rule_ref="HR-06",
-            ))
 
     def _check_sad_depth(self):
         """C5 P2: SAD.md structural check + FR coverage cross-check."""
@@ -1491,60 +1448,6 @@ class PhaseAuditor:
                 ]),
             ))
 
-    # -- C7: Claims Cross-Verification --------------------------------────
-    def check_c7_claims_crosscheck(self):
-        """C7: Cross-verify FR coverage in DEVELOPMENT_LOG vs quality_manifest.json fr_ids.
-
-        Replaces STAGE_PASS-dependent cross-check (v2.5.0+).
-        Reports % of declared fr_ids found in DEVELOPMENT_LOG.md.
-        """
-        manifest_content = self._content([".methodology/quality_manifest.json"])
-        if not manifest_content:
-            self.result.add(Finding(
-                check_id="C7", dimension="Claims Cross-Verification",
-                severity="WARNING",
-                title="quality_manifest.json missing — FR coverage unverifiable.",
-                detail="",
-            ))
-            return
-
-        try:
-            manifest = json.loads(manifest_content)
-        except json.JSONDecodeError:
-            self.result.add(Finding(
-                check_id="C7", dimension="Claims Cross-Verification",
-                severity="WARNING",
-                title="quality_manifest.json not parseable.",
-                detail="",
-            ))
-            return
-
-        fr_ids: list[str] = manifest.get("fr_ids", [])
-        if not fr_ids:
-            self.result.add(Finding(
-                check_id="C7", dimension="Claims Cross-Verification",
-                severity="INFO",
-                title="quality_manifest.json has no fr_ids — FR coverage check skipped.",
-                detail="",
-            ))
-            return
-
-        devlog = self._content(["DEVELOPMENT_LOG.md"]) or ""
-        found = [fr for fr in fr_ids if fr in devlog]
-        coverage = len(found) / len(fr_ids) * 100
-
-        sev = "PASS" if coverage >= 80.0 else "WARNING"
-        self.result.add(Finding(
-            check_id="C7", dimension="Claims Cross-Verification",
-            severity=sev,
-            title=(f"FR coverage in DEVELOPMENT_LOG: "
-                   f"{len(found)}/{len(fr_ids)} ({coverage:.0f}%)"),
-            detail=(f"Missing FRs: {[fr for fr in fr_ids if fr not in devlog][:5]}"
-                    if sev == "WARNING" else ""),
-            rule_ref="",
-        ))
-
-    # -- C8: Integrity Tracker Status ---------------------------------──
     def check_c8_integrity(self):
         """C8: .integrity_tracker.json integrity score (if exists)"""
         content = self._content([".integrity_tracker.json"])
@@ -1884,7 +1787,6 @@ class PhaseAuditor:
             ("C3  A/B Session Separation",     self.check_c3_session_separation),
             ("C5  Document Content Depth",     self.check_c5_content_depth),
             ("C6  Commit Timeline",            self.check_c6_commit_timeline),
-            ("C7  Claims Cross-Verification",  self.check_c7_claims_crosscheck),
             ("C8  Integrity Tracker",          self.check_c8_integrity),
             ("C9  Gate PASS Record",           self.check_c9_gate_pass),
             ("C10 Local State Consistency",    self.check_c10_local_state),
@@ -2110,7 +2012,7 @@ Required arguments (project_context)
     --save    Save report to specified file
 
   Auto-detected (no need to provide):
-    - methodology version (detected from STAGE_PASS or DEVELOPMENT_LOG)
+    - methodology version (detected from STAGE_PASS certificate)
     - Phase spec (built-in SKILL.md v6.13 rule library)
     - Document paths (supports multiple naming conventions)
 

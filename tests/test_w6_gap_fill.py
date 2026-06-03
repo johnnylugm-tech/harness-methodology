@@ -840,17 +840,6 @@ class TestIntegratedStagePassGenerator:
         assert "SIGN-OFF" in md
         assert "Appendix: Actual Tool Results" in md
 
-    def test_log_to_development_log_writes(self, tmp_path):
-        gen = self._patched_gen(tmp_path)
-        gen.results["framework_results"]["CONSTITUTION"] = {"score": 85.0}
-        gen.results["framework_results"]["BLOCK"] = {"passed": True, "violations": []}
-        gen.results["confidence_score"] = 90
-        gen._log_to_development_log()
-        log = tmp_path / "DEVELOPMENT_LOG.md"
-        assert log.exists()
-        content = log.read_text()
-        assert "STAGE_PASS" in content
-
     def test_run_step5_no_trace_file(self, tmp_path):
         gen = self._patched_gen(tmp_path)
         result = gen.run_step5_traceability()
@@ -884,7 +873,6 @@ class TestIntegratedStagePassGenerator:
         gen.run_step5_traceability = MagicMock(return_value=True)
         gen.generate_markdown = MagicMock(return_value="# STAGE_PASS")
         gen.git_push = MagicMock(return_value="abc1234")
-        gen._log_to_development_log = MagicMock()
         assert gen.run() is True
 
     def test_run_returns_false_when_score_low(self, tmp_path):
@@ -897,7 +885,6 @@ class TestIntegratedStagePassGenerator:
         gen.run_step5_traceability = MagicMock(return_value=True)
         gen.generate_markdown = MagicMock(return_value="# STAGE_PASS")
         gen.git_push = MagicMock(return_value="abc1234")
-        gen._log_to_development_log = MagicMock()
         assert gen.run() is False
 
 

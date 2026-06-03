@@ -401,11 +401,6 @@ class PhaseTruthVerifier:
         # General checks
         checklist.extend([
             {
-                "item": "DEVELOPMENT_LOG.md",
-                "status": "✅ present" if (self.project_root / "DEVELOPMENT_LOG.md").exists() else "❌ missing",
-                "action": "Check for actual command output (text, not screenshot)"
-            },
-            {
                 "item": "sessions_spawn.log",
                 "status": "✅ present" if (self.project_root / ".methodology" / "sessions_spawn.log").exists() else "❌ missing",
                 "action": "Pick 1 record at random, confirm task description is reasonable"

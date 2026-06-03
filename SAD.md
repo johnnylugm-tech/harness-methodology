@@ -2014,10 +2014,10 @@ CREATE TABLE IF NOT EXISTS effort (
 **Integration**: `SteeringIntegrator.bvs_integrator` property and `iterate_with_full_check()` now call real code instead of hitting `ImportError`.
 
 **Constitution keyword scan exclusions** (v2.6.0): Meta-documents
-(`DEVELOPMENT_LOG.md`, `HANDOVER.md`, `*STAGE_PASS.md`) are excluded from
-keyword-density scanning by default. These files are mandatory per
-`phase_auditor.py` but contain operational content that inherently scores
-zero on constitution keywords, diluting the aggregate score below phase
+(`HANDOVER.md`, `*STAGE_PASS.md`) are excluded from
+keyword-density scanning by default. These files contain operational content
+that inherently scores zero on constitution keywords, diluting the aggregate
+score below phase
 thresholds. Exclusions use glob patterns via `ConstitutionProfile.is_excluded()`;
 configurable through `.methodology/constitution_profile.json` → `exclude_patterns`
 (global) and `phases.N.exclude_patterns` (per-phase, additive).
@@ -2035,7 +2035,7 @@ Full inventory of the `scripts/` directory (30 items). Grouped by role:
 | `generate_full_plan.py` | 56KB | Generates a full FR-level execution plan for a phase from SAD.md; outputs `.methodology/phase{N}_plan.md` |
 | `generate_fr_mapping.py` | 6KB | Builds an FR→file mapping from SAD.md and codebase scan; consumed by `phase_auditor.py` and gate pre-flight |
 | `generate_sab.py` | 3KB | CLI wrapper around `sab_parser.extract_sab_from_sad`; also exposes `parse_sad()` called by `HarnessBridge.generate_quality_manifest()` |
-| `phase_end_audit.py` | ~12KB | Phase 3-8 deliverable verifier (replaces A/B collaboration checks for P3+): validates plan completion, deliverables on disk, gate results in manifest, git log milestones, and DEVELOPMENT_LOG.md; invoked by `harness_cli.py finalize-gate` for phases ≥3 |
+| `phase_end_audit.py` | ~12KB | Phase 3-8 deliverable verifier (replaces A/B collaboration checks for P3+): validates plan completion, deliverables on disk, gate results in manifest, and git log milestones; invoked by `harness_cli.py finalize-gate` for phases ≥3 |
 
 **`phase_auditor.py` usage** (via `harness_cli.py audit-phase`):
 ```bash
@@ -2073,7 +2073,7 @@ python scripts/generate_full_plan.py --phase 3 --repo /path/to/project \
 | Script | Size | Purpose |
 |---|---|---|
 | `spec_logic_checker.py` | 10KB | Validates spec logic consistency (no contradictory requirements, all FRs have priorities). Also invocable via `harness_cli.py check-logic`. |
-| `dev_log_checker.py` | 12KB | Validates `DEVELOPMENT_LOG.md` format and HR-07 session_id presence |
+| `dev_log_checker.py` | 12KB | ~~Validates `DEVELOPMENT_LOG.md` format and HR-07 session_id presence~~ **REMOVED** (HR-07 removed; see SKILL.md) |
 | `verify_spec_compliance.py` | 7KB | End-to-end spec compliance: code must implement every FR declared in SAD.md. Also invocable via `harness_cli.py verify-spec`. |
 | `verify_path_consistency.py` | 3KB | Confirms all path references in SAD.md and manifest match actual filesystem |
 | `state_monitor.py` | 6KB | Reads `.methodology/state.json`; reports FSM state, phase, timestamps |

@@ -54,14 +54,7 @@ Run `git log --oneline --graph -20`:
 - Is there at least one commit per FR (Phase 3-5, 7-8)?
 - Is the most recent commit on the expected branch?
 
-### 5. Check development log
-
-Read `DEVELOPMENT_LOG.md`:
-- Does it contain Phase {N} entries?
-- Do entries reference session IDs?
-- Are major decisions documented?
-
-### 6. Cross-check plan vs reality
+### 5. Cross-check plan vs reality
 
 Compare step 1 (plan checklist) with steps 2-5 (reality):
 - For each unchecked `[ ]` item in the plan: does the corresponding deliverable exist?

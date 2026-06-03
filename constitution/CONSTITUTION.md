@@ -218,7 +218,7 @@
 | HR-02 | Quality Gate 需實際命令輸出 | 終止 -20 |
 | HR-03 | Phase 順序執行，不可跳過 | 終止 -30 |
 | HR-04 | HybridWorkflow mode=ON，強制 A/B（Phase 1-2） | 終止 |
-| HR-07 | DEVELOPMENT_LOG 需記錄 session_id | -15 |
+| HR-07 | ~~DEVELOPMENT_LOG 需記錄 session_id~~ **已移除** — agent-writable，不具防偽性；與 HR-10 相同理由 | — |
 | HR-08 | Phase 結束需執行 Quality Gate | 終止 -10 |
 | HR-09 | ~~Claims Verifier 驗證需通過~~ **不再強制**——BVS log-based claims invariant 已移除（由 agent-writable sessions_spawn.log 重檢，不可獨立驗證）；claims_verifier 子系統未接入 FSM | — |
 | HR-10 | ~~sessions_spawn.log 需有 A/B 記錄~~ **已移除**——log 由代理自寫、非防竄改；A/B 品質改由 deliverable review + 工具計分 gate 把關 | — |

@@ -165,132 +165,6 @@ class TestSpecTrackingChecker:
         SpecTrackingChecker(str(tmp_path)).print_report()
         out = capsys.readouterr().out
         assert "Specification Tracking" in out
-
-
-# ─── ABEnforcer ───────────────────────────────────────────────────────────────
-
-def _make_dev_log(tmp_path, content: str = None) -> Path:
-    if content is None:
-        content = """# Development Log
-
-## Phase 3 Implementation
-
-Developer Session: dev-session-001
-Developer output: completed login module
-
-Reviewer Session: rev-session-002
-Reviewer approved.
-
-Reviewer found: missing edge case
-Developer responded to Reviewer feedback
-Iteration 2 completed
-
-## Phase 4 Testing
-
-Tester Session: tester-session-003
-"""
-    f = tmp_path / "DEVELOPMENT_LOG.md"
-    f.write_text(content)
-    return f
-
-
-class TestABEnforcer:
-    def test_no_dev_log_separation_fails(self, tmp_path):
-        from core.quality_gate.ab_enforcer import ABEnforcer
-        r = ABEnforcer(str(tmp_path)).verify_developer_reviewer_separation("phase_1")
-        assert r["separated"] is False
-        assert "not found" in r.get("error", "")
-
-    def test_no_dev_log_dialogue_fails(self, tmp_path):
-        from core.quality_gate.ab_enforcer import ABEnforcer
-        r = ABEnforcer(str(tmp_path)).verify_ab_dialogue_exists("phase_1")
-        assert r["has_dialogue"] is False
-
-    def test_phase_not_in_log_separation(self, tmp_path):
-        from core.quality_gate.ab_enforcer import ABEnforcer
-        _make_dev_log(tmp_path, "## Phase 3\nsome content\n")
-        r = ABEnforcer(str(tmp_path)).verify_developer_reviewer_separation("phase_9")
-        assert r["separated"] is False
-
-    def test_separated_dev_reviewer(self, tmp_path):
-        from core.quality_gate.ab_enforcer import ABEnforcer
-        _make_dev_log(tmp_path)
-        r = ABEnforcer(str(tmp_path)).verify_developer_reviewer_separation("phase_3")
-        assert r["developer_session"] is not None
-        assert r["reviewer_session"] is not None
-        assert r["separated"] is True
-
-    def test_same_session_not_separated(self, tmp_path):
-        from core.quality_gate.ab_enforcer import ABEnforcer
-        content = "## Phase 1\nSession-Id: same-001\nDeveloper Agent\nSession-Id: same-001\nReviewer Agent\n"
-        _make_dev_log(tmp_path, content)
-        r = ABEnforcer(str(tmp_path)).verify_developer_reviewer_separation("phase_1")
-        # Both sessions normalized to "same001" → not separated
-        assert r["separated"] is False
-
-    def test_dialogue_exists_with_indicators(self, tmp_path):
-        from core.quality_gate.ab_enforcer import ABEnforcer
-        _make_dev_log(tmp_path)  # contains dialogue indicators
-        r = ABEnforcer(str(tmp_path)).verify_ab_dialogue_exists("phase_3")
-        assert r["dialogue_count"] >= 2
-        assert r["has_dialogue"] is True
-
-    def test_no_dialogue_in_phase(self, tmp_path):
-        from core.quality_gate.ab_enforcer import ABEnforcer
-        content = "## Phase 1\nDeveloper Agent output\nReviewer Agent approved.\n"
-        _make_dev_log(tmp_path, content)
-        r = ABEnforcer(str(tmp_path)).verify_ab_dialogue_exists("phase_1")
-        # has_simple_only=True and dialogue_count<2 → False
-        assert r["has_dialogue"] is False
-
-    def test_dialogue_phase_not_found(self, tmp_path):
-        from core.quality_gate.ab_enforcer import ABEnforcer
-        _make_dev_log(tmp_path)
-        r = ABEnforcer(str(tmp_path)).verify_ab_dialogue_exists("phase_99")
-        assert r["has_dialogue"] is False
-        assert "not found" in r.get("error", "")
-
-    def test_verify_qa_not_developer_no_log(self, tmp_path):
-        from core.quality_gate.ab_enforcer import ABEnforcer
-        r = ABEnforcer(str(tmp_path)).verify_qa_not_developer()
-        assert r["separated"] is False
-
-    def test_verify_qa_not_developer_separated(self, tmp_path):
-        from core.quality_gate.ab_enforcer import ABEnforcer
-        _make_dev_log(tmp_path)  # has phase 3 dev + phase 4 tester
-        r = ABEnforcer(str(tmp_path)).verify_qa_not_developer()
-        # dev-session-001 vs tester-session-003 → separated (truthy, may not be strict bool)
-        assert r["separated"]
-
-    def test_verify_all_ab_checks_phase3(self, tmp_path):
-        from core.quality_gate.ab_enforcer import ABEnforcer
-        _make_dev_log(tmp_path)
-        r = ABEnforcer(str(tmp_path)).verify_all_ab_checks(3)
-        assert "developer_reviewer_separation" in r
-        assert "ab_dialogue_exists" in r
-        assert r["qa_not_developer"] is None  # phase != 4
-
-    def test_verify_all_ab_checks_phase4(self, tmp_path):
-        from core.quality_gate.ab_enforcer import ABEnforcer
-        _make_dev_log(tmp_path)
-        r = ABEnforcer(str(tmp_path)).verify_all_ab_checks(4)
-        assert r["qa_not_developer"] is not None
-
-    def test_verify_ab_separation_convenience(self, tmp_path):
-        from core.quality_gate.ab_enforcer import verify_ab_separation
-        _make_dev_log(tmp_path)
-        r = verify_ab_separation(str(tmp_path), 3)
-        assert "separated" in r
-
-    def test_verify_ab_dialogue_convenience(self, tmp_path):
-        from core.quality_gate.ab_enforcer import verify_ab_dialogue
-        _make_dev_log(tmp_path)
-        r = verify_ab_dialogue(str(tmp_path), 3)
-        assert "has_dialogue" in r
-
-
-# ─── PhaseTruthVerifier ───────────────────────────────────────────────────────
-
 class TestPhaseTruthVerifier:
     def _make_verifier(self, tmp_path, phase=1):
         from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
@@ -372,7 +246,7 @@ class TestPhaseTruthVerifier:
     def test_get_manual_checklist_phase3(self, tmp_path):
         v = self._make_verifier(tmp_path, phase=3)
         checklist = v.get_manual_checklist()
-        assert len(checklist) >= 2  # at least DEVELOPMENT_LOG.md and sessions_spawn.log
+        assert len(checklist) >= 1  # at least sessions_spawn.log
 
     def test_get_manual_checklist_phase1(self, tmp_path):
         v = self._make_verifier(tmp_path, phase=1)

@@ -40,7 +40,6 @@ import json
 import argparse
 import subprocess  # nosec B404
 import warnings as _warnings
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict
 
@@ -544,34 +543,6 @@ class IntegratedStagePassGenerator:
             print(f"⚠️ Git operation failed: {e.stderr}")
             return ""
     
-    def _log_to_development_log(self):
-        """Write STAGE_PASS QG results to DEVELOPMENT_LOG (fix WARNING 5)"""
-        try:
-            log_path = self.project_root / "DEVELOPMENT_LOG.md"
-            timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
-            
-            # Extract score from results
-            const_result = self.results.get("framework_results", {}).get("CONSTITUTION", {})
-            block_result = self.results.get("framework_results", {}).get("BLOCK", {})
-            const_score = const_result.get("score", 0)
-            violations_count = len(block_result.get("violations", []))
-            
-            log_lines = [
-                f"\n## Phase {self.phase} STAGE_PASS — {timestamp}",
-                f"\n✅ **[{timestamp}] Constitution Score**: {const_score:.1f}% (threshold > 80%)",
-                f"\n✅ **[{timestamp}] FrameworkEnforcer**: {'✅' if violations_count == 0 else '❌'} {violations_count} violations",
-                f"\n✅ **[{timestamp}] Stage-Pass Confidence**: {self.results.get('confidence_score', 0)}/10",
-            ]
-            
-            log_content = "\n".join(log_lines)
-            
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(log_content + "\n")
-            
-            print("\n📝 QG results written to DEVELOPMENT_LOG")
-        except Exception as e:
-            print(f"\n[WARNING] Failed to write to DEVELOPMENT_LOG: {e}")
-    
     def run(self) -> bool:
         """Execute full workflow"""
         print(f"\n{'='*60}")
@@ -600,9 +571,6 @@ class IntegratedStagePassGenerator:
         # Step 6: SAB Generation (Phase 2 only)
         if self.phase == 2:
             self.run_step6_sab_generation()
-        
-        # Log to DEVELOPMENT_LOG (fix WARNING 5)
-        self._log_to_development_log()
         
         # Generate & Push
         md = self.generate_markdown()

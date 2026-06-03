@@ -1193,7 +1193,6 @@ class TestCmdAdvancePhase:
         # P3 required deliverables (C1 must pass so C11 is the blocker)
         (tmp_path / "03-development" / "src").mkdir(parents=True)
         (tmp_path / "03-development" / "tests").mkdir(parents=True)
-        (tmp_path / "DEVELOPMENT_LOG.md").write_text("RED GREEN test commit")
         (method_dir / "sessions_spawn.log").write_text("{}")
         (tmp_path / "00-summary").mkdir()
         (tmp_path / "00-summary" / "Phase3_STAGE_PASS.md").write_text(
@@ -1288,7 +1287,6 @@ class TestCmdAdvancePhase:
         (tmp_path / "01-requirements").mkdir()
         for f in ["SRS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md"]:
             (tmp_path / "01-requirements" / f).write_text("FR-01 content")
-        (tmp_path / "DEVELOPMENT_LOG.md").write_text("log")
         (method_dir / "sessions_spawn.log").write_text("{}")
         (tmp_path / "TEST_INVENTORY.yaml").write_text("tests: []")
 

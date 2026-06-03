@@ -69,26 +69,16 @@ class TestGetManualChecklist:
     def test_all_phases_return_list(self, tmp_path, phase):
         checklist = PhaseTruthVerifier(str(tmp_path), phase).get_manual_checklist()
         assert isinstance(checklist, list)
-        assert len(checklist) >= 2  # always includes DEVELOPMENT_LOG + sessions_spawn
-
-    def test_always_includes_dev_log(self, tmp_path):
-        items = [c["item"] for c in PhaseTruthVerifier(str(tmp_path), 1).get_manual_checklist()]
-        assert "DEVELOPMENT_LOG.md" in items
+        assert len(checklist) >= 1  # always includes sessions_spawn
 
     def test_always_includes_sessions_spawn(self, tmp_path):
         items = [c["item"] for c in PhaseTruthVerifier(str(tmp_path), 2).get_manual_checklist()]
         assert "sessions_spawn.log" in items
 
-    def test_missing_files_show_missing_status(self, tmp_path):
+    def test_missing_sessions_spawn_shows_missing(self, tmp_path):
         checklist = PhaseTruthVerifier(str(tmp_path), 1).get_manual_checklist()
-        dev_log = next(c for c in checklist if c["item"] == "DEVELOPMENT_LOG.md")
-        assert "missing" in dev_log["status"]
-
-    def test_present_files_show_present_status(self, tmp_path):
-        (tmp_path / "DEVELOPMENT_LOG.md").write_text("# Log")
-        checklist = PhaseTruthVerifier(str(tmp_path), 1).get_manual_checklist()
-        dev_log = next(c for c in checklist if c["item"] == "DEVELOPMENT_LOG.md")
-        assert "present" in dev_log["status"]
+        spawn = next(c for c in checklist if c["item"] == "sessions_spawn.log")
+        assert "missing" in spawn["status"]
 
     def test_each_item_has_required_keys(self, tmp_path):
         for item in PhaseTruthVerifier(str(tmp_path), 3).get_manual_checklist():
