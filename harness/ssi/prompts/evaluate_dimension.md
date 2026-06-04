@@ -156,7 +156,22 @@ if [ "$_mutmut_needs_config" = true ]; then
 fi
 unset _mutmut_needs_config
 
-# mutmut 2.x workaround: editable install (pip install -e) places a .pth file in
+# mutmut 2.x workaround 1: regular packages (src/__init__.py) short-circuit
+# Python's import resolution. When conftest.py adds the project root to sys.path,
+# Python registers src/ as a regular package and locks imports to the ORIGINAL
+# directory. mutmut's mutated copy in the temp dir is never loaded — every mutant
+# appears to survive. Remove __init__.py from all source directories so module
+# resolution walks sys.path and finds mutmut's temp dir first.
+_restore_inits=""
+for _d in 03-development/src src lib app; do
+  _init="$_d/__init__.py"
+  if [ -f "$_init" ]; then
+    mv "$_init" "$_init._mutmut_bak"
+    _restore_inits="$_restore_inits $_init"
+  fi
+done
+
+# mutmut 2.x workaround 2: editable install (pip install -e) places a .pth file in
 # site-packages pointing to the original source directory. When mutmut 2.x
 # copies mutated code to a temp dir, Python resolves imports via the .pth file
 # back to the ORIGINAL (unmutated) source — mutations are never tested.
@@ -188,6 +203,12 @@ if [ "$_restore_editable" = true ]; then
   pip uninstall $_editable_pkgs -y --quiet 2>/dev/null
   pip install -e . --quiet 2>/dev/null
 fi
+
+# Restore __init__.py files renamed by workaround 1
+for _init in $_restore_inits; do
+  [ -f "$_init._mutmut_bak" ] && mv "$_init._mutmut_bak" "$_init"
+done
+unset _restore_inits _init
 ```
 
 > **If mutmut is somehow unavailable at execution time**: evaluation is **SUSPENDED** for
