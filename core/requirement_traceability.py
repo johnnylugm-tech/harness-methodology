@@ -228,9 +228,9 @@ class RequirementTraceability:
             "verification_rate": f"{len(frs_ver)/total*100:.1f}%" if total else "0%",
             "total_links": len(self.links),
             "missing_mappings": {
-                "fr_without_srs": list(all_ids - frs_srs),
-                "fr_without_code": list(all_ids - frs_code),
-                "fr_without_test": list(all_ids - frs_test),
+                "fr_without_srs": sorted(all_ids - frs_srs),
+                "fr_without_code": sorted(all_ids - frs_code),
+                "fr_without_test": sorted(all_ids - frs_test),
             }
         }
 

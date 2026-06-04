@@ -1513,6 +1513,20 @@ class TestSabContractInPlan:
         assert "sab:" in joined, "Canonical SAB YAML block not found in plan"
         assert "nfr_traceability:" in joined
 
+    def test_agent_b_sad_checklist_contains_all_nfr_types(self, project: Path):
+        """Agent B SAD review checklist NFR type list must match ALL_NFR_TYPES.
+
+        Drift guard: if ALL_NFR_TYPES gains or loses a type, this test catches
+        it so the checklist never silently lags behind the parser's truth.
+        """
+        from core.quality_gate.sab_parser import ALL_NFR_TYPES
+        joined = "\n".join(generate_phase2_tasks(project, project / "SRS.md"))
+        for nfr_type in ALL_NFR_TYPES:
+            assert nfr_type in joined, (
+                f"NFR type {nfr_type!r} from ALL_NFR_TYPES missing from P2 plan "
+                "Agent B SAD checklist — update _NFR_TYPES_CHECK in generate_full_plan.py"
+            )
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # G3: TDD RED→GREEN→IMPROVE in P3+ _fr_dev_steps

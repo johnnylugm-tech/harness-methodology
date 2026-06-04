@@ -28,6 +28,18 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional, cast
 
+try:
+    from core.quality_gate.sab_parser import ALL_NFR_TYPES as _ALL_NFR_TYPES
+except ImportError:  # fallback keeps the module importable outside the harness tree
+    _ALL_NFR_TYPES = (  # type: ignore[assignment]
+        "performance", "security", "maintainability", "reliability", "testability",
+        "deployability", "scalability", "usability",
+    )
+_NFR_TYPES_CHECK = (
+    "All NFR `type` values from legal values "
+    f"({'/'.join(_ALL_NFR_TYPES)})?"
+)
+
 
 def _get_harness_version() -> str:
     """Read harness version from pyproject.toml (stdlib only, no tomllib needed)."""
@@ -546,7 +558,7 @@ _PHASE_DELIVERABLE_DEPS: Dict[int, List[Dict]] = {
                        "No circular dependencies?", "Data flow diagrams consistent?",
                        "SAB block present in §5 (<!-- SAB:START --> marker exists)?",
                        "`phase` is a bare int (not quoted string)? e.g. `phase: 2` not `phase: \"2\"`",
-                       "All NFR `type` values from 8 legal values (performance/security/maintainability/reliability/testability/deployability/scalability/usability)?"],
+                       _NFR_TYPES_CHECK],
             "embed_docs": ["01-requirements/SRS.md (full)",
                            "draft 02-architecture/SAD.md (full)"],
         },
