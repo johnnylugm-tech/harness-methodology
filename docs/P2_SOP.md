@@ -32,45 +32,96 @@ fr_ids = re.findall(r"### (FR-\d+):", srs)
 - External interface（每個 module 的公開 API）
 - Logical constraints（架構不變量）
 
-### 1.3 寫入 SAB Block（machine-readable）
+### 1.3 寫入 SAB Block（machine-readable — BINDING CONTRACT）
 
-```json
-{
-  "version": "1.0",
-  "phase": 2,
-  "layers": [
-    {
-      "name": "api",
-      "modules": ["app.api.webhooks"],
-      "fr_coverage": ["FR-01", "FR-02"],
-      "allowed_dependencies": ["service", "infrastructure"]
-    }
-  ],
-  "dependencies": {
-    "api": ["service", "infrastructure"]
-  },
-  "quality_targets": {
-    "max_complexity": 15,
-    "min_coverage": 80,
-    "max_coupling": 0.3
-  },
-  "fr_module_traceability": {
-    "FR-01": "app.models",
-    "FR-02": "app.api.webhooks"
-  },
-  "nfr_traceability": {
-    "NFR-01": {"type": "performance",     "target": "p95 < Xms",          "module": "app.processing.pipeline"},
-    "NFR-02": {"type": "security",        "target": "reject unsigned reqs", "module": "app.security.signature"},
-    "NFR-03": {"type": "reliability",     "target": "health check < 500ms", "module": "app.infrastructure.health"},
-    "NFR-04": {"type": "maintainability", "target": "CC <= 10, zero lint",  "module": "cross-cutting"},
-    "NFR-05": {"type": "deployability",   "target": "compose up within 60s","module": "docker-compose.yml"}
-  }
-}
+> **CONTRACT**：block 格式由 `core/quality_gate/sab_parser.py:render_canonical_sab_template()` 定義。
+> 請勿手寫 YAML — 貼上 canonical 範本後替換 EXAMPLE 值。
+> Commit 前必須驗證：
+> ```bash
+> python3 scripts/generate_sab.py --validate --project .
+> ```
+
+以下是 canonical 格式（從 `render_canonical_sab_template()` 取得）：
+
+```yaml
+sab:
+  version: "1.0"
+  created_at: "{YYYY-MM-DD}"
+  phase: 2  # 必須是 int，不可加引號
+  project: "{project_name}"
+
+  layers:
+    - name: api
+      modules: ["app.api.webhooks"]
+      allowed_dependencies: ["service"]
+
+  allowed_dependencies:
+    - from: api
+      to: service
+
+  quality_targets:
+    max_complexity: 15
+    min_coverage: 80
+    max_coupling: 0.3
+
+  nfr_dimension_mapping: {}  # OPTIONAL — 自動從 nfr_traceability.type 衍生
+
+  nfr_traceability:
+    NFR-01:
+      type: performance       # 8 個合法 type（見下方）
+      target: "p95 < 200ms"  # ">=N" 或 "≥N" 會 raise gate floor
+      module: app.processing.pipeline
+    NFR-02:
+      type: security
+      target: "reject unsigned reqs"
+      module: app.security.signature
+    NFR-03:
+      type: reliability
+      target: "health check < 500ms"
+      module: app.infrastructure.health
+    NFR-04:
+      type: maintainability
+      target: "CC <= 10, zero lint"
+      module: cross-cutting
+    NFR-05:
+      type: testability
+      target: "assertion quality >= 70"
+      module: tests
+    NFR-06:
+      type: deployability    # advisory — 無 gate 評分
+      target: "compose up within 60s"
+      module: docker-compose.yml
+    NFR-07:
+      type: scalability      # advisory
+      target: "horizontal scale to 10 nodes"
+      module: infra.k8s
+    NFR-08:
+      type: usability        # advisory
+      target: "first-time user task < 5 min"
+      module: docs.quickstart
+
+  advisory_only: []  # AUTO-FILLED — 勿手填
+  gate_score_overrides: {}  # AUTO-DERIVED — 勿手填
+
+  fr_module_traceability:
+    FR-01: "app.models"
+    FR-02: "app.api.webhooks"
+
+  architecture_constraints:
+    - "no_circular_dependencies"
+
+  high_risk_modules:
+    - "app.api.webhooks"
 ```
 
-> SAB 用於 P3+ 的 Drift Detection — 實作偏離架構時觸發警告。
+> **NFR type 完整清單（8 個）**：
+> - Enforceable（有 gate 評分工具，raise dimension floor）：
+>   `performance` / `security` / `maintainability` / `reliability` / `testability`
+> - Advisory（無評分工具，自動加入 `advisory_only`，不進 gate）：
+>   `deployability` / `scalability` / `usability`
 >
-> **`nfr_traceability` 欄位說明**：每個 NFR 必須填寫 `type`（harness dimension）、`target`（可量化目標）、`module`（負責模組）。`type` 的合法值：`performance` / `security` / `reliability` / `maintainability` / `deployability` / `scalability` / `usability` / `testability`。harness 會從此欄位自動推導 `nfr_dimension_mapping`；**不需要**另外填 `nfr_dimension_mapping`。
+> `nfr_dimension_mapping` 不需填寫 — harness 從 `nfr_traceability.type` 自動衍生。
+> `advisory_only` 和 `gate_score_overrides` 由 parser 計算 — 不需手填。
 
 ---
 
@@ -127,7 +178,8 @@ Agent B 審查重點：
 3. 依賴關係是否單向無循環（DAG check）
 4. ADR rationale 是否充分（技術選擇有客觀理由）
 5. SAD 與 SRS 是否一致（no contradiction）
-6. SAB block JSON 是否有效且完整
+6. SAB block 已通過 `python3 scripts/generate_sab.py --validate --project .`（exit 0）
+7. SAB block `phase` 是 int（非字串）、NFR type 均為合法的 8 個值之一
 
 ---
 

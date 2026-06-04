@@ -1,13 +1,41 @@
 """
 SAB Parser — extract Software Architecture Baseline from SAD.md §6.
 
-The SAB block is delimited by <!-- SAB:START --> and <!-- SAB:END --> in SAD.md,
-and contains a YAML code fence with the architecture baseline spec.
+CONTRACT (single source of truth — do not duplicate in templates/docs):
+  Marker:    <!-- SAB:START --> ... <!-- SAB:END --> (REQUIRED)
+  Body:      ```yaml (recommended) or ```json (legacy) or raw (no fence).
+             A ```yaml code fence is STRONGLY RECOMMENDED.
+  Root key:  `sab:` (recommended) — if absent, parser treats the whole body
+             as the SAB block. Including `sab:` is the canonical form.
+  Fields:    13 fields, mirroring the SABSpec dataclass:
+               version (str, default "1.0")
+               created_at (str, ISO date)
+               phase (int — STRINGS RAISE RuntimeError)
+               project (str)
+               layers (list of {name, modules, allowed_dependencies})
+               allowed_dependencies (list of {from, to})
+               quality_targets (dict)
+               nfr_dimension_mapping (dict, optional — auto-derived)
+               nfr_traceability (dict, optional)
+               advisory_only (list, AUTO-FILLED by parser — omit or leave [])
+               gate_score_overrides (dict, AUTO-DERIVED by parser — omit or leave {})
+               fr_module_traceability (dict)
+               architecture_constraints (list)
+               high_risk_modules (list)
+  NFR types: 8 legal values in nfr_traceability[*].type:
+               Enforceable (mapped to gate dim):
+                 performance, security, maintainability, reliability, testability
+               Advisory (no scoring tool, auto-added to advisory_only):
+                 deployability, scalability, usability
+
+For the canonical template, call render_canonical_sab_template() — do not
+hand-write the YAML anywhere else.  SABSpec is the type-level authority for
+field names and types; this docstring is the human-readable projection.
 """
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields as _dc_fields
 from pathlib import Path
 from typing import Optional
 
@@ -212,3 +240,136 @@ def extract_sab_from_sad(sad_path) -> Optional[SABSpec]:
         architecture_constraints=sab_data.get("architecture_constraints", []),
         high_risk_modules=sab_data.get("high_risk_modules", []),
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Canonical template factory — SINGLE SOURCE OF TRUTH
+# ─────────────────────────────────────────────────────────────────────────────
+# All places that show a "SAB block example" to humans (templates/SAD.md,
+# generate_full_plan.py, docs/P2_SOP.md) MUST render this function instead of
+# hand-writing YAML. The template is generated from SABSpec dataclass fields so
+# adding a new field propagates automatically to every rendered template.
+
+_NFR_TYPES_ENFORCEABLE: tuple[str, ...] = (
+    "performance", "security", "maintainability", "reliability", "testability",
+)
+_NFR_TYPES_ADVISORY: tuple[str, ...] = (
+    "deployability", "scalability", "usability",
+)
+ALL_NFR_TYPES: tuple[str, ...] = _NFR_TYPES_ENFORCEABLE + _NFR_TYPES_ADVISORY
+
+# Set of top-level fields rendered explicitly before the dataclass loop.
+_RENDERED_FIRST = frozenset({"version", "created_at", "phase", "project"})
+
+
+def render_canonical_sab_template(
+    project: str = "{project_name}",
+    layer_example: str = "api",
+    module_example: str = "app.api.webhooks",
+    fr_id: str = "FR-01",
+    nfr_id: str = "NFR-01",
+) -> str:
+    """Return the canonical SAB YAML block as a string (no surrounding markers/fence).
+
+    EXAMPLE — replace placeholder values with your project's real values.
+
+    Callers that need the full markdown form wrap the output:
+        '<!-- SAB:START -->\\n```yaml\\n' + render_canonical_sab_template() + '```\\n<!-- SAB:END -->'
+
+    Generated dynamically from SABSpec dataclass fields so the template can
+    never drift.  All 8 legal NFR type values are enumerated explicitly — no
+    ellipsis allowed.
+    """
+    lines: list[str] = []
+    lines.append("sab:")
+    lines.append('  version: "1.0"')
+    lines.append('  created_at: "{YYYY-MM-DD}"')
+    lines.append("  phase: 2  # MUST be int, NOT a string — parser raises on 'phase: \"2\"'")
+    lines.append(f'  project: "{project}"')
+    lines.append("")
+
+    for f in _dc_fields(SABSpec):
+        if f.name in _RENDERED_FIRST:
+            continue
+        if f.name == "layers":
+            lines.append("  layers:  # EXAMPLE — replace with your project's layers")
+            lines.append(f"    - name: {layer_example}")
+            lines.append(f'      modules: ["{module_example}"]')
+            lines.append('      allowed_dependencies: ["service"]')
+        elif f.name == "allowed_dependencies":
+            lines.append("  allowed_dependencies:")
+            lines.append(f"    - from: {layer_example}")
+            lines.append("      to: service")
+        elif f.name == "quality_targets":
+            lines.append("  quality_targets:")
+            lines.append("    max_complexity: 15")
+            lines.append("    min_coverage: 80")
+            lines.append("    max_coupling: 0.3")
+        elif f.name == "nfr_dimension_mapping":
+            lines.append("  nfr_dimension_mapping: {}  # OPTIONAL — auto-derived from nfr_traceability.type")
+        elif f.name == "nfr_traceability":
+            lines.append("  nfr_traceability:")
+            lines.append(f"    {nfr_id}:")
+            lines.append("      # type MUST be one of 8 legal values listed below:")
+            lines.append("      # Enforceable (mapped to gate dim):")
+            lines.append("      #   performance, security, maintainability, reliability, testability")
+            lines.append("      # Advisory (no scoring tool, auto-added to advisory_only):")
+            lines.append("      #   deployability, scalability, usability")
+            lines.append("      type: performance")
+            lines.append('      target: "p95 < 200ms"  # use \">=N\" or \"≥N\" to raise the gate floor')
+            lines.append("      module: app.processing.pipeline")
+        elif f.name == "advisory_only":
+            lines.append("  advisory_only: []  # AUTO-FILLED by parser — omit or leave []")
+        elif f.name == "gate_score_overrides":
+            lines.append("  gate_score_overrides: {}  # AUTO-DERIVED by parser — omit or leave {}")
+        elif f.name == "fr_module_traceability":
+            lines.append("  fr_module_traceability:  # EXAMPLE — one entry per FR")
+            lines.append(f'    {fr_id}: "{module_example}"')
+        elif f.name == "architecture_constraints":
+            lines.append("  architecture_constraints:")
+            lines.append('    - "no_circular_dependencies"')
+        elif f.name == "high_risk_modules":
+            lines.append("  high_risk_modules:")
+            lines.append(f'    - "{module_example}"')
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+# Module-level constant: the canonical template with default placeholder values.
+# Import this anywhere you need to embed a SAB block example — never hand-write.
+SAB_BLOCK_TEMPLATE: str = render_canonical_sab_template()
+
+
+def validate_sab_block(sad_path) -> list[str]:
+    """Validate the SAB block in SAD.md. Returns list of human-readable error
+    strings (empty list = valid).
+
+    Covers:
+    - parse errors (bad YAML, bad phase type, missing markers)
+    - unknown NFR type values (not in ALL_NFR_TYPES)
+
+    Does NOT flag missing optional fields (parser fills them with defaults).
+    Use this from `generate_sab.py --validate` and CI hooks.
+    """
+    sad_path = Path(sad_path)
+    try:
+        spec = extract_sab_from_sad(sad_path)
+    except RuntimeError as exc:
+        return [f"PARSE ERROR: {exc}"]
+
+    if spec is None:
+        return [f"No <!-- SAB:START -->...<!-- SAB:END --> block found in {sad_path}"]
+
+    errors: list[str] = []
+    for nfr_id, nfr in spec.nfr_traceability.items():
+        if not isinstance(nfr, dict):
+            errors.append(f"nfr_traceability.{nfr_id} is not a mapping (got {type(nfr).__name__})")
+            continue
+        nfr_type = str(nfr.get("type", "")).lower()
+        if nfr_type and nfr_type not in ALL_NFR_TYPES:
+            errors.append(
+                f"nfr_traceability.{nfr_id}.type={nfr_type!r} is not a legal NFR type. "
+                f"Legal types: {', '.join(ALL_NFR_TYPES)}"
+            )
+    return errors

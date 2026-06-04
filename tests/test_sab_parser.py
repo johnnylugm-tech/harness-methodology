@@ -440,4 +440,126 @@ class TestRoundTrip:
         assert len(data["layers"]) == 2
         assert data["dependencies"] == {"api": ["data_layer"]}
 
+class TestCanonicalTemplate:
+    """The canonical template is the single source of truth — it MUST
+    round-trip through the parser and cover all 13 SABSpec fields."""
+
+    def test_template_contains_all_sabspec_fields(self):
+        from core.quality_gate.sab_parser import SAB_BLOCK_TEMPLATE
+        for field_name in (
+            "version", "created_at", "phase", "project",
+            "layers", "allowed_dependencies", "quality_targets",
+            "nfr_dimension_mapping", "nfr_traceability",
+            "advisory_only", "gate_score_overrides",
+            "fr_module_traceability", "architecture_constraints",
+            "high_risk_modules",
+        ):
+            assert field_name in SAB_BLOCK_TEMPLATE, (
+                f"SABSpec field {field_name!r} missing from SAB_BLOCK_TEMPLATE"
+            )
+
+    def test_template_phase_is_int_not_string(self):
+        from core.quality_gate.sab_parser import render_canonical_sab_template
+        import yaml
+        # Parse the template as YAML (wrapped in markers/fence) and confirm
+        # the `phase` key is an int at parse time, not a string.
+        block = render_canonical_sab_template()
+        # Strip comment lines so the YAML parses cleanly.
+        yaml_lines = [ln for ln in block.splitlines() if not ln.lstrip().startswith("#")]
+        data = yaml.safe_load("\n".join(yaml_lines))
+        sab = data.get("sab", data)
+        assert isinstance(sab["phase"], int), (
+            f"phase must be an int in the canonical template, got {type(sab['phase'])}"
+        )
+
+    def test_template_lists_all_eight_nfr_types(self):
+        from core.quality_gate.sab_parser import SAB_BLOCK_TEMPLATE
+        for t in (
+            "performance", "security", "maintainability",
+            "reliability", "testability",
+            "deployability", "scalability", "usability",
+        ):
+            assert t in SAB_BLOCK_TEMPLATE, (
+                f"NFR type {t!r} missing from SAB_BLOCK_TEMPLATE"
+            )
+
+    def test_template_round_trips_through_parser(self, tmp_path):
+        from core.quality_gate.sab_parser import (
+            render_canonical_sab_template, extract_sab_from_sad,
+        )
+        block = render_canonical_sab_template(
+            project="rtproj", layer_example="L1",
+            module_example="M1", fr_id="FR-99", nfr_id="NFR-99",
+        )
+        sad = tmp_path / "SAD.md"
+        sad.write_text(f"<!-- SAB:START -->\n```yaml\n{block}\n```\n<!-- SAB:END -->")
+        spec = extract_sab_from_sad(sad)
+        assert spec is not None
+        assert spec.project == "rtproj"
+        assert spec.phase == 2
+        assert spec.fr_module_traceability.get("FR-99") == "M1"
+
+    def test_template_no_ellipsis_drift_guard(self):
+        """Drift guard: NFR type list must not use '...' as a placeholder."""
+        from core.quality_gate.sab_parser import SAB_BLOCK_TEMPLATE
+        assert "..." not in SAB_BLOCK_TEMPLATE, (
+            "NFR type list must enumerate all 8 values — '...' is not allowed"
+        )
+
+
+class TestValidateSabBlock:
+    """validate_sab_block() returns list[str] of errors (empty = valid)."""
+
+    def test_valid_canonical_block_returns_no_errors(self, tmp_path):
+        from core.quality_gate.sab_parser import (
+            render_canonical_sab_template, validate_sab_block,
+        )
+        sad = tmp_path / "SAD.md"
+        sad.write_text(
+            "<!-- SAB:START -->\n```yaml\n"
+            + render_canonical_sab_template()
+            + "\n```\n<!-- SAB:END -->"
+        )
+        assert validate_sab_block(sad) == []
+
+    def test_unknown_nfr_type_flagged(self, tmp_path):
+        from core.quality_gate.sab_parser import validate_sab_block
+        sad = tmp_path / "SAD.md"
+        sad.write_text(
+            "<!-- SAB:START -->\n```yaml\nsab:\n  phase: 2\n  project: x\n"
+            "  nfr_traceability:\n    NFR-01:\n"
+            "      type: nonexitype\n      target: 'n/a'\n      module: x\n"
+            "```\n<!-- SAB:END -->"
+        )
+        errors = validate_sab_block(sad)
+        assert any("nfr_traceability.NFR-01.type" in e and "nonexitype" in e for e in errors)
+
+    def test_corrupt_yaml_returns_parse_error(self, tmp_path):
+        from core.quality_gate.sab_parser import validate_sab_block
+        sad = tmp_path / "SAD.md"
+        sad.write_text("<!-- SAB:START -->\n```yaml\n: [\nbad\n```\n<!-- SAB:END -->")
+        errors = validate_sab_block(sad)
+        assert any("PARSE ERROR" in e for e in errors)
+
+    def test_missing_block_returns_error(self, tmp_path):
+        from core.quality_gate.sab_parser import validate_sab_block
+        sad = tmp_path / "SAD.md"
+        sad.write_text("# SAD\n\nNo SAB here.\n")
+        errors = validate_sab_block(sad)
+        assert any("SAB:START" in e for e in errors)
+
+
+class TestRendererRespectsDataclassFields:
+    """Drift guard: every SABSpec dataclass field MUST appear in SAB_BLOCK_TEMPLATE."""
+
+    def test_every_sabspec_field_in_template(self):
+        from dataclasses import fields
+        from core.quality_gate.sab_parser import SABSpec, SAB_BLOCK_TEMPLATE
+        for f in fields(SABSpec):
+            assert f.name in SAB_BLOCK_TEMPLATE, (
+                f"SABSpec field {f.name!r} is not rendered in SAB_BLOCK_TEMPLATE. "
+                "Update render_canonical_sab_template() to include it."
+            )
+
+
 pytestmark = pytest.mark.mutation_oracle

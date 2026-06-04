@@ -33,45 +33,62 @@
 
 ---
 
-## 5. SAB Block (machine-readable)
+## 5. SAB Block (machine-readable — BINDING CONTRACT)
+
+> **CONTRACT**: Field names, types, `sab:` root key, and `phase` as int must
+> match `core/quality_gate/sab_parser.py:render_canonical_sab_template()`.
+> Do NOT hand-write the YAML — paste from the canonical template and replace
+> EXAMPLE values with your project's real values.
+> Validate before committing: `python3 scripts/generate_sab.py --validate --project .`
 
 <!-- SAB:START -->
-```json
-{
-  "version": "1.0",
-  "created_at": "{YYYY-MM-DD}",
-  "phase": 2,
-  "project": "{project_name}",
-  "layers": [
-    {
-      "name": "{layer_name}",
-      "modules": ["FR-XX", "..."],
-      "allowed_dependencies": ["{other_layer}"]
-    }
-  ],
-  "dependencies": {
-    "{layer_A}": ["{layer_B}"],
-    "{layer_B}": ["{layer_C}"]
-  },
-  "quality_targets": {
-    "max_complexity": 15,
-    "min_coverage": 80,
-    "max_coupling": 0.3
-  },
-  "nfr_traceability": {
-    "NFR-01": {
-      "type": "{performance|security|reliability|maintainability}",
-      "target": "{measurable target, e.g. p95 < 200ms}",
-      "module": "{responsible module path, e.g. app.processing}"
-    }
-  },
-  "fr_module_traceability": {
-    "FR-01": "{responsible module name, e.g. app.models}"
-  },
-  "architecture_constraints": [],
-  "high_risk_modules": []
-}
+```yaml
+sab:
+  version: "1.0"
+  created_at: "{YYYY-MM-DD}"
+  phase: 2  # MUST be int, NOT a string — parser raises on 'phase: "2"'
+  project: "{project_name}"
+
+  layers:  # EXAMPLE — replace with your project's layers
+    - name: api
+      modules: ["{module_name}"]
+      allowed_dependencies: ["service"]
+
+  allowed_dependencies:
+    - from: api
+      to: service
+
+  quality_targets:
+    max_complexity: 15
+    min_coverage: 80
+    max_coupling: 0.3
+
+  nfr_dimension_mapping: {}  # OPTIONAL — auto-derived from nfr_traceability.type
+
+  nfr_traceability:
+    NFR-01:
+      # type MUST be one of 8 legal values:
+      # Enforceable (mapped to gate dim):
+      #   performance, security, maintainability, reliability, testability
+      # Advisory (no scoring tool, auto-added to advisory_only):
+      #   deployability, scalability, usability
+      type: performance
+      target: "p95 < 200ms"  # use ">=N" or ">=N" to raise gate floor
+      module: "{responsible_module_path}"
+
+  advisory_only: []  # AUTO-FILLED by parser — omit or leave []
+  gate_score_overrides: {}  # AUTO-DERIVED by parser — omit or leave {}
+
+  fr_module_traceability:  # EXAMPLE — one entry per FR
+    FR-01: "{responsible_module_name}"
+
+  architecture_constraints:
+    - "no_circular_dependencies"
+
+  high_risk_modules:
+    - "{high_risk_module}"
 ```
 <!-- SAB:END -->
 
-Note: Fill in the JSON above — it is used for Drift Detection.
+Note: Fill in the YAML above — it is used for Drift Detection and gate scoring.
+Generate: `python3 scripts/generate_sab.py --project .`

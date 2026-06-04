@@ -77,19 +77,59 @@ def parse_sad(sad_path: str) -> dict:
 
 
 def main():
-    """CLI entry point."""
-    parser = argparse.ArgumentParser(description="Generate SAB from SAD.md")
+    """CLI entry point.
+
+    Default mode: parse SAD.md §5 SAB block → write .methodology/SAB.json.
+    --validate mode: parse + static-check the SAB block, exit 0 (ok) / 1 (errors).
+    Contract: core/quality_gate/sab_parser.py:render_canonical_sab_template()
+    """
+    parser = argparse.ArgumentParser(
+        description=(
+            "Generate or validate the SAB block in SAD.md §5. "
+            "Contract: core/quality_gate/sab_parser.py:render_canonical_sab_template()"
+        ),
+    )
     parser.add_argument("--project", default=".", help="Project path")
-    parser.add_argument("--output", default=".methodology/SAB.json", help="Output path")
+    parser.add_argument(
+        "--output", default=".methodology/SAB.json",
+        help="Output path (generate mode only; ignored by --validate)",
+    )
+    parser.add_argument(
+        "--validate", action="store_true",
+        help=(
+            "Parse + validate the SAB block and exit 0 (ok) / 1 (errors). "
+            "Use in CI or plan checkpoints to catch bad SAB blocks early."
+        ),
+    )
     args = parser.parse_args()
 
     project = Path(args.project)
     sad_file = project / "02-architecture" / "SAD.md"
-    output_file = project / args.output
 
     if not sad_file.exists():
-        print(f"SAD.md not found: {sad_file}")
+        print(f"SAD.md not found: {sad_file}", file=sys.stderr)
         return 1
+
+    # ── Validate-only path ────────────────────────────────────────────────
+    if args.validate:
+        from core.quality_gate.sab_parser import validate_sab_block
+        errors = validate_sab_block(sad_file)
+        if errors:
+            print(f"SAB validation FAILED ({len(errors)} error(s)):", file=sys.stderr)
+            for e in errors:
+                print(f"  - {e}", file=sys.stderr)
+            print(
+                f"\nFix the SAB block in {sad_file} §5.\n"
+                "See core/quality_gate/sab_parser.py docstring for the contract,\n"
+                "or call render_canonical_sab_template() for a working example.",
+                file=sys.stderr,
+            )
+            return 1
+        print(f"SAB validation PASSED: {sad_file}")
+        return 0
+
+    # ── Generate path (default) ───────────────────────────────────────────
+    output_file = project / args.output
 
     print(f"\n{'='*50}")
     print("SAB Generator")
@@ -100,9 +140,19 @@ def main():
     sys.path.insert(0, str(project))
     extract_sab_from_sad = _import_extract_sab_from_sad()
 
-    sab_spec = extract_sab_from_sad(sad_file)
+    try:
+        sab_spec = extract_sab_from_sad(sad_file)
+    except RuntimeError as exc:
+        print(
+            f"FAILED to parse SAB block in {sad_file}:\n  {exc}\n\n"
+            "Fix the SAB block to match core/quality_gate/sab_parser.py contract.\n"
+            "Run `python3 scripts/generate_sab.py --validate --project .` for static checks.",
+            file=sys.stderr,
+        )
+        return 1
+
     if sab_spec is None:
-        print("Failed to parse SAD.md - no SAB block found")
+        print(f"Failed to parse {sad_file} - no SAB block found", file=sys.stderr)
         return 1
 
     output_file.parent.mkdir(parents=True, exist_ok=True)

@@ -1476,6 +1476,44 @@ class TestP2AdrConstitutionCheck:
         assert "--file 02-architecture/adr/ADR.md" not in joined
 
 
+class TestSabContractInPlan:
+    """P2 plan must embed the canonical SAB template and --validate step
+    instead of a freeform hand-written snippet."""
+
+    def test_p2_plan_has_validate_step(self, project: Path):
+        joined = "\n".join(generate_phase2_tasks(project, project / "SRS.md"))
+        assert "--validate" in joined, "P2 plan must include a SAB --validate step"
+
+    def test_p2_plan_has_sab_write_task(self, project: Path):
+        joined = "\n".join(generate_phase2_tasks(project, project / "SRS.md"))
+        assert "SAB-WRITE" in joined
+        assert "SAB-VALIDATE" in joined
+        assert "SAB-GENERATE" in joined
+
+    def test_p2_plan_no_longer_has_4field_description(self, project: Path):
+        """Old plan listed only 4 SAB.json fields — must be replaced."""
+        joined = "\n".join(generate_phase2_tasks(project, project / "SRS.md"))
+        assert "SAB.json contains: layers, modules, allowed_dependencies, quality_targets" not in joined
+
+    def test_p2_plan_lists_all_thirteen_sab_fields(self, project: Path):
+        joined = "\n".join(generate_phase2_tasks(project, project / "SRS.md"))
+        for field_name in (
+            "version", "created_at", "phase", "project",
+            "layers", "allowed_dependencies", "quality_targets",
+            "nfr_dimension_mapping", "nfr_traceability",
+            "advisory_only", "gate_score_overrides",
+            "fr_module_traceability", "architecture_constraints",
+            "high_risk_modules",
+        ):
+            assert field_name in joined, f"P2 plan must mention SAB field: {field_name}"
+
+    def test_p2_plan_embeds_sab_yaml_block(self, project: Path):
+        """Plan must embed the canonical YAML (from SAB_BLOCK_TEMPLATE)."""
+        joined = "\n".join(generate_phase2_tasks(project, project / "SRS.md"))
+        assert "sab:" in joined, "Canonical SAB YAML block not found in plan"
+        assert "nfr_traceability:" in joined
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # G3: TDD RED→GREEN→IMPROVE in P3+ _fr_dev_steps
 # ═══════════════════════════════════════════════════════════════════════════════

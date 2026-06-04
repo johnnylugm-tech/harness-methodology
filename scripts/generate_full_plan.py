@@ -1811,14 +1811,47 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
                     lines.append(f"- File:   `{mod.get('file', 'N/A')}`")
                 lines.append("")
 
+    try:
+        from core.quality_gate.sab_parser import SAB_BLOCK_TEMPLATE
+        _sab_block_md = "  ```yaml\n" + "\n".join(
+            "  " + ln for ln in SAB_BLOCK_TEMPLATE.splitlines()
+        ) + "\n  ```"
+    except ImportError:
+        _sab_block_md = (
+            "  _(run `from core.quality_gate.sab_parser import render_canonical_sab_template`"
+            " to get the canonical template)_"
+        )
+
     lines.extend([
         "### SAB Generation (Machine-Readable Architecture Baseline)",
         "",
-        "- [ ] **[SAB]** Generate `.methodology/SAB.json` from SAD.md §6 SAB block:",
+        "> **CONTRACT**: The SAB block in SAD.md §5 is parsed by",
+        "> `core/quality_gate/sab_parser.py:extract_sab_from_sad()`.",
+        "> Field names, `sab:` root key, `phase` as **int** (not string), and",
+        "> NFR `type` values must match `render_canonical_sab_template()` exactly.",
+        "> Do NOT hand-write the YAML — paste from the template below.",
+        "",
+        "- [ ] **[SAB-WRITE]** Write the SAB block into `02-architecture/SAD.md` §5",
+        "  using the canonical template (replace EXAMPLE values with real project values):",
+        _sab_block_md,
+        "",
+        "- [ ] **[SAB-VALIDATE]** Validate the SAB block before committing:",
+        "  ```bash",
+        "  python3 scripts/generate_sab.py --validate --project .",
+        "  ```",
+        "  - MUST exit 0. On failure the message lists the exact problem",
+        "    (e.g. unknown NFR type, `phase` as string).",
+        "  - Fix and re-run until PASS.",
+        "",
+        "- [ ] **[SAB-GENERATE]** Generate `.methodology/SAB.json` from the validated SAB block:",
         "  ```bash",
         "  python3 scripts/generate_sab.py --project .",
         "  ```",
-        "  - SAB.json contains: layers, modules, allowed_dependencies, quality_targets",
+        "  - SAB.json contains all 13 fields from `SABSpec`:",
+        "    version, created_at, phase, project, layers, allowed_dependencies,",
+        "    quality_targets, nfr_dimension_mapping, nfr_traceability, advisory_only,",
+        "    gate_score_overrides, fr_module_traceability, architecture_constraints,",
+        "    high_risk_modules.",
         "  - Used by: drift detector (M2), gate architecture dimension, constitution check",
         "  - Also embedded inline in `quality_manifest.json` via `harness_bridge`",
         "",
