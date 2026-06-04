@@ -135,8 +135,11 @@ scancode --license --json-pp - src/ | head -300
 # mutmut 3.x uses a trampoline mechanism incompatible with most project layouts
 # (projects with src/ layout or editable installs crash or produce all exit_code=-11).
 
-# Auto-configure paths_to_mutate so mutmut 2.x can find code in non-standard layouts
-# (e.g. 03-development/src/ instead of src/).
+_PROJECT_ROOT=$(pwd)
+
+# Auto-configure paths_to_mutate with ABSOLUTE paths so mutmut can find source
+# code from any working directory (we cd to a temp dir to avoid sys.path[0]
+# contamination — see workaround 2 below).
 # mutmut 2.x reads setup.cfg [mutmut] only (NOT pyproject.toml [tool.mutmut]).
 _mutmut_needs_config=false
 if [ -f setup.cfg ]; then
@@ -147,7 +150,7 @@ fi
 if [ "$_mutmut_needs_config" = true ]; then
   _paths=""
   for _d in 03-development/src src lib app; do
-    [ -d "$_d" ] && _paths="${_paths},${_d}"
+    [ -d "$_d" ] && _paths="${_paths},$_PROJECT_ROOT/$_d"
   done
   if [ -n "$_paths" ]; then
     printf '[mutmut]\npaths_to_mutate=%s\n' "${_paths#,}" >> setup.cfg
@@ -156,22 +159,7 @@ if [ "$_mutmut_needs_config" = true ]; then
 fi
 unset _mutmut_needs_config
 
-# mutmut 2.x workaround 1: regular packages (src/__init__.py) short-circuit
-# Python's import resolution. When conftest.py adds the project root to sys.path,
-# Python registers src/ as a regular package and locks imports to the ORIGINAL
-# directory. mutmut's mutated copy in the temp dir is never loaded — every mutant
-# appears to survive. Remove __init__.py from all source directories so module
-# resolution walks sys.path and finds mutmut's temp dir first.
-_restore_inits=""
-for _d in 03-development/src src lib app; do
-  _init="$_d/__init__.py"
-  if [ -f "$_init" ]; then
-    mv "$_init" "$_init._mutmut_bak"
-    _restore_inits="$_restore_inits $_init"
-  fi
-done
-
-# mutmut 2.x workaround 2: editable install (pip install -e) places a .pth file in
+# mutmut 2.x workaround 1: editable install (pip install -e) places a .pth file in
 # site-packages pointing to the original source directory. When mutmut 2.x
 # copies mutated code to a temp dir, Python resolves imports via the .pth file
 # back to the ORIGINAL (unmutated) source — mutations are never tested.
@@ -187,6 +175,16 @@ if [ -n "$_editable_pkgs" ]; then
   _restore_editable=true
 fi
 
+# mutmut 2.x workaround 2: sys.path[0] = cwd always wins the first import
+# lookup. If cwd contains src/, Python resolves imports to the ORIGINAL source
+# before mutmut's mutated copy — every mutant survives. Run from a temp dir
+# that does NOT contain src/ so mutmut's mutated copy (on sys.path) resolves
+# first. Requires namespace packages (no src/__init__.py) so Python walks all
+# sys.path entries rather than locking to a regular package.
+_MUTMUT_WORKDIR=$(mktemp -d /tmp/_mutmut_run.XXXXXX)
+cp "$_PROJECT_ROOT/setup.cfg" "$_MUTMUT_WORKDIR/"
+cd "$_MUTMUT_WORKDIR"
+
 # -b 10 sets baseline time budget to 10s. Without it, mutmut 2.x measures the
 # test suite's own runtime as baseline (~0.05-0.5s), then marks ANY mutant whose
 # test run exceeds 10× baseline as timeout. Subprocess overhead alone exceeds
@@ -194,6 +192,11 @@ fi
 timeout $TIME_BUDGET mutmut run -b 10 2>&1
 mutmut results 2>&1 | head -100
 # Legend: 🎉=killed (good)  🙁=survived (needs investigation)  ⏰=timeout  🤔=suspicious  🔇=skipped
+
+# Return to project root and clean up temp dir
+cd "$_PROJECT_ROOT"
+rm -rf "$_MUTMUT_WORKDIR"
+unset _MUTMUT_WORKDIR _PROJECT_ROOT
 
 # Restore editable install if we switched it
 # Note: $_editable_pkgs must be UNQUOTED here so shell word-splits it
@@ -204,11 +207,6 @@ if [ "$_restore_editable" = true ]; then
   pip install -e . --quiet 2>/dev/null
 fi
 
-# Restore __init__.py files renamed by workaround 1
-for _init in $_restore_inits; do
-  [ -f "$_init._mutmut_bak" ] && mv "$_init._mutmut_bak" "$_init"
-done
-unset _restore_inits _init
 ```
 
 > **If mutmut is somehow unavailable at execution time**: evaluation is **SUSPENDED** for
