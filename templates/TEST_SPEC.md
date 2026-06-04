@@ -40,10 +40,28 @@
 **Classification**: <!-- API_ENDPOINT | DATA_ENTITY | ALGORITHM | STATE_MACHINE | INTEGRATION | SECURITY_CONTROL | INFRASTRUCTURE -->  
 **Active Patterns**: <!-- NP-01, NP-04 | none -->
 
-| # | Test Function | Type | Derivation |
-|---|---|---|---|
-| 1 | `test_fr01_` | happy_path | Q1 |
-| 2 | `test_fr01_` | validation | Q2 |
+| # | Test Function | Inputs | Type | Derivation |
+|---|---|---|---|---|
+| 1 | `test_fr01_` | source="視頻"; expected="影片" | happy_path | Q1 |
+| 2 | `test_fr01_` | source="和"; expected="ㄏㄢˋ" | validation | Q2 |
+
+<!-- Inputs column: concrete declared values as key="value", semicolon-separated.
+     MUST be the TRUE value (e.g. expected="ㄌㄜˋ ㄙㄜˋ" with a real space), NOT the
+     pytest-id form (ㄌㄜˋ_ㄙㄜˋ). A case with only a descriptive id and no concrete
+     Inputs is REJECTED — it lets P3 invent values and mis-count (the FR-03
+     all-boundary bug). P3 implements these verbatim. -->
+
+**Sub-assertions** — predicate over a case's declared Inputs / the production
+`result`. The P2 self-consistency gate
+(`harness_cli.py check-test-spec-consistency`) proves every predicate holds for
+every case in `applies_to`; an unsatisfiable group (e.g. `" " in "ㄏㄢˋ"` False,
+or 4 one-char chunks for a 5-char input) FAILS P2 — correctness is locked HERE,
+before P3. List a case in `applies_to` only if the predicate truly holds for its
+Inputs.
+
+| rule_id | predicate (over Inputs / result) | applies_to (case #) |
+|---|---|---|
+| AC5-bopomofo-space | `" " in expected` | 3 |
 
 <!--
 Repeat pattern for FR-02, FR-03, ... FR-NN.
@@ -55,6 +73,9 @@ Each FR needs at minimum:
   - fault_injection (Q5) if INTEGRATION
   - nfr_pattern (Q6) for each active NP-XX relevant to this FR
   - integration (Q7) if FR output feeds another FR
+Each FR also needs:
+  - an Inputs value for every case (concrete, true-form, not the id)
+  - a Sub-assertions table whose predicates are self-consistent for the Inputs
 -->
 
 ---

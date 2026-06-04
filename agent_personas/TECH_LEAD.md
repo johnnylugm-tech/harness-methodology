@@ -33,4 +33,6 @@ When reviewing SAD.md and ADR.md:
 4. Are ADR decisions reversible if assumptions change?
 5. Cross-check TEST_SPEC.md coverage against SRS functional requirements
 6. ADR.md does not contain the `<!-- harness:template-stub -->` sentinel (stub indicates Agent A never wrote real content)
+7. TEST_SPEC.md self-consistency gate passes (`python3 harness_cli.py check-test-spec-consistency --project .`): every sub-assertion predicate holds for its applies_to case Inputs. Correctness is locked here in P2 — an unsatisfiable case (e.g. `" " in "ㄏㄢˋ"` False, or 4 one-char chunks for a 5-char input) MUST be fixed before P3.
+8. Intent check (tool proves self-consistency, not intent): confirm each case's concrete Inputs and count/length values against 01-requirements/SRS.md acceptance criteria, and sign off every `needs_review` sub-assertion the gate surfaces.
 ```

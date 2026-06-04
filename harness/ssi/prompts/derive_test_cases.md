@@ -19,12 +19,16 @@ P3 Agent A implements tests FROM this catalog — not ad-hoc.
 > - 每個 FR 只寫 1 個 happy path test，跳過 Q2-Q7
 > - 複製上一個 FR 的 test case，改一個數字充數
 > - 生成不符合 `test_{subject}_{condition_or_behavior}` 命名格式的名稱
+> - 用描述性 id（如 `all_boundary_chars`）取代具體 `Inputs` 值，把選值/計數留給 P3
+> - 在 Sub-assertion 的 `applies_to` 列入 predicate 對其 Inputs 不成立的 case
 >
 > ✅ **每個 FR 的 TEST_SPEC entry 必須滿足：**
 > - 至少 1 個 `happy_path` test（Q1，必填）
 > - 至少 1 個 `failure` 或 `validation` test（Q2，必填）
 > - `derivation` 欄位必須引用 Q1-Q7 或 NFR Pattern 編號（不得空白）
 > - 所有從 SRS NFR 觸發的 pattern 必須出現（見 §2 NFR Pattern Table）
+> - 每個 case 有具體 `Inputs`（真實值，非 pytest-id 形式）
+> - Sub-assertion 表的每條 predicate 對其 `applies_to` 的 Inputs 自洽（P2 gate 會驗）
 
 ---
 
@@ -221,14 +225,33 @@ For each FR, write an entry in the following format:
 **Classification**: {type(s) from pre-step}  
 **Active Patterns**: {NP-XX, NP-YY, ...} (or "none")
 
-| # | Test Function | Type | Derivation |
-|---|---|---|---|
-| 1 | `test_frXX_{behavior}` | happy_path | Q1 |
-| 2 | `test_frXX_{error_condition}` | validation | Q2 |
-| 3 | `test_frXX_{field}_boundary` | boundary | Q3 |
-| 4 | `test_frXX_unauthenticated_returns_401` | nfr_pattern | Q6/NP-01 |
-| 5 | `test_frXX_with_frYY_pipeline` | integration | Q7/FR-YY |
+| # | Test Function | Inputs | Type | Derivation |
+|---|---|---|---|---|
+| 1 | `test_frXX_{behavior}` | x="視頻"; expected="影片" | happy_path | Q1 |
+| 2 | `test_frXX_{error_condition}` | x="" | validation | Q2 |
+| 3 | `test_frXX_{field}_boundary` | x="垃圾"; expected="ㄌㄜˋ ㄙㄜˋ" | boundary | Q3 |
+| 4 | `test_frXX_unauthenticated_returns_401` | token="" | nfr_pattern | Q6/NP-01 |
+| 5 | `test_frXX_with_frYY_pipeline` | x="…" | integration | Q7/FR-YY |
+
+**Sub-assertions** (predicate over a case's Inputs / the production `result`):
+
+| rule_id | predicate | applies_to |
+|---|---|---|
+| {rule-id} | `<python bool expression over Inputs/result>` | 3 |
 ```
+
+**Inputs column** (mandatory): concrete declared values as `key="value"`,
+semicolon-separated, in the TRUE form — `expected="ㄌㄜˋ ㄙㄜˋ"` with a real
+space, never the pytest-id form `ㄌㄜˋ_ㄙㄜˋ`. A descriptive id is NOT a
+substitute for a value: a case like `all_boundary_chars` with no `text_input="…"`
+lets P3 invent the input and mis-count it.
+
+**Sub-assertions table**: list a case under `applies_to` only if the predicate
+is genuinely true for that case's Inputs. The P2 gate
+`check-test-spec-consistency` evaluates every predicate against every
+`applies_to` case and FAILS on a contradiction (e.g. `" " in "ㄏㄢˋ"` is False,
+so 和 must NOT be in a `" " in expected` group; `len(result)==4` with a 5-char
+input is unsatisfiable). Correctness is locked here, in P2.
 
 **Naming convention**:
 - Prefer: `test_{module}_{behavior}` using actual module names from SAD.md

@@ -1040,6 +1040,98 @@ def cmd_spec_coverage_check(args: argparse.Namespace) -> int:
     return code
 
 
+def cmd_check_test_spec_consistency(args: argparse.Namespace) -> int:
+    """P2 self-consistency gate — prove TEST_SPEC.md is not unsatisfiable.
+
+    Correctness is locked in P2: for each declared case the sub-assertion
+    predicates are evaluated / length-checked against that case's own concrete
+    inputs. A contradiction (e.g. `" " in "ㄏㄢˋ"` False, or 4 one-char chunks
+    for a 5-char input) means no implementation could satisfy the spec — FAIL,
+    so P3 never implements an unsatisfiable catalog. The engine reads ONLY
+    TEST_SPEC.md; it never opens any requirements source (SRS/SAD/SPEC).
+    """
+    project = Path(args.project).resolve()
+    spec_path = project / "02-architecture" / "TEST_SPEC.md"
+    if not spec_path.exists():
+        print("[check-test-spec-consistency] 02-architecture/TEST_SPEC.md not found — skipping.")
+        return 0
+
+    from core.quality_gate.parsers import SpecAssertionParser
+    from core.quality_gate.red_assertion_check import check_test_spec_consistency
+
+    parsed = SpecAssertionParser.parse(spec_path.read_text(encoding="utf-8"))
+    fr_filter = getattr(args, "fr_id", None)
+    if fr_filter:
+        parsed = {k: v for k, v in parsed.items() if k == fr_filter}
+
+    if not parsed:
+        print("[check-test-spec-consistency] No Inputs + Sub-assertion tables (new "
+              "schema) found — nothing to verify"
+              + (f" [{fr_filter}]" if fr_filter else "") + ".")
+        return 0
+
+    total_err = total_review = 0
+    for fr_id, (cases, assertions) in sorted(parsed.items()):
+        for v in check_test_spec_consistency(cases, assertions):
+            if v.severity == "error":
+                total_err += 1
+                print(f"[FAIL] {fr_id} {v.check_type}: {v.message}")
+            elif v.severity == "info":
+                total_review += 1
+                print(f"[review] {fr_id}: {v.message}")
+
+    if total_err:
+        print(f"\n[BLOCKED] TEST_SPEC.md self-consistency: {total_err} contradiction(s) — "
+              "P3 must not implement an unsatisfiable spec. Fix TEST_SPEC.md (P2).")
+        return 1
+    print("[check-test-spec-consistency] OK — 0 contradictions"
+          + (f"; {total_review} needs-review (P2 Agent B sign-off)" if total_review else "") + ".")
+    return 0
+
+
+def cmd_check_test_mirrors_spec(args: argparse.Namespace) -> int:
+    """P3 mirror gate — verify a RED test faithfully implements TEST_SPEC.md.
+
+    Run AFTER the RED test is written (not before). Structure-only: no
+    satisfiability, no eval of test logic. Correctness was locked in P2; this
+    proves the test mirrors it. Divergence (a sub-assertion applied to a
+    different case set, or a declared assertion missing) -> FAIL, so the fix is
+    the test, never TEST_SPEC. Reads only TEST_SPEC.md and the test file.
+    """
+    project = Path(args.project).resolve()
+    spec_path = project / "02-architecture" / "TEST_SPEC.md"
+    fr_id = args.fr_id
+    test_file = Path(args.test_file).resolve()
+
+    if not spec_path.exists():
+        print("[check-test-mirrors-spec] 02-architecture/TEST_SPEC.md not found — skipping.")
+        return 0
+    if not test_file.exists():
+        print(f"[check-test-mirrors-spec] test file not found: {test_file} — skipping.")
+        return 0
+
+    from core.quality_gate.parsers import SpecAssertionParser
+    from core.quality_gate.red_assertion_check import check_test_mirrors_spec
+
+    parsed = SpecAssertionParser.parse(spec_path.read_text(encoding="utf-8"))
+    if fr_id not in parsed:
+        print(f"[check-test-mirrors-spec] {fr_id} has no Inputs+Sub-assertion tables "
+              "in TEST_SPEC.md — nothing to mirror.")
+        return 0
+
+    cases, assertions = parsed[fr_id]
+    violations = check_test_mirrors_spec(test_file.read_text(encoding="utf-8"), cases, assertions)
+    errs = [v for v in violations if v.severity == "error"]
+    for v in errs:
+        print(f"[FAIL] {fr_id} {v.check_type}: {v.message}")
+    if errs:
+        print(f"\n[BLOCKED] {test_file.name} diverges from TEST_SPEC.md ({len(errs)} issue(s)). "
+              "P3 implements the spec verbatim — fix the test, not TEST_SPEC.")
+        return 1
+    print(f"[check-test-mirrors-spec] OK — {test_file.name} mirrors {fr_id} in TEST_SPEC.md.")
+    return 0
+
+
 def cmd_check_test_inventory(args: argparse.Namespace) -> int:
     """[DEPRECATED v2.6] Delegates to spec-coverage-check.
 
@@ -7747,6 +7839,25 @@ def build_parser() -> argparse.ArgumentParser:
     pcc.add_argument("--phase",   type=int, required=True, help="Phase number (1-8)")
     pcc.add_argument("--project", default=".", help="Project root (default: .)")
     pcc.set_defaults(func=cmd_pre_commit_check)
+
+    # check-test-spec-consistency (P2: TEST_SPEC.md self-consistency gate)
+    ctsc = sub.add_parser(
+        "check-test-spec-consistency",
+        help="P2: prove TEST_SPEC.md sub-assertions are self-consistent (no unsatisfiable case)",
+    )
+    ctsc.add_argument("--project", default=".", help="Project root (default: .)")
+    ctsc.add_argument("--fr-id", dest="fr_id", default=None, help="Check only this FR (e.g. FR-03)")
+    ctsc.set_defaults(func=cmd_check_test_spec_consistency)
+
+    # check-test-mirrors-spec (P3: test faithfully implements TEST_SPEC.md)
+    ctms = sub.add_parser(
+        "check-test-mirrors-spec",
+        help="P3: verify a RED test mirrors TEST_SPEC.md verbatim (run after the test is written)",
+    )
+    ctms.add_argument("--project", default=".", help="Project root (default: .)")
+    ctms.add_argument("--fr-id", dest="fr_id", required=True, help="FR id (e.g. FR-01)")
+    ctms.add_argument("--test-file", dest="test_file", required=True, help="Path to the RED test file")
+    ctms.set_defaults(func=cmd_check_test_mirrors_spec)
 
     # push-checkpoint (P1/P2 human review → git push + HANDOVER.md)
     pc = sub.add_parser(
