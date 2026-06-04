@@ -6749,7 +6749,7 @@ def cmd_check_constitution(args: argparse.Namespace) -> int:
         return 0
     else:
         print(f"\n  [FAIL] Constitution quality {result.score:.0f}% < {_const_threshold:.0f}%")
-        print(f"  Fix document gaps and re-run check-constitution until PASS.")
+        print("  Fix document gaps and re-run check-constitution until PASS.")
         return 1
 
 
