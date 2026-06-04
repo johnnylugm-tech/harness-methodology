@@ -981,6 +981,11 @@ def _review_checkpoint(phase: int, checkpoint_n: int) -> List[str]:
             "  <<paste full content here>>",
             "",
         ]
+    p2_sab_checks = [
+        "  - SAB block layers / NFR targets semantically match the module design in SAD §2?",
+        "  - Every `fr_module_traceability` entry points to a real module defined in SAD §2?",
+        "  - NFR `target` fields contain measurable values (not 'N/A' or empty placeholders)?",
+    ] if phase == 2 else []
     lines += [
         "  Review checklist:",
         "  - All FRs covered across all deliverables?",
@@ -988,6 +993,7 @@ def _review_checkpoint(phase: int, checkpoint_n: int) -> List[str]:
         "  - Each item testable/traceable?",
         "  - All gaps from sub-task reviews addressed?",
         "  - Terminology consistent across all documents?",
+        *p2_sab_checks,
         "",
     ]
     _docs_hint = {1: '["SRS.md"]', 2: '["SRS.md", "SAD.md"]'}.get(

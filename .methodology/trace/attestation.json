@@ -1,7 +1,7 @@
 {
   "schema": "harness/traceability/attestation/v1",
-  "git_sha": "000fa5dadcf778fb7b81dc74e8a333943c5dfca7",
-  "content_sha256": "b9785947c4d535d09405964a68f1e2f4af17c839f645a9b4b0f1c2c4c1952609",
+  "git_sha": "065f3241f851a112a767e27c77065bf779d2ad3d",
+  "content_sha256": "26dc81b0c18f9372038dce6b7daa6976b55b4ab3b8399e4e2ac0e89847576a8f",
   "tool": "scripts/build_trace_attestation.py",
   "overlay_used": "/Users/johnny/projects/harness-methodology/TRACEABILITY_MATRIX.overlay.yaml",
   "overlay_errors": [],
@@ -17,13 +17,13 @@
       "total_links": 55,
       "missing_mappings": {
         "fr_without_srs": [
-          "FR-01",
           "FR-07",
           "FR-05",
-          "FR-99",
+          "FR-01",
           "FR-02",
-          "FR-04",
-          "FR-03"
+          "FR-99",
+          "FR-03",
+          "FR-04"
         ],
         "fr_without_code": [],
         "fr_without_test": []
@@ -31,13 +31,13 @@
     },
     "missing": {
       "fr_without_srs": [
-        "FR-01",
         "FR-07",
         "FR-05",
-        "FR-99",
+        "FR-01",
         "FR-02",
-        "FR-04",
-        "FR-03"
+        "FR-99",
+        "FR-03",
+        "FR-04"
       ],
       "fr_without_code": [],
       "fr_without_test": []
