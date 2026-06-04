@@ -51,7 +51,7 @@ sab:
 
   layers:  # EXAMPLE — replace with your project's layers
     - name: api
-      modules: ["{module_name}"]
+      modules: ["app.api.webhooks"]
       allowed_dependencies: ["service"]
 
   allowed_dependencies:
@@ -67,26 +67,27 @@ sab:
 
   nfr_traceability:
     NFR-01:
-      # type MUST be one of 8 legal values:
+      # type MUST be one of 8 legal values listed below:
       # Enforceable (mapped to gate dim):
       #   performance, security, maintainability, reliability, testability
       # Advisory (no scoring tool, auto-added to advisory_only):
       #   deployability, scalability, usability
       type: performance
-      target: "p95 < 200ms"  # use ">=N" or ">=N" to raise gate floor
-      module: "{responsible_module_path}"
+      target: "p95 < 200ms"  # use ">=N" or "≥N" to raise the gate floor
+      module: app.processing.pipeline
 
   advisory_only: []  # AUTO-FILLED by parser — omit or leave []
+
   gate_score_overrides: {}  # AUTO-DERIVED by parser — omit or leave {}
 
   fr_module_traceability:  # EXAMPLE — one entry per FR
-    FR-01: "{responsible_module_name}"
+    FR-01: "app.api.webhooks"
 
   architecture_constraints:
     - "no_circular_dependencies"
 
   high_risk_modules:
-    - "{high_risk_module}"
+    - "app.api.webhooks"
 ```
 <!-- SAB:END -->
 

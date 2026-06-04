@@ -543,7 +543,10 @@ _PHASE_DELIVERABLE_DEPS: Dict[int, List[Dict]] = {
             "depends_on": [],
             "task_hint": "Design system architecture → write SAD.md → validate every FR has a module mapping",
             "checks": ["Every FR maps to ≥1 module?", "NFRs addressed (latency/security/cost)?",
-                       "No circular dependencies?", "Data flow diagrams consistent?"],
+                       "No circular dependencies?", "Data flow diagrams consistent?",
+                       "SAB block present in §5 (<!-- SAB:START --> marker exists)?",
+                       "`phase` is a bare int (not quoted string)? e.g. `phase: 2` not `phase: \"2\"`",
+                       "All NFR `type` values from 8 legal values (performance/security/maintainability/reliability/testability/deployability/scalability/usability)?"],
             "embed_docs": ["01-requirements/SRS.md (full)",
                            "draft 02-architecture/SAD.md (full)"],
         },
@@ -557,7 +560,7 @@ _PHASE_DELIVERABLE_DEPS: Dict[int, List[Dict]] = {
                        "Alternatives considered documented?",
                        "Decision aligns with SAD.md architecture?"],
             "embed_docs": ["02-architecture/SAD.md (APPROVED — full content)",
-                           "draft 02-architecture/ADR.md (full content)",
+                           "draft 02-architecture/adr/ADR.md (full content)",
                            "templates/ADR.md (template format)"],
         },
         {
@@ -569,7 +572,7 @@ _PHASE_DELIVERABLE_DEPS: Dict[int, List[Dict]] = {
                        "Cross-cutting section complete?", "Summary table populated?"],
             "embed_docs": ["01-requirements/SRS.md (APPROVED — full content)",
                            "02-architecture/SAD.md (APPROVED — full content)",
-                           "02-architecture/ADR.md (APPROVED — full content)",
+                           "02-architecture/adr/ADR.md (APPROVED — full content)",
                            "draft 02-architecture/TEST_SPEC.md (full content)"],
         },
     ],
@@ -913,7 +916,7 @@ def _entry_gate_check(phase: int) -> List[str]:
         lines.extend([
             "- [ ] **[P2-ARTIFACTS]** Verify Phase 2 output artifacts exist:",
             "  ```bash",
-            "  ls -la 02-architecture/SAD.md 02-architecture/ADR.md 02-architecture/TEST_SPEC.md \\",
+            "  ls -la 02-architecture/SAD.md 02-architecture/adr/ADR.md 02-architecture/TEST_SPEC.md \\",
             "     .methodology/quality_manifest.json .methodology/SAB.json",
             "  git log --oneline --grep=\"APPROVE\" -1",
             "  ```",
@@ -938,7 +941,7 @@ def _review_checkpoint(phase: int, checkpoint_n: int) -> List[str]:
         1: ["01-requirements/SRS.md", "01-requirements/SPEC_TRACKING.md",
             "01-requirements/TRACEABILITY_MATRIX.md",
             "TEST_INVENTORY.yaml"],          # project root — D4 reads from here
-        2: ["02-architecture/SAD.md", "02-architecture/ADR.md",
+        2: ["02-architecture/SAD.md", "02-architecture/adr/ADR.md",
             "02-architecture/TEST_SPEC.md"],
     }
     artifacts = _DELIVERABLES.get(phase, [])
@@ -1847,7 +1850,7 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
         "  ```bash",
         "  python3 scripts/generate_sab.py --project .",
         "  ```",
-        "  - SAB.json contains all 13 fields from `SABSpec`:",
+        "  - SAB.json contains all 14 fields from `SABSpec`:",
         "    version, created_at, phase, project, layers, allowed_dependencies,",
         "    quality_targets, nfr_dimension_mapping, nfr_traceability, advisory_only,",
         "    gate_score_overrides, fr_module_traceability, architecture_constraints,",

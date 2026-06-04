@@ -42,7 +42,7 @@ def _import_extract_sab_from_sad():
         raise ImportError(
             "sab_parser module not found in core.quality_gate.sab_parser. "
             "Check PYTHONPATH includes the harness-methodology root. "
-            "See SAD.md §6 for the SAB block format."
+            "See SAD.md §5 for the SAB block format."
         )
 
 

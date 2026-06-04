@@ -1,5 +1,5 @@
 """
-SAB Parser — extract Software Architecture Baseline from SAD.md §6.
+SAB Parser — extract Software Architecture Baseline from SAD.md §5.
 
 CONTRACT (single source of truth — do not duplicate in templates/docs):
   Marker:    <!-- SAB:START --> ... <!-- SAB:END --> (REQUIRED)
@@ -7,7 +7,7 @@ CONTRACT (single source of truth — do not duplicate in templates/docs):
              A ```yaml code fence is STRONGLY RECOMMENDED.
   Root key:  `sab:` (recommended) — if absent, parser treats the whole body
              as the SAB block. Including `sab:` is the canonical form.
-  Fields:    13 fields, mirroring the SABSpec dataclass:
+  Fields:    14 fields, mirroring the SABSpec dataclass:
                version (str, default "1.0")
                created_at (str, ISO date)
                phase (int — STRINGS RAISE RuntimeError)
@@ -193,6 +193,11 @@ def extract_sab_from_sad(sad_path) -> Optional[SABSpec]:
     sab_data = data.get("sab", data)
 
     raw_phase = sab_data.get("phase", 0)
+    if isinstance(raw_phase, str):
+        raise RuntimeError(
+            f"Invalid 'phase' in SAB block ({sad_path}): {raw_phase!r} — "
+            f"expected an integer literal, not a string (remove the quotes around the number)"
+        )
     try:
         phase = int(raw_phase)
     except (ValueError, TypeError) as exc:
@@ -331,6 +336,11 @@ def render_canonical_sab_template(
         elif f.name == "high_risk_modules":
             lines.append("  high_risk_modules:")
             lines.append(f'    - "{module_example}"')
+        else:
+            raise RuntimeError(
+                f"render_canonical_sab_template: unhandled SABSpec field {f.name!r} — "
+                "add a render branch so the canonical template never silently drops a field"
+            )
         lines.append("")
 
     return "\n".join(lines)
