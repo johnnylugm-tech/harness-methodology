@@ -30,15 +30,27 @@ from typing import Dict, List, Optional, cast
 
 try:
     from core.quality_gate.sab_parser import ALL_NFR_TYPES as _ALL_NFR_TYPES
-except ImportError:  # fallback keeps the module importable outside the harness tree
-    _ALL_NFR_TYPES = (  # type: ignore[assignment]
-        "performance", "security", "maintainability", "reliability", "testability",
-        "deployability", "scalability", "usability",
-    )
+except ImportError as exc:
+    raise ImportError(
+        "generate_full_plan requires the harness tree on PYTHONPATH "
+        "(could not import core.quality_gate.sab_parser.ALL_NFR_TYPES). "
+        "Refusing to silently fall back to a hand-duplicated NFR list, "
+        "which would re-introduce the very drift this module is meant to prevent."
+    ) from exc
 _NFR_TYPES_CHECK = (
     "All NFR `type` values from legal values "
     f"({'/'.join(_ALL_NFR_TYPES)})?"
 )
+
+
+def _nfr_types_check_satisfied(check_string: str, all_nfr_types) -> list[str]:
+    """Return the list of NFR types from *all_nfr_types* absent from
+    *check_string*. Empty list = every type is present.
+
+    Extracted from the drift guard test so the guard is genuinely callable
+    and the negative test can assert it raises when the string is neutered —
+    not just hand-trace the loop."""
+    return [t for t in all_nfr_types if t not in check_string]
 
 
 def _get_harness_version() -> str:

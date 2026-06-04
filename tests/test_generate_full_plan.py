@@ -1513,19 +1513,91 @@ class TestSabContractInPlan:
         assert "sab:" in joined, "Canonical SAB YAML block not found in plan"
         assert "nfr_traceability:" in joined
 
-    def test_agent_b_sad_checklist_contains_all_nfr_types(self, project: Path):
-        """Agent B SAD review checklist NFR type list must match ALL_NFR_TYPES.
-
-        Drift guard: if ALL_NFR_TYPES gains or loses a type, this test catches
-        it so the checklist never silently lags behind the parser's truth.
-        """
+    def test_nfr_types_check_string_lists_all_nfr_types(self):
+        """The Agent B SAD checklist NFR string is the only thing the reviewer
+        actually sees — assert it directly. The previous test searched the
+        full P2 plan, but the plan also embeds SAB_BLOCK_TEMPLATE which lists
+        all 8 type names verbatim in a comment, so the test passed even if
+        _NFR_TYPES_CHECK was deleted."""
         from core.quality_gate.sab_parser import ALL_NFR_TYPES
+        from scripts.generate_full_plan import (
+            _NFR_TYPES_CHECK, _nfr_types_check_satisfied,
+        )
+        missing = _nfr_types_check_satisfied(_NFR_TYPES_CHECK, ALL_NFR_TYPES)
+        assert missing == [], (
+            f"NFR types {missing!r} from ALL_NFR_TYPES missing from "
+            f"_NFR_TYPES_CHECK = {_NFR_TYPES_CHECK!r}"
+        )
+
+    def test_nfr_types_check_appears_in_p2_plan(self, project: Path):
+        """Sanity: the dynamic checklist line is actually rendered into the P2
+        plan (not just defined in the module and never used)."""
+        from scripts.generate_full_plan import _NFR_TYPES_CHECK
         joined = "\n".join(generate_phase2_tasks(project, project / "SRS.md"))
-        for nfr_type in ALL_NFR_TYPES:
-            assert nfr_type in joined, (
-                f"NFR type {nfr_type!r} from ALL_NFR_TYPES missing from P2 plan "
-                "Agent B SAD checklist — update _NFR_TYPES_CHECK in generate_full_plan.py"
-            )
+        assert _NFR_TYPES_CHECK in joined, (
+            "_NFR_TYPES_CHECK is defined but not embedded in the P2 plan"
+        )
+
+    def test_generate_full_plan_fails_loud_without_sab_parser(self, monkeypatch):
+        """If sab_parser cannot be imported, generate_full_plan must raise
+        ImportError with a clear message — not silently fall back to a
+        hand-duplicated NFR list (that re-creates the very drift this module
+        exists to prevent)."""
+        import builtins
+        import importlib
+        import sys
+
+        # Evict cached modules so the import below re-runs top-level statements.
+        for mod_name in (
+            "core.quality_gate.sab_parser",
+            "scripts.generate_full_plan",
+        ):
+            monkeypatch.delitem(sys.modules, mod_name, raising=False)
+        monkeypatch.delitem(sys.modules, "scripts", raising=False)
+
+        # Replace __import__ so the `from core.quality_gate.sab_parser import ...`
+        # at generate_full_plan's top level sees an ImportError. find_spec
+        # monkeypatching is not enough — from-import goes through __import__.
+        original_import = builtins.__import__
+
+        def _import_sab_blocked(name, globals=None, locals=None, fromlist=(), level=0):
+            if (
+                name == "core.quality_gate.sab_parser"
+                or name.startswith("core.quality_gate.sab_parser.")
+            ):
+                raise ImportError(f"blocked by test: cannot import {name}")
+            return original_import(name, globals, locals, fromlist, level)
+
+        monkeypatch.setattr(builtins, "__import__", _import_sab_blocked)
+        with pytest.raises(ImportError, match="Refusing to silently fall back"):
+            importlib.import_module("scripts.generate_full_plan")
+        # Cleanup: evict the half-imported module so a later test that
+        # imports scripts.generate_full_plan re-runs its top-level (with
+        # __import__ restored by monkeypatch). No re-import here — a second
+        # import would re-run the guard and raise again outside the pytest
+        # .raises block, masking the real test outcome.
+        monkeypatch.delitem(sys.modules, "scripts.generate_full_plan", raising=False)
+        monkeypatch.delitem(sys.modules, "scripts", raising=False)
+
+    def test_neutralising_nfr_types_check_breaks_drift_guard(self):
+        """Negative test: neuter _NFR_TYPES_CHECK and confirm the guard
+        function actually returns a non-empty list (i.e. would fail an
+        `assert missing == []` guard). This is what the old substring-over-
+        plan test could NOT do — SAB_BLOCK_TEMPLATE also listed all 8 types
+        in a comment, so the old guard passed regardless of what
+        _NFR_TYPES_CHECK contained."""
+        from core.quality_gate.sab_parser import ALL_NFR_TYPES
+        from scripts.generate_full_plan import _nfr_types_check_satisfied
+        neutered = "All NFR types look legal?"
+        missing = _nfr_types_check_satisfied(neutered, ALL_NFR_TYPES)
+        # Compare as sets — the helper preserves ALL_NFR_TYPES order, so a
+        # set comparison is what asserts "every type is reported as missing"
+        # without coupling the test to a specific ordering choice.
+        assert set(missing) == set(ALL_NFR_TYPES), (
+            f"Guard must report every NFR type as missing from the neutered "
+            f"string; got missing={missing!r}, expected all of "
+            f"{list(ALL_NFR_TYPES)!r}"
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
