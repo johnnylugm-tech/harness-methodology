@@ -132,7 +132,7 @@ from core.quality_gate.sab_parser import render_canonical_sab_template
 print(render_canonical_sab_template(project="my-project"))
 ```
 
-The 13-field shape, `sab:` root key, `phase` as int (not string), and the 8 legal NFR type values (`performance`, `security`, `maintainability`, `reliability`, `testability` + `deployability`, `scalability`, `usability`) are all enforced by `SABSpec` + `validate_sab_block()`. Run `python3 scripts/generate_sab.py --validate --project .` to fail fast on a bad SAB block before committing.
+The 14-field shape, `sab:` root key, `phase` as int (not string), and the 8 legal NFR type values (`performance`, `security`, `maintainability`, `reliability`, `testability` + `deployability`, `scalability`, `usability`) are all enforced by `SABSpec` + `validate_sab_block()`. Run `python3 scripts/generate_sab.py --validate --project .` to fail fast on a bad SAB block before committing.
 
 ### 0.4 Phase Completion Checklist (Mandatory — Every Phase)
 

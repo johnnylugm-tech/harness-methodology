@@ -266,7 +266,8 @@ Review criteria:
 3. Dependency DAG: no circular dependencies? (draw the graph)
 4. ADR rationale: technology choices justified with objective criteria?
 5. SRS-SAD consistency: no contradictions between spec and design?
-6. SAB block: valid JSON, layers and dependencies correctly specified?
+6. SAB block passed `python3 scripts/generate_sab.py --validate --project .` (exit 0)?
+7. SAB block `phase` is int (not quoted string)? All NFR `type` values from 8 legal values (performance/security/maintainability/reliability/testability/deployability/scalability/usability)?
 
 Expected output:
 - JSON: {"status": "success", "review_status": "APPROVE|REJECT",
