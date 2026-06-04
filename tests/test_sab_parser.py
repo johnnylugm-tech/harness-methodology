@@ -506,6 +506,66 @@ class TestCanonicalTemplate:
             "NFR type list must enumerate all 8 values — '...' is not allowed"
         )
 
+    def test_sad_template_sab_block_is_factory_snapshot(self):
+        """templates/SAD.md §5 SAB block MUST be a verbatim snapshot of
+        render_canonical_sab_template(). The static markdown cannot call the
+        factory at runtime, so this test is the only guard against the two
+        drifting apart (the exact failure this design set out to prevent)."""
+        import re
+        from pathlib import Path
+        from core.quality_gate.sab_parser import render_canonical_sab_template
+
+        sad_path = Path(__file__).resolve().parent.parent / "templates" / "SAD.md"
+        text = sad_path.read_text(encoding="utf-8")
+        m = re.search(
+            r"<!-- SAB:START -->\n```yaml\n(.*?)\n```\n<!-- SAB:END -->",
+            text, re.DOTALL,
+        )
+        assert m, "fenced ```yaml SAB block not found in templates/SAD.md"
+        assert m.group(1).strip("\n") == render_canonical_sab_template().strip("\n"), (
+            "templates/SAD.md §5 SAB block has drifted from "
+            "render_canonical_sab_template() — re-paste the factory output."
+        )
+
+    def test_p2_sop_sab_example_stays_structurally_in_sync(self, tmp_path):
+        """docs/P2_SOP.md ships a hand-written 8-NFR-type SAB example (Chinese
+        comments + concrete values, richer than the single-NFR factory output),
+        so it can't be a verbatim factory snapshot. It MUST stay structurally in
+        sync: parseable, validate-clean, all 8 NFR types shown, and every SABSpec
+        field present — so a new field or NFR-type change is caught here too."""
+        import re
+        from pathlib import Path
+        from dataclasses import fields
+        from core.quality_gate.sab_parser import (
+            SABSpec, extract_sab_from_sad, validate_sab_block, ALL_NFR_TYPES,
+        )
+
+        sop_path = Path(__file__).resolve().parent.parent / "docs" / "P2_SOP.md"
+        sop = sop_path.read_text(encoding="utf-8")
+        m = re.search(r"```yaml\n(sab:\n.*?)\n```", sop, re.DOTALL)
+        assert m, "sab: YAML example not found in docs/P2_SOP.md"
+        block = m.group(1)
+
+        # Run the real parser + validator over the example (wrapped in markers).
+        sad = tmp_path / "SAD.md"
+        sad.write_text(f"<!-- SAB:START -->\n```yaml\n{block}\n```\n<!-- SAB:END -->")
+        spec = extract_sab_from_sad(sad)
+        assert spec is not None
+        assert validate_sab_block(sad) == []
+
+        # Teaching intent: the example demonstrates all 8 legal NFR types.
+        used_types = {v["type"] for v in spec.nfr_traceability.values()}
+        assert used_types == set(ALL_NFR_TYPES), (
+            "docs/P2_SOP.md example must show all 8 NFR types; missing "
+            f"{set(ALL_NFR_TYPES) - used_types}"
+        )
+
+        # Structural drift guard: every SABSpec field appears in the example.
+        for f in fields(SABSpec):
+            assert f.name in block, (
+                f"SABSpec field {f.name!r} missing from docs/P2_SOP.md SAB example"
+            )
+
 
 class TestValidateSabBlock:
     """validate_sab_block() returns list[str] of errors (empty = valid)."""
@@ -560,6 +620,56 @@ class TestRendererRespectsDataclassFields:
                 f"SABSpec field {f.name!r} is not rendered in SAB_BLOCK_TEMPLATE. "
                 "Update render_canonical_sab_template() to include it."
             )
+
+    def test_unhandled_field_fails_loudly(self, monkeypatch):
+        """A newly added SABSpec field with no render branch must raise at
+        render time — not silently emit a blank line and drop the field."""
+        import core.quality_gate.sab_parser as mod
+        from dataclasses import fields as real_fields
+
+        class _FakeField:
+            name = "brand_new_unhandled_field"
+
+        def _fake_dc_fields(cls):
+            return list(real_fields(cls)) + [_FakeField()]
+
+        monkeypatch.setattr(mod, "_dc_fields", _fake_dc_fields)
+        with pytest.raises(RuntimeError, match="unhandled SABSpec field"):
+            mod.render_canonical_sab_template()
+
+
+class TestPhaseTypeContract:
+    """The docstring, canonical template, and SAD.md all promise that a quoted
+    string phase (phase: "2") is rejected. Enforce that contract at parse time
+    — int("2") would otherwise coerce silently and make the promise a lie."""
+
+    def _write(self, tmp_path, phase_line: str):
+        sad = tmp_path / "SAD.md"
+        sad.write_text(
+            "<!-- SAB:START -->\n```yaml\nsab:\n"
+            f"{phase_line}\n  project: x\n"
+            "```\n<!-- SAB:END -->"
+        )
+        return sad
+
+    def test_string_phase_raises(self, tmp_path):
+        from core.quality_gate.sab_parser import extract_sab_from_sad
+        sad = self._write(tmp_path, '  phase: "2"')
+        with pytest.raises(RuntimeError, match="phase"):
+            extract_sab_from_sad(sad)
+
+    def test_int_phase_parses(self, tmp_path):
+        from core.quality_gate.sab_parser import extract_sab_from_sad
+        sad = self._write(tmp_path, "  phase: 2")
+        spec = extract_sab_from_sad(sad)
+        assert spec is not None
+        assert spec.phase == 2 and isinstance(spec.phase, int)
+
+    def test_string_phase_flagged_by_validate(self, tmp_path):
+        from core.quality_gate.sab_parser import validate_sab_block
+        sad = self._write(tmp_path, '  phase: "2"')
+        errors = validate_sab_block(sad)
+        assert any("PARSE ERROR" in e and "phase" in e for e in errors)
 
 
 pytestmark = pytest.mark.mutation_oracle
