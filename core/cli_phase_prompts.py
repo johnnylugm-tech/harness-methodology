@@ -107,6 +107,8 @@ Design system architecture based on SRS, covering module boundaries, interfaces,
 - SAD<->SRS consistency =100%
 - Every FR has a corresponding Module
 - Every Module has clear responsibilities and interfaces
+- ADR.md `<!-- harness:template-stub -->` sentinel removed before submission
+- `check-constitution --phase 2 --file 02-architecture/adr/ADR.md` returns PASS
 
 [FORBIDDEN]
 - NO deviations from SRS requirements

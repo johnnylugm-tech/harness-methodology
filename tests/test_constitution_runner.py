@@ -200,6 +200,88 @@ class TestIsStubTemplate:
         assert _is_stub_template(content) is False
 
 
+class TestHasStubSentinel:
+    """Tests for _has_stub_sentinel() — explicit author opt-out marker.
+
+    The sentinel `<!-- harness:template-stub -->` is a content-level marker
+    that exempts a file from scoring until the author removes it. Distinct
+    from _is_stub_template (heuristic based on placeholder count).
+    """
+
+    def test_sentinel_present_in_content(self):
+        from core.quality_gate.constitution.runner import _has_stub_sentinel
+        content = "# ADR-01: foo\n\n<!-- harness:template-stub -->\n\n## Status\n"
+        assert _has_stub_sentinel(content) is True
+
+    def test_sentinel_absent_from_real_adr(self):
+        from core.quality_gate.constitution.runner import _has_stub_sentinel
+        content = (
+            "# ADR-01: foo\n\n## Status\nAccepted\n\n## Context\n"
+            "Real ADR content with no sentinel.\n" * 10
+        )
+        assert _has_stub_sentinel(content) is False
+
+    def test_sentinel_inside_code_block_still_skips(self):
+        """Author opt-out works even when the sentinel is inside a code fence."""
+        from core.quality_gate.constitution.runner import _has_stub_sentinel
+        content = (
+            "# ADR\n\n```html\n<!-- harness:template-stub -->\n```\n\n## Status\n"
+        )
+        assert _has_stub_sentinel(content) is True
+
+    def test_partial_match_does_not_trigger(self):
+        """`not-harness:template-stub` is NOT the sentinel — exact string required."""
+        from core.quality_gate.constitution.runner import _has_stub_sentinel
+        # Missing `<!--` prefix
+        assert _has_stub_sentinel("harness:template-stub\n") is False
+        # Missing closing `-->`
+        assert _has_stub_sentinel("<!-- harness:template-stub\n") is False
+        # Different namespace
+        assert _has_stub_sentinel("<!-- not-harness:template-stub -->\n") is False
+
+    def test_empty_content(self):
+        from core.quality_gate.constitution.runner import _has_stub_sentinel
+        assert _has_stub_sentinel("") is False
+
+    def test_scan_file_compliance_returns_vacuous_100s_with_sentinel(self):
+        """File with sentinel + thin content returns {100,100,100,100}."""
+        from core.quality_gate.constitution.runner import _scan_file_compliance
+        content = (
+            "# ADR-01: foo\n\n"
+            "<!-- harness:template-stub -->\n\n"
+            "## Status\n{Proposed}\n\n"
+        )
+        # Pad to ≥100 chars to bypass the length gate
+        content += "Placeholder prose. " * 10
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".md", delete=False, encoding="utf-8"
+        ) as f:
+            f.write(content)
+            path = Path(f.name)
+        try:
+            dims = _scan_file_compliance(path)
+            assert dims == {
+                "correctness": 100.0,
+                "security": 100.0,
+                "maintainability": 100.0,
+                "coverage": 100.0,
+            }
+        finally:
+            path.unlink()
+
+    def test_sentinel_and_placeholders_dual_skip(self):
+        """Both early-exits return the same dict; order does not matter."""
+        from core.quality_gate.constitution.runner import _has_stub_sentinel, _is_stub_template
+        content = (
+            "# {Project Name}\n\n"
+            "<!-- harness:template-stub -->\n\n"
+            "{desc}\n{module}\n{api}\n{deps}\n{author}\n{version}\n{date}\n{owner}"
+        )
+        # Both heuristics fire
+        assert _is_stub_template(content) is True
+        assert _has_stub_sentinel(content) is True
+
+
 class TestScanDirectory:
     def test_empty_directory_phase1_skips(self):
         with tempfile.TemporaryDirectory() as d:

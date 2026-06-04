@@ -1434,6 +1434,48 @@ class TestP2ThirdDeliverable:
         assert "TEST_SPEC.md" in section
 
 
+class TestP2AdrConstitutionCheck:
+    """Tests for the per-deliverable ADR.md constitution self-check inserted
+    between Sub-Task 2/3 (ADR.md) and Sub-Task 3/3 (TEST_SPEC.md) in P2."""
+
+    def test_post_adr_check_present(self, project: Path):
+        joined = "\n".join(generate_phase2_tasks(project, project / "SRS.md"))
+        assert "CONSTITUTION-CHECK-ADR" in joined
+
+    def test_post_adr_check_appears_after_sub_task_2_before_sub_task_3(self, project: Path):
+        joined = "\n".join(generate_phase2_tasks(project, project / "SRS.md"))
+        idx_sub2 = joined.find("Sub-Task 2/3: ADR.md")
+        idx_check = joined.find("CONSTITUTION-CHECK-ADR")
+        idx_sub3 = joined.find("Sub-Task 3/3: TEST_SPEC.md")
+        assert idx_sub2 != -1, "Sub-Task 2/3: ADR.md heading not found"
+        assert idx_check != -1, "CONSTITUTION-CHECK-ADR not found"
+        assert idx_sub3 != -1, "Sub-Task 3/3: TEST_SPEC.md heading not found"
+        assert idx_sub2 < idx_check < idx_sub3, (
+            f"CONSTITUTION-CHECK-ADR must appear between Sub-Task 2/3 "
+            f"({idx_sub2}) and Sub-Task 3/3 ({idx_sub3}); got {idx_check}"
+        )
+
+    def test_post_adr_check_uses_file_flag_with_correct_path(self, project: Path):
+        joined = "\n".join(generate_phase2_tasks(project, project / "SRS.md"))
+        assert "--file 02-architecture/adr/ADR.md" in joined
+
+    def test_end_of_phase_check_still_present(self, project: Path):
+        """The existing end-of-phase directory-wide check must remain."""
+        joined = "\n".join(generate_phase2_tasks(project, project / "SRS.md"))
+        # Mid-loop file-scoped check uses --file
+        # End-of-phase directory-scoped check uses --phase 2 --project . without --file
+        # Both are valid; we require at least the end-of-phase form to be present.
+        assert "check-constitution --phase 2" in joined
+        # The plain (no --file) end-of-phase variant must still exist.
+        # Grep for the exact directory-mode string the existing helper emits.
+        assert "--phase 2 --project ." in joined
+
+    def test_p1_does_not_emit_post_adr_check(self, project: Path):
+        joined = "\n".join(generate_phase1_tasks(project, project / "SRS.md"))
+        assert "CONSTITUTION-CHECK-ADR" not in joined
+        assert "--file 02-architecture/adr/ADR.md" not in joined
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # G3: TDD RED→GREEN→IMPROVE in P3+ _fr_dev_steps
 # ═══════════════════════════════════════════════════════════════════════════════

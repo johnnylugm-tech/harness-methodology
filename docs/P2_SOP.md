@@ -135,6 +135,9 @@ Agent B 審查重點：
 
 - [ ] SAD.md 已生成（含 module 設計 + logical constraints + SAB block）
 - [ ] ADR.md（≥1 篇）寫入 `docs/adr/`
+- [ ] ADR.md 內 `<!-- harness:template-stub -->` sentinel 已移除（stub 表示 Agent A 從未填寫）
+- [ ] 跑過 `python3 harness_cli.py check-constitution --phase 2 --project . --file 02-architecture/adr/ADR.md` 且 PASS（mid-loop 檢查）
+- [ ] 跑過 end-of-phase `check-constitution --phase 2 --project .` 且 PASS（最終防線）
 - [ ] `quality_manifest.json` 已生成於 `.methodology/`
 - [ ] Agent B 審查通過（review_status: APPROVE）
 - [ ] `sessions_spawn.log` 有 A/B 各 1 筆記錄（HR-10）

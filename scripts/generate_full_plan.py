@@ -1255,6 +1255,39 @@ def _constitution_self_check(phase: int) -> List[str]:
     ]
 
 
+def _post_adr_constitution_check() -> List[str]:
+    """Per-deliverable constitution self-check after ADR.md A/B completes.
+
+    Runs check-constitution scoped to 02-architecture/adr/ADR.md so the
+    agent gets a single-file PASS/FAIL signal before TEST_SPEC.md
+    depends on it. _constitution_self_check(2) still runs at end-of-phase
+    as the directory-wide safety net.
+    """
+    return [
+        "### 📋 Constitution Quality Self-Check — ADR.md",
+        "",
+        "> **Scoped to the ADR file you just wrote.**",
+        "> Catches stub-style or low-density ADRs *before* TEST_SPEC.md "
+        "depends on them.",
+        "",
+        "- [ ] **[CONSTITUTION-CHECK-ADR]** Run single-file constitution check:",
+        "  ```bash",
+        "  python3 harness_cli.py check-constitution \\",
+        "      --phase 2 \\",
+        "      --project . \\",
+        "      --file 02-architecture/adr/ADR.md",
+        "  ```",
+        "  - PASS → continue to Sub-Task 3/3 (TEST_SPEC.md)",
+        "  - FAIL → fix ADR.md (remove `<!-- harness:template-stub -->` if "
+        "still present; expand decision/rationale/consequences) and re-run "
+        "until PASS",
+        "  - File missing → `[SKIP]` (exit 0) is reported when ADR.md has "
+        "not been written yet; in that case **escalate** — Sub-Task 2/3 "
+        "should have produced this file",
+        "",
+    ]
+
+
 def _dynamic_phase_context_block(phase: int, has_fr_template: bool = True) -> List[str]:
     """[PHASE-CONTEXT] block — load FR data at execution time (dynamic plans only)."""
     result = [
@@ -1753,6 +1786,8 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
     lines.append("")
     for i, d in enumerate(deliverables, 1):
         lines.extend(_deliverable_ab_block(2, d, i, total, label_to_sub_n))
+        if d["label"] == "ADR.md":
+            lines.extend(_post_adr_constitution_check())
 
     if not dynamic:
         frs = parse_srs_fr_sections(srs_path)

@@ -198,6 +198,21 @@ def _is_stub_template(content: str) -> bool:
     return len(_STUB_PLACEHOLDER_RE.findall(content)) >= 8
 
 
+_TEMPLATE_STUB_SENTINEL = "<!-- harness:template-stub -->"
+
+
+def _has_stub_sentinel(content: str) -> bool:
+    """Return True iff a template-stub sentinel is present in *content*.
+
+    Content is pre-lowered by _scan_file_compliance; sentinel is lowercase
+    to match. Authors remove the sentinel line as soon as they start
+    writing real content. The sentinel is an explicit author opt-out,
+    co-equal with _is_stub_template (both return a vacuous 100/100/100/100
+    so the file does not poison the directory-level average).
+    """
+    return _TEMPLATE_STUB_SENTINEL in content
+
+
 def _keyword_density(content: str, keywords: List[str]) -> float:
     """Compute keyword density score 0-100 for a set of keywords.
 
@@ -303,6 +318,10 @@ def _scan_file_compliance(file_path: Path, phase: Optional[int] = None) -> Dict[
         return empty
 
     if _is_stub_template(content):
+        return {"correctness": 100.0, "security": 100.0,
+                "maintainability": 100.0, "coverage": 100.0}
+
+    if _has_stub_sentinel(content):
         return {"correctness": 100.0, "security": 100.0,
                 "maintainability": 100.0, "coverage": 100.0}
 

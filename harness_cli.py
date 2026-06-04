@@ -6695,45 +6695,14 @@ def cmd_check_logic(args: argparse.Namespace) -> int:
     return 0 if result.passed else 1
 
 
-def cmd_check_constitution(args: argparse.Namespace) -> int:
-    """Check constitution document quality for the current phase.
-
-    Runs constitution postflight on the phase-specific directory so agents
-    can self-check document quality during phase execution. Does NOT modify
-    state.json or advance FSM — purely a diagnostic tool for iterative
-    development (write → check → fix → repeat until pass).
-
-    Usage:
-      python3 harness_cli.py check-constitution --phase 1 --project .
+def _print_constitution_result(result, composite_threshold, profile, phase: int) -> int:
+    """Print per-dimension breakdown + pass/fail verdict. Shared between
+    directory-mode and single-file-mode branches of cmd_check_constitution.
+    Returns 0 on pass, 1 on fail.
     """
-    from core.quality_gate.constitution import run_constitution_check
-    from core.quality_gate.constitution.profile import get_profile
-
-    project = Path(args.project).resolve()
-    phase = int(args.phase)
-
-    _phase_dir = project / get_profile().phase_directory(phase)
-    _const_threshold = get_profile().composite_threshold(phase)
-
-    if not _phase_dir.exists():
-        print(f"[SKIP] Phase {phase} directory not found: {_phase_dir}")
-        return 0
-
-    print(f"\n{'='*60}")
-    print(f"Constitution Self-Check — Phase {phase}")
-    print(f"Directory: {_phase_dir}")
-    print(f"Threshold: {_const_threshold:.0f}%")
-    print(f"{'='*60}")
-
-    result = run_constitution_check(
-        check_type="all", docs_path=str(_phase_dir),
-        current_phase=phase, check_mode="postflight",
-    )
-
-    # Per-dimension breakdown
-    print(f"\n  Score: {result.score:.0f}%  (threshold={_const_threshold:.0f}%)")
+    print(f"\n  Score: {result.score:.0f}%  (threshold={composite_threshold:.0f}%)")
     for dim, score in sorted(result.dimensions.items()):
-        dim_threshold = get_profile().dimension_threshold(dim, phase)
+        dim_threshold = profile.dimension_threshold(dim, phase)
         status = "✓" if score >= dim_threshold else "✗"
         print(f"    {status} {dim}: {score:.0f}%  (threshold={dim_threshold:.0f}%)")
 
@@ -6745,12 +6714,95 @@ def cmd_check_constitution(args: argparse.Namespace) -> int:
             print(f"    ... and {len(result.violations) - 10} more")
 
     if result.passed:
-        print(f"\n  [PASS] Constitution quality ≥ {_const_threshold:.0f}% ✓")
+        print(f"\n  [PASS] Constitution quality ≥ {composite_threshold:.0f}% ✓")
         return 0
-    else:
-        print(f"\n  [FAIL] Constitution quality {result.score:.0f}% < {_const_threshold:.0f}%")
-        print("  Fix document gaps and re-run check-constitution until PASS.")
-        return 1
+    print(f"\n  [FAIL] Constitution quality {result.score:.0f}% < {composite_threshold:.0f}%")
+    print("  Fix document gaps and re-run check-constitution until PASS.")
+    return 1
+
+
+def cmd_check_constitution(args: argparse.Namespace) -> int:
+    """Check constitution document quality for the current phase.
+
+    Runs constitution postflight on the phase-specific directory so agents
+    can self-check document quality during phase execution. Does NOT modify
+    state.json or advance FSM — purely a diagnostic tool for iterative
+    development (write → check → fix → repeat until pass).
+
+    Usage:
+      python3 harness_cli.py check-constitution --phase 1 --project .
+      python3 harness_cli.py check-constitution --phase 2 --project . \\
+          --file 02-architecture/adr/ADR.md
+    """
+    from core.quality_gate.constitution import run_constitution_check
+    from core.quality_gate.constitution.runner import (
+        _scan_file_compliance,
+        _dimensions_for_phase,
+        _aggregate_score,
+        ConstitutionResult,
+    )
+    from core.quality_gate.constitution.profile import get_profile
+
+    project = Path(args.project).resolve()
+    phase = int(args.phase)
+    profile = get_profile()
+    composite_threshold = profile.composite_threshold(phase)
+
+    # ── Single-file branch (--file) ────────────────────────────────────
+    file_arg = getattr(args, "file", None)
+    if file_arg:
+        file_path = Path(file_arg)
+        if not file_path.is_absolute():
+            file_path = (project / file_path).resolve()
+
+        # Vacuous pass when the target file does not exist (or is a dir).
+        if not file_path.exists():
+            print(f"[SKIP] File not found: {file_path}")
+            return 0
+        if not file_path.is_file():
+            print(f"[SKIP] Not a regular file: {file_path}")
+            return 0
+
+        print(f"\n{'='*60}")
+        print(f"Constitution Self-Check — Phase {phase} (single file)")
+        print(f"File: {file_path}")
+        print(f"Threshold: {composite_threshold:.0f}%")
+        print(f"{'='*60}")
+
+        dims = _scan_file_compliance(file_path, phase=phase)
+        active = _dimensions_for_phase(phase)
+        score = _aggregate_score(dims, active)
+        passed = score >= composite_threshold
+
+        result = ConstitutionResult(
+            score=round(score, 1),
+            passed=passed,
+            violations=[],          # single-file mode: per-dim breakdown carries the signal
+            check_type="single_file",
+            phase=phase,
+            check_mode="postflight",
+            dimensions=dims,
+        )
+        return _print_constitution_result(result, composite_threshold, profile, phase)
+
+    # ── Existing directory branch (unchanged) ──────────────────────────
+    _phase_dir = project / profile.phase_directory(phase)
+    if not _phase_dir.exists():
+        print(f"[SKIP] Phase {phase} directory not found: {_phase_dir}")
+        return 0
+
+    print(f"\n{'='*60}")
+    print(f"Constitution Self-Check — Phase {phase}")
+    print(f"Directory: {_phase_dir}")
+    print(f"Threshold: {composite_threshold:.0f}%")
+    print(f"{'='*60}")
+
+    result = run_constitution_check(
+        check_type="all", docs_path=str(_phase_dir),
+        current_phase=phase, check_mode="postflight",
+    )
+
+    return _print_constitution_result(result, composite_threshold, profile, phase)
 
 
 # ---------------------------------------------------------------------------
@@ -8028,6 +8080,15 @@ def build_parser() -> argparse.ArgumentParser:
     cc.add_argument("--phase",   required=True, type=int, choices=range(1, 9),
                     help="Phase to check (1–8)")
     cc.add_argument("--project", default=".", help="Project root (default: .)")
+    cc.add_argument(
+        "--file",
+        default=None,
+        help=(
+            "Scope the check to a single file (relative to --project, or absolute). "
+            "Missing file = vacuous pass (exit 0). "
+            "Default (omitted): scan the whole phase directory."
+        ),
+    )
     cc.set_defaults(func=cmd_check_constitution)
 
     # init-project

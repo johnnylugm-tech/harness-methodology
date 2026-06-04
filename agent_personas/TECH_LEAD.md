@@ -32,4 +32,5 @@ When reviewing SAD.md and ADR.md:
 3. Is the tech stack consistent across components?
 4. Are ADR decisions reversible if assumptions change?
 5. Cross-check TEST_SPEC.md coverage against SRS functional requirements
+6. ADR.md does not contain the `<!-- harness:template-stub -->` sentinel (stub indicates Agent A never wrote real content)
 ```

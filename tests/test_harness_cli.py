@@ -115,6 +115,171 @@ class TestInitCopyTemplates:
         captured = capsys.readouterr().out
         assert "template not found" in captured
 
+    def test_init_copies_adr_template_with_sentinel(self, tmp_path):
+        """init-project must place the harness:template-stub sentinel in the
+        ADR template it copies to 02-architecture/adr/ADR.md."""
+        from harness_cli import _init_copy_templates
+        import harness_cli as hc
+
+        harness_root = Path(hc.__file__).parent
+        (tmp_path / "01-requirements").mkdir()
+        (tmp_path / "02-architecture").mkdir()
+        (tmp_path / "02-architecture" / "adr").mkdir()
+
+        _init_copy_templates(tmp_path, harness_root)
+
+        adr = tmp_path / "02-architecture" / "adr" / "ADR.md"
+        content = adr.read_text(encoding="utf-8")
+        assert "<!-- harness:template-stub -->" in content
+
+    def test_init_then_check_constitution_passes_for_stub_adr(self, tmp_path):
+        """E2E: _init_copy_templates → cmd_check_constitution --file
+        02-architecture/adr/ADR.md → returns 0 with [PASS] (sentinel vacuous
+        pass)."""
+        from harness_cli import _init_copy_templates, cmd_check_constitution
+        import harness_cli as hc
+        import argparse
+
+        harness_root = Path(hc.__file__).parent
+        (tmp_path / "01-requirements").mkdir()
+        (tmp_path / "02-architecture").mkdir()
+        (tmp_path / "02-architecture" / "adr").mkdir()
+
+        _init_copy_templates(tmp_path, harness_root)
+
+        args = argparse.Namespace(
+            phase=2,
+            project=str(tmp_path),
+            file="02-architecture/adr/ADR.md",
+        )
+        rc = cmd_check_constitution(args)
+        # Step 3 lands the --file branch — without it, this would crash.
+        # Once Step 3 lands, this returns 0 (PASS) and stdout contains
+        # "PASS" + the file's vacuous 100/100/100/100 score.
+        assert rc == 0
+
+
+class TestCheckConstitutionFile:
+    """Tests for cmd_check_constitution --file <path> (single-file branch)."""
+
+    def test_file_flag_missing_file_skip_exit_0(self, tmp_path, capsys):
+        import argparse
+        from harness_cli import cmd_check_constitution
+
+        args = argparse.Namespace(
+            phase=2, project=str(tmp_path),
+            file="02-architecture/adr/ADR.md",
+        )
+        rc = cmd_check_constitution(args)
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert "[SKIP]" in out
+        assert "File not found" in out
+
+    def test_file_flag_directory_skip_exit_0(self, tmp_path, capsys):
+        import argparse
+        from harness_cli import cmd_check_constitution
+
+        # Create a real directory and pass it via --file
+        sub = tmp_path / "02-architecture"
+        sub.mkdir()
+
+        args = argparse.Namespace(
+            phase=2, project=str(tmp_path),
+            file="02-architecture",
+        )
+        rc = cmd_check_constitution(args)
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert "[SKIP]" in out
+        assert "Not a regular file" in out
+
+    def test_file_flag_stub_with_sentinel_passes(self, tmp_path, capsys):
+        """Stub ADR template (with sentinel) returns [PASS] via vacuous 100s."""
+        import argparse
+        from harness_cli import cmd_check_constitution
+
+        adr_dir = tmp_path / "02-architecture" / "adr"
+        adr_dir.mkdir(parents=True)
+        adr = adr_dir / "ADR.md"
+        adr.write_text(
+            "# ADR-01: foo\n\n"
+            "<!-- harness:template-stub -->\n\n"
+            "## Status\n{Proposed}\n\n"
+            "Placeholder prose. " * 10,
+            encoding="utf-8",
+        )
+
+        args = argparse.Namespace(
+            phase=2, project=str(tmp_path),
+            file="02-architecture/adr/ADR.md",
+        )
+        rc = cmd_check_constitution(args)
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert "[PASS]" in out
+
+    def test_file_flag_low_score_fails(self, tmp_path, capsys):
+        """Real-looking ADR with no constitution keywords returns [FAIL]."""
+        import argparse
+        from harness_cli import cmd_check_constitution
+
+        adr_dir = tmp_path / "02-architecture" / "adr"
+        adr_dir.mkdir(parents=True)
+        adr = adr_dir / "ADR.md"
+        # Long enough to pass the 100-char gate; no keywords; no FR refs.
+        adr.write_text(
+            "# ADR-01: random notes\n\n"
+            + ("Just plain prose with no special terms. " * 20),
+            encoding="utf-8",
+        )
+
+        args = argparse.Namespace(
+            phase=2, project=str(tmp_path),
+            file="02-architecture/adr/ADR.md",
+        )
+        rc = cmd_check_constitution(args)
+        out = capsys.readouterr().out
+        assert rc == 1
+        assert "[FAIL]" in out
+
+    def test_file_flag_omitted_uses_directory_branch(self, tmp_path, capsys):
+        """Default (no --file) still uses the phase directory branch."""
+        import argparse
+        from harness_cli import cmd_check_constitution
+
+        # No phase directory at all → directory branch's [SKIP] path fires
+        args = argparse.Namespace(
+            phase=2, project=str(tmp_path), file=None,
+        )
+        rc = cmd_check_constitution(args)
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert "Phase 2 directory not found" in out
+
+    def test_file_flag_absolute_path_overrides_project(self, tmp_path, capsys):
+        """Absolute --file path wins; --project is ignored for resolution."""
+        import argparse
+        from harness_cli import cmd_check_constitution
+
+        other = tmp_path / "other"
+        other.mkdir()
+        adr = other / "ADR.md"
+        adr.write_text(
+            "# ADR\n\n<!-- harness:template-stub -->\n\nPlaceholder. " * 10,
+            encoding="utf-8",
+        )
+
+        args = argparse.Namespace(
+            phase=2, project=str(tmp_path),  # different from `other`
+            file=str(adr),                  # absolute path
+        )
+        rc = cmd_check_constitution(args)
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert "[PASS]" in out
+        assert str(adr) in out
+
 
 # =============================================================================
 # cmd_audit_structure

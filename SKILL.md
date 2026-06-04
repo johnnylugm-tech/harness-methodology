@@ -93,7 +93,7 @@ do NOT start work until every item is checked.
 | Before any phase work | Entry gate verify, FSM state, previous phase artifacts, constitution, kill-switch, drift, SAB, traceability, gap analysis, CI readiness | `run-phase --phase N` |
 | After each FR (P3/P4/P5/P7/P8) | Gate 1 per-FR (per-dim: linting ≥90, type_safety ≥85, test_coverage ≥80) | `run-gate --gate 1 --fr-id FR-XX` + evaluate + `finalize-gate` |
 | Phase exit (P3→Gate2, P4→Gate3, P6→Gate4) | Gate score ≥ threshold + Phase Truth ≥ 90% (HR-11) | `run-gate --gate N` + evaluate + `finalize-gate` |
-| P1/P2 exit | Human peer review (no automated gate) | Deliverables: SRS.md / SAD.md + ADR.md |
+| P1/P2 exit | Human peer review (no automated gate) | Deliverables: SRS.md / SAD.md + ADR.md (see ⁴) |
 | After crash | Current position + next checkpoint | `generate-next-plan` |
 
 > ¹ **D4_SpecCoverage** (v2.6.0 unified): TEST_SPEC.md is the single source of truth for all test traceability. The previous two-check model (TEST_INVENTORY.yaml forward + TEST_SPEC.md backward) is retired. A single spec-coverage check runs at Gates 1-4 with thresholds: Gate1(per-FR)=40%, Gate2=60%, Gate3=80%, Gate4=90%. Use `python harness_cli.py spec-coverage-check --project . --threshold N`. The `check-test-inventory` CLI is deprecated and delegates to `spec-coverage-check`.
@@ -111,6 +111,17 @@ do NOT start work until every item is checked.
 > | PR 10 | `make setup-hooks` and `make setup` — install `scripts/setup-git-hooks.sh` `pre-push` hook that runs full preflight | `Makefile:69`, `:76` | `git push` runs `run-phase` preflight before remote receives the push |
 >
 > Regression tests: `tests/test_trace_dirty_state.py` (PR 6), `tests/test_preflight_fr_spec_consistency.py` (PR 7), `tests/test_makefile_attest_target.py` (PR 8), `tests/test_preflight_auto_fix_dispatch.py` (PR 9), `tests/test_makefile_setup_hooks_target.py` (PR 10). Manual end-to-end checks for each PR are in `~/.claude/plans/compressed-tinkering-mccarthy.md` §"End-to-end verification".
+
+> ⁴ **P2 sub-deliverable check + template-stub sentinel**: after ADR.md A/B review completes, the plan emits a single-file `check-constitution --phase 2 --file 02-architecture/adr/ADR.md` step (CONSTITUTION-CHECK-ADR). Run it before TEST_SPEC.md depends on the ADR. The end-of-phase directory-wide check (`CONSTITUTION-CHECK`, scans whole `02-architecture/`) still runs as the final defense. `init-project` copies `templates/ADR.md` with the `<!-- harness:template-stub -->` sentinel line — the runner skips scoring while that line is present (vacuous 100/100/100/100) and starts scoring normally the moment the author removes it. See §0.3.1 for the sentinel contract.
+
+### 0.3.1 Template Stub Sentinel
+
+Any template under `templates/` may contain the line `<!-- harness:template-stub -->` as its first content line. While present, `core.quality_gate.constitution.runner._scan_file_compliance` returns a vacuous `{correctness:100, security:100, maintainability:100, coverage:100}` dict for that file — it does not count toward the phase's aggregate score. The moment the author removes the line, the file is scored normally.
+
+- **Sentinel literal**: `<!-- harness:template-stub -->` (lowercase, exact match).
+- **Co-equal heuristic**: `_is_stub_template(content)` (counts `{placeholder}` patterns ≥ 8) still applies. A file may satisfy either, both, or neither.
+- **Author contract**: remove the sentinel line as the first edit when you start filling the template. Leaving it in a real document is a bug (the file is silently exempted from quality scoring).
+- **First shipped in**: `templates/ADR.md`. Other templates may adopt the same pattern.
 
 ### 0.4 Phase Completion Checklist (Mandatory — Every Phase)
 
