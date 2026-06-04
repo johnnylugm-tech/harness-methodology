@@ -5014,9 +5014,11 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"[FORBIDDEN — read before anything else]\n"
             f"- Implementing any source code (test file only)\n"
             f"- app/infrastructure/ paths\n"
-            f"- @covers: L1 Error | @type: edge annotations\n\n"
+            f"- @covers: L1 Error | @type: edge annotations\n"
+            f"- Using try/except ImportError or lazy imports to hide ModuleNotFoundError. It is EXPECTED and PERFECTLY FINE for pytest to crash with Collection Error (Exit Code 2) because the source code doesn't exist yet.\n\n"
             f"[UNIT TEST CONTRACT — avoid false-fail traps]\n"
             f"Tests must fail because the FEATURE is missing, not because of external side-effects.\n"
+            f"- Use standard top-level imports (e.g. `from src.engines.xxx import yyy`). Do NOT use try/except ImportError. If pytest returns Exit Code 2 (Collection Error) due to missing modules, this is a VALID RED STATE. Do not try to \"fix\" it by hiding the import.\n"
             f"- If tests call methods that perform real external operations (HMAC signature\n"
             f"  verification, DB connections, HTTP calls), use a pytest autouse fixture in\n"
             f"  `tests/conftest.py` (or an inline @pytest.fixture) to mock them. This is\n"
@@ -5034,7 +5036,7 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"1. Create/edit `{test_file}` with failing tests covering the acceptance criteria above.\n"
             f"2. Every test function name MUST match the TEST SPEC names listed above exactly.\n"
             f"3. The tests MUST FAIL — do NOT implement the feature yet.\n"
-            f"4. Run `pytest {test_file} -q` to confirm all tests fail.\n"
+            f"4. Run `pytest {test_file} -q`. Tests failing or raising Collection Error (ModuleNotFoundError) means SUCCESS for this RED step.\n"
             f"5. Commit: `git add {test_file} && git commit -m \"test(RED): failing test for {fr_id}\"`\n\n"
             f'[OUTPUT FORMAT]\nReturn JSON: {{"status": "DONE", "test_file": "{test_file}", '
             f'"commit": "<hash>", "summary": "<under 50 chars>"}}'
