@@ -1495,7 +1495,7 @@ class TestSabContractInPlan:
         joined = "\n".join(generate_phase2_tasks(project, project / "SRS.md"))
         assert "SAB.json contains: layers, modules, allowed_dependencies, quality_targets" not in joined
 
-    def test_p2_plan_lists_all_thirteen_sab_fields(self, project: Path):
+    def test_p2_plan_lists_all_fourteen_sab_fields(self, project: Path):
         joined = "\n".join(generate_phase2_tasks(project, project / "SRS.md"))
         for field_name in (
             "version", "created_at", "phase", "project",
