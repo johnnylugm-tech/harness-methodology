@@ -442,7 +442,7 @@ class TestRoundTrip:
 
 class TestCanonicalTemplate:
     """The canonical template is the single source of truth — it MUST
-    round-trip through the parser and cover all 13 SABSpec fields."""
+    round-trip through the parser and cover all 14 SABSpec fields."""
 
     def test_template_contains_all_sabspec_fields(self):
         from core.quality_gate.sab_parser import SAB_BLOCK_TEMPLATE
