@@ -6735,12 +6735,7 @@ def cmd_check_constitution(args: argparse.Namespace) -> int:
           --file 02-architecture/adr/ADR.md
     """
     from core.quality_gate.constitution import run_constitution_check
-    from core.quality_gate.constitution.runner import (
-        _scan_file_compliance,
-        _dimensions_for_phase,
-        _aggregate_score,
-        ConstitutionResult,
-    )
+    from core.quality_gate.constitution.runner import check_single_file
     from core.quality_gate.constitution.profile import get_profile
 
     project = Path(args.project).resolve()
@@ -6769,20 +6764,7 @@ def cmd_check_constitution(args: argparse.Namespace) -> int:
         print(f"Threshold: {composite_threshold:.0f}%")
         print(f"{'='*60}")
 
-        dims = _scan_file_compliance(file_path, phase=phase)
-        active = _dimensions_for_phase(phase)
-        score = _aggregate_score(dims, active)
-        passed = score >= composite_threshold
-
-        result = ConstitutionResult(
-            score=round(score, 1),
-            passed=passed,
-            violations=[],          # single-file mode: per-dim breakdown carries the signal
-            check_type="single_file",
-            phase=phase,
-            check_mode="postflight",
-            dimensions=dims,
-        )
+        result = check_single_file(file_path, phase)
         return _print_constitution_result(result, composite_threshold, profile, phase)
 
     # ── Existing directory branch (unchanged) ──────────────────────────

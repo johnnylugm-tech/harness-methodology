@@ -90,7 +90,8 @@ class TestGenerateSabGenerate:
     def test_generate_does_not_write_on_failure(self, tmp_path):
         """Output file must NOT be created when parsing fails."""
         _write_sad(tmp_path, "sab:\n  phase: 'bad'\n")
-        _run_cli("--project", str(tmp_path))
+        result = _run_cli("--project", str(tmp_path))
+        assert result.returncode == 1
         assert not (tmp_path / ".methodology" / "SAB.json").exists()
 
     def test_generate_fails_on_missing_sad(self, tmp_path):

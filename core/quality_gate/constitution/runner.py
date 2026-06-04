@@ -408,6 +408,28 @@ def _aggregate_score(dim_scores: Dict[str, float], active_dims: List[str]) -> fl
     return min(relevant)
 
 
+def check_single_file(file_path: Path, phase: int) -> ConstitutionResult:
+    """Score a single file against the constitution for *phase*.
+
+    Returns a ConstitutionResult with check_type='single_file'.
+    The caller is responsible for the missing-file guard — pass an
+    existing regular file or the behaviour is undefined.
+    """
+    dims = _scan_file_compliance(file_path, phase=phase)
+    active = _dimensions_for_phase(phase)
+    score = _aggregate_score(dims, active)
+    composite_threshold = get_profile().composite_threshold(phase)
+    return ConstitutionResult(
+        score=round(score, 1),
+        passed=score >= composite_threshold,
+        violations=[],
+        check_type="single_file",
+        phase=phase,
+        check_mode="postflight",
+        dimensions=dims,
+    )
+
+
 def _scan_directory(docs_path: Path, phase: int, check_type: str) -> ConstitutionResult:
     """Scan docs directory for constitution compliance.
 
