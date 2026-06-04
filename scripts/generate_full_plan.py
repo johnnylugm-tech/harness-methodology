@@ -1369,6 +1369,7 @@ def _dynamic_fr_template_block(phase: int) -> List[str]:
     else:
         fr_steps = [
             f"- [ ] **[ORCH-RED]**     `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step TDD-RED --project . --srs 01-requirements/SRS.md`",
+            f"- [ ] **[P3-MIRROR]**    `python3 harness_cli.py check-test-mirrors-spec --phase {phase} --fr-id {{FR-ID}} --test-file tests/test_*.py --project .`",
             f"- [ ] **[ORCH-GREEN]**   `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step TDD-GREEN --project . --srs 01-requirements/SRS.md`",
             f"- [ ] **[ORCH-IMPROVE]** `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step TDD-IMPROVE --project .`",
             f"- [ ] **[ORCH-GATE1]**   `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step GATE1 --project .`",
