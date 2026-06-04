@@ -49,6 +49,7 @@ def test_id_05_linting_clean():
     result = subprocess.run(
         ["ruff", "check", *SOURCES, "--exclude", SRC_EXCLUDE_PATTERN],
         capture_output=True,
+        cwd="harness"
     )
     assert result.returncode == 0, f"Ruff found errors:\n{result.stdout.decode()}"
 
@@ -60,6 +61,7 @@ def test_id_06_type_safety_clean():
         ["mypy", *SOURCES, "--exclude", SRC_EXCLUDE_PATTERN,
          "--ignore-missing-imports", "--python-version", "3.10"],
         capture_output=True,
+        cwd="harness"
     )
     stdout = result.stdout.decode()
     stderr = result.stderr.decode()

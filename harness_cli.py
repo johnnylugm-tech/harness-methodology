@@ -825,7 +825,7 @@ def _scan_test_functions(test_dir: Path) -> set[str]:
         except OSError:
             continue
         for line in text.splitlines():
-            m2 = re.match(r"^\s*def\s+(test_\w+)\s*\(", line)
+            m2 = re.match(r"^\s*(?:async\s+)?def\s+(test_\w+)\s*\(", line)
             if m2:
                 fns.add(m2.group(1))
     return fns
@@ -913,6 +913,7 @@ def _parse_test_spec(spec_path: Path) -> list[dict]:
             if len(cols) >= 3:
                 # cols[0] = #, cols[1] = test fn, cols[2] = type, cols[3] = derivation
                 raw_fn = cols[1].strip("`").strip()
+                raw_fn = re.sub(r"\[.*\]$", "", raw_fn)  # strip parametrize IDs
                 if raw_fn.startswith("test_") and len(raw_fn) > 6:
                     results.append({
                         "test_fn": raw_fn,
