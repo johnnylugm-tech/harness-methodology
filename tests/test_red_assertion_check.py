@@ -118,6 +118,13 @@ class TestSafety:
         assert len(errs) == 1
         assert errs[0].check_type == "unsafe_predicate"
 
+    def test_runtime_error_in_spec_is_error_not_crash(self):
+        a = SubAssertion("type_error", 'len(42) == 2', [8])
+        errs = _errors(check_test_spec_consistency([FR01_CASE8], [a]))
+        assert len(errs) == 1
+        assert errs[0].check_type == "malformed_predicate"
+        assert "evaluation failed: TypeError" in errs[0].message
+
 
 class TestLengthFactParser:
     def test_card(self):
@@ -131,3 +138,66 @@ class TestLengthFactParser:
 
     def test_unrecognised(self):
         assert _parse_length_fact('apply_lexicon("") == ""') is None
+
+
+# ── C1 guard: contradictory card (len(X)==N) declarations ────────────────────
+from core.quality_gate.red_assertion_check import check_test_mirrors_spec  # noqa: E402
+
+
+class TestC1_ContradictoryCardValues:
+    def test_two_different_len_declarations_detected(self):
+        # len(result)==4 AND len(result)==5: overwrite bug would miss this.
+        cases = [SpecCase(1, {"text_input": "abc"})]
+        assertions = [
+            SubAssertion("r1", "len(result) == 4", [1]),
+            SubAssertion("r2", "len(result) == 5", [1]),
+        ]
+        errs = _errors(check_test_spec_consistency(cases, assertions))
+        assert any(v.check_type == "length_contradiction" for v in errs)
+        v = next(v for v in errs if v.check_type == "length_contradiction")
+        assert set(v.extra["totals"].values()) == {4, 5}
+
+    def test_same_value_repeated_is_not_contradiction(self):
+        cases = [SpecCase(1, {"text_input": "abc"})]
+        assertions = [
+            SubAssertion("r1", "len(result) == 3", [1]),
+            SubAssertion("r2", "len(result) == 3", [1]),
+        ]
+        errs = _errors(check_test_spec_consistency(cases, assertions))
+        assert not any(v.check_type == "length_contradiction" for v in errs)
+
+
+# ── C2 guard: multi-function parametrize aggregation ─────────────────────────
+class TestC2_MultiFunctionParametrize:
+    _MULTI_FN = '''
+import pytest
+_CORE = [pytest.param("a", id="a")]
+_EDGE = [pytest.param("b", id="b")]
+@pytest.mark.parametrize("x", _CORE)
+def test_core(x):
+    if x == "a":
+        assert True
+@pytest.mark.parametrize("x", _EDGE)
+def test_edge(x):
+    if x == "b":
+        assert True
+'''
+
+    def test_rows_from_both_functions_aggregated(self):
+        # Spec has "a" and "b"; both must be found, no param_missing/extra.
+        cases = [SpecCase(1, {"x": "a"}), SpecCase(2, {"x": "b"})]
+        errs = _errors(check_test_mirrors_spec(
+            self._MULTI_FN, cases,
+            [SubAssertion("r", "True", [1, 2])]))
+        param_errs = [e for e in errs if e.check_type in ("param_missing", "param_extra")]
+        assert param_errs == [], f"unexpected: {param_errs}"
+
+    def test_single_function_file_unaffected(self):
+        src = '''
+import pytest
+@pytest.mark.parametrize("x", [pytest.param("a", id="a")])
+def test_fn(x):
+    pass
+'''
+        cases = [SpecCase(1, {"x": "a"})]
+        assert _errors(check_test_mirrors_spec(src, cases, [])) == []

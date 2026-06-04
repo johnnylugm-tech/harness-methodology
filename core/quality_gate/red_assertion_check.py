@@ -56,7 +56,7 @@ class SpecCase:
     """
 
     case_id: int
-    inputs: dict
+    inputs: dict[str, str]
 
 
 @dataclass(frozen=True)
@@ -65,7 +65,7 @@ class SubAssertion:
 
     rule_id: str
     predicate: str
-    applies_to: list = field(default_factory=list)
+    applies_to: list[int] = field(default_factory=list)
 
 
 class UnsafePredicateError(ValueError):
@@ -82,7 +82,10 @@ _ALLOWED_NODE_TYPES: tuple = (
     ast.BinOp, ast.Add, ast.Sub, ast.Mult, ast.Mod, ast.FloorDiv,
     ast.Compare, ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE,
     ast.In, ast.NotIn,
-    ast.Call, ast.Attribute, ast.Name, ast.Load, ast.Constant,
+    # ast.Call and ast.Attribute are handled by explicit isinstance checks before
+    # the catch-all; kept out of this tuple to avoid giving the false impression
+    # that they are whitelisted without validation.
+    ast.Name, ast.Load, ast.Constant,
     ast.List, ast.Tuple, ast.Set, ast.Subscript,
     ast.GeneratorExp, ast.ListComp, ast.SetComp, ast.comprehension,
 )
@@ -164,6 +167,15 @@ def _const_int(node: ast.AST) -> int | None:
     return None
 
 
+def _join_target(node: ast.AST) -> str | None:
+    """If node is `"".join(NAME)`, return NAME; else None."""
+    if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "join" and len(node.args) == 1
+            and isinstance(node.args[0], ast.Name)):
+        return node.args[0].id
+    return None
+
+
 def _parse_length_fact(predicate: str) -> tuple | None:
     """Recognise the three supported length identities, else None.
 
@@ -205,13 +217,6 @@ def _parse_length_fact(predicate: str) -> tuple | None:
             return ("card", x, n)
 
     # "".join(X) == Y   (either orientation)
-    def _join_target(node: ast.AST) -> str | None:
-        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-                and node.func.attr == "join" and len(node.args) == 1
-                and isinstance(node.args[0], ast.Name)):
-            return node.args[0].id
-        return None
-
     for a_node, b_node in ((left, right), (right, left)):
         x = _join_target(a_node)
         if x is not None and isinstance(b_node, ast.Name):
@@ -222,9 +227,11 @@ def _parse_length_fact(predicate: str) -> tuple | None:
 
 def _check_length_consistency(case_id: int, predicates: list, inputs: dict) -> list:
     """Detect contradictory total-length constraints for a single case."""
-    cardinality: dict = {}
-    elem_len: dict = {}
-    join_eq: dict = {}
+    # cardinality accumulates all len(sym)==N values (list, not dict) so that
+    # contradictory declarations like len(X)==4 and len(X)==5 are detected (C1).
+    cardinality: dict[str, list[int]] = defaultdict(list)
+    elem_len: dict[str, int] = {}
+    join_eq: dict[str, str] = {}
     unresolved: list = []
 
     for pred in predicates:
@@ -234,7 +241,7 @@ def _check_length_consistency(case_id: int, predicates: list, inputs: dict) -> l
             continue
         kind, sym, val = fact
         if kind == "card":
-            cardinality[sym] = val
+            cardinality[sym].append(val)
         elif kind == "elem":
             elem_len[sym] = val
         elif kind == "join":
@@ -242,9 +249,26 @@ def _check_length_consistency(case_id: int, predicates: list, inputs: dict) -> l
 
     violations: list = []
     for sym in set(cardinality) | set(elem_len) | set(join_eq):
+        card_vals = cardinality.get(sym, [])
+
+        # Direct contradiction: two different len(sym)==N predicates.
+        if len(set(card_vals)) >= 2:
+            violations.append(Violation(
+                check_type="length_contradiction",
+                rule_id=f"case{case_id}-length",
+                severity="error",
+                message=(
+                    f"case {case_id}: contradictory len({sym}) declarations "
+                    f"{sorted(set(card_vals))} — TEST_SPEC self-inconsistent"),
+                extra={"case_id": case_id, "symbol": sym,
+                       "totals": {f"len({sym})=={v}": v for v in sorted(set(card_vals))}},
+            ))
+            continue
+
         totals: dict = {}
-        if sym in cardinality and sym in elem_len:
-            totals[f"len({sym})*elem"] = cardinality[sym] * elem_len[sym]
+        card = card_vals[0] if card_vals else None
+        if card is not None and sym in elem_len:
+            totals[f"len({sym})*elem"] = card * elem_len[sym]
         if sym in join_eq:
             rhs = join_eq[sym]
             if rhs in inputs:
@@ -316,6 +340,11 @@ def check_test_spec_consistency(
                         check_type="unsafe_predicate", rule_id=a.rule_id, severity="error",
                         message=f"sub-assertion {a.rule_id!r} predicate {a.predicate!r} rejected: {exc}"))
                     continue
+                except Exception as exc:
+                    violations.append(Violation(
+                        check_type="malformed_predicate", rule_id=a.rule_id, severity="error",
+                        message=f"sub-assertion {a.rule_id!r} predicate {a.predicate!r} evaluation failed: {exc.__class__.__name__}: {exc}"))
+                    continue
                 if not bool(ok):
                     violations.append(Violation(
                         check_type="predicate_false", rule_id=a.rule_id, severity="error",
@@ -369,7 +398,7 @@ def _literal_value(node: ast.AST):
         return node.value, True
     try:
         return _safe_eval_predicate(ast.unparse(node), {}), True
-    except Exception:
+    except (SyntaxError, TypeError, ValueError, ArithmeticError, MemoryError):
         return None, False
 
 
@@ -393,9 +422,17 @@ def _param_row_values(elt: ast.expr, n: int):
 
 
 def _extract_parametrize(tree: ast.AST):
-    """Return (var_names, rows) for the first @pytest.mark.parametrize found.
+    """Return (var_names, rows) aggregating ALL @pytest.mark.parametrize decorators
+    that share the same variable-name signature (C2 fix: multi-function test files).
 
-    Supports an inline args list or a module-level list of pytest.param/tuples.
+    Iterates function definitions in AST order; for each function processes only
+    its decorator_list (not the body) to avoid false matches. Collects rows from
+    every parametrize decorator whose comma-separated variable names match those
+    of the first one found.  Different-signature decorators are silently skipped
+    so that files with multiple unrelated parametrize functions don't cause
+    cross-contamination.
+
+    Supports both an inline args list and a module-level list of pytest.param/tuples.
     """
     list_vars: dict[str, ast.expr] = {}
     for node in ast.walk(tree):
@@ -404,26 +441,36 @@ def _extract_parametrize(tree: ast.AST):
                 if isinstance(t, ast.Name):
                     list_vars[t.id] = node.value
 
-    for node in ast.walk(tree):
-        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-                and node.func.attr == "parametrize" and len(node.args) >= 2):
+    first_var_names: list[str] = []
+    all_rows: list = []
+
+    for fn in ast.walk(tree):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
-        var_node, args_node = node.args[0], node.args[1]
-        if not (isinstance(var_node, ast.Constant) and isinstance(var_node.value, str)):
-            continue
-        var_names = [v.strip() for v in var_node.value.split(",")]
-        args_seq: "ast.expr | None" = args_node
-        if isinstance(args_node, ast.Name):
-            args_seq = list_vars.get(args_node.id)
-        if not isinstance(args_seq, (ast.List, ast.Tuple)):
-            continue
-        rows = []
-        for elt in args_seq.elts:
-            values = _param_row_values(elt, len(var_names))
-            if values is not None:
-                rows.append(values)
-        return var_names, rows
-    return [], []
+        for dec in fn.decorator_list:
+            if not (isinstance(dec, ast.Call) and isinstance(dec.func, ast.Attribute)
+                    and dec.func.attr == "parametrize" and len(dec.args) >= 2):
+                continue
+            var_node, args_node = dec.args[0], dec.args[1]
+            if not (isinstance(var_node, ast.Constant) and isinstance(var_node.value, str)):
+                continue
+            var_names = [v.strip() for v in var_node.value.split(",")]
+            # Only aggregate parametrize blocks with the same variable signature.
+            if first_var_names and var_names != first_var_names:
+                continue
+            if not first_var_names:
+                first_var_names = var_names
+            args_seq: ast.expr | None = args_node
+            if isinstance(args_node, ast.Name):
+                args_seq = list_vars.get(args_node.id)
+            if not isinstance(args_seq, (ast.List, ast.Tuple)):
+                continue
+            for elt in args_seq.elts:
+                values = _param_row_values(elt, len(var_names))
+                if values is not None:
+                    all_rows.append(values)
+
+    return first_var_names, all_rows
 
 
 def _parse_trigger(test_node: ast.AST):
