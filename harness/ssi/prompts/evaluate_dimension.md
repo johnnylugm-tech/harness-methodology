@@ -172,8 +172,13 @@ if [ -n "$_editable_pkgs" ]; then
   _restore_editable=true
 fi
 
-timeout $TIME_BUDGET mutmut run 2>&1
+# -b 10 sets baseline time budget to 10s. Without it, mutmut 2.x measures the
+# test suite's own runtime as baseline (~0.05-0.5s), then marks ANY mutant whose
+# test run exceeds 10× baseline as timeout. Subprocess overhead alone exceeds
+# that threshold → every mutant times out → kill rate = 0%.
+timeout $TIME_BUDGET mutmut run -b 10 2>&1
 mutmut results 2>&1 | head -100
+# Legend: 🎉=killed (good)  🙁=survived (needs investigation)  ⏰=timeout  🤔=suspicious  🔇=skipped
 
 # Restore editable install if we switched it
 # Note: $_editable_pkgs must be UNQUOTED here so shell word-splits it
@@ -197,6 +202,19 @@ fi
 > (score.py R4 enforces this — LLM annotation cannot adjust the numeric score). The
 > `llm_score` field is recorded for annotation purposes only; it does not affect gate scoring.
 > score.py R8b deviation warning was removed when LLM scoring was abolished.
+>
+> **Score formula**: `tool_score = round(killed / (killed + survived) × 100, 1)`. Parse
+> `mutmut results` output: sum 🎉 across all files as `killed`, sum 🙁 as `survived`.
+> ⏰ (timeout) and 🤔 (suspicious) count as survived — they were not killed by tests.
+> If no mutants were produced (0 killed + 0 survived), score = 0 (not 100).
+>
+> **Equivalent mutants**: some code changes produce identical behaviour — no test can kill
+> them. Do NOT chase every survived mutant as a coverage gap. Signs of equivalence:
+> string literal changes in dead-code paths, constant values never read, timeout values
+> passed to in-process functions. If `mutmut apply <id> && pytest` still passes, the
+> mutant is equivalent. Exclude confirmed equivalent mutants from the denominator:
+> `adjusted = round(killed / (killed + survived − confirmed_equivalent) × 100, 1)`.
+> Use the raw score for the gate; note the adjusted score and equivalent IDs in `gaps`.
 
 ### architecture (Tier 3 — CRG-ONLY, framework-owned)
 
