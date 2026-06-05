@@ -222,7 +222,8 @@ class TestFinalizeGate:
         ctx = self._make_context(tmp_path, gate_num=2)
         self._write_result(ctx, {
             "overall_score": 85.0, "meets_target": True, "quality_complete": True,
-            "open_critical_count": 0, "open_high_count": 0, "breakdown": {},
+            "open_critical_count": 0, "open_high_count": 0,
+            "breakdown": {"linting": {"score": 90.0, "threshold": 85.0}},
         })
         with patch.object(bridge, "_update_quality_manifest"):
             with patch.object(bridge, "_log"):
@@ -292,7 +293,8 @@ class TestFinalizeGate:
         ctx = self._make_context(tmp_path, gate_num=2)
         self._write_result(ctx, {
             "overall_score": 85.0, "meets_target": True, "quality_complete": True,
-            "open_critical_count": 0, "open_high_count": 0, "breakdown": {},
+            "open_critical_count": 0, "open_high_count": 0,
+            "breakdown": {"linting": {"score": 90.0, "threshold": 85.0}},
         })
         with patch.object(bridge, "_update_quality_manifest") as mock_update:
             with patch.object(bridge, "_log"):
@@ -763,9 +765,12 @@ class TestSabClosureGaps:
                                 bridge.finalize_gate(ctx)
 
     def test_finalize_gate2_ignores_dimension_overrides(self, tmp_path):
-        """Gate 2–4 passes/fails on composite score_gate, not per-dimension overrides."""
+        """Gate 2-4: per-dim thresholds enforced by gate_score_overrides.
+
+        HR-18: every dimension must meet its individual threshold (after applying
+        gate_score_overrides as a floor). Composite score alone is not sufficient.
+        """
         bridge = HarnessBridge()
-        # Override says coverage must be ≥80, but Gate 2 checks score_gate only.
         ctx = GateContext(
             gate_num=2,
             config={"gate": 2, "dimensions": [], "score_gate": 75, "max_rounds": 2},
@@ -774,14 +779,13 @@ class TestSabClosureGaps:
             work_dir=str(tmp_path / ".sessi-work"),
             sab_data={"gate_score_overrides": {"coverage": 80.0}},
         )
-        # overall_score=80 >= score_gate=75, so gate should pass
-        # coverage dim score=70 < override=80, but Gate 2 doesn't use per-dim thresholds
+        # coverage=85 >= override=80 → passes both composite and per-dim checks
         result_path = Path(ctx.work_dir) / "gate2_result.json"
         result_path.parent.mkdir(parents=True, exist_ok=True)
         result_path.write_text(json.dumps({
             "overall_score": 80.0, "quality_complete": True,
             "open_critical_count": 0, "open_high_count": 0,
-            "breakdown": {"coverage": {"score": 70.0, "threshold": 60.0, "issues": []}},
+            "breakdown": {"coverage": {"score": 85.0, "threshold": 60.0, "issues": []}},
         }))
         with patch("harness.harness_bridge._check_tool_evidence", return_value=[]):
             with patch("harness.harness_bridge._run_harness_cross_validation", return_value=[]):

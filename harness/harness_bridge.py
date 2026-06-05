@@ -1856,23 +1856,24 @@ class HarnessBridge:
         else:
             _overall_score = 0.0
 
-        # ── Fallback: derive quality_complete if agent omitted it ──
-        # Only an explicit `true` is trusted verbatim. `false`/`null` fall through to the
-        # fallback recompute from corrected dim scores — an agent's stale/default `false`
-        # must not bypass the real pass/fail computation. (CRG overrides also force recompute.)
-        _raw_qc = raw.get("quality_complete")
-        if _raw_qc is True and not _crg_overrides_applied:
-            _quality_complete = True
-        elif dims:
-            # Gate 1 pass condition: overall >= score_gate AND every dim >= its threshold.
-            # Use config thresholds as fallback when agent didn't include per-dim thresholds.
-            _gt = ctx.config.get("score_gate", 80) if isinstance(ctx.config, dict) else getattr(ctx.config, 'score_gate', 80)
-            _quality_complete = _overall_score >= _gt and all(
-                d.score is not None and d.score >= (_dim_thresholds.get(d.name) or d.threshold or _gt)
-                for d in dims
-            )
-        else:
-            _quality_complete = False
+        # ── Quality gate verdict: composite ≥ score_gate AND every dim ≥ threshold ──
+        # Hard rule (HR-18): both conditions must be met independently. The agent's
+        # self-reported `quality_complete` is advisory only — never trusted as the
+        # sole pass condition. CRG overrides (architecture) also force recompute
+        # so the verdict reflects the corrected scores.
+        # Dimensions with score=None (e.g. pytest-benchmark with no benchmark tests)
+        # are excluded — the dimension is not yet applicable.
+        _gt = ctx.config.get("score_gate", 80) if isinstance(ctx.config, dict) else getattr(ctx.config, 'score_gate', 80)
+        _all_dims_pass = all(
+            d.score is not None and d.score >= (_dim_thresholds.get(d.name) or d.threshold or _gt)
+            for d in dims
+        ) if dims else False  # empty dims = no evidence = not complete
+        _quality_complete = _overall_score >= _gt and _all_dims_pass
+
+        if not _all_dims_pass and dims:
+            _failing = [f"{d.name}={d.score:.1f}" for d in dims
+                        if d.score is not None and d.score < (_dim_thresholds.get(d.name) or d.threshold or _gt)]
+            print(f"\n[harness] {len(_failing)} dimension(s) below individual threshold: {', '.join(_failing)}")
 
         result = GateResult(
             gate_num=ctx.gate_num,
