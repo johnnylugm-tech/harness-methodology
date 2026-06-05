@@ -6495,8 +6495,8 @@ def _format_block_diagnostic(
     project: Path,
 ) -> str:
     """Format a structured diagnostic for a gate BLOCKED event; also writes last_block.md."""
-    failing = [d for d in exc.result.dimensions if d.score < d.threshold]
-    passing = [d for d in exc.result.dimensions if d.score >= d.threshold]
+    failing = [d for d in exc.result.dimensions if d.score is not None and d.score < d.threshold]
+    passing = [d for d in exc.result.dimensions if d.score is not None and d.score >= d.threshold]
 
     lines = [
         "",

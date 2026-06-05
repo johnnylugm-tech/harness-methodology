@@ -1898,7 +1898,7 @@ class HarnessBridge:
         # manifest/log so that manifest and decision log reflect the actual gate outcome.
         _gate_passes: bool
         if ctx.gate_num == 1:
-            _gate_passes = not any(d.score < d.threshold for d in _effective_dims)
+            _gate_passes = not any(d.score is not None and d.score < d.threshold for d in _effective_dims)
         else:
             if isinstance(ctx.config, GateConfig):
                 score_gate = ctx.config.score_gate
@@ -1912,7 +1912,7 @@ class HarnessBridge:
                 _eff_qc = (
                     result.score >= score_gate
                     and result.open_critical == 0
-                    and all(d.score >= d.threshold for d in _effective_dims)
+                    and all(d.score is not None and d.score >= d.threshold for d in _effective_dims)
                 )
             _gate_passes = result.score >= score_gate and _eff_qc
 
