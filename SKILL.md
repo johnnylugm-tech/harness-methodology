@@ -106,7 +106,7 @@ do NOT start work until every item is checked.
 > |----|-----------|------|--------|
 > | PR 6 | `_trace_dirty_state(project_path)` mtime probe (SAD.md + newest `tests/test_fr*.py` vs `attestation.json`) | `harness_cli.py:1345` | Pre-commit `git commit` is blocked if attestation is stale; sub-50ms, no rglob |
 > | PR 7 | `PhaseHooks.preflight_fr_spec_consistency` — symmetric difference of SAD.md FRs vs `02-architecture/TEST_SPEC.md` FRs (`sad_only` / `spec_only` orphans) | `core/phase_hooks.py:479` | P3+ informational, P5+ blocking; prevents silent 4a/4b disagreement |
-> | PR 8 | `make attest` target: `build-trace-attestation --project . --write && git add .methodology/trace/attestation.json` | `Makefile:61` | One-command refresh + stage of the git_sha-anchored attestation |
+> | PR 8 | `make attest` target: `build-trace-attestation --project . && git add .methodology/trace/attestation.json` | `Makefile:61` | One-command refresh + stage of the git_sha-anchored attestation |
 > | PR 9 | `_dispatch_trace_auto_fix(project_path, untested, uncoded)` — P5+ allowlist dispatch to `AutoFixEngine.fix(problem_type='missing_traceability', max_rounds=1)`, then re-verify | `core/phase_hooks.py:39`, called at `:426` | Trace gap auto-fills `core/auto_*.py` annotation + `tests/test_fr_*.py` stub; re-verifies; escalates to HUMAN_REQUIRED on failure |
 > | PR 10 | `make setup-hooks` and `make setup` — install `scripts/setup-git-hooks.sh` `pre-push` hook that runs full preflight | `Makefile:69`, `:76` | `git push` runs `run-phase` preflight before remote receives the push |
 >
