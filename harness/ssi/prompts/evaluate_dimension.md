@@ -233,6 +233,19 @@ timeout $TIME_BUDGET mutmut run -b 10 2>&1
 mutmut results 2>&1 | head -100
 # Legend: 🎉=killed (good)  🙁=survived (needs investigation)  ⏰=timeout  🤔=suspicious  🔇=skipped
 
+# Data-only files (constants, dictionaries, Pydantic models) have no logic
+# to mutate — every mutant survives, diluteing the kill rate. Exclude them
+# via paths_to_exclude so the score reflects real mutation resistance.
+# Add AFTER the auto-config block above (mutmut reads setup.cfg top-to-bottom;
+# the [mutmut] section must already exist before paths_to_exclude is appended):
+if ! grep -q 'paths_to_exclude' setup.cfg; then
+  echo "  Review setup.cfg [mutmut] paths_to_mutate and add paths_to_exclude for:"
+  echo "  - config.py, constants.py (pure data, no logic to mutate)"
+  echo "  - Pydantic/attrs model files (field declarations only)"
+  echo "  Example: add 'paths_to_exclude=config.py,taiwan_linguistic.py' under [mutmut]"
+  echo "  Then re-run: mutmut run -b 10 && mutmut results"
+fi
+
 # Return to project root and clean up temp dir
 cd "$_PROJECT_ROOT"
 rm -rf "$_MUTMUT_WORKDIR"
