@@ -2443,3 +2443,102 @@ class TestRunFrStepSkipSideEffects:
         assert not recorded, "gate timestamp should not be recorded for TDD-RED skip"
 
 
+# =============================================================================
+# Bug fix: _compute_fr_spec_data must strip [...] from parameterized test names
+# =============================================================================
+
+class TestComputeFrSpecDataParameterized:
+    """_compute_fr_spec_data must match parameterized test names by stripping [param]."""
+
+    def _make_project(self, tmp_path, spec_rows, test_body):
+        arch = tmp_path / "02-architecture"
+        arch.mkdir(parents=True)
+        table = "\n".join(f"| {i+1} | `{name}` | Functional |" for i, name in enumerate(spec_rows))
+        (arch / "TEST_SPEC.md").write_text(
+            "### FR-01: Lexicon\n\n"
+            "| # | Test Function | Type |\n"
+            "|---|--------------|------|\n"
+            f"{table}\n",
+            encoding="utf-8",
+        )
+        tests = tmp_path / "tests"
+        tests.mkdir()
+        (tests / "test_fr01.py").write_text(test_body, encoding="utf-8")
+        return tmp_path
+
+    def test_parameterized_name_matches_base_function(self, tmp_path):
+        """TEST_SPEC row 'test_fn[param]' must match 'def test_fn' in test file."""
+        import harness_cli
+        self._make_project(
+            tmp_path,
+            spec_rows=[
+                "test_fr_01_lexicon_coverage[視頻→影片]",
+                "test_fr_01_lexicon_coverage[影片→視頻]",
+            ],
+            test_body="def test_fr_01_lexicon_coverage(word_pair):\n    pass\n",
+        )
+        result = harness_cli._compute_fr_spec_data(tmp_path, "FR-01", "tests/test_fr01.py")
+        assert result["spec_cov_pct"] == 100, (
+            f"parameterized names must match by base name; got {result['spec_cov_pct']}"
+        )
+
+    def test_missing_base_function_gives_zero(self, tmp_path):
+        """If the base function does not exist in the test file, spec_cov_pct == 0."""
+        import harness_cli
+        self._make_project(
+            tmp_path,
+            spec_rows=["test_fr_01_missing[param]"],
+            test_body="# no functions here\n",
+        )
+        result = harness_cli._compute_fr_spec_data(tmp_path, "FR-01", "tests/test_fr01.py")
+        assert result["spec_cov_pct"] == 0
+
+
+# =============================================================================
+# Bug fix: _fr_gate1_commit_sha must fall back to batch "Gate1 PASS" commits
+# =============================================================================
+
+class TestFrGate1CommitShaFallback:
+    """_fr_gate1_commit_sha must fall back to batch commits when per-FR format missing."""
+
+    def _fake_run_factory(self, per_fr_sha: str, batch_sha: str):
+        """Return a subprocess.run replacement: per-FR pattern returns per_fr_sha,
+        broad 'Gate1 PASS' pattern returns batch_sha."""
+        import subprocess
+
+        def fake_run(cmd, **kw):
+            ns = subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            idx = cmd.index("--grep") + 1 if "--grep" in cmd else -1
+            if idx >= 0:
+                pattern = cmd[idx]
+                if "Gate1 PASS" == pattern:
+                    ns.stdout = batch_sha + "\n" if batch_sha else ""
+                else:
+                    ns.stdout = per_fr_sha + "\n" if per_fr_sha else ""
+            return ns
+
+        return fake_run
+
+    def test_per_fr_commit_returned_directly(self, tmp_path, monkeypatch):
+        """If per-FR pattern matches, return that SHA without hitting fallback."""
+        import subprocess
+        import harness_cli
+        monkeypatch.setattr(subprocess, "run", self._fake_run_factory("abc123", "batch999"))
+        sha = harness_cli._fr_gate1_commit_sha("FR-01", tmp_path)
+        assert sha == "abc123"
+
+    def test_fallback_to_batch_commit(self, tmp_path, monkeypatch):
+        """If per-FR pattern finds nothing, must return SHA from batch 'Gate1 PASS' grep."""
+        import subprocess
+        import harness_cli
+        monkeypatch.setattr(subprocess, "run", self._fake_run_factory("", "deadbeef"))
+        sha = harness_cli._fr_gate1_commit_sha("FR-01", tmp_path)
+        assert sha == "deadbeef"
+
+    def test_returns_none_when_no_commit(self, tmp_path, monkeypatch):
+        """No Gate1 PASS commit of any kind → returns None."""
+        import subprocess
+        import harness_cli
+        monkeypatch.setattr(subprocess, "run", self._fake_run_factory("", ""))
+        sha = harness_cli._fr_gate1_commit_sha("FR-01", tmp_path)
+        assert sha is None

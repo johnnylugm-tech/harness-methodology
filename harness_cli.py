@@ -4580,7 +4580,15 @@ def _fr_gate1_commit_sha(fr_id: str, project: Path) -> str | None:
         capture_output=True, text=True, cwd=str(project),
     )
     sha = r.stdout.strip()
-    return sha if sha else None
+    if sha:
+        return sha
+    # Fallback: P3 batch commit e.g. "feat(P3-mid): 8/8 FR(s) Gate1 PASS"
+    r2 = _sp.run(
+        ["git", "log", "--oneline", "--grep", "Gate1 PASS", "-1", "--format=%H"],
+        capture_output=True, text=True, cwd=str(project),
+    )
+    sha2 = r2.stdout.strip()
+    return sha2 if sha2 else None
 
 
 def _fr_code_changed_since_last_gate1(fr_id: str, project: Path) -> bool:
@@ -4787,7 +4795,7 @@ def _compute_fr_spec_data(project: Path, fr_id: str, test_file: str) -> dict:
     if spec_test_names and test_file_path.exists():
         try:
             tf_content = test_file_path.read_text(encoding="utf-8")
-            existing_spec_tests = {fn for fn in spec_test_names if f"def {fn}" in tf_content}
+            existing_spec_tests = {fn for fn in spec_test_names if f"def {fn.split('[')[0]}" in tf_content}
         except OSError:
             pass
     spec_cov_pct = (
@@ -7529,7 +7537,7 @@ def cmd_audit_structure(args: argparse.Namespace) -> int:
     # --- Dimension 4: ASPICE traceability chain ---
     try:
         from core.quality_gate.phase_artifact_enforcer import PhaseArtifactRegistry
-        chain_result = PhaseArtifactRegistry(str(project)).verify_phase_chain(8)
+        chain_result = PhaseArtifactRegistry(str(project)).verify_phase_chain(current_phase)
         aspice_passed = chain_result["all_verified"]
         aspice_detail = {
             "all_verified": aspice_passed,
