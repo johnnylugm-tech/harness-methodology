@@ -717,6 +717,21 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
         except OSError:
             pass  # Audit write failure is non-fatal
 
+        if returncode < 0 and returncode != -1:
+            # Tool unavailable (rc=-2 timeout, rc=-3 not-found, rc=-4 error).
+            # The agent cannot legitimately claim a passing tool-based score
+            # when the harness cannot independently verify the tool runs.
+            _rc_labels = {-2: "timed out", -3: "not found", -4: "error"}
+            _rc_label = _rc_labels.get(returncode, f"rc={returncode}")
+            violations.append(
+                f"{dim_name}: tool '{tool}' {_rc_label} — harness cannot "
+                f"cross-validate agent_score={agent_score:.1f}. "
+                f"Install '{tool}' so the harness can independently verify the score, "
+                f"or if the tool is genuinely unavailable, the dimension score must be "
+                f"set below threshold ({threshold:.0f}) to reflect that."
+            )
+            continue
+
         if returncode == -1:
             # Skip-list tool (mutmut / scancode) — too slow to re-run here, but a
             # passing score must still be backed by a real, committed tool_output

@@ -149,7 +149,20 @@ _TOOL_CHECK_COMMANDS: dict[str, tuple[str, str]] = {
     "code-review-graph": ("code-review-graph status 2>&1", "code-review-graph"),
     # Structural dimensions — scored by CRG, not LLM
     "architecture": ("code-review-graph status 2>&1", "code-review-graph"),
-    "error_handling": ("code-review-graph status 2>&1", "code-review-graph"),
+    # Tool-scored dimensions (Gates 3-4) — must be installed for tool-based scoring
+    "pyright": ("pyright --version 2>&1", "pyright"),
+    "bandit": ("bandit --version 2>&1", "bandit"),
+    "radon-cc": ("radon --version 2>&1", "radon (radon-cc)"),
+    "radon-mi": ("radon --version 2>&1", "radon (radon-mi)"),
+    "pytest-benchmark": ("pytest --version 2>&1 && python3 -c 'import pytest_benchmark' 2>&1", "pytest-benchmark"),
+    "pytest-cov-integration": ("pytest --version 2>&1 && coverage --version 2>&1", "pytest + coverage (integration)"),
+    # AST-based tools are pure Python (no external binary); gate configs use these
+    # tool names directly; the harness runs them in-process via ast module.
+    # Check that Python 3 can parse a minimal AST module (always true if Python is
+    # installed, but gives a clear diagnostic if something is broken).
+    "ast-assertions": ("python3 -c 'import ast; ast.parse(\"x=1\")' 2>&1", "ast (assertions)"),
+    "ast-error-handling": ("python3 -c 'import ast; ast.parse(\"try:\\n pass\\nexcept: pass\")' 2>&1", "ast (error-handling)"),
+    "ast-docstrings": ("python3 -c 'import ast; ast.parse(\"def f():\\n \\\"\\\"\\\"doc\\\"\\\"\\\"\\n pass\")' 2>&1", "ast (docstrings)"),
 }
 
 def _check_tool_for_dim(dim_name: str, tool_name: str | None) -> tuple[bool, str]:

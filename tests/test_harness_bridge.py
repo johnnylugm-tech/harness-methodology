@@ -1089,3 +1089,116 @@ class TestCrgGatekeeperPhases:
         tc = next(d for d in result_dims if d.name == "test_coverage")
         assert tc.score == 85.0  # unchanged
         assert score_overridden is False
+
+
+# =============================================================================
+# S4: _run_harness_cross_validation — tool-unavailable blocking
+# =============================================================================
+
+class TestS4ToolUnavailable:
+    """S4 must block when a tool is not installed and agent claims passing score."""
+
+    def _make_result(self, dims: list[dict]) -> dict:
+        return {"breakdown": {d["name"]: {"score": d["score"], "tool_output": d.get("tool_output", "")} for d in dims}}
+
+    def _make_ctx(self, tmp_path):
+        from harness.harness_bridge import GateContext
+        return GateContext(
+            gate_num=3, config={}, project_root=str(tmp_path), phase=4,
+            fr_id=None, ssi_scripts_dir=str(tmp_path), ssi_prompts_dir=str(tmp_path),
+            ssi_schemas_dir=str(tmp_path), work_dir=str(tmp_path / ".sessi-work"),
+        )
+
+    def _fake_cfg(self, tmp_path, dims: list[dict]):
+        import yaml
+        cfg_dir = tmp_path / "harness" / "gate_configs"
+        cfg_dir.mkdir(parents=True)
+        cfg = {"gate": 3, "dimensions": dims}
+        (cfg_dir / "gate3_p4_exit.yaml").write_text(yaml.dump(cfg))
+
+    def test_tool_not_found_blocks_passing_agent_score(self, tmp_path):
+        """rc=-3 (not found) + agent_score(85) >= threshold(80) → blocked."""
+        from harness.harness_bridge import _run_harness_cross_validation
+        ctx = self._make_ctx(tmp_path)
+        self._fake_cfg(tmp_path, [
+            {"name": "readability", "tool": "radon-mi", "threshold": 80,
+             "requires_tool_execution": True},
+        ])
+        raw = self._make_result([{"name": "readability", "score": 85}])
+
+        with patch("harness.tool_runners.run_tool", return_value=("Tool not found: radon-mi", -3)):
+            violations = _run_harness_cross_validation(ctx, raw)
+
+        assert len(violations) == 1
+        assert "radon-mi" in violations[0]
+        assert "not found" in violations[0]
+
+    def test_tool_not_found_below_threshold_skipped(self, tmp_path):
+        """rc=-3 + agent_score(50) < threshold(80) → not cross-validated (no violation)."""
+        from harness.harness_bridge import _run_harness_cross_validation
+        ctx = self._make_ctx(tmp_path)
+        self._fake_cfg(tmp_path, [
+            {"name": "readability", "tool": "radon-mi", "threshold": 80,
+             "requires_tool_execution": True},
+        ])
+        raw = self._make_result([{"name": "readability", "score": 50}])
+
+        with patch("harness.tool_runners.run_tool", return_value=("Tool not found: radon-mi", -3)):
+            violations = _run_harness_cross_validation(ctx, raw)
+
+        assert violations == []
+
+    def test_tool_timeout_blocks_passing_agent_score(self, tmp_path):
+        """rc=-2 (timeout) + agent_score(90) >= threshold(75) → blocked."""
+        from harness.harness_bridge import _run_harness_cross_validation
+        ctx = self._make_ctx(tmp_path)
+        self._fake_cfg(tmp_path, [
+            {"name": "performance", "tool": "pytest-benchmark", "threshold": 75,
+             "requires_tool_execution": True},
+        ])
+        raw = self._make_result([{"name": "performance", "score": 90}])
+
+        with patch("harness.tool_runners.run_tool", return_value=("TIMEOUT: pytest-benchmark exceeded 180s", -2)):
+            violations = _run_harness_cross_validation(ctx, raw)
+
+        assert len(violations) == 1
+        assert "timed out" in violations[0]
+
+    def test_tool_error_blocks_passing_agent_score(self, tmp_path):
+        """rc=-4 (unexpected error) + agent_score(95) >= threshold(80) → blocked."""
+        from harness.harness_bridge import _run_harness_cross_validation
+        ctx = self._make_ctx(tmp_path)
+        self._fake_cfg(tmp_path, [
+            {"name": "error_handling", "tool": "ast-error-handling", "threshold": 80,
+             "requires_tool_execution": True},
+        ])
+        raw = self._make_result([{"name": "error_handling", "score": 95}])
+
+        with patch("harness.tool_runners.run_tool", return_value=("Error: something", -4)):
+            violations = _run_harness_cross_validation(ctx, raw)
+
+        assert len(violations) == 1
+        assert "error" in violations[0]
+
+    def test_skip_list_tool_rc_minus1_still_works(self, tmp_path):
+        """rc=-1 (skip-list) is NOT blocked by this check — it has its own validation."""
+        from harness.harness_bridge import _run_harness_cross_validation
+        ctx = self._make_ctx(tmp_path)
+        self._fake_cfg(tmp_path, [
+            {"name": "mutation_testing", "tool": "mutmut", "threshold": 70,
+             "requires_tool_execution": True},
+        ])
+        raw = self._make_result([
+            {"name": "mutation_testing", "score": 85,
+             "tool_output": "03-development/mutmut_results.txt"},
+        ])
+        # Create the tool_output file so skip-list validation passes
+        tout = tmp_path / "03-development" / "mutmut_results.txt"
+        tout.parent.mkdir(parents=True)
+        tout.write_text("Killed 12 out of 15 mutants — kill rate: 80.0%")
+
+        with patch("harness.tool_runners.run_tool", return_value=("", -1)):
+            violations = _run_harness_cross_validation(ctx, raw)
+
+        assert violations == []
+
