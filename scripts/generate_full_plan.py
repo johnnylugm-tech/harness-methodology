@@ -502,7 +502,10 @@ _AGENT_B_EMBED_DOCS: Dict[int, List[str]] = {
 # Agent B review checklist per phase
 _AGENT_B_CHECKS: Dict[int, List[str]] = {
     1: ["All FRs testable? (no vague criteria)", "NFRs measurable?", "No contradictions between FRs?", "Every stakeholder need covered?"],
-    2: ["Every FR maps to ≥1 module?", "NFRs addressed (latency/security/cost)?", "No circular dependencies?", "ADR covers all major decisions?"],
+    2: ["Every FR maps to ≥1 module?", "NFRs addressed (latency/security/cost)?", "No circular dependencies?", "ADR covers all major decisions?",
+        "Directory structure follows cohesion principles (SAD.md §2.1)? Files in same dir import each other?",
+        "Source and test directories mirror each other (src/routers/ ↔ tests/routers/)?",
+        "No flat dumps or god-modules? (≤15 files per dir, no single dir with all source)"],
     3: ["Code matches SRS acceptance criteria?", "Tests actually test the spec (not the impl)?", "No forbidden patterns (app/infrastructure/, @covers: L1 Error)?", "Docstrings have [FR-XX] tag + Citations?"],
     4: ["Test coverage ≥80% for this FR?", "Edge cases covered?", "Results match TEST_PLAN.md expected outcomes?"],
     5: ["Acceptance criteria fully met?", "No regressions in related FRs?"],
