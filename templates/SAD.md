@@ -7,7 +7,37 @@
 
 ## 2. Module Design
 
-### 2.1 {Module Name}
+### 2.1 Directory Structure Design Principles
+
+> **CRG Architecture Scoring**: Phase 3+ judges your code's community cohesion via
+> the Code Review Graph (CRG).  CRG groups files by **directory** — each directory
+> is one community.  The architecture score is the fraction of communities that are
+> "healthy" (internal edge density ≥ 0.3 AND size ≤ 50 nodes).
+
+**Design for high cohesion from the start:**
+
+| Principle | Why | Concrete rule |
+|-----------|-----|---------------|
+| Files in the same directory MUST import each other | Internal edges raise cohesion | Every `.py` in a dir should `import` or be imported by ≥1 sibling |
+| Keep directories focused (3–15 files) | Oversized communities (>50) are auto-unhealthy | Split at 15 files; merge directories with <3 files into a parent |
+| One responsibility per directory | Cross-cutting dirs have low cohesion | Each directory = one architectural concern (routers, models, cache, engines) |
+| Source and test directories mirror each other | Test communities are excluded from scoring | `src/routers/` ↔ `tests/routers/`, `src/cache/` ↔ `tests/cache/` |
+| No flat `src/` dump | Isolated files in one dir → cohesion near zero | Group related files into subdirectories from day one |
+
+**Anti-patterns that produce low scores:**
+
+```
+❌ src/__init__.py, src/main.py, src/models.py, src/cli.py, src/audio.py
+   → 5 isolated files, zero cross-imports → cohesion=0.0
+
+❌ tests/test_fr01.py, tests/test_fr02.py, ... tests/test_fr08.py
+   → 80 nodes in one dir, no internal edges → oversized + zero cohesion
+
+✅ src/routers/{health,speech}.py with cross-imports → cohesion high
+✅ src/cache/redis_cache.py + tests/cache/test_redis.py → focused, mirrored
+```
+
+### 2.2 {Module Name}
 
 | Attribute | Value |
 |-----------|-------|
