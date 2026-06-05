@@ -1770,6 +1770,26 @@ class HarnessBridge:
                             )
                             _crg_overrides_applied = True
                         _new_dims.append(dataclasses.replace(_d, score=_new))
+                        # Print unhealthy communities so the agent knows what to fix
+                        _coh_data = _crg_m.get("community_cohesion", {})
+                        _unhealthy = _coh_data.get("unhealthy", [])
+                        _excluded = _coh_data.get("excluded_test_communities", 0)
+                        if _unhealthy and _new < (_dim_thresholds.get("architecture") or 80):
+                            print(f"\n[harness] CRG community diagnostics — {len(_unhealthy)} unhealthy community(ies):")
+                            print(f"  Threshold: cohesion ≥ {_coh_data.get('_cohesion_threshold', '?')}, size ≤ {_coh_data.get('_community_oversized', '?')}")
+                            if _excluded:
+                                print(f"  Test-only communities excluded: {_excluded}")
+                            for _u in _unhealthy[:8]:  # cap at 8 to avoid flooding
+                                _issues = ", ".join(_u.get("issues", []))
+                                print(f"  ❌ {_u['name']:<35} cohesion={_u['cohesion']:.3f}  size={_u['size']}  [{_issues}]")
+                            if len(_unhealthy) > 8:
+                                print(f"  ... +{len(_unhealthy) - 8} more (see .sessi-work/crg_metrics.json)")
+                            print()
+                            print("  Fix: unhealthy communities have low intra-community connectivity.")
+                            print("  - Add cross-module imports/tests between files in the same community")
+                            print("  - Merge small isolated communities into larger coherent modules")
+                            print("  - Split oversized communities (>50) into focused subdirectories")
+                            print("  - Or: if hub-and-spoke is intentional (Orchestrator), file a DA waiver")
                     else:
                         _new_dims.append(_d)
                 dims = _new_dims

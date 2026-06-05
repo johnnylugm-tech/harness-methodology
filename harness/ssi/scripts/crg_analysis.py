@@ -154,6 +154,8 @@ def compute_community_cohesion_score(communities: list) -> dict:
         "total_all": len(communities),
         "excluded_test_communities": _excluded,
         "unhealthy": unhealthy,
+        "_cohesion_threshold": COHESION_HEALTHY,
+        "_community_oversized": COMMUNITY_OVERSIZED,
     }
 
 
