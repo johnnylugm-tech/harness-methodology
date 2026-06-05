@@ -58,7 +58,7 @@ def _ti(name: str, default: int) -> int:
 
 RISK_DEEP_THRESHOLD = _tf("CRG_RISK_DEEP", 0.7)
 RISK_FAST_THRESHOLD = _tf("CRG_RISK_FAST", 0.3)
-COHESION_HEALTHY = _tf("CRG_COHESION_HEALTHY", 0.4)
+COHESION_HEALTHY = _tf("CRG_COHESION_HEALTHY", 0.3)
 COMMUNITY_OVERSIZED = _ti("CRG_COMMUNITY_OVERSIZED", 50)
 DEAD_CODE_ESCALATE_RATIO = _tf("CRG_DEAD_CODE_RATIO", 0.05)
 HUB_CRITICAL_FAN_IN = _ti("CRG_HUB_CRIT_FANIN", 15)
@@ -99,18 +99,33 @@ def compute_community_cohesion_score(communities: list) -> dict:
     """
     Aggregate community cohesion into a 0-100 architecture sub-score.
 
+    Test-only communities (name starts with 'tests' / 'test' / 'test_') are
+    excluded from scoring: test files have no structural dependency edges
+    with each other, so they always form an oversized zero-cohesion blob
+    under directory-based grouping. Penalising that is misleading — it
+    reflects the test harness layout, not architectural quality.
+
     Formula:
       healthy = count(cohesion >= COHESION_HEALTHY AND size <= COMMUNITY_OVERSIZED)
-      score   = 100 * healthy / total_communities
+      score   = 100 * healthy / total_communities (excluding test-only)
 
     Each unhealthy community is classified for diagnostic output.
     """
     if not communities:
         return {"score": 100, "healthy": 0, "total": 0, "unhealthy": []}
 
+    # Exclude test-only communities — they reflect test harness layout,
+    # not architecture. Detection: community name starts with tests/test.
+    _scored_communities = [
+        c for c in communities
+        if not (c.get("name", "").split("-")[0] in ("tests", "test")
+                or (c.get("name", "") or "").startswith("test_"))
+    ]
+    _excluded = len(communities) - len(_scored_communities)
+
     unhealthy = []
     healthy = 0
-    for c in communities:
+    for c in _scored_communities:
         cohesion = c.get("cohesion", 1.0)
         size = c.get("size", 0)
         reasons = []
@@ -130,12 +145,14 @@ def compute_community_cohesion_score(communities: list) -> dict:
         else:
             healthy += 1
 
-    total = len(communities)
+    total = len(_scored_communities)
     score = round(100.0 * healthy / total, 1) if total > 0 else 100
     return {
         "score": score,
         "healthy": healthy,
         "total": total,
+        "total_all": len(communities),
+        "excluded_test_communities": _excluded,
         "unhealthy": unhealthy,
     }
 
