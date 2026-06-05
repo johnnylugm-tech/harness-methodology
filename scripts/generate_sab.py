@@ -155,6 +155,19 @@ def main():
         print(f"Failed to parse {sad_file} - no SAB block found", file=sys.stderr)
         return 1
 
+    # Normalize module paths: if SAD declares src/X.py but the actual file lives
+    # at 03-development/src/X.py (project uses 03-development/ layout with a src
+    # symlink that may not always exist), rewrite to the real path so SAB.json
+    # never depends on a symlink and all downstream checkers see correct paths.
+    for layer in sab_spec.layers:
+        layer["modules"] = [
+            "03-development/" + m
+            if (not (project / m).exists()
+                and (project / "03-development" / m).exists())
+            else m
+            for m in layer.get("modules", [])
+        ]
+
     output_file.parent.mkdir(parents=True, exist_ok=True)
     with open(output_file, "w") as f:
         json.dump(sab_spec.to_dict(), f, indent=2, ensure_ascii=False)

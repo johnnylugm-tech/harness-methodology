@@ -319,6 +319,7 @@ class PhaseHooks:
                     if not m.endswith("/")
                     and not re.match(r'^FR-\d+$', m)
                     and not (self.project_path / m).exists()
+                    and not (self.project_path / "03-development" / m).exists()
                 ]
                 if missing_modules:
                     violations.append(
