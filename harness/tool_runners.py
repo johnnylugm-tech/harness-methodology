@@ -245,20 +245,31 @@ def _run_ast_assertions(project_root: str) -> tuple[str, int]:
 def _run_ast_error_handling(project_root: str) -> tuple[str, int]:
     """Scan source files and report file-level error-handling coverage.
 
-    Returns (json_summary, 0) where summary = {total, with_handler, no_handler:[...]}.
-    A source file counts as "handled" if it contains at least one try/except block
-    with a real handler.  This is a framework-owned, independently reproducible
-    measure of error_handling — it replaces the CRG flow path whose has_error_handler
-    field does not exist in the installed code-review-graph package.
+    Returns (json_summary, 0) where summary = {total, with_handler, no_handler:[...],
+    exempt:[...]}.  A source file counts as "handled" if it contains at least one
+    try/except block with a real handler.
+
+    Files containing ``# pragma: no error-handling`` are EXEMPT — they are excluded
+    from the denominator entirely. Use this for Pydantic models, data-only classes,
+    and pure pass-through files that legitimately have no I/O or external calls to
+    handle. Justification: error-handling coverage measures resilience, not
+    compliance; penalising files that cannot fail is a false positive.
+
+    This is a framework-owned, independently reproducible measure — it replaces
+    the CRG flow path whose has_error_handler field does not exist.
     """
     import ast as _ast
     import json as _json
     from pathlib import Path as _Path
 
+    _PRAGMA_EXEMPT = "# pragma: no error-handling"
+
     root = _Path(project_root)
     total = 0
     with_handler = 0
+    exempt_count = 0
     no_handler: list[str] = []
+    exempt_files: list[str] = []
 
     seen: set[str] = set()
     for rel in _SRC_DIRS:
@@ -271,7 +282,8 @@ def _run_ast_error_handling(project_root: str) -> tuple[str, int]:
                 continue
             seen.add(key)
             try:
-                tree = _ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+                source = path.read_text(encoding="utf-8", errors="replace")
+                tree = _ast.parse(source)
             except (SyntaxError, ValueError, OSError):
                 continue
             # Skip files with no functions/classes (e.g. empty __init__.py) — they
@@ -281,6 +293,11 @@ def _run_ast_error_handling(project_root: str) -> tuple[str, int]:
                 for n in _ast.walk(tree)
             )
             if not has_code:
+                continue
+            # Exemption: pragma comment in the file → legitimately no I/O to handle
+            if _PRAGMA_EXEMPT in source:
+                exempt_count += 1
+                exempt_files.append(str(path.relative_to(root)))
                 continue
             total += 1
             handled = any(
@@ -292,7 +309,10 @@ def _run_ast_error_handling(project_root: str) -> tuple[str, int]:
             else:
                 no_handler.append(str(path.relative_to(root)))
 
-    summary = {"total": total, "with_handler": with_handler, "no_handler": no_handler[:50]}
+    summary = {
+        "total": total, "with_handler": with_handler, "no_handler": no_handler[:50],
+        "exempt_count": exempt_count, "exempt_files": exempt_files[:50],
+    }
     return _json.dumps(summary), 0
 
 
