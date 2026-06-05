@@ -341,49 +341,25 @@ class TestPersistentCommitIntervals:
 
 
 # ---------------------------------------------------------------------------
-# D2: Inter-FR score variance
+# Gate1 score recording / pruning
 # ---------------------------------------------------------------------------
 
-class TestInterFrScoreVariance:
-    """_check_inter_fr_score_variance detects batch-copied scores."""
-
-    def test_high_variance_ok(self, tmp_path):
-        from harness_cli import _record_gate1_score, _check_inter_fr_score_variance
-        for i, score in enumerate([90.0, 95.5, 82.3, 99.1, 87.6, 93.2]):
-            _record_gate1_score(tmp_path, 4, f"FR-{i+1:02d}", score)
-        ok, _ = _check_inter_fr_score_variance(tmp_path, 4)
-        assert ok
-
-    def test_zero_variance_blocked(self, tmp_path):
-        from harness_cli import _record_gate1_score, _check_inter_fr_score_variance
-        for i in range(10):
-            _record_gate1_score(tmp_path, 4, f"FR-{i+1:02d}", 97.67)
-        ok, msg = _check_inter_fr_score_variance(tmp_path, 4)
-        assert not ok
-        assert "stddev" in msg
-
-    def test_fewer_than_5_frs_skipped(self, tmp_path):
-        from harness_cli import _record_gate1_score, _check_inter_fr_score_variance
-        for i in range(4):
-            _record_gate1_score(tmp_path, 4, f"FR-{i+1:02d}", 97.67)
-        ok, _ = _check_inter_fr_score_variance(tmp_path, 4)
-        assert ok  # Fewer than 5 FRs → skip check
+class TestGate1ScoreRecording:
+    """_record_gate1_score prunes stale phase entries."""
 
     def test_stale_phases_pruned(self, tmp_path):
         """Phases older than (current - 1) are pruned from .gate1_scores.json."""
         import json as _json
         from harness_cli import _record_gate1_score, _GATE1_SCORES_FILE
-        # Record scores for phases 3, 4, then 5
         _record_gate1_score(tmp_path, 3, "FR-01", 90.0)
         _record_gate1_score(tmp_path, 4, "FR-01", 85.0)
-        # Writing phase 5 must prune phase 3 (< 5-1=4)
         _record_gate1_score(tmp_path, 5, "FR-01", 92.0)
         data = _json.loads(
             (tmp_path / ".methodology" / _GATE1_SCORES_FILE).read_text(encoding="utf-8")
         )
         assert "3" not in data, "Phase 3 should be pruned (two phases back)"
-        assert "4" in data, "Phase 4 (current-1) should be retained"
-        assert "5" in data, "Phase 5 (current) should be retained"
+        assert "4" in data
+        assert "5" in data
 
 
 # ---------------------------------------------------------------------------

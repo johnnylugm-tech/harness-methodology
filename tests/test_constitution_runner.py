@@ -341,9 +341,9 @@ class TestScanDirectory:
     def test_low_score_violations(self, tmp_path):
         docs = tmp_path / "docs"
         docs.mkdir()
-        (docs / "empty.md").write_text(
-            "# X\n\nno keywords here at all, just filler text "
-            "to exceed minimum length requirement for scanning"
+        (docs / "empty.py").write_text(
+            "def placeholder():\n    x = 1\n    y = 2\n    return x + y\n\n\n"
+            "def another():\n    items = [1, 2, 3]\n    return sum(items)\n"
         )
         result = _scan_directory(docs, phase=5, check_type="all")
         assert result.score < 30
@@ -593,13 +593,13 @@ class TestRunConstitutionCheck:
     def test_strict_mode_raises_on_failure(self, tmp_path):
         docs = tmp_path / "docs"
         docs.mkdir()
-        # This file contains no constitution keywords (FR-, NFR-, acceptance
-        # criteria, security/auth/RBAC, test coverage, docstring, etc.) and no
-        # structure beyond a single heading.  Expected score: ~0–20% on each
-        # dimension — well below the P5 80% composite threshold.
-        (docs / "empty.md").write_text(
-            "# X\n\nno keywords here at all, just filler text "
-            "to exceed minimum length requirement for scanning"
+        # This Python file contains no constitution keywords (FR-, NFR-, acceptance
+        # criteria, security/auth/RBAC, test coverage, etc.) and no section structure.
+        # Expected score: 0% on all dimensions — well below the P5 80% threshold.
+        # P3+ scans *.py only; .md files in the directory would be ignored.
+        (docs / "empty.py").write_text(
+            "def placeholder():\n    x = 1\n    y = 2\n    return x + y\n\n\n"
+            "def another():\n    items = [1, 2, 3]\n    return sum(items)\n"
         )
         with pytest.raises(RuntimeError, match="Constitution check FAILED"):
             run_constitution_check("all", str(docs), current_phase=5,
@@ -655,18 +655,17 @@ class TestRunConstitutionCheck:
         )
 
     def test_phase3_sparse_source_fails_constitution(self, tmp_path):
-        """P3 threshold=80%: Markdown doc with no keywords fails.
+        """P3 threshold=80%: Python file with no keywords fails.
 
-        runner.py only scans *.md files; uses check_type='all' so the file is
+        runner.py scans *.py files for P3+; uses check_type='all' so the file is
         not filtered by filename pattern. Content is deliberately keyword-free.
         """
         docs = tmp_path / "docs"
         docs.mkdir()
-        (docs / "sparse.md").write_text(
-            "This sparse document contains no quality keywords.\n"
-            "No FR references, no security terms, no code vocabulary.\n"
-            "Just enough words to satisfy the minimum length check.\n"
-            "Neutral text that avoids any dimension scoring signals.\n"
+        (docs / "sparse.py").write_text(
+            "def foo():\n    x = 1\n    y = 2\n    return x + y\n\n\n"
+            "def bar():\n    items = [1, 2, 3]\n    total = 0\n"
+            "    for item in items:\n        total += item\n    return total\n"
         )
         result = run_constitution_check("all", str(docs), current_phase=3,
                                         check_mode="postflight")
@@ -677,18 +676,17 @@ class TestRunConstitutionCheck:
         )
 
     def test_phase4_sparse_tests_fail_constitution(self, tmp_path):
-        """P4 threshold=80%: Markdown doc with no keywords fails.
+        """P4 threshold=80%: Python file with no keywords fails.
 
-        runner.py only scans *.md files; uses check_type='all' so the file is
+        runner.py scans *.py files for P3+; uses check_type='all' so the file is
         not filtered by filename pattern. Content is deliberately keyword-free.
         """
         docs = tmp_path / "docs"
         docs.mkdir()
-        (docs / "sparse.md").write_text(
-            "This sparse document contains no quality keywords.\n"
-            "No FR references, no security terms, no code vocabulary.\n"
-            "Just enough words to satisfy the minimum length check.\n"
-            "Neutral text that avoids any dimension scoring signals.\n"
+        (docs / "sparse.py").write_text(
+            "def foo():\n    x = 1\n    y = 2\n    return x + y\n\n\n"
+            "def bar():\n    items = [1, 2, 3]\n    total = 0\n"
+            "    for item in items:\n        total += item\n    return total\n"
         )
         result = run_constitution_check("all", str(docs), current_phase=4,
                                         check_mode="postflight")

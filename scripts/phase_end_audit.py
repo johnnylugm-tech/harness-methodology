@@ -57,35 +57,10 @@ _MILESTONES: dict[int, list[str]] = {
 # ── Audit functions ──────────────────────────────────────────────────────────
 
 def audit_plan_completion(project: Path, phase: int) -> Tuple[list[str], list[str]]:
-    """Check phase plan for unchecked items that indicate incomplete work.
+    """Plan checkbox enforcement removed — plans no longer use checkboxes.
 
     Returns (critical_gaps, warning_gaps).
     """
-    plan = project / ".methodology" / f"phase{phase}_plan.md"
-    if not plan.exists():
-        return ([f"Phase plan `.methodology/phase{phase}_plan.md` not found"], [])
-
-    text = plan.read_text(encoding="utf-8", errors="replace")
-
-    # Find unchecked items. Exclude patterns that are meta-items or
-    # explicitly marked optional/skipped by the plan author:
-    # [INFO], [PHASE-AUDIT], [OPTIONAL], [SKIP], Gate * score, Phase * complete
-    skip_patterns = re.compile(
-        r"\[INFO\]|\[PHASE-AUDIT\]|\[OPTIONAL\]|\[SKIP\]"
-        r"|Gate \d+.*score|Phase \d+.*complete",
-        re.IGNORECASE,
-    )
-    unchecked: list[str] = []
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("- [ ]"):
-            if skip_patterns.search(stripped):
-                continue
-            unchecked.append(stripped)
-
-    if unchecked:
-        msg = f"Plan has {len(unchecked)} unchecked item(s)"
-        return ([msg], unchecked[:5])
     return ([], [])
 
 

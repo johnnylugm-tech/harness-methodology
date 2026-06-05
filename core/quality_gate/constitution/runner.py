@@ -457,11 +457,15 @@ def _scan_directory(docs_path: Path, phase: int, check_type: str) -> Constitutio
         if numbered_dir.exists() and numbered_dir.resolve() != docs_path.resolve():
             target_dirs.append(numbered_dir)
 
+    # P3+: scan Python source files only — .md compliance docs are gameable (keyword stuffing).
+    # P1/P2: scan .md (SRS.md, SAD.md are the actual deliverables for those phases).
+    _scan_pattern = "*.py" if (phase is not None and phase >= 3) else "*.md"
+
     files_scanned = 0
     for directory in target_dirs:
         if not directory.exists():
             continue
-        for item in directory.rglob("*.md"):
+        for item in directory.rglob(_scan_pattern):
             if any(part.startswith(".") for part in item.relative_to(directory).parts):
                 continue
             if get_profile().is_excluded(item, phase=phase):

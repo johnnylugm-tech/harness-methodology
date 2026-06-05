@@ -142,6 +142,8 @@
 | P4 | TH-03, TH-04, TH-05, TH-06 | correctness + security + maintainability + coverage | =100% / >90% / >90% (FrameworkEnforcer BLOCK) |
 | P5–P8 | TH-02 | constitution 綜合 | ≥80% (FrameworkEnforcer BLOCK + Constitution) |
 
+> **掃描範圍**: P1/P2 掃描 `.md` 文件（SRS.md、SAD.md 為主要交付物）。P3+ 只掃描 `.py` 原始碼 — 掃 `.md` 容易被 keyword stuffing 繞過，程式碼的 docstring/type hint/安全詞彙才能真實反映品質。
+
 ### 2.5 Threshold Rules (TH-01 ~ TH-17)
 
 全專案品質閾值權威來源，對齊 methodology-v2 v9.1。

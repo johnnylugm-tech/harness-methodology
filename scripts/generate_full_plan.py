@@ -619,7 +619,7 @@ def _agent_b_dispatch_block(phase: int, role_b: str, fr_id: str = "") -> List[st
     _task_obj = {7: "risk assessment", 8: "configuration record"}.get(phase, "deliverable")
 
     lines: List[str] = [
-        f"- [ ] **[B-1]** Agent B ({role_b}){fr_suffix} — dispatch as **STATELESS** subagent:",
+        f"- **[B-1]** Agent B ({role_b}){fr_suffix} — dispatch as **STATELESS** subagent:",
         "  > ⚠️  **STATELESS SANDBOX**: Agent B has ZERO access to local files or /tmp.",
         "  > NEVER write 'read 01-requirements/SRS.md' in the prompt — it will fail silently.",
         "  > ALL context must be pasted verbatim into the prompt text. This is mandatory.",
@@ -664,7 +664,7 @@ def _agent_b_dispatch_block(phase: int, role_b: str, fr_id: str = "") -> List[st
         '   "gaps":[{"severity":"low|medium|high","message":"<issue>","fr_id":"<FR-XX or null>"}]}',
         "  ```",
         "",
-        "- [ ] **[B-2]** Agent B returns JSON — parse `review_status` **AND** `gaps` severity:",
+        "- **[B-2]** Agent B returns JSON — parse `review_status` **AND** `gaps` severity:",
         "  > gaps schema: `[{\"severity\": \"low|medium|high\", \"message\": \"...\", \"fr_id\": \"FR-XX or null\"}]`",
         "  - `APPROVE` + all gaps are `low` → proceed to push (CHECKPOINT saved)",
         "  - `APPROVE` + any gap is `medium` or `high` → fix gaps → **re-dispatch B as round 2**",
@@ -762,14 +762,14 @@ def _deliverable_ab_block(phase: int, deliverable: Dict, sub_n: int, total: int,
         f"**Agent B**: {role_b}",
         "",
         "**A/B Work** (HR-04: HybridWorkflow ON — Agent A authors, a separate Agent B sub-agent reviews):",
-        f"- [ ] **[A-1]** Agent A ({role_a}): {task_hint}",
+        f"- **[A-1]** Agent A ({role_a}): {task_hint}",
         "  - FORBIDDEN: vague/non-testable acceptance criteria",
-        "- [ ] **[A-2]** Agent A returns `{status, files, confidence, citations, summary}`",
+        "- **[A-2]** Agent A returns `{status, files, confidence, citations, summary}`",
     ]
 
     # Agent B stateless dispatch block (customized per deliverable)
     lines += [
-        f"- [ ] **[B-1]** Agent B ({role_b}) — dispatch as **STATELESS** subagent:",
+        f"- **[B-1]** Agent B ({role_b}) — dispatch as **STATELESS** subagent:",
         "  > ⚠️  **STATELESS SANDBOX**: Agent B has ZERO access to local files or /tmp.",
         "  > NEVER write 'read 01-requirements/SRS.md' in the prompt — it will fail silently.",
         "  > ALL context must be pasted verbatim into the prompt text. This is mandatory.",
@@ -813,7 +813,7 @@ def _deliverable_ab_block(phase: int, deliverable: Dict, sub_n: int, total: int,
         '   "gaps":[{"severity":"low|medium|high","message":"<issue>","fr_id":"<FR-XX or null>"}]}',
         "  ```",
         "",
-        "- [ ] **[B-2]** Agent B returns JSON — parse `review_status` **AND** `gaps` severity:",
+        "- **[B-2]** Agent B returns JSON — parse `review_status` **AND** `gaps` severity:",
         "  > gaps schema: `[{\"severity\": \"low|medium|high\", \"message\": \"...\", \"fr_id\": \"FR-XX or null\"}]`",
     ]
     if sub_n < total:
@@ -843,7 +843,7 @@ def _preflight_steps(phase: int) -> List[str]:
     """Preflight hook step — run before the FR development loop (FSM + Constitution check + CI readiness)."""
     if phase == 1:
         ci_check = [
-            "- [ ] **[PREFLIGHT-CI]** Verify CI wiring (all 3 items auto-set by `init-project`):",
+            "- **[PREFLIGHT-CI]** Verify CI wiring (all 3 items auto-set by `init-project`):",
             "  1. `.methodology/state.json` exists with `current_phase = 1`",
             "  2. `.github/workflows/harness_quality_gate.yml` exists in project root",
             "  3. Git hooks installed (`ls .git/hooks/prepare-commit-msg`)",
@@ -857,7 +857,7 @@ def _preflight_steps(phase: int) -> List[str]:
         ]
     else:
         ci_check = [
-            "- [ ] **[PREFLIGHT-CI]** Confirm CI wiring unchanged (should be set since P1):",
+            "- **[PREFLIGHT-CI]** Confirm CI wiring unchanged (should be set since P1):",
             "  1. `.github/workflows/harness_quality_gate.yml` exists",
             "  2. Git hooks installed (`ls .git/hooks/prepare-commit-msg`)",
             "  3. harness importable (submodule, PYTHONPATH, or vendored `quality_gate/`)",
@@ -867,7 +867,7 @@ def _preflight_steps(phase: int) -> List[str]:
     return [
         "### Pre-Phase Preflight",
         "",
-        "- [ ] **[PREFLIGHT]** Run phase hooks (FSM, Constitution, Kill-Switch, Drift, CI Readiness):",
+        "- **[PREFLIGHT]** Run phase hooks (FSM, Constitution, Kill-Switch, Drift, CI Readiness):",
         "  ```bash",
         f"  python3 harness_cli.py run-phase --phase {phase} --project .",
         "  ```",
@@ -919,7 +919,7 @@ def _entry_gate_check(phase: int) -> List[str]:
     lines = [
         "### Entry Gate Verification",
         "",
-        f"- [ ] **[ENTRY-CHECK]** {gate_label}:",
+        f"- **[ENTRY-CHECK]** {gate_label}:",
         f"  Proof: {proof}.",
         f"  If NOT confirmed: {gate_action}.",
         "",
@@ -927,7 +927,7 @@ def _entry_gate_check(phase: int) -> List[str]:
     # Phase 2 entry: explicitly verify all 4 P1 deliverables per CONSTITUTION.md §2.3
     if phase == 2:
         lines.extend([
-            "- [ ] **[P1-ARTIFACTS]** Verify all 4 Phase 1 deliverables exist (CONSTITUTION.md §2.3 P2 entry requirement):",
+            "- **[P1-ARTIFACTS]** Verify all 4 Phase 1 deliverables exist (CONSTITUTION.md §2.3 P2 entry requirement):",
             "  ```bash",
             "  ls 01-requirements/SRS.md \\",
             "     01-requirements/SPEC_TRACKING.md \\",
@@ -940,7 +940,7 @@ def _entry_gate_check(phase: int) -> List[str]:
     # Phase 3 entry: verify P2 output artifacts exist before starting implementation
     if phase == 3:
         lines.extend([
-            "- [ ] **[P2-ARTIFACTS]** Verify Phase 2 output artifacts exist:",
+            "- **[P2-ARTIFACTS]** Verify Phase 2 output artifacts exist:",
             "  ```bash",
             "  ls -la 02-architecture/SAD.md 02-architecture/adr/ADR.md 02-architecture/TEST_SPEC.md \\",
             "     .methodology/quality_manifest.json .methodology/SAB.json",
@@ -979,7 +979,7 @@ def _review_checkpoint(phase: int, checkpoint_n: int) -> List[str]:
         "> Phase 1/2 exit gate = Agent B document review (NOT `harness run-gate --gate 1`).",
         "> APPROVE criteria: all FRs addressed, no critical gaps, terminology consistent.",
         "",
-        f"- [ ] **[B-1]** Agent B ({role_b}) — dispatch as **STATELESS** subagent (holistic review of all deliverables):",
+        f"- **[B-1]** Agent B ({role_b}) — dispatch as **STATELESS** subagent (holistic review of all deliverables):",
         "  > ⚠️  **STATELESS SANDBOX**: Agent B has ZERO access to local files or /tmp.",
         "  > NEVER pass file paths in the prompt — ALL document content must be pasted verbatim.",
         "  >",
@@ -1034,7 +1034,7 @@ def _review_checkpoint(phase: int, checkpoint_n: int) -> List[str]:
         '   "gaps":[{"severity":"low|medium|high","message":"<issue>","fr_id":"<FR-XX or null>"}]}',
         "  ```",
         "",
-        "- [ ] **[B-2]** Agent B returns JSON — parse `review_status` **AND** `gaps` severity:",
+        "- **[B-2]** Agent B returns JSON — parse `review_status` **AND** `gaps` severity:",
         "  - `APPROVE` + all gaps are `low` → proceed to push (CHECKPOINT saved)",
         "  - `APPROVE` + any gap is `medium` or `high` → fix gaps → **re-dispatch B as round 2**",
         "    (embed same docs as B-1 above with updated content) → push only after round-2 APPROVE",
@@ -1042,7 +1042,7 @@ def _review_checkpoint(phase: int, checkpoint_n: int) -> List[str]:
         "    > If round 5 REJECT: escalate to human — orchestrator cannot self-resolve.",
         "    > Human fix → re-dispatch Agent B (same prompt + updated content) → `APPROVE` required before continuing.",
         "",
-        f"- [ ] **[B-PUSH]** ✅ {_PHASE_PUSH_LABELS.get(phase, '')}Push to GitHub + HANDOVER.md — retry until success (CHECKPOINT-PEER-REVIEW saved):",
+        f"- **[B-PUSH]** ✅ {_PHASE_PUSH_LABELS.get(phase, '')}Push to GitHub + HANDOVER.md — retry until success (CHECKPOINT-PEER-REVIEW saved):",
         "  > Run `push-checkpoint` → if blocked, read the error → fix → re-run until green.",
         "  > Do NOT use `--no-verify` to bypass.",
         "  ```bash",
@@ -1072,11 +1072,11 @@ def _fr_dev_steps(fr_id: str, phase: int) -> List[str]:
         )
         lines = [
             f"**A/B Work — {fr_id}** (HR-04: Agent A authors, a separate Agent B sub-agent reviews):",
-            f"- [ ] **[A-1]** Agent A ({role_a}): {task_hint}",
+            f"- **[A-1]** Agent A ({role_a}): {task_hint}",
             f"  - Docstrings: `[{fr_id}]` tag + `Citations:` with line numbers (HR-15)",
             "  - FORBIDDEN: `app/infrastructure/` · `@covers: L1 Error` · `@type: edge`",
-            "- [ ] **[A-2]** Agent A returns `{status, files, confidence, citations, summary}`",
-            "- [ ] **[A-DISPATCH]** Dispatch Agent A:",
+            "- **[A-2]** Agent A returns `{status, files, confidence, citations, summary}`",
+            "- **[A-DISPATCH]** Dispatch Agent A:",
             "  ```bash",
             f"  python3 harness_cli.py dispatch --role developer --fr-id {fr_id} \\",
             f"    --prompt \"{task_hint} for {fr_id}\" --phase {phase} --project .",
@@ -1084,7 +1084,7 @@ def _fr_dev_steps(fr_id: str, phase: int) -> List[str]:
         ]
         lines.extend(_agent_b_dispatch_block(phase, role_b, fr_id=fr_id))
         lines.extend([
-            "- [ ] **[B-DISPATCH]** Dispatch Agent B:",
+            "- **[B-DISPATCH]** Dispatch Agent B:",
             "  ```bash",
             f"  python3 harness_cli.py dispatch --role reviewer --fr-id {fr_id} \\",
             f"    --prompt \"Review {fr_id} against SRS + SAD\" --phase {phase} --project .",
@@ -1103,7 +1103,7 @@ def _fr_dev_steps(fr_id: str, phase: int) -> List[str]:
     return [
         f"**TDD — {fr_id}** (Orchestrator dispatches sub-agents · push after each step):",
         "",
-        f"- [ ] **[ORCH-RED]** Dispatch TDD-RED sub-agent for {fr_id}:",
+        f"- **[ORCH-RED]** Dispatch TDD-RED sub-agent for {fr_id}:",
         "  ```bash",
         f"  python3 harness_cli.py run-fr-step --phase {phase} --fr-id {fr_id} --step TDD-RED \\",
         f"    --project .{srs_flag}",
@@ -1111,7 +1111,7 @@ def _fr_dev_steps(fr_id: str, phase: int) -> List[str]:
         f"  → Verify: `git log --oneline -1` shows `test(RED): failing test for {fr_id}`",
         "  → GitHub push: ✅ auto-done by run-fr-step",
         "",
-        "- [ ] **[P3-MIRROR]** Verify the RED test mirrors TEST_SPEC.md "
+        "- **[P3-MIRROR]** Verify the RED test mirrors TEST_SPEC.md "
         "(P3 only implements — correctness was locked in P2; on FAIL fix the TEST, not TEST_SPEC):",
         "  ```bash",
         f"  python3 harness_cli.py check-test-mirrors-spec --project . --fr-id {fr_id} \\",
@@ -1119,7 +1119,7 @@ def _fr_dev_steps(fr_id: str, phase: int) -> List[str]:
         "  ```",
         "  → trigger_mismatch / assertion_missing / param drift = test diverged from spec.",
         "",
-        f"- [ ] **[ORCH-GREEN]** Dispatch TDD-GREEN sub-agent for {fr_id}:",
+        f"- **[ORCH-GREEN]** Dispatch TDD-GREEN sub-agent for {fr_id}:",
         "  ```bash",
         f"  python3 harness_cli.py run-fr-step --phase {phase} --fr-id {fr_id} --step TDD-GREEN \\",
         f"    --project .{srs_flag}",
@@ -1127,7 +1127,7 @@ def _fr_dev_steps(fr_id: str, phase: int) -> List[str]:
         f"  → Verify: `pytest tests/test_fr{num_str}.py -q` all pass",
         "  → GitHub push: ✅ auto-done by run-fr-step",
         "",
-        f"- [ ] **[ORCH-IMPROVE]** Dispatch TDD-IMPROVE sub-agent for {fr_id}:",
+        f"- **[ORCH-IMPROVE]** Dispatch TDD-IMPROVE sub-agent for {fr_id}:",
         "  ```bash",
         f"  python3 harness_cli.py run-fr-step --phase {phase} --fr-id {fr_id} --step TDD-IMPROVE \\",
         "    --project .",
@@ -1135,7 +1135,7 @@ def _fr_dev_steps(fr_id: str, phase: int) -> List[str]:
         f"  → Verify: `pytest tests/test_fr{num_str}.py -q` still pass",
         "  → GitHub push: ✅ auto-done by run-fr-step",
         "",
-        f"- [ ] **[ORCH-GATE1]** Dispatch GATE1 evaluator sub-agent for {fr_id}:",
+        f"- **[ORCH-GATE1]** Dispatch GATE1 evaluator sub-agent for {fr_id}:",
         "  ```bash",
         f"  python3 harness_cli.py run-fr-step --phase {phase} --fr-id {fr_id} --step GATE1 \\",
         "    --project .",
@@ -1146,7 +1146,7 @@ def _fr_dev_steps(fr_id: str, phase: int) -> List[str]:
         "  → exit 2 = BLOCKED: human intervention required before continuing",
         f"  → Human fix → re-run `run-fr-step --step GATE1 --fr-id {fr_id}` → exit 0 required before continuing.",
         "",
-        "- [ ] **[ORCH-POST]** After GATE1 PASS — orchestrator runs directly:",
+        "- **[ORCH-POST]** After GATE1 PASS — orchestrator runs directly:",
         "  ```bash",
         f"  python3 harness_cli.py spec-coverage-check --project . --threshold 40.0 --fr-id {fr_id}",
         "  python3 scripts/generate_sab.py --project .",
@@ -1166,7 +1166,7 @@ def _fr_carryforward_steps(fr_id: str, phase: int) -> List[str]:
     """
     return [
         f"**Gate 1 Re-evaluation — {fr_id}** (carry-forward · sub-agent dispatch):",
-        "- [ ] **[ORCH-GATE1-DELTA]** Dispatch GATE1-DELTA evaluator sub-agent:",
+        "- **[ORCH-GATE1-DELTA]** Dispatch GATE1-DELTA evaluator sub-agent:",
         "  ```bash",
         f"  python3 harness_cli.py run-fr-step --phase {phase} --fr-id {fr_id} \\",
         "    --step GATE1-DELTA --project .",
@@ -1179,7 +1179,7 @@ def _fr_carryforward_steps(fr_id: str, phase: int) -> List[str]:
         "  → exit 2 = BLOCKED: human intervention required before continuing",
         f"  → Human fix → re-run `run-fr-step --step GATE1-DELTA --fr-id {fr_id}` → exit 0 required before continuing.",
         "",
-        "- [ ] **[ORCH-POST]** After GATE1-DELTA PASS — orchestrator runs directly:",
+        "- **[ORCH-POST]** After GATE1-DELTA PASS — orchestrator runs directly:",
         "  ```bash",
         f"  python3 harness_cli.py spec-coverage-check --project . --threshold 40.0 --fr-id {fr_id}",
         "  python3 scripts/generate_sab.py --project .",
@@ -1201,12 +1201,12 @@ def _phase_advance_step(phase: int, dynamic: bool = False) -> List[str]:
     if phase >= 8:
         return [
             # Phase Truth (HR-11): applies to P3–P8 per SKILL.md §2
-            *(["- [ ] **[PHASE-TRUTH]** Phase Truth ≥ 90% (HR-11) — verified by advance-phase",
+            *(["- **[PHASE-TRUTH]** Phase Truth ≥ 90% (HR-11) — verified by advance-phase",
                "",
                ] if phase >= 3 else []),
             "### 🎉 Pipeline Complete",
             "",
-            "- [ ] All 8 phases complete. Archive `.methodology/` for the audit trail.",
+            "-All 8 phases complete. Archive `.methodology/` for the audit trail.",
             "",
         ]
     next_phase = phase + 1
@@ -1222,14 +1222,14 @@ def _phase_advance_step(phase: int, dynamic: bool = False) -> List[str]:
         f"### Phase {phase} → Phase {next_phase}: {next_name}",
         "",
         *([] if dynamic else [
-            f"- [ ] Generate Phase {next_phase} plan:",
+            f"-Generate Phase {next_phase} plan:",
             "  ```bash",
             f"  python3 harness_cli.py plan-phase --phase {next_phase} --project . \\",
             f"    --output .methodology/phase{next_phase}_plan.md",
             "  ```",
         ]),
         # Git tag step: SKILL.md §0.4 requires Gate 4 tag only (P6→P7 transition)
-        *(["- [ ] **[GIT-TAG]** Push Gate 4 git tag (SKILL.md §0.4):",
+        *(["- **[GIT-TAG]** Push Gate 4 git tag (SKILL.md §0.4):",
            "  ```bash",
            "  SCORE=$(python3 -c \"import json; d=json.load(open('.sessi-work/gate4_result.json')); print(d.get('composite_score','XX'))\" 2>/dev/null || echo 'XX')",
            "  git tag -a \"harness-v4-$(date +%Y%m%d)-score${SCORE}\" -m \"Gate 4 PASS (score ${SCORE})\"",
@@ -1237,7 +1237,7 @@ def _phase_advance_step(phase: int, dynamic: bool = False) -> List[str]:
            "  ```",
            ""] if phase == 6 else []),
         # Phase Truth (HR-11): gates cover P3/P4/P6; P5/P7 have no exit gate so add here
-        *(["- [ ] **[PHASE-TRUTH]** Phase Truth ≥ 90% (HR-11) — verified by advance-phase",
+        *(["- **[PHASE-TRUTH]** Phase Truth ≥ 90% (HR-11) — verified by advance-phase",
            "  > **FAIL** → check `phase_truth_verifier` output in `.sessi-work/`",
            "  >   → identify which phase link or gate artifact failed",
            "  >   → fix artifacts → re-run `advance-phase`",
@@ -1246,25 +1246,25 @@ def _phase_advance_step(phase: int, dynamic: bool = False) -> List[str]:
            ] if phase >= 3 and phase not in _PHASE_EXIT_GATES else []),
         # TDD prechecks: advance-phase enforces pytest 100% cov + spec-coverage (exit 9/10)
         # P5→P6 warning: advance requires 80% but Gate 4 requires 90%
-        *(["- [ ] **[D4-GAP WARNING]** Gate 4 (next phase) requires spec-coverage ≥ 90% but current advance threshold is 80%.",
+        *(["- **[D4-GAP WARNING]** Gate 4 (next phase) requires spec-coverage ≥ 90% but current advance threshold is 80%.",
            "  > Close this gap NOW to avoid a surprise Gate 4 D4 block.",
            "  > Check: `python3 harness_cli.py spec-coverage-check --project . --threshold 90.0`",
            "  > If below 90%: add missing test implementations before advancing to Phase 6.",
            "",
            ] if phase == 5 else []),
-        *(["- [ ] **[TDD-PRECHECK]** Verify TDD checks pass — advance-phase enforces both:",
+        *(["- **[TDD-PRECHECK]** Verify TDD checks pass — advance-phase enforces both:",
            "  - `pytest --tb=short -q --cov=03-development/src --cov-fail-under=100` (exit 9)",
            f"  - `python3 harness_cli.py spec-coverage-check --project . --threshold {_tdd_sc:.1f}` (exit 10, D4 unified v2.6)",
            "  > For genuinely untestable lines add: `# pragma: no cover` (requires justification comment).",
            "",
            ] if phase >= 3 else []),
-        f"- [ ] Advance FSM to Phase {next_phase} (writes new HANDOVER.md + local commit):",
+        f"-Advance FSM to Phase {next_phase} (writes new HANDOVER.md + local commit):",
         "  ```bash",
         f"  python3 harness_cli.py advance-phase --completed {phase} --project .",
         "  ```",
-        f"- [ ] Confirm `HANDOVER.md` reflects Phase {next_phase} entry (`P{next_phase}-entry` checkpoint, correct plan path)",
-        f"- [ ] Open `phase{next_phase}_plan.md` and follow from the top.",
-        f"- [ ] If session crashes during Phase {next_phase}: read `HANDOVER.md` or run `generate-next-plan`",
+        f"-Confirm `HANDOVER.md` reflects Phase {next_phase} entry (`P{next_phase}-entry` checkpoint, correct plan path)",
+        f"-Open `phase{next_phase}_plan.md` and follow from the top.",
+        f"-If session crashes during Phase {next_phase}: read `HANDOVER.md` or run `generate-next-plan`",
         "",
     ]
     return lines
@@ -1286,7 +1286,7 @@ def _constitution_self_check(phase: int) -> List[str]:
         "> Run this check, fix gaps, and re-run until PASS. "
         "This avoids cascading rewrites after Agent B review.",
         "",
-        "- [ ] **[CONSTITUTION-CHECK]** Run constitution self-check:",
+        "- **[CONSTITUTION-CHECK]** Run constitution self-check:",
         "  ```bash",
         f"  python3 harness_cli.py check-constitution --phase {phase} --project .",
         "  ```",
@@ -1313,7 +1313,7 @@ def _post_adr_constitution_check() -> List[str]:
         "> Catches stub-style or low-density ADRs *before* TEST_SPEC.md "
         "depends on them.",
         "",
-        "- [ ] **[CONSTITUTION-CHECK-ADR]** Run single-file constitution check:",
+        "- **[CONSTITUTION-CHECK-ADR]** Run single-file constitution check:",
         "  ```bash",
         "  python3 harness_cli.py check-constitution \\",
         "      --phase 2 \\",
@@ -1353,7 +1353,7 @@ def _dynamic_fr_template_block(phase: int) -> List[str]:
     use_carryforward = phase in (4, 5, 7, 8)
     if use_carryforward:
         fr_steps = [
-            f"- [ ] **[ORCH-GATE1-DELTA]** `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step GATE1-DELTA --project .`",
+            f"- **[ORCH-GATE1-DELTA]** `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step GATE1-DELTA --project .`",
             "> Crash recovery: `resume-fr-phase` auto-detects code changes → switches to full TDD if needed.",
             f"> **Auto-skip**: if NO FR's code changed since its last Gate 1 PASS, `advance-phase --completed {phase}`",
             "> treats this entire DELTA loop as satisfied automatically — you may skip the per-FR steps.",
@@ -1368,11 +1368,11 @@ def _dynamic_fr_template_block(phase: int) -> List[str]:
         ]
     else:
         fr_steps = [
-            f"- [ ] **[ORCH-RED]**     `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step TDD-RED --project . --srs 01-requirements/SRS.md`",
-            f"- [ ] **[P3-MIRROR]**    `python3 harness_cli.py check-test-mirrors-spec --phase {phase} --fr-id {{FR-ID}} --test-file tests/test_*.py --project .`",
-            f"- [ ] **[ORCH-GREEN]**   `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step TDD-GREEN --project . --srs 01-requirements/SRS.md`",
-            f"- [ ] **[ORCH-IMPROVE]** `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step TDD-IMPROVE --project .`",
-            f"- [ ] **[ORCH-GATE1]**   `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step GATE1 --project .`",
+            f"- **[ORCH-RED]**     `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step TDD-RED --project . --srs 01-requirements/SRS.md`",
+            f"- **[P3-MIRROR]**    `python3 harness_cli.py check-test-mirrors-spec --phase {phase} --fr-id {{FR-ID}} --test-file tests/test_*.py --project .`",
+            f"- **[ORCH-GREEN]**   `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step TDD-GREEN --project . --srs 01-requirements/SRS.md`",
+            f"- **[ORCH-IMPROVE]** `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step TDD-IMPROVE --project .`",
+            f"- **[ORCH-GATE1]**   `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step GATE1 --project .`",
             f"> Gate 1 thresholds: {_GATE_META[1][2]}",
             f"> Crash recovery: `resume-fr-phase --phase {phase} --project .`",
             ">",
@@ -1386,7 +1386,7 @@ def _dynamic_fr_template_block(phase: int) -> List[str]:
     return [
         "### FR Tasks — Expanded at Execution Time",
         "",
-        "- [ ] **[ENV-CHECK]** Run ONCE before the FR loop — `GATE1`/`GATE1-DELTA` preflight"
+        "- **[ENV-CHECK]** Run ONCE before the FR loop — `GATE1`/`GATE1-DELTA` preflight"
         " requires `.sessi-work/env_check_result.json`:",
         "  ```bash",
         f"  python3 harness_cli.py run-env-check --phase {phase} --project .",
@@ -1464,7 +1464,7 @@ def _milestone_push_steps(fr_ids: List[str], phase: int,
         "> also write `HANDOVER.md` with phase/FR/status summary and push to origin.",
         f"> All FR IDs in this project: {_visual}",
         "",
-        f"- [ ] **{_mid_prefix}P{phase}-mid** (trigger when ≥{mid_str}/{total_str} FRs have Gate 1 PASS):",
+        f"- **{_mid_prefix}P{phase}-mid** (trigger when ≥{mid_str}/{total_str} FRs have Gate 1 PASS):",
         "  ```bash",
         f"  python3 harness_cli.py push-milestone --type p{phase}-mid --project . \\",
         f"    --fr-done {mid_str} --fr-total {total_str} --fr-ids {mid_ids}",
@@ -1475,7 +1475,7 @@ def _milestone_push_steps(fr_ids: List[str], phase: int,
     ]
     if pre_gate_type:
         result += [
-            f"- [ ] **{_pre_prefix}P{phase}-{pre_gate_type}** (trigger when all {total_str} FRs Gate 1 PASS, before Gate {pre_gate}):",
+            f"- **{_pre_prefix}P{phase}-{pre_gate_type}** (trigger when all {total_str} FRs Gate 1 PASS, before Gate {pre_gate}):",
             "  ```bash",
             f"  python3 harness_cli.py push-milestone --type p{phase}-{pre_gate_type} --project . \\",
             f"    --fr-ids {full_ids}",
@@ -1494,7 +1494,7 @@ def _gate4_prerequisites_block() -> List[str]:
         "",
         "> `finalize-gate --gate 4` validates A3 **before** scoring. Missing/insufficient → `[BLOCKED]`.",
         "",
-        "- [ ] **[A3] `devil_advocate`** + **`devil_advocate_evidence`** — artifact-backed DA challenge for all Tier 3 dims:",
+        "- **[A3] `devil_advocate`** + **`devil_advocate_evidence`** — artifact-backed DA challenge for all Tier 3 dims:",
         "  ```json",
         '  "devil_advocate": {',
         '    "architecture": true, "readability": true, "error_handling": true,',
@@ -1539,14 +1539,14 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
     ]
     phase_truth_step = (
         [
-            "- [ ] **[PHASE-TRUTH]** Phase Truth ≥ 90% (HR-11) — verified by advance-phase",
+            "- **[PHASE-TRUTH]** Phase Truth ≥ 90% (HR-11) — verified by advance-phase",
             "  > **FAIL** → check `phase_truth_verifier` output in `.sessi-work/`",
             "  >   → identify which phase link or gate artifact failed",
             "  >   → fix artifacts → re-run `advance-phase`",
             "  >   → If 3 consecutive failures: escalate to human with `phase_truth_verifier` log",
             "",
         ] if phase >= 3 else [
-            f"- [ ] **[PHASE-TRUTH]** Phase Truth — N/A (P{phase} prerequisite only)",
+            f"- **[PHASE-TRUTH]** Phase Truth — N/A (P{phase} prerequisite only)",
             "",
         ]
     )
@@ -1554,17 +1554,17 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
     g4ef_steps: List[str] = []
     if gate_num == 4:
         g4ef_steps = [
-            "- [ ] **G4e** Generate Release Notes:",
+            "- **G4e** Generate Release Notes:",
             "  Create `RELEASE_NOTES.md` at project root summarizing changes since Gate 3.",
             "  Include: version, date, FR list, Gate 4 composite score, known limitations.",
             "  Reference: `06-quality/QUALITY_REPORT.md` (auto-generated by G4c finalize-gate).",
             "",
-            "- [ ] **G4f** Generate Final Sign-Off:",
+            "- **G4f** Generate Final Sign-Off:",
             "  Create `FINAL_SIGN_OFF.md` at project root.",
             "  Include: project name, completion date, Gate 4 composite score, sign-off statement.",
             "  Must reference `BASELINE.md` and `VERIFICATION_REPORT.md` (verification provenance).",
             "",
-            "- [ ] **G4g** Agent B Peer Review (HR-01):",
+            "- **G4g** Agent B Peer Review (HR-01):",
             "  Agent B (ARCHITECT) reviews `06-quality/QUALITY_REPORT.md` and `RELEASE_NOTES.md`.",
             "  Confirm all FRs are merged and Gate 4 score ≥ 85.",
             "",
@@ -1575,14 +1575,14 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
         f"### 🔒 CHECKPOINT-GATE-{gate_num}: Phase {phase} Exit",
         f"> {meta[2]}",
         "",
-        f"- [ ] **G{gate_num}a** Prepare Gate {gate_num}:",
+        f"- **G{gate_num}a** Prepare Gate {gate_num}:",
         "  ```bash",
         f"  python3 harness_cli.py run-gate --gate {gate_num} --phase {phase} --project .",
         "  ```",
         "  Read the evaluation prompt printed above.",
         *([crg_note] if crg_note else []),
         "",
-        f"- [ ] **G{gate_num}b** Evaluate all Gate {gate_num} dimensions inline:",
+        f"- **G{gate_num}b** Evaluate all Gate {gate_num} dimensions inline:",
         "  - Follow `harness/ssi/prompts/evaluate_dimension.md`",
         f"  - Write result to `.sessi-work/gate{gate_num}_result.json`",
         *(["  - Failing dim: fix code → re-evaluate → re-score"] if gate_num > 1 else []),
@@ -1608,12 +1608,12 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
            "  > `git add .methodology/trace/attestation.json && git commit -m 'trace: regen attestation'`",
            ] if gate_num == 2 else []),
         "",
-        f"- [ ] **G{gate_num}c** Finalize Gate {gate_num}:",
+        f"- **G{gate_num}c** Finalize Gate {gate_num}:",
         "  ```bash",
         f"  python3 harness_cli.py finalize-gate --gate {gate_num} --phase {phase} --project .",
         "  ```",
         *(["  > **PUSH ⑧ in the 10-Push Strategy**: `finalize-gate --gate 4` writes HANDOVER.md + commits + pushes."] if gate_num == 4 else []),
-        f"- [ ] **[D4]** D4 spec-coverage-check — unified v2.6 (Gate {gate_num} threshold {_SPEC_COVERAGE_THRESHOLDS[gate_num]:.0f}%):",
+        f"- **[D4]** D4 spec-coverage-check — unified v2.6 (Gate {gate_num} threshold {_SPEC_COVERAGE_THRESHOLDS[gate_num]:.0f}%):",
         "  ```bash",
         f"  python3 harness_cli.py spec-coverage-check --project . --threshold {_SPEC_COVERAGE_THRESHOLDS[gate_num]}",
         "  ```",
@@ -1621,7 +1621,7 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
         "",
         *early_stop,
         "",
-        f"- [ ] **G{gate_num}d** ✅ Verify checkpoint saved (finalize-gate above already pushed + wrote HANDOVER.md):",
+        f"- **G{gate_num}d** ✅ Verify checkpoint saved (finalize-gate above already pushed + wrote HANDOVER.md):",
         "  ```bash",
         "  # Confirm HANDOVER.md exists at project root (written by finalize-gate → commit_and_push_gate)",
         "  ls -la HANDOVER.md",
@@ -1720,7 +1720,7 @@ def generate_phase1_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
     lines.extend([
         "### Phase 1 Precondition",
         "",
-        "- [ ] **[PROJECT-BRIEF]** Prepare `PROJECT_BRIEF.md` at project root **before starting Phase 1**:",
+        "- **[PROJECT-BRIEF]** Prepare `PROJECT_BRIEF.md` at project root **before starting Phase 1**:",
         "  - Project domain, stakeholders, business goals (1–2 pages)",
         "  - Key constraints (technical, regulatory, budget, timeline)",
         "  - This file is **Agent B's primary context** for all P1 reviews (embedded as DOC 1 in each B-1 prompt)",
@@ -1778,10 +1778,10 @@ def generate_phase1_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
                 lines.append("")
 
     lines.append("### Phase 1 Deliverables")
-    lines.append("- [ ] `SRS.md` - Software Requirements Specification (FRs + NFRs)")
-    lines.append("- [ ] `SPEC_TRACKING.md` - Spec tracking matrix")
-    lines.append("- [ ] `TRACEABILITY_MATRIX.md` - Requirements traceability matrix")
-    lines.append("- [ ] `TEST_INVENTORY.yaml` - Test inventory (P1 naming authority — feeds TEST_SPEC.md)")
+    lines.append("-`SRS.md` - Software Requirements Specification (FRs + NFRs)")
+    lines.append("-`SPEC_TRACKING.md` - Spec tracking matrix")
+    lines.append("-`TRACEABILITY_MATRIX.md` - Requirements traceability matrix")
+    lines.append("-`TEST_INVENTORY.yaml` - Test inventory (P1 naming authority — feeds TEST_SPEC.md)")
     lines.append(_sessions_spawn_deliverable())
     lines.append("")
 
@@ -1875,11 +1875,11 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
         "> NFR `type` values must match `render_canonical_sab_template()` exactly.",
         "> Do NOT hand-write the YAML — paste from the template below.",
         "",
-        "- [ ] **[SAB-WRITE]** Write the SAB block into `02-architecture/SAD.md` §5",
+        "- **[SAB-WRITE]** Write the SAB block into `02-architecture/SAD.md` §5",
         "  using the canonical template (replace EXAMPLE values with real project values):",
         _sab_block_md,
         "",
-        "- [ ] **[SAB-VALIDATE]** Validate the SAB block before committing:",
+        "- **[SAB-VALIDATE]** Validate the SAB block before committing:",
         "  ```bash",
         "  python3 scripts/generate_sab.py --validate --project .",
         "  ```",
@@ -1887,7 +1887,7 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
         "    (e.g. unknown NFR type, `phase` as string).",
         "  - Fix and re-run until PASS.",
         "",
-        "- [ ] **[SAB-GENERATE]** Generate `.methodology/SAB.json` from the validated SAB block:",
+        "- **[SAB-GENERATE]** Generate `.methodology/SAB.json` from the validated SAB block:",
         "  ```bash",
         "  python3 scripts/generate_sab.py --project .",
         "  ```",
@@ -1901,11 +1901,11 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
         "",
     ])
     lines.append("### Phase 2 Deliverables")
-    lines.append("- [ ] `SAD.md` — Software Architecture Document (every FR has module mapping)")
-    lines.append("- [ ] `ADR.md` — Architecture Decision Records (tech stack, patterns, interfaces)")
-    lines.append("- [ ] `TEST_SPEC.md` — Test specification catalog (named test cases from SRS, single source of truth — D4 unified check)")
-    lines.append("- [ ] `.methodology/quality_manifest.json` — Quality manifest (FR list + SAB data)")
-    lines.append("- [ ] `.methodology/SAB.json` — Machine-readable architecture baseline")
+    lines.append("-`SAD.md` — Software Architecture Document (every FR has module mapping)")
+    lines.append("-`ADR.md` — Architecture Decision Records (tech stack, patterns, interfaces)")
+    lines.append("-`TEST_SPEC.md` — Test specification catalog (named test cases from SRS, single source of truth — D4 unified check)")
+    lines.append("-`.methodology/quality_manifest.json` — Quality manifest (FR list + SAB data)")
+    lines.append("-`.methodology/SAB.json` — Machine-readable architecture baseline")
     lines.append(_sessions_spawn_deliverable())
     lines.append("")
 
@@ -2086,11 +2086,11 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
     lines.extend(_gate_exit_checkpoint(gate_num=2, phase=3, checkpoint_n=checkpoint_n))
 
     lines.append("### Phase 3 Deliverables")
-    lines.append("- [ ] `03-development/src/` - All FR modules implemented")
-    lines.append("- [ ] `tests/` - Unit tests (≥80% coverage per FR)")
+    lines.append("-`03-development/src/` - All FR modules implemented")
+    lines.append("-`tests/` - Unit tests (≥80% coverage per FR)")
     lines.append(_sessions_spawn_deliverable())
-    lines.append("- [ ] Gate 1 PASS for every FR")
-    lines.append("- [ ] Gate 2 PASS (phase exit, composite ≥ 75)")
+    lines.append("-Gate 1 PASS for every FR")
+    lines.append("-Gate 2 PASS (phase exit, composite ≥ 75)")
     lines.append("")
 
     # audit-phase runs inside advance-phase — no separate local step needed
@@ -2122,12 +2122,12 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
         lines.append("> This step runs once before per-FR test execution.")
         lines.append("")
         lines.append("**Generate TEST_PLAN.md** (orchestrator runs directly — not a sub-agent dispatch):")
-        lines.append("- [ ] Read SRS.md FR acceptance criteria → write TEST_PLAN.md with per-FR test cases")
+        lines.append("-Read SRS.md FR acceptance criteria → write TEST_PLAN.md with per-FR test cases")
         lines.append("  - For each FR: test case ID, description, input, expected output, priority")
         lines.append("  - Include positive, negative, boundary, and edge case categories")
         lines.append("  - Output: `04-testing/TEST_PLAN.md`")
-        lines.append("- [ ] Verify TEST_PLAN.md covers all FRs from manifest/quality_manifest.json")
-        lines.append("- [ ] **[TP-DONE]** TEST_PLAN.md written: all FRs have ≥1 test case, NFRs addressed")
+        lines.append("-Verify TEST_PLAN.md covers all FRs from manifest/quality_manifest.json")
+        lines.append("- **[TP-DONE]** TEST_PLAN.md written: all FRs have ≥1 test case, NFRs addressed")
         lines.append("")
         lines.extend(_dynamic_fr_template_block(4))
         lines.extend(_milestone_push_steps(fr_ids, phase=4, pre_gate=3,
@@ -2150,12 +2150,12 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
         lines.append("> This step runs once before per-FR test execution.")
         lines.append("")
         lines.append("**Generate TEST_PLAN.md** (orchestrator runs directly — not a sub-agent dispatch):")
-        lines.append("- [ ] Read SRS.md FR acceptance criteria → write TEST_PLAN.md with per-FR test cases")
+        lines.append("-Read SRS.md FR acceptance criteria → write TEST_PLAN.md with per-FR test cases")
         lines.append("  - For each FR: test case ID, description, input, expected output, priority")
         lines.append("  - Include positive, negative, boundary, and edge case categories")
         lines.append("  - Output: `04-testing/TEST_PLAN.md`")
-        lines.append("- [ ] Verify TEST_PLAN.md covers all FRs from manifest/quality_manifest.json")
-        lines.append("- [ ] **[TP-DONE]** TEST_PLAN.md written: all FRs have ≥1 test case, NFRs addressed")
+        lines.append("-Verify TEST_PLAN.md covers all FRs from manifest/quality_manifest.json")
+        lines.append("- **[TP-DONE]** TEST_PLAN.md written: all FRs have ≥1 test case, NFRs addressed")
         lines.append("")
 
         checkpoint_n = 1
@@ -2239,14 +2239,14 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
     lines.extend([
         "### TEST_RESULTS.md Summary",
         "",
-        "- [ ] **[TEST-RESULTS-SUMMARY]** Finalize `04-testing/TEST_RESULTS.md` before milestone push:",
+        "- **[TEST-RESULTS-SUMMARY]** Finalize `04-testing/TEST_RESULTS.md` before milestone push:",
         "  - Summarise test execution: test cases run, pass/fail outcome, any deferred issues",
         "  - Real test execution is enforced by advance-phase TDD-PRECHECK "
         "(`pytest --cov-fail-under=100`), not by string-matching this document",
         "",
         "### COVERAGE_REPORT.md — Coverage Summary",
         "",
-        "- [ ] **[COVERAGE-REPORT]** Generate `04-testing/COVERAGE_REPORT.md`:",
+        "- **[COVERAGE-REPORT]** Generate `04-testing/COVERAGE_REPORT.md`:",
         "  ```bash",
         "  pytest --cov=03-development/src --cov-report=term-missing -q \\",
         "    | tee 04-testing/coverage_raw.txt",
@@ -2268,12 +2268,12 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
     lines.extend(_gate_exit_checkpoint(gate_num=3, phase=4, checkpoint_n=checkpoint_n))
 
     lines.append("### Phase 4 Deliverables")
-    lines.append("- [ ] `04-testing/TEST_PLAN.md` - Test plan")
-    lines.append("- [ ] `04-testing/TEST_RESULTS.md` - Test results (test execution summary)")
-    lines.append("- [ ] `04-testing/COVERAGE_REPORT.md` - Coverage report")
+    lines.append("-`04-testing/TEST_PLAN.md` - Test plan")
+    lines.append("-`04-testing/TEST_RESULTS.md` - Test results (test execution summary)")
+    lines.append("-`04-testing/COVERAGE_REPORT.md` - Coverage report")
     lines.append(_sessions_spawn_deliverable())
-    lines.append("- [ ] Gate 1 PASS for every FR")
-    lines.append("- [ ] Gate 3 PASS (phase exit, composite ≥ 80, 15 dims)")
+    lines.append("-Gate 1 PASS for every FR")
+    lines.append("-Gate 3 PASS (phase exit, composite ≥ 80, 15 dims)")
     lines.append("")
 
     # audit-phase runs inside advance-phase — no separate local step needed
@@ -2311,10 +2311,10 @@ def generate_phase5_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
         lines.append("")
         for fr_id in manifest_fr_ids:
             lines.append(f"#### {fr_id}: Verification")
-            lines.append(f"- [ ] Confirm all acceptance criteria from SRS.md are met for {fr_id}")
-            lines.append(f"- [ ] Run integration tests for {fr_id}")
-            lines.append("- [ ] Verify edge cases and error paths")
-            lines.append("- [ ] Confirm ≥80% branch coverage")
+            lines.append(f"-Confirm all acceptance criteria from SRS.md are met for {fr_id}")
+            lines.append(f"-Run integration tests for {fr_id}")
+            lines.append("-Verify edge cases and error paths")
+            lines.append("-Confirm ≥80% branch coverage")
             lines.append("")
             lines.extend(_fr_carryforward_steps(fr_id, phase=5))
     else:
@@ -2324,23 +2324,23 @@ def generate_phase5_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     lines.extend([
         "### P5 System Verification",
         "",
-        "- [ ] **[BASELINE]** Generate `05-verification/BASELINE.md` (system state snapshot):",
+        "- **[BASELINE]** Generate `05-verification/BASELINE.md` (system state snapshot):",
         "  - Document: current version, test results summary, coverage %, Gate 3 composite score",
         "  - Reference: `04-testing/TEST_RESULTS.md` and `03-development/src/` module list",
-        "- [ ] **[VERIFY-REPORT]** Generate `05-verification/VERIFICATION_REPORT.md`:",
+        "- **[VERIFY-REPORT]** Generate `05-verification/VERIFICATION_REPORT.md`:",
         "  - For each FR: verification status, acceptance criteria result (PASS/FAIL), evidence",
         "  - Include: test coverage %, mutation score, deferred issues from Gate 3",
         "  - Certify: all Gate 3 open issues addressed or deferred with justification",
-        "- [ ] Re-run integration tests: `pytest tests/integration/ -q` (or equivalent per NFRs)",
-        "- [ ] Confirm performance NFRs met: review benchmark entries in `04-testing/TEST_RESULTS.md`",
-        "- [ ] Re-run security scan clean: `bandit -r 03-development/src/ -ll` + `gitleaks detect`",
+        "-Re-run integration tests: `pytest tests/integration/ -q` (or equivalent per NFRs)",
+        "-Confirm performance NFRs met: review benchmark entries in `04-testing/TEST_RESULTS.md`",
+        "-Re-run security scan clean: `bandit -r 03-development/src/ -ll` + `gitleaks detect`",
         "",
     ])
 
     lines.extend([
         "### P5 Milestone Push (10-Push Strategy ⑦)",
         "",
-        "- [ ] **PUSH ⑦ — P5-baseline** (after BASELINE.md is generated):",
+        "- **PUSH ⑦ — P5-baseline** (after BASELINE.md is generated):",
         "  ```bash",
         "  python3 harness_cli.py push-milestone --type p5-baseline --project .",
         "  ```",
@@ -2349,10 +2349,10 @@ def generate_phase5_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     ])
 
     lines.append("### Phase 5 Deliverables")
-    lines.append("- [ ] `05-verification/BASELINE.md` - System baseline")
-    lines.append("- [ ] `05-verification/VERIFICATION_REPORT.md` - Verification report")
+    lines.append("-`05-verification/BASELINE.md` - System baseline")
+    lines.append("-`05-verification/VERIFICATION_REPORT.md` - Verification report")
     lines.append(_sessions_spawn_deliverable())
-    lines.append("- [ ] Gate 1 PASS for every FR")
+    lines.append("-Gate 1 PASS for every FR")
     lines.append("")
 
     # audit-phase runs inside advance-phase — no separate local step needed
@@ -2402,8 +2402,8 @@ def generate_phase6_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
             lines.append("")
 
     lines.append("### Pre-Gate Preparation")
-    lines.append("- [ ] Confirm all FRs are merged to main branch")
-    lines.append("- [ ] Confirm no open critical or high issues from Gate 3")
+    lines.append("-Confirm all FRs are merged to main branch")
+    lines.append("-Confirm no open critical or high issues from Gate 3")
     lines.append("")
 
     lines.extend(_gate4_prerequisites_block())
@@ -2411,10 +2411,10 @@ def generate_phase6_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     lines.extend(_gate_exit_checkpoint(gate_num=4, phase=6, checkpoint_n=1))
 
     lines.append("### Phase 6 Deliverables")
-    lines.append("- [ ] Gate 4 PASS (composite ≥ 85, all 15 dims, CRG recon done)")
-    lines.append("- [ ] `06-quality/QUALITY_REPORT.md` - Quality report (auto-generated by Gate 4)")
-    lines.append("- [ ] `RELEASE_NOTES.md` - Release notes")
-    lines.append("- [ ] `FINAL_SIGN_OFF.md` - Final sign-off")
+    lines.append("-Gate 4 PASS (composite ≥ 85, all 15 dims, CRG recon done)")
+    lines.append("-`06-quality/QUALITY_REPORT.md` - Quality report (auto-generated by Gate 4)")
+    lines.append("-`RELEASE_NOTES.md` - Release notes")
+    lines.append("-`FINAL_SIGN_OFF.md` - Final sign-off")
     lines.append(_sessions_spawn_deliverable())
     lines.append("")
 
@@ -2453,12 +2453,12 @@ def generate_phase7_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
             "",
             "> Generate risk deliverables ONCE before per-FR evaluation (orchestrator runs directly).",
             "",
-            "- [ ] **[RISK-REGISTER]** Generate `07-risk/RISK_REGISTER.md`:",
+            "- **[RISK-REGISTER]** Generate `07-risk/RISK_REGISTER.md`:",
             "  - Review open issues from Gate 3/4, `deferred_fixes.md`, and `.sessi-work/issue_registry.json`",
             "  - For each risk: ID, name, likelihood (1–5), impact (1–5), category, mitigation approach",
-            "- [ ] **[RISK-MITIGATION]** Generate `07-risk/RISK_MITIGATION_PLANS.md`:",
+            "- **[RISK-MITIGATION]** Generate `07-risk/RISK_MITIGATION_PLANS.md`:",
             "  - For HIGH risks (likelihood × impact ≥ 9): write formal mitigation plan with owner + deadline",
-            "- [ ] **[RISK-STATUS]** Generate `07-risk/RISK_STATUS_REPORT.md`:",
+            "- **[RISK-STATUS]** Generate `07-risk/RISK_STATUS_REPORT.md`:",
             "  - Summary of all risks, current status, mitigation owner, target date",
             "",
         ])
@@ -2483,9 +2483,9 @@ def generate_phase7_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
             lines.append("")
             for fr_id in manifest_fr_ids:
                 lines.append(f"#### {fr_id}: Risk Assessment")
-                lines.append(f"- [ ] Review open issues from previous gates for {fr_id}")
-                lines.append(f"- [ ] Check `deferred_fixes.md` for {fr_id} entries")
-                lines.append("- [ ] Confirm no new defects introduced")
+                lines.append(f"-Review open issues from previous gates for {fr_id}")
+                lines.append(f"-Check `deferred_fixes.md` for {fr_id} entries")
+                lines.append("-Confirm no new defects introduced")
                 lines.append("")
                 lines.extend(_fr_carryforward_steps(fr_id, phase=7))
         else:
@@ -2495,7 +2495,7 @@ def generate_phase7_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     lines.extend([
         "### P7 Milestone Push (10-Push Strategy ⑨)",
         "",
-        "- [ ] **PUSH ⑨ — P7 exit** (after risk register is complete):",
+        "- **PUSH ⑨ — P7 exit** (after risk register is complete):",
         "  ```bash",
         "  python3 harness_cli.py push-milestone --type p7 --project .",
         "  ```",
@@ -2504,11 +2504,11 @@ def generate_phase7_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     ])
 
     lines.append("### Phase 7 Deliverables")
-    lines.append("- [ ] `07-risk/RISK_REGISTER.md` - Risk register")
-    lines.append("- [ ] `07-risk/RISK_MITIGATION_PLANS.md` - Mitigation plans")
-    lines.append("- [ ] `07-risk/RISK_STATUS_REPORT.md` - Risk status report")
+    lines.append("-`07-risk/RISK_REGISTER.md` - Risk register")
+    lines.append("-`07-risk/RISK_MITIGATION_PLANS.md` - Mitigation plans")
+    lines.append("-`07-risk/RISK_STATUS_REPORT.md` - Risk status report")
     lines.append(_sessions_spawn_deliverable())
-    lines.append("- [ ] Gate 1 PASS for every FR")
+    lines.append("-Gate 1 PASS for every FR")
     lines.append("")
 
     # audit-phase runs inside advance-phase — no separate local step needed
@@ -2546,11 +2546,11 @@ def generate_phase8_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
             "",
             "> Generate config deliverables ONCE before push-milestone (orchestrator runs directly).",
             "",
-            "- [ ] **[CONFIG-RECORDS]** Generate `CONFIG_RECORDS.md` in `08-config/` directory:",
+            "- **[CONFIG-RECORDS]** Generate `CONFIG_RECORDS.md` in `08-config/` directory:",
             "  - Review all env vars, secrets, feature flags, and deployment settings",
             "  - For each config item: name, value/source, access method, owner, environment (dev/staging/prod)",
             "  - Reference: `03-development/src/` module configs + any `.env.example` or `settings.py`",
-            "- [ ] **[RELEASE-CHECKLIST]** Generate `RELEASE_CHECKLIST.md` in `08-config/` directory:",
+            "- **[RELEASE-CHECKLIST]** Generate `RELEASE_CHECKLIST.md` in `08-config/` directory:",
             "  - Pre-release: all Gate 4 dims PASS, no open critical issues, security scan clean",
             "  - Deployment: env vars set, secrets rotated, DB migrations run, smoke tests pass",
             "  - Post-release: monitoring alerts configured, rollback plan documented",
@@ -2577,9 +2577,9 @@ def generate_phase8_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
             lines.append("")
             for fr_id in manifest_fr_ids:
                 lines.append(f"#### {fr_id}: Configuration Record")
-                lines.append(f"- [ ] Confirm {fr_id} configuration items are documented in CONFIG_RECORDS.md")
-                lines.append("- [ ] Confirm environment variables / secrets are managed (not hardcoded)")
-                lines.append(f"- [ ] Confirm deployment checklist entries for {fr_id}")
+                lines.append(f"-Confirm {fr_id} configuration items are documented in CONFIG_RECORDS.md")
+                lines.append("-Confirm environment variables / secrets are managed (not hardcoded)")
+                lines.append(f"-Confirm deployment checklist entries for {fr_id}")
                 lines.append("")
                 lines.extend(_fr_carryforward_steps(fr_id, phase=8))
         else:
@@ -2589,7 +2589,7 @@ def generate_phase8_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     lines.extend([
         "### P8 Archive — REQUIRED before push-milestone (CI p8-archive-check)",
         "",
-        "- [ ] **[P8-ARCHIVE]** Create `.methodology-archive/` directory (required for CI `p8-archive-check`):",
+        "- **[P8-ARCHIVE]** Create `.methodology-archive/` directory (required for CI `p8-archive-check`):",
         "  ```bash",
         "  mkdir -p .methodology-archive",
         "  cp -r .sessi-work/ .methodology-archive/",
@@ -2597,7 +2597,7 @@ def generate_phase8_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
         "  > Must run BEFORE `push-milestone --type p8`; `_validate_p8_completion()` in push-milestone auto-verifies.",
         "  > CI job `p8-archive-check` also validates this directory on push to main.",
         "",
-        "- [ ] **[P8-HANDOVER-CHECK]** Verify `HANDOVER.md` has no Phase 9 references (validated by CI `p8-archive-check`):",
+        "- **[P8-HANDOVER-CHECK]** Verify `HANDOVER.md` has no Phase 9 references (validated by CI `p8-archive-check`):",
         "  ```bash",
         '  grep -qi "phase 9\\|phase9\\|phase9_plan" HANDOVER.md \\',
         '    && echo "ERROR: Phase 9 refs found — remove them" \\',
@@ -2610,7 +2610,7 @@ def generate_phase8_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     lines.extend([
         "### P8 Milestone Push (10-Push Strategy ⑩)",
         "",
-        "- [ ] **PUSH ⑩ — P8 exit** (after config records are complete):",
+        "- **PUSH ⑩ — P8 exit** (after config records are complete):",
         "  ```bash",
         "  python3 harness_cli.py push-milestone --type p8 --project .",
         "  ```",
@@ -2619,10 +2619,10 @@ def generate_phase8_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     ])
 
     lines.append("### Phase 8 Deliverables")
-    lines.append("- [ ] `CONFIG_RECORDS.md` - Configuration records")
-    lines.append("- [ ] `RELEASE_CHECKLIST.md` - Release checklist")
+    lines.append("-`CONFIG_RECORDS.md` - Configuration records")
+    lines.append("-`RELEASE_CHECKLIST.md` - Release checklist")
     lines.append(_sessions_spawn_deliverable())
-    lines.append("- [ ] Gate 1 PASS for every FR")
+    lines.append("-Gate 1 PASS for every FR")
     lines.append("")
 
     # audit-phase runs inside advance-phase — no separate local step needed

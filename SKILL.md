@@ -74,7 +74,7 @@ do NOT start work until every item is checked.
 6. PHASE COMPLETE → Verify Phase Completion Checklist (§0.4) → advance to Phase N+1 (back to step 1).
 ```
 
-**Crash recovery**: `python harness_cli.py generate-next-plan --project .` → open plan file → resume from next unchecked item.
+**Crash recovery**: `python harness_cli.py generate-next-plan --project .` → open plan file → resume from next incomplete step.
 
 ### 0.2 Source of Truth — One Authority Per Moment
 

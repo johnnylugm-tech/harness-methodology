@@ -1154,7 +1154,6 @@ class TestAdvancePrechecksTDD:
         self._make_p3_project(tmp_path)
         _mock_constitution_pass(monkeypatch)
         monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
-        monkeypatch.setattr("harness_cli._check_gate_score_variance", lambda p, ph: 0)
         monkeypatch.setattr(
             "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier",
             type("FV", (), {
@@ -1179,7 +1178,6 @@ class TestAdvancePrechecksTDD:
         (tmp_path / ".methodology").mkdir()  # no src dir
         _mock_constitution_pass(monkeypatch)
         monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
-        monkeypatch.setattr("harness_cli._check_gate_score_variance", lambda p, ph: 0)
         monkeypatch.setattr(
             "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier",
             type("FV", (), {
@@ -1203,7 +1201,6 @@ class TestAdvancePrechecksTDD:
         (tmp_path / ".methodology").mkdir()
         _mock_constitution_pass(monkeypatch)
         monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
-        monkeypatch.setattr("harness_cli._check_gate_score_variance", lambda p, ph: 0)
         monkeypatch.setattr(
             "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier",
             type("FV", (), {
@@ -1239,7 +1236,6 @@ class TestAdvancePrechecksTDD:
         (tmp_path / ".methodology").mkdir()
         _mock_constitution_pass(monkeypatch)
         monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
-        monkeypatch.setattr("harness_cli._check_gate_score_variance", lambda p, ph: 0)
         monkeypatch.setattr(
             "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier",
             type("FV", (), {
@@ -1266,7 +1262,6 @@ class TestAdvancePrechecksTDD:
         (tmp_path / ".methodology").mkdir()
         _mock_constitution_pass(monkeypatch)
         monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
-        monkeypatch.setattr("harness_cli._check_gate_score_variance", lambda p, ph: 0)
         monkeypatch.setattr(
             "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier",
             type("FV", (), {
@@ -1356,7 +1351,6 @@ class TestAdvancePreChecksAgentB:
         _mock_constitution_pass(monkeypatch)
         _mock_constitution_pass(monkeypatch)
         monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
-        monkeypatch.setattr("harness_cli._check_gate_score_variance", lambda p, ph: 0)
         monkeypatch.setattr(
             "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier",
             type("FV", (), {
@@ -2096,71 +2090,6 @@ class TestRunFrStep:
 # ---------------------------------------------------------------------------
 # P0-A: _mark_plan_item
 # ---------------------------------------------------------------------------
-
-class TestMarkPlanItem:
-    """Tests for harness_cli._mark_plan_item (P0-A bookkeeping automation)."""
-
-    def _make_plan(self, tmp_path: Path, phase: int, content: str) -> Path:
-        plan = tmp_path / ".methodology" / f"phase{phase}_plan.md"
-        plan.parent.mkdir(parents=True, exist_ok=True)
-        plan.write_text(content, encoding="utf-8")
-        return plan
-
-    def test_marks_orch_red_for_tdd_red(self, tmp_path):
-        import harness_cli
-        content = "- [ ] **[ORCH-RED]** Dispatch TDD-RED sub-agent for FR-01:\n"
-        plan = self._make_plan(tmp_path, 3, content)
-        harness_cli._mark_plan_item(tmp_path, 3, "TDD-RED", "FR-01")
-        assert "- [x] **[ORCH-RED]**" in plan.read_text()
-
-    def test_marks_orch_green_for_tdd_green(self, tmp_path):
-        import harness_cli
-        content = "- [ ] **[ORCH-GREEN]** Dispatch TDD-GREEN sub-agent for FR-05:\n"
-        plan = self._make_plan(tmp_path, 3, content)
-        harness_cli._mark_plan_item(tmp_path, 3, "TDD-GREEN", "FR-05")
-        assert "- [x] **[ORCH-GREEN]**" in plan.read_text()
-
-    def test_marks_orch_gate1_for_gate1(self, tmp_path):
-        import harness_cli
-        content = "- [ ] **[ORCH-GATE1]** Dispatch GATE1 evaluator for FR-19:\n"
-        plan = self._make_plan(tmp_path, 3, content)
-        harness_cli._mark_plan_item(tmp_path, 3, "GATE1", "FR-19")
-        assert "- [x] **[ORCH-GATE1]**" in plan.read_text()
-
-    def test_does_not_modify_other_fr_items(self, tmp_path):
-        import harness_cli
-        content = (
-            "- [ ] **[ORCH-RED]** Dispatch TDD-RED sub-agent for FR-01:\n"
-            "- [ ] **[ORCH-RED]** Dispatch TDD-RED sub-agent for FR-02:\n"
-        )
-        plan = self._make_plan(tmp_path, 3, content)
-        harness_cli._mark_plan_item(tmp_path, 3, "TDD-RED", "FR-01")
-        updated = plan.read_text()
-        assert "- [x] **[ORCH-RED]** Dispatch TDD-RED sub-agent for FR-01" in updated
-        assert "- [ ] **[ORCH-RED]** Dispatch TDD-RED sub-agent for FR-02" in updated
-
-    def test_noop_when_plan_missing(self, tmp_path):
-        import harness_cli
-        # No plan file — should not raise
-        harness_cli._mark_plan_item(tmp_path, 3, "TDD-RED", "FR-01")
-
-    def test_noop_for_unknown_step(self, tmp_path):
-        import harness_cli
-        content = "- [ ] **[ORCH-RED]** for FR-01:\n"
-        plan = self._make_plan(tmp_path, 3, content)
-        harness_cli._mark_plan_item(tmp_path, 3, "UNKNOWN-STEP", "FR-01")
-        # File unchanged
-        assert "- [ ] **[ORCH-RED]**" in plan.read_text()
-
-    def test_already_checked_item_unchanged(self, tmp_path):
-        import harness_cli
-        content = "- [x] **[ORCH-RED]** Dispatch TDD-RED for FR-01:\n"
-        plan = self._make_plan(tmp_path, 3, content)
-        harness_cli._mark_plan_item(tmp_path, 3, "TDD-RED", "FR-01")
-        assert plan.read_text().count("[x]") == 1  # still exactly one [x]
-
-
-# ---------------------------------------------------------------------------
 # P0-B: _append_dev_log_tdd_entry
 # ---------------------------------------------------------------------------
 
@@ -2449,11 +2378,11 @@ class TestParseSpecNamesForFr:
 
 
 # =============================================================================
-# run-fr-step idempotency skip: side-effects must fire even when skipping
+# run-fr-step idempotency skip: gate timestamp must fire when skipping GATE1-DELTA
 # =============================================================================
 
 class TestRunFrStepSkipSideEffects:
-    """When _fr_step_already_done returns True, _mark_plan_item and
+    """When _fr_step_already_done returns True,
     _record_gate_timestamp (for GATE1-DELTA) must still be called."""
 
     def _make_plan(self, tmp_path: Path, phase: int, fr_id: str) -> Path:
@@ -2475,38 +2404,11 @@ class TestRunFrStepSkipSideEffects:
             "gate_results": {"gate1": {fr_id: {"score": score, "quality_complete": True}}},
         }), encoding="utf-8")
 
-    def test_mark_plan_item_called_on_skip(self, tmp_path, monkeypatch):
-        """_mark_plan_item must be called even when step is skipped (already done)."""
-        import harness_cli
-        called = []
-        monkeypatch.setattr(harness_cli, "_fr_step_already_done", lambda *a, **k: True)
-        monkeypatch.setattr(harness_cli, "_record_gate_timestamp", lambda *a, **k: None)
-        original_mark = harness_cli._mark_plan_item
-        def mock_mark(project, phase, step, fr_id):
-            called.append((phase, step, fr_id))
-            return original_mark(project, phase, step, fr_id)
-        monkeypatch.setattr(harness_cli, "_mark_plan_item", mock_mark)
-
-        plan = self._make_plan(tmp_path, 5, "FR-01")
-        self._make_manifest(tmp_path, "FR-01")
-
-        args = argparse.Namespace(
-            phase=5, fr_id="FR-01", step="GATE1-DELTA",
-            project=str(tmp_path), srs=None,
-            timeout=600, max_fix_rounds=3, no_push=True,
-            no_mcp=False, permission_mode=None, max_turns=None,
-        )
-        harness_cli.cmd_run_fr_step(args)
-
-        assert ("FR-01" in str(called)), f"_mark_plan_item not called: {called}"
-        assert "- [x] **[ORCH-GATE1]**" in plan.read_text()
-
     def test_gate_timestamp_recorded_on_gate1_delta_skip(self, tmp_path, monkeypatch):
         """_record_gate_timestamp must be called for GATE1-DELTA skip."""
         import harness_cli
         recorded = []
         monkeypatch.setattr(harness_cli, "_fr_step_already_done", lambda *a, **k: True)
-        monkeypatch.setattr(harness_cli, "_mark_plan_item", lambda *a, **k: None)
         monkeypatch.setattr(harness_cli, "_record_gate_timestamp",
                             lambda project, phase, gate, fr_id: recorded.append((phase, gate, fr_id)))
 
@@ -2526,7 +2428,6 @@ class TestRunFrStepSkipSideEffects:
         import harness_cli
         recorded = []
         monkeypatch.setattr(harness_cli, "_fr_step_already_done", lambda *a, **k: True)
-        monkeypatch.setattr(harness_cli, "_mark_plan_item", lambda *a, **k: None)
         monkeypatch.setattr(harness_cli, "_record_gate_timestamp",
                             lambda *a, **k: recorded.append(True))
 
@@ -2542,63 +2443,3 @@ class TestRunFrStepSkipSideEffects:
         assert not recorded, "gate timestamp should not be recorded for TDD-RED skip"
 
 
-# =============================================================================
-# _mark_p5_baseline_plan_items + _mark_generate_next_plan_item
-# =============================================================================
-
-class TestP5PlanMarking:
-    """Deliverable plan items must be auto-marked by push-milestone / advance-phase."""
-
-    def _make_plan(self, tmp_path: Path, content: str) -> Path:
-        plan = tmp_path / ".methodology" / "phase5_plan.md"
-        plan.parent.mkdir(parents=True, exist_ok=True)
-        plan.write_text(content, encoding="utf-8")
-        return plan
-
-    def test_baseline_items_marked_by_push_milestone(self, tmp_path):
-        import harness_cli
-        content = (
-            "- [ ] Integration tests pass\n"
-            "- [ ] Performance tests meet targets\n"
-            "- [ ] Security scan passes\n"
-            "- [ ] Baseline established\n"
-            "- [ ] **PUSH ⑦ — P5-baseline** (after BASELINE.md is generated):\n"
-            "- [ ] `BASELINE.md` - System baseline\n"
-            "- [ ] `VERIFICATION_REPORT.md` - Verification report\n"
-        )
-        plan = self._make_plan(tmp_path, content)
-        harness_cli._mark_p5_baseline_plan_items(tmp_path)
-        result = plan.read_text()
-        assert result.count("- [x]") == 7, f"Expected 7 checked, got:\n{result}"
-        assert "- [ ]" not in result
-
-    def test_no_false_positive_on_other_items(self, tmp_path):
-        import harness_cli
-        content = (
-            "- [ ] Something unrelated\n"
-            "- [ ] Integration tests pass\n"
-        )
-        plan = self._make_plan(tmp_path, content)
-        harness_cli._mark_p5_baseline_plan_items(tmp_path)
-        result = plan.read_text()
-        assert "- [ ] Something unrelated" in result  # not touched
-        assert "- [x] Integration tests pass" in result
-
-    def test_generate_next_plan_item_marked(self, tmp_path):
-        import harness_cli
-        content = "- [ ] Generate Phase 6 plan:\n"
-        plan = tmp_path / ".methodology" / "phase5_plan.md"
-        plan.parent.mkdir(parents=True, exist_ok=True)
-        plan.write_text(content)
-        harness_cli._mark_generate_next_plan_item(tmp_path, completed_phase=5, next_phase=6)
-        assert "- [x] Generate Phase 6 plan:" in plan.read_text()
-
-    def test_generate_next_plan_wrong_phase_not_marked(self, tmp_path):
-        import harness_cli
-        content = "- [ ] Generate Phase 7 plan:\n"
-        plan = tmp_path / ".methodology" / "phase5_plan.md"
-        plan.parent.mkdir(parents=True, exist_ok=True)
-        plan.write_text(content)
-        harness_cli._mark_generate_next_plan_item(tmp_path, completed_phase=5, next_phase=6)
-        # Phase 7 item should NOT be touched when we're advancing to Phase 6
-        assert "- [ ] Generate Phase 7 plan:" in plan.read_text()

@@ -455,137 +455,7 @@ def _record_gate1_score(project: Path, phase: int, fr_id: str, score: float) -> 
         pass
 
 
-def _mark_plan_item(project: Path, phase: int, step: str, fr_id: str) -> None:
-    """P0-A: Check off the plan item for a completed step (bookkeeping automation).
 
-    Prevents C11 CRITICAL at advance-phase by keeping phaseN_plan.md in sync
-    with actual step completion.  Non-fatal: silently skips on any error.
-    """
-    plan_file = project / ".methodology" / f"phase{phase}_plan.md"
-    if not plan_file.exists():
-        return
-    step_to_tag = {
-        "TDD-RED": "ORCH-RED",
-        "TDD-GREEN": "ORCH-GREEN",
-        "TDD-IMPROVE": "ORCH-IMPROVE",
-        "GATE1": "ORCH-GATE1",
-        "GATE1-DELTA": "ORCH-GATE1",
-    }
-    tag = step_to_tag.get(step)
-    if not tag:
-        return
-    try:
-        content = plan_file.read_text(encoding="utf-8")
-        # Match: - [ ] **[ORCH-RED]** ... FR-01 (any text on same line)
-        # Also try the -DELTA variant (e.g. ORCH-GATE1-DELTA) which some plan
-        # generators emit for Phase 5/7/8 carry-forward steps.
-        tags_to_try = [tag]
-        if step.endswith("-DELTA"):
-            tags_to_try.append(tag + "-DELTA")
-        updated = content
-        for _t in tags_to_try:
-            pattern = rf"(- \[ \] \*\*\[{re.escape(_t)}\]\*\*[^\n]*\b{re.escape(fr_id)}\b)"
-            updated = re.sub(
-                pattern,
-                lambda m: m.group(0).replace("- [ ]", "- [x]", 1),
-                updated,
-            )
-        if updated != content:
-            plan_file.write_text(updated, encoding="utf-8")
-    except OSError:
-        pass  # non-fatal: bookkeeping failure must not block step completion
-
-
-def _mark_p5_baseline_plan_items(project: Path) -> None:
-    """Mark Phase 5 deliverable checklist items after push-milestone p5-baseline succeeds.
-
-    These items represent confirmed deliverables (integration tests, security scan,
-    baseline artifacts) that push-milestone validates.  Marking them prevents C11
-    CRITICAL at advance-phase without requiring the agent to manually tick each one.
-    Non-fatal: silently skips on any error.
-    """
-    plan_file = project / ".methodology" / "phase5_plan.md"
-    if not plan_file.exists():
-        return
-    # Patterns that match the deliverable items written by the plan generator.
-    # Each pattern must be anchored tightly to avoid false positive marks.
-    patterns = [
-        r"(- \[ \] Integration tests pass\b)",
-        r"(- \[ \] Performance tests meet targets\b)",
-        r"(- \[ \] Security scan passes\b)",
-        r"(- \[ \] Baseline established\b)",
-        r"(- \[ \] \*\*PUSH[^*]*P5-baseline\*\*[^\n]*)",
-        r"(- \[ \] `BASELINE\.md`[^\n]*)",
-        r"(- \[ \] `VERIFICATION_REPORT\.md`[^\n]*)",
-    ]
-    try:
-        content = plan_file.read_text(encoding="utf-8")
-        updated = content
-        for pat in patterns:
-            updated = re.sub(
-                pat,
-                lambda m: m.group(0).replace("- [ ]", "- [x]", 1),
-                updated,
-            )
-        if updated != content:
-            plan_file.write_text(updated, encoding="utf-8")
-            print("  [push-milestone] Phase 5 deliverable plan items auto-marked ✓")
-    except OSError:
-        pass  # non-fatal
-
-
-def _mark_generate_next_plan_item(project: Path, completed_phase: int, next_phase: int) -> None:
-    """Mark 'Generate Phase N plan' item in phase{completed}_plan.md after advance-phase runs.
-
-    advance-phase itself is the 'Generate next-phase plan' action, so marking it here
-    is accurate and prevents C11 CRITICAL from blocking a re-audit of completed phases.
-    Non-fatal.
-    """
-    plan_file = project / ".methodology" / f"phase{completed_phase}_plan.md"
-    if not plan_file.exists():
-        return
-    try:
-        content = plan_file.read_text(encoding="utf-8")
-        updated = re.sub(
-            rf"(- \[ \] Generate Phase {next_phase} plan\b[^\n]*)",
-            lambda m: m.group(0).replace("- [ ]", "- [x]", 1),
-            content,
-        )
-        if updated != content:
-            plan_file.write_text(updated, encoding="utf-8")
-    except OSError:
-        pass  # non-fatal
-
-
-def _check_inter_fr_score_variance(project: Path, phase: int) -> tuple[bool, str]:
-    """D2 extension: Gate 1 score variance across all FRs in a phase.
-
-    stddev < 1.0 across ≥5 FRs is statistically implausible under genuine evaluation.
-    Returns (ok, diagnostic). Advisory — caller decides whether to block or warn.
-    """
-    scores_file = project / ".methodology" / _GATE1_SCORES_FILE
-    if not scores_file.exists():
-        return True, ""
-    try:
-        all_scores = json.loads(scores_file.read_text(encoding="utf-8"))
-    except Exception:  # pylint: disable=broad-exception-caught
-        return True, ""
-
-    phase_scores: dict = all_scores.get(str(phase), {})
-    values = [float(v) for v in phase_scores.values()]
-    if len(values) < 5:
-        return True, ""
-
-    import statistics as _stats
-    stdev = _stats.pstdev(values)
-    if stdev < 1.0:
-        return False, (
-            f"Inter-FR Gate 1 score variance suspicious: "
-            f"stddev={stdev:.3f} across {len(values)} FRs "
-            f"(range {min(values):.1f}~{max(values):.1f}) — "
-            "genuine per-FR evaluation produces natural variance"
-        )
-    return True, ""
 
 # Entry gate required per phase (CONSTITUTION.md §2.3)
 # Single source of truth: scripts/phase_auditor.py
@@ -2759,13 +2629,6 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
         _dup_flag.parent.mkdir(parents=True, exist_ok=True)
         _dup_flag.write_text(f"{datetime.now(timezone.utc).isoformat()}\n", encoding="utf-8")
 
-        # ── D2: Inter-FR score variance check (phase exit only) ──────────
-        _last_gate = _PHASE_EXIT_GATES.get(args.phase)
-        if _last_gate is not None and args.gate == _last_gate and args.phase >= 3:
-            _var_ok, _var_msg = _check_inter_fr_score_variance(project_path, args.phase)
-            if not _var_ok:
-                print(f"\n[WARN-D2] {_var_msg}")
-
         # ── S1: Phase Truth for last gate of phase ────────────────────────
         # Ensures PhaseTruthVerifier runs even when finalize-gate is called
         _last_gate = _PHASE_EXIT_GATES.get(args.phase)
@@ -3441,10 +3304,6 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
         ok = git.commit_and_push_p4_pre_gate3(fr_ids)
     elif milestone_type == "p5-baseline":
         ok = git.commit_and_push_p5_baseline()
-        if ok:
-            # Auto-mark Phase 5 deliverable plan items so C11 doesn't block advance-phase.
-            # push-milestone is the confirmation that all P5 deliverables were validated.
-            _mark_p5_baseline_plan_items(project)
     elif milestone_type == "p7":
         ok = git.commit_and_push_p7()
     elif milestone_type == "p8":
@@ -4434,10 +4293,6 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
         ],
         resume_phase=next_phase,
     )
-
-    # Mark "Generate Phase N+1 plan" in the completed-phase plan (prevents C11 on re-audit).
-    # The generate-next-plan step happens as part of advance-phase, so the item is confirmed done.
-    _mark_generate_next_plan_item(project, args.completed_phase, next_phase)
 
     # Commit locally (no push — next milestone push publishes to origin)
     if os.environ.get("HARNESS_NO_GIT"):
@@ -5671,11 +5526,8 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
     # 1. Idempotency — skip if already committed
     if _fr_step_already_done(step, fr_id, project):
         print(f"[run-fr-step] {fr_id} {step}: already done → skip")
-        # Still record completion side-effects even on legitimate skip:
-        #   _mark_plan_item  — prevents C11 CRITICAL at advance-phase
         #   _record_gate_timestamp (GATE1-DELTA only) — prevents exit-14 block
         #     from _check_gate1_per_fr_coverage when ALL FRs skip (no code changes)
-        _mark_plan_item(project, phase, step, fr_id)
         if step.upper() == "GATE1-DELTA":
             _record_gate_timestamp(project, phase, 1, fr_id)
         return 0
@@ -5905,9 +5757,6 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
             print(f"[run-fr-step] {fr_id} GATE1 BLOCKED after {max_fix_rounds} CODE-FIX rounds"
                   " — human intervention required")
             return 2  # BLOCKED
-
-    # P0-A: auto-update plan checklist (prevents C11 CRITICAL at advance-phase)
-    _mark_plan_item(project, phase, step, fr_id)
 
     # P0-B: record gate timestamp so advance-phase _check_gate1_per_fr_coverage
     # finds a gate=1 entry for this FR (it reads gate_timestamps.jsonl; without
@@ -7555,23 +7404,26 @@ def cmd_kill_switch(args: argparse.Namespace) -> int:
 def cmd_audit_structure(args: argparse.Namespace) -> int:
     """Audit target project directory structure and artifact completeness.
 
-    Checks all 8 phases:
-      1. Directory existence (01-requirements/ ... 08-config/)
-      2. Artifact completeness (required files per phase)
-      3. Content quality (no hollow templates)
-      4. ASPICE traceability chain (cross-phase references)
-      5. Naming convention compliance (0X-name/ format)
+    Only checks phases up to current_phase — future-phase directories are
+    not required to exist yet and should not be created as empty stubs.
     """
     import json as _json
     import re as _re
 
     project = Path(args.project).resolve()
 
+    # Read current phase from state.json — only audit up to this phase.
+    try:
+        _state = _json.loads((project / ".methodology" / "state.json").read_text())
+        current_phase = int(_state.get("current_phase", 8))
+    except Exception:
+        current_phase = 8  # if state unreadable, check all phases
+
     # Canonical phase directory names — reference module-level _PHASE_DIRS
-    PHASE_DIRS = _PHASE_DIRS
+    PHASE_DIRS = {k: v for k, v in _PHASE_DIRS.items() if k <= current_phase}
 
     # Required artifacts per phase (aligned with phase_artifact_enforcer.py)
-    PHASE_ARTIFACTS = {
+    _ALL_PHASE_ARTIFACTS = {
         1: ["01-requirements/SRS.md", "01-requirements/SPEC_TRACKING.md",
             "01-requirements/TRACEABILITY_MATRIX.md", "TEST_INVENTORY.yaml"],
         2: ["02-architecture/SAD.md", "02-architecture/TEST_SPEC.md"],
@@ -7582,13 +7434,14 @@ def cmd_audit_structure(args: argparse.Namespace) -> int:
         7: ["07-risk/RISK_ASSESSMENT.md", "07-risk/RISK_REGISTER.md"],
         8: ["08-config/CONFIG_RECORDS.md", "08-config/RELEASE_CHECKLIST.md"],
     }
+    PHASE_ARTIFACTS = {k: v for k, v in _ALL_PHASE_ARTIFACTS.items() if k <= current_phase}
 
     results: dict[str, Any] = {
         "project": str(project),
         "dimensions": {},
     }
 
-    # --- Dimension 1: Directory existence ---
+    # --- Dimension 1: Directory existence (≤ current_phase only) ---
     dir_status = {}
     for num, dname in PHASE_DIRS.items():
         dpath = project / dname
@@ -7598,12 +7451,12 @@ def cmd_audit_structure(args: argparse.Namespace) -> int:
             "path": str(dpath),
         }
     results["dimensions"]["directory_existence"] = {
-        "label": "Directory Existence (01-requirements/ ~ 08-config/)",
+        "label": f"Directory Existence (up to P{current_phase})",
         "passed": all(v["exists"] for v in dir_status.values()),
         "details": dir_status,
     }
 
-    # --- Dimension 2: Artifact completeness ---
+    # --- Dimension 2: Artifact completeness (≤ current_phase only) ---
     artifact_status = {}
     for phase_num, paths in PHASE_ARTIFACTS.items():
         phase_key = f"P{phase_num}"

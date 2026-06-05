@@ -52,85 +52,15 @@ def _git_log_mock(text: str) -> MagicMock:
 # ---------------------------------------------------------------------------
 
 class TestAuditPlanCompletion:
+    """audit_plan_completion is a no-op — always returns ([], [])."""
 
-    def test_missing_plan_file_is_critical(self, tmp_path):
-        c, w = audit_plan_completion(tmp_path, phase=3)
-        assert len(c) == 1
-        assert "not found" in c[0]
-        assert w == []
-
-    def test_all_checked_items_passes(self, tmp_path):
-        _write_plan(tmp_path, "- [x] Task 1\n- [x] Task 2\n")
+    def test_always_passes(self, tmp_path):
         c, w = audit_plan_completion(tmp_path, phase=3)
         assert c == []
         assert w == []
 
-    def test_single_unchecked_item_is_critical(self, tmp_path):
-        _write_plan(tmp_path, "- [x] Done\n- [ ] Implement FR-01\n")
-        c, w = audit_plan_completion(tmp_path, phase=3)
-        assert len(c) == 1
-        assert "1 unchecked" in c[0]
-        assert any("FR-01" in item for item in w)
-
-    def test_warnings_capped_at_5(self, tmp_path):
-        content = "\n".join(f"- [ ] Task {i}" for i in range(7)) + "\n"
-        _write_plan(tmp_path, content)
-        c, w = audit_plan_completion(tmp_path, phase=3)
-        assert len(c) == 1
-        assert "7 unchecked" in c[0]
-        assert len(w) == 5  # first 5 only
-
-    def test_info_bullet_is_skipped(self, tmp_path):
-        # [INFO] tag anywhere in the unchecked item → skipped
-        _write_plan(tmp_path, "- [ ] [INFO] Informational note\n")
-        c, w = audit_plan_completion(tmp_path, phase=3)
-        assert c == []
-
-    def test_phase_audit_tag_is_skipped(self, tmp_path):
-        _write_plan(tmp_path, "- [ ] [PHASE-AUDIT] check gaps\n")
-        c, w = audit_plan_completion(tmp_path, phase=3)
-        assert c == []
-
-    def test_gate_score_line_is_skipped(self, tmp_path):
-        _write_plan(tmp_path, "- [ ] Gate 2 score ≥75\n")
-        c, w = audit_plan_completion(tmp_path, phase=3)
-        assert c == []
-
-    def test_phase_complete_line_is_skipped(self, tmp_path):
-        _write_plan(tmp_path, "- [ ] Phase 3 complete\n")
-        c, w = audit_plan_completion(tmp_path, phase=3)
-        assert c == []
-
-    def test_optional_tag_is_skipped(self, tmp_path):
-        _write_plan(tmp_path, "- [ ] [OPTIONAL] run load test if staging available\n")
-        c, w = audit_plan_completion(tmp_path, phase=3)
-        assert c == []
-
-    def test_skip_tag_is_skipped(self, tmp_path):
-        _write_plan(tmp_path, "- [ ] [SKIP] not applicable for this project\n")
-        c, w = audit_plan_completion(tmp_path, phase=3)
-        assert c == []
-
-    def test_optional_tag_case_insensitive(self, tmp_path):
-        _write_plan(tmp_path, "- [ ] [optional] run load test\n")
-        c, w = audit_plan_completion(tmp_path, phase=3)
-        assert c == []
-
-    def test_optional_skipped_but_required_still_caught(self, tmp_path):
-        content = (
-            "- [x] Done task\n"
-            "- [ ] [OPTIONAL] optional step\n"
-            "- [ ] Required task that must be done\n"
-        )
-        _write_plan(tmp_path, content)
-        c, w = audit_plan_completion(tmp_path, phase=3)
-        assert len(c) == 1
-        assert "1 unchecked" in c[0]
-        assert any("Required task" in item for item in w)
-
-    def test_empty_plan_passes(self, tmp_path):
-        _write_plan(tmp_path, "# Phase 3 Plan\n\nNo tasks yet.\n")
-        c, w = audit_plan_completion(tmp_path, phase=3)
+    def test_missing_plan_still_passes(self, tmp_path):
+        c, w = audit_plan_completion(tmp_path, phase=5)
         assert c == []
 
 
@@ -498,38 +428,6 @@ class TestRunAuditIntegration:
         assert "CRITICAL" in content
         assert "GAPS FOUND" in content
         assert "03-development/src" in content
-
-    def test_unchecked_plan_item_returns_1(self, tmp_path):
-        self._setup_passing_phase3(tmp_path)
-        # Overwrite plan with unchecked item
-        (tmp_path / ".methodology" / "phase3_plan.md").write_text(
-            "- [x] Implement FR-01\n- [ ] Incomplete step\n"
-        )
-        with (
-            patch("phase_end_audit._is_git_tracked", return_value=True),
-            patch("subprocess.run", return_value=_git_log_mock(
-                "abc feat(P3-mid): 2/3 FRs\ndef feat(P3-pre-gate2): all FRs\n"
-            )),
-        ):
-            rc = run_audit(tmp_path, phase=3)
-        assert rc == 1
-
-    def test_optional_unchecked_item_does_not_block(self, tmp_path):
-        self._setup_passing_phase3(tmp_path)
-        (tmp_path / ".methodology" / "phase3_plan.md").write_text(
-            "- [x] Implement FR-01\n"
-            "- [x] Run Gate 1\n"
-            "- [x] Run Gate 2\n"
-            "- [ ] [OPTIONAL] run load test if staging available\n"
-        )
-        with (
-            patch("phase_end_audit._is_git_tracked", return_value=True),
-            patch("subprocess.run", return_value=_git_log_mock(
-                "abc feat(P3-mid): 2/3 FRs\ndef feat(P3-pre-gate2): all FRs\n"
-            )),
-        ):
-            rc = run_audit(tmp_path, phase=3)
-        assert rc == 0
 
     def test_report_always_written_even_on_gaps(self, tmp_path):
         # No setup — everything is missing
