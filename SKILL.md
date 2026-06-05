@@ -167,6 +167,7 @@ Before advancing to Phase N+1, confirm ALL:
 - **Role-play both Agent A and Agent B in the same session — dispatch them as separate sub-agent sessions (HR-01 workflow; Phase 1-2)**
 - **Send Agent B file paths as input (Phase 1-2 only) — Agent B is stateless, embed content in prompt**
 - **Treat evaluate_dimension.md as reference — it is the mandatory tool-execution protocol. Skipping tool steps, using wrong LLM tiers, or fabricating scores without tool output = HR violation. score.py enforces this at machine level.**
+- **NEVER modify files inside `harness/` (the methodology submodule) from the project side.** Bugs found in harness-methodology must be reported to the harness-methodology repo; hotfixes applied directly in the submodule create divergence and are invisible to the upstream. The only permitted change to the submodule is `git submodule update --remote`.
 
 ### 0.6 Quick Reference — CLI Entry Points
 
@@ -272,6 +273,7 @@ Dynamic plans contain `Mode: Dynamic` in the header.
 | HR-14 | Integrity < 40 triggers FREEZE | — |
 | HR-15 | citations must include line numbers + artifact_verification | -15 |
 | HR-16 | trace dimension (4a=100% over IN_PROGRESS+VERIFIED FRs at G2/G3/G4) must pass. `gate_score_overrides` is a **threshold floor** (raises, not lowers) per `sab_parser.derive_gate_score_overrides` — it cannot bypass a failing trace dim. The only remediation paths are: (a) fix the underlying code/FRs to reach 100%, (b) accept the gate block and re-architect, or (c) escalate to human. There is no automated override. | Terminate |
+| HR-17 | **NEVER modify files inside `harness/` (methodology submodule) from the project side.** Bugs found in harness-methodology must be reported upstream; hotfixes in the submodule create divergence invisible to the upstream repo. The only permitted submodule change is `git submodule update --remote`. | Terminate |
 
 ---
 

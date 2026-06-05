@@ -229,6 +229,8 @@
 | HR-13 | Phase 執行 > 預估 ×3 → PAUSE | — |
 | HR-14 | Integrity < 40 → FREEZE 全面審計 | — |
 | HR-15 | citations 格式：`檔案#L行號` | -15 |
+| HR-16 | trace dimension（4a=100% over IN_PROGRESS+VERIFIED FRs at G2/G3/G4）必須通過，無自動 override | 終止 |
+| HR-17 | **嚴禁從專案端修改 `harness/`（methodology submodule）內的任何檔案**。發現 bug 必須回報上游；submodule 內的 hotfix 會造成 diverged fork 且上游不可見。唯一允許的 submodule 操作為 `git submodule update --remote` | 終止 |
 
 ---
 
