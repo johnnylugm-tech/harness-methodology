@@ -139,8 +139,10 @@ _TOOL_CHECK_COMMANDS: dict[str, tuple[str, str]] = {
     "gitleaks": ("gitleaks version 2>&1", "gitleaks"),
     "scancode": ("scancode --version 2>&1", "scancode-toolkit"),
     # mutmut 2.5.x hardcodes `python` in time_test_suite() (__main__.py:527).
-    # macOS has python3 only. Fix: ln -s $(which python3) /usr/local/bin/python
-    "mutmut": ("mutmut --help 2>&1 && python --version 2>&1", "mutmut + python (mutmut hardcodes 'python', not 'python3')"),
+    # Check for both mutmut itself AND a working `python` binary.
+    # If only python3 is available, the mutmut check passes but a warning is
+    # emitted so the user knows to `ln -s python3 python` before Phase 4+.
+    "mutmut": ("mutmut --help 2>&1", "mutmut"),
     # Fallback: dimension-name-based lookup for older YAML configs without tool field
     "secrets_scanning": ("gitleaks version 2>&1", "gitleaks"),
     "mutation_testing": ("mutmut --help 2>&1", "mutmut"),
@@ -266,6 +268,21 @@ def _verify_all_gate_tools(project: str) -> tuple[bool, list[str]]:
             if m not in seen:
                 seen.add(m)
                 all_missing.append(m)
+
+    # Soft check: mutmut 2.5.x hardcodes `python` (not `python3`). If mutmut is
+    # required but only python3 exists, warn (don't block — the user can symlink).
+    if not all_missing:
+        _mutmut_needed = any("mutmut" in m for m in seen)
+        if _mutmut_needed:
+            import shutil as _shutil
+            if _shutil.which("mutmut") and not _shutil.which("python") and _shutil.which("python3"):
+                print(
+                    "  [WARN] mutmut requires 'python' binary (not just 'python3').\n"
+                    "    Fix: ln -s $(which python3) /usr/local/bin/python\n"
+                    "    Without this, mutation_testing dimension will fail at Gate 3/4.",
+                    file=sys.stderr,
+                )
+
     return len(all_missing) == 0, all_missing
 
 def _fr_step_preflight(step: str, project: Path, fr_id: str | None) -> tuple[bool, list[str]]:
