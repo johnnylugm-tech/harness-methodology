@@ -4439,6 +4439,23 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
     # The generate-next-plan step happens as part of advance-phase, so the item is confirmed done.
     _mark_generate_next_plan_item(project, args.completed_phase, next_phase)
 
+    # CI checks for certain phase deliverables as soon as current_phase reaches that phase.
+    # TEST_PLAN.md is required at P4+ but is created in P4 CHECKPOINT-0 — without a skeleton
+    # the first push after advance-phase --completed 3 always fails CI.
+    # Create minimal skeletons here so the phase transition commit already satisfies CI.
+    _next_phase_skeletons: dict[int, list[tuple[str, str]]] = {
+        4: [("04-testing/TEST_PLAN.md",
+             "# TEST_PLAN.md\n\n"
+             "> Skeleton created by advance-phase. "
+             "Fill in per-FR test cases during Phase 4 CHECKPOINT-0.\n")],
+    }
+    for _skel_path, _skel_content in _next_phase_skeletons.get(next_phase, []):
+        _skel_file = project / _skel_path
+        if not _skel_file.exists():
+            _skel_file.parent.mkdir(parents=True, exist_ok=True)
+            _skel_file.write_text(_skel_content, encoding="utf-8")
+            print(f"  [advance-phase] Created skeleton {_skel_path}")
+
     # Commit locally (no push — next milestone push publishes to origin)
     if os.environ.get("HARNESS_NO_GIT"):
         print("[advance-phase] HARNESS_NO_GIT=1 — skipping git commit")
@@ -4446,7 +4463,8 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
         add_result = subprocess.run(
             ["git", "-C", str(project), "add",
              ".methodology/state.json", "HANDOVER.md",
-             f".methodology/phase{args.completed_phase}_plan.md"],
+             f".methodology/phase{args.completed_phase}_plan.md",
+             "04-testing/TEST_PLAN.md"],
             capture_output=True, text=True,
         )
         if add_result.returncode != 0:
@@ -6391,6 +6409,7 @@ def _advance_fsm(project: Path, completed_phase: int,
             "last_fr": last_fr,
             "last_update": datetime.now(timezone.utc).isoformat(),
             "phase_truth_passed": False,  # Reset for new phase
+            "last_milestone_command": f"advance-phase --completed-phase {completed_phase}",
         }
         atomic_write_json(state_path, state_data)
         # B5: Advance fr_progress.json inside the same lock so state.json and

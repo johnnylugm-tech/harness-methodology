@@ -479,12 +479,19 @@ jobs:
 
       - name: Verify trace attestation (PR 3, P3+)
         if: steps.phase.outputs.PHASE >= 3
-        # Exit 0/2 are acceptable at P3/P4 (informational / first run);
-        # exit 1 (mismatch) and exit 3 (schema error) block the gate at P5+.
+        # exit 0 = clean, exit 2 = missing (first run): always OK.
+        # exit 1 = mismatch, exit 3 = schema error: informational at P3/P4,
+        # blocking at P5+ (attestation must be authoritative before verification phase).
+        env:
+          PHASE: ${{ steps.phase.outputs.PHASE }}
         run: |
           python harness/harness_cli.py verify-trace \
-            --project . --gate ${{ steps.phase.outputs.PHASE }} \
-            || [ $? -eq 2 ]   # exit 2 = missing, OK on first run
+            --project . --gate "$PHASE" || {
+            EXIT=$?
+            [ $EXIT -eq 2 ] && exit 0
+            [ $EXIT -eq 1 ] && [ "$PHASE" -lt 5 ] && exit 0
+            exit $EXIT
+          }
 
       - name: Run ASPICE traceability audit (P4+)
         if: steps.phase.outputs.PHASE >= 4
