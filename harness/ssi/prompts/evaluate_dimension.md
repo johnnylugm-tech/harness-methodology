@@ -293,8 +293,12 @@ fi
 **Scored by the framework's OWN independent CRG run — not the LLM, not the agent.**
 At finalize-gate the harness itself runs `code-review-graph build` + `postprocess`
 (via `harness/crg_independent.py`) and computes `community_cohesion.score` — percent of
-healthy communities (cohesion >= 0.4 AND size <= 50). Whatever value you record is
-**overwritten** by this framework-computed score, so do not fabricate it.
+healthy communities (cohesion >= 0.3 AND size <= 50). Test-only communities
+(name starts with `tests`/`test`) are automatically excluded from scoring —
+test files have no structural dependency edges with each other and always form
+an oversized zero-cohesion blob under directory-based grouping. Whatever value
+you record is **overwritten** by this framework-computed score, so do not
+fabricate it.
 
 `code-review-graph` is a REQUIRED component (like ruff/mypy); a missing binary BLOCKS
 the gate (verified at run-phase preflight — no graceful degradation).
@@ -377,9 +381,14 @@ AST scan independently, so a fabricated score is blocked.
 - Files with no functions/classes (e.g. empty `__init__.py`) are excluded.
 - A file counts as handled if it contains any `try/except` with handlers (bare-except
   *quality* is a separate concern; this metric is coverage of error handling).
+- Files containing `# pragma: no error-handling` are EXEMPT — excluded from the
+  denominator entirely. Use for Pydantic models, data-only classes, and pure
+  pass-through files that legitimately have no I/O or external calls to handle.
 
 **Fix priority**: source files performing I/O, network, database, or external-service
-calls with no `try/except` anywhere in the file.
+calls with no `try/except` anywhere in the file. For files that genuinely cannot fail
+(data models, config constants), add `# pragma: no error-handling` instead of adding
+pointless try/except blocks.
 
 ### documentation (Tier 3 — tool-scored: ast-docstrings)
 
