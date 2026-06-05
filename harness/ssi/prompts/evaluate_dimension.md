@@ -150,7 +150,9 @@ fi
 if [ "$_mutmut_needs_config" = true ]; then
   _paths=""
   for _d in 03-development/src src lib app; do
-    [ -d "$_d" ] && _paths="${_paths},$_PROJECT_ROOT/$_d"
+    # Skip symlinks — a symlink src→03-development/src would double-count
+    # the same files, causing every mutation to run twice.
+    [ -d "$_d" ] && [ ! -L "$_d" ] && _paths="${_paths},$_PROJECT_ROOT/$_d"
   done
   if [ -n "$_paths" ]; then
     printf '[mutmut]\npaths_to_mutate=%s\n' "${_paths#,}" >> setup.cfg
@@ -158,6 +160,44 @@ if [ "$_mutmut_needs_config" = true ]; then
   unset _paths _d
 fi
 unset _mutmut_needs_config
+
+# Auto-configure [tool:pytest] testpaths with ABSOLUTE paths. Workaround 2
+# (cwd isolation) runs pytest from _MUTMUT_WORKDIR — a temp dir with no test
+# files. Without absolute testpaths, pytest discovers 0 tests → every mutant
+# "survives" → kill rate = 0%. Also fixes harness-internal test discovery
+# (e.g. harness/tests/) which would cause runner failures from project root.
+# If testpaths exists but is relative (no leading '/'), overwrite with absolute.
+_tp_val=$(python3 -c "
+import configparser, sys
+c = configparser.RawConfigParser()
+c.read('setup.cfg')
+try:
+    print(c.get('tool:pytest', 'testpaths').strip())
+except (configparser.NoSectionError, configparser.NoOptionError):
+    print('')
+" 2>/dev/null)
+if [ -z "$_tp_val" ] || ! echo "$_tp_val" | grep -q '^/'; then
+  _tpaths=""
+  for _td in tests 03-development/tests test; do
+    [ -d "$_td" ] && _tpaths="${_tpaths:+$_tpaths }$_PROJECT_ROOT/$_td"
+  done
+  if [ -n "$_tpaths" ]; then
+    python3 -c "
+import re, sys
+tpaths = sys.argv[1]
+text = open('setup.cfg').read()
+if re.search(r'testpaths\s*=', text):
+    text = re.sub(r'(testpaths\s*=\s*)[^\n]*', r'\g<1>' + tpaths, text, count=1)
+elif re.search(r'\[tool:pytest\]', text):
+    text = re.sub(r'(\[tool:pytest\])', r'\1\ntestpaths=' + tpaths, text, count=1)
+else:
+    text += '\n[tool:pytest]\ntestpaths=' + tpaths + '\n'
+open('setup.cfg', 'w').write(text)
+" "$_tpaths"
+  fi
+  unset _tpaths _td
+fi
+unset _tp_val
 
 # mutmut 2.x workaround 1: editable install (pip install -e) places a .pth file in
 # site-packages pointing to the original source directory. When mutmut 2.x
