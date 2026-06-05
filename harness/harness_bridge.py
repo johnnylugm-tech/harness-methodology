@@ -1838,10 +1838,15 @@ class HarnessBridge:
         if _raw_overall is not None and not _crg_overrides_applied:
             _overall_score = float(_raw_overall)
         elif dims and _dim_weights:
-            # Compute weighted average from breakdown using gate config weights
+            # Compute weighted average from breakdown using gate config weights.
+            # Skip dimensions whose score is None (e.g. pytest-benchmark with no
+            # benchmark tests — dimension not yet applicable, returns None). Their
+            # weight is redistributed across the remaining dimensions.
             _weighted = 0.0
             _total_weight = 0.0
             for d in dims:
+                if d.score is None:
+                    continue
                 w = _dim_weights.get(d.name, 1.0 / max(len(dims), 1))
                 _weighted += d.score * w
                 _total_weight += w
@@ -1863,7 +1868,7 @@ class HarnessBridge:
             # Use config thresholds as fallback when agent didn't include per-dim thresholds.
             _gt = ctx.config.get("score_gate", 80) if isinstance(ctx.config, dict) else getattr(ctx.config, 'score_gate', 80)
             _quality_complete = _overall_score >= _gt and all(
-                d.score >= (_dim_thresholds.get(d.name) or d.threshold or _gt)
+                d.score is not None and d.score >= (_dim_thresholds.get(d.name) or d.threshold or _gt)
                 for d in dims
             )
         else:
