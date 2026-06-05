@@ -70,3 +70,6 @@ uv.lock
 *.diff
 *.patch
 XX.*
+.methodology/state.json
+.git_diff*.txt
+docs/proposals/
