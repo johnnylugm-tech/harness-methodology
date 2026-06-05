@@ -59,7 +59,7 @@
 | Code Coverage | 100.0% | 100% |
 | Test Coverage | 100.0% | 100% |
 | Verification Rate | 100.0% | 100% |
-| Total Links | 44 | — |
+| Total Links | 55 | — |
 
 ### ASPICE SWE.3 Compliance
 
@@ -73,14 +73,14 @@
 
 | Requirement | Status | Code Files | Test Files | SAD Module |
 |-------------|--------|------------|------------|------------|
-| FR-01 | verified | mutants/tests/test_policy_engine.py, mutants/tests/test_ensemble_scorer.py, mutants/tests/test_drift_detector.py (+11) | tests/test_policy_engine.py, tests/test_ensemble_scorer.py, tests/test_drift_detector.py (+4) | — |
-| FR-02 | verified | mutants/tests/test_harness_cli.py, mutants/tests/test_traceability_pipeline.py, tests/test_scanner_unification.py (+2) | tests/test_scanner_unification.py, tests/test_harness_cli.py, tests/test_traceability_pipeline.py | — |
-| FR-03 | verified | mutants/tests/test_traceability_pipeline.py, tests/test_traceability_pipeline.py | tests/test_traceability_pipeline.py | — |
-| FR-04 | verified | mutants/tests/test_traceability_pipeline.py, tests/test_traceability_pipeline.py | tests/test_traceability_pipeline.py | — _(annotation: Implementation FR; not back-linked to a top-level SRS section.)_ |
-| FR-05 | verified | mutants/tests/test_traceability_pipeline.py, tests/test_traceability_pipeline.py | tests/test_traceability_pipeline.py | — _(annotation: Implementation FR; not back-linked to a top-level SRS section.)_ |
+| FR-01 | verified | tests/test_policy_engine.py, tests/test_attestation_verify.py, tests/test_ensemble_scorer.py (+11) | tests/test_policy_engine.py, tests/test_attestation_verify.py, tests/test_ensemble_scorer.py (+10) | — |
+| FR-02 | verified | tests/test_attestation_verify.py, tests/test_scanner_unification.py, tests/test_overlay_merge.py (+3) | tests/test_attestation_verify.py, tests/test_scanner_unification.py, tests/test_overlay_merge.py (+3) | — |
+| FR-03 | verified | tests/test_traceability_pipeline.py | tests/test_traceability_pipeline.py | — |
+| FR-04 | verified | tests/test_traceability_pipeline.py | tests/test_traceability_pipeline.py | — _(annotation: Implementation FR; not back-linked to a top-level SRS section.)_ |
+| FR-05 | verified | tests/test_traceability_pipeline.py | tests/test_traceability_pipeline.py | — _(annotation: Implementation FR; not back-linked to a top-level SRS section.)_ |
 | FR-06 | verified | core/quality_gate/constitution/profile.py, core/quality_gate/constitution/runner.py | tests/test_constitution_runner.py, tests/test_constitution_profile.py | §3.x Constitution Profile (per-phase keyword overrides P1–P8)<br><sub>build_traceability.py does not yet parse constitution profile files; human-owned mapping until PR 4 wires the dimension scan.</sub> |
-| FR-07 | verified | mutants/tests/test_traceability_pipeline.py, tests/test_traceability_pipeline.py | tests/test_traceability_pipeline.py | — _(annotation: Implementation FR; not back-linked to a top-level SRS section.)_ |
-| FR-99 | verified | mutants/tests/test_traceability_pipeline.py, tests/test_traceability_pipeline.py | tests/test_traceability_pipeline.py | — _(annotation: Implementation FR; not back-linked to a top-level SRS section.)_ |
+| FR-07 | verified | tests/test_traceability_pipeline.py | tests/test_traceability_pipeline.py | — _(annotation: Implementation FR; not back-linked to a top-level SRS section.)_ |
+| FR-99 | verified | tests/test_4a_denominator_dedup.py, tests/test_traceability_auto_fix.py, tests/test_scanner_mutation_coverage.py (+1) | tests/test_4a_denominator_dedup.py, tests/test_traceability_auto_fix.py, tests/test_scanner_mutation_coverage.py (+1) | — _(annotation: Implementation FR; not back-linked to a top-level SRS section.)_ |
 | FR-ENF-01 | verified | harness_cli.py:cmd_push_milestone, harness_cli.py:_validate_p8_completion | tests/test_harness_cli.py:TestValidateP8Completion | §2.3 push-milestone sentinel enforcement |
 | FR-ENF-02 | verified | harness_cli.py:cmd_verify_agent_b_approvals | tests/test_harness_cli.py:TestVerifyAgentBApprovals | §2.3 Agent B approval gate |
 | FR-ENF-03 | verified | templates/harness_quality_gate.yml, .github/workflows/harness_ci.yml | — | §2.3 P8 archive & HANDOVER CI check |
