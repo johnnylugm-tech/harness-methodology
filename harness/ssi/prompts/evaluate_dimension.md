@@ -234,16 +234,34 @@ mutmut results 2>&1 | head -100
 # Legend: 🎉=killed (good)  🙁=survived (needs investigation)  ⏰=timeout  🤔=suspicious  🔇=skipped
 
 # Data-only files (constants, dictionaries, Pydantic models) have no logic
-# to mutate — every mutant survives, diluteing the kill rate. Exclude them
-# via paths_to_exclude so the score reflects real mutation resistance.
-# Add AFTER the auto-config block above (mutmut reads setup.cfg top-to-bottom;
-# the [mutmut] section must already exist before paths_to_exclude is appended):
+# to mutate — every mutant survives, diluting the kill rate. Auto-detect and
+# exclude them via paths_to_exclude. mutmut uses fnmatch on BASENAME only
+# (e.g. "config.py", NOT "src/config.py").
+# Must run AFTER the auto-config block above so [mutmut] section exists.
 if ! grep -q 'paths_to_exclude' setup.cfg; then
-  echo "  Review setup.cfg [mutmut] paths_to_mutate and add paths_to_exclude for:"
-  echo "  - config.py, constants.py (pure data, no logic to mutate)"
-  echo "  - Pydantic/attrs model files (field declarations only)"
-  echo "  Example: add 'paths_to_exclude=config.py,taiwan_linguistic.py' under [mutmut]"
-  echo "  Then re-run: mutmut run -b 10 && mutmut results"
+  _EXCLUDE=""
+  for _d in 03-development/src src lib app; do
+    [ -d "$_d" ] && [ ! -L "$_d" ] || continue
+    # Data-only signals: file named config.py/constants.py/settings.py,
+    # OR file with ONLY assignments/dicts/imports (no def/class with logic)
+    for _f in $(find "$_d" -name '*.py' -not -name '__init__.py'); do
+      _basename=$(basename "$_f")
+      case "$_basename" in
+        config.py|constants.py|settings.py)
+          _EXCLUDE="${_EXCLUDE},${_basename}" ;;
+        *)
+          # Heuristic: file with def/class that has a body > 1 line → has logic
+          _logic_count=$(grep -cE '^\s{4,}(if |for |while |with |return |raise |try:|except )' "$_f" 2>/dev/null || echo 0)
+          [ "$_logic_count" -eq 0 ] && _EXCLUDE="${_EXCLUDE},${_basename}" ;;
+      esac
+    done
+  done
+  if [ -n "$_EXCLUDE" ]; then
+    _EXCLUDE="${_EXCLUDE#,}"
+    echo "paths_to_exclude=${_EXCLUDE}" >> setup.cfg
+    echo "[mutmut] Auto-excluded data-only files: ${_EXCLUDE}"
+  fi
+  unset _EXCLUDE _d _f _basename _logic_count
 fi
 
 # Return to project root and clean up temp dir
