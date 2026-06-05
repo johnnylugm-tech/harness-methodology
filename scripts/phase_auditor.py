@@ -52,7 +52,7 @@ _ENTRY_GATE_MAP: dict[int, int] = {4: 2, 5: 3, 6: 3, 7: 4, 8: 4}
 # Gate 2 = P3 exit (≥40%), Gate 3 = P4 exit (≥70%), Gate 4 = P6 QA (≥88%)
 _GATE_SCORE_THRESHOLDS: dict[int, float] = {2: 40.0, 3: 70.0, 4: 88.0}
 
-# Milestone commit requirements per phase (absorbed from phase_end_audit._MILESTONES)
+# Milestone commit requirements per phase (formerly in deprecated phase_end_audit.py)
 _PHASE_MILESTONES: dict[int, list[str]] = {
     3: ["p3-mid", "p3-pre-gate2"],
     4: ["p4-mid", "p4-pre-gate3"],

@@ -3724,7 +3724,7 @@ def _generate_stage_pass(project_path: Path, gate_num: int, phase_num: int) -> N
 
 
 def _run_phase_auditor(project: Path, completed_phase: int) -> int:
-    """Run PhaseAuditor (local mode) — comprehensive replacement for _run_phase_end_audit().
+    """Run PhaseAuditor (local mode) — replaced deprecated phase_end_audit.py (v2.5.0).
 
     Returns:
       0  = all checks pass

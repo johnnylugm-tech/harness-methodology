@@ -337,7 +337,7 @@ jobs:
           audit_file = f".methodology/audit_gaps_{prev}.md"
           if not os.path.exists(audit_file):
               print(f"INFO: {audit_file} not found — Phase End Audit may not have run for P{prev}.")
-              print(f"      Run: python harness/scripts/phase_end_audit.py --phase {prev} --project .")
+              print(f"      Run: python harness/harness_cli.py audit-phase --phase {prev} --project .")
               # Non-blocking if file doesn't exist yet (first push after advance-phase).
               sys.exit(0)
           content = open(audit_file, encoding="utf-8").read()

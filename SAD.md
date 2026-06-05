@@ -2035,7 +2035,7 @@ Full inventory of the `scripts/` directory (30 items). Grouped by role:
 | `generate_full_plan.py` | 56KB | Generates a full FR-level execution plan for a phase from SAD.md; outputs `.methodology/phase{N}_plan.md` |
 | `generate_fr_mapping.py` | 6KB | Builds an FR→file mapping from SAD.md and codebase scan; consumed by `phase_auditor.py` and gate pre-flight |
 | `generate_sab.py` | 3KB | CLI wrapper around `sab_parser.extract_sab_from_sad`; also exposes `parse_sad()` called by `HarnessBridge.generate_quality_manifest()` |
-| `phase_end_audit.py` | ~12KB | Phase 3-8 deliverable verifier (replaces A/B collaboration checks for P3+): validates plan completion, deliverables on disk, gate results in manifest, and git log milestones; invoked by `harness_cli.py finalize-gate` for phases ≥3 |
+| `phase_auditor.py` | 60KB | Phase 3-8 deliverable verifier (replaces A/B collaboration checks for P3+): C1-C12 audit covering plan completion, deliverables, gate results, git log milestones, traceability, and constitution compliance; invoked by `harness_cli.py audit-phase` and `finalize-gate` for phases ≥3 |
 
 **`phase_auditor.py` usage** (via `harness_cli.py audit-phase`):
 ```bash
