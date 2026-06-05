@@ -423,8 +423,8 @@ jobs:
           # Paths authoritative from core/quality_gate/phase_artifact_enforcer.py.
           required = {
               3: ["02-architecture/SAD.md"],                         # G-NEW-1: P2 artifact, present from P3+
-              4: ["04-testing/TEST_PLAN.md"],
-              5: ["04-testing/TEST_RESULTS.md"],
+              5: ["04-testing/TEST_PLAN.md",                        # P4 artifact, enforce after P4 complete
+                  "04-testing/TEST_RESULTS.md"],
               6: ["05-verification/VERIFICATION_REPORT.md", "05-verification/BASELINE.md"],
               7: ["06-quality/QUALITY_REPORT.md",                   # P6 artifact
                   "RELEASE_NOTES.md",                               # C-1: P6 artifact (project root)
