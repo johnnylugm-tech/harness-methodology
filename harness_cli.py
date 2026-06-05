@@ -558,6 +558,27 @@ def cmd_plan_all(args: argparse.Namespace) -> int:
 # run-phase
 # ---------------------------------------------------------------------------
 
+def _git_test_patterns(project: Path, num: str, num_raw: str) -> list[str]:
+    """Return git-tracked test file path patterns, resolving symlinks.
+
+    When ``tests/`` is a symlink (e.g. → 03-development/tests/), git tracks
+    the real path. Without resolution, ``git log -- tests/test_fr01.py``
+    silently returns nothing because git has ``03-development/tests/test_fr01.py``.
+    """
+    patterns = [f"tests/test_fr{num}.py", f"tests/test_fr{num_raw}.py"]
+    tests_link = project / "tests"
+    if tests_link.is_symlink():
+        try:
+            real_tests = tests_link.resolve().relative_to(project.resolve())
+            patterns += [
+                f"{real_tests}/test_fr{num}.py",
+                f"{real_tests}/test_fr{num_raw}.py",
+            ]
+        except ValueError:
+            pass
+    return patterns
+
+
 def _check_fr_test_file_exists(project: Path, fr_id: str) -> tuple[bool, str]:
     """Gate 1: verify a test file exists for the given FR (TDD RED phase).
 
@@ -598,7 +619,7 @@ def _check_red_phase_ordering(project: Path, fr_id: str) -> tuple[bool, str]:
         return True, ""
     num = m.group(1).zfill(2)
     num_raw = num.lstrip('0')
-    test_patterns = [f"tests/test_fr{num}.py", f"tests/test_fr{num_raw}.py"]
+    test_patterns = _git_test_patterns(project, num, num_raw)
 
     def _first_sha(patterns: list[str],
                    exclude_globs: list[str] | None = None) -> str | None:
@@ -4606,11 +4627,11 @@ def _fr_code_changed_since_last_gate1(fr_id: str, project: Path) -> bool:
     num_match = re.match(r"FR-(\d+)", fr_id)
     num_str = num_match.group(1).zfill(2) if num_match else ""
 
-    # Test file
+    # Test file (resolve symlinks — git uses real paths, not symlink aliases)
     if num_str:
-        test_file = project / f"tests/test_fr{num_str}.py"
-        if test_file.exists():
-            fr_files.append(str(test_file.relative_to(project)))
+        for p in _git_test_patterns(project, num_str, num_str.lstrip('0')):
+            if (project / p).exists():
+                fr_files.append(p)
 
     # Source files — identified by [{fr_id}] tag in file content
     src_dir = project / "03-development" / "src"

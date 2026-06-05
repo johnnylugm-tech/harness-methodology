@@ -2542,3 +2542,42 @@ class TestFrGate1CommitShaFallback:
         monkeypatch.setattr(subprocess, "run", self._fake_run_factory("", ""))
         sha = harness_cli._fr_gate1_commit_sha("FR-01", tmp_path)
         assert sha is None
+
+
+# =============================================================================
+# _git_test_patterns: symlink-aware test path resolution for git operations
+# =============================================================================
+
+class TestGitTestPatterns:
+
+    def test_no_symlink_returns_standard_patterns(self, tmp_path):
+        """When tests/ is a regular directory, return only standard patterns."""
+        import harness_cli
+        (tmp_path / "tests").mkdir()
+        patterns = harness_cli._git_test_patterns(tmp_path, "01", "1")
+        assert patterns == ["tests/test_fr01.py", "tests/test_fr1.py"]
+
+    def test_symlink_adds_resolved_patterns(self, tmp_path):
+        """When tests/ → 03-development/tests/, include git-tracked real paths."""
+        import harness_cli
+        real = tmp_path / "03-development" / "tests"
+        real.mkdir(parents=True)
+        (tmp_path / "tests").symlink_to(real)
+        patterns = harness_cli._git_test_patterns(tmp_path, "01", "1")
+        assert "tests/test_fr01.py" in patterns
+        assert "03-development/tests/test_fr01.py" in patterns
+        assert "03-development/tests/test_fr1.py" in patterns
+        assert len(patterns) == 4
+
+    def test_symlink_outside_project_ignored(self, tmp_path):
+        """Symlink resolving outside project root → ValueError caught, no extra patterns."""
+        import harness_cli
+        import tempfile
+        outside = Path(tempfile.mkdtemp())
+        try:
+            (tmp_path / "tests").symlink_to(outside)
+            patterns = harness_cli._git_test_patterns(tmp_path, "01", "1")
+            assert len(patterns) == 2  # only standard patterns, no crash
+        finally:
+            import shutil
+            shutil.rmtree(outside, ignore_errors=True)
