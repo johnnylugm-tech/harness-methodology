@@ -277,8 +277,9 @@ def _verify_all_gate_tools(project: str) -> tuple[bool, list[str]]:
             import shutil as _shutil
             if _shutil.which("mutmut") and not _shutil.which("python") and _shutil.which("python3"):
                 print(
-                    "  [WARN] mutmut requires 'python' binary (not just 'python3').\n"
-                    "    Fix: ln -s $(which python3) /usr/local/bin/python\n"
+                    "  [WARN] mutmut hardcodes `python` (not `python3`).\n"
+                    "    Preferred fix: activate the project venv (`.venv/bin/python` exists).\n"
+                    "    Fallback: ln -s $(which python3) /usr/local/bin/python\n"
                     "    Without this, mutation_testing dimension will fail at Gate 3/4.",
                     file=sys.stderr,
                 )
