@@ -886,6 +886,9 @@ class TestCmdAdvancePhase:
                 "harness_cli._advance_prechecks", lambda project, phase: 0,
             )
         else:
+            # Create finalize-gate sentinels so the sentinel check passes
+            import harness_cli as _hc
+            _hc._write_finalize_sentinels_for_tests(tmp_path)
             # PhaseTruthVerifier needs sessions_spawn.log + real project
             # structure — mock it since no tmp_path test provides those.
             class _FakeVer:

@@ -1438,6 +1438,46 @@ def _sentinel_path(project: Path, gate: int, fr_id: str | None) -> Path:
     d = project / ".sessi-work" / "sentinels"
     return d / f"g{gate}_{key}.flag"
 
+
+def _finalize_sentinel_path(project: Path, gate: int, fr_id: str | None) -> Path:
+    """Return the sentinel that finalize-gate writes. advance-phase verifies it."""
+    key = (fr_id or "phase").replace("-", "").lower()
+    d = project / ".sessi-work" / "sentinels"
+    return d / f"g{gate}_{key}.finalized"
+
+
+def _write_finalize_sentinels_for_tests(project: Path, fr_ids: list[str] | None = None):
+    """Create the finalize sentinels that advance-phase checks.
+
+    Tests that exercise _advance_prechecks must call this BEFORE invoking
+    the function — otherwise the finalize-gate sentinel check will block.
+
+    Creates: Gate 1 per-FR sentinel for each fr_id (auto-detected from
+    quality_manifest.json if not provided), plus the phase-exit
+    gate sentinel for every known exit gate.
+    """
+    frs = list(fr_ids) if fr_ids else []
+    if not frs:
+        # Auto-detect FR IDs from quality_manifest.json so tests that create
+        # FRs via the manifest don't need to pass them explicitly.
+        _mp = project / ".methodology" / "quality_manifest.json"
+        if _mp.exists():
+            try:
+                _mf = json.loads(_mp.read_text(encoding="utf-8"))
+                frs = list(_mf.get("fr_ids", []))
+            except (json.JSONDecodeError, OSError):
+                pass
+    for _frid in frs:
+        _sf = _finalize_sentinel_path(project, 1, _frid)
+        _sf.parent.mkdir(parents=True, exist_ok=True)
+        _sf.write_text("test-sentinel\n", encoding="utf-8")
+    # Also write phase-level exit gate sentinels for phases 3,4,6 so any test
+    # that advances past these phases has them available.
+    for _phase, _gate in sorted(_PHASE_EXIT_GATES.items()):
+        _sf = _finalize_sentinel_path(project, _gate, None)
+        _sf.parent.mkdir(parents=True, exist_ok=True)
+        _sf.write_text("test-sentinel\n", encoding="utf-8")
+
 def _check_gate_score_variance(project: Path, phase: int) -> int:
     """Check that gate scores within a phase vary across FRs.
 
@@ -2554,6 +2594,12 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
         print(f"  quality_complete: {result.quality_complete}")
         print(f"  open_critical   : {result.open_critical}")
         print(f"  open_high       : {result.open_high}")
+
+        # Write finalize sentinel — advance-phase checks this to prove finalize-gate
+        # was actually called (not bypassed by fabricating quality_manifest.json).
+        _fsf = _finalize_sentinel_path(project_path, args.gate, fr_id)
+        _fsf.parent.mkdir(parents=True, exist_ok=True)
+        _fsf.write_text(f"{datetime.now(timezone.utc).isoformat()}\n", encoding="utf-8")
 
         # ── Persist gate result to .methodology/ (phase-persistent evidence) ──
         # gate{N}_result.json is written by the agent to .sessi-work/, which is
@@ -3933,6 +3979,60 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
         _rc = _check_gate_score_variance(project, completed_phase)
         if _rc != 0:
             return _rc
+
+    # ── Finalize-gate sentinel check ───────────────────────────────────
+    # Verify finalize-gate was actually called — prevents the agent from
+    # fabricating gate{N}_result.json + quality_manifest.json directly
+    # without the harness running S3/S4 cross-validation.
+    _missing_finalize: list[str] = []
+    # Exit gate check (phase-level): Gate 2 for P3, Gate 3 for P4, Gate 4 for P6
+    if completed_phase in _PHASE_EXIT_GATES:
+        _exit_gate = _PHASE_EXIT_GATES[completed_phase]
+        _fs = _finalize_sentinel_path(project, _exit_gate, None)
+        if not _fs.exists():
+            _missing_finalize.append(
+                f"Gate {_exit_gate} (phase-exit) — expected {_fs.name}"
+            )
+    # Gate 1 per-FR check: every FR must have a finalized Gate 1 sentinel
+    manifest_path = project / ".methodology" / "quality_manifest.json"
+    _fr_ids_for_finalize: list[str] = []
+    if manifest_path.exists():
+        try:
+            _fr_ids_for_finalize = json.loads(
+                manifest_path.read_text(encoding="utf-8")
+            ).get("fr_ids", [])
+        except (json.JSONDecodeError, OSError):
+            pass
+    if completed_phase >= 3 and _fr_ids_for_finalize:
+        _missing_fr_finalize: list[str] = []
+        for _frid in _fr_ids_for_finalize:
+            _fs = _finalize_sentinel_path(project, 1, _frid)
+            if not _fs.exists():
+                # DELTA auto-skip exemption: if no code changed since last Gate 1,
+                # the per-FR finalize step was never called (correctly). Skip check
+                # for FRs where code hasn't changed — same logic as _check_gate1_per_fr_coverage.
+                try:
+                    if not _fr_code_changed_since_last_gate1(_frid, project):
+                        continue
+                except Exception:
+                    pass
+                _missing_fr_finalize.append(_frid)
+        if _missing_fr_finalize:
+            _missing_finalize.append(
+                f"Gate 1 per-FR ({len(_missing_fr_finalize)} FRs): "
+                + ", ".join(_missing_fr_finalize[:5])
+                + (f" +{len(_missing_fr_finalize)-5} more" if len(_missing_fr_finalize) > 5 else "")
+            )
+    if _missing_finalize:
+        print(
+            "\n[BLOCKED] finalize-gate not called for required gate(s):\n"
+            + "".join(f"  ✗ {m}\n" for m in _missing_finalize)
+            + "\n  The agent must call finalize-gate (with S3/S4 cross-validation)\n"
+            + "  before advance-phase. Fabricating gate{N}_result.json or\n"
+            + "  quality_manifest.json without finalize-gate is not permitted.\n"
+            + "  Run: python3 harness_cli.py finalize-gate --gate <N> --phase <P> --project ."
+        )
+        return 17
 
     # ── Gate 1 per-FR coverage check (FR-loop phases only) ───────────
     if completed_phase in _PHASES_WITH_GATE1_FR_CHECK:

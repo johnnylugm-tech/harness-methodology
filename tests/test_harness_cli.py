@@ -1142,10 +1142,13 @@ class TestAdvancePrechecksTDD:
 
     def _make_p3_project(self, tmp_path: Path) -> None:
         """Minimal P3 project skeleton (PhaseAuditor will be mocked)."""
+        import harness_cli
         (tmp_path / ".methodology").mkdir()
         (tmp_path / "03-development" / "src").mkdir(parents=True)
         # Next-phase plan required by _advance_prechecks (phase >= 3)
         (tmp_path / ".methodology" / "phase4_plan.md").touch()
+        # Finalize-gate sentinels — _advance_prechecks verifies these exist
+        harness_cli._write_finalize_sentinels_for_tests(tmp_path)
 
     def test_pytest_failure_returns_9(self, tmp_path, monkeypatch):
         """pytest non-zero exit → _advance_prechecks returns 9."""
@@ -1174,8 +1177,10 @@ class TestAdvancePrechecksTDD:
     def test_pytest_skipped_when_no_src_dir(self, tmp_path, monkeypatch):
         """No 03-development/src → pytest step skipped, continues to spec-coverage."""
         from harness_cli import _advance_prechecks
+        import harness_cli
 
         (tmp_path / ".methodology").mkdir()  # no src dir
+        harness_cli._write_finalize_sentinels_for_tests(tmp_path)
         _mock_constitution_pass(monkeypatch)
         monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
         monkeypatch.setattr(
@@ -1197,8 +1202,10 @@ class TestAdvancePrechecksTDD:
     def test_spec_coverage_below_threshold_returns_10(self, tmp_path, monkeypatch):
         """spec-coverage below threshold → _advance_prechecks returns 10."""
         from harness_cli import _advance_prechecks
+        import harness_cli
 
         (tmp_path / ".methodology").mkdir()
+        harness_cli._write_finalize_sentinels_for_tests(tmp_path)
         _mock_constitution_pass(monkeypatch)
         monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
         monkeypatch.setattr(
@@ -1232,8 +1239,10 @@ class TestAdvancePrechecksTDD:
     def test_threshold_escalation_p4_uses_70_80(self, tmp_path, monkeypatch):
         """P4: spec-coverage threshold=70%, D4 threshold=80%."""
         from harness_cli import _advance_prechecks
+        import harness_cli
 
         (tmp_path / ".methodology").mkdir()
+        harness_cli._write_finalize_sentinels_for_tests(tmp_path)
         _mock_constitution_pass(monkeypatch)
         monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
         monkeypatch.setattr(
@@ -1258,8 +1267,10 @@ class TestAdvancePrechecksTDD:
     def test_threshold_escalation_p6_uses_90(self, tmp_path, monkeypatch):
         """P6: spec-coverage threshold escalates to 90%."""
         from harness_cli import _advance_prechecks
+        import harness_cli
 
         (tmp_path / ".methodology").mkdir()
+        harness_cli._write_finalize_sentinels_for_tests(tmp_path)
         _mock_constitution_pass(monkeypatch)
         monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
         monkeypatch.setattr(
@@ -1346,9 +1357,10 @@ class TestAdvancePreChecksAgentB:
     def test_p3_skips_agent_b_check(self, tmp_path, monkeypatch):
         """P3+ does not run Agent B check (A/B removed from P3+)."""
         from harness_cli import _advance_prechecks
+        import harness_cli
 
         (tmp_path / ".methodology").mkdir()
-        _mock_constitution_pass(monkeypatch)
+        harness_cli._write_finalize_sentinels_for_tests(tmp_path)
         _mock_constitution_pass(monkeypatch)
         monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
         monkeypatch.setattr(
