@@ -1206,7 +1206,7 @@ def _phase_advance_step(phase: int, dynamic: bool = False) -> List[str]:
                ] if phase >= 3 else []),
             "### 🎉 Pipeline Complete",
             "",
-            "-All 8 phases complete. Archive `.methodology/` for the audit trail.",
+            "- All 8 phases complete. Archive `.methodology/` for the audit trail.",
             "",
         ]
     next_phase = phase + 1
@@ -1222,7 +1222,7 @@ def _phase_advance_step(phase: int, dynamic: bool = False) -> List[str]:
         f"### Phase {phase} → Phase {next_phase}: {next_name}",
         "",
         *([] if dynamic else [
-            f"-Generate Phase {next_phase} plan:",
+            f"- Generate Phase {next_phase} plan:",
             "  ```bash",
             f"  python3 harness_cli.py plan-phase --phase {next_phase} --project . \\",
             f"    --output .methodology/phase{next_phase}_plan.md",
@@ -1258,13 +1258,13 @@ def _phase_advance_step(phase: int, dynamic: bool = False) -> List[str]:
            "  > For genuinely untestable lines add: `# pragma: no cover` (requires justification comment).",
            "",
            ] if phase >= 3 else []),
-        f"-Advance FSM to Phase {next_phase} (writes new HANDOVER.md + local commit):",
+        f"- Advance FSM to Phase {next_phase} (writes new HANDOVER.md + local commit):",
         "  ```bash",
         f"  python3 harness_cli.py advance-phase --completed {phase} --project .",
         "  ```",
-        f"-Confirm `HANDOVER.md` reflects Phase {next_phase} entry (`P{next_phase}-entry` checkpoint, correct plan path)",
-        f"-Open `phase{next_phase}_plan.md` and follow from the top.",
-        f"-If session crashes during Phase {next_phase}: read `HANDOVER.md` or run `generate-next-plan`",
+        f"- Confirm `HANDOVER.md` reflects Phase {next_phase} entry (`P{next_phase}-entry` checkpoint, correct plan path)",
+        f"- Open `phase{next_phase}_plan.md` and follow from the top.",
+        f"- If session crashes during Phase {next_phase}: read `HANDOVER.md` or run `generate-next-plan`",
         "",
     ]
     return lines
@@ -1778,10 +1778,10 @@ def generate_phase1_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
                 lines.append("")
 
     lines.append("### Phase 1 Deliverables")
-    lines.append("-`SRS.md` - Software Requirements Specification (FRs + NFRs)")
-    lines.append("-`SPEC_TRACKING.md` - Spec tracking matrix")
-    lines.append("-`TRACEABILITY_MATRIX.md` - Requirements traceability matrix")
-    lines.append("-`TEST_INVENTORY.yaml` - Test inventory (P1 naming authority — feeds TEST_SPEC.md)")
+    lines.append("- `SRS.md` - Software Requirements Specification (FRs + NFRs)")
+    lines.append("- `SPEC_TRACKING.md` - Spec tracking matrix")
+    lines.append("- `TRACEABILITY_MATRIX.md` - Requirements traceability matrix")
+    lines.append("- `TEST_INVENTORY.yaml` - Test inventory (P1 naming authority — feeds TEST_SPEC.md)")
     lines.append(_sessions_spawn_deliverable())
     lines.append("")
 
@@ -1901,11 +1901,11 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
         "",
     ])
     lines.append("### Phase 2 Deliverables")
-    lines.append("-`SAD.md` — Software Architecture Document (every FR has module mapping)")
-    lines.append("-`ADR.md` — Architecture Decision Records (tech stack, patterns, interfaces)")
-    lines.append("-`TEST_SPEC.md` — Test specification catalog (named test cases from SRS, single source of truth — D4 unified check)")
-    lines.append("-`.methodology/quality_manifest.json` — Quality manifest (FR list + SAB data)")
-    lines.append("-`.methodology/SAB.json` — Machine-readable architecture baseline")
+    lines.append("- `SAD.md` — Software Architecture Document (every FR has module mapping)")
+    lines.append("- `ADR.md` — Architecture Decision Records (tech stack, patterns, interfaces)")
+    lines.append("- `TEST_SPEC.md` — Test specification catalog (named test cases from SRS, single source of truth — D4 unified check)")
+    lines.append("- `.methodology/quality_manifest.json` — Quality manifest (FR list + SAB data)")
+    lines.append("- `.methodology/SAB.json` — Machine-readable architecture baseline")
     lines.append(_sessions_spawn_deliverable())
     lines.append("")
 
@@ -2086,11 +2086,11 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
     lines.extend(_gate_exit_checkpoint(gate_num=2, phase=3, checkpoint_n=checkpoint_n))
 
     lines.append("### Phase 3 Deliverables")
-    lines.append("-`03-development/src/` - All FR modules implemented")
-    lines.append("-`tests/` - Unit tests (≥80% coverage per FR)")
+    lines.append("- `03-development/src/` - All FR modules implemented")
+    lines.append("- `tests/` - Unit tests (≥80% coverage per FR)")
     lines.append(_sessions_spawn_deliverable())
-    lines.append("-Gate 1 PASS for every FR")
-    lines.append("-Gate 2 PASS (phase exit, composite ≥ 75)")
+    lines.append("- Gate 1 PASS for every FR")
+    lines.append("- Gate 2 PASS (phase exit, composite ≥ 75)")
     lines.append("")
 
     # audit-phase runs inside advance-phase — no separate local step needed
@@ -2122,11 +2122,11 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
         lines.append("> This step runs once before per-FR test execution.")
         lines.append("")
         lines.append("**Generate TEST_PLAN.md** (orchestrator runs directly — not a sub-agent dispatch):")
-        lines.append("-Read SRS.md FR acceptance criteria → write TEST_PLAN.md with per-FR test cases")
+        lines.append("- Read SRS.md FR acceptance criteria → write TEST_PLAN.md with per-FR test cases")
         lines.append("  - For each FR: test case ID, description, input, expected output, priority")
         lines.append("  - Include positive, negative, boundary, and edge case categories")
         lines.append("  - Output: `04-testing/TEST_PLAN.md`")
-        lines.append("-Verify TEST_PLAN.md covers all FRs from manifest/quality_manifest.json")
+        lines.append("- Verify TEST_PLAN.md covers all FRs from manifest/quality_manifest.json")
         lines.append("- **[TP-DONE]** TEST_PLAN.md written: all FRs have ≥1 test case, NFRs addressed")
         lines.append("")
         lines.extend(_dynamic_fr_template_block(4))
@@ -2150,11 +2150,11 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
         lines.append("> This step runs once before per-FR test execution.")
         lines.append("")
         lines.append("**Generate TEST_PLAN.md** (orchestrator runs directly — not a sub-agent dispatch):")
-        lines.append("-Read SRS.md FR acceptance criteria → write TEST_PLAN.md with per-FR test cases")
+        lines.append("- Read SRS.md FR acceptance criteria → write TEST_PLAN.md with per-FR test cases")
         lines.append("  - For each FR: test case ID, description, input, expected output, priority")
         lines.append("  - Include positive, negative, boundary, and edge case categories")
         lines.append("  - Output: `04-testing/TEST_PLAN.md`")
-        lines.append("-Verify TEST_PLAN.md covers all FRs from manifest/quality_manifest.json")
+        lines.append("- Verify TEST_PLAN.md covers all FRs from manifest/quality_manifest.json")
         lines.append("- **[TP-DONE]** TEST_PLAN.md written: all FRs have ≥1 test case, NFRs addressed")
         lines.append("")
 
@@ -2268,12 +2268,12 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
     lines.extend(_gate_exit_checkpoint(gate_num=3, phase=4, checkpoint_n=checkpoint_n))
 
     lines.append("### Phase 4 Deliverables")
-    lines.append("-`04-testing/TEST_PLAN.md` - Test plan")
-    lines.append("-`04-testing/TEST_RESULTS.md` - Test results (test execution summary)")
-    lines.append("-`04-testing/COVERAGE_REPORT.md` - Coverage report")
+    lines.append("- `04-testing/TEST_PLAN.md` - Test plan")
+    lines.append("- `04-testing/TEST_RESULTS.md` - Test results (test execution summary)")
+    lines.append("- `04-testing/COVERAGE_REPORT.md` - Coverage report")
     lines.append(_sessions_spawn_deliverable())
-    lines.append("-Gate 1 PASS for every FR")
-    lines.append("-Gate 3 PASS (phase exit, composite ≥ 80, 15 dims)")
+    lines.append("- Gate 1 PASS for every FR")
+    lines.append("- Gate 3 PASS (phase exit, composite ≥ 80, 15 dims)")
     lines.append("")
 
     # audit-phase runs inside advance-phase — no separate local step needed
@@ -2311,10 +2311,10 @@ def generate_phase5_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
         lines.append("")
         for fr_id in manifest_fr_ids:
             lines.append(f"#### {fr_id}: Verification")
-            lines.append(f"-Confirm all acceptance criteria from SRS.md are met for {fr_id}")
-            lines.append(f"-Run integration tests for {fr_id}")
-            lines.append("-Verify edge cases and error paths")
-            lines.append("-Confirm ≥80% branch coverage")
+            lines.append(f"- Confirm all acceptance criteria from SRS.md are met for {fr_id}")
+            lines.append(f"- Run integration tests for {fr_id}")
+            lines.append("- Verify edge cases and error paths")
+            lines.append("- Confirm ≥80% branch coverage")
             lines.append("")
             lines.extend(_fr_carryforward_steps(fr_id, phase=5))
     else:
@@ -2331,9 +2331,9 @@ def generate_phase5_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
         "  - For each FR: verification status, acceptance criteria result (PASS/FAIL), evidence",
         "  - Include: test coverage %, mutation score, deferred issues from Gate 3",
         "  - Certify: all Gate 3 open issues addressed or deferred with justification",
-        "-Re-run integration tests: `pytest tests/integration/ -q` (or equivalent per NFRs)",
-        "-Confirm performance NFRs met: review benchmark entries in `04-testing/TEST_RESULTS.md`",
-        "-Re-run security scan clean: `bandit -r 03-development/src/ -ll` + `gitleaks detect`",
+        "- Re-run integration tests: `pytest tests/integration/ -q` (or equivalent per NFRs)",
+        "- Confirm performance NFRs met: review benchmark entries in `04-testing/TEST_RESULTS.md`",
+        "- Re-run security scan clean: `bandit -r 03-development/src/ -ll` + `gitleaks detect`",
         "",
     ])
 
@@ -2349,10 +2349,10 @@ def generate_phase5_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     ])
 
     lines.append("### Phase 5 Deliverables")
-    lines.append("-`05-verification/BASELINE.md` - System baseline")
-    lines.append("-`05-verification/VERIFICATION_REPORT.md` - Verification report")
+    lines.append("- `05-verification/BASELINE.md` - System baseline")
+    lines.append("- `05-verification/VERIFICATION_REPORT.md` - Verification report")
     lines.append(_sessions_spawn_deliverable())
-    lines.append("-Gate 1 PASS for every FR")
+    lines.append("- Gate 1 PASS for every FR")
     lines.append("")
 
     # audit-phase runs inside advance-phase — no separate local step needed
@@ -2402,8 +2402,8 @@ def generate_phase6_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
             lines.append("")
 
     lines.append("### Pre-Gate Preparation")
-    lines.append("-Confirm all FRs are merged to main branch")
-    lines.append("-Confirm no open critical or high issues from Gate 3")
+    lines.append("- Confirm all FRs are merged to main branch")
+    lines.append("- Confirm no open critical or high issues from Gate 3")
     lines.append("")
 
     lines.extend(_gate4_prerequisites_block())
@@ -2411,10 +2411,10 @@ def generate_phase6_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     lines.extend(_gate_exit_checkpoint(gate_num=4, phase=6, checkpoint_n=1))
 
     lines.append("### Phase 6 Deliverables")
-    lines.append("-Gate 4 PASS (composite ≥ 85, all 15 dims, CRG recon done)")
-    lines.append("-`06-quality/QUALITY_REPORT.md` - Quality report (auto-generated by Gate 4)")
-    lines.append("-`RELEASE_NOTES.md` - Release notes")
-    lines.append("-`FINAL_SIGN_OFF.md` - Final sign-off")
+    lines.append("- Gate 4 PASS (composite ≥ 85, all 15 dims, CRG recon done)")
+    lines.append("- `06-quality/QUALITY_REPORT.md` - Quality report (auto-generated by Gate 4)")
+    lines.append("- `RELEASE_NOTES.md` - Release notes")
+    lines.append("- `FINAL_SIGN_OFF.md` - Final sign-off")
     lines.append(_sessions_spawn_deliverable())
     lines.append("")
 
@@ -2483,9 +2483,9 @@ def generate_phase7_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
             lines.append("")
             for fr_id in manifest_fr_ids:
                 lines.append(f"#### {fr_id}: Risk Assessment")
-                lines.append(f"-Review open issues from previous gates for {fr_id}")
-                lines.append(f"-Check `deferred_fixes.md` for {fr_id} entries")
-                lines.append("-Confirm no new defects introduced")
+                lines.append(f"- Review open issues from previous gates for {fr_id}")
+                lines.append(f"- Check `deferred_fixes.md` for {fr_id} entries")
+                lines.append("- Confirm no new defects introduced")
                 lines.append("")
                 lines.extend(_fr_carryforward_steps(fr_id, phase=7))
         else:
@@ -2504,11 +2504,11 @@ def generate_phase7_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     ])
 
     lines.append("### Phase 7 Deliverables")
-    lines.append("-`07-risk/RISK_REGISTER.md` - Risk register")
-    lines.append("-`07-risk/RISK_MITIGATION_PLANS.md` - Mitigation plans")
-    lines.append("-`07-risk/RISK_STATUS_REPORT.md` - Risk status report")
+    lines.append("- `07-risk/RISK_REGISTER.md` - Risk register")
+    lines.append("- `07-risk/RISK_MITIGATION_PLANS.md` - Mitigation plans")
+    lines.append("- `07-risk/RISK_STATUS_REPORT.md` - Risk status report")
     lines.append(_sessions_spawn_deliverable())
-    lines.append("-Gate 1 PASS for every FR")
+    lines.append("- Gate 1 PASS for every FR")
     lines.append("")
 
     # audit-phase runs inside advance-phase — no separate local step needed
@@ -2577,9 +2577,9 @@ def generate_phase8_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
             lines.append("")
             for fr_id in manifest_fr_ids:
                 lines.append(f"#### {fr_id}: Configuration Record")
-                lines.append(f"-Confirm {fr_id} configuration items are documented in CONFIG_RECORDS.md")
-                lines.append("-Confirm environment variables / secrets are managed (not hardcoded)")
-                lines.append(f"-Confirm deployment checklist entries for {fr_id}")
+                lines.append(f"- Confirm {fr_id} configuration items are documented in CONFIG_RECORDS.md")
+                lines.append("- Confirm environment variables / secrets are managed (not hardcoded)")
+                lines.append(f"- Confirm deployment checklist entries for {fr_id}")
                 lines.append("")
                 lines.extend(_fr_carryforward_steps(fr_id, phase=8))
         else:
@@ -2619,10 +2619,10 @@ def generate_phase8_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     ])
 
     lines.append("### Phase 8 Deliverables")
-    lines.append("-`CONFIG_RECORDS.md` - Configuration records")
-    lines.append("-`RELEASE_CHECKLIST.md` - Release checklist")
+    lines.append("- `CONFIG_RECORDS.md` - Configuration records")
+    lines.append("- `RELEASE_CHECKLIST.md` - Release checklist")
     lines.append(_sessions_spawn_deliverable())
-    lines.append("-Gate 1 PASS for every FR")
+    lines.append("- Gate 1 PASS for every FR")
     lines.append("")
 
     # audit-phase runs inside advance-phase — no separate local step needed
