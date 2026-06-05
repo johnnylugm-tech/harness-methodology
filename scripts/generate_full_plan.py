@@ -1198,12 +1198,19 @@ def _sessions_spawn_deliverable() -> str:
 
 def _phase_advance_step(phase: int, dynamic: bool = False) -> List[str]:
     """Instruction to advance to the next phase after all checkpoints PASS."""
+    _tdd_sc_p8 = 90.0  # P8: same as P6/P7 (Gate 4 threshold)
     if phase >= 8:
         return [
             # Phase Truth (HR-11): applies to P3–P8 per SKILL.md §2
             *(["- **[PHASE-TRUTH]** Phase Truth ≥ 90% (HR-11) — verified by advance-phase",
                "",
                ] if phase >= 3 else []),
+            # TDD precheck: advance-phase enforces pytest 100% cov + D4 spec-coverage ≥90%
+            "- **[TDD-PRECHECK]** Verify TDD checks pass — advance-phase enforces both:",
+            "  - `pytest --tb=short -q --cov=03-development/src --cov-fail-under=100` (exit 9)",
+            f"  - `python3 harness_cli.py spec-coverage-check --project . --threshold {_tdd_sc_p8:.1f}` (exit 10, D4 unified v2.6)",
+            "  > For genuinely untestable lines add: `# pragma: no cover` (requires justification comment).",
+            "",
             "### 🎉 Pipeline Complete",
             "",
             "- All 8 phases complete. Archive `.methodology/` for the audit trail.",
