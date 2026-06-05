@@ -131,7 +131,7 @@ def _override_traceability_dim_score(
     _changed = False
     for _d in dims:
         if _d.name == "traceability":
-            if abs(_d.score - _framework_score) > 0.5:
+            if _d.score is not None and abs(_d.score - _framework_score) > 0.5:
                 print(
                     f"[harness] trace override traceability: "
                     f"{_d.score:.1f} → {_framework_score:.1f} "
@@ -448,7 +448,7 @@ def _crg_enrich_gate_findings(
                     "evidence": "; ".join(untested_hubs),
                     "source": "crg:query_graph(tests_for)",
                 })
-                _new_score = round(max(0.0, _d.score - _hub_penalty), 1)
+                _new_score = round(max(0.0, (_d.score or 0.0) - _hub_penalty), 1)
                 print(
                     f"[harness] CRG hub penalty test_coverage: {_d.score:.1f} → "
                     f"{_new_score:.1f} "
