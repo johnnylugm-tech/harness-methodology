@@ -182,10 +182,12 @@ class DriftDetector:
 
         for fr_num, rel_path in mappings:
             checked += 1
-            # Try both relative and with prefix
+            # Try relative path and common prefix variants.
+            # "03-development" / rel_path handles projects where SAD declares
+            # src/X.py but files live at 03-development/src/X.py.
             candidates = [
                 self.project_path / rel_path,
-                self.project_path / "03-development" / "src" / rel_path,
+                self.project_path / "03-development" / rel_path,
                 self.project_path / "app" / rel_path.split("/")[-1],
             ]
             exists = any(p.exists() for p in candidates)
@@ -380,16 +382,21 @@ class DriftDetector:
 
         # ── Check 1: SAB files missing from codebase ──────────────────────
         for rel_path, layer_name in sab_files.items():
-            if not rel_path.endswith("/") and not re.match(r'^FR-\d+$', rel_path) and not (self.project_path / rel_path).exists():
-                drifted += 1
-                items.append(DriftItem(
-                    drift_type="sab",
-                    severity=DriftSeverity.MEDIUM,
-                    location=f"SAB layer {layer_name}",
-                    description=f"SAB declares {rel_path} but file not found in codebase",
-                    expected=rel_path,
-                    actual="not found",
-                ))
+            if not rel_path.endswith("/") and not re.match(r'^FR-\d+$', rel_path):
+                exists = (
+                    (self.project_path / rel_path).exists() or
+                    (self.project_path / "03-development" / rel_path).exists()
+                )
+                if not exists:
+                    drifted += 1
+                    items.append(DriftItem(
+                        drift_type="sab",
+                        severity=DriftSeverity.MEDIUM,
+                        location=f"SAB layer {layer_name}",
+                        description=f"SAB declares {rel_path} but file not found in codebase",
+                        expected=rel_path,
+                        actual="not found",
+                    ))
 
         # ── Check 2: New Python files not in any SAB layer ────────────────
         sab_file_set = {f for f in sab_files if not f.endswith("/")}
@@ -410,7 +417,10 @@ class DriftDetector:
                 continue
             if rel.startswith("archive/"):
                 continue
-            if rel not in sab_file_set and not rel.startswith("tests/") and "/tests/" not in rel:
+            # Normalize 03-development/ prefix so files at 03-development/src/X.py
+            # match SAB entries declared as src/X.py.
+            _rel_norm = rel[len("03-development/"):] if rel.startswith("03-development/") else rel
+            if rel not in sab_file_set and _rel_norm not in sab_file_set and not rel.startswith("tests/") and "/tests/" not in rel:
                 checked += 1
                 drifted += 1
                 items.append(DriftItem(
