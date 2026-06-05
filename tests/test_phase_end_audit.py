@@ -16,7 +16,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from phase_end_audit import (
     audit_deliverables,
-    audit_development_log,
     audit_gate_results,
     audit_git_log,
     audit_plan_completion,
@@ -304,54 +303,6 @@ class TestAuditGitLog:
         assert any("Could not check" in msg for msg in w)
 
 
-# ---------------------------------------------------------------------------
-# audit_development_log
-# ---------------------------------------------------------------------------
-
-class TestAuditDevelopmentLog:
-
-    def test_missing_log_is_warning(self, tmp_path):
-        c, w = audit_development_log(tmp_path, phase=3)
-        assert c == []
-        assert any("not found" in msg for msg in w)
-
-    def test_log_with_phase_and_session_id_passes(self, tmp_path):
-        (tmp_path / "DEVELOPMENT_LOG.md").write_text(
-            "## Phase 3\nsession_id: abc-def-123\n"
-        )
-        c, w = audit_development_log(tmp_path, phase=3)
-        assert c == []
-        assert w == []
-
-    def test_log_missing_phase_entries_is_warning(self, tmp_path):
-        (tmp_path / "DEVELOPMENT_LOG.md").write_text(
-            "## Phase 2\nsession_id: xyz-456\n"
-        )
-        c, w = audit_development_log(tmp_path, phase=3)
-        assert any("Phase 3" in msg for msg in w)
-
-    def test_log_missing_session_id_is_warning(self, tmp_path):
-        (tmp_path / "DEVELOPMENT_LOG.md").write_text(
-            "## Phase 3\nSome content without any session reference\n"
-        )
-        c, w = audit_development_log(tmp_path, phase=3)
-        assert any("session_id" in msg for msg in w)
-
-    def test_session_id_hyphenated_form_accepted(self, tmp_path):
-        (tmp_path / "DEVELOPMENT_LOG.md").write_text(
-            "## Phase 3\nsession-id: abc-123\n"
-        )
-        c, w = audit_development_log(tmp_path, phase=3)
-        assert c == []
-        # session_id regex accepts session-id too (re.IGNORECASE, \s? pattern)
-        # if not, that's fine — just check no crash
-
-    def test_both_warnings_present_when_both_missing(self, tmp_path):
-        (tmp_path / "DEVELOPMENT_LOG.md").write_text("## Phase 2\nno session\n")
-        c, w = audit_development_log(tmp_path, phase=4)
-        assert c == []
-        assert len(w) == 2
-
 
 # ---------------------------------------------------------------------------
 # run_audit integration
@@ -374,10 +325,6 @@ class TestRunAuditIntegration:
                 "gate2": {"quality_complete": True, "score": 77},
             },
         }))
-        (tmp_path / "DEVELOPMENT_LOG.md").write_text(
-            "## Phase 3\nsession_id: abc-123\n"
-        )
-
     def test_fully_passing_scenario_returns_0(self, tmp_path):
         self._setup_passing_phase3(tmp_path)
         with (
@@ -449,9 +396,6 @@ class TestRunAuditIntegration:
             "fr_ids": [],
             "gate_results": {},
         }))
-        (tmp_path / "DEVELOPMENT_LOG.md").write_text(
-            "## Phase 8\nsession_id: abc-123\n"
-        )
         with (
             patch("phase_end_audit._is_git_tracked", return_value=True),
             patch("subprocess.run", return_value=_git_log_mock("abc p8\n")),

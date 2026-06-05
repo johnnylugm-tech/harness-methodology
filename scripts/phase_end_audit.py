@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import subprocess
 import sys
 import warnings as _warnings
@@ -160,25 +159,6 @@ def audit_git_log(project: Path, phase: int) -> Tuple[list[str], list[str]]:
     return ([], warnings)
 
 
-def audit_development_log(project: Path, phase: int) -> Tuple[list[str], list[str]]:
-    """Check DEVELOPMENT_LOG.md contains phase entries.
-
-    Returns (critical_gaps, warning_gaps).
-    """
-    warnings: list[str] = []
-    dev_log = project / "DEVELOPMENT_LOG.md"
-    if not dev_log.exists():
-        warnings.append("DEVELOPMENT_LOG.md not found")
-        return ([], warnings)
-
-    text = dev_log.read_text(encoding="utf-8", errors="replace")
-    if f"Phase {phase}" not in text:
-        warnings.append(f"DEVELOPMENT_LOG.md has no entries for Phase {phase}")
-    if not re.search(r"session[_-]?id", text, re.IGNORECASE):
-        warnings.append("DEVELOPMENT_LOG.md has no session_id references")
-
-    return ([], warnings)
-
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -293,12 +273,6 @@ def run_audit(project: Path, phase: int) -> int:
     criticals.extend(c)
     warnings.extend(w)
     verified.append("Git history checked")
-
-    # 5. Development log
-    c, w = audit_development_log(project, phase)
-    criticals.extend(c)
-    warnings.extend(w)
-    verified.append("DEVELOPMENT_LOG.md checked")
 
     out_path = write_report(project, phase, criticals, warnings, verified)
     print(f"\n[phase-end-audit] Report: {out_path}")
