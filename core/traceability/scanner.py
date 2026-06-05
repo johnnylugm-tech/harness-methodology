@@ -133,6 +133,40 @@ def scan_sad_fr_modules(sad_path: Path) -> Dict[str, List[str]]:
     return fr_to_modules
 
 
+NFR_PATTERN = re.compile(r'\bNFR-(\d+)\b', re.IGNORECASE)
+
+
+def extract_nfr_ids_from_srs(srs_path: Optional[Path]) -> Set[str]:
+    """Return set of NFR-XX IDs found in SRS.md."""
+    if not srs_path or not srs_path.exists():
+        return set()
+    text = srs_path.read_text(encoding="utf-8", errors="replace")
+    return {f"NFR-{int(m.group(1)):02d}" for m in NFR_PATTERN.finditer(text)}
+
+
+def scan_test_nfr_coverage(tests_dir: Path) -> Dict[str, List[str]]:
+    """Return {NFR-XX: [relative_test_file, ...]} for NFR mentions in test files.
+
+    Any occurrence of NFR-XX in a test file (comment, docstring, test name)
+    counts as test coverage for that NFR.
+    """
+    nfr_to_tests: Dict[str, List[str]] = {}
+    if not tests_dir or not tests_dir.is_dir():
+        return nfr_to_tests
+    project = tests_dir.parent
+    for test_file in tests_dir.rglob("test_*.py"):
+        try:
+            text = test_file.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+        rel = str(test_file.relative_to(project))
+        for m in NFR_PATTERN.finditer(text):
+            nfr_id = f"NFR-{int(m.group(1)):02d}"
+            if rel not in nfr_to_tests.get(nfr_id, []):
+                nfr_to_tests.setdefault(nfr_id, []).append(rel)
+    return nfr_to_tests
+
+
 # ---------------------------------------------------------------------------
 # Combined scan: SAD + code + tests, return rich maps for the model layer.
 # ---------------------------------------------------------------------------

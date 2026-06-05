@@ -227,12 +227,14 @@ def compute_trace_dimension(project, gate: int) -> dict:
         "name": "traceability",
         "4a_fr_to_test_pct": 100.0,
         "4b_test_spec_pct": 85.0,
+        "4c_nfr_to_test_pct": 100.0,
         "merged_pct": 85.0,
         "passed": True/False,
         "threshold_4a": 100,
         "threshold_4b": 60.0/80.0/90.0,
         "active_uncoded": [...],   # FRs in denominator without code
         "active_untested": [...],  # FRs in denominator without test
+        "nfr_untested": [...],     # NFRs from SRS.md without any test reference
         "blocking": True/False,
         "error": str | None,
       }
@@ -247,12 +249,14 @@ def compute_trace_dimension(project, gate: int) -> dict:
         "name": "traceability",
         "4a_fr_to_test_pct": 0.0,
         "4b_test_spec_pct": 0.0,
+        "4c_nfr_to_test_pct": 100.0,
         "merged_pct": 0.0,
         "passed": False,
         "threshold_4a": threshold_4a,
         "threshold_4b": threshold_4b,
         "active_uncoded": [],
         "active_untested": [],
+        "nfr_untested": [],
         "blocking": True,
         "error": None,
     }
@@ -274,8 +278,14 @@ def compute_trace_dimension(project, gate: int) -> dict:
             if req.status.value in ACTIVE_STATUSES
         )
         if total_active == 0:
-            # No active FRs → 4a is vacuously 100%.
-            pct_4a = 100.0
+            if rt_full.requirements and gate >= 2:
+                # FRs are defined in SAD.md but all still PENDING at Gate 2+:
+                # no [FR-XX] annotations found in code — real traceability failure.
+                pct_4a = 0.0
+                result["active_uncoded"] = sorted(rt_full.requirements.keys())
+            else:
+                # Truly empty project (no FR definitions) — vacuous pass OK.
+                pct_4a = 100.0
         else:
             # F-2.1 fix: an FR with `has_module` (SAD table mapping) but no
             # actual code/test appears in BOTH `fr_without_code` and
@@ -286,8 +296,9 @@ def compute_trace_dimension(project, gate: int) -> dict:
             complete = total_active - len(incomplete)
             pct_4a = round(max(0, complete) / total_active * 100, 2)
         result["4a_fr_to_test_pct"] = pct_4a
-        result["active_uncoded"] = sorted(active_uncoded)
-        result["active_untested"] = sorted(active_untested)
+        if total_active > 0:
+            result["active_uncoded"] = sorted(active_uncoded)
+            result["active_untested"] = sorted(active_untested)
     except Exception as e:
         result["error"] = f"4a: {e}"
         return result
@@ -301,11 +312,39 @@ def compute_trace_dimension(project, gate: int) -> dict:
         result["4b_test_spec_pct"] = 0.0
         result["error"] = (result["error"] or "") + f" 4b: {e}"
 
-    # Merged: min — fail-closed
-    merged = min(result["4a_fr_to_test_pct"], result["4b_test_spec_pct"])
+    # 4c: NFR → test coverage (Gate 2+)
+    # Each NFR-XX ID in SRS.md must be referenced in at least one test file.
+    nfr_pct = 100.0
+    nfr_untested: list = []
+    if gate >= 2:
+        try:
+            from core.traceability.scanner import (
+                extract_nfr_ids_from_srs,
+                scan_test_nfr_coverage,
+            )
+            srs_path = project_path / "01-requirements" / "SRS.md"
+            nfr_ids = extract_nfr_ids_from_srs(srs_path)
+            if nfr_ids:
+                test_nfr_map = scan_test_nfr_coverage(project_path / "tests")
+                covered = {n for n in nfr_ids if n in test_nfr_map}
+                nfr_pct = round(len(covered) / len(nfr_ids) * 100, 2)
+                nfr_untested = sorted(nfr_ids - covered)
+        except Exception as e:
+            result["error"] = (result["error"] or "") + f" 4c: {e}"
+    result["4c_nfr_to_test_pct"] = nfr_pct
+    result["nfr_untested"] = nfr_untested
+
+    # Threshold for 4c matches 4b per gate (60%/80%/90% at G2/G3/G4)
+    threshold_4c = threshold_4b
+
+    # Merged: min of all three dimensions — fail-closed
+    merged = min(result["4a_fr_to_test_pct"], result["4b_test_spec_pct"], nfr_pct)
     result["merged_pct"] = merged
-    result["passed"] = (pct_4a >= threshold_4a
-                        and result["4b_test_spec_pct"] >= threshold_4b)
+    result["passed"] = (
+        pct_4a >= threshold_4a
+        and result["4b_test_spec_pct"] >= threshold_4b
+        and nfr_pct >= threshold_4c
+    )
     return result
 
 

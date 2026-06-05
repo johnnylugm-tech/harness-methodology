@@ -3,9 +3,13 @@
 Confirms:
   - 4a semantic: 100% over FRs with status ∈ {IN_PROGRESS, VERIFIED}.
     PENDING FRs are NOT in the denominator.
+    FRs defined in SAD.md but ALL still PENDING at G2+ → 0% (real failure, not vacuous pass).
+    Truly empty project (no SAD.md) → 100% vacuous pass.
   - 4b semantic: TEST_SPEC → test (delegated to existing _run_spec_coverage_check).
-  - merged = min(4a, 4b) — fail-closed.
-  - threshold table: 4a=100% at G2/G3/G4, 4b=60/80/90% at G2/G3/G4.
+  - 4c semantic: NFR-XX IDs from SRS.md must appear in at least one test file.
+    No SRS.md or no NFR IDs → 100% vacuous pass.
+  - merged = min(4a, 4b, 4c) — fail-closed.
+  - threshold table: 4a=100% at G2/G3/G4, 4b/4c=60/80/90% at G2/G3/G4.
   - active_uncoded / active_untested lists contain only IN_PROGRESS+VERIFIED FRs.
 """
 from pathlib import Path
@@ -110,8 +114,8 @@ def test_4a_passes_at_100_when_all_active_traced(fixture_repo):
     assert result["passed"] is True
 
 
-def test_4a_vacuously_100_when_no_active_frs(tmp_path):
-    """Empty project → no active FRs → 4a vacuously 100%."""
+def test_4a_vacuously_100_for_empty_project(tmp_path):
+    """Truly empty project (no SAD.md, no FR definitions) → 4a vacuously 100%."""
     sys_path = str(Path(__file__).resolve().parent.parent)
     if sys_path not in __import__("sys").path:
         __import__("sys").path.insert(0, sys_path)
@@ -119,6 +123,23 @@ def test_4a_vacuously_100_when_no_active_frs(tmp_path):
     with patch("harness_cli._run_spec_coverage_check", return_value=(0, 100.0)):
         result = compute_trace_dimension(tmp_path, gate=2)
     assert result["4a_fr_to_test_pct"] == 100.0
+
+
+def test_4a_zero_when_all_frs_pending_at_gate2(tmp_path):
+    """FRs defined in SAD.md but no code annotations → all PENDING → 4a = 0% at G2."""
+    sys_path = str(Path(__file__).resolve().parent.parent)
+    if sys_path not in __import__("sys").path:
+        __import__("sys").path.insert(0, sys_path)
+    arch = tmp_path / "02-architecture"
+    arch.mkdir(parents=True)
+    (arch / "SAD.md").write_text("FR-01: feature alpha\nFR-02: feature beta\n")
+    # No code annotations, no test files — FRs remain PENDING
+    from core.quality_gate.spec_tracking_checker import compute_trace_dimension
+    with patch("harness_cli._run_spec_coverage_check", return_value=(0, 100.0)):
+        result = compute_trace_dimension(tmp_path, gate=2)
+    assert result["4a_fr_to_test_pct"] == 0.0
+    assert result["passed"] is False
+    assert "FR-01" in result["active_uncoded"] or "FR-02" in result["active_uncoded"]
 
 
 # ---------------------------------------------------------------------------
@@ -161,9 +182,9 @@ def test_result_has_required_keys(fixture_repo):
     from core.quality_gate.spec_tracking_checker import compute_trace_dimension
     with patch("harness_cli._run_spec_coverage_check", return_value=(0, 100.0)):
         result = compute_trace_dimension(fixture_repo, gate=3)
-    for key in ("name", "4a_fr_to_test_pct", "4b_test_spec_pct",
+    for key in ("name", "4a_fr_to_test_pct", "4b_test_spec_pct", "4c_nfr_to_test_pct",
                 "merged_pct", "passed", "threshold_4a", "threshold_4b",
-                "active_uncoded", "active_untested", "blocking"):
+                "active_uncoded", "active_untested", "nfr_untested", "blocking"):
         assert key in result, f"missing key: {key}"
 
 
@@ -187,6 +208,82 @@ def test_gate_configs_include_traceability():
         assert "traceability" in text, f"gate{gate} config missing traceability"
         assert "requires_tool_execution: false" in text, \
             f"gate{gate} must have requires_tool_execution: false"
+
+
+# ---------------------------------------------------------------------------
+# 4c: NFR → test coverage
+# ---------------------------------------------------------------------------
+
+def _make_nfr_repo(tmp_path: Path, srs_nfrs: list, test_nfr_mentions: dict) -> Path:
+    """Helper: build a minimal project with SRS.md NFRs and optional test annotations."""
+    req = tmp_path / "01-requirements"
+    req.mkdir(parents=True)
+    nfr_text = "\n".join(f"| {n} | description |" for n in srs_nfrs)
+    (req / "SRS.md").write_text(f"# Requirements\n\n{nfr_text}\n")
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    for fname, content in test_nfr_mentions.items():
+        (tests / fname).write_text(content)
+    return tmp_path
+
+
+def test_4c_no_nfrs_in_srs_is_vacuous_pass(tmp_path):
+    """SRS.md with no NFR-XX IDs → 4c = 100% (trivially OK)."""
+    sys_path = str(Path(__file__).resolve().parent.parent)
+    if sys_path not in __import__("sys").path:
+        __import__("sys").path.insert(0, sys_path)
+    (tmp_path / "01-requirements").mkdir(parents=True)
+    (tmp_path / "01-requirements" / "SRS.md").write_text("# Requirements\nNo NFRs here.\n")
+    from core.quality_gate.spec_tracking_checker import compute_trace_dimension
+    with patch("harness_cli._run_spec_coverage_check", return_value=(0, 100.0)):
+        result = compute_trace_dimension(tmp_path, gate=2)
+    assert result["4c_nfr_to_test_pct"] == 100.0
+    assert result["nfr_untested"] == []
+
+
+def test_4c_nfr_all_covered_passes(tmp_path):
+    """All NFRs in SRS.md have test file mention → 4c = 100%."""
+    sys_path = str(Path(__file__).resolve().parent.parent)
+    if sys_path not in __import__("sys").path:
+        __import__("sys").path.insert(0, sys_path)
+    _make_nfr_repo(tmp_path, ["NFR-01"], {"test_perf.py": "# NFR-01 performance\ndef test_latency(): pass\n"})
+    from core.quality_gate.spec_tracking_checker import compute_trace_dimension
+    with patch("harness_cli._run_spec_coverage_check", return_value=(0, 100.0)):
+        result = compute_trace_dimension(tmp_path, gate=2)
+    assert result["4c_nfr_to_test_pct"] == 100.0
+    assert result["nfr_untested"] == []
+
+
+def test_4c_nfr_untested_fails_gate2(tmp_path):
+    """NFRs in SRS.md but no test mentions → 4c = 0% → gate fails."""
+    sys_path = str(Path(__file__).resolve().parent.parent)
+    if sys_path not in __import__("sys").path:
+        __import__("sys").path.insert(0, sys_path)
+    _make_nfr_repo(tmp_path, ["NFR-01", "NFR-08"], {})  # no test files
+    from core.quality_gate.spec_tracking_checker import compute_trace_dimension
+    with patch("harness_cli._run_spec_coverage_check", return_value=(0, 100.0)):
+        result = compute_trace_dimension(tmp_path, gate=2)
+    assert result["4c_nfr_to_test_pct"] == 0.0
+    assert set(result["nfr_untested"]) == {"NFR-01", "NFR-08"}
+    assert result["passed"] is False
+
+
+def test_4c_nfr_partial_coverage_fails_gate2(tmp_path):
+    """50% NFR coverage < 60% threshold at G2 → gate fails."""
+    sys_path = str(Path(__file__).resolve().parent.parent)
+    if sys_path not in __import__("sys").path:
+        __import__("sys").path.insert(0, sys_path)
+    _make_nfr_repo(
+        tmp_path,
+        ["NFR-01", "NFR-08"],
+        {"test_perf.py": "# NFR-01 covered\ndef test_latency(): pass\n"},
+    )
+    from core.quality_gate.spec_tracking_checker import compute_trace_dimension
+    with patch("harness_cli._run_spec_coverage_check", return_value=(0, 100.0)):
+        result = compute_trace_dimension(tmp_path, gate=2)
+    assert result["4c_nfr_to_test_pct"] == 50.0  # 1 of 2 covered
+    assert "NFR-08" in result["nfr_untested"]
+    assert result["passed"] is False  # 50% < 60% threshold
 
 
 # ---------------------------------------------------------------------------

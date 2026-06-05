@@ -32,8 +32,10 @@ from core.traceability.overlay import (  # noqa: E402
 )
 from core.traceability.scanner import (  # noqa: E402
     extract_fr_ids_from_sad,
+    extract_nfr_ids_from_srs,
     scan_python_fr_annotations,
     scan_test_fr_coverage,
+    scan_test_nfr_coverage,
     scan_sad_fr_modules,
 )
 
@@ -110,6 +112,16 @@ def build_traceability(
         for test_file in test_fr_map.get(fr_id, []):
             rt.add_test_coverage(test_file=test_file, fr_id=fr_id)
 
+    # NFR coverage: scan SRS.md + test files; stored on rt for matrix rendering.
+    srs_path = project / "01-requirements" / "SRS.md"
+    nfr_ids = extract_nfr_ids_from_srs(srs_path)
+    test_nfr_map = scan_test_nfr_coverage(project / "tests") if nfr_ids else {}
+    # Use setattr to avoid Pyright complaints about unknown attribute.
+    setattr(rt, "nfr_data", {
+        "nfr_ids": sorted(nfr_ids),
+        "nfr_test_coverage": {nfr: test_nfr_map.get(nfr, []) for nfr in sorted(nfr_ids)},
+    })
+
     return rt
 
 
@@ -133,6 +145,21 @@ def generate_markdown_matrix(rt: RequirementTraceability, output_path: Path,
     if errors:
         for err in errors:
             print(f"  overlay error: {err}", file=sys.stderr)
+
+    # Append NFR section if build_traceability populated nfr_data on rt.
+    nfr_data = getattr(rt, "nfr_data", {})
+    nfr_ids = nfr_data.get("nfr_ids", [])
+    if nfr_ids:
+        nfr_cov = nfr_data.get("nfr_test_coverage", {})
+        lines = ["\n## Non-Functional Requirements\n",
+                 "| NFR ID | Test Coverage | Status |",
+                 "|--------|--------------|--------|"]
+        for nfr_id in nfr_ids:
+            tests = nfr_cov.get(nfr_id, [])
+            status = "VERIFIED" if tests else "PENDING"
+            test_names = ", ".join(Path(t).name for t in tests) if tests else "—"
+            lines.append(f"| {nfr_id} | {test_names} | {status} |")
+        markdown = markdown + "\n" + "\n".join(lines) + "\n"
 
     intro = ""
     if output_path.exists():

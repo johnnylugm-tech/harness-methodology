@@ -2404,12 +2404,14 @@ def _finalize_gate_cross_checks(args: argparse.Namespace, project_path: Path) ->
                       file=sys.stderr)
             _t_4a = _trace["4a_fr_to_test_pct"]
             _t_4b = _trace["4b_test_spec_pct"]
+            _t_4c = _trace.get("4c_nfr_to_test_pct", 100.0)
             _t_merged = _trace["merged_pct"]
             _t_passed = _trace["passed"]
             print(
                 f"\n[trace] Gate {args.gate} | "
                 f"4a (FR→code→test): {_t_4a:.1f}% ≥ {_trace['threshold_4a']}%  "
                 f"4b (TEST_SPEC→test): {_t_4b:.1f}% ≥ {_trace['threshold_4b']:.1f}%  "
+                f"4c (NFR→test): {_t_4c:.1f}%  "
                 f"merged: {_t_merged:.1f}%  "
                 f"{'PASS' if _t_passed else 'FAIL'}"
             )
@@ -2417,6 +2419,8 @@ def _finalize_gate_cross_checks(args: argparse.Namespace, project_path: Path) ->
                 print(f"  active FRs without code: {_trace['active_uncoded']}")
             if _trace["active_untested"]:
                 print(f"  active FRs without test: {_trace['active_untested']}")
+            if _trace.get("nfr_untested"):
+                print(f"  NFRs without test coverage: {_trace['nfr_untested']}")
             # ── Patch trace score into gate{N}_result.json breakdown ─────
             # Same pattern as the architecture CRG override in
             # harness_bridge.finalize_gate (line ~1418): the framework
@@ -2431,7 +2435,7 @@ def _finalize_gate_cross_checks(args: argparse.Namespace, project_path: Path) ->
                     )["score"] = _t_merged
                     _gr["breakdown"]["traceability"]["tool_evidence"] = (
                         f"framework: compute_trace_dimension(gate={args.gate}) → "
-                        f"4a={_t_4a:.1f}% 4b={_t_4b:.1f}% merged={_t_merged:.1f}%"
+                        f"4a={_t_4a:.1f}% 4b={_t_4b:.1f}% 4c={_t_4c:.1f}% merged={_t_merged:.1f}%"
                     )
                     _gr["breakdown"]["traceability"]["threshold"] = float(
                         _trace["threshold_4a"]
