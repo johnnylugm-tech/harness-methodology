@@ -462,7 +462,7 @@ def _scan_directory(docs_path: Path, phase: int, check_type: str) -> Constitutio
         if not directory.exists():
             continue
         for item in directory.rglob("*.md"):
-            if item.name.startswith("."):
+            if any(part.startswith(".") for part in item.relative_to(directory).parts):
                 continue
             if get_profile().is_excluded(item, phase=phase):
                 continue

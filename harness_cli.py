@@ -5909,6 +5909,13 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
     # P0-A: auto-update plan checklist (prevents C11 CRITICAL at advance-phase)
     _mark_plan_item(project, phase, step, fr_id)
 
+    # P0-B: record gate timestamp so advance-phase _check_gate1_per_fr_coverage
+    # finds a gate=1 entry for this FR (it reads gate_timestamps.jsonl; without
+    # this, advance-phase always exits 14 when run-fr-step is used instead of
+    # finalize-gate --gate 1 per FR).
+    if step in ("GATE1", "GATE1-DELTA"):
+        _record_gate_timestamp(project, phase, 1, fr_id)
+
     # 5. Verify commit exists (non-fatal warning for TDD-IMPROVE / CODE-FIX)
     if step not in ("TDD-IMPROVE", "CODE-FIX") and not _fr_step_already_done(step, fr_id, project):
         print(f"[run-fr-step] {fr_id} {step}: WARNING — expected commit not found in git log")
