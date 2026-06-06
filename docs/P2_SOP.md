@@ -190,8 +190,11 @@ Agent B 審查重點：
    REJECT: 完全扁平（單目錄 10+ files），CRG Leiden 會自由拆分出低分 community
 
 9. HUB COVERAGE — 檢查每個 directory 的跨檔內部呼叫
-   PASS: 每個 ≥2 files 目錄有 hub module（utils/common/helper）+ 多數 sibling 引用
-   WARN: 部分孤立檔案（不被任何 sibling import，只貢獻 external edges）
+   PASS: 每個 ≥2 files 目錄有 hub module（utils/common/helper）+ 多數 sibling 引用；
+         每個 function body 都呼叫 hub function（不限於 module-level）；
+         若 ≥4 個 sibling files，hub 有 ≥2 個 function 供呼叫
+   WARN: 部分孤立檔案（不被任何 sibling import，只貢獻 external edges）；
+         僅有 module-level 呼叫但 function body 中無呼叫
    REJECT: 任何目錄完全無 cross-file import
 
 10. ENTRY POINT PLACEMENT — CLI/main/app.py 不能孤立在 root
@@ -213,6 +216,7 @@ REJECT_IF (CRG):
 - entry point 孤立在 project root → REJECT
 - flat 單目錄 10+ files 無子目錄 → REJECT
 - 任何 directory 完全無 cross-file internal edges 可能性 → REJECT
+- 任一 sibling 檔的 function body 皆無 hub 呼叫（僅 module-level）→ REJECT（edge count 不足以 offset external edges）
 
 ---
 
@@ -304,7 +308,7 @@ Review criteria:
 
 **CRG criteria (5 universal rules):**
 8. SUBDIRECTORY BOUNDARY: subdirectories used to control CRG community boundaries? PASS=2+ level, WARN=>5 files flat, REJECT=10+ files flat
-9. HUB COVERAGE: each ≥2-file dir has a hub module + most siblings reference it? PASS=ok, WARN=orphan files, REJECT=no cross-file import at all
+9. HUB COVERAGE: each ≥2-file dir has a hub module + every sibling's function bodies call it + ≥2 hub functions if ≥4 siblings? PASS=ok, WARN=orphan files or only module-level calls, REJECT=no cross-file import at all
 10. ENTRY POINT PLACEMENT: entry points in a dir with strong hub? PASS=yes, REJECT=project root
 11. ESTIMATED SOURCE COMMUNITIES: safe zone? PASS=3-6, WARN=7-8, REJECT=9+
 12. ISOLATED NODE RISK: any 1-file dir with heavy external imports? PASS=no, REJECT=yes (pure external edge dilution)
@@ -314,6 +318,7 @@ REJECT_IF (CRG):
 - entry point isolated at project root → REJECT
 - flat single directory 10+ files without subdirectories → REJECT
 - any directory with zero cross-file internal edges possibility → REJECT
+- any sibling file has hub calls only at module-level, not in function bodies → REJECT (edge count insufficient to offset external edges)
 
 Expected output:
 - JSON: {"status": "success", "review_status": "APPROVE|REJECT",

@@ -18,18 +18,30 @@
 > External edges = calls to libraries (stdlib, frameworks) + calls to other communities.
 > Internal edge dilution is the primary risk — entry points (CLI, main.py) import many libraries,
 > producing external edges with no offsetting internal edges unless they also call sibling modules.
-> The fix is **not** to reduce library imports — it is to ensure every file also calls at least one
+> The fix is **not** to reduce library imports — it is to ensure every function body also calls at least one
 > sibling within the same directory.
+>
+> **Required edge budget**: To reach cohesion ≥ 0.3 with E external edges, you need
+> I ≥ ceil(0.4286 × E) internal edges. Each function-body call to a hub function = 1 internal edge.
+> Module-level calls create 1 edge per file, but per-function-body calls multiply the count.
+> Example: 48 external edges → need ≥21 internal edges. With 5 sibling files each having
+> 4 function bodies calling 2 hub functions → 40 internal edges — safely above threshold.
 
 **Design for high cohesion from the start — 6 Universal CRG Design Principles:**
 
 **Principle 1 — Use subdirectories to control CRG community boundaries.** CRG assigns one community per directory. If you dump 10+ files into a flat `src/`, CRG's Leiden algorithm freely splits them into unpredictable communities — some will likely fall below the 0.3 cohesion threshold. Explicit subdirectories (`src/api/`, `src/core/`, `src/infrastructure/`) each become one predictable community. Aim for 3-6 source directories total (excluding tests). Fewer than 3 → oversized single community; more than 6 → too many communities to keep all above 0.3.
 
-**Principle 2 — Every directory needs a hub module.** Each directory with ≥2 files must have a shared module (`utils.py`, `common.py`, `helpers.py`) that ≥70% of sibling files import and call via standalone function calls: `result = hub.fn(...)`. This creates cross-file internal edges. Pure library-utility files that no sibling calls produce zero internal edges — they only dilute the community. Exception: directories that form a linear processing pipeline (A→B→C) where each file calls the next in chain.
+**Principle 2 — Every directory needs a hub module (≥2 functions for 4+ siblings).** Each directory with ≥2 files must have a shared module (`utils.py`, `common.py`, `helpers.py`) that ≥70% of sibling files import and call via standalone function calls: `result = hub.fn(...)`. This creates cross-file internal edges. Pure library-utility files that no sibling calls produce zero internal edges — they only dilute the community.
+
+For directories with ≥4 sibling files, **one hub function is rarely enough** — a single function called from 5 files produces ~5 edges, which may not offset ~40+ external edges. Use **≥2 hub functions** so each sibling can call both from multiple function bodies, multiplying internal edge count. The tts-new infrastructure directory (5 siblings, 48 external edges) required 2 hub functions (`validate_config` + `get_config_snapshot`) called from every function body to reach ~32 internal edges and pass 0.3.
+
+Exception: directories that form a linear processing pipeline (A→B→C) where each file calls the next in chain.
 
 **Principle 3 — Entry points must live inside a hub directory.** Entry-point modules (CLI, `main.py`, `app.py`, daemon) unavoidably import many external libraries — httpx, FastAPI, argparse, asyncio, etc. Each external import adds an external edge. If the entry point sits alone at the project root (e.g. `src/cli.py`), those external edges dominate and cohesion drops below 0.3. Place entry points inside a directory that also contains a hub module — the entry point calls the hub (internal edges) to compensate for its external edges.
 
-**Principle 4 — Every file must call at least one sibling.** A file that is never imported or called by any other file in its directory contributes only external edges (its own imports) and zero internal edges — pure dilution. For each file in your design, verify it is either: (a) the hub module itself, (b) called by the hub, or (c) calls the hub. Files that fail this check should be merged into another file or directory.
+**Principle 4 — Every function body must call a hub function (not just module-level).** A file that is never imported or called by any other file in its directory contributes only external edges (its own imports) and zero internal edges — pure dilution. For each file in your design, verify it is either: (a) the hub module itself, (b) called by the hub, or (c) calls the hub. Files that fail this check should be merged into another file or directory.
+
+Critically, **module-level calls alone are insufficient**. A module-level `_ = validate_config()` creates 1 internal edge per file regardless of how many functions it has. CRG counts edges per (caller_node, callee_node) pair — each function body that calls the hub creates a separate edge. To accumulate enough internal edges (see edge budget above), the hub function must be called **from every accessible function body** in each sibling file, not just at module level. Example: a 5-sibling directory needs ~21 internal edges; 5 module-level calls + 5×4 function-body calls = 25 edges.
 
 **Principle 5 — Respect CRG edge-detection limits.** CRG uses Tree-sitter AST parsing and detects cross-file function calls resolved through imports. These limitations are cross-language:
 - Calls between functions in the **same** file — NOT detected (zero cohesion contribution)
@@ -45,10 +57,12 @@
 |----------------|-------|
 | Source directories count? | 3-6 |
 | Each dir has a hub file? | Yes |
+| Hub has ≥2 functions if ≥4 sibling files? | Yes |
 | Entry points inside a hub dir? | Yes |
-| Each file calls ≥1 sibling? | Yes |
+| Each function body calls a hub function? | Yes (not just module-level) |
 | Cross-file calls use standalone assignment? | Yes |
 | Community size ≤ 50 nodes? | Yes |
+| Edge budget: I ≥ 0.4286 × E? | Yes |
 
 **Anti-patterns that produce low scores:**
 
