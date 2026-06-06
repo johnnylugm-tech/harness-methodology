@@ -55,7 +55,7 @@ All thresholds are environment-variable overridable (defined in `crg_analysis.py
 |---------|---------|--------|
 | `CRG_RISK_DEEP` | 0.7 | risk >= this → deep analysis |
 | `CRG_RISK_FAST` | 0.3 | risk < this → fast scan |
-| `CRG_COHESION_HEALTHY` | 0.4 | Community health minimum |
+| `CRG_COHESION_HEALTHY` | 0.3 | Community health minimum |
 | `CRG_COMMUNITY_OVERSIZED` | 50 | God-module threshold |
 | `CRG_DEAD_CODE_RATIO` | 0.05 | Dead code escalation threshold |
 | `CRG_HUB_CRIT_FANIN` | 15 | Critical fan-in threshold |

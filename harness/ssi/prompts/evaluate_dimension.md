@@ -342,7 +342,7 @@ These are **advisory findings only** — they enrich the evidence but do NOT cha
 If your project has a single hub module (`pipeline.py`, `main.py`, `app.py`, etc.)
 that imports from ≥5 sub-packages, CRG Leiden algorithm will report `score = 0` because:
 - The hub creates a star topology → Leiden treats the whole codebase as one large community
-- `cohesion < 0.4` is expected (hub fan_out >> leaf fan_in ≤ 1)
+- `cohesion < 0.3` is expected (hub fan_out >> leaf fan_in ≤ 1)
 - This is **NOT** architectural debt — it is a valid hub-and-spoke / orchestrator design
 
 **Detection**: `list_communities` shows 1 large community (size > 50) AND

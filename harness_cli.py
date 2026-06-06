@@ -6470,7 +6470,7 @@ _DIMENSION_HINTS: dict[str, str] = {
     "mutation_testing":   "Run `mutmut run`; add assertions that kill every surviving mutant",
     "architecture":       (
         "Two distinct failure modes — check tool_evidence to identify which applies: "
-        "(1) CRG community issues: if god-module (size>50) or low cohesion (all communities <0.4) — "
+        "(1) CRG community issues: if god-module (size>50) or low cohesion (all communities <0.3) — "
         "either complete Devil's Advocate challenge to justify the design (Tier 3 prerequisite) "
         "then re-run run-gate, OR reduce cross-package coupling so CRG detects sub-communities; "
         "(2) Import boundary violations: verify imports comply with SAD.md layer boundaries and fix violations."
