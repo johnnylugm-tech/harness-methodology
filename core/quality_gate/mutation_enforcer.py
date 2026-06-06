@@ -18,21 +18,28 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
         return True, ""
 
     try:
-        subprocess.run(
+        r = subprocess.run(
             ["mutmut", "run", "--paths-to-mutate=03-development/src"],
             cwd=str(project), capture_output=True, text=True,
         )
+        
+        if r.returncode != 0:
+            return False, f"mutmut run crashed (return code {r.returncode}).\n\nSTDOUT:\n{r.stdout.strip()}\n\nSTDERR:\n{r.stderr.strip()}"
+
         res = subprocess.run(
             ["mutmut", "results"], cwd=str(project), capture_output=True, text=True,
         )
-        # mutmut results prints "Survived 🙁 (N)" when N > 0 survivors exist
-        m = re.search(r"Survived[^(]*\((\d+)\)", res.stdout)
-        survivors = int(m.group(1)) if m else 0
-        if survivors > 0:
+        
+        out = res.stdout.strip()
+        if out:
+            # Try to parse the exact number for a better error message, but always block!
+            m = re.search(r"Survived[^(]*\((\d+)\)", out)
+            survivors = m.group(1) if m else "Unknown"
             return False, (
                 f"Mutation testing failed: {survivors} surviving mutant(s) found.\n\n"
-                f"{res.stdout.strip()}"
+                f"{out}"
             )
+            
         return True, ""
     except Exception as e:
         return False, f"Error running mutmut: {e}"

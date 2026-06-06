@@ -4803,14 +4803,7 @@ def _fr_code_changed_since_last_gate1(fr_id: str, project: Path) -> bool:
         ["git", "diff", "--name-only", sha, "HEAD", "--", "03-development/src"],
         capture_output=True, text=True, cwd=str(project),
     )
-    # git diff --name-only outputs renames as "{old => new}" — resolve to new path
-    changed_src_raw = r_src.stdout.splitlines()
-    changed_src: list[str] = []
-    for f in changed_src_raw:
-        if " => " in f:
-            f = f.split(" => ")[-1].rstrip("}")
-        if f.endswith(".py"):
-            changed_src.append(f)
+    changed_src = [f for f in r_src.stdout.splitlines() if f.endswith(".py")]
     
     for py_file in changed_src:
         curr_path = project / py_file
