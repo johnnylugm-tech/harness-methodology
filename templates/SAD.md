@@ -13,28 +13,58 @@
 > the Code Review Graph (CRG).  CRG groups files by **directory** — each directory
 > is one community.  The architecture score is the fraction of communities that are
 > "healthy" (internal edge density ≥ 0.3 AND size ≤ 50 nodes).
+>
+> **CRG scoring formula**: Each community's cohesion = internal_edges / (internal_edges + external_edges).
+> External edges = calls to libraries (stdlib, frameworks) + calls to other communities.
+> Internal edge dilution is the primary risk — entry points (CLI, main.py) import many libraries,
+> producing external edges with no offsetting internal edges unless they also call sibling modules.
+> The fix is **not** to reduce library imports — it is to ensure every file also calls at least one
+> sibling within the same directory.
 
-**Design for high cohesion from the start:**
+**Design for high cohesion from the start — 6 Universal CRG Design Principles:**
 
-| Principle | Why | Concrete rule |
-|-----------|-----|---------------|
-| Files in the same directory MUST import each other | Internal edges raise cohesion | Every `.py` in a dir should `import` or be imported by ≥1 sibling |
-| Keep directories focused (3–15 files) | Oversized communities (>50) are auto-unhealthy | Split at 15 files; merge directories with <3 files into a parent |
-| One responsibility per directory | Cross-cutting dirs have low cohesion | Each directory = one architectural concern (routers, models, cache, engines) |
-| Source and test directories mirror each other | Test communities are excluded from scoring | `src/routers/` ↔ `tests/routers/`, `src/cache/` ↔ `tests/cache/` |
-| No flat `src/` dump | Isolated files in one dir → cohesion near zero | Group related files into subdirectories from day one |
+**Principle 1 — Use subdirectories to control CRG community boundaries.** CRG assigns one community per directory. If you dump 10+ files into a flat `src/`, CRG's Leiden algorithm freely splits them into unpredictable communities — some will likely fall below the 0.3 cohesion threshold. Explicit subdirectories (`src/api/`, `src/core/`, `src/infrastructure/`) each become one predictable community. Aim for 3-6 source directories total (excluding tests). Fewer than 3 → oversized single community; more than 6 → too many communities to keep all above 0.3.
+
+**Principle 2 — Every directory needs a hub module.** Each directory with ≥2 files must have a shared module (`utils.py`, `common.py`, `helpers.py`) that ≥70% of sibling files import and call via standalone function calls: `result = hub.fn(...)`. This creates cross-file internal edges. Pure library-utility files that no sibling calls produce zero internal edges — they only dilute the community. Exception: directories that form a linear processing pipeline (A→B→C) where each file calls the next in chain.
+
+**Principle 3 — Entry points must live inside a hub directory.** Entry-point modules (CLI, `main.py`, `app.py`, daemon) unavoidably import many external libraries — httpx, FastAPI, argparse, asyncio, etc. Each external import adds an external edge. If the entry point sits alone at the project root (e.g. `src/cli.py`), those external edges dominate and cohesion drops below 0.3. Place entry points inside a directory that also contains a hub module — the entry point calls the hub (internal edges) to compensate for its external edges.
+
+**Principle 4 — Every file must call at least one sibling.** A file that is never imported or called by any other file in its directory contributes only external edges (its own imports) and zero internal edges — pure dilution. For each file in your design, verify it is either: (a) the hub module itself, (b) called by the hub, or (c) calls the hub. Files that fail this check should be merged into another file or directory.
+
+**Principle 5 — Respect CRG edge-detection limits.** CRG uses Tree-sitter AST parsing and detects cross-file function calls resolved through imports. These limitations are cross-language:
+- Calls between functions in the **same** file — NOT detected (zero cohesion contribution)
+- `self.method()` calls inside a class — DETECTED (class hierarchy contributes edges)
+- `import sibling` → `sibling.fn()` — DETECTED (cross-file import resolved)
+- `result = hub.fn(...)` then `log.info(..., extra=result)` — DETECTED (standalone assignment)
+- `log.info(..., extra=hub.fn(...))` — INCONSISTENTLY detected (nested arg position)
+- Calls through imports at runtime (lazy imports in `__getattr__`, `__init__.py` re-exports) — may be missed if not statically resolvable
+
+**Principle 6 — Size cap: communities stay under 50 nodes.** CRG marks any community with >50 nodes as unhealthy regardless of cohesion. A node ≈ one function or class in a file. If your directory design would produce >50 nodes (roughly 4-6 modules with 8-12 functions each), split into subdirectories. Unlike Principles 1-5, this can be relaxed slightly — the cap is 50, not 30 — so this is rarely the binding constraint unless you have large god-modules.
+
+| Quick reference | check |
+|----------------|-------|
+| Source directories count? | 3-6 |
+| Each dir has a hub file? | Yes |
+| Entry points inside a hub dir? | Yes |
+| Each file calls ≥1 sibling? | Yes |
+| Cross-file calls use standalone assignment? | Yes |
+| Community size ≤ 50 nodes? | Yes |
 
 **Anti-patterns that produce low scores:**
 
 ```
 ❌ src/__init__.py, src/main.py, src/models.py, src/cli.py, src/audio.py
-   → 5 isolated files, zero cross-imports → cohesion=0.0
+   → 5 isolated files in flat src/, zero cross-imports → cohesion=0.0
+
+❌ src/cli.py  (imports httpx, argparse, asyncio — all external, no internal sibling calls)
+   → pure external edges, no compensation → cohesion near 0
 
 ❌ tests/test_fr01.py, tests/test_fr02.py, ... tests/test_fr08.py
    → 80 nodes in one dir, no internal edges → oversized + zero cohesion
 
-✅ src/routers/{health,speech}.py with cross-imports → cohesion high
-✅ src/cache/redis_cache.py + tests/cache/test_redis.py → focused, mirrored
+✅ src/api/{cli,main,speech,utils}.py with utils imported by all siblings → hub-and-spoke
+✅ src/engines/{synthesis,splitter,parser}.py with synthesis calling both → pipeline chain
+✅ src/infrastructure/{circuit,health,config,models}.py → shared domain layer
 ```
 
 ### 2.2 {Module Name}

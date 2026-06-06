@@ -181,6 +181,39 @@ Agent B 審查重點：
 6. SAB block 已通過 `python3 scripts/generate_sab.py --validate --project .`（exit 0）
 7. SAB block `phase` 是 int（非字串）、NFR type 均為合法的 8 個值之一
 
+**CRG Architecture Design Verification（通用規則，不限語言/框架）：**
+
+```
+8. SUBDIRECTORY BOUNDARY — 檢查是否用子目錄控制 CRG community 邊界
+   PASS: 已分層（2+ level deep），無 flat src/ 問題
+   WARN: 部分 flat（>5 files 在同層無子目錄）
+   REJECT: 完全扁平（單目錄 10+ files），CRG Leiden 會自由拆分出低分 community
+
+9. HUB COVERAGE — 檢查每個 directory 的跨檔內部呼叫
+   PASS: 每個 ≥2 files 目錄有 hub module（utils/common/helper）+ 多數 sibling 引用
+   WARN: 部分孤立檔案（不被任何 sibling import，只貢獻 external edges）
+   REJECT: 任何目錄完全無 cross-file import
+
+10. ENTRY POINT PLACEMENT — CLI/main/app.py 不能孤立在 root
+    PASS: 在目錄內且該目錄有 strong hub 可補償 external edges
+    REJECT: entry point 在 project root（src/cli.py, src/main.py 等無 siblings）
+
+11. ESTIMATED SOURCE COMMUNITIES — 預估 CRG community 數量
+    PASS: 3-6 個 source directories 是安全區
+    WARN: 7-8 個（P3 Gate 需注意，可能需要合併）
+    REJECT: 9+ 個（部分 community 必低於 0.3，gap 太大）
+
+12. ISOLATED NODE RISK — 檢查是否有一檔目錄且該檔 import 大量外部
+    PASS: 結構合理，無此風險
+    REJECT: 有 1-file directory 且該檔案預期 import 大量外部套件（pure external edge dilution → cohesion near 0）
+```
+
+REJECT_IF (CRG):
+- source directories > 8 → REJECT
+- entry point 孤立在 project root → REJECT
+- flat 單目錄 10+ files 無子目錄 → REJECT
+- 任何 directory 完全無 cross-file internal edges 可能性 → REJECT
+
 ---
 
 ## P2 Exit Checklist
@@ -268,6 +301,19 @@ Review criteria:
 5. SRS-SAD consistency: no contradictions between spec and design?
 6. SAB block passed `python3 scripts/generate_sab.py --validate --project .` (exit 0)?
 7. SAB block `phase` is int (not quoted string)? All NFR `type` values from 8 legal values (performance/security/maintainability/reliability/testability/deployability/scalability/usability)?
+
+**CRG criteria (5 universal rules):**
+8. SUBDIRECTORY BOUNDARY: subdirectories used to control CRG community boundaries? PASS=2+ level, WARN=>5 files flat, REJECT=10+ files flat
+9. HUB COVERAGE: each ≥2-file dir has a hub module + most siblings reference it? PASS=ok, WARN=orphan files, REJECT=no cross-file import at all
+10. ENTRY POINT PLACEMENT: entry points in a dir with strong hub? PASS=yes, REJECT=project root
+11. ESTIMATED SOURCE COMMUNITIES: safe zone? PASS=3-6, WARN=7-8, REJECT=9+
+12. ISOLATED NODE RISK: any 1-file dir with heavy external imports? PASS=no, REJECT=yes (pure external edge dilution)
+
+REJECT_IF (CRG):
+- source directories > 8 → REJECT
+- entry point isolated at project root → REJECT
+- flat single directory 10+ files without subdirectories → REJECT
+- any directory with zero cross-file internal edges possibility → REJECT
 
 Expected output:
 - JSON: {"status": "success", "review_status": "APPROVE|REJECT",

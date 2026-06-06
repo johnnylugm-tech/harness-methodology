@@ -93,7 +93,7 @@ min_size: 3
 detail_level: "standard"
 ```
 
-For each community with `cohesion < 0.4` OR `size > 50`, drill in:
+For each community with `cohesion < COHESION_HEALTHY (0.3)` OR `size > 50`, drill in:
 
 ```
 [USE mcp__code-review-graph__get_community_tool]
@@ -102,7 +102,7 @@ include_members: true
 ```
 
 **Interpret:**
-- `cohesion < 0.4` — functions don't belong together → refactoring/split candidate
+- `cohesion < COHESION_HEALTHY (0.3)` — functions don't belong together → refactoring/split candidate
 - `size > 50` — potential god-module → decomposition candidate
 - `cohesion > 0.8` — healthy, well-organized module
 
@@ -352,7 +352,7 @@ All thresholds live in `scripts/crg_analysis.py` and are ENV-overridable:
 |-----------------------------|---------|-------------------------------------------|
 | `CRG_RISK_DEEP`             | 0.7     | risk ≥ → `eval_depth=deep`                |
 | `CRG_RISK_FAST`             | 0.3     | risk < → `eval_depth=fast`                |
-| `CRG_COHESION_HEALTHY`      | 0.4     | cohesion ≥ → healthy community            |
+| `CRG_COHESION_HEALTHY`      | 0.3     | cohesion ≥ → healthy community            |
 | `CRG_COMMUNITY_OVERSIZED`   | 50      | size > → god-module candidate             |
 | `CRG_DEAD_CODE_RATIO`       | 0.05    | dead/total > → escalate low→medium        |
 | `CRG_HUB_CRIT_FANIN`        | 15      | fan_in ≥ → critical severity (if untested) |
