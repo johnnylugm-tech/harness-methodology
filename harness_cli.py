@@ -599,6 +599,15 @@ def _git_test_patterns(project: Path, num: str, num_raw: str) -> list[str]:
     silently returns nothing because git has ``03-development/tests/test_fr01.py``.
     """
     patterns = [f"tests/test_fr{num}.py", f"tests/test_fr{num_raw}.py"]
+    import subprocess as _sp
+    try:
+        r = _sp.run(["git", "ls-files", "tests/conftest.py", "tests/helpers/"], capture_output=True, text=True, cwd=str(project))
+        for line in r.stdout.splitlines():
+            if line.endswith(".py") and line not in patterns:
+                patterns.append(line)
+    except Exception:
+        pass
+
     tests_link = project / "tests"
     if tests_link.is_symlink():
         try:
@@ -607,6 +616,13 @@ def _git_test_patterns(project: Path, num: str, num_raw: str) -> list[str]:
                 f"{real_tests}/test_fr{num}.py",
                 f"{real_tests}/test_fr{num_raw}.py",
             ]
+            try:
+                r2 = _sp.run(["git", "ls-files", f"{real_tests}/conftest.py", f"{real_tests}/helpers/"], capture_output=True, text=True, cwd=str(project))
+                for line in r2.stdout.splitlines():
+                    if line.endswith(".py") and line not in patterns:
+                        patterns.append(line)
+            except Exception:
+                pass
         except ValueError:
             pass
     return patterns
@@ -3967,7 +3983,7 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
       8  = C1 CRITICAL (deliverables missing / untracked)
       9  = pytest / coverage failure (P3+)
       10 = spec-coverage below phase threshold (P3+) [unified D4]
-      11 = Phase Truth < 90% (P3+)
+      11 = Phase Truth < 90% (P3+) or Mutation Testing failure (P3+)
       13 = Agent B approvals missing / rejected (P1/P2)
       14 = Gate 1 per-FR coverage incomplete (P3+)
       15 = Phase{N+1}_plan.md not found (generate-next-plan not run)
@@ -4213,6 +4229,16 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
                     )
                     print("  Add '# pragma: no cover' to the 'async def' line to exclude it.")
                 return 9
+
+        # 1.5 mutmut mutation testing
+        try:
+            from core.quality_gate.mutation_enforcer import run_mutation_precheck
+            passed, msg = run_mutation_precheck(project)
+            if not passed:
+                print(f"\n[BLOCKED] TDD Mutation Testing failure.\n{msg}")
+                return 11
+        except ImportError:
+            pass
 
         # 2. D4 traceability: TEST_SPEC.md → tests/ (spec-coverage — unified)
         #    TEST_SPEC.md is the single source of truth (v2.6).
@@ -4749,41 +4775,92 @@ def _fr_code_changed_since_last_gate1(fr_id: str, project: Path) -> bool:
     """Check whether FR source/test files have changed since last Gate 1 PASS.
 
     Returns True if code has changed (re-evaluation needed), False otherwise.
+    Uses AST parsing to accurately determine if changed lines overlap with FR functions.
     """
     import subprocess as _sp
+    import ast
     sha = _fr_gate1_commit_sha(fr_id, project)
     if sha is None:
         return True  # No prior Gate 1 PASS → treat as changed
 
-    # Collect FR-related files for git diff
+    # 1. Check test files directly
     fr_files: list[str] = []
     num_match = re.match(r"FR-(\d+)", fr_id)
     num_str = num_match.group(1).zfill(2) if num_match else ""
-
-    # Test file (resolve symlinks — git uses real paths, not symlink aliases)
     if num_str:
         for p in _git_test_patterns(project, num_str, num_str.lstrip('0')):
-            if (project / p).exists():
-                fr_files.append(p)
-
-    # Source files — identified by [{fr_id}] tag in file content
-    src_dir = project / "03-development" / "src"
-    if src_dir.exists():
-        for py_file in src_dir.glob("**/*.py"):
-            try:
-                if f"[{fr_id}]" in py_file.read_text(encoding="utf-8"):
-                    fr_files.append(str(py_file.relative_to(project)))
-            except Exception:
-                pass
-
-    if not fr_files:
-        return False  # No FR files on disk → nothing to diff
-
-    r = _sp.run(
-        ["git", "diff", sha, "HEAD", "--"] + fr_files,
+            fr_files.append(p)
+            
+    r_test = _sp.run(
+        ["git", "diff", "--name-only", sha, "HEAD", "--"] + fr_files,
         capture_output=True, text=True, cwd=str(project),
     )
-    return bool(r.stdout.strip())
+    if r_test.stdout.strip():
+        return True
+
+    # 2. Check source files via AST diff overlap
+    r_src = _sp.run(
+        ["git", "diff", "--name-only", sha, "HEAD", "--", "03-development/src"],
+        capture_output=True, text=True, cwd=str(project),
+    )
+    # git diff --name-only outputs renames as "{old => new}" — resolve to new path
+    changed_src_raw = r_src.stdout.splitlines()
+    changed_src: list[str] = []
+    for f in changed_src_raw:
+        if " => " in f:
+            f = f.split(" => ")[-1].rstrip("}")
+        if f.endswith(".py"):
+            changed_src.append(f)
+    
+    for py_file in changed_src:
+        curr_path = project / py_file
+        # Fallback: if tag was removed in the diff, it's a change for this FR
+        r_diff_raw = _sp.run(["git", "diff", sha, "HEAD", "--", py_file], capture_output=True, text=True, cwd=str(project))
+        if f"[{fr_id}]" in r_diff_raw.stdout:
+            return True
+            
+        if not curr_path.exists():
+            continue
+            
+        try:
+            content = curr_path.read_text(encoding="utf-8")
+            if f"[{fr_id}]" not in content:
+                continue
+            
+            tree = ast.parse(content)
+            fr_ranges = []
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    doc = ast.get_docstring(node)
+                    if doc and f"[{fr_id}]" in doc:
+                        fr_ranges.append((node.lineno, getattr(node, "end_lineno", node.lineno)))
+            
+            if not fr_ranges:
+                # string is in file but not in a docstring, default to changed
+                return True
+                
+            # Parse diff -U0 to get changed lines
+            r_u0 = _sp.run(["git", "diff", "-U0", sha, "HEAD", "--", py_file], capture_output=True, text=True, cwd=str(project))
+            for line in r_u0.stdout.splitlines():
+                if line.startswith("@@ "):
+                    # @@ -old,n +new,n @@
+                    try:
+                        parts = line.split(" ")[2].split(",")
+                        start_line = int(parts[0].lstrip("+"))
+                        count = int(parts[1]) if len(parts) > 1 else 1
+                        end_line = start_line + count - 1
+                        
+                        for (fr_start, fr_end) in fr_ranges:
+                            # Overlap check
+                            if start_line <= fr_end and end_line >= fr_start:
+                                return True
+                    except Exception:
+                        pass
+        except Exception:
+            # On parse error, fail safe
+            return True
+
+    return False
 
 
 def _extract_srs_fr_section(srs_path: Path, fr_id: str) -> str:
