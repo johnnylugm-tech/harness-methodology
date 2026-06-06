@@ -79,7 +79,10 @@ def scan_python_fr_annotations(project: Path) -> Dict[str, List[str]]:
         found = {_norm_fr(m) for m in FR_TAG_PATTERN.findall(text)}
         rel = str(py_file.relative_to(project))
         for fr_id in found:
-            fr_to_files.setdefault(fr_id, []).append(rel)
+            if rel not in fr_to_files.setdefault(fr_id, []):
+                fr_to_files[fr_id].append(rel)
+    for lst in fr_to_files.values():
+        lst.sort()
     return fr_to_files
 
 
@@ -106,8 +109,10 @@ def scan_test_fr_coverage(tests_dir: Path) -> Dict[str, List[str]]:
         for m in FR_TAG_PATTERN.finditer(text):
             fr_id = _norm_fr(m.group(1))
             rel = str(test_file.relative_to(project))
-            if rel not in fr_to_tests.get(fr_id, []):
-                fr_to_tests.setdefault(fr_id, []).append(rel)
+            if rel not in fr_to_tests.setdefault(fr_id, []):
+                fr_to_tests[fr_id].append(rel)
+    for lst in fr_to_tests.values():
+        lst.sort()
     return fr_to_tests
 
 
@@ -128,8 +133,10 @@ def scan_sad_fr_modules(sad_path: Path) -> Dict[str, List[str]]:
         for m in SAD_ROW_PATTERN.finditer(line):
             fr_id = _norm_fr(m.group(1))
             module = m.group(2)
-            if module not in fr_to_modules.get(fr_id, []):
-                fr_to_modules.setdefault(fr_id, []).append(module)
+            if module not in fr_to_modules.setdefault(fr_id, []):
+                fr_to_modules[fr_id].append(module)
+    for lst in fr_to_modules.values():
+        lst.sort()
     return fr_to_modules
 
 
@@ -162,8 +169,10 @@ def scan_test_nfr_coverage(tests_dir: Path) -> Dict[str, List[str]]:
         rel = str(test_file.relative_to(project))
         for m in NFR_PATTERN.finditer(text):
             nfr_id = f"NFR-{int(m.group(1)):02d}"
-            if rel not in nfr_to_tests.get(nfr_id, []):
-                nfr_to_tests.setdefault(nfr_id, []).append(rel)
+            if rel not in nfr_to_tests.setdefault(nfr_id, []):
+                nfr_to_tests[nfr_id].append(rel)
+    for lst in nfr_to_tests.values():
+        lst.sort()
     return nfr_to_tests
 
 
