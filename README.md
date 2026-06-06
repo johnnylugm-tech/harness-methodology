@@ -30,7 +30,7 @@ Design Score: **91/100** Academic Benchmark
 | `harness_cli.py` | Standalone CLI entry point (plan-all, load-context, plan-phase, run-gate, etc.) |
 | `harness/harness_bridge.py` | Gate trigger + CRG integration |
 | `harness/gate_configs/` | 4 Gate YAML configurations |
-| `core/auto_fix/` | AutoFixEngine: classify → fix → verify → loop (13 strategies, 9 escalation conditions) |
+| `core/auto_fix/` | AutoFixEngine: Partially retained (only trace gap fix is wired) + 5 guardrails |
 | `scripts/list-modules.py` | Module manifest inventory + validation (`--validate` in CI) |
 | `scripts/validate_cross_refs.py` | Cross-reference checker (CLASSIFICATION_TABLE ↔ STRATEGY_REGISTRY) |
 | `.github/workflows/` | CI: `harness_ci.yml` (PR gate) + `release.yml` (tag-driven release) |
@@ -56,6 +56,8 @@ python harness_cli.py run-gate    --gate 1 --phase 3 --fr-id FR-01
 python harness_cli.py finalize-gate --gate 1 --phase 3 --fr-id FR-01 --project .
 python harness_cli.py run-gate    --gate 2 --phase 3
 python harness_cli.py finalize-gate --gate 2 --phase 3 --project .
+python harness_cli.py audit-phase   --phase 3 --project .
+python harness_cli.py push-milestone --type p3-pre-gate2 --project .
 python harness_cli.py status
 ```
 
@@ -68,6 +70,15 @@ See **[INTEGRATION.md](INTEGRATION.md)** for:
 - Drift monitor cron (`scripts/cron_drift_monitor.py`)
 - Recommended target-project GitHub Actions
 - Environment variables reference
+
+## Server-Side Enforcement (Bypass-Proof)
+
+The methodology uses three CI-level enforcement mechanisms to prevent hook bypassing (`git push --no-verify`):
+1. **Push-milestone sentinel**: Blocks pushes if `push-milestone` isn't called before Phase 3+ changes.
+2. **Agent B approval gate**: Blocks pushes if FRs lack approval or traceable citations.
+3. **P8 archive check**: Blocks pushes if Phase 8 `HANDOVER.md` references non-existent phases.
+
+Test coverage is centrally tracked via `TEST_SPEC.md` and enforced using `spec-coverage-check`.
 
 ## Score Reconciliation
 
