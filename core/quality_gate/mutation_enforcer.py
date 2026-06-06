@@ -51,7 +51,7 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
     parse ``mutmut results`` output afterwards to detect survivors.
     """
     if not shutil.which("mutmut"):
-        return True, ""
+        return False, "mutmut not installed. Required for TDD-PRECHECK. Install: pip install mutmut"
 
     cwd, paths_to_mutate = _resolve_mutmut_workdir(project)
 
