@@ -503,8 +503,7 @@ _AGENT_B_EMBED_DOCS: Dict[int, List[str]] = {
 _AGENT_B_CHECKS: Dict[int, List[str]] = {
     1: ["All FRs testable? (no vague criteria)", "NFRs measurable?", "No contradictions between FRs?", "Every stakeholder need covered?"],
     2: ["Every FR maps to ≥1 module?", "NFRs addressed (latency/security/cost)?", "No circular dependencies?", "ADR covers all major decisions?",
-        "Directory structure follows cohesion principles (SAD.md §2.1)? Files in same dir import each other?",
-        "Source and test directories mirror each other (src/routers/ ↔ tests/routers/)?",
+        "Directory structure follows CRG cohesion principles (SAD.md §2.1)?  Hub coverage per dir, per-function-body calls, entry point placement.  See embedded DOC 3 for the full 6 universal principles.",
         "No flat dumps or god-modules? (≤15 files per dir, no single dir with all source)"],
     3: ["Code matches SRS acceptance criteria?", "Tests actually test the spec (not the impl)?", "No forbidden patterns (app/infrastructure/, @covers: L1 Error)?", "Docstrings have [FR-XX] tag + Citations?"],
     4: ["Test coverage ≥80% for this FR?", "Edge cases covered?", "Results match TEST_PLAN.md expected outcomes?"],
@@ -1217,10 +1216,12 @@ def _phase_advance_step(phase: int, dynamic: bool = False) -> List[str]:
             *(["- **[PHASE-TRUTH]** Phase Truth ≥ 90% (HR-11) — verified by advance-phase",
                "",
                ] if phase >= 3 else []),
-            # TDD precheck: advance-phase enforces pytest 100% cov + D4 spec-coverage ≥90%
-            "- **[TDD-PRECHECK]** Verify TDD checks pass — advance-phase enforces both:",
+            # TDD precheck: advance-phase enforces pytest 100% cov + D4 spec-coverage ≥90% + mutmut
+            "- **[TDD-PRECHECK]** P8 completion checklist (final quality gate before archive):",
             "  - `pytest --tb=short -q --cov=03-development/src --cov-fail-under=100` (exit 9)",
             f"  - `python3 harness_cli.py spec-coverage-check --project . --threshold {_tdd_sc_p8:.1f}` (exit 10, D4 unified v2.6)",
+            "  - mutmut mutation testing (exit 11 — soft-skip if `mutmut` not installed;",
+            "    kill surviving mutants or exclude data-only files via `paths_to_exclude` in setup.cfg)",
             "  > For genuinely untestable lines add: `# pragma: no cover` (requires justification comment).",
             "",
             "### 🎉 Pipeline Complete",
@@ -1271,9 +1272,11 @@ def _phase_advance_step(phase: int, dynamic: bool = False) -> List[str]:
            "  > If below 90%: add missing test implementations before advancing to Phase 6.",
            "",
            ] if phase == 5 else []),
-        *(["- **[TDD-PRECHECK]** Verify TDD checks pass — advance-phase enforces both:",
+        *(["- **[TDD-PRECHECK]** Verify TDD checks pass — advance-phase enforces:",
            "  - `pytest --tb=short -q --cov=03-development/src --cov-fail-under=100` (exit 9)",
            f"  - `python3 harness_cli.py spec-coverage-check --project . --threshold {_tdd_sc:.1f}` (exit 10, D4 unified v2.6)",
+           "  - mutmut mutation testing (exit 11 — soft-skip if `mutmut` not installed;",
+           "    kill surviving mutants or exclude data-only files via `paths_to_exclude` in setup.cfg)",
            "  > For genuinely untestable lines add: `# pragma: no cover` (requires justification comment).",
            "",
            ] if phase >= 3 else []),
@@ -2343,7 +2346,7 @@ def generate_phase5_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     lines.append("")
     lines.append("### Phase 5 Overview")
     lines.append("Phase 5 verifies the system against test results, ensuring all FRs meet acceptance criteria.")
-    lines.append("Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). No harness run-gate — P5 was cleared by Gate 3 at P4 exit. However, advance-phase still enforces TDD-PRECHECK (pytest 100% + D4 spec-coverage ≥80%) before FSM transition.")
+    lines.append("Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). No harness run-gate — P5 was cleared by Gate 3 at P4 exit. However, advance-phase still enforces TDD-PRECHECK (pytest 100% + D4 spec-coverage ≥80% + mutmut mutation testing) before FSM transition.")
     lines.append("")
     lines.append(
         "> If code changes are needed for any FR (e.g., bug fixes found during verification), "
@@ -2485,7 +2488,7 @@ def generate_phase7_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     lines.append("")
     lines.append("### Phase 7 Overview")
     lines.append("Phase 7 identifies, tracks, and mitigates all risks introduced during development.")
-    lines.append("Each FR gets a Gate 1 risk-aware re-evaluation (CHECKPOINT). No harness run-gate — P7 cleared by Gate 4. However, advance-phase still enforces TDD-PRECHECK (pytest 100% + D4 spec-coverage ≥90%) before FSM transition.")
+    lines.append("Each FR gets a Gate 1 risk-aware re-evaluation (CHECKPOINT). No harness run-gate — P7 cleared by Gate 4. However, advance-phase still enforces TDD-PRECHECK (pytest 100% + D4 spec-coverage ≥90% + mutmut mutation testing) before FSM transition.")
     lines.append("")
     lines.append(
         "> If risk mitigation requires code changes to any FR, run full TDD: "
@@ -2578,7 +2581,7 @@ def generate_phase8_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     lines.append("")
     lines.append("### Phase 8 Overview")
     lines.append("Phase 8 establishes a complete configuration management system ensuring traceability.")
-    lines.append("Each FR gets a Gate 1 config-aware re-evaluation (CHECKPOINT). No harness run-gate — P8 cleared by Gate 4. However, advance-phase still enforces TDD-PRECHECK (pytest 100% + D4 spec-coverage ≥90%) before FSM transition.")
+    lines.append("Each FR gets a Gate 1 config-aware re-evaluation (CHECKPOINT). No harness run-gate — P8 cleared by Gate 4. However, advance-phase still enforces TDD-PRECHECK (pytest 100% + D4 spec-coverage ≥90% + mutmut mutation testing) before FSM transition.")
     lines.append("")
     lines.append(
         "> If configuration changes require code modifications to any FR, run full TDD: "
