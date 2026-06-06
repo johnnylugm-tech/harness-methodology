@@ -390,7 +390,7 @@ The harness uses a three-layer defense against `git --no-verify` bypass:
 ### 8.1 Layer 1 — Local Git Hooks
 Installed by `init-project` step [3/11] via `scripts/setup-git-hooks.sh`.  
 Blocks commits and pushes that don't meet phase requirements.  
-**Bypassable**: `git push --no-verify` skips local hooks.
+**Bypassable**: `git push --no-verify` skips local hooks. Commits prefixed with `chore(harness):` automatically skip local gate checks to prevent circular blocking when updating the harness submodule.
 
 ### 8.2 Layer 2 — ECC Hooks (Claude Code Session Layer)
 Installed via `scripts/setup-ecc-hooks.sh`. Blocks `git --no-verify` at the

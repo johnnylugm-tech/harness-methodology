@@ -127,7 +127,7 @@ M1 kill-switch circuit state is checked before each phase. M3 gap analysis runs 
 
 **Gate BLOCKED diagnostic** (`finalize-gate` exit 1): The command emits a structured per-dimension diagnosis on block. Output includes: composite score, open_critical/high counts, per-failing-dimension score/threshold/gap and a fix hint, passing dimension summary, auto-fix round count (if auto-fix ran), and copy-pasteable resume commands. Full report written to `.methodology/last_block.md`. Fix hints cover all 14 dimension names: `linting`, `type_safety`, `test_coverage`, `security`, `secrets_scanning`, `license_compliance`, `mutation_testing`, `architecture`, `readability`, `error_handling`, `documentation`, `performance`, `integration_coverage`, `test_assertion_quality`. Implemented in `_format_block_diagnostic()` (module-level helper in `harness_cli.py`); the dict `_DIMENSION_HINTS` maps dimension name → actionable fix string.
 
-**Auto-fix wiring — removed (engine NOT wired)**: the preflight (`cmd_run_phase`) and postflight (`cmd_finalize_gate`) wirings, plus the `_run_auto_fix_loop` driver, were removed after end-to-end verification proved the strategies cannot clear the checks they target — every strategy only emits an empty stub (`fix_gap_critical`, `fix_missing_artifact`) or appends a comment (`fix_drift`), while the checks measure substantive gaps (FR→code→test coverage, drift score, phase artifact chain). Preflight/postflight failures now block honestly. `core/auto_fix` (engine + 5 guardrails) is retained but has **no production caller** — see §3.18.
+**Auto-fix wiring — partially removed**: the main preflight (`cmd_run_phase`) and postflight (`cmd_finalize_gate`) wirings, plus the `_run_auto_fix_loop` driver, were mostly removed after end-to-end verification proved the strategies cannot clear the checks they target — emitting empty stubs or appending comments. Preflight/postflight failures now generally block honestly. However, **one exception remains fully wired**: `fix_missing_traceability` is dispatched via `_dispatch_trace_auto_fix` during preflight for a bounded attempt. `core/auto_fix` (engine + 5 guardrails) is retained for this specific workflow — see §3.18.
 
 **ECC hooks (Claude Code session layer)**: `~/.claude/hooks/hooks.json` runs ECC hooks across all Claude Code sessions. Harness-provided hooks:
 - `pre:bash:dispatcher` — blocks `git --no-verify` (prevents HR violation from bypassing hooks), push reminders
@@ -227,7 +227,7 @@ Full integration guide: **[INTEGRATION.md](INTEGRATION.md)**. Summary:
 | Mechanism | File | Context | Purpose |
 |---|---|---|---|
 | **GitHub Actions CI** | `.github/workflows/harness_ci.yml` | This repo (framework self-test) | Mutation testing (median-3, threshold ≥70, requires `pytest.mark.mutation_oracle` scoped testing via `setup.cfg`) + `pytest tests/` on push/PR to `main` |
-| **Git Hooks installer** | `scripts/setup-git-hooks.sh` | Target project | Installs `prepare-commit-msg` (block commit), `post-merge` (warn), `pre-push` (block push) keyed on `.methodology/state.json` `current_phase` |
+| **Git Hooks installer** | `scripts/setup-git-hooks.sh` | Target project | Installs `prepare-commit-msg` (block commit), `post-merge` (warn), `pre-push` (block push) keyed on `.methodology/state.json` `current_phase`. Skips checks for `chore(harness):` commits |
 | **Drift Monitor cron** | `scripts/cron_drift_monitor.py` | Target project (crontab) | Hourly architecture drift detection; alert via log / email / Slack. Path via `DRIFT_PROJECT_PATH` env var |
 | **On-demand scripts** | `scripts/*.py` | Target project | FR audit, phase audit, spec compliance, FR mapping — see INTEGRATION.md §3.4 |
 
@@ -523,14 +523,14 @@ No MCP imports — the module has no optional external dependencies.
 
 **Module-level availability** (set at import time):
 ```python
-_CRG_MCP_AVAILABLE = True  # True if mcp__code_review_graph__* imports succeed
+_CRG_AVAILABLE = True  # True if mcp__code_review_graph__* imports succeed
 ```
 
 **Public API**:
 
 | Method | Implementation | Return |
 |---|---|---|
-| `is_available() -> bool` | Returns module-level `_CRG_MCP_AVAILABLE` | cached bool |
+| `_check_available() -> bool` | Returns module-level `_CRG_AVAILABLE` and warns once on failure | cached bool |
 | `run_reconnaissance(project_root) -> dict` | `_crg_build(full_rebuild=True)` + reads `.sessi-work/crg_reconnaissance.json` | dict or {} |
 | `get_minimal_context(project_root, dimension) -> dict` | `_crg_minimal_context(task=dimension)` | dict or {} |
 | `check_impact(project_root, ref="HEAD", threshold=0.7) -> bool` | `_crg_detect_changes()` — `risk_score >= threshold` | bool |
@@ -541,7 +541,7 @@ _CRG_MCP_AVAILABLE = True  # True if mcp__code_review_graph__* imports succeed
 - `SSI_ROOT` env var (default: `harness/ssi` — the embedded directory) — used as `cwd` for CRG subprocess calls via `_ssi_root()`.
 - Priority: `SSI_ROOT` env var → embedded `harness/ssi/` (set by `Path(__file__).parent / "ssi"`).
 
-**Graceful degradation**: If `is_available()` is `False`, all methods return `{}` or `False` immediately.
+**Graceful degradation**: If `_check_available()` is `False`, all methods return `{}` or `False` immediately.
 
 **CRG integration points** (§6.5):
 1. **Point 1 — Structural Reconnaissance** (Gate 3/4 entry): `prepare_gate()` calls `run_reconnaissance` — builds CRG graph, seeds structural data.
@@ -1255,20 +1255,21 @@ Thresholds are configurable via `AutoFixEngine.__init__` parameters:
 `gate_min_score=60.0`, `gate_min_rounds=3`, `confidence_threshold=70.0`.
 
 **Integration points**:
-- `harness/harness_bridge.py`: `GateContext.auto_fix_rounds` field + `prepare_gate(auto_fix_rounds=...)` parameter only set `config.max_rounds`; they do **not** invoke `AutoFixEngine.fix()` (no production path does).
+- `harness/harness_bridge.py`: `GateContext.auto_fix_rounds` field + `prepare_gate(auto_fix_rounds=...)` parameter only set `config.max_rounds`; they do **not** invoke `AutoFixEngine.fix()` directly.
+- `harness_cli.py`: Only invokes `AutoFixEngine.fix()` via `_dispatch_trace_auto_fix` during preflight to handle `missing_traceability`. Other preflight/postflight wirings were removed.
 - `orchestration/__init__.py`: exports `run_constitution_check_with_feedback`, `run_enforcement_check_with_feedback`, `run_policy_check_with_feedback` — retry-aware wrappers that would delegate to AutoFixEngine, but they have **no production caller** (dead since the wirings were removed).
 
 **`ast_mutation_guard(file_path, pre_content, post_content, allowed_node_name) -> bool`** (guardrails.py):
 Validates that a fix touched only the AST node named `allowed_node_name`. Dumps invariants of all _other_ top-level nodes (FunctionDef, ClassDef, AsyncFunctionDef) and compares pre/post. For nested methods inside a ClassDef, deep-copies the parent class, strips the target method, then dumps the remainder — so decorator/base-class changes on the parent class are also caught. Returns `False` (unsafe) if: post-fix has a syntax error, or any out-of-bounds node changed. Returns `True` unconditionally for non-.py files or when `allowed_node_name` is None.
 
-**Auto-fix loop** (the engine's intended detect→fix→re-verify shape — NOT currently wired):
+**Auto-fix loop** (the engine's intended detect→fix→re-verify shape — ONLY wired for traceability):
 ```
 check fail → AutoFixEngine.fix() → re-check → loop (up to N rounds)
 ```
-> No production code calls `AutoFixEngine.fix()`. The preflight/postflight wirings were
-> removed after end-to-end verification (every strategy emits a stub/comment that never
-> clears the substantive checks); `prepare_gate(auto_fix_rounds=N)` only sets
-> `config.max_rounds` and does not invoke the engine. The manual gate flow is: fix failing
+> The preflight/postflight wirings for general dimensions were removed after end-to-end verification
+> (most strategies emit a stub/comment that never clears the substantive checks). Currently, **only
+> the `fix_missing_traceability` strategy is called in production** via `_dispatch_trace_auto_fix`
+> in `cmd_run_phase` preflight. The manual gate flow for other dimensions is: fix failing
 > dimensions → re-run `run-gate` → `finalize-gate` (see the CASE 1–4 early-stop logic per
 > gate checkpoint).
 (Removed in v2.6.0: the `run-pipeline` autonomous pipeline was unstable for the current maturity level.)
@@ -1448,7 +1449,7 @@ def compute_tool_score(tool: str, output: str, returncode: int) -> float | None:
     Returns None when the tool is skipped or unavailable."""
 ```
 
-**Skip list**: `mutmut` and `scancode` are excluded from *inline subprocess* cross-validation (too slow / complex). They are **not** treated as a free pass: `HarnessBridge._run_harness_cross_validation()` requires each skip-list dimension to point at a committed, non-empty `tool_output` file that passes `_validate_tool_content()` (a real tool report, not inline agent text). A missing/empty/malformed file → BLOCK.
+**Skip list**: `mutmut` and `scancode` are excluded from *inline subprocess* cross-validation (too slow / complex). They are **not** treated as a free pass: `HarnessBridge._run_harness_cross_validation()` requires each skip-list dimension to point at a committed, non-empty `tool_output` file that passes `_validate_tool_content()` (a real tool report, not inline agent text). A missing/empty/malformed file → BLOCK. **Data-only Exclusion**: For `mutmut`, data-only files (e.g., config, constants, Pydantic models with no logic statements) must be explicitly excluded via `paths_to_exclude` in `setup.cfg` to prevent surviving mutants from artificially diluting the kill rate.
 
 **In-process pseudo-tools** (computed by the harness itself, not external CLIs — replace former "fake" tool mappings that re-used pytest pass-rate):
 - `ast-assertions` (`test_assertion_quality`) — AST scan of test functions; `score = 100 × asserted/total`. A test with no substantive assertion (`assert` / `self.assertXxx` / `pytest.raises`) is "zero-assert" and lowers the score — what pytest pass-rate cannot detect.
@@ -2675,7 +2676,7 @@ within this repository.
 | **P1** | ~~SSI result field name verification~~ | ✅ **DONE (v2.0.2)** | `_parse_result()` dual-fallback handles both `open_critical_count`/`open_critical` field name variants — see §8.2. | A |
 | **P1** | ~~`constitution/` package stub or real impl~~ | ✅ Done (v2.0.1) | `constitution/` implemented — `BVSRunner`, `CitationParser`, `VerificationConstitutionChecker` all deployed. | A |
 | **P2** | ~~`harness_bridge` empirical project validation~~ | ✅ **DONE** | omnibot-full project (Gate 4 score 89.6, 2026-05-14). Tier 1 deterministic scoring stable, subprocess call chain works end-to-end. | A (20→21) |
-| **P2** | CRG activation + empirical data | **+1 -> 94** | First real project run with CRG MCP available. Validates `min(tool, llm)` floor and `crg_metrics.json` structural signals. Currently `CRGBridge.is_available()` returns `False` in standalone mode | E (10->11) |
+| **P2** | CRG activation + empirical data | **+1 -> 94** | First real project run with CRG MCP available. Validates `min(tool, llm)` floor and `crg_metrics.json` structural signals. Currently `CRGBridge._check_available()` returns `False` in standalone mode | E (10->11) |
 | **P3** | ASPICE full traceability matrix (Phase E docs) | ✅ **DONE** | `scripts/build_traceability.py` populates `RequirementTraceability` model from SAD.md + `[FR-XX]` annotations + test files, auto-generates `TRACEABILITY_MATRIX.md` with ASPICE SWE.3 compliance. `scripts/check_spec_trace.py` upgraded to v2 content-level. `PhaseHooks.preflight_traceability()` blocks at P4+. | C (15→16) |
 | **P4** | Developer-side deterministic tooling | **+1-2 -> 96** | Replace or augment Claude developer agent with static analysis pipeline (mypy strict, semgrep, complexity checker). Reduces D-dimension LLM dependency from 13/15 to 15/15 | D (13->15) |
 
