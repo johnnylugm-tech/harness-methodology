@@ -591,6 +591,22 @@ def cmd_plan_all(args: argparse.Namespace) -> int:
 # run-phase
 # ---------------------------------------------------------------------------
 
+def _collect_shared_test_files(project: Path, base: str,
+                                existing: list[str]) -> None:
+    """Append git-tracked conftest.py and helpers/**/*.py under *base*."""
+    import subprocess as _sp
+    try:
+        r = _sp.run(
+            ["git", "ls-files", f"{base}/conftest.py", f"{base}/helpers/"],
+            capture_output=True, text=True, cwd=str(project),
+        )
+        for line in r.stdout.splitlines():
+            if line.endswith(".py") and line not in existing:
+                existing.append(line)
+    except Exception:
+        pass
+
+
 def _git_test_patterns(project: Path, num: str, num_raw: str) -> list[str]:
     """Return git-tracked test file path patterns, resolving symlinks.
 
@@ -599,14 +615,7 @@ def _git_test_patterns(project: Path, num: str, num_raw: str) -> list[str]:
     silently returns nothing because git has ``03-development/tests/test_fr01.py``.
     """
     patterns = [f"tests/test_fr{num}.py", f"tests/test_fr{num_raw}.py"]
-    import subprocess as _sp
-    try:
-        r = _sp.run(["git", "ls-files", "tests/conftest.py", "tests/helpers/"], capture_output=True, text=True, cwd=str(project))
-        for line in r.stdout.splitlines():
-            if line.endswith(".py") and line not in patterns:
-                patterns.append(line)
-    except Exception:
-        pass
+    _collect_shared_test_files(project, "tests", patterns)
 
     tests_link = project / "tests"
     if tests_link.is_symlink():
@@ -616,13 +625,7 @@ def _git_test_patterns(project: Path, num: str, num_raw: str) -> list[str]:
                 f"{real_tests}/test_fr{num}.py",
                 f"{real_tests}/test_fr{num_raw}.py",
             ]
-            try:
-                r2 = _sp.run(["git", "ls-files", f"{real_tests}/conftest.py", f"{real_tests}/helpers/"], capture_output=True, text=True, cwd=str(project))
-                for line in r2.stdout.splitlines():
-                    if line.endswith(".py") and line not in patterns:
-                        patterns.append(line)
-            except Exception:
-                pass
+            _collect_shared_test_files(project, str(real_tests), patterns)
         except ValueError:
             pass
     return patterns
@@ -4807,19 +4810,15 @@ def _fr_code_changed_since_last_gate1(fr_id: str, project: Path) -> bool:
     
     for py_file in changed_src:
         curr_path = project / py_file
-        # Fallback: if tag was removed in the diff, it's a change for this FR
-        r_diff_raw = _sp.run(["git", "diff", sha, "HEAD", "--", py_file], capture_output=True, text=True, cwd=str(project))
-        if f"[{fr_id}]" in r_diff_raw.stdout:
-            return True
-            
+
         if not curr_path.exists():
             continue
-            
+
         try:
             content = curr_path.read_text(encoding="utf-8")
             if f"[{fr_id}]" not in content:
                 continue
-            
+
             tree = ast.parse(content)
             fr_ranges = []
             for node in ast.walk(tree):
@@ -4827,13 +4826,19 @@ def _fr_code_changed_since_last_gate1(fr_id: str, project: Path) -> bool:
                     doc = ast.get_docstring(node)
                     if doc and f"[{fr_id}]" in doc:
                         fr_ranges.append((node.lineno, getattr(node, "end_lineno", node.lineno)))
-            
+
             if not fr_ranges:
                 # string is in file but not in a docstring, default to changed
                 return True
-                
-            # Parse diff -U0 to get changed lines
-            r_u0 = _sp.run(["git", "diff", "-U0", sha, "HEAD", "--", py_file], capture_output=True, text=True, cwd=str(project))
+
+            # Single -U0 diff for both removed-tag check and hunk line parsing
+            r_u0 = _sp.run(
+                ["git", "diff", "-U0", sha, "HEAD", "--", py_file],
+                capture_output=True, text=True, cwd=str(project),
+            )
+            # Fallback: tag was removed in the diff
+            if f"[{fr_id}]" in r_u0.stdout:
+                return True
             for line in r_u0.stdout.splitlines():
                 if line.startswith("@@ "):
                     # @@ -old,n +new,n @@
@@ -4842,7 +4847,7 @@ def _fr_code_changed_since_last_gate1(fr_id: str, project: Path) -> bool:
                         start_line = int(parts[0].lstrip("+"))
                         count = int(parts[1]) if len(parts) > 1 else 1
                         end_line = start_line + count - 1
-                        
+
                         for (fr_start, fr_end) in fr_ranges:
                             # Overlap check
                             if start_line <= fr_end and end_line >= fr_start:

@@ -35,7 +35,7 @@ def _resolve_mutmut_workdir(project: Path) -> tuple[Path, str]:
         sub_cfg.read(str(sub_project / "setup.cfg"))
         if sub_cfg.has_section("mutmut"):
             cwd = sub_project
-            paths = str(Path(*parts[1:])) if len(parts) > 1 else paths
+            paths = str(Path(*parts[1:]))
 
     return cwd, paths
 
@@ -79,11 +79,11 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
         out = res.stdout.strip()
         if out:
             m = re.search(r"Survived[^(]*\((\d+)\)", out)
-            survivors = m.group(1) if m else "Unknown"
-            return False, (
-                f"Mutation testing failed: {survivors} surviving mutant(s) found.\n\n"
-                f"{out}"
-            )
+            if m and int(m.group(1)) > 0:
+                return False, (
+                    f"Mutation testing failed: {m.group(1)} surviving mutant(s) found.\n\n"
+                    f"{out}"
+                )
 
         return True, ""
     except Exception as e:
