@@ -1,15 +1,39 @@
-"""Mutation testing FSM enforcer."""
+"""Mutation testing FSM enforcer.
+
+Implements the full mutmut protocol from
+``harness/ssi/prompts/evaluate_dimension.md`` §mutation_testing:
+
+* ``-b 10`` baseline budget (Bug F)
+* editable-install detection → hard block (Bug F)
+* cwd isolation via ``mktemp -d`` (Bug F)
+* absolute testpaths in temp ``setup.cfg`` (Bug F)
+* data-only file auto-exclusion (Bug F)
+* ``paths_to_exclude`` from ``setup.cfg`` passed via CLI (Bug G)
+"""
 import configparser
+import json
 import re
-import subprocess
 import shutil
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
 
 HARDCODED_FALLBACK = "03-development/src"
 
+# Basenames that are almost certainly data-only (no logic to mutate).
+_DATA_ONLY_NAMES: frozenset[str] = frozenset({
+    "config.py", "constants.py", "settings.py", "__init__.py",
+})
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
 
 def _resolve_mutmut_workdir(project: Path) -> tuple[Path, str]:
-    """Return (cwd, paths_to_mutate) resolved from project setup.cfg.
+    """Return ``(cwd, paths_to_mutate)`` resolved from project ``setup.cfg``.
 
     Reads ``[mutmut] paths_to_mutate`` from the project-root ``setup.cfg``.
     If that path lives inside a subdirectory that has its own ``setup.cfg``
@@ -27,8 +51,6 @@ def _resolve_mutmut_workdir(project: Path) -> tuple[Path, str]:
 
     cwd = project
     parts = Path(paths).parts
-    # If the configured path is nested (e.g. 03-development/src), check
-    # whether the top-level subdirectory carries its own [mutmut] config.
     if len(parts) > 1:
         sub_project = project / parts[0]
         sub_cfg = configparser.ConfigParser()
@@ -40,18 +62,148 @@ def _resolve_mutmut_workdir(project: Path) -> tuple[Path, str]:
     return cwd, paths
 
 
+def _is_editable_install(project: Path) -> bool:
+    """Check whether *project* is installed in editable (``pip install -e``) mode.
+
+    Editable installs place a ``.pth`` file in site-packages pointing back to
+    the original source.  When mutmut copies mutated code to a temp dir,
+    Python resolves imports via the ``.pth`` file → mutations are never tested.
+    """
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "list", "--editable", "--format", "json"],
+            capture_output=True, text=True, timeout=30,
+            cwd=str(project),
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return False
+        packages = json.loads(result.stdout)
+        project_path = project.resolve()
+        for pkg in packages:
+            loc = (
+                pkg.get("editable_project_location")
+                or pkg.get("location")
+                or ""
+            )
+            if loc and Path(loc).resolve() == project_path:
+                return True
+        return False
+    except Exception:
+        return False
+
+
+def _read_paths_to_exclude(cwd: Path) -> list[str]:
+    """Read ``paths_to_exclude`` from ``[mutmut]`` in ``setup.cfg``.
+
+    ConfigParser returns the value as a single string; mutmut 2.x iterates
+    its characters instead of splitting on whitespace → effectively broken.
+    We read it ourselves, split by whitespace, and pass individual
+    ``--paths-to-exclude`` CLI options (Bug G).
+    """
+    cfg = configparser.ConfigParser()
+    cfg.read(str(cwd / "setup.cfg"))
+    if not cfg.has_section("mutmut"):
+        return []
+    raw = cfg.get("mutmut", "paths_to_exclude", fallback="")
+    return raw.split() if raw.strip() else []
+
+
+def _detect_data_only_files(src_dir: Path) -> list[str]:
+    """Auto-detect data-only ``.py`` files that have no mutate-able logic.
+
+    Returns **basenames** (mutmut matches ``paths_to_exclude`` on basename).
+    Files matching ``_DATA_ONLY_NAMES`` are excluded immediately; for the
+    rest a heuristic counts logic-keyword lines at ≥4-space indent.
+    """
+    excludes: list[str] = []
+    _logic_re = re.compile(
+        r"^\s{4,}(if |for |while |with |return |raise |try:|except |assert )",
+        re.MULTILINE,
+    )
+    for py_file in src_dir.rglob("*.py"):
+        basename = py_file.name
+        if basename in _DATA_ONLY_NAMES:
+            excludes.append(basename)
+            continue
+        try:
+            text = py_file.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if not _logic_re.search(text):
+            excludes.append(basename)
+    return sorted(set(excludes))
+
+
+def _abs_paths_to_mutate(cwd: Path, paths_to_mutate: str) -> str:
+    """Convert comma-separated relative paths to absolute, comma-separated."""
+    parts = [p.strip() for p in paths_to_mutate.split(",") if p.strip()]
+    return ",".join(str((cwd / p).resolve()) for p in parts)
+
+
+def _resolve_test_dirs(project: Path) -> list[str]:
+    """Return absolute paths to existing test directories under *project*."""
+    test_dirs: list[str] = []
+    for td in ["03-development/tests", "tests", "test"]:
+        candidate = project / td
+        if candidate.is_dir():
+            test_dirs.append(str(candidate.resolve()))
+    return test_dirs
+
+
+def _prepare_temp_setup_cfg(project: Path, workdir: str) -> None:
+    """Copy ``setup.cfg`` into *workdir* with absolute ``testpaths``.
+
+    pytest discovers tests relative to cwd; from a temp dir it finds nothing
+    without absolute paths (Bug F — cwd isolation).
+    """
+    text = ""
+    setup_cfg = project / "setup.cfg"
+    if setup_cfg.exists():
+        text = setup_cfg.read_text(encoding="utf-8")
+
+    test_dirs = _resolve_test_dirs(project)
+    if not test_dirs:
+        if text:
+            (Path(workdir) / "setup.cfg").write_text(text, encoding="utf-8")
+        return
+
+    abs_testpaths = " ".join(test_dirs)
+    if re.search(r"^testpaths\s*=", text, re.MULTILINE):
+        text = re.sub(
+            r"^(testpaths\s*=\s*)[^\n]*",
+            r"\g<1>" + abs_testpaths,
+            text, count=1, flags=re.MULTILINE,
+        )
+    elif re.search(r"^\[tool:pytest\]", text, re.MULTILINE):
+        text = re.sub(
+            r"^(\[tool:pytest\])",
+            r"\1\ntestpaths = " + abs_testpaths,
+            text, count=1, flags=re.MULTILINE,
+        )
+    else:
+        text += f"\n[tool:pytest]\ntestpaths = {abs_testpaths}\n"
+
+    (Path(workdir) / "setup.cfg").write_text(text, encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+
 def run_mutation_precheck(project: Path) -> tuple[bool, str]:
     """Run mutmut and enforce no surviving mutants.
 
-    Reads ``paths_to_mutate`` (and indirectly ``paths_to_exclude``) from
-    the project's ``setup.cfg`` ``[mutmut]`` section, with a hardcoded
-    fallback of ``03-development/src``.
-
-    mutmut run exits 0 regardless of surviving mutants, so we always
-    parse ``mutmut results`` output afterwards to detect survivors.
+    Implements the full protocol from ``evaluate_dimension.md``:
+    editable-install detection, ``-b 10`` baseline budget, cwd isolation
+    via temp dir, absolute testpaths, data-only file auto-exclusion, and
+    ``paths_to_exclude`` CLI passthrough (Bug G).
     """
     if not shutil.which("mutmut"):
-        return False, "mutmut not installed. Required for TDD-PRECHECK. Install: pip install mutmut"
+        return False, (
+            "mutmut not installed. Required for TDD-PRECHECK. "
+            "Install: pip install mutmut"
+        )
 
     cwd, paths_to_mutate = _resolve_mutmut_workdir(project)
 
@@ -59,10 +211,41 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
     if not src_dir.exists():
         return True, ""
 
+    # --- Bug F: editable install detection ---
+    if _is_editable_install(project):
+        return False, (
+            "Project is installed in editable mode (pip install -e). "
+            "This prevents mutmut from testing mutations — Python resolves "
+            "imports to the original (unmutated) source via .pth files.\n"
+            "Fix:  pip install .  (non-editable, regular install)\n"
+            "Then re-run TDD-PRECHECK."
+        )
+
+    # --- Bug G: read paths_to_exclude from setup.cfg (split properly) ---
+    declared_excludes = _read_paths_to_exclude(cwd)
+
+    # --- Bug F: auto-detect data-only files ---
+    auto_excludes = _detect_data_only_files(src_dir)
+    # Declared excludes take precedence — don't duplicate.
+    auto_excludes = [e for e in auto_excludes if e not in frozenset(declared_excludes)]
+
+    # --- Bug F: absolute paths (temp-dir cwd isolation) ---
+    abs_mutate = _abs_paths_to_mutate(cwd, paths_to_mutate)
+
+    workdir = tempfile.mkdtemp(prefix="_mutmut_run.", dir="/tmp")
     try:
+        _prepare_temp_setup_cfg(project, workdir)
+
+        cmd = [
+            "mutmut", "run",
+            f"--paths-to-mutate={abs_mutate}",
+            "-b", "10",                     # Bug F: baseline budget
+        ]
+        for excl in declared_excludes + auto_excludes:
+            cmd.extend(["--paths-to-exclude", excl])
+
         r = subprocess.run(
-            ["mutmut", "run", f"--paths-to-mutate={paths_to_mutate}"],
-            cwd=str(cwd), capture_output=True, text=True,
+            cmd, cwd=workdir, capture_output=True, text=True,
         )
 
         if r.returncode != 0:
@@ -73,7 +256,7 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
             )
 
         res = subprocess.run(
-            ["mutmut", "results"], cwd=str(cwd), capture_output=True, text=True,
+            ["mutmut", "results"], cwd=workdir, capture_output=True, text=True,
         )
 
         out = res.stdout.strip()
@@ -88,3 +271,5 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
         return True, ""
     except Exception as e:
         return False, f"Error running mutmut: {e}"
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
