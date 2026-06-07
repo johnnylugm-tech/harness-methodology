@@ -1482,7 +1482,14 @@ def _finalize_sentinel_path(project: Path, gate: int, fr_id: str | None) -> Path
     """Return the sentinel that finalize-gate writes. advance-phase verifies it."""
     key = (fr_id or "phase").replace("-", "").lower()
     d = project / ".sessi-work" / "sentinels"
-    return d / f"g{gate}_{key}.finalized"
+    
+    std_path = d / f"g{gate}_{key}.finalized"
+    if fr_id:
+        legacy_path = d / f"g{gate}_{fr_id}.flag"
+        if not std_path.exists() and legacy_path.exists():
+            return legacy_path
+            
+    return std_path
 
 
 def _write_finalize_sentinels_for_tests(project: Path, fr_ids: list[str] | None = None):
