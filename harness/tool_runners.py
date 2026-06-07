@@ -78,6 +78,13 @@ def run_tool(
     timeout = timeout_override if timeout_override is not None else _DEFAULT_TIMEOUTS.get(tool, 30)
     root = str(project_root)
 
+    import os
+    test_target = root
+    if os.path.isdir(os.path.join(root, "03-development", "tests")):
+        test_target = os.path.join(root, "03-development", "tests")
+    elif os.path.isdir(os.path.join(root, "tests")):
+        test_target = os.path.join(root, "tests")
+
     # Build command per tool.
     cmds: dict[str, list[str]] = {
         "ruff": [
@@ -96,12 +103,12 @@ def run_tool(
             "--outputjson",
         ],
         "pytest-cov": [
-            "pytest", root,
+            "pytest", test_target,
             "--cov", "--cov-report=term-missing",
             "-q", "--tb=no", "--no-header",
         ],
         "pytest": [
-            "pytest", root,
+            "pytest", test_target,
             "-q", "--tb=no", "--no-header",
         ],
         "gitleaks": [

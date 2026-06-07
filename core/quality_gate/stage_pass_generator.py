@@ -219,9 +219,15 @@ class IntegratedStagePassGenerator:
         
         # Run pytest
         print("\n📋 Running pytest...")
+        test_target = "."
+        if (self.project_root / "03-development" / "tests").is_dir():
+            test_target = "03-development/tests"
+        elif (self.project_root / "tests").is_dir():
+            test_target = "tests"
+            
         try:
             result = subprocess.run(  # nosec B603 B607
-                ["pytest", "--tb=short", "-v"],
+                ["pytest", test_target, "--tb=short", "-v"],
                 cwd=self.project_root,
                 capture_output=True,
                 text=True,
@@ -242,9 +248,15 @@ class IntegratedStagePassGenerator:
         
         # Run pytest-cov
         print("\n📋 Running pytest-cov...")
+        test_target = "."
+        if (self.project_root / "03-development" / "tests").is_dir():
+            test_target = "03-development/tests"
+        elif (self.project_root / "tests").is_dir():
+            test_target = "tests"
+            
         try:
             result = subprocess.run(  # nosec B603 B607
-                ["pytest", "--cov", "--cov-report=term-missing"],
+                ["pytest", test_target, "--cov", "--cov-report=term-missing"],
                 cwd=self.project_root,
                 capture_output=True,
                 text=True,

@@ -213,9 +213,16 @@ class FrameworkEnforcer:
         # helper/script files are not counted and inflate or deflate results.
         from core.quality_gate.cov_utils import read_coveragerc_source  # pyright: ignore[reportMissingImports]
         cov_source = read_coveragerc_source(self.project_root)
+        
+        test_target = "."
+        if (self.project_root / "03-development" / "tests").is_dir():
+            test_target = "03-development/tests"
+        elif (self.project_root / "tests").is_dir():
+            test_target = "tests"
+            
         try:
             proc = subprocess.run(  # nosec B603 B607
-                ["pytest", f"--cov={cov_source}", "--cov-report=term-missing", "--tb=no", "-q"],
+                ["pytest", test_target, f"--cov={cov_source}", "--cov-report=term-missing", "--tb=no", "-q"],
                 cwd=self.project_root,
                 capture_output=True,
                 text=True,

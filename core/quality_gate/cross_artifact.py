@@ -198,9 +198,15 @@ def check_coverage_report(project_root: Path, _phase: int) -> List[Dict[str, str
     import sys
 
     if _os.environ.get("HARNESS_CROSS_ARTIFACT_COV") == "1":
+        test_target = "."
+        if (project_root / "03-development" / "tests").is_dir():
+            test_target = "03-development/tests"
+        elif (project_root / "tests").is_dir():
+            test_target = "tests"
+            
         try:
             result = subprocess.run(  # nosec B603 B607
-                [sys.executable, "-m", "pytest", "--cov=.", "--cov-report=term-missing", "-q"],
+                [sys.executable, "-m", "pytest", test_target, "--cov=.", "--cov-report=term-missing", "-q"],
                 cwd=str(project_root),
                 capture_output=True, text=True,
                 timeout=120,

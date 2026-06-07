@@ -139,10 +139,16 @@ class PhaseTruthVerifier:
 
     def check_pytest(self) -> Tuple[bool, float, str]:
         """Check pytest actually passes; capture structured failure output."""
+        test_target = "."
+        if (self.project_root / "03-development" / "tests").is_dir():
+            test_target = "03-development/tests"
+        elif (self.project_root / "tests").is_dir():
+            test_target = "tests"
+            
         try:
             timeout = self._get_pytest_timeout()
             result = subprocess.run(  # nosec B603 B607
-                ["pytest", "--tb=line", "-q", "--no-header"],
+                ["pytest", test_target, "--tb=line", "-q", "--no-header"],
                 cwd=self.project_root,
                 capture_output=True,
                 text=True,
@@ -187,9 +193,16 @@ class PhaseTruthVerifier:
 
         from core.quality_gate.cov_utils import read_coveragerc_source  # pyright: ignore[reportMissingImports]
         cov_source = read_coveragerc_source(self.project_root)
+        
+        test_target = "."
+        if (self.project_root / "03-development" / "tests").is_dir():
+            test_target = "03-development/tests"
+        elif (self.project_root / "tests").is_dir():
+            test_target = "tests"
+            
         try:
             result = subprocess.run(  # nosec B603 B607
-                ["pytest", f"--cov={cov_source}", "--cov-report=term-missing", "--tb=no", "-q"],
+                ["pytest", test_target, f"--cov={cov_source}", "--cov-report=term-missing", "--tb=no", "-q"],
                 cwd=self.project_root,
                 capture_output=True,
                 text=True,
