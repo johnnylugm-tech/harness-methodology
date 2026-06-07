@@ -151,20 +151,19 @@ def _resolve_test_dir(cwd: Path, project: Path) -> Optional[str]:
     *cwd* is the resolved mutmut working directory — either the project
     root (no override) or a subdirectory (when ``setup.cfg`` subdir override
     is active). Tests always live as siblings of the source, so we search
-    relative to *cwd*.
+    relative to *cwd*. Candidate lists come from ``ProjectLayout`` so the
+    path layout is centralised.
     """
     layout = ProjectLayout(project)
-    if cwd.resolve() == project.resolve():
-        candidate = layout.active_test_dir
+    cwd_resolved = cwd.resolve()
+    project_resolved = project.resolve()
+    if cwd_resolved == project_resolved:
+        candidates: list[Path] = [layout.active_test_dir, layout.root / "test"]
+    else:
+        candidates = ProjectLayout.subdir_test_dirs(cwd)
+    for candidate in candidates:
         if candidate.is_dir():
             return str(candidate.resolve())
-        if (cwd / "test").is_dir():
-            return str((cwd / "test").resolve())
-    else:
-        for td in ["tests", "test"]:
-            candidate = cwd / td
-            if candidate.is_dir():
-                return str(candidate.resolve())
     return None
 
 

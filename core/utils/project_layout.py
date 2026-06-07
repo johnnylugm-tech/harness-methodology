@@ -93,6 +93,17 @@ class ProjectLayout:
     @property
     def root_tests_dir(self) -> Path:          return self.root / "tests"
 
+    @staticmethod
+    def subdir_test_dirs(cwd: Path) -> list[Path]:
+        """Candidate test directories for a subdirectory-override cwd.
+
+        When ``[mutmut]`` lives in a subdirectory's ``setup.cfg`` (e.g.
+        ``03-development/setup.cfg``), the source has moved into that
+        subdirectory and tests live alongside it. Returns the candidates
+        the override scenario should search, in priority order.
+        """
+        return [cwd / "tests", cwd / "test"]
+
     # ==========================================
     # 4. 內部方法論狀態 (.methodology)
     # ==========================================
