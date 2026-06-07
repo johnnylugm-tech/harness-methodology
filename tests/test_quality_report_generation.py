@@ -50,7 +50,7 @@ class TestGenerateQualityReport:
 
         content = (project / out_path).read_text()
         assert "Quality Report" in content
-        assert "12-Dimension Assessment" in content
+        assert "Assessment Dimensions" in content
         assert "Per-FR Gate 1 Summary" in content
         assert "Defect / Issue Summary" in content
         assert "ASPICE Traceability" in content
