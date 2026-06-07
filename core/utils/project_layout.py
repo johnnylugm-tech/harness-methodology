@@ -93,6 +93,11 @@ class ProjectLayout:
     @property
     def root_tests_dir(self) -> Path:          return self.root / "tests"
 
+    @property
+    def root_test_dir_candidates(self) -> list[Path]:
+        """Candidate test directories at the project root."""
+        return [self.active_test_dir, self.root / "test"]
+
     @staticmethod
     def subdir_test_dirs(cwd: Path) -> list[Path]:
         """Candidate test directories for a subdirectory-override cwd.

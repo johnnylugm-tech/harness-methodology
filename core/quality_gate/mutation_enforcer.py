@@ -158,7 +158,7 @@ def _resolve_test_dir(cwd: Path, project: Path) -> Optional[str]:
     cwd_resolved = cwd.resolve()
     project_resolved = project.resolve()
     if cwd_resolved == project_resolved:
-        candidates: list[Path] = [layout.active_test_dir, layout.root / "test"]
+        candidates: list[Path] = layout.root_test_dir_candidates
     else:
         candidates = ProjectLayout.subdir_test_dirs(cwd)
     for candidate in candidates:
