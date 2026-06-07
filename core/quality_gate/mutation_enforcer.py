@@ -51,6 +51,8 @@ def _resolve_mutmut_workdir(project: Path) -> tuple[Path, str]:
 
     cwd = project
     parts = Path(paths).parts
+    # If the configured path is nested (e.g. 03-development/src), check
+    # whether the top-level subdirectory carries its own [mutmut] config.
     if len(parts) > 1:
         sub_project = project / parts[0]
         sub_cfg = configparser.ConfigParser()
@@ -113,11 +115,12 @@ def _detect_data_only_files(src_dir: Path) -> list[str]:
 
     Returns **basenames** (mutmut matches ``paths_to_exclude`` on basename).
     Files matching ``_DATA_ONLY_NAMES`` are excluded immediately; for the
-    rest a heuristic counts logic-keyword lines at ≥4-space indent.
+    rest a heuristic counts logic-keyword lines at any indentation level.
     """
     excludes: list[str] = []
+    # ``\s+`` covers 2-space, 4-space, and tab-indented code.
     _logic_re = re.compile(
-        r"^\s{4,}(if |for |while |with |return |raise |try:|except |assert )",
+        r"^\s+(if |for |while |with |return |raise |try:|except |assert )",
         re.MULTILINE,
     )
     for py_file in src_dir.rglob("*.py"):
