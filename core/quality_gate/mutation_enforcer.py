@@ -144,17 +144,29 @@ def _abs_paths_to_mutate(cwd: Path, paths_to_mutate: str) -> str:
     return ",".join(str((cwd / p).resolve()) for p in parts)
 
 
-def _resolve_test_dir(project: Path) -> Optional[str]:
-    """Return the absolute path to the project's test directory.
+def _resolve_test_dir(cwd: Path, project: Path) -> Optional[str]:
+    """Return the absolute path to the test directory, relative to *cwd*.
 
-    mutmut 2.x uses ``--tests-dir`` (single value) and refuses to look at
-    ``[tool:pytest] testpaths`` — passing testpaths via setup.cfg has no
-    effect on mutmut. Returns the first matching directory in priority order.
+    *cwd* is the resolved mutmut working directory — either the project
+    root (no override) or a subdirectory (when ``setup.cfg`` subdir override
+    is active). Tests always live as siblings of the source, so we search
+    relative to *cwd*.
+
+    For the project-root case, ``03-development/tests`` is searched first
+    to match the tts-new layout (source at ``03-development/src``). For
+    subdir-override cases, only ``tests``/``test`` are searched (cwd is
+    already at the source-tree level).
     """
-    for td in ["03-development/tests", "tests", "test"]:
-        candidate = project / td
-        if candidate.is_dir():
-            return str(candidate.resolve())
+    if cwd.resolve() == project.resolve():
+        for td in ["03-development/tests", "tests", "test"]:
+            candidate = cwd / td
+            if candidate.is_dir():
+                return str(candidate.resolve())
+    else:
+        for td in ["tests", "test"]:
+            candidate = cwd / td
+            if candidate.is_dir():
+                return str(candidate.resolve())
     return None
 
 
@@ -231,9 +243,13 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
         # needs --tests-dir with an absolute path. Without this the
         # test-discovery code crashes with FileNotFoundError in the temp
         # workdir that has no tests/ subdirectory.
-        test_dir = _resolve_test_dir(project)
+        test_dir = _resolve_test_dir(cwd, project)
         if test_dir is None:
-            return True, ""  # no tests to run, nothing to mutate
+            return False, (
+                "No test directory found. Searched for tests/, test/, "
+                "03-development/tests/ relative to the mutmut workdir. "
+                "Mutation testing is meaningless without tests — cannot proceed."
+            )
         cmd.append(f"--tests-dir={test_dir}")
         for excl in declared_excludes + auto_excludes:
             cmd.extend(["--paths-to-exclude", excl])
