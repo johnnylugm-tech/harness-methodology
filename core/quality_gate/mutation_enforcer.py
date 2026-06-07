@@ -239,8 +239,13 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
     abs_mutate = _abs_paths_to_mutate(cwd, paths_to_mutate)
 
     workdir = tempfile.mkdtemp(prefix="_mutmut_run.", dir="/tmp")
+    cache_file = project / ".mutmut-cache"
+    workdir_cache = Path(workdir) / ".mutmut-cache"
+    
     try:
         _copy_setup_cfg_to_workdir(project, workdir)
+        if cache_file.exists():
+            shutil.copy2(cache_file, workdir_cache)
 
         cmd = [
             "mutmut", "run",
@@ -300,4 +305,6 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
     except Exception as e:
         return False, f"Error running mutmut: {e}"
     finally:
+        if workdir_cache.exists():
+            shutil.copy2(workdir_cache, cache_file)
         shutil.rmtree(workdir, ignore_errors=True)
