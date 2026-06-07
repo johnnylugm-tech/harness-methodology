@@ -1067,7 +1067,7 @@ def _review_checkpoint(phase: int, checkpoint_n: int) -> List[str]:
 
 
 
-def _fr_dev_steps(fr_id: str, phase: int) -> List[str]:
+def _fr_dev_steps(fr_id: str, phase: int, project: Path) -> List[str]:
     """Per-FR implementation steps.
 
     Phase 1-2: A/B collaboration (Agent A + Agent B with dispatch).
@@ -1110,8 +1110,7 @@ def _fr_dev_steps(fr_id: str, phase: int) -> List[str]:
     num = re.match(r"FR-(\d+)", fr_id)
     num_str = num.group(1).zfill(2) if num else re.sub(r"[^a-z0-9]", "_", fr_id.lower()).strip("_")
     srs_flag = " --srs 01-requirements/SRS.md"
-    from pathlib import Path
-    test_dir_str = "03-development/tests" if Path("03-development/tests").is_dir() else "tests"
+    test_dir_str = "03-development/tests" if (project / "03-development" / "tests").is_dir() else "tests"
     return [
         f"**TDD — {fr_id}** (Orchestrator dispatches sub-agents · push after each step):",
         "",
@@ -2054,7 +2053,7 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
                     lines.append("- @type: edge")
                     lines.append("")
 
-                    lines.extend(_fr_dev_steps(fr['fr'], phase=3))
+                    lines.extend(_fr_dev_steps(fr['fr'], phase=3, project=repo_path))
                 else:
                     lines.append(f"#### {fr_id}: Re-evaluation (carry-forward)")
                     lines.append("> Already implemented in Phase 1. Gate 1 re-run to verify no regressions.")
@@ -2072,7 +2071,7 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
             for fr_id in fr_ids:
                 lines.append(f"#### {fr_id}: [See SRS.md and SAD.md for implementation details]")
                 lines.append("")
-                lines.extend(_fr_dev_steps(fr_id, phase=3))
+                lines.extend(_fr_dev_steps(fr_id, phase=3, project=repo_path))
                 # Gate 1 handled inside run-fr-step sub-agent dispatch.
                 checkpoint_n += 1
 
@@ -2234,7 +2233,7 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
                 for fr_id in fr_ids:
                     lines.append(f"#### {fr_id}: Test Execution")
                     lines.append("")
-                    lines.extend(_fr_dev_steps(fr_id, phase=4))
+                    lines.extend(_fr_dev_steps(fr_id, phase=4, project=repo_path))
                     # Gate 1 handled inside run-fr-step sub-agent dispatch.
                     checkpoint_n += 1
         elif frs and fr_ids:
@@ -2268,7 +2267,7 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
                         for inp, out in fr['test_cases']:
                             lines.append(f"- Input [{inp}] -> Output [{out}]")
                     lines.append("")
-                    lines.extend(_fr_dev_steps(fr['fr'], phase=4))
+                    lines.extend(_fr_dev_steps(fr['fr'], phase=4, project=repo_path))
                 else:
                     lines.append(f"#### {fr_id}: Re-evaluation (carry-forward)")
                     lines.append("> Already implemented. Gate 1 re-run to verify no regressions.")
@@ -2283,7 +2282,7 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
             for fr_id in fr_ids:
                 lines.append(f"#### {fr_id}: [See SRS.md for test targets]")
                 lines.append("")
-                lines.extend(_fr_dev_steps(fr_id, phase=4))
+                lines.extend(_fr_dev_steps(fr_id, phase=4, project=repo_path))
                 # Gate 1 handled inside run-fr-step sub-agent dispatch.
                 checkpoint_n += 1
         else:
