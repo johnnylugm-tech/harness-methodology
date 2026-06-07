@@ -19,8 +19,7 @@ import sys
 import tempfile
 from pathlib import Path
 from typing import Optional
-
-HARDCODED_FALLBACK = "03-development/src"
+from core.utils.project_layout import ProjectLayout
 
 # Basenames that are almost certainly data-only (no logic to mutate).
 _DATA_ONLY_NAMES: frozenset[str] = frozenset({
@@ -46,9 +45,11 @@ def _resolve_mutmut_workdir(project: Path) -> tuple[Path, str]:
     root_cfg = configparser.ConfigParser()
     root_cfg.read(str(project / "setup.cfg"))
 
-    paths: str = HARDCODED_FALLBACK
+    layout = ProjectLayout(project)
+    default_paths = layout.get_relative_str(layout.phase3_development_dir / "src")
+    paths: str = default_paths
     if root_cfg.has_section("mutmut"):
-        paths = root_cfg.get("mutmut", "paths_to_mutate", fallback=HARDCODED_FALLBACK)
+        paths = root_cfg.get("mutmut", "paths_to_mutate", fallback=default_paths)
 
     cwd = project
     parts = Path(paths).parts
@@ -151,17 +152,14 @@ def _resolve_test_dir(cwd: Path, project: Path) -> Optional[str]:
     root (no override) or a subdirectory (when ``setup.cfg`` subdir override
     is active). Tests always live as siblings of the source, so we search
     relative to *cwd*.
-
-    For the project-root case, ``03-development/tests`` is searched first
-    to match the tts-new layout (source at ``03-development/src``). For
-    subdir-override cases, only ``tests``/``test`` are searched (cwd is
-    already at the source-tree level).
     """
+    layout = ProjectLayout(project)
     if cwd.resolve() == project.resolve():
-        for td in ["03-development/tests", "tests", "test"]:
-            candidate = cwd / td
-            if candidate.is_dir():
-                return str(candidate.resolve())
+        candidate = layout.active_test_dir
+        if candidate.is_dir():
+            return str(candidate.resolve())
+        if (cwd / "test").is_dir():
+            return str((cwd / "test").resolve())
     else:
         for td in ["tests", "test"]:
             candidate = cwd / td

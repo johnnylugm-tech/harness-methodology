@@ -446,16 +446,18 @@ def _scan_directory(docs_path: Path, phase: int, check_type: str) -> Constitutio
         "correctness": [], "security": [], "maintainability": [], "coverage": [],
     }
 
-    phase_dir = get_profile().phase_directory(phase)
+    from core.utils.project_layout import ProjectLayout
+    layout = ProjectLayout(docs_path.parent if docs_path.name == "docs" else docs_path)
+    
     target_dirs = [docs_path]
 
     # Only add the numbered phase dir when docs_path is the canonical "docs/"
     # directory. When docs/ is absent and run_constitution_check() fallback
     # redirects to the numbered dir itself, avoid appending it again (double-scan).
     if docs_path.name == "docs":
-        numbered_dir = docs_path.parent / phase_dir
-        if numbered_dir.exists() and numbered_dir.resolve() != docs_path.resolve():
-            target_dirs.append(numbered_dir)
+        phase_dir = layout.get_phase_dir(phase)
+        if phase_dir.exists() and phase_dir.resolve() != docs_path.resolve():
+            target_dirs.append(phase_dir)
 
     # P3+: scan Python source files only — .md compliance docs are gameable (keyword stuffing).
     # P1/P2: scan .md (SRS.md, SAD.md are the actual deliverables for those phases).
@@ -558,7 +560,8 @@ def _resolve_project_root(docs_path: Path) -> Path:
     cur = docs_path if docs_path.is_dir() else docs_path.parent
     for _ in range(6):
         candidates.append(cur)
-        if (cur / ".methodology" / "state.json").exists():
+        from core.utils.project_layout import ProjectLayout
+        if ProjectLayout(cur).state_json_path.exists():
             return cur
         if cur.parent == cur:  # filesystem root
             break
@@ -591,7 +594,8 @@ def _preflight_check(
     check_type, emit a warning so the override isn't silent.
     """
     project_root = _resolve_project_root(docs_path)
-    state_path = project_root / ".methodology" / "state.json"
+    from core.utils.project_layout import ProjectLayout
+    state_path = ProjectLayout(project_root).state_json_path
 
     completed = _get_completed_phases(state_path)
     if not completed:
@@ -617,8 +621,9 @@ def _preflight_check(
             stacklevel=3,
         )
 
-    phase_dir_name = get_profile().phase_directory(prev_phase)
-    target = project_root / phase_dir_name
+    from core.utils.project_layout import ProjectLayout
+    layout = ProjectLayout(project_root)
+    target = layout.get_phase_dir(prev_phase)
 
     if not target.exists():
         # Previous phase directory absent → nothing to scan (vacuous pass)
@@ -692,10 +697,12 @@ def run_constitution_check(
 
     # ── Postflight (and any other mode): existing behavior ──────────────
     if not path.exists():
-        phase_dir_name = get_profile().phase_directory(current_phase)
-        alt_path = path.parent / phase_dir_name if path.name == "docs" else path
-        if alt_path.exists():
-            path = alt_path
+        from core.utils.project_layout import ProjectLayout
+        project_root = _resolve_project_root(path)
+        layout = ProjectLayout(project_root)
+        target = layout.get_phase_dir(current_phase) if path.name == "docs" else path
+        if target.exists():
+            path = target
 
     if not path.exists():
         return _vacuous_result(check_type, current_phase, check_mode)

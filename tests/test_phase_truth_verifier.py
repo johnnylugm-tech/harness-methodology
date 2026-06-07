@@ -73,11 +73,11 @@ class TestGetManualChecklist:
 
     def test_always_includes_sessions_spawn(self, tmp_path):
         items = [c["item"] for c in PhaseTruthVerifier(str(tmp_path), 2).get_manual_checklist()]
-        assert "sessions_spawn.log" in items
+        assert ".methodology/sessions_spawn.log" in items
 
     def test_missing_sessions_spawn_shows_missing(self, tmp_path):
         checklist = PhaseTruthVerifier(str(tmp_path), 1).get_manual_checklist()
-        spawn = next(c for c in checklist if c["item"] == "sessions_spawn.log")
+        spawn = next(c for c in checklist if c["item"] == ".methodology/sessions_spawn.log")
         assert "missing" in spawn["status"]
 
     def test_each_item_has_required_keys(self, tmp_path):

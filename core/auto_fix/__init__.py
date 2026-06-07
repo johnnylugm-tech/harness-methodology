@@ -393,7 +393,8 @@ class AutoFixEngine:
     def _check_integrity(self) -> float:
         """Read integrity score from .methodology/ state or kill_switch."""
         try:
-            state_path = self.project_root / ".methodology" / "state.json"
+            from core.utils.project_layout import ProjectLayout
+            state_path = ProjectLayout(self.project_root).state_json_path
             if state_path.exists():
                 import json
                 state = json.loads(state_path.read_text(encoding="utf-8"))

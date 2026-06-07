@@ -27,6 +27,7 @@ import sys
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional, cast
+from core.utils.project_layout import ProjectLayout
 
 try:
     from core.quality_gate.sab_parser import ALL_NFR_TYPES as _ALL_NFR_TYPES
@@ -85,7 +86,8 @@ def parse_srs_fr_sections(srs_path) -> List[Dict]:
 
     # Also read SAD.md for complete FR list
     repo_path = srs_path.parent.parent
-    sad_path = repo_path / "02-architecture" / "SAD.md"
+    layout = ProjectLayout(repo_path)
+    sad_path = layout.sad_path
     if sad_path.exists():
         sad_content = sad_path.read_text(encoding='utf-8')
         content += "\n" + sad_content
@@ -163,8 +165,9 @@ def parse_srs_fr_sections(srs_path) -> List[Dict]:
 
 def parse_sad_modules(repo_path: Path) -> Dict:
     """Parse SAD.md to get FR -> module mapping"""
+    layout = ProjectLayout(repo_path)
     sad_paths = [
-        repo_path / "02-architecture" / "SAD.md",
+        layout.sad_path,
     ]
 
     for sad_path in sad_paths:
@@ -230,8 +233,9 @@ def parse_sad_modules(repo_path: Path) -> Dict:
 
 def parse_test_plan(repo_path: Path) -> List[Dict]:
     """Parse TEST_PLAN.md to extract test requirements"""
+    layout = ProjectLayout(repo_path)
     test_plan_paths = [
-        repo_path / "04-testing" / "TEST_PLAN.md",
+        layout.test_plan_path,
     ]
 
     for tp_path in test_plan_paths:
@@ -259,8 +263,9 @@ def parse_test_plan(repo_path: Path) -> List[Dict]:
 
 def parse_quality_report(repo_path: Path) -> Dict:
     """Parse QUALITY_REPORT.md"""
+    layout = ProjectLayout(repo_path)
     qr_paths = [
-        repo_path / "06-quality" / "QUALITY_REPORT.md",
+        layout.phase6_quality_dir / "QUALITY_REPORT.md",
     ]
 
     for qr_path in qr_paths:
@@ -282,8 +287,9 @@ def parse_quality_report(repo_path: Path) -> Dict:
 
 def parse_risk_register(repo_path: Path) -> List[Dict]:
     """Parse RISK_REGISTER.md"""
+    layout = ProjectLayout(repo_path)
     rr_paths = [
-        repo_path / "07-risk" / "RISK_REGISTER.md",
+        layout.phase7_risk_dir / "RISK_REGISTER.md",
     ]
 
     for rr_path in rr_paths:
@@ -307,8 +313,9 @@ def parse_risk_register(repo_path: Path) -> List[Dict]:
 
 def parse_config_records(repo_path: Path) -> List[Dict]:
     """Parse CONFIG_RECORDS.md"""
+    layout = ProjectLayout(repo_path)
     cr_paths = [
-        repo_path / "08-config" / "CONFIG_RECORDS.md",
+        layout.phase8_config_dir / "CONFIG_RECORDS.md",
     ]
 
     for cr_path in cr_paths:

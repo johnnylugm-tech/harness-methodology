@@ -30,13 +30,13 @@ class TestPhase:
 class TestPhaseArtifactRegistry:
     def test_all_phases_in_registry(self):
         """PHASE_ARTIFACTS covers SPECIFY through CONFIG (8 phases)."""
-        registry = PhaseArtifactRegistry.PHASE_ARTIFACTS
+        registry = PhaseArtifactRegistry("/tmp").PHASE_ARTIFACTS
         for p in list(Phase)[1:]:  # Skip CONSTITUTION (pre-phase)
             assert p in registry, f"Phase {p.name} missing from PHASE_ARTIFACTS"
 
     def test_depends_on_chain_no_cycles(self):
         """Verify the ASPICE dependency chain has no cycles."""
-        registry = PhaseArtifactRegistry.PHASE_ARTIFACTS
+        registry = PhaseArtifactRegistry("/tmp").PHASE_ARTIFACTS
         for phase, info in registry.items():
             for dep in info.get("depends_on", []):
                 # Each dependency must point to a phase that exists
@@ -53,15 +53,15 @@ class TestPhaseArtifactRegistry:
         for i in range(1, len(phases)):
             current = phases[i]
             prev = phases[i - 1]
-            deps = PhaseArtifactRegistry.PHASE_ARTIFACTS.get(current, {}).get("depends_on", [])
+            deps = PhaseArtifactRegistry("/tmp").PHASE_ARTIFACTS.get(current, {}).get("depends_on", [])
             assert prev in deps, f"{current.name} should depend on {prev.name}, deps={[d.name for d in deps]}"
 
     def test_specify_has_no_dependencies(self):
-        deps = PhaseArtifactRegistry.PHASE_ARTIFACTS[Phase.SPECIFY]["depends_on"]
+        deps = PhaseArtifactRegistry("/tmp").PHASE_ARTIFACTS[Phase.SPECIFY]["depends_on"]
         assert deps == []
 
     def test_implement_depends_on_specify_and_plan(self):
-        deps = PhaseArtifactRegistry.PHASE_ARTIFACTS[Phase.IMPLEMENT]["depends_on"]
+        deps = PhaseArtifactRegistry("/tmp").PHASE_ARTIFACTS[Phase.IMPLEMENT]["depends_on"]
         assert Phase.SPECIFY in deps
         assert Phase.PLAN in deps
 

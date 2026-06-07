@@ -37,7 +37,6 @@ Usage:
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 
@@ -210,7 +209,8 @@ class PhaseHooksAdapter:
 
     def get_current_phase(self) -> Optional[int]:
         """Read current phase from state.json."""
-        state_path = Path(self.project_path) / ".methodology" / "state.json"
+        from core.utils.project_layout import ProjectLayout
+        state_path = ProjectLayout(self.project_path).state_json_path
         if not state_path.exists():
             return None
         try:

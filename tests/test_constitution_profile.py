@@ -99,11 +99,7 @@ class TestDefaults:
     def test_file_filter_unknown(self):
         assert defaults().file_filter_keywords("bogus") is None
 
-    def test_phase_directory(self):
-        p = defaults()
-        assert p.phase_directory(1) == "01-requirements"
-        assert p.phase_directory(5) == "05-verification"
-        assert p.phase_directory(99) == "docs"
+
 
     def test_dimension_rule(self):
         p = defaults()
@@ -174,14 +170,6 @@ class TestMerge:
         })
         merged = base.merge(override)
         assert merged.file_filter_keywords("srs") == ["custom-srs-filter"]
-
-    def test_merge_phase_dir_map(self):
-        base = defaults()
-        override = ConstitutionProfile.from_dict({
-            "phase_dir_map": {"1": "custom-phase-1"}
-        })
-        merged = base.merge(override)
-        assert merged.phase_directory(1) == "custom-phase-1"
 
     def test_merge_only_active_dims_preserves_threshold(self):
         """Partial phase override (active_dims only) must not reset composite_threshold."""

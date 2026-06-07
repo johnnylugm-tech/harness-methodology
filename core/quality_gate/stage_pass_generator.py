@@ -60,6 +60,7 @@ from enforcement.framework_enforcer import FrameworkEnforcer  # noqa: E402
 from pathlib import Path  # noqa: E402
 from core.quality_gate.claims_verifier import ClaimsVerifier  # noqa: E402
 from core.quality_gate.phase_config import PHASE_CONFIG  # noqa: E402
+from core.utils.project_layout import ProjectLayout  # noqa: E402
 
 VERSION = "1.1.0"
 SKILL_REF = "methodology-v2 v6.13"
@@ -167,7 +168,9 @@ class IntegratedStagePassGenerator:
         print("[Step 2b] Confidence format validation")
         print(f"{'='*60}")
 
-        log_file = self.project_root / ".methodology" / "sessions_spawn.log"
+        layout = ProjectLayout(self.project_root)
+        log_file = layout.sessions_spawn_log
+        
         if not log_file.exists():
             log_file = self.project_root / "sessions_spawn.log"
 
@@ -219,11 +222,10 @@ class IntegratedStagePassGenerator:
         
         # Run pytest
         print("\n📋 Running pytest...")
-        test_target = "."
-        if (self.project_root / "03-development" / "tests").is_dir():
-            test_target = "03-development/tests"
-        elif (self.project_root / "tests").is_dir():
-            test_target = "tests"
+        layout = ProjectLayout(self.project_root)
+        test_target = layout.get_relative_str(layout.active_test_dir)
+        if not (self.project_root / test_target).exists():
+            test_target = "."
             
         try:
             result = subprocess.run(  # nosec B603 B607
@@ -248,11 +250,10 @@ class IntegratedStagePassGenerator:
         
         # Run pytest-cov
         print("\n📋 Running pytest-cov...")
-        test_target = "."
-        if (self.project_root / "03-development" / "tests").is_dir():
-            test_target = "03-development/tests"
-        elif (self.project_root / "tests").is_dir():
-            test_target = "tests"
+        layout = ProjectLayout(self.project_root)
+        test_target = layout.get_relative_str(layout.active_test_dir)
+        if not (self.project_root / test_target).exists():
+            test_target = "."
             
         try:
             result = subprocess.run(  # nosec B603 B607
@@ -522,7 +523,8 @@ class IntegratedStagePassGenerator:
     
     def git_push(self, content: str) -> str:
         """Push to GitHub"""
-        output_dir = self.project_root / "00-summary"
+        layout = ProjectLayout(self.project_root)
+        output_dir = layout.summary_dir
         output_dir.mkdir(exist_ok=True)
         
         phase_name = self.config.get("name", f"Phase{self.phase}").replace(" ", "_")

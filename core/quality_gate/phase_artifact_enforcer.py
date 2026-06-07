@@ -73,64 +73,69 @@ class PhaseArtifactRegistry:
     Phase 1 input is the user-provided PRD (external, not checked here).
     """
 
-    PHASE_ARTIFACTS: Dict[Phase, Dict] = {
-        Phase.SPECIFY: {
-            "artifacts": [
-                "01-requirements/SRS.md",
-                "01-requirements/SPEC_TRACKING.md",
-                "01-requirements/TRACEABILITY_MATRIX.md",
-                "TEST_INVENTORY.yaml",
-            ],
-            "depends_on": [],
-        },
-        Phase.PLAN: {
-            "artifacts": [
-                "02-architecture/SAD.md",
-            ],
-            "depends_on": [Phase.SPECIFY],
-        },
-        Phase.IMPLEMENT: {
-            "artifacts": [
-                "03-development/src",
-                "03-development/tests/",
-            ],
-            "depends_on": [Phase.SPECIFY, Phase.PLAN],
-        },
-        Phase.VERIFY: {
-            "artifacts": [
-                "04-testing/TEST_PLAN.md",
-                "04-testing/TEST_RESULTS.md",
-            ],
-            "depends_on": [Phase.IMPLEMENT],
-        },
-        Phase.SYSTEM_TEST: {
-            "artifacts": [
-                "05-verification/BASELINE.md",
-                "05-verification/VERIFICATION_REPORT.md",
-            ],
-            "depends_on": [Phase.VERIFY],
-        },
-        Phase.QUALITY: {
-            "artifacts": [
-                "06-quality/QUALITY_REPORT.md",
-            ],
-            "depends_on": [Phase.SYSTEM_TEST],
-        },
-        Phase.RISK: {
-            "artifacts": [
-                "07-risk/RISK_STATUS_REPORT.md",
-                "07-risk/RISK_REGISTER.md",
-            ],
-            "depends_on": [Phase.QUALITY],
-        },
-        Phase.CONFIG: {
-            "artifacts": [
-                "08-config/CONFIG_RECORDS.md",
-                "08-config/RELEASE_CHECKLIST.md",
-            ],
-            "depends_on": [Phase.RISK],
-        },
-    }
+    @property
+    def PHASE_ARTIFACTS(self) -> Dict[Phase, Dict]:
+        from core.utils.project_layout import ProjectLayout
+        layout = ProjectLayout(self.project_root)
+        
+        return {
+            Phase.SPECIFY: {
+                "artifacts": [
+                    layout.get_relative_str(layout.srs_path),
+                    layout.get_relative_str(layout.spec_tracking_path),
+                    layout.get_relative_str(layout.traceability_matrix_path),
+                    layout.get_relative_str(layout.test_inventory_path),
+                ],
+                "depends_on": [],
+            },
+            Phase.PLAN: {
+                "artifacts": [
+                    layout.get_relative_str(layout.sad_path),
+                ],
+                "depends_on": [Phase.SPECIFY],
+            },
+            Phase.IMPLEMENT: {
+                "artifacts": [
+                    layout.get_relative_str(layout.active_src_dir),
+                    layout.get_relative_str(layout.active_test_dir),
+                ],
+                "depends_on": [Phase.SPECIFY, Phase.PLAN],
+            },
+            Phase.VERIFY: {
+                "artifacts": [
+                    layout.get_relative_str(layout.test_plan_path),
+                    layout.get_relative_str(layout.test_results_path),
+                ],
+                "depends_on": [Phase.IMPLEMENT],
+            },
+            Phase.SYSTEM_TEST: {
+                "artifacts": [
+                    layout.get_relative_str(layout.baseline_path),
+                    layout.get_relative_str(layout.verification_report_path),
+                ],
+                "depends_on": [Phase.VERIFY],
+            },
+            Phase.QUALITY: {
+                "artifacts": [
+                    layout.get_relative_str(layout.quality_report_path),
+                ],
+                "depends_on": [Phase.SYSTEM_TEST],
+            },
+            Phase.RISK: {
+                "artifacts": [
+                    layout.get_relative_str(layout.risk_status_report_path),
+                    layout.get_relative_str(layout.risk_register_path),
+                ],
+                "depends_on": [Phase.QUALITY],
+            },
+            Phase.CONFIG: {
+                "artifacts": [
+                    layout.get_relative_str(layout.config_records_path),
+                    layout.get_relative_str(layout.release_checklist_path),
+                ],
+                "depends_on": [Phase.RISK],
+            },
+        }
 
     def __init__(self, project_root: str) -> None:
         self.project_root = Path(project_root)

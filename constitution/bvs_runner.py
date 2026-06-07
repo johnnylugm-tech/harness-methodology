@@ -44,8 +44,9 @@ class BVSRunner:
     def __init__(self, project_path: str, phase: int = 1) -> None:
         """Initialize with project root and target phase."""
         self.project_path = Path(project_path)
+        from core.utils.project_layout import ProjectLayout
+        self.state_path = ProjectLayout(self.project_path).state_json_path
         self.phase = phase
-        self.state_path = self.project_path / ".methodology" / "state.json"
 
     # ── Phase-order check (HR-03) ─────────────────────────────────────────────
 

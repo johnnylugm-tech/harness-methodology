@@ -21,17 +21,11 @@ import json
 import re
 from pathlib import Path
 from typing import Any, Dict, List
+from core.utils.project_layout import ProjectLayout
 
 
 # Canonical artifact paths per phase (relative to project root)
-_PHASE_ARTIFACTS: dict[int, list[str]] = {
-    4: ["04-testing/TEST_PLAN.md", "04-testing/TEST_RESULTS.md",
-        "04-testing/COVERAGE_REPORT.md"],
-    5: ["05-verification/BASELINE.md", "05-verification/VERIFICATION_REPORT.md"],
-    6: ["06-quality/QUALITY_REPORT.md"],
-    7: ["07-risk/RISK_ASSESSMENT.md", "07-risk/RISK_REGISTER.md"],
-    8: ["08-config/CONFIG_RECORDS.md", "08-config/RELEASE_CHECKLIST.md"],
-}
+# Defined dynamically via ProjectLayout within functions now, so we remove the static map.
 
 
 def check_phase_title(project_root: Path, phase: int) -> List[Dict[str, str]]:
@@ -43,7 +37,28 @@ def check_phase_title(project_root: Path, phase: int) -> List[Dict[str, str]]:
     Returns list of violations (empty if clean).
     """
     violations: List[Dict[str, str]] = []
-    artifacts = _PHASE_ARTIFACTS.get(phase, [])
+    layout = ProjectLayout(project_root)
+    phase_artifacts = {
+        4: [
+            layout.get_relative_str(layout.test_plan_path),
+            layout.get_relative_str(layout.phase4_testing_dir / "TEST_RESULTS.md"),
+            layout.get_relative_str(layout.phase4_testing_dir / "COVERAGE_REPORT.md"),
+        ],
+        5: [
+            layout.get_relative_str(layout.phase5_verification_dir / "BASELINE.md"),
+            layout.get_relative_str(layout.phase5_verification_dir / "VERIFICATION_REPORT.md"),
+        ],
+        6: [layout.get_relative_str(layout.phase6_quality_dir / "QUALITY_REPORT.md")],
+        7: [
+            layout.get_relative_str(layout.phase7_risk_dir / "RISK_ASSESSMENT.md"),
+            layout.get_relative_str(layout.phase7_risk_dir / "RISK_REGISTER.md"),
+        ],
+        8: [
+            layout.get_relative_str(layout.phase8_config_dir / "CONFIG_RECORDS.md"),
+            layout.get_relative_str(layout.phase8_config_dir / "RELEASE_CHECKLIST.md"),
+        ],
+    }
+    artifacts = phase_artifacts.get(phase, [])
 
     for rel_path in artifacts:
         fpath = project_root / rel_path
@@ -98,16 +113,17 @@ def check_fr_coverage(project_root: Path, _phase: int) -> List[Dict[str, str]]:
     Args:
         _phase: Reserved for future per-phase FR coverage rules.
     """
+    layout = ProjectLayout(project_root)
     violations: List[Dict[str, str]] = []
 
-    results_path = project_root / "04-testing" / "TEST_RESULTS.md"
+    results_path = layout.phase4_testing_dir / "TEST_RESULTS.md"
     if not results_path.exists():
         return violations
 
-    spawn_log = project_root / ".methodology" / "sessions_spawn.log"
+    spawn_log = layout.sessions_spawn_log
     if not spawn_log.exists():
         return [{
-            "file": "04-testing/TEST_RESULTS.md",
+            "file": layout.get_relative_str(results_path),
             "issue": "Cannot cross-validate: sessions_spawn.log not found",
             "severity": "HIGH",
         }]
@@ -148,7 +164,7 @@ def check_fr_coverage(project_root: Path, _phase: int) -> List[Dict[str, str]]:
     unverified = claimed_frs - logged_frs
     for fr in sorted(unverified):
         violations.append({
-            "file": "04-testing/TEST_RESULTS.md",
+            "file": layout.get_relative_str(results_path),
             "fr_id": fr,
             "issue": f"{fr} claimed in TEST_RESULTS.md but has no session log evidence",
             "severity": "HIGH",
@@ -167,9 +183,10 @@ def check_coverage_report(project_root: Path, _phase: int) -> List[Dict[str, str
 
     Returns list of violations (empty if clean or coverage tool unavailable).
     """
+    layout = ProjectLayout(project_root)
     violations: List[Dict[str, str]] = []
 
-    cov_report = project_root / "04-testing" / "COVERAGE_REPORT.md"
+    cov_report = layout.phase4_testing_dir / "COVERAGE_REPORT.md"
     if not cov_report.exists():
         return violations
 
@@ -199,10 +216,8 @@ def check_coverage_report(project_root: Path, _phase: int) -> List[Dict[str, str
 
     if _os.environ.get("HARNESS_CROSS_ARTIFACT_COV") == "1":
         test_target = "."
-        if (project_root / "03-development" / "tests").is_dir():
-            test_target = "03-development/tests"
-        elif (project_root / "tests").is_dir():
-            test_target = "tests"
+        if layout.active_test_dir.is_dir():
+            test_target = layout.get_relative_str(layout.active_test_dir)
             
         try:
             result = subprocess.run(  # nosec B603 B607
@@ -248,7 +263,7 @@ def check_coverage_report(project_root: Path, _phase: int) -> List[Dict[str, str
 
     if diff > 10:
         violations.append({
-            "file": "04-testing/COVERAGE_REPORT.md",
+            "file": layout.get_relative_str(cov_report),
             "issue": (
                 f"Coverage mismatch: report claims {claimed_pct}% but "
                 f"pytest --cov measured {actual_pct}% (diff={diff:.1f}%)"
@@ -259,7 +274,7 @@ def check_coverage_report(project_root: Path, _phase: int) -> List[Dict[str, str
         })
     elif diff > 5:
         violations.append({
-            "file": "04-testing/COVERAGE_REPORT.md",
+            "file": layout.get_relative_str(cov_report),
             "issue": (
                 f"Coverage discrepancy: report claims {claimed_pct}% vs "
                 f"actual {actual_pct}% (diff={diff:.1f}%)"

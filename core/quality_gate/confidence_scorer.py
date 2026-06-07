@@ -293,7 +293,8 @@ def _score_security(project: Path, timeout: int = 60, **_kw) -> tuple[Optional[f
 
 def _score_traceability(project: Path, **_kw) -> tuple[Optional[float], str]:
     """C7: FR coverage from quality_manifest.json."""
-    manifest_path = project / ".methodology" / "quality_manifest.json"
+    from core.utils.project_layout import ProjectLayout
+    manifest_path = ProjectLayout(project).quality_manifest_path
     if not manifest_path.exists():
         return 50.0, "quality_manifest.json not found (partial credit)"
 

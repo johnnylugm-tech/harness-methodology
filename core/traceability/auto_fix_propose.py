@@ -19,6 +19,7 @@ import difflib
 import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+from core.utils.project_layout import ProjectLayout
 
 
 DEFAULT_TRACE_DIR = Path(".methodology/trace")
@@ -149,10 +150,11 @@ def propose_fixes(rt, report: dict, project: Path) -> str:  # noqa: ARG001 (rt a
         "--- Review:    cat .methodology/trace/proposed_fix.diff\n\n"
     )
 
+    layout = ProjectLayout(project)
     sad_section_for_fr: Dict[str, str] = {}
     sad_path = project / "SAD.md"
     if not sad_path.exists():
-        sad_path = project / "02-architecture" / "SAD.md"
+        sad_path = layout.sad_path
     if sad_path.exists():
         sad_text = sad_path.read_text(encoding="utf-8", errors="replace")
         for fr_id in set(report.get("uncoded", []) + report.get("untested", [])):
@@ -173,7 +175,7 @@ def propose_fixes(rt, report: dict, project: Path) -> str:  # noqa: ARG001 (rt a
             rel, _build_annotation_block(fr_id)
         ))
 
-    test_dir_str = "03-development/tests" if (project / "03-development" / "tests").is_dir() else "tests"
+    test_dir_str = layout.get_relative_str(layout.active_test_dir)
     for fr_id in report.get("untested", []):
         rel = f"{test_dir_str}/test_{fr_id.lower().replace('-', '_')}.py"
         diffs.append(_diff_new_file(rel, _stub_test_content(fr_id, project)))

@@ -5,15 +5,39 @@ Stub module: provides PHASE_ARTIFACT_PATHS used by PhaseTruthVerifier.
 The verifier builds its own inline checklist and only imports this
 symbol to avoid NameError; actual path resolution is inlined there.
 """
+import os
 from typing import Dict, List
+from pathlib import Path
+from core.utils.project_layout import ProjectLayout
+
+_dummy_layout = ProjectLayout(Path(os.getcwd()))
 
 PHASE_ARTIFACT_PATHS: Dict[int, List[str]] = {
-    1: ["01-requirements/SRS.md", "01-requirements/SPEC_TRACKING.md", "01-requirements/TRACEABILITY_MATRIX.md"],
-    2: ["02-architecture/SAD.md"],
-    3: ["03-development/src/", "03-development/tests/"],
-    4: ["04-testing/TEST_PLAN.md", "04-testing/TEST_RESULTS.md"],
-    5: ["05-verification/BASELINE.md", "05-verification/VERIFICATION_REPORT.md"],
-    6: ["06-quality/QUALITY_REPORT.md"],
-    7: ["07-risk/RISK_ASSESSMENT.md", "07-risk/RISK_REGISTER.md"],
-    8: ["08-config/CONFIG_RECORDS.md", "08-config/RELEASE_CHECKLIST.md"],
+    1: [
+        _dummy_layout.get_relative_str(_dummy_layout.srs_path),
+        _dummy_layout.get_relative_str(_dummy_layout.spec_tracking_path),
+        _dummy_layout.get_relative_str(_dummy_layout.traceability_matrix_path),
+    ],
+    2: [_dummy_layout.get_relative_str(_dummy_layout.sad_path)],
+    3: [
+        _dummy_layout.get_relative_str(_dummy_layout.active_src_dir) + "/",
+        _dummy_layout.get_relative_str(_dummy_layout.active_test_dir) + "/",
+    ],
+    4: [
+        _dummy_layout.get_relative_str(_dummy_layout.test_plan_path),
+        _dummy_layout.get_relative_str(_dummy_layout.test_results_path),
+    ],
+    5: [
+        _dummy_layout.get_relative_str(_dummy_layout.baseline_path),
+        _dummy_layout.get_relative_str(_dummy_layout.verification_report_path),
+    ],
+    6: [_dummy_layout.get_relative_str(_dummy_layout.quality_report_path)],
+    7: [
+        _dummy_layout.get_relative_str(_dummy_layout.risk_assessment_path),
+        _dummy_layout.get_relative_str(_dummy_layout.risk_register_path),
+    ],
+    8: [
+        _dummy_layout.get_relative_str(_dummy_layout.config_records_path),
+        _dummy_layout.get_relative_str(_dummy_layout.release_checklist_path),
+    ],
 }

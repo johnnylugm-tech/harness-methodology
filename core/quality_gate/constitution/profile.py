@@ -116,7 +116,6 @@ class ConstitutionProfile:
     phases: Dict[int, PhaseProfile] = field(default_factory=dict)
     dimensions: Dict[str, DimensionProfile] = field(default_factory=dict)
     file_filters: Dict[str, List[str]] = field(default_factory=dict)
-    phase_dir_map: Dict[int, str] = field(default_factory=dict)
     exclude_patterns: List[str] = field(default_factory=list)
 
     # ── helpers ───────────────────────────────────────────────────────────
@@ -193,9 +192,6 @@ class ConstitutionProfile:
         """Return file-name filter keywords for a check_type, or None if unknown."""
         return self.file_filters.get(check_type)
 
-    def phase_directory(self, phase: int) -> str:
-        """Return the numbered directory name for a phase (e.g., '03-development')."""
-        return self.phase_dir_map.get(phase, "docs")
 
     # ── serialization ─────────────────────────────────────────────────────
 
@@ -205,7 +201,6 @@ class ConstitutionProfile:
             "phases": {str(k): v.to_dict() for k, v in self.phases.items()},
             "dimensions": {k: v.to_dict() for k, v in self.dimensions.items()},
             "file_filters": self.file_filters,
-            "phase_dir_map": self.phase_dir_map,
         }
         if self.exclude_patterns:
             result["exclude_patterns"] = self.exclude_patterns
@@ -221,16 +216,11 @@ class ConstitutionProfile:
         for k, v in d.get("dimensions", {}).items():
             dimensions[k] = DimensionProfile.from_dict(v)
 
-        phase_dir_map = {}
-        for k, v in d.get("phase_dir_map", {}).items():
-            phase_dir_map[int(k)] = v
-
         return cls(
             scoring=ScoringProfile.from_dict(d.get("scoring", {})),
             phases=phases,
             dimensions=dimensions,
             file_filters=d.get("file_filters", {}),
-            phase_dir_map=phase_dir_map,
             exclude_patterns=d.get("exclude_patterns", []),
         )
 
@@ -250,7 +240,6 @@ class ConstitutionProfile:
             phases=dict(self.phases),
             dimensions=dict(self.dimensions),
             file_filters=dict(self.file_filters),
-            phase_dir_map=dict(self.phase_dir_map),
         )
         # merge phases
         for pk, pv in overrides.phases.items():
@@ -286,9 +275,6 @@ class ConstitutionProfile:
         # merge file_filters
         for fk, fv in overrides.file_filters.items():
             result.file_filters[fk] = fv
-        # merge phase_dir_map
-        for dir_key, dir_val in overrides.phase_dir_map.items():
-            result.phase_dir_map[dir_key] = dir_val
         return result
 
 
@@ -667,16 +653,6 @@ def _build_defaults() -> ConstitutionProfile:
             "risk_management": ["risk", "assessment", "risk_register"],
             "configuration": ["config", "release", "configuration"],
             "all": [],
-        },
-        phase_dir_map={
-            1: "01-requirements",
-            2: "02-architecture",
-            3: "03-development",
-            4: "04-testing",
-            5: "05-verification",
-            6: "06-quality",
-            7: "07-risk",
-            8: "08-config",
         },
     )
 

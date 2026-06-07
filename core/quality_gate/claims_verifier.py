@@ -31,7 +31,8 @@ class ClaimsVerifier:
         Returns:
             ClaimsVerifyResult with passed=True if A/B roles present.
         """
-        log_path = self.project_root / ".methodology" / "sessions_spawn.log"
+        from core.utils.project_layout import ProjectLayout
+        log_path = ProjectLayout(self.project_root).sessions_spawn_log
         if not log_path.exists():
             log_path = self.project_root / "sessions_spawn.log"
         if not log_path.exists():

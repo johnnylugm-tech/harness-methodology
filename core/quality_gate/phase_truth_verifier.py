@@ -23,6 +23,7 @@ import sys
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
+from core.utils.project_layout import ProjectLayout
 
 # Ensure core/ is on sys.path so sibling quality_gate.* imports resolve
 _script_dir = Path(__file__).resolve().parent  # quality_gate/
@@ -59,7 +60,7 @@ class PhaseTruthVerifier:
 
     def _load_threshold_from_config(self) -> float:
         """Read HR-11 threshold from enforcement.json (SG-7)."""
-        cfg_path = self.project_root / ".methodology" / "enforcement.json"
+        cfg_path = ProjectLayout(self.project_root).enforcement_config_path
         if cfg_path.exists():
             try:
                 cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
@@ -126,7 +127,7 @@ class PhaseTruthVerifier:
         Hardcoded 120s previously caused medium-sized test suites to time out,
         scoring 0 on Phase Truth and blocking P3/P4 advance.
         """
-        cfg_path = self.project_root / ".methodology" / "enforcement.json"
+        cfg_path = ProjectLayout(self.project_root).enforcement_config_path
         if cfg_path.exists():
             try:
                 cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
@@ -139,11 +140,10 @@ class PhaseTruthVerifier:
 
     def check_pytest(self) -> Tuple[bool, float, str]:
         """Check pytest actually passes; capture structured failure output."""
+        layout = ProjectLayout(self.project_root)
         test_target = "."
-        if (self.project_root / "03-development" / "tests").is_dir():
-            test_target = "03-development/tests"
-        elif (self.project_root / "tests").is_dir():
-            test_target = "tests"
+        if layout.active_test_dir.is_dir():
+            test_target = layout.get_relative_str(layout.active_test_dir)
             
         try:
             timeout = self._get_pytest_timeout()
@@ -194,11 +194,10 @@ class PhaseTruthVerifier:
         from core.quality_gate.cov_utils import read_coveragerc_source  # pyright: ignore[reportMissingImports]
         cov_source = read_coveragerc_source(self.project_root)
         
+        layout = ProjectLayout(self.project_root)
         test_target = "."
-        if (self.project_root / "03-development" / "tests").is_dir():
-            test_target = "03-development/tests"
-        elif (self.project_root / "tests").is_dir():
-            test_target = "tests"
+        if layout.active_test_dir.is_dir():
+            test_target = layout.get_relative_str(layout.active_test_dir)
             
         try:
             result = subprocess.run(  # nosec B603 B607
@@ -291,7 +290,7 @@ class PhaseTruthVerifier:
         A/B reviewer separation (HR-01) only applies to Phase 1, 2, and 6
         where Agent B collaboration is part of the workflow.
         """
-        log_path = self.project_root / ".methodology" / "sessions_spawn.log"
+        log_path = ProjectLayout(self.project_root).sessions_spawn_log
         if not log_path.exists():
             return False, 0.0, "sessions_spawn.log is missing"
 
@@ -366,18 +365,35 @@ class PhaseTruthVerifier:
     def get_manual_checklist(self) -> List[Dict]:
         """Generate items requiring manual confirmation"""
 
+        layout = ProjectLayout(self.project_root)
         phase_artifacts = {
-            1: ["01-requirements/SRS.md", "01-requirements/SPEC_TRACKING.md", "01-requirements/TRACEABILITY_MATRIX.md"],
-            2: ["02-architecture/SAD.md"],
-            3: [
-                "03-development/src/",
-                "03-development/tests/",
+            1: [
+                layout.get_relative_str(layout.srs_path),
+                layout.get_relative_str(layout.spec_tracking_path),
+                layout.get_relative_str(layout.traceability_matrix_path),
             ],
-            4: ["04-testing/TEST_PLAN.md", "04-testing/TEST_RESULTS.md"],
-            5: ["05-verification/BASELINE.md", "05-verification/VERIFICATION_REPORT.md"],
-            6: ["06-quality/QUALITY_REPORT.md"],
-            7: ["07-risk/RISK_ASSESSMENT.md", "07-risk/RISK_REGISTER.md"],
-            8: ["08-config/CONFIG_RECORDS.md", "08-config/RELEASE_CHECKLIST.md"],
+            2: [layout.get_relative_str(layout.sad_path)],
+            3: [
+                layout.get_relative_str(layout.active_src_dir) + "/",
+                layout.get_relative_str(layout.active_test_dir) + "/",
+            ],
+            4: [
+                layout.get_relative_str(layout.test_plan_path),
+                layout.get_relative_str(layout.test_results_path),
+            ],
+            5: [
+                layout.get_relative_str(layout.baseline_path),
+                layout.get_relative_str(layout.verification_report_path),
+            ],
+            6: [layout.get_relative_str(layout.quality_report_path)],
+            7: [
+                layout.get_relative_str(layout.risk_assessment_path),
+                layout.get_relative_str(layout.risk_register_path),
+            ],
+            8: [
+                layout.get_relative_str(layout.config_records_path),
+                layout.get_relative_str(layout.release_checklist_path),
+            ],
         }
 
         checklist = []
@@ -414,8 +430,8 @@ class PhaseTruthVerifier:
         # General checks
         checklist.extend([
             {
-                "item": "sessions_spawn.log",
-                "status": "✅ present" if (self.project_root / ".methodology" / "sessions_spawn.log").exists() else "❌ missing",
+                "item": layout.get_relative_str(layout.sessions_spawn_log),
+                "status": "✅ present" if layout.sessions_spawn_log.exists() else "❌ missing",
                 "action": "Pick 1 record at random, confirm task description is reasonable"
             },
         ])

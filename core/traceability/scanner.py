@@ -16,6 +16,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
+from core.utils.project_layout import ProjectLayout
 
 
 # ---------------------------------------------------------------------------
@@ -46,10 +47,11 @@ def _skip_path(p: Path) -> bool:
 
 def _find_sad(project: Path) -> Optional[Path]:
     """Locate SAD.md in canonical locations; returns None if absent."""
-    for candidate in ("02-architecture/SAD.md", "SAD.md"):
-        p = project / candidate
-        if p.exists():
-            return p
+    layout = ProjectLayout(project)
+    if layout.sad_path.exists():
+        return layout.sad_path
+    if (project / "SAD.md").exists():
+        return project / "SAD.md"
     return None
 
 
@@ -199,7 +201,7 @@ def scan_all(
 
     sad_frs = extract_fr_ids_from_sad(sad_path) if sad_path else []
     fr_to_code = scan_python_fr_annotations(project)
-    test_dir = project / "03-development" / "tests" if (project / "03-development" / "tests").is_dir() else project / "tests"
+    test_dir = ProjectLayout(project).active_test_dir
     fr_to_tests = scan_test_fr_coverage(test_dir)
     fr_to_modules = scan_sad_fr_modules(sad_path) if sad_path else {}
 

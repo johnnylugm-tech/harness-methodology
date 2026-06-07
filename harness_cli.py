@@ -4149,7 +4149,8 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
     try:
         from core.quality_gate.constitution import run_constitution_check
         from core.quality_gate.constitution.profile import get_profile
-        _phase_dir = project / get_profile().phase_directory(completed_phase)
+        from core.utils.project_layout import ProjectLayout
+        _phase_dir = ProjectLayout(project).get_phase_dir(completed_phase)
         _const_result = run_constitution_check(
             check_type="all", docs_path=str(_phase_dir),
             current_phase=completed_phase, check_mode="postflight",
@@ -6965,7 +6966,8 @@ def cmd_check_constitution(args: argparse.Namespace) -> int:
         return _print_constitution_result(result, composite_threshold, profile, phase)
 
     # ── Existing directory branch (unchanged) ──────────────────────────
-    _phase_dir = project / profile.phase_directory(phase)
+    from core.utils.project_layout import ProjectLayout
+    _phase_dir = ProjectLayout(project).get_phase_dir(phase)
     if not _phase_dir.exists():
         print(f"[SKIP] Phase {phase} directory not found: {_phase_dir}")
         return 0

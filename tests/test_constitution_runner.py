@@ -557,18 +557,22 @@ class TestDimensionsForPhase:
             os.unlink(tmp)
 
 
-class TestPhaseDirMap:
+class TestProjectLayoutPhaseMap:
     def test_all_phases_mapped(self):
-        p = defaults()
+        from core.utils.project_layout import ProjectLayout
+        from pathlib import Path
+        layout = ProjectLayout(Path("/tmp/project"))
         for phase in range(1, 9):
-            assert p.phase_directory(phase) != "docs", f"Phase {phase} missing from phase_dir_map"
+            assert layout.get_phase_dir(phase).name != "docs", f"Phase {phase} missing from get_phase_dir"
 
     def test_phase_dirs_match_standard(self):
-        p = defaults()
-        assert p.phase_directory(1) == "01-requirements"
-        assert p.phase_directory(4) == "04-testing"
-        assert p.phase_directory(6) == "06-quality"
-        assert p.phase_directory(8) == "08-config"
+        from core.utils.project_layout import ProjectLayout
+        from pathlib import Path
+        layout = ProjectLayout(Path("/tmp/project"))
+        assert layout.get_phase_dir(1).name == "01-requirements"
+        assert layout.get_phase_dir(4).name == "04-testing"
+        assert layout.get_phase_dir(6).name == "06-quality"
+        assert layout.get_phase_dir(8).name == "08-config"
 
 
 class TestRunConstitutionCheck:

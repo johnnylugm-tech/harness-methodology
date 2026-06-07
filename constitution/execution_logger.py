@@ -57,7 +57,8 @@ class ExecutionLogger:
         sessions_spawn.log format (HR-10):
         {"timestamp": "...", "role": "...", "task": "...", "session_id": "...", ...}
         """
-        log_path = self.project_path / ".methodology" / "sessions_spawn.log"
+        from core.utils.project_layout import ProjectLayout
+        log_path = ProjectLayout(self.project_path).sessions_spawn_log
         if not log_path.exists():
             return []
 

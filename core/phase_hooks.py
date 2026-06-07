@@ -120,10 +120,12 @@ class PhaseHooks:
             drift_threshold: M2 drift detection ensemble score threshold (0-100, default: 85.0).
         """
         self.project_path = Path(project_path)
+        from core.utils.project_layout import ProjectLayout
+        self._layout = ProjectLayout(self.project_path)
         self.phase = phase
         self.docs_path = self.project_path / "docs"
-        self.state_path = self.project_path / ".methodology" / "state.json"
-        self.log_path = self.project_path / ".methodology" / "run-phase.log"
+        self.state_path = self._layout.state_json_path
+        self.log_path = self._layout.methodology_dir / "run-phase.log"
         self.fr_results: List[Dict] = []
         self.preflight_results: Dict[str, Dict[str, Any]] = {}
         self.monitoring_events: List[Dict] = []
@@ -276,7 +278,7 @@ class PhaseHooks:
     def preflight_sab_check(self) -> Dict[str, Any]:
         """Check SAB constitution compliance (P3+ only — architecture baseline drift)."""
         print("\n[PRE-FLIGHT] SAB Constitution Check (M2+)")
-        sab_json = self.project_path / ".methodology" / "SAB.json"
+        sab_json = self._layout.methodology_dir / "SAB.json"
         if not sab_json.exists():
             if self.phase and self.phase >= 3:
                 print("   WARNING: .methodology/SAB.json not found — SAB baseline missing")
@@ -319,7 +321,7 @@ class PhaseHooks:
                     if not m.endswith("/")
                     and not re.match(r'^FR-\d+$', m)
                     and not (self.project_path / m).exists()
-                    and not (self.project_path / "03-development" / m).exists()
+                    and not (self._layout.active_src_dir / m).exists()
                 ]
                 if missing_modules:
                     violations.append(
@@ -490,10 +492,8 @@ class PhaseHooks:
         """
         import re
         print("\n[PRE-FLIGHT] FR Spec Consistency")
-        sad_path = self.project_path / "02-architecture" / "SAD.md"
-        if not sad_path.exists():
-            sad_path = self.project_path / "SAD.md"
-        spec_path = self.project_path / "02-architecture" / "TEST_SPEC.md"
+        sad_path = self._layout.sad_path
+        spec_path = self._layout.test_spec_path
 
         sad_frs: set = set()
         if sad_path.exists():
@@ -564,7 +564,7 @@ class PhaseHooks:
             from gap_detector.scanner import CodeScanner
             from gap_detector.detector import GapDetector
 
-            spec_path = self.project_path / "SPEC.md"
+            spec_path = self._layout.spec_path
             if not spec_path.exists():
                 print("   SPEC.md not found — skipping gap analysis")
                 return {"passed": True, "skipped": True, "reason": "SPEC.md not found"}
@@ -576,7 +576,7 @@ class PhaseHooks:
             gaps = detector.detect()
             summary = detector.get_summary()
 
-            report_path = self.project_path / ".methodology" / "gap_report.json"
+            report_path = self._layout.methodology_dir / "gap_report.json"
             report_path.parent.mkdir(parents=True, exist_ok=True)
             report_path.write_text(json.dumps({
                 "summary": {
@@ -947,7 +947,7 @@ class PhaseHooks:
                 return {"passed": True, "skipped": True,
                         "reason": f"No phase enum for phase {self.phase}"}
             registry = PhaseArtifactRegistry(str(self.project_path))
-            deps: List = PhaseArtifactRegistry.PHASE_ARTIFACTS.get(
+            deps: List = registry.PHASE_ARTIFACTS.get(
                 current_enum, {}).get("depends_on", [])
             if not deps:
                 print("   No predecessor dependencies — skipped")

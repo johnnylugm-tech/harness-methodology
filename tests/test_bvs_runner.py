@@ -9,7 +9,8 @@ class TestBVSRunnerInit:
     def test_default_phase(self):
         runner = BVSRunner("/tmp/test", phase=1)
         assert runner.phase == 1
-        assert runner.state_path == Path("/tmp/test/.methodology/state.json")
+        from core.utils.project_layout import ProjectLayout
+        assert runner.state_path == ProjectLayout(Path("/tmp/test")).state_json_path
 
     def test_phase_prerequisites(self):
         assert BVSRunner.PHASE_PREREQUISITES[2] == 1

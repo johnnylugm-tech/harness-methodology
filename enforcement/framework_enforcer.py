@@ -305,7 +305,7 @@ class FrameworkEnforcer:
         for phase in Phase:
             if phase_map.get(phase, 0) > self.phase:
                 continue
-            depends_on = PhaseArtifactRegistry.PHASE_ARTIFACTS.get(phase, {}).get("depends_on", [])
+            depends_on = registry.PHASE_ARTIFACTS.get(phase, {}).get("depends_on", [])
             for prev_phase in depends_on:
                 if phase_map.get(prev_phase, 0) >= self.phase:
                     continue

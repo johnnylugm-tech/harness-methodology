@@ -22,9 +22,9 @@ def fix_missing_artifact(context, project_root: Path) -> Tuple[bool, str, float]
     """Generate missing artifact stub with phase-appropriate boilerplate."""
     artifact_name = context.details.get("artifact_name", context.details.get("name", "unknown"))
     phase = context.phase
-    from core.quality_gate.constitution.profile import get_profile
-    phase_dir = get_profile().phase_directory(phase)
-    docs_dir = project_root / phase_dir
+    from core.utils.project_layout import ProjectLayout
+    layout = ProjectLayout(project_root)
+    docs_dir = layout.get_phase_dir(phase)
     docs_dir.mkdir(parents=True, exist_ok=True)
     file_path = docs_dir / f"{artifact_name}.md"
     if file_path.exists():
@@ -35,9 +35,9 @@ def fix_missing_artifact(context, project_root: Path) -> Tuple[bool, str, float]
 
 def fix_missing_spec_tracking(context, project_root: Path) -> Tuple[bool, str, float]:
     """Generate SPEC_TRACKING.md from quality_manifest.json FR IDs."""
-    from core.quality_gate.constitution.profile import get_profile
-    phase_dir = get_profile().phase_directory(1)
-    file_path = project_root / phase_dir / "SPEC_TRACKING.md"
+    from core.utils.project_layout import ProjectLayout
+    layout = ProjectLayout(project_root)
+    file_path = layout.spec_tracking_path
     if file_path.exists():
         return (True, "SPEC_TRACKING.md already exists", 95.0)
     fr_ids = _load_fr_ids(project_root)
@@ -590,7 +590,8 @@ STRATEGY_REGISTRY: Dict[str, Callable] = {
 
 def _load_fr_ids(project_root: Path) -> list:
     import json
-    manifest_path = project_root / ".methodology" / "quality_manifest.json"
+    from core.utils.project_layout import ProjectLayout
+    manifest_path = ProjectLayout(project_root).quality_manifest_path
     if manifest_path.exists():
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))

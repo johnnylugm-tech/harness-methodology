@@ -103,7 +103,9 @@ def file_lock(lock_path: Path, *, blocking: bool = True) -> Iterator[Optional[in
     """Cross-process exclusive lock on `lock_path` using fcntl.flock.
 
     Usage:
-        with file_lock(project / ".methodology" / ".state.lock"):
+        from core.utils.project_layout import ProjectLayout
+        lock_file = ProjectLayout(project).methodology_dir / ".state.lock"
+        with file_lock(lock_file):
             # read state.json, mutate, write
             ...
 
@@ -141,4 +143,5 @@ def file_lock(lock_path: Path, *, blocking: bool = True) -> Iterator[Optional[in
 
 def state_lock_path(project_root: Path) -> Path:
     """Conventional lock-file location for a project's state writes."""
-    return Path(project_root) / ".methodology" / ".state.lock"
+    from core.utils.project_layout import ProjectLayout
+    return ProjectLayout(project_root).methodology_dir / ".state.lock"
