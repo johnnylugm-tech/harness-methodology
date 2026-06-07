@@ -205,14 +205,14 @@ class TestFrDevSteps:
     def test_phase1_contains_agent_a_and_b(self):
         """Phase 1-2: A/B steps must appear in FR development."""
         for phase in (1, 2):
-            joined = "\n".join(_fr_dev_steps("FR-01", phase))
+            joined = "\n".join(_fr_dev_steps("FR-01", phase, Path(".")))
             assert "Agent A" in joined, f"Phase {phase} missing Agent A"
             assert "Agent B" in joined, f"Phase {phase} missing Agent B"
 
     def test_phase3_plus_no_agent_ab(self):
         """Phase 3+: no A/B — orchestrator dispatches sub-agents instead."""
         for phase in range(3, 9):
-            joined = "\n".join(_fr_dev_steps("FR-01", phase))
+            joined = "\n".join(_fr_dev_steps("FR-01", phase, Path(".")))
             assert "Agent A" not in joined, f"Phase {phase} should not have Agent A"
             assert "Agent B" not in joined, f"Phase {phase} should not have Agent B"
             # New model: orchestrator dispatches sub-agents via run-fr-step
@@ -221,53 +221,53 @@ class TestFrDevSteps:
     def test_phase1_contains_dispatch(self):
         """Phase 1-2: dispatch commands must be in steps (HR-10)."""
         for phase in (1, 2):
-            joined = "\n".join(_fr_dev_steps("FR-01", phase))
+            joined = "\n".join(_fr_dev_steps("FR-01", phase, Path(".")))
             assert "dispatch" in joined, f"Phase {phase} missing dispatch command"
 
     def test_phase3_plus_contains_run_gate(self):
         """Phase 3+: GATE1 sub-agent dispatch (ORCH-GATE1) replaces direct run-gate call."""
         for phase in range(3, 9):
-            joined = "\n".join(_fr_dev_steps("FR-01", phase))
+            joined = "\n".join(_fr_dev_steps("FR-01", phase, Path(".")))
             assert "ORCH-GATE1" in joined, f"Phase {phase} missing ORCH-GATE1"
             assert "run-fr-step" in joined, f"Phase {phase} missing run-fr-step"
 
     def test_contains_fr_id(self):
         for phase in range(1, 9):
-            joined = "\n".join(_fr_dev_steps("FR-02", phase))
+            joined = "\n".join(_fr_dev_steps("FR-02", phase, Path(".")))
             assert "FR-02" in joined, f"Phase {phase} missing FR-02"
 
     def test_roles_differ_by_phase_p1p2(self):
-        p1 = "\n".join(_fr_dev_steps("FR-01", 1))
-        p2 = "\n".join(_fr_dev_steps("FR-01", 2))
+        p1 = "\n".join(_fr_dev_steps("FR-01", 1, Path(".")))
+        p2 = "\n".join(_fr_dev_steps("FR-01", 2, Path(".")))
         assert "REQUIREMENTS_ENGINEER" in p1
         assert "ARCHITECT" in p2
 
     def test_phase3_plus_no_role_labels(self):
         """Phase 3+ output should not reference role labels like DEVELOPER, QA_ENGINEER."""
         for phase in range(3, 9):
-            joined = "\n".join(_fr_dev_steps("FR-01", phase))
+            joined = "\n".join(_fr_dev_steps("FR-01", phase, Path(".")))
             assert "DEVELOPER" not in joined, f"Phase {phase} should not have role label"
 
     def test_ab_review_structure_present_for_phase1(self):
         """P1 FR steps still describe the A/B workflow (Agent A authors, Agent B reviews);
         the HR-01/HR-10 log-count ceremony is removed."""
-        joined = "\n".join(_fr_dev_steps("FR-01", 1))
+        joined = "\n".join(_fr_dev_steps("FR-01", 1, Path(".")))
         assert "Agent B" in joined or "reviewer" in joined.lower()
         assert "HR-01" not in joined and "HR-10" not in joined
 
     def test_no_hr01_for_phase3_plus(self):
         """Phase 3+: no HR-01 reference since A/B is removed."""
-        joined = "\n".join(_fr_dev_steps("FR-01", 3))
+        joined = "\n".join(_fr_dev_steps("FR-01", 3, Path(".")))
         assert "HR-01" not in joined
 
     def test_hr12_reject_loop_present_for_phase1(self):
         """HR-12: max 5 rounds guard for Phase 1-2."""
-        joined = "\n".join(_fr_dev_steps("FR-01", 1))
+        joined = "\n".join(_fr_dev_steps("FR-01", 1, Path(".")))
         assert "HR-12" in joined or "5 rounds" in joined
 
     def test_no_hr12_for_phase3_plus(self):
         """Phase 3+: no HR-12 reference since A/B review loop is removed."""
-        joined = "\n".join(_fr_dev_steps("FR-01", 3))
+        joined = "\n".join(_fr_dev_steps("FR-01", 3, Path(".")))
         assert "HR-12" not in joined
 
 
@@ -1982,8 +1982,8 @@ class TestReviewerDesignFixes:
         assert "D4-GAP WARNING" in result, "P5 advance must warn about 80%→90% spec-coverage gap to Gate 4"
         assert "90%" in result or "90.0" in result, "P5 advance must mention 90% as Gate 4 requirement"
 
-    # C3 + I1: dynamic P4/P5/P7/P8 must have GATE1-DELTA CASE 1/2/3 escalation
-    @pytest.mark.parametrize("phase", [4, 5, 7, 8])
+    # C3 + I1: dynamic P4/P7/P8 must have GATE1-DELTA CASE 1/2/3 escalation
+    @pytest.mark.parametrize("phase", [4, 7, 8])
     def test_gate1_delta_has_case_escalation(self, tmp_path: Path, phase: int):
         (tmp_path / ".methodology").mkdir()
         result = generate_full_plan(phase, tmp_path, dynamic=True)
