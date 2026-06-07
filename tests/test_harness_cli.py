@@ -2261,7 +2261,7 @@ class TestGate1PerFrCoverageCheck:
     def test_phases_with_gate1_fr_check_constant(self):
         """_PHASES_WITH_GATE1_FR_CHECK must cover phases 3,4,5,7,8 and exclude 1,2,6."""
         import harness_cli
-        expected_included = {3, 4, 7, 8}
+        expected_included = {3, 4, 5, 7, 8}
         expected_excluded = {1, 2, 6}
         for p in expected_included:
             assert p in harness_cli._PHASES_WITH_GATE1_FR_CHECK, f"Phase {p} must be in set"

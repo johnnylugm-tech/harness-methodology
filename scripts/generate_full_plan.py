@@ -456,7 +456,7 @@ def parse_srs_nfr_sections(srs_path: Optional[Path]) -> List[Dict]:
 # ============================================================================
 
 # Phase → gate applicability
-_PHASE_GATE1_PHASES: frozenset = frozenset({3, 4, 7, 8})   # Gate 1 per-FR
+_PHASE_GATE1_PHASES: frozenset = frozenset({3, 4, 5, 7, 8})   # Gate 1 per-FR
 _PHASE_EXIT_GATES: dict = {3: 2, 4: 3, 6: 4}                  # phase → exit gate num
 
 # 10-Push Strategy labels for the P1/P2 checkpoint pushes (① ②).
@@ -1372,7 +1372,7 @@ def _dynamic_phase_context_block(phase: int, has_fr_template: bool = True) -> Li
 
 def _dynamic_fr_template_block(phase: int, project: Path) -> List[str]:
     """FR task template for dynamic plans — each {FR-ID} is expanded at execution time."""
-    use_carryforward = phase in (4, 7, 8)
+    use_carryforward = phase in (4, 5, 7, 8)
     if use_carryforward:
         fr_steps = [
             f"- **[ORCH-GATE1-DELTA]** `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step GATE1-DELTA --project .`",

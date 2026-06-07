@@ -140,8 +140,8 @@ class TestCheckpointIndex:
     def test_phase5_no_exit_gate(self):
         lines = _checkpoint_index(["FR-01"], phase=5)
         joined = "\n".join(lines)
-        # P5 has NO Gate 1 per-FR and no phase-exit gate in _PHASE_EXIT_GATES
-        assert "Gate 1 / FR-01" not in joined
+        # P5 has Gate 1 per-FR but no phase-exit gate in _PHASE_EXIT_GATES
+        assert "Gate 1 / FR-01" in joined
         assert "Gate 2" not in joined
         assert "Gate 3" not in joined
 
@@ -1982,8 +1982,8 @@ class TestReviewerDesignFixes:
         assert "D4-GAP WARNING" in result, "P5 advance must warn about 80%→90% spec-coverage gap to Gate 4"
         assert "90%" in result or "90.0" in result, "P5 advance must mention 90% as Gate 4 requirement"
 
-    # C3 + I1: dynamic P4/P7/P8 must have GATE1-DELTA CASE 1/2/3 escalation
-    @pytest.mark.parametrize("phase", [4, 7, 8])
+    # C3 + I1: dynamic P4/P5/P7/P8 must have GATE1-DELTA CASE 1/2/3 escalation
+    @pytest.mark.parametrize("phase", [4, 5, 7, 8])
     def test_gate1_delta_has_case_escalation(self, tmp_path: Path, phase: int):
         (tmp_path / ".methodology").mkdir()
         result = generate_full_plan(phase, tmp_path, dynamic=True)
@@ -2063,7 +2063,7 @@ class TestPhase78ReviewFixes:
     """Fixes B (env-check in FR template) and C (idempotent plan generation)."""
 
     # B (Issue 2): every FR-loop dynamic plan must include the [ENV-CHECK] preamble
-    @pytest.mark.parametrize("phase", [3, 4, 7, 8])
+    @pytest.mark.parametrize("phase", [3, 4, 5, 7, 8])
     def test_env_check_prereq_in_fr_loop(self, tmp_path: Path, phase: int):
         (tmp_path / ".methodology").mkdir(exist_ok=True)
         result = generate_full_plan(phase, tmp_path, dynamic=True)
