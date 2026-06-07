@@ -12,6 +12,7 @@ from core.quality_gate.mutation_enforcer import (
     _read_paths_to_exclude,
     _detect_data_only_files,
     _copy_setup_cfg_to_workdir,
+    _paths_to_exclude_flag,
 )
 
 
@@ -95,6 +96,27 @@ def test_read_paths_to_exclude_missing(tmp_path):
 def test_read_paths_to_exclude_empty_value(tmp_path):
     (tmp_path / "setup.cfg").write_text("[mutmut]\n", encoding="utf-8")
     assert _read_paths_to_exclude(tmp_path) == []
+
+
+# ---------------------------------------------------------------------------
+# _paths_to_exclude_flag (regression: mutmut CLI is single-string only)
+# ---------------------------------------------------------------------------
+
+
+def test_paths_to_exclude_flag_single_value():
+    """One exclude → one --paths-to-exclude flag with that value."""
+    assert _paths_to_exclude_flag(["config.py"]) == "--paths-to-exclude=config.py"
+
+
+def test_paths_to_exclude_flag_multiple_joined_comma():
+    """Multiple excludes → SINGLE flag, comma-joined. Multiple flags on the
+    command line would collapse to the last one (mutmut's option has
+    type=click.STRING, no multiple=True)."""
+    flag = _paths_to_exclude_flag(["config.py", "constants.py", "models.py"])
+    assert flag == "--paths-to-exclude=config.py,constants.py,models.py"
+    assert flag.count("--paths-to-exclude=") == 1, (
+        "Must be exactly one --paths-to-exclude flag, not multiple"
+    )
 
 
 # ---------------------------------------------------------------------------

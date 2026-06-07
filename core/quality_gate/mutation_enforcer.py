@@ -181,6 +181,17 @@ def _copy_setup_cfg_to_workdir(project: Path, workdir: str) -> None:
         )
 
 
+def _paths_to_exclude_flag(excludes: list[str]) -> str:
+    """Build a single ``--paths-to-exclude=...`` flag for mutmut 2.x.
+
+    mutmut's CLI defines this option as ``type=click.STRING`` (no
+    ``multiple=True``), so multiple flags on the command line would
+    collapse to the last value. mutmut itself splits the string on ``,``
+    and ``\\n`` at parse time, so we comma-join all excludes here.
+    """
+    return f"--paths-to-exclude={','.join(excludes)}"
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -248,8 +259,9 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
                 "Mutation testing is meaningless without tests — cannot proceed."
             )
         cmd.append(f"--tests-dir={test_dir}")
-        for excl in declared_excludes + auto_excludes:
-            cmd.extend(["--paths-to-exclude", excl])
+        all_excludes = declared_excludes + auto_excludes
+        if all_excludes:
+            cmd.append(_paths_to_exclude_flag(all_excludes))
 
         r = subprocess.run(
             cmd, cwd=workdir, capture_output=True, text=True,
