@@ -1166,11 +1166,18 @@ class TestAdvancePrechecksTDD:
             }),
         )
 
-        class _FakeResult:
-            returncode = 1
+        def _fake_run(cmd, *a, **kw):
+            class _FakeResult:
+                pass
+            res = _FakeResult()
+            if "pytest" in cmd:
+                res.returncode = 1
+            else:
+                res.returncode = 0
+            return res
 
         import harness_cli
-        monkeypatch.setattr(harness_cli.subprocess, "run", lambda *a, **kw: _FakeResult())
+        monkeypatch.setattr(harness_cli.subprocess, "run", _fake_run)
 
         rc = _advance_prechecks(tmp_path, completed_phase=3)
         assert rc == 9
