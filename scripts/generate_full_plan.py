@@ -1110,6 +1110,8 @@ def _fr_dev_steps(fr_id: str, phase: int) -> List[str]:
     num = re.match(r"FR-(\d+)", fr_id)
     num_str = num.group(1).zfill(2) if num else re.sub(r"[^a-z0-9]", "_", fr_id.lower()).strip("_")
     srs_flag = " --srs 01-requirements/SRS.md"
+    from pathlib import Path
+    test_dir_str = "03-development/tests" if Path("03-development/tests").is_dir() else "tests"
     return [
         f"**TDD — {fr_id}** (Orchestrator dispatches sub-agents · push after each step):",
         "",
@@ -1125,7 +1127,7 @@ def _fr_dev_steps(fr_id: str, phase: int) -> List[str]:
         "(P3 only implements — correctness was locked in P2; on FAIL fix the TEST, not TEST_SPEC):",
         "  ```bash",
         f"  python3 harness_cli.py check-test-mirrors-spec --project . --fr-id {fr_id} \\",
-        f"    --test-file tests/test_fr{num_str}.py",
+        f"    --test-file {test_dir_str}/test_fr{num_str}.py",
         "  ```",
         "  → trigger_mismatch / assertion_missing / param drift = test diverged from spec.",
         "",
@@ -1134,7 +1136,7 @@ def _fr_dev_steps(fr_id: str, phase: int) -> List[str]:
         f"  python3 harness_cli.py run-fr-step --phase {phase} --fr-id {fr_id} --step TDD-GREEN \\",
         f"    --project .{srs_flag}",
         "  ```",
-        f"  → Verify: `pytest tests/test_fr{num_str}.py -q` all pass",
+        f"  → Verify: `pytest {test_dir_str}/test_fr{num_str}.py -q` all pass",
         "  → GitHub push: ✅ auto-done by run-fr-step",
         "",
         f"- **[ORCH-IMPROVE]** Dispatch TDD-IMPROVE sub-agent for {fr_id}:",
@@ -1142,7 +1144,7 @@ def _fr_dev_steps(fr_id: str, phase: int) -> List[str]:
         f"  python3 harness_cli.py run-fr-step --phase {phase} --fr-id {fr_id} --step TDD-IMPROVE \\",
         "    --project .",
         "  ```",
-        f"  → Verify: `pytest tests/test_fr{num_str}.py -q` still pass",
+        f"  → Verify: `pytest {test_dir_str}/test_fr{num_str}.py -q` still pass",
         "  → GitHub push: ✅ auto-done by run-fr-step",
         "",
         f"- **[ORCH-GATE1]** Dispatch GATE1 evaluator sub-agent for {fr_id}:",

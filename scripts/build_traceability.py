@@ -63,7 +63,7 @@ def build_traceability(
     code_fr_map = scan_python_fr_annotations(project)
 
     # 3. Scan tests for FR coverage
-    tests_dir = project / "tests"
+    tests_dir = project / "03-development" / "tests" if (project / "03-development" / "tests").is_dir() else project / "tests"
     test_fr_map = scan_test_fr_coverage(tests_dir)
 
     # 4. Merge all FR IDs

@@ -641,7 +641,7 @@ def _check_fr_test_file_exists(project: Path, fr_id: str) -> tuple[bool, str]:
     if not m:
         return True, ""
     num = m.group(1).zfill(2)
-    test_dir = project / "tests"
+    test_dir = project / "03-development" / "tests" if (project / "03-development" / "tests").is_dir() else project / "tests"
     patterns = [f"test_fr{num}.py", f"test_fr{num.lstrip('0')}.py"]
     for pat in patterns:
         if (test_dir / pat).exists():
@@ -1769,7 +1769,8 @@ def _cmd_run_gate_impl(args: argparse.Namespace) -> int:
             if _num_match
             else re.sub(r"[^a-z0-9]", "_", fr_id.lower()).strip("_")
         )
-        _test_file = f"tests/test_fr{_num_str}.py"
+        _test_dir_str = "03-development/tests" if (Path(project) / "03-development" / "tests").is_dir() else "tests"
+        _test_file = f"{_test_dir_str}/test_fr{_num_str}.py"
         _src_dir = "03-development/src"
 
         # Detect FR-specific source files by parsing the test file's imports.
@@ -4734,7 +4735,8 @@ def _fr_step_already_done(step: str, fr_id: str, project: Path) -> bool:
     if step.upper() == "TDD-RED":
         num_match = re.match(r"FR-(\d+)", fr_id)
         num_str = num_match.group(1).zfill(2) if num_match else re.sub(r"[^a-z0-9]", "_", fr_id.lower()).strip("_")
-        test_file = project / f"tests/test_fr{num_str}.py"
+        test_dir = project / "03-development" / "tests" if (project / "03-development" / "tests").is_dir() else project / "tests"
+        test_file = test_dir / f"test_fr{num_str}.py"
         return test_file.exists()
     elif step.upper() == "TDD-GREEN":
         src_dir = project / "03-development" / "src"
@@ -5072,7 +5074,8 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
     step = step.upper()
     num_match = re.match(r"FR-(\d+)", fr_id)
     num_str = num_match.group(1).zfill(2) if num_match else re.sub(r"[^a-z0-9]", "_", fr_id.lower()).strip("_")
-    test_file = f"tests/test_fr{num_str}.py"
+    test_dir_str = "03-development/tests" if (project / "03-development" / "tests").is_dir() else "tests"
+    test_file = f"{test_dir_str}/test_fr{num_str}.py"
     src_dir = "03-development/src"
 
     # Default SRS path if not given
@@ -5742,7 +5745,8 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
         r"[^a-z0-9]", "_", fr_id.lower()
     ).strip("_")
     src_dir = "03-development/src"
-    test_file = f"tests/test_fr{_num_str}.py"
+    test_dir_str = "03-development/tests" if (project / "03-development" / "tests").is_dir() else "tests"
+    test_file = f"{test_dir_str}/test_fr{_num_str}.py"
 
     # Per-FR config: read fr_config from quality_manifest.json.
     # Allows large / complex FRs (e.g. FR-19 with 11-stage pipeline) to declare

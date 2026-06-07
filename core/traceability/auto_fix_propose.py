@@ -173,8 +173,9 @@ def propose_fixes(rt, report: dict, project: Path) -> str:  # noqa: ARG001 (rt a
             rel, _build_annotation_block(fr_id)
         ))
 
+    test_dir_str = "03-development/tests" if (project / "03-development" / "tests").is_dir() else "tests"
     for fr_id in report.get("untested", []):
-        rel = f"tests/test_{fr_id.lower().replace('-', '_')}.py"
+        rel = f"{test_dir_str}/test_{fr_id.lower().replace('-', '_')}.py"
         diffs.append(_diff_new_file(rel, _stub_test_content(fr_id, project)))
 
     return "".join(diffs)

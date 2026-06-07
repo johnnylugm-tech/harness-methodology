@@ -199,7 +199,8 @@ def scan_all(
 
     sad_frs = extract_fr_ids_from_sad(sad_path) if sad_path else []
     fr_to_code = scan_python_fr_annotations(project)
-    fr_to_tests = scan_test_fr_coverage(project / "tests")
+    test_dir = project / "03-development" / "tests" if (project / "03-development" / "tests").is_dir() else project / "tests"
+    fr_to_tests = scan_test_fr_coverage(test_dir)
     fr_to_modules = scan_sad_fr_modules(sad_path) if sad_path else {}
 
     coded = set(fr_to_code.keys())

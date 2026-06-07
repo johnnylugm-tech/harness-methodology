@@ -1493,7 +1493,10 @@ class HarnessBridge:
             import re as _re
             _num_match = _re.match(r"FR-(\d+)", fr_id)
             _num_str = _num_match.group(1).zfill(2) if _num_match else ""
-            _test_file = Path(project_root) / "tests" / f"test_fr{_num_str}.py"
+            _test_dir = Path(project_root) / "03-development" / "tests"
+            if not _test_dir.is_dir():
+                _test_dir = Path(project_root) / "tests"
+            _test_file = _test_dir / f"test_fr{_num_str}.py"
             _spec_path = Path(project_root) / "02-architecture" / "TEST_SPEC.md"
             if _spec_path.exists():
                 try:
