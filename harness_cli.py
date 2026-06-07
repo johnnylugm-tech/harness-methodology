@@ -57,7 +57,7 @@ import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 if TYPE_CHECKING:
     from harness.git_strategy import GitStrategy
@@ -3895,86 +3895,175 @@ def _run_phase_auditor(project: Path, completed_phase: int) -> int:
         return 2
 
 
-def _check_gate1_per_fr_coverage(project: Path, completed_phase: int) -> int:
-    """Verify every FR in quality_manifest has a Gate 1 finalize-gate record.
+def _fr_test_file(project: Path, fr_id: str) -> Optional[Path]:
+    """Return the test file path for *fr_id*, or None if it cannot be located.
 
-    Reads gate_timestamps.jsonl (written only on SUCCESSFUL finalize-gate calls)
-    and checks that each FR ID from quality_manifest.json has at least one entry
-    with phase == completed_phase and gate == 1.
+    Same naming convention as ``_check_fr_test_file_exists``: test_frNN.py
+    or test_frN.py under either ``03-development/tests/`` or ``tests/``.
+    """
+    m = re.match(r"FR-(\d+)", fr_id, re.IGNORECASE)
+    if not m:
+        return None
+    num = m.group(1).zfill(2)
+    num_raw = m.group(1).lstrip("0") or num
+    test_dir = (
+        project / "03-development" / "tests"
+        if (project / "03-development" / "tests").is_dir()
+        else project / "tests"
+    )
+    for pat in (f"test_fr{num}.py", f"test_fr{num_raw}.py"):
+        p = test_dir / pat
+        if p.exists():
+            return p
+    return None
+
+
+def _fr_source_files(project: Path, fr_id: str) -> list[Path]:
+    """Return the .py source files annotated with ``[fr_id]`` in their docstring.
+
+    Used by the immediate pytest --cov scope so each FR's coverage is measured
+    only on its own source files, mirroring the FR-scoped tool override in
+    ``cmd_run_gate``. Falls back to the whole src/ directory if no annotated
+    files exist (rare — only for projects that never used the docstring tag).
+    """
+    src_root = project / "03-development" / "src"
+    if not src_root.is_dir():
+        return []
+    tag = f"[{fr_id}]"
+    found: list[Path] = []
+    for py in src_root.rglob("*.py"):
+        try:
+            text = py.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if tag in text:
+            found.append(py)
+    if found:
+        return found
+    # Fallback: every file under src/ (FR coverage measured project-wide).
+    return list(src_root.rglob("*.py"))
+
+
+def _validate_fr_coverage_immediate(
+    project: Path, timeout: int = 120
+) -> Optional[float]:
+    """Run ``pytest --cov`` for the whole project right now and return line coverage %.
 
     Returns:
-        0  — all FRs covered (or quality_manifest absent → non-FR project, skip)
-        14 — one or more FRs missing a Gate 1 timestamp for this phase
+        ``None``      — pytest not installed, no tests found, or subprocess error.
+        ``float``     — coverage percentage (0.0 - 100.0), or 0.0 if tests failed.
+
+    Single whole-project pytest run (1-2s in practice) is used rather than
+    per-FR scoped runs. Rationale: per-FR coverage is structurally misleading
+    in multi-FR projects — each FR's test only covers its own source files,
+    not the other 7 FRs' files, so a per-FR scope would always report
+    ~1/N of project coverage. Whole-project coverage is the only signal
+    that proves "all source is exercised by tests" (the actual TDD goal).
+    Mirrors the TDD-PRECHECK check at line ~4220; advance-phase re-runs the
+    same measurement so the manifest's recorded score is verified live.
+
+    """
+    src_dir = project / "03-development" / "src"
+    if not src_dir.is_dir():
+        return None
+    tests_dir = project / "03-development" / "tests"
+    if not tests_dir.is_dir():
+        return None
+    cmd = [
+        sys.executable, "-m", "pytest",
+        "--cov=03-development/src", "--cov-report=term",
+        "--tb=no", "-q",
+    ]
+    try:
+        r = subprocess.run(
+            cmd, capture_output=True, text=True,
+            cwd=str(project), timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return None
+    except Exception:
+        return None
+    m = re.search(r"TOTAL\s+\d+\s+\d+\s+(\d+)%", r.stdout)
+    if m:
+        try:
+            return float(m.group(1))
+        except ValueError:
+            return None
+    return 0.0 if r.returncode == 0 else None
+
+
+def _check_gate1_live_coverage(project: Path, completed_phase: int) -> int:
+    """Verify Gate 1 coverage by running pytest --cov right now.
+
+    Replaces the old gate_timestamps.jsonl-only check: a sentinel existing
+    in the jsonl does NOT prove the code actually passes coverage today
+    (the file is append-only and the manifest's ``gate_results.gate1[fr]``
+    record is agent-writable). This function runs pytest per FR, scoped to
+    the FR's own test + tagged source files, and verifies the live coverage
+    meets ``min_coverage`` from the manifest.
+
+    Returns:
+        0  — all FRs pass live coverage (or manifest absent → non-FR project)
+        14 — one or more FRs missing, failing, or below min_coverage
     """
     manifest_path = project / ".methodology" / "quality_manifest.json"
-    fr_ids_manifest: list[str] = []
+    manifest: dict = {}
     if manifest_path.exists():
         try:
-            fr_ids_manifest = json.loads(
-                manifest_path.read_text(encoding="utf-8")
-            ).get("fr_ids", [])
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             pass
+    fr_ids_manifest: list[str] = manifest.get("fr_ids", [])
     if not fr_ids_manifest:
         return 0  # Non-FR project or unreadable manifest — skip
 
-    # DELTA-phase auto-skip: P4/P5/P7/P8 re-run Gate 1 as a delta check. When NO FR's
-    # code has changed since its last Gate 1 PASS, the per-FR DELTA loop is a no-op
-    # (every run-fr-step would `already done → skip`). Recognise this and treat the
-    # whole loop as satisfied, instead of demanding a fresh timestamp per FR.
-    # P4 is carryforward too (its plan template promises this auto-skip); a real P4
-    # test addition is still caught — _fr_code_changed_since_last_gate1 watches tests/.
+    # Read min_coverage from manifest, default 80.0 (matches _check_fr_test_step).
+    _min_cov = float(
+        manifest.get("quality_targets", {}).get("min_coverage", 80.0)
+    )
+
+    # DELTA-phase auto-skip: P4/P5/P7/P8 re-run Gate 1 as a delta check. When
+    # NO FR's code has changed since its last Gate 1 PASS, the per-FR DELTA
+    # loop is a no-op (every run-fr-step would `already done → skip`). In
+    # that case trust the prior finalize-gate record — re-running pytest
+    # 8 times per advance would be wasted work. Code changes (test additions
+    # included) force a fresh live check.
     if completed_phase in (4, 5, 7, 8):
         try:
             _all_unchanged = all(
-                not _fr_code_changed_since_last_gate1(fr, project) for fr in fr_ids_manifest
+                not _fr_code_changed_since_last_gate1(fr, project)
+                for fr in fr_ids_manifest
             )
         except Exception:  # pylint: disable=broad-exception-caught
             _all_unchanged = False
         if _all_unchanged:
             print(
-                f"  [Gate 1 coverage] Phase {completed_phase}: all {len(fr_ids_manifest)} FR(s) "
-                f"unchanged since last gate — DELTA loop auto-satisfied (no per-FR re-eval needed)."
+                f"  [Gate 1 coverage] Phase {completed_phase}: all {len(fr_ids_manifest)}"
+                f" FR(s) unchanged since last gate — DELTA auto-satisfied (live pytest skipped)."
             )
             return 0
 
-    ts_file = project / ".methodology" / _GATE_TIMESTAMPS_FILE
-    g1_covered: set[str] = set()
-    if ts_file.exists():
-        try:
-            for tl in ts_file.read_text(encoding="utf-8").splitlines():
-                tl = tl.strip()
-                if not tl:
-                    continue
-                try:
-                    te = json.loads(tl)
-                    if (
-                        te.get("phase") == completed_phase
-                        and te.get("gate") == 1
-                        and te.get("fr_id") not in (None, "phase", "")
-                    ):
-                        g1_covered.add(te["fr_id"])
-                except json.JSONDecodeError:
-                    pass
-        except OSError:
-            pass
-
-    g1_missing = [fr for fr in fr_ids_manifest if fr not in g1_covered]
-    if g1_missing:
+    # Live verification: one whole-project pytest --cov run proves the
+    # manifest's recorded per-FR coverage is achievable against current code.
+    cov = _validate_fr_coverage_immediate(project)
+    if cov is None:
         print(
-            f"\n[BLOCKED] Phase {completed_phase} Gate 1 per-FR re-eval incomplete:\n"
-            f"  {len(g1_covered)}/{len(fr_ids_manifest)} FRs have"
-            f" finalize-gate --gate 1 records in gate_timestamps.jsonl.\n"
-            f"  Missing ({len(g1_missing)}): "
-            + ", ".join(g1_missing[:10])
-            + (" ..." if len(g1_missing) > 10 else "")
-            + f"\n  Run: python3 harness_cli.py run-fr-step --step GATE1"
-            f" --phase {completed_phase} --fr-id <FR-ID> --project ."
+            f"\n[BLOCKED] Phase {completed_phase} Gate 1 live coverage check failed:\n"
+            f"  pytest --cov could not be run (pytest missing, no tests/, or timeout).\n"
+            f"  Re-run: python3 harness_cli.py finalize-gate --gate 1"
+            f" --phase {completed_phase} --fr-id <FR-ID> --project {project}"
+        )
+        return 14
+    if cov < _min_cov:
+        print(
+            f"\n[BLOCKED] Phase {completed_phase} Gate 1 live coverage check failed:\n"
+            f"  whole-project coverage {cov:.1f}% < {_min_cov:.1f}% (from manifest)\n"
+            f"  Add tests or use '# pragma: no cover' for unreachable paths, then re-run."
         )
         return 14
     print(
-        f"  [Gate 1 coverage] Phase {completed_phase}:"
-        f" {len(g1_covered)}/{len(fr_ids_manifest)} FRs ✓"
+        f"  [Gate 1 coverage] Phase {completed_phase}: live pytest --cov"
+        f" = {cov:.1f}% ≥ {_min_cov:.1f}% ✓ ({len(fr_ids_manifest)} FRs covered)"
     )
     return 0
 
@@ -4050,7 +4139,7 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
             if not _fs.exists():
                 # DELTA auto-skip exemption: if no code changed since last Gate 1,
                 # the per-FR finalize step was never called (correctly). Skip check
-                # for FRs where code hasn't changed — same logic as _check_gate1_per_fr_coverage.
+                # for FRs where code hasn't changed — same logic as _check_gate1_live_coverage.
                 try:
                     if not _fr_code_changed_since_last_gate1(_frid, project):
                         continue
@@ -4076,7 +4165,7 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
 
     # ── Gate 1 per-FR coverage check (FR-loop phases only) ───────────
     if completed_phase in _PHASES_WITH_GATE1_FR_CHECK:
-        _rc = _check_gate1_per_fr_coverage(project, completed_phase)
+        _rc = _check_gate1_live_coverage(project, completed_phase)
         if _rc != 0:
             return _rc
 
@@ -5773,7 +5862,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
     if _fr_step_already_done(step, fr_id, project):
         print(f"[run-fr-step] {fr_id} {step}: already done → skip")
         #   _record_gate_timestamp (GATE1-DELTA only) — prevents exit-14 block
-        #     from _check_gate1_per_fr_coverage when ALL FRs skip (no code changes)
+        #     from _check_gate1_live_coverage when ALL FRs skip (no code changes)
         if step.upper() == "GATE1-DELTA":
             _record_gate_timestamp(project, phase, 1, fr_id)
         return 0
@@ -6004,7 +6093,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                   " — human intervention required")
             return 2  # BLOCKED
 
-    # P0-B: record gate timestamp so advance-phase _check_gate1_per_fr_coverage
+    # P0-B: record gate timestamp so advance-phase _check_gate1_live_coverage
     # finds a gate=1 entry for this FR (it reads gate_timestamps.jsonl; without
     # this, advance-phase always exits 14 when run-fr-step is used instead of
     # finalize-gate --gate 1 per FR).

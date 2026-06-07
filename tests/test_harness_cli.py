@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from unittest import mock
 
 
 # =============================================================================
@@ -2152,8 +2153,8 @@ class TestW2CoverageWarning:
 # called for every FR in quality_manifest.json.
 # ---------------------------------------------------------------------------
 
-class TestGate1PerFrCoverageCheck:
-    """Tests for the Gate 1 per-FR coverage check inside _advance_prechecks."""
+class TestGate1LiveCoverageCheck:
+    """Tests for the Gate 1 live coverage check inside _advance_prechecks."""
 
     def _make_manifest(self, tmp_path: Path, fr_ids: list) -> None:
         import json
@@ -2161,62 +2162,58 @@ class TestGate1PerFrCoverageCheck:
         m.parent.mkdir(parents=True, exist_ok=True)
         m.write_text(json.dumps({"fr_ids": fr_ids}), encoding="utf-8")
 
-    def _make_timestamps(self, tmp_path: Path, entries: list) -> None:
-        import json
-        ts = tmp_path / ".methodology" / "gate_timestamps.jsonl"
-        ts.parent.mkdir(parents=True, exist_ok=True)
-        ts.write_text(
-            "\n".join(json.dumps(e) for e in entries) + "\n",
-            encoding="utf-8",
-        )
-
     def _run_check(self, tmp_path: Path, completed_phase: int) -> int:
         import harness_cli
-        return harness_cli._check_gate1_per_fr_coverage(tmp_path, completed_phase)
+        return harness_cli._check_gate1_live_coverage(tmp_path, completed_phase)
 
     def test_all_frs_covered_returns_0(self, tmp_path):
+        """All FRs have real pytest coverage ≥ min → return 0."""
+        import harness_cli
         self._make_manifest(tmp_path, ["FR-01", "FR-02", "FR-03"])
-        self._make_timestamps(tmp_path, [
-            {"phase": 4, "gate": 1, "fr_id": "FR-01", "ts": 1.0},
-            {"phase": 4, "gate": 1, "fr_id": "FR-02", "ts": 2.0},
-            {"phase": 4, "gate": 1, "fr_id": "FR-03", "ts": 3.0},
-        ])
-        assert self._run_check(tmp_path, 4) == 0
+        with mock.patch.object(
+            harness_cli, "_validate_fr_coverage_immediate", return_value=100.0
+        ):
+            assert self._run_check(tmp_path, 4) == 0
 
     def test_missing_fr_returns_14(self, tmp_path):
+        """Live pytest returns None (no tests/ or pytest errored) → BLOCKED 14."""
+        import harness_cli
         self._make_manifest(tmp_path, ["FR-01", "FR-02", "FR-03"])
-        self._make_timestamps(tmp_path, [
-            {"phase": 4, "gate": 1, "fr_id": "FR-01", "ts": 1.0},
-            {"phase": 4, "gate": 1, "fr_id": "FR-02", "ts": 2.0},
-            # FR-03 missing
-        ])
-        assert self._run_check(tmp_path, 4) == 14
+        with mock.patch.object(
+            harness_cli, "_validate_fr_coverage_immediate", return_value=None
+        ):
+            assert self._run_check(tmp_path, 4) == 14
 
     def test_zero_gate1_entries_returns_14(self, tmp_path):
-        """No finalize-gate --gate 1 calls at all → must block."""
+        """All FRs have pytest erroring (None) → must block."""
+        import harness_cli
         self._make_manifest(tmp_path, ["FR-01", "FR-02"])
-        # Only a Gate 3 entry (batch commit scenario)
-        self._make_timestamps(tmp_path, [
-            {"phase": 4, "gate": 3, "fr_id": "phase", "ts": 1.0},
-        ])
-        assert self._run_check(tmp_path, 4) == 14
+        with mock.patch.object(
+            harness_cli, "_validate_fr_coverage_immediate", return_value=None
+        ):
+            assert self._run_check(tmp_path, 4) == 14
 
-    def test_different_phase_entries_ignored(self, tmp_path):
-        """Phase 3 entries must not count towards Phase 4 coverage."""
+    def test_delta_auto_skip_skips_live_pytest(self, tmp_path):
+        """DELTA phase with code unchanged → auto-skip, return 0, pytest not called."""
+        import harness_cli
         self._make_manifest(tmp_path, ["FR-01", "FR-02"])
-        self._make_timestamps(tmp_path, [
-            {"phase": 3, "gate": 1, "fr_id": "FR-01", "ts": 1.0},
-            {"phase": 3, "gate": 1, "fr_id": "FR-02", "ts": 2.0},
-        ])
-        assert self._run_check(tmp_path, 4) == 14  # phase=3 entries ≠ phase=4
+        with mock.patch.object(
+            harness_cli, "_fr_code_changed_since_last_gate1", return_value=False
+        ):
+            with mock.patch.object(
+                harness_cli, "_validate_fr_coverage_immediate"
+            ) as mock_cov:
+                assert self._run_check(tmp_path, 4) == 0
+                mock_cov.assert_not_called()
 
-    def test_phase_sentinel_fr_id_ignored(self, tmp_path):
-        """fr_id='phase' (aggregate gate) must not count as per-FR coverage."""
+    def test_single_fr_manifest_passes(self, tmp_path):
+        """Manifest with one FR, live coverage ≥ min → pass."""
+        import harness_cli
         self._make_manifest(tmp_path, ["FR-01"])
-        self._make_timestamps(tmp_path, [
-            {"phase": 4, "gate": 1, "fr_id": "phase", "ts": 1.0},
-        ])
-        assert self._run_check(tmp_path, 4) == 14
+        with mock.patch.object(
+            harness_cli, "_validate_fr_coverage_immediate", return_value=100.0
+        ):
+            assert self._run_check(tmp_path, 4) == 0
 
     def test_no_manifest_skips_check(self, tmp_path):
         """Missing quality_manifest.json → skip check (non-FR project)."""
@@ -2224,14 +2221,13 @@ class TestGate1PerFrCoverageCheck:
         assert self._run_check(tmp_path, 4) == 0
 
     def test_multiple_rounds_same_fr_ok(self, tmp_path):
-        """Retries (multiple Gate 1 entries for same FR) must not cause false block."""
+        """Live pytest is per-FR idempotent — second FR also passes."""
+        import harness_cli
         self._make_manifest(tmp_path, ["FR-01", "FR-02"])
-        self._make_timestamps(tmp_path, [
-            {"phase": 4, "gate": 1, "fr_id": "FR-01", "ts": 1.0},
-            {"phase": 4, "gate": 1, "fr_id": "FR-01", "ts": 2.0},  # retry
-            {"phase": 4, "gate": 1, "fr_id": "FR-02", "ts": 3.0},
-        ])
-        assert self._run_check(tmp_path, 4) == 0
+        with mock.patch.object(
+            harness_cli, "_validate_fr_coverage_immediate", return_value=100.0
+        ):
+            assert self._run_check(tmp_path, 4) == 0
 
     def test_phase6_not_in_gate1_fr_check_set(self):
         """Phase 6 must not be in _PHASES_WITH_GATE1_FR_CHECK — Gate 4 replaces FR loop."""
@@ -2242,21 +2238,20 @@ class TestGate1PerFrCoverageCheck:
         """advance-phase for Phase 6 must not block on missing Gate 1 records.
 
         Phase 6 (Quality Assurance) uses Gate 4 exclusively — there are no
-        per-FR TDD-RED/GREEN/GATE1 steps, so _check_gate1_per_fr_coverage
+        per-FR TDD-RED/GREEN/GATE1 steps, so _check_gate1_live_coverage
         should not be called for completed_phase=6.
         """
-        # Set up a manifest with FRs but NO Gate 1 timestamps for Phase 6
+        import harness_cli
         self._make_manifest(tmp_path, ["FR-01", "FR-02", "FR-03"])
-        # gate_timestamps.jsonl has only Gate 4 entries (typical P6 output)
-        self._make_timestamps(tmp_path, [
-            {"phase": 6, "gate": 4, "fr_id": "phase", "ts": 1.0},
-        ])
-        # _check_gate1_per_fr_coverage would return 14 if called for phase=6;
-        # the guard in _advance_prechecks must prevent that call.
-        assert self._run_check(tmp_path, 6) == 14, (
-            "_check_gate1_per_fr_coverage itself returns 14 for phase=6 "
-            "(confirms the guard in _advance_prechecks is doing the right thing)"
-        )
+        # Phase 6 is NOT a DELTA auto-skip phase → falls through to live pytest.
+        # Without test files, _validate_fr_coverage_immediate returns None → 14.
+        with mock.patch.object(
+            harness_cli, "_validate_fr_coverage_immediate", return_value=None
+        ):
+            assert self._run_check(tmp_path, 6) == 14, (
+                "_check_gate1_live_coverage itself returns 14 for phase=6 "
+                "(confirms the guard in _advance_prechecks is doing the right thing)"
+            )
 
     def test_phases_with_gate1_fr_check_constant(self):
         """_PHASES_WITH_GATE1_FR_CHECK must cover phases 3,4,5,7,8 and exclude 1,2,6."""

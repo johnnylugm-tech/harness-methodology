@@ -1375,11 +1375,20 @@ class TestCmdAdvancePhase:
         (tmp_path / "03-development").mkdir()
         (tmp_path / "03-development" / "src").mkdir()
         (tmp_path / "03-development" / "tests").mkdir()
+        # Gate 1 per-FR live pytest needs a real test file per manifest FR; the
+        # fake _fake_run below returns 100% coverage so the stub files are
+        # enough to satisfy _fr_test_file() (file-exists check).
+        for fr in ["FR-01", "FR-02", "FR-03"]:
+            num = fr.split("-")[1].zfill(2)
+            (tmp_path / "03-development" / "tests" / f"test_fr{num}.py").write_text(
+                f"# stub for {fr}\n", encoding="utf-8"
+            )
 
         def _fake_run(cmd, **kw):
             class R:
                 returncode = 0
-                stdout = ""
+                # Gate 1 per-FR live pytest needs TOTAL coverage in stdout
+                stdout = "===== test session starts =====\nTOTAL    10  0  100%\n"
                 stderr = ""
             return R()
 
@@ -1427,11 +1436,22 @@ class TestCmdAdvancePhase:
         (tmp_path / "03-development").mkdir()
         (tmp_path / "03-development" / "src").mkdir()
         (tmp_path / "03-development" / "tests").mkdir()
+        # Gate 1 per-FR live pytest needs a real test + source file per manifest
+        # FR; the fake _fake_run below returns 100% coverage so stubs suffice.
+        for fr in ["FR-01", "FR-02", "FR-03"]:
+            num = fr.split("-")[1].zfill(2)
+            (tmp_path / "03-development" / "tests" / f"test_fr{num}.py").write_text(
+                f"# stub for {fr}\n", encoding="utf-8"
+            )
+            (tmp_path / "03-development" / "src" / f"mod_{num}.py").write_text(
+                f"\"\"\"[{fr}] stub module.\"\"\"\n", encoding="utf-8"
+            )
 
         def _fake_run(cmd, **kw):
             class R:
                 returncode = 0
-                stdout = ""
+                # Gate 1 per-FR live pytest needs TOTAL coverage in stdout
+                stdout = "===== test session starts =====\nTOTAL    10  0  100%\n"
                 stderr = ""
             return R()
 

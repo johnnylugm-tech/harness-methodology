@@ -1,7 +1,7 @@
 {
   "schema": "harness/traceability/attestation/v1",
-  "git_sha": "5604b4855b60ee589ff48f612118b5dc7b509b46",
-  "content_sha256": "ef20b4c2c314b109e9428be0f0d5a9d2c6fd72d6eccf95b0f97e6a168407f885",
+  "git_sha": "0e6b9cf8a89ec76978e7ab2dddcef61585e1d445",
+  "content_sha256": "36339a59afb929bcdcd160007ff4457fdc3bc2fe786c5b1358966fbc6ec3b961",
   "tool": "scripts/build_trace_attestation.py",
   "overlay_used": "/Users/johnny/projects/harness-methodology/TRACEABILITY_MATRIX.overlay.yaml",
   "overlay_errors": [],
@@ -14,7 +14,7 @@
       "code_coverage": "100.0%",
       "test_coverage": "100.0%",
       "verification_rate": "100.0%",
-      "total_links": 55,
+      "total_links": 57,
       "missing_mappings": {
         "fr_without_srs": [
           "FR-01",
@@ -148,9 +148,11 @@
         "status": "verified",
         "srs_section": null,
         "code_files": [
+          "tests/test_gate1_live_coverage.py",
           "tests/test_traceability_pipeline.py"
         ],
         "test_files": [
+          "tests/test_gate1_live_coverage.py",
           "tests/test_traceability_pipeline.py"
         ],
         "sad_module": "—",
