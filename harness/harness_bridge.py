@@ -1489,7 +1489,7 @@ class HarnessBridge:
         # tests all pass at 100% coverage.
         _spec_names: list[str] = []
         _existing_spec: set[str] = set()
-        if fr_id and gate_num == 1 and phase in {3, 4, 5, 7, 8}:
+        if fr_id and gate_num == 1 and phase in {3, 4, 7, 8}:
             import re as _re
             _num_match = _re.match(r"FR-(\d+)", fr_id)
             _num_str = _num_match.group(1).zfill(2) if _num_match else ""
@@ -1521,7 +1521,7 @@ class HarnessBridge:
             if _spec_names and _test_file.exists():
                 try:
                     _content = _test_file.read_text(encoding="utf-8")
-                    _existing_spec = {fn for fn in _spec_names if f"def {fn}" in _content}
+                    _existing_spec = {fn for fn in _spec_names if f"def {fn.split('[')[0]}" in _content}
                 except OSError:
                     pass
 

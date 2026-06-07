@@ -456,7 +456,7 @@ def parse_srs_nfr_sections(srs_path: Optional[Path]) -> List[Dict]:
 # ============================================================================
 
 # Phase → gate applicability
-_PHASE_GATE1_PHASES: frozenset = frozenset({3, 4, 5, 7, 8})   # Gate 1 per-FR
+_PHASE_GATE1_PHASES: frozenset = frozenset({3, 4, 7, 8})   # Gate 1 per-FR
 _PHASE_EXIT_GATES: dict = {3: 2, 4: 3, 6: 4}                  # phase → exit gate num
 
 # 10-Push Strategy labels for the P1/P2 checkpoint pushes (① ②).

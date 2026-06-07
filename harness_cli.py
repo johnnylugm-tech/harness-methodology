@@ -106,7 +106,7 @@ def _load_env_file(env_path: Path) -> list[str]:
     return loaded
 
 # Phases where Gate 1 runs per-FR
-_PER_FR_GATE1_PHASES: frozenset[int] = frozenset({3, 4, 5, 7, 8})
+_PER_FR_GATE1_PHASES: frozenset[int] = frozenset({3, 4, 7, 8})
 # Statuses that indicate an agent dispatch failure (all others treated as success).
 _DISPATCH_ERROR_STATUSES: frozenset[str] = frozenset({"REJECT", "BLOCKED", "FAILED", "ERROR", "TIMEOUT"})
 # Per-step default max_turns for run-fr-step. --max-turns override takes priority.
@@ -501,7 +501,7 @@ _PHASE_EXIT_GATES: dict[int, int] = {3: 2, 4: 3, 6: 4}
 # Phase 6 (Quality Assurance) has no FR loop — it uses Gate 4 exclusively —
 # so Gate 1 per-FR records are not expected for it.
 # Mirrors _PHASE_GATE1_PHASES in scripts/generate_full_plan.py.
-_PHASES_WITH_GATE1_FR_CHECK: frozenset[int] = frozenset({3, 4, 5, 7, 8})
+_PHASES_WITH_GATE1_FR_CHECK: frozenset[int] = frozenset({3, 4, 7, 8})
 
 # P1/P2 deliverable labels used as approval-file keys in agent_b_approvals/
 _PHASE_DELIVERABLES: dict[int, list[str]] = {
