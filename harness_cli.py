@@ -3895,55 +3895,6 @@ def _run_phase_auditor(project: Path, completed_phase: int) -> int:
         return 2
 
 
-def _fr_test_file(project: Path, fr_id: str) -> Optional[Path]:
-    """Return the test file path for *fr_id*, or None if it cannot be located.
-
-    Same naming convention as ``_check_fr_test_file_exists``: test_frNN.py
-    or test_frN.py under either ``03-development/tests/`` or ``tests/``.
-    """
-    m = re.match(r"FR-(\d+)", fr_id, re.IGNORECASE)
-    if not m:
-        return None
-    num = m.group(1).zfill(2)
-    num_raw = m.group(1).lstrip("0") or num
-    test_dir = (
-        project / "03-development" / "tests"
-        if (project / "03-development" / "tests").is_dir()
-        else project / "tests"
-    )
-    for pat in (f"test_fr{num}.py", f"test_fr{num_raw}.py"):
-        p = test_dir / pat
-        if p.exists():
-            return p
-    return None
-
-
-def _fr_source_files(project: Path, fr_id: str) -> list[Path]:
-    """Return the .py source files annotated with ``[fr_id]`` in their docstring.
-
-    Used by the immediate pytest --cov scope so each FR's coverage is measured
-    only on its own source files, mirroring the FR-scoped tool override in
-    ``cmd_run_gate``. Falls back to the whole src/ directory if no annotated
-    files exist (rare — only for projects that never used the docstring tag).
-    """
-    src_root = project / "03-development" / "src"
-    if not src_root.is_dir():
-        return []
-    tag = f"[{fr_id}]"
-    found: list[Path] = []
-    for py in src_root.rglob("*.py"):
-        try:
-            text = py.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        if tag in text:
-            found.append(py)
-    if found:
-        return found
-    # Fallback: every file under src/ (FR coverage measured project-wide).
-    return list(src_root.rglob("*.py"))
-
-
 def _validate_fr_coverage_immediate(
     project: Path, timeout: int = 120
 ) -> Optional[float]:
@@ -3963,15 +3914,18 @@ def _validate_fr_coverage_immediate(
     same measurement so the manifest's recorded score is verified live.
 
     """
-    src_dir = project / "03-development" / "src"
+    from core.utils.project_layout import ProjectLayout
+    layout = ProjectLayout(project)
+    src_dir = layout.active_src_dir
+    tests_dir = layout.active_test_dir
     if not src_dir.is_dir():
         return None
-    tests_dir = project / "03-development" / "tests"
     if not tests_dir.is_dir():
         return None
+    cov_target = layout.get_relative_str(src_dir)
     cmd = [
         sys.executable, "-m", "pytest",
-        "--cov=03-development/src", "--cov-report=term",
+        f"--cov={cov_target}", "--cov-report=term",
         "--tb=no", "-q",
     ]
     try:

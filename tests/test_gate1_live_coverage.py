@@ -51,69 +51,6 @@ def project_with_fr(tmp_path: Path) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# _fr_test_file
-# ---------------------------------------------------------------------------
-
-
-def test_fr_test_file_finds_padded(tmp_path):
-    """test_fr07.py is the canonical padded-name file."""
-    from harness_cli import _fr_test_file
-    tests = tmp_path / "03-development" / "tests"
-    tests.mkdir(parents=True)
-    (tests / "test_fr07.py").write_text("# FR-07 test stub\n", encoding="utf-8")
-    assert _fr_test_file(tmp_path, "FR-07") == tests / "test_fr07.py"
-
-
-def test_fr_test_file_finds_unpadded(tmp_path):
-    """test_fr7.py (no zero-pad) is also accepted."""
-    from harness_cli import _fr_test_file
-    tests = tmp_path / "03-development" / "tests"
-    tests.mkdir(parents=True)
-    (tests / "test_fr7.py").write_text("# FR-07 test stub\n", encoding="utf-8")
-    assert _fr_test_file(tmp_path, "FR-07") == tests / "test_fr7.py"
-
-
-def test_fr_test_file_falls_back_to_root_tests(tmp_path):
-    """No 03-development/tests/ → fall back to root tests/."""
-    from harness_cli import _fr_test_file
-    tests = tmp_path / "tests"
-    tests.mkdir()
-    (tests / "test_fr07.py").write_text("# stub\n", encoding="utf-8")
-    assert _fr_test_file(tmp_path, "FR-07") == tests / "test_fr07.py"
-
-
-def test_fr_test_file_missing_returns_none(tmp_path):
-    """No test file anywhere → None."""
-    from harness_cli import _fr_test_file
-    (tmp_path / "03-development" / "tests").mkdir(parents=True)
-    assert _fr_test_file(tmp_path, "FR-07") is None
-
-
-def test_fr_test_file_non_numeric_fr_id(tmp_path):
-    """Non-numeric FR-IDs return None."""
-    from harness_cli import _fr_test_file
-    assert _fr_test_file(tmp_path, "FR-NFR1") is None
-
-
-# ---------------------------------------------------------------------------
-# _fr_source_files
-# ---------------------------------------------------------------------------
-
-
-def test_fr_source_files_finds_tagged(project_with_fr):
-    """Files with [FR-XX] anywhere in text are collected."""
-    from harness_cli import _fr_source_files
-    found = _fr_source_files(project_with_fr, "FR-07")
-    assert any(p.name == "audio_converter.py" for p in found)
-
-
-def test_fr_source_files_no_src_returns_empty(tmp_path):
-    """No 03-development/src/ → empty list."""
-    from harness_cli import _fr_source_files
-    assert _fr_source_files(tmp_path, "FR-07") == []
-
-
-# ---------------------------------------------------------------------------
 # _validate_fr_coverage_immediate
 # ---------------------------------------------------------------------------
 
