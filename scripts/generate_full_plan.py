@@ -1370,9 +1370,9 @@ def _dynamic_phase_context_block(phase: int, has_fr_template: bool = True) -> Li
     return result
 
 
-def _dynamic_fr_template_block(phase: int) -> List[str]:
+def _dynamic_fr_template_block(phase: int, project: Path) -> List[str]:
     """FR task template for dynamic plans — each {FR-ID} is expanded at execution time."""
-    use_carryforward = phase in (4, 5, 7, 8)
+    use_carryforward = phase in (4, 7, 8)
     if use_carryforward:
         fr_steps = [
             f"- **[ORCH-GATE1-DELTA]** `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step GATE1-DELTA --project .`",
@@ -1389,9 +1389,10 @@ def _dynamic_fr_template_block(phase: int) -> List[str]:
             ">   Provide: last Gate 1 output + pytest failure log.",
         ]
     else:
+        test_dir_str = "03-development/tests" if (project / "03-development" / "tests").is_dir() else "tests"
         fr_steps = [
             f"- **[ORCH-RED]**     `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step TDD-RED --project . --srs 01-requirements/SRS.md`",
-            f"- **[P3-MIRROR]**    `python3 harness_cli.py check-test-mirrors-spec --phase {phase} --fr-id {{FR-ID}} --test-file tests/test_*.py --project .`",
+            f"- **[P3-MIRROR]**    `python3 harness_cli.py check-test-mirrors-spec --phase {phase} --fr-id {{FR-ID}} --test-file {test_dir_str}/test_*.py --project .`",
             f"- **[ORCH-GREEN]**   `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step TDD-GREEN --project . --srs 01-requirements/SRS.md`",
             f"- **[ORCH-IMPROVE]** `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step TDD-IMPROVE --project .`",
             f"- **[ORCH-GATE1]**   `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step GATE1 --project .`",
@@ -1990,7 +1991,7 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
         lines.extend(_entry_gate_check(3))
         lines.extend(_preflight_steps(3))
         lines.extend(_dynamic_phase_context_block(3))
-        lines.extend(_dynamic_fr_template_block(3))
+        lines.extend(_dynamic_fr_template_block(3, repo_path))
         lines.extend(_p3_milestone_push_steps(fr_ids, dynamic=True))
     else:
         frs = parse_srs_fr_sections(srs_path)
@@ -2187,7 +2188,7 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
         lines.append("- Verify TEST_PLAN.md covers all FRs from manifest/quality_manifest.json")
         lines.append("- **[TP-DONE]** TEST_PLAN.md written: all FRs have ≥1 test case, NFRs addressed")
         lines.append("")
-        lines.extend(_dynamic_fr_template_block(4))
+        lines.extend(_dynamic_fr_template_block(4, repo_path))
         lines.extend(_milestone_push_steps(fr_ids, phase=4, pre_gate=3,
                                            push_prefixes=("⑤", "⑥"),
                                            dynamic=True))
@@ -2363,7 +2364,7 @@ def generate_phase5_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
 
     if dynamic:
         lines.extend(_dynamic_phase_context_block(5))
-        lines.extend(_dynamic_fr_template_block(5))
+        lines.extend(_dynamic_fr_template_block(5, repo_path))
     elif manifest_fr_ids:
         lines.append("### FR Verification Tasks ({} total)".format(len(manifest_fr_ids)))
         lines.append("")
@@ -2505,7 +2506,7 @@ def generate_phase7_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
 
     if dynamic:
         lines.extend(_dynamic_phase_context_block(7))
-        lines.extend(_dynamic_fr_template_block(7))
+        lines.extend(_dynamic_fr_template_block(7, repo_path))
         lines.extend([
             "### P7 Risk Register Generation",
             "",
@@ -2598,7 +2599,7 @@ def generate_phase8_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
 
     if dynamic:
         lines.extend(_dynamic_phase_context_block(8))
-        lines.extend(_dynamic_fr_template_block(8))
+        lines.extend(_dynamic_fr_template_block(8, repo_path))
         lines.extend([
             "### P8 Configuration Records Generation",
             "",
