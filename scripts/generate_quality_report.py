@@ -62,24 +62,36 @@ def _find_latest_gate_result(project: Path) -> tuple[int, dict[str, Any]]:
 
 def _build_dimension_table(gate_result: dict[str, Any]) -> list[str]:
     """Build the 12-dimension score table markdown."""
-    dims = gate_result.get("dimensions", {})
-    if not dims:
+    dims = {}
+    items = []
+    
+    if "breakdown" in gate_result:
+        dims = gate_result["breakdown"]
+        items = [(k, k.replace("_", " ").title()) for k in dims.keys()]
+    elif "dimensions" in gate_result:
+        dims = gate_result["dimensions"]
+        items = [(d["id"], d["label"]) for d in DIMENSIONS_12]
+    else:
         # Try alternate schema: flat score key
         scores = gate_result.get("scores", {})
         dims = {d["id"]: {"score": scores.get(d["id"], 0), "detail": ""}
                 for d in DIMENSIONS_12}
+        items = [(d["id"], d["label"]) for d in DIMENSIONS_12]
 
     lines = [
         "| Dimension | Score | Status | Detail |",
         "|-----------|-------|--------|--------|",
     ]
-    for d in DIMENSIONS_12:
-        entry = dims.get(d["id"], {})
+
+    for kid, label in items:
+        entry = dims.get(kid, {})
         score = entry.get("score", 0) if isinstance(entry, dict) else 0
         detail = entry.get("detail", "") if isinstance(entry, dict) else ""
+        if not detail and isinstance(entry, dict):
+            detail = entry.get("evidence", "")
         passed = score >= 70  # default threshold
         status = "✓ PASS" if passed else "✗ FAIL"
-        lines.append(f"| {d['label']} | {score}/100 | {status} | {detail} |")
+        lines.append(f"| {label} | {score}/100 | {status} | {detail} |")
     return lines
 
 
@@ -124,7 +136,7 @@ def generate_quality_report(project_root: str,
     manifest = _load_json(project / ".methodology" / "quality_manifest.json")
     gate_num, gate_result = _find_latest_gate_result(project)
 
-    overall_score = gate_result.get("score", 0) or gate_result.get("total_score", 0)
+    overall_score = gate_result.get("composite_score", 0) or gate_result.get("score", 0) or gate_result.get("total_score", 0)
 
     lines: list[str] = [
         "# Quality Report",
@@ -135,7 +147,7 @@ def generate_quality_report(project_root: str,
         "",
         "---",
         "",
-        "## 12-Dimension Assessment",
+        "## Assessment Dimensions",
         "",
     ]
     lines.extend(_build_dimension_table(gate_result))
