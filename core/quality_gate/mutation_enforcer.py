@@ -253,6 +253,7 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
 
         r = subprocess.run(
             cmd, cwd=workdir, capture_output=True, text=True,
+            timeout=3600,  # 60 min hard cap — mutation testing is meaningless if it hangs
         )
 
         if r.returncode != 0:
@@ -264,6 +265,7 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
 
         res = subprocess.run(
             ["mutmut", "results"], cwd=workdir, capture_output=True, text=True,
+            timeout=30,
         )
 
         out = res.stdout.strip()
@@ -276,6 +278,13 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
                 )
 
         return True, ""
+    except subprocess.TimeoutExpired:
+        return False, (
+            "mutmut timed out after 60 minutes. "
+            "The test suite may be too slow per mutant, or a mutant caused "
+            "an infinite loop. Consider excluding data-only files via "
+            "paths_to_exclude in setup.cfg to reduce the mutant count."
+        )
     except Exception as e:
         return False, f"Error running mutmut: {e}"
     finally:
