@@ -48,15 +48,17 @@ def _load_json(path: Path) -> dict[str, Any]:
 
 
 def _find_latest_gate_result(project: Path) -> tuple[int, dict[str, Any]]:
-    """Find the highest-numbered gate result file in .sessi-work/."""
-    sessi = project / ".sessi-work"
-    if not sessi.is_dir():
-        return 0, {}
+    """Find the highest-numbered gate result file in .sessi-work/ or .methodology/."""
+    search_dirs = [project / ".sessi-work", project / ".methodology"]
+    
     for gate_num in (4, 3, 2, 1):
-        result_path = sessi / f"gate{gate_num}_result.json"
-        data = _load_json(result_path)
-        if data:
-            return gate_num, data
+        for d in search_dirs:
+            if not d.is_dir():
+                continue
+            result_path = d / f"gate{gate_num}_result.json"
+            data = _load_json(result_path)
+            if data:
+                return gate_num, data
     return 0, {}
 
 
