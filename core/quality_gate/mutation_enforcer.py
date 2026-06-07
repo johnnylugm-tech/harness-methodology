@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import Optional
 
 HARDCODED_FALLBACK = "03-development/src"
 
@@ -143,50 +144,32 @@ def _abs_paths_to_mutate(cwd: Path, paths_to_mutate: str) -> str:
     return ",".join(str((cwd / p).resolve()) for p in parts)
 
 
-def _resolve_test_dirs(project: Path) -> list[str]:
-    """Return absolute paths to existing test directories under *project*."""
-    test_dirs: list[str] = []
+def _resolve_test_dir(project: Path) -> Optional[str]:
+    """Return the absolute path to the project's test directory.
+
+    mutmut 2.x uses ``--tests-dir`` (single value) and refuses to look at
+    ``[tool:pytest] testpaths`` — passing testpaths via setup.cfg has no
+    effect on mutmut. Returns the first matching directory in priority order.
+    """
     for td in ["03-development/tests", "tests", "test"]:
         candidate = project / td
         if candidate.is_dir():
-            test_dirs.append(str(candidate.resolve()))
-    return test_dirs
+            return str(candidate.resolve())
+    return None
 
 
-def _prepare_temp_setup_cfg(project: Path, workdir: str) -> None:
-    """Copy ``setup.cfg`` into *workdir* with absolute ``testpaths``.
+def _copy_setup_cfg_to_workdir(project: Path, workdir: str) -> None:
+    """Copy ``setup.cfg`` into *workdir* so mutmut's setup.cfg lookup succeeds.
 
-    pytest discovers tests relative to cwd; from a temp dir it finds nothing
-    without absolute paths (Bug F — cwd isolation).
+    mutmut reads ``paths_to_mutate`` from ``[mutmut]`` in setup.cfg relative
+    to cwd — without a copy in *workdir* it falls back to defaults.
     """
-    text = ""
     setup_cfg = project / "setup.cfg"
     if setup_cfg.exists():
-        text = setup_cfg.read_text(encoding="utf-8")
-
-    test_dirs = _resolve_test_dirs(project)
-    if not test_dirs:
-        if text:
-            (Path(workdir) / "setup.cfg").write_text(text, encoding="utf-8")
-        return
-
-    abs_testpaths = " ".join(test_dirs)
-    if re.search(r"^testpaths\s*=", text, re.MULTILINE):
-        text = re.sub(
-            r"^(testpaths\s*=\s*)[^\n]*",
-            r"\g<1>" + abs_testpaths,
-            text, count=1, flags=re.MULTILINE,
+        (Path(workdir) / "setup.cfg").write_text(
+            setup_cfg.read_text(encoding="utf-8"),
+            encoding="utf-8",
         )
-    elif re.search(r"^\[tool:pytest\]", text, re.MULTILINE):
-        text = re.sub(
-            r"^(\[tool:pytest\])",
-            r"\1\ntestpaths = " + abs_testpaths,
-            text, count=1, flags=re.MULTILINE,
-        )
-    else:
-        text += f"\n[tool:pytest]\ntestpaths = {abs_testpaths}\n"
-
-    (Path(workdir) / "setup.cfg").write_text(text, encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -237,13 +220,21 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
 
     workdir = tempfile.mkdtemp(prefix="_mutmut_run.", dir="/tmp")
     try:
-        _prepare_temp_setup_cfg(project, workdir)
+        _copy_setup_cfg_to_workdir(project, workdir)
 
         cmd = [
             "mutmut", "run",
             f"--paths-to-mutate={abs_mutate}",
             "-b", "10",                     # Bug F: baseline budget
         ]
+        # Bug fix: mutmut 2.x does NOT read [tool:pytest] testpaths — it
+        # needs --tests-dir with an absolute path. Without this the
+        # test-discovery code crashes with FileNotFoundError in the temp
+        # workdir that has no tests/ subdirectory.
+        test_dir = _resolve_test_dir(project)
+        if test_dir is None:
+            return True, ""  # no tests to run, nothing to mutate
+        cmd.append(f"--tests-dir={test_dir}")
         for excl in declared_excludes + auto_excludes:
             cmd.extend(["--paths-to-exclude", excl])
 
