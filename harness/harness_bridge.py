@@ -1439,8 +1439,12 @@ class HarnessBridge:
         # CRG cross-phase drift: compare current structure against previous exit gate baseline.
         # Only meaningful for Gate 3 (P4, baseline=P3) and Gate 4 (P6, baseline=P4).
         # Gate 2 may lack metrics (no full recon), so baseline may be absent.
+        # The architecture dimension first appears at Gate 3 (P4), so the earliest
+        # architecture baseline is crg_baseline_p4; there is no p3 baseline (Gate 2
+        # has no architecture dim). Drift is therefore only valid at Gate 4 (P6 vs P4) —
+        # the old {4: 3} entry pointed at a baseline that is never generated.
         _cross_phase_drift = None
-        _baseline_phase_map = {4: 3, 6: 4}  # gate phase → previous exit gate phase
+        _baseline_phase_map = {6: 4}  # gate phase → previous exit gate phase (P6 vs P4)
         _prev_phase = _baseline_phase_map.get(phase)
         if _prev_phase is not None:
             _baseline_path = (
@@ -1458,11 +1462,25 @@ class HarnessBridge:
                         _current = _json.loads(_current_metrics_path.read_text(encoding="utf-8"))
                         from harness.ssi.scripts.crg_analysis import compute_structural_drift
                         _drift = compute_structural_drift(_baseline, _current)
+                        _drift_threshold = config.crg.get("drift_threshold", 0.4)
+                        _regressed = _drift >= _drift_threshold
                         _cross_phase_drift = {
                             "drift": _drift,
                             "baseline_phase": _prev_phase,
                             "baseline_sha": _baseline.get("_baseline_sha", "unknown"),
+                            "drift_threshold": _drift_threshold,
+                            "regression": _regressed,
                         }
+                        if _regressed:
+                            # Soft block: surface the regression loudly (was silently
+                            # advisory). Agents/reports see it via crg_safety_context.
+                            print(
+                                f"[CRG] ⚠ architecture regression vs P{_prev_phase} "
+                                f"baseline: drift={_drift:.2f} ≥ threshold "
+                                f"{_drift_threshold:.2f} "
+                                f"(baseline_sha={_baseline.get('_baseline_sha', '?')[:8]})",
+                                flush=True,
+                            )
                 except Exception as _xp_exc:
                     print(
                         f"[CRG] WARN: cross-phase drift skipped — {_xp_exc}",
