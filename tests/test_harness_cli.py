@@ -2620,36 +2620,77 @@ def test_l1_finalize_sentinel_path_legacy_fallback(tmp_path):
     std_path.touch()
     assert _finalize_sentinel_path(tmp_path, gate, fr_id) == std_path
 
-def test_l1_advance_prechecks_blocking_paths(tmp_path, monkeypatch):
-    """Test L1: gitleaks/ruff/mypy blocking paths in _advance_prechecks."""
-    from harness_cli import _advance_prechecks
-    import subprocess
-    
-    (tmp_path / ".methodology").mkdir()
-    (tmp_path / "03-development" / "src").mkdir(parents=True)
+def _setup_advance_prechecks_env(tmp_path, monkeypatch):
+    """Shared fixture setup for _advance_prechecks blocking-path tests."""
+    import harness_cli
+
+    (tmp_path / ".methodology").mkdir(exist_ok=True)
+    (tmp_path / "03-development" / "src").mkdir(parents=True, exist_ok=True)
     (tmp_path / ".methodology" / "phase4_plan.md").touch()
-    
-    monkeypatch.setattr("harness_cli._write_finalize_sentinels_for_tests", lambda p, f=None: None)
+
+    # Create finalize-gate sentinels — _advance_prechecks verifies these exist
+    harness_cli._write_finalize_sentinels_for_tests(tmp_path)
+
     monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
     monkeypatch.setattr("harness_cli._verify_agent_b_approvals_core", lambda p, ph, ids: (True, "mocked"))
-    
+
     class FakeVerifier:
         def __init__(self, *args, **kwargs): pass
         def verify(self): return {"passed": True, "total_score": 100.0}
     monkeypatch.setattr("core.quality_gate.phase_truth_verifier.PhaseTruthVerifier", FakeVerifier)
-    
-    def fake_which(cmd): return True
-    monkeypatch.setattr("shutil.which", fake_which)
-    
-    class FakeResult:
-        def __init__(self, rc): self.returncode = rc
-    
+
+    # Constitution check — mock to pass so it doesn't block on empty project
+    _mock_constitution_pass(monkeypatch)
+
+    # Scope to harness_cli's reference — not global shutil
+    monkeypatch.setattr("harness_cli.shutil.which", lambda cmd: True)
+
+
+def test_l1_advance_prechecks_gitleaks_blocks(tmp_path, monkeypatch):
+    """rc=20: gitleaks detects secrets → advance blocked."""
+    import harness_cli
+    from harness_cli import _advance_prechecks
+
+    _setup_advance_prechecks_env(tmp_path, monkeypatch)
+
     def fake_run(cmd, **kwargs):
-        if cmd[0] == "gitleaks":
-            return FakeResult(1)
-        return FakeResult(0)
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    
-    # gitleaks fail -> returns 17
-    assert _advance_prechecks(tmp_path, 3) == 17
+        class R:
+            returncode = 1 if cmd[0] == "gitleaks" else 0
+        return R()
+    monkeypatch.setattr(harness_cli.subprocess, "run", fake_run)
+
+    assert _advance_prechecks(tmp_path, 3) == 20
+
+
+def test_l1_advance_prechecks_ruff_blocks(tmp_path, monkeypatch):
+    """rc=18: ruff finds lint errors → advance blocked."""
+    import harness_cli
+    from harness_cli import _advance_prechecks
+
+    _setup_advance_prechecks_env(tmp_path, monkeypatch)
+
+    def fake_run(cmd, **kwargs):
+        class R:
+            returncode = 1 if cmd[0] == "ruff" else 0
+        return R()
+    monkeypatch.setattr(harness_cli.subprocess, "run", fake_run)
+
+    assert _advance_prechecks(tmp_path, 3) == 18
+
+
+def test_l1_advance_prechecks_mypy_blocks(tmp_path, monkeypatch):
+    """rc=19: mypy finds type errors → advance blocked."""
+    import harness_cli
+    from harness_cli import _advance_prechecks
+
+    _setup_advance_prechecks_env(tmp_path, monkeypatch)
+
+    def fake_run(cmd, **kwargs):
+        is_mypy = len(cmd) >= 3 and cmd[1] == "-m" and cmd[2] == "mypy"
+        class R:
+            returncode = 1 if is_mypy else 0
+        return R()
+    monkeypatch.setattr(harness_cli.subprocess, "run", fake_run)
+
+    assert _advance_prechecks(tmp_path, 3) == 19
 

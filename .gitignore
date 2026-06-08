@@ -25,7 +25,7 @@ crg_status.json
 # NOTE: .methodology/enforcement.json and quality_manifest.example.json are
 #       intentional source artifacts — do NOT add them here.
 .methodology/.state.lock
-attestation.json
+/attestation.json
 # Audit reports — generated per-SHA, project-specific
 .audit/
 

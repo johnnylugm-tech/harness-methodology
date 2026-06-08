@@ -243,5 +243,58 @@ def test_resolve_test_dir_subdir_override_fallback(tmp_path):
     assert _resolve_test_dir(sub, tmp_path) is None
 
 def test_l1_mutmut_cache_persistence(tmp_path, monkeypatch):
-    """Test L1: .mutmut-cache persistence in mutation_enforcer.py."""
-    pass
+    """Test L1: .mutmut-cache is pre-copied to workdir before mutmut runs
+    and post-copied back to project after mutmut finishes."""
+    import core.quality_gate.mutation_enforcer as me
+
+    # Controlled workdir so we can inspect it during the fake subprocess call
+    fake_workdir = tmp_path / "fake_workdir"
+    fake_workdir.mkdir()
+
+    monkeypatch.setattr(
+        "core.quality_gate.mutation_enforcer.tempfile.mkdtemp",
+        lambda **_kw: str(fake_workdir),
+    )
+
+    # Pre-existing cache in project
+    initial_cache = b"initial-cache-bytes"
+    (tmp_path / ".mutmut-cache").write_bytes(initial_cache)
+
+    # Bypass all the setup helpers
+    (tmp_path / "src").mkdir()
+    monkeypatch.setattr(me, "_resolve_mutmut_workdir", lambda _p: (tmp_path, "src"))
+    monkeypatch.setattr(me, "_is_editable_install", lambda _p: False)
+    monkeypatch.setattr(me, "_read_paths_to_exclude", lambda _p: [])
+    monkeypatch.setattr(me, "_detect_data_only_files", lambda _p: [])
+    monkeypatch.setattr(me, "_abs_paths_to_mutate", lambda _cwd, _paths: str(tmp_path / "src"))
+    monkeypatch.setattr(me, "_resolve_test_dir", lambda _cwd, _p: str(tmp_path / "tests"))
+    monkeypatch.setattr(me, "_copy_setup_cfg_to_workdir", lambda _p, _w: None)
+    monkeypatch.setattr(me.shutil, "which", lambda _cmd: "/usr/bin/mutmut")
+
+    pre_copy_seen: list[bytes] = []
+    updated_cache = b"updated-cache-bytes"
+
+    def fake_subprocess_run(cmd, **kwargs):
+        class R:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        if cmd[0] == "mutmut" and len(cmd) > 1 and cmd[1] == "run":
+            # Verify cache was pre-copied before mutmut run starts
+            wc = fake_workdir / ".mutmut-cache"
+            if wc.exists():
+                pre_copy_seen.append(wc.read_bytes())
+            # Simulate mutmut writing an updated cache after run
+            wc.write_bytes(updated_cache)
+        return R()
+
+    monkeypatch.setattr(me.subprocess, "run", fake_subprocess_run)
+
+    ok, msg = me.run_mutation_precheck(tmp_path)
+    assert ok, msg
+
+    # Pre-copy: workdir had the initial cache before mutmut ran
+    assert pre_copy_seen == [initial_cache], "cache was not pre-copied to workdir"
+    # Post-copy: updated cache was written back to project
+    assert (tmp_path / ".mutmut-cache").read_bytes() == updated_cache, "cache was not post-copied to project"

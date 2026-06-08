@@ -4254,14 +4254,21 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
             print(f"  [Agent B] Phase {completed_phase} approvals verified ✓")
 
     # ── TDD checks: pytest + coverage, spec-coverage (P3+) ──────
+    # Return code map for this block (pre-existing codes occupy 1-17):
+    #   17 → finalize-gate sentinel missing (see check above)
+    #   18 → ruff: lint errors in src
+    #   19 → mypy: type errors in src
+    #   20 → gitleaks: hardcoded secrets detected
     if completed_phase >= 3:
         # 0.1 Secrets Scanning (gitleaks)
+        # Runs outside src_dir.is_dir() intentionally: gitleaks scans the whole
+        # repo (docs, configs, history), not just the source tree.
         if shutil.which("gitleaks"):
             _gl_r = subprocess.run(["gitleaks", "detect", "--source", "."], cwd=str(project))
             if _gl_r.returncode != 0:
                 print("\n[BLOCKED] Secrets Scanning (gitleaks) failure.")
                 print("  Hardcoded secrets detected in the codebase/docs.")
-                return 17
+                return 20
         else:
             print("  [WARN] gitleaks not installed. Skipping secrets scanning.")
         # Phase-based spec-coverage thresholds (unified v2.6)
