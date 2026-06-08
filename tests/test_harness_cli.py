@@ -2746,7 +2746,9 @@ class TestInitProjectRootWrapper:
         assert wrapper.exists(), "wrapper not created"
         content = wrapper.read_text()
         assert self._MARKER in content
-        assert "harness/harness_cli.py" in content
+        # Path must be resolved via __file__ (not a bare relative string)
+        assert "__file__" in content
+        assert '"harness_cli.py"' in content
 
     def test_wrapper_is_executable_delegation(self, tmp_path, monkeypatch):
         """Wrapper executes harness/harness_cli.py with forwarded args."""
