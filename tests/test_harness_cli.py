@@ -2595,3 +2595,61 @@ class TestGitTestPatterns:
         finally:
             import shutil
             shutil.rmtree(outside, ignore_errors=True)
+
+def test_l1_finalize_sentinel_path_legacy_fallback(tmp_path):
+    """Test L1: Legacy sentinel fallback in _finalize_sentinel_path."""
+    from harness_cli import _finalize_sentinel_path
+    
+    fr_id = "FR-99"
+    key = fr_id.replace("-", "").lower()
+    gate = 1
+    d = tmp_path / ".sessi-work" / "sentinels"
+    d.mkdir(parents=True, exist_ok=True)
+    
+    std_path = d / f"g{gate}_{key}.finalized"
+    legacy_path = d / f"g{gate}_{fr_id}.flag"
+    
+    # Neither exists -> returns std_path
+    assert _finalize_sentinel_path(tmp_path, gate, fr_id) == std_path
+    
+    # Only legacy exists -> returns legacy_path
+    legacy_path.touch()
+    assert _finalize_sentinel_path(tmp_path, gate, fr_id) == legacy_path
+    
+    # Both exist -> returns std_path
+    std_path.touch()
+    assert _finalize_sentinel_path(tmp_path, gate, fr_id) == std_path
+
+def test_l1_advance_prechecks_blocking_paths(tmp_path, monkeypatch):
+    """Test L1: gitleaks/ruff/mypy blocking paths in _advance_prechecks."""
+    from harness_cli import _advance_prechecks
+    import subprocess
+    
+    (tmp_path / ".methodology").mkdir()
+    (tmp_path / "03-development" / "src").mkdir(parents=True)
+    (tmp_path / ".methodology" / "phase4_plan.md").touch()
+    
+    monkeypatch.setattr("harness_cli._write_finalize_sentinels_for_tests", lambda p, f=None: None)
+    monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
+    monkeypatch.setattr("harness_cli._verify_agent_b_approvals_core", lambda p, ph, ids: (True, "mocked"))
+    
+    class FakeVerifier:
+        def __init__(self, *args, **kwargs): pass
+        def verify(self): return {"passed": True, "total_score": 100.0}
+    monkeypatch.setattr("core.quality_gate.phase_truth_verifier.PhaseTruthVerifier", FakeVerifier)
+    
+    def fake_which(cmd): return True
+    monkeypatch.setattr("shutil.which", fake_which)
+    
+    class FakeResult:
+        def __init__(self, rc): self.returncode = rc
+    
+    def fake_run(cmd, **kwargs):
+        if cmd[0] == "gitleaks":
+            return FakeResult(1)
+        return FakeResult(0)
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    
+    # gitleaks fail -> returns 17
+    assert _advance_prechecks(tmp_path, 3) == 17
+

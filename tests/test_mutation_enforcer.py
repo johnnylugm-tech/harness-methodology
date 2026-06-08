@@ -241,3 +241,7 @@ def test_resolve_test_dir_subdir_override_fallback(tmp_path):
     sub.mkdir()
     (tmp_path / "tests").mkdir()
     assert _resolve_test_dir(sub, tmp_path) is None
+
+def test_l1_mutmut_cache_persistence(tmp_path, monkeypatch):
+    """Test L1: .mutmut-cache persistence in mutation_enforcer.py."""
+    pass

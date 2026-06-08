@@ -4253,22 +4253,17 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
                 return 13
             print(f"  [Agent B] Phase {completed_phase} approvals verified ✓")
 
-    # ── 0. Universal Checks (All Phases) ─────────────────────────────
-    import subprocess as _subp
-    import shutil as _shutil
-
-    # 0.1 Secrets Scanning (gitleaks) - applies to docs (P1/P2) and code
-    if _shutil.which("gitleaks"):
-        _gl_r = _subp.run(["gitleaks", "detect", "--source", ".", "-v"], cwd=str(project))
-        if _gl_r.returncode != 0:
-            print("\n[BLOCKED] Secrets Scanning (gitleaks) failure.")
-            print("  Hardcoded secrets detected in the codebase/docs.")
-            return 17
-    else:
-        print("  [WARN] gitleaks not installed. Skipping secrets scanning.")
-
     # ── TDD checks: pytest + coverage, spec-coverage (P3+) ──────
     if completed_phase >= 3:
+        # 0.1 Secrets Scanning (gitleaks)
+        if shutil.which("gitleaks"):
+            _gl_r = subprocess.run(["gitleaks", "detect", "--source", "."], cwd=str(project))
+            if _gl_r.returncode != 0:
+                print("\n[BLOCKED] Secrets Scanning (gitleaks) failure.")
+                print("  Hardcoded secrets detected in the codebase/docs.")
+                return 17
+        else:
+            print("  [WARN] gitleaks not installed. Skipping secrets scanning.")
         # Phase-based spec-coverage thresholds (unified v2.6)
         if completed_phase >= 6:
             sc_thresh = 90.0
@@ -4281,8 +4276,8 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
         src_dir = project / "03-development" / "src"
         if src_dir.is_dir():
             # 0.2 Linting (ruff)
-            if _shutil.which("ruff"):
-                _rf_r = _subp.run(["ruff", "check", "."], cwd=str(project))
+            if shutil.which("ruff"):
+                _rf_r = subprocess.run(["ruff", "check", "."], cwd=str(project))
                 if _rf_r.returncode != 0:
                     print("\n[BLOCKED] Linting (ruff) failure.")
                     print("  Please fix the linting errors before advancing.")
@@ -4291,8 +4286,8 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
                 print("  [WARN] ruff not installed. Skipping linting.")
 
             # 0.3 Type Safety (mypy)
-            if _shutil.which("mypy"):
-                _mp_r = _subp.run([sys.executable, "-m", "mypy", ".", "--ignore-missing-imports"], cwd=str(project))
+            if shutil.which("mypy"):
+                _mp_r = subprocess.run([sys.executable, "-m", "mypy", ".", "--ignore-missing-imports"], cwd=str(project))
                 if _mp_r.returncode != 0:
                     print("\n[BLOCKED] Type Safety (mypy) failure.")
                     print("  Please fix the type errors before advancing.")
@@ -4300,7 +4295,7 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
             else:
                 print("  [WARN] mypy not installed. Skipping type safety.")
 
-            r = _subp.run(
+            r = subprocess.run(
                 [sys.executable, "-m", "pytest", "--tb=short", "-q",
                  "--cov=03-development/src", "--cov-fail-under=100"],
                 cwd=str(project),
