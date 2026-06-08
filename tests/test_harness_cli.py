@@ -3364,3 +3364,130 @@ def test_stage_pass_autogenerate_is_git_added(tmp_path, monkeypatch):
         f"'git add Phase3_STAGE_PASS.md' was not called; "
         f"captured git-add calls: {git_add_calls}"
     )
+
+
+# =============================================================================
+# Phase 8 bug regressions (B1 / B2 / B3)
+# =============================================================================
+
+# B1: commit_and_push_p8 must pass resume_phase=8 so HandoverGenerator does
+# not compute _target = 9 and embed phase9_plan.md references.
+def test_p8_commit_handover_uses_resume_phase_8(tmp_path, monkeypatch):
+    """B1: commit_and_push_p8 must write HANDOVER.md with resume_phase=8.
+
+    Without resume_phase=8, HandoverGenerator._target = phase + 1 = 9,
+    causing it to embed Phase 9 plan references that break _validate_p8_completion.
+    """
+    from harness.git_strategy import GitStrategy
+
+    captured: dict = {}
+
+    def fake_write(
+        self,
+        checkpoint_id,
+        phase,
+        background,
+        status,
+        steps,
+        notes,
+        extra=None,
+        plan_override=None,
+        deliverables=None,
+        resume_phase=None,
+    ):
+        captured["resume_phase"] = resume_phase
+        captured["phase"] = phase
+
+    monkeypatch.setattr("harness.git_strategy.GitStrategy._write_handover", fake_write)
+    monkeypatch.setattr(
+        "harness.git_strategy.GitStrategy._commit_and_push",
+        lambda self, msg: True,
+    )
+
+    gs = GitStrategy(project=tmp_path, enabled=True)
+    gs.commit_and_push_p8()
+
+    assert captured.get("phase") == 8, (
+        f"Expected phase=8 in _write_handover call, got {captured.get('phase')}"
+    )
+    assert captured.get("resume_phase") == 8, (
+        f"Expected resume_phase=8, got {captured.get('resume_phase')!r}. "
+        f"Without resume_phase=8, HandoverGenerator computes _target=9 and "
+        f"embeds phase9_plan.md refs."
+    )
+
+
+# B2: generate_sab.py must exit 1 (not overwrite) when SAB.json already exists
+# and --overwrite is not passed.
+def test_generate_sab_exits_1_when_output_exists_without_overwrite(tmp_path, monkeypatch):
+    """B2: generate_sab.py must NOT silently overwrite an existing SAB.json.
+
+    Without the guard, running generate_sab.py after SAD.md is updated with
+    placeholder content would destroy a valid SAB.json.
+    """
+    import sys
+    from scripts.generate_sab import main as sab_main
+
+    # Minimal SAD.md so the file-not-found early exit doesn't trigger
+    arch_dir = tmp_path / "02-architecture"
+    arch_dir.mkdir(parents=True)
+    (arch_dir / "SAD.md").write_text("# SAD\n", encoding="utf-8")
+
+    # Pre-create a SAB.json that must NOT be overwritten
+    output_file = tmp_path / ".methodology" / "SAB.json"
+    output_file.parent.mkdir(parents=True)
+    output_file.write_text('{"existing": true}', encoding="utf-8")
+
+    monkeypatch.setattr(sys, "argv", ["generate_sab.py", "--project", str(tmp_path)])
+
+    import io
+    captured_stderr = io.StringIO()
+    monkeypatch.setattr(sys, "stderr", captured_stderr)
+
+    rc = sab_main()
+
+    assert rc == 1, (
+        f"Expected exit 1 when SAB.json exists and --overwrite not passed, got {rc}"
+    )
+    assert "already exists" in captured_stderr.getvalue(), (
+        f"Expected 'already exists' in stderr, got: {captured_stderr.getvalue()!r}"
+    )
+    # Verify the existing file was NOT touched
+    assert output_file.read_text(encoding="utf-8") == '{"existing": true}', (
+        "SAB.json content was modified despite no --overwrite flag"
+    )
+
+
+# B3: _advance_prechecks at completed_phase=8 must NOT block on phase9_plan.md
+# (Phase 8 is the terminal phase — there is no Phase 9).
+def test_advance_prechecks_p8_does_not_require_phase9_plan(tmp_path, monkeypatch):
+    """B3: advance-phase for completed_phase=8 must not return 15 (plan-not-found).
+
+    Before the fix, `if completed_phase >= 3:` triggered for P8 and blocked
+    with exit code 15 because phase9_plan.md does not exist.
+    """
+    import harness_cli
+    from harness_cli import _advance_prechecks
+
+    _setup_advance_prechecks_env(tmp_path, monkeypatch)
+
+    # Explicitly do NOT create phase9_plan.md — verify P8 is not blocked on it.
+    assert not (tmp_path / ".methodology" / "phase9_plan.md").exists()
+
+    monkeypatch.setattr("harness_cli._run_spec_coverage_check", lambda p, t, **kw: (0, 100.0))
+    monkeypatch.setattr("harness_cli._check_gate1_live_coverage", lambda p, ph: 0)
+    monkeypatch.setattr("harness_cli._generate_stage_pass", lambda p, g, ph: None)
+    monkeypatch.setattr(
+        "core.quality_gate.mutation_enforcer.run_mutation_precheck",
+        lambda p: (True, "ok"),
+    )
+    monkeypatch.setattr(harness_cli.subprocess, "run", lambda cmd, **kw: type("R", (), {
+        "returncode": 0, "stdout": "", "stderr": "",
+    })())
+
+    rc = _advance_prechecks(tmp_path, completed_phase=8)
+
+    assert rc != 15, (
+        "advance-phase returned 15 (phase9_plan.md not found) for completed_phase=8. "
+        "Phase 8 is terminal — no phase9_plan.md should be required."
+    )

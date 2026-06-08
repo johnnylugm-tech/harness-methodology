@@ -615,6 +615,9 @@ class GitStrategy:
                 "Archive session via /compact",
             ],
             notes=notes,
+            # P8 is the terminal phase — resume_phase=8 prevents HandoverGenerator
+            # from computing _target = phase+1 = 9 and embedding phase9_plan.md refs.
+            resume_phase=8,
         )
         msg = "docs(P8): config records — pipeline complete"
         return self._commit_and_push(msg)

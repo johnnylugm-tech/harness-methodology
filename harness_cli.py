@@ -4241,11 +4241,12 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
                 cwd=str(project), capture_output=True,
             )
 
-    # ── Next-phase plan: must exist before advancing (Phase 3+) ─────
+    # ── Next-phase plan: must exist before advancing (Phase 3–7) ────
     # Prevents "advance first, plan later" ordering bugs. generate-next-plan
     # must be run BEFORE advance-phase so the agent has a plan to follow.
     # Phase 1-2 use HANDOVER.md entry flow; plan generation starts at Phase 3.
-    if completed_phase >= 3:
+    # Phase 8 is terminal — there is no Phase 9 plan to require.
+    if 3 <= completed_phase < 8:
         _next_phase = completed_phase + 1
         _next_plan = project / ".methodology" / f"phase{_next_phase}_plan.md"
         if not _next_plan.exists():

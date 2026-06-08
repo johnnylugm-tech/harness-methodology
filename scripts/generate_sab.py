@@ -101,6 +101,14 @@ def main():
             "Use in CI or plan checkpoints to catch bad SAB blocks early."
         ),
     )
+    parser.add_argument(
+        "--overwrite", action="store_true",
+        help=(
+            "Allow overwriting an existing SAB.json. Without this flag, "
+            "generate_sab.py exits 1 if the output file already exists, "
+            "preventing accidental regression from placeholder SAD.md content."
+        ),
+    )
     args = parser.parse_args()
 
     project = Path(args.project)
@@ -130,6 +138,17 @@ def main():
 
     # ── Generate path (default) ───────────────────────────────────────────
     output_file = project / args.output
+
+    # Guard against accidental overwrite of a valid SAB.json with placeholder
+    # content from an incomplete SAD.md. Require --overwrite to proceed.
+    if output_file.exists() and not args.overwrite:
+        print(
+            f"[SKIP] {output_file} already exists.\n"
+            f"  Pass --overwrite to regenerate from SAD.md §5.\n"
+            f"  Warning: only use --overwrite when SAD.md §5 SAB block is final.",
+            file=sys.stderr,
+        )
+        return 1
 
     print(f"\n{'='*50}")
     print("SAB Generator")
