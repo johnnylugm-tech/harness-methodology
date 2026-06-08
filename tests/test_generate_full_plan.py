@@ -48,6 +48,25 @@ from generate_full_plan import (
 
 # ─── Fixtures ────────────────────────────────────────────────────────────────
 
+def _phase_deliverable_text(phase: int, source: str = "") -> str:
+    """Concatenate every deliverable's `task_hint` + every `checks` entry for
+    `phase` in the imported `_PHASE_DELIVERABLE_DEPS` constant.
+
+    Returns a single string tests can use with `in`. Robust to refactors of the
+    dict structure. The `source` parameter is accepted (and ignored) so older
+    call sites that pass the file text keep working.
+    """
+    del source  # unused — see helper docstring
+    deliverables = _PHASE_DELIVERABLE_DEPS.get(phase, [])
+    parts: list[str] = []
+    for d in deliverables:
+        if "task_hint" in d:
+            parts.append(str(d["task_hint"]))
+        for c in d.get("checks", []) or []:
+            parts.append(str(c))
+    return " | ".join(parts)
+
+
 @pytest.fixture()
 def project(tmp_path: Path) -> Path:
     """Minimal project directory with manifest + placeholder SRS."""
@@ -2102,3 +2121,133 @@ class TestPhase78ReviewFixes:
         result = generate_full_plan(3, tmp_path, out, dynamic=True)
         assert result is not None
         assert "FR Tasks — Expanded" in out.read_text(encoding="utf-8")
+
+
+# ─── Ingestion Mode + 8-Question Protocol regression coverage (review fixes) ─
+
+class TestIngestionModeAndEightQuestionProtocol:
+    """Regression tests for commits ac1eecf + 4e6705a and the review-blocker sweep.
+
+    These pin the prompt and plan files to their current 8-question / dual-mode
+    contract so future refactors cannot silently regress to the pre-ac1eecf
+    7-question / single-mode state.
+    """
+
+    @pytest.fixture
+    def phase1_plan_text(self) -> str:
+        return Path(".methodology/phase1_plan.md").read_text(encoding="utf-8")
+
+    @pytest.fixture
+    def phase2_plan_text(self) -> str:
+        return Path(".methodology/phase2_plan.md").read_text(encoding="utf-8")
+
+    @pytest.fixture
+    def derive_md_text(self) -> str:
+        return Path("harness/ssi/prompts/derive_test_cases.md").read_text(encoding="utf-8")
+
+    # R-MODE-1: phase1_plan.md must declare BOTH modes (not just one)
+    def test_p1_plan_declares_both_modes(self, phase1_plan_text):
+        assert "Elicitation Mode" in phase1_plan_text
+        assert "Ingestion Mode" in phase1_plan_text
+
+    # R-MODE-2: phase1_plan.md must document the canonical_spec detection precedence
+    def test_p1_plan_documents_canonical_spec_precedence(self, phase1_plan_text):
+        # The 4-step precedence list introduced by review-fix #9
+        assert "PROJECT_BRIEF.md` has `canonical_spec: <path>`" in phase1_plan_text
+        assert "REJECT, request human disambiguation" in phase1_plan_text
+        assert "auto-detected SPEC file but no PROJECT_BRIEF.md" in phase1_plan_text
+
+    # R-MODE-3: phase1_plan.md must define a prompt-injection guard
+    def test_p1_plan_defines_prompt_injection_guard(self, phase1_plan_text):
+        assert "Prompt-injection guard" in phase1_plan_text
+        assert "ignore previous instructions" in phase1_plan_text
+        assert "you are now" in phase1_plan_text
+
+    # R-MODE-4: phase1_plan.md must define the TBD/TODO/placeholder capture policy
+    def test_p1_plan_defines_deferred_marker_policy(self, phase1_plan_text):
+        assert "TBD" in phase1_plan_text
+        assert "TODO" in phase1_plan_text
+        assert "NFR-99" in phase1_plan_text
+        assert "deferred" in phase1_plan_text.lower()
+
+    # R-PROT-1: derive_test_cases.md must reference Q1-Q8 (not the old Q1-Q7)
+    def test_derive_md_references_q1_q8(self, derive_md_text):
+        assert "Q1-Q8" in derive_md_text
+        assert "8-Question Protocol" in derive_md_text
+        # Hard guard against reintroduction of stale 7-Question / Q1-Q7
+        assert "Q1-Q7" not in derive_md_text
+        assert "7-Question" not in derive_md_text
+
+    # R-PROT-2: derive_test_cases.md must define Q8 and Step 2.5
+    def test_derive_md_defines_q8_and_step_2_5(self, derive_md_text):
+        assert "### Q8: NEGATIVE CONSTRAINTS" in derive_md_text
+        assert "Step 2.5: Public Interface Derivation" in derive_md_text
+        # New types must be defined
+        assert "negative_constraint" in derive_md_text
+        assert "interface_contract" in derive_md_text
+
+    # R-PROT-3: Summary table must list the two new test types
+    def test_derive_md_summary_lists_new_types(self, derive_md_text):
+        assert "By type: negative_constraint" in derive_md_text
+        assert "By type: interface_contract" in derive_md_text
+
+    # R-PROT-4: Q8 must define a CJK-safe slug rule (Python identifier is ASCII)
+    def test_derive_md_q8_has_cjk_slug_rule(self, derive_md_text):
+        # The C_slug rule is mandatory; without it Q8 generates invalid Python identifiers
+        assert "C_slug" in derive_md_text
+        assert "re.sub" in derive_md_text
+        assert "c1" in derive_md_text  # CJK fallback suffix
+
+    # R-PROT-5: Naming rule must be a single v2.6.1 block, not two conflicting ones
+    def test_derive_md_naming_rule_consolidated(self, derive_md_text):
+        # v2.6.1 unifies the YAML-name + override clauses
+        assert "NAMING RULE (v2.6.1)" in derive_md_text
+        # The old "CRITICAL NAMING OVERRIDE RULE" header must be gone
+        assert "CRITICAL NAMING OVERRIDE RULE" not in derive_md_text
+        # The v2.6 header must be gone
+        assert "NAMING RULE (v2.6)" not in derive_md_text
+
+    # R-PROT-6: Agent B validation must cross-link Interface Completeness ↔ NFR patterns
+    def test_derive_md_agent_b_links_interfaces_to_nfr(self, derive_md_text):
+        assert "Interface ↔ NFR cross-check" in derive_md_text
+        assert "NP-01" in derive_md_text and "unauthenticated_returns_401" in derive_md_text
+
+    # R-SCRIPT-1: generate_full_plan.py P1 entry must surface BOTH mode names
+    def test_gen_plan_p1_mentions_both_modes(self):
+        p1_block = _phase_deliverable_text(1)
+        assert "INGESTION MODE" in p1_block or "Ingestion Mode" in p1_block
+        assert "Elicitation" in p1_block
+
+    # R-SCRIPT-2: generate_full_plan.py P1 entry must mention the prompt-injection scan
+    def test_gen_plan_p1_mentions_prompt_injection(self):
+        p1_block = _phase_deliverable_text(1)
+        assert "prompt-injection" in p1_block.lower()
+
+    # R-SCRIPT-3: generate_full_plan.py P2 entry must reference the 8-Question Protocol
+    def test_gen_plan_p2_mentions_8_question_protocol(self):
+        p2_block = _phase_deliverable_text(2)
+        assert "8-Question Protocol" in p2_block
+        assert "Q1-Q8" in p2_block
+        assert "7-Question" not in p2_block
+        assert "Q1-Q7" not in p2_block
+
+    # R-SCRIPT-4: generate_full_plan.py P2 entry must include the YAML-exemption check
+    def test_gen_plan_p2_mentions_yaml_exemption_check(self):
+        p2_block = _phase_deliverable_text(2)
+        # The script-side check must surface the YAML-exemption loophole fix
+        assert "YAML" in p2_block and "exempt" in p2_block.lower()
+
+    # R-SWEEP: project-wide guard — no stale 7-Question / Q1-Q7 references anywhere
+    @pytest.mark.parametrize("relpath,needle", [
+        ("harness/ssi/prompts/derive_test_cases.md", "Q1-Q7"),
+        ("harness/ssi/prompts/derive_test_cases.md", "7-Question"),
+        ("scripts/generate_full_plan.py", "Q1-Q7"),
+        ("scripts/generate_full_plan.py", "7-Question"),
+        (".methodology/phase2_plan.md", "Q1-Q7"),
+        (".methodology/phase2_plan.md", "7-Question"),
+        (".methodology/phase1_plan.md", "Q1-Q7"),
+        (".methodology/phase1_plan.md", "7-Question"),
+    ])
+    def test_no_stale_protocol_references(self, relpath, needle):
+        text = Path(relpath).read_text(encoding="utf-8")
+        assert needle not in text, f"stale protocol reference '{needle}' found in {relpath}"
