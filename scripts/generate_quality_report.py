@@ -131,6 +131,45 @@ def _build_defect_summary(quality_manifest: dict[str, Any],
     ]
 
 
+def _build_architecture_section(project: Path) -> list[str]:
+    """CRG architecture overview — communities + cross-community coupling warnings.
+
+    Explains *why* the architecture dimension scored as it did (coupling hotspots,
+    oversized/low-cohesion communities) instead of just a bare number. Uses the
+    crg_api subprocess backend so it works outside an interactive Claude session.
+    """
+    try:
+        import sys as _sys
+        _repo_root = str(Path(__file__).resolve().parent.parent)
+        if _repo_root not in _sys.path:
+            _sys.path.insert(0, _repo_root)
+        from harness.crg_api import call_crg_tool
+        overview = call_crg_tool(str(project), "get_architecture_overview_func")
+    except Exception as exc:  # CRG absent / failed → informational, never blocking
+        return [f"_CRG architecture overview unavailable: {str(exc)[:120]}_", ""]
+
+    if not overview or overview.get("status") != "ok":
+        return ["_CRG architecture overview unavailable._", ""]
+
+    out: list[str] = [overview.get("summary", ""), ""]
+    communities = overview.get("communities", [])
+    if communities:
+        out.append("| Community | Size | Cohesion |")
+        out.append("|---|---|---|")
+        for c in sorted(communities, key=lambda x: x.get("size", 0), reverse=True)[:10]:
+            out.append(
+                f"| {c.get('name', '?')} | {c.get('size', '?')} "
+                f"| {float(c.get('cohesion', 0) or 0):.2f} |"
+            )
+        out.append("")
+    warnings = overview.get("warnings", [])
+    if warnings:
+        out.append("**Coupling / cohesion warnings:**")
+        out.extend(f"- ⚠ {w}" for w in warnings)
+        out.append("")
+    return out
+
+
 def generate_quality_report(project_root: str,
                             output_path: str | None = None) -> str:
     """Generate the QUALITY_REPORT.md content and write to disk."""
@@ -171,6 +210,15 @@ def generate_quality_report(project_root: str,
         "",
     ])
     lines.extend(_build_defect_summary(manifest, gate_result))
+
+    lines.extend([
+        "",
+        "---",
+        "",
+        "## Architecture (CRG)",
+        "",
+    ])
+    lines.extend(_build_architecture_section(project))
 
     lines.extend([
         "",
