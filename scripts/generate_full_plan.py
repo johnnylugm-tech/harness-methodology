@@ -1645,7 +1645,7 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
             "  - **[B-DISPATCH]** Dispatch Agent B:",
             "    ```bash",
             "    python3 harness_cli.py dispatch --role reviewer --fr-id HR-01 \\",
-            "      --prompt \"Review Phase 6 Gate 4 deliverables\" --phase 6 --project . --max-turns 15",
+            "      --prompt \"Review Phase 6 Gate 4 deliverables\" --phase 6 --project . --max-turns 30",
             "    ```",
             "",
         ]
