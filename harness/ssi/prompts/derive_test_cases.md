@@ -16,7 +16,7 @@ P3 Agent A implements tests FROM this catalog — not ad-hoc.
 > ❌ **禁止行為：**
 > - 在未閱讀每個 FR 完整描述的情況下生成 test names
 > - 生成 derivation 欄位為空或為 "N/A" 的 test case
-> - 每個 FR 只寫 1 個 happy path test，跳過 Q2-Q7
+> - 每個 FR 只寫 1 個 happy path test，跳過 Q2-Q8
 > - 複製上一個 FR 的 test case，改一個數字充數
 > - 生成不符合 `test_{subject}_{condition_or_behavior}` 命名格式的名稱
 > - 用描述性 id（如 `all_boundary_chars`）取代具體 `Inputs` 值，把選值/計數留給 P3
@@ -41,7 +41,7 @@ Before starting, read and confirm:
 - [ ] `02-architecture/SAD.md` §3 (Module Design) — module/class names (for precise test naming)
 
 If SAD.md is not yet written, use provisional names from SRS FR descriptions.
-If TEST_INVENTORY.yaml is absent or empty, derive all names via Q1-Q7 and note in the
+If TEST_INVENTORY.yaml is absent or empty, derive all names via Q1-Q8 and note in the
 TEST_SPEC.md header that no P1 naming authority was available.
 
 ---
@@ -54,9 +54,9 @@ and `cross_cutting:` sections. These are the naming AUTHORITY established in P1.
 - For each FR-XX that has named test functions in TEST_INVENTORY.yaml:
   use those EXACT names. Prefer them over derived names.
 - For FRs with partial coverage (e.g., only unit tests named, no integration tests):
-  use the given names for the categories they cover, then fill gaps with Q1-Q7.
+  use the given names for the categories they cover, then fill gaps with Q1-Q8.
 - For FRs not mentioned in TEST_INVENTORY.yaml:
-  derive ALL names via the 7-Question Protocol.
+  derive ALL names via the 8-Question Protocol.
 - For cross_cutting names: place them in the Cross-Cutting section of TEST_SPEC.md.
 
 This ensures bidirectional traceability: TEST_INVENTORY.yaml (P1 forward) →
@@ -93,7 +93,7 @@ Record this set. Every FR will be checked against it in Step 2 Q-Probe 6.
 
 ---
 
-## Step 2: Per-FR Derivation (7-Question Protocol)
+## Step 2: Per-FR Derivation (8-Question Protocol)
 
 Repeat for each `FR-XX` in SRS §2:
 
@@ -112,8 +112,11 @@ PRE-STEP: Classify FR type (one or more):
 Classification drives which questions generate mandatory vs optional test cases.
 
 **NAMING RULE (v2.6)**: If TEST_INVENTORY.yaml (Step 0) supplies a test name for a category
-that Q1-Q7 would generate, use the YAML-supplied name instead of deriving one.
-Only derive a new name when the YAML has no name for that test category.
+that Q1-Q8 would generate, use the YAML-supplied name instead of deriving one.
+
+**CRITICAL NAMING OVERRIDE RULE**:
+TEST_INVENTORY.yaml ONLY provides names, it DOES NOT grant exemptions.
+Even if a name is provided in the YAML for a specific FR, you MUST STILL execute the entire Q1-Q8 protocol for that FR to generate any missing `failure`, `boundary`, `negative`, or `integration` test cases. Do NOT stop after applying the YAML name.
 ```
 
 ### Q1: HAPPY PATH (mandatory for ALL types)
@@ -213,6 +216,25 @@ For each interaction pair (FR-XX ↔ FR-YY):
 Type: `integration`  
 Derivation: `Q7/FR-{YY}`
 
+### Q8: NEGATIVE CONSTRAINTS / EXCLUSIONS
+
+> Does the specification explicitly forbid a behavior or contain negative constraints (e.g., "Must not", "Do not", "禁止", "不可", "避免")?
+
+If YES: for each negative constraint C:
+- Generate a failure injection or boundary test asserting this exact exclusion: `test_{fr}_must_not_{C}`
+- Type: `negative_constraint`
+- Derivation: `Q8`
+
+---
+
+## Step 2.5: Public Interface Derivation (MANDATORY)
+
+Do not rely solely on FR-XX tags. Scan the specification for any explicitly defined Public Interfaces / Contracts (e.g., HTTP Endpoints, CLI Commands, GraphQL Mutations, Public SDK Methods).
+For EVERY interface listed:
+- Generate an explicit contract test (e.g., `test_api_get_health_returns_200` or `test_cli_generate_command_success`).
+- Type: `interface_contract`
+- Derivation: `Step 2.5`
+
 ---
 
 ## Step 3: Write TEST_SPEC.md Entry
@@ -267,6 +289,11 @@ After all individual FRs, add a cross-cutting section:
 ```markdown
 ## Cross-Cutting Test Cases
 
+### Infrastructure & Middleware Integration (MANDATORY if applicable)
+If the specification includes ANY Infrastructure Components, Caches, Databases, Message Queues, or Middleware:
+- You MUST generate a cross-cutting E2E integration test starting from the main System Entrypoint (e.g., API Router, CLI Main), asserting that the component is physically wired and invoked.
+- Isolated unit tests are insufficient for these components.
+
 ### NFR Integration
 {List any NFR tests that apply to the whole system rather than a single FR}
 
@@ -305,8 +332,14 @@ Append at the end of TEST_SPEC.md:
 
 ## Agent B Validation Checklist
 
-Agent B must verify before APPROVE:
+Agent B must verify before APPROVE. If any of the following are true, you MUST REJECT:
 
+- [ ] **YAML Exemption Check**: Did Agent A skip generating `failure`/`boundary` tests for an FR just because it had a YAML name? (If yes -> REJECT)
+- [ ] **Interface Completeness**: Are there Public Interfaces (Endpoints, CLI commands) listed in the spec that are MISSING from the test catalog? (If yes -> REJECT)
+- [ ] **Negative Constraint Check**: Are there explicit "Must not" or "禁止" constraints in the spec that DO NOT have a corresponding test? (If yes -> REJECT)
+- [ ] **Wiring Check**: Is there an Infrastructure component (e.g., DB, Cache) in the spec that lacks an Entrypoint-to-Infrastructure E2E test in the Cross-Cutting section? (If yes -> REJECT)
+
+Standard Verification:
 - [ ] Every FR from SRS §2 has an entry in TEST_SPEC.md
 - [ ] Every FR has at least 1 `happy_path` + 1 `failure`/`validation` test
 - [ ] Every active NFR pattern (from Step 1) appears in at least one FR entry

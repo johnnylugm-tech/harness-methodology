@@ -87,8 +87,10 @@ are not re-opened. This bounds backtracking to a single step.
 **Agent B**: BUSINESS_ANALYST
 
 **A/B Work** (HR-04: HybridWorkflow ON — Agent A authors, a separate Agent B sub-agent reviews):
-- [ ] **[A-1]** Agent A (REQUIREMENTS_ENGINEER): Elicit requirements → write FRs/NFRs in SRS.md (### FR-XX: format) → validate completeness
-  - FORBIDDEN: vague/non-testable acceptance criteria
+- [ ] **[A-1]** Agent A (REQUIREMENTS_ENGINEER): Check `PROJECT_BRIEF.md` for canonical spec constraints.
+  - **Elicitation Mode**: If no canonical spec exists, elicit requirements from the brief and write FRs/NFRs in `SRS.md` (`### FR-XX:` format).
+  - **Ingestion Mode**: If a canonical spec (e.g., `SPEC.md`) is declared as the single source of truth, DO NOT invent new requirements. You MUST 100% parse and transcribe all endpoints, boundaries, and features from the canonical spec into the `SRS.md` framework without losing any details.
+  - FORBIDDEN: vague/non-testable acceptance criteria, leaving the `SRS.md` template empty or unparsed when a canonical spec exists.
 - [ ] **[A-2]** Agent A returns `{status, files, confidence, citations, summary}`
 - [ ] **[B-1]** Agent B (BUSINESS_ANALYST) — dispatch as **STATELESS** subagent:
   > ⚠️  **STATELESS SANDBOX**: Agent B has ZERO access to local files or /tmp.
@@ -114,6 +116,7 @@ are not re-opened. This bounds backtracking to a single step.
   <<paste full content here>>
 
   Review checklist:
+  - Did Agent A successfully transcribe ALL features from the canonical spec (if one exists) into SRS.md, or did it leave the template empty?
   - All FRs testable? (no vague criteria)
   - NFRs measurable?
   - No contradictions between FRs?
