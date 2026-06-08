@@ -30,9 +30,14 @@ try:
     )
     _CRG_AVAILABLE = True
 except ImportError:
+    # Outside Claude Code (Bash subprocess, CI, plain Python): fall back to the
+    # crg_api subprocess backend so read-only analysis tools still work. Graph
+    # lifecycle (`build`) stays None — the graph is (re)built by crg_independent
+    # during finalize_gate, so crg_bridge never needs to build it here.
+    from harness import crg_api as _crg_api
     _crg_build = None  # type: ignore[assignment]
-    _crg_minimal_context = None  # type: ignore[assignment]
-    _crg_detect_changes = None  # type: ignore[assignment]
+    _crg_minimal_context = _crg_api.make_tool("get_minimal_context")  # type: ignore[assignment]
+    _crg_detect_changes = _crg_api.make_tool("detect_changes_func")  # type: ignore[assignment]
     _CRG_AVAILABLE = False
 
 # Extended CRG tools — imported individually; None if unavailable in this runtime
@@ -41,49 +46,56 @@ try:
         mcp__code_review_graph__get_hub_nodes_tool as _crg_hub_nodes,
     )
 except ImportError:  # pragma: no cover
-    _crg_hub_nodes = None
+    from harness.crg_api import make_tool as _make_tool
+    _crg_hub_nodes = _make_tool("get_hub_nodes_func")
 
 try:
     from mcp_tools import (  # type: ignore[import-untyped]
         mcp__code_review_graph__list_communities_tool as _crg_list_communities,
     )
 except ImportError:  # pragma: no cover
-    _crg_list_communities = None
+    from harness.crg_api import make_tool as _make_tool
+    _crg_list_communities = _make_tool("list_communities_func")
 
 try:
     from mcp_tools import (  # type: ignore[import-untyped]
         mcp__code_review_graph__get_knowledge_gaps_tool as _crg_knowledge_gaps,
     )
 except ImportError:  # pragma: no cover
-    _crg_knowledge_gaps = None
+    from harness.crg_api import make_tool as _make_tool
+    _crg_knowledge_gaps = _make_tool("get_knowledge_gaps_func")
 
 try:
     from mcp_tools import (  # type: ignore[import-untyped]
         mcp__code_review_graph__semantic_search_nodes_tool as _crg_semantic_search,
     )
 except ImportError:  # pragma: no cover
-    _crg_semantic_search = None
+    from harness.crg_api import make_tool as _make_tool
+    _crg_semantic_search = _make_tool("semantic_search_nodes")
 
 try:
     from mcp_tools import (  # type: ignore[import-untyped]
         mcp__code_review_graph__query_graph_tool as _crg_query_graph,
     )
 except ImportError:  # pragma: no cover
-    _crg_query_graph = None
+    from harness.crg_api import make_tool as _make_tool
+    _crg_query_graph = _make_tool("query_graph")
 
 try:
     from mcp_tools import (  # type: ignore[import-untyped]
         mcp__code_review_graph__find_large_functions_tool as _crg_large_funcs,
     )
 except ImportError:  # pragma: no cover
-    _crg_large_funcs = None
+    from harness.crg_api import make_tool as _make_tool
+    _crg_large_funcs = _make_tool("find_large_functions")
 
 try:
     from mcp_tools import (  # type: ignore[import-untyped]
         mcp__code_review_graph__list_flows_tool as _crg_list_flows,
     )
 except ImportError:  # pragma: no cover
-    _crg_list_flows = None
+    from harness.crg_api import make_tool as _make_tool
+    _crg_list_flows = _make_tool("list_flows")
 
 try:
     from mcp_tools import (  # type: ignore[import-untyped]
@@ -104,15 +116,20 @@ class CRGBridge:
         self._warned = False
 
     def _check_available(self) -> bool:
-        """Return True if CRG core tools are importable. Warn once on first failure."""
+        """Return True if the in-process mcp_tools backend is importable.
+
+        Gates only the graph-lifecycle methods (refresh_graph / run_reconnaissance),
+        whose build side-effects belong to crg_independent outside Claude Code. The
+        read-only analysis tools no longer depend on this — they fall back to the
+        crg_api subprocess backend (see the import block above).
+        """
         if not _CRG_AVAILABLE and not self._warned:
             print(
-                "[CRG] INFO: CRG Python library not importable in this subprocess "
-                "(mcp_tools is only injected in Claude Code sessions).\n"
-                "  Structural analysis via crg_bridge is skipped — this is expected when "
-                "harness_cli.py runs as a Bash subprocess.\n"
-                "  If crg_metrics.json exists in .sessi-work/, finalize_gate() will "
-                "still enforce CRG scores from that file.",
+                "[CRG] INFO: mcp_tools not injected (running outside Claude Code).\n"
+                "  Graph build/reconnaissance via crg_bridge is skipped here — the graph "
+                "is built by crg_independent during finalize_gate.\n"
+                "  Read-only analysis tools (context/impact/flows/review) run via the "
+                "crg_api subprocess backend instead.",
                 file=sys.stderr,
             )
             self._warned = True
@@ -140,12 +157,12 @@ class CRGBridge:
     # ── Context & impact ───────────────────────────────────────────────────
 
     def get_minimal_context(self, project_root: str, dimension: str) -> dict:
-        if not self._check_available():
+        if _crg_minimal_context is None:
             return {}
         return _crg_minimal_context(task=dimension, repo_root=project_root)  # type: ignore[misc]
 
     def check_impact(self, project_root: str, ref: str = "HEAD", threshold: float = 0.7) -> bool:
-        if not self._check_available():
+        if _crg_detect_changes is None:
             return False
         data = _crg_detect_changes(  # type: ignore[misc]
             base=ref, repo_root=project_root, detail_level="standard"
@@ -158,7 +175,7 @@ class CRGBridge:
     def check_drift(
         self, project_root: str, threshold: float = 0.4, base: str = "HEAD~1",
     ) -> bool:
-        if not self._check_available():
+        if _crg_detect_changes is None:
             return False
         data = _crg_detect_changes(  # type: ignore[misc]
             base=base, repo_root=project_root, detail_level="minimal"
@@ -267,21 +284,22 @@ class CRGBridge:
         detail_level: str = "minimal",
     ) -> dict[str, Any]:
         """Return focused review context combining impact analysis and source snippets."""
-        if not self._check_available():
-            return {}
+        kwargs: dict[str, Any] = {
+            "repo_root": project_root,
+            "max_depth": max_depth,
+            "detail_level": detail_level,
+        }
+        if changed_files is not None:
+            kwargs["changed_files"] = changed_files
         try:
             from mcp_tools import (  # type: ignore[import-untyped]
                 mcp__code_review_graph__get_review_context_tool as _f,
             )
-            kwargs: dict[str, Any] = {
-                "repo_root": project_root,
-                "max_depth": max_depth,
-                "detail_level": detail_level,
-            }
-            if changed_files is not None:
-                kwargs["changed_files"] = changed_files
             return _f(**kwargs)
-        except (ImportError, Exception):  # pragma: no cover
+        except ImportError:  # outside Claude Code → subprocess backend
+            from harness.crg_api import make_tool
+            return make_tool("get_review_context")(**kwargs)
+        except Exception:  # pragma: no cover
             return {}
 
     def get_impact_radius(
@@ -293,22 +311,23 @@ class CRGBridge:
         detail_level: str = "minimal",
     ) -> dict[str, Any]:
         """Return blast radius of recent changes."""
-        if not self._check_available():
-            return {}
+        kwargs: dict[str, Any] = {
+            "repo_root": project_root,
+            "max_depth": max_depth,
+            "base": base,
+            "detail_level": detail_level,
+        }
+        if changed_files is not None:
+            kwargs["changed_files"] = changed_files
         try:
             from mcp_tools import (  # type: ignore[import-untyped]
                 mcp__code_review_graph__get_impact_radius_tool as _f,
             )
-            kwargs: dict[str, Any] = {
-                "repo_root": project_root,
-                "max_depth": max_depth,
-                "base": base,
-                "detail_level": detail_level,
-            }
-            if changed_files is not None:
-                kwargs["changed_files"] = changed_files
             return _f(**kwargs)
-        except (ImportError, Exception):  # pragma: no cover
+        except ImportError:  # outside Claude Code → subprocess backend
+            from harness.crg_api import make_tool
+            return make_tool("get_impact_radius")(**kwargs)
+        except Exception:  # pragma: no cover
             return {}
 
     def get_affected_flows(
@@ -318,15 +337,16 @@ class CRGBridge:
         base: str = "HEAD~1",
     ) -> dict[str, Any]:
         """Return execution flows affected by recent changes."""
-        if not self._check_available():
-            return {}
+        kwargs: dict[str, Any] = {"repo_root": project_root, "base": base}
+        if changed_files is not None:
+            kwargs["changed_files"] = changed_files
         try:
             from mcp_tools import (  # type: ignore[import-untyped]
                 mcp__code_review_graph__get_affected_flows_tool as _f,
             )
-            kwargs: dict[str, Any] = {"repo_root": project_root, "base": base}
-            if changed_files is not None:
-                kwargs["changed_files"] = changed_files
             return _f(**kwargs)
-        except (ImportError, Exception):  # pragma: no cover
+        except ImportError:  # outside Claude Code → subprocess backend
+            from harness.crg_api import make_tool
+            return make_tool("get_affected_flows_func")(**kwargs)
+        except Exception:  # pragma: no cover
             return {}

@@ -4611,16 +4611,21 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
     _update_claude_md(project)               # phase number just changed → refresh CLAUDE.md
     _llm_clean_stale_claude_md(project)      # remove stale manual harness status text
 
-    # Generate CRG wiki on P3+ advance (architecture docs for agents, incremental)
+    # Generate CRG wiki on P3+ advance (architecture docs for agents, incremental).
+    # Driven via the code-review-graph CLI so it works in any environment — the old
+    # mcp_tools import only existed inside interactive Claude Code and silently no-op'd,
+    # so .code-review-graph/wiki/ was never produced.
     if args.completed_phase >= 2:
-        try:
-            from mcp_tools import (  # type: ignore[import-untyped]
-                mcp__code_review_graph__generate_wiki_tool as _wiki_fn,
-            )
-            _wiki_fn(repo_root=str(project), force=False)
-            print("  [CRG] Wiki updated → .code-review-graph/wiki/")
-        except Exception:
-            pass  # graceful: wiki is informational, not gate-blocking
+        _crg_bin = shutil.which("code-review-graph")
+        if _crg_bin:
+            try:
+                subprocess.run(
+                    [_crg_bin, "wiki", "--repo", str(project)],
+                    check=True, capture_output=True, text=True, timeout=300,
+                )
+                print("  [CRG] Wiki updated → .code-review-graph/wiki/")
+            except Exception as _w:  # non-blocking, but surface the reason (no silent pass)
+                print(f"  [CRG] Wiki skipped: {_w}")
 
     # CV-13: Stale .sessi-work/ artifacts can cause the next phase's gate
     # evaluation to skip re-computation (agent sees old result JSONs and
