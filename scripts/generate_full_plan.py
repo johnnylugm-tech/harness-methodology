@@ -1642,6 +1642,11 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
             "  3. Reference `05-verification/VERIFICATION_REPORT.md` and `BASELINE.md` for historical traceability.",
             "  4. Generate approval JSON files in `.methodology/agent_b_approvals/` with these exact filenames:",
             "     `QUALITY_REPORT.md.json`, `RELEASE_NOTES.md.json`, `FINAL_SIGN_OFF.md.json`, `quality_manifest.json`.",
+            "  - **[B-DISPATCH]** Dispatch Agent B:",
+            "    ```bash",
+            "    python3 harness_cli.py dispatch --role reviewer --fr-id HR-01 \\",
+            "      --prompt \"Review Phase 6 Gate 4 deliverables\" --phase 6 --project . --max-turns 15",
+            "    ```",
             "",
         ]
 
