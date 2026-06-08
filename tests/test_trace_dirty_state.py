@@ -101,4 +101,4 @@ def test_fails_when_attestation_missing(tmp_path):
     result = _trace_dirty_state(tmp_path)
     assert result["passed"] is False
     assert "attestation.json missing" in result["reason"]
-    assert "make attest" in result["reason"]
+    assert "build-trace-attestation" in result["reason"]

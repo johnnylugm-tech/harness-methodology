@@ -712,6 +712,32 @@ class TestVerifyEnvCheckClaims:
         from harness_cli import _verify_env_check_claims
         assert _verify_env_check_claims(tmp_path) == []
 
+    def test_annotated_venv_name_not_flagged(self, tmp_path):
+        """B1: 'python3 (.venv)' annotation must be stripped before PATH check.
+        The base tool 'python3' exists on PATH, so no fabrication finding.
+        """
+        from harness_cli import _verify_env_check_claims
+        self._write(tmp_path, {"cli_tools": {"required": [
+            {"name": "python3 (.venv)", "present": True},
+        ]}})
+        assert _verify_env_check_claims(tmp_path) == [], (
+            "Annotated name 'python3 (.venv)' should resolve to 'python3' "
+            "which is on PATH — must not be flagged as fabrication"
+        )
+
+    def test_python_package_not_flagged_via_import(self, tmp_path):
+        """B1: Python packages (e.g. 'json') not on PATH must pass via import fallback."""
+        from harness_cli import _verify_env_check_claims
+        # 'json' is stdlib — always importable, never a CLI binary.
+        # The old code would flag it; the new code must not.
+        self._write(tmp_path, {"cli_tools": {"required": [
+            {"name": "json", "present": True},
+        ]}})
+        assert _verify_env_check_claims(tmp_path) == [], (
+            "Python stdlib module 'json' must pass via import fallback, "
+            "not be flagged as fabrication just because it's not on PATH"
+        )
+
 
 class TestValidateP8Completion:
     """Tests for _validate_p8_completion pre-flight checks."""
@@ -3212,3 +3238,129 @@ class TestFinalizeGatePersistCompositeScore:
         # Verbatim text written as-is
         persisted_raw = (tmp_path / ".methodology" / "gate1_result.json").read_text()
         assert persisted_raw == "NOT_VALID_JSON{"
+
+
+# =============================================================================
+# B3: _trace_dirty_state must include fix command in reason string
+# =============================================================================
+
+class TestTraceDirtyState:
+    """_trace_dirty_state reason strings must include the build-trace-attestation hint."""
+
+    def _make_attestation(self, tmp_path, offset_secs: float = 0.0) -> Path:
+        """Write attestation.json with an mtime offset relative to now."""
+        import time
+        trace_dir = tmp_path / ".methodology" / "trace"
+        trace_dir.mkdir(parents=True)
+        att = trace_dir / "attestation.json"
+        att.write_text('{"schema": "v1"}', encoding="utf-8")
+        if offset_secs:
+            t = time.time() + offset_secs
+            import os
+            os.utime(att, (t, t))
+        return att
+
+    def test_missing_attestation_reason_includes_fix_hint(self, tmp_path):
+        """No attestation.json → reason must contain the fix command."""
+        from harness_cli import _trace_dirty_state
+        (tmp_path / ".methodology" / "trace").mkdir(parents=True)
+        result = _trace_dirty_state(tmp_path)
+        assert not result["passed"]
+        assert "build-trace-attestation" in result["reason"], (
+            f"Fix command missing from reason: {result['reason']!r}"
+        )
+
+    def test_newer_test_file_reason_includes_fix_hint(self, tmp_path):
+        """Test file newer than attestation → reason must contain the fix command."""
+        import os
+        from harness_cli import _trace_dirty_state
+
+        # attestation written first (older)
+        att = self._make_attestation(tmp_path)
+
+        # Write a test file that is 2 seconds newer than attestation
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir()
+        tf = tests_dir / "test_something.py"
+        tf.write_text("def test_x(): pass\n", encoding="utf-8")
+        future = att.stat().st_mtime + 2.0
+        os.utime(tf, (future, future))
+
+        result = _trace_dirty_state(tmp_path)
+        assert not result["passed"]
+        assert "build-trace-attestation" in result["reason"], (
+            f"Fix command missing from reason: {result['reason']!r}"
+        )
+
+    def test_current_attestation_passes(self, tmp_path):
+        """Attestation newer than all files → passed=True."""
+        import os
+        from harness_cli import _trace_dirty_state
+
+        # Write a test file first (older)
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir()
+        tf = tests_dir / "test_something.py"
+        tf.write_text("def test_x(): pass\n", encoding="utf-8")
+
+        # attestation written 2 seconds later (newer)
+        att = self._make_attestation(tmp_path)
+        future = tf.stat().st_mtime + 2.0
+        os.utime(att, (future, future))
+
+        result = _trace_dirty_state(tmp_path)
+        assert result["passed"]
+
+
+# =============================================================================
+# B2: advance-phase must git-add auto-generated STAGE_PASS before auditor runs
+# =============================================================================
+
+def test_stage_pass_autogenerate_is_git_added(tmp_path, monkeypatch):
+    """B2: After auto-generating Phase{N}_STAGE_PASS.md, advance-phase must
+    call 'git add' on it before running PhaseAuditor C1 (git ls-files check).
+    Without git-add, C1 immediately blocks the file that advance-phase just created.
+    """
+    import harness_cli
+    from harness_cli import _advance_prechecks
+
+    _setup_advance_prechecks_env(tmp_path, monkeypatch)
+
+    # Do NOT pre-create Phase3_STAGE_PASS.md so auto-generation is triggered.
+    # Mock _generate_stage_pass to write the file (quality_manifest.json is
+    # absent in the tmp project, so the real generator would print WARN + skip).
+    def _write_stage_pass(project, gate, phase):
+        sp = project / "00-summary" / f"Phase{phase}_STAGE_PASS.md"
+        sp.parent.mkdir(exist_ok=True)
+        sp.write_text(f"# Phase {phase} STAGE_PASS\n## Summary\n", encoding="utf-8")
+
+    monkeypatch.setattr("harness_cli._generate_stage_pass", _write_stage_pass)
+
+    # Capture subprocess.run calls to verify git add is invoked.
+    git_add_calls: list[list] = []
+
+    def fake_subprocess_run(cmd, **kwargs):
+        class R:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+        cmd_list = list(cmd)
+        if cmd_list[:2] == ["git", "add"]:
+            git_add_calls.append(cmd_list)
+        return R()
+
+    monkeypatch.setattr(harness_cli.subprocess, "run", fake_subprocess_run)
+    monkeypatch.setattr(
+        "core.quality_gate.mutation_enforcer.run_mutation_precheck",
+        lambda p: (True, "ok"),
+    )
+    monkeypatch.setattr("harness_cli._run_spec_coverage_check", lambda p, t, **kw: (0, 100.0))
+    monkeypatch.setattr("harness_cli._check_gate1_live_coverage", lambda p, ph: 0)
+
+    _advance_prechecks(tmp_path, completed_phase=3)
+
+    expected_path = str(tmp_path / "00-summary" / "Phase3_STAGE_PASS.md")
+    assert any(expected_path in " ".join(str(x) for x in call) for call in git_add_calls), (
+        f"'git add Phase3_STAGE_PASS.md' was not called; "
+        f"captured git-add calls: {git_add_calls}"
+    )

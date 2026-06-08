@@ -1368,10 +1368,13 @@ def _trace_dirty_state(project_path: Path) -> Dict[str, Any]:
     trace_dir = project_path / ".methodology" / "trace"
     att_path = trace_dir / "attestation.json"
 
+    _FIX_HINT = (
+        "Fix: python3 harness_cli.py build-trace-attestation --project . --write"
+    )
     if not att_path.exists():
         return {
             "passed": False,
-            "reason": "attestation.json missing — run `make attest`",
+            "reason": f"attestation.json missing — {_FIX_HINT}",
             "staler": None,
             "newer": None,
         }
@@ -1389,7 +1392,10 @@ def _trace_dirty_state(project_path: Path) -> Dict[str, Any]:
             try:
                 if sad_path.stat().st_mtime > att_mtime:
                     return {"passed": False,
-                            "reason": f"{sad_candidate} newer than attestation.json",
+                            "reason": (
+                                f"{sad_candidate} newer than attestation.json — "
+                                f"{_FIX_HINT}"
+                            ),
                             "staler": str(sad_path.relative_to(project_path)),
                             "newer": "attestation.json"}
             except OSError:
@@ -1410,7 +1416,10 @@ def _trace_dirty_state(project_path: Path) -> Dict[str, Any]:
                 if newest_test.stat().st_mtime > att_mtime:
                     rel = str(newest_test.relative_to(project_path))
                     return {"passed": False,
-                            "reason": f"{rel} newer than attestation.json",
+                            "reason": (
+                                f"{rel} newer than attestation.json — "
+                                f"{_FIX_HINT}"
+                            ),
                             "staler": rel, "newer": "attestation.json"}
             except OSError:
                 pass
@@ -1996,9 +2005,37 @@ def _verify_env_check_claims(project: Path) -> "list[str]":
     findings: list[str] = []
     for t in data.get("cli_tools", {}).get("required", []):
         if isinstance(t, dict) and t.get("present") and t.get("name"):
-            name = str(t["name"])
-            if shutil.which(name) is None:
-                findings.append(f"cli_tool '{name}': claimed present, but not found on PATH")
+            raw_name = str(t["name"])
+            # Strip parenthetical annotations added by sub-agents (e.g. "python3 (.venv)")
+            # and take only the first token so "python3 -m pip" → "python3".
+            _stripped = re.sub(r"\s*\(.*?\)\s*$", "", raw_name).strip()
+            name = _stripped.split()[0] if _stripped else raw_name
+            if not name:
+                continue
+            _found = shutil.which(name) is not None
+            if not _found:
+                # PATH miss: also check venv-local bin/ and Python import as fallbacks.
+                # Covers tools installed only inside .venv and Python packages (e.g.
+                # pydantic) that are not CLI binaries but are valid "present" claims.
+                _venv = os.environ.get("VIRTUAL_ENV", "")
+                if _venv and os.path.exists(os.path.join(_venv, "bin", name)):
+                    _found = True
+                if not _found:
+                    # Python package fallback: "import <name>" via the current interpreter.
+                    _pkg = name.replace("-", "_")
+                    try:
+                        _r = subprocess.run(
+                            [sys.executable, "-c", f"import {_pkg}"],
+                            capture_output=True, timeout=5,
+                        )
+                        _found = _r.returncode == 0
+                    except Exception:
+                        pass
+            if not _found:
+                findings.append(
+                    f"cli_tool '{raw_name}': claimed present, but not found on PATH, "
+                    f"in $VIRTUAL_ENV/bin/, or via Python import"
+                )
     for v in data.get("env_vars", {}).get("required", []):
         if isinstance(v, dict) and v.get("present") and v.get("name"):
             name = str(v["name"])
@@ -4196,6 +4233,13 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
             f"auto-generating from quality_manifest (gate {_sp_gate})"
         )
         _generate_stage_pass(project, _sp_gate, completed_phase)
+        # Git-add the generated file so PhaseAuditor C1 (git ls-files check)
+        # does not immediately block the file that advance-phase just created.
+        if _stage_pass_path.exists():
+            subprocess.run(
+                ["git", "add", str(_stage_pass_path)],
+                cwd=str(project), capture_output=True,
+            )
 
     # ── Next-phase plan: must exist before advancing (Phase 3+) ─────
     # Prevents "advance first, plan later" ordering bugs. generate-next-plan
