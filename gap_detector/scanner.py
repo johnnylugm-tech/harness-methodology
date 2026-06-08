@@ -116,6 +116,15 @@ class _ASTVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
 
+# Directories pruned from orphan/gap analysis — third-party packages, tooling,
+# caches, the harness submodule, and methodology scaffolding would otherwise
+# dominate the scan as ORPHANED noise (tts-new produced 37,510 such entries).
+_EXCLUDE_DIR_NAMES = frozenset({
+    "__pycache__", "node_modules", "site-packages", "build", "dist",
+    "venv", "harness", "templates",
+})
+
+
 class CodeScanner:
     """Scanner for Python implement/ directories."""
 
@@ -161,7 +170,13 @@ class CodeScanner:
         files = []
         try:
             for root, dirs, filenames in os.walk(self.implement_dir):
-                dirs[:] = [d for d in dirs if d != "__pycache__"]
+                # Prune third-party, tooling, and hidden dirs (.venv, .git,
+                # .methodology, .code-review-graph, .*cache, …) so orphan analysis
+                # scans the code under test, not its dependencies and scaffolding.
+                dirs[:] = [
+                    d for d in dirs
+                    if d not in _EXCLUDE_DIR_NAMES and not d.startswith(".")
+                ]
                 for fn in filenames:
                     if fn.endswith(".py") and not fn.startswith("test_") and fn != "conftest.py":
                         files.append(Path(root) / fn)
