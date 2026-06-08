@@ -21,6 +21,9 @@ tools directly when running inside Claude Code.
 
 import sys
 import json
+import shutil
+import subprocess
+from pathlib import Path
 
 # CRG MCP tools are injected by Claude Code runtime — only available inside CC
 try:
@@ -44,10 +47,101 @@ def _crg_available() -> bool:
     return _CRG_MCP_AVAILABLE and _crg_build is not None
 
 
+# ── CLI / subprocess fallback (works outside Claude Code, where mcp_tools is
+#    absent — Bash subprocesses, CI, plain Python). Mirrors crg_bridge's backend
+#    but self-contained, since this script runs with ssi/scripts on sys.path and
+#    cannot import the harness package. ────────────────────────────────────────
+_CRG_CLI = shutil.which("code-review-graph")
+_TOOL_RUNNER = Path(__file__).parent / "crg_tool_runner.py"
+
+
+def _crg_interp() -> "str | None":
+    """Interpreter that has code_review_graph (read from the CLI shebang)."""
+    if not _CRG_CLI:
+        return None
+    try:
+        first = Path(_CRG_CLI).read_text(encoding="utf-8", errors="replace").splitlines()[0]
+        if first.startswith("#!"):
+            interp = first[2:].strip().split()[0]
+            if interp and Path(interp).exists():
+                return interp
+    except (OSError, IndexError):
+        pass
+    return sys.executable
+
+
+def _run_tool(repo: str, func: str, **kwargs) -> dict:
+    """Invoke code_review_graph.tools.<func> via crg_tool_runner under CRG's interpreter."""
+    interp = _crg_interp()
+    if not interp or not _TOOL_RUNNER.exists():
+        return {}
+    payload = json.dumps({"func": func, "repo_root": repo, "kwargs": kwargs})
+    try:
+        proc = subprocess.run(
+            [interp, str(_TOOL_RUNNER), payload],
+            cwd=repo, capture_output=True, text=True, timeout=180,
+        )
+        return json.loads(proc.stdout) if proc.returncode == 0 else {}
+    except (subprocess.SubprocessError, OSError, json.JSONDecodeError):
+        return {}
+
+
+def _cli_run(repo: str, *args: str, timeout: int = 600) -> bool:
+    """Run a code-review-graph CLI subcommand from `repo`. Returns success."""
+    if not _CRG_CLI:
+        return False
+    try:
+        proc = subprocess.run(
+            [_CRG_CLI, *args], cwd=repo, capture_output=True, text=True, timeout=timeout,
+        )
+        return proc.returncode == 0
+    except (subprocess.SubprocessError, OSError):
+        return False
+
+
+def _cli_node_count(repo: str) -> int:
+    """Node count via `code-review-graph status` (CLI, no mcp_tools)."""
+    if not _CRG_CLI:
+        return -1
+    if not (Path(repo) / ".code-review-graph" / "graph.db").exists():
+        return 0
+    try:
+        proc = subprocess.run(
+            [_CRG_CLI, "status"], cwd=repo, capture_output=True, text=True, timeout=60,
+        )
+        for line in proc.stdout.splitlines():
+            if line.lower().startswith("nodes:"):
+                return int(line.split(":", 1)[1].strip())
+    except (subprocess.SubprocessError, OSError, ValueError):
+        pass
+    return 0
+
+
+def _ensure_ready_cli(repo: str) -> dict:
+    """ensure_ready without mcp_tools: build/refresh the graph via the CLI."""
+    if not _CRG_CLI:
+        return {
+            "available": False,
+            "reason": "code-review-graph not on PATH",
+            "action": "none",
+        }
+    node_count = _cli_node_count(repo)
+    if node_count <= 0:
+        has_db = (Path(repo) / ".code-review-graph" / "graph.db").exists()
+        if not _cli_run(repo, "update" if has_db else "build", timeout=600):
+            return {"available": False, "reason": "CLI graph build failed", "action": "build_failed"}
+        _cli_run(repo, "postprocess", timeout=300)
+        node_count = _cli_node_count(repo)
+        action = "auto_built"
+    else:
+        action = "already_built"
+    return {"available": True, "node_count": node_count, "action": action, "repo": repo}
+
+
 def _graph_node_count(repo: str) -> int:
     """Return number of nodes in graph, or 0 if unbuilt / unavailable."""
     if not _crg_available():
-        return -1
+        return _cli_node_count(repo)
     try:
         stats = _crg_stats(repo_root=repo)
         return int(stats.get("total_nodes", stats.get("node_count", 0)))
@@ -63,11 +157,7 @@ def ensure_ready(repo: str) -> dict:
     setup_target.py so downstream steps can read it without re-checking.
     """
     if not _crg_available():
-        return {
-            "available": False,
-            "reason": "CRG MCP tools not available — running outside Claude Code",
-            "action": "none",
-        }
+        return _ensure_ready_cli(repo)
 
     node_count = _graph_node_count(repo)
 
@@ -107,7 +197,8 @@ def context(repo: str) -> dict:
     Feed this to the LLM as pre-compressed context instead of full codebase reads.
     """
     if not _crg_available():
-        return {
+        ctx = _run_tool(repo, "get_minimal_context", task="quality evaluation")
+        return ctx or {
             "error": "CRG MCP tools not available; falling back to full code read"
         }
 
@@ -140,7 +231,17 @@ def blast_radius(repo: str, base: str = "HEAD") -> dict:
       - affected_flows: execution flows impacted
     """
     if not _crg_available():
-        return {"risk_score": None, "error": "CRG MCP tools not available"}
+        data = _run_tool(repo, "detect_changes_func", base=base, detail_level="standard")
+        if not data:
+            return {"risk_score": None, "error": "CRG MCP tools not available"}
+        return {
+            "risk_score": data.get("risk_score"),
+            "summary": data.get("summary", ""),
+            "changed_functions": data.get("changed_functions", []),
+            "test_gaps": data.get("test_gaps", []),
+            "affected_flows": data.get("affected_flows", []),
+            "untested": data.get("untested", []),
+        }
 
     try:
         data = _crg_detect_changes(
@@ -169,7 +270,8 @@ def is_risky(radius: dict, threshold: float = 0.7) -> bool:
 def update(repo: str) -> dict:
     """Incremental graph refresh after a commit (seconds)."""
     if not _crg_available():
-        return {"error": "CRG MCP tools not available"}
+        return ({"status": "updated"} if _cli_run(repo, "update", timeout=300)
+                else {"error": "CRG update failed (CLI)"})
     try:
         _crg_build(repo_root=repo, full_rebuild=False)
         return {"status": "updated"}
