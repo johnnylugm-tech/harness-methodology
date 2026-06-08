@@ -986,6 +986,55 @@ def cmd_spec_coverage_check(args: argparse.Namespace) -> int:
     return code
 
 
+def cmd_crg_arch_check(args: argparse.Namespace) -> int:
+    """Non-interactive CRG architecture gate for CI (deterministic, no LLM).
+
+    Builds/refreshes the graph and computes the architecture score via
+    crg_independent — the same gate-blocking score used at finalize_gate, but
+    runnable in CI because it needs no interactive session. Hard-fails (exit 1)
+    when the score drops below --threshold, or (with --baseline) when structural
+    drift vs that baseline reaches --drift-threshold. This closes the audit gap
+    where CRG never ran in CI (architecture scoring was local-only).
+    """
+    project = Path(args.project).resolve()
+    work_dir = project / ".sessi-work"
+    try:
+        from harness.crg_independent import run_independent_crg
+        metrics = run_independent_crg(str(project), str(work_dir))
+    except Exception as exc:  # CrgIndependentError / import → CRG is mandatory, block
+        print(f"[crg-arch-check] BLOCKED: CRG architecture score unavailable: {exc}")
+        return 1
+
+    arch = metrics.get("architecture_score")
+    if arch is None:
+        arch = (metrics.get("community_cohesion") or {}).get("score") or 0.0
+    threshold = getattr(args, "threshold", 80.0)
+    print(f"[crg-arch-check] architecture_score={arch:.1f} (threshold {threshold:.0f})")
+    if arch < threshold:
+        print(f"[crg-arch-check] FAIL: architecture {arch:.1f} < {threshold:.0f}")
+        return 1
+
+    baseline = getattr(args, "baseline", None)
+    if baseline:
+        bp = Path(baseline)
+        if bp.is_file():
+            try:
+                from harness.ssi.scripts.crg_analysis import compute_structural_drift
+                _bl = json.loads(bp.read_text(encoding="utf-8"))
+                drift = compute_structural_drift(_bl, metrics)
+                dthr = getattr(args, "drift_threshold", 0.4)
+                print(f"[crg-arch-check] drift vs {bp.name}: {drift:.2f} (threshold {dthr:.2f})")
+                if drift >= dthr:
+                    print(f"[crg-arch-check] FAIL: architecture regression drift {drift:.2f} >= {dthr:.2f}")
+                    return 1
+            except Exception as exc:
+                print(f"[crg-arch-check] WARN: drift check skipped — {exc}")
+        else:
+            print(f"[crg-arch-check] INFO: baseline {bp} not found — drift check skipped")
+    print("[crg-arch-check] OK")
+    return 0
+
+
 def cmd_check_test_spec_consistency(args: argparse.Namespace) -> int:
     """P2 self-consistency gate — prove TEST_SPEC.md is not unsatisfiable.
 
@@ -8155,6 +8204,20 @@ def build_parser() -> argparse.ArgumentParser:
     rp.add_argument("--phase",   type=int, required=True, help="Phase number (1-8)")
     rp.add_argument("--project", default=".", help="Project root (default: .)")
     rp.set_defaults(func=cmd_run_phase)
+
+    # crg-arch-check (CI: non-interactive deterministic CRG architecture gate)
+    cac = sub.add_parser(
+        "crg-arch-check",
+        help="Non-interactive CRG architecture gate (CI): independent score + drift regression",
+    )
+    cac.add_argument("--project", default=".", help="Project root (default: .)")
+    cac.add_argument("--threshold", type=float, default=80.0,
+                     help="Minimum architecture score (default: 80)")
+    cac.add_argument("--baseline", default=None,
+                     help="Prior crg_baseline_pN.json for drift regression check")
+    cac.add_argument("--drift-threshold", type=float, default=0.4,
+                     help="Maximum structural drift vs baseline (default: 0.4)")
+    cac.set_defaults(func=cmd_crg_arch_check)
 
     # pre-commit-check (git commit hook only — FSM + constitution + kill-switch)
     pcc = sub.add_parser(

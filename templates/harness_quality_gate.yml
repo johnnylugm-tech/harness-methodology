@@ -558,3 +558,47 @@ jobs:
           print(f"  Run: python harness/harness_cli.py finalize-gate --gate {gate_num} --phase <prev_phase> --project .")
           sys.exit(1)
           EOF
+
+  crg-architecture-check:
+    # Audit Gap 3 fix: CRG architecture scoring was local-only (gate eval needs an
+    # interactive Claude session). crg_independent is deterministic and needs no
+    # session, so it CAN run in CI. Hard-fails on architecture score < 80, or on
+    # structural regression (drift) vs the prior P4 exit baseline.
+    name: CRG Architecture Gate (P3+)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install harness + code-review-graph
+        run: |
+          pip install -r harness/requirements.txt || true
+          pip install code-review-graph || true
+
+      - name: Detect phase
+        id: phase
+        run: |
+          PHASE=$(python3 -c "
+          import json
+          try:
+              print(int(json.load(open('.methodology/state.json')).get('current_phase', 0)))
+          except Exception:
+              print(0)
+          " 2>/dev/null || echo "0")
+          echo "PHASE=$PHASE" >> $GITHUB_OUTPUT
+
+      - name: CRG architecture check (absolute score P3+, drift regression when P4 baseline exists)
+        if: fromJSON(steps.phase.outputs.PHASE) >= 3
+        run: |
+          BASELINE=""
+          if [ -f ".methodology/crg_baseline_p4.json" ]; then
+            BASELINE="--baseline .methodology/crg_baseline_p4.json"
+          fi
+          python harness/harness_cli.py crg-arch-check --project . --threshold 80 $BASELINE
