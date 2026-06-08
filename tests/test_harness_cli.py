@@ -1363,11 +1363,11 @@ class TestAdvancePrechecksTDD:
 
 
 # =============================================================================
-# _advance_prechecks — Agent B approvals (P1/P2)
+# _advance_prechecks — Agent B approvals (P1/P2/P6)
 # =============================================================================
 
 class TestAdvancePreChecksAgentB:
-    """Agent B approval gate in _advance_prechecks for P1/P2."""
+    """Agent B approval gate in _advance_prechecks for P1/P2/P6."""
 
     def _mock_p1_prechecks(self, monkeypatch):
         """Patch non-AB checks so only AB check is exercised."""
@@ -1446,6 +1446,115 @@ class TestAdvancePreChecksAgentB:
 
         # No agent_b_approvals dir at all — should not matter for P3
         rc = _advance_prechecks(tmp_path, completed_phase=3)
+        assert rc == 0
+
+    # -- P6 Agent B enforcement tests ----------------------------------------
+
+    def _mock_p6_non_ab_prechecks(self, tmp_path, monkeypatch):
+        """Set up all P6 advance_prechecks prerequisites EXCEPT Agent B.
+
+        P6 check order (simplified): Phase Truth → Stage Pass auto-gen →
+        next-phase plan → phase auditor → constitution → Agent B → TDD-PRECHECK.
+        This helper passes everything before Agent B so the test can control
+        whether approvals exist without fighting unrelated failures.
+        """
+        import harness_cli
+
+        method = tmp_path / ".methodology"
+        method.mkdir(exist_ok=True)
+        (tmp_path / "03-development" / "src").mkdir(parents=True, exist_ok=True)
+        (tmp_path / ".methodology" / "phase7_plan.md").touch()
+        # Pre-create Stage Pass so auto-generation is skipped
+        (tmp_path / "00-summary").mkdir(exist_ok=True)
+        (tmp_path / "00-summary" / "Phase6_STAGE_PASS.md").write_text(
+            "# Phase 6 Stage Pass\n## Summary\n", encoding="utf-8"
+        )
+        harness_cli._write_finalize_sentinels_for_tests(tmp_path)
+
+        monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
+        _mock_constitution_pass(monkeypatch)
+        monkeypatch.setattr(
+            "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier",
+            type("FV", (), {
+                "__init__": lambda s, p, ph: None,
+                "verify": lambda s: {"passed": True, "total_score": 100.0},
+            }),
+        )
+        monkeypatch.setattr(
+            "harness_cli._run_spec_coverage_check", lambda p, t, **kw: (0, 100.0)
+        )
+        monkeypatch.setattr("harness_cli.shutil.which", lambda cmd: True)
+        monkeypatch.setattr(
+            "harness_cli.subprocess.run",
+            lambda cmd, **kw: type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})(),
+        )
+        # Gate-1 FR coverage and mutmut not exercised by these tests
+        monkeypatch.setattr("harness_cli._check_gate1_live_coverage", lambda p, ph: 0)
+        monkeypatch.setattr(
+            "core.quality_gate.mutation_enforcer.run_mutation_precheck",
+            lambda p: (True, "ok"),
+        )
+
+    def _p6_approval(self, required_docs: list[str]) -> str:
+        """Minimal valid Agent B approval JSON for a P6 deliverable."""
+        return json.dumps({
+            "review_status": "APPROVE",
+            "docs_embedded": required_docs,
+            "reason": "Reviewed all P6 deliverables; quality criteria satisfied, "
+                      "Gate 4 scoring verified, no critical gaps.",
+            "citations": ["QUALITY_REPORT.md:1"],
+        })
+
+    def test_p6_missing_approvals_returns_13(self, tmp_path, monkeypatch):
+        """P6 with no agent_b_approvals/ → advance blocked with rc=13."""
+        from harness_cli import _advance_prechecks
+
+        self._mock_p6_non_ab_prechecks(tmp_path, monkeypatch)
+        # No approvals dir at all
+        rc = _advance_prechecks(tmp_path, completed_phase=6)
+        assert rc == 13
+
+    def test_p6_approved_returns_0(self, tmp_path, monkeypatch):
+        """P6 with all deliverables APPROVE → advance proceeds (rc=0)."""
+        from harness_cli import _advance_prechecks, _PHASE_DELIVERABLES, _REQUIRED_EMBEDDED_DOCS
+
+        self._mock_p6_non_ab_prechecks(tmp_path, monkeypatch)
+
+        approvals_dir = tmp_path / ".methodology" / "agent_b_approvals"
+        approvals_dir.mkdir(parents=True)
+        req_docs = _REQUIRED_EMBEDDED_DOCS[6]
+        for did in _PHASE_DELIVERABLES[6]:
+            (approvals_dir / f"{did}.json").write_text(
+                self._p6_approval(req_docs), encoding="utf-8"
+            )
+
+        rc = _advance_prechecks(tmp_path, completed_phase=6)
+        assert rc == 0
+
+    def test_p6_approval_filename_uses_basename_not_double_json(self, tmp_path, monkeypatch):
+        """quality_manifest deliverable → approval file is quality_manifest.json,
+        NOT quality_manifest.json.json (M1 regression guard).
+        """
+        from harness_cli import _advance_prechecks, _PHASE_DELIVERABLES, _REQUIRED_EMBEDDED_DOCS
+
+        self._mock_p6_non_ab_prechecks(tmp_path, monkeypatch)
+
+        approvals_dir = tmp_path / ".methodology" / "agent_b_approvals"
+        approvals_dir.mkdir(parents=True)
+        req_docs = _REQUIRED_EMBEDDED_DOCS[6]
+        for did in _PHASE_DELIVERABLES[6]:
+            (approvals_dir / f"{did}.json").write_text(
+                self._p6_approval(req_docs), encoding="utf-8"
+            )
+
+        # Verify the approval file for quality_manifest is NOT double-extended
+        assert (approvals_dir / "quality_manifest.json").exists(), (
+            "approval file for quality_manifest must be quality_manifest.json"
+        )
+        assert not (approvals_dir / "quality_manifest.json.json").exists(), (
+            "double-extension quality_manifest.json.json must not exist"
+        )
+        rc = _advance_prechecks(tmp_path, completed_phase=6)
         assert rc == 0
 
 

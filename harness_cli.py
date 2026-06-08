@@ -507,7 +507,7 @@ _PHASES_WITH_GATE1_FR_CHECK: frozenset[int] = frozenset({3, 4, 5, 7, 8})
 _PHASE_DELIVERABLES: dict[int, list[str]] = {
     1: ["SRS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md", "TEST_INVENTORY.yaml"],
     2: ["SAD.md", "ADR.md", "TEST_SPEC.md"],
-    6: ["QUALITY_REPORT.md", "RELEASE_NOTES.md", "FINAL_SIGN_OFF.md", "quality_manifest.json"],
+    6: ["QUALITY_REPORT.md", "RELEASE_NOTES.md", "FINAL_SIGN_OFF.md", "quality_manifest"],
 }
 # Documents that Agent B must embed per phase (SAD.md doesn't exist until P2)
 _REQUIRED_EMBEDDED_DOCS: dict[int, list[str]] = {
