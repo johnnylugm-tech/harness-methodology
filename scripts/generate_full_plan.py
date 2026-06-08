@@ -1223,8 +1223,11 @@ def _phase_advance_step(phase: int, dynamic: bool = False) -> List[str]:
             *(["- **[PHASE-TRUTH]** Phase Truth ≥ 90% (HR-11) — verified by advance-phase",
                "",
                ] if phase >= 3 else []),
-            # TDD precheck: advance-phase enforces pytest 100% cov + D4 spec-coverage ≥90% + mutmut
+            # TDD precheck: advance-phase enforces gitleaks/ruff/mypy/pytest/spec-coverage/mutmut
             "- **[TDD-PRECHECK]** P8 completion checklist (final quality gate before archive):",
+            "  - secrets scanning: `gitleaks detect --source .` (exit 20) — whole-repo, runs before linting",
+            "  - linting: `ruff check .` (exit 18) — fix violations before advancing",
+            "  - type safety: `python3 -m mypy . --ignore-missing-imports` (exit 19)",
             "  - `pytest --tb=short -q --cov=03-development/src --cov-fail-under=100` (exit 9)",
             f"  - `python3 harness_cli.py spec-coverage-check --project . --threshold {_tdd_sc_p8:.1f}` (exit 10, D4 unified v2.6)",
             "  - mutmut mutation testing (exit 11 — hard block; install: `pip install mutmut`;",
@@ -1271,7 +1274,7 @@ def _phase_advance_step(phase: int, dynamic: bool = False) -> List[str]:
            "  >   → If 3 consecutive failures: escalate to human with `phase_truth_verifier` log",
            "",
            ] if phase >= 3 and phase not in _PHASE_EXIT_GATES else []),
-        # TDD prechecks: advance-phase enforces pytest 100% cov + spec-coverage (exit 9/10)
+        # TDD prechecks: advance-phase enforces gitleaks/ruff/mypy/pytest/spec-coverage/mutmut
         # P5→P6 warning: advance requires 80% but Gate 4 requires 90%
         *(["- **[D4-GAP WARNING]** Gate 4 (next phase) requires spec-coverage ≥ 90% but current advance threshold is 80%.",
            "  > Close this gap NOW to avoid a surprise Gate 4 D4 block.",
@@ -1280,6 +1283,9 @@ def _phase_advance_step(phase: int, dynamic: bool = False) -> List[str]:
            "",
            ] if phase == 5 else []),
         *(["- **[TDD-PRECHECK]** Verify TDD checks pass — advance-phase enforces:",
+           "  - secrets scanning: `gitleaks detect --source .` (exit 20) — whole-repo, runs before linting",
+           "  - linting: `ruff check .` (exit 18) — fix violations before advancing",
+           "  - type safety: `python3 -m mypy . --ignore-missing-imports` (exit 19)",
            "  - `pytest --tb=short -q --cov=03-development/src --cov-fail-under=100` (exit 9)",
            f"  - `python3 harness_cli.py spec-coverage-check --project . --threshold {_tdd_sc:.1f}` (exit 10, D4 unified v2.6)",
            "  - mutmut mutation testing (exit 11 — hard block; install: `pip install mutmut`;",
@@ -2362,7 +2368,7 @@ def generate_phase5_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     lines.append("")
     lines.append("### Phase 5 Overview")
     lines.append("Phase 5 verifies the system against test results, ensuring all FRs meet acceptance criteria.")
-    lines.append("Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). No harness run-gate — P5 was cleared by Gate 3 at P4 exit. However, advance-phase still enforces TDD-PRECHECK (pytest 100% + D4 spec-coverage ≥80% + mutmut mutation testing) before FSM transition.")
+    lines.append("Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). No harness run-gate — P5 was cleared by Gate 3 at P4 exit. However, advance-phase still enforces TDD-PRECHECK (gitleaks + ruff + mypy + pytest 100% + D4 spec-coverage ≥80% + mutmut mutation testing) before FSM transition.")
     lines.append("")
     lines.append(
         "> If code changes are needed for any FR (e.g., bug fixes found during verification), "
@@ -2504,7 +2510,7 @@ def generate_phase7_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     lines.append("")
     lines.append("### Phase 7 Overview")
     lines.append("Phase 7 identifies, tracks, and mitigates all risks introduced during development.")
-    lines.append("Each FR gets a Gate 1 risk-aware re-evaluation (CHECKPOINT). No harness run-gate — P7 cleared by Gate 4. However, advance-phase still enforces TDD-PRECHECK (pytest 100% + D4 spec-coverage ≥90% + mutmut mutation testing) before FSM transition.")
+    lines.append("Each FR gets a Gate 1 risk-aware re-evaluation (CHECKPOINT). No harness run-gate — P7 cleared by Gate 4. However, advance-phase still enforces TDD-PRECHECK (gitleaks + ruff + mypy + pytest 100% + D4 spec-coverage ≥90% + mutmut mutation testing) before FSM transition.")
     lines.append("")
     lines.append(
         "> If risk mitigation requires code changes to any FR, run full TDD: "
@@ -2597,7 +2603,7 @@ def generate_phase8_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     lines.append("")
     lines.append("### Phase 8 Overview")
     lines.append("Phase 8 establishes a complete configuration management system ensuring traceability.")
-    lines.append("Each FR gets a Gate 1 config-aware re-evaluation (CHECKPOINT). No harness run-gate — P8 cleared by Gate 4. However, advance-phase still enforces TDD-PRECHECK (pytest 100% + D4 spec-coverage ≥90% + mutmut mutation testing) before FSM transition.")
+    lines.append("Each FR gets a Gate 1 config-aware re-evaluation (CHECKPOINT). No harness run-gate — P8 cleared by Gate 4. However, advance-phase still enforces TDD-PRECHECK (gitleaks + ruff + mypy + pytest 100% + D4 spec-coverage ≥90% + mutmut mutation testing) before FSM transition.")
     lines.append("")
     lines.append(
         "> If configuration changes require code modifications to any FR, run full TDD: "
