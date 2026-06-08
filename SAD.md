@@ -177,7 +177,7 @@ This section uses normative language per **RFC 2119**:
 
 | Rule | RFC 2119 | Enforcement Module | Verification |
 |------|----------|--------------------|-------------|
-| HR-01: A≠B (dispatched as separate sub-agent sessions) | **SHOULD** (workflow) | `harness_cli.py` dispatch (P1-P2) | Workflow only — the `sessions_spawn.log` role-count audit was removed (agent-writable, not tamper-evident) |
+| HR-01: A≠B (dispatched as separate sub-agent sessions) | **SHOULD** (workflow) | `harness_cli.py` dispatch & `PhaseTruthVerifier` | Validated by `PhaseTruthVerifier` via `sessions_spawn.log` (verifies JSONL format and A/B reviewer separation for phases 1, 2, and 6). |
 | HR-02: Cannot skip phases | **MUST** | `harness_cli.py` FSM | `state.json` phase ordering |
 | HR-03: Kill switch blocks dispatch | **MUST** | `kill_switch/kill_switch.py` | `kill_switch.status()` check before dispatch |
 | HR-04: HybridWorkflow mode=ON for P2+ | **MUST** | `core/hybrid_workflow.py` | `HybridWorkflow.mode` / `should_review()` (mode != OFF) |
@@ -186,7 +186,7 @@ This section uses normative language per **RFC 2119**:
 | HR-07: Constitution score ≥ phase threshold | **MUST** | `core/quality_gate/constitution/runner.py` | `run_constitution_check()` |
 | HR-08: Gate must pass before phase advance | **MUST** | `harness/harness_bridge.py` | `finalize_gate()` threshold check |
 | HR-09: Claims verifier checks A/B authenticity | **MAY** | `core/quality_gate/stage_pass_generator.py` (standalone script only) | `verify_sessions_spawn_log()` — not wired into the active FSM/finalize-gate path |
-| HR-10: ~~sessions_spawn.log entries required~~ **REMOVED** | — | — | Log is agent-writable / not tamper-evident; A/B quality is enforced by deliverable review + tool-scored gates instead |
+| HR-10: `sessions_spawn.log` entries required | **MUST** | `core/quality_gate/phase_truth_verifier.py` | `PhaseTruthVerifier` checks for existence and JSONL validity. Log must not be empty. |
 | HR-11: Phase Truth ≥90% | **MUST** | `core/quality_gate/phase_truth_verifier.py` | `PhaseTruthVerifier.verify()` |
 | HR-12: A/B review ≤5 rounds | **MUST** | `steering/steering_loop.py` | Round counter in iteration loop |
 | HR-13: Auto-fix timeout enforcement | **MUST** | `core/auto_fix/__init__.py` | `check_escalation()` HR-13 condition |
@@ -1167,8 +1167,8 @@ class KillSwitch:
 
 | File | Class | Purpose |
 |---|---|---|
-| `ab_enforcer.py` | `ABEnforcer` | **DEPRECATED**. Retained for backward-compatible unit tests. The HR-10 log-count audit was removed; HR-01 is now a workflow expectation (separate sub-agent dispatch), not a log-enforced check |
-| `phase_truth_verifier.py` | `PhaseTruthVerifier` | Verifies phase completion truth via independently-reproducible signals — framework BLOCK, pytest, coverage subprocess, previous-phase artifacts, cross-artifact checks (the self-reported `sessions_spawn.log` / A/B-coverage checks were removed; remaining weights renormalize) |
+| `ab_enforcer.py` | `ABEnforcer` | **REMOVED**. Fully deleted from the codebase. The HR-10 log-count audit is no longer enforced via this module. |
+| `phase_truth_verifier.py` | `PhaseTruthVerifier` | Verifies phase completion truth via independently-reproducible signals — framework BLOCK, pytest, coverage subprocess, previous-phase artifacts, cross-artifact checks, and `sessions_spawn.log` format/A-B coverage checks. |
 | `phase_artifact_enforcer.py` | `PhaseArtifactRegistry`, `Phase` | ASPICE traceability chain enforcement; validates phase artifact dependencies (P2+) |
 | `spec_tracking_checker.py` | `SpecTrackingChecker` | Tracks SPEC_TRACKING.md completeness. Delegates parsing to `parsers.SpecTrackingParser` |
 | `stage_pass_generator.py` | `IntegratedStagePassGenerator` | Generates stage pass certificates; integrates FrameworkEnforcer + ClaimsVerifier |
@@ -2153,7 +2153,7 @@ class TaskSplitter:
 
 ### §3.23 — `core/sessions_spawn_logger.py` — Spawn Event Logger
 
-**Responsibility**: Records agent spawn events to `.methodology/sessions_spawn.log` as a **non-blocking debug trail** (the HR-10 enforcement that consumed this log was removed — see §2.4.1). Supports two-phase write (PENDING → COMPLETED/FAILED via `log_update()`).
+**Responsibility**: Records agent spawn events to `.methodology/sessions_spawn.log`. This log is consumed by `PhaseTruthVerifier` to enforce HR-10 and HR-01. Supports two-phase write (PENDING → COMPLETED/FAILED via `log_update()`).
 
 **Public API**:
 
@@ -2870,7 +2870,7 @@ Gate 4 needs my Telegram APPROVE — handle everything else."
 | **P8** | DEVOPS | ARCHITECT | Document config per FR (env vars, feature flags, secrets); populate CONFIG_RECORDS.md | Review config records; verify environment parity (dev/staging/prod); confirm no secret leaks |
 
 > All phases: Agent A ≠ Agent B (HR-01 workflow — dispatched as separate sub-agent sessions).
-> `sessions_spawn.log` is written as a non-blocking debug trail; the HR-10 entry-count audit was removed (agent-writable, not tamper-evident).
+> `sessions_spawn.log` is verified by `PhaseTruthVerifier` to ensure JSONL structure and A/B role coverage.
 
 ### Pipeline Exit Codes
 
