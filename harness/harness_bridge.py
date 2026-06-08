@@ -1521,7 +1521,19 @@ class HarnessBridge:
             if _spec_names and _test_file.exists():
                 try:
                     _content = _test_file.read_text(encoding="utf-8")
-                    _existing_spec = {fn for fn in _spec_names if f"def {fn.split('[')[0]}" in _content}
+                    import re as _re
+                    _actual_fns = set()
+                    for line in _content.splitlines():
+                        m2 = _re.match(r"^\s*(?:async\s+)?def\s+(test_\w+)\s*\(", line)
+                        if m2:
+                            _actual_fns.add(m2.group(1))
+                    _existing_spec = set()
+                    for fn in _spec_names:
+                        raw_fn = fn.strip("`").strip()
+                        raw_fn = _re.sub(r"\[.*\]$", "", raw_fn)
+                        raw_fn = _re.sub(r"\(\)$", "", raw_fn)
+                        if raw_fn in _actual_fns:
+                            _existing_spec.add(fn)
                 except OSError:
                     pass
 

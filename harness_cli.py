@@ -5142,7 +5142,18 @@ def _compute_fr_spec_data(project: Path, fr_id: str, test_file: str) -> dict:
     if spec_test_names and test_file_path.exists():
         try:
             tf_content = test_file_path.read_text(encoding="utf-8")
-            existing_spec_tests = {fn for fn in spec_test_names if f"def {fn.split('[')[0]}" in tf_content}
+            import re as _re
+            _actual_fns = set()
+            for line in tf_content.splitlines():
+                m2 = _re.match(r"^\s*(?:async\s+)?def\s+(test_\w+)\s*\(", line)
+                if m2:
+                    _actual_fns.add(m2.group(1))
+            for fn in spec_test_names:
+                raw_fn = fn.strip("`").strip()
+                raw_fn = _re.sub(r"\[.*\]$", "", raw_fn)
+                raw_fn = _re.sub(r"\(\)$", "", raw_fn)
+                if raw_fn in _actual_fns:
+                    existing_spec_tests.add(fn)
         except OSError:
             pass
     spec_cov_pct = (
