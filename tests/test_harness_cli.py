@@ -446,6 +446,61 @@ class TestCmdAuditStructure:
         p6_files = {f["path"]: f["quality"] for f in p6["files"]}
         assert p6_files["06-quality/QUALITY_REPORT.md"] == "good"  # FR ref not required
 
+    # -- Bug 4 regression: ### headers and file-initial # headers --------
+
+    def _audit_json(self, tmp_path):
+        """Run cmd_audit_structure with json_out and return parsed result."""
+        import io
+        import sys
+        from harness_cli import cmd_audit_structure
+
+        buf = io.StringIO()
+        old, sys.stdout = sys.stdout, buf
+        try:
+            cmd_audit_structure(self._make_args(str(tmp_path), json_out=True))
+        finally:
+            sys.stdout = old
+        return json.loads(buf.getvalue())
+
+    def test_content_quality_h3_headers_count_as_sections(self, tmp_path):
+        """### (level-3) headers must satisfy the '≥ 2 sections' check.
+
+        Before the fix, only \\n## and \\n# were counted; a TEST_SPEC.md written
+        entirely with ### FR-XX: headings was falsely flagged as suspicious.
+        """
+        (tmp_path / "06-quality").mkdir()
+        (tmp_path / "06-quality" / "QUALITY_REPORT.md").write_text(
+            "### Section One\n\nSome content.\n\n### Section Two\n\n" + "x" * 200
+        )
+        data = self._audit_json(tmp_path)
+        files = {
+            f["path"]: f["quality"]
+            for f in data["dimensions"]["content_quality"]["details"]["P6"]["files"]
+        }
+        assert files["06-quality/QUALITY_REPORT.md"] == "good", (
+            "###-only file incorrectly flagged as suspicious"
+        )
+
+    def test_content_quality_file_initial_header_is_counted(self, tmp_path):
+        """A # heading at byte-0 (no preceding \\n) must count as a section.
+
+        Before the fix, \\n# was used, so a header at the very first line was
+        invisible to the counter.  Combined with a second ##, that gave count=1
+        which triggered '< 2 markdown sections'.
+        """
+        (tmp_path / "06-quality").mkdir()
+        (tmp_path / "06-quality" / "QUALITY_REPORT.md").write_text(
+            "# Title at line 1\n## Second Section\n\nContent.\n" + "x" * 200
+        )
+        data = self._audit_json(tmp_path)
+        files = {
+            f["path"]: f["quality"]
+            for f in data["dimensions"]["content_quality"]["details"]["P6"]["files"]
+        }
+        assert files["06-quality/QUALITY_REPORT.md"] == "good", (
+            "file-initial # header not counted as a section"
+        )
+
 
 # =============================================================================
 # cmd_audit_structure — init → audit round-trip

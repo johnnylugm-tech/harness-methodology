@@ -301,13 +301,12 @@ Agent B (REVIEWER / architect)
 | P1 | REQUIREMENTS_ENGINEER | BUSINESS_ANALYST | Draft SRS.md with `### FR-XX:` sections | Review SRS.md against business goals; verify FR-ID traceability |
 | P2 | ARCHITECT | TECH_LEAD | Design SAD.md; write ADR.md; generate TEST_SPEC.md via `derive_test_cases.md` skill | Review SAD.md, ADR.md, and TEST_SPEC.md for completeness, coverage, and SRS alignment |
 
-> Phase 3-8 不再使用 A/B 協作，改以自動化 Phase End Audit 替代（見 §0.4 完成檢查表）。
+> Phase 3-5, 7-8 不再使用 A/B 協作，改以自動化 Phase End Audit 替代（見 §0.4 完成檢查表）。
 >
-> **P6 Gate 4 注意**：原 Agent B (ARCHITECT) 負責審查 QUALITY_REPORT.md 並確認所有 FR 已合併且 Gate 4 ≥ 85。
-> A/B 移除後此責任由 **Phase End Audit** 分擔（確認 quality_manifest.json 中 Gate 4 分數與所有 FR 的合併狀態，以及 QUALITY_REPORT.md 內容完整性）。
+> **P6 Gate 4 注意**：Phase 6 (Gate 4) 重新引入 Agent B 審查機制，確保所有發布文件與品質數據（包含 `QUALITY_REPORT.md`, `RELEASE_NOTES.md`, `FINAL_SIGN_OFF.md`, 與 `quality_manifest.json`）經過交叉核實。
 
-> Phase 1-2 only: Agent A ≠ Agent B (HR-01 workflow — dispatched as separate sub-agent sessions). `sessions_spawn.log` is written as a non-blocking debug trail (the HR-10 log-count audit was removed — agent-writable, not tamper-evident).
-> Phase 3-8: no A/B requirement. Phase End Audit runs at phase completion.
+> Phase 1, 2, and 6: Agent A ≠ Agent B (HR-01 workflow — dispatched as separate sub-agent sessions). `sessions_spawn.log` is written as a non-blocking debug trail (the HR-10 log-count audit was removed — agent-writable, not tamper-evident).
+> Phase 3-5, 7-8: no A/B requirement. Phase End Audit runs at phase completion.
 
 ### FORBIDDEN in any agent output
 
@@ -411,8 +410,8 @@ State stored in `.methodology/state.json`:
 - **Plan governs**: task sequence within a phase; specific file paths; CLI commands.
 - **Conflict**: SKILL.md wins on rules; plan wins on task order / phase-specific steps.
 - **Never skip checkpoints**: If a gate fails, fix and re-run — never advance without PASS.
-- **Phase 1-2**: A/B mandatory — HR-01 (A≠B, separate sub-agent sessions) + HR-04 apply (HR-10 log-count audit removed).
-- **Phase 3-8**: No A/B. Phase End Audit runs at advance-phase / push-milestone.
+- **Phase 1-2, 6**: A/B mandatory — HR-01 (A≠B, separate sub-agent sessions) + HR-04 apply (HR-10 log-count audit removed).
+- **Phase 3-5, 7-8**: No A/B. Phase End Audit runs at advance-phase / push-milestone.
 
 ---
 

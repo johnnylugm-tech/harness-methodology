@@ -507,11 +507,13 @@ _PHASES_WITH_GATE1_FR_CHECK: frozenset[int] = frozenset({3, 4, 5, 7, 8})
 _PHASE_DELIVERABLES: dict[int, list[str]] = {
     1: ["SRS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md", "TEST_INVENTORY.yaml"],
     2: ["SAD.md", "ADR.md", "TEST_SPEC.md"],
+    6: ["QUALITY_REPORT.md", "RELEASE_NOTES.md", "FINAL_SIGN_OFF.md", "quality_manifest.json"],
 }
 # Documents that Agent B must embed per phase (SAD.md doesn't exist until P2)
 _REQUIRED_EMBEDDED_DOCS: dict[int, list[str]] = {
     1: ["SRS.md"],
     2: ["SRS.md", "SAD.md"],
+    6: ["QUALITY_REPORT.md", "RELEASE_NOTES.md", "FINAL_SIGN_OFF.md", "VERIFICATION_REPORT.md"],
 }
 
 # ---------------------------------------------------------------------------
@@ -2241,7 +2243,7 @@ def _check_gate4_prerequisites(project: Path) -> "tuple[bool, set[str]]":
                         # quality_manifest.json, which is a false-positive review flag.
                         _bd = g4.get("breakdown", {}).get(_dim, {})
                         _tool_score = float(_bd.get("tool_score", 0.0))
-                        _threshold = float(_bd.get("threshold", 0.0))
+                        _threshold = float(_bd.get("threshold", float("inf")))
                         if _tool_score >= _threshold:
                             print(
                                 f"[Gate 4] A3: da_waiver for '{_dim}' skipped — "
@@ -2688,7 +2690,7 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
                             json.dumps(_gp_json, indent=2, ensure_ascii=False),
                             encoding="utf-8",
                         )
-                    except (json.JSONDecodeError, KeyError):
+                    except json.JSONDecodeError:
                         # Malformed source — fall back to verbatim copy
                         _gp_dst.write_text(_gp_src.read_text(encoding="utf-8"), encoding="utf-8")
                     print(f"  persisted       : {_gp_dst.relative_to(project_path)} (committable)")
@@ -4262,8 +4264,8 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
     except Exception as _ce:
         print(f"  [WARN] Constitution postflight failed: {_ce}")
 
-    # ── Agent B approvals (P1/P2) — after C1 so deliverables confirmed ──
-    if completed_phase in (1, 2):
+    # ── Agent B approvals (P1/P2/P6) — after C1 so deliverables confirmed ──
+    if completed_phase in (1, 2, 6):
         deliverable_ids = _PHASE_DELIVERABLES.get(completed_phase, [])
         if deliverable_ids:
             passed_ab, report_ab = _verify_agent_b_approvals_core(
@@ -7608,7 +7610,7 @@ def cmd_init_project(args: argparse.Namespace) -> int:
         # --overwrite.  Overwriting mid-project would reset current_phase to 1,
         # destroying phase progress.  --overwrite is intentionally scoped to
         # templates / CI workflow / harness_cli.py wrapper, not FSM state.
-        print(f"   SKIP: {state_path} already exists (FSM state is never reset by init-project)")
+        print(f"   SKIP: {state_path} already exists (FSM state is never reset by init-project; delete it manually to reinitialize)")
     else:
         atomic_write_json(state_path, {
             "state": "RUNNING",
@@ -7892,11 +7894,7 @@ def cmd_audit_structure(args: argparse.Namespace) -> int:
         if len(content.strip()) < 200:
             issues.append("content < 200 chars")
         is_yaml = fpath.name.endswith(".yaml") or fpath.name.endswith(".yml")
-        if not is_yaml and (
-            content.count("\n# ")
-            + content.count("\n## ")
-            + content.count("\n### ")
-        ) < 2:
+        if not is_yaml and len(_re.findall(r"(?:^|\n)#{1,6} ", content)) < 2:
             issues.append("< 2 markdown sections")
         if phase_num in _FR_REF_PHASES and not _re.search(
             r"\[?(TASK|FR|NFR)-(\d+)\]?", content, _re.IGNORECASE

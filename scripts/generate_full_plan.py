@@ -1636,8 +1636,11 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
             "  Must reference `BASELINE.md` and `VERIFICATION_REPORT.md` (verification provenance).",
             "",
             "- **G4g** Agent B Peer Review (HR-01):",
-            "  Agent B (ARCHITECT) reviews `06-quality/QUALITY_REPORT.md` and `RELEASE_NOTES.md`.",
-            "  Confirm all FRs are merged and Gate 4 score ≥ 85.",
+            "  Agent B (ARCHITECT) explicitly reviews ALL deliverables.",
+            "  1. Review `06-quality/QUALITY_REPORT.md`, `RELEASE_NOTES.md`, and `FINAL_SIGN_OFF.md`.",
+            "  2. Cross-check `.methodology/quality_manifest.json` Gate 4 scoring logic.",
+            "  3. Reference `05-verification/VERIFICATION_REPORT.md` and `BASELINE.md` for historical traceability.",
+            "  4. Generate approval JSON files in `.methodology/agent_b_approvals/` for `QUALITY_REPORT.md`, `RELEASE_NOTES.md`, `FINAL_SIGN_OFF.md`, and `quality_manifest.json`.",
             "",
         ]
 
