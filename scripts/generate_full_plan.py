@@ -895,7 +895,7 @@ def _preflight_steps(phase: int) -> List[str]:
         *([] if phase < 5 else [
             "  **Attestation fix** (P5+ — if ASPICE Traceability preflight shows `attestation: missing` or `mismatch`):",
             "  ```bash",
-            "  python3 harness_cli.py build-trace-attestation --project .",
+            "  python3 harness_cli.py build-trace-attestation --project . --write",
             "  git add .methodology/trace/attestation.json",
             "  git commit -m 'trace: regenerate attestation'",
             "  ```",
@@ -1682,13 +1682,13 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
            "  > **traceability** is also framework-owned: the harness calls `compute_trace_dimension()`",
            "  > inside `finalize-gate` and injects the score automatically. Do NOT report a traceability",
            "  > score in gate_result.json. If the gate is blocked by traceability, fix gaps then run:",
-           "  > `python3 harness_cli.py build-trace-attestation --project .`",
+           "  > `python3 harness_cli.py build-trace-attestation --project . --write`",
            "  > `git add .methodology/trace/attestation.json && git commit -m 'trace: regen attestation'`",
            ] if gate_num in (3, 4) else
           ["  > **traceability** is framework-owned: the harness calls `compute_trace_dimension()`",
            "  > inside `finalize-gate` and injects the score automatically. Do NOT report a traceability",
            "  > score in gate_result.json. If the gate is blocked by traceability, fix gaps then run:",
-           "  > `python3 harness_cli.py build-trace-attestation --project .`",
+           "  > `python3 harness_cli.py build-trace-attestation --project . --write`",
            "  > `git add .methodology/trace/attestation.json && git commit -m 'trace: regen attestation'`",
            ] if gate_num == 2 else []),
         "",
@@ -2479,7 +2479,7 @@ def generate_phase6_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     lines.append("")
     lines.append("> A/B collaboration is active for Phase 6 deliverables (HR-01).")
     lines.append("> Agent A generates QUALITY_REPORT.md and RELEASE_NOTES.md.")
-    lines.append("> Agent B (ARCHITECT) reviews the deliverables and verifies Gate 4 score.")
+    lines.append("> Agent B (reviewer — stateless) reviews the deliverables and verifies Gate 4 score.")
     lines.append("")
 
     # Only embed static quality metrics from QUALITY_REPORT.md in non-dynamic mode.
