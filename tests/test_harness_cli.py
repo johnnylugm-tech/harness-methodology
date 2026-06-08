@@ -1336,6 +1336,12 @@ class TestAdvancePrechecksTDD:
         harness_cli._write_finalize_sentinels_for_tests(tmp_path)
         _mock_constitution_pass(monkeypatch)
         monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
+        # Phase 6 fires Agent B approval check before spec-coverage; stub it so
+        # only the threshold value is exercised here (agent B tested elsewhere).
+        monkeypatch.setattr(
+            "harness_cli._verify_agent_b_approvals_core",
+            lambda p, ph, ids: (True, "mocked"),
+        )
         monkeypatch.setattr(
             "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier",
             type("FV", (), {
@@ -2847,3 +2853,225 @@ class TestInitProjectRootWrapper:
         self._run_init(tmp_path, monkeypatch)
         # Must not overwrite user's file
         assert (tmp_path / "harness_cli.py").read_text() == user_content
+
+    def test_overwrite_does_not_reset_state_json(self, tmp_path, monkeypatch):
+        """--overwrite must NOT touch state.json — FSM phase progress must survive.
+
+        Bug 5: passing --overwrite to init-project (e.g. after a harness submodule
+        update) was resetting current_phase back to 1, destroying mid-project state.
+        Fix: state.json is now excluded from the --overwrite scope entirely.
+        """
+        self._minimal_project(tmp_path)
+        state_path = tmp_path / ".methodology" / "state.json"
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(
+            json.dumps({
+                "state": "RUNNING",
+                "current_phase": 6,
+                "last_gate": 4,
+                "last_fr": None,
+            }),
+            encoding="utf-8",
+        )
+        self._run_init(tmp_path, monkeypatch, overwrite=True)
+        state = json.loads(state_path.read_text())
+        assert state["current_phase"] == 6, (
+            "--overwrite reset current_phase to 1; state.json must not be touched"
+        )
+
+
+# =============================================================================
+# Bug 3 — _check_gate4_prerequisites: da_waiver skipped when tool_score ≥ threshold
+# =============================================================================
+
+class TestGate4DaWaiverThresholdCheck:
+    """Bug 3: waiver must only enter da_waivers when tool_score < threshold.
+
+    Previously the threshold check was absent — a waiver was accepted even when
+    tool_score was already above threshold, which then set
+    da_waiver_needs_human_review=True in quality_manifest.json as a false positive.
+    """
+
+    _LONG = "x" * 130  # > _DA_EVIDENCE_MIN_CHARS (120)
+
+    def _make_g4(self, dim: str, tool_score: float, threshold: float | None) -> dict:
+        """Minimal gate4_result.json satisfying all A3 checks for one waived dim."""
+        from harness_cli import _TIER3_DIMS
+
+        devil_advocate = {d: True for d in _TIER3_DIMS}
+        evidence = {
+            d: {"challenge": self._LONG, "response": self._LONG}
+            for d in _TIER3_DIMS
+        }
+        bd: dict = {"tool_score": tool_score}
+        if threshold is not None:
+            bd["threshold"] = threshold
+        return {
+            "devil_advocate": devil_advocate,
+            "devil_advocate_evidence": evidence,
+            "da_waiver": {dim: True},
+            "breakdown": {dim: bd},
+        }
+
+    def _run(self, tmp_path: Path, g4: dict) -> tuple[bool, set]:
+        from harness_cli import _check_gate4_prerequisites
+
+        sessi = tmp_path / ".sessi-work"
+        sessi.mkdir(parents=True, exist_ok=True)
+        (sessi / "gate4_result.json").write_text(
+            json.dumps(g4), encoding="utf-8"
+        )
+        # B2 check: needs at least one score file in round_1/scores/
+        scores_dir = sessi / "round_1" / "scores"
+        scores_dir.mkdir(parents=True, exist_ok=True)
+        (scores_dir / "architecture.json").write_text(
+            json.dumps({"round": 1, "dim": "architecture", "score": 80.0}),
+            encoding="utf-8",
+        )
+        return _check_gate4_prerequisites(tmp_path)
+
+    def test_waiver_skipped_when_tool_score_above_threshold(self, tmp_path):
+        """tool_score=100 >= threshold=80 → dimension already passes → waiver NOT applied."""
+        blocked, da_waivers = self._run(
+            tmp_path, self._make_g4("architecture", tool_score=100.0, threshold=80.0)
+        )
+        assert not blocked
+        assert "architecture" not in da_waivers
+
+    def test_waiver_skipped_at_exact_threshold(self, tmp_path):
+        """tool_score == threshold → passes → waiver NOT applied."""
+        blocked, da_waivers = self._run(
+            tmp_path, self._make_g4("architecture", tool_score=80.0, threshold=80.0)
+        )
+        assert not blocked
+        assert "architecture" not in da_waivers
+
+    def test_waiver_applied_when_tool_score_below_threshold(self, tmp_path):
+        """tool_score=50 < threshold=80 → dimension fails → waiver IS applied."""
+        blocked, da_waivers = self._run(
+            tmp_path, self._make_g4("architecture", tool_score=50.0, threshold=80.0)
+        )
+        assert not blocked
+        assert "architecture" in da_waivers
+
+    def test_waiver_applied_when_threshold_field_missing(self, tmp_path):
+        """threshold absent → default float('inf') → waiver IS applied (conservative).
+
+        The M1 fix: old default was 0.0, which made tool_score >= 0.0 always True
+        and silently discarded every waiver.  float('inf') means 'unknown threshold
+        → assume waiver is needed'.
+        """
+        blocked, da_waivers = self._run(
+            tmp_path,
+            self._make_g4("architecture", tool_score=100.0, threshold=None),
+        )
+        assert not blocked
+        assert "architecture" in da_waivers
+
+
+# =============================================================================
+# Bug 2 — finalize-gate persist: composite_score patched with harness score
+# =============================================================================
+
+class TestFinalizeGatePersistCompositeScore:
+    """Bug 2: gate{N}_result.json persisted to .methodology/ must carry the
+    harness-computed composite_score, not the agent's self-assessed raw value.
+
+    Previously _cmd_finalize_gate_impl copied the file verbatim; the agent's
+    raw composite_score was never updated with the weighted value computed by
+    bridge.finalize_gate.
+    """
+
+    def _run_finalize(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+        gate: int = 1,
+        phase: int = 1,
+        agent_score: float = 96.9,
+        harness_score: float = 97.1288,
+        src_json_text: str | None = None,
+    ) -> int:
+        import harness_cli as hc
+        from harness.harness_bridge import GateResult
+
+        # Write the source gate result (agent-assessed) to .sessi-work/
+        sessi = tmp_path / ".sessi-work"
+        sessi.mkdir(parents=True, exist_ok=True)
+        gate_src = sessi / f"gate{gate}_result.json"
+        if src_json_text is not None:
+            gate_src.write_text(src_json_text, encoding="utf-8")
+        else:
+            gate_src.write_text(
+                json.dumps({"composite_score": agent_score, "breakdown": {}}),
+                encoding="utf-8",
+            )
+
+        (tmp_path / ".methodology").mkdir(parents=True, exist_ok=True)
+
+        # Stub out all heavyweight helpers
+        monkeypatch.setattr(hc, "_finalize_gate_preflight", lambda _a, _p: None)
+        monkeypatch.setattr(hc, "_finalize_gate_fr_checks", lambda _a, _p: None)
+        monkeypatch.setattr(hc, "_finalize_gate_cross_checks", lambda _a, _p: None)
+        monkeypatch.setattr(hc, "_update_state_checkpoint", lambda *_a, **_kw: None)
+        monkeypatch.setattr(hc, "_update_claude_md", lambda _p: None)
+        monkeypatch.setattr(hc, "_record_gate_timestamp", lambda *_a: None)
+        monkeypatch.setattr(hc, "_generate_stage_pass", lambda *_a: None)
+
+        _harness_score = harness_score
+
+        class FakeGit:
+            def ensure_gitignore(self): pass
+            def commit_fr_gate1(self, *_a): pass
+            def commit_and_push_gate(self, *_a): pass
+
+        monkeypatch.setattr(hc, "_make_git", lambda *_a: FakeGit())
+
+        class FakeBridge:
+            def prepare_gate(self, **_kw):
+                return object()
+
+            def finalize_gate(self, _ctx, **_kw):
+                return GateResult(
+                    gate_num=gate,
+                    score=_harness_score,
+                    dimensions=[],
+                    open_critical=0,
+                    open_high=0,
+                    quality_complete=True,
+                    rounds_used=1,
+                )
+
+        import harness.harness_bridge as hb
+        monkeypatch.setattr(hb, "HarnessBridge", FakeBridge)
+
+        args = argparse.Namespace(
+            project=str(tmp_path),
+            gate=gate,
+            phase=phase,
+            fr_id=None,
+        )
+        return hc._cmd_finalize_gate_impl(args)
+
+    def test_composite_score_patched_with_harness_score(self, tmp_path, monkeypatch):
+        """Persisted gate result must carry the harness-computed score, not agent's."""
+        rc = self._run_finalize(
+            tmp_path, monkeypatch, agent_score=96.9, harness_score=97.1288
+        )
+        assert rc == 0
+        persisted = json.loads(
+            (tmp_path / ".methodology" / "gate1_result.json").read_text()
+        )
+        assert persisted["composite_score"] == round(97.1288, 4), (
+            f"expected {round(97.1288, 4)}, got {persisted['composite_score']}"
+        )
+
+    def test_malformed_source_json_falls_back_to_verbatim(self, tmp_path, monkeypatch):
+        """Malformed gate result JSON → verbatim fallback, not a crash."""
+        rc = self._run_finalize(
+            tmp_path, monkeypatch, src_json_text="NOT_VALID_JSON{"
+        )
+        assert rc == 0
+        # Verbatim text written as-is
+        persisted_raw = (tmp_path / ".methodology" / "gate1_result.json").read_text()
+        assert persisted_raw == "NOT_VALID_JSON{"
