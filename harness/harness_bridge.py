@@ -1496,14 +1496,11 @@ class HarnessBridge:
             _test_dir = Path(project_root) / "03-development" / "tests"
             if not _test_dir.is_dir():
                 _test_dir = Path(project_root) / "tests"
-            _test_file = _test_dir / f"test_fr{_num_str}.py"
             _spec_path = Path(project_root) / "02-architecture" / "TEST_SPEC.md"
             if _spec_path.exists():
                 try:
                     _spec_text = _spec_path.read_text(encoding="utf-8")
                     _spec_names = _parse_spec_names_for_fr(_spec_text, fr_id)
-                    # Validate: warn if FR section exists but has no table header
-                    # (missing header means 0 spec names even though rows exist)
                     import re as _re2
                     _fr_section_exists = bool(
                         _re2.search(r"^###\s+" + fr_id + r"(?:[:\s]|$)", _spec_text, _re2.MULTILINE)
@@ -1518,15 +1515,19 @@ class HarnessBridge:
                         )
                 except OSError:
                     pass
-            if _spec_names and _test_file.exists():
+            if _spec_names and _test_dir.is_dir():
                 try:
-                    _content = _test_file.read_text(encoding="utf-8")
                     import re as _re
                     _actual_fns = set()
-                    for line in _content.splitlines():
-                        m2 = _re.match(r"^\s*(?:async\s+)?def\s+(test_\w+)\s*\(", line)
-                        if m2:
-                            _actual_fns.add(m2.group(1))
+                    for _f in _test_dir.rglob("*.py"):
+                        try:
+                            _content = _f.read_text(encoding="utf-8", errors="replace")
+                            for line in _content.splitlines():
+                                m2 = _re.match(r"^\s*(?:async\s+)?def\s+(test_\w+)\s*\(", line)
+                                if m2:
+                                    _actual_fns.add(m2.group(1))
+                        except OSError:
+                            continue
                     _existing_spec = set()
                     for fn in _spec_names:
                         raw_fn = fn.strip("`").strip()
