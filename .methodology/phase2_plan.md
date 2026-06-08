@@ -220,7 +220,7 @@ are not re-opened. This bounds backtracking to a single step.
 **Agent B**: TECH_LEAD
 
 **A/B Work** (HR-04: HybridWorkflow ON — Agent A authors, a separate Agent B sub-agent reviews):
-- [ ] **[A-1]** Agent A (ARCHITECT): Generate TEST_SPEC.md via derive_test_cases.md skill → preserve TEST_INVENTORY.yaml names where specified → apply 7-Question Protocol per FR → populate cross-cutting section
+- [ ] **[A-1]** Agent A (ARCHITECT): Generate TEST_SPEC.md via derive_test_cases.md skill → preserve TEST_INVENTORY.yaml names where specified → apply 8-Question Protocol per FR (Q1-Q8 + Step 2.5 Interface Contracts + Step 4 Infrastructure Wiring) → populate cross-cutting section
   - FORBIDDEN: vague/non-testable acceptance criteria
 - [ ] **[A-2]** Agent A returns `{status, files, confidence, citations, summary}`
 - [ ] **[B-1]** Agent B (TECH_LEAD) — dispatch as **STATELESS** subagent:
@@ -261,7 +261,7 @@ are not re-opened. This bounds backtracking to a single step.
   Review checklist:
   - Upstream deliverable review caveats addressed? (check previous B-2 gaps field)
   - Every FR has ≥1 named test case?
-  - 7-Question Protocol applied per FR?
+  - 8-Question Protocol applied per FR (Q1-Q8 + Step 2.5; YAML names do NOT exempt missing categories)?
   - Cross-cutting section complete?
   - Summary table populated?
   - All upstream deliverables consistent with each other? No contradictory decisions?

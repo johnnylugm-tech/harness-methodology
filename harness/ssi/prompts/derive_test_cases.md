@@ -25,7 +25,7 @@ P3 Agent A implements tests FROM this catalog — not ad-hoc.
 > ✅ **每個 FR 的 TEST_SPEC entry 必須滿足：**
 > - 至少 1 個 `happy_path` test（Q1，必填）
 > - 至少 1 個 `failure` 或 `validation` test（Q2，必填）
-> - `derivation` 欄位必須引用 Q1-Q7 或 NFR Pattern 編號（不得空白）
+> - `derivation` 欄位必須引用 Q1-Q8、Step 2.5 或 NFR Pattern 編號（不得空白）
 > - 所有從 SRS NFR 觸發的 pattern 必須出現（見 §2 NFR Pattern Table）
 > - 每個 case 有具體 `Inputs`（真實值，非 pytest-id 形式）
 > - Sub-assertion 表的每條 predicate 對其 `applies_to` 的 Inputs 自洽（P2 gate 會驗）
@@ -111,12 +111,11 @@ PRE-STEP: Classify FR type (one or more):
 
 Classification drives which questions generate mandatory vs optional test cases.
 
-**NAMING RULE (v2.6)**: If TEST_INVENTORY.yaml (Step 0) supplies a test name for a category
-that Q1-Q8 would generate, use the YAML-supplied name instead of deriving one.
-
-**CRITICAL NAMING OVERRIDE RULE**:
-TEST_INVENTORY.yaml ONLY provides names, it DOES NOT grant exemptions.
-Even if a name is provided in the YAML for a specific FR, you MUST STILL execute the entire Q1-Q8 protocol for that FR to generate any missing `failure`, `boundary`, `negative`, or `integration` test cases. Do NOT stop after applying the YAML name.
+**NAMING RULE (v2.6.1)** — TEST_INVENTORY.yaml is naming authority ONLY, not a coverage exemption:
+1. If YAML supplies a name for a category Q1-Q8 would generate, **use that exact name**.
+2. YAML names **do not satisfy** the `failure` / `boundary` / `negative` / `integration` / `state_transition` / `fault_injection` / `nfr_pattern` requirements for that FR.
+3. **You MUST still execute the entire Q1-Q8 protocol** for every FR, generating any missing test cases for the categories the YAML did not cover.
+4. Do NOT stop after applying the YAML name — re-running the protocol is the only way YAML-vs-derivation gaps surface.
 ```
 
 ### Q1: HAPPY PATH (mandatory for ALL types)
@@ -221,9 +220,14 @@ Derivation: `Q7/FR-{YY}`
 > Does the specification explicitly forbid a behavior or contain negative constraints (e.g., "Must not", "Do not", "禁止", "不可", "避免")?
 
 If YES: for each negative constraint C:
-- Generate a failure injection or boundary test asserting this exact exclusion: `test_{fr}_must_not_{C}`
+- Generate a failure injection or boundary test asserting this exact exclusion: `test_{fr}_must_not_{C_slug}`
 - Type: `negative_constraint`
 - Derivation: `Q8`
+
+**C_slug rule** (mandatory — Python identifier must be ASCII): `C_slug = re.sub(r'[^a-z0-9_]+', '_', C.lower()).strip('_')`.
+- CJK only (`禁止快取`): fall back to a sequential per-FR suffix: `c1`, `c2`, ... and document the mapping in `TEST_SPEC.md` FR entry's "Sub-assertions" table (`rule_id: q8_禁止快_cache_disabled`).
+- Mixed: ASCII portion kept, CJK portion gets the `c{n}` suffix.
+- Examples: `"cache GET"` → `cache_get`; `"禁止快取"` → `c1`; `"Must not log PII"` → `must_not_log_pii`.
 
 ---
 
@@ -325,6 +329,8 @@ Append at the end of TEST_SPEC.md:
 | By type: fault_injection | N |
 | By type: nfr_pattern | N |
 | By type: integration | N |
+| By type: negative_constraint | N |
+| By type: interface_contract | N |
 | Active NFR patterns applied | NP-XX, ... |
 ```
 
@@ -336,7 +342,8 @@ Agent B must verify before APPROVE. If any of the following are true, you MUST R
 
 - [ ] **YAML Exemption Check**: Did Agent A skip generating `failure`/`boundary` tests for an FR just because it had a YAML name? (If yes -> REJECT)
 - [ ] **Interface Completeness**: Are there Public Interfaces (Endpoints, CLI commands) listed in the spec that are MISSING from the test catalog? (If yes -> REJECT)
-- [ ] **Negative Constraint Check**: Are there explicit "Must not" or "禁止" constraints in the spec that DO NOT have a corresponding test? (If yes -> REJECT)
+  - **Interface ↔ NFR cross-check** (mandatory): for every Interface listed, verify the Active Pattern Set from Step 1 (especially NP-01 auth, NP-02 authz, NP-04 validation, NP-12 pagination) is applied to that interface. A `POST /users` endpoint with `authentication` active in NFRs MUST have an `NP-01 unauthenticated_returns_401` test. (If missing → REJECT)
+- [ ] **Negative Constraint Check**: Are there explicit "Must not" or "禁止" constraints in the spec that DO NOT have a corresponding `negative_constraint` (Q8) test? (If yes -> REJECT)
 - [ ] **Wiring Check**: Is there an Infrastructure component (e.g., DB, Cache) in the spec that lacks an Entrypoint-to-Infrastructure E2E test in the Cross-Cutting section? (If yes -> REJECT)
 
 Standard Verification:
