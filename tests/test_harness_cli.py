@@ -2666,6 +2666,45 @@ class TestComputeFrSpecDataParameterized:
         result = harness_cli._compute_fr_spec_data(tmp_path, "FR-01", "tests/test_fr01.py")
         assert result["spec_cov_pct"] == 0
 
+    def test_backtick_name_matches(self, tmp_path):
+        """TEST_SPEC row '`test_fn`' (backtick-quoted) must match 'def test_fn'."""
+        import harness_cli
+        self._make_project(
+            tmp_path,
+            spec_rows=["`test_fr_01_lookup`"],
+            test_body="def test_fr_01_lookup(x):\n    pass\n",
+        )
+        result = harness_cli._compute_fr_spec_data(tmp_path, "FR-01", "tests/test_fr01.py")
+        assert result["spec_cov_pct"] == 100, (
+            f"backtick-quoted spec name must strip backticks before matching; got {result['spec_cov_pct']}"
+        )
+
+    def test_paren_suffix_matches(self, tmp_path):
+        """TEST_SPEC row 'test_fn()' (with parens) must match 'def test_fn'."""
+        import harness_cli
+        self._make_project(
+            tmp_path,
+            spec_rows=["test_fr_01_lookup()"],
+            test_body="def test_fr_01_lookup(x):\n    pass\n",
+        )
+        result = harness_cli._compute_fr_spec_data(tmp_path, "FR-01", "tests/test_fr01.py")
+        assert result["spec_cov_pct"] == 100, (
+            f"() suffix must be stripped before matching; got {result['spec_cov_pct']}"
+        )
+
+    def test_async_def_matches(self, tmp_path):
+        """'async def test_fn(...)' must be found the same as sync 'def test_fn'."""
+        import harness_cli
+        self._make_project(
+            tmp_path,
+            spec_rows=["test_fr_01_async"],
+            test_body="async def test_fr_01_async(client):\n    pass\n",
+        )
+        result = harness_cli._compute_fr_spec_data(tmp_path, "FR-01", "tests/test_fr01.py")
+        assert result["spec_cov_pct"] == 100, (
+            f"async def must be detected by the function scanner; got {result['spec_cov_pct']}"
+        )
+
 
 # =============================================================================
 # Bug fix: _fr_gate1_commit_sha must fall back to batch "Gate1 PASS" commits

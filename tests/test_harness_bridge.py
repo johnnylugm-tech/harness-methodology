@@ -1206,3 +1206,105 @@ class TestS4ToolUnavailable:
 
         assert violations == []
 
+
+# =============================================================================
+# prepare_gate spec scan — rglob, backtick, parameterized, async
+# =============================================================================
+
+class TestPrepareGateSpecScan:
+    """prepare_gate() Gate-1 spec coverage scan: rglob, name normalisation."""
+
+    @staticmethod
+    def _mock_config(gate_num=1):
+        from core.quality_gate.constitution.profile import GateConfig, DimensionConfig
+        return GateConfig(
+            gate_num=gate_num,
+            score_gate=80.0,
+            dimensions=[DimensionConfig(name="coverage", threshold=75.0)],
+            crg={},
+        )
+
+    def _make_project(self, tmp_path, spec_rows: list[str], test_files: dict[str, str]):
+        """Create minimal project structure for spec-scan tests.
+
+        spec_rows: list of test function names as they appear in TEST_SPEC.md
+        test_files: {relative_path: file_content} under tmp_path/03-development/tests/
+        """
+        arch = tmp_path / "02-architecture"
+        arch.mkdir(parents=True)
+        table = "\n".join(
+            f"| {i+1} | {name} | Functional |" for i, name in enumerate(spec_rows)
+        )
+        (arch / "TEST_SPEC.md").write_text(
+            "### FR-01: Widget\n\n"
+            "| # | Test Function | Type |\n"
+            "|---|--------------|------|\n"
+            f"{table}\n",
+            encoding="utf-8",
+        )
+        test_dir = tmp_path / "03-development" / "tests"
+        test_dir.mkdir(parents=True)
+        for rel_path, content in test_files.items():
+            fpath = test_dir / rel_path
+            fpath.parent.mkdir(parents=True, exist_ok=True)
+            fpath.write_text(content, encoding="utf-8")
+        return tmp_path
+
+    def _scan(self, tmp_path):
+        bridge = HarnessBridge()
+        with patch.object(bridge, "_load_config", return_value=self._mock_config(1)):
+            ctx = bridge.prepare_gate(
+                gate_num=1, project_root=str(tmp_path), phase=3, fr_id="FR-01"
+            )
+        return ctx
+
+    def test_rglob_finds_test_in_non_fr_file(self, tmp_path):
+        """Test function in test_integration.py (not test_fr01.py) must be found."""
+        self._make_project(
+            tmp_path,
+            spec_rows=["test_widget_renders"],
+            test_files={"test_integration.py": "def test_widget_renders():\n    pass\n"},
+        )
+        ctx = self._scan(tmp_path)
+        assert ctx._spec_test_names == ["test_widget_renders"]
+        assert "test_widget_renders" in ctx._existing_spec_tests, (
+            "rglob must find test_widget_renders in test_integration.py"
+        )
+
+    def test_backtick_spec_name_matches(self, tmp_path):
+        """Backtick-quoted spec name '`test_fn`' must match 'def test_fn'."""
+        self._make_project(
+            tmp_path,
+            spec_rows=["`test_widget_renders`"],
+            test_files={"test_fr01.py": "def test_widget_renders():\n    pass\n"},
+        )
+        ctx = self._scan(tmp_path)
+        assert len(ctx._existing_spec_tests) == 1, (
+            f"backtick-quoted name must match; existing={ctx._existing_spec_tests}"
+        )
+
+    def test_parameterized_spec_name_matches(self, tmp_path):
+        """Spec name 'test_fn[param]' must match 'def test_fn'."""
+        self._make_project(
+            tmp_path,
+            spec_rows=["test_widget_renders[dark_mode]", "test_widget_renders[light_mode]"],
+            test_files={"test_fr01.py": "def test_widget_renders(mode):\n    pass\n"},
+        )
+        ctx = self._scan(tmp_path)
+        assert len(ctx._existing_spec_tests) == 2, (
+            f"both parametrized rows must match the single base function; "
+            f"existing={ctx._existing_spec_tests}"
+        )
+
+    def test_async_def_matches(self, tmp_path):
+        """'async def test_fn(...)' must be found the same as sync 'def test_fn'."""
+        self._make_project(
+            tmp_path,
+            spec_rows=["test_widget_async"],
+            test_files={"test_fr01.py": "async def test_widget_async(client):\n    pass\n"},
+        )
+        ctx = self._scan(tmp_path)
+        assert "test_widget_async" in ctx._existing_spec_tests, (
+            "async def must be detected by the function scanner"
+        )
+

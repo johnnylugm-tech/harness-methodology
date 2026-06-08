@@ -1490,9 +1490,6 @@ class HarnessBridge:
         _spec_names: list[str] = []
         _existing_spec: set[str] = set()
         if fr_id and gate_num == 1 and phase in {3, 4, 5, 7, 8}:
-            import re as _re
-            _num_match = _re.match(r"FR-(\d+)", fr_id)
-            _num_str = _num_match.group(1).zfill(2) if _num_match else ""
             _test_dir = Path(project_root) / "03-development" / "tests"
             if not _test_dir.is_dir():
                 _test_dir = Path(project_root) / "tests"
@@ -1501,9 +1498,10 @@ class HarnessBridge:
                 try:
                     _spec_text = _spec_path.read_text(encoding="utf-8")
                     _spec_names = _parse_spec_names_for_fr(_spec_text, fr_id)
-                    import re as _re2
+                    # Validate: warn if FR section exists but has no table header
+                    # (missing header means 0 spec names even though rows exist)
                     _fr_section_exists = bool(
-                        _re2.search(r"^###\s+" + fr_id + r"(?:[:\s]|$)", _spec_text, _re2.MULTILINE)
+                        re.search(r"^###\s+" + fr_id + r"(?:[:\s]|$)", _spec_text, re.MULTILINE)
                     )
                     if _fr_section_exists and not _spec_names:
                         print(
@@ -1517,13 +1515,12 @@ class HarnessBridge:
                     pass
             if _spec_names and _test_dir.is_dir():
                 try:
-                    import re as _re
                     _actual_fns = set()
                     for _f in _test_dir.rglob("*.py"):
                         try:
                             _content = _f.read_text(encoding="utf-8", errors="replace")
                             for line in _content.splitlines():
-                                m2 = _re.match(r"^\s*(?:async\s+)?def\s+(test_\w+)\s*\(", line)
+                                m2 = re.match(r"^\s*(?:async\s+)?def\s+(test_\w+)\s*\(", line)
                                 if m2:
                                     _actual_fns.add(m2.group(1))
                         except OSError:
@@ -1531,8 +1528,8 @@ class HarnessBridge:
                     _existing_spec = set()
                     for fn in _spec_names:
                         raw_fn = fn.strip("`").strip()
-                        raw_fn = _re.sub(r"\[.*\]$", "", raw_fn)
-                        raw_fn = _re.sub(r"\(\)$", "", raw_fn)
+                        raw_fn = re.sub(r"\[.*\]$", "", raw_fn)
+                        raw_fn = re.sub(r"\(\)$", "", raw_fn)
                         if raw_fn in _actual_fns:
                             _existing_spec.add(fn)
                 except OSError:
