@@ -2235,6 +2235,21 @@ def _check_gate4_prerequisites(project: Path) -> "tuple[bool, set[str]]":
                             )
                             blocked = True
                             continue
+                        # Only apply the waiver when the dimension is actually below threshold.
+                        # If tool_score >= threshold the dimension already passes; accepting
+                        # the waiver would still set da_waiver_needs_human_review = True in
+                        # quality_manifest.json, which is a false-positive review flag.
+                        _bd = g4.get("breakdown", {}).get(_dim, {})
+                        _tool_score = float(_bd.get("tool_score", 0.0))
+                        _threshold = float(_bd.get("threshold", 0.0))
+                        if _tool_score >= _threshold:
+                            print(
+                                f"[Gate 4] A3: da_waiver for '{_dim}' skipped — "
+                                f"tool_score={_tool_score:.1f} ≥ threshold={_threshold:.1f} "
+                                "(waiver not needed; dimension already passes).",
+                                file=sys.stderr,
+                            )
+                            continue
                         da_waivers.add(_dim)
                         print(
                             f"[Gate 4] A3: DA waiver active for '{_dim}' "
@@ -2662,7 +2677,20 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
                 _gp_dst = project_path / ".methodology" / f"gate{args.gate}_result.json"
                 try:
                     _gp_dst.parent.mkdir(parents=True, exist_ok=True)
-                    _gp_dst.write_text(_gp_src.read_text(encoding="utf-8"), encoding="utf-8")
+                    # Patch composite_score with the harness-computed weighted value.
+                    # The agent writes its own self-assessed score to gate{N}_result.json;
+                    # the harness recomputes it from breakdown weights.  Without this
+                    # patch the persisted file would still carry the agent's raw score.
+                    try:
+                        _gp_json = json.loads(_gp_src.read_text(encoding="utf-8"))
+                        _gp_json["composite_score"] = round(result.score, 4)
+                        _gp_dst.write_text(
+                            json.dumps(_gp_json, indent=2, ensure_ascii=False),
+                            encoding="utf-8",
+                        )
+                    except (json.JSONDecodeError, KeyError):
+                        # Malformed source — fall back to verbatim copy
+                        _gp_dst.write_text(_gp_src.read_text(encoding="utf-8"), encoding="utf-8")
                     print(f"  persisted       : {_gp_dst.relative_to(project_path)} (committable)")
                 except OSError as _gp_err:
                     print(f"  [WARN] Could not persist gate result to .methodology/: {_gp_err}")
@@ -7575,8 +7603,12 @@ def cmd_init_project(args: argparse.Namespace) -> int:
     from datetime import datetime, timezone
     state_path = project / ".methodology" / "state.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)
-    if state_path.exists() and not args.overwrite:
-        print(f"   SKIP: {state_path} already exists (use --overwrite to overwrite)")
+    if state_path.exists():
+        # state.json is the FSM source of truth — never overwrite it, even with
+        # --overwrite.  Overwriting mid-project would reset current_phase to 1,
+        # destroying phase progress.  --overwrite is intentionally scoped to
+        # templates / CI workflow / harness_cli.py wrapper, not FSM state.
+        print(f"   SKIP: {state_path} already exists (FSM state is never reset by init-project)")
     else:
         atomic_write_json(state_path, {
             "state": "RUNNING",
@@ -7860,7 +7892,11 @@ def cmd_audit_structure(args: argparse.Namespace) -> int:
         if len(content.strip()) < 200:
             issues.append("content < 200 chars")
         is_yaml = fpath.name.endswith(".yaml") or fpath.name.endswith(".yml")
-        if not is_yaml and content.count("\n## ") + content.count("\n# ") < 2:
+        if not is_yaml and (
+            content.count("\n# ")
+            + content.count("\n## ")
+            + content.count("\n### ")
+        ) < 2:
             issues.append("< 2 markdown sections")
         if phase_num in _FR_REF_PHASES and not _re.search(
             r"\[?(TASK|FR|NFR)-(\d+)\]?", content, _re.IGNORECASE

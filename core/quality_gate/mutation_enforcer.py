@@ -244,8 +244,10 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
     
     try:
         _copy_setup_cfg_to_workdir(project, workdir)
-        if cache_file.exists():
-            shutil.copy2(cache_file, workdir_cache)
+        # Do NOT copy existing .mutmut-cache into workdir: precheck must always
+        # perform a fresh run.  Inheriting an old cache causes mutmut to report
+        # previously-survived mutants as still-survived without re-testing them,
+        # inflating the survivor count and blocking advance-phase incorrectly.
 
         cmd = [
             "mutmut", "run",
