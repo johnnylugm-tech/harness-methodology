@@ -386,7 +386,7 @@ class PhaseHooks:
             from core.traceability.overlay import (
                 atomic_to_dict, load_overlay, merge_overlay,
             )
-            overlay = load_overlay(self.project_path)
+            overlay = load_overlay(self.project_path / ".methodology" / "TRACEABILITY_MATRIX.overlay.yaml")
             if overlay:
                 # merge_overlay expects an atomic dict (with "requirements" key),
                 # not the check_traceability report dict. Convert rt → atomic first.
