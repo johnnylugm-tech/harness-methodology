@@ -590,3 +590,94 @@ class TestPreflightGapAnalysis:
             assert result["passed"] is True
             # Should NOT have "P1/P2 — no gap analysis" skip reason
             assert result.get("reason") != "P1/P2 — no gap analysis"
+
+
+# ---------------------------------------------------------------------------
+# Overlay path resolution: must look at project root, not .methodology/
+# ---------------------------------------------------------------------------
+
+class TestOverlayPathResolution:
+    """Regression: preflight_traceability must load overlay from project root.
+
+    Bug: a previous fix passed ``self.project_path / ".methodology" /
+    TRACEABILITY_MATRIX.overlay.yaml"`` to ``load_overlay()``. The file does
+    NOT live there — every other call site (harness_cli.py,
+    scripts/build_trace_attestation.py, scripts/build_traceability.py)
+    uses the project root, and the module docstring + TRACEABILITY_MATRIX.md
+    both document the root path. The wrong path silently disabled the
+    overlay filter that drops manually-VERIFIED FRs from the untested list.
+    """
+
+    def _make_hooks(self, tmp_path, phase=3):
+        (tmp_path / "02-architecture").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "02-architecture" / "SAD.md").write_text(
+            "FR-01: implemented\nFR-02: manual\n"
+        )
+        (tmp_path / "mod_a.py").write_text('"""[FR-01]"""\n')
+        tests = tmp_path / "tests"
+        tests.mkdir(exist_ok=True)
+        (tests / "test_fr_01.py").write_text('"""[FR-01]"""\n')
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir(exist_ok=True)
+        (method_dir / "state.json").write_text(
+            f'{{"state": "ACTIVE", "current_phase": {phase}}}'
+        )
+        return PhaseHooks(str(tmp_path), phase=phase, enable_kill_switch=False)
+
+    def test_overlay_at_project_root_filters_untested(self, tmp_path):
+        """Overlay at project root: FRs marked Manual are dropped from untested list.
+
+        The preflight predicate (phase_hooks.py:395) checks
+        ``"Manual" in str(row.get("test_files", []))``. Putting the marker
+        in the overlay's test_files list is the documented way to flag an
+        FR as manually-tested. This test asserts the path fix (overlay at
+        project root) makes that filter actually fire.
+        """
+        h = self._make_hooks(tmp_path, phase=3)
+
+        # Baseline: FR-02 has no code/test → appears in untested/uncoded.
+        baseline = h.preflight_traceability()
+        assert "FR-02" in baseline["untested"], (
+            f"Sanity check: FR-02 should be untested without overlay, "
+            f"got {baseline['untested']!r}"
+        )
+
+        # Place overlay at project root (the documented location).
+        overlay = tmp_path / "TRACEABILITY_MATRIX.overlay.yaml"
+        overlay.write_text(
+            "schema: harness/traceability/overlay/v1\n"
+            "overrides:\n"
+            "  - fr_id: FR-02\n"
+            "    test_files:\n"
+            "      - \"Manual: documented in SRS §3.2\"\n"
+        )
+
+        h2 = self._make_hooks(tmp_path, phase=3)
+        result = h2.preflight_traceability()
+        assert "FR-02" not in result["untested"], (
+            f"Overlay at project root did not filter FR-02 from untested. "
+            f"This indicates the overlay path in phase_hooks.py is wrong. "
+            f"Got untested={result['untested']!r}"
+        )
+
+    def test_overlay_at_methodology_subdir_is_ignored(self, tmp_path):
+        """Overlay at .methodology/TRACEABILITY_MATRIX.overlay.yaml must NOT be loaded.
+
+        The previous (broken) fix looked here. Documented location is project root.
+        """
+        h = self._make_hooks(tmp_path, phase=3)
+
+        # Place overlay at the WRONG path only.
+        bad = tmp_path / ".methodology" / "TRACEABILITY_MATRIX.overlay.yaml"
+        bad.write_text(
+            "schema: harness/traceability/overlay/v1\n"
+            "overrides:\n"
+            "  - fr_id: FR-02\n"
+            "    status: verified\n"
+        )
+
+        result = h.preflight_traceability()
+        assert "FR-02" in result["untested"], (
+            f"Overlay at .methodology/ should NOT be loaded; FR-02 must remain "
+            f"in untested. Got untested={result['untested']!r}"
+        )
