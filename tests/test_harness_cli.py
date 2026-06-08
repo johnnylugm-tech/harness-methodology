@@ -1515,25 +1515,12 @@ class TestAdvancePreChecksAgentB:
         assert rc == 13
 
     def test_p6_approved_returns_0(self, tmp_path, monkeypatch):
-        """P6 with all deliverables APPROVE → advance proceeds (rc=0)."""
-        from harness_cli import _advance_prechecks, _PHASE_DELIVERABLES, _REQUIRED_EMBEDDED_DOCS
+        """P6 with all deliverables APPROVE → advance proceeds (rc=0).
 
-        self._mock_p6_non_ab_prechecks(tmp_path, monkeypatch)
-
-        approvals_dir = tmp_path / ".methodology" / "agent_b_approvals"
-        approvals_dir.mkdir(parents=True)
-        req_docs = _REQUIRED_EMBEDDED_DOCS[6]
-        for did in _PHASE_DELIVERABLES[6]:
-            (approvals_dir / f"{did}.json").write_text(
-                self._p6_approval(req_docs), encoding="utf-8"
-            )
-
-        rc = _advance_prechecks(tmp_path, completed_phase=6)
-        assert rc == 0
-
-    def test_p6_approval_filename_uses_basename_not_double_json(self, tmp_path, monkeypatch):
-        """quality_manifest deliverable → approval file is quality_manifest.json,
-        NOT quality_manifest.json.json (M1 regression guard).
+        Also guards against the M1 regression (quality_manifest double-extension):
+        if _PHASE_DELIVERABLES[6] goes back to "quality_manifest.json", the loop
+        creates quality_manifest.json.json — the first approval-file assertion fails
+        and rc would be 13 (not 0).
         """
         from harness_cli import _advance_prechecks, _PHASE_DELIVERABLES, _REQUIRED_EMBEDDED_DOCS
 
@@ -1547,7 +1534,9 @@ class TestAdvancePreChecksAgentB:
                 self._p6_approval(req_docs), encoding="utf-8"
             )
 
-        # Verify the approval file for quality_manifest is NOT double-extended
+        # M1 regression guard: quality_manifest approval must be quality_manifest.json,
+        # not quality_manifest.json.json (double-extension from using "quality_manifest.json"
+        # as the deliverable ID).
         assert (approvals_dir / "quality_manifest.json").exists(), (
             "approval file for quality_manifest must be quality_manifest.json"
         )
