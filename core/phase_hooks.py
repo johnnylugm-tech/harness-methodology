@@ -282,7 +282,7 @@ class PhaseHooks:
         if not sab_json.exists():
             if self.phase and self.phase >= 3:
                 print("   WARNING: .methodology/SAB.json not found — SAB baseline missing")
-                print("   Run: python3 scripts/generate_sab.py --project .")
+                print("   Run: python3 scripts/generate_sab.py --project . [--overwrite]")
                 return {"passed": False, "message": "SAB.json not found — generate from SAD.md §6"}
             else:
                 print("   SAB.json not yet generated (P1/P2 — expected)")

@@ -1168,6 +1168,7 @@ def _fr_dev_steps(fr_id: str, phase: int, project: Path) -> List[str]:
         "  ```bash",
         f"  python3 harness_cli.py spec-coverage-check --project . --threshold 40.0 --fr-id {fr_id}",
         "  python3 scripts/generate_sab.py --project .",
+        "  # Note: if SAB.json exists, append --overwrite to regenerate",
         "  ```",
         "",
         f"> 💡 **Crash recovery**: `python3 harness_cli.py resume-fr-phase --phase {phase} --project .`",
@@ -1201,6 +1202,7 @@ def _fr_carryforward_steps(fr_id: str, phase: int) -> List[str]:
         "  ```bash",
         f"  python3 harness_cli.py spec-coverage-check --project . --threshold 40.0 --fr-id {fr_id}",
         "  python3 scripts/generate_sab.py --project .",
+        "  # Note: if SAB.json exists, append --overwrite to regenerate",
         "  ```",
         "",
     ]
@@ -1984,6 +1986,7 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
         "  ```bash",
         "  python3 scripts/generate_sab.py --project .",
         "  ```",
+        "  > **Note**: If `SAB.json` already exists and needs regeneration, pass `--overwrite`.",
         "  - SAB.json contains all 14 fields from `SABSpec`:",
         "    version, created_at, phase, project, layers, allowed_dependencies,",
         "    quality_targets, nfr_dimension_mapping, nfr_traceability, advisory_only,",

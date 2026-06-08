@@ -166,4 +166,4 @@ sab:
 <!-- SAB:END -->
 
 Note: Fill in the YAML above — it is used for Drift Detection and gate scoring.
-Generate: `python3 scripts/generate_sab.py --project .`
+Generate: `python3 scripts/generate_sab.py --project . [--overwrite]`
