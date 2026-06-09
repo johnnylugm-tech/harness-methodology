@@ -131,12 +131,11 @@ def _build_defect_summary(quality_manifest: dict[str, Any],
     ]
 
 
-def _build_architecture_section(project: Path) -> list[str]:
-    """CRG architecture overview — communities + cross-community coupling warnings.
+def _crg_call(project: Path, func: str, **kwargs) -> dict:
+    """Call a CRG tools function via the subprocess backend; {} on any failure.
 
-    Explains *why* the architecture dimension scored as it did (coupling hotspots,
-    oversized/low-cohesion communities) instead of just a bare number. Uses the
-    crg_api subprocess backend so it works outside an interactive Claude session.
+    generate_quality_report runs both standalone and imported by harness_cli, so
+    ensure the repo root (which contains the `harness` package) is importable.
     """
     try:
         import sys as _sys
@@ -144,10 +143,18 @@ def _build_architecture_section(project: Path) -> list[str]:
         if _repo_root not in _sys.path:
             _sys.path.insert(0, _repo_root)
         from harness.crg_api import call_crg_tool
-        overview = call_crg_tool(str(project), "get_architecture_overview_func")
-    except Exception as exc:  # CRG absent / failed → informational, never blocking
-        return [f"_CRG architecture overview unavailable: {str(exc)[:120]}_", ""]
+        return call_crg_tool(str(project), func, **kwargs) or {}
+    except Exception:  # CRG absent / failed → informational, never blocking
+        return {}
 
+
+def _build_architecture_section(project: Path) -> list[str]:
+    """CRG architecture overview — communities + cross-community coupling warnings.
+
+    Explains *why* the architecture dimension scored as it did instead of just a
+    bare number. Uses the crg_api subprocess backend (works outside Claude Code).
+    """
+    overview = _crg_call(project, "get_architecture_overview_func")
     if not overview or overview.get("status") != "ok":
         return ["_CRG architecture overview unavailable._", ""]
 
@@ -167,6 +174,29 @@ def _build_architecture_section(project: Path) -> list[str]:
         out.append("**Coupling / cohesion warnings:**")
         out.extend(f"- ⚠ {w}" for w in warnings)
         out.append("")
+    return out
+
+
+def _build_dead_code_section(project: Path) -> list[str]:
+    """CRG dead-code candidates — advisory (framework callbacks may be false positives)."""
+    result = _crg_call(project, "refactor_func", mode="dead_code")
+    if not result or result.get("status") != "ok":
+        return ["_Dead-code analysis unavailable._", ""]
+    dead = result.get("dead_code", [])
+    if not dead:
+        return ["_No dead-code candidates found._", ""]
+    out = [
+        f"{result.get('summary', '')} "
+        "_(advisory — verify before removing; framework callbacks / entrypoints "
+        "can be false positives)_",
+        "",
+        "| Symbol | Kind | File |",
+        "|---|---|---|",
+    ]
+    for d in dead[:20]:
+        rel = d.get("relative_path") or d.get("file_path") or d.get("file", "?")
+        out.append(f"| {d.get('name', '?')} | {d.get('kind', '?')} | `{rel}` |")
+    out.append("")
     return out
 
 
@@ -219,6 +249,13 @@ def generate_quality_report(project_root: str,
         "",
     ])
     lines.extend(_build_architecture_section(project))
+
+    lines.extend([
+        "",
+        "### Dead Code Candidates (CRG)",
+        "",
+    ])
+    lines.extend(_build_dead_code_section(project))
 
     lines.extend([
         "",

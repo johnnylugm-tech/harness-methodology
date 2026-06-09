@@ -56,3 +56,24 @@ def test_graceful_when_status_not_ok(tmp_path):
     with patch("harness.crg_api.call_crg_tool", return_value={"status": "error"}):
         out = gqr._build_architecture_section(tmp_path)
     assert "unavailable" in "\n".join(out)
+
+
+def test_dead_code_section_lists_candidates(tmp_path):
+    fake = {
+        "status": "ok", "summary": "Found 2 dead code symbol(s).",
+        "dead_code": [
+            {"name": "unused_fn", "kind": "Function", "relative_path": "src/x.py"},
+        ],
+    }
+    with patch("harness.crg_api.call_crg_tool", return_value=fake):
+        text = "\n".join(gqr._build_dead_code_section(tmp_path))
+    assert "Found 2 dead code" in text
+    assert "unused_fn" in text and "src/x.py" in text
+    assert "advisory" in text  # false-positive caveat present
+
+
+def test_dead_code_section_none_found(tmp_path):
+    with patch("harness.crg_api.call_crg_tool",
+               return_value={"status": "ok", "dead_code": []}):
+        text = "\n".join(gqr._build_dead_code_section(tmp_path))
+    assert "No dead-code candidates" in text
