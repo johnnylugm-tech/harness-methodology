@@ -626,6 +626,38 @@ def _check_test_skip_ratio(raw: dict, threshold: float = 0.10) -> str | None:
 # S4: Harness cross-validation (Solution B)
 # ---------------------------------------------------------------------------
 
+def _architecture_regression_reason(
+    project_root: str, gate_num: int, config, crg_metrics: dict,
+) -> "str | None":
+    """Return a hard-block reason if architecture regressed vs the prior baseline.
+
+    At Gate 4 (P6 exit) the current CRG metrics are compared against
+    crg_baseline_p4.json via compute_structural_drift; drift ≥
+    config.crg.drift_threshold (default 0.4) is a hard regression even when the
+    absolute architecture score still clears its threshold. Returns None when not
+    applicable (other gates, missing baseline, or within threshold). Mirrors the
+    CI crg-arch-check drift gate so local and CI agree.
+    """
+    if gate_num != 4:
+        return None
+    bl_path = Path(project_root) / ".methodology" / "crg_baseline_p4.json"
+    if not bl_path.is_file():
+        return None
+    crg_cfg = (config.get("crg", {}) if isinstance(config, dict)
+               else getattr(config, "crg", {})) or {}
+    dthr = float(crg_cfg.get("drift_threshold", 0.4))
+    try:
+        from harness.ssi.scripts.crg_analysis import compute_structural_drift
+        bl = json.loads(bl_path.read_text(encoding="utf-8"))
+        drift = compute_structural_drift(bl, crg_metrics)
+    except Exception:
+        return None
+    if drift >= dthr:
+        return (f"structural drift {drift:.2f} ≥ {dthr:.2f} vs P4 baseline "
+                f"({bl.get('_baseline_sha', '?')[:8]})")
+    return None
+
+
 def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
     """S4: Run tools independently and cross-validate agent-reported scores.
 
@@ -1784,6 +1816,24 @@ class HarnessBridge:
                     ),
                     details={"crg_independent_failed": [str(_crg_err)]},
                 ) from _crg_err
+
+            # Hard regression block (interactive gate — mirrors CI crg-arch-check):
+            # architecture must not regress vs the prior exit baseline even if its
+            # absolute score still clears the threshold.
+            _arch_reg = _architecture_regression_reason(
+                ctx.project_root, ctx.gate_num, ctx.config, _crg_m
+            )
+            if _arch_reg:
+                raise GateBlockedError(
+                    ctx.gate_num,
+                    GateResult(
+                        gate_num=ctx.gate_num, score=0.0, dimensions=[],
+                        open_critical=1, open_high=0,
+                        quality_complete=False, rounds_used=0,
+                    ),
+                    details={"architecture_regression": [_arch_reg]},
+                )
+
             if _arch_score is not None:
                 _new_dims = []
                 for _d in dims:
