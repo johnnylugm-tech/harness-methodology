@@ -4145,6 +4145,36 @@ def _check_gate1_live_coverage(project: Path, completed_phase: int) -> int:
     return 0
 
 
+def _check_deferred_fixes_resolved(project: Path) -> int:
+    """Hard-block advance if deferred_fixes.md has unresolved items (Stage 5).
+
+    Deferred fixes are escape-hatch debt from the CASE PLATEAU protocol — they
+    close the quality loop only if they are actually resolved before leaving the
+    phase (the audit found they were created but never enforced). Items are
+    marked '- [ ]' (open) / '- [x]' (resolved); any open item blocks advance.
+    Legacy free-text files with no checkboxes are treated as resolved
+    (backward-compatible).
+
+    Returns 0 if clear, 17 if unresolved deferred items remain.
+    """
+    dpath = project / ".methodology" / "deferred_fixes.md"
+    if not dpath.exists():
+        return 0
+    try:
+        content = dpath.read_text(encoding="utf-8")
+    except OSError:
+        return 0
+    open_items = re.findall(r"^\s*-\s*\[ \]\s*(.+)$", content, re.MULTILINE)
+    if open_items:
+        print(f"\n[BLOCKED] {len(open_items)} unresolved deferred fix(es) in "
+              ".methodology/deferred_fixes.md:")
+        for _it in open_items[:10]:
+            print(f"    - [ ] {_it.strip()}")
+        print("  Resolve each item, then mark it '- [x]' (with evidence) before advancing.")
+        return 17
+    return 0
+
+
 def _advance_prechecks(project: Path, completed_phase: int) -> int:
     """Run pre-advance checks: Agent B approvals, gate variance, Phase Truth,
     PhaseAuditor C1-C12, TDD.
@@ -4158,6 +4188,7 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
       14 = Gate 1 per-FR coverage incomplete (P3+)
       15 = Phase{N+1}_plan.md not found (generate-next-plan not run)
       16 = Constitution postflight below phase threshold (all phases)
+      17 = Unresolved deferred fixes in deferred_fixes.md (P3+)
     """
     # ── P1 checksum: TEST_INVENTORY.yaml baseline ────────────────────
     if completed_phase == 1:
@@ -4183,6 +4214,12 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
     # ── Gate score variance check ─────────────────────────────────────
     if completed_phase >= 3:
         _rc = _check_gate_score_variance(project, completed_phase)
+        if _rc != 0:
+            return _rc
+
+    # ── Deferred-fix closure (P3+) — close the quality loop ────────────
+    if completed_phase >= 3:
+        _rc = _check_deferred_fixes_resolved(project)
         if _rc != 0:
             return _rc
 

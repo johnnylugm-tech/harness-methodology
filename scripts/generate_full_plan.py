@@ -1611,7 +1611,7 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
         "4. Update `.sessi-work/gate{gate_num}_result.json` with new scores",
         f"5. Re-run: `python3 harness_cli.py finalize-gate --gate {gate_num} --phase {phase} --project .`",
         f"6. Repeat until CASE 1 PASS or {meta[1]} fix rounds exhausted",
-        "7. If stuck after 3 rounds: write `.methodology/deferred_fixes.md` with remaining dims and escalate",
+        "7. If stuck after 3 rounds: write `.methodology/deferred_fixes.md` with each remaining dim as a checkbox item ('- [ ] <dim>: <reason>'); every item MUST be resolved and marked '- [x]' before advance-phase (hard-blocked, exit 17, otherwise), then escalate",
         "",
     ]
     phase_truth_step = (
