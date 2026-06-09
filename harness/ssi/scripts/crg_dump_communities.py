@@ -40,14 +40,22 @@ def main() -> int:
 
     # ── communities (required) ────────────────────────────────────────
     resp = t.list_communities_func(repo_root=repo)
-    communities = [
-        {
+    communities = []
+    for c in resp.get("communities", []):
+        # Deduplicate file paths from member nodes ("path/to/file.py::Symbol").
+        # Passed to compute_community_cohesion_score so it can exclude test-only
+        # and non-product communities (e.g. .methodology/) by path rather than
+        # by community name alone.
+        members = c.get("members") or c.get("nodes") or []
+        files: list[str] = list(dict.fromkeys(
+            m.split("::")[0] for m in members if "::" in m
+        ))
+        communities.append({
             "name": c.get("name", "unknown"),
             "cohesion": c.get("cohesion", 1.0),
             "size": c.get("size", 0),
-        }
-        for c in resp.get("communities", [])
-    ]
+            "files": files[:30],  # cap to keep JSON small; enough for path detection
+        })
 
     # ── large functions ≥ 500 lines (optional — gatekeeper Phase 1) ──
     large_functions_critical: list[dict] = []

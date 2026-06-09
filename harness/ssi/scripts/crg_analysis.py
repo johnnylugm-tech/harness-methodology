@@ -114,13 +114,29 @@ def compute_community_cohesion_score(communities: list) -> dict:
     if not communities:
         return {"score": 100, "healthy": 0, "total": 0, "unhealthy": []}
 
-    # Exclude test-only communities — they reflect test harness layout,
-    # not architecture. Detection: community name starts with tests/test.
-    _scored_communities = [
-        c for c in communities
-        if not (c.get("name", "").split("-")[0] in ("tests", "test")
-                or (c.get("name", "") or "").startswith("test_"))
-    ]
+    # Exclude non-product communities from architecture scoring.
+    # Two detection strategies (either is sufficient):
+    #   Name-based: community name starts with "tests", "test", or "test_" —
+    #     catches the primary test blob which is always named this way.
+    #   Path-based: >50 % of the community's files are in a tests/ directory
+    #     or under .methodology/ — catches integration-test communities whose
+    #     name doesn't start with "test" (e.g. "integration-returns") and
+    #     methodology helper files that are not product code.
+    def _is_non_product(c: dict) -> bool:
+        name = c.get("name", "")
+        if (name.split("-")[0] in ("tests", "test") or name.startswith("test_")):
+            return True
+        files: list[str] = c.get("files", [])
+        if files:
+            non_product = sum(
+                1 for f in files
+                if "/tests/" in f or "/test_" in f or "/.methodology/" in f
+            )
+            if non_product > len(files) / 2:
+                return True
+        return False
+
+    _scored_communities = [c for c in communities if not _is_non_product(c)]
     _excluded = len(communities) - len(_scored_communities)
 
     unhealthy = []
