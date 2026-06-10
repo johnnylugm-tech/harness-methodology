@@ -197,14 +197,91 @@ def _paths_to_exclude_flag(excludes: list[str]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def run_mutation_precheck(project: Path) -> tuple[bool, str]:
-    """Run mutmut and enforce no surviving mutants.
+def run_stryker_precheck(project: Path) -> tuple[bool, str]:
+    """StrykerJS TDD-PRECHECK for js/ts projects.
 
-    Implements the full protocol from ``evaluate_dimension.md``:
+    Runs ``npx --no-install stryker run`` (project config: stryker.conf.json,
+    copied by init-project) and enforces zero surviving mutants from the
+    jsonReporter output (reports/mutation/mutation.json). Same contract as the
+    mutmut path: (True, "") on pass, (False, reason) on any failure — a
+    missing tool, a crashed run, or survivors all block.
+    """
+    import json as _json
+
+    probe = subprocess.run(
+        ["npx", "--no-install", "stryker", "--version"],
+        cwd=project, capture_output=True, text=True, timeout=60,
+    )
+    if probe.returncode != 0:
+        return False, (
+            "StrykerJS not installed. Required for TDD-PRECHECK.\n"
+            "Install the pinned devDependencies (templates/js_toolchain/"
+            "package.json) and run: npm ci"
+        )
+
+    report_path = project / "reports" / "mutation" / "mutation.json"
+    try:
+        r = subprocess.run(
+            ["npx", "--no-install", "stryker", "run"],
+            cwd=project, capture_output=True, text=True,
+            timeout=3600,  # 60 min hard cap — same budget as the mutmut path
+        )
+    except subprocess.TimeoutExpired:
+        return False, (
+            "stryker timed out after 60 minutes. The test suite may be too "
+            "slow per mutant; narrow the `mutate` globs in stryker.conf.json."
+        )
+
+    if r.returncode != 0 and not report_path.exists():
+        return False, (
+            f"stryker run crashed (return code {r.returncode}).\n\n"
+            f"STDOUT:\n{r.stdout.strip()[-2000:]}\n\n"
+            f"STDERR:\n{r.stderr.strip()[-2000:]}"
+        )
+
+    if not report_path.exists():
+        return False, (
+            "stryker produced no reports/mutation/mutation.json — ensure "
+            "stryker.conf.json keeps the json reporter (jsonReporter.fileName)."
+        )
+
+    try:
+        report = _json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, _json.JSONDecodeError) as e:
+        return False, f"cannot parse stryker mutation.json: {e}"
+
+    survived: list[str] = []
+    for file_path, file_data in (report.get("files") or {}).items():
+        for mutant in file_data.get("mutants", []):
+            if mutant.get("status") == "Survived":
+                loc = (mutant.get("location") or {}).get("start") or {}
+                survived.append(
+                    f"{file_path}:{loc.get('line', '?')} "
+                    f"{mutant.get('mutatorName', '?')}"
+                )
+    if survived:
+        listing = "\n".join(f"  - {s}" for s in survived[:20])
+        more = f"\n  ... and {len(survived) - 20} more" if len(survived) > 20 else ""
+        return False, (
+            f"Mutation testing failed: {len(survived)} surviving mutant(s) found.\n"
+            f"{listing}{more}"
+        )
+    return True, ""
+
+
+def run_mutation_precheck(project: Path) -> tuple[bool, str]:
+    """Run the language's mutation tool and enforce no surviving mutants.
+
+    python — full mutmut protocol from ``evaluate_dimension.md``:
     editable-install detection, ``-b 10`` baseline budget, cwd isolation
     via temp dir, absolute testpaths, data-only file auto-exclusion, and
     ``paths_to_exclude`` CLI passthrough (Bug G).
+    js/ts — StrykerJS via :func:`run_stryker_precheck` (mutation.json report).
     """
+    from core.utils.lang_patterns import project_language
+    if project_language(project) in ("javascript", "typescript"):
+        return run_stryker_precheck(project)
+
     if not shutil.which("mutmut"):
         return False, (
             "mutmut not installed. Required for TDD-PRECHECK. "

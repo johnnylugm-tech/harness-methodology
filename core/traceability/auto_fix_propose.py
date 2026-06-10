@@ -31,16 +31,25 @@ PROPOSED_DIFF_NAME = "proposed_fix.diff"
 # ---------------------------------------------------------------------------
 
 def _closest_module(fr_id: str, fr_section_text: str,
-                    project: Path) -> Optional[Path]:
-    """Return the path of the closest existing core module to the FR.
+                    project: Path, language: str = "python") -> Optional[Path]:
+    """Return the path of the closest existing source module to the FR.
 
     Conservative: only returns a path if the section text has any
-    alphanumeric tokens that overlap with a `core/**/*.py` filename stem.
+    alphanumeric tokens that overlap with a source filename stem. Searches
+    core/ (python convention) then src/ and 03-development/src.
     """
-    core = project / "core"
-    if not core.is_dir():
-        return None
-    candidates: List[Path] = list(core.rglob("*.py"))
+    from core.utils.lang_patterns import source_extensions
+    exts = source_extensions(language)
+    candidates: List[Path] = []
+    for rel in ("core", "src", "03-development/src"):
+        base = project / rel
+        if not base.is_dir():
+            continue
+        candidates.extend(
+            p for p in base.rglob("*")
+            if p.is_file() and p.suffix.lower() in exts
+            and "node_modules" not in p.parts
+        )
     if not candidates:
         return None
 
@@ -59,8 +68,25 @@ def _closest_module(fr_id: str, fr_section_text: str,
     return best[1]
 
 
-def _stub_test_content(fr_id: str, project: Path) -> str:  # noqa: ARG001
+def _stub_test_content(
+    fr_id: str, project: Path, language: str = "python",  # noqa: ARG001
+    test_runner: Optional[str] = None,
+) -> str:
     safe = fr_id.lower().replace("-", "_")
+    if language in ("javascript", "typescript"):
+        # vitest imports its API; jest provides it()/expect() as globals.
+        import_line = (
+            "" if test_runner == "jest"
+            else 'import { it, expect } from "vitest";\n'
+        )
+        return (
+            f"// {fr_id} auto-generated stub (PR 5 traceability auto-fix). [{fr_id}]\n"
+            f"{import_line}"
+            f'it("test_{safe}_placeholder", () => {{\n'
+            f"  // TODO: replace with a real test for {fr_id}\n"
+            f"  expect(true).toBe(true);\n"
+            f"}});\n"
+        )
     return (
         f'"""{fr_id} auto-generated stub (PR 5 traceability auto-fix). [{fr_id}]"""\n'
         f"\n"
@@ -74,12 +100,13 @@ def _stub_test_content(fr_id: str, project: Path) -> str:  # noqa: ARG001
 # Diff generation
 # ---------------------------------------------------------------------------
 
-def _build_annotation_block(fr_id: str) -> str:
+def _build_annotation_block(fr_id: str, language: str = "python") -> str:
+    comment = "//" if language in ("javascript", "typescript") else "#"
     return (
-        f"\n# === Auto-added by PR 5 traceability auto-fix ===\n"
-        f"# Implements: {fr_id}\n"
-        f"# Reason: {fr_id} had no [FR-XX] annotation in any source file.\n"
-        f"# {fr_id}\n"
+        f"\n{comment} === Auto-added by PR 5 traceability auto-fix ===\n"
+        f"{comment} Implements: {fr_id}\n"
+        f"{comment} Reason: {fr_id} had no [FR-XX] annotation in any source file.\n"
+        f"{comment} {fr_id}\n"
     )
 
 
@@ -143,12 +170,26 @@ def propose_fixes(rt, report: dict, project: Path) -> str:  # noqa: ARG001 (rt a
     The diff is well-formed: `git apply --check <diff>` accepts it on a
     clean tree. Never modifies the source tree itself — the caller applies.
     """
+    from core.utils.lang_patterns import project_language
+
     diffs: List[str] = []
     diffs.append(
         "--- proposed_fix.diff (PR 5 traceability auto-fix)\n"
         "--- Apply with: git apply .methodology/trace/proposed_fix.diff\n"
         "--- Review:    cat .methodology/trace/proposed_fix.diff\n\n"
     )
+
+    language = project_language(project)
+    test_runner = None
+    if language in ("javascript", "typescript"):
+        import json as _json
+        try:
+            _state = _json.loads(
+                (project / ".methodology" / "state.json").read_text(encoding="utf-8")
+            )
+            test_runner = _state.get("test_runner")
+        except (OSError, _json.JSONDecodeError):
+            pass
 
     layout = ProjectLayout(project)
     sad_section_for_fr: Dict[str, str] = {}
@@ -166,19 +207,34 @@ def propose_fixes(rt, report: dict, project: Path) -> str:  # noqa: ARG001 (rt a
             if m:
                 sad_section_for_fr[fr_id] = m.group(1)[:500]  # cap
 
+    if language == "typescript":
+        src_ext, test_suffix = ".ts", ".test.ts"
+        fallback_dir = "src"
+    elif language == "javascript":
+        src_ext, test_suffix = ".js", ".test.js"
+        fallback_dir = "src"
+    else:
+        src_ext, test_suffix = ".py", ".py"
+        fallback_dir = "core"
+
     for fr_id in report.get("uncoded", []):
-        target = _closest_module(fr_id, sad_section_for_fr.get(fr_id, ""), project)
+        target = _closest_module(
+            fr_id, sad_section_for_fr.get(fr_id, ""), project, language
+        )
         if target is None:
-            target = project / "core" / f"auto_{fr_id.lower().replace('-', '_')}.py"
+            target = (project / fallback_dir
+                      / f"auto_{fr_id.lower().replace('-', '_')}{src_ext}")
         rel = str(target.relative_to(project))
         diffs.append(_diff_append_to_existing(
-            rel, _build_annotation_block(fr_id)
+            rel, _build_annotation_block(fr_id, language)
         ))
 
     test_dir_str = layout.get_relative_str(layout.active_test_dir)
     for fr_id in report.get("untested", []):
-        rel = f"{test_dir_str}/test_{fr_id.lower().replace('-', '_')}.py"
-        diffs.append(_diff_new_file(rel, _stub_test_content(fr_id, project)))
+        rel = f"{test_dir_str}/test_{fr_id.lower().replace('-', '_')}{test_suffix}"
+        diffs.append(_diff_new_file(
+            rel, _stub_test_content(fr_id, project, language, test_runner)
+        ))
 
     return "".join(diffs)
 

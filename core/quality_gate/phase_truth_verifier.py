@@ -139,12 +139,20 @@ class PhaseTruthVerifier:
         return 300
 
     def check_pytest(self) -> Tuple[bool, float, str]:
-        """Check pytest actually passes; capture structured failure output."""
+        """Check the test suite actually passes; capture structured failure output.
+
+        Name kept for report-key stability; js/ts projects dispatch to the
+        vitest/jest runner (state.json `language`/`test_runner`).
+        """
+        from core.utils.lang_patterns import project_language
+        if project_language(self.project_root) in ("javascript", "typescript"):
+            return self._check_tests_js()
+
         layout = ProjectLayout(self.project_root)
         test_target = "."
         if layout.active_test_dir.is_dir():
             test_target = layout.get_relative_str(layout.active_test_dir)
-            
+
         try:
             timeout = self._get_pytest_timeout()
             result = subprocess.run(  # nosec B603 B607
@@ -172,6 +180,74 @@ class PhaseTruthVerifier:
         except Exception as e:
             return False, 0.0, f"Error: {e}"
 
+    def _js_runner_argv(self, *, coverage: bool) -> list:
+        """vitest/jest argv for test (or coverage) runs — npx --no-install only."""
+        runner = "vitest"
+        try:
+            state = json.loads(
+                (ProjectLayout(self.project_root).state_json_path)
+                .read_text(encoding="utf-8")
+            )
+            runner = state.get("test_runner") or "vitest"
+        except (OSError, json.JSONDecodeError):
+            pass
+        if runner == "jest":
+            argv = ["npx", "--no-install", "jest", "--ci"]
+            if coverage:
+                argv += ["--coverage", "--coverageReporters=json-summary",
+                         "--coverageReporters=text"]
+        else:
+            argv = ["npx", "--no-install", "vitest", "run", "--reporter=basic"]
+            if coverage:
+                argv += ["--coverage", "--coverage.reporter=json-summary",
+                         "--coverage.reporter=text"]
+        return argv
+
+    def _check_tests_js(self) -> Tuple[bool, float, str]:
+        """js/ts variant of check_pytest — run the project's test runner."""
+        try:
+            result = subprocess.run(  # nosec B603 B607
+                self._js_runner_argv(coverage=False),
+                cwd=self.project_root,
+                capture_output=True,
+                text=True,
+                timeout=self._get_pytest_timeout(),
+            )
+            passed = result.returncode == 0
+            if passed:
+                return True, 100.0, "test suite all passed"
+            failures = _parse_failure_count(result.stdout + result.stderr)
+            return False, 0.0, f"test suite has {failures} failure(s)"
+        except subprocess.TimeoutExpired:
+            return False, 0.0, "test suite execution timed out"
+        except FileNotFoundError:
+            return False, 0.0, "npx/node not found"
+        except Exception as e:
+            return False, 0.0, f"Error: {e}"
+
+    def _check_coverage_js(self, threshold: int) -> Tuple[bool, float, str]:
+        """js/ts variant of check_coverage — json-summary artifact is truth."""
+        try:
+            subprocess.run(  # nosec B603 B607
+                self._js_runner_argv(coverage=True),
+                cwd=self.project_root,
+                capture_output=True,
+                text=True,
+                timeout=self._get_pytest_timeout(),
+            )
+            summary_path = (
+                Path(self.project_root) / "coverage" / "coverage-summary.json"
+            )
+            coverage = 0
+            if summary_path.exists():
+                data = json.loads(summary_path.read_text(encoding="utf-8"))
+                coverage = int(float(data["total"]["lines"]["pct"]))
+            passed = coverage >= threshold
+            score = min(100.0, coverage) if passed else coverage
+            return passed, float(score), f"coverage {coverage}% (threshold {threshold}%)"
+        except Exception as e:
+            return False, 0.0, f"Error: {e}"
+
     def _get_coverage_threshold(self) -> int:
         """Return the coverage threshold for the current phase.
 
@@ -190,6 +266,10 @@ class PhaseTruthVerifier:
         threshold = self._get_coverage_threshold()
         if threshold == 0:
             return True, 100.0, "No coverage requirement for P1-P2"
+
+        from core.utils.lang_patterns import project_language
+        if project_language(self.project_root) in ("javascript", "typescript"):
+            return self._check_coverage_js(threshold)
 
         from core.quality_gate.cov_utils import read_coveragerc_source  # pyright: ignore[reportMissingImports]
         cov_source = read_coveragerc_source(self.project_root)
