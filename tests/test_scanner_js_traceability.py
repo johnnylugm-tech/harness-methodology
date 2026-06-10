@@ -129,6 +129,27 @@ class TestMirrorGateJs:
         violations = check_test_mirrors_spec_js("it('x', () => {", [], [])
         assert violations[0].check_type == "test_unparseable"
 
+    def test_tsx_dialect_parses_jsx_test(self):
+        from core.quality_gate.red_assertion_check import check_test_mirrors_spec_js
+        src = (
+            'it("test_fr01_renders", () => { '
+            'const el = <Foo />; expect(el).toBeTruthy(); });\n'
+        )
+        violations = check_test_mirrors_spec_js(src, [], self._assertions(),
+                                                dialect="tsx")
+        # No parse error AND it() is present → only the review-info items.
+        assert [v.severity for v in violations] == ["info"]
+        assert violations[0].check_type == "js_predicate_review"
+
+    def test_javascript_dialect_routes_to_js_grammar(self):
+        from core.quality_gate.red_assertion_check import check_test_mirrors_spec_js
+        # Pure JS — no TS-only syntax. Must parse under the JS grammar and
+        # NOT raise. (Previously the test suite only covered typescript.)
+        src = 'it("test_fr01_x", () => { expect(1).toBe(1); });\n'
+        violations = check_test_mirrors_spec_js(src, [], self._assertions(),
+                                                dialect="javascript")
+        assert [v.severity for v in violations] == ["info"]
+
 
 class TestTraceDirtyStateJs:
     def test_js_test_mtime_triggers_staleness(self, tmp_path):

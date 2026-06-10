@@ -178,6 +178,27 @@ class TestLanguageDetection:
         pkg.write_text("{}", encoding="utf-8")
         assert detect_test_runner(tmp_path) is None
 
+    def test_runner_detection_via_scripts(self, tmp_path):
+        # Script-based detection: a project with no devDependencies but a
+        # `test: vitest run` script must still detect as vitest (and jest
+        # likewise). Exhaustive coverage of the pkg.get("scripts") branch.
+        pkg = tmp_path / "package.json"
+        pkg.write_text(json.dumps({"scripts": {"test": "vitest run"}}),
+                       encoding="utf-8")
+        assert detect_test_runner(tmp_path) == "vitest"
+        pkg.write_text(json.dumps({"scripts": {"test": "jest"}}),
+                       encoding="utf-8")
+        assert detect_test_runner(tmp_path) == "jest"
+        # Script alone, both vitest and jest in same string → ambiguous.
+        pkg.write_text(json.dumps(
+            {"scripts": {"test": "jest -- && vitest run"}}),
+            encoding="utf-8")
+        assert detect_test_runner(tmp_path) is None
+        # Non-string script values are ignored (no crash).
+        pkg.write_text(json.dumps({"scripts": {"test": ["vitest"]}}),
+                       encoding="utf-8")
+        assert detect_test_runner(tmp_path) is None
+
     def test_state_json_language_roundtrip(self, tmp_path):
         meth = tmp_path / ".methodology"
         meth.mkdir()
