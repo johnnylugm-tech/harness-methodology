@@ -130,8 +130,10 @@ class TestScoreJsBench:
         out = json.dumps({"benchmarks": [{"name": "x", "mean_ms": 10}]})
         assert compute_tool_score("js-bench", out, 0) == 100.0
 
-    def test_empty_bench_set_scores_100(self):
-        assert compute_tool_score("js-bench", '{"benchmarks": []}', 0) == 100.0
+    def test_empty_bench_set_is_na_not_a_pass(self):
+        # No benchmarks registered → None (dimension N/A), parity with
+        # pytest-benchmark exit 5. An empty stub must NOT grant a free 100.
+        assert compute_tool_score("js-bench", '{"benchmarks": []}', 0) is None
 
     def test_missing_bench_script_returns_none(self):
         out = "node: Cannot find module '/proj/benchmarks/run.mjs'"
@@ -142,13 +144,12 @@ class TestScoreJsBench:
 
 class TestArtifactAppend:
     def test_output_artifact_is_appended_after_marker(self, tmp_path, monkeypatch):
-        coverage_dir = tmp_path / "coverage"
-        coverage_dir.mkdir()
-        (coverage_dir / "coverage-summary.json").write_text(
-            COVERAGE_ARTIFACT, encoding="utf-8"
-        )
-
+        # A real run writes coverage-summary.json itself; the fake run does the
+        # same so the freshly-written artifact is appended.
         def fake_run(cmd, **kwargs):
+            cov = tmp_path / "coverage"
+            cov.mkdir(exist_ok=True)
+            (cov / "coverage-summary.json").write_text(COVERAGE_ARTIFACT, encoding="utf-8")
             return subprocess.CompletedProcess(cmd, 0, stdout="3 passed", stderr="")
 
         monkeypatch.setattr(subprocess, "run", fake_run)
@@ -156,6 +157,22 @@ class TestArtifactAppend:
         assert rc == 0
         assert _ARTIFACT_MARKER in out
         assert compute_tool_score("vitest-cov", out, rc) == 85.5
+
+    def test_stale_artifact_deleted_when_run_writes_nothing(self, tmp_path, monkeypatch):
+        # A prior run left coverage-summary.json; this run crashes before
+        # rewriting it. The stale file must be deleted, not scored as current.
+        cov = tmp_path / "coverage"
+        cov.mkdir()
+        (cov / "coverage-summary.json").write_text(COVERAGE_ARTIFACT, encoding="utf-8")
+
+        def fake_run(cmd, **kwargs):
+            return subprocess.CompletedProcess(cmd, 1, stdout="FAIL", stderr="")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        out, rc = run_tool("vitest-cov", str(tmp_path))
+        assert _ARTIFACT_MARKER not in out
+        assert not (cov / "coverage-summary.json").exists()
+        assert compute_tool_score("vitest-cov", out, rc) == 0.0
 
     def test_missing_artifact_keeps_plain_output(self, tmp_path, monkeypatch):
         def fake_run(cmd, **kwargs):

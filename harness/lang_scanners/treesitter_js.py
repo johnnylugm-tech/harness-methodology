@@ -219,7 +219,13 @@ def _file_has_handler(tree, source: bytes) -> bool:
                 return True
         elif node.type == "member_expression":
             prop = node.child_by_field_name("property")
-            if prop is not None and _node_text(prop, source) == "catch":
+            if prop is None or _node_text(prop, source) != "catch":
+                continue
+            # Only a promise rejection handler `x.catch(fn)` counts — a bare
+            # property read `obj.catch` is not error handling.
+            parent = node.parent
+            if (parent is not None and parent.type == "call_expression"
+                    and parent.child_by_field_name("function") == node):
                 return True
     return False
 
@@ -287,6 +293,24 @@ def _exported_name(decl, source: bytes) -> str:
     return "<anonymous>"
 
 
+def _lexical_is_callable(decl) -> bool:
+    """True if `export const x = ...` binds a function/arrow (not a data value).
+
+    Parity with python_ast.run_docstrings, which counts public def/class but
+    NOT module-level constants — `export const TABLE = {...}` is a value, not a
+    documentable callable, and must not inflate the doc-coverage denominator.
+    """
+    for sub in decl.named_children:
+        if sub.type == "variable_declarator":
+            value = sub.child_by_field_name("value")
+            if value is not None and value.type in (
+                "arrow_function", "function_expression",
+                "generator_function",
+            ):
+                return True
+    return False
+
+
 def run_doc_coverage(project_root: str) -> tuple[str, int]:
     """JSDoc coverage of the exported (public) surface.
 
@@ -318,6 +342,11 @@ def run_doc_coverage(project_root: str) -> tuple[str, int]:
                                  "abstract_class_declaration",
                                  "generator_function_declaration",
                                  "lexical_declaration"):
+                    # Value exports (export const X = 5) are not documentable
+                    # callables — skip them for Python def/class parity.
+                    if (decl.type == "lexical_declaration"
+                            and not _lexical_is_callable(decl)):
+                        continue
                     name = _exported_name(decl, source)
                     if name.startswith("_"):
                         continue

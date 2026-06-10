@@ -197,3 +197,16 @@ fixture 測不出 CLI 介面變動。
 **環境注意**:semgrep / tree-sitter 裝在 harness 的 Python 環境;`run_tool` 以
 ambient PATH 執行 — harness 環境未 activate 時 semgrep 會報 rc=-3(Tool not
 found),S2 preflight 會先擋下,非 silent failure。
+
+**Review 修正(code review pass)**:
+- `js-bench` 空 benchmark 集合(模板 `run.mjs` 未註冊任何 case)原本回 100(免費過),
+  改為回 **None**(維度 N/A,對齊 pytest exit-5)。新增語言的 benchmark scorer 都要遵守
+  「沒測到 = N/A,不是 pass」。
+- `js-doc-coverage` 原本把 `export const X = 5` 這類**值常數**計入分母,改為只計
+  function/arrow 綁定的 export(對齊 Python 只算 def/class)。
+- `run_tool` 在跑工具前先刪除 `output_artifact`(coverage-summary.json),避免上次的
+  陳舊報告在本次 crash 時被當成當前結果。
+- `_run_tool_check` 接受 `cwd`,S2 探測(`npx --no-install`、`test -f
+  tsconfig.checkjs.json`)改在目標專案根目錄執行,不依賴 harness 的 ambient cwd。
+- `.catch` error-handling 偵測收斂為「只算 `.catch(fn)` call」,排除裸屬性讀取
+  `obj.catch`。

@@ -71,6 +71,16 @@ def run_tool(
 
     cmd = [part.format(root=root, test_target=test_target) for part in spec.cmd]
 
+    # Clear a stale report file before the run: if the tool crashes before
+    # rewriting it, the scorer must not read a previous run's artifact as if it
+    # were current (coverage-summary.json staleness).
+    artifact = os.path.join(root, spec.output_artifact) if spec.output_artifact else None
+    if artifact and os.path.isfile(artifact):
+        try:
+            os.remove(artifact)
+        except OSError:
+            pass  # Best-effort; a non-removable stale file is a pre-existing problem.
+
     try:
         proc = subprocess.run(
             cmd,
@@ -80,14 +90,12 @@ def run_tool(
             cwd=root,
         )
         combined = (proc.stdout + proc.stderr).strip()
-        if spec.output_artifact:
-            artifact = os.path.join(root, spec.output_artifact)
-            if os.path.isfile(artifact):
-                try:
-                    with open(artifact, encoding="utf-8", errors="replace") as fh:
-                        combined += _ARTIFACT_MARKER + fh.read()
-                except OSError:
-                    pass  # Artifact unreadable — scorer falls back to stdout
+        if artifact and os.path.isfile(artifact):
+            try:
+                with open(artifact, encoding="utf-8", errors="replace") as fh:
+                    combined += _ARTIFACT_MARKER + fh.read()
+            except OSError:
+                pass  # Artifact unreadable — scorer falls back to stdout
         return combined, proc.returncode
     except subprocess.TimeoutExpired:
         return f"TIMEOUT: {tool} exceeded {timeout}s", -2
@@ -415,8 +423,11 @@ def _score_js_bench(output: str, _returncode: int) -> Optional[float]:
     Expects {"benchmarks": [{"name": ..., "mean_ms": ...}]} on stdout
     (templates/js_toolchain/benchmarks/run.mjs). Thresholds match
     pytest-benchmark: mean > 3000 ms → −50/benchmark, > 1000 ms → −25.
-    benchmarks/run.mjs absent (Cannot find module / ENOENT) → None —
-    dimension not yet applicable, same as pytest-benchmark exit 5.
+
+    No benchmarks registered (empty list, or run.mjs absent →
+    Cannot find module / ENOENT) → None — the dimension is not yet applicable,
+    exactly like pytest-benchmark collecting nothing (exit 5). This denies the
+    free 100 a stub/empty benchmark file would otherwise grant.
     """
     import json as _json
     if re.search(r"Cannot find module|ENOENT", output):
@@ -426,6 +437,8 @@ def _score_js_bench(output: str, _returncode: int) -> Optional[float]:
         benches = data.get("benchmarks", [])
     except (_json.JSONDecodeError, ValueError, AttributeError):
         return None
+    if not benches:
+        return None  # No benchmarks registered — N/A, not a pass.
     score = 100.0
     for b in benches:
         try:

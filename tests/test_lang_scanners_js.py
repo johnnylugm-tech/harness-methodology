@@ -103,6 +103,21 @@ export const m = (x: number) => x * 2;
         # const-only file has no function/class nodes → not in denominator
         assert data["total"] == 0
 
+    def test_bare_catch_property_read_is_not_a_handler(self, tmp_path):
+        # `obj.catch` as a property read (not `.catch(fn)`) must NOT count as
+        # error handling — only a promise rejection call does.
+        _write(tmp_path, "src/bare.ts", """
+export function f(obj: { catch: boolean }): boolean { return obj.catch; }
+""")
+        _write(tmp_path, "src/real.ts", """
+export function g(p: Promise<number>) { return p.catch(() => 0); }
+""")
+        out, rc = run_tool("js-error-handling", str(tmp_path))
+        data = json.loads(out)
+        assert data["total"] == 2
+        assert data["with_handler"] == 1
+        assert data["no_handler"] == ["src/bare.ts"]
+
 
 # ── js-doc-coverage ──────────────────────────────────────────────────────────
 
@@ -144,6 +159,21 @@ export const triple = (x) => x * 3;
         data = json.loads(run_tool("js-doc-coverage", str(tmp_path))[0])
         assert data["total"] == 2
         assert data["with_doc"] == 1
+
+    def test_exported_value_const_not_counted(self, tmp_path):
+        # Parity with Python def/class: a value export is not a documentable
+        # callable and must not inflate the denominator. The arrow export is
+        # the only counted symbol.
+        _write(tmp_path, "src/data.ts", """
+export const TABLE = { a: "alpha", b: "beta" };
+export const COUNT = 42;
+/** Looks a token up. */
+export const lookup = (k: string) => TABLE[k];
+""")
+        data = json.loads(run_tool("js-doc-coverage", str(tmp_path))[0])
+        assert data["total"] == 1            # only `lookup`
+        assert data["with_doc"] == 1
+        assert data["missing"] == []
 
     def test_no_code_returns_empty_summary_scores_100(self, tmp_path):
         (tmp_path / "src").mkdir()

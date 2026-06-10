@@ -17,9 +17,10 @@ const bench = new Bench({ time: 500, warmupTime: 100 });
 // bench.add("FR-XX myHotPath happy path", () => { myHotPath(input); });
 
 if (bench.tasks.length === 0) {
-  // No benchmarks registered yet — emit an empty set (scores 100, like a
-  // pytest-benchmark run with all means under threshold). Delete this guard
-  // once real benchmarks exist.
+  // No benchmarks registered yet — emit an empty set. The harness scores this
+  // as N/A (no score), NOT a pass — same as pytest-benchmark collecting zero
+  // benchmarks (exit 5). Register real cases below so the performance
+  // dimension produces an actual score.
   console.log(JSON.stringify({ benchmarks: [] }));
   process.exit(0);
 }

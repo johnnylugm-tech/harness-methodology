@@ -142,25 +142,33 @@ _DIM_FALLBACK_CHECKS: dict[str, tuple[str, str]] = {
     "architecture": ("code-review-graph status 2>&1", "code-review-graph"),
 }
 
-def _run_tool_check(check_cmd: str) -> bool:
-    """Run a shell availability probe; True when it exits 0."""
+def _run_tool_check(check_cmd: str, cwd: str | None = None) -> bool:
+    """Run a shell availability probe; True when it exits 0.
+
+    *cwd* is the target project root: some check_cmds are cwd-relative —
+    `npx --no-install <tool>` resolves node_modules from cwd, and the
+    tsc-checkjs probe does `test -f tsconfig.checkjs.json`. Passing it
+    explicitly decouples the probe from the harness's ambient cwd.
+    """
     result = subprocess.run(
         ["bash", "-c", check_cmd],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        timeout=10, text=True,
+        timeout=10, text=True, cwd=cwd,
     )
     return result.returncode == 0
 
 
 def _check_tool_for_dim(
-    dim_name: str, tool_name: str | None, language: str = "python"
+    dim_name: str, tool_name: str | None, language: str = "python",
+    project_root: str | None = None,
 ) -> tuple[bool, str]:
     """Check if the required tool for a dimension is installed.
 
     Resolves the YAML tool name through the toolchain registry (for python the
     YAML name passes through unchanged; other languages resolve by dimension
     via DIMENSION_TOOLS). Falls back to the dimension-name table for older
-    configs without a tool field. Returns (available: bool, diagnostic: str).
+    configs without a tool field. *project_root* is the cwd for cwd-relative
+    probes (npx, tsconfig.checkjs.json). Returns (available, diagnostic).
     """
     from harness.toolchains import get_tool_spec, resolve_tool_id
 
@@ -176,7 +184,7 @@ def _check_tool_for_dim(
     spec = get_tool_spec(resolved) if resolved else None
     if spec is not None:
         try:
-            ok = _run_tool_check(spec.check_cmd)
+            ok = _run_tool_check(spec.check_cmd, cwd=project_root)
             return ok, (
                 "" if ok else f"{dim_name}: {spec.human_name} ({resolved}) not found"
             )
@@ -189,7 +197,7 @@ def _check_tool_for_dim(
         return True, ""  # No tool requirement — pass (LLM-evaluated dimension)
     check_cmd, human_name = info
     try:
-        ok = _run_tool_check(check_cmd)
+        ok = _run_tool_check(check_cmd, cwd=project_root)
         return ok, ("" if ok else f"{dim_name}: {human_name} not found")
     except Exception:
         return False, f"{dim_name}: {human_name} check failed"
@@ -212,7 +220,11 @@ def _verify_gate_tools(
     Returns (all_ok, missing_list).
     """
     from harness.toolchains import get_project_language
-    language = get_project_language(state_root or project)
+    # The target project (where state.json + node_modules + tsconfig live) is
+    # state_root when given (init-project: configs come from the harness
+    # checkout), else project itself.
+    target_root = state_root or project
+    language = get_project_language(target_root)
     import yaml as _yaml
     cfg_path = None
     # Try phase-specific name first, then generic pattern
@@ -242,7 +254,9 @@ def _verify_gate_tools(
         if not requires_tool:
             continue  # LLM-evaluated dimension — skip tool check
         tool_name = dim.get("tool")  # May be None for older configs
-        ok, diag = _check_tool_for_dim(dim_name, tool_name, language)
+        ok, diag = _check_tool_for_dim(
+            dim_name, tool_name, language, project_root=target_root
+        )
         if not ok and diag:
             missing.append(diag)
     return len(missing) == 0, missing
