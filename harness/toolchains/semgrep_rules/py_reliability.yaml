@@ -1,0 +1,130 @@
+# Vendored Python reliability ruleset — preflight_reliability_lint (v2.9 A2).
+#
+# Why vendored: same reproducibility contract as js_security.yaml — remote
+# packs drift silently; rule changes here go through PR review.
+#
+# Why these rules: distilled from the tts-new post-Gate-4 bug hunt (50
+# confirmed bugs). Every rule below corresponds to a confirmed production
+# bug class that bandit/ruff/pytest all missed:
+#   subprocess no timeout   → audio_converter #15 (hung ffmpeg starves workers)
+#   mkstemp outside try     → audio_converter fd leak
+#   TOCTOU exists→use       → audio_converter #19/#20
+#   time.sleep in async     → event-loop stall (synthesis backoff class)
+#   requests no timeout     → same hang class as subprocess
+#   create_task unreferenced→ task GC'd mid-flight, silent work loss
+#
+# Scope: HIGH-CONFIDENCE patterns only. Looser concurrency heuristics
+# (shared-state-without-lock) are deliberately left to the Gate-3 bug-hunt
+# lenses — a preflight must not cry wolf.
+#
+# Consumed by core/phase_hooks.py::preflight_reliability_lint —
+# P3 informational, P4+ blocking on any finding.
+rules:
+  - id: py-subprocess-no-timeout
+    languages: [python]
+    severity: ERROR
+    message: >
+      subprocess call without timeout= — a hung child process blocks this
+      worker forever (tts-new: hung ffmpeg starved the whole pool).
+      Add timeout= and handle subprocess.TimeoutExpired.
+    patterns:
+      - pattern-either:
+          - pattern: subprocess.run(...)
+          - pattern: subprocess.check_output(...)
+          - pattern: subprocess.check_call(...)
+          - pattern: subprocess.call(...)
+      - pattern-not: subprocess.run(..., timeout=$T, ...)
+      - pattern-not: subprocess.check_output(..., timeout=$T, ...)
+      - pattern-not: subprocess.check_call(..., timeout=$T, ...)
+      - pattern-not: subprocess.call(..., timeout=$T, ...)
+
+  - id: py-requests-no-timeout
+    languages: [python]
+    severity: WARNING
+    message: >
+      requests call without timeout= — the default is no timeout, so a stalled
+      server blocks this thread indefinitely. Pass timeout=(connect, read).
+    patterns:
+      - pattern-either:
+          - pattern: requests.get(...)
+          - pattern: requests.post(...)
+          - pattern: requests.put(...)
+          - pattern: requests.delete(...)
+          - pattern: requests.request(...)
+      - pattern-not: requests.get(..., timeout=$T, ...)
+      - pattern-not: requests.post(..., timeout=$T, ...)
+      - pattern-not: requests.put(..., timeout=$T, ...)
+      - pattern-not: requests.delete(..., timeout=$T, ...)
+      - pattern-not: requests.request(..., timeout=$T, ...)
+
+  - id: py-time-sleep-in-async
+    languages: [python]
+    severity: ERROR
+    message: >
+      time.sleep() inside an async function blocks the entire event loop —
+      every coroutine stalls, not just this one. Use await asyncio.sleep().
+    patterns:
+      - pattern: time.sleep(...)
+      - pattern-inside: |
+          async def $F(...):
+            ...
+
+  - id: py-mkstemp-outside-try
+    languages: [python]
+    severity: WARNING
+    message: >
+      tempfile.mkstemp() returns an OPEN fd the caller must close — outside a
+      try/finally, any exception before cleanup leaks the fd and the temp file
+      (tts-new audio_converter fd leak). Wrap in try/finally or use
+      NamedTemporaryFile as a context manager.
+    patterns:
+      - pattern: tempfile.mkstemp(...)
+      - pattern-not-inside: |
+          try:
+            ...
+          finally:
+            ...
+
+  - id: py-toctou-exists-then-open
+    languages: [python]
+    severity: WARNING
+    message: >
+      os.path.exists() followed by open() is a TOCTOU race — the file can
+      vanish between check and use. open() and handle FileNotFoundError.
+    pattern: |
+      if os.path.exists($P):
+        ...
+        open($P, ...)
+
+  - id: py-toctou-exists-then-remove
+    languages: [python]
+    severity: WARNING
+    message: >
+      os.path.exists() followed by os.remove/unlink is a TOCTOU race
+      (tts-new audio_converter #19). Call os.remove() directly and
+      suppress FileNotFoundError.
+    patterns:
+      - pattern-either:
+          - pattern: |
+              if os.path.exists($P):
+                ...
+                os.remove($P)
+          - pattern: |
+              if os.path.exists($P):
+                ...
+                os.unlink($P)
+
+  - id: py-create-task-unreferenced
+    languages: [python]
+    severity: WARNING
+    message: >
+      asyncio.create_task() result is not stored — the event loop holds only a
+      weak reference, so the task can be garbage-collected mid-flight and its
+      work silently lost. Keep a reference (set/attribute) or await it.
+    patterns:
+      - pattern: asyncio.create_task(...)
+      - pattern-not-inside: $X = asyncio.create_task(...)
+      - pattern-not-inside: $X.add(asyncio.create_task(...))
+      - pattern-not-inside: $X.append(asyncio.create_task(...))
+      - pattern-not-inside: await asyncio.create_task(...)
+      - pattern-not-inside: return asyncio.create_task(...)

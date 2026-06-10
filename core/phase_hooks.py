@@ -556,6 +556,174 @@ class PhaseHooks:
             "orphan_count": orphans,
         }
 
+    # Source dirs scanned by the reliability/config-liveness preflights —
+    # same layout convention as the in-process scanners (lang_scanners).
+    _SCAN_SRC_DIRS = ("03-development/src", "src")
+
+    def preflight_reliability_lint(self) -> Dict[str, Any]:
+        """v2.9 A2: vendored semgrep reliability rules over the source tree.
+
+        High-confidence resource/concurrency patterns (subprocess without
+        timeout, mkstemp outside try, TOCTOU, time.sleep in async, …) distilled
+        from the tts-new post-Gate-4 bug hunt. P3 informational; P4+ blocking
+        on any finding. Python ruleset only for now — js/ts projects skip with
+        a note (js_reliability.yaml is tracked in ADDING_LANGUAGE_SUPPORT_SOP).
+        """
+        import shutil
+        import subprocess as _sp
+
+        print("\n[PRE-FLIGHT] Reliability Lint (semgrep, vendored rules)")
+        from core.utils.lang_patterns import project_language
+        language = project_language(self.project_path)
+        if language != "python":
+            print(f"   Skipped: no reliability ruleset for '{language}' yet")
+            return {"passed": True, "skipped": True,
+                    "reason": f"no ruleset for {language}"}
+
+        targets = [str(self.project_path / d) for d in self._SCAN_SRC_DIRS
+                   if (self.project_path / d).is_dir()]
+        if not targets:
+            print("   Skipped: no source directories (src/, 03-development/src)")
+            return {"passed": True, "skipped": True, "reason": "no src dirs"}
+
+        blocking = self.phase is None or self.phase >= 4
+        if not shutil.which("semgrep"):
+            # Pinned in requirements.txt — absence is an environment defect,
+            # not a reason to silently skip a blocking check.
+            print("   semgrep not found (pinned in requirements.txt)")
+            return {"passed": not blocking, "skipped": False, "blocking": blocking,
+                    "error": "semgrep not installed — pip install -r requirements.txt"}
+
+        rules = (Path(__file__).parent.parent / "harness" / "toolchains"
+                 / "semgrep_rules" / "py_reliability.yaml")
+        try:
+            proc = _sp.run(
+                ["semgrep", "scan", "--config", str(rules), "--json",
+                 "--metrics=off", "--quiet", *targets],
+                capture_output=True, text=True, timeout=180,
+            )
+            data = json.loads(proc.stdout)
+            findings = data.get("results", [])
+        except (_sp.TimeoutExpired, _sp.SubprocessError, json.JSONDecodeError, OSError) as e:
+            print(f"   semgrep run failed: {e}")
+            return {"passed": not blocking, "skipped": False, "blocking": blocking,
+                    "error": f"semgrep run failed: {e}"}
+
+        items = [
+            {"rule": r.get("check_id", "?").split(".")[-1],
+             "file": r.get("path", "?"),
+             "line": r.get("start", {}).get("line"),
+             "severity": r.get("extra", {}).get("severity", "?")}
+            for r in findings
+        ]
+        passed = (not items) or (not blocking)
+        if items:
+            for it in items[:10]:
+                print(f"   {it['severity']:7} {it['rule']} {it['file']}:{it['line']}")
+            if len(items) > 10:
+                print(f"   ... and {len(items) - 10} more")
+            print(f"   [{'BLOCKED' if blocking else 'INFO'}] "
+                  f"{len(items)} reliability finding(s) at phase {self.phase}")
+        else:
+            print("   No reliability findings")
+        return {"passed": passed, "blocking": blocking,
+                "finding_count": len(items), "findings": items[:50]}
+
+    # Runtime/system env vars that are not project configuration.
+    _SYSTEM_ENV_VARS = frozenset({
+        "PATH", "HOME", "USER", "SHELL", "TERM", "LANG", "LC_ALL", "TZ",
+        "PWD", "TMPDIR", "TMP", "TEMP", "HOSTNAME", "CI",
+        "PYTHONPATH", "VIRTUAL_ENV", "NODE_ENV", "PYTEST_CURRENT_TEST",
+    })
+
+    # Files where project env vars are legitimately declared/documented.
+    _ENV_DECLARATION_GLOBS = (
+        ".env.example", ".env.sample", ".env.template", ".env",
+        "docker-compose*.yml", "docker-compose*.yaml",
+        "deployment/**/*.yml", "deployment/**/*.yaml",
+        "k8s/**/*.yml", "k8s/**/*.yaml",
+        "README.md",
+    )
+
+    def preflight_config_liveness(self) -> Dict[str, Any]:
+        """v2.9 A3: env keys read in code must be declared somewhere.
+
+        Catches the tts-new config bug class: a typo'd env var name means the
+        code path silently always uses the default — tests stay green, prod
+        config is dead. Cross-checks os.getenv/os.environ (py) and
+        process.env.X (js/ts) against declaration sources (.env.example,
+        docker-compose, deployment manifests, README). No declaration source
+        in the project → skipped (small projects without deploy config).
+        P3 informational; P4+ blocking on orphan keys.
+        """
+        print("\n[PRE-FLIGHT] Config Liveness (env keys read vs declared)")
+        from core.utils.lang_patterns import (
+            iter_source_files, project_language,
+        )
+        language = project_language(self.project_path)
+
+        decl_text = ""
+        decl_files = []
+        for pattern in self._ENV_DECLARATION_GLOBS:
+            for f in sorted(self.project_path.glob(pattern)):
+                if f.is_file():
+                    decl_files.append(str(f.relative_to(self.project_path)))
+                    try:
+                        decl_text += f.read_text(encoding="utf-8", errors="replace")
+                    except OSError:
+                        pass
+        if not decl_files:
+            print("   Skipped: no env declaration sources "
+                  "(.env.example / docker-compose / deployment / README)")
+            return {"passed": True, "skipped": True, "reason": "no declaration sources"}
+
+        if language == "python":
+            key_re = re.compile(
+                r"os\.(?:getenv|environ\.get)\(\s*['\"]([A-Z][A-Z0-9_]+)['\"]"
+                r"|os\.environ\[\s*['\"]([A-Z][A-Z0-9_]+)['\"]"
+            )
+        else:
+            key_re = re.compile(
+                r"process\.env\.([A-Z][A-Z0-9_]+)"
+                r"|process\.env\[\s*['\"]([A-Z][A-Z0-9_]+)['\"]"
+            )
+
+        used: dict[str, str] = {}  # key → first "file:line"
+        for rel_dir in self._SCAN_SRC_DIRS:
+            base = self.project_path / rel_dir
+            if not base.is_dir():
+                continue
+            for src in iter_source_files(base, language):
+                try:
+                    text = src.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                for i, line in enumerate(text.splitlines(), 1):
+                    for m in key_re.finditer(line):
+                        key = m.group(1) or m.group(2)
+                        if key and key not in self._SYSTEM_ENV_VARS:
+                            used.setdefault(
+                                key,
+                                f"{src.relative_to(self.project_path)}:{i}",
+                            )
+
+        orphans = {k: loc for k, loc in sorted(used.items())
+                   if k not in decl_text}
+        blocking = self.phase is None or self.phase >= 4
+        passed = (not orphans) or (not blocking)
+        if orphans:
+            for k, loc in list(orphans.items())[:10]:
+                print(f"   ORPHAN {k}  (read at {loc}, declared nowhere)")
+            print(f"   [{'BLOCKED' if blocking else 'INFO'}] "
+                  f"{len(orphans)} env key(s) read in code but not declared in "
+                  f"{len(decl_files)} source(s)")
+        else:
+            print(f"   {len(used)} env key(s) all declared "
+                  f"({len(decl_files)} declaration source(s))")
+        return {"passed": passed, "blocking": blocking,
+                "orphans": orphans, "used_count": len(used),
+                "declaration_files": decl_files}
+
     def preflight_gap_analysis(self) -> Dict[str, Any]:
         """M3 gap analysis — detect SPEC.md ↔ codebase gaps (P3+, informational)."""
         if self.phase is not None and self.phase < 3:
@@ -782,6 +950,8 @@ class PhaseHooks:
             "tool_registry": self.preflight_tool_registry(),
             "traceability": self.preflight_traceability(),
             "fr_spec_consistency": self.preflight_fr_spec_consistency(),
+            "reliability_lint": self.preflight_reliability_lint(),
+            "config_liveness": self.preflight_config_liveness(),
             "gap_analysis": self.preflight_gap_analysis(),
             "ci_readiness": self.preflight_ci_readiness(),
         }
