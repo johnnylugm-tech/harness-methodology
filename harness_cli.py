@@ -755,20 +755,35 @@ def _check_red_phase_ordering(project: Path, fr_id: str) -> tuple[bool, str]:
         return True, ""   # ancestry check timed out → fail-open (non-fatal)
     return True, ""
 
-def _scan_test_functions(test_dir: Path) -> set[str]:
-    """Scan all Python test files for function definitions starting with test_."""
+def _scan_test_functions(test_dir: Path, language: str = "python") -> set[str]:
+    """Scan test files for harness-convention test names.
+
+    python: `def test_*` function definitions.
+    js/ts:  it('test_*') / test("test_*") TITLES — the harness naming
+            convention (templates/TEST_SPEC.md) that keeps D4 spec-coverage
+            and P1 Naming Authority matching language-independent.
+    """
+    from core.utils.lang_patterns import JS_TEST_TITLE_PATTERN, iter_test_files
+
     fns: set[str] = set()
     if not test_dir.is_dir():
         return fns
-    for f in sorted(test_dir.rglob("*.py")):
+    if language == "python":
+        files = sorted(test_dir.rglob("*.py"))
+    else:
+        files = list(iter_test_files(test_dir, language))
+    for f in files:
         try:
             text = f.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        for line in text.splitlines():
-            m2 = re.match(r"^\s*(?:async\s+)?def\s+(test_\w+)\s*\(", line)
-            if m2:
-                fns.add(m2.group(1))
+        if language == "python":
+            for line in text.splitlines():
+                m2 = re.match(r"^\s*(?:async\s+)?def\s+(test_\w+)\s*\(", line)
+                if m2:
+                    fns.add(m2.group(1))
+        else:
+            fns.update(JS_TEST_TITLE_PATTERN.findall(text))
     return fns
 
 def _flatten_test_names(inventory: dict | None) -> set[str]:
@@ -946,7 +961,8 @@ def _run_spec_coverage_check(
                 print("  Agent A may have hallucinated names. Re-run derive_test_cases.md.")
             return (1, 0.0)
 
-    actual_fns = _scan_test_functions(project / "tests")
+    from core.utils.lang_patterns import project_language
+    actual_fns = _scan_test_functions(project / "tests", project_language(project))
 
     covered = [i for i in items if i["test_fn"] in actual_fns]
     missing = [i for i in items if i["test_fn"] not in actual_fns]
@@ -1102,7 +1118,10 @@ def cmd_check_test_mirrors_spec(args: argparse.Namespace) -> int:
         return 0
 
     from core.quality_gate.parsers import SpecAssertionParser
-    from core.quality_gate.red_assertion_check import check_test_mirrors_spec
+    from core.quality_gate.red_assertion_check import (
+        check_test_mirrors_spec,
+        check_test_mirrors_spec_js,
+    )
 
     parsed = SpecAssertionParser.parse(spec_path.read_text(encoding="utf-8"))
     if fr_id not in parsed:
@@ -1111,15 +1130,25 @@ def cmd_check_test_mirrors_spec(args: argparse.Namespace) -> int:
         return 0
 
     cases, assertions = parsed[fr_id]
-    violations = check_test_mirrors_spec(test_file.read_text(encoding="utf-8"), cases, assertions)
+    test_source = test_file.read_text(encoding="utf-8")
+    suffix = test_file.suffix.lower()
+    if suffix in (".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"):
+        dialect = {"ts": "typescript", "tsx": "tsx"}.get(suffix.lstrip("."), "javascript")
+        violations = check_test_mirrors_spec_js(test_source, cases, assertions, dialect)
+    else:
+        violations = check_test_mirrors_spec(test_source, cases, assertions)
     errs = [v for v in violations if v.severity == "error"]
+    reviews = [v for v in violations if v.severity == "info"]
     for v in errs:
         print(f"[FAIL] {fr_id} {v.check_type}: {v.message}")
+    for v in reviews:
+        print(f"[review] {fr_id}: {v.message}")
     if errs:
         print(f"\n[BLOCKED] {test_file.name} diverges from TEST_SPEC.md ({len(errs)} issue(s)). "
               "P3 implements the spec verbatim — fix the test, not TEST_SPEC.")
         return 1
-    print(f"[check-test-mirrors-spec] OK — {test_file.name} mirrors {fr_id} in TEST_SPEC.md.")
+    print(f"[check-test-mirrors-spec] OK — {test_file.name} mirrors {fr_id} in TEST_SPEC.md."
+          + (f" {len(reviews)} item(s) need P3 reviewer sign-off." if reviews else ""))
     return 0
 
 
@@ -1447,11 +1476,14 @@ def _trace_dirty_state(project_path: Path) -> Dict[str, Any]:
                 pass
             break
 
-    # Newest test_fr*.py
+    # Newest test file (language-aware glob; test_*.py or *.test.ts etc.)
+    from core.utils.lang_patterns import iter_test_files, project_language
     tests_dir = project_path / "tests"
     if tests_dir.is_dir():
         try:
-            candidates = list(tests_dir.rglob("test_*.py"))
+            candidates = list(
+                iter_test_files(tests_dir, project_language(project_path))
+            )
         except OSError:
             candidates = []
         if candidates:
@@ -1734,6 +1766,151 @@ def _fr_source_files_from_imports(
     return matched
 
 
+def _print_fr_scoped_overrides_py(
+    project: str,
+    fr_id: str,
+    test_file: str,
+    src_dir: str,
+    manifest_data: dict,
+    *,
+    non_code_frs: set[str],
+    cov_threshold: int,
+) -> None:
+    """Print Gate-1 FR-scoped tool commands for a Python project."""
+    # Detect FR-specific source files by parsing the test file's imports.
+    src_files = _fr_source_files_from_imports(Path(project), test_file, src_dir)
+
+    # Issue 4: manual fr_scope_overrides — merges declared files into scope.
+    # Use when __init__.py transitive re-exports can't be auto-detected.
+    # Add to quality_manifest.json: {"fr_scope_overrides": {"FR-16": ["path/to/file.py"]}}
+    scope_override = manifest_data.get("fr_scope_overrides", {}).get(fr_id, [])
+    if scope_override:
+        src_files = list(dict.fromkeys(src_files + scope_override))
+
+    if not src_files and fr_id in non_code_frs:
+        print(
+            f"\n[FR-SCOPED TOOL OVERRIDES — {fr_id}]\n"
+            f"Gate 1 scope is single_fr. Replace the project-wide defaults in\n"
+            f"evaluate_dimension.md with these FR-scoped commands:\n\n"
+            f"test_coverage — {fr_id} is declared as a non-code FR "
+            f"(no scoreable source to measure):\n"
+            f"  echo 'NON_CODE_FR: coverage not applicable'\n"
+            f"  Score this dimension as {cov_threshold} (= threshold). "
+            f"Infrastructure/config FRs are exempt from coverage measurement.\n"
+            f"  Set tool_evidence = 'non-code FR: {fr_id} declared in fr_non_code'\n\n"
+            f"linting — lint only the FR source directory:\n"
+            f"  ruff check {src_dir}/ 2>&1 | head -200\n\n"
+            f"type_safety — type-check only the FR source directory:\n"
+            f"  pyright {src_dir}/ --outputjson 2>&1 | head -200\n"
+        )
+        return
+
+    if src_files:
+        include_flag = ",".join(src_files)
+        cov_cmd = (
+            f"  coverage run -m pytest {test_file} "
+            f"&& coverage report --include=\"{include_flag}\" --format=json \\\n"
+            f"    || PYTHONPATH=. coverage run -m pytest {test_file} "
+            f"&& coverage report --include=\"{include_flag}\" --format=json \\\n"
+            f"    || PYTHONPATH=. python3 -m pytest {test_file} "
+            f"--cov={src_dir} --cov-report=term-missing"
+        )
+        cov_note = f"  (FR source files detected: {', '.join(src_files)})"
+    else:
+        # Fallback: test file absent or no imports matched — use full src dir
+        cov_cmd = (
+            f"  coverage run --source={src_dir} -m pytest {test_file} "
+            f"&& coverage report --format=json \\\n"
+            f"    || PYTHONPATH=. coverage run --source={src_dir} -m pytest {test_file} "
+            f"&& coverage report --format=json \\\n"
+            f"    || PYTHONPATH=. python3 -m pytest {test_file} "
+            f"--cov={src_dir} --cov-report=term-missing"
+        )
+        cov_note = f"  (fallback: {src_dir} — test file not found or no imports detected)"
+
+    print(
+        f"\n[FR-SCOPED TOOL OVERRIDES — {fr_id}]\n"
+        f"Gate 1 scope is single_fr. Replace the project-wide defaults in\n"
+        f"evaluate_dimension.md with these FR-scoped commands:\n\n"
+        f"test_coverage — measure only {fr_id}'s source files:\n"
+        f"{cov_cmd}\n"
+        f"{cov_note}\n\n"
+        f"linting — lint only the FR source directory:\n"
+        f"  ruff check {src_dir}/ 2>&1 | head -200\n\n"
+        f"type_safety — type-check only the FR source directory:\n"
+        f"  pyright {src_dir}/ --outputjson 2>&1 | head -200\n"
+    )
+
+
+def _print_fr_scoped_overrides_js(
+    project: str,
+    fr_id: str,
+    num_str: str,
+    test_dir_str: str,
+    *,
+    non_code: bool,
+    cov_threshold: int,
+) -> None:
+    """Print Gate-1 FR-scoped tool commands for a JS/TS project.
+
+    Per-FR scoping uses the test-TITLE filter (-t "test_frNN") instead of a
+    source-file include list: the harness naming convention guarantees every
+    FR test title starts with test_frNN, and both vitest and jest support
+    title filtering natively.
+    """
+    from harness.toolchains import get_project_language, get_project_test_runner
+    language = get_project_language(project)
+    runner = get_project_test_runner(project) or "vitest"
+
+    if non_code:
+        print(
+            f"\n[FR-SCOPED TOOL OVERRIDES — {fr_id}]\n"
+            f"Gate 1 scope is single_fr. Replace the project-wide defaults in\n"
+            f"evaluate_dimension.md with these FR-scoped commands:\n\n"
+            f"test_coverage — {fr_id} is declared as a non-code FR "
+            f"(no scoreable source to measure):\n"
+            f"  echo 'NON_CODE_FR: coverage not applicable'\n"
+            f"  Score this dimension as {cov_threshold} (= threshold). "
+            f"Infrastructure/config FRs are exempt from coverage measurement.\n"
+            f"  Set tool_evidence = 'non-code FR: {fr_id} declared in fr_non_code'\n\n"
+            f"linting — lint the project (eslint scope comes from eslint.config.mjs):\n"
+            f"  npx --no-install eslint . -f json 2>&1 | head -200\n\n"
+            f"type_safety — type-check the project:\n"
+            f"  npx --no-install tsc --noEmit --pretty false 2>&1; echo \"tsc exit=$?\"\n"
+        )
+        return
+
+    if runner == "jest":
+        cov_cmd = (
+            f"  npx --no-install jest -t \"test_fr{num_str}\" --coverage --ci \\\n"
+            f"    --coverageReporters=json-summary --coverageReporters=text"
+        )
+    else:
+        cov_cmd = (
+            f"  npx --no-install vitest run {test_dir_str} -t \"test_fr{num_str}\" "
+            f"--coverage \\\n"
+            f"    --coverage.reporter=json-summary --coverage.reporter=text"
+        )
+    tsc_cmd = (
+        "npx --no-install tsc -p tsconfig.checkjs.json --noEmit --pretty false"
+        if language == "javascript"
+        else "npx --no-install tsc --noEmit --pretty false"
+    )
+    print(
+        f"\n[FR-SCOPED TOOL OVERRIDES — {fr_id}]\n"
+        f"Gate 1 scope is single_fr. Replace the project-wide defaults in\n"
+        f"evaluate_dimension.md with these FR-scoped commands:\n\n"
+        f"test_coverage — run only {fr_id}'s tests (title filter), then read\n"
+        f"coverage/coverage-summary.json total.lines.pct:\n"
+        f"{cov_cmd}\n"
+        f"  (convention: every {fr_id} test title starts with test_fr{num_str})\n\n"
+        f"linting — eslint scope comes from eslint.config.mjs:\n"
+        f"  npx --no-install eslint . -f json 2>&1 | head -200\n\n"
+        f"type_safety — type-check the project (tsconfig owns the include set):\n"
+        f"  {tsc_cmd} 2>&1; echo \"tsc exit=$?\"\n"
+    )
+
+
 def cmd_run_gate(args: argparse.Namespace) -> int:
     """OTEL span wrapper for run-gate. Business logic in _cmd_run_gate_impl."""
     try:
@@ -1836,10 +2013,7 @@ def _cmd_run_gate_impl(args: argparse.Namespace) -> int:
         _test_file = f"{_test_dir_str}/test_fr{_num_str}.py"
         _src_dir = "03-development/src"
 
-        # Detect FR-specific source files by parsing the test file's imports.
-        _src_files = _fr_source_files_from_imports(Path(project), _test_file, _src_dir)
-
-        # Load quality_manifest for per-FR overrides (scope + non-python flag).
+        # Load quality_manifest for per-FR overrides (scope + non-code flag).
         _manifest_data: dict = {}
         _manifest_path_g = Path(project) / ".methodology" / "quality_manifest.json"
         try:
@@ -1847,72 +2021,30 @@ def _cmd_run_gate_impl(args: argparse.Namespace) -> int:
         except (OSError, json.JSONDecodeError):
             pass
 
-        # Issue 4: manual fr_scope_overrides — merges declared files into scope.
-        # Use when __init__.py transitive re-exports can't be auto-detected.
-        # Add to quality_manifest.json: {"fr_scope_overrides": {"FR-16": ["path/to/file.py"]}}
-        _scope_override = _manifest_data.get("fr_scope_overrides", {}).get(fr_id, [])
-        if _scope_override:
-            _src_files = list(dict.fromkeys(_src_files + _scope_override))
-
-        # Issue 3: non-Python FRs (Docker Compose, SQL, YAML) have no Python source.
-        # When scope is empty and FR is declared non-Python, bypass coverage measurement
-        # and assign threshold score directly (infrastructure FRs are exempt).
-        # Add to quality_manifest.json: {"fr_non_python": ["FR-15"]}
-        _non_python_frs = set(_manifest_data.get("fr_non_python", []))
+        # Issue 3 (generalized): non-code FRs (Docker Compose, SQL, YAML) have
+        # no scoreable source. When scope is empty and the FR is declared
+        # non-code, bypass coverage measurement and assign threshold directly.
+        # quality_manifest.json: {"fr_non_code": ["FR-15"]} — the pre-v2.8 key
+        # fr_non_python is honored as an alias.
+        _non_code_frs = (
+            set(_manifest_data.get("fr_non_code", []))
+            | set(_manifest_data.get("fr_non_python", []))
+        )
         _cov_threshold = int(
             _manifest_data.get("quality_targets", {}).get("min_coverage", 80)
         )
-        if not _src_files and fr_id in _non_python_frs:
-            print(
-                f"\n[FR-SCOPED TOOL OVERRIDES — {fr_id}]\n"
-                f"Gate 1 scope is single_fr. Replace the project-wide defaults in\n"
-                f"evaluate_dimension.md with these FR-scoped commands:\n\n"
-                f"test_coverage — {fr_id} is declared as a non-Python FR "
-                f"(no Python source to measure):\n"
-                f"  echo 'NON_PYTHON_FR: coverage not applicable'\n"
-                f"  Score this dimension as {_cov_threshold} (= threshold). "
-                f"Infrastructure/config FRs are exempt from Python coverage measurement.\n"
-                f"  Set tool_evidence = 'non-python FR: {fr_id} declared in fr_non_python'\n\n"
-                f"linting — lint only the FR source directory:\n"
-                f"  ruff check {_src_dir}/ 2>&1 | head -200\n\n"
-                f"type_safety — type-check only the FR source directory:\n"
-                f"  pyright {_src_dir}/ --outputjson 2>&1 | head -200\n"
+
+        from core.utils.lang_patterns import project_language as _proj_lang
+        _language = _proj_lang(Path(project))
+        if _language in ("javascript", "typescript"):
+            _print_fr_scoped_overrides_js(
+                project, fr_id, _num_str, _test_dir_str,
+                non_code=fr_id in _non_code_frs, cov_threshold=_cov_threshold,
             )
         else:
-            if _src_files:
-                _include_flag = ",".join(_src_files)
-                _cov_cmd = (
-                    f"  coverage run -m pytest {_test_file} "
-                    f"&& coverage report --include=\"{_include_flag}\" --format=json \\\n"
-                    f"    || PYTHONPATH=. coverage run -m pytest {_test_file} "
-                    f"&& coverage report --include=\"{_include_flag}\" --format=json \\\n"
-                    f"    || PYTHONPATH=. python3 -m pytest {_test_file} "
-                    f"--cov={_src_dir} --cov-report=term-missing"
-                )
-                _cov_note = f"  (FR source files detected: {', '.join(_src_files)})"
-            else:
-                # Fallback: test file absent or no imports matched — use full src dir
-                _cov_cmd = (
-                    f"  coverage run --source={_src_dir} -m pytest {_test_file} "
-                    f"&& coverage report --format=json \\\n"
-                    f"    || PYTHONPATH=. coverage run --source={_src_dir} -m pytest {_test_file} "
-                    f"&& coverage report --format=json \\\n"
-                    f"    || PYTHONPATH=. python3 -m pytest {_test_file} "
-                    f"--cov={_src_dir} --cov-report=term-missing"
-                )
-                _cov_note = f"  (fallback: {_src_dir} — test file not found or no imports detected)"
-
-            print(
-                f"\n[FR-SCOPED TOOL OVERRIDES — {fr_id}]\n"
-                f"Gate 1 scope is single_fr. Replace the project-wide defaults in\n"
-                f"evaluate_dimension.md with these FR-scoped commands:\n\n"
-                f"test_coverage — measure only {fr_id}'s source files:\n"
-                f"{_cov_cmd}\n"
-                f"{_cov_note}\n\n"
-                f"linting — lint only the FR source directory:\n"
-                f"  ruff check {_src_dir}/ 2>&1 | head -200\n\n"
-                f"type_safety — type-check only the FR source directory:\n"
-                f"  pyright {_src_dir}/ --outputjson 2>&1 | head -200\n"
+            _print_fr_scoped_overrides_py(
+                project, fr_id, _test_file, _src_dir, _manifest_data,
+                non_code_frs=_non_code_frs, cov_threshold=_cov_threshold,
             )
 
     print("\n" + "─" * 60)

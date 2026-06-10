@@ -1,7 +1,7 @@
 {
   "schema": "harness/traceability/attestation/v1",
-  "git_sha": "f4848bf6e24e5c3b8b798c80c780a5225abc9926",
-  "content_sha256": "36339a59afb929bcdcd160007ff4457fdc3bc2fe786c5b1358966fbc6ec3b961",
+  "git_sha": "db51886b47a2f5dfc5a0ac5e98570fe766572454",
+  "content_sha256": "fc00999a7bd42f1cf3c164fcdd4da606fb7b0335b2473e9ceb7669b466d1983f",
   "tool": "scripts/build_trace_attestation.py",
   "overlay_used": "/Users/johnny/projects/harness-methodology/TRACEABILITY_MATRIX.overlay.yaml",
   "overlay_errors": [],
@@ -14,7 +14,7 @@
       "code_coverage": "100.0%",
       "test_coverage": "100.0%",
       "verification_rate": "100.0%",
-      "total_links": 57,
+      "total_links": 63,
       "missing_mappings": {
         "fr_without_srs": [
           "FR-01",
@@ -58,6 +58,7 @@
           "tests/test_overlay_merge.py",
           "tests/test_policy_engine.py",
           "tests/test_preflight_auto_fix_dispatch.py",
+          "tests/test_scanner_js_traceability.py",
           "tests/test_scanner_mutation_coverage.py",
           "tests/test_scanner_unification.py",
           "tests/test_trace_dirty_state.py",
@@ -73,6 +74,7 @@
           "tests/test_overlay_merge.py",
           "tests/test_policy_engine.py",
           "tests/test_preflight_auto_fix_dispatch.py",
+          "tests/test_scanner_js_traceability.py",
           "tests/test_scanner_mutation_coverage.py",
           "tests/test_scanner_unification.py",
           "tests/test_trace_dirty_state.py",
@@ -90,6 +92,7 @@
           "tests/test_gate_trace_dimension.py",
           "tests/test_harness_cli.py",
           "tests/test_overlay_merge.py",
+          "tests/test_scanner_js_traceability.py",
           "tests/test_scanner_unification.py",
           "tests/test_traceability_pipeline.py"
         ],
@@ -98,6 +101,7 @@
           "tests/test_gate_trace_dimension.py",
           "tests/test_harness_cli.py",
           "tests/test_overlay_merge.py",
+          "tests/test_scanner_js_traceability.py",
           "tests/test_scanner_unification.py",
           "tests/test_traceability_pipeline.py"
         ],
@@ -109,9 +113,11 @@
         "status": "verified",
         "srs_section": null,
         "code_files": [
+          "tests/test_scanner_js_traceability.py",
           "tests/test_traceability_pipeline.py"
         ],
         "test_files": [
+          "tests/test_scanner_js_traceability.py",
           "tests/test_traceability_pipeline.py"
         ],
         "sad_module": "—",

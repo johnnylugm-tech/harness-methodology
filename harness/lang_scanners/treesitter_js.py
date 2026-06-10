@@ -18,21 +18,22 @@ from __future__ import annotations
 
 import json
 import math
-import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Iterator
 
 if TYPE_CHECKING:  # tree_sitter imports stay lazy at runtime
     from tree_sitter import Parser
 
+from core.utils.lang_patterns import (
+    SOURCE_EXTENSIONS as _LANG_EXTS,
+    TEST_FILE_PATTERN as _TEST_FILE_RE,
+)
+
 # Same layout conventions as the Python scanners.
 _SRC_DIRS: tuple[str, ...] = ("03-development/src", "src")
 _TEST_DIRS: tuple[str, ...] = ("tests", "03-development/tests")
 
-_SOURCE_EXTS: tuple[str, ...] = (".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs")
-# Test files: vitest/jest convention (*.test.* / *.spec.*) plus the harness
-# test_fr naming convention used for traceability (test_*.ts etc.).
-_TEST_FILE_RE = re.compile(r"(\.test\.|\.spec\.|^test_)", re.IGNORECASE)
+_SOURCE_EXTS: tuple[str, ...] = _LANG_EXTS["javascript"]
 
 # Comment-style-agnostic pragma (Python scanners use `# pragma: ...`).
 _PRAGMA_EXEMPT = "pragma: no error-handling"

@@ -16,6 +16,11 @@ from __future__ import annotations
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
+from core.utils.lang_patterns import (
+    iter_source_files,
+    iter_test_files,
+    project_language,
+)
 from core.utils.project_layout import ProjectLayout
 
 
@@ -25,7 +30,8 @@ from core.utils.project_layout import ProjectLayout
 
 FR_TAG_PATTERN = re.compile(r'\[FR-(\d+)\]', re.IGNORECASE)
 FR_SAD_PATTERN = re.compile(r'\bFR-(\d+)\b', re.IGNORECASE)
-SAD_ROW_PATTERN = re.compile(r'FR-(\d+)[^\n]*?`([^`]+\.py)`')
+# SAD module rows may reference source files in any supported language.
+SAD_ROW_PATTERN = re.compile(r'FR-(\d+)[^\n]*?`([^`]+\.(?:py|jsx?|tsx?|mjs|cjs))`')
 TEST_FILENAME_PATTERN = re.compile(r'test_fr_?(\d+)', re.IGNORECASE)
 
 
@@ -68,18 +74,25 @@ def extract_fr_ids_from_sad(sad_path: Path) -> List[str]:
     return sorted(ids)
 
 
-def scan_python_fr_annotations(project: Path) -> Dict[str, List[str]]:
-    """Scan all .py files for [FR-XX] annotations. Returns {FR-XX: [file_path]}."""
+def scan_fr_annotations(
+    project: Path, language: Optional[str] = None
+) -> Dict[str, List[str]]:
+    """Scan source files for [FR-XX] annotations. Returns {FR-XX: [file_path]}.
+
+    The [FR-XX] tag is comment-style agnostic (# / // / /* */); only the file
+    extension set varies per language (state.json `language`, default python).
+    """
+    language = language or project_language(project)
     fr_to_files: Dict[str, List[str]] = {}
-    for py_file in project.rglob("*.py"):
-        if _skip_path(py_file):
+    for src_file in iter_source_files(project, language):
+        if _skip_path(src_file):
             continue
         try:
-            text = py_file.read_text(encoding="utf-8", errors="replace")
+            text = src_file.read_text(encoding="utf-8", errors="replace")
         except Exception:
             continue
         found = {_norm_fr(m) for m in FR_TAG_PATTERN.findall(text)}
-        rel = str(py_file.relative_to(project))
+        rel = str(src_file.relative_to(project))
         for fr_id in found:
             if rel not in fr_to_files.setdefault(fr_id, []):
                 fr_to_files[fr_id].append(rel)
@@ -88,7 +101,13 @@ def scan_python_fr_annotations(project: Path) -> Dict[str, List[str]]:
     return fr_to_files
 
 
-def scan_test_fr_coverage(tests_dir: Path) -> Dict[str, List[str]]:
+# Backward-compatible alias (pre-v2.8 name).
+scan_python_fr_annotations = scan_fr_annotations
+
+
+def scan_test_fr_coverage(
+    tests_dir: Path, language: Optional[str] = None
+) -> Dict[str, List[str]]:
     """Scan test files for FR references. Returns {FR-XX: [test_file]}.
 
     Project root is inferred as tests_dir.parent so returned paths are
@@ -98,7 +117,8 @@ def scan_test_fr_coverage(tests_dir: Path) -> Dict[str, List[str]]:
     if not tests_dir.is_dir():
         return fr_to_tests
     project = tests_dir.parent
-    for test_file in tests_dir.rglob("test_*.py"):
+    language = language or project_language(project)
+    for test_file in iter_test_files(tests_dir, language):
         name_match = TEST_FILENAME_PATTERN.match(test_file.name)
         if name_match:
             fr_id = _norm_fr(name_match.group(1))
@@ -163,7 +183,7 @@ def scan_test_nfr_coverage(tests_dir: Path) -> Dict[str, List[str]]:
     if not tests_dir or not tests_dir.is_dir():
         return nfr_to_tests
     project = tests_dir.parent
-    for test_file in tests_dir.rglob("test_*.py"):
+    for test_file in iter_test_files(tests_dir, project_language(project)):
         try:
             text = test_file.read_text(encoding="utf-8", errors="replace")
         except Exception:
@@ -199,10 +219,11 @@ def scan_all(
     if sad_path is None:
         sad_path = _find_sad(project)
 
+    language = project_language(project)
     sad_frs = extract_fr_ids_from_sad(sad_path) if sad_path else []
-    fr_to_code = scan_python_fr_annotations(project)
+    fr_to_code = scan_fr_annotations(project, language)
     test_dir = ProjectLayout(project).active_test_dir
-    fr_to_tests = scan_test_fr_coverage(test_dir)
+    fr_to_tests = scan_test_fr_coverage(test_dir, language)
     fr_to_modules = scan_sad_fr_modules(sad_path) if sad_path else {}
 
     coded = set(fr_to_code.keys())

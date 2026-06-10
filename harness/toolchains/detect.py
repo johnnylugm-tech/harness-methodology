@@ -15,9 +15,8 @@ import json
 from pathlib import Path
 from typing import Optional, Union
 
+from core.utils.lang_patterns import DEFAULT_LANGUAGE, project_language
 from harness.toolchains.registry import DIMENSION_TOOLS
-
-DEFAULT_LANGUAGE = "python"
 
 # Marker files, checked in order. tsconfig.json wins over package.json so a
 # TypeScript project (which always also has package.json) detects as typescript.
@@ -98,9 +97,12 @@ def _read_state(project_root: Union[str, Path]) -> dict:
 
 
 def get_project_language(project_root: Union[str, Path]) -> str:
-    """Persisted project language from state.json; pre-v2.8 projects → python."""
-    lang = _read_state(project_root).get("language")
-    return lang if isinstance(lang, str) and lang else DEFAULT_LANGUAGE
+    """Persisted project language from state.json; pre-v2.8 projects → python.
+
+    Delegates to core.utils.lang_patterns.project_language — the single
+    reader shared with core-side scanners (core must not import harness).
+    """
+    return project_language(project_root)
 
 
 def get_project_test_runner(project_root: Union[str, Path]) -> Optional[str]:

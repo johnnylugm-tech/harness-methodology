@@ -30,6 +30,7 @@ Design contract (see docs/proposals / plan):
 from __future__ import annotations
 
 import ast
+import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 
@@ -41,6 +42,7 @@ __all__ = [
     "UnsafePredicateError",
     "check_test_spec_consistency",
     "check_test_mirrors_spec",
+    "check_test_mirrors_spec_js",
 ]
 
 
@@ -515,6 +517,55 @@ def _extract_sub_assertions(tree: ast.AST) -> list:
         if isinstance(fn, ast.FunctionDef) and fn.name.startswith("test_"):
             _collect_ifs(fn.body, uses)
     return uses
+
+
+def check_test_mirrors_spec_js(
+    test_source: str, spec_cases: list, spec_assertions: list,
+    dialect: str = "typescript",
+) -> list:
+    """Structure-only P3 mirror gate for JS/TS test files.
+
+    Honest scope (engine contract: "the engine does not guess"):
+      * the file must parse (tree-sitter) and contain at least one it()/test()
+        case — structural divergence is an error;
+      * Python-syntax spec predicates cannot be mechanically aligned with JS
+        assertion expressions, so each declared sub-assertion is surfaced as a
+        needs_review INFO violation for the human reviewer — never silently
+        passed, never guessed.
+
+    Semantic predicate/parametrize alignment stays a Python-only capability;
+    docs/ADDING_LANGUAGE_SUPPORT_SOP.md tracks this as a known limitation.
+    """
+    from tree_sitter import Language, Parser
+
+    if dialect == "typescript":
+        import tree_sitter_typescript as tst
+        lang = Language(tst.language_typescript())
+    elif dialect == "tsx":
+        import tree_sitter_typescript as tst
+        lang = Language(tst.language_tsx())
+    else:
+        import tree_sitter_javascript as tsj
+        lang = Language(tsj.language())
+
+    tree = Parser(lang).parse(test_source.encode("utf-8"))
+    if tree.root_node.has_error:
+        return [Violation(check_type="test_unparseable", rule_id="P3", severity="error",
+                          message=f"test file does not parse as {dialect}")]
+
+    if re.search(r"\b(?:it|test)\s*[.(]", test_source) is None:
+        return [Violation(
+            check_type="no_test_cases", rule_id="P3", severity="error",
+            message="no it()/test() cases found — TEST_SPEC cases are not implemented")]
+
+    violations: list = []
+    for sa in spec_assertions:
+        violations.append(Violation(
+            check_type="js_predicate_review", rule_id=sa.rule_id, severity="info",
+            message=(f"sub-assertion {sa.rule_id!r} predicate {sa.predicate!r}: "
+                     f"JS/TS predicate alignment is structure-only — needs_review "
+                     f"by the P3 reviewer")))
+    return violations
 
 
 def check_test_mirrors_spec(test_source: str, spec_cases: list, spec_assertions: list) -> list:
