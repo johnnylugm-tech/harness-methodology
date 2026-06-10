@@ -3493,3 +3493,109 @@ def test_advance_prechecks_p8_does_not_require_phase9_plan(tmp_path, monkeypatch
         "advance-phase returned 15 (phase9_plan.md not found) for completed_phase=8. "
         "Phase 8 is terminal — no phase9_plan.md should be required."
     )
+
+
+# =============================================================================
+# cmd_check_test_mirrors_spec — JS/TS dispatch
+# =============================================================================
+# The command routes to check_test_mirrors_spec_js (tree-sitter) when the test
+# file extension is .js/.jsx/.ts/.tsx/.mjs/.cjs, and to check_test_mirrors_spec
+# (ast) for .py. Locks the dispatch — a regression here would silently drop
+# the JS mirror gate.
+class TestCmdCheckTestMirrorsSpecDispatch:
+    def _setup(self, tmp_path, test_ext: str):
+        spec = tmp_path / "02-architecture" / "TEST_SPEC.md"
+        spec.parent.mkdir(parents=True)
+        # SpecAssertionParser requires ### FR-NN heading, a case table with
+        # `#` and `Inputs` columns, and a sub-assertion table with
+        # `predicate` + `applies_to` columns.
+        spec.write_text(
+            "### FR-01\n\n"
+            "| # | Inputs | Expected |\n| --- | --- | --- |\n"
+            "| 1 | x=\"1\" | y=1 |\n\n"
+            "| rule_id | predicate | applies_to |\n"
+            "| --- | --- | --- |\n"
+            "| A1 | `result == 1` | 1 |\n",
+            encoding="utf-8",
+        )
+        if test_ext in (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"):
+            test_src = ('it("test_fr01_x", () => { '
+                        'expect(1).toBe(1); });\n')
+        else:
+            test_src = "def test_fr01_x():\n    assert True\n"
+        test_file = tmp_path / "tests" / f"unit{test_ext}"
+        test_file.parent.mkdir(parents=True, exist_ok=True)
+        test_file.write_text(test_src, encoding="utf-8")
+        return spec, test_file
+
+    def _run(self, spec, test_file, project):
+        from harness_cli import cmd_check_test_mirrors_spec
+        args = argparse.Namespace(
+            project=str(project), fr_id="FR-01", test_file=str(test_file),
+        )
+        return cmd_check_test_mirrors_spec(args)
+
+    def test_typescript_test_routes_to_js_checker(self, tmp_path, capsys, monkeypatch):
+        from core.quality_gate import red_assertion_check as rac
+        captured: dict = {}
+
+        def fake_js(src, cases, assertions, dialect):
+            captured["dialect"] = dialect
+            captured["called"] = True
+            return []
+
+        monkeypatch.setattr(rac, "check_test_mirrors_spec_js", fake_js)
+        spy = mock.MagicMock(return_value=[])
+        monkeypatch.setattr(rac, "check_test_mirrors_spec", spy)
+
+        spec, test_file = self._setup(tmp_path, ".ts")
+        self._run(spec, test_file, tmp_path)
+
+        assert captured.get("called"), "JS checker was NOT dispatched for .ts"
+        assert captured["dialect"] == "typescript"
+        assert spy.call_count == 0, "Python checker must not run for .ts"
+
+    def test_tsx_test_routes_to_js_checker(self, tmp_path, monkeypatch):
+        from core.quality_gate import red_assertion_check as rac
+        captured: dict = {}
+
+        def fake_js(s, c, a, d):
+            captured["dialect"] = d
+            return []
+        monkeypatch.setattr(rac, "check_test_mirrors_spec_js", fake_js)
+        monkeypatch.setattr(rac, "check_test_mirrors_spec", mock.MagicMock())
+
+        spec, test_file = self._setup(tmp_path, ".tsx")
+        self._run(spec, test_file, tmp_path)
+
+        assert captured.get("dialect") == "tsx"
+
+    def test_javascript_test_routes_to_js_checker(self, tmp_path, monkeypatch):
+        from core.quality_gate import red_assertion_check as rac
+        captured: dict = {}
+
+        def fake_js(s, c, a, d):
+            captured["dialect"] = d
+            return []
+        monkeypatch.setattr(rac, "check_test_mirrors_spec_js", fake_js)
+        monkeypatch.setattr(rac, "check_test_mirrors_spec", mock.MagicMock())
+
+        spec, test_file = self._setup(tmp_path, ".js")
+        self._run(spec, test_file, tmp_path)
+
+        assert captured.get("dialect") == "javascript"
+
+    def test_python_test_routes_to_python_checker(self, tmp_path, monkeypatch):
+        from core.quality_gate import red_assertion_check as rac
+        js_called = {"v": False}
+
+        monkeypatch.setattr(rac, "check_test_mirrors_spec_js",
+                            lambda *a, **k: js_called.update(v=True) or [])
+        spy = mock.MagicMock(return_value=[])
+        monkeypatch.setattr(rac, "check_test_mirrors_spec", spy)
+
+        spec, test_file = self._setup(tmp_path, ".py")
+        self._run(spec, test_file, tmp_path)
+
+        assert not js_called["v"], "JS checker must NOT run for .py"
+        assert spy.call_count == 1, "Python checker must run exactly once"

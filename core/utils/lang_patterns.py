@@ -27,6 +27,17 @@ SOURCE_EXTENSIONS: dict[str, tuple[str, ...]] = {
     "typescript": (".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"),
 }
 
+# Directories skipped when walking source trees. Shared by
+# core/traceability/scanner.py and harness/lang_scanners/treesitter_js.py so
+# a single source of truth controls what counts as "project source" — JS/TS
+# build artifacts (dist, build, coverage, .next) and harness internals are
+# excluded for every language. Paths whose name ends in .egg-info are also
+# skipped (handled in scanner.py — that suffix convention is Python-only).
+SKIP_DIRS: frozenset[str] = frozenset({
+    "node_modules", "dist", "build", "coverage", ".next",
+    ".sessi-work", ".methodology",
+})
+
 # vitest/jest convention (*.test.* / *.spec.*) plus the harness test_fr file
 # naming used for traceability (test_fr01_x.test.ts also matches ^test_).
 TEST_FILE_PATTERN = re.compile(r"(\.test\.|\.spec\.|^test_)", re.IGNORECASE)
@@ -68,7 +79,7 @@ def iter_source_files(root: Path, language: str) -> Iterator[Path]:
     exts = source_extensions(language)
     for path in sorted(root.rglob("*")):
         if path.is_file() and path.suffix.lower() in exts \
-                and "node_modules" not in path.parts:
+                and not (set(path.parts) & SKIP_DIRS):
             yield path
 
 

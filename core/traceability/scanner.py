@@ -17,6 +17,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 from core.utils.lang_patterns import (
+    SKIP_DIRS,
     iter_source_files,
     iter_test_files,
     project_language,
@@ -41,12 +42,15 @@ def _norm_fr(num_str: str) -> str:
 
 
 def _skip_path(p: Path) -> bool:
-    """Exclude virtualenvs, caches, and harness internals."""
-    skip_tokens = {"venv", "__pycache__", ".sessi-work", ".methodology",
-                   ".git", "node_modules", ".mypy_cache", ".pytest_cache",
-                   ".ruff_cache", "dist", "build", "harness"}
+    """Exclude virtualenvs, caches, and harness internals.
+
+    SKIP_DIRS (lang_patterns) is the shared cross-language set; the extras
+    below are Python-only tooling caches.
+    """
+    python_only = {"venv", "__pycache__", ".git", ".mypy_cache",
+                   ".pytest_cache", ".ruff_cache", "harness"}
     parts = set(p.parts)
-    if parts & skip_tokens:
+    if parts & (SKIP_DIRS | python_only):
         return True
     return any(part.endswith(".egg-info") for part in p.parts)
 

@@ -25,6 +25,7 @@ if TYPE_CHECKING:  # tree_sitter imports stay lazy at runtime
     from tree_sitter import Parser
 
 from core.utils.lang_patterns import (
+    SKIP_DIRS as _SKIP_DIRS,
     SOURCE_EXTENSIONS as _LANG_EXTS,
     TEST_FILE_PATTERN as _TEST_FILE_RE,
 )
@@ -90,7 +91,7 @@ def _iter_files(
         for path in sorted(base.rglob("*")):
             if path.suffix.lower() not in _SOURCE_EXTS or not path.is_file():
                 continue
-            if "node_modules" in path.parts:
+            if set(path.parts) & _SKIP_DIRS:
                 continue
             key = str(path.resolve())
             if key in seen or not keep(path):
