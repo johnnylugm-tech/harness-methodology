@@ -35,6 +35,11 @@ Johnny: "執行 Phase N"
   → POST-FLIGHT: gate check + Claude sub-agent review
 ```
 
+## Language
+Target language is persisted in `.methodology/state.json` (`language`, `test_runner`).
+Per-dimension tool commands: `harness/ssi/prompts/evaluate_dimension.md` (per-language blocks).
+JS/TS test titles MUST follow `it('test_frNN_xxx')` (D4 spec-coverage matches names).
+
 ## Gate Status Reference
 | Gate | Trigger | Description |
 |------|---------|-------------|

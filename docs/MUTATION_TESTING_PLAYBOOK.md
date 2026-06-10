@@ -3,6 +3,7 @@
 > **Audience**: Agent (automated) or developer running mutation tests on the harness framework itself.
 > **Scope**: `harness/tool_runners.py` + `core/quality_gate/sab_parser.py` (see `setup.cfg [mutmut]`).
 > **Purpose**: Verify the test suite's ability to catch real bugs, not just confirm existing behaviour.
+> **Target-project note (v2.8.0+)**: this playbook covers **mutmut (python)**. JS/TS target projects use **StrykerJS** instead — config `stryker.conf.json` (init-project template), report `reports/mutation/mutation.json`, precheck `core/quality_gate/mutation_enforcer.run_stryker_precheck` (routed automatically by project language). Commands: see evaluate_dimension.md §mutation_testing.
 
 ---
 

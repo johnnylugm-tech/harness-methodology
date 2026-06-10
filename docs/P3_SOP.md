@@ -66,7 +66,9 @@ git commit -m "test: TDD stubs [RED] for all FRs + TEST_PLAN.md"
 每個 FR 按 quality_manifest.json priority 順序進行：
 1. 實作 FR 功能
 2. 將 `raise NotImplementedError` 替換為真實 assertions
-3. `pytest tests/test_fr_<id>.py -v` → 必須 ✅ pass
+3. 跑該 FR 測試 → 必須 ✅ pass
+   - python: `pytest tests/test_fr_<id>.py -v`
+   - js/ts:  `npx --no-install vitest run -t "test_fr<id>"`(jest: `npx --no-install jest -t "test_fr<id>"`)
 4. 執行 Gate 1 for this FR
 5. `git commit -m "feat(FR-001): implement + GREEN tests"`
 

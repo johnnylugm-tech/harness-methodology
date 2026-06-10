@@ -1,6 +1,6 @@
 ---
 name: harness-methodology
-version: 2.7.0
+version: 2.8.0
 constitution_version: 2.7
 description: |
   全流程軟體開發管線編排與品質門禁。Phase 1-8、14 維度品質憲章。
@@ -10,7 +10,7 @@ description: |
 
 # SKILL.md — harness-methodology
 
-> **Version**: v2.7.0 | **Framework**: harness-methodology | **Academic Benchmark**: 91/100
+> **Version**: v2.8.0 | **Framework**: harness-methodology | **Academic Benchmark**: 91/100
 
 ---
 
@@ -433,6 +433,23 @@ State stored in `.methodology/state.json`:
 | Constitution keyword scan exclusions | `.methodology/constitution_profile.json` → `exclude_patterns` |
 | A/B agent personas | `agent_personas/` directory |
 
+## 7.5 Language Support (v2.8.0+)
+
+支援語言:**python**(預設)、**javascript**、**typescript**。一專案一語言
+(混語言 monorepo 不支援),由 `init-project` 偵測(`tsconfig.json` → ts;
+`package.json` → js;歧義時必須 `--language` 明示)並持久化到
+`.methodology/state.json`(`language` + `test_runner`)。中途不可改語言。
+
+| 機制 | 規則 |
+|------|------|
+| 工具解析 | gate YAML `tool:` = Python 預設;js/ts 經 `harness/toolchains/registry.py` 的 DIMENSION_TOOLS 解析(vitest/jest 變體按 `test_runner`)。R8 之下任何已註冊語言必須 14 維全覆蓋。 |
+| JS/TS 測試命名(強制) | 測試標題必須 `it('test_frNN_xxx', ...)` / `test('test_frNN_xxx', ...)` — D4 spec-coverage 與 P1 Naming Authority 靠名字集合匹配,標題即名字。檔案放 `tests/`,命名 `test_frNN_*.test.<ext>` 或 `*.spec.<ext>`。 |
+| 純 JS 的 type_safety | 強制 JSDoc 型別 + `tsc -p tsconfig.checkjs.json --noEmit`(R8 禁止跳過維度);TS 用 `tsc --noEmit`。 |
+| TEST_SPEC 謂詞 | spec 層 sub-assertion 謂詞**一律 Python 表達式語法**(如 `len(result) == 4`),與實作語言無關。P3 mirror gate 對 js/ts 為 structure-only(謂詞對齊 → needs_review,人審)。 |
+| 工具來源 | js/ts 工具一律專案內釘版 devDependencies(`templates/js_toolchain/package.json`)+ `npx --no-install`;先 `npm ci`。security 用 vendored semgrep 規則集。 |
+| error_handling 豁免 | pragma 字串跨語言同一句:`pragma: no error-handling`(py 用 `#`、js 用 `//` 註解)。 |
+| 新增語言 | 完整 SOP:`docs/ADDING_LANGUAGE_SUPPORT_SOP.md`(R8 前置閘 + 逐層 checklist + 校準協議)。 |
+
 ## 8. Agentic Trajectory Tracing (v2.7.0+)
 
 Harness emits OpenTelemetry spans for preflight/postflight execution. Spans land in `.harness/traces/agent_trajectory.jsonl` — one JSON object per line, time-travel-debuggable offline.
@@ -530,4 +547,4 @@ Full reference: `docs/CRG_DEEP_INTEGRATION.md`
 
 ---
 
-*harness-methodology v2.7.0 — Academic Benchmark 91/100*
+*harness-methodology v2.8.0 — Academic Benchmark 91/100*

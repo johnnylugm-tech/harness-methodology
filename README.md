@@ -4,6 +4,20 @@
 
 Design Score: **91/100** Academic Benchmark
 
+## Supported Target Languages (v2.8.0+)
+
+| Language | Detection | Lint | Types | Tests/Coverage | Security | Mutation | MI / docs / assertions / error-handling |
+|---|---|---|---|---|---|---|---|
+| python (default) | pyproject/setup.cfg | ruff | pyright | pytest + coverage | bandit | mutmut | framework `ast` scanners |
+| typescript | tsconfig.json | eslint | `tsc --noEmit` | vitest or jest (json-summary) | semgrep (vendored rules) | StrykerJS | framework tree-sitter scanners |
+| javascript | package.json | eslint | JSDoc + `tsc --checkJs` | vitest or jest (json-summary) | semgrep (vendored rules) | StrykerJS | framework tree-sitter scanners |
+
+One language per project — `init-project` detects it (explicit `--language` on ambiguity)
+and persists it to `.methodology/state.json`. JS/TS test titles MUST follow the
+`it('test_frNN_xxx')` convention (D4 spec-coverage matches by name). Tool resolution
+single source: `harness/toolchains/registry.py`. Adding a language:
+[docs/ADDING_LANGUAGE_SUPPORT_SOP.md](docs/ADDING_LANGUAGE_SUPPORT_SOP.md).
+
 ## Architecture
 
 | Layer | Name | Description |
@@ -92,4 +106,4 @@ final_score = tool_score   # LLM scoring abolished — all 14 dimensions are too
 Early-stop (Gates 2–4): PASS → CONTINUE (anti-pattern guard) → PLATEAU → BLOCKED
 
 ---
-*harness-methodology v2.7.0 | Academic Benchmark 91/100 | [SAD.md](SAD.md) | [INTEGRATION.md](INTEGRATION.md)*
+*harness-methodology v2.8.0 | Academic Benchmark 91/100 | [SAD.md](SAD.md) | [INTEGRATION.md](INTEGRATION.md)*

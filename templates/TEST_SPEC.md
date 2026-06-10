@@ -49,10 +49,22 @@
      MUST be the TRUE value (e.g. expected="ㄌㄜˋ ㄙㄜˋ" with a real space), NOT the
      pytest-id form (ㄌㄜˋ_ㄙㄜˋ). A case with only a descriptive id and no concrete
      Inputs is REJECTED — it lets P3 invent values and mis-count (the FR-03
-     all-boundary bug). P3 implements these verbatim. -->
+     all-boundary bug). P3 implements these verbatim.
+
+     Test Function naming is LANGUAGE-INDEPENDENT (D4 spec-coverage matches the
+     name set verbatim):
+       python — function name:   def test_fr01_happy_path():
+       js/ts  — test TITLE:      it('test_fr01_happy_path', () => { ... })
+                                 test("test_fr01_happy_path", ...) also accepted.
+     The names declared here are the single source — implementations must use
+     them verbatim in either form. -->
 
 **Sub-assertions** — predicate over a case's declared Inputs / the production
-`result`. The P2 self-consistency gate
+`result`. **Predicates are ALWAYS Python-expression syntax** (e.g.
+`len(result) == 4`), regardless of the implementation language — they are
+spec-level declarations evaluated by the P2 self-consistency engine, not test
+code. For js/ts projects the P3 mirror gate checks structure only and flags
+each predicate as needs_review for the human reviewer. The P2 self-consistency gate
 (`harness_cli.py check-test-spec-consistency`) proves every predicate holds for
 every case in `applies_to`; an unsatisfiable group (e.g. `" " in "ㄏㄢˋ"` False,
 or 4 one-char chunks for a 5-char input) FAILS P2 — correctness is locked HERE,

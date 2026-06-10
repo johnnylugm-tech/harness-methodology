@@ -3,7 +3,7 @@
 > **Scope**: How to maintain the framework itself, and how to wire it into a target development project.
 > For gate embedding and SSI evaluation model, see [`docs/HARNESS_INTEGRATION.md`](docs/HARNESS_INTEGRATION.md).
 >
-> **Last verified**: 2026-05-12 &nbsp;|&nbsp; **Synced with**: SAD.md v2.7.0
+> **Last verified**: 2026-05-12 &nbsp;|&nbsp; **Synced with**: SAD.md v2.8.0
 
 ---
 
@@ -55,6 +55,36 @@ python scripts/generate_sab.py --project .
 ---
 
 ## 3. Context B — Target Project Integration
+
+### 3.0 JS/TS Target Projects (v2.8.0+)
+
+針對 javascript / typescript 目標專案,在 §3.1 之前先完成:
+
+```bash
+# 1. init-project 會偵測語言(tsconfig.json → typescript;package.json → javascript;
+#    歧義時 --language 明示)並寫入 .methodology/state.json,同時:
+#    - merge 釘版 devDependencies(templates/js_toolchain/package.json;既有版本優先)
+#    - 複製 eslint.config.mjs / vitest.config.ts / stryker.conf.json /
+#      benchmarks/run.mjs / tsconfig(.checkjs).json(已存在則跳過)
+python3 harness/harness_cli.py init-project --project . --phase 1
+
+# 2. 安裝釘版工具鏈 — gate 命令一律 `npx --no-install`,沒裝就 fail-loud:
+npm ci
+
+# 3. harness 端 Python 依賴(semgrep + tree-sitter 掃描器):
+pip install -r harness/requirements.txt
+
+# 4. 驗證工具齊備(per-language 分流):
+python3 harness/ssi/scripts/verify_tools.py --core --project .
+```
+
+硬性慣例(gate 會 enforce):
+- 測試標題 `it('test_frNN_xxx', ...)` / `test('test_frNN_xxx', ...)`;
+  檔案 `tests/test_frNN_*.test.<ext>`(D4 spec-coverage 與 trace 都靠這個)
+- 純 JS 專案必須留 `tsconfig.checkjs.json`(type_safety 維度跑 `tsc --checkJs`)
+- `stryker.conf.json` 必須保留 json reporter(mutation precheck 讀
+  `reports/mutation/mutation.json`)
+- TEST_SPEC.md 的 sub-assertion 謂詞仍是 Python 表達式語法(spec 層慣例)
 
 ### 3.1 Step 1: Make harness Importable in Target Repo
 

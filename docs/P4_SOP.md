@@ -12,6 +12,8 @@ P3 TDD stubs 已全數 GREEN。P4 在此基礎上擴展：
 
 ---
 
+> **Language note (v2.8.0+)**: 本 SOP 的工具命令以 python 為例;js/ts 目標專案的對應命令(vitest/jest、eslint、tsc、StrykerJS、semgrep)以 `harness/ssi/prompts/evaluate_dimension.md` 各維度的 per-language 區塊為準,工具解析 single source 為 `harness/toolchains/registry.py`。
+
 ## Step 1 — Integration Test 擴展
 
 針對 SAD.md 中有互動關係的 FR pair，建立整合測試：

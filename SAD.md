@@ -237,6 +237,16 @@ Full integration guide: **[INTEGRATION.md](INTEGRATION.md)**. Summary:
 
 ## 3. Detailed Module Design
 
+> **v2.8.0 — Language toolchain layer**: `harness/toolchains/` (ToolSpec registry,
+> DIMENSION_TOOLS per language, detection + state.json persistence),
+> `harness/lang_scanners/` (in-process scanners: `python_ast.py`, `treesitter_js.py` —
+> same output schemas per dimension so scorers are shared), and
+> `core/utils/lang_patterns.py` (single source for source/test file patterns and the
+> state.json language reader; core-side because core must not import harness).
+> Gate YAML `tool:` fields stay Python defaults; non-python projects resolve
+> dimension→tool via the registry. R8 completeness is enforced by
+> `tests/test_toolchain_registry.py`. Adding a language: `docs/ADDING_LANGUAGE_SUPPORT_SOP.md`.
+
 ### §3.1 — `harness/harness_bridge.py` — Gate Controller & Bridge
 
 **Responsibility**: Manages quality gate lifecycle. Core bridge between the methodology workflow and the embedded SSI evaluation skill.

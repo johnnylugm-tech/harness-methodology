@@ -160,6 +160,33 @@ The `name` field **must be `harness-methodology`** — CI validates this.
 
 ---
 
+## Maintaining the language toolchain registry
+
+Tool↔dimension resolution for every supported target language lives in
+`harness/toolchains/registry.py` (`TOOL_SPECS` + `DIMENSION_TOOLS`); file
+patterns and the state.json language reader live in
+`core/utils/lang_patterns.py` (core must not import harness, so the single
+source sits core-side and toolchains delegates).
+
+Rules:
+
+1. **R8 completeness**: a language may only appear in `DIMENSION_TOOLS` with
+   ALL 14 tool-scored dimensions covered —
+   `tests/test_toolchain_registry.py` enforces this against the gate YAMLs.
+2. **Pinned versions only**: scorer tools are pinned `==` (requirements.txt)
+   or exact devDependencies (`templates/js_toolchain/package.json`); semgrep
+   rules are vendored in `harness/toolchains/semgrep_rules/`.
+3. **Same scorer, same schema**: prefer reusing an existing scorer by making
+   the new tool emit a compatible report (precedent: `js-mi` emits radon-mi
+   JSON) over adding a near-duplicate scorer.
+4. Changing a `cmd`, scorer coefficient, or vendored rule changes SCORES —
+   treat it like a threshold change (PR review + calibration note in
+   `docs/ADDING_LANGUAGE_SUPPORT_SOP.md` appendix).
+
+Adding a whole language: follow `docs/ADDING_LANGUAGE_SUPPORT_SOP.md`
+step-by-step (it is the authoritative checklist; this section is just the
+registry-local rules).
+
 ## Adding a new auto-fix strategy
 
 When adding a new fix strategy, three files **must** be updated in lockstep:

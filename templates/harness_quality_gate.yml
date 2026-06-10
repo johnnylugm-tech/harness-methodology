@@ -32,6 +32,32 @@ jobs:
           pip install -r harness/requirements.txt || true
           pip install pyyaml 2>/dev/null || true
 
+      # JS/TS target projects (state.json language) need node + the pinned
+      # devDependencies — gate commands use `npx --no-install` and fail loudly
+      # without them. No-op for python projects.
+      - name: Detect target language
+        id: lang
+        run: |
+          LANG=$(python3 -c "
+          import json
+          try:
+              print(json.load(open('.methodology/state.json')).get('language', 'python'))
+          except Exception:
+              print('python')
+          " 2>/dev/null || echo "python")
+          echo "LANGUAGE=$LANG" >> $GITHUB_OUTPUT
+          echo "Detected language: $LANG"
+
+      - uses: actions/setup-node@v4
+        if: steps.lang.outputs.LANGUAGE == 'javascript' || steps.lang.outputs.LANGUAGE == 'typescript'
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install JS/TS toolchain (pinned devDependencies)
+        if: steps.lang.outputs.LANGUAGE == 'javascript' || steps.lang.outputs.LANGUAGE == 'typescript'
+        run: npm ci
+
       - name: Auto-detect phase from state.json
         id: phase
         run: |

@@ -31,29 +31,53 @@ Run all tools for this dimension. Save raw output:
 # Output path: .sessi-work/round_<n>/tools/<dimension>.txt
 ```
 
+> **Language resolution:** the project language lives in `.methodology/state.json`
+> (`language`, plus `test_runner` for js/ts — set by init-project). Use the
+> command block matching it. The single source of truth for tool↔dimension
+> mapping is `harness/toolchains/registry.py`; S4 cross-validation re-runs the
+> SAME resolved tool, so using another language's commands gets blocked.
+> JS/TS rule: tools come from the project's pinned devDependencies via
+> `npx --no-install` (run `npm ci` first) — never from the network.
+
 **Tool commands by dimension:**
 
 ### linting (Tier 1)
 ```bash
-pylint src/ --output-format=json 2>&1 | head -200
-eslint src/ --format json 2>&1 | head -200
+# python:
+ruff check . --output-format json --exit-zero 2>&1 | head -200
+# javascript / typescript:
+npx --no-install eslint . -f json 2>&1 | head -200
 ```
+**Score formula:** `tool_score = max(0, 100 − violations × 2)` — ruff: count JSON
+array items; eslint: sum `errorCount + warningCount` across file results.
 
 ### type_safety (Tier 1)
 ```bash
+# python:
 pyright src/ --outputjson 2>&1 | head -200
+# typescript:
+npx --no-install tsc --noEmit --pretty false 2>&1; echo "tsc exit=$?"
+# javascript (JSDoc types via checkJs — tsconfig.checkjs.json from init-project):
+npx --no-install tsc -p tsconfig.checkjs.json --noEmit --pretty false 2>&1; echo "tsc exit=$?"
 ```
-**Score formula:** `tool_score = max(0, 100 - summary.errorCount × 5)` — parse `summary.errorCount` from JSON output.
+**Score formula:** `tool_score = max(0, 100 - errors × 5)` — pyright: parse
+`summary.errorCount`; tsc: count `error TS\d+:` lines. The trailing
+`echo "tsc exit=$?"` is REQUIRED — clean tsc output is empty and the evidence
+validator needs the marker.
 
 ### test_coverage (Tier 1)
 ```bash
-# C1: retry with PYTHONPATH=. if default run returns 0% or fails (import errors)
+# python — C1: retry with PYTHONPATH=. if default run returns 0% or fails (import errors)
 coverage run -m pytest && coverage report --format=json \
   || PYTHONPATH=. coverage run -m pytest && coverage report --format=json \
   || PYTHONPATH=. python3 -m pytest --cov=. --cov-report=term-missing
 
-# JS/TS:
-nyc --reporter=json npm test
+# javascript / typescript (vitest):
+npx --no-install vitest run --coverage --coverage.reporter=json-summary --coverage.reporter=text
+# javascript / typescript (jest):
+npx --no-install jest --coverage --ci --coverageReporters=json-summary --coverageReporters=text
+# then read the artifact — total.lines.pct is the score:
+cat coverage/coverage-summary.json
 ```
 
 **Automatic CRG enrichment** (added to `test_coverage.issues` at finalize-gate):
@@ -108,14 +132,20 @@ if zero_assert:
 score = min(100, density * 25 + (1 - zr) * 50)
 print(f'tool_score={score:.0f}')
 "
+
+# javascript / typescript — run the framework scanner directly (same code path
+# as S4 cross-validation; counts it()/test() cases without expect()/assert):
+python3 -c "from harness.tool_runners import run_tool; print(run_tool('js-assertions', '.')[0])"
 ```
 
 ### security (Tier 2)
 ```bash
+# python:
 bandit -r src/ -f json --exit-zero 2>&1 | head -300
-npm audit --json 2>&1 | head -200
+# javascript / typescript — vendored ruleset only (reproducible scores; never remote packs):
+semgrep scan --config harness/toolchains/semgrep_rules/js_security.yaml --json --metrics=off --quiet 2>&1 | head -300
 ```
-**Score formula:** `tool_score = max(0, 100 - HIGH×10 - MEDIUM×3 - LOW×1)` — count items in `results[]` by `issue_severity`.
+**Score formula:** `tool_score = max(0, 100 - HIGH×10 - MEDIUM×3 - LOW×1)` — bandit: count `results[]` by `issue_severity`; semgrep: by `extra.severity` (ERROR/WARNING/INFO).
 
 ### secrets_scanning (Tier 1)
 ```bash
@@ -129,6 +159,28 @@ scancode --license --json-pp - src/ | head -300
 ```
 
 ### mutation_testing (Tier 1)
+
+**javascript / typescript — StrykerJS** (the whole mutmut protocol below is
+python-only):
+```bash
+# stryker.conf.json comes from init-project (json reporter is REQUIRED —
+# the framework reads reports/mutation/mutation.json).
+npx --no-install stryker run 2>&1 | tail -50
+# Score = mutation score from the report; surviving mutants list:
+python3 -c "
+import json
+r = json.load(open('reports/mutation/mutation.json'))
+mutants = [m for f in r.get('files', {}).values() for m in f.get('mutants', [])]
+killed = sum(1 for m in mutants if m['status'] in ('Killed', 'Timeout'))
+print(f'mutation_score={100 * killed / max(len(mutants), 1):.1f}')
+for f, d in r.get('files', {}).items():
+    for m in d.get('mutants', []):
+        if m['status'] == 'Survived':
+            print(f\"  SURVIVED: {f}:{m.get('location', {}).get('start', {}).get('line', '?')} {m.get('mutatorName')}\")
+"
+```
+
+**python — mutmut 2.x protocol:**
 ```bash
 # mutmut was pre-verified by run-gate (_verify_gate_tools). No install needed here.
 # REQUIRED: mutmut 2.x (pip install 'mutmut<3').
@@ -369,12 +421,15 @@ The harness `finalize_gate()` will bypass the architecture score threshold when 
 > `da_waiver_needs_human_review = true`. The prose is a documentation artifact, not a
 > correctness guarantee.
 
-### readability (Tier 3 — proxy metric: radon-mi)
+### readability (Tier 3 — proxy metric: radon-mi / js-mi)
 
 ```bash
+# python:
 radon mi src/ -j 2>&1 | head -100
+# javascript / typescript — framework tree-sitter MI (radon-compatible output):
+python3 -c "from harness.tool_runners import run_tool; print(run_tool('js-mi', '.')[0])"
 ```
-**Score formula:** `tool_score = avg(mi for all files)` — `radon mi -j` outputs `{"file.py": {"mi": 0-100, "rank": "A-F"}}`. Average the `mi` values across all files.
+**Score formula:** `tool_score = avg(mi for all files)` — both emit `{"file": {"mi": 0-100, "rank": ...}}`. Average the `mi` values across all files.
 
 > **Proxy caveat:** maintainability-index (MI) is an *approximation* of readability, not
 > a direct measure — it weighs Halstead volume / cyclomatic complexity / LOC, which
@@ -383,12 +438,13 @@ radon mi src/ -j 2>&1 | head -100
 > (not 100), and S4 cross-validation blocks an agent score it cannot independently
 > reproduce — a missing metric is never silently treated as a pass.
 
-### error_handling (Tier 3 — tool-scored: ast-error-handling)
+### error_handling (Tier 3 — tool-scored: ast-error-handling / js-error-handling)
 
 **Scored by the framework, not the LLM and not CRG.** The harness scans the source
 tree (`03-development/src`, `src`) and computes **file-level error-handling coverage**:
-the percentage of source files (that contain code) with at least one real `try/except`
-handler block.
+the percentage of source files (that contain code) with at least one real handler —
+python: `try/except`; js/ts: `try/catch` or a promise `.catch()`. Reproduce with:
+`python3 -c "from harness.tool_runners import run_tool; print(run_tool('<ast-error-handling|js-error-handling>', '.')[0])"`
 
 `error_handling.score = round(100 × files_with_handler / total_source_files, 1)`
 
@@ -408,12 +464,13 @@ calls with no `try/except` anywhere in the file. For files that genuinely cannot
 (data models, config constants), add `# pragma: no error-handling` instead of adding
 pointless try/except blocks.
 
-### documentation (Tier 3 — tool-scored: ast-docstrings)
+### documentation (Tier 3 — tool-scored: ast-docstrings / js-doc-coverage)
 
 **Scored by the framework, not the LLM and not CRG.** The harness scans the source
-tree (`03-development/src`, `src`) and computes **public-API docstring coverage**:
-the percentage of public `def`/`class` (names not starting with `_`) that carry a
-docstring (`ast.get_docstring`).
+tree (`03-development/src`, `src`) and computes **public-API doc coverage** —
+python: docstrings on public `def`/`class` (names not starting with `_`);
+js/ts: `/** JSDoc */` blocks on `export`ed declarations and public methods of
+exported classes.
 
 `documentation.score = round(100 × public_with_docstring / total_public, 1)`
 
@@ -424,16 +481,21 @@ scan independently, so a fabricated score is blocked.
 - A project with no public API (`total_public == 0`) scores 100 (nothing to document).
 - `_`-prefixed (private) symbols and nested defs are excluded.
 
-### performance (Tier 3 — tool-scored: pytest-benchmark)
+### performance (Tier 3 — tool-scored: pytest-benchmark / js-bench)
 
-**Scored by the framework via `pytest-benchmark` (measured latency), not radon.** The
-harness runs the benchmark suite and scores real mean latencies:
+**Scored by the framework via measured latency, not radon.** The harness runs the
+benchmark suite and scores real mean latencies:
 ```bash
+# python:
 pytest 03-development/tests --benchmark-only --benchmark-disable-gc --benchmark-columns mean,max --tb no -q
+# javascript / typescript — normalized tinybench contract (template from init-project):
+node benchmarks/run.mjs
 ```
-**Score formula:** start at 100; per benchmark, `mean > 3000 ms → −50`, `mean > 1000 ms → −25`, otherwise no penalty. **No benchmark tests collected** (pytest exit 5) → score is *None* (dimension not yet applicable — not a free 100). S4 cross-validation re-runs this independently, so a fabricated score is blocked.
+**Score formula:** start at 100; per benchmark, `mean > 3000 ms → −50`, `mean > 1000 ms → −25`, otherwise no penalty. **No benchmarks** (pytest exit 5 / missing `benchmarks/run.mjs`) → score is *None* (dimension not yet applicable — not a free 100). S4 cross-validation re-runs this independently, so a fabricated score is blocked.
 
-> Add `pytest-benchmark` micro-benchmarks (functions taking the `benchmark` fixture) for hot-path code so this dimension produces a real score rather than being skipped.
+> python: add `pytest-benchmark` micro-benchmarks (functions taking the `benchmark`
+> fixture). js/ts: register cases in `benchmarks/run.mjs` (tinybench) — its output
+> contract is `{"benchmarks": [{"name", "mean_ms"}]}`.
 
 ---
 
