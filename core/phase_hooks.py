@@ -604,8 +604,15 @@ class PhaseHooks:
         """Check target project CI wiring + ECC hooks + branch protection (advisory, non-blocking)."""
         print("\n[PRE-FLIGHT] CI Readiness Check")
         checks: Dict[str, bool] = {}
-        workflow_path = self.project_path / ".github" / "workflows" / "harness_quality_gate.yml"
-        checks["ci_workflow"] = workflow_path.exists()
+        # Accept either harness_quality_gate.yml (target-project contract, see
+        # init-project) or harness_ci.yml (this framework repo's own CI; both
+        # are referenced in CONTRIBUTING/README/INTEGRATION and are equivalent
+        # in scope — lint + test + manifest/trace validation).
+        workflows_dir = self.project_path / ".github" / "workflows"
+        checks["ci_workflow"] = (
+            (workflows_dir / "harness_quality_gate.yml").exists()
+            or (workflows_dir / "harness_ci.yml").exists()
+        )
         hooks_dir = self.project_path / ".git" / "hooks"
         checks["git_hooks"] = (hooks_dir / "prepare-commit-msg").exists()
         checks["harness_importable"] = (
