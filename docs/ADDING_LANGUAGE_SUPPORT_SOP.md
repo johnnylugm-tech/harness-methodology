@@ -173,7 +173,7 @@ machine-readable 報告(JSON reporter / artifact)優先於刮 stdout 文字。
 
 | Dimension | Tool | Pilot 分數 | 判定 |
 |---|---|---|---|
-| linting | eslint | 96.0 | 缺陷偵測 ✓(violations ×−2,與 ruff 同曲線) |
+| linting | eslint | 98.0 | 缺陷偵測 ✓(violations ×−2,與 ruff 同曲線。pilot 僅 1 個 unused-var,complexity/max-lines 未觸發) |
 | type_safety | tsc | 100.0 | clean compile ✓ |
 | test_coverage | vitest-cov | 87.5 | 真 v8 coverage(json-summary artifact)✓ |
 | security | semgrep-js | 100.0 | 無 findings(規則集另以含漏洞 fixture 驗證:2 ERROR+2 WARNING → 74.0)|
