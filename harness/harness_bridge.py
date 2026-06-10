@@ -707,6 +707,17 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
         print(f"  [S4-WARN] cross-validation disabled: harness.tool_runners unavailable: {exc}")
         return []
 
+    # Language-aware tool resolution: the YAML `tool:` field is the Python
+    # default; non-Python projects resolve dimension → tool via the toolchain
+    # registry (state.json `language`/`test_runner`, persisted at init-project).
+    from harness.toolchains import (
+        get_project_language,
+        get_project_test_runner,
+        resolve_tool_id,
+    )
+    _language = get_project_language(ctx.project_root)
+    _test_runner = get_project_test_runner(ctx.project_root)
+
     verification_dir = _Path(ctx.project_root) / ".sessi-work" / "harness_verification"
     verification_dir.mkdir(parents=True, exist_ok=True)
 
@@ -726,6 +737,11 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
 
         if not requires_tool or not tool or dim_name in _crg_owned:
             continue
+
+        if _language != "python":
+            tool = resolve_tool_id(
+                dim_name, _language, yaml_tool=tool, test_runner=_test_runner
+            ) or tool
 
         agent_score = float(breakdown.get(dim_name, {}).get("score", 0))
 

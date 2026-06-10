@@ -1,8 +1,8 @@
 {
   "name": "harness",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "category": "infrastructure",
-  "description": "Pipeline bridge, git strategy, CRG integration, effort tracker, FR progress tracker, handover generator, and reviewer router",
+  "description": "Pipeline bridge, git strategy, CRG integration, effort tracker, FR progress tracker, handover generator, reviewer router, and language toolchain registry",
   "depends_on": ["quality_gate", "auto_fix"],
   "compat": {
     "python": ">=3.10",

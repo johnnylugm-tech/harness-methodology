@@ -22,29 +22,9 @@ from __future__ import annotations
 import ast
 import re
 import subprocess
-from typing import Optional
+from typing import Callable, Optional
 
-# Tools that are too slow or complex for inline cross-validation.
-# They are still covered by Solution-A content validation.
-_SKIP_TOOLS: frozenset[str] = frozenset({"mutmut", "scancode"})
-
-# Default per-tool timeouts (seconds).
-_DEFAULT_TIMEOUTS: dict[str, int] = {
-    "ruff":             30,
-    "mypy":             60,
-    "pyright":          60,
-    "pytest-cov":       120,
-    "pytest":           120,
-    "gitleaks":         30,
-    "bandit":           60,
-    "radon-cc":         30,
-    "radon-mi":         30,
-    "pytest-benchmark": 180,
-    "ast-assertions":   30,
-    "ast-error-handling": 30,
-    "ast-docstrings":   30,
-    "pytest-cov-integration": 180,
-}
+from harness.toolchains import get_tool_spec
 
 # Source directories scanned for file-level error-handling coverage.
 _SRC_DIRS: tuple[str, ...] = ("03-development/src", "src")
@@ -64,19 +44,19 @@ def run_tool(
       ("Tool not found…", -3) — executable missing
       ("Error: …", -4) — unexpected exception
     """
-    if tool in _SKIP_TOOLS:
-        return "", -1
+    spec = get_tool_spec(tool)
+    if spec is None or spec.skip_inline:
+        return "", -1  # Unknown or skip-list tool
 
-    # ast-assertions / ast-error-handling / ast-docstrings are computed in-process (AST scan).
-    if tool == "ast-assertions":
-        return _run_ast_assertions(str(project_root))
-    if tool == "ast-error-handling":
-        return _run_ast_error_handling(str(project_root))
-    if tool == "ast-docstrings":
-        return _run_ast_docstrings(str(project_root))
-
-    timeout = timeout_override if timeout_override is not None else _DEFAULT_TIMEOUTS.get(tool, 30)
     root = str(project_root)
+
+    if spec.in_process:
+        runner = _IN_PROCESS_RUNNERS.get(tool)
+        if runner is None:
+            return "", -1
+        return runner(root)
+
+    timeout = timeout_override if timeout_override is not None else spec.timeout
 
     import os
     test_target = root
@@ -85,77 +65,10 @@ def run_tool(
     elif os.path.isdir(os.path.join(root, "tests")):
         test_target = os.path.join(root, "tests")
 
-    # Build command per tool.
-    cmds: dict[str, list[str]] = {
-        "ruff": [
-            "ruff", "check", root,
-            "--output-format", "json",
-            "--exit-zero",
-        ],
-        "mypy": [
-            "mypy", root,
-            "--ignore-missing-imports",
-            "--no-color-output",
-            "--no-error-summary",
-        ],
-        "pyright": [
-            "pyright", root,
-            "--outputjson",
-        ],
-        "pytest-cov": [
-            "pytest", test_target,
-            "--cov", "--cov-report=term-missing",
-            "-q", "--tb=no", "--no-header",
-        ],
-        "pytest": [
-            "pytest", test_target,
-            "-q", "--tb=no", "--no-header",
-        ],
-        "gitleaks": [
-            "gitleaks", "detect",
-            "--source", root,
-            # No --exit-code override: exit 0 = clean, exit 1 = leaks found.
-            # Overriding to 0 would make the scorer always return 100.
-        ],
-        "bandit": [
-            "bandit", "-r", root,
-            "-f", "json",
-            "--exit-zero",  # always exit 0 so returncode doesn't mask JSON output
-        ],
-        "radon-cc": [
-            "radon", "cc", root,
-            "-j",           # JSON output
-            "--min", "A",   # include all grades (A-F)
-        ],
-        "radon-mi": [
-            "radon", "mi", root,
-            "-j",           # JSON output
-        ],
-        # --benchmark-only: run only tests using the `benchmark` fixture.
-        # If none exist, pytest exits with code 5 (no tests collected) → scorer returns None.
-        # Text output (not --benchmark-json) so results flow through stdout capture.
-        "pytest-benchmark": [
-            "pytest", root,
-            "--benchmark-only",
-            "--benchmark-disable-gc",
-            "--benchmark-columns", "mean,max",
-            "--tb", "no",
-            "-q",
-        ],
-        # Integration coverage: run only the integration suite and measure real
-        # line coverage of the source tree (NOT pass-rate).  Missing suite →
-        # pytest exits 4/5 and the cov table is absent → _score_pytest returns 0
-        # → cross-validation blocks (a passing agent score is then unverifiable).
-        "pytest-cov-integration": [
-            "pytest", "03-development/tests/integration",
-            "--cov=03-development/src", "--cov-report=term-missing",
-            "-q", "--tb=no", "--no-header",
-        ],
-    }
+    if spec.cmd is None:
+        return "", -1
 
-    cmd = cmds.get(tool)
-    if not cmd:
-        return "", -1  # Unknown tool — skip
+    cmd = [part.format(root=root, test_target=test_target) for part in spec.cmd]
 
     try:
         proc = subprocess.run(
@@ -416,6 +329,15 @@ def _run_ast_docstrings(project_root: str) -> tuple[str, int]:
     return _json.dumps(summary), 0
 
 
+# In-process scanners, keyed by tool_id (ToolSpec.in_process=True in the
+# toolchain registry). Defined after the runner functions they reference.
+_IN_PROCESS_RUNNERS: dict[str, Callable[[str], tuple[str, int]]] = {
+    "ast-assertions": _run_ast_assertions,
+    "ast-error-handling": _run_ast_error_handling,
+    "ast-docstrings": _run_ast_docstrings,
+}
+
+
 def compute_tool_score(tool: str, output: str, returncode: int) -> Optional[float]:
     """Compute a 0-100 score from *tool* output.
 
@@ -425,23 +347,8 @@ def compute_tool_score(tool: str, output: str, returncode: int) -> Optional[floa
     if returncode < 0:
         return None  # Harness-internal codes — cannot score
 
-    scorers = {
-        "ruff":             _score_ruff,
-        "mypy":             _score_mypy,
-        "pyright":          _score_pyright,
-        "pytest-cov":       lambda o, _rc: _score_pytest(o, coverage=True),
-        "pytest":           lambda o, _rc: _score_pytest(o, coverage=False),
-        "gitleaks":         _score_gitleaks,
-        "bandit":           _score_bandit,
-        "radon-cc":         _score_radon_cc,
-        "radon-mi":         _score_radon_mi,
-        "pytest-benchmark": _score_pytest_benchmark,
-        "ast-assertions":   _score_assertion_quality,
-        "ast-error-handling": _score_error_handling_coverage,
-        "ast-docstrings":   _score_docstring_coverage,
-        "pytest-cov-integration": lambda o, _rc: _score_pytest(o, coverage=True),
-    }
-    fn = scorers.get(tool)
+    spec = get_tool_spec(tool)
+    fn = _SCORERS.get(spec.scorer) if spec and spec.scorer else None
     return fn(output, returncode) if fn else None
 
 
@@ -664,3 +571,23 @@ def _score_docstring_coverage(output: str, _returncode: int) -> Optional[float]:
     if total == 0:
         return 100.0
     return round(100.0 * with_doc / total, 1)
+
+
+# Scorer functions keyed by ToolSpec.scorer id (toolchain registry). Multiple
+# tools may share one scorer (e.g. eslint-family tools added per language).
+_SCORERS: dict[str, Callable[[str, int], Optional[float]]] = {
+    "ruff":             _score_ruff,
+    "mypy":             _score_mypy,
+    "pyright":          _score_pyright,
+    "pytest-cov":       lambda o, _rc: _score_pytest(o, coverage=True),
+    "pytest":           lambda o, _rc: _score_pytest(o, coverage=False),
+    "gitleaks":         _score_gitleaks,
+    "bandit":           _score_bandit,
+    "radon-cc":         _score_radon_cc,
+    "radon-mi":         _score_radon_mi,
+    "pytest-benchmark": _score_pytest_benchmark,
+    "ast-assertions":   _score_assertion_quality,
+    "ast-error-handling": _score_error_handling_coverage,
+    "ast-docstrings":   _score_docstring_coverage,
+    "pytest-cov-integration": lambda o, _rc: _score_pytest(o, coverage=True),
+}

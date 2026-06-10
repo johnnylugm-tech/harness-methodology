@@ -126,88 +126,77 @@ _STEP_MAX_TURNS: dict[str, int] = {
 }
 
 # ---------------------------------------------------------------------------
-# Tool name → (check_command, human_name).
-# Used by _verify_gate_tools() to verify tools are actually installed before
-# accepting dimension scores (S2: prevents LLM guessing when tools are missing).
-# Dimension names that don't map to a dedicated tool (security, architecture, etc.)
-# are checked by the LLM and don't have a tool requirement.
-_TOOL_CHECK_COMMANDS: dict[str, tuple[str, str]] = {
-    "ruff": ("ruff --version 2>&1 || python3 -m ruff --version 2>&1", "ruff"),
-    "mypy": ("mypy --version 2>&1", "mypy"),
-    "pytest-cov": ("pytest --version 2>&1 && coverage --version 2>&1", "pytest + coverage"),
-    "pytest": ("pytest --version 2>&1", "pytest"),
-    "gitleaks": ("gitleaks version 2>&1", "gitleaks"),
-    "scancode": ("scancode --version 2>&1", "scancode-toolkit"),
-    # mutmut 2.5.x hardcodes `python` in time_test_suite() (__main__.py:527).
-    # Check for both mutmut itself AND a working `python` binary.
-    # If only python3 is available, the mutmut check passes but a warning is
-    # emitted so the user knows to `ln -s python3 python` before Phase 4+.
-    "mutmut": ("mutmut --help 2>&1", "mutmut"),
-    # Fallback: dimension-name-based lookup for older YAML configs without tool field
+# Tool availability checks (S2: prevents LLM guessing when tools are missing).
+# Tool-id → (check_cmd, human_name) lives in the toolchain registry
+# (harness/toolchains/registry.py) and is resolved per project language.
+# Only the dimension-name fallback for older YAML configs without a tool field
+# remains here. Dimension names that don't map to a dedicated tool
+# (LLM-evaluated dimensions) have no tool requirement.
+_DIM_FALLBACK_CHECKS: dict[str, tuple[str, str]] = {
     "secrets_scanning": ("gitleaks version 2>&1", "gitleaks"),
     "mutation_testing": ("mutmut --help 2>&1", "mutmut"),
     "license_compliance": ("scancode --version 2>&1", "scancode-toolkit"),
     "linting": ("ruff --version 2>&1 || python3 -m ruff --version 2>&1", "ruff"),
     "type_safety": ("mypy --version 2>&1", "mypy"),
     "test_coverage": ("pytest --version 2>&1", "pytest + coverage"),
-    "code-review-graph": ("code-review-graph status 2>&1", "code-review-graph"),
-    # Structural dimensions — scored by CRG, not LLM
     "architecture": ("code-review-graph status 2>&1", "code-review-graph"),
-    # Tool-scored dimensions (Gates 3-4) — must be installed for tool-based scoring
-    "pyright": ("pyright --version 2>&1", "pyright"),
-    "bandit": ("bandit --version 2>&1", "bandit"),
-    "radon-cc": ("radon --version 2>&1", "radon (radon-cc)"),
-    "radon-mi": ("radon --version 2>&1", "radon (radon-mi)"),
-    "pytest-benchmark": ("pytest --version 2>&1 && python3 -c 'import pytest_benchmark' 2>&1", "pytest-benchmark"),
-    "pytest-cov-integration": ("pytest --version 2>&1 && coverage --version 2>&1", "pytest + coverage (integration)"),
-    # AST-based tools are pure Python (no external binary); gate configs use these
-    # tool names directly; the harness runs them in-process via ast module.
-    # Check that Python 3 can parse a minimal AST module (always true if Python is
-    # installed, but gives a clear diagnostic if something is broken).
-    "ast-assertions": ("python3 -c 'import ast; ast.parse(\"x=1\")' 2>&1", "ast (assertions)"),
-    "ast-error-handling": ("python3 -c 'import ast; ast.parse(\"try:\\n pass\\nexcept: pass\")' 2>&1", "ast (error-handling)"),
-    "ast-docstrings": ("python3 -c 'import ast; ast.parse(\"def f():\\n \\\"\\\"\\\"doc\\\"\\\"\\\"\\n pass\")' 2>&1", "ast (docstrings)"),
 }
 
-def _check_tool_for_dim(dim_name: str, tool_name: str | None) -> tuple[bool, str]:
+def _run_tool_check(check_cmd: str) -> bool:
+    """Run a shell availability probe; True when it exits 0."""
+    result = subprocess.run(
+        ["bash", "-c", check_cmd],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        timeout=10, text=True,
+    )
+    return result.returncode == 0
+
+
+def _check_tool_for_dim(
+    dim_name: str, tool_name: str | None, language: str = "python"
+) -> tuple[bool, str]:
     """Check if the required tool for a dimension is installed.
 
-    Prefers tool_name from YAML config; falls back to dim_name lookup.
-    Returns (available: bool, diagnostic: str).
+    Resolves the YAML tool name through the toolchain registry (for python the
+    YAML name passes through unchanged; other languages resolve by dimension
+    via DIMENSION_TOOLS). Falls back to the dimension-name table for older
+    configs without a tool field. Returns (available: bool, diagnostic: str).
     """
-    # First try the explicit tool name from YAML
-    if tool_name:
-        info = _TOOL_CHECK_COMMANDS.get(tool_name)
-        if info:
-            check_cmd, human_name = info
-            try:
-                result = subprocess.run(
-                    ["bash", "-c", check_cmd],
-                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                    timeout=10, text=True,
-                )
-                ok = result.returncode == 0
-                return ok, ("" if ok else f"{dim_name}: {human_name} ({tool_name}) not found")
-            except Exception:
-                return False, f"{dim_name}: {human_name} ({tool_name}) check failed"
+    from harness.toolchains import get_tool_spec, resolve_tool_id
 
-    # Fall back to dimension name lookup
-    info = _TOOL_CHECK_COMMANDS.get(dim_name)
+    resolved = resolve_tool_id(dim_name, language, yaml_tool=tool_name)
+    if resolved is None and language != "python":
+        # Registered languages must cover every tool-scored dimension (R8);
+        # reaching here means the toolchain registry has no entry.
+        return False, (
+            f"{dim_name}: no '{language}' toolchain entry — "
+            f"language not fully supported (see harness/toolchains/registry.py)"
+        )
+
+    spec = get_tool_spec(resolved) if resolved else None
+    if spec is not None:
+        try:
+            ok = _run_tool_check(spec.check_cmd)
+            return ok, (
+                "" if ok else f"{dim_name}: {spec.human_name} ({resolved}) not found"
+            )
+        except Exception:
+            return False, f"{dim_name}: {spec.human_name} ({resolved}) check failed"
+
+    # Fall back to dimension name lookup (older configs without tool field)
+    info = _DIM_FALLBACK_CHECKS.get(dim_name)
     if info is None:
         return True, ""  # No tool requirement — pass (LLM-evaluated dimension)
     check_cmd, human_name = info
     try:
-        result = subprocess.run(
-            ["bash", "-c", check_cmd],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            timeout=10, text=True,
-        )
-        ok = result.returncode == 0
+        ok = _run_tool_check(check_cmd)
         return ok, ("" if ok else f"{dim_name}: {human_name} not found")
     except Exception:
         return False, f"{dim_name}: {human_name} check failed"
 
-def _verify_gate_tools(gate_num: int, project: str) -> tuple[bool, list[str]]:
+def _verify_gate_tools(
+    gate_num: int, project: str, state_root: str | None = None
+) -> tuple[bool, list[str]]:
     """Check all required tools for a gate exist (S2).
 
     Reads gate YAML config: if a dimension has requires_tool_execution: true
@@ -215,8 +204,15 @@ def _verify_gate_tools(gate_num: int, project: str) -> tuple[bool, list[str]]:
     requires_tool_execution (e.g. security, architecture) are LLM-evaluated
     and skipped.
 
+    Tool resolution is language-aware: the project language is read from
+    *state_root*/.methodology/state.json (defaults to *project* — pass
+    state_root explicitly when gate configs and FSM state live in different
+    roots, as in init-project where configs come from the harness checkout).
+
     Returns (all_ok, missing_list).
     """
+    from harness.toolchains import get_project_language
+    language = get_project_language(state_root or project)
     import yaml as _yaml
     cfg_path = None
     # Try phase-specific name first, then generic pattern
@@ -246,7 +242,7 @@ def _verify_gate_tools(gate_num: int, project: str) -> tuple[bool, list[str]]:
         if not requires_tool:
             continue  # LLM-evaluated dimension — skip tool check
         tool_name = dim.get("tool")  # May be None for older configs
-        ok, diag = _check_tool_for_dim(dim_name, tool_name)
+        ok, diag = _check_tool_for_dim(dim_name, tool_name, language)
         if not ok and diag:
             missing.append(diag)
     return len(missing) == 0, missing
@@ -7635,8 +7631,46 @@ def cmd_init_project(args: argparse.Namespace) -> int:
     phase = args.phase
     harness_root = Path(__file__).parent.resolve()
 
+    # Resolve project language before any writes — every later gate run reads
+    # the persisted value from state.json (toolchain resolution, S2 checks).
+    from harness.toolchains import (
+        detect_language,
+        detect_test_runner,
+        supported_languages,
+    )
+    language = getattr(args, "language", None)
+    if language is None:
+        language = detect_language(project)
+        if language is None:
+            print(
+                "[BLOCKED] Ambiguous project language: both Python and JS/TS "
+                "manifests found.\n"
+                "          Re-run with an explicit flag, e.g.: "
+                "init-project --language typescript"
+            )
+            return 1
+    if language not in supported_languages():
+        print(
+            f"[BLOCKED] Unsupported language '{language}'. "
+            f"Registered toolchains: {', '.join(supported_languages())}\n"
+            "          See docs/ADDING_LANGUAGE_SUPPORT_SOP.md to register a "
+            "new language toolchain."
+        )
+        return 1
+    test_runner = getattr(args, "test_runner", None)
+    if test_runner is None and language in ("javascript", "typescript"):
+        test_runner = detect_test_runner(project)
+        if test_runner is None:
+            print(
+                "   WARNING: could not detect a unique test runner (vitest/jest) "
+                "from package.json.\n"
+                "            Coverage/benchmark dimensions resolve to the vitest "
+                "toolchain by default; pass --test-runner to override."
+            )
+
     print(f"\n{'='*60}")
-    print(f"init-project  target={project}  phase={phase}")
+    print(f"init-project  target={project}  phase={phase}  language={language}"
+          + (f"  test_runner={test_runner}" if test_runner else ""))
     print(f"{'='*60}")
 
     # 1. Verify harness is importable
@@ -7757,15 +7791,31 @@ def cmd_init_project(args: argparse.Namespace) -> int:
         # destroying phase progress.  --overwrite is intentionally scoped to
         # templates / CI workflow / harness_cli.py wrapper, not FSM state.
         print(f"   SKIP: {state_path} already exists (FSM state is never reset by init-project; delete it manually to reinitialize)")
+        try:
+            _existing_state = json.loads(state_path.read_text(encoding="utf-8"))
+            _existing_lang = _existing_state.get("language", "python")
+        except (json.JSONDecodeError, OSError):
+            _existing_lang = "python"
+        if _existing_lang != language:
+            print(
+                f"   WARNING: persisted language '{_existing_lang}' differs from "
+                f"requested/detected '{language}' — keeping '{_existing_lang}'. "
+                f"A project cannot change toolchain mid-flight."
+            )
+        language = _existing_lang
     else:
-        atomic_write_json(state_path, {
+        _state: dict = {
             "state": "RUNNING",
             "current_phase": phase,
             "last_gate": None,
             "last_fr": None,
             "last_update": datetime.now(timezone.utc).isoformat(),
-        })
-        print(f"   OK — state.json initialized (phase={phase})")
+            "language": language,
+        }
+        if test_runner:
+            _state["test_runner"] = test_runner
+        atomic_write_json(state_path, _state)
+        print(f"   OK — state.json initialized (phase={phase}, language={language})")
     # Refresh CLAUDE.md harness status block now that state.json exists
     _update_claude_md(project)
 
@@ -7795,7 +7845,11 @@ def cmd_init_project(args: argparse.Namespace) -> int:
     print("\n[11/11] Gate tool availability check...")
     _missing_init: list[str] = []
     for _gate_num in (1, 2, 3, 4):
-        _, _missing = _verify_gate_tools(_gate_num, str(harness_root))
+        # Gate configs come from the harness checkout; the language comes from
+        # the target project's freshly written state.json (state_root).
+        _, _missing = _verify_gate_tools(
+            _gate_num, str(harness_root), state_root=str(project)
+        )
         for _m in _missing:
             if _m not in _missing_init:
                 _missing_init.append(_m)
@@ -8616,6 +8670,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ip.add_argument("--project", required=True, help="Target project root path")
     ip.add_argument("--phase",   type=int, default=1, help="Current phase (default: 1)")
+    ip.add_argument("--language", default=None,
+                    help="Project language (e.g. python, javascript, typescript). "
+                         "Default: auto-detect from manifest files; required when "
+                         "detection is ambiguous")
+    ip.add_argument("--test-runner", default=None,
+                    help="JS/TS test runner (vitest or jest). Default: auto-detect "
+                         "from package.json; required when detection is ambiguous")
     ip.add_argument("--ci-only", action="store_true",
                     help="Write CI workflow only; skip git hooks")
     ip.add_argument("--overwrite", action="store_true",

@@ -2947,7 +2947,7 @@ class TestInitProjectRootWrapper:
         monkeypatch.setattr(hc, "_update_claude_md", lambda _p: None)
         monkeypatch.setattr(hc, "_check_and_offer_ecc_hooks", lambda _h: None)
         monkeypatch.setattr(hc, "_auto_offer_branch_protection", lambda _p: None)
-        monkeypatch.setattr(hc, "_verify_gate_tools", lambda _g, _h: ({}, []))
+        monkeypatch.setattr(hc, "_verify_gate_tools", lambda _g, _h, **_kw: ({}, []))
         monkeypatch.setattr(hc, "_check_crg_available", lambda: True)
         monkeypatch.setattr(hc, "_harness_workflow_template", lambda: "# ci\n")
         monkeypatch.setattr(hc, "atomic_write_json", lambda _p, _d: None)
@@ -2955,6 +2955,8 @@ class TestInitProjectRootWrapper:
         args = argparse.Namespace(
             project=str(tmp_path),
             phase=1,
+            language=None,
+            test_runner=None,
             overwrite=overwrite,
             ci_only=True,
             setup_branch_protection=False,
