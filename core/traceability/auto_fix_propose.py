@@ -45,11 +45,14 @@ def _closest_module(fr_id: str, fr_section_text: str,
         base = project / rel
         if not base.is_dir():
             continue
-        candidates.extend(
+        # sorted() after rglob — pathlib.rglob does NOT guarantee order across
+        # filesystems (Linux ext4 vs macOS APFS return sub2/ before sub1/
+        # for the same fixture, breaking strict-> tie-breaking in tests).
+        candidates.extend(sorted(
             p for p in base.rglob("*")
             if p.is_file() and p.suffix.lower() in exts
             and "node_modules" not in p.parts
-        )
+        ))
     if not candidates:
         return None
 
