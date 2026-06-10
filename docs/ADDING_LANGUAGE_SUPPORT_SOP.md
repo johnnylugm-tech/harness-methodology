@@ -167,4 +167,33 @@ machine-readable 報告(JSON reporter / artifact)優先於刮 stdout 文字。
 
 ## 附錄 A — v2.8.0 JS/TS 校準記錄
 
-(PR-7 pilot 跑完後填入:14 維分數對照表、係數調整與依據、零漂移驗證結果。)
+**Pilot**: `tests/fixtures/ts_vitest_project`(2 FRs;故意缺陷:mapper.ts 未用變數
+/ 無 error handling / 缺 JSDoc;一個 zero-assert 測試殼)。
+工具版本:requirements.txt + fixture package.json 釘版(2026-06-10 對 npm/PyPI 驗證)。
+
+| Dimension | Tool | Pilot 分數 | 判定 |
+|---|---|---|---|
+| linting | eslint | 96.0 | 缺陷偵測 ✓(violations ×−2,與 ruff 同曲線) |
+| type_safety | tsc | 100.0 | clean compile ✓ |
+| test_coverage | vitest-cov | 87.5 | 真 v8 coverage(json-summary artifact)✓ |
+| security | semgrep-js | 100.0 | 無 findings(規則集另以含漏洞 fixture 驗證:2 ERROR+2 WARNING → 74.0)|
+| readability | js-mi | 63.9 | tree-sitter MI;複雜檔 < 簡單檔排序已測 |
+| error_handling | js-error-handling | 50.0 | mapper.ts 缺陷偵測 ✓ |
+| documentation | js-doc-coverage | 50.0 | mapToken 缺 JSDoc 偵測 ✓ |
+| test_assertion_quality | js-assertions | 75.0 | zero-assert 殼偵測 ✓ |
+| performance | js-bench | None | 無 benchmarks → 維度尚不適用(同 pytest exit-5 語意)|
+| mutation / secrets / license / architecture | stryker / gitleaks / scancode / CRG | —(skip-list / 語言無關) | precheck 與 unit 測試覆蓋 |
+
+**係數調整**:無 — 沿用 Python 同維度曲線,pilot 上缺陷→扣分方向與幅度合理。
+首個生產級 JS 專案跑完 Gate 2 後重新檢視 lint violation 密度。
+
+**零漂移驗證**:eslint 與 js-mi 連跑兩次分數相同(ZERO-DRIFT)。
+
+**過程中抓到並修復**:vitest 4 移除 `--reporter=basic`(custom-reporter 載入錯誤)
+→ registry 與 phase_truth_verifier 改用預設 reporter(分數來源是 json-summary
+artifact,reporter 無關)。教訓:外部工具旗標必須過 slow-tier 真實 e2e,unit
+fixture 測不出 CLI 介面變動。
+
+**環境注意**:semgrep / tree-sitter 裝在 harness 的 Python 環境;`run_tool` 以
+ambient PATH 執行 — harness 環境未 activate 時 semgrep 會報 rc=-3(Tool not
+found),S2 preflight 會先擋下,非 silent failure。

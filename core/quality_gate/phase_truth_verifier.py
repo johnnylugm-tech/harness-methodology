@@ -197,7 +197,8 @@ class PhaseTruthVerifier:
                 argv += ["--coverage", "--coverageReporters=json-summary",
                          "--coverageReporters=text"]
         else:
-            argv = ["npx", "--no-install", "vitest", "run", "--reporter=basic"]
+            # vitest 4 removed the "basic" reporter — use the default.
+            argv = ["npx", "--no-install", "vitest", "run"]
             if coverage:
                 argv += ["--coverage", "--coverage.reporter=json-summary",
                          "--coverage.reporter=text"]

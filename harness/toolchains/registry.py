@@ -253,11 +253,12 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         human_name="tsc --checkJs (typescript)",
         scorer="tsc",
     ),
+    # No --reporter flag: vitest 4 removed the "basic" reporter; the default
+    # reporter is fine because the score comes from the json-summary artifact.
     "vitest-cov": ToolSpec(
         tool_id="vitest-cov",
         cmd=("npx", "--no-install", "vitest", "run", "--coverage",
-             "--coverage.reporter=json-summary", "--coverage.reporter=text",
-             "--reporter=basic"),
+             "--coverage.reporter=json-summary", "--coverage.reporter=text"),
         timeout=240,
         check_cmd="npx --no-install vitest --version 2>&1",
         human_name="vitest + coverage-v8",
@@ -278,7 +279,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         tool_id="vitest-cov-integration",
         cmd=("npx", "--no-install", "vitest", "run", "{test_target}/integration",
              "--coverage", "--coverage.reporter=json-summary",
-             "--coverage.reporter=text", "--reporter=basic"),
+             "--coverage.reporter=text"),
         timeout=240,
         check_cmd="npx --no-install vitest --version 2>&1",
         human_name="vitest + coverage (integration)",
