@@ -255,9 +255,11 @@ class PhaseHooks:
             avg_score = (sum(r.score for r in results.values()) /
                          max(len(results), 1))
             score_pct = avg_score * 100
-            # P3 or phase-agnostic: informational only — no implementation
-            # exists yet at entry. P4+: blocking — drift must be within threshold.
-            blocking = self.phase is not None and self.phase >= 4
+            # P3: informational only — no implementation exists yet at entry.
+            # P4+: blocking — drift must be within threshold.
+            # `phase is None` is treated as P4+ so a broken detector can
+            # never silently pass (caller violated the constructor contract).
+            blocking = self.phase is None or self.phase >= 4
             passed = score_pct >= self.drift_threshold if blocking else True
             print(f"   Drifts: {total_drifts}, Score: {score_pct:.0f}% "
                   f"(threshold: {self.drift_threshold:.0f}%)"
@@ -271,7 +273,7 @@ class PhaseHooks:
         except Exception as e:
             print(f"   Drift detection error: {e}")
             # P4+ is blocking — module errors must NOT silently pass
-            blocking = self.phase is not None and self.phase >= 4
+            blocking = self.phase is None or self.phase >= 4
             return {"passed": not blocking, "skipped": True,
                     "error": str(e), "blocking": blocking}
 
@@ -909,7 +911,9 @@ class PhaseHooks:
     def postflight_drift_check(self) -> Dict[str, Any]:
         """Post-flight drift detection: verify no new drift introduced."""
         print("\n[POST-FLIGHT] Drift Detection (M2)")
-        blocking = self.phase is not None and self.phase >= 4
+        # `phase is None` is treated as P4+ so a broken detector can never
+        # silently pass (caller violated the constructor contract).
+        blocking = self.phase is None or self.phase >= 4
         try:
             from detection import DriftDetector
             detector = DriftDetector(str(self.project_path))
