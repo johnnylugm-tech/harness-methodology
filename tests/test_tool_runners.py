@@ -386,8 +386,10 @@ class TestRunAstErrorHandling:
     def test_file_level_coverage(self, tmp_path):
         src = tmp_path / "src"
         src.mkdir()
+        # Clean handler (handles, doesn't swallow) — `except Exception: pass`
+        # is now a broad_swallow anti-pattern deducting 5 (v2.9 A1).
         (src / "a.py").write_text(
-            "def f():\n    try:\n        x = 1\n    except Exception:\n        pass\n", encoding="utf-8")
+            "def f():\n    try:\n        x = 1\n    except Exception as e:\n        print(e)\n", encoding="utf-8")
         (src / "b.py").write_text("def g():\n    return 1\n", encoding="utf-8")
         (src / "__init__.py").write_text("", encoding="utf-8")  # no code → skipped
         out, rc = run_tool("ast-error-handling", str(tmp_path))

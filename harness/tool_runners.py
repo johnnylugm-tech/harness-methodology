@@ -312,21 +312,31 @@ def _score_assertion_quality(output: str, _returncode: int) -> Optional[float]:
 
 
 def _score_error_handling_coverage(output: str, _returncode: int) -> Optional[float]:
-    """Score ast-error-handling output.  100 × (files_with_handler / total_files).
+    """Score ast-error-handling output.
 
-    total == 0 (no source files with code) → 100.0 — nothing to handle is not a
-    failure.  JSON parse failure → None.
+    score = 100 × (files_with_handler / total_files) − 5 × anti_patterns
+
+    anti_patterns (broad_swallow / except_base_exception / bare_except /
+    empty_catch) are handlers that exist but undermine resilience — presence
+    of a try/except is no longer automatically positive (a file catching
+    BaseException previously scored as fully handled; tts-new shipped a
+    Critical bug that way). −5 per finding matches the type-error curve.
+
+    total == 0 (no source files with code) → 100.0 — nothing to handle is not
+    a failure.  JSON parse failure → None.
     """
     import json as _json
     try:
         data = _json.loads(output)
         total = int(data.get("total", 0))
         with_handler = int(data.get("with_handler", 0))
+        anti_count = len(data.get("anti_patterns", []) or [])
     except (_json.JSONDecodeError, ValueError, TypeError):
         return None
     if total == 0:
         return 100.0
-    return round(100.0 * with_handler / total, 1)
+    base = 100.0 * with_handler / total
+    return round(max(0.0, base - 5.0 * anti_count), 1)
 
 
 def _score_docstring_coverage(output: str, _returncode: int) -> Optional[float]:

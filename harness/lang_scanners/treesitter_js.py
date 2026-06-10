@@ -230,10 +230,32 @@ def _file_has_handler(tree, source: bytes) -> bool:
     return False
 
 
+def _catch_anti_patterns(tree, rel: "Path") -> list[str]:
+    """Empty catch blocks — handlers that exist but swallow every error.
+
+    A ``catch {}`` / ``catch (e) {}`` whose statement_block has no named
+    children besides comments is the JS analogue of Python's broad_swallow.
+    Returns "relpath:line::empty_catch" entries (python_ast parity format).
+    """
+    found: list[str] = []
+    for node in _walk(tree.root_node):
+        if node.type != "catch_clause":
+            continue
+        body = node.child_by_field_name("body")
+        if body is None:
+            continue
+        statements = [c for c in body.named_children if c.type != "comment"]
+        if not statements:
+            found.append(f"{rel}:{node.start_point[0] + 1}::empty_catch")
+    return found
+
+
 def run_error_handling(project_root: str) -> tuple[str, int]:
     """File-level try/catch (or .catch()) coverage of source files.
 
-    Output schema matches python_ast.run_error_handling. Files containing
+    Output schema matches python_ast.run_error_handling, including
+    anti_patterns (empty catch blocks — a handler that swallows everything is
+    no longer a free positive signal). Files containing
     `// pragma: no error-handling` are exempt from the denominator.
     """
     total = 0
@@ -241,6 +263,7 @@ def run_error_handling(project_root: str) -> tuple[str, int]:
     exempt_count = 0
     no_handler: list[str] = []
     exempt_files: list[str] = []
+    anti_patterns: list[str] = []
 
     for path, rel in _iter_files(
         project_root, _SRC_DIRS, lambda p: not _TEST_FILE_RE.search(p.name)
@@ -257,10 +280,12 @@ def run_error_handling(project_root: str) -> tuple[str, int]:
             with_handler += 1
         else:
             no_handler.append(str(rel))
+        anti_patterns.extend(_catch_anti_patterns(tree, rel))
 
     summary = {
         "total": total, "with_handler": with_handler, "no_handler": no_handler[:50],
         "exempt_count": exempt_count, "exempt_files": exempt_files[:50],
+        "anti_patterns": anti_patterns[:50],
     }
     return json.dumps(summary), 0
 

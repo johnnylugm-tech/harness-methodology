@@ -92,12 +92,66 @@ def run_assertions(project_root: str) -> tuple[str, int]:
     return _json.dumps(summary), 0
 
 
+def _handler_anti_pattern(handler: "ast.ExceptHandler") -> "str | None":
+    """Classify an except handler as an anti-pattern, or None when clean.
+
+    Patterns (one per handler, checked in severity order):
+      broad_swallow          — broad type (bare / Exception / BaseException)
+                               whose body is only pass/continue: errors vanish.
+      except_base_exception  — catches BaseException without re-raising: eats
+                               CancelledError/SystemExit (the tts-new Critical).
+      bare_except            — bare ``except:`` without re-raising (semantically
+                               BaseException).
+
+    A handler that re-raises (bare ``raise`` anywhere in its body) is exempt:
+    cleanup-then-reraise is a legitimate idiom. Narrow-typed except-pass
+    (e.g. ``except FileNotFoundError: pass``) is deliberate and NOT flagged.
+    """
+    def _is_base_exception(expr) -> bool:
+        if isinstance(expr, ast.Name) and expr.id == "BaseException":
+            return True
+        if isinstance(expr, ast.Tuple):
+            return any(_is_base_exception(e) for e in expr.elts)
+        return False
+
+    def _is_broad(expr) -> bool:
+        if expr is None or _is_base_exception(expr):
+            return True
+        if isinstance(expr, ast.Name) and expr.id == "Exception":
+            return True
+        if isinstance(expr, ast.Tuple):
+            return any(_is_broad(e) for e in expr.elts)
+        return False
+
+    reraises = any(
+        isinstance(n, ast.Raise) and n.exc is None for n in ast.walk(handler)
+    )
+    if reraises:
+        return None
+
+    body_only_swallows = all(
+        isinstance(stmt, (ast.Pass, ast.Continue)) for stmt in handler.body
+    )
+    if _is_broad(handler.type) and body_only_swallows:
+        return "broad_swallow"
+    if _is_base_exception(handler.type):
+        return "except_base_exception"
+    if handler.type is None:
+        return "bare_except"
+    return None
+
+
 def run_error_handling(project_root: str) -> tuple[str, int]:
     """Scan source files and report file-level error-handling coverage.
 
     Returns (json_summary, 0) where summary = {total, with_handler, no_handler:[...],
-    exempt:[...]}.  A source file counts as "handled" if it contains at least one
-    try/except block with a real handler.
+    exempt:[...], anti_patterns:[...]}.  A source file counts as "handled" if it
+    contains at least one try/except block with a real handler.
+
+    anti_patterns lists handlers that exist but undermine resilience
+    (see _handler_anti_pattern) as "relpath:line::pattern" entries — presence
+    of a handler is no longer automatically a positive signal; the scorer
+    deducts per anti-pattern.
 
     Files containing ``# pragma: no error-handling`` are EXEMPT — they are excluded
     from the denominator entirely. Use this for Pydantic models, data-only classes,
@@ -120,6 +174,7 @@ def run_error_handling(project_root: str) -> tuple[str, int]:
     exempt_count = 0
     no_handler: list[str] = []
     exempt_files: list[str] = []
+    anti_patterns: list[str] = []
 
     seen: set[str] = set()
     for rel in _SRC_DIRS:
@@ -150,6 +205,7 @@ def run_error_handling(project_root: str) -> tuple[str, int]:
                 exempt_files.append(str(path.relative_to(root)))
                 continue
             total += 1
+            rel_path = str(path.relative_to(root))
             handled = any(
                 isinstance(n, _ast.Try) and n.handlers
                 for n in _ast.walk(tree)
@@ -157,11 +213,18 @@ def run_error_handling(project_root: str) -> tuple[str, int]:
             if handled:
                 with_handler += 1
             else:
-                no_handler.append(str(path.relative_to(root)))
+                no_handler.append(rel_path)
+            for node in _ast.walk(tree):
+                if not isinstance(node, _ast.ExceptHandler):
+                    continue
+                pattern = _handler_anti_pattern(node)
+                if pattern:
+                    anti_patterns.append(f"{rel_path}:{node.lineno}::{pattern}")
 
     summary = {
         "total": total, "with_handler": with_handler, "no_handler": no_handler[:50],
         "exempt_count": exempt_count, "exempt_files": exempt_files[:50],
+        "anti_patterns": anti_patterns[:50],
     }
     return _json.dumps(summary), 0
 
