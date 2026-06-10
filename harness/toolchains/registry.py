@@ -23,7 +23,11 @@ YAML configs.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional, Union
+
+# Vendored semgrep ruleset (pinned content → reproducible security scores).
+_SEMGREP_JS_RULES = str(Path(__file__).parent / "semgrep_rules" / "js_security.yaml")
 
 
 @dataclass(frozen=True)
@@ -34,6 +38,11 @@ class ToolSpec:
     is computed in-process (in_process=True) or it is on the inline skip list
     (skip_inline=True — too slow/complex for inline cross-validation, e.g.
     mutmut/scancode, or owned by another pipeline, e.g. code-review-graph).
+
+    output_artifact: project-relative file the tool writes its machine-readable
+    report to (e.g. coverage/coverage-summary.json). run_tool appends its
+    content to the captured output after the subprocess exits, so scorers can
+    parse the JSON artifact instead of scraping human-oriented stdout.
     """
 
     tool_id: str
@@ -44,6 +53,7 @@ class ToolSpec:
     scorer: Optional[str] = None
     skip_inline: bool = False
     in_process: bool = False
+    output_artifact: Optional[str] = None
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -211,6 +221,153 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         human_name="code-review-graph",
         skip_inline=True,
     ),
+    # ── JavaScript / TypeScript toolchain ────────────────────────────────────
+    # All npx invocations use --no-install: tools must come from the project's
+    # pinned devDependencies (templates/js_toolchain/package.json) — never
+    # resolved from the network at scoring time (score reproducibility).
+    "eslint": ToolSpec(
+        tool_id="eslint",
+        cmd=("npx", "--no-install", "eslint", ".", "-f", "json"),
+        timeout=60,
+        check_cmd="npx --no-install eslint --version 2>&1",
+        human_name="eslint",
+        scorer="eslint",
+    ),
+    "tsc": ToolSpec(
+        tool_id="tsc",
+        cmd=("npx", "--no-install", "tsc", "--noEmit", "--pretty", "false"),
+        timeout=120,
+        check_cmd="npx --no-install tsc --version 2>&1",
+        human_name="tsc (typescript)",
+        scorer="tsc",
+    ),
+    # Pure-JS type checking: JSDoc types via tsc --checkJs. The include/exclude
+    # set lives in tsconfig.checkjs.json (template) — deliberately NOT
+    # tsconfig.json, which would flip language detection to typescript.
+    "tsc-checkjs": ToolSpec(
+        tool_id="tsc-checkjs",
+        cmd=("npx", "--no-install", "tsc", "-p", "tsconfig.checkjs.json",
+             "--noEmit", "--pretty", "false"),
+        timeout=120,
+        check_cmd="npx --no-install tsc --version 2>&1",
+        human_name="tsc --checkJs (typescript)",
+        scorer="tsc",
+    ),
+    "vitest-cov": ToolSpec(
+        tool_id="vitest-cov",
+        cmd=("npx", "--no-install", "vitest", "run", "--coverage",
+             "--coverage.reporter=json-summary", "--coverage.reporter=text",
+             "--reporter=basic"),
+        timeout=240,
+        check_cmd="npx --no-install vitest --version 2>&1",
+        human_name="vitest + coverage-v8",
+        scorer="coverage-summary",
+        output_artifact="coverage/coverage-summary.json",
+    ),
+    "jest-cov": ToolSpec(
+        tool_id="jest-cov",
+        cmd=("npx", "--no-install", "jest", "--coverage", "--ci",
+             "--coverageReporters=json-summary", "--coverageReporters=text"),
+        timeout=240,
+        check_cmd="npx --no-install jest --version 2>&1",
+        human_name="jest + coverage",
+        scorer="coverage-summary",
+        output_artifact="coverage/coverage-summary.json",
+    ),
+    "vitest-cov-integration": ToolSpec(
+        tool_id="vitest-cov-integration",
+        cmd=("npx", "--no-install", "vitest", "run", "{test_target}/integration",
+             "--coverage", "--coverage.reporter=json-summary",
+             "--coverage.reporter=text", "--reporter=basic"),
+        timeout=240,
+        check_cmd="npx --no-install vitest --version 2>&1",
+        human_name="vitest + coverage (integration)",
+        scorer="coverage-summary",
+        output_artifact="coverage/coverage-summary.json",
+    ),
+    "jest-cov-integration": ToolSpec(
+        tool_id="jest-cov-integration",
+        cmd=("npx", "--no-install", "jest", "{test_target}/integration",
+             "--coverage", "--ci", "--coverageReporters=json-summary",
+             "--coverageReporters=text"),
+        timeout=240,
+        check_cmd="npx --no-install jest --version 2>&1",
+        human_name="jest + coverage (integration)",
+        scorer="coverage-summary",
+        output_artifact="coverage/coverage-summary.json",
+    ),
+    "semgrep-js": ToolSpec(
+        tool_id="semgrep-js",
+        cmd=("semgrep", "scan", "--config", _SEMGREP_JS_RULES,
+             "--json", "--metrics=off", "--quiet"),
+        timeout=120,
+        check_cmd="semgrep --version 2>&1",
+        human_name="semgrep (vendored JS ruleset)",
+        scorer="semgrep",
+    ),
+    # Runner-agnostic benchmark convention: `node benchmarks/run.mjs` emits
+    # {"benchmarks": [{"name": ..., "mean_ms": ...}]} (tinybench template in
+    # templates/js_toolchain/benchmarks/). Missing benchmarks/ → scorer None
+    # (dimension not yet applicable — same semantics as pytest-benchmark
+    # exit 5).
+    "js-bench": ToolSpec(
+        tool_id="js-bench",
+        cmd=("node", "benchmarks/run.mjs"),
+        timeout=180,
+        check_cmd="node --version 2>&1",
+        human_name="node benchmarks (tinybench)",
+        scorer="js-bench",
+    ),
+    # StrykerJS — skip-list like mutmut (full mutation runs are minutes-long);
+    # TDD-PRECHECK and gate evidence validation consume its JSON report.
+    "stryker": ToolSpec(
+        tool_id="stryker",
+        timeout=0,
+        check_cmd="npx --no-install stryker --version 2>&1",
+        human_name="StrykerJS",
+        skip_inline=True,
+    ),
+    # In-process tree-sitter scanners (shared by javascript and typescript;
+    # grammar chosen per file extension). Runners live in
+    # harness/lang_scanners/treesitter_js.py.
+    "js-assertions": ToolSpec(
+        tool_id="js-assertions",
+        timeout=30,
+        check_cmd=("python3 -c 'import tree_sitter, tree_sitter_javascript, "
+                   "tree_sitter_typescript' 2>&1"),
+        human_name="tree-sitter (assertions)",
+        scorer="ast-assertions",
+        in_process=True,
+    ),
+    "js-error-handling": ToolSpec(
+        tool_id="js-error-handling",
+        timeout=30,
+        check_cmd=("python3 -c 'import tree_sitter, tree_sitter_javascript, "
+                   "tree_sitter_typescript' 2>&1"),
+        human_name="tree-sitter (error-handling)",
+        scorer="ast-error-handling",
+        in_process=True,
+    ),
+    "js-doc-coverage": ToolSpec(
+        tool_id="js-doc-coverage",
+        timeout=30,
+        check_cmd=("python3 -c 'import tree_sitter, tree_sitter_javascript, "
+                   "tree_sitter_typescript' 2>&1"),
+        human_name="tree-sitter (JSDoc coverage)",
+        scorer="ast-docstrings",
+        in_process=True,
+    ),
+    # Emits radon-mi-compatible JSON ({"file": {"mi": 78.2}}) so the existing
+    # radon-mi scorer (average MI) applies unchanged.
+    "js-mi": ToolSpec(
+        tool_id="js-mi",
+        timeout=60,
+        check_cmd=("python3 -c 'import tree_sitter, tree_sitter_javascript, "
+                   "tree_sitter_typescript' 2>&1"),
+        human_name="tree-sitter (maintainability index)",
+        scorer="radon-mi",
+        in_process=True,
+    ),
 }
 
 
@@ -226,6 +383,25 @@ TOOL_SPECS: dict[str, ToolSpec] = {
 # ──────────────────────────────────────────────────────────────────────────────
 
 DimensionTool = Union[str, dict[str, str]]
+
+_JS_COMMON: dict[str, DimensionTool] = {
+    "linting":                "eslint",
+    "test_coverage":          {"vitest": "vitest-cov", "jest": "jest-cov",
+                               "default": "vitest-cov"},
+    "security":               "semgrep-js",
+    "secrets_scanning":       "gitleaks",
+    "license_compliance":     "scancode",
+    "mutation_testing":       "stryker",
+    "architecture":           "code-review-graph",
+    "readability":            "js-mi",
+    "error_handling":         "js-error-handling",
+    "documentation":          "js-doc-coverage",
+    "performance":            "js-bench",
+    "integration_coverage":   {"vitest": "vitest-cov-integration",
+                               "jest": "jest-cov-integration",
+                               "default": "vitest-cov-integration"},
+    "test_assertion_quality": "js-assertions",
+}
 
 DIMENSION_TOOLS: dict[str, dict[str, DimensionTool]] = {
     "python": {
@@ -244,6 +420,11 @@ DIMENSION_TOOLS: dict[str, dict[str, DimensionTool]] = {
         "integration_coverage":   "pytest-cov-integration",
         "test_assertion_quality": "ast-assertions",
     },
+    # type_safety is the only JS/TS divergence: TS type-checks natively
+    # (tsc --noEmit); pure JS enforces JSDoc types via tsc --checkJs
+    # (tsconfig.checkjs.json template) — R8 forbids skipping the dimension.
+    "javascript": {**_JS_COMMON, "type_safety": "tsc-checkjs"},
+    "typescript": {**_JS_COMMON, "type_safety": "tsc"},
 }
 
 

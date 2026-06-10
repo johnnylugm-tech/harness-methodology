@@ -7356,6 +7356,65 @@ def _init_copy_templates(project: Path, harness_root: Path, *, overwrite: bool =
     else:
         print("   SKIP: nothing to copy")
 
+
+def _init_js_toolchain(
+    project: Path,
+    harness_root: Path,
+    language: str,
+    test_runner: str | None,
+    *,
+    overwrite: bool = False,
+) -> None:
+    """Copy the pinned JS/TS quality-toolchain templates into the project.
+
+    package.json is MERGED (existing devDependencies/scripts win — the project
+    owns its versions; the template only fills gaps). Config files are copied
+    only when absent (or --overwrite). Gate commands use `npx --no-install`,
+    so `npm ci` must run after this step.
+    """
+    src_dir = harness_root / "templates" / "js_toolchain"
+    if not src_dir.is_dir():
+        print(f"   WARNING: {src_dir} not found — skipping JS toolchain setup")
+        return
+
+    # 1. Merge devDependencies/scripts into package.json
+    pkg_path = project / "package.json"
+    tmpl = json.loads((src_dir / "package.json").read_text(encoding="utf-8"))
+    try:
+        pkg = json.loads(pkg_path.read_text(encoding="utf-8")) if pkg_path.exists() else {}
+    except json.JSONDecodeError:
+        print(f"   WARNING: {pkg_path} is not valid JSON — skipping merge")
+        pkg = None
+    if pkg is not None:
+        added: list[str] = []
+        for section in ("devDependencies", "scripts"):
+            merged = dict(tmpl.get(section, {}))
+            merged.update(pkg.get(section, {}))  # existing entries win
+            added += [k for k in merged if k not in pkg.get(section, {})]
+            pkg[section] = merged
+        pkg_path.write_text(
+            json.dumps(pkg, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        print(f"   OK — package.json merged ({len(added)} entries added)")
+
+    # 2. Config files — copy when absent
+    files = ["eslint.config.mjs", "stryker.conf.json", "benchmarks/run.mjs"]
+    if test_runner != "jest":
+        files.append("vitest.config.ts")
+    files.append("tsconfig.json" if language == "typescript" else "tsconfig.checkjs.json")
+    copied = 0
+    for rel in files:
+        src, dst = src_dir / rel, project / rel
+        if dst.exists() and not overwrite:
+            continue
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
+        copied += 1
+    print(f"   OK — {copied} toolchain config(s) copied")
+    print("   NEXT: run `npm ci` in the project — gate commands use "
+          "`npx --no-install` and fail without installed devDependencies.")
+
+
 def _setup_branch_protection(project: Path) -> int:
     """Configure GitHub branch protection for main with required status checks.
 
@@ -7779,6 +7838,13 @@ def cmd_init_project(args: argparse.Namespace) -> int:
     # 6. Copy template artifacts into phase directories
     print("\n[6/11] Copying artifact templates...")
     _init_copy_templates(project, harness_root, overwrite=args.overwrite)
+
+    # 6b. JS/TS quality toolchain (pinned devDeps + lint/type/test/bench configs)
+    if language in ("javascript", "typescript"):
+        print("\n[6b/11] Setting up JS/TS quality toolchain...")
+        _init_js_toolchain(
+            project, harness_root, language, test_runner, overwrite=args.overwrite
+        )
 
     # 7. Initialize FSM state.json (required by run-phase preflight)
     print("\n[7/11] Initializing FSM state...")

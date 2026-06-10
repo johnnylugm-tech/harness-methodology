@@ -1,0 +1,15 @@
+{
+  "//": "harness-methodology TypeScript template — scored by the type_safety dimension via `tsc --noEmit --pretty false` (each TS error costs 5 points). Adjust compilerOptions to your stack, but keep `strict` on: weakening it inflates the score without improving the code.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["src/**/*", "03-development/src/**/*", "tests/**/*", "03-development/tests/**/*"],
+  "exclude": ["node_modules", "coverage", "dist", "build"]
+}

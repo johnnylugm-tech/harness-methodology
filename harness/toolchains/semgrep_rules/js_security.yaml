@@ -1,0 +1,134 @@
+# Vendored JS/TS security ruleset for the `security` gate dimension.
+#
+# Why vendored: the dimension score must be reproducible across machines and
+# time (same code → same score). Remote registry packs (`--config p/javascript`)
+# update silently and would drift scores. Rule changes here go through normal
+# PR review, like a threshold change.
+#
+# Severity mapping in the scorer (harness/tool_runners.py _score_semgrep):
+#   ERROR → −10   WARNING → −3   INFO → −1   (bandit parity)
+#
+# Scope: high-precision, low-false-positive patterns only. Dependency-level
+# auditing (npm audit) and secrets (gitleaks) are separate dimensions.
+rules:
+  - id: js-eval-usage
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >
+      eval() executes arbitrary code and is almost never necessary.
+      Use JSON.parse for data or a dispatch table for dynamic behavior.
+    pattern: eval(...)
+
+  - id: js-new-function
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >
+      new Function(...) compiles strings to code (eval-equivalent).
+      Replace with a static function or a dispatch table.
+    pattern: new Function(...)
+
+  - id: js-child-process-exec-interpolation
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >
+      Shell command built from interpolated data — command injection risk.
+      Use execFile/spawn with an argument array instead.
+    patterns:
+      - pattern-either:
+          - pattern: $CP.exec(`...${...}...`, ...)
+          - pattern: $CP.execSync(`...${...}...`, ...)
+          - pattern: exec(`...${...}...`, ...)
+          - pattern: execSync(`...${...}...`, ...)
+
+  - id: js-sql-string-interpolation
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >
+      SQL built from interpolated data — SQL injection risk.
+      Use parameterized queries (placeholders) instead.
+    patterns:
+      - pattern-either:
+          - pattern: $DB.query(`...${...}...`, ...)
+          - pattern: $DB.execute(`...${...}...`, ...)
+
+  - id: js-crypto-createcipher-deprecated
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >
+      crypto.createCipher/createDecipher derive keys with MD5 and no IV
+      (removed from Node as insecure). Use createCipheriv with an explicit
+      key and random IV.
+    patterns:
+      - pattern-either:
+          - pattern: crypto.createCipher(...)
+          - pattern: crypto.createDecipher(...)
+
+  - id: js-jwt-none-algorithm
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >
+      JWT signed/verified with the "none" algorithm accepts forged tokens.
+      Pin a real algorithm (e.g. HS256/RS256) on both sign and verify.
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $JWT.sign($P, $S, {algorithm: "none"})
+          - pattern: |
+              $JWT.verify($T, $S, {algorithms: ["none"]})
+
+  - id: js-innerhtml-assignment
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: >
+      Assigning to innerHTML/outerHTML renders unescaped markup — XSS risk
+      when any part of the value is user-influenced. Prefer textContent or a
+      sanitizer.
+    patterns:
+      - pattern-either:
+          - pattern: $EL.innerHTML = $X
+          - pattern: $EL.outerHTML = $X
+      - pattern-not: $EL.innerHTML = "..."
+      - pattern-not: $EL.outerHTML = "..."
+
+  - id: js-dangerously-set-inner-html
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: >
+      dangerouslySetInnerHTML bypasses React's escaping — XSS risk when the
+      value is user-influenced. Sanitize the HTML or render text.
+    patterns:
+      - pattern-either:
+          - pattern: <$EL dangerouslySetInnerHTML={...} />
+          - pattern: |
+              React.createElement($EL, {dangerouslySetInnerHTML: $X}, ...)
+
+  - id: js-document-write
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: >
+      document.write injects unescaped markup and breaks on async load.
+      Use DOM APIs (createElement/textContent) instead.
+    pattern: document.write(...)
+
+  - id: js-insecure-http-request
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: >
+      Cleartext http:// request — credentials and payloads are interceptable.
+      Use https:// (localhost is exempt).
+    patterns:
+      - pattern-either:
+          - pattern: fetch("=~/^http:\/\/(?!localhost|127\.0\.0\.1)/", ...)
+          - pattern: axios.get("=~/^http:\/\/(?!localhost|127\.0\.0\.1)/", ...)
+          - pattern: axios.post("=~/^http:\/\/(?!localhost|127\.0\.0\.1)/", ...)
+
+  - id: js-settimeout-string-arg
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: >
+      setTimeout/setInterval with a string argument is implicit eval().
+      Pass a function instead.
+    patterns:
+      - pattern-either:
+          - pattern: setTimeout("...", ...)
+          - pattern: setInterval("...", ...)

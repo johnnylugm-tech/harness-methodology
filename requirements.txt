@@ -22,6 +22,10 @@ bandit==1.8.6
 # readability (gate 3-4: readability dimension via radon-mi)
 radon==6.0.1
 
+# security for JS/TS targets (gate 2-4: security dimension via semgrep-js).
+# Rules are vendored in harness/toolchains/semgrep_rules/ — never remote packs.
+semgrep==1.165.0
+
 # runtime (YAML config parsing — not a scorer)
 pyyaml==6.0.3
 

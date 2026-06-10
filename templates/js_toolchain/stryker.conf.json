@@ -1,0 +1,15 @@
+{
+  "//": "harness-methodology StrykerJS config — the mutation_testing dimension reads reports/mutation/mutation.json (jsonReporter). Gate threshold: mutation score ≥ 70 (Gate 2+). For jest projects: swap testRunner to 'jest' and install @stryker-mutator/jest-runner.",
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-js/master/packages/api/schema/stryker-core.json",
+  "testRunner": "vitest",
+  "mutate": ["src/**/*.{js,jsx,ts,tsx,mjs,cjs}", "03-development/src/**/*.{js,jsx,ts,tsx,mjs,cjs}"],
+  "reporters": ["json", "clear-text", "progress"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/mutation.json"
+  },
+  "thresholds": {
+    "high": 85,
+    "low": 70,
+    "break": null
+  }
+}

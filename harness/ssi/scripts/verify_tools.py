@@ -17,21 +17,69 @@ import subprocess
 import sys
 import json
 
-CORE_TOOLS = {
-    "python3": ("python3 --version", "Python 3.8+"),
-    "pip3": ("pip3 --version", "pip 20+"),
-    "node": ("node --version", "Node.js 14+"),
-    "npm": ("npm --version", "npm 6+"),
+# Language-independent requirements (every project).
+CORE_COMMON = {
     "git": ("git --version", "git 2.0+"),
-    "eslint": ("eslint --version", "JavaScript linting"),
-    "pytest": ("pytest --version", "Python testing"),
-    "coverage": ("coverage --version", "Python coverage"),
     "code-review-graph": (
         "code-review-graph status",
         "pipx install code-review-graph",
         "Architecture analysis (required)",
     ),
+    "gitleaks": ("gitleaks version", "brew install gitleaks", "Secrets scanning"),
 }
+
+# Per-language gate toolchain requirements (state.json `language`).
+CORE_BY_LANG = {
+    "python": {
+        "python3": ("python3 --version", "Python 3.10+"),
+        "pip3": ("pip3 --version", "pip 20+"),
+        "ruff": ("ruff --version", "pip3 install ruff", "Linting"),
+        "pyright": ("pyright --version", "pip3 install pyright", "Type safety"),
+        "pytest": ("pytest --version", "pip3 install pytest", "Testing"),
+        "coverage": ("coverage --version", "pip3 install coverage", "Coverage"),
+        "bandit": ("bandit --version", "pip3 install bandit", "Security (SAST)"),
+        "radon": ("radon --version", "pip3 install radon", "Maintainability index"),
+    },
+    "javascript": {
+        "node": ("node --version", "Node.js 18+"),
+        "npm": ("npm --version", "npm 9+"),
+        "eslint": ("npx --no-install eslint --version",
+                   "npm i -D (templates/js_toolchain/package.json)",
+                   "Linting"),
+        "tsc": ("npx --no-install tsc --version",
+                "npm i -D (templates/js_toolchain/package.json)",
+                "Type safety (JSDoc via --checkJs)"),
+        "semgrep": ("semgrep --version", "pip3 install semgrep",
+                    "Security (SAST, vendored ruleset)"),
+    },
+}
+# TypeScript shares the JS toolchain; only the tsc role differs (native types).
+CORE_BY_LANG["typescript"] = {
+    **CORE_BY_LANG["javascript"],
+    "tsc": ("npx --no-install tsc --version",
+            "npm i -D (templates/js_toolchain/package.json)",
+            "Type safety (tsc --noEmit)"),
+}
+
+# Test-runner requirement for JS/TS (state.json `test_runner`; default vitest).
+RUNNER_TOOLS = {
+    "vitest": ("npx --no-install vitest --version",
+               "npm i -D (templates/js_toolchain/package.json)",
+               "Testing + coverage"),
+    "jest": ("npx --no-install jest --version",
+             "npm i -D jest",
+             "Testing + coverage"),
+}
+
+
+def core_tools_for(language: str, test_runner: str | None = None) -> dict:
+    """Merged CORE tool table for *language* (common + language + runner)."""
+    tools = {**CORE_COMMON, **CORE_BY_LANG.get(language, {})}
+    if language in ("javascript", "typescript"):
+        runner = test_runner or "vitest"
+        if runner in RUNNER_TOOLS:
+            tools[runner] = RUNNER_TOOLS[runner]
+    return tools
 
 EXTENDED_TOOLS = {
     # HIGH priority
@@ -74,10 +122,16 @@ EXTENDED_TOOLS = {
 }
 
 def check_command(cmd):
-    """Return True if command exists and works."""
+    """Return True if command exists and works.
+
+    Probes run through `bash -c` so multi-word commands ("python3 --version",
+    "npx --no-install eslint --version") work — same convention as
+    harness_cli._run_tool_check.
+    """
     try:
         result = subprocess.run(
-            [cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5
+            ["bash", "-c", cmd],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15,
         )
         return result.returncode == 0
     except Exception:
@@ -118,7 +172,7 @@ def print_summary(results):
     print("TOOL VERIFICATION SUMMARY")
     print("=" * 70)
 
-    total_core = len(CORE_TOOLS)
+    total_core = len(results["core"]["tools"]) if "core" in results else 0
     total_ext = len(EXTENDED_TOOLS)
 
     print(f"\n✓ Core Tools:     {results['core']['installed']}/{total_core}")
@@ -154,17 +208,17 @@ def print_summary(results):
     print()
 
 
-def print_install_guide(category=None):
+def print_install_guide(category=None, language="python"):
     """Print installation commands organized by tool manager."""
     print("\nINSTALLATION GUIDE")
 
     tools_to_check = {}
     if category == "core":
-        tools_to_check = CORE_TOOLS
+        tools_to_check = core_tools_for(language)
     elif category == "extended":
         tools_to_check = EXTENDED_TOOLS
     else:
-        tools_to_check = {**CORE_TOOLS, **EXTENDED_TOOLS}
+        tools_to_check = {**core_tools_for(language), **EXTENDED_TOOLS}
 
     print("\n" + "=" * 70)
     print("INSTALLATION GUIDE")
@@ -198,6 +252,30 @@ def print_install_guide(category=None):
                 print(f"    {install_cmd}")
 
 
+def _project_language(project_root, flag_value):
+    """--language flag wins; else read .methodology/state.json; else python."""
+    if flag_value:
+        return flag_value
+    state_path = f"{project_root}/.methodology/state.json"
+    try:
+        with open(state_path, encoding="utf-8") as fh:
+            state = json.load(fh)
+        return state.get("language") or "python"
+    except (OSError, json.JSONDecodeError):
+        return "python"
+
+
+def _project_test_runner(project_root, flag_value):
+    if flag_value:
+        return flag_value
+    state_path = f"{project_root}/.methodology/state.json"
+    try:
+        with open(state_path, encoding="utf-8") as fh:
+            return json.load(fh).get("test_runner")
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
 def main():
     import argparse
 
@@ -210,28 +288,36 @@ def main():
         "--install-guide", action="store_true", help="Print installation commands"
     )
     parser.add_argument("--json", action="store_true", help="Output as JSON")
+    parser.add_argument("--project", default=".",
+                        help="Project root (reads language from state.json)")
+    parser.add_argument("--language", default=None,
+                        help="Override language (python/javascript/typescript)")
+    parser.add_argument("--test-runner", default=None,
+                        help="Override JS/TS test runner (vitest/jest)")
 
     args = parser.parse_args()
+    language = _project_language(args.project, args.language)
+    test_runner = _project_test_runner(args.project, args.test_runner)
 
     # Determine what to check
     check_all = not any([args.core, args.extended, args.install_guide])
 
     if args.install_guide:
         if args.core:
-            print_install_guide("core")
+            print_install_guide("core", language)
         elif args.extended:
-            print_install_guide("extended")
+            print_install_guide("extended", language)
         else:
-            print_install_guide()
+            print_install_guide(language=language)
         return 0
 
     results = {}
 
     if check_all or args.core:
         print("\n" + "=" * 70)
-        print("CORE TOOLS (Required — includes CRG)")
+        print(f"CORE TOOLS (Required — includes CRG) [language: {language}]")
         print("=" * 70)
-        results["core"] = check_tools(CORE_TOOLS, "core")
+        results["core"] = check_tools(core_tools_for(language, test_runner), "core")
 
     if check_all or args.extended:
         print("\n" + "=" * 70)

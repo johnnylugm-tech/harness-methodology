@@ -29,6 +29,10 @@ from harness.toolchains import get_tool_spec
 # Source directories scanned for file-level error-handling coverage.
 _SRC_DIRS: tuple[str, ...] = ("03-development/src", "src")
 
+# Separator between subprocess stdout/stderr and an appended output_artifact
+# file (ToolSpec.output_artifact) — scorers split on it to get the report JSON.
+_ARTIFACT_MARKER = "\n=== TOOL_OUTPUT_ARTIFACT ===\n"
+
 
 def run_tool(
     tool: str,
@@ -79,6 +83,14 @@ def run_tool(
             cwd=root,
         )
         combined = (proc.stdout + proc.stderr).strip()
+        if spec.output_artifact:
+            artifact = os.path.join(root, spec.output_artifact)
+            if os.path.isfile(artifact):
+                try:
+                    with open(artifact, encoding="utf-8", errors="replace") as fh:
+                        combined += _ARTIFACT_MARKER + fh.read()
+                except OSError:
+                    pass  # Artifact unreadable — scorer falls back to stdout
         return combined, proc.returncode
     except subprocess.TimeoutExpired:
         return f"TIMEOUT: {tool} exceeded {timeout}s", -2
@@ -573,6 +585,106 @@ def _score_docstring_coverage(output: str, _returncode: int) -> Optional[float]:
     return round(100.0 * with_doc / total, 1)
 
 
+def _score_eslint(output: str, _returncode: int) -> Optional[float]:
+    """Score eslint -f json output.  Each error/warning costs 2 pts (ruff parity).
+
+    eslint JSON is a list of per-file results carrying errorCount/warningCount.
+    Parse failure → None (tool crash — never a silent 100).
+    """
+    import json as _json
+    try:
+        results = _json.loads(output)
+        if not isinstance(results, list):
+            return None
+        count = sum(
+            int(r.get("errorCount", 0)) + int(r.get("warningCount", 0))
+            for r in results if isinstance(r, dict)
+        )
+    except (_json.JSONDecodeError, ValueError, TypeError):
+        return None
+    return max(0.0, 100.0 - count * 2.0)
+
+
+def _score_tsc(output: str, _returncode: int) -> float:
+    """Score tsc --noEmit --pretty false output.  Each `error TSxxxx` costs 5 pts.
+
+    Clean compile emits nothing → 100. Config failures (e.g. missing
+    tsconfig.checkjs.json) also print `error TSxxxx` lines and are counted —
+    mypy/pyright parity.
+    """
+    errors = len(re.findall(r"\berror TS\d+:", output))
+    return max(0.0, 100.0 - errors * 5.0)
+
+
+def _score_semgrep(output: str, _returncode: int) -> Optional[float]:
+    """Score semgrep --json output.  ERROR=−10, WARNING=−3, INFO=−1 (bandit parity).
+
+    Parse failure → None.
+    """
+    import json as _json
+    try:
+        data = _json.loads(output)
+        results = data.get("results", [])
+        sev = [str(r.get("extra", {}).get("severity", "")).upper() for r in results]
+        high   = sum(1 for s in sev if s == "ERROR")
+        medium = sum(1 for s in sev if s == "WARNING")
+        low    = sum(1 for s in sev if s == "INFO")
+        return max(0.0, 100.0 - high * 10.0 - medium * 3.0 - low * 1.0)
+    except (_json.JSONDecodeError, ValueError, AttributeError):
+        return None
+
+
+def _score_coverage_summary(output: str, _returncode: int) -> Optional[float]:
+    """Score istanbul/v8 json-summary coverage (vitest/jest).
+
+    The coverage-summary.json artifact is appended to the output after the
+    marker (ToolSpec.output_artifact); return total.lines.pct from it.
+    Artifact absent → 0.0: the suite failed before writing coverage, so a
+    passing coverage claim is unverifiable (blocks, pytest-cov-integration
+    parity). Artifact unparseable → None (tool crash).
+    """
+    import json as _json
+    if _ARTIFACT_MARKER not in output:
+        return 0.0
+    artifact = output.rsplit(_ARTIFACT_MARKER, 1)[1]
+    try:
+        data = _json.loads(artifact)
+        pct = data["total"]["lines"]["pct"]
+        return round(float(pct), 1)
+    except (_json.JSONDecodeError, ValueError, TypeError, KeyError):
+        return None
+
+
+def _score_js_bench(output: str, _returncode: int) -> Optional[float]:
+    """Score `node benchmarks/run.mjs` normalized output.
+
+    Expects {"benchmarks": [{"name": ..., "mean_ms": ...}]} on stdout
+    (templates/js_toolchain/benchmarks/run.mjs). Thresholds match
+    pytest-benchmark: mean > 3000 ms → −50/benchmark, > 1000 ms → −25.
+    benchmarks/run.mjs absent (Cannot find module / ENOENT) → None —
+    dimension not yet applicable, same as pytest-benchmark exit 5.
+    """
+    import json as _json
+    if re.search(r"Cannot find module|ENOENT", output):
+        return None
+    try:
+        data = _json.loads(output)
+        benches = data.get("benchmarks", [])
+    except (_json.JSONDecodeError, ValueError, AttributeError):
+        return None
+    score = 100.0
+    for b in benches:
+        try:
+            mean_ms = float(b.get("mean_ms", 0))
+        except (TypeError, ValueError):
+            continue
+        if mean_ms > 3000.0:
+            score -= 50.0
+        elif mean_ms > 1000.0:
+            score -= 25.0
+    return max(0.0, score)
+
+
 # Scorer functions keyed by ToolSpec.scorer id (toolchain registry). Multiple
 # tools may share one scorer (e.g. eslint-family tools added per language).
 _SCORERS: dict[str, Callable[[str, int], Optional[float]]] = {
@@ -590,4 +702,10 @@ _SCORERS: dict[str, Callable[[str, int], Optional[float]]] = {
     "ast-error-handling": _score_error_handling_coverage,
     "ast-docstrings":   _score_docstring_coverage,
     "pytest-cov-integration": lambda o, _rc: _score_pytest(o, coverage=True),
+    # JS/TS toolchain
+    "eslint":           _score_eslint,
+    "tsc":              _score_tsc,
+    "semgrep":          _score_semgrep,
+    "coverage-summary": _score_coverage_summary,
+    "js-bench":         _score_js_bench,
 }

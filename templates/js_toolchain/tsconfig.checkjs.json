@@ -1,0 +1,16 @@
+{
+  "//": "harness-methodology pure-JS type-safety config — the type_safety dimension runs `tsc -p tsconfig.checkjs.json --noEmit` and checks JSDoc type annotations (each TS error costs 5 points). Deliberately named tsconfig.checkjs.json: a plain tsconfig.json would make language detection classify the project as TypeScript.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": false,
+    "noImplicitAny": false,
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*", "03-development/src/**/*"],
+  "exclude": ["node_modules", "coverage", "dist", "build", "tests", "03-development/tests"]
+}

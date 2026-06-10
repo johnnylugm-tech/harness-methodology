@@ -89,6 +89,59 @@ _TOOL_CONTENT_PATTERNS: dict[str, list[str]] = {
         r"copyright",
         r"scan:",
     ],
+    # ── JS/TS toolchain (resolved tool ids) ─────────────────────────────────
+    "eslint": [
+        r'"filePath"',                 # -f json per-file result objects
+        r'"errorCount"',
+        r'"messages"',
+    ],
+    # Clean tsc compiles emit nothing — evaluate_dimension.md instructs agents
+    # to append `echo "tsc exit=$?"` so clean evidence still carries a marker.
+    "tsc": [
+        r"error TS\d+:",               # diagnostic lines
+        r"tsc exit=\d",
+    ],
+    "tsc-checkjs": [
+        r"error TS\d+:",
+        r"tsc exit=\d",
+    ],
+    "semgrep-js": [
+        r'"results"',                  # --json envelope
+        r'"check_id"',
+        r"semgrep",
+    ],
+    "vitest-cov": [
+        r'"total"',                    # coverage-summary.json artifact
+        r"%\s*(Stmts|Lines)",          # text reporter table header
+        r"Coverage report",
+        r"\d+ passed",
+    ],
+    "jest-cov": [
+        r'"total"',
+        r"%\s*(Stmts|Lines)",
+        r"Tests:\s+\d+",
+    ],
+    "vitest-cov-integration": [
+        r'"total"',
+        r"%\s*(Stmts|Lines)",
+        r"\d+ passed",
+    ],
+    "jest-cov-integration": [
+        r'"total"',
+        r"%\s*(Stmts|Lines)",
+        r"Tests:\s+\d+",
+    ],
+    "js-bench": [
+        r'"benchmarks"',               # normalized run.mjs JSON
+        r'"mean_ms"',
+    ],
+    "stryker": [
+        r"mutation score",
+        r'"mutationScore"',            # mutation.json report
+        r"Killed",
+        r"Survived",
+        r"stryker",
+    ],
 }
 
 # Minimum byte size for a tool_output file to be considered non-stub.
@@ -506,6 +559,16 @@ def _check_tool_evidence(ctx: "GateContext", raw: dict) -> list[str]:
     violations: list[str] = []
     breakdown = raw.get("breakdown", {})
 
+    # Evidence format patterns are keyed by the RESOLVED tool id — a TS
+    # project's linting evidence is eslint JSON, not ruff output.
+    from harness.toolchains import (
+        get_project_language,
+        get_project_test_runner,
+        resolve_tool_id,
+    )
+    _language = get_project_language(ctx.project_root)
+    _test_runner = get_project_test_runner(ctx.project_root)
+
     for dim in cfg.get("dimensions", []):
         dim_name = dim.get("name", "")
         requires_tool = dim.get("requires_tool_execution", False)
@@ -513,6 +576,10 @@ def _check_tool_evidence(ctx: "GateContext", raw: dict) -> list[str]:
             continue
 
         tool = dim.get("tool")
+        if _language != "python" and tool:
+            tool = resolve_tool_id(
+                dim_name, _language, yaml_tool=tool, test_runner=_test_runner
+            ) or tool
         dim_data = breakdown.get(dim_name, {})
         tool_output = dim_data.get("tool_output")
         tool_evidence = dim_data.get("tool_evidence")

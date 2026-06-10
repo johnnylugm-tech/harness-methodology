@@ -1,0 +1,21 @@
+{
+  "//": "harness-methodology JS/TS quality toolchain — devDependencies are pinned EXACTLY (no ^/~) for score reproducibility: the same code must produce the same dimension scores on every machine. Bumps go through the calibration step in docs/ADDING_LANGUAGE_SUPPORT_SOP.md. init-project merges these into the target project's package.json (existing entries win); run `npm ci` afterwards. All gate commands use `npx --no-install`, so missing installs fail loudly instead of resolving from the network.",
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@stryker-mutator/core": "9.6.1",
+    "@stryker-mutator/vitest-runner": "9.6.1",
+    "@vitest/coverage-v8": "4.1.8",
+    "eslint": "10.4.1",
+    "tinybench": "6.0.2",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.61.0",
+    "vitest": "4.1.8"
+  },
+  "scripts": {
+    "lint": "eslint . -f json",
+    "typecheck": "tsc --noEmit --pretty false",
+    "test": "vitest run",
+    "coverage": "vitest run --coverage --coverage.reporter=json-summary --coverage.reporter=text",
+    "bench": "node benchmarks/run.mjs"
+  }
+}
