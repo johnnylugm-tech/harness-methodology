@@ -46,4 +46,7 @@ mutmut==2.5.1
 # OTel OTLP exporter — needed when OTEL_EXPORTER_OTLP_ENDPOINT is set.
 # Without this, harness falls back to local JSONL (zero-dependency default).
 # Install to connect spans to Datadog / Grafana / Elastic via an OTel Collector.
-opentelemetry-exporter-otlp-proto-http==1.41.1
+# Pin is ~=1.37 not ==1.41: semgrep==1.165.0 (JS/TS security dimension)
+# hard-constrains opentelemetry-exporter-otlp-proto-http to ~=1.37. A wider
+# pin here would break `pip install -r requirements.txt` for the JS/TS path.
+opentelemetry-exporter-otlp-proto-http~=1.37.0
