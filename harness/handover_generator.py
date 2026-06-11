@@ -23,6 +23,8 @@ Example::
 from __future__ import annotations
 
 import json
+import re
+import shlex
 import subprocess  # nosec B404
 from datetime import datetime, timezone
 from pathlib import Path
@@ -262,9 +264,15 @@ class HandoverGenerator:
         state = gi.get("state", "")
         plan = gi.get("plan", "")
 
-        # Derive bare repo name for the cd command
-        _repo_name = (remote.rstrip("/").split("/")[-1].removesuffix(".git")
-                      if remote else "project")
+        # Derive bare repo name for the cd command. Sanitize to an
+        # allowlist so a malicious remote URL cannot inject shell
+        # metachars into the `cd {name}` and `/tmp/{name}` blocks.
+        if remote:
+            _raw_name = remote.rstrip("/").split("/")[-1].removesuffix(".git")
+            _safe_name = re.sub(r"[^A-Za-z0-9._-]", "", _raw_name)
+            _repo_name = _safe_name if _safe_name else "project"
+        else:
+            _repo_name = "project"
 
         # Three-step startup sequence — visible to a new session immediately
         _target_phase = target_phase if target_phase is not None else (resume_phase if resume_phase is not None else phase + 1)
@@ -275,14 +283,22 @@ class HandoverGenerator:
             if _is_continue else
             f"# Follow SKILL.md §0.1 Phase {_target_phase} entry check, then execute"
         )
+        # Shell-quote untrusted strings rendered into bash code blocks.
+        # shlex.quote neutralises metachars (;, `, $(), &&, |, etc.) by
+        # wrapping the value in single quotes; clean strings pass through
+        # unchanged. Empty values keep the original placeholder.
+        _remote_q = shlex.quote(remote) if remote else "<repo-url>"
+        _plan_q = shlex.quote(plan) if plan else f".methodology/phase{_target_phase}_plan.md"
+        _plan_default_q = ".methodology/phaseN_plan.md"
+
         resume_section = (
             f"## ▶ 立即開始（兩步）\n\n"
             f"```bash\n"
             f"# 1. Clone (if working directory cleared)\n"
-            f"git clone --recurse-submodules {remote or '<repo-url>'} && cd {_repo_name}\n"
+            f"git clone --recurse-submodules {_remote_q} && cd {_repo_name}\n"
             f"\n"
             f"# 2. Read plan and {_action}\n"
-            f"cat {plan or f'.methodology/phase{_target_phase}_plan.md'}\n"
+            f"cat {_plan_q}\n"
             f"{_skill_step}\n"
             f"```\n"
         )
@@ -291,7 +307,7 @@ class HandoverGenerator:
             f"## 快速接手指令（詳細）\n\n"
             f"```bash\n"
             f"# Clone (--recurse-submodules required for harness submodule)\n"
-            f"git clone --recurse-submodules {remote or '<repo-url>'} /tmp/{_repo_name} "
+            f"git clone --recurse-submodules {_remote_q} /tmp/{_repo_name} "
             f"&& cd /tmp/{_repo_name}\n"
             f"\n"
             f"# Confirm latest commits\n"
@@ -302,7 +318,7 @@ class HandoverGenerator:
             f"# expected: {state or 'phase=? state=?'}\n"
             f"\n"
             f"# Read active plan\n"
-            f"cat {plan or '.methodology/phaseN_plan.md'}\n"
+            f"cat {shlex.quote(plan) if plan else _plan_default_q}\n"
             f"```\n\n"
             f"| 欄位 | 值 |\n"
             f"|------|----|\n"

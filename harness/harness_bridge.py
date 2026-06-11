@@ -661,6 +661,26 @@ def _check_tool_evidence(ctx: "GateContext", raw: dict) -> list[str]:
 
         if tool_output:
             out_path = _Path(ctx.project_root) / tool_output
+            # Containment check: refuse to read any tool_output that
+            # resolves outside project_root. An agent writing
+            # `../../etc/passwd` (or an absolute path, or a symlink to
+            # outside) into the gate result JSON must not be silently
+            # read by the audit cross-check.
+            try:
+                if not out_path.resolve().is_relative_to(
+                    _Path(ctx.project_root).resolve()
+                ):
+                    violations.append(
+                        f"{dim_name}: tool_output path '{tool_output}' "
+                        f"escapes project root — refusing to read"
+                    )
+                    continue
+            except (OSError, RuntimeError) as exc:
+                violations.append(
+                    f"{dim_name}: tool_output path '{tool_output}' "
+                    f"cannot be resolved: {exc}"
+                )
+                continue
             if not out_path.exists():
                 violations.append(
                     f"{dim_name}: tool_output path '{tool_output}' does not exist"
@@ -935,15 +955,30 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
                             "require a committed output file, not inline tool_evidence")
             else:
                 _tpath = _Path(ctx.project_root) / _tout
-                if not _tpath.exists() or _tpath.stat().st_size < _TOOL_OUTPUT_MIN_BYTES:
-                    _problem = f"tool_output file missing or empty: {_tout}"
-                else:
-                    _fmt = _validate_tool_content(
-                        _tpath.read_text(encoding="utf-8", errors="replace"),
-                        tool, dim_name, inline=False,
+                # Containment check: refuse to read any tool_output that
+                # resolves outside project_root (see _check_tool_evidence
+                # for the rationale).
+                try:
+                    if not _tpath.resolve().is_relative_to(
+                        _Path(ctx.project_root).resolve()
+                    ):
+                        _problem = (
+                            f"tool_output path '{_tout}' escapes project "
+                            f"root — refusing to read"
+                        )
+                    elif not _tpath.exists() or _tpath.stat().st_size < _TOOL_OUTPUT_MIN_BYTES:
+                        _problem = f"tool_output file missing or empty: {_tout}"
+                    else:
+                        _fmt = _validate_tool_content(
+                            _tpath.read_text(encoding="utf-8", errors="replace"),
+                            tool, dim_name, inline=False,
+                        )
+                        if _fmt:
+                            _problem = "; ".join(_fmt)
+                except (OSError, RuntimeError) as exc:
+                    _problem = (
+                        f"tool_output path '{_tout}' cannot be resolved: {exc}"
                     )
-                    if _fmt:
-                        _problem = "; ".join(_fmt)
             if _problem:
                 violations.append(
                     f"{dim_name}: skip-list tool '{tool}' score is unverifiable — {_problem}. "
