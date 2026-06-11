@@ -16,6 +16,24 @@ from typing import Any, Optional
 from pathlib import Path
 
 
+# Env markers that tell a nested `claude -p` to fetch OAuth tokens from the
+# parent Agent-SDK stream. A headless child has no such stream, so auth fails
+# with "SDK getOAuthToken callback failed: Stream closed" → API 401. Always
+# strip them; the child must authenticate on its own (keychain OAuth/API key).
+_SDK_STREAM_MARKERS = (
+    "CLAUDE_CODE_SDK_HAS_OAUTH_REFRESH",
+    "CLAUDE_CODE_SDK_HAS_HOST_AUTH_REFRESH",
+)
+
+
+def _child_env() -> dict[str, str]:
+    """os.environ copy safe to pass to a spawned `claude -p` subprocess."""
+    env = os.environ.copy()
+    for key in _SDK_STREAM_MARKERS:
+        env.pop(key, None)
+    return env
+
+
 def _load_persona(role: str) -> str:
     """Load the persona markdown file for a given role."""
     p = Path("agent_personas") / f"{role.upper()}.md"
@@ -133,7 +151,7 @@ class AgentSpawner:
                 text=True,
                 timeout=task_timeout,
                 cwd=str(self.project_path.resolve()) if self.project_path else None,
-                env=os.environ.copy(),
+                env=_child_env(),
             )
         except subprocess.TimeoutExpired:
             return {

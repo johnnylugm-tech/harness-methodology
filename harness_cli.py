@@ -2294,6 +2294,7 @@ def cmd_run_env_check(args: argparse.Namespace) -> int:
         "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
     ]
     print("[INFO] Spawning env-check sub-agent...")
+    from core.agent_spawner import _child_env
     try:
         proc = subprocess.run(
             cmd,
@@ -2301,7 +2302,7 @@ def cmd_run_env_check(args: argparse.Namespace) -> int:
             text=True,
             timeout=300,
             cwd=str(Path(project).resolve()),
-            env=os.environ.copy(),
+            env=_child_env(),
         )
     except subprocess.TimeoutExpired:
         print("[ERROR] env-check sub-agent timed out after 300s.", file=sys.stderr)
@@ -6894,6 +6895,7 @@ def _llm_clean_stale_claude_md(project_path: Path) -> None:
     Non-blocking: any failure prints [WARN] and returns without modifying the file.
     """
     import shutil as _shutil
+    from core.agent_spawner import _child_env as _agent_child_env
     try:
         claude_path = project_path / "CLAUDE.md"
         if not claude_path.exists():
@@ -6944,7 +6946,7 @@ def _llm_clean_stale_claude_md(project_path: Path) -> None:
             ],
             capture_output=True, text=True, timeout=60,
             cwd=str(project_path),
-            env=os.environ.copy(),
+            env=_agent_child_env(),
         )
 
         if proc.returncode != 0:
