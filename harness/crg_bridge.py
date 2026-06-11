@@ -15,9 +15,12 @@ harness/ssi/scripts/crg_integration.py.
 from __future__ import annotations
 
 import json
+import logging
 import sys
 from pathlib import Path
 from typing import Any
+
+__log = logging.getLogger(__name__)
 
 # Core CRG tools — conditional import with graceful degradation.
 # In Claude Code sessions the mcp_tools module is injected by the MCP runtime.
@@ -299,7 +302,11 @@ class CRGBridge:
         except ImportError:  # outside Claude Code → subprocess backend
             from harness.crg_api import make_tool
             return make_tool("get_review_context")(**kwargs)
-        except Exception:  # pragma: no cover
+        except Exception as exc:  # pragma: no cover
+            __log.warning(
+                "CRG get_review_context failed (%s: %s); returning {}",
+                type(exc).__name__, exc,
+            )
             return {}
 
     def get_impact_radius(
@@ -327,7 +334,11 @@ class CRGBridge:
         except ImportError:  # outside Claude Code → subprocess backend
             from harness.crg_api import make_tool
             return make_tool("get_impact_radius")(**kwargs)
-        except Exception:  # pragma: no cover
+        except Exception as exc:  # pragma: no cover
+            __log.warning(
+                "CRG get_impact_radius failed (%s: %s); returning {}",
+                type(exc).__name__, exc,
+            )
             return {}
 
     def get_affected_flows(
@@ -348,5 +359,9 @@ class CRGBridge:
         except ImportError:  # outside Claude Code → subprocess backend
             from harness.crg_api import make_tool
             return make_tool("get_affected_flows_func")(**kwargs)
-        except Exception:  # pragma: no cover
+        except Exception as exc:  # pragma: no cover
+            __log.warning(
+                "CRG get_affected_flows failed (%s: %s); returning {}",
+                type(exc).__name__, exc,
+            )
             return {}
