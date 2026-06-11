@@ -110,18 +110,23 @@ class AuditLogger:
                 entry.metadata.update(metadata)
 
         # Persist to JSONL (append + fsync for crash safety).
+        # fsync is per-event: kill-switch volume is low (≤ tens/sec), so the
+        # crash-safety guarantee outweighs the throughput cost. If this logger
+        # is ever reused for high-volume event sources, switch to batch-fsync.
         try:
             line = json.dumps(entry.to_dict(), ensure_ascii=False)
             with self.log_path.open("a", encoding="utf-8") as fh:
                 fh.write(line + "\n")
                 fh.flush()
                 os.fsync(fh.fileno())
-        except OSError as exc:
+        except Exception as exc:
             # Audit logging must never break the interrupt flow — degrade to in-memory.
-            # Re-raise only on programmer errors (TypeError, etc.).
+            # Re-raise only on programmer errors (TypeError / ValueError from
+            # bad kwarg shapes, non-serialisable metadata, etc.).
             if isinstance(exc, (TypeError, ValueError)):
                 raise
-            # For OS errors, keep the in-memory copy and let the caller carry on.
+            # For OS-level errors (disk full, permission denied, ENOSPC, EROFS, …)
+            # keep the in-memory copy and let the caller carry on.
 
         # Keep the last 1024 entries in memory for synchronous query().
         self._in_memory.append(entry)

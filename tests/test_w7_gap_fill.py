@@ -569,20 +569,59 @@ class TestPatternMatcherExtra:
 # ─── AuditLogger extra paths ──────────────────────────────────────────────────
 
 class TestAuditLoggerExtra:
-    def test_log_event_is_stub(self):
+    def test_log_event_is_stub(self, tmp_path):
         from kill_switch.audit_logger import AuditLogger, AuditEntry
-        logger = AuditLogger()
+        # Use tmp_path to avoid polluting the global tempdir across test runs
+        # (the AuditLogger default writes to tempfile.gettempdir()/kill_switch_logs).
+        logger = AuditLogger(log_dir=str(tmp_path))
         entry = AuditEntry(
             event_id="evt-001", agent_id="a1", event_type="STATE_CHANGE",
             action="triggered", outcome="success", reason="test"
         )
-        # Should not raise; stub returns None
+        # Should not raise; method writes JSONL + ring buffer entry.
         logger.log_event(entry)
 
     def test_query_returns_empty(self):
         from kill_switch.audit_logger import AuditLogger
         logger = AuditLogger()
         assert logger.query({}) == []
+
+    def test_log_event_kwarg_form_interrupt_engine_compat(self, tmp_path):
+        """Regression: InterruptEngine._log_event calls log_event with kwargs.
+
+        Pre-fix:  AuditLogger.log_event(entry: AuditEntry) was a `pass` stub with
+                  a positional-only signature, so this call raised
+                  TypeError: log_event() got an unexpected keyword argument.
+        Post-fix: log_event accepts kwargs and synthesises an AuditEntry.
+        See kill_switch/interrupt_engine.py:45-48 for the call site.
+        """
+        from kill_switch.audit_logger import AuditLogger
+        logger = AuditLogger(log_dir=str(tmp_path))
+
+        # Exact call pattern from InterruptEngine._log_event.
+        logger.log_event(
+            event_type="INTERRUPT_STARTED",
+            agent_id="a1",
+            reason="test reason",
+            actor="test-operator",
+            metadata={"event_id": "evt-001"},
+        )
+
+        # The synthesised entry should be queryable via the in-memory ring.
+        results = logger.query({"agent_id": "a1"})
+        assert len(results) == 1
+        entry = results[0]
+        assert entry.event_type == "INTERRUPT_STARTED"
+        assert entry.action == "test-operator"   # actor mapped to action
+        assert entry.outcome == "recorded"
+        assert entry.reason == "test reason"
+        assert entry.metadata == {"event_id": "evt-001"}
+
+        # And persisted to the JSONL log file for replay.
+        persisted = logger.read_log_file()
+        assert len(persisted) == 1
+        assert persisted[0]["agent_id"] == "a1"
+        assert persisted[0]["event_type"] == "INTERRUPT_STARTED"
 
 
 # ─── CRGBridge extra paths ────────────────────────────────────────────────────
