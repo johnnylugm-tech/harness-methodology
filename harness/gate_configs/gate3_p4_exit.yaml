@@ -21,6 +21,13 @@ dimensions:
   - { name: performance,           tier: 3, threshold: 75,  weight: 0.02, tool: pytest-benchmark,   requires_tool_execution: true }
   # PR 4: see gate2_p3_exit.yaml for semantics.
   - { name: traceability,          tier: 2, threshold: 100, weight: 0.10, tool: harness-trace,  requires_tool_execution: false }
+  # v2.9 C2: framework-owned adversarial bug-hunt verdict (weight 0 — blocking
+  # by threshold, like traceability). Score comes from bug_hunt_verifier over
+  # .methodology/bug_hunt_report.json (protocol: ssi/prompts/hunt_bugs.md;
+  # targeting: harness_cli bug-hunt-targets). 100 = no unresolved confirmed
+  # critical/high findings; anything else = 0/BLOCK. Agents must NOT write a
+  # .sessi-work score file for this dimension.
+  - { name: adversarial_review,    tier: 2, threshold: 100, weight: 0.00, tool: bug-hunt-report, requires_tool_execution: false }
 blocking: true
 score_gate: 80
 max_rounds: 3

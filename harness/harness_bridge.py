@@ -199,6 +199,81 @@ def _override_traceability_dim_score(
     return _new_dims, _changed
 
 
+def _override_adversarial_review_dim_score(
+    dims: list,
+    project_root: str,
+    config_dim_list: list,
+) -> "tuple[list[DimResult], bool]":
+    """v2.9 C2: framework-owned adversarial_review score (Gate 3).
+
+    Mirrors the traceability override pattern, with one strengthening: when
+    the agent omits the dimension from its breakdown, the DimResult is
+    APPENDED, not skipped — a framework-owned blocking dimension must not
+    depend on agent cooperation to exist. Verdict comes from
+    bug_hunt_verifier (report present + every confirmed critical/high
+    resolved-with-evidence or refuted-with-evidence → 100; else 0).
+
+    Only acts when the gate config declares the dimension. Returns
+    (new_dims, changed); never mutates the input.
+    """
+    declared = any(
+        (d.get("name") if isinstance(d, dict) else getattr(d, "name", ""))
+        == "adversarial_review"
+        for d in config_dim_list
+    )
+    if not declared:
+        return dims, False
+
+    try:
+        from core.quality_gate.bug_hunt_verifier import verify_bug_hunt_report
+        verdict = verify_bug_hunt_report(project_root)
+    except Exception as _bh_err:
+        print(
+            f"[WARN] adversarial_review override skipped: {_bh_err}",
+            file=sys.stderr,
+        )
+        return dims, False
+
+    for reason in verdict.reasons[:10]:
+        print(f"[harness] adversarial_review: {reason}")
+    if verdict.stale:
+        print(
+            "[harness] adversarial_review: report git_sha differs from HEAD — "
+            "content still gates, but consider re-running the hunt on large diffs"
+        )
+
+    issues = [{"severity": "high", "message": r} for r in verdict.reasons[:20]]
+    _new_dims = []
+    _changed = False
+    _found = False
+    for _d in dims:
+        if _d.name == "adversarial_review":
+            _found = True
+            if _d.score != verdict.score:
+                print(
+                    f"[harness] adversarial_review override: "
+                    f"{_d.score:.1f} → {verdict.score:.1f} "
+                    f"(open_blocking={verdict.open_blocking})"
+                )
+                _changed = True
+            _new_dims.append(
+                dataclasses.replace(_d, score=verdict.score, issues=issues)
+            )
+        else:
+            _new_dims.append(_d)
+    if not _found:
+        _new_dims.append(DimResult(
+            name="adversarial_review", score=verdict.score,
+            threshold=100.0, issues=issues,
+        ))
+        _changed = True
+        print(
+            f"[harness] adversarial_review appended (agent omitted it): "
+            f"score={verdict.score:.1f}"
+        )
+    return _new_dims, _changed
+
+
 def _extract_mutmut_kill_rate(content: str) -> "float | None":
     """Parse a mutmut tool_output file and return the computed kill rate (0-100).
 
@@ -1968,6 +2043,16 @@ class HarnessBridge:
             dims, ctx.project_root, ctx.gate_num
         )
         if _trace_overridden:
+            _crg_overrides_applied = True
+
+        # ── v2.9 C2: adversarial_review (Gate 3) — framework-owned ─────
+        # Verdict from bug_hunt_verifier over bug_hunt_report.json; appended
+        # when the agent omits the dimension. Same recompute semantics as the
+        # CRG/trace overrides above.
+        dims, _ar_overridden = _override_adversarial_review_dim_score(
+            dims, ctx.project_root, _config_dim_list
+        )
+        if _ar_overridden:
             _crg_overrides_applied = True
 
         # ── CRG findings enrichment (MCP path, graceful degrade) ──────────

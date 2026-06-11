@@ -1,0 +1,60 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "harness-methodology/bug_hunt_report.schema.json",
+  "title": "Gate-3 adversarial bug-hunt report (.methodology/bug_hunt_report.json)",
+  "description": "Canonicalized from the tts-new hunt workflow (FINDING/VERIFY schemas) plus the resolution contract. Consumed by core/quality_gate/bug_hunt_verifier.py: the adversarial_review gate dimension scores 100 only when every CONFIRMED critical/high finding is resolved (with fix_commit or repro_test evidence) or refuted (with refute_evidence). Producing agent: harness/ssi/prompts/hunt_bugs.md. Do NOT write a .sessi-work score file for adversarial_review — the framework computes the dimension from this report (traceability pattern).",
+  "type": "object",
+  "required": ["generated_at", "git_sha", "lenses", "findings"],
+  "properties": {
+    "generated_at": {"type": "string", "description": "ISO-8601 timestamp of the hunt run"},
+    "git_sha": {"type": "string", "description": "HEAD at scan time; verifier warns (not blocks) when it drifts"},
+    "targets_manifest": {"type": "string", "description": "path of the bug_hunt_targets.json consumed (provenance)"},
+    "lenses": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "lenses applied, e.g. correctness/concurrency/resilience/general"
+    },
+    "raw_count": {"type": "integer", "description": "findings before adversarial verify"},
+    "confirmed_count": {"type": "integer"},
+    "refuted_count": {"type": "integer"},
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "module", "lens", "severity", "title", "file",
+                     "line_start", "reasoning", "confidence", "confirmed",
+                     "resolution"],
+        "properties": {
+          "id": {"type": "string", "description": "stable finding id, e.g. circuit_breaker#9"},
+          "module": {"type": "string"},
+          "lens": {"type": "string"},
+          "severity": {"type": "string", "enum": ["critical", "high", "medium", "low"]},
+          "title": {"type": "string"},
+          "description": {"type": "string"},
+          "file": {"type": "string"},
+          "line_start": {"type": "integer"},
+          "line_end": {"type": "integer"},
+          "code_snippet": {"type": "string"},
+          "reasoning": {"type": "string"},
+          "suggested_fix": {"type": "string"},
+          "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+          "confirmed": {
+            "type": "boolean",
+            "description": "adversarial verify outcome (refute+confirm verifiers); only confirmed findings can block"
+          },
+          "verify_evidence": {"type": "string", "description": "line citation from the confirming verifier"},
+          "resolution": {
+            "type": "object",
+            "required": ["status"],
+            "properties": {
+              "status": {"type": "string", "enum": ["open", "resolved", "refuted"]},
+              "fix_commit": {"type": "string", "description": "commit sha of the fix (resolved)"},
+              "repro_test": {"type": "string", "description": "project-relative test path reproducing the bug (resolved; must exist — anti-fabrication)"},
+              "refute_evidence": {"type": "string", "description": "counterexample / documented-exception citation (refuted)"}
+            }
+          }
+        }
+      }
+    }
+  }
+}
