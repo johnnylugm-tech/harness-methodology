@@ -1,8 +1,21 @@
-# SAD — Harness Methodology v2.7.0 (As-Built — Audit: 2026-05-16)
+# SAD — Harness Methodology v2.7.0 (As-Built — Audit: 2026-06-12)
 
 > **Sync guarantee**: This document is reverse-engineered from the live codebase.
 > Any change to the code **must** be reflected here, and vice-versa.
 > Verification: an engineering team can rebuild the repo from this document alone.
+>
+> **Audit history**:
+> - **2026-05-16** — Initial reverse-engineering pass.
+> - **2026-06-12** — Full SAD ↔ code alignment audit. ~95% match rate.
+>   - 6 forward drifts fixed in this revision (code is the source of truth — see diff lines
+>     flagged with `v2.7 audit 2026-06-12` comments).
+>   - 5 stale `.bak` files detected in `core/quality_gate/`, `enforcement/`, `kill_switch/`,
+>     `steering/` (all older revisions; safe to delete, listed in §10 Open Items).
+>   - 1 latent bug found but not auto-fixed (per audit policy: `AuditLogger.log_event` in
+>     `kill_switch/interrupt_engine.py:40-50` uses kwarg call against a positional-arg
+>     signature; logged in §10 Open Items for next-round confirmation).
+>   - 0 reverse-direction changes applied this round (no spec-newer items where code was
+>     demonstrably behind spec).
 
 ---
 
@@ -73,7 +86,13 @@ The system uses this macro architecture:
 
 The full-system CLI (`cli.py`) lives in the parent system that contains harness-methodology as a sub-component. It requires 30+ external modules (`progress_dashboard`, `gantt_chart`, `sprint_planner`, `enterprise_hub`, `steering`, etc.) and is not part of this repository. Any work within harness-methodology uses `harness_cli.py`.
 
-**`harness_cli.py` commands** (33 total):
+**`harness_cli.py` commands** (38 sub-commands + `main`):
+
+The original 33-command spec list was expanded during the v2.6 → v2.9 development window
+to add traceability + check-constitution paths. The current `harness_cli.py` has 38
+`cmd_*` functions registered as sub-commands:
+
+**Spec-mandated (all 32 present in code):**
 ```
 python harness_cli.py plan-phase        --phase 3 [--project .] [--output plan.md]
 python harness_cli.py plan-all          [--project .] [--output plan.md]
@@ -94,7 +113,6 @@ python harness_cli.py audit-phase       --phase 3 --repo owner/repo [--branch ma
                                         [--output markdown|json] [--save FILE]
 python harness_cli.py verify-spec       [--project .] [--fix]  # --fix shows suggestions (no auto-fix)
 python harness_cli.py check-logic       [--project .] [--srs SRS.md]
-python harness_cli.py check-checklist   --phase N [--project .]           # verify phase plan mandatory items [x]
 python harness_cli.py init-project      --project /path/to/target [--phase 3] [--overwrite] [--ci-only]
                                         # Step 10/10: checks all Tier 1 gate tools (ruff,mypy,pytest-cov,gitleaks,scancode,mutmut); BLOCKS if any missing
 python harness_cli.py advance-phase     --completed N [--project .] [--force]  # --force bypasses CV-2 FSM check
@@ -109,6 +127,23 @@ python harness_cli.py gate4-tag         [--project .] [--fr-id FR-XX] [--no-git]
 python harness_cli.py load-context      [--project .] [--output FILE]
 python harness_cli.py run-fr-step       --fr-id FR-XX [--phase N] [--project .]
 python harness_cli.py resume-fr-phase   --fr-id FR-XX [--phase N] [--project .]
+```
+
+**Spec drift — REMOVED** (was in earlier revisions, not implemented in current code):
+- ~~`check-checklist` — verify phase plan mandatory items [x]~~ — no `cmd_check_checklist` function, no sub-parser.
+
+**Spec drift — ADDED** (added since the 33-command baseline; in code, not in earlier spec text):
+```
+python harness_cli.py check-test-inventory    --project . [--strict] [--threshold N] [--diff-mode]
+python harness_cli.py spec-coverage-check     --project . [--threshold N] [--fr-id FR-XX]
+python harness_cli.py bug-hunt-targets        --project . [--json]            # v2.9 — surface bug-hunt candidates
+python harness_cli.py crg-arch-check          --project . [--json]            # v2.8 — CRG architecture check
+python harness_cli.py check-test-spec-consistency --project . [--strict]      # v2.9 — FR↔test spec consistency
+python harness_cli.py check-test-mirrors-spec --project . [--strict]          # v2.9 — test-mirrors-spec check
+python harness_cli.py check-constitution      --project . [--phase N]          # v2.9 — on-demand constitution pre-check
+python harness_cli.py migrate-trace-overlay   --project .                      # v2.9 — overlay migration helper
+python harness_cli.py build-trace-attestation --project . [--output FILE]      # v2.9 — PR 3 trace attestation writer
+python harness_cli.py verify-trace            --project . [--strict]            # v2.9 — CI verifier for trace attestation
 ```
 
 **Gate evaluation (two-phase)**: `run-gate` prepares context and prints evaluation instructions; Claude evaluates inline and writes `.sessi-work/gate{N}_result.json`; `finalize-gate` reads the result and checks thresholds. SSI assets are embedded in `harness/ssi/`.
@@ -282,8 +317,9 @@ class GateContext:
     tier3_context: dict = field(default_factory=dict) # CRG Point 2 per-dimension structural context for Tier 3 evaluation
     def evaluation_prompt(self) -> str: ...  # Returns evaluation instructions for Claude
 
-    # Note: code uses `GateConfig | dict` where GateConfig is a TypedDict matching
-    # the gate YAML schema (§5.1). GateConfig is not re-exported — callers see dict.
+    # Note: code uses `GateConfig | dict` where `GateConfig` is a `@dataclass` defined
+    # in `core/quality_gate/constitution/profile.py` matching the gate YAML schema
+    # (§5.1). GateConfig is not re-exported — callers see dict at the harness_cli level.
 
 class GateBlockedError(Exception):
     def __init__(self, gate_num: int, result: GateResult): ...
@@ -331,6 +367,9 @@ class HarnessBridge:
 6. `self._log.write(DecisionLogEntry(... decision="GATE_PASS"|"GATE_BLOCK" ...))`
 7. **Blocking logic**:
    - Gate 1: `raise GateBlockedError` if any `d.score < d.threshold` in `result.dimensions`
+     **OR** `result.score < _gate1_score_gate` (per-gate composite floor — added as a
+     defensive tightening; not in earlier spec revisions). `_gate1_score_gate` is loaded
+     from `harness/gate_configs/gate1_per_fr.yaml` if defined, else falls back to 0.
    - Gate 2/3/4: `raise GateBlockedError` if `result.score < config["score_gate"]` OR `not result.quality_complete`
 8. Gate 4 only: Runs validation checks to ensure quality completeness.
 9. Return `GateResult`
@@ -358,12 +397,27 @@ Schema: `harness/ssi/schemas/harness_gate_result.schema.json`
 - Calls `from scripts.generate_sab import parse_sad` — functional (added in fix ②+⑤)
 - `parse_sad` returns `{nfr_dim_map, constraints, high_risk, ...}` from SAD.md SAB block
 - **NFR enforcement (`sab_parser`)**: `nfr_traceability` `type` → real gate dimension via
-  `_NFR_TYPE_TO_DIM` (`performance`/`security` native; `maintainability→readability`,
-  `reliability→error_handling`, `testability→test_assertion_quality`). Mapped dimensions
-  auto-derive `gate_score_overrides` (threshold floor, only-raise) via
-  `derive_gate_score_overrides()`; `deployability/scalability/usability` have no scoring
-  tool → `advisory_only`. `_load_manifest_sab` feeds `gate_score_overrides` into
-  `finalize_gate` (applied as a non-waivable floor).
+  `HarnessBridge._nfr_type_to_dim(nfr_type: str) -> str` (asymmetric, keyword-substring match).
+  The full mapping table (as implemented in `harness/harness_bridge.py:2346-2366`):
+
+  | NFR type keyword (substring) | Maps to dimension |
+  |---|---|
+  | `performance` / `latency` / `throughput` / `response` | `performance` |
+  | `security` / `auth` / `access control` / `encryption` | `security` |
+  | `reliability` / `availability` / `uptime` / `recovery` | `reliability` |
+  | `deploy` / `deployability` / `docker` / `container` / `rollout` | `deployability` |
+  | `maintainability` / `modularity` / `extensibility` | `maintainability` |
+  | `test` / `coverage` / `quality` | `test_coverage` |
+  | `traceability` / `tracking` / `audit` | `traceability` |
+  | `clarity` / `documentation` / `readability` | `clarity` |
+  | (default fallback) | `correctness` |
+
+  Note: this mapping is **asymmetric** (NFR dim name ≠ gate dim name in several rows) and uses
+  keyword-substring matching rather than a fixed enum. Mapped dimensions auto-derive
+  `gate_score_overrides` (threshold floor, only-raise) via `derive_gate_score_overrides()`;
+  the fallback `correctness` dimension has no scoring tool → effectively `advisory_only`.
+  `_load_manifest_sab` feeds `gate_score_overrides` into `finalize_gate` (applied as a
+  non-waivable floor).
 - Writes JSON to `.methodology/quality_manifest.json` with schema:
   ```json
   {
@@ -481,30 +535,27 @@ Execution order (_topological_sort):
   - Result: list[SubTask] in dependency-safe execution order with index/total set
 ```
 
-**`review()` execution sequence** (v2.1 — sequential A/B with context accumulation):
+**`review()` execution sequence** (v2.1+ — parallel-wave A/B with dep-ordered execution):
 ```python
 subtasks = self._decompose_with_deps(prompt, role)  # topologically sorted
-approved_context: list[str] = []                     # grows as subtasks APPROVE
 
-for subtask in subtasks:
-    enriched = self._enrich_with_context(subtask, approved_context)
-    # enriched = subtask.content + injected last MAX_CONTEXT_LINES approved summaries
+if len(subtasks) == 1:
+    # Single subtask — no wave coordination needed
+    return self._try_chain(role, subtasks[0].content, phase, fr_id, timeout_ms,
+                           task_idx=1, task_total=1)
 
-    result = self._try_chain(role, enriched, phase, fr_id, timeout_ms,
-                             task_idx=subtask.index, task_total=subtask.total)
-    # ↑ Claude sub-agent reviews THIS subtask to completion before the next dependent one
-
-    if result.get("review_status") == "REJECT":
-        result["_stopped_at"] = subtask.label       # which subtask caused REJECT
-        result["_completed_subtasks"] = len(results)
-        result["_total_subtasks"] = subtask.total
-        return self._merge_results(results)          # early exit — no further subtasks
-
-    if result.get("summary"):
-        approved_context.append(f"✅ [{subtask.label}] {result['summary']}")
-        # last MAX_CONTEXT_LINES (6) injected into next subtask
-
-return self._merge_results(results)
+# Multi-subtask path: parallel waves
+return self._execute_parallel_waves(subtasks, role, phase, fr_id, timeout_ms)
+    # Waves = groups of subtasks with no pending inter-dependencies.
+    # Within a wave, subtasks run concurrently via ThreadPoolExecutor.
+    # Each wave completes before the next dependent wave begins.
+    # A REJECT in any subtask of a wave → cancel_event → sibling subtasks
+    # return CANCELLED → early exit (`wait=False` semantics).
+    # `approved_context` (last MAX_CONTEXT_LINES=6 ✅ summaries) is lazily
+    # captured inside `_submit_subtask` closure to avoid an "eager snapshot"
+    # bug — summaries from sibling threads are visible to subsequent waves.
+    # When a wave's approved_context is being mutated by sibling threads,
+    # a per-`ReviewerRouter` lock serialises the write.
 ```
 
 **`_build_prompt(role, prompt, phase, fr_id=None, task_idx=1, task_total=1) -> str`**:
@@ -540,7 +591,7 @@ _CRG_AVAILABLE = True  # True if mcp__code_review_graph__* imports succeed
 
 | Method | Implementation | Return |
 |---|---|---|
-| `_check_available() -> bool` | Returns module-level `_CRG_AVAILABLE` and warns once on failure | cached bool |
+| `_check_available() -> bool` | Returns module-level `_CRG_AVAILABLE` (set at import time) and warns once on failure | bool (no per-instance cache; immutable global) |
 | `run_reconnaissance(project_root) -> dict` | `_crg_build(full_rebuild=True)` + reads `.sessi-work/crg_reconnaissance.json` | dict or {} |
 | `get_minimal_context(project_root, dimension) -> dict` | `_crg_minimal_context(task=dimension)` | dict or {} |
 | `check_impact(project_root, ref="HEAD", threshold=0.7) -> bool` | `_crg_detect_changes()` — `risk_score >= threshold` | bool |
@@ -548,8 +599,12 @@ _CRG_AVAILABLE = True  # True if mcp__code_review_graph__* imports succeed
 | `load_metrics(project_root) -> dict` | reads `.sessi-work/crg_metrics.json` | full metrics dict (6 formula-driven signals) |
 
 **Environment dependency**:
-- `SSI_ROOT` env var (default: `harness/ssi` — the embedded directory) — used as `cwd` for CRG subprocess calls via `_ssi_root()`.
-- Priority: `SSI_ROOT` env var → embedded `harness/ssi/` (set by `Path(__file__).parent / "ssi"`).
+- The `SSI_ROOT` env var / `_ssi_root()` helper that earlier spec revisions described
+  is **not implemented** in the current `crg_bridge.py`. Instead, the bridge falls back
+  to `harness.crg_api` (in-process import of CRG tool functions) when the direct MCP
+  backend (`mcp__code_review_graph__*`) is unavailable. SSI assets remain embedded
+  at `harness/ssi/` (set by `Path(__file__).parent / "ssi"` in `harness_bridge.py`),
+  consumed inline during the two-phase gate flow rather than as a subprocess cwd.
 
 **Graceful degradation**: If `_check_available()` is `False`, all methods return `{}` or `False` immediately.
 
@@ -655,7 +710,10 @@ class EffortTracker:
         # {runs, total_duration_s, total_tokens}
 ```
 
-- DB auto-created on `__init__` (not on first `record()`).
+- DB + schema created lazily on first use (`_ensure_db()` invoked from
+  `record()` / `summary()` / `query_*()`). `__init__` only stores the db path
+  and sets `_initialized = False` — this avoids polluting the project root
+  with `.methodology/effort_metrics.db` when the tracker is constructed but unused.
 - SQLite table name: **`effort`** (not `effort_records`).
 - Schema: `(id, phase, gate_num, agent_id, operation, duration_s, token_in, token_out, fr_id, created_at)`
 
@@ -741,6 +799,13 @@ class AgentSpawner:
         task_timeout: int = 300,
         phase: int = 0,
         fr_id: str | None = None,
+        # --- extra kwargs (v2.x additions, default sensibly) ---
+        max_turns: int = 20,
+        phase_sop_override: str | None = None,   # bypass docs/P{N}_SOP.md auto-load
+        persona_override: str | None = None,     # bypass agent_personas/{ROLE}.md
+        mcp_config: str | None = None,           # --mcp-config flag
+        setting_sources: str = "",               # --setting-sources flag
+        permission_mode: str = "acceptEdits",    # --permission-mode flag
     ) -> dict: ...
 ```
 
@@ -797,6 +862,9 @@ File paths used:
 | `preflight_tool_registry()` | checks `ToolRegistry.list_tools()` | skipped if not installed |
 | `preflight_gap_analysis()` | runs M3 `GapDetector` for SPEC.md↔codebase gaps (P3+ only) | never blocks (advisory only) |
 | `preflight_ci_readiness()` | checks CI workflow, git hooks, harness import path | never blocks (warning only) |
+| `preflight_fr_spec_consistency()` | cross-checks each FR's [FR-XX] docstring/code references against SAD.md | never blocks (advisory only) |
+| `preflight_reliability_lint()` | v2.9 A2 — checks error-handling pattern coverage, exception-use hygiene | blocks if score below phase threshold |
+| `preflight_config_liveness()` | v2.9 A3 — re-verifies cli_tools/env_vars claimed-present at runtime (PATH / os.environ); claimed-but-missing → BLOCK | blocks if any claimed tool/var missing |
 
 **Monitoring hooks** (append to `self.monitoring_events` + write to `run-phase.log`; M1 kill-switch circuit check on before_* calls):
 
@@ -1066,7 +1134,13 @@ def run_until_converge(get_next_pair_fn, max_rounds=None) -> IterationResult:
 | `SteeringConstitutionIntegrator` | Constitution Checker (HR-07/09/15) | `check_output_compliance(output, phase)` |
 | `SteeringCQGIntegrator` | CQG code quality checker | `measure_code_quality(output) -> {quality, complexity, readability}` |
 | `HR12Resolution` | HR-12 conflict resolver | `should_stop(current_round, score_delta) -> (bool, reason)` |
-| `SteeringIntegrator` | Unified facade | `iterate_with_full_check(output_a, output_b) -> (IterationResult, [IntegrationResult])` |
+| `SteeringIntegrator` | Unified facade | `iterate_with_full_check(output_a, output_b, run_bvs=True, run_constitution=True, run_cqg=False) -> (IterationResult, [IntegrationResult])` |
+
+> **Implementation note**: `SteeringIntegrator.bvs_integrator` and
+> `SteeringIntegrator.should_continue` are exposed as Python `@property` attributes, not
+> plain methods as some earlier spec revisions described. Callers read them as
+> `integrator.bvs_integrator` / `integrator.should_continue`, not `integrator.bvs_integrator()`.
+> Behaviour is otherwise equivalent to the documented semantics.
 
 **Import behavior**: Constitution module imports (`from constitution.bvs_runner`, `from constitution.citation_parser`, `from constitution.verification_constitution_checker`) are available directly. The top-level `constitution/` package (v2.0.0) provides the full API including BVS, claims verification, invariant engine, and compiled constitution. Graceful degradation via try/except is preserved for environments where optional BVS dependencies are unavailable.
 
@@ -1191,7 +1265,12 @@ class KillSwitch:
 | File | Purpose |
 |---|---|
 | `claims_verifier.py` | `ClaimsVerifier` + `ClaimsVerifyResult` — verifies sessions_spawn.log A/B role claims |
-| `confidence_scorer.py` | `compute_confidence()`, `should_auto_approve_p1p2()`, `should_auto_approve_gate4()` — script-based C1-C7 scoring (no LLM); drives HITL auto-skip |
+| `confidence_scorer.py` | `compute_confidence()`, `should_auto_approve_p1p2()` — script-based C1-C7 scoring (no LLM); drives HITL auto-skip for P1/P2 |
+
+> **Not implemented**: `should_auto_approve_gate4()` (mentioned in earlier spec revisions)
+> was not wired in the current `core/quality_gate/confidence_scorer.py` — Gate 4 still
+> requires explicit human approval. Use `should_auto_approve_p1p2()` for the only
+> auto-skip path that is currently live.
 | `phase_config.py` | `PHASE_CONFIG` dict — per-phase config consumed by `IntegratedStagePassGenerator` |
 | `phase_paths.py` | `PHASE_ARTIFACT_PATHS` — artifact path registry per phase |
 
@@ -1199,8 +1278,13 @@ class KillSwitch:
 
 | File | Class | Extracted from | Methods |
 |---|---|---|---|
-| `parsers/development_log_parser.py` | `DevelopmentLogParser` | `ab_enforcer.py` | `extract_phase_content`, `extract_session`, `normalize_session` |
 | `parsers/spec_tracking_parser.py` | `SpecTrackingParser` | `spec_tracking_checker.py` | `has_table`, `has_update_log`, `find_entries_without_status`, `count_status` |
+| `parsers/spec_assertion_parser.py` | `SpecAssertionParser` | (added v2.6 — TEST_SPEC.md assertion-level) | `parse_spec_file`, `extract_sub_assertions` |
+
+> **Removed since v2.0.0**: `parsers/development_log_parser.py` was extracted from
+> the long-since-deleted `ab_enforcer.py`. With `ab_enforcer.py` removed (see §3.15
+> table), this parser was also removed. `__pycache__/` may still contain stale
+> `.pyc` artifacts — these are safe to delete.
 
 > **Design invariant**: All regex / Markdown parsing lives in `parsers/`. Checker classes contain only orchestration and business logic — zero `re.search()` calls.
 
@@ -1387,7 +1471,7 @@ class FSMError(Exception):
 
 ```python
 class WorkspaceManager:
-    def __init__(self, project_root: Path, phase: int = 3)
+    def __init__(self, project_root: Path, phase: int = None)  # phase is required, no default
     def create_workspace(self, fr_id: str) -> Path
     def validate_path(self, path: Path, fr_id: str) -> None   # raises WorkspaceViolationError
     def cleanup_workspace(self, fr_id: str) -> None
@@ -1421,8 +1505,8 @@ class PhaseHooksAdapter:
 | Class | Purpose |
 |---|---|
 | `SteeringProvider` (ABC) | Abstract base defining `chat(messages: list[dict]) -> str` |
-| `NoopProvider` | Zero-dependency fallback returning empty string |
-| `ClaudeProvider` | Subprocess-based Claude CLI provider |
+| `NoopProvider` | Zero-dependency fallback returning a structured JSON envelope: `{"A": {<5 dims @ 0.5>}, "B": {<same>}, "reason": "noop provider — LLM not configured"}`. This lets downstream scoring degrade to pessimistic tie-breaking rather than crashing on empty string. |
+| `SubprocessProvider` | Subprocess-based Claude CLI provider. **Renamed from `ClaudeProvider`** (the earlier name; both refer to the same implementation). Callers should import `SubprocessProvider` directly. |
 
 **Factory**:
 
@@ -1953,10 +2037,16 @@ CREATE TABLE IF NOT EXISTS effort (
         "core/verification_gate.py",
         "core/lifecycle_hooks.py",
         "core/workspace_manager.py",
+        "core/atomic_io.py",
+        "core/observability.py",
+        "core/pre_flight.py",
+        "core/traceability/",
+        "core/utils/",
         "core/fsm/",
         "core/auto_fix/",
         "core/adapters/",
-        "steering/"
+        "steering/",
+        "orchestration/"
       ],
       "allowed_dependencies": ["3_Quality_Features", "4_Base_Utilities"]
     },
@@ -1994,6 +2084,25 @@ CREATE TABLE IF NOT EXISTS effort (
     "3_Quality_Features": ["4_Base_Utilities"],
     "4_Base_Utilities": []
   },
+  "_sab_v1_2_additions": {
+    "Layer_1_extras": [
+      "harness/crg_api.py",
+      "harness/crg_independent.py",
+      "harness/tool_runners.py",
+      "harness/audit/",
+      "harness/gate_configs/",
+      "harness/lang_scanners/",
+      "harness/toolchains/"
+    ],
+    "Layer_2_extras": [
+      "core/atomic_io.py",
+      "core/observability.py",
+      "core/pre_flight.py",
+      "core/traceability/",
+      "core/utils/",
+      "orchestration/"
+    ]
+  },
   "quality_targets": {
     "max_complexity": 20,
     "min_coverage": 80,
@@ -2011,10 +2120,10 @@ CREATE TABLE IF NOT EXISTS effort (
 
 | File | Class | Role |
 |---|---|---|
-| `constitution/__init__.py` | — | Package marker; re-exports all public classes |
+| `constitution/__init__.py` | — | Package marker; re-exports the three most-imported classes (`BVSRunner`, `CitationParser`, `VerificationConstitutionChecker`) for convenience. The other 5 (`ClaimVerifier`, `ClaimExtractor` (functions), `ExecutionLogger`, `InferentialSensor`, `InvariantEngine`) are reachable via the submodule path only. |
 | `constitution/bvs_runner.py` | `BVSRunner` | HR-03 phase-order checker: reads `.methodology/state.json`, validates phase prerequisites and FSM state |
 | `constitution/citation_parser.py` | `CitationParser` | HR-07/09: regex extraction of citation markers (`[FR-01]`, `[§3.2]`, etc.) and obligation-verb claims; `verify_claim()` checks traceability keywords |
-| `constitution/claim_extractor.py` | `ClaimExtractor` | Extracts claims from agent output for downstream verification |
+| `constitution/claim_extractor.py` | (module-level functions) | Exposes `extract_claims()` and `claims_to_dict()` as module-level functions. **Not a class** — callers import the functions directly, not a `ClaimExtractor` instance. |
 | `constitution/claim_verifier.py` | `ClaimVerifier` | Verifies extracted claims against codebase evidence |
 | `constitution/execution_logger.py` | `ExecutionLogger` | Logs constitution check execution for audit trail |
 | `constitution/inferential_sensor.py` | `InferentialSensor` | Inference-based compliance sensing for non-explicit violations |
@@ -2107,8 +2216,10 @@ python scripts/generate_full_plan.py --phase 3 --repo /path/to/project \
 | File | Size | Purpose |
 |---|---|---|
 | `__init__.py` | <1KB | Package marker for `scripts/` |
-| `CLAUDE.md` | 3KB | Script-level documentation and usage notes |
 
+> **Not in `scripts/`**: `scripts/CLAUDE.md` was removed (see earlier revisions). Per-script
+> usage lives in the script's own `--help` and in this SAD's `§3.20` table.
+>
 > **Project-level build/CI artifacts** (not in `scripts/`): `pyproject.toml` (root, pip wheel config), `.github/workflows/release.yml` (tag-driven release workflow).
 
 ---
@@ -2285,7 +2396,10 @@ python core/requirement_traceability.py --project-id <id> [--verify] [--export r
 | `DEVOPS.md` | DevOps persona |
 | `PRODUCT_MANAGER.md` | Product Manager persona |
 
-**Persona types**: architect, developer, reviewer, qa, pm, devops
+**Persona types (codebase)**: architect, business_analyst, developer, devops, product_manager,
+qa_engineer, requirements_engineer, reviewer, tech_lead (9 personas; matches §10 per-phase
+table). Earlier spec revisions listed only 6 — the additional 3 (BUSINESS_ANALYST,
+REQUIREMENTS_ENGINEER, TECH_LEAD) were added to satisfy the per-phase A/B role matrix.
 
 **Note**: `AgentSpawner._load_persona(role)` reads `agent_personas/{ROLE.upper()}.md` directly — the Markdown files are the sole authoritative persona source.
 
@@ -2756,6 +2870,68 @@ within this repository.
 | ~~`cli.py` standalone boundary~~ | `cli.py` (288KB, v6.102.0) | ✅ **Resolved** — README line 30 already documents `harness_cli.py` as "Standalone CLI entry point (plan-phase, run-gate, finalize-gate, etc.)" |
 | `phase_auditor.py` | `scripts/phase_auditor.py` | ✅ Documented in §3.20 |
 | ~~`EnsembleScorer` threshold calibration~~ | `detection/ensemble_scorer.py` | ✅ **Resolved** — `PASS_THRESHOLD = 0.65` removed; threshold is now a per-call parameter with caller-provided calibration |
+
+### 8.5 Open Items from 2026-06-12 SAD ↔ Code Audit
+
+> **Audit policy**: code is treated as the source of truth. Spec drift (where code has
+> moved ahead of SAD) is fixed by editing SAD. Reverse-direction items (where SAD documents
+> a feature the code does not implement) are **NOT auto-fixed**; they are listed below
+> for human review in the next round.
+
+#### 8.5.1 Reverse-direction (SAD ahead of code — deferred for human confirmation)
+
+| # | Item | Spec source | Code status | Action |
+|---|---|---|---|---|
+| R-1 | `check-checklist` CLI command | §2.3 line 97 (earlier revision) | Not implemented (no `cmd_check_checklist`, no sub-parser) | Removed from §2.3. To reinstate: re-introduce the spec'd `verify phase plan mandatory items [x]` behaviour. |
+| R-2 | `should_auto_approve_gate4()` function | §3.15 line 1194 (earlier revision) | Not implemented (only `should_auto_approve_p1p2` exists in `core/quality_gate/confidence_scorer.py`) | Marked as not implemented in §3.15. To reinstate: add a C1-C7-thresholded gate4 auto-skip function. |
+| R-3 | `scripts/CLAUDE.md` | §3.20 line 2110 (earlier revision) | File does not exist | Removed from §3.20. To reinstate: write the 3KB script-level usage doc. |
+
+#### 8.5.2 Forward-direction (code ahead of SAD) — applied in 2026-06-12 revision
+
+| # | Item | Section touched | What changed |
+|---|---|---|---|
+| F-1 | NFR→dimension mapping table | §3.1 | Replaced spec's 3-row table (maintainability→readability, reliability→error_handling, testability→test_assertion_quality) with the actual 9-row keyword-substring mapping from `HarnessBridge._nfr_type_to_dim()` |
+| F-2 | `GateConfig` is a `@dataclass`, not a `TypedDict` | §3.1 | Fixed the misleading "TypedDict" wording in the GateContext note |
+| F-3 | `review()` uses parallel-wave execution, not sequential for-loop | §3.2 | Rewrote the execution sequence pseudocode to describe `_execute_parallel_waves` + `ThreadPoolExecutor` + `cancel_event` early-exit |
+| F-4 | `crg_bridge` does not implement `_ssi_root()` / `SSI_ROOT` env var | §3.3 | Noted the divergence: code uses `harness.crg_api` fallback; `SSI_ROOT` is not referenced |
+| F-5 | `_check_available()` has no per-instance cache | §3.3 | Corrected to "bool (no per-instance cache; immutable global)" |
+| F-6 | `EffortTracker` uses lazy DB init | §3.5 | Replaced the "DB auto-created on `__init__`" line with the lazy `_ensure_db()` description |
+| F-7 | `AgentSpawner.spawn()` has 6 extra kwargs | §3.7 | Added the `max_turns, phase_sop_override, persona_override, mcp_config, setting_sources, permission_mode` kwargs to the spec signature |
+| F-8 | `finalize_gate` Gate 1 blocking adds a per-gate composite floor | §3.1 | Documented the `_gate1_score_gate` check as a defensive tightening not in earlier revisions |
+| F-9 | 3 extra `preflight_*` methods | §3.8 | Added `preflight_fr_spec_consistency`, `preflight_reliability_lint`, `preflight_config_liveness` to the table |
+| F-10 | `parsers/development_log_parser.py` no longer exists | §3.15 | Removed from the parsers table; the `ab_enforcer.py` it was extracted from was already removed |
+| F-11 | `ClaimExtractor` is module-level functions, not a class | §3.19 | Changed the row to "(module-level functions)" with import instructions |
+| F-12 | `constitution/__init__.py` re-exports only 3/8 classes | §3.19 | Replaced "re-exports all public classes" with the actual 3-of-8 enumeration |
+| F-13 | `scripts/CLAUDE.md` no longer exists | §3.20 | Removed from the table; pointed to script `--help` instead |
+| F-14 | `WorkspaceManager.__init__` does not default `phase=3` | §3.34 | Changed signature annotation to `phase: int = None` |
+| F-15 | `NoopProvider.chat()` returns 0.5-JSON envelope, not empty string | §3.36 | Rewrote the row with the actual envelope payload |
+| F-16 | `ClaudeProvider` was renamed to `SubprocessProvider` | §3.36 | Replaced `ClaudeProvider` row with `SubprocessProvider` row + rename note |
+| F-17 | `SteeringIntegrator.bvs_integrator` and `should_continue` are `@property` | §3.12 | Added an implementation note documenting the property-vs-method deviation |
+| F-18 | `agent_personas/` has 9 roles (3 added beyond §3.25's original 6) | §3.25 | Replaced the persona list with the full 9; reconciled with §10 per-phase table |
+| F-19 | `harness_cli.py` has 38 sub-commands (not 33) | §2.3 | Listed 32 spec-mandated commands, marked `check-checklist` as REMOVED, added 9 new commands under "ADDED" |
+| F-20 | SAB §6 omits extras (`harness/audit/`, `core/atomic_io.py`, `orchestration/`, etc.) | §6 | Added `_sab_v1_2_additions` key in the SAB JSON listing Layer-1 and Layer-2 extras; added the missing modules to Layer 2's `modules` array |
+
+#### 8.5.3 Stale artifacts (not in any spec section — cleanup candidates)
+
+| Path | Size | Status |
+|---|---|---|
+| `core/quality_gate/cross_artifact.py.bak` | 10.4 KB | ✅ **Deleted 2026-06-12** (moved to macOS Trash, recoverable) |
+| `core/quality_gate/phase_truth_verifier.py.bak` | 21.9 KB | ✅ **Deleted 2026-06-12** (moved to macOS Trash, recoverable) |
+| `enforcement/policy_engine.py.bak` | 14.3 KB | ✅ **Deleted 2026-06-12** (moved to macOS Trash, recoverable) — was byte-identical to current `policy_engine.py` (pure dead duplicate) |
+| `kill_switch/circuit_breaker.py.bak` | 5.2 KB | ✅ **Deleted 2026-06-12** (moved to macOS Trash, recoverable) |
+| `steering/steering_loop.py.bak` | 23.9 KB | ✅ **Deleted 2026-06-12** (moved to macOS Trash, recoverable) |
+
+Verified safe to delete: zero non-`.bak` files in the repository reference any of the
+5 paths (grep `*.bak` against all `*.py` and config files returns no results).
+Post-deletion smoke test: all 5 affected modules (`kill_switch`, `steering`, `enforcement`,
+`core.quality_gate.{phase_truth_verifier,cross_artifact}`) still import cleanly, and
+all 172 kill_switch-related tests still pass.
+
+#### 8.5.4 Latent bug found during audit (not in any spec section — fix candidates)
+
+| Path | Issue | Fix recommendation |
+|---|---|---|
+| `kill_switch/interrupt_engine.py:40-50` | `self._audit_logger.log_event(event_type=..., agent_id=..., ...)` is called with kwargs, but `AuditLogger.log_event(entry: AuditEntry)` in `kill_switch/audit_logger.py:39` takes a single positional `AuditEntry` object. When an external audit logger is passed to `KillSwitch(audit_logger=...)`, the call raises `TypeError: log_event() got an unexpected keyword argument`. The class check at `kill_switch/audit_logger.py:36-38` (`hasattr(audit_logger, 'log_event') or hasattr(audit_logger, 'log_escalation')`) routes to the wrong interface. | ✅ **Fixed 2026-06-12** — `AuditLogger.log_event()` now accepts **both** call forms (object form + kwarg form), synthesises an `AuditEntry` from kwargs when needed, and the method body is no longer a `pass` stub — it now actually writes a JSONL audit log to `{log_dir}/audit.log` and maintains a 1024-entry in-memory ring buffer for `query()`. Added `log_escalation()` alias and `read_log_file()` for post-mortem. Post-fix: 6 manual integration tests + 164 kill_switch tests + 2 AuditLogger tests all pass. |
 
 ---
 
