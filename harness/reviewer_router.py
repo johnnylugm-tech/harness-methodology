@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import threading
@@ -13,6 +14,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+_log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Constants (all overridable via environment variables)
@@ -152,7 +155,14 @@ class ReviewerRouter:
 
     def _try_subagent(self, role: str, prompt: str, phase: int, fr_id: str | None,
                       task_timeout_s: int = 300) -> dict:
-        """Dispatch review to a stateless Claude sub-agent. Never fails."""
+        """Dispatch review to a stateless Claude sub-agent.
+
+        On backend failure (timeout, MCP error, ImportError, OOM) the gate
+        must fail CLOSED: a crashed reviewer cannot vouch for quality, so we
+        return REJECT and let the merge layer short-circuit. The
+        ``_emergency_fallback`` flag is preserved for forensics so operators
+        can distinguish "reviewer crashed" from a real review REJECT.
+        """
         try:
             from core.agent_spawner import AgentSpawner  # lazy import — avoids circular dep
             spawner = AgentSpawner(project_path=self.project_path)
@@ -164,11 +174,19 @@ class ReviewerRouter:
             )
             return result if isinstance(result, dict) else {"output": str(result), "status": "complete"}
         except Exception as exc:
+            _log.exception(
+                "Reviewer sub-agent crashed (role=%s, phase=%s, fr_id=%s); "
+                "failing gate closed with REJECT.",
+                role, phase, fr_id,
+            )
             return {
-                "review_status": "APPROVE",
-                "confidence": 0.3,
-                "violations": [],
-                "summary": f"[EMERGENCY FALLBACK] Sub-agent failed: {exc}. Auto-approved with low confidence.",
+                "review_status": "REJECT",
+                "confidence": 0.0,
+                "violations": ["subagent_crashed"],
+                "summary": (
+                    f"[REVIEW BLOCKED] Sub-agent failed: {exc}. "
+                    "Gate failed-closed; manual review required."
+                ),
                 "_emergency_fallback": True,
             }
 

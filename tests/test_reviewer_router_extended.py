@@ -521,8 +521,13 @@ class TestTrySubagent:
         with patch("core.agent_spawner.AgentSpawner", side_effect=Exception("spawn error")):
             with patch.dict("sys.modules", {"core.agent_spawner": None}):
                 result = r._try_subagent("reviewer", "prompt", 3, None)
+        # Gate must fail closed on a crashed sub-agent (regression: this
+        # contract was inverted before — review_status was APPROVE with
+        # 0.3 confidence, silently passing the gate).
         assert result.get("_emergency_fallback") is True
-        assert result["confidence"] == 0.3
+        assert result["review_status"] == "REJECT"
+        assert result["confidence"] == 0.0
+        assert "subagent_crashed" in result["violations"]
 
     def test_try_subagent_returns_spawner_dict(self):
         r = self._router()

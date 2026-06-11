@@ -32,9 +32,12 @@ Usage::
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+
+_log = logging.getLogger(__name__)
 
 _STATUS_PASS = "gate1_pass"  # nosec B105
 _STATUS_FAIL = "gate1_fail"
@@ -120,8 +123,35 @@ class FRProgressTracker:
             return {"phase": self.phase, "updated_at": "", "frs": {}}
         try:
             return json.loads(self._path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
+        except json.JSONDecodeError as exc:
+            # Corruption guard: rename the corrupt file aside before the next
+            # _update_fr() clobbers it, then return the empty scaffold so the
+            # pipeline can continue. An operator can recover the original
+            # bytes from the .corrupt.<ts> backup.
+            ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            corrupt_path = self._path.with_name(
+                f"{self._path.name}.corrupt.{ts}"
+            )
+            try:
+                self._path.rename(corrupt_path)
+            except OSError as rename_exc:
+                _log.warning(
+                    "fr_progress.json corrupt (%s) and rename-to-backup "
+                    "failed (%s); next write will overwrite the file.",
+                    exc, rename_exc,
+                )
+            else:
+                _log.warning(
+                    "fr_progress.json corrupt (%s); preserved at %s. "
+                    "load() returns empty scaffold until manual recovery.",
+                    exc, corrupt_path,
+                )
             return {"phase": self.phase, "updated_at": "", "frs": {}}
+        except OSError:
+            # Permission denied, IsADirectoryError, disk read error, etc.
+            # Distinguish "cannot read progress" from "no progress yet" by
+            # re-raising — the caller decides how to handle the failure.
+            raise
 
     def passed_fr_ids(self) -> list[str]:
         """Return sorted list of FR IDs with Gate-1 PASS."""
