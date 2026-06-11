@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -234,29 +235,65 @@ class FRProgressTracker:
         reason: str = "",
     ) -> None:
         """Read → modify → write the progress file."""
+        # Score validation: NaN/inf would be emitted as the literal
+        # `NaN`/`Infinity` tokens by json.dumps, which is invalid per
+        # RFC 8259 — the next load() would fall back to the empty
+        # scaffold and lose ALL prior progress. Reject early with a
+        # clear contract.
+        try:
+            _score_val = float(score)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"score for {fr_id} must be a real number; got "
+                f"{type(score).__name__}: {score!r}"
+            ) from exc
+        if not math.isfinite(_score_val):
+            raise ValueError(
+                f"score for {fr_id} must be a finite number; got {_score_val}"
+            )
+
         data = self.load()
         entry: dict = {
             "status": status,
-            "score": round(score, 2),
+            "score": round(_score_val, 2),
             "phase": phase,
             "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
         if reason:
             entry["reason"] = reason
         data.setdefault("frs", {})[fr_id] = entry
-        data["phase"] = self.phase
+        # Top-level `phase` is owned by advance_phase() — do NOT
+        # clobber it here. For a fresh tracker, load() returns
+        # {"phase": self.phase, ...} so the file already has the
+        # right initial value. Regressing this would undo
+        # advance_phase(4) on the next record_gate1_pass call.
         data["updated_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         self._write(data)
 
     def _write(self, data: dict) -> None:
         # Atomic write (CV-3): tempfile + os.replace so a mid-write crash
         # cannot truncate fr_progress.json. Falls back to direct write if
-        # core.atomic_io is unavailable (e.g. partial install).
+        # core.atomic_io is unavailable (e.g. partial install) or if
+        # atomic_write itself raises a runtime error (TypeError for
+        # non-serialisable data, ValueError for bad values, OSError for
+        # disk full / file lock). Without the broader catch, those
+        # runtime failures would propagate and crash the caller, leaving
+        # the file unmodified.
         self._path.parent.mkdir(parents=True, exist_ok=True)
         try:
             from core.atomic_io import atomic_write_json  # type: ignore[import-not-found]
             atomic_write_json(self._path, data, ensure_ascii=False)
         except ImportError:  # pragma: no cover  (graceful degrade)
+            self._path.write_text(
+                json.dumps(data, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except (TypeError, ValueError, OSError) as exc:
+            _log.warning(
+                "atomic_write_json failed (%s: %s); falling back to "
+                "non-atomic write per CV-3 contract.",
+                type(exc).__name__, exc,
+            )
             self._path.write_text(
                 json.dumps(data, indent=2, ensure_ascii=False),
                 encoding="utf-8",

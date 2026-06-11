@@ -145,7 +145,11 @@ class ReviewerRouter:
             }
         # Use the caller-supplied timeout; fall back to 300 s.
         task_timeout_s = int(timeout_ms / 1000) if timeout_ms is not None else 300
-        result = self._try_subagent(role, prompt, phase, fr_id, task_timeout_s=task_timeout_s)
+        result = self._try_subagent(
+            role, prompt, phase, fr_id,
+            task_timeout_s=task_timeout_s,
+            cancel_event=cancel_event,
+        )
         result["_reviewer_used"] = "subagent"
         return result
 
@@ -154,7 +158,8 @@ class ReviewerRouter:
     # ------------------------------------------------------------------
 
     def _try_subagent(self, role: str, prompt: str, phase: int, fr_id: str | None,
-                      task_timeout_s: int = 300) -> dict:
+                      task_timeout_s: int = 300,
+                      cancel_event: threading.Event | None = None) -> dict:
         """Dispatch review to a stateless Claude sub-agent.
 
         On backend failure (timeout, MCP error, ImportError, OOM) the gate
@@ -162,17 +167,36 @@ class ReviewerRouter:
         return REJECT and let the merge layer short-circuit. The
         ``_emergency_fallback`` flag is preserved for forensics so operators
         can distinguish "reviewer crashed" from a real review REJECT.
+
+        ``cancel_event`` (optional): if provided and is_set() AFTER the
+        spawn returns, the result is overridden to CANCELLED. This is a
+        partial fix for the deeper "in-flight sub-agents cannot be
+        interrupted mid-execution" issue — the process still ran, but
+        at least the result is marked stale so the merge layer doesn't
+        treat it as authoritative. Full process-cancellation would
+        require a process tracker (deferred).
         """
+        # Build the prompt with the JSON schema footer so the LLM
+        # knows the expected response shape. _build_prompt is the
+        # documented helper for this; without the footer, well-formed
+        # responses get routinely REJECTed by _parse_response.
+        try:
+            full_prompt = self._build_prompt(
+                role, prompt, phase, fr_id=fr_id,
+            )
+        except Exception:
+            full_prompt = prompt
+
         try:
             from core.agent_spawner import AgentSpawner  # lazy import — avoids circular dep
             spawner = AgentSpawner(project_path=self.project_path)
             result = spawner.spawn(
-                role=role, prompt=prompt,
+                role=role, prompt=full_prompt,
                 context={},
                 model="claude", phase=phase, fr_id=fr_id,
                 task_timeout=task_timeout_s,
             )
-            return result if isinstance(result, dict) else {"output": str(result), "status": "complete"}
+            result = result if isinstance(result, dict) else {"output": str(result), "status": "complete"}
         except Exception as exc:
             _log.exception(
                 "Reviewer sub-agent crashed (role=%s, phase=%s, fr_id=%s); "
@@ -189,6 +213,21 @@ class ReviewerRouter:
                 ),
                 "_emergency_fallback": True,
             }
+
+        # Post-spawn cancel check: if a sibling REJECT set the cancel
+        # event while we were running, our result is stale.
+        if cancel_event is not None and cancel_event.is_set():
+            return {
+                "review_status": "CANCELLED",
+                "confidence": 0.0,
+                "violations": [],
+                "summary": (
+                    "[CANCELLED] Sibling reviewer returned REJECT during "
+                    "this chain's sub-agent spawn — result overridden."
+                ),
+                "_reviewer_used": "subagent",
+            }
+        return result
 
     # ------------------------------------------------------------------
     # Task decomposition — structured + dependency-aware
@@ -604,12 +643,34 @@ class ReviewerRouter:
         return header + prompt + footer
 
     def _parse_response(self, raw: str) -> dict:
-        m = re.search(r"\{.*\}", raw, re.DOTALL)
-        if m:
+        # Try the whole response first — Claude sub-agent usually
+        # returns a clean JSON object directly.
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict) and "review_status" in parsed:
+                return parsed
+        except (json.JSONDecodeError, ValueError):
+            pass
+        # Fallback: walk the response and find the first balanced
+        # JSON object that looks like a review (has the
+        # ``review_status`` key). The previous greedy regex
+        # (`\{.*\}` with DOTALL) would capture from the first `{`
+        # to the last `}`, producing an invalid span when the
+        # response contains example code fences, nested arrays, or
+        # hint text with braces. json.JSONDecoder.raw_decode
+        # handles nested structures correctly; the ``review_status``
+        # check ensures we skip incidental dict-shaped examples in
+        # the surrounding prose.
+        decoder = json.JSONDecoder()
+        for i, ch in enumerate(raw):
+            if ch != "{":
+                continue
             try:
-                return json.loads(m.group())
+                obj, _end = decoder.raw_decode(raw, i)
             except json.JSONDecodeError:
-                pass
+                continue
+            if isinstance(obj, dict) and "review_status" in obj:
+                return obj
         return {
             "review_status": "REJECT",
             "confidence": 0.0,

@@ -2127,24 +2127,7 @@ class HarnessBridge:
         # very small projects), but we LOG to decision_log for forensic review.
         # A future enhancement (deferred audit recommendation) is to compare
         # these scores against a per-dimension evidence trail in .sessi-work/.
-        try:
-            import statistics as _stats
-            dim_scores = [d.score for d in dims]  # B3: include zero-scored dims
-            if len(dim_scores) >= 3:
-                _stdev = _stats.pstdev(dim_scores)
-                if _stdev < 0.5:
-                    self._log.write(DecisionLogEntry(
-                        ctx=DecisionContext(agent_id="GATE", phase=ctx.phase, fr_id=ctx.fr_id),
-                        decision="GATE_VARIANCE_LOW",
-                        reasoning=(
-                            f"Per-dimension scores cluster tightly "
-                            f"(n={len(dim_scores)}, stddev={_stdev:.3f}, scores={dim_scores}). "
-                            f"Forensic flag — manually verify evidence trail."
-                        ),
-                        scores={"dim_stddev": _stdev},
-                    ))
-        except Exception:  # pylint: disable=broad-exception-caught
-            pass  # variance check is advisory — never block finalize
+        self._variance_check_log(ctx, dims)
 
         # ── Fallback: derive overall_score from breakdown if agent omitted it ──
         # When CRG overrides changed dim scores, skip the agent-reported overall_score
@@ -2522,11 +2505,64 @@ class HarnessBridge:
         except Exception:
             pass  # hooks are non-fatal
 
+    def _variance_check_log(
+        self, ctx: "GateContext", dims: list["DimResult"],
+    ) -> None:
+        """Per-dimension variance sanity check (SG-2 forensic flag).
+
+        If ≥3 dimensions share suspiciously uniform scores, log a
+        ``GATE_VARIANCE_LOW`` decision-log entry for human review.
+        Never blocks finalize (variance is advisory), but the check
+        itself must be resilient — narrow the catch to the
+        exceptions we expect from the check (statistics, IO, decision-
+        log writer), and log a WARNING for anything unexpected so
+        real bugs in the check are visible.
+        """
+        import statistics as _stats
+        try:
+            dim_scores = [d.score for d in dims]  # B3: include zero-scored dims
+            if len(dim_scores) < 3:
+                return
+            _stdev = _stats.pstdev(dim_scores)
+            if _stdev >= 0.5:
+                return
+            self._log.write(DecisionLogEntry(
+                ctx=DecisionContext(
+                    agent_id="GATE", phase=ctx.phase, fr_id=ctx.fr_id,
+                ),
+                decision="GATE_VARIANCE_LOW",
+                reasoning=(
+                    f"Per-dimension scores cluster tightly "
+                    f"(n={len(dim_scores)}, stddev={_stdev:.3f}, "
+                    f"scores={dim_scores}). Forensic flag — manually "
+                    f"verify evidence trail."
+                ),
+                scores={"dim_stddev": _stdev},
+            ))
+        except Exception as exc:  # variance check is advisory
+            # Never block finalize (the check is advisory), but log
+            # a WARNING so a real bug in the check itself is visible
+            # in forensic review instead of being silently dropped
+            # (the original `pass` masked ImportError, TypeError,
+            # statistics errors, decision-log writer IO, etc.).
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "variance_check_log suppressed: %s: %s",
+                type(exc).__name__, exc,
+            )
+
     def _load_config(self, gate_num: int) -> GateConfig:
         """Load the YAML configuration for a specific gate."""
         import yaml  # type: ignore[import-untyped]
         names = {1: "gate1_per_fr.yaml", 2: "gate2_p3_exit.yaml",
                  3: "gate3_p4_exit.yaml", 4: "gate4_p6_full.yaml"}
+        # Validate gate_num up front so a typo (5, 0, -1) raises
+        # ValueError with a clear message instead of an uncaught
+        # KeyError from the names dict.
+        if gate_num not in names:
+            raise ValueError(
+                f"gate_num must be one of {sorted(names)}; got {gate_num}"
+            )
         config_path = Path(__file__).parent / "gate_configs" / names[gate_num]
         with open(config_path, "r", encoding="utf-8") as f:
             raw = yaml.safe_load(f)

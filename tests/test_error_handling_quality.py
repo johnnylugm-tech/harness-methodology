@@ -35,12 +35,32 @@ async def call(coro):
         # 100 (handled) − 5 (anti-pattern) = 95 — no longer a free 100
         assert compute_tool_score("ast-error-handling", out, rc) == 95.0
 
-    def test_base_exception_with_bare_reraise_is_clean(self, tmp_path):
+    def test_base_exception_flagged_even_with_reraise(self, tmp_path):
+        # The actual tts-new Critical: `except BaseException: _on_failure();
+        # raise` — the re-raise doesn't undo the side-effect that miscounted
+        # CancelledError as a backend failure. Error-path cleanup belongs in
+        # `finally` (or `except Exception` + re-raise), so BaseException is
+        # flagged unconditionally. Backtest-driven rule (v2.9 appendix B).
+        _write(tmp_path, "src/breaker_reraise.py", """
+async def call(coro):
+    try:
+        return await coro
+    except BaseException:
+        record_failure()
+        raise
+""")
+        data = json.loads(run_tool("ast-error-handling", str(tmp_path))[0])
+        assert data["anti_patterns"] == [
+            "src/breaker_reraise.py:5::except_base_exception"
+        ]
+
+    def test_bare_except_with_reraise_is_clean(self, tmp_path):
+        # Re-raise exemption still applies to non-BaseException handlers.
         _write(tmp_path, "src/cleanup.py", """
 def run(job):
     try:
         return job()
-    except BaseException:
+    except:
         release_lock()
         raise
 """)

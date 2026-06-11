@@ -32,6 +32,7 @@ Git failures are warnings — they never block the pipeline.
 from __future__ import annotations
 
 import json as _json
+import math as _math
 import os
 import re as _re
 import subprocess  # nosec B404
@@ -905,8 +906,23 @@ class GitStrategy:
         return True
 
     def _tag_release(self, score: float) -> None:
+        # Score validation: `int(float('inf'))` raises OverflowError
+        # and `int(float('nan'))` raises ValueError, both uncaught,
+        # aborting the entire Gate 4 push pipeline. Validate the
+        # score is finite before using it in the tag name.
+        try:
+            _score_val = float(score)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"score for tag must be a real number; got "
+                f"{type(score).__name__}: {score!r}"
+            ) from exc
+        if not _math.isfinite(_score_val):
+            raise ValueError(
+                f"score for tag must be a finite number; got {_score_val}"
+            )
         ts = datetime.now(timezone.utc).strftime("%Y%m%d")
-        tag = f"{_TAG_PREFIX}-{ts}-score{int(score)}"
+        tag = f"{_TAG_PREFIX}-{ts}-score{int(_score_val)}"
         r = self._run_git("tag", tag)
         if r.returncode == 0:
             if self.push:
