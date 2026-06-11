@@ -7,15 +7,17 @@
 > **Audit history**:
 > - **2026-05-16** — Initial reverse-engineering pass.
 > - **2026-06-12** — Full SAD ↔ code alignment audit. ~95% match rate.
->   - 6 forward drifts fixed in this revision (code is the source of truth — see diff lines
+>   - 20 forward drifts fixed in this revision (code is the source of truth — see diff lines
 >     flagged with `v2.7 audit 2026-06-12` comments).
 >   - 5 stale `.bak` files detected in `core/quality_gate/`, `enforcement/`, `kill_switch/`,
 >     `steering/` (all older revisions; safe to delete, listed in §10 Open Items).
->   - 1 latent bug found but not auto-fixed (per audit policy: `AuditLogger.log_event` in
->     `kill_switch/interrupt_engine.py:40-50` uses kwarg call against a positional-arg
->     signature; logged in §10 Open Items for next-round confirmation).
->   - 0 reverse-direction changes applied this round (no spec-newer items where code was
->     demonstrably behind spec).
+>   - 1 latent bug found during audit: `AuditLogger.log_event` in
+>     `kill_switch/audit_logger.py:39` used a positional-only signature, but
+>     `InterruptEngine._log_event` calls it with kwargs (would raise `TypeError`
+>     when an external audit logger is injected via `KillSwitch(audit_logger=...)`).
+>     **Fixed in subsequent commit `91733db`** — see §8.5.4.
+>   - 3 reverse-direction items deferred for human review (see §8.5.1: R-1
+>     `check-checklist`, R-2 `should_auto_approve_gate4`, R-3 `scripts/CLAUDE.md`).
 
 ---
 
@@ -86,13 +88,13 @@ The system uses this macro architecture:
 
 The full-system CLI (`cli.py`) lives in the parent system that contains harness-methodology as a sub-component. It requires 30+ external modules (`progress_dashboard`, `gantt_chart`, `sprint_planner`, `enterprise_hub`, `steering`, etc.) and is not part of this repository. Any work within harness-methodology uses `harness_cli.py`.
 
-**`harness_cli.py` commands** (38 sub-commands + `main`):
+**`harness_cli.py` commands** (39 sub-commands + `main`):
 
 The original 33-command spec list was expanded during the v2.6 → v2.9 development window
-to add traceability + check-constitution paths. The current `harness_cli.py` has 38
+to add traceability + check-constitution paths. The current `harness_cli.py` has 39
 `cmd_*` functions registered as sub-commands:
 
-**Spec-mandated (all 32 present in code):**
+**Spec-mandated (31 present in code, 1 removed from earlier spec — see REMOVED below):**
 ```
 python harness_cli.py plan-phase        --phase 3 [--project .] [--output plan.md]
 python harness_cli.py plan-all          [--project .] [--output plan.md]
@@ -134,8 +136,6 @@ python harness_cli.py resume-fr-phase   --fr-id FR-XX [--phase N] [--project .]
 
 **Spec drift — ADDED** (added since the 33-command baseline; in code, not in earlier spec text):
 ```
-python harness_cli.py check-test-inventory    --project . [--strict] [--threshold N] [--diff-mode]
-python harness_cli.py spec-coverage-check     --project . [--threshold N] [--fr-id FR-XX]
 python harness_cli.py bug-hunt-targets        --project . [--json]            # v2.9 — surface bug-hunt candidates
 python harness_cli.py crg-arch-check          --project . [--json]            # v2.8 — CRG architecture check
 python harness_cli.py check-test-spec-consistency --project . [--strict]      # v2.9 — FR↔test spec consistency
@@ -1471,7 +1471,7 @@ class FSMError(Exception):
 
 ```python
 class WorkspaceManager:
-    def __init__(self, project_root: Path, phase: int = None)  # phase is required, no default
+    def __init__(self, project_root: Path, phase: int)  # phase is required, no default
     def create_workspace(self, fr_id: str) -> Path
     def validate_path(self, path: Path, fr_id: str) -> None   # raises WorkspaceViolationError
     def cleanup_workspace(self, fr_id: str) -> None
@@ -2123,7 +2123,7 @@ CREATE TABLE IF NOT EXISTS effort (
 | `constitution/__init__.py` | — | Package marker; re-exports the three most-imported classes (`BVSRunner`, `CitationParser`, `VerificationConstitutionChecker`) for convenience. The other 5 (`ClaimVerifier`, `ClaimExtractor` (functions), `ExecutionLogger`, `InferentialSensor`, `InvariantEngine`) are reachable via the submodule path only. |
 | `constitution/bvs_runner.py` | `BVSRunner` | HR-03 phase-order checker: reads `.methodology/state.json`, validates phase prerequisites and FSM state |
 | `constitution/citation_parser.py` | `CitationParser` | HR-07/09: regex extraction of citation markers (`[FR-01]`, `[§3.2]`, etc.) and obligation-verb claims; `verify_claim()` checks traceability keywords |
-| `constitution/claim_extractor.py` | (module-level functions) | Exposes `extract_claims()` and `claims_to_dict()` as module-level functions. **Not a class** — callers import the functions directly, not a `ClaimExtractor` instance. |
+| `constitution/claim_extractor.py` | (module-level functions + `Claim` data class) | Module exposes `extract_claims()`, `claims_to_dict()` (and the helper `_extract_keywords()`) as **module-level functions**, plus a `Claim` dataclass (line 23) that holds individual claim records. There is **no `ClaimExtractor` class** — callers import the functions directly, not a `ClaimExtractor` instance. |
 | `constitution/claim_verifier.py` | `ClaimVerifier` | Verifies extracted claims against codebase evidence |
 | `constitution/execution_logger.py` | `ExecutionLogger` | Logs constitution check execution for audit trail |
 | `constitution/inferential_sensor.py` | `InferentialSensor` | Inference-based compliance sensing for non-explicit violations |
@@ -2903,12 +2903,12 @@ within this repository.
 | F-11 | `ClaimExtractor` is module-level functions, not a class | §3.19 | Changed the row to "(module-level functions)" with import instructions |
 | F-12 | `constitution/__init__.py` re-exports only 3/8 classes | §3.19 | Replaced "re-exports all public classes" with the actual 3-of-8 enumeration |
 | F-13 | `scripts/CLAUDE.md` no longer exists | §3.20 | Removed from the table; pointed to script `--help` instead |
-| F-14 | `WorkspaceManager.__init__` does not default `phase=3` | §3.34 | Changed signature annotation to `phase: int = None` |
+| F-14 | `WorkspaceManager.__init__` does not default `phase=3` | §3.34 | Removed the misleading `= None` default; signature is `phase: int` (required positional) |
 | F-15 | `NoopProvider.chat()` returns 0.5-JSON envelope, not empty string | §3.36 | Rewrote the row with the actual envelope payload |
 | F-16 | `ClaudeProvider` was renamed to `SubprocessProvider` | §3.36 | Replaced `ClaudeProvider` row with `SubprocessProvider` row + rename note |
 | F-17 | `SteeringIntegrator.bvs_integrator` and `should_continue` are `@property` | §3.12 | Added an implementation note documenting the property-vs-method deviation |
 | F-18 | `agent_personas/` has 9 roles (3 added beyond §3.25's original 6) | §3.25 | Replaced the persona list with the full 9; reconciled with §10 per-phase table |
-| F-19 | `harness_cli.py` has 38 sub-commands (not 33) | §2.3 | Listed 32 spec-mandated commands, marked `check-checklist` as REMOVED, added 9 new commands under "ADDED" |
+| F-19 | `harness_cli.py` has 39 sub-commands (not 33) | §2.3 | Listed 31 spec-mandated commands (the 32nd was `check-checklist`, moved to REMOVED), marked `check-checklist` as REMOVED, added 8 new commands under "ADDED" (the two originally duplicated in ADDED — `check-test-inventory` and `spec-coverage-check` — are spec-mandated, not added) |
 | F-20 | SAB §6 omits extras (`harness/audit/`, `core/atomic_io.py`, `orchestration/`, etc.) | §6 | Added `_sab_v1_2_additions` key in the SAB JSON listing Layer-1 and Layer-2 extras; added the missing modules to Layer 2's `modules` array |
 
 #### 8.5.3 Stale artifacts (not in any spec section — cleanup candidates)
@@ -2931,7 +2931,7 @@ all 172 kill_switch-related tests still pass.
 
 | Path | Issue | Fix recommendation |
 |---|---|---|
-| `kill_switch/interrupt_engine.py:40-50` | `self._audit_logger.log_event(event_type=..., agent_id=..., ...)` is called with kwargs, but `AuditLogger.log_event(entry: AuditEntry)` in `kill_switch/audit_logger.py:39` takes a single positional `AuditEntry` object. When an external audit logger is passed to `KillSwitch(audit_logger=...)`, the call raises `TypeError: log_event() got an unexpected keyword argument`. The class check at `kill_switch/audit_logger.py:36-38` (`hasattr(audit_logger, 'log_event') or hasattr(audit_logger, 'log_escalation')`) routes to the wrong interface. | ✅ **Fixed 2026-06-12** — `AuditLogger.log_event()` now accepts **both** call forms (object form + kwarg form), synthesises an `AuditEntry` from kwargs when needed, and the method body is no longer a `pass` stub — it now actually writes a JSONL audit log to `{log_dir}/audit.log` and maintains a 1024-entry in-memory ring buffer for `query()`. Added `log_escalation()` alias and `read_log_file()` for post-mortem. Post-fix: 6 manual integration tests + 164 kill_switch tests + 2 AuditLogger tests all pass. |
+| `kill_switch/interrupt_engine.py:40-50` | `self._audit_logger.log_event(event_type=..., agent_id=..., ...)` is called with kwargs, but `AuditLogger.log_event(entry: AuditEntry)` in `kill_switch/audit_logger.py:66` (post-fix) takes a single positional `AuditEntry` object — pre-fix at line 39 the method was a `pass` stub with positional-only signature. When an external audit logger was passed to `KillSwitch(audit_logger=...)`, the call raised `TypeError: log_event() got an unexpected keyword argument`. The class check at `kill_switch/interrupt_engine.py:36-38` (`hasattr(audit_logger, 'log_event') or hasattr(audit_logger, 'log_escalation')`) routed to the wrong interface. | ✅ **Fixed in commit `91733db` (2026-06-12)** — `AuditLogger.log_event()` now accepts **both** call forms (object form + kwarg form), synthesises an `AuditEntry` from kwargs when needed, and the method body is no longer a `pass` stub — it now actually writes a JSONL audit log to `{log_dir}/audit.log` and maintains a 1024-entry in-memory ring buffer for `query()`. Added `log_escalation()` alias and `read_log_file()` for post-mortem. Follow-up commit `19251e3` adds a regression test reproducing the original kwarg call path, a `tmp_path` fixture for the existing `test_log_event_is_stub` to avoid polluting global tempdir, and fixes a dead-code branch in the OSError handler (`except OSError` widened to `except Exception` so the `isinstance(exc, (TypeError, ValueError))` re-raise actually fires on programmer errors). Post-fix: 3 `TestAuditLoggerExtra` tests pass (incl. new kwarg-form regression test), 20 `kill_switch` audit/interrupt tests pass, no regressions. |
 
 ---
 
