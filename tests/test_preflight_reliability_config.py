@@ -100,6 +100,25 @@ class TestConfigLiveness:
         assert "XXKOKORO_BACKEND_URLXX" in result["orphans"]
         assert "src/config.py:2" in result["orphans"]["XXKOKORO_BACKEND_URLXX"]
 
+    def test_multiline_env_read_is_scanned(self, tmp_path):
+        # The real tts-new typo lived in a multi-line os.environ.get( call —
+        # the key sits on the line AFTER `.get(`. A per-line scan misses it
+        # entirely (backtest-discovered regression guard, v2.9 PR-7).
+        project = _project(tmp_path)
+        (project / ".env.example").write_text("KOKORO_BACKEND_URL=x\n", encoding="utf-8")
+        (project / "src" / "config.py").write_text(
+            'import os\n'
+            'URL = os.environ.get(\n'
+            '    "XXKOKORO_BACKEND_URLXX", "http://localhost:8880"\n'
+            ')\n',
+            encoding="utf-8",
+        )
+        result = PhaseHooks(str(project), phase=4).preflight_config_liveness()
+        assert result["passed"] is False
+        assert "XXKOKORO_BACKEND_URLXX" in result["orphans"]
+        # Line number derives from the .get( offset, not the key's own line
+        assert result["orphans"]["XXKOKORO_BACKEND_URLXX"] == "src/config.py:2"
+
     def test_declared_keys_pass(self, tmp_path):
         project = _project(tmp_path)
         (project / ".env.example").write_text("API_KEY=\nREDIS_URL=\n", encoding="utf-8")

@@ -66,6 +66,27 @@ python harness_cli.py run-gate --gate 1 --phase 4 --fr-id FR-001
 
 ---
 
+## Step 4b — Adversarial Bug Hunt (v2.9, before Gate 3)
+
+Gate 3 carries the framework-owned `adversarial_review` dimension. Run the hunt
+and resolve confirmed critical/high findings BEFORE `run-gate`:
+
+```bash
+# 1. targeting manifest (CRG hubs + mutation survivors + integration gaps)
+python harness_cli.py bug-hunt-targets --project .
+
+# 2. hunt (protocol: harness/ssi/prompts/hunt_bugs.md; reference workflow:
+#    templates/workflows/hunt-bugs.js). Use a model DIFFERENT from the
+#    developer model. → .methodology/bug_hunt_report.json + .audit/*.md
+```
+
+3. For each **confirmed critical/high** finding, set `resolution.status`:
+   `resolved` (with `fix_commit` or an existing `repro_test` — RED-reproduce
+   then fix) or `refuted` (with `refute_evidence`). Medium/low → record only.
+
+`adversarial_review` scores 100 (pass) only when no confirmed critical/high
+finding is `open`; otherwise it blocks Gate 3.
+
 ## Step 5 — Gate 3 — Phase Exit (replaces auto-research P4)
 
 ```bash
@@ -85,6 +106,8 @@ python harness_cli.py run-gate --gate 3 --phase 4
 ## P4 Exit Checklist
 
 - [ ] `TEST_RESULTS.md` 已生成
+- [ ] **Adversarial bug hunt 已執行**:`.methodology/bug_hunt_report.json` 存在,
+      confirmed critical/high 全部 resolved(fix_commit/repro_test)或 refuted(evidence)
 - [ ] `scripts/check_spec_trace.py SAD.md tests/` 回傳 Exit 0 (100% FRs traced)
 - [ ] Integration tests 已涵蓋 FR 互動關係
 - [ ] `spec-coverage-check --threshold 80 --strict` 通過（所有 FR 有 test 對應，TEST_SPEC.md 單一來源 v2.6）

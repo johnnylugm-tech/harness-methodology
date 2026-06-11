@@ -32,8 +32,13 @@ single source: `harness/toolchains/registry.py`. Adding a language:
 |-------|------|------|------------|-----|
 | P3 per-FR | Gate 1 | 3 (Tier 1) | — (per-dim) | ✗ |
 | P3 exit | Gate 2 | 9 (Tier 1+2) | 75 | pre-fix only |
-| P4 exit | Gate 3 | 14 (All Tiers) | 80 | full |
+| P4 exit | Gate 3 | 14 + adversarial_review | 80 | full |
 | P6 full | Gate 4 | 14 (All Tiers) | 85 | full |
+
+> **Adversarial Quality Layer (v2.9)**: Gate 3 adds `adversarial_review` — a
+> framework-owned LLM bug-hunt verdict — plus static reliability/config
+> preflights and architecture-risk test triggers. See
+> [docs/ADVERSARIAL_QUALITY_LAYER.md](docs/ADVERSARIAL_QUALITY_LAYER.md).
 
 ## Key Files
 
@@ -106,4 +111,4 @@ final_score = tool_score   # LLM scoring abolished — all 14 dimensions are too
 Early-stop (Gates 2–4): PASS → CONTINUE (anti-pattern guard) → PLATEAU → BLOCKED
 
 ---
-*harness-methodology v2.8.0 | Academic Benchmark 91/100 | [SAD.md](SAD.md) | [INTEGRATION.md](INTEGRATION.md)*
+*harness-methodology v2.9.0 | Academic Benchmark 91/100 | [SAD.md](SAD.md) | [INTEGRATION.md](INTEGRATION.md)*

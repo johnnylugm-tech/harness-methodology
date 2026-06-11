@@ -127,6 +127,21 @@ machine-readable 報告(JSON reporter / artifact)優先於刮 stdout 文字。
       為每個新 tool_id 加真偽判別 pattern(注意「乾淨輸出為空」的工具要
       規定 agent 附 `echo "exit=$?"` 之類的 marker — tsc 先例)
 
+### 1.8b Adversarial Quality Layer 語言對等(v2.9)
+
+- [ ] **error_handling 反模式**:`<lang>` 掃描器 `run_error_handling` 要回
+      `anti_patterns` 欄位(broad-swallow / 吞控制流例外 / empty catch 對等)。
+      js/ts 先例:`treesitter_js._catch_anti_patterns`(empty catch)
+- [ ] **Reliability 規則集**:`harness/toolchains/semgrep_rules/<lang>_reliability.yaml`
+      + `phase_hooks.preflight_reliability_lint` 的語言分支(目前 python-only,
+      非 python 回 skip + note)。規則只收高置信模式,寬鬆部分留給 hunt
+- [ ] **Config liveness**:`preflight_config_liveness` 的 env-key regex 語言分支
+      (python `os.getenv`/`os.environ`、js/ts `process.env.X`/`process.env["X"]`;
+      **必須跨行掃整檔**,不可逐行 — 多行 `get(\n "KEY")` 是典型漏網)
+- [ ] hunt targeting:`bug-hunt-targets` 的 source 掃描沿用 `iter_source_files`
+      (語言中立),無需改動;新語言 survivors 由 `mutation_enforcer` 的語言
+      precheck 寫入統一 schema
+
 ### 1.9 文件
 
 - [ ] `harness/ssi/prompts/evaluate_dimension.md`:每維度加該語言的命令小節

@@ -698,14 +698,18 @@ class PhaseHooks:
                     text = src.read_text(encoding="utf-8", errors="replace")
                 except OSError:
                     continue
-                for i, line in enumerate(text.splitlines(), 1):
-                    for m in key_re.finditer(line):
-                        key = m.group(1) or m.group(2)
-                        if key and key not in self._SYSTEM_ENV_VARS:
-                            used.setdefault(
-                                key,
-                                f"{src.relative_to(self.project_path)}:{i}",
-                            )
+                # Scan the whole file (not line-by-line): a multi-line env read
+                # — os.environ.get(\n  "KEY", ...) — is exactly the case the
+                # typo'd KOKORO_BACKEND_URL bug lived in, and \s* spans the
+                # newline. Derive the line number from the match offset.
+                for m in key_re.finditer(text):
+                    key = m.group(1) or m.group(2)
+                    if key and key not in self._SYSTEM_ENV_VARS:
+                        lineno = text.count("\n", 0, m.start()) + 1
+                        used.setdefault(
+                            key,
+                            f"{src.relative_to(self.project_path)}:{lineno}",
+                        )
 
         orphans = {k: loc for k, loc in sorted(used.items())
                    if k not in decl_text}

@@ -1,6 +1,6 @@
 ---
 name: harness-methodology
-version: 2.8.0
+version: 2.9.0
 constitution_version: 2.7
 description: |
   全流程軟體開發管線編排與品質門禁。Phase 1-8、14 維度品質憲章。
@@ -10,7 +10,7 @@ description: |
 
 # SKILL.md — harness-methodology
 
-> **Version**: v2.8.0 | **Framework**: harness-methodology | **Academic Benchmark**: 91/100
+> **Version**: v2.9.0 | **Framework**: harness-methodology | **Academic Benchmark**: 91/100
 
 ---
 
@@ -248,8 +248,12 @@ Dynamic plans contain `Mode: Dynamic` in the header.
 |------|--------|------------|------|----------|
 | Gate1 | P3, P4, P5, P7, P8 per-FR | per-dim (linting≥90, type_safety≥85, test_coverage≥80; no composite) | 3 (Tier 1) | yes |
 | Gate2 | P3 exit | 75 | 10 (Tier 1+2 + traceability) | yes |
-| Gate3 | P4 exit | 80 | 15 (all tiers + traceability) | yes |
+| Gate3 | P4 exit | 80 | 16 (all tiers + traceability + adversarial_review) | yes |
 | Gate4 | P6 full | 85 | 15 (all tiers + traceability) | yes |
+
+> Gate 3 adds **adversarial_review** (v2.9): a framework-owned bug-hunt verdict
+> that blocks until confirmed critical/high findings are resolved or refuted.
+> See §7.6 and `docs/ADVERSARIAL_QUALITY_LAYER.md`.
 
 ---
 
@@ -450,6 +454,21 @@ State stored in `.methodology/state.json`:
 | error_handling 豁免 | pragma 字串跨語言同一句:`pragma: no error-handling`(py 用 `#`、js 用 `//` 註解)。 |
 | 新增語言 | 完整 SOP:`docs/ADDING_LANGUAGE_SUPPORT_SOP.md`(R8 前置閘 + 逐層 checklist + 校準協議)。 |
 
+## 7.6 Adversarial Quality Layer (v2.9.0+)
+
+工具維度量「結構存在」不量「語意正確」(`except BaseException` 反而給
+error_handling 加分),是 tts-new 過 Gate 4 後仍有 50 bugs 的根因。v2.9 加四層
+對抗式防護。完整說明:`docs/ADVERSARIAL_QUALITY_LAYER.md`。
+
+| 機制 | 規則 |
+|------|------|
+| error_handling 質化 | scorer = `100×(handled/total) − 5×anti_patterns`;反模式:`except BaseException`(即使 re-raise)、bare except 無 re-raise、broad swallow(`except Exception: pass`)、JS empty catch。窄型 except-pass 不罰。 |
+| Reliability preflight | `preflight_reliability_lint`(P4+ blocking):vendored `py_reliability.yaml`(subprocess/requests 無 timeout、time.sleep in async、mkstemp 無 try/finally、TOCTOU、create_task unreferenced)。 |
+| Config liveness preflight | `preflight_config_liveness`(P4+ blocking):代碼讀的 env key(`os.getenv`/`process.env`)必須在 `.env.example`/compose/deployment/README 宣告;否則 orphan(測試走 default 永遠綠的死設定)。無宣告來源 → skip。 |
+| 架構風險測試觸發 | `derive_test_cases.md` Step 1b:SAD 模組特徵強制 NP-13/15/07(不靠 SRS 關鍵字),case 落 `tests/integration/`,D4 + mirror gate 自動 enforce。 |
+| **adversarial_review(Gate 3)** | framework-owned 維度(threshold 100, weight 0, `requires_tool_execution: false`)。讀 `.methodology/bug_hunt_report.json`,confirmed critical/high 未 resolved/refuted → BLOCK。協議:`hunt_bugs.md`;靶向:`bug-hunt-targets` CLI。**hunt 只在 Gate 3 跑一次**,用與開發不同的模型。 |
+| 不重複報告 | 靜態可確定的(preflight 已攔)不進 hunt;mutation survivors 作為 hunt 輸入(`bug_hunt_targets.json`),非獨立 gate 項。 |
+
 ## 8. Agentic Trajectory Tracing (v2.7.0+)
 
 Harness emits OpenTelemetry spans for preflight/postflight execution. Spans land in `.harness/traces/agent_trajectory.jsonl` — one JSON object per line, time-travel-debuggable offline.
@@ -547,4 +566,4 @@ Full reference: `docs/CRG_DEEP_INTEGRATION.md`
 
 ---
 
-*harness-methodology v2.8.0 — Academic Benchmark 91/100*
+*harness-methodology v2.9.0 — Academic Benchmark 91/100*

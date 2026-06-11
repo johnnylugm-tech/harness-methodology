@@ -446,18 +446,25 @@ the percentage of source files (that contain code) with at least one real handle
 python: `try/except`; js/ts: `try/catch` or a promise `.catch()`. Reproduce with:
 `python3 -c "from harness.tool_runners import run_tool; print(run_tool('<ast-error-handling|js-error-handling>', '.')[0])"`
 
-`error_handling.score = round(100 × files_with_handler / total_source_files, 1)`
+`error_handling.score = round(100 × files_with_handler / total − 5 × anti_patterns, 1)`
 
-This replaces the former CRG flow `has_error_handler` path — that field does **not
-exist** in the installed code-review-graph package. S4 cross-validation re-runs this
-AST scan independently, so a fabricated score is blocked.
+**(v2.9) Presence is no longer automatically positive.** A handler that exists but
+undermines resilience is an *anti-pattern* and deducts 5 (type-error curve):
+- `except_base_exception` — catches `BaseException`, **even with `raise`** (the
+  tts-new Critical: `except BaseException: self._on_failure(); raise` still miscounted
+  `CancelledError`). Error-path cleanup belongs in `finally` or `except Exception` + re-raise.
+- `bare_except` — bare `except:` without re-raise.
+- `broad_swallow` — broad type with a `pass`/`continue` body (errors vanish).
+- js/ts `empty_catch` — `catch {}` / `catch (e) {}` (comment-only body counts as empty).
+
+Narrow-typed except-pass (e.g. `except FileNotFoundError: pass`) is deliberate and NOT
+flagged. This replaces the former CRG flow `has_error_handler` path (that field does
+not exist in the package). S4 cross-validation re-runs the scan independently.
 
 - Files with no functions/classes (e.g. empty `__init__.py`) are excluded.
-- A file counts as handled if it contains any `try/except` with handlers (bare-except
-  *quality* is a separate concern; this metric is coverage of error handling).
 - Files containing `# pragma: no error-handling` are EXEMPT — excluded from the
-  denominator entirely. Use for Pydantic models, data-only classes, and pure
-  pass-through files that legitimately have no I/O or external calls to handle.
+  denominator entirely (and contribute no anti-patterns). Use for Pydantic models,
+  data-only classes, and pure pass-through files with no I/O to handle.
 
 **Fix priority**: source files performing I/O, network, database, or external-service
 calls with no `try/except` anywhere in the file. For files that genuinely cannot fail
@@ -496,6 +503,24 @@ node benchmarks/run.mjs
 > python: add `pytest-benchmark` micro-benchmarks (functions taking the `benchmark`
 > fixture). js/ts: register cases in `benchmarks/run.mjs` (tinybench) — its output
 > contract is `{"benchmarks": [{"name", "mean_ms"}]}`.
+
+### adversarial_review (Tier 2 — Gate 3 only, framework-owned)
+
+**Do NOT write a score file for this dimension.** Like `traceability`/`architecture`,
+the framework computes it (`core/quality_gate/bug_hunt_verifier.py` over
+`.methodology/bug_hunt_report.json`) and overrides whatever the breakdown contains.
+
+Before finalizing Gate 3, run the adversarial bug hunt (protocol:
+`harness/ssi/prompts/hunt_bugs.md`):
+```bash
+python harness_cli.py bug-hunt-targets --project .   # CRG hubs + mutation survivors + integration gaps
+# run the hunt with a DIFFERENT model → writes .methodology/bug_hunt_report.json
+```
+Then resolve every confirmed **critical/high** finding — `resolved` (with `fix_commit`
+or an existing `repro_test`) or `refuted` (with `refute_evidence`). Score is **100**
+only when none remain open; otherwise **0 / BLOCK**. Medium/low and unconfirmed
+findings never block. Statically-determinable bugs are already caught by the
+preflight battery and `error_handling` — hunters target semantic/concurrency bugs.
 
 ---
 

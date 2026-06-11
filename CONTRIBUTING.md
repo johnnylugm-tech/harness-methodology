@@ -187,6 +187,25 @@ Adding a whole language: follow `docs/ADDING_LANGUAGE_SUPPORT_SOP.md`
 step-by-step (it is the authoritative checklist; this section is just the
 registry-local rules).
 
+## Adversarial Quality Layer (v2.9)
+
+The `adversarial_review` Gate-3 dimension is framework-owned (no agent score
+file), wired like `traceability`:
+
+1. **Report contract**: `schemas/bug_hunt_report.schema.json`. The verifier
+   `core/quality_gate/bug_hunt_verifier.py` and the schema's `required` lists
+   are cross-checked by `tests/test_bug_hunt_verifier.py::
+   test_schema_file_matches_verifier_contract` — change them in lockstep.
+2. **Blocking rules live in the verifier**, not the gate runner. Changing what
+   blocks (e.g. medium severity) = editing `_BLOCKING_SEVERITIES` + tests.
+3. **Hunt protocol** `harness/ssi/prompts/hunt_bugs.md` is authoritative;
+   `templates/workflows/hunt-bugs.js` is a reference implementation kept in
+   sync with it.
+4. **Reliability rules** (`semgrep_rules/py_reliability.yaml`) and the
+   `error_handling` anti-pattern set change SCORES/gates — treat like a
+   threshold change (PR review + a backtest note in
+   `docs/ADVERSARIAL_QUALITY_LAYER.md`).
+
 ## Adding a new auto-fix strategy
 
 When adding a new fix strategy, three files **must** be updated in lockstep:
