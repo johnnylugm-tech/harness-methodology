@@ -14,6 +14,8 @@ P3 TDD stubs 已全數 GREEN。P4 在此基礎上擴展：
 
 > **Language note (v2.8.0+)**: 本 SOP 的工具命令以 python 為例;js/ts 目標專案的對應命令(vitest/jest、eslint、tsc、StrykerJS、semgrep)以 `harness/ssi/prompts/evaluate_dimension.md` 各維度的 per-language 區塊為準,工具解析 single source 為 `harness/toolchains/registry.py`。
 
+> **Integration scenario floor (v2.9 B2)**: every infrastructure module (cache / breaker / external-process / network client) must carry at least 1 concurrency smoke + 1 fault-injection case under `tests/integration/`. Enforcement is spec-side: derive_test_cases.md Step 1b forces these cases into TEST_SPEC.md, then D4 spec-coverage + the P3 mirror gate hold them — if they are missing here at P4, the fix is in TEST_SPEC (P2 artifact), not ad-hoc tests.
+
 ## Step 1 — Integration Test 擴展
 
 針對 SAD.md 中有互動關係的 FR pair，建立整合測試：

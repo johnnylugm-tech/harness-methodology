@@ -93,6 +93,36 @@ Record this set. Every FR will be checked against it in Step 2 Q-Probe 6.
 
 ---
 
+## Step 1b: Architecture-Risk Triggers (v2.9 — MANDATORY, SAD/SAB-driven)
+
+> Why: keyword matching on SRS prose misses implementation-implied risks.
+> tts-new shipped a HALF_OPEN probe race and a dead cache path with Gate 4
+> near 100 — its SRS never said "concurrency", so NP-13 never fired.
+> Architecture facts, not prose, must force these patterns.
+
+Scan SAD.md module descriptions (and SAB.json module layers if present). For
+every module matching a risk trait below, the listed patterns become ACTIVE
+for the FRs that module implements — **regardless of SRS keywords**:
+
+| Module risk trait (from SAD/SAB) | Forced patterns | Required case shape |
+|---|---|---|
+| shared mutable state + async/threads (state machines, counters, pools, breakers) | NP-13 | `test_{fr}_{op}_state_transition_under_concurrent_load` — N concurrent callers crossing the SAME transition; assert the invariant (single probe, exact count), not just "no crash" |
+| external process (subprocess / ffmpeg / shell) | NP-15 | `test_{fr}_{op}_subprocess_timeout_enforced` + orphan/cleanup assertion |
+| network client / retry logic | NP-07 + NP-15 | `test_{fr}_{op}_{dependency}_unavailable_graceful` + `test_{fr}_retry_backoff_bounded` (assert retry × concurrency amplification is capped) |
+| cache / optional dependency | NP-07 | `test_{fr}_cache_unavailable_fallback` + `test_{fr}_cache_recovers_after_transient_outage` + reachability: `test_{fr}_cache_actually_used_on_hit` (the dead-cache class: wiring exists, path unreachable) |
+
+Rules:
+- Record each Step-1b activation in the TEST_SPEC "Pattern Activation" table
+  with its trigger source: `SAD: <module>` (vs `SRS: <keyword>` from Step 1).
+- **Integration variant required**: every Step-1b-forced case MUST live under
+  `tests/integration/` (declared in TEST_SPEC like any other case). D4
+  spec-coverage and the P3 mirror gate then enforce existence and fidelity —
+  the spec IS the enforcement; no new machinery.
+- A module with a risk trait and NO forced case in TEST_SPEC is an Agent B
+  REJECT (see checklist).
+
+---
+
 ## Step 2: Per-FR Derivation (8-Question Protocol)
 
 Repeat for each `FR-XX` in SRS §2:
@@ -200,8 +230,13 @@ template test case, substituting `{fr}` and `{op}` with concrete FR-specific nam
 Skip a pattern if it clearly does not apply (e.g., NP-06 latency for a pure in-memory
 computation with no NFR latency constraint).
 
+**Step-1b-forced patterns may NOT be skipped.** If this FR is implemented by a
+module with an architecture-risk trait, its forced cases (concurrent-load /
+subprocess-timeout / backoff-bounded / cache-reachability) are mandatory and
+their integration variants go in the `tests/integration/` section.
+
 Type: `nfr_pattern`  
-Derivation: `Q6/NP-{ID}`
+Derivation: `Q6/NP-{ID}` (SRS-triggered) or `Q6/1b/NP-{ID}` (SAD-triggered)
 
 ### Q7: CROSS-FR INTEGRATION (conditional — applies when FR-XX interacts with other FRs)
 
@@ -350,6 +385,11 @@ Standard Verification:
 - [ ] Every FR from SRS §2 has an entry in TEST_SPEC.md
 - [ ] Every FR has at least 1 `happy_path` + 1 `failure`/`validation` test
 - [ ] Every active NFR pattern (from Step 1) appears in at least one FR entry
+- [ ] **Architecture-risk coverage (Step 1b)**: every SAD module with a risk
+      trait (shared mutable state / external process / network retry / cache)
+      has its forced cases in TEST_SPEC, with `SAD: <module>` trigger recorded
+      and integration variants under `tests/integration/`. A risky module with
+      zero forced cases → REJECT
 - [ ] No test function names are generic (`test_basic`, `test_case_1`, etc.)
 - [ ] All derivation fields are non-empty and cite a Q-number or NP-number
 - [ ] Module names in test functions match SAD.md module/class names where available

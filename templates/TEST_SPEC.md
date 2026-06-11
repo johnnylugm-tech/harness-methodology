@@ -16,17 +16,33 @@
 
 ---
 
-## NFR Pattern Activation (Step 1 Output)
+## NFR Pattern Activation (Step 1 + Step 1b Output)
 
-<!-- Paste the Active Pattern Set table from derive_test_cases.md Step 1 here.
-     Example:
+<!-- The table MUST enumerate ALL 15 patterns (NP-01…NP-15) from
+     derive_test_cases.md Step 1 — a shortened table caused real pattern
+     drift (a project shipped concurrency bugs because NP-13 was absent from
+     its copy of this table). The Trigger column records the source:
+     "SRS: <keyword>" (Step 1) or "SAD: <module>" (Step 1b architecture-risk —
+     fires REGARDLESS of SRS keywords; its cases are mandatory and need
+     integration variants under tests/integration/).
 
-| Pattern | Keyword Found In SRS §3 | Activated |
-|---------|------------------------|-----------|
-| NP-01 (auth 401)    | "JWT authentication required" | ✅ |
-| NP-02 (authz 403)   | "RBAC role permissions"        | ✅ |
-| NP-03 (rate limit)  | not found                      | ❌ |
-| ...                 | ...                            |   |
+| Pattern | Trigger (SRS keyword / SAD module) | Activated |
+|---------|-------------------------------------|-----------|
+| NP-01 (auth 401)          | not found                  | ❌ |
+| NP-02 (authz 403)         | not found                  | ❌ |
+| NP-03 (rate limit 429)    | not found                  | ❌ |
+| NP-04 (validation 422)    | SRS: "input validation"    | ✅ |
+| NP-05 (idempotency)       | not found                  | ❌ |
+| NP-06 (latency SLA)       | SRS: "p95"                 | ✅ |
+| NP-07 (dependency fault)  | SAD: redis_cache (cache)   | ✅ |
+| NP-08 (security attack)   | not found                  | ❌ |
+| NP-09 (audit log)         | not found                  | ❌ |
+| NP-10 (data round-trip)   | not found                  | ❌ |
+| NP-11 (backward compat)   | not found                  | ❌ |
+| NP-12 (pagination)        | not found                  | ❌ |
+| NP-13 (concurrency)       | SAD: circuit_breaker (shared state + async) | ✅ |
+| NP-14 (encryption)        | not found                  | ❌ |
+| NP-15 (timeout)           | SAD: audio_converter (external process)    | ✅ |
 -->
 
 ---
