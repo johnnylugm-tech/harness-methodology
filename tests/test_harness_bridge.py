@@ -29,15 +29,18 @@ class TestHarnessBridge:
         manifest_path.write_text('{"gate_results": {"gate2": null}}')
 
         bridge = HarnessBridge()
-        # Mock path in the bridge
-        with patch("harness.harness_bridge.Path", side_effect=lambda *args: tmp_path / Path(*args) if ".methodology" in str(args) else Path(*args)):
-            result = GateResult(gate_num=2, score=85.0, quality_complete=True)
-            bridge._update_quality_manifest(gate_num=2, fr_id=None, result=result)
-            
-            import json
-            updated = json.loads(manifest_path.read_text())
-            assert updated["gate_results"]["gate2"]["score"] == 85.0
-            assert updated["gate_results"]["gate2"]["quality_complete"] is True
+        result = GateResult(gate_num=2, score=85.0, quality_complete=True)
+        # Pass project_root explicitly (HR-09: CWD-rel manifest path
+        # is no longer the contract).
+        bridge._update_quality_manifest(
+            gate_num=2, fr_id=None, result=result,
+            project_root=str(tmp_path),
+        )
+
+        import json
+        updated = json.loads(manifest_path.read_text())
+        assert updated["gate_results"]["gate2"]["score"] == 85.0
+        assert updated["gate_results"]["gate2"]["quality_complete"] is True
 
     def test_load_config_returns_gate_config(self):
         from core.quality_gate.constitution.profile import GateConfig

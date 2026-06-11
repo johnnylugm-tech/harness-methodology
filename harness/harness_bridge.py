@@ -2629,9 +2629,28 @@ class HarnessBridge:
     def _update_quality_manifest(
         self, gate_num: int, fr_id: str | None, result: GateResult,
         da_waivers: "set[str] | None" = None,
+        project_root: str | None = None,
     ) -> None:
-        """Update the persistent manifest with latest gate results."""
-        p = Path(".methodology/quality_manifest.json")
+        """Update the persistent manifest with latest gate results.
+
+        ``project_root`` is the project root the manifest lives
+        under. Required to avoid the CWD-rel hazard: a CLI
+        invocation with ``--project-root <path>`` from a different
+        cwd would otherwise write quality-gate results into the
+        wrong tree (HR-09 / same pattern as generate_quality_manifest).
+        CWD fallback stays for backward compat with a WARNING so
+        the hazard is visible in logs.
+        """
+        if project_root is None:
+            import os as _os
+            project_root = _os.getcwd()
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "_update_quality_manifest called without project_root; "
+                f"falling back to CWD ({project_root}). Pass project_root "
+                "explicitly to avoid CWD-rel hazards."
+            )
+        p = Path(project_root) / ".methodology" / "quality_manifest.json"
         if not p.exists():
             return
         manifest = json.loads(p.read_text(encoding="utf-8"))

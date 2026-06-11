@@ -9,15 +9,31 @@ from harness.effort_tracker import EffortTracker, EffortRecord
 
 # ── Schema / init ────────────────────────────────────────────────────────
 
-def test_db_created_on_init(tmp_path: Path):
-    db = tmp_path / "test.db"
-    EffortTracker(str(db))
+def test_db_not_created_until_first_use(tmp_path: Path):
+    """Lazy init: constructing an EffortTracker must NOT create
+    the DB or any non-existent parent directories. Construction
+    is side-effect-free; the DB is created on the first call to
+    record() / summary() / query_*()."""
+    # Use a nested path so we can verify the parent dir creation
+    # is also lazy (a flat path's parent is tmp_path itself, which
+    # pytest always creates).
+    db = tmp_path / "subdir" / "test.db"
+    tracker = EffortTracker(str(db))
+    assert not db.parent.exists()
+    assert not db.exists()
+    # First use triggers the lazy creation
+    tracker.summary()
     assert db.exists()
+    assert db.parent.exists()
 
 
-def test_schema_creates_effort_table(tmp_path: Path):
+def test_schema_creates_effort_table_on_first_use(tmp_path: Path):
+    """The schema is created on the first DB operation, not on
+    __init__. This is the lazy-init contract."""
     db = tmp_path / "test.db"
-    EffortTracker(str(db))
+    tracker = EffortTracker(str(db))
+    # Trigger lazy init
+    tracker.summary()
     with sqlite3.connect(db) as c:
         cols = {row[1] for row in c.execute("PRAGMA table_info('effort')")}
     expected = {"id", "phase", "gate_num", "agent_id", "operation",
@@ -25,9 +41,15 @@ def test_schema_creates_effort_table(tmp_path: Path):
     assert expected.issubset(cols)
 
 
-def test_mkdir_creates_methodology_dir(tmp_path: Path):
-    db = tmp_path / ".methodology" / "metrics.db"
-    EffortTracker(str(db))
+def test_mkdir_creates_methodology_dir_on_first_use(tmp_path: Path):
+    """Parent directory creation is also lazy — first use
+    triggers the mkdir(parents=True)."""
+    # Use a nested .methodology path that does not yet exist.
+    db = tmp_path / "newproj" / ".methodology" / "metrics.db"
+    tracker = EffortTracker(str(db))
+    # No side effects on __init__ (parent doesn't exist yet).
+    assert not db.parent.exists()
+    tracker.summary()
     assert db.parent.exists()
 
 

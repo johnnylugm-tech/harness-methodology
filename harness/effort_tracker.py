@@ -35,14 +35,28 @@ class EffortTracker:
         )"""
 
     def __init__(self, db_path: str = ".methodology/effort_metrics.db"):
-        """Initialize the tracker and ensure the schema exists."""
+        """Initialize the tracker. Schema/table creation is deferred
+        to the first call to ``_ensure_db()`` so that constructing
+        a tracker (e.g. inside ``HarnessBridge.__init__``) does not
+        silently create a ``.methodology/`` directory in cwd.
+        Without lazy init, every bridge construction in a project
+        without an existing .methodology/ dir would pollute cwd.
+        """
         self.db_path = Path(db_path)
+        self._initialized = False
+
+    def _ensure_db(self) -> None:
+        """Open the DB and create the schema on first use."""
+        if self._initialized:
+            return
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with sqlite3.connect(self.db_path) as c:
             c.execute(self._SCHEMA)
+        self._initialized = True
 
     def record(self, r: EffortRecord) -> None:
         """Record a single effort entry to the database."""
+        self._ensure_db()
         with sqlite3.connect(self.db_path) as c:
             c.execute(
                 "INSERT INTO effort (phase,gate_num,agent_id,operation,duration_s,token_in,token_out,fr_id) "
@@ -55,7 +69,8 @@ class EffortTracker:
         """Summarize all recorded effort, optionally filtered by phase."""
         if phase is not None:
             return self.query_phase_summary(phase)
-        
+
+        self._ensure_db()
         with sqlite3.connect(self.db_path) as c:
             row = c.execute(
                 "SELECT COUNT(*), SUM(duration_s), SUM(token_in+token_out) FROM effort"
@@ -68,6 +83,7 @@ class EffortTracker:
 
     def query_phase_summary(self, phase: int) -> dict:
         """Get per-operation summary for a specific phase."""
+        self._ensure_db()
         with sqlite3.connect(self.db_path) as c:
             rows = c.execute(
                 "SELECT operation,SUM(duration_s),SUM(token_in+token_out) "
@@ -77,6 +93,7 @@ class EffortTracker:
 
     def query_gate_summary(self, gate_num: int) -> dict:
         """Get summary metrics for a specific quality gate."""
+        self._ensure_db()
         with sqlite3.connect(self.db_path) as c:
             row = c.execute(
                 "SELECT COUNT(*),SUM(duration_s),SUM(token_in+token_out) "

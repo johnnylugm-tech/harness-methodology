@@ -1099,7 +1099,12 @@ class TestEffortTracker:
     def test_init_creates_db(self, tmp_path):
         from harness.effort_tracker import EffortTracker
         db = str(tmp_path / "effort.db")
-        EffortTracker(db_path=db)
+        tracker = EffortTracker(db_path=db)
+        # Lazy init: DB is created on first use, NOT on __init__.
+        # This is the contract change that prevents EffortTracker
+        # from polluting cwd when constructed in HarnessBridge.__init__.
+        assert not (tmp_path / "effort.db").exists()
+        tracker.summary()  # triggers lazy init
         assert (tmp_path / "effort.db").exists()
 
     def test_record_and_summary(self, tmp_path):
