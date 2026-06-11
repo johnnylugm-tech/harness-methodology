@@ -98,13 +98,18 @@ def _handler_anti_pattern(handler: "ast.ExceptHandler") -> "str | None":
     Patterns (one per handler, checked in severity order):
       broad_swallow          — broad type (bare / Exception / BaseException)
                                whose body is only pass/continue: errors vanish.
-      except_base_exception  — catches BaseException without re-raising: eats
-                               CancelledError/SystemExit (the tts-new Critical).
-      bare_except            — bare ``except:`` without re-raising (semantically
-                               BaseException).
+      except_base_exception  — catches BaseException, EVEN with re-raise: any
+                               body side-effect treats CancelledError/SystemExit
+                               as an application failure (the tts-new Critical
+                               was exactly ``except BaseException:
+                               self._on_failure(); raise`` — re-raise didn't
+                               stop the breaker miscounting cancellation).
+                               Error-path-only cleanup belongs in ``finally``
+                               or ``except Exception`` + re-raise.
+      bare_except            — bare ``except:`` without re-raising.
 
-    A handler that re-raises (bare ``raise`` anywhere in its body) is exempt:
-    cleanup-then-reraise is a legitimate idiom. Narrow-typed except-pass
+    The bare-raise re-raise exemption applies to bare_except/broad_swallow
+    only — never to BaseException. Narrow-typed except-pass
     (e.g. ``except FileNotFoundError: pass``) is deliberate and NOT flagged.
     """
     def _is_base_exception(expr) -> bool:
@@ -123,19 +128,21 @@ def _handler_anti_pattern(handler: "ast.ExceptHandler") -> "str | None":
             return any(_is_broad(e) for e in expr.elts)
         return False
 
-    reraises = any(
-        isinstance(n, ast.Raise) and n.exc is None for n in ast.walk(handler)
-    )
-    if reraises:
-        return None
-
     body_only_swallows = all(
         isinstance(stmt, (ast.Pass, ast.Continue)) for stmt in handler.body
     )
     if _is_broad(handler.type) and body_only_swallows:
         return "broad_swallow"
+    # BaseException is flagged unconditionally — re-raise does NOT exempt it
+    # (side-effects before the re-raise still treat cancellation as failure).
     if _is_base_exception(handler.type):
         return "except_base_exception"
+
+    reraises = any(
+        isinstance(n, ast.Raise) and n.exc is None for n in ast.walk(handler)
+    )
+    if reraises:
+        return None
     if handler.type is None:
         return "bare_except"
     return None
