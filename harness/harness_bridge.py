@@ -2672,4 +2672,4 @@ class HarnessBridge:
             manifest["gate_results"][key][fr_id] = payload
         else:
             manifest["gate_results"][key] = payload
-        p.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+        _atomic_write_gate_result(p, manifest)
