@@ -24,7 +24,10 @@ from core.quality_gate.bug_hunt_verifier import (
     verify_bug_hunt_report,
     _current_git_sha,
     REPORT_RELPATH,
+    _REQUIRED_FINDING_FIELDS,
+    _REQUIRED_TOP_FIELDS,
 )
+from harness.harness_bridge import DimResult, _override_adversarial_review_dim_score
 
 REPO_ROOT = Path(__file__).parent.parent
 
@@ -525,3 +528,93 @@ class TestCurrentGitSha:
         assert sha is not None
         assert len(sha) == 40
         assert all(c in "0123456789abcdef" for c in sha)
+
+
+# ── Schema ↔ verifier contract alignment ────────────────────────────────────
+
+class TestSchemaAlignment:
+    def test_required_finding_fields_match_schema(self):
+        """_REQUIRED_FINDING_FIELDS must be a subset of the JSON schema's
+        findings.items.required — guards against silent drift."""
+        schema = json.loads(
+            (REPO_ROOT / "schemas" / "bug_hunt_report.schema.json").read_text()
+        )
+        schema_finding_required = set(
+            schema["properties"]["findings"]["items"]["required"]
+        )
+        assert set(_REQUIRED_FINDING_FIELDS) <= schema_finding_required
+
+    def test_required_top_fields_match_schema(self):
+        """_REQUIRED_TOP_FIELDS must be a subset of the JSON schema's
+        top-level required list."""
+        schema = json.loads(
+            (REPO_ROOT / "schemas" / "bug_hunt_report.schema.json").read_text()
+        )
+        assert set(_REQUIRED_TOP_FIELDS) <= set(schema["required"])
+
+
+# ── Gate 3 bridge override (_override_adversarial_review_dim_score) ──────────
+
+class TestGateOverride:
+    CONFIG_DIMS = [{"name": "adversarial_review", "threshold": 100,
+                    "requires_tool_execution": False}]
+
+    def test_appended_when_agent_omits_dimension(self, tmp_path: Path):
+        """When agent breakdown omits adversarial_review, the framework
+        must APPEND it — blocking dims can't depend on agent cooperation."""
+        _write_report(tmp_path, _minimal_report(findings=[
+            _finding(severity="critical", resolution={"status": "open"}),
+        ]))
+        dims = [DimResult(name="linting", score=95.0, threshold=90.0)]
+        new_dims, changed = _override_adversarial_review_dim_score(
+            dims, str(tmp_path), self.CONFIG_DIMS)
+        assert changed is True
+        ar = next(d for d in new_dims if d.name == "adversarial_review")
+        assert ar.score == 0.0
+        assert ar.threshold == 100.0
+        assert ar.issues  # failure reasons must be surfaced
+
+    def test_agent_self_score_overridden(self, tmp_path: Path):
+        """Agent records adversarial_review=100 but report has open critical
+        → framework must override to 0.0."""
+        _write_report(tmp_path, _minimal_report(findings=[
+            _finding(severity="critical", resolution={"status": "open"}),
+        ]))
+        dims = [DimResult(name="adversarial_review", score=100.0, threshold=100.0)]
+        new_dims, changed = _override_adversarial_review_dim_score(
+            dims, str(tmp_path), self.CONFIG_DIMS)
+        assert changed is True
+        assert new_dims[0].score == 0.0
+
+    def test_clean_report_scores_100(self, tmp_path: Path):
+        """Report with no open critical/high finding → framework scores 100."""
+        _write_report(tmp_path, _minimal_report(findings=[
+            _finding(severity="critical",
+                     resolution={"status": "resolved", "fix_commit": "abc123"}),
+        ]))
+        new_dims, _ = _override_adversarial_review_dim_score(
+            [], str(tmp_path), self.CONFIG_DIMS)
+        assert new_dims[0].score == 100.0
+
+    def test_noop_when_gate_config_lacks_dimension(self, tmp_path: Path):
+        """When gate config doesn't declare adversarial_review, override must
+        be a no-op — other gates must not be affected."""
+        dims = [DimResult(name="linting", score=95.0, threshold=90.0)]
+        new_dims, changed = _override_adversarial_review_dim_score(
+            dims, str(tmp_path), [{"name": "linting"}])
+        assert changed is False
+        assert new_dims == dims
+
+    def test_gate3_yaml_declares_dimension(self):
+        """gate3_p4_exit.yaml must declare adversarial_review with threshold=100,
+        weight=0.00, requires_tool_execution=False."""
+        import yaml
+        cfg = yaml.safe_load(
+            (REPO_ROOT / "harness" / "gate_configs" / "gate3_p4_exit.yaml")
+            .read_text(encoding="utf-8")
+        )
+        ar = next(d for d in cfg["dimensions"]
+                  if d["name"] == "adversarial_review")
+        assert ar["threshold"] == 100
+        assert ar["weight"] == 0.00
+        assert ar["requires_tool_execution"] is False
