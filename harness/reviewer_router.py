@@ -143,8 +143,24 @@ class ReviewerRouter:
                 "summary": "[CANCELLED] Sibling reviewer returned REJECT. Skipped subagent.",
                 "_reviewer_used": "subagent",
             }
-        # Use the caller-supplied timeout; fall back to 300 s.
-        task_timeout_s = int(timeout_ms / 1000) if timeout_ms is not None else 300
+        # Validate timeout: int >= 1s. `int(timeout_ms / 1000)` with
+        # a sub-second input yields 0, which makes subprocess.run
+        # fail immediately and the broad-except auto-approve.
+        if timeout_ms is None:
+            task_timeout_s = 300
+        elif not isinstance(timeout_ms, int) or isinstance(timeout_ms, bool):
+            raise ValueError(
+                f"timeout_ms must be an int (seconds × 1000); got "
+                f"{type(timeout_ms).__name__}: {timeout_ms!r}"
+            )
+        elif timeout_ms < 1000:
+            raise ValueError(
+                f"timeout_ms must be >= 1000 (1 second); got {timeout_ms} ms. "
+                "Sub-second timeouts would truncate to 0 and trip "
+                "subprocess.run(timeout=0) immediately."
+            )
+        else:
+            task_timeout_s = int(timeout_ms / 1000)
         result = self._try_subagent(
             role, prompt, phase, fr_id,
             task_timeout_s=task_timeout_s,
@@ -276,18 +292,23 @@ class ReviewerRouter:
             _rejected = False
             executor = ThreadPoolExecutor(max_workers=len(wave))
             try:
+                # The previous code captured approved_context at
+                # submit-time (eagerly evaluated inside the dict
+                # comprehension), so all wave siblings read the
+                # SAME snapshot — sibling B never saw sibling A's
+                # APPROVE summary. Wrap the work in a small
+                # closure that reads approved_context at EXECUTION
+                # time (after earlier siblings may have appended).
+                def _submit_subtask(s):
+                    enriched = self._enrich_with_context(
+                        s, approved_context,
+                    )
+                    return self._try_chain(
+                        role, enriched, phase, fr_id, timeout_ms,
+                        s.index, s.total, cancel_event,
+                    )
                 futures = {
-                    executor.submit(
-                        self._try_chain,
-                        role,
-                        self._enrich_with_context(s, approved_context),
-                        phase,
-                        fr_id,
-                        timeout_ms,
-                        s.index,
-                        s.total,
-                        cancel_event,
-                    ): s
+                    executor.submit(_submit_subtask, s): s
                     for s in wave
                 }
 

@@ -1478,7 +1478,19 @@ class HarnessBridge:
                 "architecture_constraints": manifest.get("architecture_constraints", []),
                 "high_risk_modules":        manifest.get("high_risk_modules", []),
             }
-        except Exception:
+        except Exception as exc:
+            # Manifest is corrupt / unreadable — surface as a
+            # WARNING so a real SAB outage is visible in logs, but
+            # return {} so the gate can still proceed with default
+            # behaviour. Without the log entry, a truncated JSON
+            # would silently turn strict SAB enforcement into
+            # default behaviour with zero forensic trail.
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "_load_manifest_sab: manifest parse/read failed (%s: %s); "
+                "SAB-derived gate_score_overrides are DISABLED for this gate.",
+                type(exc).__name__, exc,
+            )
             return {}
 
     def prepare_env_check(
@@ -1841,7 +1853,31 @@ class HarnessBridge:
             )
 
         t0 = time.time()
-        raw = json.loads(result_path.read_text(encoding="utf-8"))
+        # A truncated/corrupt gate_result.json would otherwise raise
+        # an uncaught JSONDecodeError that bypasses the GateBlockedError
+        # contract documented at the top of this method. Convert it
+        # to a GateBlockedError with a clear message.
+        try:
+            raw = json.loads(result_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise GateBlockedError(
+                ctx.gate_num,
+                GateResult(
+                    gate_num=ctx.gate_num,
+                    score=0.0,
+                    dimensions=[],
+                    open_critical=1,
+                    open_high=0,
+                    quality_complete=False,
+                    rounds_used=0,
+                ),
+                details={
+                    "malformed_gate_result": (
+                        f"gate{ctx.gate_num}_result.json is not valid JSON: {exc}. "
+                        "Re-run the gate so the agent writes a well-formed result."
+                    ),
+                },
+            ) from exc
 
         # ── S3: Tool execution evidence enforcement ──────────────────────────
         # For dimensions with requires_tool_execution:true in the gate YAML,
@@ -2114,10 +2150,19 @@ class HarnessBridge:
                 )
                 if _enrich_overridden:
                     _crg_overrides_applied = True
-            except Exception as _enrich_err:  # pragma: no cover
-                print(
-                    f"[WARN] CRG enrichment skipped: {_enrich_err}",
-                    file=sys.stderr,
+            except Exception as _enrich_err:
+                # Real CRG failure (MCP unavailable, schema drift,
+                # import error, etc.) — log via the module logger so
+                # a real bug is in the decision / forensic trail,
+                # and stderr for live operator visibility. The
+                # test_coverage hub-penalty fabrication signal
+                # (step 9) is silently dropped if this fails
+                # without a log entry.
+                import logging as _logging
+                _logging.getLogger(__name__).warning(
+                    "CRG enrichment failed; test_coverage hub-penalty "
+                    "fabrication signal may be dropped. Error: %s: %s",
+                    type(_enrich_err).__name__, _enrich_err,
                 )
 
         # SG-2 (robustness audit): per-dimension variance sanity check.
@@ -2196,7 +2241,20 @@ class HarnessBridge:
         # manifest/log so that manifest and decision log reflect the actual gate outcome.
         _gate_passes: bool
         if ctx.gate_num == 1:
-            _gate_passes = not any(d.score is not None and d.score < d.threshold for d in _effective_dims)
+            # Gate 1 must check BOTH per-dim thresholds AND the gate's
+            # overall score_gate floor. Without the score check, an FR
+            # with all dims passing individually but overall_score
+            # below the gate floor would silently flip to PASS via
+            # the quality_complete=True line below.
+            _gate1_score_gate = 0.0
+            if isinstance(ctx.config, GateConfig):
+                _gate1_score_gate = ctx.config.score_gate
+            else:
+                _gate1_score_gate = ctx.config.get("score_gate", 0)
+            _gate_passes = (
+                not any(d.score is not None and d.score < d.threshold for d in _effective_dims)
+                and result.score >= _gate1_score_gate
+            )
         else:
             if isinstance(ctx.config, GateConfig):
                 score_gate = ctx.config.score_gate

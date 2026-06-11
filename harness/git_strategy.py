@@ -98,6 +98,15 @@ class GitStrategy:
         """
         if not self.enabled:
             return True
+        # Validate fr_id: must match the FR-NN pattern (NN = digits).
+        # Without this check, an embedded newline would split the
+        # commit subject/body, breaking the message[:72] display
+        # invariant; a semicolon or backtick would break downstream
+        # tools that eval the subject.
+        if not isinstance(fr_id, str) or not _re.fullmatch(r"FR-\d+", fr_id):
+            raise ValueError(
+                f"fr_id must match the FR-NN pattern; got {fr_id!r}"
+            )
         try:
             FRProgressTracker(self.project, phase=phase).record_gate1_pass(
                 fr_id, score=score, phase=phase
@@ -643,14 +652,33 @@ class GitStrategy:
     # ── Project-state auto-detection ─────────────────────────────────────────
 
     def _manifest_fr_ids(self) -> list[str]:
-        """Read FR IDs from quality_manifest.json (authoritative source from P2 exit)."""
+        """Read FR IDs from quality_manifest.json (authoritative source from P2 exit).
+
+        Validates that every element is a string matching the
+        FR-NN pattern. A malformed manifest (non-string elements,
+        injection attempts) raises ValueError so the operator is
+        forced to fix the manifest rather than silently producing
+        broken commit messages.
+        """
         manifest = self.project / ".methodology" / "quality_manifest.json"
         if not manifest.exists():
             return []
         try:
-            return _json.loads(manifest.read_text(encoding="utf-8")).get("fr_ids", [])
+            raw_ids = _json.loads(manifest.read_text(encoding="utf-8")).get("fr_ids", [])
         except Exception:  # pylint: disable=broad-exception-caught
             return []
+        if not isinstance(raw_ids, list):
+            raise ValueError(
+                f"quality_manifest.json fr_ids must be a list; got "
+                f"{type(raw_ids).__name__}"
+            )
+        for fid in raw_ids:
+            if not isinstance(fid, str) or not _re.fullmatch(r"FR-\d+", fid):
+                raise ValueError(
+                    f"quality_manifest.json fr_ids must all match the "
+                    f"FR-NN pattern; got invalid entry: {fid!r}"
+                )
+        return raw_ids
 
     def _auto_fr_ids(self) -> list[str]:
         """Parse SRS.md (repo root or docs/) for FR IDs.
