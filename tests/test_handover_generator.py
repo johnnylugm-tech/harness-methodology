@@ -3,6 +3,8 @@
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
+import pytest
+
 from harness.handover_generator import HandoverGenerator
 from harness.git_strategy import GitStrategy
 
@@ -103,17 +105,21 @@ class TestHandoverGenerator:
         assert "2. Beta step" in content
         assert "3. Gamma step" in content
 
-    def test_unknown_phase_uses_fallback_name(self, tmp_path: Path):
+    def test_unknown_phase_raises_value_error(self, tmp_path: Path):
+        """Phase 9 (and any value outside 1-8) is invalid input — the
+        write() boundary must reject it with ValueError. (Previously
+        the test was asserting silent fallback rendering, which was
+        exactly the bug: an invalid phase would render a bash block
+        pointing at `.methodology/phase9_plan.md`.)"""
         gen = HandoverGenerator(tmp_path)
-        gen.write(
-            checkpoint_id="P9-exit-20260504",
-            phase=9,
-            task_background="bg",
-            current_status="status",
-            next_steps=["step 1"],
-        )
-        content = (tmp_path / "HANDOVER.md").read_text(encoding="utf-8")
-        assert "Phase 9" in content
+        with pytest.raises(ValueError, match="phase"):
+            gen.write(
+                checkpoint_id="P9-exit-20260504",
+                phase=9,
+                task_background="bg",
+                current_status="status",
+                next_steps=["step 1"],
+            )
 
     def test_write_overwrites_existing(self, tmp_path: Path):
         gen = HandoverGenerator(tmp_path)

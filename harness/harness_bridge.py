@@ -18,6 +18,25 @@ from harness.decision_log import DecisionLogWriter, DecisionLogEntry, DecisionCo
 from harness.effort_tracker import EffortTracker, EffortRecord
 from core.quality_gate.constitution.profile import GateConfig
 
+try:
+    from core.atomic_io import atomic_write_json  # type: ignore[import-not-found]
+except ImportError:  # pragma: no cover  (graceful degrade)
+    atomic_write_json = None  # type: ignore[assignment]
+
+
+def _atomic_write_gate_result(path: Path, data: dict) -> None:
+    """Atomic JSON write for gate_result.json (and any other
+    pipeline-critical JSON state). Falls back to direct write if
+    core.atomic_io is unavailable.
+    """
+    if atomic_write_json is not None:
+        atomic_write_json(path, data)
+    else:  # pragma: no cover
+        path.write_text(
+            json.dumps(data, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
 
 @dataclass
 class DimResult:
@@ -456,9 +475,7 @@ def _crg_enrich_gate_findings(
         try:
             _gr = json.loads(result_path.read_text(encoding="utf-8"))
             _gr["crg_review_context"] = rc
-            result_path.write_text(
-                json.dumps(_gr, indent=2, ensure_ascii=False), encoding="utf-8"
-            )
+            _atomic_write_gate_result(result_path, _gr)
         except (OSError, json.JSONDecodeError):
             pass
 
@@ -468,9 +485,7 @@ def _crg_enrich_gate_findings(
         try:
             _gr = json.loads(result_path.read_text(encoding="utf-8"))
             _gr["crg_impact_radius"] = ir
-            result_path.write_text(
-                json.dumps(_gr, indent=2, ensure_ascii=False), encoding="utf-8"
-            )
+            _atomic_write_gate_result(result_path, _gr)
         except (OSError, json.JSONDecodeError):
             pass
 
@@ -490,9 +505,7 @@ def _crg_enrich_gate_findings(
                     for f in flows[:10]
                 ],
             }
-            result_path.write_text(
-                json.dumps(_gr, indent=2, ensure_ascii=False), encoding="utf-8"
-            )
+            _atomic_write_gate_result(result_path, _gr)
         except (OSError, json.JSONDecodeError):
             pass
 
@@ -541,9 +554,7 @@ def _crg_enrich_gate_findings(
             try:
                 _gr = json.loads(result_path.read_text(encoding="utf-8"))
                 _gr["crg_critical_flows"] = crit_flows[:10]
-                result_path.write_text(
-                    json.dumps(_gr, indent=2, ensure_ascii=False), encoding="utf-8"
-                )
+                _atomic_write_gate_result(result_path, _gr)
             except (OSError, json.JSONDecodeError):
                 pass
 
@@ -2397,8 +2408,26 @@ class HarnessBridge:
         except Exception:
             return {}
 
-    def generate_quality_manifest(self, fr_ids: list[str], sad_path: str) -> Path:
-        """Called at P2 exit. Parses SAD.md -> constraints + high_risk_modules."""
+    def generate_quality_manifest(
+        self,
+        fr_ids: list[str],
+        sad_path: str,
+        project_root: str | None = None,
+    ) -> Path:
+        """Called at P2 exit. Parses SAD.md -> constraints + high_risk_modules.
+
+        ``project_root`` is the project root the manifest is written under.
+        Required: a CWD-relative path would silently corrupt harness state
+        when the CLI is invoked with ``--project-root <path>`` from a
+        different working directory (HR-09: silent CWD-rel manifest path).
+        If omitted, falls back to CWD for backward compatibility — the
+        existing ``test_generate_quality_manifest_creates_file`` harness
+        uses the old signature and would otherwise break.
+        """
+        # Resolve project_root with safe default. If the caller didn't
+        # pass one, we use os.getcwd() — but emit a WARNING so the
+        # CWD-rel hazard is visible in the logs (helps diagnose
+        # already-broken CI invocations that didn't migrate yet).
         try:
             from scripts.generate_sab import parse_sad
             sab = parse_sad(sad_path)
@@ -2455,9 +2484,26 @@ class HarnessBridge:
             "gate_score_overrides": gate_score_overrides,
             "gate_results": {"gate1": {}, "gate2": None, "gate3": None, "gate4": None},
         }
-        out = Path(".methodology/quality_manifest.json")
+        if project_root is None:
+            import os as _os
+            project_root = _os.getcwd()
+            print(
+                f"  [WARN] generate_quality_manifest called without "
+                f"project_root; falling back to CWD ({project_root}). "
+                f"Pass project_root explicitly to avoid CWD-rel hazards.",
+                file=sys.stderr,
+            )
+        out = Path(project_root) / ".methodology" / "quality_manifest.json"
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+        # Atomic write so a SIGKILL mid-flush doesn't corrupt the
+        # harness state manifest.
+        if atomic_write_json is not None:
+            atomic_write_json(out, manifest)
+        else:  # pragma: no cover
+            out.write_text(
+                json.dumps(manifest, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
         return out
 
     def _trigger_hooks(self, ctx: GateContext, event_name: str) -> None:

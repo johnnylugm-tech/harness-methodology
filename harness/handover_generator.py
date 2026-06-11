@@ -23,11 +23,19 @@ Example::
 from __future__ import annotations
 
 import json
+import logging
 import re
 import shlex
 import subprocess  # nosec B404
 from datetime import datetime, timezone
 from pathlib import Path
+
+_log = logging.getLogger(__name__)
+
+try:
+    from core.atomic_io import atomic_write_text  # type: ignore[import-not-found]
+except ImportError:  # pragma: no cover  (graceful degrade)
+    atomic_write_text = None  # type: ignore[assignment]
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -122,7 +130,14 @@ class HandoverGenerator:
             return ""
 
     def _state_snapshot(self) -> str:
-        """Return condensed state.json content, or empty string if missing."""
+        """Return condensed state.json content, or empty string if missing.
+
+        Missing or corrupt state.json both return "". Missing is the
+        legitimate "no state yet" case (no log). Corrupt (JSON decode
+        error, encoding error) is an anomaly that operators must see —
+        a WARNING is logged so the corruption is visible during normal
+        pipeline runs instead of silently masked.
+        """
         state_path = self.project / ".methodology" / "state.json"
         try:
             data = json.loads(state_path.read_text(encoding="utf-8"))
@@ -137,7 +152,18 @@ class HandoverGenerator:
             if last_fr is not None:
                 parts.append(f"last_fr={last_fr}")
             return " ".join(parts)
-        except Exception:  # pylint: disable=broad-exception-caught
+        except FileNotFoundError:
+            # Legitimate "no state yet" — no log noise.
+            return ""
+        except (json.JSONDecodeError, UnicodeDecodeError, OSError) as exc:
+            # Corruption / encoding error — surface as WARNING so the
+            # operator can investigate instead of silently treating the
+            # project as "fresh" and re-running completed gates.
+            _log.warning(
+                "state.json at %s is corrupt (%s: %s); "
+                "rendering HANDOVER.md without state snapshot.",
+                state_path, type(exc).__name__, exc,
+            )
             return ""
 
     # ------------------------------------------------------------------
@@ -157,6 +183,31 @@ class HandoverGenerator:
         deliverables: list[str] | None = None,
         resume_phase: int | None = None,
     ) -> Path:
+        # API-boundary validation: the type hints say int, but bad callers
+        # can still pass strings (or out-of-range ints). Either would
+        # render nonsensical text into the bash code block in HANDOVER.md,
+        # and an out-of-range phase would even inject a path like
+        # `.methodology/phase99_plan.md` that doesn't exist.
+        _VALID_PHASES = range(1, 9)
+        if not isinstance(phase, int) or isinstance(phase, bool):
+            raise ValueError(
+                f"phase must be an int in {list(_VALID_PHASES)}; got "
+                f"{type(phase).__name__}: {phase!r}"
+            )
+        if phase not in _VALID_PHASES:
+            raise ValueError(
+                f"phase must be in {list(_VALID_PHASES)}; got {phase}"
+            )
+        if resume_phase is not None:
+            if not isinstance(resume_phase, int) or isinstance(resume_phase, bool):
+                raise ValueError(
+                    f"resume_phase must be an int in {list(_VALID_PHASES)} or None; "
+                    f"got {type(resume_phase).__name__}: {resume_phase!r}"
+                )
+            if resume_phase not in _VALID_PHASES:
+                raise ValueError(
+                    f"resume_phase must be in {list(_VALID_PHASES)}; got {resume_phase}"
+                )
         """
         Render the handover document and write it to ``<project>/HANDOVER.md``.
 
@@ -218,7 +269,13 @@ class HandoverGenerator:
             target_phase=_target,
         )
         path = self.project / "HANDOVER.md"
-        path.write_text(content, encoding="utf-8")
+        # Atomic write: a SIGKILL/OOM/power-loss mid-flush of plain
+        # path.write_text would leave HANDOVER.md truncated or empty,
+        # destroying the sole state for resuming a new session.
+        if atomic_write_text is not None:
+            atomic_write_text(path, content, encoding="utf-8")
+        else:  # pragma: no cover
+            path.write_text(content, encoding="utf-8")
         return path
 
     # ------------------------------------------------------------------
