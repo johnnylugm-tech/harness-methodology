@@ -91,7 +91,7 @@ finding is `open`; otherwise it blocks Gate 3.
 
 ```bash
 python harness_cli.py run-gate --gate 3 --phase 4
-# 15 dims (all tiers), score_gate=80, max_rounds=3
+# 16 dims (all tiers + adversarial_review), score_gate=80, max_rounds=3
 # 新增維度: integration_coverage (0.05), test_assertion_quality (0.02)
 # mutation_testing: objective_primary=true (tool_score 優先於 llm_score)
 # CRG: reconnaissance + tier3_guidance + impact_check + drift_check

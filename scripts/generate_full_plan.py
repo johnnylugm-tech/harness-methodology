@@ -475,7 +475,7 @@ _PHASE_PUSH_LABELS: dict = {1: "PUSH ① — ", 2: "PUSH ② — "}
 _GATE_META: dict = {
     1: (None, 3,  "linting(90) · type_safety(85) · test_coverage(80)"),
     2: (75,   10, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · integration_coverage(60) · test_assertion_quality(60) · traceability(100)  [traceability: framework-owned, harness-computed · D4 spec-coverage unified ≥60%]"),
-    3: (80,   15, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · integration_coverage(60) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · test_assertion_quality(60) · performance(75) · traceability(100)  [traceability: framework-owned, harness-computed · CRG recon inside run-gate · D4 spec-coverage unified ≥80%]"),
+    3: (80,   16, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · integration_coverage(60) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · test_assertion_quality(60) · performance(75) · traceability(100) · adversarial_review(100)  [traceability: framework-owned, harness-computed · adversarial_review: framework-owned, requires .methodology/bug_hunt_report.json · CRG recon inside run-gate · D4 spec-coverage unified ≥80%]"),
     4: (85,   15, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · performance(75) · integration_coverage(75) · test_assertion_quality(70) · traceability(100)  [traceability: framework-owned, harness-computed · CRG recon inside run-gate · D4 spec-coverage unified ≥90%]"),
 }
 
@@ -607,11 +607,12 @@ _PHASE_DELIVERABLE_DEPS: Dict[int, List[Dict]] = {
             "label": "TEST_SPEC.md",
             "desc": "Test Specification Catalog — named test cases from SRS (single source of truth, D4 unified check)",
             "depends_on": ["ADR.md"],
-            "task_hint": "Generate TEST_SPEC.md via derive_test_cases.md skill → preserve TEST_INVENTORY.yaml names where specified → apply 8-Question Protocol per FR (Q1-Q8 + Step 2.5 Interface Contracts + Step 4 Infrastructure Wiring) → fill concrete Inputs + a Sub-assertion predicate table per FR → run check-test-spec-consistency → populate cross-cutting section",
+            "task_hint": "Generate TEST_SPEC.md via derive_test_cases.md skill → preserve TEST_INVENTORY.yaml names where specified → apply Step 1b Architecture-Risk Triggers FIRST (scan SAD modules: shared mutable state → force NP-13; external process → force NP-15; network client/cache → force NP-07; forced cases go in tests/integration/ and are tagged SAD: in Pattern Activation table) → apply 8-Question Protocol per FR (Q1-Q8 + Step 2.5 Interface Contracts + Step 4 Infrastructure Wiring) → fill concrete Inputs + a Sub-assertion predicate table per FR → run check-test-spec-consistency → populate cross-cutting section",
             "checks": ["Every FR has ≥1 named test case (happy_path + validation mandatory)?",
                        "8-Question Protocol applied per FR (Q1-Q8 as applicable by classification, YAML names do NOT exempt missing categories)?",
                        "Classification assigned per FR (API_ENDPOINT|DATA_ENTITY|ALGORITHM|STATE_MACHINE|INTEGRATION|SECURITY_CONTROL|INFRASTRUCTURE)?",
                        "NFR Pattern Activation table filled (Step 1 of derive_test_cases.md)?",
+                       "Architecture-risk triggers applied (Step 1b)? SAD modules with shared mutable state → NP-13 forced; external process → NP-15; network client/cache → NP-07. Forced cases recorded in tests/integration/ with SAD: source tag.",
                        "Every case has concrete Inputs in TRUE form (key=\"value\"), NOT pytest-id form (underscore-replaced)?",
                        "Sub-assertions table populated per FR (rule_id + predicate + applies_to referencing real case #s)?",
                        "Self-consistency gate passes? (python3 harness_cli.py check-test-spec-consistency --project .)",
@@ -896,6 +897,15 @@ def _preflight_steps(phase: int) -> List[str]:
         "  Re-run `run-phase` after each fix. Max 3 attempts.",
         f"  After 3 FAIL: escalate to human — provide last `run-phase --phase {phase}` full output.",
         f"  Human fix → re-run `run-phase --phase {phase} --project .` → PASS required before continuing.",
+        *([] if phase < 4 else [
+            "  **Reliability lint fix** (P4+ blocking — if `preflight_reliability_lint` reports findings):",
+            "  Fix flagged patterns before continuing: `subprocess.run/Popen` without `timeout=`,",
+            "  `tempfile.mkstemp` outside try/finally, `os.path.exists` before open/unlink (TOCTOU),",
+            "  `time.sleep` inside async def. Re-run `run-phase` after each fix.",
+            "  **Config liveness fix** (P4+ blocking — if `preflight_config_liveness` reports orphans):",
+            "  Env keys read in code but absent from `.env.example`/`docker-compose*.yml`/`deployment/`.",
+            "  Add the key to the declaration source (or fix the typo). Re-run `run-phase` after each fix.",
+        ]),
         *([] if phase < 5 else [
             "  **Attestation fix** (P5+ — if ASPICE Traceability preflight shows `attestation: missing` or `mismatch`):",
             "  ```bash",
@@ -1591,7 +1601,7 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
         "|-----------|-----|",
         "| mutation_testing | Add/improve tests to kill surviving mutants. Run `mutmut run` → `mutmut results`. Exclude data-only files (constants, dicts, Pydantic models) via `paths_to_exclude` in setup.cfg. Target: kill rate ≥ threshold. |",
         "| architecture (G3/G4 only) | Community cohesion low → add cross-module integration tests, break hub-and-spoke coupling, or file a DA waiver if the pattern is intentional (Orchestrator). |",
-        "| error_handling | Add try/except blocks in `03-development/src/` files. `grep -r 'try:' 03-development/src/` to see current coverage. |",
+        "| error_handling | (1) **Presence**: add try/except blocks. `grep -r 'try:' 03-development/src/` to see coverage. (2) **Anti-patterns** (v2.9 A1, −5 each): remove `except BaseException:` (flagged even with re-raise), bare `except:` without re-raise, `except Exception: pass`. Run `python3 harness_cli.py run-tool ast-error-handling --project .` to see exact deductions. |",
         "| documentation | Add docstrings to public functions/classes. `python3 -m ast_docstrings` or manual: every `def`/`class` in `03-development/src/` needs a docstring. |",
         "| readability | Refactor complex functions (radon-mi < B grade). Run `radon mi 03-development/src/ -j` to see scores per file. |",
         "| performance | Add pytest-benchmark tests. Create `tests/test_perf.py` with `def test_latency(benchmark): ...` |",
@@ -1603,6 +1613,7 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
         "| test_coverage | Add tests to cover uncovered lines. Run `pytest --cov=03-development/src --cov-report=term-missing` |",
         "| secrets_scanning | Remove committed secrets. Run `gitleaks detect --source .` |",
         "| license_compliance | Replace non-MIT dependencies. Run `pip-licenses` to audit. |",
+        *(["| adversarial_review (G3 only) | `.methodology/bug_hunt_report.json` missing, or confirmed critical/high findings are still `open`. Fix: run the adversarial bug hunt (Step 4b above), resolve/refute all critical+high findings with evidence (`fix_commit` or `repro_test` for resolved; `refute_evidence` for refuted). |"] if gate_num == 3 else []),
         "",
         "**Retry workflow:**",
         "1. Read the failing dims from `finalize-gate` output above",
@@ -1660,11 +1671,41 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
             "",
         ]
 
+    adversarial_hunt_steps: List[str] = []
+    if gate_num == 3:
+        adversarial_hunt_steps = [
+            "",
+            "### Step 4b — Adversarial Bug Hunt (v2.9, required before Gate 3)",
+            "",
+            "> `adversarial_review` is a framework-owned Gate 3 dimension (threshold 100, weight 0).",
+            "> It blocks Gate 3 if `.methodology/bug_hunt_report.json` is absent or any confirmed",
+            "> critical/high finding is still `open`. Run the hunt BEFORE `G3a`.",
+            "",
+            "- **[HUNT-TARGETS]** Generate targeting manifest (CRG hubs + mutation survivors + integration gaps):",
+            "  ```bash",
+            "  python3 harness_cli.py bug-hunt-targets --project .",
+            "  ```",
+            "  Output: `.methodology/bug_hunt_targets.json`",
+            "",
+            "- **[HUNT-RUN]** Execute the adversarial bug hunt:",
+            "  - Protocol: `harness/ssi/prompts/hunt_bugs.md` (4-phase: scout → lens hunters → verify → synthesize)",
+            "  - Reference workflow: `templates/workflows/hunt-bugs.js`",
+            "  - **Use a model DIFFERENT from the developer model** to minimise same-source bias",
+            "  - Output: `.methodology/bug_hunt_report.json` + `.audit/*.md`",
+            "",
+            "- **[HUNT-RESOLVE]** For each **confirmed critical/high** finding, set `resolution.status`:",
+            "  - `resolved`: must include `fix_commit` (commit SHA) or `repro_test` (path in `tests/`)",
+            "  - `refuted`: must include `refute_evidence` (explanation + line citation)",
+            "  - Medium/low findings: record only — not required to resolve before Gate 3",
+            "",
+        ]
+
     return [
         "",
         f"### 🔒 CHECKPOINT-GATE-{gate_num}: Phase {phase} Exit",
         f"> {meta[2]}",
         "",
+        *adversarial_hunt_steps,
         f"- **G{gate_num}a** Prepare Gate {gate_num}:",
         "  ```bash",
         f"  python3 harness_cli.py run-gate --gate {gate_num} --phase {phase} --project .",
@@ -2205,7 +2246,7 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
     lines.append("")
     lines.append("### Phase 4 Overview")
     lines.append("Phase 4 formulates and executes a complete test plan based on Phase 3 code.")
-    lines.append("Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). Phase exits via Gate 3 (15 dims).")
+    lines.append("Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). Phase exits via Gate 3 (16 dims).")
     lines.append("")
 
     if dynamic:
@@ -2373,7 +2414,7 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
     lines.append("- `04-testing/COVERAGE_REPORT.md` - Coverage report")
     lines.append(_sessions_spawn_deliverable())
     lines.append("- Gate 1 PASS for every FR")
-    lines.append("- Gate 3 PASS (phase exit, composite ≥ 80, 15 dims)")
+    lines.append("- Gate 3 PASS (phase exit, composite ≥ 80, 16 dims)")
     lines.append("")
 
     # audit-phase runs inside advance-phase — no separate local step needed
