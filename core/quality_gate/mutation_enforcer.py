@@ -197,6 +197,62 @@ def _paths_to_exclude_flag(excludes: list[str]) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _write_survivors_artifact(
+    project: Path, tool: str, survivors: list, raw: "str | None" = None
+) -> None:
+    """Persist surviving mutants to .methodology/mutation_survivors.json.
+
+    v2.9 C5: each survivor is a 'behavior no test asserts' lead — the Gate-3
+    bug-hunt targeting manifest (bug-hunt-targets) consumes this file, so
+    survivor triage becomes hunt input instead of dying inside a fail message.
+    Written on every run, including a PASS (an empty list is evidence too).
+    Best-effort: artifact write failure never affects the precheck verdict.
+    """
+    import json as _json
+    from datetime import datetime, timezone
+
+    payload = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "tool": tool,
+        "survivor_count": len(survivors),
+        "survivors": survivors,
+    }
+    if raw is not None:
+        payload["raw"] = raw[-5000:]
+    try:
+        out = project / ".methodology" / "mutation_survivors.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(_json.dumps(payload, indent=2, ensure_ascii=False),
+                       encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _parse_mutmut_survivors(results_output: str) -> list:
+    """Parse `mutmut results` output into survivor entries.
+
+    mutmut 2.x groups surviving mutant IDs under per-file headers:
+        ---- core/foo.py (2) ----
+        10, 24
+    Returns [{file, mutant_id, line: None, mutator: None}]. Unrecognized
+    formats yield [] — the raw output is preserved alongside by the caller.
+    """
+    survivors: list = []
+    current_file: "str | None" = None
+    for line in results_output.splitlines():
+        header = re.match(r"^-{2,}\s+(.+?)\s+\((\d+)\)\s+-{2,}$", line.strip())
+        if header:
+            current_file = header.group(1)
+            continue
+        if current_file and re.match(r"^\d+(?:\s*,\s*\d+)*$", line.strip()):
+            for mid in re.findall(r"\d+", line):
+                survivors.append({
+                    "file": current_file, "line": None,
+                    "mutant_id": mid, "mutator": None,
+                })
+    return survivors
+
+
 def run_stryker_precheck(project: Path) -> tuple[bool, str]:
     """StrykerJS TDD-PRECHECK for js/ts projects.
 
@@ -251,6 +307,7 @@ def run_stryker_precheck(project: Path) -> tuple[bool, str]:
         return False, f"cannot parse stryker mutation.json: {e}"
 
     survived: list[str] = []
+    survivor_entries: list[dict] = []
     for file_path, file_data in (report.get("files") or {}).items():
         for mutant in file_data.get("mutants", []):
             if mutant.get("status") == "Survived":
@@ -259,6 +316,13 @@ def run_stryker_precheck(project: Path) -> tuple[bool, str]:
                     f"{file_path}:{loc.get('line', '?')} "
                     f"{mutant.get('mutatorName', '?')}"
                 )
+                survivor_entries.append({
+                    "file": file_path,
+                    "line": loc.get("line"),
+                    "mutant_id": mutant.get("id"),
+                    "mutator": mutant.get("mutatorName"),
+                })
+    _write_survivors_artifact(project, "stryker", survivor_entries)
     if survived:
         listing = "\n".join(f"  - {s}" for s in survived[:20])
         more = f"\n  ... and {len(survived) - 20} more" if len(survived) > 20 else ""
@@ -365,6 +429,9 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
         )
 
         out = res.stdout.strip()
+        _write_survivors_artifact(
+            project, "mutmut", _parse_mutmut_survivors(out), raw=out
+        )
         if out:
             m = re.search(r"Survived[^(]*\((\d+)\)", out)
             if m and int(m.group(1)) > 0:
