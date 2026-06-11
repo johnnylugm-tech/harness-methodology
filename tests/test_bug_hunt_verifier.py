@@ -8,11 +8,15 @@ Coverage:
   - refuted: needs refute_evidence → else block
   - unconfirmed findings → never block (adversarial verify already rejected)
   - stale git_sha → warning only (passes, stale=True)
+  - schema ↔ verifier field contract alignment
+  - Gate 3 bridge override (_override_adversarial_review_dim_score)
 """
 
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 from pathlib import Path
 
 from core.quality_gate.bug_hunt_verifier import (
@@ -21,6 +25,8 @@ from core.quality_gate.bug_hunt_verifier import (
     _current_git_sha,
     REPORT_RELPATH,
 )
+
+REPO_ROOT = Path(__file__).parent.parent
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -345,13 +351,12 @@ class TestStaleGitSha:
         # Init a real git repo inside tmp_path so _current_git_sha
         # returns an actual sha. Then write a report with a different
         # sha → stale must be True.
-        import subprocess as _sp
-        env = {**__import__("os").environ, "GIT_AUTHOR_NAME": "t",
+        env = {**os.environ, "GIT_AUTHOR_NAME": "t",
                "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
                "GIT_COMMITTER_EMAIL": "t@t"}
-        _sp.run(["git", "init"], cwd=tmp_path, capture_output=True)
-        _sp.run(["git", "commit", "--allow-empty", "-m", "init"],
-                cwd=tmp_path, capture_output=True, env=env)
+        subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True)
+        subprocess.run(["git", "commit", "--allow-empty", "-m", "init"],
+                       cwd=tmp_path, capture_output=True, env=env)
         _write_report(tmp_path, _minimal_report(
             git_sha="0000000000000000000000000000000000000000",
         ))
@@ -508,12 +513,11 @@ class TestCurrentGitSha:
 
     def test_returns_sha_inside_git_repo(self, tmp_path: Path):
         """Inside a git repo → returns a 40-char hex sha."""
-        import subprocess as _sp
-        _sp.run(["git", "init"], cwd=tmp_path, capture_output=True)
-        _sp.run(
+        subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True)
+        subprocess.run(
             ["git", "commit", "--allow-empty", "-m", "init"],
             cwd=tmp_path, capture_output=True,
-            env={**__import__("os").environ, "GIT_AUTHOR_NAME": "t",
+            env={**os.environ, "GIT_AUTHOR_NAME": "t",
                  "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
                  "GIT_COMMITTER_EMAIL": "t@t"},
         )

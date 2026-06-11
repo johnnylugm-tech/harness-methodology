@@ -268,7 +268,7 @@ _RENDERED_FIRST = frozenset({"version", "created_at", "phase", "project"})
 
 
 def render_canonical_sab_template(
-    project: str = "{project_name}",
+    project: str = "<your-project-name>",
     layer_example: str = "api",
     module_example: str = "app.api.webhooks",
     fr_id: str = "FR-01",

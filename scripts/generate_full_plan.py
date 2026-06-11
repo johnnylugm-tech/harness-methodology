@@ -22,6 +22,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from pathlib import Path
@@ -474,9 +475,9 @@ _PHASE_PUSH_LABELS: dict = {1: "PUSH ① — ", 2: "PUSH ② — "}
 # Gate metadata: (score_gate, dim_count, notes)
 _GATE_META: dict = {
     1: (None, 3,  "linting(90) · type_safety(85) · test_coverage(80)"),
-    2: (75,   10, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · integration_coverage(60) · test_assertion_quality(60) · traceability(100)  [traceability: framework-owned, harness-computed · D4 spec-coverage unified ≥60%]"),
-    3: (80,   16, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · integration_coverage(60) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · test_assertion_quality(60) · performance(75) · traceability(100) · adversarial_review(100)  [traceability: framework-owned, harness-computed · adversarial_review: framework-owned, requires .methodology/bug_hunt_report.json · CRG recon inside run-gate · D4 spec-coverage unified ≥80%]"),
-    4: (85,   15, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · performance(75) · integration_coverage(75) · test_assertion_quality(70) · traceability(100)  [traceability: framework-owned, harness-computed · CRG recon inside run-gate · D4 spec-coverage unified ≥90%]"),
+    2: (75,   10, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · integration_coverage(60) · test_assertion_quality(60) · traceability(100) · composite ≥ 75  [traceability: framework-owned, harness-computed · D4 spec-coverage unified ≥60%]"),
+    3: (80,   16, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · integration_coverage(60) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · test_assertion_quality(60) · performance(75) · traceability(100) · adversarial_review(100) · composite ≥ 80  [traceability: framework-owned, harness-computed · adversarial_review: framework-owned, requires .methodology/bug_hunt_report.json · CRG recon inside run-gate · D4 spec-coverage unified ≥80%]"),
+    4: (85,   15, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · performance(75) · integration_coverage(75) · test_assertion_quality(70) · traceability(100) · composite ≥ 85  [traceability: framework-owned, harness-computed · CRG recon inside run-gate · D4 spec-coverage unified ≥90%]"),
 }
 
 # D4 spec-coverage-check thresholds per exit gate (unified v2.6)
@@ -588,7 +589,7 @@ _PHASE_DELIVERABLE_DEPS: Dict[int, List[Dict]] = {
                        "No flat dumps or god-modules? (≤15 files per dir, no single dir with all source)"],
             "embed_docs": ["01-requirements/SRS.md (full)",
                            "draft 02-architecture/SAD.md (full)",
-                           "templates/SAD.md §2.1 (Directory Structure Design Principles)"],
+                           "harness/templates/SAD.md §2.1 (Directory Structure Design Principles)"],
         },
         {
             "label": "ADR.md",
@@ -601,7 +602,7 @@ _PHASE_DELIVERABLE_DEPS: Dict[int, List[Dict]] = {
                        "Decision aligns with SAD.md architecture?"],
             "embed_docs": ["02-architecture/SAD.md (APPROVED — full content)",
                            "draft 02-architecture/adr/ADR.md (full content)",
-                           "templates/ADR.md (template format)"],
+                           "harness/templates/ADR.md (template format)"],
         },
         {
             "label": "TEST_SPEC.md",
@@ -673,9 +674,12 @@ def _agent_b_dispatch_block(phase: int, role_b: str, fr_id: str = "") -> List[st
     ]
     for check in checks:
         lines.append(f"  - {check}")
-    _docs_hint = {1: '["SRS.md"]', 2: '["SRS.md", "SAD.md"]'}.get(
-        phase, '["<basename of each source doc embedded above>"]'
-    )
+    _docs_basenames = []
+    for _d in embed_docs:
+        _bn = _d.split(" (")[0].split("/")[-1]
+        if _bn and _bn not in _docs_basenames:
+            _docs_basenames.append(_bn)
+    _docs_hint = json.dumps(_docs_basenames) if _docs_basenames else '["<basename of each source doc embedded above>"]'
     lines += [
         "",
         "  Return JSON only:",
@@ -822,9 +826,12 @@ def _deliverable_ab_block(phase: int, deliverable: Dict, sub_n: int, total: int,
     ]
     for check in checks:
         lines.append(f"  - {check}")
-    _docs_hint = {1: '["SRS.md"]', 2: '["SRS.md", "SAD.md"]'}.get(
-        phase, '["<basename of each source doc embedded above>"]'
-    )
+    _docs_basenames = []
+    for _d in embed_docs:
+        _bn = _d.split(" (")[0].split("/")[-1]
+        if _bn and _bn not in _docs_basenames:
+            _docs_basenames.append(_bn)
+    _docs_hint = json.dumps(_docs_basenames) if _docs_basenames else '["<basename of each source doc embedded above>"]'
     lines += [
         "",
         "  Return JSON only:",
@@ -980,9 +987,19 @@ def _entry_gate_check(phase: int) -> List[str]:
             "  If any file missing: return to Phase 2 and complete missing deliverables.",
             "",
         ])
-    # Phase 6 entry: also verify P5 output artifacts per SAD.md §2.4.3
+    # Phase 6 entry: also verify P5 output artifacts per SAD.md §2.4.3,
+    # and run D4 spec-coverage pre-check to catch the 80→90 gap early.
     if phase == 6:
         lines.insert(3, "  Verify P5 output artifacts exist: `05-verification/VERIFICATION_REPORT.md` + `05-verification/BASELINE.md`")
+        lines.extend([
+            "- **[D4-PRECHECK]** Verify spec-coverage meets Gate 4 threshold BEFORE starting P6 (avoid late surprise):",
+            "  ```bash",
+            "  python3 harness_cli.py spec-coverage-check --project . --threshold 90.0",
+            "  ```",
+            "  FAIL → add missing test implementations now (Gate 4 blocks at 90%, not 80%).",
+            "  Do NOT proceed to G4a until this passes.",
+            "",
+        ])
     return lines
 
 
@@ -1053,9 +1070,8 @@ def _review_checkpoint(phase: int, checkpoint_n: int) -> List[str]:
         *p2_sab_checks,
         "",
     ]
-    _docs_hint = {1: '["SRS.md"]', 2: '["SRS.md", "SAD.md"]'}.get(
-        phase, '["<basename of each source doc embedded above>"]'
-    )
+    _docs_basenames = [a.split("/")[-1] for a in artifacts]
+    _docs_hint = json.dumps(_docs_basenames) if _docs_basenames else '["<basename of each source doc embedded above>"]'
     lines += [
         "  Return JSON only:",
         '  {"review_status":"APPROVE"|"REJECT",',
@@ -1181,7 +1197,7 @@ def _fr_dev_steps(fr_id: str, phase: int, project: Path) -> List[str]:
         "- **[ORCH-POST]** After GATE1 PASS — orchestrator runs directly:",
         "  ```bash",
         f"  python3 harness_cli.py spec-coverage-check --project . --threshold 40.0 --fr-id {fr_id}",
-        "  python3 scripts/generate_sab.py --project .",
+        "  python3 harness/scripts/generate_sab.py --project .",
         "  # Note: if SAB.json exists, append --overwrite to regenerate",
         "  ```",
         "",
@@ -1215,7 +1231,7 @@ def _fr_carryforward_steps(fr_id: str, phase: int) -> List[str]:
         "- **[ORCH-POST]** After GATE1-DELTA PASS — orchestrator runs directly:",
         "  ```bash",
         f"  python3 harness_cli.py spec-coverage-check --project . --threshold 40.0 --fr-id {fr_id}",
-        "  python3 scripts/generate_sab.py --project .",
+        "  python3 harness/scripts/generate_sab.py --project .",
         "  # Note: if SAB.json exists, append --overwrite to regenerate",
         "  ```",
         "",
@@ -1302,6 +1318,7 @@ def _phase_advance_step(phase: int, dynamic: bool = False) -> List[str]:
            "  - secrets scanning: `gitleaks detect --source .` (exit 20) — whole-repo, runs before linting",
            "  - linting: `ruff check .` (exit 18) — fix violations before advancing",
            "  - type safety: `python3 -m mypy . --ignore-missing-imports` (exit 19)",
+           "    > Note: advance-phase uses mypy; Gate scoring uses pyright. Both must pass.",
            "  - `pytest --tb=short -q --cov=03-development/src --cov-fail-under=100` (exit 9)",
            f"  - `python3 harness_cli.py spec-coverage-check --project . --threshold {_tdd_sc:.1f}` (exit 10, D4 unified v2.6)",
            "  - mutmut mutation testing (exit 11 — hard block; install: `pip install mutmut`;",
@@ -2021,7 +2038,7 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
         "",
         "- **[SAB-VALIDATE]** Validate the SAB block before committing:",
         "  ```bash",
-        "  python3 scripts/generate_sab.py --validate --project .",
+        "  python3 harness/scripts/generate_sab.py --validate --project .",
         "  ```",
         "  - MUST exit 0. On failure the message lists the exact problem",
         "    (e.g. unknown NFR type, `phase` as string).",
@@ -2029,7 +2046,7 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
         "",
         "- **[SAB-GENERATE]** Generate `.methodology/SAB.json` from the validated SAB block:",
         "  ```bash",
-        "  python3 scripts/generate_sab.py --project .",
+        "  python3 harness/scripts/generate_sab.py --project .",
         "  ```",
         "  > **Note**: If `SAB.json` already exists and needs regeneration, pass `--overwrite`.",
         "  - SAB.json contains all 14 fields from `SABSpec`:",
