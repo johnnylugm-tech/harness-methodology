@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "code-review-graph": {
-      "command": "/opt/homebrew/bin/code-review-graph",
-      "args": ["serve"],
-      "type": "stdio"
-    }
-  }
-}

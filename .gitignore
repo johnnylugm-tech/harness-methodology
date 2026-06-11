@@ -61,6 +61,8 @@ logs/
 # ── Machine-specific tool configs ────────────────────────────────────────────
 .antigravitycli/
 uv.lock
+# MCP server config — local paths/environment must not enter shared repo
+.mcp.json
 
 # ── OS metadata ─────────────────────────────────────────────────────────────
 .DS_Store
