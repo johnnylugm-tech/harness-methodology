@@ -4190,6 +4190,27 @@ def cmd_load_context(args: argparse.Namespace) -> int:
         "current_phase": current_phase,
     }
 
+    # Sentinel warning: existing artifacts still in template state?
+    # P1/P2 entry agents must distinguish "real SRS.md" from "template placeholder
+    # left by `init-project`". Without this check, Agent A might assume P1 is
+    # complete because SRS.md exists — but the file is still a stub.
+    _sentinel = "<!-- harness:template-stub -->"
+    _warnings: list = []
+    for _rel in ("SRS.md", "TEST_SPEC.md", "ADR.md", "01-requirements/ADR.md"):
+        _p = project / _rel
+        if _p.exists():
+            try:
+                if _sentinel in _p.read_text(encoding="utf-8"):
+                    _warnings.append(
+                        f"{_rel} still contains `<!-- harness:template-stub -->` "
+                        f"sentinel — this is a template placeholder, not real "
+                        f"content. Remove the sentinel once real content is written."
+                    )
+            except OSError:
+                pass
+    if _warnings:
+        result["warnings"] = _warnings
+
     print(_json.dumps(result, indent=2, default=str))
     return 0
 
