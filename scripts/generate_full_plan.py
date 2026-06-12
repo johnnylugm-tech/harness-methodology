@@ -608,7 +608,7 @@ _PHASE_DELIVERABLE_DEPS: Dict[int, List[Dict]] = {
             "label": "TEST_SPEC.md",
             "desc": "Test Specification Catalog — named test cases from SRS (single source of truth, D4 unified check)",
             "depends_on": ["ADR.md"],
-            "task_hint": "Generate TEST_SPEC.md via derive_test_cases.md skill → preserve TEST_INVENTORY.yaml names where specified → apply Step 1b Architecture-Risk Triggers FIRST (scan SAD modules: shared mutable state → force NP-13; external process → force NP-15; network client/cache → force NP-07; forced cases go in tests/integration/ and are tagged SAD: in Pattern Activation table) → apply 8-Question Protocol per FR (Q1-Q8 + Step 2.5 Interface Contracts + Step 4 Infrastructure Wiring) → fill concrete Inputs + a Sub-assertion predicate table per FR → run check-test-spec-consistency → populate cross-cutting section",
+            "task_hint": "Generate TEST_SPEC.md via derive_test_cases.md skill → preserve TEST_INVENTORY.yaml names where specified → apply Step 1b Architecture-Risk Triggers FIRST (scan SAD modules: shared mutable state → force NP-13; external process → force NP-15; network client/cache → force NP-07; forced cases go in tests/integration/ and are tagged SAD: in Pattern Activation table) → apply 8-Question Protocol per FR (Q1-Q8 + Step 2.5 Interface Contracts + Step 4 Infrastructure Wiring) → fill concrete Inputs + a Sub-assertion predicate table per FR → run check-test-spec-consistency → populate cross-cutting section. **v2.9.1 B.3**: parser expects `### FR-XX: ...` followed by table rows. A prose strategy doc with no table rows will FAIL the D4 spec-coverage check (no vacuous pass when FRs are defined) — re-run this skill if TEST_SPEC.md is wrong shape.",
             "checks": ["Every FR has ≥1 named test case (happy_path + validation mandatory)?",
                        "8-Question Protocol applied per FR (Q1-Q8 as applicable by classification, YAML names do NOT exempt missing categories)?",
                        "Classification assigned per FR (API_ENDPOINT|DATA_ENTITY|ALGORITHM|STATE_MACHINE|INTEGRATION|SECURITY_CONTROL|INFRASTRUCTURE)?",
@@ -923,6 +923,7 @@ def _preflight_steps(phase: int) -> List[str]:
             "  Re-run `run-phase` to confirm `Attestation: clean` before continuing.",
         ]),
         "",
+        *_validate_handoff_precondition_block(phase),
         *ci_check,
         "",
     ]
@@ -1416,6 +1417,39 @@ def _dynamic_phase_context_block(phase: int, has_fr_template: bool = True) -> Li
     return result
 
 
+def _validate_handoff_precondition_block(phase: int) -> List[str]:
+    """v2.9.1 B.1: Pre-launch handoff validator invocation.
+
+    For phases 2..6, the upstream phase's deliverables must be checked via
+    `validate-handoff --from-phase N-1` before this phase's orchestrator
+    starts. This catches cross-deliverable dependency breaks that
+    per-deliverable peer review misses — e.g. P1 never produced
+    TEST_INVENTORY.yaml, P2 produced a wrong-shape TEST_SPEC.md.
+
+    Inserted into the Pre-Phase Preflight block of every plan from P2 onward.
+    """
+    if phase < 2 or phase > 6:
+        return []
+    from_phase = phase - 1
+    return [
+        "- **[V2.9.1-B.1-HANDOFF]** Cross-deliverable dependency check "
+        f"(P{from_phase} → P{phase}) — v2.9.1 B.1. **Must PASS** before any "
+        f"Phase {phase} work begins:",
+        "  ```bash",
+        f"  python3 harness_cli.py validate-handoff --from-phase {from_phase} --project .",
+        "  ```",
+        f"  > Verifies P{from_phase} deliverables are present and well-formed "
+        "(e.g. P1 TEST_INVENTORY.yaml non-empty + covers all FRs; P2 "
+        "TEST_SPEC.md has parseable named test cases; P3 all FRs have "
+        "per-FR Gate 1 sentinels; P4 VERIFICATION_REPORT.md non-trivial; "
+        "P5 BASELINE.md exists).",
+        "  > If exit 1: read the error list, fix the upstream deliverable, "
+        "re-run until exit 0. Do NOT proceed with Phase "
+        f"{phase} work on a BLOCKED handoff.",
+        "",
+    ]
+
+
 def _dynamic_fr_template_block(phase: int, project: Path) -> List[str]:
     """FR task template for dynamic plans — each {FR-ID} is expanded at execution time."""
     use_carryforward = phase in (4, 5, 7, 8)
@@ -1479,13 +1513,18 @@ def _dynamic_fr_template_block(phase: int, project: Path) -> List[str]:
 
 
 def _p3_milestone_push_steps(fr_ids: List[str], dynamic: bool = False) -> List[str]:
-    """P3 milestone push instructions (PUSH ③ at ≥50% FRs, PUSH ④ pre-Gate2)."""
-    return _milestone_push_steps(fr_ids, phase=3, pre_gate=2, push_prefixes=("③", "④"), dynamic=dynamic)
+    """P3 milestone push instructions (PUSH ③ at ≥50% FRs, PUSH ④ pre-Gate2, PUSH ⑤ post-Gate2)."""
+    return _milestone_push_steps(
+        fr_ids, phase=3, pre_gate=2, post_gate=2,
+        push_prefixes=("③", "④", "⑤"),
+        dynamic=dynamic,
+    )
 
 
 def _milestone_push_steps(fr_ids: List[str], phase: int,
                           pre_gate: int | None = None,
-                          push_prefixes: tuple[str, str] = ("", ""),
+                          post_gate: int | None = None,
+                          push_prefixes: tuple[str, ...] = ("", "", ""),
                           header_note: str = "",
                           dynamic: bool = False) -> List[str]:
     """Phase milestone push instructions (mid + pre-gate push checkpoints).
@@ -1519,17 +1558,25 @@ def _milestone_push_steps(fr_ids: List[str], phase: int,
         else:
             _visual = full_ids
 
+    # Back-compat: 2-tuple push_prefixes still works.
+    if len(push_prefixes) == 2:
+        push_prefixes = (*push_prefixes, "")
+
     _mid_prefix = f"PUSH {push_prefixes[0]} — " if push_prefixes[0] else ""
     _pre_prefix = f"PUSH {push_prefixes[1]} — " if push_prefixes[1] else ""
-    _strategy_label = (f" (10-Push Strategy {push_prefixes[0]}{push_prefixes[1]})"
-                       if push_prefixes[0] else "")
+    _post_prefix = f"PUSH {push_prefixes[2]} — " if push_prefixes[2] else ""
+    _nonempty = [p for p in push_prefixes if p]
+    _strategy_label = (
+        f" (10-Push Strategy {''.join(_nonempty)})" if _nonempty else ""
+    )
     _header_note = f" — {header_note}" if header_note else ""
 
     pre_gate_type = f"pre-gate{pre_gate}" if pre_gate else None
+    post_gate_type = f"post-gate{post_gate}" if post_gate else None
     result = [
         f"### P{phase} Milestone Pushes{_strategy_label}{_header_note}",
         "",
-        "> Per-FR steps push automatically via `run-fr-step`. The two **milestone pushes** below",
+        "> Per-FR steps push automatically via `run-fr-step`. The milestone pushes below",
         "> also write `HANDOVER.md` with phase/FR/status summary and push to origin.",
         f"> All FR IDs in this project: {_visual}",
         "",
@@ -1539,7 +1586,7 @@ def _milestone_push_steps(fr_ids: List[str], phase: int,
         f"    --fr-done {mid_str} --fr-total {total_str} --fr-ids {mid_ids}",
         "  ```",
         f"  > `--fr-ids` lists the FRs with Gate 1 PASS so far. Replace `{mid_ids}` with actual.",
-        "  > Writes HANDOVER.md + commits + pushes. Next session reads HANDOVER.md to resume.",
+        f"  > Writes HANDOVER.md + commits + pushes. Next session reads HANDOVER.md to resume.",
         "",
     ]
     if pre_gate_type:
@@ -1552,8 +1599,27 @@ def _milestone_push_steps(fr_ids: List[str], phase: int,
             f"  > Last stable snapshot before Gate {pre_gate} evaluation. HANDOVER.md + push.",
             "",
         ]
+    if post_gate_type:
+        # v2.9.1 B.2: PUSH ⑤ — the FORMAL P{phase} exit. Pre-flight is enforced
+        # (gate result composite ≥ threshold + per-FR Gate 1 sentinels present).
+        # Orchestrators MUST call this milestone type instead of writing
+        # label-only `chore(P{N}-exit): ...` commits.
+        result += [
+            f"- **{_post_prefix}P{phase}-{post_gate_type}** "
+            f"(trigger when Gate {post_gate} PASSes, all {total_str} FRs Gate 1 PASS — formal P{phase} exit):",
+            "  ```bash",
+            f"  python3 harness_cli.py push-milestone --type p{phase}-{post_gate_type} --project . \\",
+            f"    --fr-ids {full_ids}",
+            "  ```",
+            f"  > **v2.9.1 B.2** -- replaces label-only `chore(P{phase}-exit): ...` commits.",
+            f"  > Pre-flight (enforced) checks:",
+            f"  >   1. `.methodology/gate{post_gate}_result.json` composite ≥ phase threshold",
+            f"  >   2. Per-FR Gate 1 sentinel `.sessi-work/sentinels/g1_<fr>.flag` exists for every FR in `--fr-ids`",
+            f"  > If either fails the push is BLOCKED with a clear error list (exit 1).",
+            f"  > On success: writes HANDOVER.md with `resume_phase={phase + 1}` + commits + pushes.",
+            "",
+        ]
     return result
-
 
 
 def _gate4_prerequisites_block() -> List[str]:
