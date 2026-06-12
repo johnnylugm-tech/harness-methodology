@@ -325,7 +325,10 @@ def compute_trace_dimension(project, gate: int) -> dict:
             srs_path = project_path / "01-requirements" / "SRS.md"
             nfr_ids = extract_nfr_ids_from_srs(srs_path)
             if nfr_ids:
-                test_nfr_map = scan_test_nfr_coverage(project_path / "tests")
+                from core.utils.project_layout import ProjectLayout
+                test_nfr_map = scan_test_nfr_coverage(
+                    ProjectLayout(project_path).active_test_dir
+                )
                 covered = {n for n in nfr_ids if n in test_nfr_map}
                 nfr_pct = round(len(covered) / len(nfr_ids) * 100, 2)
                 nfr_untested = sorted(nfr_ids - covered)

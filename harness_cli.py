@@ -1641,7 +1641,8 @@ def _trace_dirty_state(project_path: Path) -> Dict[str, Any]:
 
     # Newest test file (language-aware glob; test_*.py or *.test.ts etc.)
     from core.utils.lang_patterns import iter_test_files, project_language
-    tests_dir = project_path / "tests"
+    from core.utils.project_layout import ProjectLayout
+    tests_dir = ProjectLayout(project_path).active_test_dir
     if tests_dir.is_dir():
         try:
             candidates = list(
@@ -2855,16 +2856,18 @@ def _finalize_gate_preflight(args: argparse.Namespace, project_path: Path) -> "i
 def _finalize_gate_fr_checks(args: argparse.Namespace, project_path: Path) -> "int | None":
     """I-2/I-3/I-4: Gate 1 per-FR checks (test file existence, RED ordering, spec coverage)."""
     fr_id = getattr(args, "fr_id", None) or None
+    from core.utils.project_layout import ProjectLayout
+    _active_tests = ProjectLayout(project_path).active_test_dir
 
     # I-2: FR test file existence
-    if args.gate == 1 and fr_id and (project_path / "tests").is_dir():
+    if args.gate == 1 and fr_id and _active_tests.is_dir():
         _fr_ok, _fr_msg = _check_fr_test_file_exists(project_path, fr_id)
         if not _fr_ok:
             print(_fr_msg)
             return 8
 
     # I-3: RED phase ordering
-    if args.gate == 1 and fr_id and (project_path / "tests").is_dir():
+    if args.gate == 1 and fr_id and _active_tests.is_dir():
         _red_ok, _red_msg = _check_red_phase_ordering(project_path, fr_id)
         if not _red_ok:
             print(_red_msg)
