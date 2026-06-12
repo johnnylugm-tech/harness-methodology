@@ -4194,20 +4194,32 @@ def cmd_load_context(args: argparse.Namespace) -> int:
     # P1/P2 entry agents must distinguish "real SRS.md" from "template placeholder
     # left by `init-project`". Without this check, Agent A might assume P1 is
     # complete because SRS.md exists — but the file is still a stub.
+    # Per SKILL.md §0.3.1, stub = sentinel literal OR ≥8 {placeholder} patterns
+    # (co-equal heuristic `_is_stub_template`). Paths match
+    # `_init_copy_templates` artifact_map (the locations init-project writes).
+    from core.quality_gate.constitution.runner import _is_stub_template
     _sentinel = "<!-- harness:template-stub -->"
+    _template_artifacts = (
+        "01-requirements/SRS.md",
+        "02-architecture/TEST_SPEC.md",
+        "02-architecture/adr/ADR.md",
+    )
     _warnings: list = []
-    for _rel in ("SRS.md", "TEST_SPEC.md", "ADR.md", "01-requirements/ADR.md"):
+    for _rel in _template_artifacts:
         _p = project / _rel
         if _p.exists():
             try:
-                if _sentinel in _p.read_text(encoding="utf-8"):
-                    _warnings.append(
-                        f"{_rel} still contains `<!-- harness:template-stub -->` "
-                        f"sentinel — this is a template placeholder, not real "
-                        f"content. Remove the sentinel once real content is written."
-                    )
+                _content = _p.read_text(encoding="utf-8")
             except OSError:
-                pass
+                continue
+            if (_sentinel in _content) or _is_stub_template(_content):
+                _warnings.append(
+                    f"{_rel} is a template stub (sentinel literal or "
+                    f"≥8 {{placeholder}} patterns per SKILL.md §0.3.1) — "
+                    f"this is a template placeholder, not real content. "
+                    f"Remove the sentinel / fill the placeholders before "
+                    f"treating it as a real artifact."
+                )
     if _warnings:
         result["warnings"] = _warnings
 

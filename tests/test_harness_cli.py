@@ -3599,3 +3599,100 @@ class TestCmdCheckTestMirrorsSpecDispatch:
 
         assert not js_called["v"], "JS checker must NOT run for .py"
         assert spy.call_count == 1, "Python checker must run exactly once"
+
+
+# =============================================================================
+# cmd_load_context template-stub warning (regression for SKILL.md §0.3.1)
+# =============================================================================
+
+class TestLoadContextTemplateWarnings:
+    """Regression for harness_cli.py:4193 sentinel + co-equal heuristic.
+
+    Per SKILL.md §0.3.1, an artifact is a template stub if it contains
+    the `<!-- harness:template-stub -->` sentinel OR ≥8 {placeholder}
+    patterns. Earlier versions only checked the sentinel literal AND
+    scanned the wrong paths (root-level SRS.md, TEST_SPEC.md, ADR.md)
+    — this class covers both the path fix and the heuristic co-enable.
+    """
+
+    _SENTINEL = "<!-- harness:template-stub -->"
+
+    def _write_artifact(self, tmp_path, rel: str, content: str) -> None:
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+
+    def _call(self, tmp_path, capsys) -> dict:
+        from harness_cli import cmd_load_context
+        args = argparse.Namespace(project=str(tmp_path), phase=1)
+        rc = cmd_load_context(args)
+        assert rc == 0
+        return json.loads(capsys.readouterr().out)
+
+    def test_pure_sentinel_triggers_warning(self, tmp_path, capsys):
+        """ADR.md with only the sentinel literal → 1 warning."""
+        self._write_artifact(
+            tmp_path,
+            "02-architecture/adr/ADR.md",
+            f"# ADR-001: Test\n\n{self._SENTINEL}\n\n## Status\n\nAccepted.\n",
+        )
+        result = self._call(tmp_path, capsys)
+        assert "warnings" in result
+        assert any("02-architecture/adr/ADR.md" in w for w in result["warnings"])
+
+    def test_pure_placeholder_triggers_warning(self, tmp_path, capsys):
+        """TEST_SPEC.md with ≥8 {placeholder} patterns, no sentinel → 1 warning.
+
+        The earlier version missed this case entirely (heuristic not wired).
+        """
+        placeholders = " ".join(f"{{Field {i}}}" for i in range(10))
+        self._write_artifact(
+            tmp_path,
+            "02-architecture/TEST_SPEC.md",
+            f"# TEST_SPEC\n\n{placeholders}\n",
+        )
+        result = self._call(tmp_path, capsys)
+        assert "warnings" in result
+        assert any("02-architecture/TEST_SPEC.md" in w for w in result["warnings"])
+
+    def test_clean_artifact_no_warning(self, tmp_path, capsys):
+        """All three artifacts are real (no sentinel, < 8 placeholders) → no warnings."""
+        self._write_artifact(
+            tmp_path,
+            "01-requirements/SRS.md",
+            "# SRS - OmniBot\n\n## FR-01: Real req\n\nAcceptance: works.\n",
+        )
+        self._write_artifact(
+            tmp_path,
+            "02-architecture/TEST_SPEC.md",
+            "## test_fr01_works\n- Given: input\n- When: run\n- Then: pass\n",
+        )
+        self._write_artifact(
+            tmp_path,
+            "02-architecture/adr/ADR.md",
+            "# ADR-001: Chosen approach\n\n## Status\n\nAccepted 2026-06-12.\n",
+        )
+        result = self._call(tmp_path, capsys)
+        assert "warnings" not in result or result.get("warnings") == []
+
+    def test_three_stubs_three_warnings(self, tmp_path, capsys):
+        """All three artifacts are stubs (sentinel) → 3 warnings, one per file.
+
+        Guards the path fix: earlier version scanned the wrong paths and
+        emitted zero warnings even when all three files were stubs.
+        """
+        for rel, header in [
+            ("01-requirements/SRS.md", "# SRS - {Project Name}"),
+            ("02-architecture/TEST_SPEC.md", "# TEST_SPEC"),
+            ("02-architecture/adr/ADR.md", "# ADR-001"),
+        ]:
+            self._write_artifact(
+                tmp_path, rel, f"{header}\n\n{self._SENTINEL}\n"
+            )
+        result = self._call(tmp_path, capsys)
+        assert "warnings" in result
+        assert len(result["warnings"]) == 3
+        warned = {w.split(" is a template stub")[0] for w in result["warnings"]}
+        assert "01-requirements/SRS.md" in warned
+        assert "02-architecture/TEST_SPEC.md" in warned
+        assert "02-architecture/adr/ADR.md" in warned
