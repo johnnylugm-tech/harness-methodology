@@ -13,6 +13,7 @@ Usage:
   python3 scripts/verify_tools.py --install-guide  # Print install commands
 """
 
+from __future__ import annotations
 import subprocess
 import sys
 import json
