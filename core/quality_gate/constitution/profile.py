@@ -388,20 +388,22 @@ def _build_defaults() -> ConstitutionProfile:
     #   (substring match covers TRACEABILITY_MATRIX.md heading naturally).
     #   "acceptance criteria" is kept: SRS documents define acceptance criteria
     #   at the requirements phase (P4 runs the tests; P1 defines the criteria).
-    # - security: removes implementation-specific primitives (hmac, sanitize,
-    #   compare_digest, input sanitizer, whitelist, mask, signature, rate limit)
-    #   that don't appear in requirements documents.
+    # - security dimension REMOVED from P1 (2026-06-12, integration-test E2E):
+    #   a security topic-keyword checklist is project-shape-dependent — an
+    #   honest SRS for a local CLI never mentions tls/rbac/pii/encrypt, so the
+    #   dimension was unsatisfiable in practice. Corpus evidence with the
+    #   12-keyword P1 list: tts-new (completed P1-P8) scored 36%, taskq
+    #   (Agent-B-approved SRS) scored 50% — both blocked at min-composite 75.
+    #   Requirements-phase security adequacy is owned by Agent B review (NFR
+    #   completeness vs brief), SAB NFR→dimension floors, and P3+ security
+    #   tooling (bandit/semgrep/gitleaks); a keyword density gate cannot
+    #   distinguish "SRS ignored security" from "project has no TLS surface".
     # - composite_threshold=75: a well-written SRS must cover 75% of the
     #   requirements-appropriate keyword set; 100% was unachievable because
     #   the global list mixed implementation and requirements vocabulary.
     _p1_correctness_kw = [
         "fr-", "nfr-", "acceptance criteria", "requirement",
         "specification", "traceability", "srs",
-    ]
-    _p1_security_kw = [
-        "auth", "validation", "verify", "permission",
-        "token", "pii", "security", "vulnerability",
-        "rbac", "encrypt", "tls", "secret",
     ]
 
     # P2 (Architecture: SAD.md, ADR.md)
@@ -505,11 +507,10 @@ def _build_defaults() -> ConstitutionProfile:
         exclude_patterns=_META_EXCLUDE,
         phases={
             1: PhaseProfile(
-                active_dimensions=["correctness", "security"],
+                active_dimensions=["correctness"],
                 composite_threshold=75.0,
                 dimension_keywords={
                     "correctness": _p1_correctness_kw,
-                    "security": _p1_security_kw,
                 },
             ),
             2: PhaseProfile(

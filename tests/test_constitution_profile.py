@@ -18,8 +18,9 @@ from core.quality_gate.constitution.profile import (
 
 class TestDefaults:
     def test_active_dimensions_p1(self):
+        # security removed from P1 (2026-06-12) — see test_p1_has_no_security_dimension.
         p = defaults()
-        assert p.active_dimensions(1) == ["correctness", "security"]
+        assert p.active_dimensions(1) == ["correctness"]
 
     def test_active_dimensions_p3(self):
         p = defaults()
@@ -66,15 +67,15 @@ class TestDefaults:
         assert "encrypt" in kw
         assert len(kw) == 20
 
-    def test_p1_security_keywords_are_requirements_appropriate(self):
+    def test_p1_has_no_security_dimension(self):
+        # Regression (integration-test E2E, 2026-06-12): a security topic-
+        # keyword gate is unsatisfiable for honest requirements docs — corpus:
+        # tts-new P1 scored 36%, taskq approved SRS 50%, both blocked at the
+        # min-composite 75 bar. P1 enforces correctness (SRS structure) only;
+        # security adequacy at P1 is owned by Agent B review + SAB NFR floors.
         p = defaults()
-        kw = p.dimension_keywords_for_phase("security", 1)
-        # Implementation-level terms must be absent from P1 vocabulary.
-        for impl_kw in ("hmac", "sanitize", "whitelist", "compare_digest", "input sanitizer", "mask", "signature", "rate limit"):
-            assert impl_kw not in kw, f"implementation keyword '{impl_kw}' must not be in P1 security vocab"
-        # Requirements-level terms must be present.
-        for req_kw in ("auth", "validation", "permission", "security", "vulnerability", "encrypt", "tls"):
-            assert req_kw in kw, f"requirements keyword '{req_kw}' must be in P1 security vocab"
+        assert p.phases[1].active_dimensions == ["correctness"]
+        assert "security" not in p.phases[1].dimension_keywords
 
     def test_p1_correctness_keywords_exclude_sad(self):
         p = defaults()

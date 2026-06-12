@@ -385,9 +385,11 @@ class TestScanDirectory:
 
 
 class TestDimensionsForPhase:
-    def test_phase1_only_correctness_security(self):
-        """P1 uses only correctness + security (2 dimensions)."""
-        assert _dimensions_for_phase(1) == ["correctness", "security"]
+    def test_phase1_only_correctness(self):
+        """P1 enforces correctness only — security removed 2026-06-12 (topic-
+        keyword checklist corpus-unsatisfiable for honest requirements docs;
+        P1 security adequacy is owned by Agent B review + SAB NFR floors)."""
+        assert _dimensions_for_phase(1) == ["correctness"]
 
     def test_phase2_only_correctness_security(self):
         """P2 uses correctness + security only — SAD/ADR are Markdown docs, no code vocabulary."""
@@ -510,15 +512,16 @@ class TestDimensionsForPhase:
         for phase in range(5, 9):
             sec_kw = p.dimension_keywords_for_phase("security", phase)
             assert sec_kw == global_sec, f"P{phase} security keywords should match global"
-        # P1-P4: all have reduced security keyword sets (implementation terms removed).
-        for phase in range(1, 5):
+        # P2-P4: reduced security keyword sets (implementation terms removed).
+        # P1 has no security dimension at all (removed 2026-06-12) — its
+        # phase lookup falls back to global, which is fine: P1 never scans it.
+        for phase in range(2, 5):
             sec_kw = p.dimension_keywords_for_phase("security", phase)
             assert sec_kw != global_sec, f"P{phase} security must use reduced keyword set"
             # These implementation-specific terms must never appear in any phase's security vocab.
             for impl_kw in ("whitelist", "compare_digest", "input sanitizer"):
                 assert impl_kw not in sec_kw, f"'{impl_kw}' must not be in P{phase} security vocab"
-        # P1 and P2/P4 additionally remove hmac; P3 retains it (implementation code may use it).
-        assert "hmac" not in p.dimension_keywords_for_phase("security", 1)
+        # P2/P4 additionally remove hmac; P3 retains it (implementation code may use it).
         assert "hmac" not in p.dimension_keywords_for_phase("security", 2)
         assert "hmac" not in p.dimension_keywords_for_phase("security", 4)
         assert "hmac" in p.dimension_keywords_for_phase("security", 3), \
