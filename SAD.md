@@ -1267,10 +1267,6 @@ class KillSwitch:
 | `claims_verifier.py` | `ClaimsVerifier` + `ClaimsVerifyResult` — verifies sessions_spawn.log A/B role claims |
 | `confidence_scorer.py` | `compute_confidence()`, `should_auto_approve_p1p2()` — script-based C1-C7 scoring (no LLM); drives HITL auto-skip for P1/P2 |
 
-> **Not implemented**: `should_auto_approve_gate4()` (mentioned in earlier spec revisions)
-> was not wired in the current `core/quality_gate/confidence_scorer.py` — Gate 4 still
-> requires explicit human approval. Use `should_auto_approve_p1p2()` for the only
-> auto-skip path that is currently live.
 | `phase_config.py` | `PHASE_CONFIG` dict — per-phase config consumed by `IntegratedStagePassGenerator` |
 | `phase_paths.py` | `PHASE_ARTIFACT_PATHS` — artifact path registry per phase |
 
