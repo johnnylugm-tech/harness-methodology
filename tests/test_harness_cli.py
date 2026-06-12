@@ -3640,6 +3640,37 @@ class TestLoadContextTemplateWarnings:
         assert "warnings" in result
         assert any("02-architecture/adr/ADR.md" in w for w in result["warnings"])
 
+    def test_sad_md_sentinel_triggers_warning(self, tmp_path, capsys):
+        """SAD.md with sentinel literal → 1 warning.
+
+        Guards the path fix that added 02-architecture/SAD.md to
+        _template_artifacts (was missing — P2 entry agents could mistake
+        an init-project-copied SAD for a real P2 deliverable).
+        """
+        self._write_artifact(
+            tmp_path,
+            "02-architecture/SAD.md",
+            f"# SAD - Test\n\n{self._SENTINEL}\n\n## 1. Overview\n\nArchitecture.\n",
+        )
+        result = self._call(tmp_path, capsys)
+        assert "warnings" in result
+        assert any("02-architecture/SAD.md" in w for w in result["warnings"])
+
+    def test_sad_md_clean_no_warning(self, tmp_path, capsys):
+        """SAD.md without sentinel and < 8 placeholders → no warning.
+
+        Negative companion to test_sad_md_sentinel_triggers_warning.
+        """
+        self._write_artifact(
+            tmp_path,
+            "02-architecture/SAD.md",
+            "# SAD - OmniBot\n\n## 1. Overview\n\nReal architecture.\n",
+        )
+        result = self._call(tmp_path, capsys)
+        assert "warnings" not in result or not any(
+            "02-architecture/SAD.md" in w for w in result["warnings"]
+        )
+
     def test_pure_placeholder_triggers_warning(self, tmp_path, capsys):
         """TEST_SPEC.md with ≥8 {placeholder} patterns, no sentinel → 1 warning.
 
@@ -3675,14 +3706,17 @@ class TestLoadContextTemplateWarnings:
         result = self._call(tmp_path, capsys)
         assert "warnings" not in result or result.get("warnings") == []
 
-    def test_three_stubs_three_warnings(self, tmp_path, capsys):
-        """All three artifacts are stubs (sentinel) → 3 warnings, one per file.
+    def test_four_stubs_four_warnings(self, tmp_path, capsys):
+        """All four artifacts are stubs (sentinel) → 4 warnings, one per file.
 
-        Guards the path fix: earlier version scanned the wrong paths and
-        emitted zero warnings even when all three files were stubs.
+        Guards the path set: _template_artifacts must include SRS, SAD,
+        TEST_SPEC, and ADR. Earlier version scanned the wrong paths
+        (root-level files) and emitted zero warnings even when all
+        files were stubs. Later version missed SAD.md until this fix.
         """
         for rel, header in [
             ("01-requirements/SRS.md", "# SRS - {Project Name}"),
+            ("02-architecture/SAD.md", "# SAD - {Project Name}"),
             ("02-architecture/TEST_SPEC.md", "# TEST_SPEC"),
             ("02-architecture/adr/ADR.md", "# ADR-001"),
         ]:
@@ -3691,8 +3725,9 @@ class TestLoadContextTemplateWarnings:
             )
         result = self._call(tmp_path, capsys)
         assert "warnings" in result
-        assert len(result["warnings"]) == 3
+        assert len(result["warnings"]) == 4
         warned = {w.split(" is a template stub")[0] for w in result["warnings"]}
         assert "01-requirements/SRS.md" in warned
+        assert "02-architecture/SAD.md" in warned
         assert "02-architecture/TEST_SPEC.md" in warned
         assert "02-architecture/adr/ADR.md" in warned

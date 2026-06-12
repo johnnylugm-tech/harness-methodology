@@ -4201,6 +4201,7 @@ def cmd_load_context(args: argparse.Namespace) -> int:
     _sentinel = "<!-- harness:template-stub -->"
     _template_artifacts = (
         "01-requirements/SRS.md",
+        "02-architecture/SAD.md",
         "02-architecture/TEST_SPEC.md",
         "02-architecture/adr/ADR.md",
     )

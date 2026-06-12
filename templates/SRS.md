@@ -1,5 +1,9 @@
 # SRS - {Project Name}
 
+<!-- harness:template-stub -->
+<!-- Remove the sentinel line above once you start filling this SRS.
+     While present, harness load-context emits a stub warning. -->
+
 > On-demand Lazy Load template.
 
 ## 1. Requirements Overview
