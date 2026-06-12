@@ -391,10 +391,13 @@ class TestDimensionsForPhase:
         P1 security adequacy is owned by Agent B review + SAB NFR floors)."""
         assert _dimensions_for_phase(1) == ["correctness"]
 
-    def test_phase2_only_correctness_security(self):
-        """P2 uses correctness + security only — SAD/ADR are Markdown docs, no code vocabulary."""
+    def test_phase2_only_correctness(self):
+        """P2 enforces correctness only — security removed 2026-06-12 (same
+        corpus-unsatisfiable defect as P1: tts-new 69%, taskq approved SAD 31%
+        vs min-composite 80; owned by TECH_LEAD review + SAB floors + Gate 2-4
+        tool-scored security)."""
         dims = _dimensions_for_phase(2)
-        assert dims == ["correctness", "security"], f"P2 should use 2 dimensions, got {dims}"
+        assert dims == ["correctness"], f"P2 should enforce correctness only, got {dims}"
         assert "maintainability" not in dims, "P2 must exclude code-centric maintainability"
 
     def test_phase3_three_dimensions(self):
@@ -512,17 +515,16 @@ class TestDimensionsForPhase:
         for phase in range(5, 9):
             sec_kw = p.dimension_keywords_for_phase("security", phase)
             assert sec_kw == global_sec, f"P{phase} security keywords should match global"
-        # P2-P4: reduced security keyword sets (implementation terms removed).
-        # P1 has no security dimension at all (removed 2026-06-12) — its
-        # phase lookup falls back to global, which is fine: P1 never scans it.
-        for phase in range(2, 5):
+        # P3-P4: reduced security keyword sets (implementation terms removed).
+        # P1 and P2 have no security dimension at all (removed 2026-06-12) —
+        # their phase lookup falls back to global, fine: they never scan it.
+        for phase in range(3, 5):
             sec_kw = p.dimension_keywords_for_phase("security", phase)
             assert sec_kw != global_sec, f"P{phase} security must use reduced keyword set"
             # These implementation-specific terms must never appear in any phase's security vocab.
             for impl_kw in ("whitelist", "compare_digest", "input sanitizer"):
                 assert impl_kw not in sec_kw, f"'{impl_kw}' must not be in P{phase} security vocab"
-        # P2/P4 additionally remove hmac; P3 retains it (implementation code may use it).
-        assert "hmac" not in p.dimension_keywords_for_phase("security", 2)
+        # P4 additionally removes hmac; P3 retains it (implementation code may use it).
         assert "hmac" not in p.dimension_keywords_for_phase("security", 4)
         assert "hmac" in p.dimension_keywords_for_phase("security", 3), \
             "P3 source code may use hmac directly"

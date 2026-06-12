@@ -408,20 +408,22 @@ def _build_defaults() -> ConstitutionProfile:
 
     # P2 (Architecture: SAD.md, ADR.md)
     # - correctness: removes "acceptance criteria" (testing concept, not in architecture docs)
-    # - security: removes hmac, mask, whitelist, compare_digest, input sanitizer
-    #   (cryptographic primitives / impl details that don't appear in architecture documents)
+    # - security dimension REMOVED from P2 (2026-06-12, integration-test E2E,
+    #   same defect class as P1): 15-topic keyword density (rbac/tls/pii/
+    #   rate limit/encrypt/signature…) is project-shape-dependent. Corpus:
+    #   tts-new (completed P1-P8, web service) scored 69%, taskq (local CLI,
+    #   Agent-B-approved SAD+ADR, 89% holistic audit) scored 31% — both
+    #   blocked at min-composite 80. Architecture-phase security adequacy is
+    #   owned by Agent B TECH_LEAD review (SAD vs security NFRs), the SAB
+    #   NFR→dimension floors (M2+), Gate 2-4 tool-scored security dims
+    #   (bandit/semgrep on real code), and v2.9 B1 architecture-risk triggers
+    #   in TEST_SPEC derivation.
     # - maintainability dropped: SAD/ADR are Markdown docs — code vocabulary (class, def,
     #   docstring, type hint, snake_case) never appears; would cap score at 0%.
-    # - composite_threshold=80: architecture must cover most security concepts
+    # - composite_threshold=80: architecture docs must cover the structural vocabulary
     _p2_correctness_kw = [
         "fr-", "nfr-", "requirement", "specification",
         "traceability matrix", "srs", "sad",
-    ]
-    _p2_security_kw = [
-        "auth", "validation", "sanitize", "encrypt",
-        "signature", "verify", "rbac", "permission",
-        "token", "pii", "secret", "tls",
-        "rate limit", "security", "vulnerability",
     ]
 
     # P3 (Implementation: source code files)
@@ -514,11 +516,10 @@ def _build_defaults() -> ConstitutionProfile:
                 },
             ),
             2: PhaseProfile(
-                active_dimensions=["correctness", "security"],
+                active_dimensions=["correctness"],
                 composite_threshold=80.0,
                 dimension_keywords={
                     "correctness": _p2_correctness_kw,
-                    "security": _p2_security_kw,
                 },
             ),
             3: PhaseProfile(
