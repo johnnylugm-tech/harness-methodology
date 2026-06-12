@@ -18,7 +18,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 
 from harness_cli import _run_spec_coverage_check
 

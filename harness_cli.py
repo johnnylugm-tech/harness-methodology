@@ -3842,8 +3842,8 @@ def _validate_p3_post_gate2_precondition(
     gate2_path = project / ".methodology" / "gate2_result.json"
     if not gate2_path.exists():
         errors.append(
-            f".methodology/gate2_result.json not found. Run "
-            f"`finalize-gate --gate 2 --phase 3 --project .` first."
+            ".methodology/gate2_result.json not found. Run "
+            "`finalize-gate --gate 2 --phase 3 --project .` first."
         )
     else:
         try:

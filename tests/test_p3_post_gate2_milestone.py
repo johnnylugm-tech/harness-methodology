@@ -20,7 +20,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
 
 from harness_cli import _validate_p3_post_gate2_precondition
 
