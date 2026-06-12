@@ -375,6 +375,67 @@ class GitStrategy:
         msg = f"feat(P3-pre-gate2): all {len(fr_ids)} FR(s) Gate1 PASS; ready for Gate 2"
         return self._commit_and_push(msg)
 
+    # ── Push ⑤ — P3 post-Gate2 (P3 formal exit, v2.9.1 B.2) ────────────────
+
+    def commit_and_push_p3_post_gate2(
+        self,
+        fr_ids: list[str],
+        background: str = "",
+        notes: list[str] | None = None,
+    ) -> bool:
+        """
+        Commit + push when Gate 2 has PASSed and all FR Gate 1s are PASS.  PUSH ⑤
+
+        This is the FORMAL P3 exit milestone. Pre-flight is enforced in
+        `cmd_push_milestone` via `_validate_p3_post_gate2_precondition`
+        (gate2_result.json composite ≥ 75 + per-FR Gate 1 sentinels present),
+        so by the time this method runs the conditions are satisfied.
+
+        Closes the e2e finding where the orchestrator called its commit
+        "P3-exit" without verifying any gate — orchestrators can now invoke
+        this milestone type instead of writing label-only commits.
+
+        Args:
+            fr_ids:     All FR IDs (Gate 1 PASS).
+            background: Optional project context.
+            notes:      Extra notes.
+        """
+        if not self.enabled:
+            return True
+        fr_list = self._fr_summary(fr_ids)
+
+        ab = self._ab_session_summary()
+        committed = self._recently_committed_files()
+
+        status_parts = [
+            f"Gate 2 PASS + all {len(fr_ids)} FR(s) Gate 1 PASS [{fr_list}]. "
+            "Phase 3 formally complete. P4 (verification + adversarial) ready.",
+        ]
+        if ab:
+            status_parts.append(f"\n**A/B Session Results:**\n{ab}")
+        if committed:
+            file_md = "\n".join(f"  - `{f}`" for f in committed)
+            status_parts.append(f"\n**Recently Committed Files:**\n{file_md}")
+
+        self._write_handover(
+            checkpoint_id=self._cp("P3-post-gate2"),
+            phase=3,
+            background=background or "P3 Implementation complete. Gate 2 PASS. Ready for P4.",
+            status="\n".join(status_parts),
+            steps=[
+                "advance-phase --completed 3  (transitions to P4)",
+                "Spawn Phase 4 orchestrator (verification + adversarial bug hunt)",
+                "Gate 3 at P4 exit (target composite ≥ 80)",
+            ],
+            notes=notes,
+            extra={
+                "fr_count": str(len(fr_ids)),
+            },
+            resume_phase=4,
+        )
+        msg = f"feat(P3-post-gate2): Gate 2 PASS + all {len(fr_ids)} FR(s) Gate1 PASS; P3 exit"
+        return self._commit_and_push(msg)
+
     # ── Push ③④ (P4 variant) — P4 mid + pre-Gate3 milestones ────────────────
 
     def commit_and_push_p4_mid(

@@ -21,7 +21,7 @@ Usage:
     python harness_cli.py check-logic       [--project .] [--srs SRS.md]
     python harness_cli.py init-project      --project /path/to/target [--phase 3] [--overwrite]
     python harness_cli.py push-checkpoint   --phase 1|2 --project . [--fr-ids FR-01,FR-02]
-    python harness_cli.py push-milestone    --type p3-mid|p3-pre-gate2|p5-baseline|p7|p8 --project .
+    python harness_cli.py push-milestone    --type p3-mid|p3-pre-gate2|p3-post-gate2|p4-mid|p4-pre-gate3|p5-baseline|p7|p8 --project .
     python harness_cli.py advance-phase     --completed-phase 3 [--project .]
     python harness_cli.py dispatch          --role developer|reviewer --fr-id FR-01 --prompt "..." --phase 3
 
@@ -931,11 +931,10 @@ def _run_spec_coverage_check(
         sad_path = project / "02-architecture" / "SAD.md"
         sad_has_frs = False
         if sad_path.exists():
-            import re
             sad_text = sad_path.read_text(encoding="utf-8", errors="replace")
             if re.search(r"\bFR-\d+\b", sad_text):
                 sad_has_frs = True
-                
+
         if sad_has_frs:
             if verbose:
                 print("[spec-coverage] ERROR: TEST_SPEC.md not found at 02-architecture/TEST_SPEC.md but SAD.md has FRs.")
@@ -950,9 +949,40 @@ def _run_spec_coverage_check(
         items = [i for i in items if i["fr_id"] == fr_id]
 
     if not items:
+        # v2.9 B.3 fix: vacuous pass was masking wrong-shape TEST_SPEC.md
+        # (e.g. prose strategy doc instead of derive_test_cases.md table).
+        # Check whether FRs are actually defined — if yes, 0 cases is a real
+        # failure (orchestrator skipped derive_test_cases.md skill), not a
+        # vacuous pass.
+        fr_defined = False
+        # Authoritative source: SAD.md FR table (P2 deliverable).
+        # Fallback: SPEC_TRACKING.md (P1 deliverable) — if SAD doesn't exist
+        # but SPEC_TRACKING does, FRs are still declared.
+        for probe_rel in (
+            "02-architecture/SAD.md",
+            "01-requirements/SPEC_TRACKING.md",
+        ):
+            probe_path = project / probe_rel
+            if probe_path.exists():
+                try:
+                    _probe_text = probe_path.read_text(encoding="utf-8", errors="replace")
+                    if re.search(r"\bFR-\d+\b", _probe_text):
+                        fr_defined = True
+                        break
+                except OSError:
+                    pass
+        scope = f" for {fr_id}" if fr_id else ""
+        if fr_defined:
+            if verbose:
+                print(
+                    f"[spec-coverage] BLOCKED{scope}: TEST_SPEC.md has 0 parseable "
+                    f"test cases but FRs are defined. The file is likely the wrong "
+                    f"shape (prose strategy doc instead of derive_test_cases.md "
+                    f"table). Re-run the derive_test_cases.md skill in Phase 2."
+                )
+            return (1, 0.0)
         if verbose:
-            print("[spec-coverage] No test cases found in TEST_SPEC.md"
-                  + (f" for {fr_id}" if fr_id else "") + ".")
+            print(f"[spec-coverage] No test cases found in TEST_SPEC.md{scope} and no FRs defined — vacuous pass.")
         return (0, 100.0)
 
     # v2.6.1: Enforce P1 Naming Authority to prevent LLM hallucinations
@@ -3788,6 +3818,61 @@ def _validate_p8_completion(project: Path) -> list[str]:
 
     return errors
 
+
+def _validate_p3_post_gate2_precondition(
+    project: Path, fr_ids: list[str]
+) -> list[str]:
+    """v2.9.1 B.2: Pre-flight checks for push-milestone --type p3-post-gate2.
+
+    PUSH ⑤ is the formal P3-exit milestone. It must not be allowed to land
+    on a label-only claim (the e2e orchestrator previously called its commit
+    "P3-exit" without verifying any gate; this milestone type makes the
+    check structural, not narrative).
+
+    Required (errors block the push):
+      1. .methodology/gate2_result.json exists, gate == 2, composite ≥ 75
+      2. every FR in `fr_ids` has a per-FR Gate 1 sentinel in
+         .sessi-work/sentinels/ (matches what `finalize-gate --gate 1 --fr-id FR-XX`
+         would write). This is the per-FR 95% bar that `advance-phase` also
+         enforces — the milestone cannot be a softer gate than advance-phase.
+    """
+    errors: list[str] = []
+
+    # 1. Gate 2 PASS precondition
+    gate2_path = project / ".methodology" / "gate2_result.json"
+    if not gate2_path.exists():
+        errors.append(
+            f".methodology/gate2_result.json not found. Run "
+            f"`finalize-gate --gate 2 --phase 3 --project .` first."
+        )
+    else:
+        try:
+            _g2 = json.loads(gate2_path.read_text(encoding="utf-8"))
+            _g2_score = _g2.get("composite_score") or _g2.get("overall_score") or 0
+            if _g2_score < 75:
+                errors.append(
+                    f"Gate 2 composite score {_g2_score} < 75. "
+                    f"Fix Gate 2 failures before PUSH ⑤."
+                )
+        except (json.JSONDecodeError, OSError) as e:
+            errors.append(f"Could not parse gate2_result.json: {e}")
+
+    # 2. Per-FR Gate 1 sentinel precondition
+    sentinels_dir = project / ".sessi-work" / "sentinels"
+    missing_sentinels: list[str] = []
+    for fr_id in fr_ids:
+        sentinel = sentinels_dir / f"g1_{fr_id.lower()}.flag"
+        if not sentinel.exists():
+            missing_sentinels.append(fr_id)
+    if missing_sentinels:
+        errors.append(
+            f"Per-FR Gate 1 sentinel missing for {len(missing_sentinels)} FR(s): "
+            f"{', '.join(missing_sentinels)}. Run "
+            f"`finalize-gate --gate 1 --phase 3 --fr-id <FR-ID> --project .` for each."
+        )
+
+    return errors
+
 # ---------------------------------------------------------------------------
 # push-milestone  (P3+ milestone push + HANDOVER.md)
 # ---------------------------------------------------------------------------
@@ -3798,6 +3883,7 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
     Milestone pushes are the crash-recovery points for P3+:
       p3-mid      — ≥50% FRs have Gate 1 PASS (PUSH ③)
       p3-pre-gate2  — all FRs Gate 1 PASS, before Gate 2 (PUSH ④)
+      p3-post-gate2 — Gate 2 PASS, all FRs Gate 1 PASS, before P4 (PUSH ⑤; v2.9.1 B.2)
       p4-mid      — ≥50% FRs Gate 1 re-eval PASS (PUSH ③ P4 variant)
       p4-pre-gate3  — all FRs Gate 1 re-eval PASS, before Gate 3 (PUSH ④ P4 variant)
       p5-baseline — BASELINE.md generated (PUSH ⑦)
@@ -3807,6 +3893,7 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
     Usage:
       python harness_cli.py push-milestone --type p3-mid --project . --fr-done 3 --fr-total 6 --fr-ids FR-01,FR-02,FR-03
       python harness_cli.py push-milestone --type p3-pre-gate2 --project . --fr-ids FR-01,FR-02,FR-03
+      python harness_cli.py push-milestone --type p3-post-gate2 --project . --fr-ids FR-01,FR-02,FR-03
       python harness_cli.py push-milestone --type p5-baseline --project .
     """
     project = Path(args.project).resolve()
@@ -3835,6 +3922,15 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
         ok = git.commit_and_push_p3_mid(fr_done, fr_total, fr_ids)
     elif milestone_type == "p3-pre-gate2":
         ok = git.commit_and_push_p3_pre_gate2(fr_ids)
+    elif milestone_type == "p3-post-gate2":
+        # v2.9.1 B.2: validate Gate 2 PASS + all FRs Gate 1 PASS as precondition
+        _pre = _validate_p3_post_gate2_precondition(project, fr_ids)
+        if _pre:
+            print("[ERROR] p3-post-gate2 blocked — pre-flight checks failed:")
+            for _e in _pre:
+                print(f"  • {_e}")
+            return 1
+        ok = git.commit_and_push_p3_post_gate2(fr_ids)
     elif milestone_type == "p4-mid":
         fr_done = args.fr_done
         fr_total = args.fr_total
@@ -3878,6 +3974,214 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
             print(f"  HANDOVER.md → {handover}")
         print(f"  [git] milestone {milestone_type} pushed → remote ✓")
     return 0 if ok else 1
+
+
+# ---------------------------------------------------------------------------
+# v2.9.1 B.1: validate-handoff  (cross-deliverable dependency check)
+# ---------------------------------------------------------------------------
+# Closes the e2e finding where P1 orchestrator failed to produce
+# TEST_INVENTORY.yaml, P2 orchestrator produced a wrong-shape TEST_SPEC.md
+# (prose instead of derive_test_cases.md table), and Agent B peer review
+# did not catch the cross-deliverable chain break. Workflow JS can now
+# call this CLI as a pre-launch precondition before spawning the next
+# phase's orchestrator.
+# ---------------------------------------------------------------------------
+
+def _validate_handoff_p1_to_p2(project: Path) -> list[str]:
+    """P1→P2: TEST_INVENTORY.yaml must exist, be non-empty, and cover all FRs."""
+    errors: list[str] = []
+    inv_path = project / "01-requirements" / "TEST_INVENTORY.yaml"
+    if not inv_path.exists():
+        return [
+            "TEST_INVENTORY.yaml missing at 01-requirements/TEST_INVENTORY.yaml. "
+            "P1 Sub-Task 4/4 in the plan template produces this file. "
+            "Re-run the Phase 1 orchestrator or invoke the inventory skill manually."
+        ]
+    text = inv_path.read_text(encoding="utf-8", errors="replace").strip()
+    if not text:
+        return [
+            "TEST_INVENTORY.yaml is empty. P1 orchestrator produced a stub. "
+            "Re-run Phase 1 with explicit --fr-tests populated."
+        ]
+
+    # Parse and check coverage
+    try:
+        import yaml
+        inventory = yaml.safe_load(text)
+    except ImportError:
+        inventory = _parse_inventory_fallback(text)
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        return [f"TEST_INVENTORY.yaml is unparseable: {e}"]
+
+    if not inventory.get("fr_tests") and not inventory.get("cross_cutting"):
+        errors.append(
+            "TEST_INVENTORY.yaml has neither `fr_tests:` nor `cross_cutting:` "
+            "sections. At minimum the P1 naming authority must declare per-FR test names."
+        )
+
+    # Check that every FR in SRS has at least one test name in inventory
+    srs_path = project / "01-requirements" / "SRS.md"
+    if srs_path.exists():
+        srs_text = srs_path.read_text(encoding="utf-8", errors="replace")
+        declared_frs = set(re.findall(r"\bFR-\d+\b", srs_text))
+        covered_frs: set[str] = set()
+        fr_tests = inventory.get("fr_tests") or {}
+        for fr_id, names in fr_tests.items():
+            if names:  # non-empty list of test names
+                # FR IDs may be stored as "FR-01" or "fr01" — normalise
+                norm = fr_id.upper().replace("_", "-")
+                if not norm.startswith("FR-"):
+                    norm = f"FR-{norm}"
+                if norm in declared_frs:
+                    covered_frs.add(norm)
+        missing_frs = declared_frs - covered_frs
+        if missing_frs:
+            errors.append(
+                f"TEST_INVENTORY.yaml missing test names for {len(missing_frs)} "
+                f"FR(s) declared in SRS.md: {', '.join(sorted(missing_frs))}. "
+                f"P1 deliverable must name at least one test per FR."
+            )
+
+    return errors
+
+
+def _validate_handoff_p2_to_p3(project: Path) -> list[str]:
+    """P2→P3: TEST_SPEC.md must contain parseable named test cases (table format)."""
+    errors: list[str] = []
+    spec_path = project / "02-architecture" / "TEST_SPEC.md"
+    if not spec_path.exists():
+        return [
+            "TEST_SPEC.md missing at 02-architecture/TEST_SPEC.md. "
+            "P2 Sub-Task 3/3 produces this file via the derive_test_cases.md skill. "
+            "Re-run Phase 2 orchestrator with explicit skill invocation."
+        ]
+    items = _parse_test_spec(spec_path)
+    if not items:
+        # 0 cases may be legitimate (genuinely empty) or wrong-shape. Distinguish.
+        _code, _pct = _run_spec_coverage_check(
+            project, threshold=60.0, fr_id=None, verbose=False
+        )
+        if _code == 1:
+            errors.append(
+                "TEST_SPEC.md has 0 parseable test cases but FRs are defined. "
+                "The file is likely the wrong shape (prose strategy doc instead "
+                "of the derive_test_cases.md table). Re-run the skill in Phase 2."
+            )
+        # else: spec-coverage returned 0 (vacuous OK because no FRs); pass.
+    return errors
+
+
+def _validate_handoff_p3_to_p4(project: Path) -> list[str]:
+    """P3→P4: every FR must have a per-FR Gate 1 sentinel.
+
+    Same precondition as push-milestone --type p3-post-gate2, but fr_ids
+    is auto-resolved from the manifest if not provided.
+    """
+    fr_ids = _resolve_fr_ids_from_manifest(project)
+    if not fr_ids:
+        return [
+            "Could not resolve FR IDs from .methodology/quality_manifest.json "
+            "or --fr-ids. Cannot verify per-FR Gate 1 sentinels."
+        ]
+    return _validate_p3_post_gate2_precondition(project, fr_ids)
+
+
+def _validate_handoff_p4_to_p5(project: Path) -> list[str]:
+    """P4→P5: VERIFICATION_REPORT.md must exist with non-trivial content."""
+    errors: list[str] = []
+    report = project / "04-verification" / "VERIFICATION_REPORT.md"
+    if not report.exists():
+        return [
+            "VERIFICATION_REPORT.md missing at 04-verification/VERIFICATION_REPORT.md. "
+            "P4 exit produces this file (or 06-quality/VERIFICATION_REPORT.md)."
+        ]
+    text = report.read_text(encoding="utf-8", errors="replace").strip()
+    if len(text) < 200:
+        errors.append(
+            f"VERIFICATION_REPORT.md is suspiciously short ({len(text)} chars). "
+            f"Real verification reports are ≥ 1KB. Possible stub."
+        )
+    return errors
+
+
+def _validate_handoff_p5_to_p6(project: Path) -> list[str]:
+    """P5→P6: BASELINE.md must exist (same as push-milestone p5-baseline precondition)."""
+    errors: list[str] = []
+    baseline = project / "05-verification" / "BASELINE.md"
+    if not baseline.exists() and not (project / "BASELINE.md").exists():
+        return [
+            "BASELINE.md missing at 05-verification/BASELINE.md (or BASELINE.md). "
+            "Phase 5 produces this file via the verify methodology."
+        ]
+    return errors
+
+
+_HANDOFF_VALIDATORS = {
+    1: _validate_handoff_p1_to_p2,
+    2: _validate_handoff_p2_to_p3,
+    3: _validate_handoff_p3_to_p4,
+    4: _validate_handoff_p4_to_p5,
+    5: _validate_handoff_p5_to_p6,
+}
+
+
+def _resolve_fr_ids_from_manifest(project: Path) -> list[str]:
+    """Resolve FR IDs from .methodology/quality_manifest.json (fr_ids field)."""
+    manifest_path = project / ".methodology" / "quality_manifest.json"
+    if not manifest_path.exists():
+        return []
+    try:
+        _mf = json.loads(manifest_path.read_text(encoding="utf-8"))
+        return list(_mf.get("fr_ids") or [])
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
+def _validate_handoff(project: Path, from_phase: int) -> list[str]:
+    """Dispatch to the right per-transition validator.
+
+    Args:
+        project:    project root
+        from_phase: phase number that just completed (1..5). 6/7/8 are
+                    outside the scope of cross-deliverable handoff checks
+                    (P6-Gate-4 is the final gate, P7/P8 are terminal).
+
+    Returns:
+        list of error strings (empty = handoff OK).
+    """
+    if from_phase not in _HANDOFF_VALIDATORS:
+        return [
+            f"No handoff validator for from-phase={from_phase}. "
+            f"Supported: {sorted(_HANDOFF_VALIDATORS.keys())}."
+        ]
+    return _HANDOFF_VALIDATORS[from_phase](project)
+
+
+def cmd_validate_handoff(args: argparse.Namespace) -> int:
+    """v2.9.1 B.1: Cross-deliverable dependency check for phase handoffs.
+
+    Validates that the upstream phase's deliverables are present and
+    well-formed before the downstream phase is launched. Used by
+    workflow JS as a pre-launch precondition and by Agent B peer
+    review as a structural cross-deliverable assertion.
+
+    Usage:
+        python harness_cli.py validate-handoff --from-phase 1 --project .
+        python harness_cli.py validate-handoff --from-phase 2 --project .
+        python harness_cli.py validate-handoff --from-phase 3 --project .
+
+    Exit 0 = handoff OK. Exit 1 = handoff blocked (error list printed).
+    """
+    project = Path(args.project).resolve()
+    from_phase = args.from_phase
+    errors = _validate_handoff(project, from_phase)
+    if not errors:
+        print(f"[validate-handoff] P{from_phase} → P{from_phase + 1}: OK")
+        return 0
+    print(f"[validate-handoff] P{from_phase} → P{from_phase + 1}: BLOCKED")
+    for e in errors:
+        print(f"  • {e}")
+    return 1
 
 # ---------------------------------------------------------------------------
 # gate4-tag  (create annotated git tag from gate4_result.json)
@@ -8758,7 +9062,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Push milestone checkpoint with HANDOVER.md (P3+: p3-mid, p3-pre-gate2, p5-baseline, p7, p8)",
     )
     pm.add_argument("--type", required=True,
-                    choices=["p3-mid", "p3-pre-gate2", "p4-mid", "p4-pre-gate3",
+                    choices=["p3-mid", "p3-pre-gate2", "p3-post-gate2",
+                             "p4-mid", "p4-pre-gate3",
                              "p5-baseline", "p7", "p8"],
                     help="Milestone type")
     pm.add_argument("--project", default=".", help="Project root (default: .)")
@@ -9155,6 +9460,19 @@ def build_parser() -> argparse.ArgumentParser:
     kss.add_argument("--agent-id", help="Specific agent to inspect (default: list all).")
 
     ks.set_defaults(func=cmd_kill_switch)
+
+    # v2.9.1 B.1: validate-handoff
+    vh = sub.add_parser(
+        "validate-handoff",
+        help="Cross-deliverable dependency check for phase handoffs (P{N} → P{N+1})",
+    )
+    vh.add_argument(
+        "--from-phase", type=int, required=True, dest="from_phase",
+        choices=[1, 2, 3, 4, 5],
+        help="Phase number that just completed; validator checks deliverables needed by P{N+1}",
+    )
+    vh.add_argument("--project", default=".", help="Project root (default: .)")
+    vh.set_defaults(func=cmd_validate_handoff)
 
     return p
 
