@@ -4447,13 +4447,69 @@ def cmd_load_context(args: argparse.Namespace) -> int:
     # fr_ids and gate_results from manifest
     fr_ids: list = []
     gate_results: dict = {}
+    fr_id_source: str = ""  # diagnostics: where did fr_ids come from?
     if manifest_path.exists():
         try:
             manifest = _json.loads(manifest_path.read_text(encoding="utf-8"))
             fr_ids = manifest.get("fr_ids", [])
             gate_results = manifest.get("gate_results", {})
+            if fr_ids:
+                fr_id_source = "quality_manifest.json"
         except Exception:  # pylint: disable=broad-exception-caught
             pass
+
+    # P1 fallback (bug #2 fix): when quality_manifest.json is missing or empty
+    # (the chicken-and-egg case at P1 entry, before P2 generates the manifest),
+    # extract fr_ids from the canonical_spec declared in PROJECT_BRIEF.md.
+    # Without this fallback, load-context at P1 returns fr_ids=[] and the
+    # orchestrator cannot enumerate FR scope. Repro: integration-test P1
+    # bootstrap 2026-06-15.
+    if not fr_ids:
+        brief_path = project / "PROJECT_BRIEF.md"
+        if brief_path.exists():
+            try:
+                import re as _re
+
+                _brief_text = brief_path.read_text(encoding="utf-8")
+                # Support two PROJECT_BRIEF.md layouts:
+                # (a) inline frontmatter / config-style: `canonical_spec: SPEC.md`
+                # (b) markdown heading:        `## canonical_spec\nSPEC.md\n`
+                _spec_rel: str | None = None
+                _m_inline = _re.search(
+                    r"^\s*canonical_spec\s*:\s*(\S+)\s*$",
+                    _brief_text,
+                    _re.MULTILINE,
+                )
+                if _m_inline:
+                    _spec_rel = _m_inline.group(1).strip()
+                else:
+                    _m_heading = _re.search(
+                        r"^##\s*canonical_spec\s*$\n([^\n]+)",
+                        _brief_text,
+                        _re.MULTILINE,
+                    )
+                    if _m_heading:
+                        _spec_rel = _m_heading.group(1).strip()
+                if _spec_rel:
+                    _spec_path = (
+                        Path(_spec_rel)
+                        if Path(_spec_rel).is_absolute()
+                        else project / _spec_rel
+                    )
+                    if _spec_path.exists():
+                        _spec_text = _spec_path.read_text(encoding="utf-8")
+                        # Extract FR headers like `### FR-01: ...`
+                        _frs = _re.findall(
+                            r"^###\s+FR-(\d+)\s*:", _spec_text, _re.MULTILINE
+                        )
+                        if _frs:
+                            fr_ids = [f"FR-{n}" for n in _frs]
+                            fr_id_source = (
+                                f"PROJECT_BRIEF.md::canonical_spec → "
+                                f"{_spec_rel} (P1 fallback, quality_manifest.json not yet generated)"
+                            )
+            except Exception:  # pylint: disable=broad-exception-caught
+                pass
 
     # current_phase from state.json
     current_phase = 0
@@ -4495,6 +4551,7 @@ def cmd_load_context(args: argparse.Namespace) -> int:
         "modules": modules,
         "gate_results": gate_results,
         "current_phase": current_phase,
+        "fr_id_source": fr_id_source or "none",
     }
 
     # Sentinel warning: existing artifacts still in template state?
