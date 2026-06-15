@@ -44,9 +44,21 @@ from harness.fr_progress_tracker import FRProgressTracker
 
 # Harness runtime artifacts that pollute git history
 _GITIGNORE_ENTRIES: list[str] = [
+    # harness runtime (auto-added on first run)
     ".sessi-work/",
     ".methodology/last_block.md",
     ".methodology/steering_history.json",
+    # Python venv / tool caches (avoid GH001 large-file rejections in pipeline mode)
+    ".venv/",
+    "venv/",
+    "ENV/",
+    "__pycache__/",
+    "*.py[cod]",
+    ".pytest_cache/",
+    ".coverage",
+    "htmlcov/",
+    ".mutmut-cache/",
+    ".code-review-graph/",
 ]
 
 _TAG_PREFIX = "gate4"

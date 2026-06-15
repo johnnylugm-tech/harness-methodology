@@ -8477,6 +8477,15 @@ def cmd_init_project(args: argparse.Namespace) -> int:
     print("\n[6/11] Copying artifact templates...")
     _init_copy_templates(project, harness_root, overwrite=args.overwrite)
 
+    # 6a. Initialize .gitignore with harness runtime + dev artifact entries
+    # (prevents pipeline-mode `git add -A` from committing .venv/ — semgrep-core
+    # is 197MB and trips GH001 large-file rejection; bug discovered during
+    # integration-test E2E bootstrap, 2026-06-15)
+    print("\n[6a/11] Initializing .gitignore for pipeline mode...")
+    from harness.git_strategy import GitStrategy
+    _git_ignore_helper = GitStrategy(project, enabled=True, push=False)
+    _git_ignore_helper.ensure_gitignore()
+
     # 6b. JS/TS quality toolchain (pinned devDeps + lint/type/test/bench configs)
     if language in ("javascript", "typescript"):
         print("\n[6b/11] Setting up JS/TS quality toolchain...")
