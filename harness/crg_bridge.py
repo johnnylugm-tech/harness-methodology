@@ -239,9 +239,7 @@ class CRGBridge:
 
     def get_knowledge_gaps(self, project_root: str) -> dict[str, Any]:
         """Find untested critical paths (cross-ref with TEST_INVENTORY.yaml)."""
-        if _crg_knowledge_gaps is None:
-            return {}
-        return _crg_knowledge_gaps(repo_root=project_root)
+        return self._call_crg(_crg_knowledge_gaps, {"repo_root": project_root})
 
     def semantic_search(
         self, project_root: str, query: str, kind: str | None = None, limit: int = 20
@@ -282,11 +280,9 @@ class CRGBridge:
         self, project_root: str, limit: int = 20, sort_by: str = "criticality"
     ) -> dict[str, Any]:
         """List execution flows sorted by criticality."""
-        if _crg_list_flows is None:
-            return {}
-        return _crg_list_flows(
-            repo_root=project_root, limit=limit, sort_by=sort_by
-        )
+        return self._call_crg(_crg_list_flows, {
+            "repo_root": project_root, "limit": limit, "sort_by": sort_by,
+        })
 
     def check_dead_code(
         self, project_root: str, kind: str | None = None
