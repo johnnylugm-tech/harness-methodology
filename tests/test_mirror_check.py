@@ -150,10 +150,10 @@ def test_cli_mirror_gate(tmp_path):
 
     tf.write_text(_FR01_BAD, encoding="utf-8")
     rc = cmd_check_test_mirrors_spec(
-        argparse.Namespace(project=str(tmp_path), fr_id="FR-01", test_file=str(tf)))
+        argparse.Namespace(project=str(tmp_path), fr_id="FR-01", test_files=[str(tf)]))
     assert rc == 1
 
     tf.write_text(_FR01_GOOD, encoding="utf-8")
     rc = cmd_check_test_mirrors_spec(
-        argparse.Namespace(project=str(tmp_path), fr_id="FR-01", test_file=str(tf)))
+        argparse.Namespace(project=str(tmp_path), fr_id="FR-01", test_files=[str(tf)]))
     assert rc == 0
