@@ -12,7 +12,6 @@ Reference: integration-test/AUDIT_LOG entry 2026-06-15-bug-1
 """
 from pathlib import Path
 
-
 from harness.git_strategy import GitStrategy, _GITIGNORE_ENTRIES
 
 

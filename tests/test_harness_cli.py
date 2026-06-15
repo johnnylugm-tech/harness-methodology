@@ -745,6 +745,7 @@ class TestValidateP8Completion:
     def test_all_ok_returns_empty_list(self, tmp_path):
         archive = tmp_path / ".methodology-archive"
         archive.mkdir()
+        (archive / "phase8_plan.md").write_text("# P8 plan\n", encoding="utf-8")
         handover = tmp_path / "HANDOVER.md"
         handover.write_text("# Handover\n\nP8 complete. All phases done.\n")
         from harness_cli import _validate_p8_completion
@@ -752,12 +753,15 @@ class TestValidateP8Completion:
         assert errors == []
 
     def test_missing_archive_autocreated(self, tmp_path):
-        # O2: auto-create .methodology-archive/ instead of returning error
+        # Auto-create .methodology-archive/ when absent; report content error
+        # (the directory was never populated, not just never created).
         from harness_cli import _validate_p8_completion
         assert not (tmp_path / ".methodology-archive").exists()
         errors = _validate_p8_completion(tmp_path)
-        assert not any(".methodology-archive" in e for e in errors)
-        assert (tmp_path / ".methodology-archive").exists()
+        assert (tmp_path / ".methodology-archive").exists(), "dir must be auto-created"
+        assert any("methodology artifacts" in e for e in errors), (
+            "empty auto-created archive must trigger a content error"
+        )
 
     def test_phase9_reference_in_handover_returns_error(self, tmp_path):
         archive = tmp_path / ".methodology-archive"
@@ -783,10 +787,15 @@ class TestP8ArchiveContentCheck:
     """
 
     def test_archive_with_methodology_passes(self, tmp_path):
-        """Archive contains .methodology/ contents → no error."""
+        """Archive contains .methodology/ contents → no error.
+
+        `cp -r .methodology/ .methodology-archive/` (trailing slash on source,
+        dest already exists from mkdir) copies the CONTENTS of .methodology/
+        directly into .methodology-archive/ — no "methodology/" subdirectory.
+        """
         from harness_cli import _validate_p8_completion
 
-        archive = tmp_path / ".methodology-archive" / "methodology"
+        archive = tmp_path / ".methodology-archive"
         archive.mkdir(parents=True)
         (archive / "phase8_plan.md").write_text("# P8 plan\n", encoding="utf-8")
         handover = tmp_path / "HANDOVER.md"
@@ -801,7 +810,7 @@ class TestP8ArchiveContentCheck:
         """Archive with quality_manifest.json (no phase plan) still passes."""
         from harness_cli import _validate_p8_completion
 
-        archive = tmp_path / ".methodology-archive" / "methodology"
+        archive = tmp_path / ".methodology-archive"
         archive.mkdir(parents=True)
         (archive / "quality_manifest.json").write_text(
             '{"fr_ids": ["FR-01"]}', encoding="utf-8"
@@ -843,17 +852,12 @@ class TestP8ArchiveContentCheck:
             f"Error must reference Finding #24 for traceability; got: {err_text}"
         )
 
-    def test_empty_methodology_dir_in_archive_fails(self, tmp_path):
-        """.methodology-archive/methodology/ exists but is empty → error.
-
-        The archive has the right structure (methodology/ subdir) but no
-        content. The validator must catch the silent-empty case.
-        """
+    def test_empty_archive_fails(self, tmp_path):
+        """.methodology-archive/ exists but is empty (mkdir ran, cp never did) → error."""
         from harness_cli import _validate_p8_completion
 
-        archive = tmp_path / ".methodology-archive" / "methodology"
-        archive.mkdir(parents=True)
-        # No files written — empty dir
+        # Do NOT pre-create the archive dir; the validator creates it automatically.
+        # Result: .methodology-archive/ exists but contains no plan files or manifest.
         handover = tmp_path / "HANDOVER.md"
         handover.write_text("# Handover\n", encoding="utf-8")
 
@@ -897,6 +901,7 @@ class TestP8ArchiveContentCheck:
     def test_no_handover_file_is_ok(self, tmp_path):
         archive = tmp_path / ".methodology-archive"
         archive.mkdir()
+        (archive / "phase8_plan.md").write_text("# P8\n", encoding="utf-8")
         # No HANDOVER.md — should not raise
         from harness_cli import _validate_p8_completion
         errors = _validate_p8_completion(tmp_path)

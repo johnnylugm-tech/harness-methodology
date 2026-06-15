@@ -3868,18 +3868,22 @@ def _validate_p8_completion(project: Path) -> list[str]:
             "cp -r .methodology/ .methodology-archive/`."
         )
 
-    archive_methodology = archive_dir / "methodology"
-    if archive_methodology.exists():
-        _has_methodology_content = any(
-            archive_methodology.glob("phase*_plan.md")
-        ) or (archive_methodology / "quality_manifest.json").exists()
+    # Positive content check: `cp -r .methodology/ .methodology-archive/` (trailing
+    # slash on source, destination already created by mkdir) copies the CONTENTS of
+    # .methodology/ directly into .methodology-archive/ — phase*_plan.md and
+    # quality_manifest.json land at archive_dir/*.  There is no "methodology/"
+    # subdirectory.  Catch both an empty archive (mkdir ran but cp didn't) and any
+    # other wrong-source copy, but skip when sessi-work was already reported above.
+    if not archive_sessi.exists():
+        _has_methodology_content = any(archive_dir.glob("phase*_plan.md")) or (
+            archive_dir / "quality_manifest.json"
+        ).exists()
         if not _has_methodology_content:
             errors.append(
-                ".methodology-archive/methodology/ exists but contains no "
-                "methodology artifacts (phase*_plan.md / quality_manifest.json). "
-                "Re-run the P8 archive step: "
-                "`rm -rf .methodology-archive && mkdir -p .methodology-archive && "
-                "cp -r .methodology/ .methodology-archive/` "
+                ".methodology-archive/ contains no methodology artifacts "
+                "(phase*_plan.md / quality_manifest.json). "
+                "Re-run: `rm -rf .methodology-archive && mkdir -p .methodology-archive"
+                " && cp -r .methodology/ .methodology-archive/` "
                 "(do NOT copy .sessi-work/ — that is the Finding #24 typo)."
             )
 
