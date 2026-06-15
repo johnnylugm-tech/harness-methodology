@@ -199,21 +199,40 @@ class CRGBridge:
 
     # ── Structural analysis (extended tools) ────────────────────────────────
 
+    def _call_crg(self, fn, kwargs: dict[str, Any]) -> dict[str, Any]:
+        """Call a CRG tool, filtering kwargs against its signature (Bug #29 fix).
+
+        Some in-process CRG tools (e.g. mcp__code_review_graph__*_tool) do
+        not accept every kwarg the harness wants to pass. Calling with
+        unknown kwargs raises TypeError; the TypeError is silently caught
+        by the fallback path and the entire CRG enrichment is lost. To
+        prevent this, introspect the bound function's signature and drop
+        unsupported kwargs before invocation.
+        """
+        if fn is None:
+            return {}
+        import inspect
+        try:
+            sig = inspect.signature(fn)
+            accepted = set(sig.parameters.keys())
+        except (TypeError, ValueError):
+            accepted = set(kwargs.keys())
+        filtered = {k: v for k, v in kwargs.items() if k in accepted}
+        return fn(**filtered)
+
     def get_hub_nodes(self, project_root: str, min_fan_in: int = 5) -> dict[str, Any]:
         """Return high fan-in nodes (structural chokepoints)."""
-        if _crg_hub_nodes is None:
-            return {}
-        return _crg_hub_nodes(repo_root=project_root, min_fan_in=min_fan_in)
+        return self._call_crg(_crg_hub_nodes, {
+            "repo_root": project_root, "min_fan_in": min_fan_in,
+        })
 
     def list_communities(
         self, project_root: str, min_size: int = 2, sort_by: str = "size"
     ) -> dict[str, Any]:
         """List detected code communities with cohesion scores."""
-        if _crg_list_communities is None:
-            return {}
-        return _crg_list_communities(
-            repo_root=project_root, min_size=min_size, sort_by=sort_by
-        )
+        return self._call_crg(_crg_list_communities, {
+            "repo_root": project_root, "min_size": min_size, "sort_by": sort_by,
+        })
 
     def get_knowledge_gaps(self, project_root: str) -> dict[str, Any]:
         """Find untested critical paths (cross-ref with TEST_INVENTORY.yaml)."""
@@ -249,14 +268,12 @@ class CRGBridge:
         self, project_root: str, min_lines: int = 50, kind: str | None = None, limit: int = 50
     ) -> dict[str, Any]:
         """Find functions/classes/files exceeding line-count threshold."""
-        if _crg_large_funcs is None:
-            return {}
         kwargs: dict[str, Any] = {
             "min_lines": min_lines, "repo_root": project_root, "limit": limit,
         }
         if kind:
             kwargs["kind"] = kind
-        return _crg_large_funcs(**kwargs)
+        return self._call_crg(_crg_large_funcs, kwargs)
 
     def list_flows(
         self, project_root: str, limit: int = 20, sort_by: str = "criticality"

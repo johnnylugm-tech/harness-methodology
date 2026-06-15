@@ -274,3 +274,57 @@ class TestCRGBridgeExtended:
         bridge = CRGBridge()
         result = bridge.check_dead_code("/tmp/project")
         assert result == {}
+
+
+class TestCRGBridgeSignatureFilter:
+    """Bug #29 regression: CRG tools (mcp__code_review_graph__*) may not
+    accept every kwarg. Introspect signature before calling; drop
+    unsupported kwargs instead of letting TypeError silently kill the
+    fallback path."""
+
+    def test_get_hub_nodes_drops_min_fan_in_when_unsupported(self, monkeypatch):
+        """Tool signature lacks min_fan_in — call must succeed, kwarg dropped."""
+        import harness.crg_bridge as crg_mod
+        def fake_tool(repo_root):
+            return {"hubs": [{"name": "x", "fan_in": 1}]}
+        monkeypatch.setattr(crg_mod, "_crg_hub_nodes", fake_tool)
+        bridge = CRGBridge()
+        result = bridge.get_hub_nodes("/tmp/project", min_fan_in=42)
+        assert "hubs" in result
+
+    def test_get_hub_nodes_passes_min_fan_in_when_supported(self, monkeypatch):
+        def fake_tool(repo_root, min_fan_in):
+            return {"hubs": [{"name": "x", "fan_in": min_fan_in}]}
+        import harness.crg_bridge as crg_mod
+        monkeypatch.setattr(crg_mod, "_crg_hub_nodes", fake_tool)
+        bridge = CRGBridge()
+        result = bridge.get_hub_nodes("/tmp/project", min_fan_in=7)
+        assert result["hubs"][0]["fan_in"] == 7
+
+    def test_get_hub_nodes_returns_empty_when_unavailable(self, monkeypatch):
+        import harness.crg_bridge as crg_mod
+        monkeypatch.setattr(crg_mod, "_crg_hub_nodes", None)
+        bridge = CRGBridge()
+        assert bridge.get_hub_nodes("/tmp/project") == {}
+
+    def test_list_communities_drops_unsupported_kwargs(self, monkeypatch):
+        def fake_tool(repo_root):
+            return {"communities": []}
+        import harness.crg_bridge as crg_mod
+        monkeypatch.setattr(crg_mod, "_crg_list_communities", fake_tool)
+        bridge = CRGBridge()
+        # min_size and sort_by are both dropped because fake_tool accepts only repo_root.
+        result = bridge.list_communities("/tmp/project", min_size=5, sort_by="name")
+        assert result == {"communities": []}
+
+    def test_find_large_functions_drops_unsupported_kwargs(self, monkeypatch):
+        def fake_tool(repo_root, limit):
+            return {"functions": []}
+        import harness.crg_bridge as crg_mod
+        monkeypatch.setattr(crg_mod, "_crg_large_funcs", fake_tool)
+        bridge = CRGBridge()
+        # min_lines and kind are dropped because fake_tool accepts only repo_root, limit.
+        result = bridge.find_large_functions(
+            "/tmp/project", min_lines=50, kind="Function", limit=10
+        )
+        assert result == {"functions": []}
