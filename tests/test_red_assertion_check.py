@@ -201,3 +201,45 @@ def test_fn(x):
 '''
         cases = [SpecCase(1, {"x": "a"})]
         assert _errors(check_test_mirrors_spec(src, cases, [])) == []
+
+
+class TestCanonicalPredicate:
+    """Bug #27 regression: sub-assertion predicate matching must be
+    insensitive to whitespace, redundant parens, and other syntactic noise.
+    Previously, `_normalize_predicate(ast.unparse(...))` produced different
+    strings for semantically equivalent expressions, causing false-
+    negative `assertion_missing` violations."""
+
+    def test_canonical_strips_whitespace(self):
+        from core.quality_gate.red_assertion_check import _canonical_predicate
+        a = _canonical_predicate("result > 0")
+        b = _canonical_predicate("result>0")
+        assert a == b
+        assert a is not None
+
+    def test_canonical_strips_redundant_parens(self):
+        from core.quality_gate.red_assertion_check import _canonical_predicate
+        assert _canonical_predicate("(1 + 2) == 3") == _canonical_predicate("1+2==3")
+
+    def test_canonical_normalises_not(self):
+        from core.quality_gate.red_assertion_check import _canonical_predicate
+        assert _canonical_predicate("not is_empty") == _canonical_predicate("(not is_empty)")
+
+    def test_canonical_handles_complex_expression(self):
+        from core.quality_gate.red_assertion_check import _canonical_predicate
+        a = _canonical_predicate("x > 0 and y > 0")
+        b = _canonical_predicate("(x>0)and(y>0)")
+        assert a == b
+        assert a is not None
+
+    def test_canonical_returns_none_on_invalid(self):
+        from core.quality_gate.red_assertion_check import _canonical_predicate
+        assert _canonical_predicate("not valid python !!") is None
+
+    def test_canonical_distinguishes_semantically_different(self):
+        """Whitespace-stripped canonical form should NOT collapse
+        semantically distinct expressions."""
+        from core.quality_gate.red_assertion_check import _canonical_predicate
+        a = _canonical_predicate("x > 0")
+        b = _canonical_predicate("x < 0")
+        assert a != b

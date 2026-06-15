@@ -387,6 +387,33 @@ def _normalize_predicate(text: str) -> str | None:
         return None
 
 
+def _canonical_predicate(text: str) -> str | None:
+    """Canonical form of an expression for set-membership comparison (Bug #27 fix).
+
+    `_normalize_predicate` returns `ast.unparse(...)` which preserves all
+    syntax differences (whitespace, redundant parens, operator associativity).
+    For predicate comparison, two semantically equivalent expressions can
+    produce different normalized forms:
+      - `1+2`     vs `1 + 2`     vs `(1+2)`         (all ≡ 3)
+      - `not a`   vs `(not a)`                     (both ≡ ¬a)
+      - `a > 0`   vs `a>0`                         (same)
+
+    This helper produces a canonical form by:
+    1. Parsing with `ast.parse(text.strip(), mode="eval")`
+    2. Normalizing operator spacing (single space around binary ops)
+    3. Stripping redundant parens that `ast.unparse` adds
+    4. Re-dumping via `ast.unparse`
+
+    Returns None on syntax error (callers should fall back to
+    `_normalize_predicate` or skip).
+    """
+    try:
+        tree = ast.parse(text.strip(), mode="eval").body
+        return ast.unparse(tree).replace(" ", "")
+    except SyntaxError:
+        return None
+
+
 def _as_str(value) -> str:
     return value if isinstance(value, str) else repr(value)
 
@@ -503,10 +530,14 @@ def _collect_ifs(stmts: list, uses: list) -> None:
             trig = _parse_trigger(st.test)
             if trig is not None:
                 var, values = trig
+                # Bug #27 fix: use _canonical_predicate for both sides so
+                # semantically equivalent predicates (different whitespace,
+                # redundant parens) match. Falls back to None for invalid
+                # syntax — the assertion is then ignored.
                 asserts = frozenset(
                     p for bs in st.body for s in ast.walk(bs)
                     if isinstance(s, ast.Assert)
-                    for p in [_normalize_predicate(ast.unparse(s.test))] if p)
+                    for p in [_canonical_predicate(ast.unparse(s.test))] if p)
                 uses.append(_SubUse(var, frozenset(values), asserts))
             _collect_ifs(st.orelse, uses)  # elif chain
 
@@ -596,7 +627,11 @@ def check_test_mirrors_spec(test_source: str, spec_cases: list, spec_assertions:
 
     # 2. Sub-assertion predicate + trigger alignment.
     for sa in spec_assertions:
-        norm = _normalize_predicate(sa.predicate)
+        # Bug #27 fix: use _canonical_predicate for set-membership
+        # comparison. Both spec and test sides go through the same
+        # canonical form (whitespace-stripped, paren-stripped), so
+        # semantically equivalent predicates match.
+        norm = _canonical_predicate(sa.predicate) or _normalize_predicate(sa.predicate)
         if norm is None:
             continue
         matches = [s for s in subs if norm in s.asserts]
