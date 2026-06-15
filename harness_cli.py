@@ -1301,13 +1301,13 @@ def cmd_check_test_mirrors_spec(args: argparse.Namespace) -> int:
     project = Path(args.project).resolve()
     spec_path = project / "02-architecture" / "TEST_SPEC.md"
     fr_id = args.fr_id
-    test_file = Path(args.test_file).resolve()
+    # Bug #26 fix: --test-file accepts nargs="+", so args.test_files is a list.
+    # Iterate each file; aggregate violations across all files. The command
+    # fails (exit 1) if any one file has an error-severity violation.
+    test_files = [Path(f).resolve() for f in args.test_files]
 
     if not spec_path.exists():
         print("[check-test-mirrors-spec] 02-architecture/TEST_SPEC.md not found — skipping.")
-        return 0
-    if not test_file.exists():
-        print(f"[check-test-mirrors-spec] test file not found: {test_file} — skipping.")
         return 0
 
     from core.quality_gate.parsers import SpecAssertionParser
@@ -1323,25 +1323,33 @@ def cmd_check_test_mirrors_spec(args: argparse.Namespace) -> int:
         return 0
 
     cases, assertions = parsed[fr_id]
-    test_source = test_file.read_text(encoding="utf-8")
-    suffix = test_file.suffix.lower()
-    if suffix in (".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"):
-        dialect = {"ts": "typescript", "tsx": "tsx"}.get(suffix.lstrip("."), "javascript")
-        violations = check_test_mirrors_spec_js(test_source, cases, assertions, dialect)
-    else:
-        violations = check_test_mirrors_spec(test_source, cases, assertions)
-    errs = [v for v in violations if v.severity == "error"]
-    reviews = [v for v in violations if v.severity == "info"]
-    for v in errs:
-        print(f"[FAIL] {fr_id} {v.check_type}: {v.message}")
-    for v in reviews:
-        print(f"[review] {fr_id}: {v.message}")
-    if errs:
-        print(f"\n[BLOCKED] {test_file.name} diverges from TEST_SPEC.md ({len(errs)} issue(s)). "
-              "P3 implements the spec verbatim — fix the test, not TEST_SPEC.")
+    all_errs = []
+    all_reviews = []
+    for test_file in test_files:
+        if not test_file.exists():
+            print(f"[check-test-mirrors-spec] test file not found: {test_file} — skipping.")
+            continue
+        test_source = test_file.read_text(encoding="utf-8")
+        suffix = test_file.suffix.lower()
+        if suffix in (".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"):
+            dialect = {"ts": "typescript", "tsx": "tsx"}.get(suffix.lstrip("."), "javascript")
+            violations = check_test_mirrors_spec_js(test_source, cases, assertions, dialect)
+        else:
+            violations = check_test_mirrors_spec(test_source, cases, assertions)
+        errs = [v for v in violations if v.severity == "error"]
+        reviews = [v for v in violations if v.severity == "info"]
+        for v in errs:
+            print(f"[FAIL] {fr_id} ({test_file.name}) {v.check_type}: {v.message}")
+        for v in reviews:
+            print(f"[review] {fr_id} ({test_file.name}): {v.message}")
+        all_errs.extend(errs)
+        all_reviews.extend(reviews)
+    if all_errs:
+        print(f"\n[BLOCKED] {len(test_files)} test file(s) checked; {len(all_errs)} divergence(s) from "
+              f"TEST_SPEC.md. P3 implements the spec verbatim — fix the test, not TEST_SPEC.")
         return 1
-    print(f"[check-test-mirrors-spec] OK — {test_file.name} mirrors {fr_id} in TEST_SPEC.md."
-          + (f" {len(reviews)} item(s) need P3 reviewer sign-off." if reviews else ""))
+    print(f"[check-test-mirrors-spec] OK — {len(test_files)} test file(s) mirror {fr_id} in TEST_SPEC.md."
+          + (f" {len(all_reviews)} item(s) need P3 reviewer sign-off." if all_reviews else ""))
     return 0
 
 
@@ -9263,7 +9271,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ctms.add_argument("--project", default=".", help="Project root (default: .)")
     ctms.add_argument("--fr-id", dest="fr_id", required=True, help="FR id (e.g. FR-01)")
-    ctms.add_argument("--test-file", dest="test_file", required=True, help="Path to the RED test file")
+    ctms.add_argument("--test-file", dest="test_files", nargs="+", required=True, help="Path(s) to the RED test file(s); accepts one or more paths to support per-FR splits like test_fr01_inputs.py + test_fr01_edge.py")
     ctms.set_defaults(func=cmd_check_test_mirrors_spec)
 
     # push-checkpoint (P1/P2 human review → git push + HANDOVER.md)

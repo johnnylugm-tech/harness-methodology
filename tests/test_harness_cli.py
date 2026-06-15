@@ -3653,7 +3653,7 @@ class TestCmdCheckTestMirrorsSpecDispatch:
     def _run(self, spec, test_file, project):
         from harness_cli import cmd_check_test_mirrors_spec
         args = argparse.Namespace(
-            project=str(project), fr_id="FR-01", test_file=str(test_file),
+            project=str(project), fr_id="FR-01", test_files=[str(test_file)],
         )
         return cmd_check_test_mirrors_spec(args)
 
@@ -4150,3 +4150,68 @@ class TestGenerateVerificationReport:
         assert "VERIFICATION_REPORT.md written" in captured.out
 
 
+
+
+class TestCheckTestMirrorsSpecMultiFile:
+    """Bug #26 regression: --test-file accepts nargs='+' so callers can
+    pass multiple test files (e.g. test_fr01_inputs.py + test_fr01_edge.py
+    for a per-FR split)."""
+
+    def test_argparse_accepts_multiple_test_files(self):
+        """Direct argparse check: --test-file must accept nargs='+'."""
+        import argparse
+        parser = argparse.ArgumentParser()
+        sub = parser.add_subparsers()
+        ctms = sub.add_parser("check-test-mirrors-spec")
+        ctms.add_argument(
+            "--test-file", dest="test_files", nargs="+", required=True,
+            help="Path(s) to the RED test file(s)",
+        )
+        args = parser.parse_args(
+            ["check-test-mirrors-spec", "--test-file",
+             "tests/test_fr01.py", "tests/test_fr01_extra.py"]
+        )
+        assert args.test_files == ["tests/test_fr01.py", "tests/test_fr01_extra.py"]
+        assert len(args.test_files) == 2
+
+
+    def test_handler_iterates_test_files(self, tmp_path, monkeypatch):
+        from core.quality_gate import red_assertion_check as rac
+        called_with: list = []
+
+        def fake_python(src, cases, assertions):
+            called_with.append(src)
+            return []
+
+        monkeypatch.setattr(rac, "check_test_mirrors_spec", fake_python)
+        monkeypatch.setattr(rac, "check_test_mirrors_spec_js", fake_python)
+
+        from harness_cli import cmd_check_test_mirrors_spec
+        spec = (tmp_path / "02-architecture" / "TEST_SPEC.md")
+        spec.parent.mkdir(parents=True)
+        # SpecAssertionParser requires ### FR-NN heading, a case table with
+        # `Inputs` columns, and a sub-assertion table with `predicate` +
+        # `applies_to` columns.
+        spec.write_text(
+            "### FR-01\n\n"
+            "| # | Inputs | Expected |\n| --- | --- | --- |\n"
+            "| 1 | x=\"1\" | y=1 |\n\n"
+            "| rule_id | predicate | applies_to |\n"
+            "| --- | --- | --- |\n"
+            "| A1 | `result == 1` | 1 |\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "tests").mkdir()
+        f1 = tmp_path / "tests" / "test_fr01_inputs.py"
+        f1.write_text("# inputs file\n", encoding="utf-8")
+        f2 = tmp_path / "tests" / "test_fr01_edge.py"
+        f2.write_text("# edge file\n", encoding="utf-8")
+
+        args = argparse.Namespace(
+            project=str(tmp_path), fr_id="FR-01", test_files=[str(f1), str(f2)],
+        )
+        result = cmd_check_test_mirrors_spec(args)
+        assert result == 0
+        assert len(called_with) == 2
+        assert "# inputs file" in called_with[0]
+        assert "# edge file" in called_with[1]
