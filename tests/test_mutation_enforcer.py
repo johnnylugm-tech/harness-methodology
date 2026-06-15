@@ -335,12 +335,19 @@ def test_resolve_test_dir_subdir_override_fallback(tmp_path):
     assert _resolve_test_dir(sub, tmp_path) is None
 
 def test_l1_mutmut_cache_persistence(tmp_path, monkeypatch):
-    """Test L1: precheck starts with a FRESH workdir (no old cache pre-copied),
-    and the updated cache is post-copied back to the project after mutmut finishes.
+    """Test L1: precheck starts with a FRESH workdir when no prior cache
+    exists. The updated cache is post-copied back to the project.
 
-    Fix for Bug 1: inheriting an old .mutmut-cache caused mutmut to report
-    previously-survived mutants without re-testing them, inflating the survivor
-    count and blocking advance-phase incorrectly.
+    With Bug #42 fix, the contract is now:
+    - If a prior .mutmut-cache existed in the project, it is stashed before
+      mutmut starts and restored after mutmut finishes (the workdir
+      contains a copy of the stashed cache, but mutmut's run will overwrite
+      it with the fresh result, and the finally block restores the stash).
+    - If no prior cache existed, the workdir starts empty; the post-copy
+      from the workdir to the project root is the only way the project
+      gains a new cache.
+
+    This test exercises the "no prior cache" path (the simpler one).
     """
     import core.quality_gate.mutation_enforcer as me
 
@@ -348,14 +355,18 @@ def test_l1_mutmut_cache_persistence(tmp_path, monkeypatch):
     fake_workdir = tmp_path / "fake_workdir"
     fake_workdir.mkdir()
 
-    monkeypatch.setattr(
-        "core.quality_gate.mutation_enforcer.tempfile.mkdtemp",
-        lambda **_kw: str(fake_workdir),
-    )
+    mkdtemp_calls: list[str] = []
+    stash_dir_path = tmp_path / "fake_stash"
+    stash_dir_path.mkdir()
+    def fake_mkdtemp(prefix="", **_kw):
+        if prefix.startswith("_mutmut_cache_stash"):
+            mkdtemp_calls.append(str(stash_dir_path))
+            return str(stash_dir_path)
+        mkdtemp_calls.append(str(fake_workdir))
+        return str(fake_workdir)
+    monkeypatch.setattr(me.tempfile, "mkdtemp", fake_mkdtemp)
 
-    # Pre-existing cache in project (must NOT be copied into workdir)
-    initial_cache = b"initial-cache-bytes"
-    (tmp_path / ".mutmut-cache").write_bytes(initial_cache)
+    # No prior cache in project (intentionally do NOT create .mutmut-cache)
 
     # Bypass all the setup helpers
     (tmp_path / "src").mkdir()
@@ -378,7 +389,8 @@ def test_l1_mutmut_cache_persistence(tmp_path, monkeypatch):
             stderr = ""
 
         if cmd[0] == "mutmut" and len(cmd) > 1 and cmd[1] == "run":
-            # Record whether workdir already had a cache (it must NOT)
+            # Record whether workdir already had a cache (it must NOT — no
+            # prior cache, no stash, fresh workdir).
             workdir_had_cache_before_run.append((fake_workdir / ".mutmut-cache").exists())
             # Simulate mutmut writing an updated cache after run
             (fake_workdir / ".mutmut-cache").write_bytes(updated_cache)
@@ -397,3 +409,120 @@ def test_l1_mutmut_cache_persistence(tmp_path, monkeypatch):
     assert (tmp_path / ".mutmut-cache").read_bytes() == updated_cache, (
         "updated cache was not post-copied back to project"
     )
+
+
+# ---------------------------------------------------------------------------
+# Bug #42: stash/restore of .mutmut-cache around precheck
+# ---------------------------------------------------------------------------
+
+
+def test_run_mutation_precheck_restores_prior_cache_on_success(tmp_path, monkeypatch):
+    """Pre-existing cache in project must be preserved after successful precheck."""
+    import core.quality_gate.mutation_enforcer as me
+
+    (tmp_path / "src").mkdir()
+    (tmp_path / "tests").mkdir()
+    initial_cache = b"original-cache-bytes"
+    (tmp_path / ".mutmut-cache").write_bytes(initial_cache)
+
+    # Separate stash dir from workdir dir (the real code uses two distinct
+    # tempfile.mkdtemp calls; this test simulates both).
+    stash_dir_path = tmp_path / "fake_stash"
+    stash_dir_path.mkdir()
+    workdir_path = tmp_path / "fake_workdir"
+    workdir_path.mkdir()
+
+    mkdtemp_calls: list[str] = []
+    def fake_mkdtemp(prefix="", **_kw):
+        if prefix.startswith("_mutmut_cache_stash"):
+            mkdtemp_calls.append(str(stash_dir_path))
+            return str(stash_dir_path)
+        mkdtemp_calls.append(str(workdir_path))
+        return str(workdir_path)
+    monkeypatch.setattr(me.tempfile, "mkdtemp", fake_mkdtemp)
+    monkeypatch.setattr(me, "_resolve_mutmut_workdir", lambda _p: (tmp_path, "src"))
+    monkeypatch.setattr(me, "_is_editable_install", lambda _p: False)
+    monkeypatch.setattr(me, "_read_paths_to_exclude", lambda _p: [])
+    monkeypatch.setattr(me, "_detect_data_only_files", lambda _p: [])
+    monkeypatch.setattr(me, "_abs_paths_to_mutate", lambda _cwd, _p: str(tmp_path / "src"))
+    monkeypatch.setattr(me, "_resolve_test_dir", lambda _cwd, _p: str(tmp_path / "tests"))
+    monkeypatch.setattr(me, "_copy_setup_cfg_to_workdir", lambda _p, _w, _td: None)
+    monkeypatch.setattr(me.shutil, "which", lambda _cmd: "/usr/bin/mutmut")
+
+    def fake_run(cmd, **kwargs):
+        class R:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        if cmd[0] == "mutmut" and cmd[1] == "run":
+            (workdir_path / ".mutmut-cache").write_bytes(b"workdir-cache")
+        return R()
+
+    monkeypatch.setattr(me.subprocess, "run", fake_run)
+
+    me.run_mutation_precheck(tmp_path)
+
+    # Original cache restored from stash, NOT replaced by workdir's output.
+    assert (tmp_path / ".mutmut-cache").read_bytes() == initial_cache, (
+        "stashed cache was not restored — Bug #42 regression"
+    )
+
+
+def test_run_mutation_precheck_no_partial_cache_left_on_failure(tmp_path, monkeypatch):
+    """If no prior cache existed and precheck fails, no partial cache should remain."""
+    import core.quality_gate.mutation_enforcer as me
+
+    (tmp_path / "src").mkdir()
+    (tmp_path / "tests").mkdir()
+    # Intentionally do NOT create .mutmut-cache
+
+    fake_workdir = tmp_path / "fake_workdir"
+    fake_workdir.mkdir()
+
+    monkeypatch.setattr(me.tempfile, "mkdtemp", lambda **_kw: str(fake_workdir))
+    monkeypatch.setattr(me, "_resolve_mutmut_workdir", lambda _p: (tmp_path, "src"))
+    monkeypatch.setattr(me, "_is_editable_install", lambda _p: False)
+    monkeypatch.setattr(me, "_read_paths_to_exclude", lambda _p: [])
+    monkeypatch.setattr(me, "_detect_data_only_files", lambda _p: [])
+    monkeypatch.setattr(me, "_abs_paths_to_mutate", lambda _cwd, _p: str(tmp_path / "src"))
+    monkeypatch.setattr(me, "_resolve_test_dir", lambda _cwd, _p: str(tmp_path / "tests"))
+    monkeypatch.setattr(me, "_copy_setup_cfg_to_workdir", lambda _p, _w, _td: None)
+    monkeypatch.setattr(me.shutil, "which", lambda _cmd: "/usr/bin/mutmut")
+
+    def fake_run(cmd, **kwargs):
+        class R:
+            returncode = 99  # simulate mutmut failure
+            stdout = ""
+            stderr = "simulated crash"
+        return R()
+
+    monkeypatch.setattr(me.subprocess, "run", fake_run)
+
+    ok, msg = me.run_mutation_precheck(tmp_path)
+    assert not ok
+
+    # No partial cache was left behind.
+    assert not (tmp_path / ".mutmut-cache").exists(), (
+        "partial .mutmut-cache was left behind after precheck failure"
+    )
+
+
+def test_apply_mutmut_to_workdir_runs_in_workdir(tmp_path, monkeypatch):
+    """Bug #42 safety: mutmut apply must run in the workdir, not the project root."""
+    import core.quality_gate.mutation_enforcer as me
+    calls: list[dict] = {}
+
+    def fake_run(cmd, **kwargs):
+        calls["cmd"] = cmd
+        calls["kwargs"] = kwargs
+        class R:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+        return R()
+
+    monkeypatch.setattr(me.subprocess, "run", fake_run)
+    me._apply_mutmut_to_workdir(5, "/tmp/_mutmut_run.abc")
+    assert calls["cmd"] == ["mutmut", "apply", "5"]
+    assert calls["kwargs"]["cwd"] == "/tmp/_mutmut_run.abc"

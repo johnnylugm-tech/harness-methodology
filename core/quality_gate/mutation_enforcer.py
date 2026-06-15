@@ -9,6 +9,14 @@ Implements the full mutmut protocol from
 * absolute testpaths in temp ``setup.cfg`` (Bug F)
 * data-only file auto-exclusion (Bug F)
 * ``paths_to_exclude`` from ``setup.cfg`` passed via CLI (Bug G)
+* stash + restore of project-root ``.mutmut-cache`` (Bug #42)
+* rewrite of ``[mutmut]`` section in temp setup.cfg (Bug #41)
+
+**Important**: ``mutmut apply`` MUST be invoked inside the workdir created
+by ``run_mutation_precheck``, never against ``project`` directly. ``mutmut
+apply`` writes mutated source to its current directory; if invoked against
+the project root, it will leave mutated source in place and break the
+next precheck. See ``_apply_mutmut_to_workdir`` for the safe pattern.
 """
 import configparser
 import json
@@ -221,6 +229,21 @@ def _copy_setup_cfg_to_workdir(project: Path, workdir: str, abs_test_dir: str = 
         cp.write(f)
 
 
+def _apply_mutmut_to_workdir(mutant_id: str | int, workdir: str) -> None:
+    """Safely apply a mutmut mutant INSIDE the workdir (Bug #42 safety).
+
+    `mutmut apply` writes the mutated source for the given mutant id to
+    its current directory. Invoking it against the project root leaves
+    mutated source in place, breaking the next precheck. Callers must
+    pass the workdir returned by ``run_mutation_precheck`` and execute
+    the apply in a subprocess with ``cwd=workdir``.
+    """
+    subprocess.run(
+        ["mutmut", "apply", str(mutant_id)],
+        cwd=workdir, capture_output=True, text=True, timeout=30,
+    )
+
+
 def _paths_to_exclude_flag(excludes: list[str]) -> str:
     """Build a single ``--paths-to-exclude=...`` flag for mutmut 2.x.
 
@@ -423,6 +446,22 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
     cache_file = project / ".mutmut-cache"
     workdir_cache = Path(workdir) / ".mutmut-cache"
 
+    # Bug #42 fix: stash the project-root .mutmut-cache BEFORE running
+    # mutmut. The precheck's `finally` block unconditionally writes
+    # workdir_cache back to cache_file (line ~506). If the precheck fails
+    # partway (TimeoutExpired, subprocess crash, or interrupt), the
+    # project root may be left with a partial cache that blocks the next
+    # run. Stash + restore guarantees the project-root cache is either
+    # the original (on success or failure) or absent (if it never existed).
+    stash_dir: Optional[str] = None
+    if cache_file.exists():
+        stash_dir = tempfile.mkdtemp(prefix="_mutmut_cache_stash.", dir="/tmp")
+        shutil.copy2(cache_file, Path(stash_dir) / ".mutmut-cache")
+
+    # Set by the success path so the finally clause can decide whether to
+    # promote workdir output (only on success) vs discard it.
+    _precheck_ok: bool = False
+
     try:
         # Bug fix: mutmut 2.x does NOT read [tool:pytest] testpaths — it
         # needs --tests-dir with an absolute path. Without this the
@@ -482,6 +521,7 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
                     f"{out}"
                 )
 
+        _precheck_ok = True
         return True, ""
     except subprocess.TimeoutExpired:
         return False, (
@@ -493,6 +533,31 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
     except Exception as e:
         return False, f"Error running mutmut: {e}"
     finally:
-        if workdir_cache.exists():
+        # Bug #42 fix: reconcile the project-root cache with the workdir
+        # output, based on whether the precheck succeeded.
+        #
+        # _precheck_ok is set inside the try block on the success path.
+        # If we reach the finally clause without it being set, the
+        # precheck failed (or raised); in that case the workdir cache
+        # may be partial, so we discard it.
+        if stash_dir is not None and Path(stash_dir).exists():
+            # 1. Prior cache existed — restore it (project root must be
+            #    exactly as it was before this precheck).
+            stashed_cache = Path(stash_dir) / ".mutmut-cache"
+            if stashed_cache.exists():
+                shutil.copy2(stashed_cache, cache_file)
+            shutil.rmtree(stash_dir, ignore_errors=True)
+        elif _precheck_ok and workdir_cache.exists():
+            # 2. No prior cache, precheck succeeded — promote the
+            #    workdir output to project root.
             shutil.copy2(workdir_cache, cache_file)
+        else:
+            # 3. No prior cache, precheck failed/raised — discard any
+            #    partial workdir output. Leave the project root
+            #    cache-free so the next precheck starts clean.
+            try:
+                cache_file.unlink(missing_ok=True)
+            except OSError:
+                pass
+
         shutil.rmtree(workdir, ignore_errors=True)
