@@ -97,9 +97,11 @@ python3 harness_cli.py load-context --phase 5 --project . --json \
   - Document: current version, test results summary, coverage %, Gate 3 composite score
   - Reference: `04-testing/TEST_RESULTS.md` and `03-development/src/` module list
 - [ ] **[VERIFY-REPORT]** Generate `05-verification/VERIFICATION_REPORT.md`:
+  - Run: `python3 harness_cli.py generate-verification-report --project .`
   - For each FR: verification status, acceptance criteria result (PASS/FAIL), evidence
   - Include: test coverage %, mutation score, deferred issues from Gate 3
   - Certify: all Gate 3 open issues addressed or deferred with justification
+  - The report is required by the P4→P5 handoff validator (`_validate_handoff_p4_to_p5`); without it, `advance-phase --completed 4` blocks.
 - [ ] Re-run integration tests: `pytest tests/integration/ -q` (or equivalent per NFRs)
 - [ ] Confirm performance NFRs met: review benchmark entries in `04-testing/TEST_RESULTS.md`
 - [ ] Re-run security scan clean: `bandit -r 03-development/src/ -ll` + `gitleaks detect`

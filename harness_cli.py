@@ -3531,6 +3531,40 @@ def cmd_manifest(args: argparse.Namespace) -> int:
     return 0
 
 # ---------------------------------------------------------------------------
+# generate-verification-report  (P5 — produces 05-verification/VERIFICATION_REPORT.md)
+# ---------------------------------------------------------------------------
+
+def cmd_generate_verification_report(args: argparse.Namespace) -> int:
+    """Generate 05-verification/VERIFICATION_REPORT.md from manifest + SRS.
+
+    Created to fix Finding #16: P5 plan's VERIFY-REPORT task said "Generate
+    VERIFICATION_REPORT.md" but no harness tool produced it. The P4→P5
+    handoff validator blocks on this file with no remediation path; this
+    command is the canonical remediation.
+
+    Usage:
+        python3 harness_cli.py generate-verification-report --project .
+    """
+    from scripts.generate_verification_report import generate_verification_report
+
+    project = Path(args.project).resolve()
+    try:
+        out = generate_verification_report(project)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        print(f"[FAIL] generate-verification-report: {exc}", file=sys.stderr)
+        return 1
+    print(f"VERIFICATION_REPORT.md written → {out}")
+    # Echo summary lines so the operator can see pass/fail count at a glance
+    try:
+        text = out.read_text(encoding="utf-8")
+        for line in text.splitlines():
+            if "FRs Gate 1 PASS" in line or "Pass rate" in line:
+                print(f"  {line.strip()}")
+    except Exception:  # non-fatal
+        pass
+    return 0
+
+# ---------------------------------------------------------------------------
 # push-checkpoint  (P1/P2 human review checkpoint push + HANDOVER.md)
 # ---------------------------------------------------------------------------
 
@@ -4087,14 +4121,24 @@ def _validate_handoff_p3_to_p4(project: Path) -> list[str]:
 
 
 def _validate_handoff_p4_to_p5(project: Path) -> list[str]:
-    """P4→P5: VERIFICATION_REPORT.md must exist with non-trivial content."""
+    """P4→P5: VERIFICATION_REPORT.md must exist with non-trivial content.
+
+    P5 plan's VERIFY-REPORT task produces this file at
+    `05-verification/VERIFICATION_REPORT.md` via
+    `python3 harness_cli.py generate-verification-report`. Earlier validator
+    looked at `04-verification/VERIFICATION_REPORT.md` (P4 path) which was
+    never the production site — Finding #16. Accept either canonical P5 path
+    or a legacy 04-verification fallback to avoid breaking older projects.
+    """
     errors: list[str] = []
-    report = project / "04-verification" / "VERIFICATION_REPORT.md"
-    if not report.exists():
+    canonical = project / "05-verification" / "VERIFICATION_REPORT.md"
+    legacy = project / "04-verification" / "VERIFICATION_REPORT.md"
+    if not (canonical.exists() or legacy.exists()):
         return [
-            "VERIFICATION_REPORT.md missing at 04-verification/VERIFICATION_REPORT.md. "
-            "P4 exit produces this file (or 06-quality/VERIFICATION_REPORT.md)."
+            "VERIFICATION_REPORT.md missing at 05-verification/VERIFICATION_REPORT.md. "
+            "Run: python3 harness_cli.py generate-verification-report --project ."
         ]
+    report = canonical if canonical.exists() else legacy
     text = report.read_text(encoding="utf-8", errors="replace").strip()
     if len(text) < 200:
         errors.append(
@@ -9311,6 +9355,14 @@ def build_parser() -> argparse.ArgumentParser:
     mf.add_argument("--no-git", action="store_true", dest="no_git",
                     help="Disable git commit/push after manifest generation")
     mf.set_defaults(func=cmd_manifest)
+
+    # generate-verification-report  (P5 — fixes Finding #16)
+    gvr = sub.add_parser(
+        "generate-verification-report",
+        help="Generate 05-verification/VERIFICATION_REPORT.md from manifest + SRS.md",
+    )
+    gvr.add_argument("--project", default=".", help="Project root (default: .)")
+    gvr.set_defaults(func=cmd_generate_verification_report)
 
     # status
     st = sub.add_parser("status", help="Show current manifest + FSM state")

@@ -3907,3 +3907,128 @@ class TestP2AdvanceRegeneratesManifest:
             f"git-add included manifest despite no SAD.md; calls: {self._git_add_calls}"
         )
 
+
+# =============================================================================
+# Finding #16: P5 plan's VERIFY-REPORT task had no tool producing the file
+# =============================================================================
+
+class TestGenerateVerificationReport:
+    """Regression tests for Finding #16: P5 plan's VERIFY-REPORT task said
+    "Generate 05-verification/VERIFICATION_REPORT.md" but no harness tool
+    produced it. The P4→P5 handoff validator blocked with no remediation
+    path. Fix: `harness_cli.py generate-verification-report` writes the
+    report from quality_manifest.json + SRS.md acceptance criteria.
+    """
+
+    def _setup_project(self, tmp_path: Path) -> None:
+        """Minimal project with manifest + SRS.md containing AC-FR-NN-N: lines."""
+        import json
+        (tmp_path / ".methodology").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "01-requirements").mkdir(parents=True, exist_ok=True)
+
+        # Manifest with 2 FRs, 1 PASS / 1 FAIL
+        manifest = {
+            "schema_version": "1.0",
+            "generated_at_phase": 2,
+            "fr_ids": ["FR-01", "FR-02"],
+            "nfr_dimension_mapping": {},
+            "high_risk_modules": [],
+            "gate_results": {
+                "gate1": {
+                    "FR-01": {"quality_complete": True, "score": 95.0},
+                    "FR-02": {"quality_complete": False, "score": 60.0},
+                },
+                "gate2": None, "gate3": None, "gate4": None,
+            },
+        }
+        (tmp_path / ".methodology" / "quality_manifest.json").write_text(
+            json.dumps(manifest), encoding="utf-8"
+        )
+
+        # SRS with AC-FR-XX-N acceptance criteria
+        srs = (
+            "# SRS - taskq\n\n"
+            "### FR-01: submit\n"
+            "AC-FR-01-1: accepts valid command\n"
+            "AC-FR-01-2: rejects empty command\n\n"
+            "### FR-02: run\n"
+            "AC-FR-02-1: executes via subprocess\n"
+        )
+        (tmp_path / "01-requirements" / "SRS.md").write_text(srs, encoding="utf-8")
+
+    def test_script_writes_report(self, tmp_path):
+        """scripts/generate_verification_report.py writes 05-verification/VERIFICATION_REPORT.md."""
+        from scripts.generate_verification_report import generate_verification_report
+
+        self._setup_project(tmp_path)
+        out = generate_verification_report(tmp_path)
+        assert out.exists()
+        assert out.name == "VERIFICATION_REPORT.md"
+        assert out.parent.name == "05-verification"
+
+        text = out.read_text(encoding="utf-8")
+        # Per-FR sections present
+        assert "### FR-01" in text
+        assert "### FR-02" in text
+        # Acceptance criteria extracted from SRS
+        assert "AC-FR-01-1" in text
+        assert "AC-FR-01-2" in text
+        assert "AC-FR-02-1" in text
+        # Status from manifest
+        assert "PASS" in text
+        assert "FAIL" in text
+
+    def test_script_certification_counts_passes(self, tmp_path):
+        """Certification block reflects manifest gate1 data."""
+        from scripts.generate_verification_report import generate_verification_report
+
+        self._setup_project(tmp_path)
+        out = generate_verification_report(tmp_path)
+        text = out.read_text(encoding="utf-8")
+        assert "1/2 FRs" in text or "1/2" in text
+        # Manifest has 1 PASS / 1 FAIL → conditional or FAIL cert
+        assert "FAIL" in text or "Conditional" in text
+
+    def test_handoff_validator_passes_when_report_present(self, tmp_path):
+        """P4→P5 validator passes when VERIFICATION_REPORT.md exists at 05-verification/."""
+        from scripts.generate_verification_report import generate_verification_report
+        import harness_cli
+
+        self._setup_project(tmp_path)
+        generate_verification_report(tmp_path)
+
+        errors = harness_cli._validate_handoff_p4_to_p5(tmp_path)
+        assert not errors, (
+            f"Validator should pass when VERIFICATION_REPORT.md exists; got: {errors}"
+        )
+
+    def test_handoff_validator_gives_actionable_error(self, tmp_path):
+        """P4→P5 validator gives actionable remediation when VERIFICATION_REPORT.md missing."""
+        import harness_cli
+
+        self._setup_project(tmp_path)
+        # Do NOT generate the report
+        errors = harness_cli._validate_handoff_p4_to_p5(tmp_path)
+        assert errors, "Validator should error when report missing"
+        assert "VERIFICATION_REPORT.md" in errors[0]
+        # Finding #16 fix: error must include the remediation command
+        assert "generate-verification-report" in errors[0], (
+            f"Error must point to the canonical remediation tool; got: {errors[0]}"
+        )
+
+    def test_cli_subcommand_runs(self, tmp_path, capsys):
+        """harness_cli.py generate-verification-report --project . writes the report."""
+        import harness_cli
+
+        self._setup_project(tmp_path)
+        rc = harness_cli.cmd_generate_verification_report(
+            argparse.Namespace(project=str(tmp_path))
+        )
+        assert rc == 0
+        out_path = tmp_path / "05-verification" / "VERIFICATION_REPORT.md"
+        assert out_path.exists()
+
+        captured = capsys.readouterr()
+        assert "VERIFICATION_REPORT.md written" in captured.out
+
+
