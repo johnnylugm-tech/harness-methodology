@@ -26,7 +26,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 from core.utils.project_layout import ProjectLayout
 
 # Basenames that are almost certainly data-only (no logic to mutate).
@@ -229,7 +229,7 @@ def _copy_setup_cfg_to_workdir(project: Path, workdir: str, abs_test_dir: str = 
         cp.write(f)
 
 
-def _apply_mutmut_to_workdir(mutant_id: str | int, workdir: str) -> None:
+def _apply_mutmut_to_workdir(mutant_id: Union[str, int], workdir: str) -> None:
     """Safely apply a mutmut mutant INSIDE the workdir (Bug #42 safety).
 
     `mutmut apply` writes the mutated source for the given mutant id to

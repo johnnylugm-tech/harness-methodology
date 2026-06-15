@@ -409,7 +409,7 @@ def _canonical_predicate(text: str) -> str | None:
     """
     try:
         tree = ast.parse(text.strip(), mode="eval").body
-        return ast.unparse(tree).replace(" ", "")
+        return ast.unparse(tree)
     except SyntaxError:
         return None
 

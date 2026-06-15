@@ -328,3 +328,37 @@ class TestCRGBridgeSignatureFilter:
             "/tmp/project", min_lines=50, kind="Function", limit=10
         )
         assert result == {"functions": []}
+
+    def test_get_knowledge_gaps_drops_unsupported_kwargs(self, monkeypatch):
+        """Bug #29 regression: get_knowledge_gaps must go through _call_crg."""
+        import harness.crg_bridge as crg_mod
+        def fake_tool():
+            return {"gaps": []}
+        monkeypatch.setattr(crg_mod, "_crg_knowledge_gaps", fake_tool)
+        bridge = CRGBridge()
+        # repo_root is dropped because fake_tool accepts no kwargs.
+        result = bridge.get_knowledge_gaps("/tmp/project")
+        assert result == {"gaps": []}
+
+    def test_get_knowledge_gaps_returns_empty_when_unavailable(self, monkeypatch):
+        import harness.crg_bridge as crg_mod
+        monkeypatch.setattr(crg_mod, "_crg_knowledge_gaps", None)
+        bridge = CRGBridge()
+        assert bridge.get_knowledge_gaps("/tmp/project") == {}
+
+    def test_list_flows_drops_unsupported_kwargs(self, monkeypatch):
+        """Bug #29 regression: list_flows must go through _call_crg."""
+        import harness.crg_bridge as crg_mod
+        def fake_tool(repo_root):
+            return {"flows": []}
+        monkeypatch.setattr(crg_mod, "_crg_list_flows", fake_tool)
+        bridge = CRGBridge()
+        # limit and sort_by are dropped because fake_tool accepts only repo_root.
+        result = bridge.list_flows("/tmp/project", limit=5, sort_by="name")
+        assert result == {"flows": []}
+
+    def test_list_flows_returns_empty_when_unavailable(self, monkeypatch):
+        import harness.crg_bridge as crg_mod
+        monkeypatch.setattr(crg_mod, "_crg_list_flows", None)
+        bridge = CRGBridge()
+        assert bridge.list_flows("/tmp/project") == {}

@@ -218,6 +218,77 @@ class TestSabDriftDetection:
             f"Bug #30 root variant: {missing_locs}"
         )
 
+    def test_dotted_sab_entry_not_flagged_as_unregistered_bug31(self, tmp_path):
+        """Regression test for Bug #31 (Check 2): a file whose path form matches
+        a dotted SAB entry must NOT be reported as unregistered.
+
+        Before fix: Check 2 compared the file's relative path directly against
+        sab_file_set which contained dotted strings. 'src/taskq/config.py' was
+        never equal to 'src.taskq.config', so every file in a dotted-notation
+        SAB was incorrectly flagged as unregistered.
+
+        After fix: _rel_dotted converts the path back to dotted form before the
+        sab_file_set lookup, so registered files are suppressed correctly.
+        """
+        import json as _json
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        sab_json = {
+            "layers": [
+                {"name": "core", "modules": [
+                    "src.taskq.config",
+                    "src.taskq.store",
+                ], "allowed_dependencies": []},
+            ],
+            "dependencies": {"core": []},
+        }
+        (method_dir / "SAB.json").write_text(_json.dumps(sab_json))
+        dev_dir = tmp_path / "03-development" / "src" / "taskq"
+        dev_dir.mkdir(parents=True)
+        (dev_dir / "config.py").write_text("# config")
+        (dev_dir / "store.py").write_text("# store")
+
+        detector = DriftDetector(str(tmp_path))
+        result = detector.detect_sab_drift()
+
+        unregistered = [i for i in result.drift_items if i.actual == "unregistered"]
+        assert unregistered == [], (
+            f"Bug #31 regression: registered dotted-module files falsely flagged "
+            f"as unregistered: {[i.location for i in unregistered]}"
+        )
+
+    def test_dotted_sab_entry_unregistered_file_still_caught(self, tmp_path):
+        """Check 2 with dotted SAB entries: a truly unregistered file alongside
+        registered ones must still be flagged (fix must not over-suppress).
+        """
+        import json as _json
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        sab_json = {
+            "layers": [
+                {"name": "core", "modules": ["src.taskq.config"],
+                 "allowed_dependencies": []},
+            ],
+            "dependencies": {"core": []},
+        }
+        (method_dir / "SAB.json").write_text(_json.dumps(sab_json))
+        dev_dir = tmp_path / "03-development" / "src" / "taskq"
+        dev_dir.mkdir(parents=True)
+        (dev_dir / "config.py").write_text("# config")       # registered
+        (dev_dir / "secret.py").write_text("# not in SAB")   # unregistered
+
+        detector = DriftDetector(str(tmp_path))
+        result = detector.detect_sab_drift()
+
+        unregistered_locs = [i.location for i in result.drift_items
+                             if i.actual == "unregistered"]
+        assert any("secret.py" in loc for loc in unregistered_locs), (
+            f"Unregistered file was not caught; unregistered items: {unregistered_locs}"
+        )
+        assert not any("config.py" in loc for loc in unregistered_locs), (
+            f"Registered file was falsely flagged; unregistered items: {unregistered_locs}"
+        )
+
     def test_detect_sab_drift_import_violation(self, tmp_path):
         """Cross-layer import where dependency is not allowed."""
         method_dir = tmp_path / ".methodology"
