@@ -23,20 +23,31 @@ class TestDefaults:
         assert p.active_dimensions(1) == ["correctness"]
 
     def test_active_dimensions_p3(self):
+        # Bug #35 fix (07ef908): P3 = correctness only (code-heavy phases
+        # can't satisfy security/maintainability keyword density).
         p = defaults()
-        assert p.active_dimensions(3) == ["correctness", "security", "maintainability"]
+        assert p.active_dimensions(3) == ["correctness"]
 
     def test_active_dimensions_p4(self):
+        # Bug #35 extension: P4 = correctness only (same rationale as P3 —
+        # test code is .py, security/maintainability/coverage keywords
+        # don't appear naturally in source).
         p = defaults()
-        assert p.active_dimensions(4) == ["correctness", "security", "maintainability", "coverage"]
+        assert p.active_dimensions(4) == ["correctness"]
 
     def test_composite_threshold_p1(self):
         # P1 lowered from 100 to 75 — requirements docs use a reduced keyword set.
         assert defaults().composite_threshold(1) == 75.0
 
     def test_composite_threshold_p3(self):
-        # P3-P4 lowered from 90 to 80 — not every project uses all security primitives.
-        assert defaults().composite_threshold(3) == 80.0
+        # Bug #35 fix (07ef908): P3 lowered to 30 (code-only phase;
+        # authoritative quality signal is Gate 2 tool scores).
+        assert defaults().composite_threshold(3) == 30.0
+
+    def test_composite_threshold_p4(self):
+        # Bug #35 extension: P4 lowered to 30 (test code; same rationale
+        # as P3 — authoritative quality signal is Gate 3 tool scores).
+        assert defaults().composite_threshold(4) == 30.0
 
     def test_composite_threshold_p5(self):
         # P5-P8 document phases use 65.0 (matching P7 pattern).
@@ -119,7 +130,8 @@ class TestDefaults:
         p = defaults()
         js = p.to_json()
         p2 = ConstitutionProfile.from_dict(json.loads(js))
-        assert p2.composite_threshold(3) == 80.0
+        assert p2.composite_threshold(3) == 30.0
+        assert p2.composite_threshold(4) == 30.0
 
 
 class TestMerge:

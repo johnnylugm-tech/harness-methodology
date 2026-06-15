@@ -545,11 +545,16 @@ def _build_defaults() -> ConstitutionProfile:
                 },
             ),
             4: PhaseProfile(
-                active_dimensions=["correctness", "security", "maintainability", "coverage"],
-                composite_threshold=80.0,
+                # Bug #35 extension (P3 fix was at 07ef908): P4 is also Python
+                # test/code-heavy. Per-file keyword density for security/
+                # maintainability/coverage is meaningless for .py files —
+                # auth/tls/docstring/pytest keywords don't appear naturally
+                # in code. The authoritative quality signal is the AST +
+                # independent tool scores from Gate 3.
+                active_dimensions=["correctness"],
+                composite_threshold=30.0,
                 dimension_keywords={
                     "correctness": _p4_correctness_kw,
-                    "security": _p4_security_kw,
                 },
             ),
             # P5 (Verification): correctness + security only.

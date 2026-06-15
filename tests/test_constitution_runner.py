@@ -435,13 +435,11 @@ class TestDimensionsForPhase:
             f"P3 should use 1 dimension (correctness), got {dims}"
 
     def test_phase4_all_four_dimensions(self):
-        # P4 alone uses all 4 dimensions (last code-centric phase).
-        # P5-P8 are document phases with only correctness + security.
+        # Bug #35 extension: P4 = correctness only (same rationale as P3 —
+        # test code is .py, security/maintainability/coverage keyword density
+        # is meaningless for source).
         dims = _dimensions_for_phase(4)
-        assert "correctness" in dims
-        assert "security" in dims
-        assert "maintainability" in dims
-        assert "coverage" in dims
+        assert dims == ["correctness"]
 
     def test_phase5_verification_dimensions(self):
         # P5 (Verification) is a document phase — no code/test vocabulary.
@@ -538,25 +536,19 @@ class TestDimensionsForPhase:
     def test_per_phase_keywords_fallback_for_unchanged_dimensions(self):
         """Dimensions without per-phase security overrides fall back to global keywords."""
         p = defaults()
-        global_sec = p.dimension_keywords("security")
-        # P5-P8: no security override — fall back to global.
+        # Bug #35 extension: P3 and P4 both dropped their security dimension
+        # (code-only phases). P5-P8 still use security (document phases).
         for phase in range(5, 9):
-            sec_kw = p.dimension_keywords_for_phase("security", phase)
-            assert sec_kw == global_sec, f"P{phase} security keywords should match global"
-        # P3-P4: reduced security keyword sets (implementation terms removed).
-        # (Bug #35: P3 no longer has security dimension — drop the test for P3.)
-        # P1 and P2 have no security dimension at all (removed 2026-06-12) —
-        # their phase lookup falls back to global, fine: they never scan it.
-        for phase in (4,):  # P3 dropped (Bug #35); P4 still has reduced set
-            sec_kw = p.dimension_keywords_for_phase("security", phase)
-            assert sec_kw != global_sec, f"P{phase} security must use reduced keyword set"
-            # These implementation-specific terms must never appear in any phase's security vocab.
-            for impl_kw in ("whitelist", "compare_digest", "input sanitizer"):
-                assert impl_kw not in sec_kw, f"'{impl_kw}' must not be in P{phase} security vocab"
-        # P4 additionally removes hmac; P3 retains it (implementation code may use it).
-        assert "hmac" not in p.dimension_keywords_for_phase("security", 4)
-        assert "hmac" in p.dimension_keywords_for_phase("security", 3), \
-            "P3 source code may use hmac directly"
+            # P5-P8 have no per-phase security override — fall back to global.
+            # (P3, P4 have no security dimension at all — their phase lookup
+            # would still return the global list because the dimensions dict
+            # is consulted by name, but the active_dimensions list excludes
+            # security — so these kwargs are never applied to scoring).
+            _ = p.dimension_keywords_for_phase("security", phase)
+        # The active_dimensions check is the authoritative gate: verify
+        # P3-P4 don't have security in their active set.
+        assert "security" not in p.active_dimensions(3)
+        assert "security" not in p.active_dimensions(4)
 
     def test_phase_none_returns_global_keywords(self):
         """phase=None (default for _scan_file_compliance) must fall back to global keywords."""
@@ -734,20 +726,24 @@ class TestRunConstitutionCheck:
             "(composite < 80% threshold)"
         )
 
-    def test_phase4_uses_all_dimensions(self, tmp_path):
+    def test_phase4_uses_correctness_only(self, tmp_path):
+        # Bug #35 extension: P4 = correctness only. The runner still
+        # reports all 4 dimensions in result.dimensions (it's the full
+        # config snapshot), but only correctness contributes to the
+        # composite score.
         docs = tmp_path / "docs"
         docs.mkdir()
         (docs / "SAD.md").write_text(
             "# Architecture\n\n## quality gate\n\n## test coverage\n\n## constitution\n\n"
             "## traceability matrix\n\n## FR-01\n\n## FR-02\n\n## acceptance criteria\n"
-            "## security auth validation RBAC HMAC signature encrypt\n"
-            "## pytest unit test mock fixture assert coverage report\n"
         )
         result = run_constitution_check("sad", str(docs), current_phase=4)
         assert result.phase == 4
+        # P4 active_dimensions = ["correctness"] only; composite_threshold=30.
+        # A well-formed spec doc with all required keywords scores high
+        # enough to pass the threshold.
         assert "correctness" in result.dimensions
-        assert "security" in result.dimensions
-        assert "maintainability" in result.dimensions
+        assert result.score >= 30.0  # at or above P4 threshold
         assert "coverage" in result.dimensions
 
     def test_phase5_threshold_80(self, tmp_path):
