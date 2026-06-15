@@ -523,22 +523,25 @@ def _build_defaults() -> ConstitutionProfile:
                 },
             ),
             3: PhaseProfile(
-                active_dimensions=["correctness", "security", "maintainability"],
-                # Bug #35 fix: P3+ implementation phases have mostly Python
-                # source (not markdown docs). The per-file keyword density
-                # check is designed for markdown-heavy phases; for code the
-                # required security/maintainability keywords (auth, rbac,
-                # tls, snake_case, ...) don't naturally appear. The
-                # composite threshold is lowered to 50 (from 80) so a
-                # well-implemented P3 project with rich docstrings can
-                # pass. The authoritative quality signal for implementation
-                # is the framework AST + independent tool scores (Gate 1/2
-                # coverage, mutation, linting, type safety) — not the
-                # keyword density proxy.
-                composite_threshold=50.0,
+                # Bug #35 fix (deeper): P3+ implementation phases have
+                # mostly Python source. The per-file keyword density check
+                # is designed for markdown-heavy phases; for code-only
+                # phases the required security/maintainability keywords
+                # (auth, rbac, tls, snake_case, ...) don't naturally appear,
+                # permanently capping scores at 10-30%. The authoritative
+                # quality signal for implementation is the framework AST +
+                # independent tool scores (Gate 1/2 coverage, mutation,
+                # linting, type safety) — not the keyword density proxy.
+                # Drop security/maintainability (P5+ applies the same
+                # reasoning for non-code phases); keep correctness to
+                # verify FR/NFR traceability references in docstrings.
+                # Threshold 30: a well-implemented project with FR/NFR
+                # docstring references (~50% keyword coverage) can pass;
+                # a hollow/empty P3 dir still scores 0%.
+                active_dimensions=["correctness"],
+                composite_threshold=30.0,
                 dimension_keywords={
                     "correctness": _p3_correctness_kw,
-                    "security": _p3_security_kw,
                 },
             ),
             4: PhaseProfile(

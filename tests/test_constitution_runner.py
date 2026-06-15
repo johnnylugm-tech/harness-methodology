@@ -428,10 +428,11 @@ class TestDimensionsForPhase:
         assert "maintainability" not in dims, "P2 must exclude code-centric maintainability"
 
     def test_phase3_three_dimensions(self):
-        """P3 uses correctness + security + maintainability (source code)."""
+        """P3 uses only correctness (Bug #35: drop security/maintainability
+        from code-only phases; quality is gated via Gate 1/2 tool scores)."""
         dims = _dimensions_for_phase(3)
-        assert dims == ["correctness", "security", "maintainability"], \
-            f"P3 should use 3 dimensions, got {dims}"
+        assert dims == ["correctness"], \
+            f"P3 should use 1 dimension (correctness), got {dims}"
 
     def test_phase4_all_four_dimensions(self):
         # P4 alone uses all 4 dimensions (last code-centric phase).
@@ -543,9 +544,10 @@ class TestDimensionsForPhase:
             sec_kw = p.dimension_keywords_for_phase("security", phase)
             assert sec_kw == global_sec, f"P{phase} security keywords should match global"
         # P3-P4: reduced security keyword sets (implementation terms removed).
+        # (Bug #35: P3 no longer has security dimension — drop the test for P3.)
         # P1 and P2 have no security dimension at all (removed 2026-06-12) —
         # their phase lookup falls back to global, fine: they never scan it.
-        for phase in range(3, 5):
+        for phase in (4,):  # P3 dropped (Bug #35); P4 still has reduced set
             sec_kw = p.dimension_keywords_for_phase("security", phase)
             assert sec_kw != global_sec, f"P{phase} security must use reduced keyword set"
             # These implementation-specific terms must never appear in any phase's security vocab.
