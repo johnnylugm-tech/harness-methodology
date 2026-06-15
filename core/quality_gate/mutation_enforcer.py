@@ -167,18 +167,58 @@ def _resolve_test_dir(cwd: Path, project: Path) -> Optional[str]:
     return None
 
 
-def _copy_setup_cfg_to_workdir(project: Path, workdir: str) -> None:
-    """Copy ``setup.cfg`` into *workdir* so mutmut's setup.cfg lookup succeeds.
+_WELL_KNOWN_RUNNERS = frozenset({
+    "pytest", "python -m pytest", "python3 -m pytest", "python -m unittest",
+    "python3 -m unittest", "py.test", "python -m doctest",
+})
 
-    mutmut reads ``paths_to_mutate`` from ``[mutmut]`` in setup.cfg relative
-    to cwd — without a copy in *workdir* it falls back to defaults.
+
+def _copy_setup_cfg_to_workdir(project: Path, workdir: str, abs_test_dir: str = "") -> None:
+    """Copy ``setup.cfg`` into *workdir* with [mutmut] section rewritten for
+    temp-workdir context (Bug #41 fix).
+
+    mutmut 2.x reads several settings (runner, tests_dir, backup, disable)
+    from setup.cfg relative to cwd. A project's setup.cfg is written for its
+    own cwd and may carry runner/tests_dir values that don't work in the
+    temp workdir mutmut creates. Force-set the values we know are correct.
+
+    Safety: only rewrite `runner` if the existing value is one of the
+    well-known defaults (pytest/python-m-pytest/...). If the project uses
+    a custom runner (e.g. `make test`), log a warning and leave it alone.
     """
     setup_cfg = project / "setup.cfg"
-    if setup_cfg.exists():
-        (Path(workdir) / "setup.cfg").write_text(
-            setup_cfg.read_text(encoding="utf-8"),
-            encoding="utf-8",
-        )
+    if not setup_cfg.exists():
+        return
+    cp = configparser.ConfigParser()
+    cp.read(str(setup_cfg), encoding="utf-8")
+    if "mutmut" not in cp:
+        cp["mutmut"] = {}
+    mut = cp["mutmut"]
+
+    # Always set tests_dir to the absolute path the framework will use
+    # (resolves the "test discovery crashes in temp workdir" failure).
+    if abs_test_dir:
+        mut["tests_dir"] = abs_test_dir
+
+    # Rewrite runner only if it's a well-known default. Custom runner
+    # scripts (make test, bash scripts) are out of scope — the project
+    # author is responsible for making them workdir-aware.
+    existing_runner = mut.get("runner", "").strip()
+    if existing_runner in _WELL_KNOWN_RUNNERS or not existing_runner:
+        mut["runner"] = "python -m pytest"
+    else:
+        print(f"[WARN] setup.cfg [mutmut] runner is custom ({existing_runner!r}); "
+              f"not overriding. Ensure your runner picks up tests_dir={abs_test_dir}.",
+              file=sys.stderr)
+
+    # Strip stale "backup" (Bug #42: mutmut apply leaves <file>.bak; we
+    # manage state via stash instead). Strip "disable" (project disable
+    # lines can hide mutants the framework expects to be tested).
+    mut.pop("backup", None)
+    mut.pop("disable", None)
+
+    with open(Path(workdir) / "setup.cfg", "w", encoding="utf-8") as f:
+        cp.write(f)
 
 
 def _paths_to_exclude_flag(excludes: list[str]) -> str:
@@ -382,19 +422,8 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
     workdir = tempfile.mkdtemp(prefix="_mutmut_run.", dir="/tmp")
     cache_file = project / ".mutmut-cache"
     workdir_cache = Path(workdir) / ".mutmut-cache"
-    
-    try:
-        _copy_setup_cfg_to_workdir(project, workdir)
-        # Do NOT copy existing .mutmut-cache into workdir: precheck must always
-        # perform a fresh run.  Inheriting an old cache causes mutmut to report
-        # previously-survived mutants as still-survived without re-testing them,
-        # inflating the survivor count and blocking advance-phase incorrectly.
 
-        cmd = [
-            "mutmut", "run",
-            f"--paths-to-mutate={abs_mutate}",
-            "-b", "10",                     # Bug F: baseline budget
-        ]
+    try:
         # Bug fix: mutmut 2.x does NOT read [tool:pytest] testpaths — it
         # needs --tests-dir with an absolute path. Without this the
         # test-discovery code crashes with FileNotFoundError in the temp
@@ -406,6 +435,19 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
                 "03-development/tests/ relative to the mutmut workdir. "
                 "Mutation testing is meaningless without tests — cannot proceed."
             )
+        # Bug #41 fix: rewrite [mutmut] section for temp-workdir context.
+        # Must run BEFORE mutmut reads setup.cfg (which it does on startup).
+        _copy_setup_cfg_to_workdir(project, workdir, test_dir)
+        # Do NOT copy existing .mutmut-cache into workdir: precheck must always
+        # perform a fresh run.  Inheriting an old cache causes mutmut to report
+        # previously-survived mutants as still-survived without re-testing them,
+        # inflating the survivor count and blocking advance-phase incorrectly.
+
+        cmd = [
+            "mutmut", "run",
+            f"--paths-to-mutate={abs_mutate}",
+            "-b", "10",                     # Bug F: baseline budget
+        ]
         cmd.append(f"--tests-dir={test_dir}")
         all_excludes = declared_excludes + auto_excludes
         if all_excludes:

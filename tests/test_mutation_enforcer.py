@@ -5,6 +5,8 @@ point's contract (without actually invoking mutmut). End-to-end mutmut
 behaviour is covered by the agent's gate-evaluation protocol in
 ``evaluate_dimension.md``, not here.
 """
+import configparser
+
 from core.quality_gate.mutation_enforcer import (
     _resolve_test_dir,
     _resolve_mutmut_workdir,
@@ -174,9 +176,14 @@ def test_copy_setup_cfg_to_workdir(tmp_path):
                        encoding="utf-8")
     workdir = tmp_path / "workdir"
     workdir.mkdir()
-    _copy_setup_cfg_to_workdir(tmp_path, str(workdir))
-    assert (workdir / "setup.cfg").read_text(encoding="utf-8") == \
-        "[mutmut]\npaths_to_mutate = 03-development/src\n"
+    _copy_setup_cfg_to_workdir(tmp_path, str(workdir), "/abs/tests")
+    # Bug #41 fix: the [mutmut] section is rewritten — runner is added,
+    # tests_dir is set to the absolute path, backup/disable stripped.
+    cp = configparser.ConfigParser()
+    cp.read(str(workdir / "setup.cfg"), encoding="utf-8")
+    assert cp["mutmut"]["paths_to_mutate"] == "03-development/src"
+    assert cp["mutmut"]["runner"] == "python -m pytest"
+    assert cp["mutmut"]["tests_dir"] == "/abs/tests"
 
 
 def test_copy_setup_cfg_to_workdir_no_setup_cfg(tmp_path):
@@ -185,6 +192,91 @@ def test_copy_setup_cfg_to_workdir_no_setup_cfg(tmp_path):
     workdir.mkdir()
     _copy_setup_cfg_to_workdir(tmp_path, str(workdir))
     assert not (workdir / "setup.cfg").exists()
+
+
+# ---------------------------------------------------------------------------
+# Bug #41: [mutmut] section rewrite for temp-workdir context
+# ---------------------------------------------------------------------------
+
+
+def test_copy_setup_cfg_rewrites_runner_pytest(tmp_path):
+    """Project has runner=pytest → workdir setup.cfg has runner=python -m pytest."""
+    src_cfg = tmp_path / "setup.cfg"
+    src_cfg.write_text("[mutmut]\nrunner = pytest\n", encoding="utf-8")
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    _copy_setup_cfg_to_workdir(tmp_path, str(workdir), "/abs/path/tests")
+    cp = configparser.ConfigParser()
+    cp.read(str(workdir / "setup.cfg"), encoding="utf-8")
+    assert cp["mutmut"]["runner"] == "python -m pytest"
+
+
+def test_copy_setup_cfg_overrides_tests_dir(tmp_path):
+    """Project has tests_dir=tests (relative) → workdir has the absolute path."""
+    src_cfg = tmp_path / "setup.cfg"
+    src_cfg.write_text("[mutmut]\ntests_dir = tests\n", encoding="utf-8")
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    _copy_setup_cfg_to_workdir(tmp_path, str(workdir), "/abs/path/tests")
+    cp = configparser.ConfigParser()
+    cp.read(str(workdir / "setup.cfg"), encoding="utf-8")
+    assert cp["mutmut"]["tests_dir"] == "/abs/path/tests"
+
+
+def test_copy_setup_cfg_strips_backup(tmp_path):
+    """Project has backup=1 → key is removed (Bug #42 hook)."""
+    src_cfg = tmp_path / "setup.cfg"
+    src_cfg.write_text("[mutmut]\nbackup = 1\n", encoding="utf-8")
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    _copy_setup_cfg_to_workdir(tmp_path, str(workdir), "/abs/tests")
+    cp = configparser.ConfigParser()
+    cp.read(str(workdir / "setup.cfg"), encoding="utf-8")
+    assert "backup" not in cp["mutmut"]
+
+
+def test_copy_setup_cfg_strips_disable(tmp_path):
+    """Project has disable lines → removed (project disables can hide mutants)."""
+    src_cfg = tmp_path / "setup.cfg"
+    src_cfg.write_text(
+        "[mutmut]\ndisable = 1,2,3\n",
+        encoding="utf-8",
+    )
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    _copy_setup_cfg_to_workdir(tmp_path, str(workdir), "/abs/tests")
+    cp = configparser.ConfigParser()
+    cp.read(str(workdir / "setup.cfg"), encoding="utf-8")
+    assert "disable" not in cp["mutmut"]
+
+
+def test_copy_setup_cfg_adds_mutmut_section_if_missing(tmp_path):
+    """Project has no [mutmut] section → function injects one with all required keys."""
+    src_cfg = tmp_path / "setup.cfg"
+    src_cfg.write_text("[tool:pytest]\ntestpaths = tests\n", encoding="utf-8")
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    _copy_setup_cfg_to_workdir(tmp_path, str(workdir), "/abs/tests")
+    cp = configparser.ConfigParser()
+    cp.read(str(workdir / "setup.cfg"), encoding="utf-8")
+    assert "mutmut" in cp
+    assert cp["mutmut"]["runner"] == "python -m pytest"
+    assert cp["mutmut"]["tests_dir"] == "/abs/tests"
+
+
+def test_copy_setup_cfg_leaves_custom_runner_alone(tmp_path, capsys):
+    """Project uses a custom runner (e.g. make test) → don't override, log warn."""
+    src_cfg = tmp_path / "setup.cfg"
+    src_cfg.write_text("[mutmut]\nrunner = make test\n", encoding="utf-8")
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    _copy_setup_cfg_to_workdir(tmp_path, str(workdir), "/abs/tests")
+    cp = configparser.ConfigParser()
+    cp.read(str(workdir / "setup.cfg"), encoding="utf-8")
+    # Custom runner preserved
+    assert cp["mutmut"]["runner"] == "make test"
+    # Warning logged
+    assert "custom" in capsys.readouterr().err
 
 
 # ---------------------------------------------------------------------------
@@ -273,7 +365,7 @@ def test_l1_mutmut_cache_persistence(tmp_path, monkeypatch):
     monkeypatch.setattr(me, "_detect_data_only_files", lambda _p: [])
     monkeypatch.setattr(me, "_abs_paths_to_mutate", lambda _cwd, _paths: str(tmp_path / "src"))
     monkeypatch.setattr(me, "_resolve_test_dir", lambda _cwd, _p: str(tmp_path / "tests"))
-    monkeypatch.setattr(me, "_copy_setup_cfg_to_workdir", lambda _p, _w: None)
+    monkeypatch.setattr(me, "_copy_setup_cfg_to_workdir", lambda _p, _w, _td: None)
     monkeypatch.setattr(me.shutil, "which", lambda _cmd: "/usr/bin/mutmut")
 
     workdir_had_cache_before_run: list[bool] = []
