@@ -768,6 +768,120 @@ class TestValidateP8Completion:
         errors = _validate_p8_completion(tmp_path)
         assert any("Phase 9" in e or "phase 9" in e.lower() for e in errors)
 
+
+# =============================================================================
+# Finding #24: P8 archive copied .sessi-work/ instead of .methodology/
+# =============================================================================
+
+class TestP8ArchiveContentCheck:
+    """Regression tests for Finding #24: P8 plan's archive step said
+    'cp -r .sessi-work/ .methodology-archive/' which copies the gitignored
+    runtime scratch dir (not the methodology artifacts the archive name
+    implies). Fix: P8 plan now says 'cp -r .methodology/ .methodology-archive/'
+    and the validator surfaces an actionable error if the archive ends up
+    empty or wrong-sourced.
+    """
+
+    def test_archive_with_methodology_passes(self, tmp_path):
+        """Archive contains .methodology/ contents → no error."""
+        from harness_cli import _validate_p8_completion
+
+        archive = tmp_path / ".methodology-archive" / "methodology"
+        archive.mkdir(parents=True)
+        (archive / "phase8_plan.md").write_text("# P8 plan\n", encoding="utf-8")
+        handover = tmp_path / "HANDOVER.md"
+        handover.write_text("# Handover\n\nP8 complete.\n", encoding="utf-8")
+
+        errors = _validate_p8_completion(tmp_path)
+        assert errors == [], (
+            f"Valid archive should produce no errors; got: {errors}"
+        )
+
+    def test_archive_with_only_manifest_passes(self, tmp_path):
+        """Archive with quality_manifest.json (no phase plan) still passes."""
+        from harness_cli import _validate_p8_completion
+
+        archive = tmp_path / ".methodology-archive" / "methodology"
+        archive.mkdir(parents=True)
+        (archive / "quality_manifest.json").write_text(
+            '{"fr_ids": ["FR-01"]}', encoding="utf-8"
+        )
+        handover = tmp_path / "HANDOVER.md"
+        handover.write_text("# Handover\n", encoding="utf-8")
+
+        errors = _validate_p8_completion(tmp_path)
+        assert errors == [], (
+            f"Archive with quality_manifest.json should pass; got: {errors}"
+        )
+
+    def test_archive_with_sessi_work_only_fails(self, tmp_path):
+        """Archive contains .sessi-work/ (the Finding #24 typo) → error.
+
+        Old plan said `cp -r .sessi-work/ .methodology-archive/` which produced
+        .methodology-archive/sessi-work/ with only transient runtime scratch
+        (crg_metrics.json, gate result JSONs, etc.). The validator must catch
+        this and point to the correct command.
+        """
+        from harness_cli import _validate_p8_completion
+
+        archive = tmp_path / ".methodology-archive" / "sessi-work"
+        archive.mkdir(parents=True)
+        (archive / "crg_metrics.json").write_text("{}", encoding="utf-8")
+        handover = tmp_path / "HANDOVER.md"
+        handover.write_text("# Handover\n", encoding="utf-8")
+
+        errors = _validate_p8_completion(tmp_path)
+        assert any("methodology" in e.lower() for e in errors), (
+            f"Validator should catch the .sessi-work/ typo; got: {errors}"
+        )
+        # Error must point to the correct command
+        err_text = " ".join(errors)
+        assert "cp -r .methodology/" in err_text, (
+            f"Error must show the correct cp command; got: {err_text}"
+        )
+        assert "Finding #24" in err_text, (
+            f"Error must reference Finding #24 for traceability; got: {err_text}"
+        )
+
+    def test_empty_methodology_dir_in_archive_fails(self, tmp_path):
+        """.methodology-archive/methodology/ exists but is empty → error.
+
+        The archive has the right structure (methodology/ subdir) but no
+        content. The validator must catch the silent-empty case.
+        """
+        from harness_cli import _validate_p8_completion
+
+        archive = tmp_path / ".methodology-archive" / "methodology"
+        archive.mkdir(parents=True)
+        # No files written — empty dir
+        handover = tmp_path / "HANDOVER.md"
+        handover.write_text("# Handover\n", encoding="utf-8")
+
+        errors = _validate_p8_completion(tmp_path)
+        assert any("methodology artifacts" in e for e in errors), (
+            f"Validator should catch empty archive; got: {errors}"
+        )
+
+    def test_phase8_plan_no_longer_says_sessi_work(self):
+        """Static check: phase8_plan.md archive step says .methodology/, not .sessi-work/.
+
+        Guards against regression if someone re-touches the P8 plan template.
+        """
+        plan = Path(
+            "/Users/johnny/projects/integration-test/harness"
+            "/.methodology/phase8_plan.md"
+        )
+        text = plan.read_text(encoding="utf-8")
+        # The buggy command must be gone
+        assert "cp -r .sessi-work/ .methodology-archive/" not in text, (
+            "P8 plan still contains the Finding #24 typo "
+            "('cp -r .sessi-work/ .methodology-archive/')"
+        )
+        # The correct command must be present
+        assert "cp -r .methodology/ .methodology-archive/" in text, (
+            "P8 plan should instruct the agent to copy .methodology/, not .sessi-work/"
+        )
+
     def test_phase9_plan_reference_returns_error(self, tmp_path):
         archive = tmp_path / ".methodology-archive"
         archive.mkdir()

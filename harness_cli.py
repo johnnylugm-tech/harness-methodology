@@ -3850,6 +3850,39 @@ def _validate_p8_completion(project: Path) -> list[str]:
                 "P8 is the final phase. Remove all Phase 9 references from HANDOVER.md."
             )
 
+    # 3. Finding #24: archive must contain .methodology/ contents (not .sessi-work/).
+    # Old P8 plan had a typo: 'cp -r .sessi-work/ .methodology-archive/' which copied
+    # the gitignored runtime scratch dir instead of the methodology artifacts the
+    # archive name semantically implies. Validator now checks the archive actually
+    # has methodology content (e.g. a phase*_plan.md or quality_manifest.json).
+    # Also catches the inverse case: archive contains a `sessi-work/` subdir
+    # (i.e. the agent ran the buggy cp command verbatim and produced
+    # .methodology-archive/sessi-work/).
+    archive_sessi = archive_dir / "sessi-work"
+    if archive_sessi.exists():
+        errors.append(
+            f".methodology-archive/sessi-work/ exists — this is the Finding #24 "
+            f"typo outcome. The P8 archive must contain .methodology/ contents, "
+            f"not the gitignored runtime scratch dir. Re-run: "
+            f"`rm -rf .methodology-archive && mkdir -p .methodology-archive && "
+            f"cp -r .methodology/ .methodology-archive/`."
+        )
+
+    archive_methodology = archive_dir / "methodology"
+    if archive_methodology.exists():
+        _has_methodology_content = any(
+            archive_methodology.glob("phase*_plan.md")
+        ) or (archive_methodology / "quality_manifest.json").exists()
+        if not _has_methodology_content:
+            errors.append(
+                f".methodology-archive/methodology/ exists but contains no "
+                f"methodology artifacts (phase*_plan.md / quality_manifest.json). "
+                f"Re-run the P8 archive step: "
+                f"`rm -rf .methodology-archive && mkdir -p .methodology-archive && "
+                f"cp -r .methodology/ .methodology-archive/` "
+                f"(do NOT copy .sessi-work/ — that is the Finding #24 typo)."
+            )
+
     return errors
 
 

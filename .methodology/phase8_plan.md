@@ -96,8 +96,14 @@ python3 harness_cli.py load-context --phase 8 --project . --json \
 - [ ] **[P8-ARCHIVE]** Create `.methodology-archive/` directory (required for CI `p8-archive-check`):
   ```bash
   mkdir -p .methodology-archive
-  cp -r .sessi-work/ .methodology-archive/
+  cp -r .methodology/ .methodology-archive/
   ```
+  > **Finding #24 fix**: archive `.methodology/` (the actual methodology artifacts —
+  > plan files, quality_manifest.json, gate results, attestation, phase checkpoints),
+  > NOT `.sessi-work/` (transient runtime scratch dir, gitignored). The destination
+  > name `.methodology-archive/` semantically names the source: methodology artifacts.
+  > Copying `.sessi-work/` would produce an empty archive and defeat the entire
+  > purpose of post-pipeline preservation.
   > Must run BEFORE `push-milestone --type p8`; `_validate_p8_completion()` in push-milestone auto-verifies.
   > CI job `p8-archive-check` also validates this directory on push to main.
 
