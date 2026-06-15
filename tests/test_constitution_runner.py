@@ -71,6 +71,33 @@ class TestScanFileCompliance:
         finally:
             path.unlink()
 
+    def test_short_python_init_main_file_vacuous_bug35(self, tmp_path):
+        """Bug #35 regression: __init__.py / __main__.py <100 chars are
+        Python convention placeholders, not documentation. Returning
+        0/0/0/0 poisoned the directory aggregate for P3+ projects.
+        They must be treated as vacuous (100/100/100/100).
+        """
+        for name in ("__init__.py", "__main__.py"):
+            f = tmp_path / name
+            f.write_text("")  # empty
+            dims = _scan_file_compliance(f)
+            assert dims == {
+                "correctness": 100.0, "security": 100.0,
+                "maintainability": 100.0, "coverage": 100.0,
+            }, f"{name} empty should be vacuous, got {dims}"
+
+    def test_short_python_non_boilerplate_still_zero(self, tmp_path):
+        """Bug #35: only __init__.py and __main__.py get the vacuous
+        treatment. Other small Python files (e.g. a stub helper) still
+        return 0/0/0/0 as before — they should be fixed by adding content
+        or removed.
+        """
+        f = tmp_path / "tiny_helper.py"
+        f.write_text("x = 1\n")
+        dims = _scan_file_compliance(f)
+        assert dims["correctness"] == 0.0
+        assert dims["security"] == 0.0
+
     def test_high_compliance_file(self):
         content = """# Requirements Specification
 

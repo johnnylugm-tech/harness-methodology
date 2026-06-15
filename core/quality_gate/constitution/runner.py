@@ -335,6 +335,17 @@ def _scan_file_compliance(file_path: Path, phase: Optional[int] = None) -> Dict[
         return empty
 
     if len(content) < 100:
+        # Bug #35 fix: Python package __init__.py and similar boilerplate
+        # markers are <100 chars by convention. Returning empty (0/0/0/0)
+        # poisoned the directory-level aggregate for P3+ projects where
+        # content is mostly code (not markdown). Treat small boilerplate
+        # files as vacuous (100/100/100/100) so they don't drag the
+        # average down — they have no quality issues to flag.
+        if file_path.suffix.lower() in (".py",) and file_path.name in (
+            "__init__.py", "__main__.py",
+        ):
+            return {"correctness": 100.0, "security": 100.0,
+                    "maintainability": 100.0, "coverage": 100.0}
         return empty
 
     if _is_stub_template(content):
