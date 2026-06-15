@@ -153,6 +153,71 @@ class TestSabDriftDetection:
         assert result.has_drift is True
         assert any("unregistered.py" in i.location for i in result.drift_items)
 
+    def test_detect_sab_drift_dotted_module_resolves_to_path_bug30(self, tmp_path):
+        """Regression test for Bug #30: SAB module entries using Python dotted
+        notation (e.g. 'src.taskq.config') must be resolved to filesystem path
+        notation ('src/taskq/config.py') when checking file existence.
+
+        Before fix: detector compared dotted notation literally as a path,
+        causing all dotted entries to be flagged as missing → 100% SAB drift
+        for any P3+ project using 'src/<pkg>/<mod>.py' layout.
+        """
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        sab_json = {
+            "layers": [
+                {"name": "core", "modules": [
+                    "src.taskq.config",
+                    "src.taskq.models",
+                    "src.taskq.store",
+                    "src.taskq.executor",
+                    "src.taskq.cli",
+                ], "allowed_dependencies": []},
+            ],
+            "dependencies": {"core": []},
+        }
+        (method_dir / "SAB.json").write_text(__import__("json").dumps(sab_json))
+        # Simulate the standard P3 layout: 03-development/src/taskq/{mod}.py
+        dev_dir = tmp_path / "03-development" / "src" / "taskq"
+        dev_dir.mkdir(parents=True)
+        for mod in ("config", "models", "store", "executor", "cli"):
+            (dev_dir / f"{mod}.py").write_text(f"# {mod}")
+
+        detector = DriftDetector(str(tmp_path))
+        result = detector.detect_sab_drift()
+        # None of the 5 dotted modules should be reported as missing
+        missing_locs = [i.description for i in result.drift_items
+                        if "file not found" in i.description]
+        assert missing_locs == [], (
+            f"Bug #30 regression: dotted module entries were flagged as missing: "
+            f"{missing_locs}"
+        )
+
+    def test_detect_sab_drift_dotted_module_at_project_root(self, tmp_path):
+        """Bug #30 variant: dotted module at project root (no 03-development/ prefix)."""
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        sab_json = {
+            "layers": [
+                {"name": "core", "modules": ["taskq.config", "taskq.store"],
+                 "allowed_dependencies": []},
+            ],
+            "dependencies": {"core": []},
+        }
+        (method_dir / "SAB.json").write_text(__import__("json").dumps(sab_json))
+        pkg_dir = tmp_path / "taskq"
+        pkg_dir.mkdir()
+        (pkg_dir / "config.py").write_text("# config")
+        (pkg_dir / "store.py").write_text("# store")
+
+        detector = DriftDetector(str(tmp_path))
+        result = detector.detect_sab_drift()
+        missing_locs = [i.description for i in result.drift_items
+                        if "file not found" in i.description]
+        assert missing_locs == [], (
+            f"Bug #30 root variant: {missing_locs}"
+        )
+
     def test_detect_sab_drift_import_violation(self, tmp_path):
         """Cross-layer import where dependency is not allowed."""
         method_dir = tmp_path / ".methodology"

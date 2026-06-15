@@ -381,10 +381,22 @@ class DriftDetector:
         checked += len(sab_files)
 
         # ── Check 1: SAB files missing from codebase ──────────────────────
+        # SAB `modules` entries use Python dotted notation (e.g. "src.taskq.config",
+        # "taskq.config"); filesystem uses path notation with slashes. Convert
+        # dotted → path before checking existence (Bug #30 fix).
+        def _sab_to_path(p: str) -> str:
+            """Convert dotted module name to filesystem path (.py)."""
+            if "/" in p or p.endswith(".py"):
+                return p  # already a path
+            return p.replace(".", "/") + ".py"
+
         for rel_path, layer_name in sab_files.items():
             if not rel_path.endswith("/") and not re.match(r'^FR-\d+$', rel_path):
+                path_form = _sab_to_path(rel_path)
                 exists = (
-                    (self.project_path / rel_path).exists() or
+                    (self.project_path / path_form).exists() or
+                    (self.project_path / "03-development" / path_form).exists() or
+                    (self.project_path / rel_path).exists() or  # original dotted literal
                     (self.project_path / "03-development" / rel_path).exists()
                 )
                 if not exists:
@@ -393,7 +405,10 @@ class DriftDetector:
                         drift_type="sab",
                         severity=DriftSeverity.MEDIUM,
                         location=f"SAB layer {layer_name}",
-                        description=f"SAB declares {rel_path} but file not found in codebase",
+                        description=(
+                            f"SAB declares {rel_path} but file not found in codebase "
+                            f"(tried {path_form})"
+                        ),
                         expected=rel_path,
                         actual="not found",
                     ))
