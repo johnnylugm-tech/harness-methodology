@@ -433,9 +433,15 @@ class DriftDetector:
             if rel.startswith("archive/"):
                 continue
             # Normalize 03-development/ prefix so files at 03-development/src/X.py
-            # match SAB entries declared as src/X.py.
+            # match SAB entries declared as src/X.py. Also normalize dotted form
+            # (src.X.py → src/X.py) to match dotted-module SAB entries (Bug #31 fix).
             _rel_norm = rel[len("03-development/"):] if rel.startswith("03-development/") else rel
-            if rel not in sab_file_set and _rel_norm not in sab_file_set and not rel.startswith("tests/") and "/tests/" not in rel:
+            _rel_dotted = _rel_norm[:-3].replace("/", ".") if _rel_norm.endswith(".py") else None
+            if (rel not in sab_file_set
+                    and _rel_norm not in sab_file_set
+                    and (_rel_dotted is None or _rel_dotted not in sab_file_set)
+                    and not rel.startswith("tests/")
+                    and "/tests/" not in rel):
                 checked += 1
                 drifted += 1
                 items.append(DriftItem(
