@@ -245,12 +245,10 @@ class CRGBridge:
         self, project_root: str, query: str, kind: str | None = None, limit: int = 20
     ) -> dict[str, Any]:
         """Search for code entities by name, keyword, or semantic similarity."""
-        if _crg_semantic_search is None:
-            return {}
         kwargs: dict[str, Any] = {"query": query, "repo_root": project_root, "limit": limit}
         if kind:
             kwargs["kind"] = kind
-        return _crg_semantic_search(**kwargs)
+        return self._call_crg(_crg_semantic_search, kwargs)
 
     def query_graph(
         self, project_root: str, pattern: str, target: str
@@ -261,9 +259,9 @@ class CRGBridge:
         Patterns: callers_of, callees_of, imports_of, importers_of,
         children_of, tests_for, inheritors_of, file_summary.
         """
-        if _crg_query_graph is None:
-            return {}
-        return _crg_query_graph(pattern=pattern, target=target, repo_root=project_root)
+        return self._call_crg(_crg_query_graph, {
+            "pattern": pattern, "target": target, "repo_root": project_root
+        })
 
     def find_large_functions(
         self, project_root: str, min_lines: int = 50, kind: str | None = None, limit: int = 50
@@ -288,12 +286,10 @@ class CRGBridge:
         self, project_root: str, kind: str | None = None
     ) -> dict[str, Any]:
         """Find unreferenced functions/classes."""
-        if _crg_refactor is None:
-            return {}
         kwargs: dict[str, Any] = {"mode": "dead_code", "repo_root": project_root}
         if kind:
             kwargs["kind"] = kind
-        return _crg_refactor(**kwargs)
+        return self._call_crg(_crg_refactor, kwargs)
 
     def get_review_context(
         self,

@@ -362,3 +362,31 @@ class TestCRGBridgeSignatureFilter:
         monkeypatch.setattr(crg_mod, "_crg_list_flows", None)
         bridge = CRGBridge()
         assert bridge.list_flows("/tmp/project") == {}
+
+    def test_semantic_search_drops_unsupported_kwargs(self, monkeypatch):
+        import harness.crg_bridge as crg_mod
+        def fake_tool(repo_root):
+            return {"results": []}
+        monkeypatch.setattr(crg_mod, "_crg_semantic_search", fake_tool)
+        bridge = CRGBridge()
+        result = bridge.semantic_search("/tmp/project", query="foo", kind="Function", limit=5)
+        assert result == {"results": []}
+
+    def test_query_graph_drops_unsupported_kwargs(self, monkeypatch):
+        import harness.crg_bridge as crg_mod
+        def fake_tool(repo_root):
+            return {"nodes": []}
+        monkeypatch.setattr(crg_mod, "_crg_query_graph", fake_tool)
+        bridge = CRGBridge()
+        result = bridge.query_graph("/tmp/project", pattern="callers_of", target="main")
+        assert result == {"nodes": []}
+
+    def test_check_dead_code_drops_unsupported_kwargs(self, monkeypatch):
+        import harness.crg_bridge as crg_mod
+        def fake_tool(repo_root):
+            return {"dead": []}
+        monkeypatch.setattr(crg_mod, "_crg_refactor", fake_tool)
+        bridge = CRGBridge()
+        result = bridge.check_dead_code("/tmp/project", kind="Function")
+        assert result == {"dead": []}
+
