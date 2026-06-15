@@ -3861,11 +3861,11 @@ def _validate_p8_completion(project: Path) -> list[str]:
     archive_sessi = archive_dir / "sessi-work"
     if archive_sessi.exists():
         errors.append(
-            f".methodology-archive/sessi-work/ exists — this is the Finding #24 "
-            f"typo outcome. The P8 archive must contain .methodology/ contents, "
-            f"not the gitignored runtime scratch dir. Re-run: "
-            f"`rm -rf .methodology-archive && mkdir -p .methodology-archive && "
-            f"cp -r .methodology/ .methodology-archive/`."
+            ".methodology-archive/sessi-work/ exists — this is the Finding #24 "
+            "typo outcome. The P8 archive must contain .methodology/ contents, "
+            "not the gitignored runtime scratch dir. Re-run: "
+            "`rm -rf .methodology-archive && mkdir -p .methodology-archive && "
+            "cp -r .methodology/ .methodology-archive/`."
         )
 
     archive_methodology = archive_dir / "methodology"
@@ -3875,12 +3875,12 @@ def _validate_p8_completion(project: Path) -> list[str]:
         ) or (archive_methodology / "quality_manifest.json").exists()
         if not _has_methodology_content:
             errors.append(
-                f".methodology-archive/methodology/ exists but contains no "
-                f"methodology artifacts (phase*_plan.md / quality_manifest.json). "
-                f"Re-run the P8 archive step: "
-                f"`rm -rf .methodology-archive && mkdir -p .methodology-archive && "
-                f"cp -r .methodology/ .methodology-archive/` "
-                f"(do NOT copy .sessi-work/ — that is the Finding #24 typo)."
+                ".methodology-archive/methodology/ exists but contains no "
+                "methodology artifacts (phase*_plan.md / quality_manifest.json). "
+                "Re-run the P8 archive step: "
+                "`rm -rf .methodology-archive && mkdir -p .methodology-archive && "
+                "cp -r .methodology/ .methodology-archive/` "
+                "(do NOT copy .sessi-work/ — that is the Finding #24 typo)."
             )
 
     return errors

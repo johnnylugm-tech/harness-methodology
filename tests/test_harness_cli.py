@@ -3929,7 +3929,6 @@ class TestP2AdvanceRegeneratesManifest:
     def test_p2_advance_regenerates_manifest(self, tmp_path, monkeypatch):
         """P2→P3: SAD.md present → manifest regenerated, generated_at_phase=2."""
         import json
-        import harness_cli
         from harness_cli import cmd_advance_phase
 
         self._setup(tmp_path, monkeypatch)
@@ -3950,7 +3949,6 @@ class TestP2AdvanceRegeneratesManifest:
 
     def test_p2_advance_commits_regenerated_manifest(self, tmp_path, monkeypatch):
         """P2→P3: regenerated manifest is included in the auto-commit."""
-        import harness_cli
         from harness_cli import cmd_advance_phase
 
         self._setup(tmp_path, monkeypatch)
@@ -3973,7 +3971,6 @@ class TestP2AdvanceRegeneratesManifest:
         which would mask P3-internal manifest edits.
         """
         import json
-        import harness_cli
         from harness_cli import cmd_advance_phase
 
         self._setup(tmp_path, monkeypatch)
@@ -3997,7 +3994,6 @@ class TestP2AdvanceRegeneratesManifest:
         self, tmp_path, monkeypatch, capsys
     ):
         """P2→P3 with no SAD.md: skip regeneration, print actionable warning."""
-        import harness_cli
         from harness_cli import cmd_advance_phase
 
         self._setup(tmp_path, monkeypatch)

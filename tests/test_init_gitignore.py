@@ -10,11 +10,8 @@ must produce a .gitignore that excludes these entries.
 
 Reference: integration-test/AUDIT_LOG entry 2026-06-15-bug-1
 """
-import os
-import tempfile
 from pathlib import Path
 
-import pytest
 
 from harness.git_strategy import GitStrategy, _GITIGNORE_ENTRIES
 
