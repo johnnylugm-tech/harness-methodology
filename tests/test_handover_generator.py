@@ -828,8 +828,12 @@ class TestCmdPushMilestone:
         assert exit_code == 0
 
     def test_p8(self, tmp_path, monkeypatch):
-        # P8 pre-flight requires .methodology-archive/ to exist
-        (tmp_path / ".methodology-archive").mkdir()
+        # P8 pre-flight requires .methodology-archive/ with methodology content.
+        # `cp -r .methodology/ .methodology-archive/` copies plan files to the root
+        # of the archive dir (no "methodology/" subdir), so seed it that way.
+        archive = tmp_path / ".methodology-archive"
+        archive.mkdir()
+        (archive / "phase8_plan.md").write_text("# P8 plan\n", encoding="utf-8")
         exit_code, _ = self._call_push_milestone(monkeypatch, tmp_path, "p8")
         assert exit_code == 0
 
