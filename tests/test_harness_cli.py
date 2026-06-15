@@ -866,11 +866,14 @@ class TestP8ArchiveContentCheck:
         """Static check: phase8_plan.md archive step says .methodology/, not .sessi-work/.
 
         Guards against regression if someone re-touches the P8 plan template.
+        Path resolved relative to the test file so the test runs in any
+        environment (CI runner, dev container, integration-test repo).
         """
-        plan = Path(
-            "/Users/johnny/projects/integration-test/harness"
-            "/.methodology/phase8_plan.md"
-        )
+        # The .methodology/ dir lives next to the harness root, which is the
+        # test file's parent's parent (tests/ → harness-methodology/).
+        harness_root = Path(__file__).resolve().parent.parent
+        plan = harness_root / ".methodology" / "phase8_plan.md"
+        assert plan.exists(), f"Plan file not found at {plan} (test path assumption wrong?)"
         text = plan.read_text(encoding="utf-8")
         # The buggy command must be gone
         assert "cp -r .sessi-work/ .methodology-archive/" not in text, (

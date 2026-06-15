@@ -146,7 +146,8 @@ def generate_verification_report(project_root: str | Path) -> Path:
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
     # Aggregate Gate 3 metrics (best-effort)
-    g3 = gate_results.get("gate3") if isinstance(gate_results.get("gate3"), dict) else {}
+    g3_raw: Any = gate_results.get("gate3")
+    g3: dict[str, Any] = g3_raw if isinstance(g3_raw, dict) else {}
     coverage_str = str(g3.get("coverage_pct", "n/a"))
     mutation_str = str(g3.get("mutation_score", "n/a"))
     deferred = _collect_deferred_issues(gate_results)

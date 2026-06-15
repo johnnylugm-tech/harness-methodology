@@ -482,10 +482,13 @@ class TestTestPlanAdvisory:
     def test_phase4_plan_marks_test_plan_advisory(self):
         """Static check: phase4_plan.md must mark TEST_PLAN.md as advisory (Finding #11)."""
         from pathlib import Path
-        plan = Path(
-            "/Users/johnny/projects/integration-test/harness"
-            "/.methodology/phase4_plan.md"
-        )
+        # Resolve relative to test file so the test runs in any environment
+        # (CI runner, dev container, integration-test repo). Previously
+        # hard-coded the absolute path which failed in CI on a different
+        # runner layout (CI run 27540849312).
+        harness_root = Path(__file__).resolve().parent.parent
+        plan = harness_root / ".methodology" / "phase4_plan.md"
+        assert plan.exists(), f"Plan file not found at {plan} (test path assumption wrong?)"
         text = plan.read_text(encoding="utf-8")
         # The advisory classification must be present
         assert "advisory" in text.lower() and "Finding #11" in text, (
