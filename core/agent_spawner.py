@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from typing import Any, Optional
@@ -144,6 +145,11 @@ class AgentSpawner:
             "--permission-mode", permission_mode,
             "--no-session-persistence",
         ]
+
+        # Sub-agent regression guard: snapshot pre-spawn diff so we can
+        # compute (post - pre) net changes after the agent finishes.
+        pre_diff = self._git_diff_numstat(self.project_path)
+
         try:
             proc = subprocess.run(
                 cmd,
@@ -183,11 +189,23 @@ class AgentSpawner:
             }
 
         parsed = self._parse_result(result)
-        self._log_dispatch(role, prompt, parsed, phase, fr_id)
+        # Sub-agent regression guard: capture post-spawn diff and emit
+        # regression flags if the agent made suspicious destructive edits.
+        post_diff = self._git_diff_numstat(self.project_path)
+        regression_flags = self._dispatch_diff_budget(pre_diff, post_diff)
+        self._log_dispatch(
+            role, prompt, parsed, phase, fr_id,
+            regression_flags=regression_flags,
+        )
+        # If the guard fired, surface in the parsed result so the caller
+        # can treat it as ERROR/REJECT status (Bug #28/#32/#38/#39 pattern).
+        if regression_flags and parsed.get("status") == "complete":
+            parsed = {**parsed, "status": "REGRESSION_GUARD", "regression_flags": regression_flags}
         return parsed
 
     def _log_dispatch(self, role: str, task: str, result: dict,
-                      phase: int, fr_id: str | None) -> None:
+                      phase: int, fr_id: str | None,
+                      regression_flags: dict | None = None) -> None:
         """Auto-record agent dispatch to .methodology/sessions_spawn.log as a
         non-blocking debug trail. (The HR-10 entry-count audit that consumed this
         log was removed — it was agent-writable / not tamper-evident. This stays as
@@ -202,6 +220,7 @@ class AgentSpawner:
                 role=role, task=task[:200], session_id=session_id,
                 status=result.get("status", "SPAWNED"),
                 phase=phase, fr_id=fr_id,
+                regression_flags=regression_flags or {},
             )
         except Exception as e:
             import sys
@@ -243,3 +262,97 @@ class AgentSpawner:
         if isinstance(result, dict):
             return result
         return {"output": str(result), "status": "complete"}
+
+    # Sub-agent regression guard (B1 follow-up to Bug #28/#32/#38/#39).
+    # TDD-IMPROVE sub-agents made 4 distinct destructive edits in the
+    # integration-test E2E (set enum values to None, change sys.exit
+    # codes, inject XX...XX markers). The same sub-agent also rewrote
+    # tests to match the broken implementation, so Agent B review didn't
+    # catch it. To prevent recurrence we capture pre/post git diff
+    # statistics on every dispatch and surface them in sessions_spawn.log.
+    # A future post-dispatch budget check (Tier 2.1 in
+    # HARNESS_IMPROVEMENT_PLAN.md) consumes these fields to fire
+    # REGRESSION_GUARD status on suspicious diffs.
+    @staticmethod
+    def _git_diff_numstat(repo_root: Path | None) -> dict[str, tuple[int, int]]:
+        """Snapshot of `git diff --numstat` at this moment (cwd-independent).
+
+        Returns a dict mapping "<filename>" -> (lines_added, lines_removed)
+        for every modified file in the working tree. Empty dict on
+        failure (no git, no project, no diff, etc.) — callers must
+        handle empty as "no information".
+        """
+        if repo_root is None:
+            return {}
+        try:
+            r = subprocess.run(
+                ["git", "diff", "--numstat", "HEAD"],
+                capture_output=True, text=True, timeout=15,
+                cwd=str(repo_root),
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return {}
+        if r.returncode != 0:
+            return {}
+        out: dict[str, tuple[int, int]] = {}
+        for line in r.stdout.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split("\t", 2)
+            if len(parts) != 3:
+                continue
+            added_s, removed_s, path = parts
+            try:
+                # `--numstat` outputs `-` `-` for binary files.
+                added = -1 if added_s == "-" else int(added_s)
+                removed = -1 if removed_s == "-" else int(removed_s)
+            except ValueError:
+                continue
+            out[path] = (added, removed)
+        return out
+
+    def _dispatch_diff_budget(self, pre: dict, post: dict) -> dict:
+        """Compute regression flags from pre/post dispatch diff snapshots.
+
+        Returns a dict suitable for inclusion in sessions_spawn.log entry
+        as the `regression_flags` field. Flags are warnings only; the
+        authoritative gate is the explicit check in cmd_run_fr_step.
+        """
+        flags: dict[str, object] = {}
+        # Compute net change per file: (added, removed) under post
+        # MINUS (added, removed) under pre. Then classify.
+        suspect_lines_removed: list[tuple[str, int]] = []
+        suspect_xx_markers: list[str] = []
+        all_paths = set(pre) | set(post)
+        for path in all_paths:
+            pre_a, pre_r = pre.get(path, (0, 0))
+            post_a, post_r = post.get(path, (0, 0))
+            net_removed = (post_r - pre_r)
+            net_added = (post_a - pre_a)
+            # Lines-removed > 30% of pre-existing line count → suspicious.
+            # We don't have line counts without re-reading; use a softer
+            # absolute threshold: 50+ lines removed in a single file in
+            # a 30-min TDD step is almost certainly a destructive edit.
+            if net_removed > 50:
+                suspect_lines_removed.append((path, net_removed))
+            # Look for XX...XX mutator markers left in source — this is
+            # the exact pattern TDD-IMPROVE introduced in Bug #39.
+            if path.endswith(".py") and net_added > 0:
+                # Read the diff to check for XX markers. We can re-use
+                # `git diff HEAD -- <path>` output to grep.
+                try:
+                    r = subprocess.run(
+                        ["git", "diff", "HEAD", "--", path],
+                        capture_output=True, text=True, timeout=10,
+                        cwd=str(self.project_path.resolve()) if self.project_path else ".",
+                    )
+                    if re.search(r"^\+.*XX[a-zA-Z_]+XX", r.stdout, re.MULTILINE):
+                        suspect_xx_markers.append(path)
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
+        if suspect_lines_removed:
+            flags["lines_removed>50"] = suspect_lines_removed[:5]
+        if suspect_xx_markers:
+            flags["xx_markers_introduced"] = suspect_xx_markers
+        return flags

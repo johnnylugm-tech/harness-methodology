@@ -108,7 +108,7 @@ def _load_env_file(env_path: Path) -> list[str]:
 # Phases where Gate 1 runs per-FR
 _PER_FR_GATE1_PHASES: frozenset[int] = frozenset({3, 4, 5, 7, 8})
 # Statuses that indicate an agent dispatch failure (all others treated as success).
-_DISPATCH_ERROR_STATUSES: frozenset[str] = frozenset({"REJECT", "BLOCKED", "FAILED", "ERROR", "TIMEOUT"})
+_DISPATCH_ERROR_STATUSES: frozenset[str] = frozenset({"REJECT", "BLOCKED", "FAILED", "ERROR", "TIMEOUT", "REGRESSION_GUARD"})
 # Per-step default max_turns for run-fr-step. --max-turns override takes priority.
 # GATE1 needs more turns: 5-step workflow (run-gate → evaluate → write result.json
 # → finalize-gate → report) plus multi-dimension assessment on brownfield codebases.
@@ -6303,6 +6303,11 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             test_content = tf.read_text(encoding="utf-8")[:1500]
         return (
             f"You are a TDD refactorer. Your task: improve {fr_id} WITHOUT breaking tests.\n\n"
+            f"[FORBIDDEN — read before anything else]\n"
+            f"- Modifying test files (any file under tests/)\n"
+            f"- Setting enum values to None (e.g. STATUS = None, EXIT = None)\n"
+            f"- Changing sys.exit() codes from their current values\n"
+            f"- Injecting XX...XX placeholder markers into source files\n\n"
             f"[TEST INVARIANTS — {test_file} (first 1500 chars)]\n"
             f"{test_content or f'(read from {test_file})'}\n\n"
             f"[TASK]\n"
@@ -6957,6 +6962,17 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                 f"[run-fr-step] {fr_id} GATE1 {_status} "
                 f"— treating as GATE1 FAIL, entering CODE-FIX retry"
             )
+        elif _status == "REGRESSION_GUARD":
+            # Sub-agent made suspicious destructive edits — print
+            # the captured flags so the operator can see what was caught
+            # (e.g. "TaskStatus.RUNNING=None" sentinel injection, or a
+            # single-file line-removal spike).
+            flags = result.get("regression_flags", {})
+            print(f"[run-fr-step] {fr_id} {step}: REGRESSION_GUARD")
+            for fname, flist in flags.items():
+                print(f"  {fname}: {flist}")
+            print("[run-fr-step] Sub-agent dispatch REJECTED — manual review required.")
+            return 1
         else:
             print(f"[run-fr-step] {fr_id} {step}: sub-agent {_status}")
             print(result.get("output", "")[:500])

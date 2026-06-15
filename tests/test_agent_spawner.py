@@ -4,9 +4,10 @@ Unit tests for AgentSpawner.
 
 import json
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
-from unittest.mock import patch, MagicMock
+
 from core.agent_spawner import AgentSpawner
 
 
@@ -121,9 +122,13 @@ class TestAgentSpawner:
                         phase_sop_override="", persona_override="",
                     )
                     assert result["status"] == "complete"
-                    cmd = mock_run.call_args[0][0]
-                    assert "--strict-mcp-config" in cmd
-                    assert any("harness/.mcp.json" in str(a) for a in cmd)
+                    # call_args is last call (git numstat); find the claude invocation
+                    claude_cmd = next(
+                        c[0][0] for c in mock_run.call_args_list
+                        if c[0][0][0] != "git"
+                    )
+                    assert "--strict-mcp-config" in claude_cmd
+                    assert any("harness/.mcp.json" in str(a) for a in claude_cmd)
 
     def test_spawn_with_mcp_config_not_found_falls_back(self, capsys):
         """Missing .mcp.json → warning + fallback to empty MCP."""
@@ -192,3 +197,190 @@ class TestAgentSpawner:
                 assert result["status"] == "complete"
                 cmd = mock_run.call_args[0][0]
                 assert '{"mcpServers":{}}' in cmd
+
+
+class TestGitDiffNumstat:
+    """Unit tests for AgentSpawner._git_diff_numstat."""
+
+    def _make_proc(self, stdout="", returncode=0):
+        p = MagicMock()
+        p.returncode = returncode
+        p.stdout = stdout
+        return p
+
+    def test_parses_normal_output(self):
+        output = "10\t3\tsrc/foo.py\n5\t0\tsrc/bar.py\n"
+        with patch("core.agent_spawner.subprocess.run", return_value=self._make_proc(output)):
+            result = AgentSpawner._git_diff_numstat(Path("/fake/repo"))
+        assert result == {"src/foo.py": (10, 3), "src/bar.py": (5, 0)}
+
+    def test_returns_empty_when_repo_root_is_none(self):
+        assert AgentSpawner._git_diff_numstat(None) == {}
+
+    def test_returns_empty_on_nonzero_returncode(self):
+        with patch("core.agent_spawner.subprocess.run", return_value=self._make_proc("", returncode=128)):
+            result = AgentSpawner._git_diff_numstat(Path("/fake/repo"))
+        assert result == {}
+
+    def test_returns_empty_on_oserror(self):
+        with patch("core.agent_spawner.subprocess.run", side_effect=OSError("no git")):
+            result = AgentSpawner._git_diff_numstat(Path("/fake/repo"))
+        assert result == {}
+
+    def test_handles_binary_file_dashes(self):
+        # git --numstat shows `-` for binary files
+        output = "-\t-\timages/logo.png\n"
+        with patch("core.agent_spawner.subprocess.run", return_value=self._make_proc(output)):
+            result = AgentSpawner._git_diff_numstat(Path("/fake/repo"))
+        assert result == {"images/logo.png": (-1, -1)}
+
+    def test_skips_malformed_lines(self):
+        output = "10\tsrc/missing_tab.py\n5\t2\tsrc/ok.py\n"
+        with patch("core.agent_spawner.subprocess.run", return_value=self._make_proc(output)):
+            result = AgentSpawner._git_diff_numstat(Path("/fake/repo"))
+        assert result == {"src/ok.py": (5, 2)}
+
+
+class TestDispatchDiffBudget:
+    """Unit tests for AgentSpawner._dispatch_diff_budget (Bug #28/#32/#38/#39 guard)."""
+
+    def _spawner(self):
+        return AgentSpawner(project_path=Path("/fake/repo"))
+
+    def test_no_change_returns_empty_flags(self):
+        pre = {"src/foo.py": (10, 3)}
+        post = {"src/foo.py": (10, 3)}
+        flags = self._spawner()._dispatch_diff_budget(pre, post)
+        assert flags == {}
+
+    def test_safe_refactor_does_not_fire(self):
+        # 20 lines added, 10 lines removed — well under threshold
+        pre = {"src/foo.py": (5, 2)}
+        post = {"src/foo.py": (25, 12)}
+        with patch("core.agent_spawner.subprocess.run", return_value=MagicMock(returncode=0, stdout="")):
+            flags = self._spawner()._dispatch_diff_budget(pre, post)
+        assert "lines_removed>50" not in flags
+        assert "xx_markers_introduced" not in flags
+
+    def test_flags_when_lines_removed_exceeds_threshold(self):
+        # net_removed = 80 - 5 = 75 → exceeds 50
+        pre = {"src/taskq/models.py": (10, 5)}
+        post = {"src/taskq/models.py": (10, 80)}
+        with patch("core.agent_spawner.subprocess.run", return_value=MagicMock(returncode=0, stdout="")):
+            flags = self._spawner()._dispatch_diff_budget(pre, post)
+        assert "lines_removed>50" in flags
+        assert any("models.py" in str(entry) for entry in flags["lines_removed>50"])
+
+    def test_flags_xx_markers_introduced_in_added_lines(self):
+        # net_added > 0 and diff output contains +XXRUNNING_STATUSXX = None
+        pre = {"src/taskq/models.py": (0, 0)}
+        post = {"src/taskq/models.py": (5, 0)}
+        diff_output = (
+            "diff --git a/src/taskq/models.py b/src/taskq/models.py\n"
+            "--- a/src/taskq/models.py\n"
+            "+++ b/src/taskq/models.py\n"
+            "@@ -1,3 +1,4 @@\n"
+            " class TaskStatus:\n"
+            "+    XXRUNNING_STATUSXX = None\n"
+            "+    XXDONE_STATUSXX = 'done'\n"
+            " pass\n"
+        )
+        with patch("core.agent_spawner.subprocess.run", return_value=MagicMock(returncode=0, stdout=diff_output)):
+            flags = self._spawner()._dispatch_diff_budget(pre, post)
+        assert "xx_markers_introduced" in flags
+        assert "src/taskq/models.py" in flags["xx_markers_introduced"]
+
+    def test_xx_markers_in_removed_lines_do_not_fire(self):
+        # `-XXFOOXX` lines (removed) must NOT trigger the flag — only `+` lines matter
+        pre = {"src/taskq/models.py": (5, 0)}
+        post = {"src/taskq/models.py": (5, 2)}
+        diff_output = (
+            "@@ -1,3 +1,3 @@\n"
+            "-    XXSTATUS = None\n"
+            "+    STATUS = 'pending'\n"
+        )
+        with patch("core.agent_spawner.subprocess.run", return_value=MagicMock(returncode=0, stdout=diff_output)):
+            flags = self._spawner()._dispatch_diff_budget(pre, post)
+        assert "xx_markers_introduced" not in flags
+
+    def test_non_py_files_skip_xx_marker_check(self):
+        # Only .py files are scanned for XX markers
+        pre = {"README.md": (0, 0)}
+        post = {"README.md": (10, 0)}
+        with patch("core.agent_spawner.subprocess.run") as mock_run:
+            flags = self._spawner()._dispatch_diff_budget(pre, post)
+        # subprocess.run should NOT have been called for XX-marker check
+        # (only called for numstat, not for .md files)
+        mock_run.assert_not_called()
+        assert "xx_markers_introduced" not in flags
+
+
+class TestRegressionGuardEndToEnd:
+    """Integration tests: spawn() fires REGRESSION_GUARD when guard conditions met."""
+
+    def _make_claude_proc(self, result_text="ok"):
+        p = MagicMock()
+        p.returncode = 0
+        p.stdout = json.dumps({"result": result_text, "session_id": "test"})
+        return p
+
+    def _make_diff_proc(self, numstat_out="", diff_out=""):
+        p = MagicMock()
+        p.returncode = 0
+        p.stdout = numstat_out or diff_out
+        return p
+
+    def test_spawn_fires_guard_on_destructive_removal(self):
+        """spawn() returns REGRESSION_GUARD when agent removes 60+ lines from a file."""
+        spawner = AgentSpawner(project_path=Path("/fake/repo"))
+        claude_proc = self._make_claude_proc()
+
+        # pre: file has (5, 2); post: (5, 65) → net_removed = 63 > 50
+        pre_numstat = "5\t2\tsrc/taskq/models.py\n"
+        post_numstat = "5\t65\tsrc/taskq/models.py\n"
+        call_count = [0]
+
+        def side_effect(cmd, **kw):
+            if cmd[0] == "git" and "--numstat" in cmd:
+                call_count[0] += 1
+                out = pre_numstat if call_count[0] == 1 else post_numstat
+                return MagicMock(returncode=0, stdout=out)
+            if cmd[0] == "git" and "diff" in cmd:
+                return MagicMock(returncode=0, stdout="")
+            return claude_proc
+
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            with patch("core.agent_spawner.subprocess.run", side_effect=side_effect):
+                result = spawner.spawn(
+                    role="developer", prompt="Improve FR-01",
+                    context={}, model="claude", fr_id="FR-01",
+                )
+        assert result["status"] == "REGRESSION_GUARD"
+        assert "lines_removed>50" in result["regression_flags"]
+
+    def test_spawn_does_not_fire_guard_on_safe_refactor(self):
+        """spawn() returns complete (not REGRESSION_GUARD) for ≤50 lines removed."""
+        spawner = AgentSpawner(project_path=Path("/fake/repo"))
+        claude_proc = self._make_claude_proc()
+
+        pre_numstat = "10\t0\tsrc/taskq/models.py\n"
+        post_numstat = "15\t8\tsrc/taskq/models.py\n"  # net_removed = 8 ≤ 50
+        call_count = [0]
+
+        def side_effect(cmd, **kw):
+            if cmd[0] == "git" and "--numstat" in cmd:
+                call_count[0] += 1
+                out = pre_numstat if call_count[0] == 1 else post_numstat
+                return MagicMock(returncode=0, stdout=out)
+            if cmd[0] == "git" and "diff" in cmd:
+                return MagicMock(returncode=0, stdout="")
+            return claude_proc
+
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            with patch("core.agent_spawner.subprocess.run", side_effect=side_effect):
+                result = spawner.spawn(
+                    role="developer", prompt="Improve FR-01",
+                    context={}, model="claude", fr_id="FR-01",
+                )
+        assert result["status"] == "complete"
+        assert "regression_flags" not in result

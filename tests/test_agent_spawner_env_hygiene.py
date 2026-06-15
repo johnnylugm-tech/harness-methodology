@@ -47,7 +47,10 @@ class TestSpawnUsesChildEnv:
         captured = {}
 
         def fake_run(cmd, **kwargs):
-            captured["env"] = kwargs.get("env")
+            # Only record env when explicitly passed (git diff calls omit env=...)
+            env = kwargs.get("env")
+            if env is not None:
+                captured["env"] = env
 
             class P:
                 returncode = 0
