@@ -61,10 +61,20 @@ python3 harness_cli.py load-context --phase 4 --project . --json \
 > Outputs `fr_ids`, `fr_details`, `modules` from current project state.
 > All `{FR-ID}` references in tasks below come from this file.
 
-### CHECKPOINT-0: Generate TEST_PLAN.md
+### CHECKPOINT-0: Generate TEST_PLAN.md (advisory — Finding #11)
 
 > Generate `04-testing/TEST_PLAN.md` from SRS.md FR acceptance criteria.
 > This step runs once before per-FR test execution.
+>
+> **Status (Finding #11 fix)**: TEST_PLAN.md is **advisory**, not blocking.
+> No harness tool produces it (the P4 plan instructed the agent to write
+> it manually, but agents that followed the plan verbatim often produced
+> a stub or skipped the step and got hard-blocked by the
+> `phase_artifact_enforcer` for P4 VERIFY). It is now an
+> `advisory` artifact: agents are encouraged to write it for traceability
+> and per-FR test planning, but its absence is a warning, not a gate
+> block. TEST_RESULTS.md (which is hard-blocked) is the real
+> per-FR-coverage signal.
 
 **Generate TEST_PLAN.md** (orchestrator runs directly — not a sub-agent dispatch):
 - [ ] Read SRS.md FR acceptance criteria → write TEST_PLAN.md with per-FR test cases
@@ -72,7 +82,7 @@ python3 harness_cli.py load-context --phase 4 --project . --json \
   - Include positive, negative, boundary, and edge case categories
   - Output: `04-testing/TEST_PLAN.md`
 - [ ] Verify TEST_PLAN.md covers all FRs from manifest/quality_manifest.json
-- [ ] **[TP-DONE]** TEST_PLAN.md written: all FRs have ≥1 test case, NFRs addressed
+- [ ] **[TP-DONE]** TEST_PLAN.md written (recommended): all FRs have ≥1 test case, NFRs addressed
 
 ### FR Tasks — Expanded at Execution Time
 

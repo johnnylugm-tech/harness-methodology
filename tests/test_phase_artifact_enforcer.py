@@ -319,3 +319,175 @@ class TestPhaseLinkResult:
         )
         assert r.expected_artifacts == ["SRS.md", "SAD.md"]
         assert r.missing_artifacts == ["SAD.md"]
+
+
+# =============================================================================
+# Finding #11: TEST_PLAN.md is advisory, not blocking (no harness tool makes it)
+# =============================================================================
+
+class TestTestPlanAdvisory:
+    """Regression tests for Finding #11: P4 plan told the agent to manually
+    write 04-testing/TEST_PLAN.md. The phase_artifact_enforcer required it as
+    a hard artifact, so agents that followed the plan verbatim (often producing
+    a stub) or skipped the step got hard-blocked. Fix: TEST_PLAN.md is now an
+    `advisory` artifact — its absence is a warning, not a gate block. The
+    real per-FR coverage signal is TEST_RESULTS.md, which stays hard-blocked.
+    """
+
+    def test_test_plan_missing_does_not_block_chain(self, tmp_path):
+        """P4 chain with TEST_PLAN.md missing → all_verified=True, advisory warning recorded."""
+        from core.quality_gate.phase_artifact_enforcer import PhaseArtifactRegistry
+
+        # P1: SPECIFY — must exist
+        (tmp_path / "01-requirements").mkdir()
+        (tmp_path / "01-requirements" / "SRS.md").write_text("# SRS\n", encoding="utf-8")
+        (tmp_path / "01-requirements" / "SPEC_TRACKING.md").write_text("# Tracking\n", encoding="utf-8")
+        (tmp_path / "01-requirements" / "TRACEABILITY_MATRIX.md").write_text("# Matrix\n", encoding="utf-8")
+        (tmp_path / "TEST_INVENTORY.yaml").write_text("frs: []\n", encoding="utf-8")
+
+        # P2: PLAN
+        (tmp_path / "02-architecture").mkdir()
+        (tmp_path / "02-architecture" / "SAD.md").write_text("# SAD\n", encoding="utf-8")
+
+        # P3: IMPLEMENT
+        (tmp_path / "03-development").mkdir()
+        (tmp_path / "03-development" / "src").mkdir()
+        (tmp_path / "03-development" / "tests").mkdir()
+
+        # P4: VERIFY — TEST_PLAN.md DELIBERATELY MISSING. TEST_RESULTS.md present.
+        (tmp_path / "04-testing").mkdir()
+        (tmp_path / "04-testing" / "TEST_RESULTS.md").write_text(
+            "# Results\n\nAll FR tests pass.\n", encoding="utf-8"
+        )
+
+        registry = PhaseArtifactRegistry(str(tmp_path))
+        result = registry.verify_phase_chain(current_phase=4)
+
+        # Critical: chain should pass even with TEST_PLAN.md missing
+        assert result["all_verified"] is True, (
+            f"Chain must not fail when only TEST_PLAN.md is missing; "
+            f"missing: {result['missing_links']}"
+        )
+        assert result["stats"]["missing"] == 0
+
+        # Advisory warning should mention TEST_PLAN.md
+        assert any("TEST_PLAN" in w for w in result["advisory_warnings"]), (
+            f"Expected advisory warning for TEST_PLAN.md; "
+            f"got: {result['advisory_warnings']}"
+        )
+
+    def test_test_plan_present_no_advisory_warning(self, tmp_path):
+        """P4 chain with TEST_PLAN.md present → no advisory warning."""
+        from core.quality_gate.phase_artifact_enforcer import PhaseArtifactRegistry
+
+        (tmp_path / "01-requirements").mkdir()
+        (tmp_path / "01-requirements" / "SRS.md").write_text("# SRS\n", encoding="utf-8")
+        (tmp_path / "01-requirements" / "SPEC_TRACKING.md").write_text("# T\n", encoding="utf-8")
+        (tmp_path / "01-requirements" / "TRACEABILITY_MATRIX.md").write_text("# M\n", encoding="utf-8")
+        (tmp_path / "TEST_INVENTORY.yaml").write_text("frs: []\n", encoding="utf-8")
+        (tmp_path / "02-architecture").mkdir()
+        (tmp_path / "02-architecture" / "SAD.md").write_text("# SAD\n", encoding="utf-8")
+        (tmp_path / "03-development").mkdir()
+        (tmp_path / "03-development" / "src").mkdir()
+        (tmp_path / "03-development" / "tests").mkdir()
+        (tmp_path / "04-testing").mkdir()
+        (tmp_path / "04-testing" / "TEST_PLAN.md").write_text("# Plan\n", encoding="utf-8")
+        (tmp_path / "04-testing" / "TEST_RESULTS.md").write_text("# Results\n", encoding="utf-8")
+
+        registry = PhaseArtifactRegistry(str(tmp_path))
+        result = registry.verify_phase_chain(current_phase=4)
+
+        assert result["all_verified"] is True
+        assert not any("TEST_PLAN" in w for w in result["advisory_warnings"]), (
+            f"No advisory warning expected when TEST_PLAN.md present; "
+            f"got: {result['advisory_warnings']}"
+        )
+
+    def test_test_results_missing_still_blocks(self, tmp_path):
+        """P5 entry with TEST_RESULTS.md missing (the hard artifact) → all_verified=False.
+
+        Confirms the advisory fix did not weaken the real coverage signal.
+        TEST_RESULTS.md is what audit / trace 4a look at; it MUST stay hard.
+        We test at current_phase=5 (entering P5) so the P3->P4 link is fully
+        checked (no skip_to_side).
+        """
+        from core.quality_gate.phase_artifact_enforcer import PhaseArtifactRegistry
+
+        (tmp_path / "01-requirements").mkdir()
+        (tmp_path / "01-requirements" / "SRS.md").write_text("# SRS\n", encoding="utf-8")
+        (tmp_path / "01-requirements" / "SPEC_TRACKING.md").write_text("# T\n", encoding="utf-8")
+        (tmp_path / "01-requirements" / "TRACEABILITY_MATRIX.md").write_text("# M\n", encoding="utf-8")
+        (tmp_path / "TEST_INVENTORY.yaml").write_text("frs: []\n", encoding="utf-8")
+        (tmp_path / "02-architecture").mkdir()
+        (tmp_path / "02-architecture" / "SAD.md").write_text("# SAD\n", encoding="utf-8")
+        (tmp_path / "03-development").mkdir()
+        (tmp_path / "03-development" / "src").mkdir()
+        (tmp_path / "03-development" / "tests").mkdir()
+        (tmp_path / "04-testing").mkdir()
+        # TEST_PLAN.md present (advisory satisfied); TEST_RESULTS.md DELIBERATELY missing
+        (tmp_path / "04-testing" / "TEST_PLAN.md").write_text("# Plan\n", encoding="utf-8")
+
+        registry = PhaseArtifactRegistry(str(tmp_path))
+        result = registry.verify_phase_chain(current_phase=5)
+
+        assert result["all_verified"] is False, (
+            "Chain must still fail when TEST_RESULTS.md (the hard artifact) is missing"
+        )
+        assert any("TEST_RESULTS" in m for m in result["missing_links"])
+
+    def test_advisory_field_in_phase_spec(self, tmp_path):
+        """Phase.VERIFY spec must have an 'advisory' field listing TEST_PLAN.md."""
+        from core.quality_gate.phase_artifact_enforcer import (
+            Phase, PhaseArtifactRegistry,
+        )
+
+        registry = PhaseArtifactRegistry(str(tmp_path))
+        spec = registry.PHASE_ARTIFACTS[Phase.VERIFY]
+        assert "advisory" in spec, "Phase.VERIFY must have an 'advisory' field (Finding #11)"
+        assert any("TEST_PLAN" in a for a in spec["advisory"]), (
+            f"Phase.VERIFY advisory list must include TEST_PLAN.md; got: {spec['advisory']}"
+        )
+        # TEST_RESULTS.md is the hard signal — must NOT be in advisory
+        assert all("TEST_RESULTS" not in a for a in spec["advisory"]), (
+            "TEST_RESULTS.md must remain a hard artifact, not advisory"
+        )
+
+    def test_phase_link_result_includes_advisory_warnings(self, tmp_path):
+        """PhaseLinkResult.advisory_warnings is populated when advisory is missing."""
+        from core.quality_gate.phase_artifact_enforcer import (
+            Phase, PhaseArtifactRegistry,
+        )
+
+        (tmp_path / "01-requirements").mkdir()
+        (tmp_path / "01-requirements" / "SRS.md").write_text("# SRS\n", encoding="utf-8")
+        (tmp_path / "01-requirements" / "SPEC_TRACKING.md").write_text("# T\n", encoding="utf-8")
+        (tmp_path / "01-requirements" / "TRACEABILITY_MATRIX.md").write_text("# M\n", encoding="utf-8")
+        (tmp_path / "TEST_INVENTORY.yaml").write_text("frs: []\n", encoding="utf-8")
+        (tmp_path / "02-architecture").mkdir()
+        (tmp_path / "02-architecture" / "SAD.md").write_text("# SAD\n", encoding="utf-8")
+        (tmp_path / "03-development").mkdir()
+        (tmp_path / "03-development" / "src").mkdir()
+        (tmp_path / "03-development" / "tests").mkdir()
+        (tmp_path / "04-testing").mkdir()
+        (tmp_path / "04-testing" / "TEST_RESULTS.md").write_text("# Results\n", encoding="utf-8")
+        # TEST_PLAN.md missing → advisory warning on VERIFY (the to-side)
+
+        registry = PhaseArtifactRegistry(str(tmp_path))
+        result = registry.verify_phase_link(Phase.IMPLEMENT, Phase.VERIFY)
+        assert result.passed is True
+        assert any("TEST_PLAN" in w for w in result.advisory_warnings), (
+            f"verify_phase_link must populate advisory_warnings; got: {result.advisory_warnings}"
+        )
+
+    def test_phase4_plan_marks_test_plan_advisory(self):
+        """Static check: phase4_plan.md must mark TEST_PLAN.md as advisory (Finding #11)."""
+        from pathlib import Path
+        plan = Path(
+            "/Users/johnny/projects/integration-test/harness"
+            "/.methodology/phase4_plan.md"
+        )
+        text = plan.read_text(encoding="utf-8")
+        # The advisory classification must be present
+        assert "advisory" in text.lower() and "Finding #11" in text, (
+            "phase4_plan.md must mark TEST_PLAN.md as advisory with Finding #11 traceability"
+        )

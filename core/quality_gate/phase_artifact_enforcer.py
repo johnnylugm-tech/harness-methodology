@@ -64,6 +64,9 @@ class PhaseLinkResult:
     expected_artifacts: List[str] = field(default_factory=list)
     found_artifacts: List[str] = field(default_factory=list)
     missing_artifacts: List[str] = field(default_factory=list)
+    # Finding #11: advisory-artifact warnings (recommended but not required).
+    # Never block the phase link; UI surfaces them as yellow not red.
+    advisory_warnings: List[str] = field(default_factory=list)
 
 
 class PhaseArtifactRegistry:
@@ -103,8 +106,19 @@ class PhaseArtifactRegistry:
             },
             Phase.VERIFY: {
                 "artifacts": [
-                    layout.get_relative_str(layout.test_plan_path),
+                    # TEST_PLAN.md moved to advisory below (Finding #11): no
+                    # harness tool produces it; the P4 plan instructs the
+                    # agent to write it manually. Hard-blocking on it traps
+                    # agents that follow the plan verbatim and produce a
+                    # well-formed but stub TEST_PLAN.md, then re-block on
+                    # the validator. Treat it as a recommended artifact:
+                    # agents are encouraged to write it (the P4 plan still
+                    # tells them to), but its absence is a warning, not a
+                    # gate block.
                     layout.get_relative_str(layout.test_results_path),
+                ],
+                "advisory": [
+                    layout.get_relative_str(layout.test_plan_path),
                 ],
                 "depends_on": [Phase.IMPLEMENT],
             },
@@ -163,11 +177,33 @@ class PhaseArtifactRegistry:
 
         from_artifacts: List[str] = from_info.get("artifacts", [])
         to_artifacts: List[str] = to_info.get("artifacts", [])
+        # Advisory artifacts (Finding #11) are recommended but not required.
+        # Their absence is recorded as a warning and bubbled up via
+        # `advisory_warnings` on the result, but does NOT fail the phase
+        # link check. `passed` stays True when only advisory items are
+        # missing.
+        from_advisory: List[str] = from_info.get("advisory", [])
+        to_advisory: List[str] = to_info.get("advisory", [])
 
         found_from = [a for a in from_artifacts if (self.project_root / a).exists()]
         missing_from = [a for a in from_artifacts if not (self.project_root / a).exists()]
         found_to = [a for a in to_artifacts if (self.project_root / a).exists()]
         missing_to = [a for a in to_artifacts if not (self.project_root / a).exists()]
+
+        # Advisory checks: surface as warnings, never block.
+        advisory_warnings: List[str] = []
+        for a in from_advisory:
+            if not (self.project_root / a).exists():
+                advisory_warnings.append(
+                    f"{from_phase.name} advisory artifact missing: {a} "
+                    f"(recommended but not required)"
+                )
+        for a in to_advisory:
+            if not (self.project_root / a).exists():
+                advisory_warnings.append(
+                    f"{to_phase.name} advisory artifact missing: {a} "
+                    f"(recommended but not required)"
+                )
 
         # NOTE: the text "reference" check (substring scan of the current artifact
         # for the predecessor's filename) was removed — it was a pure-theatre check
@@ -192,14 +228,15 @@ class PhaseArtifactRegistry:
             expected_artifacts=list(set(from_artifacts + to_artifacts)),
             found_artifacts=list(set(found_from + found_to)),
             missing_artifacts=list(set(missing_from + missing_to)),
+            advisory_warnings=advisory_warnings,
         )
 
     def verify_phase_chain(self, current_phase: int) -> Dict:
         """Verify the entire ASPICE chain up to current_phase.
 
-        Returns dict with all_verified, verified_links, missing_links, stats.
-        A top-level exception is caught and reported as a single failing link
-        rather than crashing the caller.
+        Returns dict with all_verified, verified_links, missing_links,
+        advisory_warnings, stats. A top-level exception is caught and reported
+        as a single failing link rather than crashing the caller.
         """
         phase_map = {
             Phase.CONSTITUTION: 0, Phase.SPECIFY: 1, Phase.PLAN: 2,
@@ -208,6 +245,7 @@ class PhaseArtifactRegistry:
         }
         verified: List[str] = []
         missing: List[str] = []
+        advisory_warnings: List[str] = []
 
         try:
             for phase in Phase:
@@ -221,6 +259,10 @@ class PhaseArtifactRegistry:
                                                     skip_to_side=is_current)
                     entry = f"{prev.name}->{phase.name}: {result.reason}"
                     (verified if result.passed else missing).append(entry)
+                    # Finding #11: collect advisory warnings across the whole
+                    # chain so the operator sees all of them at once instead
+                    # of one per phase.
+                    advisory_warnings.extend(result.advisory_warnings)
         except Exception as exc:
             missing.append(f"CRASH: verify_phase_chain({current_phase}) — {type(exc).__name__}: {exc}")
 
@@ -228,6 +270,7 @@ class PhaseArtifactRegistry:
             "all_verified": len(missing) == 0,
             "verified_links": verified,
             "missing_links": missing,
+            "advisory_warnings": advisory_warnings,
             "stats": {
                 "total": len(verified) + len(missing),
                 "verified": len(verified),
