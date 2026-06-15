@@ -199,6 +199,30 @@ class TestAgentSpawner:
                 assert '{"mcpServers":{}}' in cmd
 
 
+class TestGitHeadSha:
+    """Unit tests for AgentSpawner._git_head_sha."""
+
+    def test_returns_sha_on_success(self):
+        with patch("core.agent_spawner.subprocess.run",
+                   return_value=MagicMock(returncode=0, stdout="abc123def456\n")):
+            result = AgentSpawner._git_head_sha(Path("/fake/repo"))
+        assert result == "abc123def456"
+
+    def test_returns_none_when_repo_root_is_none(self):
+        assert AgentSpawner._git_head_sha(None) is None
+
+    def test_returns_none_on_nonzero_returncode(self):
+        with patch("core.agent_spawner.subprocess.run",
+                   return_value=MagicMock(returncode=128, stdout="")):
+            result = AgentSpawner._git_head_sha(Path("/fake/repo"))
+        assert result is None
+
+    def test_returns_none_on_oserror(self):
+        with patch("core.agent_spawner.subprocess.run", side_effect=OSError("no git")):
+            result = AgentSpawner._git_head_sha(Path("/fake/repo"))
+        assert result is None
+
+
 class TestGitDiffNumstat:
     """Unit tests for AgentSpawner._git_diff_numstat."""
 
@@ -213,6 +237,16 @@ class TestGitDiffNumstat:
         with patch("core.agent_spawner.subprocess.run", return_value=self._make_proc(output)):
             result = AgentSpawner._git_diff_numstat(Path("/fake/repo"))
         assert result == {"src/foo.py": (10, 3), "src/bar.py": (5, 0)}
+
+    def test_base_parameter_forwarded_to_git(self):
+        """Custom base SHA must be passed to `git diff --numstat <base>`."""
+        calls = []
+        def fake_run(cmd, **_kw):
+            calls.append(cmd)
+            return MagicMock(returncode=0, stdout="")
+        with patch("core.agent_spawner.subprocess.run", side_effect=fake_run):
+            AgentSpawner._git_diff_numstat(Path("/fake/repo"), base="abc123sha")
+        assert calls[0] == ["git", "diff", "--numstat", "abc123sha"]
 
     def test_returns_empty_when_repo_root_is_none(self):
         assert AgentSpawner._git_diff_numstat(None) == {}
@@ -314,6 +348,28 @@ class TestDispatchDiffBudget:
         mock_run.assert_not_called()
         assert "xx_markers_introduced" not in flags
 
+    def test_xx_marker_check_uses_pre_sha_as_base(self):
+        """When pre_sha is provided the XX check must use it, not HEAD.
+
+        This ensures XX markers injected inside a commit (not just the
+        working tree) are caught — the guard's blind-to-commits fix.
+        """
+        pre = {"src/taskq/models.py": (0, 0)}
+        post = {"src/taskq/models.py": (5, 0)}
+        diff_cmds = []
+
+        def fake_run(cmd, **_kw):
+            diff_cmds.append(list(cmd))
+            return MagicMock(returncode=0, stdout="")
+
+        with patch("core.agent_spawner.subprocess.run", side_effect=fake_run):
+            self._spawner()._dispatch_diff_budget(pre, post, pre_sha="deadbeef")
+
+        assert any(
+            cmd[0] == "git" and "deadbeef" in cmd
+            for cmd in diff_cmds
+        ), f"Expected git diff deadbeef in calls; got: {diff_cmds}"
+
 
 class TestRegressionGuardEndToEnd:
     """Integration tests: spawn() fires REGRESSION_GUARD when guard conditions met."""
@@ -384,3 +440,47 @@ class TestRegressionGuardEndToEnd:
                 )
         assert result["status"] == "complete"
         assert "regression_flags" not in result
+
+    def test_spawn_fires_guard_when_agent_commits_destructive_change(self):
+        """Guard must fire even when the agent commits its changes.
+
+        Before fix: both pre and post used `git diff HEAD`; HEAD moves
+        after a commit, so post_diff was empty and net_removed = 0 — the
+        guard never fired for committed edits.
+
+        After fix: pre_sha is captured before spawn; post diff is measured
+        against pre_sha so committed changes are visible.
+        """
+        spawner = AgentSpawner(project_path=Path("/fake/repo"))
+        claude_proc = self._make_claude_proc()
+
+        def side_effect(cmd, **kw):
+            if cmd[0] == "git" and "rev-parse" in cmd:
+                # Pre-spawn HEAD SHA
+                return MagicMock(returncode=0, stdout="deadbeef\n")
+            if cmd[0] == "git" and "--numstat" in cmd:
+                base = cmd[-1]
+                if base == "HEAD":
+                    # Pre-spawn diff: clean working tree
+                    return MagicMock(returncode=0, stdout="")
+                else:
+                    # Post-spawn diff vs pre_sha: agent committed 65 line removal
+                    return MagicMock(
+                        returncode=0,
+                        stdout="5\t65\tsrc/taskq/models.py\n",
+                    )
+            if cmd[0] == "git" and "diff" in cmd:
+                # XX-marker check — no markers
+                return MagicMock(returncode=0, stdout="")
+            return claude_proc
+
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            with patch("core.agent_spawner.subprocess.run", side_effect=side_effect):
+                result = spawner.spawn(
+                    role="developer", prompt="Improve FR-01",
+                    context={}, model="claude", fr_id="FR-01",
+                )
+        assert result["status"] == "REGRESSION_GUARD", (
+            "Guard must fire for committed destructive edits, not just uncommitted ones"
+        )
+        assert "lines_removed>50" in result["regression_flags"]

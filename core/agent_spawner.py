@@ -148,6 +148,10 @@ class AgentSpawner:
 
         # Sub-agent regression guard: snapshot pre-spawn diff so we can
         # compute (post - pre) net changes after the agent finishes.
+        # Capture HEAD SHA now so post-spawn diff is measured against the
+        # same fixed point even if the agent commits (git diff HEAD would
+        # move with the agent's commits, making them invisible).
+        pre_sha = self._git_head_sha(self.project_path)
         pre_diff = self._git_diff_numstat(self.project_path)
 
         try:
@@ -191,8 +195,10 @@ class AgentSpawner:
         parsed = self._parse_result(result)
         # Sub-agent regression guard: capture post-spawn diff and emit
         # regression flags if the agent made suspicious destructive edits.
-        post_diff = self._git_diff_numstat(self.project_path)
-        regression_flags = self._dispatch_diff_budget(pre_diff, post_diff)
+        # Use pre_sha as base so the diff covers both committed and
+        # uncommitted changes the agent made (HEAD may have moved).
+        post_diff = self._git_diff_numstat(self.project_path, base=pre_sha or "HEAD")
+        regression_flags = self._dispatch_diff_budget(pre_diff, post_diff, pre_sha=pre_sha)
         self._log_dispatch(
             role, prompt, parsed, phase, fr_id,
             regression_flags=regression_flags,
@@ -274,19 +280,42 @@ class AgentSpawner:
     # HARNESS_IMPROVEMENT_PLAN.md) consumes these fields to fire
     # REGRESSION_GUARD status on suspicious diffs.
     @staticmethod
-    def _git_diff_numstat(repo_root: Path | None) -> dict[str, tuple[int, int]]:
-        """Snapshot of `git diff --numstat` at this moment (cwd-independent).
+    def _git_head_sha(repo_root: Path | None) -> Optional[str]:
+        """Return the current HEAD SHA, or None on failure."""
+        if repo_root is None:
+            return None
+        try:
+            r = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                capture_output=True, text=True, timeout=10,
+                cwd=str(repo_root),
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        if r.returncode != 0:
+            return None
+        return r.stdout.strip() or None
+
+    @staticmethod
+    def _git_diff_numstat(
+        repo_root: Path | None, base: str = "HEAD"
+    ) -> dict[str, tuple[int, int]]:
+        """Snapshot of `git diff --numstat <base>` at this moment.
 
         Returns a dict mapping "<filename>" -> (lines_added, lines_removed)
-        for every modified file in the working tree. Empty dict on
-        failure (no git, no project, no diff, etc.) — callers must
-        handle empty as "no information".
+        for every file that differs from *base* in the working tree (and
+        any commits made after *base*). Empty dict on failure — callers
+        must handle empty as "no information".
+
+        Pass a SHA captured before a sub-agent runs as *base* so that
+        commits made by the agent are included in the post-spawn snapshot
+        (``git diff HEAD`` would track the moving HEAD and miss them).
         """
         if repo_root is None:
             return {}
         try:
             r = subprocess.run(
-                ["git", "diff", "--numstat", "HEAD"],
+                ["git", "diff", "--numstat", base],
                 capture_output=True, text=True, timeout=15,
                 cwd=str(repo_root),
             )
@@ -312,8 +341,15 @@ class AgentSpawner:
             out[path] = (added, removed)
         return out
 
-    def _dispatch_diff_budget(self, pre: dict, post: dict) -> dict:
+    def _dispatch_diff_budget(
+        self, pre: dict, post: dict, pre_sha: Optional[str] = None
+    ) -> dict:
         """Compute regression flags from pre/post dispatch diff snapshots.
+
+        *pre_sha* is the HEAD SHA captured before the sub-agent ran.
+        Pass it so the XX-marker check uses the same fixed base ref as
+        *post* (committed XX markers are only visible via
+        ``git diff <pre_sha>``, not ``git diff HEAD``).
 
         Returns a dict suitable for inclusion in sessions_spawn.log entry
         as the `regression_flags` field. Flags are warnings only; the
@@ -324,6 +360,7 @@ class AgentSpawner:
         # MINUS (added, removed) under pre. Then classify.
         suspect_lines_removed: list[tuple[str, int]] = []
         suspect_xx_markers: list[str] = []
+        diff_base = pre_sha or "HEAD"
         all_paths = set(pre) | set(post)
         for path in all_paths:
             pre_a, pre_r = pre.get(path, (0, 0))
@@ -338,12 +375,12 @@ class AgentSpawner:
                 suspect_lines_removed.append((path, net_removed))
             # Look for XX...XX mutator markers left in source — this is
             # the exact pattern TDD-IMPROVE introduced in Bug #39.
+            # Use diff_base (= pre_sha when available) so markers in
+            # committed changes are also scanned.
             if path.endswith(".py") and net_added > 0:
-                # Read the diff to check for XX markers. We can re-use
-                # `git diff HEAD -- <path>` output to grep.
                 try:
                     r = subprocess.run(
-                        ["git", "diff", "HEAD", "--", path],
+                        ["git", "diff", diff_base, "--", path],
                         capture_output=True, text=True, timeout=10,
                         cwd=str(self.project_path.resolve()) if self.project_path else ".",
                     )
