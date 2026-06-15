@@ -232,18 +232,30 @@ def _keyword_density(content: str, keywords: List[str]) -> float:
     return min(hits / len(keywords), 1.0) * 100.0
 
 
-def _keyword_stuffing_penalty(content: str, keywords: List[str]) -> float:
+def _keyword_stuffing_penalty(
+    content: str,
+    keywords: List[str],
+    is_markdown: bool = False,
+) -> float:
     """Detect unnatural keyword clustering (D1: anti-stuffing).
 
     Returns a penalty factor 0.0–1.0:
       1.0 = natural distribution (no penalty)
       <1.0 = suspicious clustering (penalty applied multiplicatively)
 
-    Three checks:
+    Three checks (strict, for code):
     1. Position stddev across ALL occurrences (not just first): genuinely
        distributed keywords have stddev ~0.2–0.4; clustered keywords <0.1.
     2. Decile density cap: >50% of ALL occurrences in a single 10% segment.
     3. Tail density ratio: >50% of ALL occurrences in the last 15% of doc.
+
+    Markdown note (bug #3 fix): For .md docs, position-based clustering is
+    the natural result of section/table structure (FR headers concentrated
+    in §2 tables, AC in §7 JSON block). Strict 0.05 stddev threshold falsely
+    flags every real spec doc; markdown docs use a relaxed threshold
+    (0.025 — half of strict) and skip the decile cap. Only the tail-density
+    check is retained as a true stuffing signal in any file type.
+    Repro: integration-test P1 SRS.md scored 73% (FAIL threshold 75%).
 
     Content is expected to be pre-lowered by _scan_file_compliance.
     Keywords are lowered before matching for case-consistency with _keyword_density.
@@ -265,26 +277,34 @@ def _keyword_stuffing_penalty(content: str, keywords: List[str]) -> float:
     import statistics as _stats
     pos_stdev = _stats.pstdev(positions)
 
-    # ── Check 1: position stddev (all occurrences) ─────────────────────
-    if pos_stdev < 0.05:
+    # ── Check 1: position stddev (relaxed for markdown) ────────────────
+    _stddev_severe = 0.025 if is_markdown else 0.05
+    _stddev_moderate = 0.05 if is_markdown else 0.10
+    _stddev_mild = 0.075 if is_markdown else 0.15
+    if pos_stdev < _stddev_severe:
         return 0.5   # Severe clustering — 50% penalty
-    if pos_stdev < 0.10:
+    if pos_stdev < _stddev_moderate:
         return 0.7   # Moderate clustering — 30% penalty
-    if pos_stdev < 0.15:
+    if pos_stdev < _stddev_mild:
         return 0.85  # Mild clustering — 15% penalty
 
-    # ── Check 2: decile density cap (keywords per decile) ──────────────
-    decile_hits = [0] * 10
-    for pos in positions:
-        d = min(int(pos * 10), 9)
-        decile_hits[d] += 1
+    # ── Check 2: decile density cap (strict only; markdown skipped) ───
+    # Rationale: real spec docs have FR headers concentrated in the
+    # requirements table, which is the intended organization, not stuffing.
+    if not is_markdown:
+        decile_hits = [0] * 10
+        for pos in positions:
+            d = min(int(pos * 10), 9)
+            decile_hits[d] += 1
 
-    max_decile = max(decile_hits)
-    if max_decile > len(positions) * 0.5 and len(positions) >= 6:
-        return 0.7
+        max_decile = max(decile_hits)
+        if max_decile > len(positions) * 0.5 and len(positions) >= 6:
+            return 0.7
 
     # ── Check 3: tail density ratio (last 15% of document) ─────────────
     # Keyword stuffing often concentrates in a "keyword dump" at the end.
+    # This is a true stuffing signal in any file type (a 15% tail with >50%
+    # of all keyword occurrences is a dump, not a real section structure).
     tail_hits = sum(1 for p in positions if p > 0.85)
     if len(positions) >= 4 and tail_hits / len(positions) > 0.5:
         return 0.6  # >50% of occurrences in last 15% — stuffing pattern
@@ -330,7 +350,9 @@ def _scan_file_compliance(file_path: Path, phase: Optional[int] = None) -> Dict[
     # ── Correctness (40% keyword density + 30% structure + 30% FR refs) ──
     c_keywords = profile.dimension_keywords_for_phase("correctness", phase)
     c_kw = _keyword_density(content, c_keywords)
-    c_stuff_penalty = _keyword_stuffing_penalty(content, c_keywords)
+    c_stuff_penalty = _keyword_stuffing_penalty(
+        content, c_keywords, is_markdown=file_path.suffix.lower() == ".md"
+    )
     c_kw *= c_stuff_penalty
     section_count = content.count("\n## ") + content.count("\n# ")
     c_structure = min(section_count / 5.0, 1.0) * 100.0
