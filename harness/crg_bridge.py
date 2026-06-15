@@ -214,7 +214,10 @@ class CRGBridge:
         import inspect
         try:
             sig = inspect.signature(fn)
-            accepted = set(sig.parameters.keys())
+            if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+                accepted = set(kwargs.keys())
+            else:
+                accepted = set(sig.parameters.keys())
         except (TypeError, ValueError):
             accepted = set(kwargs.keys())
         filtered = {k: v for k, v in kwargs.items() if k in accepted}
