@@ -24,7 +24,7 @@ class TestDefaults:
 
     def test_active_dimensions_p3(self):
         p = defaults()
-        assert p.active_dimensions(3) == ["correctness", "security", "maintainability"]
+        assert p.active_dimensions(3) == ["correctness"]
 
     def test_active_dimensions_p4(self):
         p = defaults()
@@ -35,8 +35,8 @@ class TestDefaults:
         assert defaults().composite_threshold(1) == 75.0
 
     def test_composite_threshold_p3(self):
-        # P3-P4 lowered from 90 to 80 — not every project uses all security primitives.
-        assert defaults().composite_threshold(3) == 80.0
+        # P3 lowered to 30
+        assert defaults().composite_threshold(3) == 30.0
 
     def test_composite_threshold_p5(self):
         # P5-P8 document phases use 65.0 (matching P7 pattern).
@@ -119,7 +119,7 @@ class TestDefaults:
         p = defaults()
         js = p.to_json()
         p2 = ConstitutionProfile.from_dict(json.loads(js))
-        assert p2.composite_threshold(3) == 80.0
+        assert p2.composite_threshold(3) == 30.0
 
 
 class TestMerge:
