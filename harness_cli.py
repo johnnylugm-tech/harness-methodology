@@ -5411,6 +5411,74 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
         shutil.rmtree(sessi_work, ignore_errors=True)
         print(f"  [advance-phase] Cleared stale {sessi_work}")
 
+    # Fix Finding #3: auto-regenerate quality_manifest.json at P2 exit.
+    #
+    # P2 plan delegates to scripts/generate_sab.py (writes SAB.json only) but
+    # never re-invokes `harness_cli.py manifest` to update quality_manifest.json
+    # with the fresh SAD-derived data (nfr_dim_map, high_risk_modules,
+    # gate_score_overrides). P3 entry checks "manifest exists" and may use the
+    # stale P1 manifest, causing downstream gate checks to score against the
+    # wrong dimension floors. Re-run the manifest generator here using the
+    # fresh SAD.md so P3/P4/P5 phases see current data.
+    #
+    # Best-effort: skip with WARNING if SAD.md is missing (caller can re-run
+    # `harness_cli.py manifest` manually). Surface the reason rather than
+    # silent-skip — we have been bitten by silent skips before.
+    _manifest_regenerated = False
+    if args.completed_phase == 2:
+        sad_path = project / "02-architecture" / "SAD.md"
+        if sad_path.exists():
+            try:
+                from harness.harness_bridge import HarnessBridge
+                # Reuse fr_ids from current manifest, fall back to SRS.md scan
+                _mf_path = project / ".methodology" / "quality_manifest.json"
+                _fr_ids: list[str] = []
+                if _mf_path.exists():
+                    try:
+                        _fr_ids = json.loads(
+                            _mf_path.read_text(encoding="utf-8")
+                        ).get("fr_ids", [])
+                    except Exception:  # pylint: disable=broad-exception-caught
+                        pass
+                if not _fr_ids:
+                    # Fallback: scan SRS.md for "### FR-XX:" headers
+                    import re as _re_fr
+                    _srs = project / "01-requirements" / "SRS.md"
+                    if _srs.exists():
+                        _fr_ids = [
+                            f"FR-{n}" for n in _re_fr.findall(
+                                r"^###\s+FR-(\d+)\s*:",
+                                _srs.read_text(encoding="utf-8"),
+                                _re_fr.MULTILINE,
+                            )
+                        ]
+                _bridge = HarnessBridge()
+                _out = _bridge.generate_quality_manifest(
+                    fr_ids=_fr_ids,
+                    sad_path=str(sad_path),
+                    project_root=str(project),
+                )
+                print(
+                    f"  [P2→P3] quality_manifest.json regenerated → {_out} "
+                    f"({len(_fr_ids)} FRs, generated_at_phase=2)"
+                )
+                _manifest_regenerated = True
+            except Exception as _m:  # pylint: disable=broad-exception-caught
+                print(
+                    f"  [P2→P3] manifest regeneration FAILED: {_m}\n"
+                    f"    P3 entry will use stale P1 manifest. Fix and run:\n"
+                    f"    python3 harness_cli.py manifest "
+                    f"--fr-ids {' '.join(_fr_ids)} --sad {sad_path}",
+                    file=sys.stderr,
+                )
+        else:
+            print(
+                f"  [P2→P3] {sad_path} not found — manifest regeneration skipped.\n"
+                f"    P3 entry will use the existing manifest. Create SAD.md and run:\n"
+                f"    python3 harness_cli.py manifest --fr-ids FR-XX [...] --sad {sad_path}",
+                file=sys.stderr,
+            )
+
     gen = HandoverGenerator(project)
     gen.write(
         checkpoint_id=f"P{next_phase}-entry-{datetime.now(timezone.utc).strftime('%Y%m%d')}",
@@ -5428,10 +5496,19 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
     if os.environ.get("HARNESS_NO_GIT"):
         print("[advance-phase] HARNESS_NO_GIT=1 — skipping git commit")
     else:
+        # Fix Finding #3: include regenerated quality_manifest.json in commit when
+        # P2→P3 just regenerated it, so the advance commit captures the fresh data
+        # atomically (state.json + manifest). Without this, the regenerated file
+        # would only land in the next push, leaving a window where CI sees stale
+        # manifest.
+        _add_targets = [
+            ".methodology/state.json", "HANDOVER.md",
+            f".methodology/phase{args.completed_phase}_plan.md",
+        ]
+        if _manifest_regenerated:
+            _add_targets.append(".methodology/quality_manifest.json")
         add_result = subprocess.run(
-            ["git", "-C", str(project), "add",
-             ".methodology/state.json", "HANDOVER.md",
-             f".methodology/phase{args.completed_phase}_plan.md"],
+            ["git", "-C", str(project), "add", *_add_targets],
             capture_output=True, text=True,
         )
         if add_result.returncode != 0:

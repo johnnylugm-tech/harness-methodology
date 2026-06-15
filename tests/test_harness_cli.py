@@ -3731,3 +3731,179 @@ class TestLoadContextTemplateWarnings:
         assert "02-architecture/SAD.md" in warned
         assert "02-architecture/TEST_SPEC.md" in warned
         assert "02-architecture/adr/ADR.md" in warned
+
+
+# =============================================================================
+# Finding #3: P2→P3 advance must auto-regenerate quality_manifest.json
+# =============================================================================
+
+class TestP2AdvanceRegeneratesManifest:
+    """Regression tests for Finding #3: P2 plan never re-invokes
+    `harness_cli.py manifest` after scripts/generate_sab.py runs. P3 entry
+    then sees a stale P1 manifest with no SAD-derived data (nfr_dim_map,
+    high_risk_modules, gate_score_overrides). The fix: cmd_advance_phase
+    auto-regenerates the manifest at P2 exit using the fresh SAD.md.
+    """
+
+    def _setup(self, tmp_path: Path, monkeypatch) -> None:
+        """Minimal project + mocked advance prechecks so cmd_advance_phase
+        reaches the manifest-regeneration block.
+        """
+        import harness_cli
+        (tmp_path / ".methodology").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "01-requirements").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "02-architecture").mkdir(parents=True, exist_ok=True)
+        (tmp_path / ".methodology" / "phase2_plan.md").touch()
+        (tmp_path / ".methodology" / "phase3_plan.md").touch()
+        (tmp_path / "01-requirements" / "SRS.md").write_text(
+            "# SRS\n\n### FR-01: alpha\n\n### FR-02: beta\n", encoding="utf-8"
+        )
+        (tmp_path / "02-architecture" / "SAD.md").write_text(
+            "# SAD - taskq\n\n## 5. SAB\n\nnfr_dim_map: {}\n"
+            "constraints: []\nhigh_risk: []\n",
+            encoding="utf-8",
+        )
+        # Seed a stale P1 manifest — generated_at_phase=1 marks it as P1 output
+        import json
+        seed = {
+            "schema_version": "1.0",
+            "generated_at_phase": 1,
+            "fr_ids": ["FR-01", "FR-02"],
+            "nfr_dimension_mapping": {},
+            "high_risk_modules": [],
+            "gate_results": {"gate1": {}, "gate2": None, "gate3": None, "gate4": None},
+        }
+        (tmp_path / ".methodology" / "quality_manifest.json").write_text(
+            json.dumps(seed), encoding="utf-8"
+        )
+
+        # Mock prechecks so cmd_advance_phase doesn't trip on missing CI artifacts
+        harness_cli._write_finalize_sentinels_for_tests(tmp_path)
+        monkeypatch.setattr("harness_cli._advance_prechecks", lambda p, ph: 0)
+        monkeypatch.setattr("harness_cli._update_claude_md", lambda p: None)
+        monkeypatch.setattr("harness_cli._llm_clean_stale_claude_md", lambda p: None)
+        monkeypatch.setattr("harness_cli.shutil.which", lambda c: None)  # no CRG
+        monkeypatch.setattr("harness_cli._advance_fsm", lambda *a, **kw: None)
+
+        class _FakeGen:
+            def __init__(self, *a, **kw): pass
+            def write(self, *a, **kw): pass
+        monkeypatch.setattr("harness_cli.HandoverGenerator", _FakeGen)
+
+        # Capture git-add target list so we can assert manifest is included
+        self._git_add_calls: list[list] = []
+
+        def _fake_run(cmd, **kwargs):
+            class R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+            if isinstance(cmd, (list, tuple)) and "add" in cmd:
+                # Match: ["git", "-C", project, "add", *targets]
+                if cmd[0] == "git" and "add" in cmd:
+                    self._git_add_calls.append(list(cmd))
+            return R()
+
+        monkeypatch.setattr(harness_cli.subprocess, "run", _fake_run)
+
+    def _build_args(self, project: Path, completed_phase: int):
+        import argparse
+        return argparse.Namespace(
+            project=str(project), completed_phase=completed_phase,
+        )
+
+    def test_p2_advance_regenerates_manifest(self, tmp_path, monkeypatch):
+        """P2→P3: SAD.md present → manifest regenerated, generated_at_phase=2."""
+        import json
+        import harness_cli
+        from harness_cli import cmd_advance_phase
+
+        self._setup(tmp_path, monkeypatch)
+        assert cmd_advance_phase(self._build_args(tmp_path, 2)) == 0
+
+        manifest = json.loads(
+            (tmp_path / ".methodology" / "quality_manifest.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert manifest["generated_at_phase"] == 2, (
+            f"manifest.generated_at_phase should be 2 after P2 advance, got "
+            f"{manifest.get('generated_at_phase')}"
+        )
+        assert manifest["fr_ids"] == ["FR-01", "FR-02"], (
+            "fr_ids should be preserved from the seed manifest"
+        )
+
+    def test_p2_advance_commits_regenerated_manifest(self, tmp_path, monkeypatch):
+        """P2→P3: regenerated manifest is included in the auto-commit."""
+        import harness_cli
+        from harness_cli import cmd_advance_phase
+
+        self._setup(tmp_path, monkeypatch)
+        assert cmd_advance_phase(self._build_args(tmp_path, 2)) == 0
+
+        # git-add passes paths relative to project; check by basename suffix
+        added = any(
+            any(str(arg).endswith("quality_manifest.json") for arg in call)
+            for call in self._git_add_calls
+        )
+        assert added, (
+            f"git-add did not include regenerated quality_manifest.json; "
+            f"captured calls: {self._git_add_calls}"
+        )
+
+    def test_p3_advance_does_not_regenerate_manifest(self, tmp_path, monkeypatch):
+        """P3→P4 (not P2 exit): no manifest regeneration — only P2 exit does it.
+
+        Guards against over-eager manifest regeneration on every advance,
+        which would mask P3-internal manifest edits.
+        """
+        import json
+        import harness_cli
+        from harness_cli import cmd_advance_phase
+
+        self._setup(tmp_path, monkeypatch)
+        # Add phase4_plan.md so the advance call doesn't trip
+        (tmp_path / ".methodology" / "phase4_plan.md").touch()
+        # Add a phase3_plan.md that pre-existed (so we can advance from P3)
+        assert cmd_advance_phase(self._build_args(tmp_path, 3)) == 0
+
+        manifest = json.loads(
+            (tmp_path / ".methodology" / "quality_manifest.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        # P3 advance should NOT have touched the manifest — it stays at P1
+        assert manifest["generated_at_phase"] == 1, (
+            f"P3 advance should not regenerate manifest; "
+            f"got generated_at_phase={manifest.get('generated_at_phase')}"
+        )
+
+    def test_p2_advance_without_sad_skips_with_warning(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        """P2→P3 with no SAD.md: skip regeneration, print actionable warning."""
+        import harness_cli
+        from harness_cli import cmd_advance_phase
+
+        self._setup(tmp_path, monkeypatch)
+        # Remove the SAD.md to simulate unfinished P2
+        (tmp_path / "02-architecture" / "SAD.md").unlink()
+        assert cmd_advance_phase(self._build_args(tmp_path, 2)) == 0
+
+        captured = capsys.readouterr()
+        combined = captured.out + captured.err
+        assert "SAD.md not found" in combined, (
+            f"Expected actionable 'SAD.md not found' warning, got: {combined}"
+        )
+        assert "manifest regeneration skipped" in combined
+
+        # git-add should NOT include the manifest (no regeneration happened)
+        added = any(
+            any(str(arg).endswith("quality_manifest.json") for arg in call)
+            for call in self._git_add_calls
+        )
+        assert not added, (
+            f"git-add included manifest despite no SAD.md; calls: {self._git_add_calls}"
+        )
+
