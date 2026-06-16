@@ -180,7 +180,38 @@ for f, d in r.get('files', {}).items():
 "
 ```
 
-**python — mutmut 2.x protocol:**
+**python — mutmut 2.x protocol (framework-owned, Bug #105):**
+
+> **Do NOT run `mutmut run` directly.** The framework owns the mutation_testing
+> path: it sets up the temp workdir, rewrites `[mutmut]` in the workdir's
+> setup.cfg (Bug #41), pins the runner to `sys.executable` (Bug #91), and
+> publishes the result cache to the project root so downstream consumers can
+> read it. Running `mutmut run` from the project root bypasses all of this —
+> on macOS Homebrew Python 3.11+ the hardcoded `python` runner fails with
+> `FileNotFoundError`, leaving the cache empty and the score at 0.
+>
+> Call the framework command:
+> ```bash
+> python3 harness/harness_cli.py mutation-test-score --project .
+> # or, if harness/ is the project root (single-repo layout):
+> python3 harness_cli.py mutation-test-score --project .
+> ```
+> Output is a single line of JSON:
+> ```json
+> {"success": true, "score": 87.5, "message": "killed=14 survived=2 score=87.5",
+>  "cache_path": "/abs/path/.mutmut-cache"}
+> ```
+> Use the `score` field as `tool_score`. If `success` is `false`, treat
+> the dimension as blocked — surface `message` in the gate report and
+> write `tool_score=0` per the "mutmut unavailable" path below.
+>
+> The framework's `compute_mutation_score` covers all the historical workarounds
+> (editable-install detection, paths_to_exclude, data-only file exclusion, cwd
+> isolation via temp workdir, 60-minute timeout) — the LLM agent does NOT need
+> to re-implement them.
+
+> **Bug #105 historical context (pre-fix shell protocol, kept for reference
+> only — do NOT execute):**
 ```bash
 # mutmut was pre-verified by run-gate (_verify_gate_tools). No install needed here.
 # REQUIRED: mutmut 2.x (pip install 'mutmut<3').
@@ -188,149 +219,14 @@ for f, d in r.get('files', {}).items():
 # (projects with src/ layout or editable installs crash or produce all exit_code=-11).
 
 _PROJECT_ROOT=$(pwd)
-
-# Auto-configure paths_to_mutate with ABSOLUTE paths so mutmut can find source
-# code from any working directory (we cd to a temp dir to avoid sys.path[0]
-# contamination — see workaround 2 below).
-# mutmut 2.x reads setup.cfg [mutmut] only (NOT pyproject.toml [tool.mutmut]).
-_mutmut_needs_config=false
-if [ -f setup.cfg ]; then
-  grep -q '\[mutmut\]' setup.cfg || _mutmut_needs_config=true
-else
-  _mutmut_needs_config=true
-fi
-if [ "$_mutmut_needs_config" = true ]; then
-  _paths=""
-  for _d in 03-development/src src lib app; do
-    # Skip symlinks — a symlink src→03-development/src would double-count
-    # the same files, causing every mutation to run twice.
-    [ -d "$_d" ] && [ ! -L "$_d" ] && _paths="${_paths},$_PROJECT_ROOT/$_d"
-  done
-  if [ -n "$_paths" ]; then
-    printf '[mutmut]\npaths_to_mutate=%s\n' "${_paths#,}" >> setup.cfg
-  fi
-  unset _paths _d
-fi
-unset _mutmut_needs_config
-
-# Auto-configure [tool:pytest] testpaths with ABSOLUTE paths. Workaround 2
-# (cwd isolation) runs pytest from _MUTMUT_WORKDIR — a temp dir with no test
-# files. Without absolute testpaths, pytest discovers 0 tests → every mutant
-# "survives" → kill rate = 0%. Also fixes harness-internal test discovery
-# (e.g. harness/tests/) which would cause runner failures from project root.
-# If testpaths exists but is relative (no leading '/'), overwrite with absolute.
-_tp_val=$(python3 -c "
-import configparser, sys
-c = configparser.RawConfigParser()
-c.read('setup.cfg')
-try:
-    print(c.get('tool:pytest', 'testpaths').strip())
-except (configparser.NoSectionError, configparser.NoOptionError):
-    print('')
-" 2>/dev/null)
-if [ -z "$_tp_val" ] || ! echo "$_tp_val" | grep -q '^/'; then
-  _tpaths=""
-  for _td in tests 03-development/tests test; do
-    [ -d "$_td" ] && _tpaths="${_tpaths:+$_tpaths }$_PROJECT_ROOT/$_td"
-  done
-  if [ -n "$_tpaths" ]; then
-    python3 -c "
-import re, sys
-tpaths = sys.argv[1]
-text = open('setup.cfg').read()
-if re.search(r'testpaths\s*=', text):
-    text = re.sub(r'(testpaths\s*=\s*)[^\n]*', r'\g<1>' + tpaths, text, count=1)
-elif re.search(r'\[tool:pytest\]', text):
-    text = re.sub(r'(\[tool:pytest\])', r'\1\ntestpaths=' + tpaths, text, count=1)
-else:
-    text += '\n[tool:pytest]\ntestpaths=' + tpaths + '\n'
-open('setup.cfg', 'w').write(text)
-" "$_tpaths"
-  fi
-  unset _tpaths _td
-fi
-unset _tp_val
-
-# mutmut 2.x workaround 1: editable install (pip install -e) places a .pth file in
-# site-packages pointing to the original source directory. When mutmut 2.x
-# copies mutated code to a temp dir, Python resolves imports via the .pth file
-# back to the ORIGINAL (unmutated) source — mutations are never tested.
-# Temporarily switch to a regular (non-editable) install before running mutmut.
-_editable_pkgs=$(pip list --editable --format json 2>/dev/null | python3 -c \
-"import sys,json; data=json.load(sys.stdin); print(' '.join(d['name'] for d in data))")
-_restore_editable=false
-if [ -n "$_editable_pkgs" ]; then
-  for _pkg in $_editable_pkgs; do
-    pip uninstall "$_pkg" -y --quiet 2>/dev/null
-  done
-  pip install . --quiet 2>&1 || true
-  _restore_editable=true
-fi
-
-# mutmut 2.x workaround 2: sys.path[0] = cwd always wins the first import
-# lookup. If cwd contains src/, Python resolves imports to the ORIGINAL source
-# before mutmut's mutated copy — every mutant survives. Run from a temp dir
-# that does NOT contain src/ so mutmut's mutated copy (on sys.path) resolves
-# first. Requires namespace packages (no src/__init__.py) so Python walks all
-# sys.path entries rather than locking to a regular package.
-_MUTMUT_WORKDIR=$(mktemp -d /tmp/_mutmut_run.XXXXXX)
-cp "$_PROJECT_ROOT/setup.cfg" "$_MUTMUT_WORKDIR/"
-cd "$_MUTMUT_WORKDIR"
-
-# -b 10 sets baseline time budget to 10s. Without it, mutmut 2.x measures the
-# test suite's own runtime as baseline (~0.05-0.5s), then marks ANY mutant whose
-# test run exceeds 10× baseline as timeout. Subprocess overhead alone exceeds
-# that threshold → every mutant times out → kill rate = 0%.
-timeout $TIME_BUDGET mutmut run -b 10 2>&1
-mutmut results 2>&1 | head -100
-# Legend: 🎉=killed (good)  🙁=survived (needs investigation)  ⏰=timeout  🤔=suspicious  🔇=skipped
-
-# Data-only files (constants, dictionaries, Pydantic models) have no logic
-# to mutate — every mutant survives, diluting the kill rate. Auto-detect and
-# exclude them via paths_to_exclude. mutmut uses fnmatch on BASENAME only
-# (e.g. "config.py", NOT "src/config.py").
-# Must run AFTER the auto-config block above so [mutmut] section exists.
-if ! grep -q 'paths_to_exclude' setup.cfg; then
-  _EXCLUDE=""
-  for _d in 03-development/src src lib app; do
-    [ -d "$_d" ] && [ ! -L "$_d" ] || continue
-    # Data-only signals: file named config.py/constants.py/settings.py,
-    # OR file with ONLY assignments/dicts/imports (no def/class with logic)
-    for _f in $(find "$_d" -name '*.py' -not -name '__init__.py'); do
-      _basename=$(basename "$_f")
-      case "$_basename" in
-        config.py|constants.py|settings.py)
-          _EXCLUDE="${_EXCLUDE},${_basename}" ;;
-        *)
-          # Heuristic: file with def/class that has a body > 1 line → has logic
-          _logic_count=$(grep -cE '^\s{4,}(if |for |while |with |return |raise |try:|except )' "$_f" 2>/dev/null || echo 0)
-          [ "$_logic_count" -eq 0 ] && _EXCLUDE="${_EXCLUDE},${_basename}" ;;
-      esac
-    done
-  done
-  if [ -n "$_EXCLUDE" ]; then
-    _EXCLUDE="${_EXCLUDE#,}"
-    echo "paths_to_exclude=${_EXCLUDE}" >> setup.cfg
-    echo "[mutmut] Auto-excluded data-only files: ${_EXCLUDE}"
-  fi
-  unset _EXCLUDE _d _f _basename _logic_count
-fi
-
-# Return to project root and clean up temp dir
-cd "$_PROJECT_ROOT"
-rm -rf "$_MUTMUT_WORKDIR"
-unset _MUTMUT_WORKDIR _PROJECT_ROOT
-
-# Restore editable install if we switched it
-# Note: $_editable_pkgs must be UNQUOTED here so shell word-splits it
-# into separate package name arguments (quoted form passes the whole
-# space-separated string as one argument, causing uninstall to fail).
-if [ "$_restore_editable" = true ]; then
-  pip uninstall $_editable_pkgs -y --quiet 2>/dev/null
-  pip install -e . --quiet 2>/dev/null
-fi
-
 ```
+
+> The pre-fix shell protocol (Bug #91 + Bug #105) was 150+ lines of workarounds
+> for `mutmut 2.x` quirks (editable install, sys.path[0] contamination, data-only
+> file exclusion, `python` symlink on Homebrew Python 3.11+). The framework now
+> encapsulates all of this in `compute_mutation_score` — the LLM agent should
+> not re-implement it. See git history (commit before this change) for the
+> legacy blockquote.
 
 > **If mutmut is somehow unavailable at execution time**: evaluation is **SUSPENDED** for
 > `mutation_testing`. Do NOT write a score file with `tool_score=null` — score.py R8 will

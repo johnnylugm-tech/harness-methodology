@@ -594,3 +594,163 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
                 pass
 
         shutil.rmtree(workdir, ignore_errors=True)
+
+
+def compute_mutation_score(project: Path) -> tuple[bool, float, str]:
+    """Run mutmut in a temp workdir and PUBLISH the result cache to project root.
+
+    Bug #105: the previous design only validated pass/fail (run_mutation_precheck)
+    and stashed the project-root .mutmut-cache away. But finalize-gate's
+    mutation_testing dimension is evaluated by an LLM sub-agent that parses
+    `mutmut results` from the project-root cache. Without a published cache,
+    the agent runs `mutmut run` directly from project root, where Bug #91's
+    runner rewrite (workdir-only) does not apply — the project setup.cfg has
+    no [mutmut] section, mutmut 2.x falls back to `runner = python`, and on
+    macOS Homebrew Python 3.11+ (no `python` symlink) it crashes with
+    FileNotFoundError, leaving an empty cache and a score of 0.
+
+    This function is the publish side of the protocol: it runs mutmut in a
+    workdir with the same isolation/setup.cfg-rewrite machinery as
+    run_mutation_precheck, but on success PROMOTES the workdir cache to
+    project root so downstream consumers (LLM agent) can read it. The
+    score is also returned directly so callers that want to skip the
+    parse step can use the float.
+
+    Returns:
+        (success, score, message)
+        - success: True iff mutmut ran AND produced parseable output
+        - score:   0.0–100.0 (killed / (killed + survived) × 100)
+                   ⏰ (timeout) and 🤔 (suspicious) count as survived.
+                   If success is False, score is 0.0.
+        - message: human-readable status (also written to gate prompt)
+    """
+    from core.utils.lang_patterns import project_language
+    if project_language(project) in ("javascript", "typescript"):
+        return _compute_stryker_score(project)
+
+    if not shutil.which("mutmut"):
+        return False, 0.0, (
+            "mutmut not installed. Required for mutation_testing dimension. "
+            "Install: pip install 'mutmut<3'"
+        )
+
+    cwd, paths_to_mutate = _resolve_mutmut_workdir(project)
+    src_dir = cwd / paths_to_mutate
+    if not src_dir.exists():
+        return True, 0.0, (
+            f"Source directory {src_dir} does not exist; "
+            "skipping mutation testing (no code to mutate)."
+        )
+
+    if _is_editable_install(project):
+        return False, 0.0, (
+            "Project is installed in editable mode (pip install -e). "
+            "This prevents mutmut from testing mutations."
+        )
+
+    declared_excludes = _read_paths_to_exclude(cwd)
+    auto_excludes = _detect_data_only_files(src_dir)
+    auto_excludes = [e for e in auto_excludes if e not in frozenset(declared_excludes)]
+    abs_mutate = _abs_paths_to_mutate(cwd, paths_to_mutate)
+
+    workdir = tempfile.mkdtemp(prefix="_mutmut_score.", dir="/tmp")
+    cache_file = project / ".mutmut-cache"
+    workdir_cache = Path(workdir) / ".mutmut-cache"
+
+    try:
+        test_dir = _resolve_test_dir(cwd, project)
+        if test_dir is None:
+            return False, 0.0, (
+                "No test directory found. Mutation testing is meaningless "
+                "without tests — cannot proceed."
+            )
+
+        # Bug #41 + #91: rewrite setup.cfg for workdir context (mutmut 2.x
+        # hardcodes `python`; modern macOS lacks that symlink).
+        _copy_setup_cfg_to_workdir(project, workdir, test_dir)
+
+        cmd = [
+            "mutmut", "run",
+            f"--paths-to-mutate={abs_mutate}",
+            "-b", "10",
+        ]
+        cmd.append(f"--tests-dir={test_dir}")
+        all_excludes = declared_excludes + auto_excludes
+        if all_excludes:
+            cmd.append(_paths_to_exclude_flag(all_excludes))
+
+        r = subprocess.run(
+            cmd, cwd=workdir, capture_output=True, text=True,
+            timeout=3600,
+        )
+        if r.returncode != 0:
+            return False, 0.0, (
+                f"mutmut run failed (return code {r.returncode}).\n"
+                f"STDOUT:\n{r.stdout.strip()[-2000:]}\n"
+                f"STDERR:\n{r.stderr.strip()[-2000:]}"
+            )
+
+        res = subprocess.run(
+            ["mutmut", "results"], cwd=workdir, capture_output=True, text=True,
+            timeout=30,
+        )
+        out = res.stdout.strip()
+        _write_survivors_artifact(
+            project, "mutmut", _parse_mutmut_survivors(out), raw=out
+        )
+
+        # Score from `mutmut results` emoji counts (mutmut 2.x).
+        # 🎉 = killed, 🙁 = survived, ⏰ = timeout, 🤔 = suspicious.
+        # ⏰ and 🤔 count as survived per evaluate_dimension.md.
+        killed = out.count("🎉")
+        survived = out.count("🙁") + out.count("⏰") + out.count("🤔")
+        total = killed + survived
+        if total == 0:
+            score = 0.0
+            msg = "mutmut produced 0 mutants. Score = 0."
+        else:
+            score = round(100.0 * killed / total, 1)
+            msg = f"killed={killed} survived={survived} score={score}"
+
+        # Bug #105: PUBLISH the workdir cache to project root. The LLM agent
+        # evaluating mutation_testing reads `mutmut results` from this path.
+        # On failure we leave the project-root cache untouched so callers
+        # can distinguish "we ran mutmut and it crashed" from "we have
+        # valid prior results".
+        if workdir_cache.exists():
+            shutil.copy2(workdir_cache, cache_file)
+        return True, score, msg
+
+    except subprocess.TimeoutExpired:
+        return False, 0.0, (
+            "mutmut timed out after 60 minutes. Consider excluding "
+            "data-only files via paths_to_exclude in setup.cfg."
+        )
+    except Exception as e:
+        return False, 0.0, f"Error running mutmut: {e}"
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+def _compute_stryker_score(project: Path) -> tuple[bool, float, str]:
+    """JS/TS variant of compute_mutation_score (StrykerJS)."""
+    import json
+    report_path = project / "reports" / "mutation" / "mutation.json"
+    if not report_path.exists():
+        return False, 0.0, (
+            f"Stryker report not found at {report_path}. "
+            "Run `npx stryker run` first."
+        )
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        return False, 0.0, f"Failed to read Stryker report: {e}"
+    mutants: list = []
+    for file_data in (report.get("files") or {}).values():
+        mutants.extend(file_data.get("mutants") or [])
+    killed = sum(1 for m in mutants if m.get("status") in ("Killed", "Timeout"))
+    total = len(mutants)
+    if total == 0:
+        return True, 0.0, "Stryker produced 0 mutants. Score = 0."
+    score = round(100.0 * killed / total, 1)
+    return True, score, f"killed={killed} total={total} score={score}"

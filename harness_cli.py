@@ -72,6 +72,10 @@ sys.path.insert(0, str(_REPO_ROOT))
 # Atomic state-file writers (CV-3 / SG-12 from robustness audit)
 from core.atomic_io import atomic_write_json, file_lock, state_lock_path  # noqa: E402
 from core.pre_flight import check_cli_tools  # noqa: E402
+# Bug #105: framework-owned mutation_testing path. Pyright cannot resolve this
+# import statically (no type stub for core.quality_gate.mutation_enforcer),
+# so we silence reportAttributeAccessIssue here.
+from core.quality_gate.mutation_enforcer import compute_mutation_score  # type: ignore[reportAttributeAccessIssue]  # Bug #105; noqa: E402
 
 # ---------------------------------------------------------------------------
 # .env file loader (no external dependency)
@@ -8550,6 +8554,43 @@ def _print_manual_branch_protection_guide() -> None:
     print("     Then re-run: python3 harness_cli.py init-project --project . --setup-branch-protection")
 
 
+def cmd_mutation_test_score(args: argparse.Namespace) -> int:
+    """Compute mutation_testing score by running mutmut in a temp workdir.
+
+    Bug #105: this is the publish-side counterpart to the in-process
+    `run_mutation_precheck`. finalize-gate's mutation_testing dimension is
+    evaluated by an LLM sub-agent that previously ran `mutmut run` directly
+    from the project root, where Bug #91's runner rewrite (workdir-only) did
+    not apply. On macOS Homebrew Python 3.11+ this crashes with
+    FileNotFoundError 'python', leaving the .mutmut-cache empty and the
+    score at 0.
+
+    This command wraps :func:`compute_mutation_score`, which runs mutmut
+    in a workdir (with the Bug #41 setup.cfg rewrite + Bug #91 runner fix
+    applied) and PROMOTES the workdir cache to project root on success.
+    The LLM agent should call this command instead of running
+    `mutmut run` itself.
+
+    Exit codes:
+      0 — mutmut ran and produced a score (printed as JSON)
+      1 — mutmut missing / crashed / no parseable output
+    """
+    project = Path(args.project).resolve()
+    if not project.exists():
+        print(f"[ERROR] project root not found: {project}", file=sys.stderr)
+        return 1
+    success, score, msg = compute_mutation_score(project)
+    # Machine-readable single-line JSON, easy for the LLM agent to parse.
+    import json as _json
+    print(_json.dumps({
+        "success": success,
+        "score": score,
+        "message": msg,
+        "cache_path": str(project / ".mutmut-cache"),
+    }, ensure_ascii=False))
+    return 0 if success else 1
+
+
 def cmd_init_project(args: argparse.Namespace) -> int:
     """
     Initialize harness CI wiring in a target project (Context B setup).
@@ -9729,6 +9770,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     vh.add_argument("--project", default=".", help="Project root (default: .)")
     vh.set_defaults(func=cmd_validate_handoff)
+
+    mts = sub.add_parser(
+        "mutation-test-score",
+        help="Run mutmut in a workdir and publish the score to .mutmut-cache "
+             "(Bug #105: framework-owned path for the mutation_testing dimension).",
+    )
+    mts.add_argument("--project", default=".", help="Project root (default: .)")
+    mts.set_defaults(func=cmd_mutation_test_score)
 
     return p
 

@@ -11,7 +11,11 @@ Regression coverage includes Bug #41 (setup.cfg rewrite), Bug #42
 can invoke pytest through mutmut).
 """
 import configparser
+import json
 import sys
+from pathlib import Path
+
+import pytest
 
 from core.quality_gate.mutation_enforcer import (
     _resolve_test_dir,
@@ -657,7 +661,7 @@ def test_run_mutation_precheck_no_partial_cache_left_on_failure(tmp_path, monkey
 def test_apply_mutmut_to_workdir_runs_in_workdir(tmp_path, monkeypatch):
     """Bug #42 safety: mutmut apply must run in the workdir, not the project root."""
     import core.quality_gate.mutation_enforcer as me
-    calls: list[dict] = {}
+    calls: dict = {}
 
     def fake_run(cmd, **kwargs):
         calls["cmd"] = cmd
@@ -672,3 +676,178 @@ def test_apply_mutmut_to_workdir_runs_in_workdir(tmp_path, monkeypatch):
     me._apply_mutmut_to_workdir(5, "/tmp/_mutmut_run.abc")
     assert calls["cmd"] == ["mutmut", "apply", "5"]
     assert calls["kwargs"]["cwd"] == "/tmp/_mutmut_run.abc"
+
+
+# ---------------------------------------------------------------------------
+# Bug #105: compute_mutation_score is the publish-side counterpart to
+# run_mutation_precheck. finalize-gate's LLM agent runs `mutmut run` from
+# project root, where Bug #91's workdir-isolated runner rewrite does not
+# apply — on macOS Homebrew Python 3.11+ (no `python` symlink) mutmut 2.x
+# crashes with FileNotFoundError. compute_mutation_score runs mutmut in a
+# workdir (with the runner fix) AND promotes the cache to project root so
+# downstream consumers can read `mutmut results` without rerunning.
+# ---------------------------------------------------------------------------
+
+
+def test_compute_mutation_score_promotes_cache_to_project_root(tmp_path, monkeypatch):
+    """Bug #105: on success, workdir cache MUST be copied to project root."""
+    import core.quality_gate.mutation_enforcer as me
+    # ProjectLayout defaults to 03-development/src + 03-development/tests.
+    src = tmp_path / "03-development" / "src" / "pkg"
+    src.mkdir(parents=True)
+    (src / "mod.py").write_text("def f():\n    return 1\n")
+    tests = tmp_path / "03-development" / "tests"
+    tests.mkdir()
+    (tests / "test_x.py").write_text("def test_x(): pass\n")
+
+    def fake_run(cmd, **kwargs):
+        cwd = kwargs.get("cwd", "")
+        is_run = isinstance(cmd, list) and len(cmd) >= 2 and cmd[1] == "run"
+        is_results = isinstance(cmd, list) and len(cmd) >= 2 and cmd[1] == "results"
+        if is_run and cwd.startswith("/tmp/_mutmut_score."):
+            (Path(cwd) / ".mutmut-cache").write_text("VERSION: test")
+            return _R(0, "", "")
+        if is_results:
+            # 2 killed, 1 survived.
+            return _R(0, "🎉\n🎉\n🙁\n", "")
+        return _R(0, "", "")
+
+    monkeypatch.setattr(me.subprocess, "run", fake_run)
+    monkeypatch.setattr(me.shutil, "which", lambda name: "/usr/bin/mutmut" if name == "mutmut" else None)
+
+    ok, score, msg = me.compute_mutation_score(tmp_path)
+
+    assert ok, f"compute_mutation_score returned not-ok: {msg}"
+    assert score == pytest.approx(66.7), f"expected 2/3*100=66.7, got {score}"
+    assert "killed=2" in msg and "survived=1" in msg
+    # Bug #105 contract: cache promoted to project root.
+    assert (tmp_path / ".mutmut-cache").exists()
+    assert (tmp_path / ".mutmut-cache").read_text() == "VERSION: test"
+
+
+def test_compute_mutation_score_does_not_promote_on_failure(tmp_path, monkeypatch):
+    """Bug #105: if mutmut crashes, the project-root cache MUST stay untouched
+    so callers can distinguish 'we ran mutmut and it failed' from 'we have
+    valid prior results'."""
+    import core.quality_gate.mutation_enforcer as me
+
+    src = tmp_path / "03-development" / "src" / "pkg"
+    src.mkdir(parents=True)
+    (src / "mod.py").write_text("def f():\n    return 1\n")
+    tests = tmp_path / "03-development" / "tests"
+    tests.mkdir()
+    (tests / "test_x.py").write_text("def test_x(): pass\n")
+
+    def fake_run(cmd, **kwargs):
+        return _R(1, "boom", "mutmut crashed")
+
+    monkeypatch.setattr(me.subprocess, "run", fake_run)
+    monkeypatch.setattr(me.shutil, "which", lambda name: "/usr/bin/mutmut" if name == "mutmut" else None)
+
+    ok, score, _msg = me.compute_mutation_score(tmp_path)
+
+    assert not ok
+    assert score == 0.0
+    assert not (tmp_path / ".mutmut-cache").exists()
+
+
+def test_compute_mutation_score_uses_sys_executable_for_runner(tmp_path, monkeypatch):
+    """Bug #91 / #105: setup.cfg rewrite pins the runner to sys.executable so
+    mutmut 2.x's hardcoded `python` fallback never gets a chance to crash on
+    macOS Homebrew Python 3.11+ (no `python` symlink)."""
+    import core.quality_gate.mutation_enforcer as me
+
+    src = tmp_path / "03-development" / "src" / "pkg"
+    src.mkdir(parents=True)
+    (src / "mod.py").write_text("def f():\n    return 1\n")
+    tests = tmp_path / "03-development" / "tests"
+    tests.mkdir()
+    (tests / "test_x.py").write_text("def test_x(): pass\n")
+    (tmp_path / "setup.cfg").write_text("[metadata]\nname=proj\n")
+
+    captured_setup_cfgs: list = []
+
+    def fake_run(cmd, **kwargs):
+        cwd = kwargs.get("cwd", "")
+        is_run = isinstance(cmd, list) and len(cmd) >= 2 and cmd[1] == "run"
+        if is_run and cwd.startswith("/tmp/_mutmut_score."):
+            cfg_text = (Path(cwd) / "setup.cfg").read_text()
+            captured_setup_cfgs.append(cfg_text)
+        return _R(0, "", "")
+
+    monkeypatch.setattr(me.subprocess, "run", fake_run)
+    monkeypatch.setattr(me.shutil, "which", lambda name: "/usr/bin/mutmut" if name == "mutmut" else None)
+
+    me.compute_mutation_score(tmp_path)
+
+    assert captured_setup_cfgs, "workdir setup.cfg was never created"
+    workdir_cfg = captured_setup_cfgs[0]
+    # Bug #91 contract: runner must be sys.executable, not bare `python`.
+    # ConfigParser writes with spaces around `=`, so match accordingly.
+    assert f"runner = {sys.executable} -m pytest" in workdir_cfg, (
+        f"runner not pinned to sys.executable; got:\n{workdir_cfg}"
+    )
+
+
+def test_compute_mutation_score_no_mutmut_returns_zero(tmp_path, monkeypatch):
+    """Bug #105: if mutmut is not installed, return (False, 0.0, msg) cleanly
+    rather than crashing. Gate prompt can then surface a blocking message."""
+    import core.quality_gate.mutation_enforcer as me
+
+    monkeypatch.setattr(me.shutil, "which", lambda name: None if name == "mutmut" else "/usr/bin/python3")
+
+    ok, score, msg = me.compute_mutation_score(tmp_path)
+    assert not ok
+    assert score == 0.0
+    assert "mutmut not installed" in msg.lower()
+
+
+def test_cmd_mutation_test_score_exits_zero_on_success(tmp_path, monkeypatch):
+    """Bug #105: the CLI command must exit 0 on success and print machine-readable JSON."""
+    import core.quality_gate.mutation_enforcer as me
+    from harness_cli import cmd_mutation_test_score
+
+    src = tmp_path / "03-development" / "src" / "pkg"
+    src.mkdir(parents=True)
+    (src / "mod.py").write_text("def f():\n    return 1\n")
+    tests = tmp_path / "03-development" / "tests"
+    tests.mkdir()
+    (tests / "test_x.py").write_text("def test_x(): pass\n")
+
+    def fake_run(cmd, **kwargs):
+        cwd = kwargs.get("cwd", "")
+        is_run = isinstance(cmd, list) and len(cmd) >= 2 and cmd[1] == "run"
+        is_results = isinstance(cmd, list) and len(cmd) >= 2 and cmd[1] == "results"
+        if is_run and cwd.startswith("/tmp/_mutmut_score."):
+            (Path(cwd) / ".mutmut-cache").write_text("VERSION: cli-test")
+            return _R(0, "", "")
+        if is_results:
+            # 1 killed, 2 survived.
+            return _R(0, "🎉\n🙁\n🙁\n", "")
+        return _R(0, "", "")
+
+    monkeypatch.setattr(me.subprocess, "run", fake_run)
+    monkeypatch.setattr(me.shutil, "which", lambda name: "/usr/bin/mutmut" if name == "mutmut" else None)
+
+    import argparse
+    import io
+    import contextlib
+    args = argparse.Namespace(project=str(tmp_path))
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = cmd_mutation_test_score(args)
+    out = buf.getvalue().strip()
+    assert rc == 0, f"expected exit 0, got {rc}; output={out!r}"
+    payload = json.loads(out)
+    assert payload["success"] is True
+    assert payload["score"] == pytest.approx(33.3)
+    assert payload["cache_path"] == str(tmp_path / ".mutmut-cache")
+
+
+class _R:
+    """Lightweight stand-in for subprocess.CompletedProcess (avoids the
+    'R redefined inside a function' Pyright warning)."""
+    def __init__(self, returncode: int, stdout: str, stderr: str) -> None:
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
