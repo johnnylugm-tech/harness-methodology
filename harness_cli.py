@@ -75,7 +75,7 @@ from core.pre_flight import check_cli_tools  # noqa: E402
 # Bug #105: framework-owned mutation_testing path. Pyright cannot resolve this
 # import statically (no type stub for core.quality_gate.mutation_enforcer),
 # so we silence reportAttributeAccessIssue here.
-from core.quality_gate.mutation_enforcer import compute_mutation_score  # type: ignore[reportAttributeAccessIssue]  # Bug #105; noqa: E402
+from core.quality_gate.mutation_enforcer import compute_mutation_score  # noqa: E402 # type: ignore[reportAttributeAccessIssue] # Bug #105
 
 # ---------------------------------------------------------------------------
 # .env file loader (no external dependency)
