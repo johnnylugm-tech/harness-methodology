@@ -3982,6 +3982,9 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
     project = Path(args.project).resolve()
     git = _make_git(args, project)
     git.ensure_gitignore()
+    if getattr(args, "dry_run", False):
+        print(f"[dry-run] push-milestone --type {args.type} would: write HANDOVER.md + "
+              f"commit + push to origin (no changes made; Bug #112 safety flag)")
     milestone_type = args.type
     fr_ids = [f.strip() for f in args.fr_ids.split(",") if f.strip()]
 
@@ -4209,12 +4212,48 @@ def _validate_handoff_p5_to_p6(project: Path) -> list[str]:
     return errors
 
 
+def _validate_handoff_p6_to_p7(project: Path) -> list[str]:
+    """P6→P7: QUALITY_REPORT.md, RELEASE_NOTES.md, FINAL_SIGN_OFF.md must exist
+    (same artifacts P6 dispatch review covers; also gate4_result.json must be PASS)."""
+    errors: list[str] = []
+    q6 = project / "06-quality"
+    for name in ("QUALITY_REPORT.md", "RELEASE_NOTES.md", "FINAL_SIGN_OFF.md"):
+        if not (q6 / name).exists():
+            errors.append(f"{name} missing at 06-quality/{name}. Phase 6 produces this file.")
+    gate4 = project / ".sessi-work" / "gate4_result.json"
+    if gate4.exists():
+        try:
+            import json as _json
+            _g4 = _json.loads(gate4.read_text(encoding="utf-8"))
+            _verdict = _g4.get("verdict") or _g4.get("summary", {}).get("verdict")
+            if _verdict and _verdict not in ("PASS", "pass"):
+                errors.append(f"gate4 verdict is {_verdict!r} (expected PASS)")
+        except Exception:  # pylint: disable=broad-exception-caught
+            pass  # malformed JSON is a separate concern; don't block handoff
+    else:
+        errors.append("gate4_result.json missing; run `finalize-gate --gate 4 --phase 6` first.")
+    return errors
+
+
+def _validate_handoff_p7_to_p8(project: Path) -> list[str]:
+    """P7→P8: risk register deliverables must exist (07-risk/RISK_REGISTER.md,
+    RISK_MITIGATION_PLANS.md, RISK_STATUS_REPORT.md)."""
+    errors: list[str] = []
+    q7 = project / "07-risk"
+    for name in ("RISK_REGISTER.md", "RISK_MITIGATION_PLANS.md", "RISK_STATUS_REPORT.md"):
+        if not (q7 / name).exists():
+            errors.append(f"{name} missing at 07-risk/{name}. Phase 7 produces this file.")
+    return errors
+
+
 _HANDOFF_VALIDATORS = {
     1: _validate_handoff_p1_to_p2,
     2: _validate_handoff_p2_to_p3,
     3: _validate_handoff_p3_to_p4,
     4: _validate_handoff_p4_to_p5,
     5: _validate_handoff_p5_to_p6,
+    6: _validate_handoff_p6_to_p7,
+    7: _validate_handoff_p7_to_p8,
 }
 
 
@@ -7225,8 +7264,51 @@ def cmd_resume_fr_phase(args: argparse.Namespace) -> int:
 # reload-policy
 # ---------------------------------------------------------------------------
 
+def cmd_run_tool(args: argparse.Namespace) -> int:
+    """CLI dispatcher for individual tool invocations (Bug #110).
+
+    Thin wrapper around `harness.tool_runners.run_tool` + `compute_tool_score`.
+    Plan templates reference this command directly:
+      `python3 harness_cli.py run-tool ast-error-handling --project .`
+    """
+    from harness.tool_runners import run_tool, compute_tool_score
+    import json as _json
+
+    project_root = str(Path(args.project).resolve())
+    output, returncode = run_tool(
+        args.tool,
+        project_root,
+        timeout_override=args.timeout_override,
+    )
+    score = compute_tool_score(args.tool, output, returncode)
+
+    if args.json:
+        print(_json.dumps({
+            "tool": args.tool,
+            "project": project_root,
+            "returncode": returncode,
+            "score": score,
+            "output": output,
+        }, indent=2, ensure_ascii=False))
+    else:
+        print(f"run-tool  tool={args.tool}  project={project_root}")
+        print(f"  returncode: {returncode}")
+        if score is not None:
+            print(f"  score:      {score:.1f}")
+        else:
+            print("  score:      (unscored — tool skipped / timed out / not found / unknown)")
+        if output:
+            print("  --- output (first 500 chars) ---")
+            print("\n".join(output.splitlines()[:25])[:500])
+
+    # Exit codes: 0 = success (incl. zero violations), 1 = tool reported failure,
+    # 2 = tool not found / skipped (preserved from run_tool() negative codes).
+    if returncode < 0:
+        return 2
+    return 0 if returncode == 0 else 1
+
+
 def cmd_reload_policy(args: argparse.Namespace) -> int:
-    """Hot-reload enforcement policies from enforcement.json."""
     from enforcement.policy_engine import PolicyEngine
 
     json_path = args.policy_file
@@ -7298,9 +7380,14 @@ def _run_gap_analysis(project: Path, similarity: float = 0.6, spec: str = "SPEC.
         return {"skipped": True, "error": str(exc)}
 
 def _make_git(args: argparse.Namespace, project: Path) -> "GitStrategy":  # noqa: F821 — lazy import
-    """Instantiate GitStrategy from parsed args. Lazy-imports to keep startup fast."""
+    """Instantiate GitStrategy from parsed args. Lazy-imports to keep startup fast.
+
+    Git is disabled if either --no-git or --dry-run is set. --dry-run is the
+    preferred safety flag for push-milestone (Bug #112) — it prevents accidental
+    origin pollution when exercising the command during bug hunts.
+    """
     from harness.git_strategy import GitStrategy
-    no_git = getattr(args, "no_git", False)
+    no_git = getattr(args, "no_git", False) or getattr(args, "dry_run", False)
     return GitStrategy(project=project, enabled=not no_git)
 
 # ---------------------------------------------------------------------------
@@ -7974,6 +8061,14 @@ def cmd_build_trace_attestation(args: argparse.Namespace) -> int:
     overlay = Path(args.overlay).resolve() if args.overlay else None
     trace_dir = Path(args.trace_dir)
     attestation = build_attestation(project, overlay_path=overlay)
+    if not args.write:
+        # Build-only mode (matches scripts/build_trace_attestation.py --no-write).
+        # Default (no flag) is write — CLI is the canonical writer; --write is a
+        # no-op alias kept for plan-template compatibility (Bug #109).
+        print(f"build-trace-attestation  project={project}  (--no-write, dry build)")
+        print(f"  git_sha:         {attestation['git_sha']}")
+        print(f"  content_sha256:  {attestation['content_sha256']}")
+        return 0
     canonical, latest = write_attestation(project, attestation, trace_dir)
     print(f"\nbuild-trace-attestation  project={project}")
     print(f"  git_sha:         {attestation['git_sha']}")
@@ -9364,6 +9459,10 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Total FR count (p3-mid only)")
     pm.add_argument("--no-git", action="store_true", dest="no_git",
                     help="Disable git operations")
+    pm.add_argument("--dry-run", action="store_true", dest="dry_run",
+                    help="Print planned actions (HANDOVER.md content + git commands) "
+                         "without committing or pushing (Bug #112: prevents accidental "
+                         "origin pollution when exercising the command)")
     pm.set_defaults(func=cmd_push_milestone)
 
     # gate4-tag (create annotated git tag from gate4_result.json)
@@ -9569,6 +9668,23 @@ def build_parser() -> argparse.ArgumentParser:
     )
     rl.set_defaults(func=cmd_reload_policy)
 
+    # run-tool (Bug #110) — CLI dispatcher for individual tool invocations
+    # referenced by the generated plan templates. Thin wrapper around
+    # harness.tool_runners.run_tool + compute_tool_score.
+    rt = sub.add_parser(
+        "run-tool",
+        help="Run a single framework tool (e.g. ast-error-handling) and print its "
+             "score. Used by plan templates that previously referenced a non-existent "
+             "subcommand (Bug #110).",
+    )
+    rt.add_argument("tool", help="Tool id (e.g. ast-error-handling, ruff, mypy, …)")
+    rt.add_argument("--project", default=".", help="Project root (default: .)")
+    rt.add_argument("--timeout-override", type=int, default=None,
+                    help="Override per-tool default timeout in seconds")
+    rt.add_argument("--json", action="store_true",
+                    help="Emit {tool, returncode, output, score} as JSON")
+    rt.set_defaults(func=cmd_run_tool)
+
     # check-test-inventory (D4 — deprecated v2.6, delegates to spec-coverage-check)
     cti = sub.add_parser(
         "check-test-inventory",
@@ -9723,6 +9839,11 @@ def build_parser() -> argparse.ArgumentParser:
     bta.add_argument("--project", required=True)
     bta.add_argument("--overlay", default=None)
     bta.add_argument("--trace-dir", default=".methodology/trace")
+    bta.add_argument("--write", action="store_true", default=True,
+                     help="Write attestation to .methodology/trace/ (default: True; "
+                          "pass --no-write for build-only)")
+    bta.add_argument("--no-write", dest="write", action="store_false",
+                     help="Build matrix but do NOT write attestation files")
     bta.set_defaults(func=cmd_build_trace_attestation)
 
     # verify-trace (PR 3)
@@ -9765,7 +9886,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     vh.add_argument(
         "--from-phase", type=int, required=True, dest="from_phase",
-        choices=[1, 2, 3, 4, 5],
+        choices=[1, 2, 3, 4, 5, 6, 7],
         help="Phase number that just completed; validator checks deliverables needed by P{N+1}",
     )
     vh.add_argument("--project", default=".", help="Project root (default: .)")

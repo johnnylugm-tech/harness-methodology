@@ -1541,8 +1541,11 @@ def _milestone_push_steps(fr_ids: List[str], phase: int,
     if not fr_ids:
         if not dynamic:
             return []
+        # Bug #111/#113: placeholder must be syntactically valid against the
+        # CLI's `type=int` argparse. Use "<N//2>" so it's visibly a placeholder
+        # AND unparseable as an int (the user MUST replace it before running).
         total_str = "N"
-        mid_str = "50%"
+        mid_str = "<N//2>"
         mid_ids = "<comma-separated FR-IDs with Gate 1 PASS>"
         full_ids = "<comma-separated FR-IDs with Gate 1 PASS>"
         _visual = "<FR-01,FR-02,…>"
@@ -1747,7 +1750,11 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
             "     produce the per-deliverable approval files that `advance-phase` checks.",
             "  - **[B-DISPATCH]** Dispatch Agent B:",
             "    ```bash",
-            "    python3 harness_cli.py dispatch --role reviewer --fr-id HR-01 \\",
+            "    # Bug #114: --fr-id must be a valid P6 deliverable name (not HR-01,",
+            "    # which is a Hard Rule and rejected by the dispatch CLI's deliverable",
+            "    # validator). Pick one of: QUALITY_REPORT.md, RELEASE_NOTES.md,",
+            "    # FINAL_SIGN_OFF.md, quality_manifest",
+            "    python3 harness_cli.py dispatch --role reviewer --fr-id QUALITY_REPORT.md \\",
             "      --prompt \"Review Phase 6 Gate 4 deliverables\" --phase 6 --project . --max-turns 30",
             "    ```",
             "  > AgentSpawner records dispatches to `.methodology/sessions_spawn.log` (non-blocking debug trail).",

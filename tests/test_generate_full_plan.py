@@ -1806,6 +1806,34 @@ class TestDynamicMode:
         assert result is not None
         assert "plan-phase --phase 4" not in result
 
+    def test_dynamic_p3_placeholder_fr_done_is_unparseable_int(self, tmp_path: Path):
+        """Bug #111/#113: dynamic P3 plan's push-milestone --fr-done placeholder
+        must be a string that fails argparse `type=int` (forces the user to
+        substitute the real count before running)."""
+        (tmp_path / ".methodology").mkdir()
+        result = generate_full_plan(3, tmp_path, dynamic=True)
+        assert result is not None
+        # New placeholder syntax: "<N//2>" — visibly a placeholder AND not parseable as int.
+        assert "--fr-done <N//2>" in result
+        # Old "50%" bug marker must be gone.
+        assert "--fr-done 50%" not in result
+
+    def test_p6_plan_uses_real_deliverable_for_dispatch_fr_id(self, tmp_path: Path):
+        """Bug #114: P6 plan must reference a real P6 deliverable name in the
+        dispatch --fr-id (not HR-01, which is a Hard Rule)."""
+        (tmp_path / ".methodology").mkdir()
+        srs = tmp_path / "01-requirements"
+        srs.mkdir()
+        (srs / "SRS.md").write_text(
+            "### FR-01: Test Feature\n\nDescription.\n\n---\n", encoding="utf-8"
+        )
+        result = generate_full_plan(6, tmp_path, dynamic=True)
+        assert result is not None
+        # The dispatch command must use a real deliverable name, not HR-01.
+        assert "dispatch --role reviewer --fr-id HR-01" not in result
+        # And at least one of the real P6 deliverables should be present in dispatch.
+        assert "dispatch --role reviewer --fr-id QUALITY_REPORT.md" in result
+
 
 class TestPlanAll:
     """Tests for cmd_plan_all / plan-all CLI command."""

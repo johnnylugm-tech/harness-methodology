@@ -4215,3 +4215,159 @@ class TestCheckTestMirrorsSpecMultiFile:
         assert len(called_with) == 2
         assert "# inputs file" in called_with[0]
         assert "# edge file" in called_with[1]
+
+
+# ---------------------------------------------------------------------------
+# Bug #109 / #110 / #112 — plan/CLI signature drift fixes
+# ---------------------------------------------------------------------------
+
+
+class TestBuildTraceAttestationWriteFlag:
+    """Bug #109: build-trace-attestation must accept --write / --no-write so
+    plan template text matches the live CLI signature."""
+
+    def test_help_lists_write_and_no_write(self):
+        from harness_cli import build_parser
+        parser = build_parser()
+        # Subparser action holds per-command subparser instances; search them too.
+        # --write and --no-write share dest="write" but each is its own argparse action.
+        option_strings: list[str] = []
+        for action in parser._actions:
+            sub_parsers = getattr(action, "choices", None) or {}
+            if not sub_parsers:
+                continue
+            for sub_parser in sub_parsers.values():
+                for sub_action in sub_parser._actions:
+                    if sub_action.dest == "write":
+                        option_strings.extend(sub_action.option_strings)
+        assert "--write" in option_strings, option_strings
+        assert "--no-write" in option_strings, option_strings
+
+    def test_no_write_runs_without_writing_attestation(self, tmp_path, monkeypatch):
+        from harness_cli import cmd_build_trace_attestation
+        # Stub build_attestation so we don't need a real project.
+        def fake_build(project, overlay_path=None):
+            return {"git_sha": "abc123", "content_sha256": "deadbeef", "overlay_errors": []}
+        write_called = {"count": 0}
+        def fake_write(project, attestation, trace_dir):
+            write_called["count"] += 1
+            return str(tmp_path / "attestation.json"), str(tmp_path / "latest.json")
+        monkeypatch.setattr("scripts.build_trace_attestation.build_attestation", fake_build)
+        monkeypatch.setattr("scripts.build_trace_attestation.write_attestation", fake_write)
+        args = argparse.Namespace(
+            project=str(tmp_path), overlay=None, trace_dir=tmp_path / "trace",
+            write=False,  # --no-write path
+        )
+        result = cmd_build_trace_attestation(args)
+        assert result == 0
+        assert write_called["count"] == 0  # NO write when --no-write
+
+    def test_default_write_calls_write_attestation(self, tmp_path, monkeypatch):
+        from harness_cli import cmd_build_trace_attestation
+        def fake_build(project, overlay_path=None):
+            return {"git_sha": "abc123", "content_sha256": "deadbeef", "overlay_errors": []}
+        write_called = {"count": 0}
+        def fake_write(project, attestation, trace_dir):
+            write_called["count"] += 1
+            return str(tmp_path / "att.json"), str(tmp_path / "latest.json")
+        monkeypatch.setattr("scripts.build_trace_attestation.build_attestation", fake_build)
+        monkeypatch.setattr("scripts.build_trace_attestation.write_attestation", fake_write)
+        args = argparse.Namespace(
+            project=str(tmp_path), overlay=None, trace_dir=tmp_path / "trace",
+            write=True,  # default
+        )
+        result = cmd_build_trace_attestation(args)
+        assert result == 0
+        assert write_called["count"] == 1  # write IS called when --write or default
+
+
+class TestRunToolDispatcher:
+    """Bug #110: harness_cli run-tool subcommand dispatches to tool_runners.run_tool."""
+
+    def test_help_lists_run_tool_subcommand(self):
+        from harness_cli import build_parser
+        parser = build_parser()
+        sub_action = next(
+            a for a in parser._actions if a.dest == "command" or a.choices and "run-tool" in a.choices
+        )
+        assert "run-tool" in sub_action.choices
+
+    def test_run_tool_invokes_tool_runners(self, tmp_path, monkeypatch, capsys):
+        from harness_cli import cmd_run_tool
+        def fake_run(tool, project_root, timeout_override=None):
+            return "OK", 0
+        def fake_score(tool, output, returncode):
+            return 95.0
+        monkeypatch.setattr("harness.tool_runners.run_tool", fake_run)
+        monkeypatch.setattr("harness.tool_runners.compute_tool_score", fake_score)
+        args = argparse.Namespace(
+            tool="ast-error-handling", project=str(tmp_path),
+            timeout_override=None, json=False,
+        )
+        result = cmd_run_tool(args)
+        assert result == 0
+        captured = capsys.readouterr()
+        assert "tool=ast-error-handling" in captured.out
+        assert "score:      95.0" in captured.out
+
+    def test_run_tool_json_output(self, tmp_path, monkeypatch, capsys):
+        from harness_cli import cmd_run_tool
+        monkeypatch.setattr("harness.tool_runners.run_tool", lambda *a, **kw: ("raw", 1))
+        monkeypatch.setattr("harness.tool_runners.compute_tool_score", lambda *a, **kw: 50.0)
+        args = argparse.Namespace(
+            tool="ruff", project=str(tmp_path), timeout_override=None, json=True,
+        )
+        result = cmd_run_tool(args)
+        assert result == 1  # non-zero returncode → exit 1
+        captured = capsys.readouterr()
+        import json
+        payload = json.loads(captured.out)
+        assert payload["tool"] == "ruff"
+        assert payload["returncode"] == 1
+        assert payload["score"] == 50.0
+
+
+class TestPushMilestoneDryRun:
+    """Bug #112: push-milestone --dry-run disables git operations."""
+
+    def test_help_lists_dry_run(self):
+        from harness_cli import build_parser
+        parser = build_parser()
+        for action in parser._actions:
+            sub_parsers = getattr(action, "choices", None) or {}
+            if not sub_parsers:
+                continue
+            for sub_parser in sub_parsers.values():
+                for sub_action in sub_parser._actions:
+                    if sub_action.dest == "dry_run":
+                        assert "--dry-run" in sub_action.option_strings
+                        return
+        raise AssertionError("push-milestone parser has no --dry-run flag")
+
+    def test_dry_run_disables_git(self, tmp_path, monkeypatch):
+        """When --dry-run is set, GitStrategy must be constructed with enabled=False."""
+        from harness_cli import _make_git
+        captured = {"enabled": None}
+        class FakeGit:
+            def __init__(self, project, enabled):
+                captured["enabled"] = enabled
+            def ensure_gitignore(self): pass
+        monkeypatch.setattr("harness.git_strategy.GitStrategy", FakeGit)
+        args = argparse.Namespace(
+            project=str(tmp_path), no_git=False, dry_run=True,
+        )
+        _make_git(args, tmp_path)
+        assert captured["enabled"] is False
+
+    def test_dry_run_false_keeps_git_enabled(self, tmp_path, monkeypatch):
+        from harness_cli import _make_git
+        captured = {"enabled": None}
+        class FakeGit:
+            def __init__(self, project, enabled):
+                captured["enabled"] = enabled
+        monkeypatch.setattr("harness.git_strategy.GitStrategy", FakeGit)
+        args = argparse.Namespace(
+            project=str(tmp_path), no_git=False, dry_run=False,
+        )
+        _make_git(args, tmp_path)
+        assert captured["enabled"] is True

@@ -252,16 +252,101 @@ class TestHandoffP5ToP6:
 
 
 # ---------------------------------------------------------------------------
+# Bug #115 — P6→P7 and P7→P8 validators (extension to phases 6 and 7)
+# ---------------------------------------------------------------------------
+
+
+class TestHandoffP6ToP7:
+    """Bug #115: P6→P7 (QUALITY_REPORT.md / RELEASE_NOTES.md / FINAL_SIGN_OFF.md /
+    gate4_result.json PASS) and P7→P8 (risk register deliverables) validators."""
+
+    def test_missing_quality_artifacts_blocks(self, tmp_path: Path):
+        errs = _validate_handoff(tmp_path, from_phase=6)
+        # All three P6 deliverables missing → at least 3 errors
+        assert len(errs) >= 3
+        assert any("QUALITY_REPORT.md missing" in e for e in errs)
+        assert any("RELEASE_NOTES.md missing" in e for e in errs)
+        assert any("FINAL_SIGN_OFF.md missing" in e for e in errs)
+
+    def test_quality_artifacts_present_but_gate4_missing_blocks(self, tmp_path: Path):
+        (tmp_path / "06-quality").mkdir(parents=True, exist_ok=True)
+        for name in ("QUALITY_REPORT.md", "RELEASE_NOTES.md", "FINAL_SIGN_OFF.md"):
+            (tmp_path / "06-quality" / name).write_text(f"# {name}\n", encoding="utf-8")
+        errs = _validate_handoff(tmp_path, from_phase=6)
+        # gate4_result.json still missing → still blocked
+        assert any("gate4_result.json missing" in e for e in errs)
+
+    def test_quality_artifacts_with_gate4_pass_passes(self, tmp_path: Path):
+        (tmp_path / "06-quality").mkdir(parents=True, exist_ok=True)
+        for name in ("QUALITY_REPORT.md", "RELEASE_NOTES.md", "FINAL_SIGN_OFF.md"):
+            (tmp_path / "06-quality" / name).write_text(f"# {name}\n", encoding="utf-8")
+        (tmp_path / ".sessi-work").mkdir(parents=True, exist_ok=True)
+        (tmp_path / ".sessi-work" / "gate4_result.json").write_text(
+            json.dumps({"verdict": "PASS"}), encoding="utf-8"
+        )
+        errs = _validate_handoff(tmp_path, from_phase=6)
+        assert errs == []
+
+    def test_gate4_fail_blocks_handoff(self, tmp_path: Path):
+        """Even with all deliverables present, a FAIL gate4 verdict must block P7 entry."""
+        (tmp_path / "06-quality").mkdir(parents=True, exist_ok=True)
+        for name in ("QUALITY_REPORT.md", "RELEASE_NOTES.md", "FINAL_SIGN_OFF.md"):
+            (tmp_path / "06-quality" / name).write_text(f"# {name}\n", encoding="utf-8")
+        (tmp_path / ".sessi-work").mkdir(parents=True, exist_ok=True)
+        (tmp_path / ".sessi-work" / "gate4_result.json").write_text(
+            json.dumps({"verdict": "FAIL"}), encoding="utf-8"
+        )
+        errs = _validate_handoff(tmp_path, from_phase=6)
+        assert any("verdict" in e and "FAIL" in e for e in errs)
+
+
+class TestHandoffP7ToP8:
+    """Bug #115: P7→P8 (07-risk/RISK_REGISTER.md etc.) validator."""
+
+    def test_missing_risk_artifacts_blocks(self, tmp_path: Path):
+        errs = _validate_handoff(tmp_path, from_phase=7)
+        assert len(errs) == 3
+        assert any("RISK_REGISTER.md missing" in e for e in errs)
+        assert any("RISK_MITIGATION_PLANS.md missing" in e for e in errs)
+        assert any("RISK_STATUS_REPORT.md missing" in e for e in errs)
+
+    def test_risk_artifacts_present_passes(self, tmp_path: Path):
+        (tmp_path / "07-risk").mkdir(parents=True, exist_ok=True)
+        for name in ("RISK_REGISTER.md", "RISK_MITIGATION_PLANS.md", "RISK_STATUS_REPORT.md"):
+            (tmp_path / "07-risk" / name).write_text(f"# {name}\n", encoding="utf-8")
+        errs = _validate_handoff(tmp_path, from_phase=7)
+        assert errs == []
+
+
+# ---------------------------------------------------------------------------
 # B.1 — Dispatch + argparser
 # ---------------------------------------------------------------------------
 
 
 class TestHandoffDispatch:
     def test_unsupported_from_phase_rejected(self, tmp_path: Path):
-        """from-phase=0, 6, 7, 8 are not in the validator map."""
-        for n in (0, 6, 7, 8):
+        """from-phase=0 and 8+ are not in the validator map; 6 and 7 are now
+        supported as of Bug #115."""
+        for n in (0, 8, 9):
             errs = _validate_handoff(tmp_path, from_phase=n)
             assert any(f"from-phase={n}" in e for e in errs)
+
+    def test_supported_from_phases_6_7_pass_with_artifacts(self, tmp_path: Path):
+        """from-phase=6 and 7 should now be in the validator map (Bug #115)."""
+        # P6→P7 with all artifacts
+        (tmp_path / "06-quality").mkdir(parents=True, exist_ok=True)
+        for name in ("QUALITY_REPORT.md", "RELEASE_NOTES.md", "FINAL_SIGN_OFF.md"):
+            (tmp_path / "06-quality" / name).write_text(f"# {name}\n", encoding="utf-8")
+        (tmp_path / ".sessi-work").mkdir(parents=True, exist_ok=True)
+        (tmp_path / ".sessi-work" / "gate4_result.json").write_text(
+            json.dumps({"verdict": "PASS"}), encoding="utf-8"
+        )
+        assert _validate_handoff(tmp_path, from_phase=6) == []
+        # P7→P8 with all artifacts
+        (tmp_path / "07-risk").mkdir(parents=True, exist_ok=True)
+        for name in ("RISK_REGISTER.md", "RISK_MITIGATION_PLANS.md", "RISK_STATUS_REPORT.md"):
+            (tmp_path / "07-risk" / name).write_text(f"# {name}\n", encoding="utf-8")
+        assert _validate_handoff(tmp_path, from_phase=7) == []
 
     def test_cli_appears_in_argparser(self):
         """Smoke-test: validate-handoff is registered in the argparser."""
@@ -270,5 +355,14 @@ class TestHandoffDispatch:
             ["validate-handoff", "--from-phase", "2", "--project", "/tmp/x"]
         )
         assert args.from_phase == 2
+
+    def test_cli_accepts_from_phase_6_and_7(self):
+        """Bug #115: argparse choices must include 6 and 7."""
+        parser = build_parser()
+        for n in (6, 7):
+            args = parser.parse_args(
+                ["validate-handoff", "--from-phase", str(n), "--project", "/tmp/x"]
+            )
+            assert args.from_phase == n
         # args.func should be the cmd
         assert callable(args.func)
