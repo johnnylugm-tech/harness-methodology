@@ -1428,7 +1428,7 @@ def _validate_handoff_precondition_block(phase: int) -> List[str]:
 
     Inserted into the Pre-Phase Preflight block of every plan from P2 onward.
     """
-    if phase < 2 or phase > 6:
+    if phase < 2 or phase > 8:
         return []
     from_phase = phase - 1
     return [
