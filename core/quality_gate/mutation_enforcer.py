@@ -196,10 +196,9 @@ def _copy_setup_cfg_to_workdir(project: Path, workdir: str, abs_test_dir: str = 
     a custom runner (e.g. `make test`), log a warning and leave it alone.
     """
     setup_cfg = project / "setup.cfg"
-    if not setup_cfg.exists():
-        return
     cp = configparser.ConfigParser()
-    cp.read(str(setup_cfg), encoding="utf-8")
+    if setup_cfg.exists():
+        cp.read(str(setup_cfg), encoding="utf-8")
     if "mutmut" not in cp:
         cp["mutmut"] = {}
     mut = cp["mutmut"]
@@ -226,16 +225,26 @@ def _copy_setup_cfg_to_workdir(project: Path, workdir: str, abs_test_dir: str = 
     mut.pop("backup", None)
     mut.pop("disable", None)
 
-    # Bug #43 fix: pytest 8.x resolves [tool:pytest] testpaths relative to
-    # `--rootdir` if given, otherwise to cwd. mutmut's baseline_time
-    # pipeline runs the [mutmut] runner with --rootdir=<project>, so a
-    # relative testpaths value (e.g. "03-development/tests") would resolve
-    # correctly — BUT in pytest 8.x auto-detection sometimes prefers the
-    # cwd even when --rootdir is passed, and the workdir has no test
-    # files, so discovery returns 0 tests. Promote testpaths to an
-    # absolute path so the resolution is unambiguous regardless of
-    # pytest's internal rootdir resolution.
-    if "tool:pytest" in cp and "testpaths" in cp["tool:pytest"]:
+    # Bug #43 fix: when the project has no setup.cfg, generate a minimal one
+    # in the workdir that points pytest at the absolute test directory.
+    # mutmut 2.x's internal time_test_suite() uses its own hardcoded
+    # baseline command (python -m pytest -x --assert=plain) and does NOT
+    # honor the [mutmut] runner flag for that path. Pytest then discovers
+    # tests in cwd (the workdir) and finds nothing because the workdir is
+    # empty. The fix is to write a setup.cfg with [tool:pytest] testpaths
+    # set to the absolute test directory so pytest's auto-discovery finds
+    # the tests regardless of cwd.
+    if not setup_cfg.exists():
+        if abs_test_dir:
+            new_cp = configparser.ConfigParser()
+            new_cp["tool:pytest"] = {"testpaths": abs_test_dir}
+            with open(Path(workdir) / "setup.cfg", "w", encoding="utf-8") as f:
+                new_cp.write(f)
+        return
+
+    # Project HAS a setup.cfg: promote [tool:pytest] testpaths to absolute
+    # so the workdir's pytest discovery is unambiguous.
+    if cp.has_section("tool:pytest") and cp.has_option("tool:pytest", "testpaths"):
         rel = cp["tool:pytest"]["testpaths"].strip()
         if rel and not os.path.isabs(rel):
             abs_tp = str((project / rel).resolve())
