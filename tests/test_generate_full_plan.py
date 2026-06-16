@@ -2279,3 +2279,165 @@ class TestIngestionModeAndEightQuestionProtocol:
     def test_no_stale_protocol_references(self, relpath, needle):
         text = Path(relpath).read_text(encoding="utf-8")
         assert needle not in text, f"stale protocol reference '{needle}' found in {relpath}"
+
+
+# ─── Plan/CLI contract: regression guard against v2.12 P4-P7 drift bugs ─────
+# These tests pin the plan template text to specific CLI invocations that have
+# been verified to work. When the plan template is refactored, these will fail
+# if a known-bad pattern (Bug #109-#115) is reintroduced.
+
+class TestPlanCliContract:
+    """Regression tests for Bugs #109-#115 (P4-P7 plan/CLI signature drift).
+
+    Each test calls a phase generator and grep-asserts on the rendered text.
+    Catches: stale --fr-done '50%' placeholders, missing --write on
+    build-trace-attestation, missing --fr-id deliverable names, mutation_testing
+    advice that bypasses framework-owned compute_mutation_score.
+    """
+
+    @pytest.fixture
+    def all_phase_plans(self, project: Path) -> dict[int, str]:
+        """Render every phase plan and return as {phase: text}."""
+        srs = project / "SRS.md"
+        return {
+            1: "\n".join(generate_phase1_tasks(project, srs)),
+            2: "\n".join(generate_phase2_tasks(project, srs)),
+            3: "\n".join(generate_phase3_tasks(project, srs)),
+            4: "\n".join(generate_phase4_tasks(project, srs)),
+            5: "\n".join(generate_phase5_tasks(project)),
+            6: "\n".join(generate_phase6_tasks(project)),
+            7: "\n".join(generate_phase7_tasks(project)),
+            8: "\n".join(generate_phase8_tasks(project)),
+        }
+
+    @pytest.fixture
+    def empty_fr_ids_project(self, tmp_path: Path) -> Path:
+        """Project with NO fr_ids — exercises the placeholder code path
+        in `_p3_milestone_push_steps` (Bug #111/#113 fix)."""
+        m_dir = tmp_path / ".methodology"
+        m_dir.mkdir()
+        (m_dir / "quality_manifest.json").write_text(
+            json.dumps({"fr_ids": [], "gate_results": {}}), encoding="utf-8"
+        )
+        (tmp_path / "01-requirements").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "01-requirements" / "SRS.md").write_text("# SRS\n", encoding="utf-8")
+        return tmp_path
+
+    # Bug #115 — validate-handoff description text must list P6 + P7 examples
+    def test_validate_handoff_description_mentions_p6_and_p7(
+        self, all_phase_plans: dict[int, str]
+    ):
+        """Gap 1 fix: every plan with a validate-handoff block (P2..P8) must
+        list the full validator surface (P1..P7) so P6/P7 entries are
+        documented. P1 is the starting point and has no upstream handoff."""
+        for phase, text in all_phase_plans.items():
+            if phase == 1:
+                # Phase 1 is the start — no upstream handoff to validate.
+                assert "validate-handoff" not in text
+                continue
+            assert "validate-handoff" in text, (
+                f"phase{phase}_plan.md missing validate-handoff block"
+            )
+            assert "P6 06-quality/QUALITY_REPORT.md" in text, (
+                f"phase{phase}_plan.md validate-handoff description missing P6 "
+                "examples (Bug #115)"
+            )
+            assert "P7 07-risk/RISK_REGISTER.md" in text, (
+                f"phase{phase}_plan.md validate-handoff description missing P7 "
+                "examples (Bug #115)"
+            )
+
+    # Bug #109 — every build-trace-attestation invocation must include --write
+    def test_build_trace_attestation_always_passes_write_flag(
+        self, all_phase_plans: dict[int, str]
+    ):
+        """Bug #109: pre-fix plans used `build-trace-attestation --project .`
+        without `--write`. The CLI requires `--write` (or `--no-write` for
+        build-only). Every `build-trace-attestation` line must include
+        `--write` or `--no-write`."""
+        for phase, text in all_phase_plans.items():
+            for ln, line in enumerate(text.splitlines(), 1):
+                if "build-trace-attestation" not in line:
+                    continue
+                if line.lstrip().startswith("-") or line.lstrip().startswith("`"):
+                    assert "--write" in line or "--no-write" in line, (
+                        f"phase{phase}_plan.md:{ln} `build-trace-attestation` "
+                        f"invocation missing --write/--no-write flag: {line!r}"
+                    )
+
+    # Bug #114 — P6 dispatch --fr-id must be a real P6 deliverable, not HR-01
+    def test_p6_dispatch_fr_id_is_deliverable_not_hard_rule(
+        self, all_phase_plans: dict[int, str]
+    ):
+        """Bug #114: pre-fix plans used `dispatch --fr-id HR-01` (Hard Rule)
+        which the dispatch CLI rejects. P6 must use a real deliverable name."""
+        p6 = all_phase_plans[6]
+        assert "dispatch --role reviewer --fr-id HR-01" not in p6, (
+            "phase6_plan.md still uses --fr-id HR-01 (Bug #114 — HR is a Hard "
+            "Rule, not a deliverable)"
+        )
+        assert "--fr-id QUALITY_REPORT.md" in p6, (
+            "phase6_plan.md missing corrected --fr-id QUALITY_REPORT.md "
+            "(Bug #114 fix)"
+        )
+
+    # Bug #111/#113 — never render the broken '50%' placeholder; when fr_ids
+    # is empty, use a visibly unparseable placeholder.
+    def test_no_unparseable_fr_done_percent_string(
+        self, all_phase_plans: dict[int, str]
+    ):
+        """Bug #111/#113: pre-fix plans used `mid_str = '50%'` which the
+        argparse `type=int` rejects. Post-fix: never emit '--fr-done 50%'."""
+        for phase, text in all_phase_plans.items():
+            assert "--fr-done 50%" not in text, (
+                f"phase{phase}_plan.md still has '--fr-done 50%' placeholder "
+                "(Bug #111/#113 — argparse type=int rejects percent string)"
+            )
+
+    def test_empty_fr_ids_uses_placeholder_not_percent(self):
+        """When fr_ids is empty, the milestone push step must emit a
+        visibly unparseable placeholder (e.g. '<N//2>') — NEVER '50%'."""
+        from generate_full_plan import _p3_milestone_push_steps
+        steps = _p3_milestone_push_steps(fr_ids=[], dynamic=True)
+        joined = "\n".join(steps)
+        assert "--fr-done 50%" not in joined, (
+            "empty-fr_ids path still emits unparseable '50%' (Bug #111/#113)"
+        )
+        assert "--fr-done <N//2>" in joined, (
+            "empty-fr_ids path missing '<N//2>' placeholder convention "
+            "(Bug #111/#113 fix)"
+        )
+
+    # Bug #110 — error_handling fix strategy must use new `run-tool` subcommand
+    def test_run_tool_subcommand_used_for_error_handling(
+        self, all_phase_plans: dict[int, str]
+    ):
+        """Bug #110: pre-fix plans referenced non-existent `run-tool` CLI.
+        Post-fix: the `run-tool ast-error-handling` subcommand exists."""
+        for phase, text in all_phase_plans.items():
+            if "ast-error-handling" in text:
+                assert "run-tool ast-error-handling" in text, (
+                    f"phase{phase}_plan.md references ast-error-handling "
+                    "without `run-tool` subcommand (Bug #110)"
+                )
+
+    # Bug #105/#108 — mutation_testing fix strategy must reference
+    # framework-owned compute_mutation_score / mutation-test-score
+    def test_mutation_testing_advice_uses_framework_owned_path(
+        self, all_phase_plans: dict[int, str]
+    ):
+        """Gap 2 fix: pre-fix advice said 'Run `mutmut run` → `mutmut results`'
+        which bypasses the framework-owned workdir + sqlite cache path
+        (Bugs #41/#42/#91/#105/#108). Post-fix references
+        `mutation-test-score` CLI and `compute_mutation_score()` framework fn."""
+        for phase, text in all_phase_plans.items():
+            if "mutation_testing" not in text:
+                continue
+            assert "mutation-test-score" in text, (
+                f"phase{phase}_plan.md mutation_testing fix strategy missing "
+                "`mutation-test-score` CLI reference (Bug #105)"
+            )
+            assert "compute_mutation_score" in text, (
+                f"phase{phase}_plan.md mutation_testing fix strategy missing "
+                "`compute_mutation_score()` framework function (Bug #108)"
+            )

@@ -1442,7 +1442,10 @@ def _validate_handoff_precondition_block(phase: int) -> List[str]:
         "(e.g. P1 TEST_INVENTORY.yaml non-empty + covers all FRs; P2 "
         "TEST_SPEC.md has parseable named test cases; P3 all FRs have "
         "per-FR Gate 1 sentinels; P4 VERIFICATION_REPORT.md non-trivial; "
-        "P5 BASELINE.md exists).",
+        "P5 BASELINE.md exists; P6 06-quality/QUALITY_REPORT.md + "
+        "RELEASE_NOTES.md + FINAL_SIGN_OFF.md + .sessi-work/gate4_result.json "
+        "verdict=PASS; P7 07-risk/RISK_REGISTER.md + RISK_MITIGATION_PLANS.md + "
+        "RISK_STATUS_REPORT.md).",
         "  > If exit 1: read the error list, fix the upstream deliverable, "
         "re-run until exit 0. Do NOT proceed with Phase "
         f"{phase} work on a BLOCKED handoff.",
@@ -1685,7 +1688,7 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[
         "**General fix strategies by dimension:**",
         "| Dimension | Fix |",
         "|-----------|-----|",
-        "| mutation_testing | Add/improve tests to kill surviving mutants. Run `mutmut run` → `mutmut results`. Exclude data-only files (constants, dicts, Pydantic models) via `paths_to_exclude` in setup.cfg. Target: kill rate ≥ threshold. |",
+        "| mutation_testing | Framework-owned score: `python3 harness_cli.py mutation-test-score --project .` runs `compute_mutation_score()` (harness-managed workdir + setup.cfg rewrite + sqlite cache parse). To investigate surviving mutants manually: `mutmut results` (legacy). Exclude data-only files (constants, dicts, Pydantic models) via `paths_to_exclude` in setup.cfg. Target: kill rate ≥ threshold. |",
         "| architecture (G3/G4 only) | Community cohesion low → add cross-module integration tests, break hub-and-spoke coupling, or file a DA waiver if the pattern is intentional (Orchestrator). |",
         "| error_handling | (1) **Presence**: add try/except blocks. `grep -r 'try:' 03-development/src/` to see coverage. (2) **Anti-patterns** (v2.9 A1, −5 each): remove `except BaseException:` (flagged even with re-raise), bare `except:` without re-raise, `except Exception: pass`. Run `python3 harness_cli.py run-tool ast-error-handling --project .` to see exact deductions. |",
         "| documentation | Add docstrings to public functions/classes. `python3 -m ast_docstrings` or manual: every `def`/`class` in `03-development/src/` needs a docstring. |",
