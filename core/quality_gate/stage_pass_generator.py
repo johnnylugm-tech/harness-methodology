@@ -646,7 +646,12 @@ class IntegratedStagePassGenerator:
         try:
             from requirement_traceability import RequirementTraceability
 
-            rt = RequirementTraceability.load(trace_file)
+            # Bug #103 fix: use load_state() (full round-trip), not load()
+            # (which doesn't exist). The state file must be written by
+            # save_state(); the report format from save() doesn't carry
+            # raw requirements/code_components/test_coverage and would
+            # produce wrong coverage numbers.
+            rt = RequirementTraceability.load_state(trace_file)
             result = rt.verify_completeness()
             
             print(f"✅ Traceability completeness: {result['overall_completeness']}")

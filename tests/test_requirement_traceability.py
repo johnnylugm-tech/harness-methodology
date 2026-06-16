@@ -88,6 +88,76 @@ def test_save(tmp_path):
     assert p.exists()
 
 
+# ---------------------------------------------------------------------------
+# Bug #103: save() exists but load() is missing.
+# stage_pass_generator.py:649 calls RequirementTraceability.load(file)
+# which raised AttributeError. The generic try/except Exception silently
+# swallowed the failure. These tests pin the contract: load() must exist
+# and reconstruct full state, not just a partial report.
+# ---------------------------------------------------------------------------
+
+
+def test_load_round_trip_preserves_full_state(tmp_path):
+    """Bug #103: save_state() then load_state() must restore requirements,
+    components, tests, and links — not just the summary report."""
+    rt = RequirementTraceability(project_id="round-trip")
+    rt.add_requirement("FR-001", "Title A", srs_section="SRS-1")
+    rt.add_requirement("FR-002", "Title B", srs_section="SRS-2")
+    rt.add_code_component("a.py", fr_id="FR-001", functions=["f1"])
+    rt.add_code_component("b.py", fr_id="FR-002")
+    rt.add_test_coverage("test_a.py", fr_id="FR-001", test_functions=["test_f1"])
+    rt.add_test_coverage("test_b.py", fr_id="FR-002")
+    rt.add_link("fr", "FR-001", "srs", "SRS-1")
+
+    p = tmp_path / "state.json"
+    rt.save_state(str(p))
+
+    rt2 = RequirementTraceability.load_state(str(p))
+    assert rt2.project_id == "round-trip"
+    # Requirements round-tripped (the data verify_completeness needs).
+    assert set(rt2.requirements.keys()) == {"FR-001", "FR-002"}
+    assert rt2.requirements["FR-001"].srs_section == "SRS-1"
+    # Components round-tripped.
+    assert set(rt2.code_components.keys()) == {"a.py", "b.py"}
+    assert rt2.code_components["a.py"].functions == ["f1"]
+    # Tests round-tripped.
+    assert set(rt2.test_coverage.keys()) == {"test_a.py", "test_b.py"}
+    # Links round-tripped.
+    assert len(rt2.links) == len(rt.links)
+    # The full completeness report must match.
+    assert rt2.verify_completeness() == rt.verify_completeness()
+
+
+def test_load_state_then_verify_completeness_matches_original(tmp_path):
+    """Bug #103 specific symptom: stage_pass_generator calls
+    `rt = RequirementTraceability.load_state(file); rt.verify_completeness()`.
+    This must produce the same percentages as the original."""
+    rt = RequirementTraceability(project_id="p")
+    rt.add_requirement("FR-001", "T1")
+    rt.add_requirement("FR-002", "T2")
+    rt.add_link("fr", "FR-001", "srs", "s1")
+    rt.add_link("fr", "FR-001", "code", "c1")
+    rt.add_link("fr", "FR-001", "test", "t1")
+    p = tmp_path / "state.json"
+    rt.save_state(str(p))
+
+    rt2 = RequirementTraceability.load_state(str(p))
+    expected = rt.verify_completeness()
+    actual = rt2.verify_completeness()
+    assert actual == expected
+    # The coverage of FR-001 (fully traced) should not be 0%.
+    assert actual["srs_coverage"] != "0.0%" or len(expected["missing_mappings"]["fr_without_srs"]) > 0
+
+
+def test_load_state_raises_on_missing_file(tmp_path):
+    """Bug #103: load_state() should fail loudly with a clear error, not be
+    silently swallowed by a generic except-Exception block in callers."""
+    import pytest
+    with pytest.raises(FileNotFoundError):
+        RequirementTraceability.load_state(str(tmp_path / "does_not_exist.json"))
+
+
+
 def test_verify_completeness_with_mixed_links():
     rt = RequirementTraceability(project_id="p")
     rt.add_requirement("FR-001", "T1")

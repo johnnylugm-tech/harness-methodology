@@ -53,6 +53,17 @@ class Requirement:
             "created_at": self.created_at.isoformat(), "metadata": self.metadata
         }
 
+    @classmethod
+    def from_dict(cls, d: dict) -> "Requirement":
+        return cls(
+            req_id=d["req_id"], title=d["title"], description=d.get("description", ""),
+            priority=d.get("priority", "HIGH"),
+            status=TraceStatus(d.get("status", TraceStatus.PENDING.value)),
+            srs_section=d.get("srs_section"),
+            created_at=datetime.fromisoformat(d["created_at"]) if d.get("created_at") else datetime.now(),
+            metadata=d.get("metadata") or {},
+        )
+
 
 @dataclass
 class CodeComponent:
@@ -73,6 +84,15 @@ class CodeComponent:
             "coverage": self.coverage, "metadata": self.metadata
         }
 
+    @classmethod
+    def from_dict(cls, d: dict) -> "CodeComponent":
+        return cls(
+            file_path=d["file_path"], functions=d.get("functions") or [],
+            classes=d.get("classes") or [], line_range=d.get("line_range"),
+            fr_id=d.get("fr_id"), test_files=d.get("test_files") or [],
+            coverage=d.get("coverage"), metadata=d.get("metadata") or {},
+        )
+
 
 @dataclass
 class TestCoverage:
@@ -90,6 +110,15 @@ class TestCoverage:
             "fr_id": self.fr_id, "coverage_percentage": self.coverage_percentage,
             "status": self.status.value, "metadata": self.metadata
         }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "TestCoverage":
+        return cls(
+            test_file=d["test_file"], test_functions=d.get("test_functions") or [],
+            fr_id=d.get("fr_id"), coverage_percentage=d.get("coverage_percentage", 0.0),
+            status=TraceStatus(d.get("status", TraceStatus.PENDING.value)),
+            metadata=d.get("metadata") or {},
+        )
 
 
 @dataclass
@@ -116,6 +145,20 @@ class TraceLink:
             "verified_at": self.verified_at.isoformat() if self.verified_at else None,
             "status": self.status.value, "metadata": self.metadata
         }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "TraceLink":
+        return cls(
+            link_id=d["link_id"], source_type=d["source_type"],
+            source_id=d["source_id"], target_type=d["target_type"],
+            target_id=d["target_id"],
+            link_type=LinkType(d.get("link_type", LinkType.FR_TO_SRS.value)),
+            bidirectional=d.get("bidirectional", True),
+            created_at=datetime.fromisoformat(d["created_at"]) if d.get("created_at") else datetime.now(),
+            verified_at=datetime.fromisoformat(d["verified_at"]) if d.get("verified_at") else None,
+            status=TraceStatus(d.get("status", TraceStatus.PENDING.value)),
+            metadata=d.get("metadata") or {},
+        )
 
 
 class RequirementTraceability:
@@ -262,6 +305,65 @@ class RequirementTraceability:
     def save(self, filepath: str) -> None:
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(self.export_report(), f, indent=2, ensure_ascii=False)
+
+    def save_state(self, filepath: str) -> None:
+        """Write the full state to *filepath* (Bug #103 fix).
+
+        Unlike ``save()`` (which writes a human-readable report via
+        ``export_report()``), ``save_state()`` serializes the raw
+        requirements / code_components / test_coverage / links so that
+        ``load_state()`` can fully reconstruct an equivalent
+        ``RequirementTraceability``. The state format is versioned via
+        the ``_format`` key.
+        """
+        state = self.to_state_dict()
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2, ensure_ascii=False)
+
+    def to_state_dict(self) -> dict:
+        """Serialize full state (raw data + links) for round-trip save/load."""
+        return {
+            "_format": "requirement_traceability.state.v1",
+            "project_id": self.project_id,
+            "requirements": {rid: r.to_dict() for rid, r in self.requirements.items()},
+            "code_components": {fp: c.to_dict() for fp, c in self.code_components.items()},
+            "test_coverage": {tf: t.to_dict() for tf, t in self.test_coverage.items()},
+            "links": [lnk.to_dict() for lnk in self.links],
+            "exported_at": datetime.now().isoformat(),
+        }
+
+    @classmethod
+    def load_state(cls, filepath: str) -> "RequirementTraceability":
+        """Reconstruct a ``RequirementTraceability`` from a state file written
+        by ``save_state()`` (Bug #103 fix).
+
+        Raises ``FileNotFoundError`` if *filepath* is missing — callers
+        must check existence themselves or handle the error explicitly.
+        Silent swallowing of this error (e.g. via a generic
+        ``except Exception``) defeats the purpose of the gate.
+        """
+        with open(filepath, "r", encoding="utf-8") as f:
+            state = json.load(f)
+        rt = cls(project_id=state.get("project_id", ""))
+        for d in state.get("requirements", {}).values():
+            req = Requirement.from_dict(d)
+            rt.requirements[req.req_id] = req
+        for d in state.get("code_components", {}).values():
+            cc = CodeComponent.from_dict(d)
+            rt.code_components[cc.file_path] = cc
+        for d in state.get("test_coverage", {}).values():
+            tc = TestCoverage.from_dict(d)
+            rt.test_coverage[tc.test_file] = tc
+        for d in state.get("links", []):
+            lnk = TraceLink.from_dict(d)
+            rt.links.append(lnk)
+            if lnk.bidirectional:
+                rt._reverse_link_index.setdefault(lnk.target_id, []).append(lnk.link_id)
+                rt._reverse_link_index.setdefault(lnk.source_id, []).append(lnk.link_id)
+            for rid in [lnk.source_id, lnk.target_id]:
+                if rid.startswith(("FR-", "NFR-")):
+                    rt._link_index.setdefault(rid, []).append(lnk.link_id)
+        return rt
 
 
 def main():  # pragma: no cover
