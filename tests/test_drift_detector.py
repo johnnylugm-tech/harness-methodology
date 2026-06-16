@@ -289,6 +289,72 @@ class TestSabDriftDetection:
             f"Registered file was falsely flagged; unregistered items: {unregistered_locs}"
         )
 
+    def test_sab_drift_resolves_package_dir_v2_11(self, tmp_path):
+        """Regression test for v2.11: SAB modules written in non-prefixed form
+        (e.g. 'taskq.cli') must be resolved against src/-layout projects where
+        the actual file lives at 'src/taskq/cli.py'.
+
+        Before fix: drift_detector only tried 'taskq/cli.py' and
+        '03-development/taskq/cli.py', missing '03-development/src/taskq/cli.py'
+        even when setup.cfg declared ``package_dir = src``. Triggered 13 false
+        SAB drifts on integration-test (5 missing + 8 unregistered).
+        """
+        import json as _json
+        # setup.cfg with src/-layout
+        dev = tmp_path / "03-development"
+        dev.mkdir()
+        (dev / "setup.cfg").write_text(
+            "[options]\npackage_dir =\n    =src\n"
+            "[options.packages.find]\nwhere = src\n"
+        )
+        # Real source under src/
+        src_pkg = dev / "src" / "taskq"
+        src_pkg.mkdir(parents=True)
+        for mod in ("config", "models", "store", "executor", "cli"):
+            (src_pkg / f"{mod}.py").write_text(f"# {mod}")
+
+        # SAB declares non-prefixed dotted modules (matches SAD.md §7 style)
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        sab_json = {
+            "layers": [
+                {"name": "entry",         "modules": ["taskq.cli"],
+                 "allowed_dependencies": []},
+                {"name": "application",   "modules": ["taskq.executor"],
+                 "allowed_dependencies": []},
+                {"name": "domain",        "modules": ["taskq.models"],
+                 "allowed_dependencies": []},
+                {"name": "infrastructure","modules": ["taskq.store"],
+                 "allowed_dependencies": []},
+                {"name": "config",        "modules": ["taskq.config"],
+                 "allowed_dependencies": []},
+            ],
+            "dependencies": {},
+        }
+        (method_dir / "SAB.json").write_text(_json.dumps(sab_json))
+
+        detector = DriftDetector(str(tmp_path))
+        result = detector.detect_sab_drift()
+
+        # Must have zero false-positive "file not found"
+        missing = [i for i in result.drift_items
+                   if "file not found" in i.description]
+        assert missing == [], (
+            f"v2.11 regression: src/-layout projects with non-prefixed SAB "
+            f"modules were falsely flagged as missing: {[i.description for i in missing]}"
+        )
+
+        # Must have zero false-positive "unregistered" for the 5 SAB files
+        unregistered = [i for i in result.drift_items
+                        if i.actual == "unregistered"
+                        and "/taskq/" in i.location
+                        and not i.location.endswith("__init__.py")
+                        and not i.location.endswith("__main__.py")]
+        assert unregistered == [], (
+            f"v2.11 regression: src/-layout project files falsely flagged as "
+            f"unregistered: {[i.location for i in unregistered]}"
+        )
+
     def test_detect_sab_drift_import_violation(self, tmp_path):
         """Cross-layer import where dependency is not allowed."""
         method_dir = tmp_path / ".methodology"

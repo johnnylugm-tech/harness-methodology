@@ -313,6 +313,40 @@ class DriftDetector:
             score=score,
         )
 
+    def _read_package_dir(self) -> str | None:
+        """Read [options] package_dir from setup.cfg to detect src/-layout projects.
+
+        setup.cfg may declare ``package_dir =\n    =src`` to put the package
+        source under ``src/<pkg>/``. SAB modules written in non-prefixed form
+        (e.g. ``taskq.cli``) need to be matched against the actual file path
+        ``src/taskq/cli.py``. Returns the package source dir (e.g. ``"src"``)
+        or ``None`` if no src-layout is detected.
+        """
+        import configparser
+
+        for candidate in (self.project_path / "03-development" / "setup.cfg",
+                          self.project_path / "setup.cfg"):
+            if not candidate.exists():
+                continue
+            try:
+                cp = configparser.ConfigParser()
+                cp.read(str(candidate), encoding="utf-8")
+                if not cp.has_section("options"):
+                    return None
+                # package_dir may be multi-line continuation; the actual value
+                # is on a line starting with "=" (e.g. "    =src").
+                if not cp.has_option("options", "package_dir"):
+                    return None
+                raw = cp.get("options", "package_dir")
+                for line in raw.splitlines():
+                    line = line.strip()
+                    if line.startswith("="):
+                        val = line[1:].strip()
+                        return val or None
+            except Exception:  # pylint: disable=broad-exception-caught  # nosec B110
+                return None
+        return None
+
     def detect_sab_drift(self) -> DriftResult:
         """
         Detect architecture drift between code structure and SAB baseline.
@@ -366,12 +400,20 @@ class DriftDetector:
         checked = 0
         drifted = 0
 
+        # Read package_dir from setup.cfg to handle src/-layout projects
+        # (Bug #v2.11 fix: SAB uses "taskq.cli", file is at "src/taskq/cli.py")
+        pkg_dir = self._read_package_dir()
+
         # ── Build SAB file registry ───────────────────────────────────────
         sab_files: dict[str, str] = {}  # relative_path → layer_name
         for layer in layers:
             layer_name = layer.get("name", "")
             for mod in layer.get("modules", []):
                 sab_files[mod] = layer_name
+                # Expand with package_dir prefix if applicable
+                if pkg_dir and not mod.endswith("/") and "/" not in mod and not mod.endswith(".py"):
+                    if not mod.startswith(f"{pkg_dir}."):
+                        sab_files[f"{pkg_dir}.{mod}"] = layer_name
                 # Also register files inside directories (e.g. "core/quality_gate/" → all files)
                 if mod.endswith("/"):
                     for py_file in self.project_path.rglob(f"{mod}*.py"):
@@ -393,12 +435,20 @@ class DriftDetector:
         for rel_path, layer_name in sab_files.items():
             if not rel_path.endswith("/") and not re.match(r'^FR-\d+$', rel_path):
                 path_form = _sab_to_path(rel_path)
-                exists = (
-                    (self.project_path / path_form).exists() or
-                    (self.project_path / "03-development" / path_form).exists() or
-                    (self.project_path / rel_path).exists() or  # original dotted literal
-                    (self.project_path / "03-development" / rel_path).exists()
-                )
+                # Also try package_dir-prefixed path form for src/-layout projects
+                # (v2.11 fix: SAB "taskq.cli" should match src/taskq/cli.py)
+                path_variants = [path_form, rel_path]
+                if pkg_dir and "/" not in path_form and not path_form.startswith(pkg_dir + "/"):
+                    path_variants.append(f"{pkg_dir}/{path_form}")
+                if pkg_dir and "/" not in rel_path and not rel_path.endswith(".py") \
+                        and not rel_path.startswith(f"{pkg_dir}."):
+                    path_variants.append(f"{pkg_dir}/{rel_path.replace('.', '/')}.py")
+                exists = False
+                for candidate in path_variants:
+                    if ((self.project_path / candidate).exists() or
+                            (self.project_path / "03-development" / candidate).exists()):
+                        exists = True
+                        break
                 if not exists:
                     drifted += 1
                     items.append(DriftItem(
