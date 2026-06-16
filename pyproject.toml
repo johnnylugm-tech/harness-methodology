@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "harness-methodology"
-version = "2.9.0"
+version = "2.12.0"
 description = "Full-lifecycle software development pipeline orchestration with 12-dimension quality gates, A/B collaboration, and proactive auto-repair"
 requires-python = ">=3.10"
 readme = "README.md"
