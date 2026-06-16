@@ -211,9 +211,16 @@ def _copy_setup_cfg_to_workdir(project: Path, workdir: str, abs_test_dir: str = 
     # Rewrite runner only if it's a well-known default. Custom runner
     # scripts (make test, bash scripts) are out of scope — the project
     # author is responsible for making them workdir-aware.
+    # Bug #91: use sys.executable (the interpreter actually running the
+    # framework) instead of the hardcoded "python -m pytest". On modern
+    # macOS / Homebrew Python 3.11+ there is no `python` symlink (only
+    # `python3` / `python3.11`), so mutmut's Popen of `python -m pytest`
+    # throws FileNotFoundError [Errno 2] No such file or directory: 'python'.
+    # sys.executable always resolves to a real interpreter, including
+    # inside a virtualenv.
     existing_runner = mut.get("runner", "").strip()
     if existing_runner in _WELL_KNOWN_RUNNERS or not existing_runner:
-        mut["runner"] = "python -m pytest"
+        mut["runner"] = f"{sys.executable} -m pytest"
     else:
         print(f"[WARN] setup.cfg [mutmut] runner is custom ({existing_runner!r}); "
               f"not overriding. Ensure your runner picks up tests_dir={abs_test_dir}.",

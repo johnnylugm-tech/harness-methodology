@@ -4,8 +4,14 @@ These tests focus on the path-resolution helpers and the public entry
 point's contract (without actually invoking mutmut). End-to-end mutmut
 behaviour is covered by the agent's gate-evaluation protocol in
 ``evaluate_dimension.md``, not here.
+
+Regression coverage includes Bug #41 (setup.cfg rewrite), Bug #42
+(stash/restore), Bug #43 (no-setup.cfg fallback), and Bug #91
+(sys.executable instead of hardcoded "python" so Homebrew Python 3.11+
+can invoke pytest through mutmut).
 """
 import configparser
+import sys
 
 from core.quality_gate.mutation_enforcer import (
     _resolve_test_dir,
@@ -182,7 +188,7 @@ def test_copy_setup_cfg_to_workdir(tmp_path):
     cp = configparser.ConfigParser()
     cp.read(str(workdir / "setup.cfg"), encoding="utf-8")
     assert cp["mutmut"]["paths_to_mutate"] == "03-development/src"
-    assert cp["mutmut"]["runner"] == "python -m pytest"
+    assert cp["mutmut"]["runner"] == f"{sys.executable} -m pytest"
     assert cp["mutmut"]["tests_dir"] == "/abs/tests"
 
 
@@ -206,7 +212,7 @@ def test_copy_setup_cfg_no_project_cfg_writes_both_sections(tmp_path):
     assert (workdir / "setup.cfg").exists(), "setup.cfg must be generated"
     cp = configparser.ConfigParser()
     cp.read(str(workdir / "setup.cfg"), encoding="utf-8")
-    assert cp["mutmut"]["runner"] == "python -m pytest"
+    assert cp["mutmut"]["runner"] == f"{sys.executable} -m pytest"
     assert cp["mutmut"]["tests_dir"] == "/abs/path/tests"
     assert cp["tool:pytest"]["testpaths"] == "/abs/path/tests"
 
@@ -225,7 +231,73 @@ def test_copy_setup_cfg_rewrites_runner_pytest(tmp_path):
     _copy_setup_cfg_to_workdir(tmp_path, str(workdir), "/abs/path/tests")
     cp = configparser.ConfigParser()
     cp.read(str(workdir / "setup.cfg"), encoding="utf-8")
-    assert cp["mutmut"]["runner"] == "python -m pytest"
+    assert cp["mutmut"]["runner"] == f"{sys.executable} -m pytest"
+
+
+def test_copy_setup_cfg_runner_uses_sys_executable_bug_91(tmp_path):
+    """Bug #91: runner must be sys.executable-based, not hardcoded "python -m pytest".
+
+    Modern macOS (Homebrew Python 3.11+) and PEP 394-compliant systems
+    do not provide a `python` symlink — only `python3` / `python3.11`.
+    Hardcoding the runner to `python -m pytest` causes mutmut's Popen
+    to throw FileNotFoundError [Errno 2] No such file or directory: 'python'.
+    The fix uses sys.executable (the interpreter actually running the
+    framework), which always resolves to a real binary, including inside
+    a virtualenv.
+    """
+    # Two scenarios: well-known default (pytest) and absent (no runner set).
+    for project_runner in ("pytest", ""):
+        case_dir = tmp_path / f"case_{project_runner or 'absent'}"
+        case_dir.mkdir()
+        src_cfg = case_dir / "setup.cfg"
+        if project_runner:
+            src_cfg.write_text(
+                f"[mutmut]\nrunner = {project_runner}\n", encoding="utf-8",
+            )
+        else:
+            src_cfg.write_text("[mutmut]\n", encoding="utf-8")
+        workdir = case_dir / "workdir"
+        workdir.mkdir()
+        _copy_setup_cfg_to_workdir(case_dir, str(workdir), "/abs/path/tests")
+        cp = configparser.ConfigParser()
+        cp.read(str(workdir / "setup.cfg"), encoding="utf-8")
+        runner = cp["mutmut"]["runner"]
+        # Must NOT start with the bare "python " token that mutmut Popen
+        # cannot resolve on Homebrew Python 3.11+.
+        assert not runner.startswith("python "), (
+            f"runner still hardcoded to 'python ...' form (Bug #91 not fixed): "
+            f"{runner!r}"
+        )
+        # Must use the same Python that's running the framework, suffixed
+        # with the pytest invocation. Exact match keeps the contract crisp.
+        assert runner == f"{sys.executable} -m pytest", (
+            f"runner must be sys.executable + ' -m pytest', got {runner!r}"
+        )
+
+
+def test_copy_setup_cfg_runner_warning_for_custom_runner_bug_91(tmp_path, capsys):
+    """Bug #91: custom runner scripts are left untouched (and warned).
+
+    When the project uses a non-well-known runner (e.g. `make test`),
+    the framework should NOT overwrite it with sys.executable, because
+    the custom runner may not be Python at all. The framework logs a
+    warning to stderr so the operator knows the runner may not be
+    workdir-aware.
+    """
+    src_cfg = tmp_path / "setup.cfg"
+    src_cfg.write_text("[mutmut]\nrunner = make test\n", encoding="utf-8")
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    _copy_setup_cfg_to_workdir(tmp_path, str(workdir), "/abs/path/tests")
+    cp = configparser.ConfigParser()
+    cp.read(str(workdir / "setup.cfg"), encoding="utf-8")
+    # Custom runner preserved verbatim.
+    assert cp["mutmut"]["runner"] == "make test"
+    # Operator warned on stderr.
+    captured = capsys.readouterr()
+    assert "runner is custom" in captured.err, (
+        f"expected stderr warning about custom runner, got: {captured.err!r}"
+    )
 
 
 def test_copy_setup_cfg_overrides_tests_dir(tmp_path):
@@ -334,7 +406,7 @@ def test_copy_setup_cfg_adds_mutmut_section_if_missing(tmp_path):
     cp = configparser.ConfigParser()
     cp.read(str(workdir / "setup.cfg"), encoding="utf-8")
     assert "mutmut" in cp
-    assert cp["mutmut"]["runner"] == "python -m pytest"
+    assert cp["mutmut"]["runner"] == f"{sys.executable} -m pytest"
     assert cp["mutmut"]["tests_dir"] == "/abs/tests"
 
 
