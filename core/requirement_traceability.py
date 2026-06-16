@@ -12,7 +12,7 @@ Note: In harness-methodology, run as:
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 import json
 import uuid
@@ -310,18 +310,7 @@ class RequirementTraceability:
             json.dump(self.export_report(), f, indent=2, ensure_ascii=False)
 
     def save_state(self, filepath: str) -> None:
-        """Write the full state to *filepath* (Bug #103 fix).
-
-        Unlike ``save()`` (which writes a human-readable report via
-        ``export_report()``), ``save_state()`` serializes the raw
-        requirements / code_components / test_coverage / links so that
-        ``load_state()`` can fully reconstruct an equivalent
-        ``RequirementTraceability``. The state format is versioned via
-        the ``_format`` key.
-
-        Uses atomic_write_json (tempfile + os.replace) so a mid-write
-        crash cannot leave a truncated state file (Bug #104 pattern).
-        """
+        """Atomically write full state dict; load_state() can round-trip it."""
         atomic_write_json(Path(filepath), self.to_state_dict())
 
     def to_state_dict(self) -> dict:
@@ -333,7 +322,7 @@ class RequirementTraceability:
             "code_components": {fp: c.to_dict() for fp, c in self.code_components.items()},
             "test_coverage": {tf: t.to_dict() for tf, t in self.test_coverage.items()},
             "links": [lnk.to_dict() for lnk in self.links],
-            "exported_at": datetime.now().isoformat(),
+            "exported_at": datetime.now(timezone.utc).isoformat(),
         }
 
     @classmethod

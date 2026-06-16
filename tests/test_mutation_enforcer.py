@@ -240,7 +240,8 @@ def test_copy_setup_cfg_rewrites_runner_pytest(tmp_path):
     assert cp["mutmut"]["runner"] == f"{sys.executable} -m pytest"
 
 
-def test_copy_setup_cfg_runner_uses_sys_executable_bug_91(tmp_path):
+@pytest.mark.parametrize("project_runner", ["pytest", ""])
+def test_copy_setup_cfg_runner_uses_sys_executable_bug_91(tmp_path, project_runner):
     """Bug #91: runner must be sys.executable-based, not hardcoded "python -m pytest".
 
     Modern macOS (Homebrew Python 3.11+) and PEP 394-compliant systems
@@ -251,34 +252,23 @@ def test_copy_setup_cfg_runner_uses_sys_executable_bug_91(tmp_path):
     framework), which always resolves to a real binary, including inside
     a virtualenv.
     """
-    # Two scenarios: well-known default (pytest) and absent (no runner set).
-    for project_runner in ("pytest", ""):
-        case_dir = tmp_path / f"case_{project_runner or 'absent'}"
-        case_dir.mkdir()
-        src_cfg = case_dir / "setup.cfg"
-        if project_runner:
-            src_cfg.write_text(
-                f"[mutmut]\nrunner = {project_runner}\n", encoding="utf-8",
-            )
-        else:
-            src_cfg.write_text("[mutmut]\n", encoding="utf-8")
-        workdir = case_dir / "workdir"
-        workdir.mkdir()
-        _copy_setup_cfg_to_workdir(case_dir, str(workdir), "/abs/path/tests")
-        cp = configparser.ConfigParser()
-        cp.read(str(workdir / "setup.cfg"), encoding="utf-8")
-        runner = cp["mutmut"]["runner"]
-        # Must NOT start with the bare "python " token that mutmut Popen
-        # cannot resolve on Homebrew Python 3.11+.
-        assert not runner.startswith("python "), (
-            f"runner still hardcoded to 'python ...' form (Bug #91 not fixed): "
-            f"{runner!r}"
-        )
-        # Must use the same Python that's running the framework, suffixed
-        # with the pytest invocation. Exact match keeps the contract crisp.
-        assert runner == f"{sys.executable} -m pytest", (
-            f"runner must be sys.executable + ' -m pytest', got {runner!r}"
-        )
+    src_cfg = tmp_path / "setup.cfg"
+    if project_runner:
+        src_cfg.write_text(f"[mutmut]\nrunner = {project_runner}\n", encoding="utf-8")
+    else:
+        src_cfg.write_text("[mutmut]\n", encoding="utf-8")
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    _copy_setup_cfg_to_workdir(tmp_path, str(workdir), "/abs/path/tests")
+    cp = configparser.ConfigParser()
+    cp.read(str(workdir / "setup.cfg"), encoding="utf-8")
+    runner = cp["mutmut"]["runner"]
+    assert not runner.startswith("python "), (
+        f"runner still hardcoded to 'python ...' form (Bug #91 not fixed): {runner!r}"
+    )
+    assert runner == f"{sys.executable} -m pytest", (
+        f"runner must be sys.executable + ' -m pytest', got {runner!r}"
+    )
 
 
 def test_copy_setup_cfg_runner_warning_for_custom_runner_bug_91(tmp_path, capsys):
