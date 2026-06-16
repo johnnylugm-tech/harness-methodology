@@ -24,7 +24,9 @@ from core.quality_gate.mutation_enforcer import (
     _read_paths_to_exclude,
     _detect_data_only_files,
     _copy_setup_cfg_to_workdir,
+    _find_source_setup_cfg,
     _paths_to_exclude_flag,
+    _count_mutmut_results,
 )
 
 
@@ -776,11 +778,16 @@ def test_compute_mutation_score_promotes_cache_to_project_root(tmp_path, monkeyp
         is_run = isinstance(cmd, list) and len(cmd) >= 2 and cmd[1] == "run"
         is_results = isinstance(cmd, list) and len(cmd) >= 2 and cmd[1] == "results"
         if is_run and cwd.startswith("/tmp/_mutmut_score."):
-            (Path(cwd) / ".mutmut-cache").write_text("VERSION: test")
+            # Bug #108: score is now read from the sqlite cache, not
+            # emoji counts. Populate the cache with 2 ok_killed + 1
+            # bad_survived so the score is 2/3 * 100 = 66.7.
+            _make_fake_mutmut_cache(
+                Path(cwd) / ".mutmut-cache",
+                ["ok_killed", "ok_killed", "bad_survived"],
+            )
             return _R(0, "", "")
         if is_results:
-            # 2 killed, 1 survived.
-            return _R(0, "🎉\n🎉\n🙁\n", "")
+            return _R(0, "Survived 🙁 (1)\n", "")
         return _R(0, "", "")
 
     monkeypatch.setattr(me.subprocess, "run", fake_run)
@@ -793,7 +800,6 @@ def test_compute_mutation_score_promotes_cache_to_project_root(tmp_path, monkeyp
     assert "killed=2" in msg and "survived=1" in msg
     # Bug #105 contract: cache promoted to project root.
     assert (tmp_path / ".mutmut-cache").exists()
-    assert (tmp_path / ".mutmut-cache").read_text() == "VERSION: test"
 
 
 def test_compute_mutation_score_does_not_promote_on_failure(tmp_path, monkeypatch):
@@ -890,11 +896,15 @@ def test_cmd_mutation_test_score_exits_zero_on_success(tmp_path, monkeypatch):
         is_run = isinstance(cmd, list) and len(cmd) >= 2 and cmd[1] == "run"
         is_results = isinstance(cmd, list) and len(cmd) >= 2 and cmd[1] == "results"
         if is_run and cwd.startswith("/tmp/_mutmut_score."):
-            (Path(cwd) / ".mutmut-cache").write_text("VERSION: cli-test")
+            # Bug #108: score is now read from the sqlite cache.
+            # 1 ok_killed + 2 bad_survived → 1/3 * 100 = 33.3.
+            _make_fake_mutmut_cache(
+                Path(cwd) / ".mutmut-cache",
+                ["ok_killed", "bad_survived", "bad_survived"],
+            )
             return _R(0, "", "")
         if is_results:
-            # 1 killed, 2 survived.
-            return _R(0, "🎉\n🙁\n🙁\n", "")
+            return _R(0, "Survived 🙁 (2)\n", "")
         return _R(0, "", "")
 
     monkeypatch.setattr(me.subprocess, "run", fake_run)
@@ -922,3 +932,164 @@ class _R:
         self.returncode = returncode
         self.stdout = stdout
         self.stderr = stderr
+
+
+# ---------------------------------------------------------------------------
+# _find_source_setup_cfg (Bug #106b: nested layout discovery)
+# ---------------------------------------------------------------------------
+
+
+def test_find_source_setup_cfg_returns_root_when_present(tmp_path):
+    """Bug #106b: root-level setup.cfg wins when both exist."""
+    project = tmp_path / "proj"
+    project.mkdir()
+    root_cfg = project / "setup.cfg"
+    root_cfg.write_text("[tool:pytest]\n", encoding="utf-8")
+    (project / "03-development").mkdir()
+    (project / "03-development" / "setup.cfg").write_text(
+        "[tool:pytest]\npythonpath = src\n", encoding="utf-8"
+    )
+    assert _find_source_setup_cfg(project) == root_cfg
+
+
+def test_find_source_setup_cfg_falls_back_to_nested(tmp_path):
+    """Bug #106b: when no root setup.cfg, use 03-development/setup.cfg.
+
+    This is the actual production case: integration-test has the project's
+    setup.cfg under 03-development/ (the ProjectLayout.phase3_development_dir),
+    not at project root.
+    """
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "03-development").mkdir()
+    nested_cfg = project / "03-development" / "setup.cfg"
+    nested_cfg.write_text("[tool:pytest]\npythonpath = src\n", encoding="utf-8")
+    assert _find_source_setup_cfg(project) == nested_cfg
+
+
+def test_find_source_setup_cfg_returns_none_when_neither_exists(tmp_path):
+    """Bug #106b: no setup.cfg anywhere returns None (caller falls through to
+    the 'no setup.cfg' branch that generates a minimal config)."""
+    project = tmp_path / "proj"
+    project.mkdir()
+    assert _find_source_setup_cfg(project) is None
+
+
+def test_copy_setup_cfg_reads_nested_layout_and_promotes_pythonpath_bug_106b(tmp_path):
+    """Bug #106b: end-to-end — a project with setup.cfg under 03-development/
+    has its pythonpath preserved (not dropped) when copied to workdir.
+
+    This is the regression that broke the integration-test finalize-gate:
+    the function used to look for project/setup.cfg only, hit the
+    'no setup.cfg' branch, and generated a minimal config without
+    pythonpath = src, causing ModuleNotFoundError on taskq.
+    """
+    project = tmp_path / "proj"
+    project.mkdir()
+    dev = project / "03-development"
+    dev.mkdir()
+    src_dir = dev / "src"
+    src_dir.mkdir()
+    (src_dir / "taskq").mkdir()
+    (src_dir / "taskq" / "__init__.py").write_text("", encoding="utf-8")
+    (dev / "setup.cfg").write_text(
+        "[tool:pytest]\npythonpath = src\naddopts = -ra\n",
+        encoding="utf-8",
+    )
+    tests_dir = dev / "tests"
+    tests_dir.mkdir()
+    workdir = project / "workdir"
+    workdir.mkdir()
+    _copy_setup_cfg_to_workdir(project, str(workdir), str(tests_dir))
+    cp = configparser.ConfigParser()
+    cp.read(str(workdir / "setup.cfg"), encoding="utf-8")
+    # pythonpath must be promoted to absolute (Bug #106)
+    assert cp["tool:pytest"]["pythonpath"] == str(src_dir.resolve())
+    # addopts must be preserved (we only rewrite specific keys)
+    assert cp["tool:pytest"]["addopts"] == "-ra"
+
+
+# ---------------------------------------------------------------------------
+# _count_mutmut_results (Bug #108: read score from sqlite cache)
+# ---------------------------------------------------------------------------
+
+
+def _make_fake_mutmut_cache(path: Path, statuses: list[str]) -> None:
+    """Create a fake mutmut 2.x cache with the right schema and the given
+    Mutant.status rows. Mirrors what mutmut 2.x actually writes.
+    """
+    import sqlite3
+    db = sqlite3.connect(str(path))
+    db.executescript(
+        """
+        CREATE TABLE SourceFile (id INTEGER PRIMARY KEY, filename TEXT);
+        CREATE TABLE Mutant (
+            id INTEGER PRIMARY KEY,
+            srcfile_id INTEGER,
+            line INTEGER,
+            column INTEGER,
+            status TEXT
+        );
+        INSERT INTO SourceFile VALUES (1, 'fake.py');
+        """
+    )
+    for i, status in enumerate(statuses, start=1):
+        db.execute(
+            "INSERT INTO Mutant VALUES (?, ?, ?, ?, ?)",
+            (i, 1, 1, 0, status),
+        )
+    db.commit()
+    db.close()
+
+
+def test_count_mutmut_results_typical_mix_bug_108(tmp_path):
+    """Bug #108: typical mix of ok_killed and bad_survived is counted
+    correctly. The previous emoji-counting logic would report 0 killed
+    because mutmut results only prints 🙁 for survivors.
+    """
+    cache = tmp_path / ".mutmut-cache"
+    _make_fake_mutmut_cache(
+        cache,
+        ["ok_killed"] * 113 + ["bad_survived"] * 115,
+    )
+    killed, survived = _count_mutmut_results(cache)
+    assert killed == 113
+    assert survived == 115
+
+
+def test_count_mutmut_results_timeout_and_suspicious_count_as_survived(tmp_path):
+    """Bug #108: per evaluate_dimension.md, timeout and suspicious mutants
+    count as survived (the test infrastructure couldn't definitively kill
+    them in reasonable time).
+    """
+    cache = tmp_path / ".mutmut-cache"
+    _make_fake_mutmut_cache(
+        cache,
+        ["ok_killed", "bad_survived", "timeout", "suspicious"],
+    )
+    killed, survived = _count_mutmut_results(cache)
+    assert killed == 1
+    assert survived == 3
+
+
+def test_count_mutmut_results_ignores_pending_and_infra_failures(tmp_path):
+    """Bug #108: pending/checking/no_tests/skipped/check_failed are
+    infrastructure states, not mutant verdicts. They should be ignored
+    (not counted as killed OR survived).
+    """
+    cache = tmp_path / ".mutmut-cache"
+    _make_fake_mutmut_cache(
+        cache,
+        ["ok_killed", "pending", "checking", "no_tests", "skipped", "check_failed"],
+    )
+    killed, survived = _count_mutmut_results(cache)
+    assert killed == 1
+    assert survived == 0
+
+
+def test_count_mutmut_results_missing_cache_returns_zeros(tmp_path):
+    """Bug #108: missing cache file → (0, 0). Caller treats as no score."""
+    cache = tmp_path / "does-not-exist"
+    killed, survived = _count_mutmut_results(cache)
+    assert killed == 0
+    assert survived == 0

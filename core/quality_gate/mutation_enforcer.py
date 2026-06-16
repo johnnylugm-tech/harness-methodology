@@ -182,6 +182,34 @@ _WELL_KNOWN_RUNNERS = frozenset({
 })
 
 
+def _find_source_setup_cfg(project: Path) -> Optional[Path]:
+    """Locate the project's ``setup.cfg``, considering nested layouts.
+
+    Bug #106 fix: for the recommended nested layout (e.g.
+    ``03-development/setup.cfg`` carrying the project's actual pytest
+    config), the source setup.cfg is NOT at project root. Searching
+    project root alone would skip the file entirely, falling into the
+    "no setup.cfg" branch that generates a minimal config with only
+    ``testpaths`` — silently dropping ``pythonpath``, ``addopts``, and
+    any other pytest config the project author wrote.
+
+    Search order:
+    1. ``<project>/setup.cfg`` (root-level — legacy / non-nested layout)
+    2. ``<project>/<phase3_development_dir>/setup.cfg`` (nested layout)
+       where ``phase3_development_dir`` comes from ``ProjectLayout``.
+
+    Returns the first match, or ``None`` if neither exists.
+    """
+    root_cfg = project / "setup.cfg"
+    if root_cfg.exists():
+        return root_cfg
+    layout = ProjectLayout(project)
+    nested_cfg = layout.phase3_development_dir / "setup.cfg"
+    if nested_cfg.exists():
+        return nested_cfg
+    return None
+
+
 def _copy_setup_cfg_to_workdir(project: Path, workdir: str, abs_test_dir: str = "") -> None:
     """Copy ``setup.cfg`` into *workdir* with [mutmut] section rewritten for
     temp-workdir context (Bug #41 fix).
@@ -195,7 +223,7 @@ def _copy_setup_cfg_to_workdir(project: Path, workdir: str, abs_test_dir: str = 
     well-known defaults (pytest/python-m-pytest/...). If the project uses
     a custom runner (e.g. `make test`), log a warning and leave it alone.
     """
-    setup_cfg = project / "setup.cfg"
+    setup_cfg = _find_source_setup_cfg(project) or (project / "setup.cfg")
     cp = configparser.ConfigParser()
     if setup_cfg.exists():
         cp.read(str(setup_cfg), encoding="utf-8")
@@ -252,10 +280,15 @@ def _copy_setup_cfg_to_workdir(project: Path, workdir: str, abs_test_dir: str = 
 
     # Project HAS a setup.cfg: promote [tool:pytest] testpaths to absolute
     # so the workdir's pytest discovery is unambiguous.
+    # Resolve relative paths against the setup.cfg's directory (Bug #106b),
+    # not project root — for nested layouts (03-development/) the source of
+    # truth is the nested setup.cfg, and its relative paths are relative
+    # to its own directory, not the project root.
+    cfg_dir = setup_cfg.parent
     if cp.has_section("tool:pytest") and cp.has_option("tool:pytest", "testpaths"):
         rel = cp["tool:pytest"]["testpaths"].strip()
         if rel and not os.path.isabs(rel):
-            abs_tp = str((project / rel).resolve())
+            abs_tp = str((cfg_dir / rel).resolve())
             cp["tool:pytest"]["testpaths"] = abs_tp
 
     # Bug #106 fix: promote [tool:pytest] pythonpath to absolute. pytest reads
@@ -269,7 +302,7 @@ def _copy_setup_cfg_to_workdir(project: Path, workdir: str, abs_test_dir: str = 
     if cp.has_section("tool:pytest") and cp.has_option("tool:pytest", "pythonpath"):
         rel = cp["tool:pytest"]["pythonpath"].strip()
         if rel and not os.path.isabs(rel):
-            abs_pp = (project / rel).resolve()
+            abs_pp = (cfg_dir / rel).resolve()
             if abs_pp.exists():
                 cp["tool:pytest"]["pythonpath"] = str(abs_pp)
             else:
@@ -372,6 +405,49 @@ def _parse_mutmut_survivors(results_output: str) -> list:
                     "mutant_id": mid, "mutator": None,
                 })
     return survivors
+
+
+def _count_mutmut_results(cache_path: Path) -> tuple[int, int]:
+    """Count killed vs survived mutants from the mutmut 2.x sqlite cache.
+
+    Bug #108: the previous implementation parsed `mutmut results` stdout
+    for emoji counts (🎉/🙁/⏰/🤔), but mutmut 2.x only prints 🙁 for
+    survivors in that output — killed mutants never appear. The
+    authoritative data is in the cache's ``Mutant`` table, where each
+    row carries a ``status`` value.
+
+    Status mapping (mutmut 2.x sqlite schema):
+      - ok_killed     → counts as killed
+      - bad_survived  → counts as survived
+      - timeout       → counts as survived (per evaluate_dimension.md:
+                       tests took too long, mutant may have escaped)
+      - suspicious    → counts as survived
+      - pending, checking, no_tests, skipped, check_failed → ignored
+                       (test infrastructure issue, not a mutant verdict)
+
+    Returns (killed, survived). Returns (0, 0) if the cache is missing
+    or unreadable — caller should treat that as "no score available".
+    """
+    import sqlite3
+    if not cache_path.exists():
+        return 0, 0
+    try:
+        db = sqlite3.connect(str(cache_path))
+        cur = db.cursor()
+        # ok_killed is the only "killed" verdict in mutmut 2.x.
+        cur.execute("SELECT count(*) FROM Mutant WHERE status = 'ok_killed'")
+        killed = cur.fetchone()[0]
+        # Anything not "killed" and not a pending/infra-failure row
+        # counts as a survivor from the framework's perspective.
+        cur.execute(
+            "SELECT count(*) FROM Mutant "
+            "WHERE status IN ('bad_survived', 'timeout', 'suspicious')"
+        )
+        survived = cur.fetchone()[0]
+        db.close()
+        return killed, survived
+    except Exception:
+        return 0, 0
 
 
 def run_stryker_precheck(project: Path) -> tuple[bool, str]:
@@ -708,7 +784,14 @@ def compute_mutation_score(project: Path) -> tuple[bool, float, str]:
             cmd, cwd=workdir, capture_output=True, text=True,
             timeout=3600,
         )
-        if r.returncode != 0:
+        # mutmut 2.x exit codes:
+        #   0 = all mutants killed (rare; full pass)
+        #   1 = baseline test failed (no mutants tested) — real failure
+        #   2 = some mutants had test exceptions / timeouts — partial
+        #       success, cache is still valid, score is meaningful.
+        # We treat 0 and 2 as "ran successfully" so the actual score is
+        # reported; only 1 (and other unexpected codes) abort.
+        if r.returncode not in (0, 2):
             return False, 0.0, (
                 f"mutmut run failed (return code {r.returncode}).\n"
                 f"STDOUT:\n{r.stdout.strip()[-2000:]}\n"
@@ -724,11 +807,11 @@ def compute_mutation_score(project: Path) -> tuple[bool, float, str]:
             project, "mutmut", _parse_mutmut_survivors(out), raw=out
         )
 
-        # Score from `mutmut results` emoji counts (mutmut 2.x).
-        # 🎉 = killed, 🙁 = survived, ⏰ = timeout, 🤔 = suspicious.
-        # ⏰ and 🤔 count as survived per evaluate_dimension.md.
-        killed = out.count("🎉")
-        survived = out.count("🙁") + out.count("⏰") + out.count("🤔")
+        # Score from the sqlite cache (mutmut 2.x). Bug #108: parsing
+        # `mutmut results` stdout for emoji counts is broken — that command
+        # only prints 🙁 for survived mutants, never 🎉 for killed ones.
+        # The authoritative source is the `Mutant` table in the cache db.
+        killed, survived = _count_mutmut_results(workdir_cache)
         total = killed + survived
         if total == 0:
             score = 0.0
