@@ -187,11 +187,28 @@ def test_copy_setup_cfg_to_workdir(tmp_path):
 
 
 def test_copy_setup_cfg_to_workdir_no_setup_cfg(tmp_path):
-    """No setup.cfg → no error, no file copied."""
+    """No setup.cfg + no abs_test_dir → no error, no file written."""
     workdir = tmp_path / "workdir"
     workdir.mkdir()
     _copy_setup_cfg_to_workdir(tmp_path, str(workdir))
     assert not (workdir / "setup.cfg").exists()
+
+
+def test_copy_setup_cfg_no_project_cfg_writes_both_sections(tmp_path):
+    """Bug #43 v2 + Finding #1: no project setup.cfg + abs_test_dir → workdir
+    setup.cfg must contain BOTH [mutmut] (runner, tests_dir) AND
+    [tool:pytest] (testpaths). Previously a fresh ConfigParser was used,
+    silently discarding the [mutmut] section built earlier in the function.
+    """
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    _copy_setup_cfg_to_workdir(tmp_path, str(workdir), "/abs/path/tests")
+    assert (workdir / "setup.cfg").exists(), "setup.cfg must be generated"
+    cp = configparser.ConfigParser()
+    cp.read(str(workdir / "setup.cfg"), encoding="utf-8")
+    assert cp["mutmut"]["runner"] == "python -m pytest"
+    assert cp["mutmut"]["tests_dir"] == "/abs/path/tests"
+    assert cp["tool:pytest"]["testpaths"] == "/abs/path/tests"
 
 
 # ---------------------------------------------------------------------------

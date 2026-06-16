@@ -236,10 +236,11 @@ def _copy_setup_cfg_to_workdir(project: Path, workdir: str, abs_test_dir: str = 
     # the tests regardless of cwd.
     if not setup_cfg.exists():
         if abs_test_dir:
-            new_cp = configparser.ConfigParser()
-            new_cp["tool:pytest"] = {"testpaths": abs_test_dir}
+            if "tool:pytest" not in cp:
+                cp["tool:pytest"] = {}
+            cp["tool:pytest"]["testpaths"] = abs_test_dir
             with open(Path(workdir) / "setup.cfg", "w", encoding="utf-8") as f:
-                new_cp.write(f)
+                cp.write(f)
         return
 
     # Project HAS a setup.cfg: promote [tool:pytest] testpaths to absolute
