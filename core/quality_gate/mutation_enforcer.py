@@ -19,6 +19,7 @@ the project root, it will leave mutated source in place and break the
 next precheck. See ``_apply_mutmut_to_workdir`` for the safe pattern.
 """
 import configparser
+import os  # Bug #43: used by _copy_setup_cfg_to_workdir to detect abs testpaths
 import json
 import re
 import shutil
@@ -224,6 +225,21 @@ def _copy_setup_cfg_to_workdir(project: Path, workdir: str, abs_test_dir: str = 
     # lines can hide mutants the framework expects to be tested).
     mut.pop("backup", None)
     mut.pop("disable", None)
+
+    # Bug #43 fix: pytest 8.x resolves [tool:pytest] testpaths relative to
+    # `--rootdir` if given, otherwise to cwd. mutmut's baseline_time
+    # pipeline runs the [mutmut] runner with --rootdir=<project>, so a
+    # relative testpaths value (e.g. "03-development/tests") would resolve
+    # correctly — BUT in pytest 8.x auto-detection sometimes prefers the
+    # cwd even when --rootdir is passed, and the workdir has no test
+    # files, so discovery returns 0 tests. Promote testpaths to an
+    # absolute path so the resolution is unambiguous regardless of
+    # pytest's internal rootdir resolution.
+    if "tool:pytest" in cp and "testpaths" in cp["tool:pytest"]:
+        rel = cp["tool:pytest"]["testpaths"].strip()
+        if rel and not os.path.isabs(rel):
+            abs_tp = str((project / rel).resolve())
+            cp["tool:pytest"]["testpaths"] = abs_tp
 
     with open(Path(workdir) / "setup.cfg", "w", encoding="utf-8") as f:
         cp.write(f)

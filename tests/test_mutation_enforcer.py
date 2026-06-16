@@ -250,6 +250,63 @@ def test_copy_setup_cfg_strips_disable(tmp_path):
     assert "disable" not in cp["mutmut"]
 
 
+def test_copy_setup_cfg_promotes_pytest_testpaths_to_absolute(tmp_path):
+    """Bug #43: relative [tool:pytest] testpaths gets promoted to absolute
+    so pytest 8.x discovers tests regardless of internal --rootdir resolution.
+    """
+    project = tmp_path / "proj"
+    project.mkdir()
+    tests = project / "03-development" / "tests"
+    tests.mkdir(parents=True)
+    (tests / "test_x.py").write_text("def test_x(): assert True\n", encoding="utf-8")
+    src_cfg = project / "setup.cfg"
+    src_cfg.write_text(
+        "[tool:pytest]\ntestpaths = 03-development/tests\n",
+        encoding="utf-8",
+    )
+    workdir = project / "workdir"
+    workdir.mkdir()
+    _copy_setup_cfg_to_workdir(project, str(workdir), str(tests))
+    cp = configparser.ConfigParser()
+    cp.read(str(workdir / "setup.cfg"), encoding="utf-8")
+    assert cp["tool:pytest"]["testpaths"] == str(tests.resolve())
+
+
+def test_copy_setup_cfg_leaves_absolute_pytest_testpaths_alone(tmp_path):
+    """Bug #43: an already-absolute testpaths is left untouched (no double-resolve)."""
+    project = tmp_path / "proj"
+    project.mkdir()
+    src_cfg = project / "setup.cfg"
+    src_cfg.write_text(
+        "[tool:pytest]\ntestpaths = /abs/path/to/tests\n",
+        encoding="utf-8",
+    )
+    workdir = project / "workdir"
+    workdir.mkdir()
+    _copy_setup_cfg_to_workdir(project, str(workdir), "/abs/path/to/tests")
+    cp = configparser.ConfigParser()
+    cp.read(str(workdir / "setup.cfg"), encoding="utf-8")
+    assert cp["tool:pytest"]["testpaths"] == "/abs/path/to/tests"
+
+
+def test_copy_setup_cfg_no_pytest_section_is_noop(tmp_path):
+    """Bug #43: project setup.cfg without [tool:pytest] does not crash; mutmut section rewrite still happens."""
+    project = tmp_path / "proj"
+    project.mkdir()
+    src_cfg = project / "setup.cfg"
+    src_cfg.write_text(
+        "[mutmut]\npaths_to_mutate = src/\n",
+        encoding="utf-8",
+    )
+    workdir = project / "workdir"
+    workdir.mkdir()
+    _copy_setup_cfg_to_workdir(project, str(workdir), "/abs/tests")
+    cp = configparser.ConfigParser()
+    cp.read(str(workdir / "setup.cfg"), encoding="utf-8")
+    assert "tool:pytest" not in cp
+    assert cp["mutmut"]["tests_dir"] == "/abs/tests"
+
+
 def test_copy_setup_cfg_adds_mutmut_section_if_missing(tmp_path):
     """Project has no [mutmut] section → function injects one with all required keys."""
     src_cfg = tmp_path / "setup.cfg"
