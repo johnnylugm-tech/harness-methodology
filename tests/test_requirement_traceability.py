@@ -157,6 +157,38 @@ def test_load_state_raises_on_missing_file(tmp_path):
         RequirementTraceability.load_state(str(tmp_path / "does_not_exist.json"))
 
 
+def test_load_state_rejects_wrong_format(tmp_path):
+    """Finding #1: load_state() must raise ValueError when given a save()
+    report file (missing _format key) instead of a save_state() file.
+    Without this guard, a wrong-format file silently loads as empty
+    collections and verify_completeness() returns 0% coverage."""
+    import json
+    import pytest
+    p = tmp_path / "report.json"
+    p.write_text(json.dumps({"project_id": "x", "completeness": {}}), encoding="utf-8")
+    with pytest.raises(ValueError, match="requirement_traceability.state.v1"):
+        RequirementTraceability.load_state(str(p))
+
+
+def test_save_state_is_atomic(tmp_path, monkeypatch):
+    """Finding #2: save_state() must route through atomic_write_json so a
+    mid-write crash cannot leave a truncated state file."""
+    from core import requirement_traceability as rt_mod
+    from core import atomic_io
+    captured: list = []
+    real_awj = atomic_io.atomic_write_json
+    def spy(*args, **kwargs):
+        captured.append(args[0])
+        return real_awj(*args, **kwargs)
+    monkeypatch.setattr(rt_mod, "atomic_write_json", spy)
+    rt = RequirementTraceability(project_id="atomic-test")
+    rt.add_requirement("FR-001", "T")
+    p = tmp_path / "state.json"
+    rt.save_state(str(p))
+    assert len(captured) == 1
+    assert captured[0] == p
+    assert p.exists()
+
 
 def test_verify_completeness_with_mixed_links():
     rt = RequirementTraceability(project_id="p")

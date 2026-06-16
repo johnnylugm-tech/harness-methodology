@@ -13,8 +13,11 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional, Any
 from datetime import datetime
+from pathlib import Path
 import json
 import uuid
+
+from core.atomic_io import atomic_write_json
 
 
 class TraceStatus(Enum):
@@ -315,10 +318,11 @@ class RequirementTraceability:
         ``load_state()`` can fully reconstruct an equivalent
         ``RequirementTraceability``. The state format is versioned via
         the ``_format`` key.
+
+        Uses atomic_write_json (tempfile + os.replace) so a mid-write
+        crash cannot leave a truncated state file (Bug #104 pattern).
         """
-        state = self.to_state_dict()
-        with open(filepath, "w", encoding="utf-8") as f:
-            json.dump(state, f, indent=2, ensure_ascii=False)
+        atomic_write_json(Path(filepath), self.to_state_dict())
 
     def to_state_dict(self) -> dict:
         """Serialize full state (raw data + links) for round-trip save/load."""
@@ -344,6 +348,12 @@ class RequirementTraceability:
         """
         with open(filepath, "r", encoding="utf-8") as f:
             state = json.load(f)
+        fmt = state.get("_format")
+        if fmt != "requirement_traceability.state.v1":
+            raise ValueError(
+                f"Expected state file (format 'requirement_traceability.state.v1'), "
+                f"got {fmt!r}. Pass a file written by save_state(), not save()."
+            )
         rt = cls(project_id=state.get("project_id", ""))
         for d in state.get("requirements", {}).values():
             req = Requirement.from_dict(d)
