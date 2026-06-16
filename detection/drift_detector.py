@@ -482,6 +482,15 @@ class DriftDetector:
                 continue
             if rel.startswith("archive/"):
                 continue
+            # Exempt auto-generated / standard wrapper files (v2.11 extension):
+            # - __init__.py / __main__.py are package init / entry-point markers,
+            #   not application modules tracked in SAB layers.
+            # - Root-level wrapper files (e.g. harness_cli.py) are emitted by
+            #   init-project and never belong to a project layer.
+            if rel.endswith("__init__.py") or rel.endswith("__main__.py"):
+                continue
+            if "/" not in rel:
+                continue
             # Normalize 03-development/ prefix so files at 03-development/src/X.py
             # match SAB entries declared as src/X.py. Also normalize dotted form
             # (src.X.py → src/X.py) to match dotted-module SAB entries (Bug #31 fix).

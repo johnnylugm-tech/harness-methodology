@@ -133,7 +133,12 @@ class TestSabDriftDetection:
         assert any("missing_one.py" in i.description for i in result.drift_items)
 
     def test_detect_sab_drift_unregistered_file(self, tmp_path):
-        """New Python file not in any SAB layer is flagged."""
+        """New Python file not in any SAB layer is flagged.
+
+        Note: v2.11 exempts auto-generated / standard wrapper files at project
+        root (harness_cli.py, __init__.py, __main__.py). Unregistered detection
+        therefore targets files inside actual project subdirectories.
+        """
         method_dir = tmp_path / ".methodology"
         method_dir.mkdir()
         sab_json = {
@@ -146,7 +151,10 @@ class TestSabDriftDetection:
             __import__("json").dumps(sab_json)
         )
         (tmp_path / "known.py").write_text("# known")
-        (tmp_path / "unregistered.py").write_text("# unknown")
+        # Put unregistered file in a subdirectory so root-level exemption doesn't apply
+        sub = tmp_path / "pkg"
+        sub.mkdir()
+        (sub / "unregistered.py").write_text("# unknown")
 
         detector = DriftDetector(str(tmp_path))
         result = detector.detect_sab_drift()
