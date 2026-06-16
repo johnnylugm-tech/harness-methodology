@@ -331,9 +331,8 @@ class TestHandoffDispatch:
             errs = _validate_handoff(tmp_path, from_phase=n)
             assert any(f"from-phase={n}" in e for e in errs)
 
-    def test_supported_from_phases_6_7_pass_with_artifacts(self, tmp_path: Path):
-        """from-phase=6 and 7 should now be in the validator map (Bug #115)."""
-        # P6→P7 with all artifacts
+    def test_from_phase_6_passes_with_all_artifacts(self, tmp_path: Path):
+        """Bug #115: from-phase=6 is now in the validator map."""
         (tmp_path / "06-quality").mkdir(parents=True, exist_ok=True)
         for name in ("QUALITY_REPORT.md", "RELEASE_NOTES.md", "FINAL_SIGN_OFF.md"):
             (tmp_path / "06-quality" / name).write_text(f"# {name}\n", encoding="utf-8")
@@ -342,7 +341,9 @@ class TestHandoffDispatch:
             json.dumps({"verdict": "PASS"}), encoding="utf-8"
         )
         assert _validate_handoff(tmp_path, from_phase=6) == []
-        # P7→P8 with all artifacts
+
+    def test_from_phase_7_passes_with_all_artifacts(self, tmp_path: Path):
+        """Bug #115: from-phase=7 is now in the validator map."""
         (tmp_path / "07-risk").mkdir(parents=True, exist_ok=True)
         for name in ("RISK_REGISTER.md", "RISK_MITIGATION_PLANS.md", "RISK_STATUS_REPORT.md"):
             (tmp_path / "07-risk" / name).write_text(f"# {name}\n", encoding="utf-8")

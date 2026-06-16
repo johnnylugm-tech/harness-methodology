@@ -4371,3 +4371,25 @@ class TestPushMilestoneDryRun:
         )
         _make_git(args, tmp_path)
         assert captured["enabled"] is True
+
+    def test_dry_run_exits_0(self, tmp_path, monkeypatch, capsys):
+        """Finding #1: --dry-run must exit 0, not 1.
+
+        Pre-fix: dry-run printed the notice but fell through to git.commit_and_push_*()
+        which returned False (git disabled), causing `return 0 if ok else 1` → exit 1.
+        Post-fix: return 0 immediately after the notice.
+        """
+        from harness_cli import cmd_push_milestone
+        class FakeGit:
+            def __init__(self, project, enabled): pass
+            def ensure_gitignore(self): pass
+            def commit_and_push_p3_mid(self, *a, **kw): return False
+        monkeypatch.setattr("harness.git_strategy.GitStrategy", FakeGit)
+        args = argparse.Namespace(
+            project=str(tmp_path), type="p3-mid", fr_ids="FR-01",
+            fr_done=3, fr_total=6, no_git=False, dry_run=True,
+        )
+        result = cmd_push_milestone(args)
+        assert result == 0, "dry-run must exit 0 (Finding #1)"
+        captured = capsys.readouterr()
+        assert "[dry-run]" in captured.out

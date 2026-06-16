@@ -3985,6 +3985,7 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
     if getattr(args, "dry_run", False):
         print(f"[dry-run] push-milestone --type {args.type} would: write HANDOVER.md + "
               f"commit + push to origin (no changes made; Bug #112 safety flag)")
+        return 0
     milestone_type = args.type
     fr_ids = [f.strip() for f in args.fr_ids.split(",") if f.strip()]
 
@@ -7309,6 +7310,7 @@ def cmd_run_tool(args: argparse.Namespace) -> int:
 
 
 def cmd_reload_policy(args: argparse.Namespace) -> int:
+    """Hot-reload enforcement policies from enforcement.json."""
     from enforcement.policy_engine import PolicyEngine
 
     json_path = args.policy_file
