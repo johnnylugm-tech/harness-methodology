@@ -258,6 +258,31 @@ def _copy_setup_cfg_to_workdir(project: Path, workdir: str, abs_test_dir: str = 
             abs_tp = str((project / rel).resolve())
             cp["tool:pytest"]["testpaths"] = abs_tp
 
+    # Bug #106 fix: promote [tool:pytest] pythonpath to absolute. pytest reads
+    # `pythonpath` as a cwd-relative path during early startup and inserts it
+    # into sys.path BEFORE site module's PYTHONPATH env handling. A relative
+    # `pythonpath = src` in the workdir resolves to `<workdir>/src` (which
+    # doesn't exist) and silently breaks imports of the project's own
+    # package — observed as `ModuleNotFoundError: No module named 'taskq'`
+    # on integration-test. Rewrite to absolute so workdir pytest discovery
+    # works the same as project-root pytest discovery.
+    if cp.has_section("tool:pytest") and cp.has_option("tool:pytest", "pythonpath"):
+        rel = cp["tool:pytest"]["pythonpath"].strip()
+        if rel and not os.path.isabs(rel):
+            abs_pp = (project / rel).resolve()
+            if abs_pp.exists():
+                cp["tool:pytest"]["pythonpath"] = str(abs_pp)
+            else:
+                # If the relative pythonpath doesn't resolve to a real
+                # directory, leave the original (preserves existing
+                # behavior for misconfigured projects — they'll get the
+                # same ModuleNotFoundError they had before, not a silent
+                # change to a different broken state).
+                print(f"[WARN] setup.cfg [tool:pytest] pythonpath={rel!r} "
+                      f"resolves to {abs_pp} which does not exist; "
+                      f"leaving unchanged.",
+                      file=sys.stderr)
+
     with open(Path(workdir) / "setup.cfg", "w", encoding="utf-8") as f:
         cp.write(f)
 

@@ -382,6 +382,77 @@ def test_copy_setup_cfg_leaves_absolute_pytest_testpaths_alone(tmp_path):
     assert cp["tool:pytest"]["testpaths"] == "/abs/path/to/tests"
 
 
+def test_copy_setup_cfg_promotes_pythonpath_to_absolute_bug_106(tmp_path):
+    """Bug #106: relative [tool:pytest] pythonpath is promoted to absolute.
+
+    pytest reads `pythonpath` from setup.cfg during early startup and inserts
+    it into sys.path. A relative value (e.g. `pythonpath = src`) in the
+    workdir mutmut creates resolves to `<workdir>/src` which doesn't exist,
+    silently breaking imports of the project's own package — observed as
+    `ModuleNotFoundError: No module named 'taskq'` on integration-test.
+    """
+    project = tmp_path / "proj"
+    project.mkdir()
+    src_dir = project / "03-development" / "src"
+    src_dir.mkdir(parents=True)
+    (src_dir / "taskq").mkdir()
+    (src_dir / "taskq" / "__init__.py").write_text("", encoding="utf-8")
+    src_cfg = project / "setup.cfg"
+    src_cfg.write_text(
+        "[tool:pytest]\npythonpath = 03-development/src\n",
+        encoding="utf-8",
+    )
+    workdir = project / "workdir"
+    workdir.mkdir()
+    _copy_setup_cfg_to_workdir(project, str(workdir), str(project / "tests"))
+    cp = configparser.ConfigParser()
+    cp.read(str(workdir / "setup.cfg"), encoding="utf-8")
+    assert cp["tool:pytest"]["pythonpath"] == str(src_dir.resolve())
+
+
+def test_copy_setup_cfg_leaves_absolute_pythonpath_alone_bug_106(tmp_path):
+    """Bug #106: already-absolute [tool:pytest] pythonpath is untouched (no double-resolve)."""
+    project = tmp_path / "proj"
+    project.mkdir()
+    src_cfg = project / "setup.cfg"
+    src_cfg.write_text(
+        "[tool:pytest]\npythonpath = /abs/path/to/src\n",
+        encoding="utf-8",
+    )
+    workdir = project / "workdir"
+    workdir.mkdir()
+    _copy_setup_cfg_to_workdir(project, str(workdir), "/abs/tests")
+    cp = configparser.ConfigParser()
+    cp.read(str(workdir / "setup.cfg"), encoding="utf-8")
+    assert cp["tool:pytest"]["pythonpath"] == "/abs/path/to/src"
+
+
+def test_copy_setup_cfg_warns_on_nonexistent_pythonpath_bug_106(tmp_path, capsys):
+    """Bug #106: relative pythonpath that doesn't resolve → log warning, leave original.
+
+    Preserves existing misconfigured-project behavior (ModuleNotFoundError)
+    rather than silently changing to a different broken state.
+    """
+    project = tmp_path / "proj"
+    project.mkdir()
+    src_cfg = project / "setup.cfg"
+    src_cfg.write_text(
+        "[tool:pytest]\npythonpath = does/not/exist\n",
+        encoding="utf-8",
+    )
+    workdir = project / "workdir"
+    workdir.mkdir()
+    _copy_setup_cfg_to_workdir(project, str(workdir), "/abs/tests")
+    cp = configparser.ConfigParser()
+    cp.read(str(workdir / "setup.cfg"), encoding="utf-8")
+    # Value unchanged
+    assert cp["tool:pytest"]["pythonpath"] == "does/not/exist"
+    # Warning emitted
+    captured = capsys.readouterr()
+    assert "pythonpath" in captured.err
+    assert "does/not/exist" in captured.err
+
+
 def test_copy_setup_cfg_no_pytest_section_is_noop(tmp_path):
     """Bug #43: project setup.cfg without [tool:pytest] does not crash; mutmut section rewrite still happens."""
     project = tmp_path / "proj"
