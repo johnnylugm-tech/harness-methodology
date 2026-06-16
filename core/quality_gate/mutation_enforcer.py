@@ -182,6 +182,34 @@ _WELL_KNOWN_RUNNERS = frozenset({
 })
 
 
+def _find_source_setup_cfg(project: Path) -> Optional[Path]:
+    """Locate the project's ``setup.cfg``, considering nested layouts.
+
+    Bug #106 fix: for the recommended nested layout (e.g.
+    ``03-development/setup.cfg`` carrying the project's actual pytest
+    config), the source setup.cfg is NOT at project root. Searching
+    project root alone would skip the file entirely, falling into the
+    "no setup.cfg" branch that generates a minimal config with only
+    ``testpaths`` — silently dropping ``pythonpath``, ``addopts``, and
+    any other pytest config the project author wrote.
+
+    Search order:
+    1. ``<project>/setup.cfg`` (root-level — legacy / non-nested layout)
+    2. ``<project>/<phase3_development_dir>/setup.cfg`` (nested layout)
+       where ``phase3_development_dir`` comes from ``ProjectLayout``.
+
+    Returns the first match, or ``None`` if neither exists.
+    """
+    root_cfg = project / "setup.cfg"
+    if root_cfg.exists():
+        return root_cfg
+    layout = ProjectLayout(project)
+    nested_cfg = layout.phase3_development_dir / "setup.cfg"
+    if nested_cfg.exists():
+        return nested_cfg
+    return None
+
+
 def _copy_setup_cfg_to_workdir(project: Path, workdir: str, abs_test_dir: str = "") -> None:
     """Copy ``setup.cfg`` into *workdir* with [mutmut] section rewritten for
     temp-workdir context (Bug #41 fix).
@@ -195,7 +223,7 @@ def _copy_setup_cfg_to_workdir(project: Path, workdir: str, abs_test_dir: str = 
     well-known defaults (pytest/python-m-pytest/...). If the project uses
     a custom runner (e.g. `make test`), log a warning and leave it alone.
     """
-    setup_cfg = project / "setup.cfg"
+    setup_cfg = _find_source_setup_cfg(project) or (project / "setup.cfg")
     cp = configparser.ConfigParser()
     if setup_cfg.exists():
         cp.read(str(setup_cfg), encoding="utf-8")
@@ -252,11 +280,41 @@ def _copy_setup_cfg_to_workdir(project: Path, workdir: str, abs_test_dir: str = 
 
     # Project HAS a setup.cfg: promote [tool:pytest] testpaths to absolute
     # so the workdir's pytest discovery is unambiguous.
+    # Resolve relative paths against the setup.cfg's directory (Bug #106b),
+    # not project root — for nested layouts (03-development/) the source of
+    # truth is the nested setup.cfg, and its relative paths are relative
+    # to its own directory, not the project root.
+    cfg_dir = setup_cfg.parent
     if cp.has_section("tool:pytest") and cp.has_option("tool:pytest", "testpaths"):
         rel = cp["tool:pytest"]["testpaths"].strip()
         if rel and not os.path.isabs(rel):
-            abs_tp = str((project / rel).resolve())
+            abs_tp = str((cfg_dir / rel).resolve())
             cp["tool:pytest"]["testpaths"] = abs_tp
+
+    # Bug #106 fix: promote [tool:pytest] pythonpath to absolute. pytest reads
+    # `pythonpath` as a cwd-relative path during early startup and inserts it
+    # into sys.path BEFORE site module's PYTHONPATH env handling. A relative
+    # `pythonpath = src` in the workdir resolves to `<workdir>/src` (which
+    # doesn't exist) and silently breaks imports of the project's own
+    # package — observed as `ModuleNotFoundError: No module named 'taskq'`
+    # on integration-test. Rewrite to absolute so workdir pytest discovery
+    # works the same as project-root pytest discovery.
+    if cp.has_section("tool:pytest") and cp.has_option("tool:pytest", "pythonpath"):
+        rel = cp["tool:pytest"]["pythonpath"].strip()
+        if rel and not os.path.isabs(rel):
+            abs_pp = (cfg_dir / rel).resolve()
+            if abs_pp.exists():
+                cp["tool:pytest"]["pythonpath"] = str(abs_pp)
+            else:
+                # If the relative pythonpath doesn't resolve to a real
+                # directory, leave the original (preserves existing
+                # behavior for misconfigured projects — they'll get the
+                # same ModuleNotFoundError they had before, not a silent
+                # change to a different broken state).
+                print(f"[WARN] setup.cfg [tool:pytest] pythonpath={rel!r} "
+                      f"resolves to {abs_pp} which does not exist; "
+                      f"leaving unchanged.",
+                      file=sys.stderr)
 
     with open(Path(workdir) / "setup.cfg", "w", encoding="utf-8") as f:
         cp.write(f)
@@ -347,6 +405,49 @@ def _parse_mutmut_survivors(results_output: str) -> list:
                     "mutant_id": mid, "mutator": None,
                 })
     return survivors
+
+
+def _count_mutmut_results(cache_path: Path) -> tuple[int, int]:
+    """Count killed vs survived mutants from the mutmut 2.x sqlite cache.
+
+    Bug #108: the previous implementation parsed `mutmut results` stdout
+    for emoji counts (🎉/🙁/⏰/🤔), but mutmut 2.x only prints 🙁 for
+    survivors in that output — killed mutants never appear. The
+    authoritative data is in the cache's ``Mutant`` table, where each
+    row carries a ``status`` value.
+
+    Status mapping (mutmut 2.x sqlite schema):
+      - ok_killed     → counts as killed
+      - bad_survived  → counts as survived
+      - timeout       → counts as survived (per evaluate_dimension.md:
+                       tests took too long, mutant may have escaped)
+      - suspicious    → counts as survived
+      - pending, checking, no_tests, skipped, check_failed → ignored
+                       (test infrastructure issue, not a mutant verdict)
+
+    Returns (killed, survived). Returns (0, 0) if the cache is missing
+    or unreadable — caller should treat that as "no score available".
+    """
+    import sqlite3
+    if not cache_path.exists():
+        return 0, 0
+    try:
+        db = sqlite3.connect(str(cache_path))
+        cur = db.cursor()
+        # ok_killed is the only "killed" verdict in mutmut 2.x.
+        cur.execute("SELECT count(*) FROM Mutant WHERE status = 'ok_killed'")
+        killed = cur.fetchone()[0]
+        # Anything not "killed" and not a pending/infra-failure row
+        # counts as a survivor from the framework's perspective.
+        cur.execute(
+            "SELECT count(*) FROM Mutant "
+            "WHERE status IN ('bad_survived', 'timeout', 'suspicious')"
+        )
+        survived = cur.fetchone()[0]
+        db.close()
+        return killed, survived
+    except Exception:
+        return 0, 0
 
 
 def run_stryker_precheck(project: Path) -> tuple[bool, str]:
@@ -594,3 +695,170 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
                 pass
 
         shutil.rmtree(workdir, ignore_errors=True)
+
+
+def compute_mutation_score(project: Path) -> tuple[bool, float, str]:
+    """Run mutmut in a temp workdir and PUBLISH the result cache to project root.
+
+    Bug #105: the previous design only validated pass/fail (run_mutation_precheck)
+    and stashed the project-root .mutmut-cache away. But finalize-gate's
+    mutation_testing dimension is evaluated by an LLM sub-agent that parses
+    `mutmut results` from the project-root cache. Without a published cache,
+    the agent runs `mutmut run` directly from project root, where Bug #91's
+    runner rewrite (workdir-only) does not apply — the project setup.cfg has
+    no [mutmut] section, mutmut 2.x falls back to `runner = python`, and on
+    macOS Homebrew Python 3.11+ (no `python` symlink) it crashes with
+    FileNotFoundError, leaving an empty cache and a score of 0.
+
+    This function is the publish side of the protocol: it runs mutmut in a
+    workdir with the same isolation/setup.cfg-rewrite machinery as
+    run_mutation_precheck, but on success PROMOTES the workdir cache to
+    project root so downstream consumers (LLM agent) can read it. The
+    score is also returned directly so callers that want to skip the
+    parse step can use the float.
+
+    Returns:
+        (success, score, message)
+        - success: True iff mutmut ran AND produced parseable output
+        - score:   0.0–100.0 (killed / (killed + survived) × 100)
+                   ⏰ (timeout) and 🤔 (suspicious) count as survived.
+                   If success is False, score is 0.0.
+        - message: human-readable status (also written to gate prompt)
+    """
+    from core.utils.lang_patterns import project_language
+    if project_language(project) in ("javascript", "typescript"):
+        return _compute_stryker_score(project)
+
+    if not shutil.which("mutmut"):
+        return False, 0.0, (
+            "mutmut not installed. Required for mutation_testing dimension. "
+            "Install: pip install 'mutmut<3'"
+        )
+
+    cwd, paths_to_mutate = _resolve_mutmut_workdir(project)
+    src_dir = cwd / paths_to_mutate
+    if not src_dir.exists():
+        return True, 0.0, (
+            f"Source directory {src_dir} does not exist; "
+            "skipping mutation testing (no code to mutate)."
+        )
+
+    if _is_editable_install(project):
+        return False, 0.0, (
+            "Project is installed in editable mode (pip install -e). "
+            "This prevents mutmut from testing mutations."
+        )
+
+    declared_excludes = _read_paths_to_exclude(cwd)
+    auto_excludes = _detect_data_only_files(src_dir)
+    auto_excludes = [e for e in auto_excludes if e not in frozenset(declared_excludes)]
+    abs_mutate = _abs_paths_to_mutate(cwd, paths_to_mutate)
+
+    workdir = tempfile.mkdtemp(prefix="_mutmut_score.", dir="/tmp")
+    cache_file = project / ".mutmut-cache"
+    workdir_cache = Path(workdir) / ".mutmut-cache"
+
+    try:
+        test_dir = _resolve_test_dir(cwd, project)
+        if test_dir is None:
+            return False, 0.0, (
+                "No test directory found. Mutation testing is meaningless "
+                "without tests — cannot proceed."
+            )
+
+        # Bug #41 + #91: rewrite setup.cfg for workdir context (mutmut 2.x
+        # hardcodes `python`; modern macOS lacks that symlink).
+        _copy_setup_cfg_to_workdir(project, workdir, test_dir)
+
+        cmd = [
+            "mutmut", "run",
+            f"--paths-to-mutate={abs_mutate}",
+            "-b", "10",
+        ]
+        cmd.append(f"--tests-dir={test_dir}")
+        all_excludes = declared_excludes + auto_excludes
+        if all_excludes:
+            cmd.append(_paths_to_exclude_flag(all_excludes))
+
+        r = subprocess.run(
+            cmd, cwd=workdir, capture_output=True, text=True,
+            timeout=3600,
+        )
+        # mutmut 2.x exit codes:
+        #   0 = all mutants killed (rare; full pass)
+        #   1 = baseline test failed (no mutants tested) — real failure
+        #   2 = some mutants had test exceptions / timeouts — partial
+        #       success, cache is still valid, score is meaningful.
+        # We treat 0 and 2 as "ran successfully" so the actual score is
+        # reported; only 1 (and other unexpected codes) abort.
+        if r.returncode not in (0, 2):
+            return False, 0.0, (
+                f"mutmut run failed (return code {r.returncode}).\n"
+                f"STDOUT:\n{r.stdout.strip()[-2000:]}\n"
+                f"STDERR:\n{r.stderr.strip()[-2000:]}"
+            )
+
+        res = subprocess.run(
+            ["mutmut", "results"], cwd=workdir, capture_output=True, text=True,
+            timeout=30,
+        )
+        out = res.stdout.strip()
+        _write_survivors_artifact(
+            project, "mutmut", _parse_mutmut_survivors(out), raw=out
+        )
+
+        # Score from the sqlite cache (mutmut 2.x). Bug #108: parsing
+        # `mutmut results` stdout for emoji counts is broken — that command
+        # only prints 🙁 for survived mutants, never 🎉 for killed ones.
+        # The authoritative source is the `Mutant` table in the cache db.
+        killed, survived = _count_mutmut_results(workdir_cache)
+        total = killed + survived
+        if total == 0:
+            score = 0.0
+            msg = "mutmut produced 0 mutants. Score = 0."
+        else:
+            score = round(100.0 * killed / total, 1)
+            msg = f"killed={killed} survived={survived} score={score}"
+
+        # Bug #105: PUBLISH the workdir cache to project root. The LLM agent
+        # evaluating mutation_testing reads `mutmut results` from this path.
+        # On failure we leave the project-root cache untouched so callers
+        # can distinguish "we ran mutmut and it crashed" from "we have
+        # valid prior results".
+        if workdir_cache.exists():
+            shutil.copy2(workdir_cache, cache_file)
+        return True, score, msg
+
+    except subprocess.TimeoutExpired:
+        return False, 0.0, (
+            "mutmut timed out after 60 minutes. Consider excluding "
+            "data-only files via paths_to_exclude in setup.cfg."
+        )
+    except Exception as e:
+        return False, 0.0, f"Error running mutmut: {e}"
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+def _compute_stryker_score(project: Path) -> tuple[bool, float, str]:
+    """JS/TS variant of compute_mutation_score (StrykerJS)."""
+    import json
+    report_path = project / "reports" / "mutation" / "mutation.json"
+    if not report_path.exists():
+        return False, 0.0, (
+            f"Stryker report not found at {report_path}. "
+            "Run `npx stryker run` first."
+        )
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        return False, 0.0, f"Failed to read Stryker report: {e}"
+    mutants: list = []
+    for file_data in (report.get("files") or {}).values():
+        mutants.extend(file_data.get("mutants") or [])
+    killed = sum(1 for m in mutants if m.get("status") in ("Killed", "Timeout"))
+    total = len(mutants)
+    if total == 0:
+        return True, 0.0, "Stryker produced 0 mutants. Score = 0."
+    score = round(100.0 * killed / total, 1)
+    return True, score, f"killed={killed} total={total} score={score}"
