@@ -25,6 +25,7 @@ from typing import Optional, Dict, List, Any
 
 from kill_switch import KillSwitch
 from kill_switch.models import MonitorConfig
+from core.atomic_io import atomic_write_json  # Bug #104 fix
 
 
 class KillSwitchBlockedError(RuntimeError):
@@ -153,16 +154,19 @@ class PhaseHooks:
             if self.phase == 1:
                 from datetime import datetime, timezone
                 self.state_path.parent.mkdir(parents=True, exist_ok=True)
-                self.state_path.write_text(
-                    json.dumps({
-                        "state": "RUNNING",
-                        "current_phase": 1,
-                        "last_gate": None,
-                        "last_fr": None,
-                        "last_update": datetime.now(timezone.utc).isoformat(),
-                    }, indent=2),
-                    encoding="utf-8",
-                )
+                # Bug #104 fix: atomic_write_json (tempfile + os.replace) so
+                # a mid-write crash (Ctrl-C, OOM kill, disk-full) cannot
+                # leave state.json truncated. Without this, a crash during
+                # the bare `run-phase --phase 1` auto-init path would
+                # leave an empty state.json that every subsequent
+                # preflight then fails on (entire pipeline blocked).
+                atomic_write_json(self.state_path, {
+                    "state": "RUNNING",
+                    "current_phase": 1,
+                    "last_gate": None,
+                    "last_fr": None,
+                    "last_update": datetime.now(timezone.utc).isoformat(),
+                })
                 print("   Auto-initialized state.json (fresh P1 project)")
                 return {"passed": True, "state": "RUNNING", "message": "Auto-initialized for P1"}
             return {"passed": False, "state": "UNKNOWN", "message": "state.json not found"}
@@ -752,7 +756,12 @@ class PhaseHooks:
 
             report_path = self._layout.methodology_dir / "gap_report.json"
             report_path.parent.mkdir(parents=True, exist_ok=True)
-            report_path.write_text(json.dumps({
+            # Bug #104 fix: atomic write so a crash mid-write does not
+            # leave a truncated gap_report.json. The next preflight would
+            # otherwise refuse to load the corrupt JSON and surface a
+            # confusing parse error instead of the real gap analysis
+            # result.
+            atomic_write_json(report_path, {
                 "summary": {
                     "total": summary.total_gaps, "missing": summary.missing,
                     "incomplete": summary.incomplete, "orphaned": summary.orphaned,
@@ -762,7 +771,7 @@ class PhaseHooks:
                 "gaps": [{"type": g.gap_type, "severity": g.severity,
                           "reason": g.reason, "action": g.recommended_action}
                          for g in gaps],
-            }, indent=2))
+            })
             print(f"   Gap report → {report_path}  "
                   f"(total={summary.total_gaps}, critical={summary.critical})")
             return {"passed": True, "total_gaps": summary.total_gaps,
@@ -1067,7 +1076,13 @@ class PhaseHooks:
         if self.phase and self.phase > old_phase:
             state["current_phase"] = self.phase
             state["last_update"] = datetime.now().isoformat()
-            self.state_path.write_text(json.dumps(state, indent=2))
+            # Bug #104 fix: atomic write so the phase advance is durable
+            # even if the process is killed mid-write. A truncated
+            # state.json here would desync the recorded phase from the
+            # actual project state, and the next hook run would either
+            # skip preflight checks (state corrupted to FREEZE-by-mistake)
+            # or refuse to advance.
+            atomic_write_json(self.state_path, state)
             print(f"   Updated: {old_phase} -> {self.phase}")
             self._append_log(f"STATE_UPDATE: {old_phase} -> {self.phase}")
             return {"updated": True, "old_phase": old_phase, "new_phase": self.phase}

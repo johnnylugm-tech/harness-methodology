@@ -407,6 +407,105 @@ class TestPhaseHooks:
             result = h.preflight_constitution()
         assert result["passed"] is False
 
+    # ─── Bug #104 regression: state writes must be atomic ───────────────────
+    #
+    # Pre-fix: state.json / gap_report.json were written with direct
+    # Path.write_text(json.dumps(...)). A mid-write crash (Ctrl-C, OOM
+    # kill, disk-full) left a truncated file, breaking every subsequent
+    # preflight. Post-fix: phase_hooks.py uses atomic_write_json
+    # (tempfile + fsync + os.replace). The tests below pin:
+    #   1. The 3 write sites route through atomic_write_json.
+    #   2. A simulated os.replace crash does NOT leave a partial file
+    #      (fresh path) or does NOT corrupt the existing file (overwrite
+    #      path).
+
+    def test_p1_auto_init_uses_atomic_write(self, tmp_path):
+        """Bug #104: P1 auto-init state.json must go through atomic_write_json."""
+        from core import phase_hooks as ph_mod
+        h = self._hooks(tmp_path, phase=1)
+        real_awj = ph_mod.atomic_write_json
+        captured: list = []
+        def spy_awj(*args, **kwargs):
+            captured.append((args, kwargs))
+            return real_awj(*args, **kwargs)
+        with patch.object(ph_mod, "atomic_write_json", side_effect=spy_awj):
+            result = h.preflight_fsm_check()
+        # Must have called atomic_write_json with the expected payload.
+        assert len(captured) == 1, f"expected 1 call, got {len(captured)}"
+        # atomic_write_json(path, data, ...) — both positional in our calls.
+        path_arg, data_arg = captured[0][0]
+        assert path_arg == h.state_path
+        assert data_arg["state"] == "RUNNING"
+        assert data_arg["current_phase"] == 1
+        assert result["passed"] is True
+        # And the real file must exist (spy passed through to real_awj).
+        assert h.state_path.exists()
+
+    def test_p1_auto_init_real_write_survives_crash(self, tmp_path, monkeypatch):
+        """Bug #104: simulated os.replace crash must not leave a partial
+        state.json on the fresh P1 auto-init path."""
+        from core import atomic_io
+        # Simulate crash at the moment os.replace would be called inside
+        # atomic_write_text. Patching atomic_io.os.replace is the surgical
+        # way to inject a crash without depending on private module
+        # attributes.
+        def boom(*args, **kwargs):
+            del args, kwargs  # signature required for monkeypatch; unused
+            raise OSError("simulated mid-write crash (Bug #104 regression)")
+        monkeypatch.setattr(atomic_io.os, "replace", boom)
+        h = self._hooks(tmp_path, phase=1)
+        with pytest.raises(OSError, match="simulated mid-write crash"):
+            h.preflight_fsm_check()
+        # The fresh state.json must NOT exist (atomic guarantees: either
+        # the rename succeeded, or no file was created).
+        assert not h.state_path.exists(), (
+            "partial state.json left behind after simulated crash (Bug #104 not fixed)"
+        )
+
+    def test_phase_advance_uses_atomic_write(self, tmp_path):
+        """Bug #104: phase advance (state.json update) must use atomic_write_json."""
+        from core import phase_hooks as ph_mod
+        self._write_state(tmp_path, state="ACTIVE", current_phase=2)
+        h = self._hooks(tmp_path, phase=3)
+        real_awj = ph_mod.atomic_write_json
+        captured: list = []
+        def spy_awj(*args, **kwargs):
+            captured.append((args, kwargs))
+            return real_awj(*args, **kwargs)
+        with patch.object(ph_mod, "atomic_write_json", side_effect=spy_awj):
+            result = h.postflight_update_state()
+        assert result["updated"] is True
+        assert result["new_phase"] == 3
+        assert len(captured) == 1
+        path_arg, data_arg = captured[0][0]
+        assert path_arg == h.state_path
+        assert data_arg["current_phase"] == 3
+        # The new phase was written to disk by the real (spy-passed-through) call.
+        on_disk = json.loads(h.state_path.read_text())
+        assert on_disk["current_phase"] == 3
+
+    def test_phase_advance_survives_crash_with_original_intact(self, tmp_path, monkeypatch):
+        """Bug #104: a crash during the phase-advance atomic write must NOT
+        corrupt the existing state.json. The atomic-write contract is
+        that the previous file remains untouched if the rename fails."""
+        from core import atomic_io
+        original = {"state": "ACTIVE", "current_phase": 2, "last_gate": None,
+                    "last_fr": None, "last_update": "2026-06-17T00:00:00Z"}
+        h = self._hooks(tmp_path, phase=3)
+        h.state_path.parent.mkdir(parents=True, exist_ok=True)
+        h.state_path.write_text(json.dumps(original))
+        def boom(*args, **kwargs):
+            del args, kwargs  # signature required for monkeypatch; unused
+            raise OSError("simulated mid-write crash (Bug #104 regression)")
+        monkeypatch.setattr(atomic_io.os, "replace", boom)
+        with pytest.raises(OSError):
+            h.postflight_update_state()
+        # Original state.json must still be byte-equal to what we wrote.
+        surviving = json.loads(h.state_path.read_text())
+        assert surviving == original, (
+            f"original state.json was corrupted by partial write: {surviving!r}"
+        )
+
     def test_monitoring_before_dev_appends_event(self, tmp_path):
         h = self._hooks(tmp_path)
         h.monitoring_before_dev("FR-01")
