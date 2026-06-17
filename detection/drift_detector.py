@@ -23,6 +23,81 @@ from typing import Dict, List, Optional, Set
 
 
 # ---------------------------------------------------------------------------
+# SAB module path resolution (Bug #119 fix)
+# ---------------------------------------------------------------------------
+def read_package_dir(project_path: Path) -> Optional[str]:
+    """Read [options] package_dir from setup.cfg to detect src/-layout projects.
+
+    setup.cfg may declare ``package_dir =\n    =src`` to put the package
+    source under ``src/<pkg>/``. SAB modules written in non-prefixed form
+    (e.g. ``taskq.cli``) need to be matched against the actual file path
+    ``src/taskq/cli.py``. Returns the package source dir (e.g. ``"src"``)
+    or ``None`` if no src-layout is detected.
+
+    Promoted to module level (Bug #119) so PhaseHooks can call it without
+    instantiating a DriftDetector.
+    """
+    import configparser
+
+    for candidate in (project_path / "03-development" / "setup.cfg",
+                      project_path / "setup.cfg"):
+        if not candidate.exists():
+            continue
+        try:
+            cp = configparser.ConfigParser()
+            cp.read(str(candidate), encoding="utf-8")
+            if not cp.has_section("options"):
+                return None
+            if not cp.has_option("options", "package_dir"):
+                return None
+            raw = cp.get("options", "package_dir")
+            for line in raw.splitlines():
+                line = line.strip()
+                if line.startswith("="):
+                    val = line[1:].strip()
+                    return val or None
+        except Exception:  # pylint: disable=broad-exception-caught  # nosec B110
+            return None
+    return None
+
+
+def sab_module_to_path_variants(
+    mod: str, pkg_dir: Optional[str] = None
+) -> List[str]:
+    """Expand a SAB `modules` entry into filesystem path candidates.
+
+    A SAB module entry may be expressed in any of the following forms:
+      - dotted notation:  "taskq.cli", "src.taskq.config"
+      - slash / .py path: "taskq/cli.py", "src/taskq/config.py"
+      - project-relative: "03-development/src/taskq/cli.py"
+      - directory marker: "taskq/"  (caller skips via .endswith("/"))
+
+    Returns a list of candidate paths to try in order. Both
+    ``DriftDetector.detect_sab_drift`` and ``PhaseHooks._check_sab_constitution``
+    use this helper so the two checks agree on what counts as "on disk".
+    """
+    if mod.endswith("/"):
+        return [mod]
+
+    candidates: List[str] = [mod]
+
+    # If already a path (has "/" or ends with .py), return as-is.
+    if "/" in mod or mod.endswith(".py"):
+        return candidates
+
+    # Dotted → path with .py suffix.
+    dotted_path = mod.replace(".", "/") + ".py"
+    candidates.append(dotted_path)
+
+    # If a package dir is known (e.g. "src"), also try the prefixed form so
+    # that SAB "taskq.cli" matches src/taskq/cli.py in src/-layout projects.
+    if pkg_dir and not dotted_path.startswith(f"{pkg_dir}/"):
+        candidates.append(f"{pkg_dir}/{dotted_path}")
+
+    return candidates
+
+
+# ---------------------------------------------------------------------------
 # ASTDependencyScanner
 # ---------------------------------------------------------------------------
 
@@ -314,38 +389,9 @@ class DriftDetector:
         )
 
     def _read_package_dir(self) -> str | None:
-        """Read [options] package_dir from setup.cfg to detect src/-layout projects.
-
-        setup.cfg may declare ``package_dir =\n    =src`` to put the package
-        source under ``src/<pkg>/``. SAB modules written in non-prefixed form
-        (e.g. ``taskq.cli``) need to be matched against the actual file path
-        ``src/taskq/cli.py``. Returns the package source dir (e.g. ``"src"``)
-        or ``None`` if no src-layout is detected.
-        """
-        import configparser
-
-        for candidate in (self.project_path / "03-development" / "setup.cfg",
-                          self.project_path / "setup.cfg"):
-            if not candidate.exists():
-                continue
-            try:
-                cp = configparser.ConfigParser()
-                cp.read(str(candidate), encoding="utf-8")
-                if not cp.has_section("options"):
-                    return None
-                # package_dir may be multi-line continuation; the actual value
-                # is on a line starting with "=" (e.g. "    =src").
-                if not cp.has_option("options", "package_dir"):
-                    return None
-                raw = cp.get("options", "package_dir")
-                for line in raw.splitlines():
-                    line = line.strip()
-                    if line.startswith("="):
-                        val = line[1:].strip()
-                        return val or None
-            except Exception:  # pylint: disable=broad-exception-caught  # nosec B110
-                return None
-        return None
+        """Read package_dir from setup.cfg (delegates to module-level helper,
+        Bug #119)."""
+        return read_package_dir(self.project_path)
 
     def detect_sab_drift(self) -> DriftResult:
         """
@@ -426,23 +472,11 @@ class DriftDetector:
         # SAB `modules` entries use Python dotted notation (e.g. "src.taskq.config",
         # "taskq.config"); filesystem uses path notation with slashes. Convert
         # dotted → path before checking existence (Bug #30 fix).
-        def _sab_to_path(p: str) -> str:
-            """Convert dotted module name to filesystem path (.py)."""
-            if "/" in p or p.endswith(".py"):
-                return p  # already a path
-            return p.replace(".", "/") + ".py"
-
+        # Bug #119: use shared sab_module_to_path_variants() so this check
+        # agrees with PhaseHooks._check_sab_constitution.
         for rel_path, layer_name in sab_files.items():
             if not rel_path.endswith("/") and not re.match(r'^FR-\d+$', rel_path):
-                path_form = _sab_to_path(rel_path)
-                # Also try package_dir-prefixed path form for src/-layout projects
-                # (v2.11 fix: SAB "taskq.cli" should match src/taskq/cli.py)
-                path_variants = [path_form, rel_path]
-                if pkg_dir and "/" not in path_form and not path_form.startswith(pkg_dir + "/"):
-                    path_variants.append(f"{pkg_dir}/{path_form}")
-                if pkg_dir and "/" not in rel_path and not rel_path.endswith(".py") \
-                        and not rel_path.startswith(f"{pkg_dir}."):
-                    path_variants.append(f"{pkg_dir}/{rel_path.replace('.', '/')}.py")
+                path_variants = sab_module_to_path_variants(rel_path, pkg_dir)
                 exists = False
                 for candidate in path_variants:
                     if ((self.project_path / candidate).exists() or

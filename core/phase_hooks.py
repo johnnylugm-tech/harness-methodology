@@ -132,6 +132,20 @@ class PhaseHooks:
         self.monitoring_events: List[Dict] = []
         self.drift_threshold = drift_threshold
         self._kill_switch: Optional[KillSwitch] = None
+        self._pkg_dir_cache: Optional[str] = None  # Bug #119: cached setup.cfg package_dir
+
+    def _read_pkg_dir_for_sab(self) -> Optional[str]:
+        """Return the package source dir (e.g. 'src') for src/-layout projects.
+
+        Bug #119: SAB `modules` may be in dotted form ("taskq.cli") which needs
+        to be expanded against the actual filesystem layout. Reads setup.cfg
+        via the shared helper in detection.drift_detector so this matches
+        what DriftDetector.detect_sab_drift uses.
+        """
+        if self._pkg_dir_cache is None:
+            from detection.drift_detector import read_package_dir
+            self._pkg_dir_cache = read_package_dir(Path(self.project_path))
+        return self._pkg_dir_cache
         if enable_kill_switch:
             self._kill_switch = KillSwitch()
 
@@ -321,14 +335,24 @@ class PhaseHooks:
             # dirs not created yet). Structural violations (invalid deps) still fail.
             # P4+: enforce that all SAB-layer modules exist on disk.
             # Modules listed as FR IDs (FR-XX) are not file paths — skip file check.
+            # Bug #119: also expand dotted notation ("taskq.cli") into path
+            # candidates so this check agrees with DriftDetector.detect_sab_drift.
             if self.phase is not None and self.phase >= 4:
-                missing_modules = [
-                    m for m in modules
-                    if not m.endswith("/")
-                    and not re.match(r'^FR-\d+$', m)
-                    and not (self.project_path / m).exists()
-                    and not (self._layout.active_src_dir / m).exists()
-                ]
+                from detection.drift_detector import sab_module_to_path_variants
+                # Try to read pkg_dir the same way drift_detector does so that
+                # SAB "taskq.cli" matches src/taskq/cli.py in src/-layout projects.
+                pkg_dir = self._read_pkg_dir_for_sab()
+                missing_modules = []
+                for m in modules:
+                    if m.endswith("/") or re.match(r'^FR-\d+$', m):
+                        continue
+                    if any(
+                        (self.project_path / cand).exists()
+                        or (self._layout.active_src_dir / cand).exists()
+                        for cand in sab_module_to_path_variants(m, pkg_dir)
+                    ):
+                        continue
+                    missing_modules.append(m)
                 if missing_modules:
                     violations.append(
                         f"Layer {layer_name}: {len(missing_modules)} modules missing from codebase"
