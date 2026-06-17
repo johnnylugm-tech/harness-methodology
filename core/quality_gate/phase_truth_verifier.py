@@ -155,8 +155,11 @@ class PhaseTruthVerifier:
 
         try:
             timeout = self._get_pytest_timeout()
+            # Use sys.executable -m pytest so the venv's Python is used (avoids
+            # system PATH pytest pulling in macOS CommandLineTools Python 3.9
+            # when source uses 3.11+ syntax). Bug #117.
             result = subprocess.run(  # nosec B603 B607
-                ["pytest", test_target, "--tb=line", "-q", "--no-header"],
+                [sys.executable, "-m", "pytest", test_target, "--tb=line", "-q", "--no-header"],
                 cwd=self.project_root,
                 capture_output=True,
                 text=True,
@@ -281,8 +284,10 @@ class PhaseTruthVerifier:
             test_target = layout.get_relative_str(layout.active_test_dir)
             
         try:
+            # Use sys.executable -m pytest (Bug #117) so coverage is measured
+            # against the same Python interpreter that will run tests in CI.
             result = subprocess.run(  # nosec B603 B607
-                ["pytest", test_target, f"--cov={cov_source}", "--cov-report=term-missing", "--tb=no", "-q"],
+                [sys.executable, "-m", "pytest", test_target, f"--cov={cov_source}", "--cov-report=term-missing", "--tb=no", "-q"],
                 cwd=self.project_root,
                 capture_output=True,
                 text=True,
