@@ -3991,10 +3991,16 @@ def _validate_p3_post_gate2_precondition(
             errors.append(f"Could not parse gate2_result.json: {e}")
 
     # 2. Per-FR Gate 1 sentinel precondition
+    # Bug #120: _sentinel_path() (run-gate) writes the file as
+    #   g{gate}_{fr_id.replace('-', '').lower()}.flag    -> g1_fr01.flag
+    # This check must use the same naming so the two sides agree. Pre-fix
+    # the check used .lower() without stripping the hyphen, looking for
+    # g1_fr-01.flag and reporting a spurious missing sentinel after a
+    # successful Gate 1 finalize.
     sentinels_dir = project / ".sessi-work" / "sentinels"
     missing_sentinels: list[str] = []
     for fr_id in fr_ids:
-        sentinel = sentinels_dir / f"g1_{fr_id.lower()}.flag"
+        sentinel = _sentinel_path(project, 1, fr_id)
         if not sentinel.exists():
             missing_sentinels.append(fr_id)
     if missing_sentinels:
