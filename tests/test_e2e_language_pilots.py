@@ -102,10 +102,10 @@ class TestTsPilotTraceabilityAndSpecCoverage:
         from core.traceability.scanner import scan_all
         result = scan_all(ts_pilot)
         assert result["sad_frs"] == ["FR-01", "FR-02"]
-        assert "src/parser.ts" in result["fr_to_code"]["FR-01"]
-        assert "src/mapper.ts" in result["fr_to_code"]["FR-02"]
-        assert result["fr_to_tests"]["FR-01"] == ["tests/test_fr01_parse.test.ts"]
-        assert result["fr_to_modules"]["FR-01"] == ["src/parser.ts"]
+        assert "src/parser.ts" in result["fr_to_code"]["FR-01"]  # type: ignore[reportIndexIssue]
+        assert "src/mapper.ts" in result["fr_to_code"]["FR-02"]  # type: ignore[reportIndexIssue]
+        assert result["fr_to_tests"]["FR-01"] == ["tests/test_fr01_parse.test.ts"]  # type: ignore[reportIndexIssue]
+        assert result["fr_to_modules"]["FR-01"] == ["src/parser.ts"]  # type: ignore[reportIndexIssue]
         assert result["ghost_frs"] == []
 
     def test_spec_coverage_check_passes_at_100(self, ts_pilot):

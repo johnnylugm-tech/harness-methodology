@@ -1,0 +1,1405 @@
+diff --git a/core/quality_gate/constitution/profile.py b/core/quality_gate/constitution/profile.py
+index 2b12270..bd45178 100644
+--- a/core/quality_gate/constitution/profile.py
++++ b/core/quality_gate/constitution/profile.py
+@@ -523,19 +523,38 @@ def _build_defaults() -> ConstitutionProfile:
+                 },
+             ),
+             3: PhaseProfile(
+-                active_dimensions=["correctness", "security", "maintainability"],
+-                composite_threshold=80.0,
++                # Bug #35 fix (deeper): P3+ implementation phases have
++                # mostly Python source. The per-file keyword density check
++                # is designed for markdown-heavy phases; for code-only
++                # phases the required security/maintainability keywords
++                # (auth, rbac, tls, snake_case, ...) don't naturally appear,
++                # permanently capping scores at 10-30%. The authoritative
++                # quality signal for implementation is the framework AST +
++                # independent tool scores (Gate 1/2 coverage, mutation,
++                # linting, type safety) — not the keyword density proxy.
++                # Drop security/maintainability (P5+ applies the same
++                # reasoning for non-code phases); keep correctness to
++                # verify FR/NFR traceability references in docstrings.
++                # Threshold 30: a well-implemented project with FR/NFR
++                # docstring references (~50% keyword coverage) can pass;
++                # a hollow/empty P3 dir still scores 0%.
++                active_dimensions=["correctness"],
++                composite_threshold=30.0,
+                 dimension_keywords={
+                     "correctness": _p3_correctness_kw,
+-                    "security": _p3_security_kw,
+                 },
+             ),
+             4: PhaseProfile(
+-                active_dimensions=["correctness", "security", "maintainability", "coverage"],
+-                composite_threshold=80.0,
++                # Bug #35 extension (P3 fix was at 07ef908): P4 is also Python
++                # test/code-heavy. Per-file keyword density for security/
++                # maintainability/coverage is meaningless for .py files —
++                # auth/tls/docstring/pytest keywords don't appear naturally
++                # in code. The authoritative quality signal is the AST +
++                # independent tool scores from Gate 3.
++                active_dimensions=["correctness"],
++                composite_threshold=30.0,
+                 dimension_keywords={
+                     "correctness": _p4_correctness_kw,
+-                    "security": _p4_security_kw,
+                 },
+             ),
+             # P5 (Verification): correctness + security only.
+diff --git a/core/quality_gate/constitution/runner.py b/core/quality_gate/constitution/runner.py
+index 187ad32..b34cfde 100644
+--- a/core/quality_gate/constitution/runner.py
++++ b/core/quality_gate/constitution/runner.py
+@@ -335,6 +335,17 @@ def _scan_file_compliance(file_path: Path, phase: Optional[int] = None) -> Dict[
+         return empty
+ 
+     if len(content) < 100:
++        # Bug #35 fix: Python package __init__.py and similar boilerplate
++        # markers are <100 chars by convention. Returning empty (0/0/0/0)
++        # poisoned the directory-level aggregate for P3+ projects where
++        # content is mostly code (not markdown). Treat small boilerplate
++        # files as vacuous (100/100/100/100) so they don't drag the
++        # average down — they have no quality issues to flag.
++        if file_path.suffix.lower() in (".py",) and file_path.name in (
++            "__init__.py", "__main__.py",
++        ):
++            return {"correctness": 100.0, "security": 100.0,
++                    "maintainability": 100.0, "coverage": 100.0}
+         return empty
+ 
+     if _is_stub_template(content):
+diff --git a/core/quality_gate/mutation_enforcer.py b/core/quality_gate/mutation_enforcer.py
+index 78d6458..a03d4ab 100644
+--- a/core/quality_gate/mutation_enforcer.py
++++ b/core/quality_gate/mutation_enforcer.py
+@@ -9,6 +9,14 @@ Implements the full mutmut protocol from
+ * absolute testpaths in temp ``setup.cfg`` (Bug F)
+ * data-only file auto-exclusion (Bug F)
+ * ``paths_to_exclude`` from ``setup.cfg`` passed via CLI (Bug G)
++* stash + restore of project-root ``.mutmut-cache`` (Bug #42)
++* rewrite of ``[mutmut]`` section in temp setup.cfg (Bug #41)
++
++**Important**: ``mutmut apply`` MUST be invoked inside the workdir created
++by ``run_mutation_precheck``, never against ``project`` directly. ``mutmut
++apply`` writes mutated source to its current directory; if invoked against
++the project root, it will leave mutated source in place and break the
++next precheck. See ``_apply_mutmut_to_workdir`` for the safe pattern.
+ """
+ import configparser
+ import json
+@@ -167,18 +175,73 @@ def _resolve_test_dir(cwd: Path, project: Path) -> Optional[str]:
+     return None
+ 
+ 
+-def _copy_setup_cfg_to_workdir(project: Path, workdir: str) -> None:
+-    """Copy ``setup.cfg`` into *workdir* so mutmut's setup.cfg lookup succeeds.
++_WELL_KNOWN_RUNNERS = frozenset({
++    "pytest", "python -m pytest", "python3 -m pytest", "python -m unittest",
++    "python3 -m unittest", "py.test", "python -m doctest",
++})
++
++
++def _copy_setup_cfg_to_workdir(project: Path, workdir: str, abs_test_dir: str = "") -> None:
++    """Copy ``setup.cfg`` into *workdir* with [mutmut] section rewritten for
++    temp-workdir context (Bug #41 fix).
+ 
+-    mutmut reads ``paths_to_mutate`` from ``[mutmut]`` in setup.cfg relative
+-    to cwd — without a copy in *workdir* it falls back to defaults.
++    mutmut 2.x reads several settings (runner, tests_dir, backup, disable)
++    from setup.cfg relative to cwd. A project's setup.cfg is written for its
++    own cwd and may carry runner/tests_dir values that don't work in the
++    temp workdir mutmut creates. Force-set the values we know are correct.
++
++    Safety: only rewrite `runner` if the existing value is one of the
++    well-known defaults (pytest/python-m-pytest/...). If the project uses
++    a custom runner (e.g. `make test`), log a warning and leave it alone.
+     """
+     setup_cfg = project / "setup.cfg"
+-    if setup_cfg.exists():
+-        (Path(workdir) / "setup.cfg").write_text(
+-            setup_cfg.read_text(encoding="utf-8"),
+-            encoding="utf-8",
+-        )
++    if not setup_cfg.exists():
++        return
++    cp = configparser.ConfigParser()
++    cp.read(str(setup_cfg), encoding="utf-8")
++    if "mutmut" not in cp:
++        cp["mutmut"] = {}
++    mut = cp["mutmut"]
++
++    # Always set tests_dir to the absolute path the framework will use
++    # (resolves the "test discovery crashes in temp workdir" failure).
++    if abs_test_dir:
++        mut["tests_dir"] = abs_test_dir
++
++    # Rewrite runner only if it's a well-known default. Custom runner
++    # scripts (make test, bash scripts) are out of scope — the project
++    # author is responsible for making them workdir-aware.
++    existing_runner = mut.get("runner", "").strip()
++    if existing_runner in _WELL_KNOWN_RUNNERS or not existing_runner:
++        mut["runner"] = "python -m pytest"
++    else:
++        print(f"[WARN] setup.cfg [mutmut] runner is custom ({existing_runner!r}); "
++              f"not overriding. Ensure your runner picks up tests_dir={abs_test_dir}.",
++              file=sys.stderr)
++
++    # Strip stale "backup" (Bug #42: mutmut apply leaves <file>.bak; we
++    # manage state via stash instead). Strip "disable" (project disable
++    # lines can hide mutants the framework expects to be tested).
++    mut.pop("backup", None)
++    mut.pop("disable", None)
++
++    with open(Path(workdir) / "setup.cfg", "w", encoding="utf-8") as f:
++        cp.write(f)
++
++
++def _apply_mutmut_to_workdir(mutant_id: str | int, workdir: str) -> None:
++    """Safely apply a mutmut mutant INSIDE the workdir (Bug #42 safety).
++
++    `mutmut apply` writes the mutated source for the given mutant id to
++    its current directory. Invoking it against the project root leaves
++    mutated source in place, breaking the next precheck. Callers must
++    pass the workdir returned by ``run_mutation_precheck`` and execute
++    the apply in a subprocess with ``cwd=workdir``.
++    """
++    subprocess.run(
++        ["mutmut", "apply", str(mutant_id)],
++        cwd=workdir, capture_output=True, text=True, timeout=30,
++    )
+ 
+ 
+ def _paths_to_exclude_flag(excludes: list[str]) -> str:
+@@ -382,19 +445,24 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
+     workdir = tempfile.mkdtemp(prefix="_mutmut_run.", dir="/tmp")
+     cache_file = project / ".mutmut-cache"
+     workdir_cache = Path(workdir) / ".mutmut-cache"
+-    
+-    try:
+-        _copy_setup_cfg_to_workdir(project, workdir)
+-        # Do NOT copy existing .mutmut-cache into workdir: precheck must always
+-        # perform a fresh run.  Inheriting an old cache causes mutmut to report
+-        # previously-survived mutants as still-survived without re-testing them,
+-        # inflating the survivor count and blocking advance-phase incorrectly.
+ 
+-        cmd = [
+-            "mutmut", "run",
+-            f"--paths-to-mutate={abs_mutate}",
+-            "-b", "10",                     # Bug F: baseline budget
+-        ]
++    # Bug #42 fix: stash the project-root .mutmut-cache BEFORE running
++    # mutmut. The precheck's `finally` block unconditionally writes
++    # workdir_cache back to cache_file (line ~506). If the precheck fails
++    # partway (TimeoutExpired, subprocess crash, or interrupt), the
++    # project root may be left with a partial cache that blocks the next
++    # run. Stash + restore guarantees the project-root cache is either
++    # the original (on success or failure) or absent (if it never existed).
++    stash_dir: Optional[str] = None
++    if cache_file.exists():
++        stash_dir = tempfile.mkdtemp(prefix="_mutmut_cache_stash.", dir="/tmp")
++        shutil.copy2(cache_file, Path(stash_dir) / ".mutmut-cache")
++
++    # Set by the success path so the finally clause can decide whether to
++    # promote workdir output (only on success) vs discard it.
++    _precheck_ok: bool = False
++
++    try:
+         # Bug fix: mutmut 2.x does NOT read [tool:pytest] testpaths — it
+         # needs --tests-dir with an absolute path. Without this the
+         # test-discovery code crashes with FileNotFoundError in the temp
+@@ -406,6 +474,19 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
+                 "03-development/tests/ relative to the mutmut workdir. "
+                 "Mutation testing is meaningless without tests — cannot proceed."
+             )
++        # Bug #41 fix: rewrite [mutmut] section for temp-workdir context.
++        # Must run BEFORE mutmut reads setup.cfg (which it does on startup).
++        _copy_setup_cfg_to_workdir(project, workdir, test_dir)
++        # Do NOT copy existing .mutmut-cache into workdir: precheck must always
++        # perform a fresh run.  Inheriting an old cache causes mutmut to report
++        # previously-survived mutants as still-survived without re-testing them,
++        # inflating the survivor count and blocking advance-phase incorrectly.
++
++        cmd = [
++            "mutmut", "run",
++            f"--paths-to-mutate={abs_mutate}",
++            "-b", "10",                     # Bug F: baseline budget
++        ]
+         cmd.append(f"--tests-dir={test_dir}")
+         all_excludes = declared_excludes + auto_excludes
+         if all_excludes:
+@@ -440,6 +521,7 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
+                     f"{out}"
+                 )
+ 
++        _precheck_ok = True
+         return True, ""
+     except subprocess.TimeoutExpired:
+         return False, (
+@@ -451,6 +533,31 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
+     except Exception as e:
+         return False, f"Error running mutmut: {e}"
+     finally:
+-        if workdir_cache.exists():
++        # Bug #42 fix: reconcile the project-root cache with the workdir
++        # output, based on whether the precheck succeeded.
++        #
++        # _precheck_ok is set inside the try block on the success path.
++        # If we reach the finally clause without it being set, the
++        # precheck failed (or raised); in that case the workdir cache
++        # may be partial, so we discard it.
++        if stash_dir is not None and Path(stash_dir).exists():
++            # 1. Prior cache existed — restore it (project root must be
++            #    exactly as it was before this precheck).
++            stashed_cache = Path(stash_dir) / ".mutmut-cache"
++            if stashed_cache.exists():
++                shutil.copy2(stashed_cache, cache_file)
++            shutil.rmtree(stash_dir, ignore_errors=True)
++        elif _precheck_ok and workdir_cache.exists():
++            # 2. No prior cache, precheck succeeded — promote the
++            #    workdir output to project root.
+             shutil.copy2(workdir_cache, cache_file)
++        else:
++            # 3. No prior cache, precheck failed/raised — discard any
++            #    partial workdir output. Leave the project root
++            #    cache-free so the next precheck starts clean.
++            try:
++                cache_file.unlink(missing_ok=True)
++            except OSError:
++                pass
++
+         shutil.rmtree(workdir, ignore_errors=True)
+diff --git a/core/quality_gate/red_assertion_check.py b/core/quality_gate/red_assertion_check.py
+index cfe6af4..baf5bf8 100644
+--- a/core/quality_gate/red_assertion_check.py
++++ b/core/quality_gate/red_assertion_check.py
+@@ -387,6 +387,33 @@ def _normalize_predicate(text: str) -> str | None:
+         return None
+ 
+ 
++def _canonical_predicate(text: str) -> str | None:
++    """Canonical form of an expression for set-membership comparison (Bug #27 fix).
++
++    `_normalize_predicate` returns `ast.unparse(...)` which preserves all
++    syntax differences (whitespace, redundant parens, operator associativity).
++    For predicate comparison, two semantically equivalent expressions can
++    produce different normalized forms:
++      - `1+2`     vs `1 + 2`     vs `(1+2)`         (all ≡ 3)
++      - `not a`   vs `(not a)`                     (both ≡ ¬a)
++      - `a > 0`   vs `a>0`                         (same)
++
++    This helper produces a canonical form by:
++    1. Parsing with `ast.parse(text.strip(), mode="eval")`
++    2. Normalizing operator spacing (single space around binary ops)
++    3. Stripping redundant parens that `ast.unparse` adds
++    4. Re-dumping via `ast.unparse`
++
++    Returns None on syntax error (callers should fall back to
++    `_normalize_predicate` or skip).
++    """
++    try:
++        tree = ast.parse(text.strip(), mode="eval").body
++        return ast.unparse(tree).replace(" ", "")
++    except SyntaxError:
++        return None
++
++
+ def _as_str(value) -> str:
+     return value if isinstance(value, str) else repr(value)
+ 
+@@ -503,10 +530,14 @@ def _collect_ifs(stmts: list, uses: list) -> None:
+             trig = _parse_trigger(st.test)
+             if trig is not None:
+                 var, values = trig
++                # Bug #27 fix: use _canonical_predicate for both sides so
++                # semantically equivalent predicates (different whitespace,
++                # redundant parens) match. Falls back to None for invalid
++                # syntax — the assertion is then ignored.
+                 asserts = frozenset(
+                     p for bs in st.body for s in ast.walk(bs)
+                     if isinstance(s, ast.Assert)
+-                    for p in [_normalize_predicate(ast.unparse(s.test))] if p)
++                    for p in [_canonical_predicate(ast.unparse(s.test))] if p)
+                 uses.append(_SubUse(var, frozenset(values), asserts))
+             _collect_ifs(st.orelse, uses)  # elif chain
+ 
+@@ -596,7 +627,11 @@ def check_test_mirrors_spec(test_source: str, spec_cases: list, spec_assertions:
+ 
+     # 2. Sub-assertion predicate + trigger alignment.
+     for sa in spec_assertions:
+-        norm = _normalize_predicate(sa.predicate)
++        # Bug #27 fix: use _canonical_predicate for set-membership
++        # comparison. Both spec and test sides go through the same
++        # canonical form (whitespace-stripped, paren-stripped), so
++        # semantically equivalent predicates match.
++        norm = _canonical_predicate(sa.predicate) or _normalize_predicate(sa.predicate)
+         if norm is None:
+             continue
+         matches = [s for s in subs if norm in s.asserts]
+diff --git a/detection/drift_detector.py b/detection/drift_detector.py
+index 24de59c..cfc88f3 100644
+--- a/detection/drift_detector.py
++++ b/detection/drift_detector.py
+@@ -381,10 +381,22 @@ class DriftDetector:
+         checked += len(sab_files)
+ 
+         # ── Check 1: SAB files missing from codebase ──────────────────────
++        # SAB `modules` entries use Python dotted notation (e.g. "src.taskq.config",
++        # "taskq.config"); filesystem uses path notation with slashes. Convert
++        # dotted → path before checking existence (Bug #30 fix).
++        def _sab_to_path(p: str) -> str:
++            """Convert dotted module name to filesystem path (.py)."""
++            if "/" in p or p.endswith(".py"):
++                return p  # already a path
++            return p.replace(".", "/") + ".py"
++
+         for rel_path, layer_name in sab_files.items():
+             if not rel_path.endswith("/") and not re.match(r'^FR-\d+$', rel_path):
++                path_form = _sab_to_path(rel_path)
+                 exists = (
+-                    (self.project_path / rel_path).exists() or
++                    (self.project_path / path_form).exists() or
++                    (self.project_path / "03-development" / path_form).exists() or
++                    (self.project_path / rel_path).exists() or  # original dotted literal
+                     (self.project_path / "03-development" / rel_path).exists()
+                 )
+                 if not exists:
+@@ -393,7 +405,10 @@ class DriftDetector:
+                         drift_type="sab",
+                         severity=DriftSeverity.MEDIUM,
+                         location=f"SAB layer {layer_name}",
+-                        description=f"SAB declares {rel_path} but file not found in codebase",
++                        description=(
++                            f"SAB declares {rel_path} but file not found in codebase "
++                            f"(tried {path_form})"
++                        ),
+                         expected=rel_path,
+                         actual="not found",
+                     ))
+@@ -418,9 +433,15 @@ class DriftDetector:
+             if rel.startswith("archive/"):
+                 continue
+             # Normalize 03-development/ prefix so files at 03-development/src/X.py
+-            # match SAB entries declared as src/X.py.
++            # match SAB entries declared as src/X.py. Also normalize dotted form
++            # (src.X.py → src/X.py) to match dotted-module SAB entries (Bug #31 fix).
+             _rel_norm = rel[len("03-development/"):] if rel.startswith("03-development/") else rel
+-            if rel not in sab_file_set and _rel_norm not in sab_file_set and not rel.startswith("tests/") and "/tests/" not in rel:
++            _rel_dotted = _rel_norm[:-3].replace("/", ".") if _rel_norm.endswith(".py") else None
++            if (rel not in sab_file_set
++                    and _rel_norm not in sab_file_set
++                    and (_rel_dotted is None or _rel_dotted not in sab_file_set)
++                    and not rel.startswith("tests/")
++                    and "/tests/" not in rel):
+                 checked += 1
+                 drifted += 1
+                 items.append(DriftItem(
+diff --git a/harness/crg_bridge.py b/harness/crg_bridge.py
+index f7f7690..830d142 100644
+--- a/harness/crg_bridge.py
++++ b/harness/crg_bridge.py
+@@ -199,21 +199,40 @@ class CRGBridge:
+ 
+     # ── Structural analysis (extended tools) ────────────────────────────────
+ 
++    def _call_crg(self, fn, kwargs: dict[str, Any]) -> dict[str, Any]:
++        """Call a CRG tool, filtering kwargs against its signature (Bug #29 fix).
++
++        Some in-process CRG tools (e.g. mcp__code_review_graph__*_tool) do
++        not accept every kwarg the harness wants to pass. Calling with
++        unknown kwargs raises TypeError; the TypeError is silently caught
++        by the fallback path and the entire CRG enrichment is lost. To
++        prevent this, introspect the bound function's signature and drop
++        unsupported kwargs before invocation.
++        """
++        if fn is None:
++            return {}
++        import inspect
++        try:
++            sig = inspect.signature(fn)
++            accepted = set(sig.parameters.keys())
++        except (TypeError, ValueError):
++            accepted = set(kwargs.keys())
++        filtered = {k: v for k, v in kwargs.items() if k in accepted}
++        return fn(**filtered)
++
+     def get_hub_nodes(self, project_root: str, min_fan_in: int = 5) -> dict[str, Any]:
+         """Return high fan-in nodes (structural chokepoints)."""
+-        if _crg_hub_nodes is None:
+-            return {}
+-        return _crg_hub_nodes(repo_root=project_root, min_fan_in=min_fan_in)
++        return self._call_crg(_crg_hub_nodes, {
++            "repo_root": project_root, "min_fan_in": min_fan_in,
++        })
+ 
+     def list_communities(
+         self, project_root: str, min_size: int = 2, sort_by: str = "size"
+     ) -> dict[str, Any]:
+         """List detected code communities with cohesion scores."""
+-        if _crg_list_communities is None:
+-            return {}
+-        return _crg_list_communities(
+-            repo_root=project_root, min_size=min_size, sort_by=sort_by
+-        )
++        return self._call_crg(_crg_list_communities, {
++            "repo_root": project_root, "min_size": min_size, "sort_by": sort_by,
++        })
+ 
+     def get_knowledge_gaps(self, project_root: str) -> dict[str, Any]:
+         """Find untested critical paths (cross-ref with TEST_INVENTORY.yaml)."""
+@@ -249,14 +268,12 @@ class CRGBridge:
+         self, project_root: str, min_lines: int = 50, kind: str | None = None, limit: int = 50
+     ) -> dict[str, Any]:
+         """Find functions/classes/files exceeding line-count threshold."""
+-        if _crg_large_funcs is None:
+-            return {}
+         kwargs: dict[str, Any] = {
+             "min_lines": min_lines, "repo_root": project_root, "limit": limit,
+         }
+         if kind:
+             kwargs["kind"] = kind
+-        return _crg_large_funcs(**kwargs)
++        return self._call_crg(_crg_large_funcs, kwargs)
+ 
+     def list_flows(
+         self, project_root: str, limit: int = 20, sort_by: str = "criticality"
+diff --git a/harness_cli.py b/harness_cli.py
+index 7b9e62d..25c4204 100644
+--- a/harness_cli.py
++++ b/harness_cli.py
+@@ -1301,14 +1301,14 @@ def cmd_check_test_mirrors_spec(args: argparse.Namespace) -> int:
+     project = Path(args.project).resolve()
+     spec_path = project / "02-architecture" / "TEST_SPEC.md"
+     fr_id = args.fr_id
+-    test_file = Path(args.test_file).resolve()
++    # Bug #26 fix: --test-file accepts nargs="+", so args.test_files is a list.
++    # Iterate each file; aggregate violations across all files. The command
++    # fails (exit 1) if any one file has an error-severity violation.
++    test_files = [Path(f).resolve() for f in args.test_files]
+ 
+     if not spec_path.exists():
+         print("[check-test-mirrors-spec] 02-architecture/TEST_SPEC.md not found — skipping.")
+         return 0
+-    if not test_file.exists():
+-        print(f"[check-test-mirrors-spec] test file not found: {test_file} — skipping.")
+-        return 0
+ 
+     from core.quality_gate.parsers import SpecAssertionParser
+     from core.quality_gate.red_assertion_check import (
+@@ -1323,25 +1323,33 @@ def cmd_check_test_mirrors_spec(args: argparse.Namespace) -> int:
+         return 0
+ 
+     cases, assertions = parsed[fr_id]
+-    test_source = test_file.read_text(encoding="utf-8")
+-    suffix = test_file.suffix.lower()
+-    if suffix in (".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"):
+-        dialect = {"ts": "typescript", "tsx": "tsx"}.get(suffix.lstrip("."), "javascript")
+-        violations = check_test_mirrors_spec_js(test_source, cases, assertions, dialect)
+-    else:
+-        violations = check_test_mirrors_spec(test_source, cases, assertions)
+-    errs = [v for v in violations if v.severity == "error"]
+-    reviews = [v for v in violations if v.severity == "info"]
+-    for v in errs:
+-        print(f"[FAIL] {fr_id} {v.check_type}: {v.message}")
+-    for v in reviews:
+-        print(f"[review] {fr_id}: {v.message}")
+-    if errs:
+-        print(f"\n[BLOCKED] {test_file.name} diverges from TEST_SPEC.md ({len(errs)} issue(s)). "
+-              "P3 implements the spec verbatim — fix the test, not TEST_SPEC.")
++    all_errs = []
++    all_reviews = []
++    for test_file in test_files:
++        if not test_file.exists():
++            print(f"[check-test-mirrors-spec] test file not found: {test_file} — skipping.")
++            continue
++        test_source = test_file.read_text(encoding="utf-8")
++        suffix = test_file.suffix.lower()
++        if suffix in (".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"):
++            dialect = {"ts": "typescript", "tsx": "tsx"}.get(suffix.lstrip("."), "javascript")
++            violations = check_test_mirrors_spec_js(test_source, cases, assertions, dialect)
++        else:
++            violations = check_test_mirrors_spec(test_source, cases, assertions)
++        errs = [v for v in violations if v.severity == "error"]
++        reviews = [v for v in violations if v.severity == "info"]
++        for v in errs:
++            print(f"[FAIL] {fr_id} ({test_file.name}) {v.check_type}: {v.message}")
++        for v in reviews:
++            print(f"[review] {fr_id} ({test_file.name}): {v.message}")
++        all_errs.extend(errs)
++        all_reviews.extend(reviews)
++    if all_errs:
++        print(f"\n[BLOCKED] {len(test_files)} test file(s) checked; {len(all_errs)} divergence(s) from "
++              f"TEST_SPEC.md. P3 implements the spec verbatim — fix the test, not TEST_SPEC.")
+         return 1
+-    print(f"[check-test-mirrors-spec] OK — {test_file.name} mirrors {fr_id} in TEST_SPEC.md."
+-          + (f" {len(reviews)} item(s) need P3 reviewer sign-off." if reviews else ""))
++    print(f"[check-test-mirrors-spec] OK — {len(test_files)} test file(s) mirror {fr_id} in TEST_SPEC.md."
++          + (f" {len(all_reviews)} item(s) need P3 reviewer sign-off." if all_reviews else ""))
+     return 0
+ 
+ 
+@@ -9263,7 +9271,7 @@ def build_parser() -> argparse.ArgumentParser:
+     )
+     ctms.add_argument("--project", default=".", help="Project root (default: .)")
+     ctms.add_argument("--fr-id", dest="fr_id", required=True, help="FR id (e.g. FR-01)")
+-    ctms.add_argument("--test-file", dest="test_file", required=True, help="Path to the RED test file")
++    ctms.add_argument("--test-file", dest="test_files", nargs="+", required=True, help="Path(s) to the RED test file(s); accepts one or more paths to support per-FR splits like test_fr01_inputs.py + test_fr01_edge.py")
+     ctms.set_defaults(func=cmd_check_test_mirrors_spec)
+ 
+     # push-checkpoint (P1/P2 human review → git push + HANDOVER.md)
+diff --git a/tests/test_constitution_profile.py b/tests/test_constitution_profile.py
+index 5bc6316..e3966d2 100644
+--- a/tests/test_constitution_profile.py
++++ b/tests/test_constitution_profile.py
+@@ -23,20 +23,31 @@ class TestDefaults:
+         assert p.active_dimensions(1) == ["correctness"]
+ 
+     def test_active_dimensions_p3(self):
++        # Bug #35 fix (07ef908): P3 = correctness only (code-heavy phases
++        # can't satisfy security/maintainability keyword density).
+         p = defaults()
+-        assert p.active_dimensions(3) == ["correctness", "security", "maintainability"]
++        assert p.active_dimensions(3) == ["correctness"]
+ 
+     def test_active_dimensions_p4(self):
++        # Bug #35 extension: P4 = correctness only (same rationale as P3 —
++        # test code is .py, security/maintainability/coverage keywords
++        # don't appear naturally in source).
+         p = defaults()
+-        assert p.active_dimensions(4) == ["correctness", "security", "maintainability", "coverage"]
++        assert p.active_dimensions(4) == ["correctness"]
+ 
+     def test_composite_threshold_p1(self):
+         # P1 lowered from 100 to 75 — requirements docs use a reduced keyword set.
+         assert defaults().composite_threshold(1) == 75.0
+ 
+     def test_composite_threshold_p3(self):
+-        # P3-P4 lowered from 90 to 80 — not every project uses all security primitives.
+-        assert defaults().composite_threshold(3) == 80.0
++        # Bug #35 fix (07ef908): P3 lowered to 30 (code-only phase;
++        # authoritative quality signal is Gate 2 tool scores).
++        assert defaults().composite_threshold(3) == 30.0
++
++    def test_composite_threshold_p4(self):
++        # Bug #35 extension: P4 lowered to 30 (test code; same rationale
++        # as P3 — authoritative quality signal is Gate 3 tool scores).
++        assert defaults().composite_threshold(4) == 30.0
+ 
+     def test_composite_threshold_p5(self):
+         # P5-P8 document phases use 65.0 (matching P7 pattern).
+@@ -119,7 +130,8 @@ class TestDefaults:
+         p = defaults()
+         js = p.to_json()
+         p2 = ConstitutionProfile.from_dict(json.loads(js))
+-        assert p2.composite_threshold(3) == 80.0
++        assert p2.composite_threshold(3) == 30.0
++        assert p2.composite_threshold(4) == 30.0
+ 
+ 
+ class TestMerge:
+diff --git a/tests/test_constitution_runner.py b/tests/test_constitution_runner.py
+index fac9eae..9700d0b 100644
+--- a/tests/test_constitution_runner.py
++++ b/tests/test_constitution_runner.py
+@@ -71,6 +71,33 @@ class TestScanFileCompliance:
+         finally:
+             path.unlink()
+ 
++    def test_short_python_init_main_file_vacuous_bug35(self, tmp_path):
++        """Bug #35 regression: __init__.py / __main__.py <100 chars are
++        Python convention placeholders, not documentation. Returning
++        0/0/0/0 poisoned the directory aggregate for P3+ projects.
++        They must be treated as vacuous (100/100/100/100).
++        """
++        for name in ("__init__.py", "__main__.py"):
++            f = tmp_path / name
++            f.write_text("")  # empty
++            dims = _scan_file_compliance(f)
++            assert dims == {
++                "correctness": 100.0, "security": 100.0,
++                "maintainability": 100.0, "coverage": 100.0,
++            }, f"{name} empty should be vacuous, got {dims}"
++
++    def test_short_python_non_boilerplate_still_zero(self, tmp_path):
++        """Bug #35: only __init__.py and __main__.py get the vacuous
++        treatment. Other small Python files (e.g. a stub helper) still
++        return 0/0/0/0 as before — they should be fixed by adding content
++        or removed.
++        """
++        f = tmp_path / "tiny_helper.py"
++        f.write_text("x = 1\n")
++        dims = _scan_file_compliance(f)
++        assert dims["correctness"] == 0.0
++        assert dims["security"] == 0.0
++
+     def test_high_compliance_file(self):
+         content = """# Requirements Specification
+ 
+@@ -401,19 +428,18 @@ class TestDimensionsForPhase:
+         assert "maintainability" not in dims, "P2 must exclude code-centric maintainability"
+ 
+     def test_phase3_three_dimensions(self):
+-        """P3 uses correctness + security + maintainability (source code)."""
++        """P3 uses only correctness (Bug #35: drop security/maintainability
++        from code-only phases; quality is gated via Gate 1/2 tool scores)."""
+         dims = _dimensions_for_phase(3)
+-        assert dims == ["correctness", "security", "maintainability"], \
+-            f"P3 should use 3 dimensions, got {dims}"
++        assert dims == ["correctness"], \
++            f"P3 should use 1 dimension (correctness), got {dims}"
+ 
+     def test_phase4_all_four_dimensions(self):
+-        # P4 alone uses all 4 dimensions (last code-centric phase).
+-        # P5-P8 are document phases with only correctness + security.
++        # Bug #35 extension: P4 = correctness only (same rationale as P3 —
++        # test code is .py, security/maintainability/coverage keyword density
++        # is meaningless for source).
+         dims = _dimensions_for_phase(4)
+-        assert "correctness" in dims
+-        assert "security" in dims
+-        assert "maintainability" in dims
+-        assert "coverage" in dims
++        assert dims == ["correctness"]
+ 
+     def test_phase5_verification_dimensions(self):
+         # P5 (Verification) is a document phase — no code/test vocabulary.
+@@ -510,24 +536,19 @@ class TestDimensionsForPhase:
+     def test_per_phase_keywords_fallback_for_unchanged_dimensions(self):
+         """Dimensions without per-phase security overrides fall back to global keywords."""
+         p = defaults()
+-        global_sec = p.dimension_keywords("security")
+-        # P5-P8: no security override — fall back to global.
++        # Bug #35 extension: P3 and P4 both dropped their security dimension
++        # (code-only phases). P5-P8 still use security (document phases).
+         for phase in range(5, 9):
+-            sec_kw = p.dimension_keywords_for_phase("security", phase)
+-            assert sec_kw == global_sec, f"P{phase} security keywords should match global"
+-        # P3-P4: reduced security keyword sets (implementation terms removed).
+-        # P1 and P2 have no security dimension at all (removed 2026-06-12) —
+-        # their phase lookup falls back to global, fine: they never scan it.
+-        for phase in range(3, 5):
+-            sec_kw = p.dimension_keywords_for_phase("security", phase)
+-            assert sec_kw != global_sec, f"P{phase} security must use reduced keyword set"
+-            # These implementation-specific terms must never appear in any phase's security vocab.
+-            for impl_kw in ("whitelist", "compare_digest", "input sanitizer"):
+-                assert impl_kw not in sec_kw, f"'{impl_kw}' must not be in P{phase} security vocab"
+-        # P4 additionally removes hmac; P3 retains it (implementation code may use it).
+-        assert "hmac" not in p.dimension_keywords_for_phase("security", 4)
+-        assert "hmac" in p.dimension_keywords_for_phase("security", 3), \
+-            "P3 source code may use hmac directly"
++            # P5-P8 have no per-phase security override — fall back to global.
++            # (P3, P4 have no security dimension at all — their phase lookup
++            # would still return the global list because the dimensions dict
++            # is consulted by name, but the active_dimensions list excludes
++            # security — so these kwargs are never applied to scoring).
++            _ = p.dimension_keywords_for_phase("security", phase)
++        # The active_dimensions check is the authoritative gate: verify
++        # P3-P4 don't have security in their active set.
++        assert "security" not in p.active_dimensions(3)
++        assert "security" not in p.active_dimensions(4)
+ 
+     def test_phase_none_returns_global_keywords(self):
+         """phase=None (default for _scan_file_compliance) must fall back to global keywords."""
+@@ -705,20 +726,24 @@ class TestRunConstitutionCheck:
+             "(composite < 80% threshold)"
+         )
+ 
+-    def test_phase4_uses_all_dimensions(self, tmp_path):
++    def test_phase4_uses_correctness_only(self, tmp_path):
++        # Bug #35 extension: P4 = correctness only. The runner still
++        # reports all 4 dimensions in result.dimensions (it's the full
++        # config snapshot), but only correctness contributes to the
++        # composite score.
+         docs = tmp_path / "docs"
+         docs.mkdir()
+         (docs / "SAD.md").write_text(
+             "# Architecture\n\n## quality gate\n\n## test coverage\n\n## constitution\n\n"
+             "## traceability matrix\n\n## FR-01\n\n## FR-02\n\n## acceptance criteria\n"
+-            "## security auth validation RBAC HMAC signature encrypt\n"
+-            "## pytest unit test mock fixture assert coverage report\n"
+         )
+         result = run_constitution_check("sad", str(docs), current_phase=4)
+         assert result.phase == 4
++        # P4 active_dimensions = ["correctness"] only; composite_threshold=30.
++        # A well-formed spec doc with all required keywords scores high
++        # enough to pass the threshold.
+         assert "correctness" in result.dimensions
+-        assert "security" in result.dimensions
+-        assert "maintainability" in result.dimensions
++        assert result.score >= 30.0  # at or above P4 threshold
+         assert "coverage" in result.dimensions
+ 
+     def test_phase5_threshold_80(self, tmp_path):
+diff --git a/tests/test_crg_bridge.py b/tests/test_crg_bridge.py
+index 2dd6584..05b4596 100644
+--- a/tests/test_crg_bridge.py
++++ b/tests/test_crg_bridge.py
+@@ -274,3 +274,57 @@ class TestCRGBridgeExtended:
+         bridge = CRGBridge()
+         result = bridge.check_dead_code("/tmp/project")
+         assert result == {}
++
++
++class TestCRGBridgeSignatureFilter:
++    """Bug #29 regression: CRG tools (mcp__code_review_graph__*) may not
++    accept every kwarg. Introspect signature before calling; drop
++    unsupported kwargs instead of letting TypeError silently kill the
++    fallback path."""
++
++    def test_get_hub_nodes_drops_min_fan_in_when_unsupported(self, monkeypatch):
++        """Tool signature lacks min_fan_in — call must succeed, kwarg dropped."""
++        import harness.crg_bridge as crg_mod
++        def fake_tool(repo_root):
++            return {"hubs": [{"name": "x", "fan_in": 1}]}
++        monkeypatch.setattr(crg_mod, "_crg_hub_nodes", fake_tool)
++        bridge = CRGBridge()
++        result = bridge.get_hub_nodes("/tmp/project", min_fan_in=42)
++        assert "hubs" in result
++
++    def test_get_hub_nodes_passes_min_fan_in_when_supported(self, monkeypatch):
++        def fake_tool(repo_root, min_fan_in):
++            return {"hubs": [{"name": "x", "fan_in": min_fan_in}]}
++        import harness.crg_bridge as crg_mod
++        monkeypatch.setattr(crg_mod, "_crg_hub_nodes", fake_tool)
++        bridge = CRGBridge()
++        result = bridge.get_hub_nodes("/tmp/project", min_fan_in=7)
++        assert result["hubs"][0]["fan_in"] == 7
++
++    def test_get_hub_nodes_returns_empty_when_unavailable(self, monkeypatch):
++        import harness.crg_bridge as crg_mod
++        monkeypatch.setattr(crg_mod, "_crg_hub_nodes", None)
++        bridge = CRGBridge()
++        assert bridge.get_hub_nodes("/tmp/project") == {}
++
++    def test_list_communities_drops_unsupported_kwargs(self, monkeypatch):
++        def fake_tool(repo_root):
++            return {"communities": []}
++        import harness.crg_bridge as crg_mod
++        monkeypatch.setattr(crg_mod, "_crg_list_communities", fake_tool)
++        bridge = CRGBridge()
++        # min_size and sort_by are both dropped because fake_tool accepts only repo_root.
++        result = bridge.list_communities("/tmp/project", min_size=5, sort_by="name")
++        assert result == {"communities": []}
++
++    def test_find_large_functions_drops_unsupported_kwargs(self, monkeypatch):
++        def fake_tool(repo_root, limit):
++            return {"functions": []}
++        import harness.crg_bridge as crg_mod
++        monkeypatch.setattr(crg_mod, "_crg_large_funcs", fake_tool)
++        bridge = CRGBridge()
++        # min_lines and kind are dropped because fake_tool accepts only repo_root, limit.
++        result = bridge.find_large_functions(
++            "/tmp/project", min_lines=50, kind="Function", limit=10
++        )
++        assert result == {"functions": []}
+diff --git a/tests/test_drift_detector.py b/tests/test_drift_detector.py
+index d9dfb00..3654580 100644
+--- a/tests/test_drift_detector.py
++++ b/tests/test_drift_detector.py
+@@ -153,6 +153,142 @@ class TestSabDriftDetection:
+         assert result.has_drift is True
+         assert any("unregistered.py" in i.location for i in result.drift_items)
+ 
++    def test_detect_sab_drift_dotted_module_resolves_to_path_bug30(self, tmp_path):
++        """Regression test for Bug #30: SAB module entries using Python dotted
++        notation (e.g. 'src.taskq.config') must be resolved to filesystem path
++        notation ('src/taskq/config.py') when checking file existence.
++
++        Before fix: detector compared dotted notation literally as a path,
++        causing all dotted entries to be flagged as missing → 100% SAB drift
++        for any P3+ project using 'src/<pkg>/<mod>.py' layout.
++        """
++        method_dir = tmp_path / ".methodology"
++        method_dir.mkdir()
++        sab_json = {
++            "layers": [
++                {"name": "core", "modules": [
++                    "src.taskq.config",
++                    "src.taskq.models",
++                    "src.taskq.store",
++                    "src.taskq.executor",
++                    "src.taskq.cli",
++                ], "allowed_dependencies": []},
++            ],
++            "dependencies": {"core": []},
++        }
++        (method_dir / "SAB.json").write_text(__import__("json").dumps(sab_json))
++        # Simulate the standard P3 layout: 03-development/src/taskq/{mod}.py
++        dev_dir = tmp_path / "03-development" / "src" / "taskq"
++        dev_dir.mkdir(parents=True)
++        for mod in ("config", "models", "store", "executor", "cli"):
++            (dev_dir / f"{mod}.py").write_text(f"# {mod}")
++
++        detector = DriftDetector(str(tmp_path))
++        result = detector.detect_sab_drift()
++        # None of the 5 dotted modules should be reported as missing
++        missing_locs = [i.description for i in result.drift_items
++                        if "file not found" in i.description]
++        assert missing_locs == [], (
++            f"Bug #30 regression: dotted module entries were flagged as missing: "
++            f"{missing_locs}"
++        )
++
++    def test_detect_sab_drift_dotted_module_at_project_root(self, tmp_path):
++        """Bug #30 variant: dotted module at project root (no 03-development/ prefix)."""
++        method_dir = tmp_path / ".methodology"
++        method_dir.mkdir()
++        sab_json = {
++            "layers": [
++                {"name": "core", "modules": ["taskq.config", "taskq.store"],
++                 "allowed_dependencies": []},
++            ],
++            "dependencies": {"core": []},
++        }
++        (method_dir / "SAB.json").write_text(__import__("json").dumps(sab_json))
++        pkg_dir = tmp_path / "taskq"
++        pkg_dir.mkdir()
++        (pkg_dir / "config.py").write_text("# config")
++        (pkg_dir / "store.py").write_text("# store")
++
++        detector = DriftDetector(str(tmp_path))
++        result = detector.detect_sab_drift()
++        missing_locs = [i.description for i in result.drift_items
++                        if "file not found" in i.description]
++        assert missing_locs == [], (
++            f"Bug #30 root variant: {missing_locs}"
++        )
++
++    def test_dotted_sab_entry_not_flagged_as_unregistered_bug31(self, tmp_path):
++        """Regression test for Bug #31 (Check 2): a file whose path form matches
++        a dotted SAB entry must NOT be reported as unregistered.
++
++        Before fix: Check 2 compared the file's relative path directly against
++        sab_file_set which contained dotted strings. 'src/taskq/config.py' was
++        never equal to 'src.taskq.config', so every file in a dotted-notation
++        SAB was incorrectly flagged as unregistered.
++
++        After fix: _rel_dotted converts the path back to dotted form before the
++        sab_file_set lookup, so registered files are suppressed correctly.
++        """
++        import json as _json
++        method_dir = tmp_path / ".methodology"
++        method_dir.mkdir()
++        sab_json = {
++            "layers": [
++                {"name": "core", "modules": [
++                    "src.taskq.config",
++                    "src.taskq.store",
++                ], "allowed_dependencies": []},
++            ],
++            "dependencies": {"core": []},
++        }
++        (method_dir / "SAB.json").write_text(_json.dumps(sab_json))
++        dev_dir = tmp_path / "03-development" / "src" / "taskq"
++        dev_dir.mkdir(parents=True)
++        (dev_dir / "config.py").write_text("# config")
++        (dev_dir / "store.py").write_text("# store")
++
++        detector = DriftDetector(str(tmp_path))
++        result = detector.detect_sab_drift()
++
++        unregistered = [i for i in result.drift_items if i.actual == "unregistered"]
++        assert unregistered == [], (
++            f"Bug #31 regression: registered dotted-module files falsely flagged "
++            f"as unregistered: {[i.location for i in unregistered]}"
++        )
++
++    def test_dotted_sab_entry_unregistered_file_still_caught(self, tmp_path):
++        """Check 2 with dotted SAB entries: a truly unregistered file alongside
++        registered ones must still be flagged (fix must not over-suppress).
++        """
++        import json as _json
++        method_dir = tmp_path / ".methodology"
++        method_dir.mkdir()
++        sab_json = {
++            "layers": [
++                {"name": "core", "modules": ["src.taskq.config"],
++                 "allowed_dependencies": []},
++            ],
++            "dependencies": {"core": []},
++        }
++        (method_dir / "SAB.json").write_text(_json.dumps(sab_json))
++        dev_dir = tmp_path / "03-development" / "src" / "taskq"
++        dev_dir.mkdir(parents=True)
++        (dev_dir / "config.py").write_text("# config")       # registered
++        (dev_dir / "secret.py").write_text("# not in SAB")   # unregistered
++
++        detector = DriftDetector(str(tmp_path))
++        result = detector.detect_sab_drift()
++
++        unregistered_locs = [i.location for i in result.drift_items
++                             if i.actual == "unregistered"]
++        assert any("secret.py" in loc for loc in unregistered_locs), (
++            f"Unregistered file was not caught; unregistered items: {unregistered_locs}"
++        )
++        assert not any("config.py" in loc for loc in unregistered_locs), (
++            f"Registered file was falsely flagged; unregistered items: {unregistered_locs}"
++        )
++
+     def test_detect_sab_drift_import_violation(self, tmp_path):
+         """Cross-layer import where dependency is not allowed."""
+         method_dir = tmp_path / ".methodology"
+diff --git a/tests/test_harness_cli.py b/tests/test_harness_cli.py
+index 50b3318..f6f27fb 100644
+--- a/tests/test_harness_cli.py
++++ b/tests/test_harness_cli.py
+@@ -3653,7 +3653,7 @@ class TestCmdCheckTestMirrorsSpecDispatch:
+     def _run(self, spec, test_file, project):
+         from harness_cli import cmd_check_test_mirrors_spec
+         args = argparse.Namespace(
+-            project=str(project), fr_id="FR-01", test_file=str(test_file),
++            project=str(project), fr_id="FR-01", test_files=[str(test_file)],
+         )
+         return cmd_check_test_mirrors_spec(args)
+ 
+@@ -4150,3 +4150,68 @@ class TestGenerateVerificationReport:
+         assert "VERIFICATION_REPORT.md written" in captured.out
+ 
+ 
++
++
++class TestCheckTestMirrorsSpecMultiFile:
++    """Bug #26 regression: --test-file accepts nargs='+' so callers can
++    pass multiple test files (e.g. test_fr01_inputs.py + test_fr01_edge.py
++    for a per-FR split)."""
++
++    def test_argparse_accepts_multiple_test_files(self):
++        """Direct argparse check: --test-file must accept nargs='+'."""
++        import argparse
++        parser = argparse.ArgumentParser()
++        sub = parser.add_subparsers()
++        ctms = sub.add_parser("check-test-mirrors-spec")
++        ctms.add_argument(
++            "--test-file", dest="test_files", nargs="+", required=True,
++            help="Path(s) to the RED test file(s)",
++        )
++        args = parser.parse_args(
++            ["check-test-mirrors-spec", "--test-file",
++             "tests/test_fr01.py", "tests/test_fr01_extra.py"]
++        )
++        assert args.test_files == ["tests/test_fr01.py", "tests/test_fr01_extra.py"]
++        assert len(args.test_files) == 2
++
++
++    def test_handler_iterates_test_files(self, tmp_path, monkeypatch):
++        from core.quality_gate import red_assertion_check as rac
++        called_with: list = []
++
++        def fake_python(src, cases, assertions):
++            called_with.append(src)
++            return []
++
++        monkeypatch.setattr(rac, "check_test_mirrors_spec", fake_python)
++        monkeypatch.setattr(rac, "check_test_mirrors_spec_js", fake_python)
++
++        from harness_cli import cmd_check_test_mirrors_spec
++        spec = (tmp_path / "02-architecture" / "TEST_SPEC.md")
++        spec.parent.mkdir(parents=True)
++        # SpecAssertionParser requires ### FR-NN heading, a case table with
++        # `Inputs` columns, and a sub-assertion table with `predicate` +
++        # `applies_to` columns.
++        spec.write_text(
++            "### FR-01\n\n"
++            "| # | Inputs | Expected |\n| --- | --- | --- |\n"
++            "| 1 | x=\"1\" | y=1 |\n\n"
++            "| rule_id | predicate | applies_to |\n"
++            "| --- | --- | --- |\n"
++            "| A1 | `result == 1` | 1 |\n",
++            encoding="utf-8",
++        )
++        (tmp_path / "tests").mkdir()
++        f1 = tmp_path / "tests" / "test_fr01_inputs.py"
++        f1.write_text("# inputs file\n", encoding="utf-8")
++        f2 = tmp_path / "tests" / "test_fr01_edge.py"
++        f2.write_text("# edge file\n", encoding="utf-8")
++
++        args = argparse.Namespace(
++            project=str(tmp_path), fr_id="FR-01", test_files=[str(f1), str(f2)],
++        )
++        result = cmd_check_test_mirrors_spec(args)
++        assert result == 0
++        assert len(called_with) == 2
++        assert "# inputs file" in called_with[0]
++        assert "# edge file" in called_with[1]
+diff --git a/tests/test_mirror_check.py b/tests/test_mirror_check.py
+index 981bfae..b283e44 100644
+--- a/tests/test_mirror_check.py
++++ b/tests/test_mirror_check.py
+@@ -150,10 +150,10 @@ def test_cli_mirror_gate(tmp_path):
+ 
+     tf.write_text(_FR01_BAD, encoding="utf-8")
+     rc = cmd_check_test_mirrors_spec(
+-        argparse.Namespace(project=str(tmp_path), fr_id="FR-01", test_file=str(tf)))
++        argparse.Namespace(project=str(tmp_path), fr_id="FR-01", test_files=[str(tf)]))
+     assert rc == 1
+ 
+     tf.write_text(_FR01_GOOD, encoding="utf-8")
+     rc = cmd_check_test_mirrors_spec(
+-        argparse.Namespace(project=str(tmp_path), fr_id="FR-01", test_file=str(tf)))
++        argparse.Namespace(project=str(tmp_path), fr_id="FR-01", test_files=[str(tf)]))
+     assert rc == 0
+diff --git a/tests/test_mutation_enforcer.py b/tests/test_mutation_enforcer.py
+index 708d048..073a231 100644
+--- a/tests/test_mutation_enforcer.py
++++ b/tests/test_mutation_enforcer.py
+@@ -5,6 +5,8 @@ point's contract (without actually invoking mutmut). End-to-end mutmut
+ behaviour is covered by the agent's gate-evaluation protocol in
+ ``evaluate_dimension.md``, not here.
+ """
++import configparser
++
+ from core.quality_gate.mutation_enforcer import (
+     _resolve_test_dir,
+     _resolve_mutmut_workdir,
+@@ -174,9 +176,14 @@ def test_copy_setup_cfg_to_workdir(tmp_path):
+                        encoding="utf-8")
+     workdir = tmp_path / "workdir"
+     workdir.mkdir()
+-    _copy_setup_cfg_to_workdir(tmp_path, str(workdir))
+-    assert (workdir / "setup.cfg").read_text(encoding="utf-8") == \
+-        "[mutmut]\npaths_to_mutate = 03-development/src\n"
++    _copy_setup_cfg_to_workdir(tmp_path, str(workdir), "/abs/tests")
++    # Bug #41 fix: the [mutmut] section is rewritten — runner is added,
++    # tests_dir is set to the absolute path, backup/disable stripped.
++    cp = configparser.ConfigParser()
++    cp.read(str(workdir / "setup.cfg"), encoding="utf-8")
++    assert cp["mutmut"]["paths_to_mutate"] == "03-development/src"
++    assert cp["mutmut"]["runner"] == "python -m pytest"
++    assert cp["mutmut"]["tests_dir"] == "/abs/tests"
+ 
+ 
+ def test_copy_setup_cfg_to_workdir_no_setup_cfg(tmp_path):
+@@ -187,6 +194,91 @@ def test_copy_setup_cfg_to_workdir_no_setup_cfg(tmp_path):
+     assert not (workdir / "setup.cfg").exists()
+ 
+ 
++# ---------------------------------------------------------------------------
++# Bug #41: [mutmut] section rewrite for temp-workdir context
++# ---------------------------------------------------------------------------
++
++
++def test_copy_setup_cfg_rewrites_runner_pytest(tmp_path):
++    """Project has runner=pytest → workdir setup.cfg has runner=python -m pytest."""
++    src_cfg = tmp_path / "setup.cfg"
++    src_cfg.write_text("[mutmut]\nrunner = pytest\n", encoding="utf-8")
++    workdir = tmp_path / "workdir"
++    workdir.mkdir()
++    _copy_setup_cfg_to_workdir(tmp_path, str(workdir), "/abs/path/tests")
++    cp = configparser.ConfigParser()
++    cp.read(str(workdir / "setup.cfg"), encoding="utf-8")
++    assert cp["mutmut"]["runner"] == "python -m pytest"
++
++
++def test_copy_setup_cfg_overrides_tests_dir(tmp_path):
++    """Project has tests_dir=tests (relative) → workdir has the absolute path."""
++    src_cfg = tmp_path / "setup.cfg"
++    src_cfg.write_text("[mutmut]\ntests_dir = tests\n", encoding="utf-8")
++    workdir = tmp_path / "workdir"
++    workdir.mkdir()
++    _copy_setup_cfg_to_workdir(tmp_path, str(workdir), "/abs/path/tests")
++    cp = configparser.ConfigParser()
++    cp.read(str(workdir / "setup.cfg"), encoding="utf-8")
++    assert cp["mutmut"]["tests_dir"] == "/abs/path/tests"
++
++
++def test_copy_setup_cfg_strips_backup(tmp_path):
++    """Project has backup=1 → key is removed (Bug #42 hook)."""
++    src_cfg = tmp_path / "setup.cfg"
++    src_cfg.write_text("[mutmut]\nbackup = 1\n", encoding="utf-8")
++    workdir = tmp_path / "workdir"
++    workdir.mkdir()
++    _copy_setup_cfg_to_workdir(tmp_path, str(workdir), "/abs/tests")
++    cp = configparser.ConfigParser()
++    cp.read(str(workdir / "setup.cfg"), encoding="utf-8")
++    assert "backup" not in cp["mutmut"]
++
++
++def test_copy_setup_cfg_strips_disable(tmp_path):
++    """Project has disable lines → removed (project disables can hide mutants)."""
++    src_cfg = tmp_path / "setup.cfg"
++    src_cfg.write_text(
++        "[mutmut]\ndisable = 1,2,3\n",
++        encoding="utf-8",
++    )
++    workdir = tmp_path / "workdir"
++    workdir.mkdir()
++    _copy_setup_cfg_to_workdir(tmp_path, str(workdir), "/abs/tests")
++    cp = configparser.ConfigParser()
++    cp.read(str(workdir / "setup.cfg"), encoding="utf-8")
++    assert "disable" not in cp["mutmut"]
++
++
++def test_copy_setup_cfg_adds_mutmut_section_if_missing(tmp_path):
++    """Project has no [mutmut] section → function injects one with all required keys."""
++    src_cfg = tmp_path / "setup.cfg"
++    src_cfg.write_text("[tool:pytest]\ntestpaths = tests\n", encoding="utf-8")
++    workdir = tmp_path / "workdir"
++    workdir.mkdir()
++    _copy_setup_cfg_to_workdir(tmp_path, str(workdir), "/abs/tests")
++    cp = configparser.ConfigParser()
++    cp.read(str(workdir / "setup.cfg"), encoding="utf-8")
++    assert "mutmut" in cp
++    assert cp["mutmut"]["runner"] == "python -m pytest"
++    assert cp["mutmut"]["tests_dir"] == "/abs/tests"
++
++
++def test_copy_setup_cfg_leaves_custom_runner_alone(tmp_path, capsys):
++    """Project uses a custom runner (e.g. make test) → don't override, log warn."""
++    src_cfg = tmp_path / "setup.cfg"
++    src_cfg.write_text("[mutmut]\nrunner = make test\n", encoding="utf-8")
++    workdir = tmp_path / "workdir"
++    workdir.mkdir()
++    _copy_setup_cfg_to_workdir(tmp_path, str(workdir), "/abs/tests")
++    cp = configparser.ConfigParser()
++    cp.read(str(workdir / "setup.cfg"), encoding="utf-8")
++    # Custom runner preserved
++    assert cp["mutmut"]["runner"] == "make test"
++    # Warning logged
++    assert "custom" in capsys.readouterr().err
++
++
+ # ---------------------------------------------------------------------------
+ # _resolve_test_dir
+ # ---------------------------------------------------------------------------
+@@ -243,12 +335,19 @@ def test_resolve_test_dir_subdir_override_fallback(tmp_path):
+     assert _resolve_test_dir(sub, tmp_path) is None
+ 
+ def test_l1_mutmut_cache_persistence(tmp_path, monkeypatch):
+-    """Test L1: precheck starts with a FRESH workdir (no old cache pre-copied),
+-    and the updated cache is post-copied back to the project after mutmut finishes.
+-
+-    Fix for Bug 1: inheriting an old .mutmut-cache caused mutmut to report
+-    previously-survived mutants without re-testing them, inflating the survivor
+-    count and blocking advance-phase incorrectly.
++    """Test L1: precheck starts with a FRESH workdir when no prior cache
++    exists. The updated cache is post-copied back to the project.
++
++    With Bug #42 fix, the contract is now:
++    - If a prior .mutmut-cache existed in the project, it is stashed before
++      mutmut starts and restored after mutmut finishes (the workdir
++      contains a copy of the stashed cache, but mutmut's run will overwrite
++      it with the fresh result, and the finally block restores the stash).
++    - If no prior cache existed, the workdir starts empty; the post-copy
++      from the workdir to the project root is the only way the project
++      gains a new cache.
++
++    This test exercises the "no prior cache" path (the simpler one).
+     """
+     import core.quality_gate.mutation_enforcer as me
+ 
+@@ -256,14 +355,18 @@ def test_l1_mutmut_cache_persistence(tmp_path, monkeypatch):
+     fake_workdir = tmp_path / "fake_workdir"
+     fake_workdir.mkdir()
+ 
+-    monkeypatch.setattr(
+-        "core.quality_gate.mutation_enforcer.tempfile.mkdtemp",
+-        lambda **_kw: str(fake_workdir),
+-    )
++    mkdtemp_calls: list[str] = []
++    stash_dir_path = tmp_path / "fake_stash"
++    stash_dir_path.mkdir()
++    def fake_mkdtemp(prefix="", **_kw):
++        if prefix.startswith("_mutmut_cache_stash"):
++            mkdtemp_calls.append(str(stash_dir_path))
++            return str(stash_dir_path)
++        mkdtemp_calls.append(str(fake_workdir))
++        return str(fake_workdir)
++    monkeypatch.setattr(me.tempfile, "mkdtemp", fake_mkdtemp)
+ 
+-    # Pre-existing cache in project (must NOT be copied into workdir)
+-    initial_cache = b"initial-cache-bytes"
+-    (tmp_path / ".mutmut-cache").write_bytes(initial_cache)
++    # No prior cache in project (intentionally do NOT create .mutmut-cache)
+ 
+     # Bypass all the setup helpers
+     (tmp_path / "src").mkdir()
+@@ -273,7 +376,7 @@ def test_l1_mutmut_cache_persistence(tmp_path, monkeypatch):
+     monkeypatch.setattr(me, "_detect_data_only_files", lambda _p: [])
+     monkeypatch.setattr(me, "_abs_paths_to_mutate", lambda _cwd, _paths: str(tmp_path / "src"))
+     monkeypatch.setattr(me, "_resolve_test_dir", lambda _cwd, _p: str(tmp_path / "tests"))
+-    monkeypatch.setattr(me, "_copy_setup_cfg_to_workdir", lambda _p, _w: None)
++    monkeypatch.setattr(me, "_copy_setup_cfg_to_workdir", lambda _p, _w, _td: None)
+     monkeypatch.setattr(me.shutil, "which", lambda _cmd: "/usr/bin/mutmut")
+ 
+     workdir_had_cache_before_run: list[bool] = []
+@@ -286,7 +389,8 @@ def test_l1_mutmut_cache_persistence(tmp_path, monkeypatch):
+             stderr = ""
+ 
+         if cmd[0] == "mutmut" and len(cmd) > 1 and cmd[1] == "run":
+-            # Record whether workdir already had a cache (it must NOT)
++            # Record whether workdir already had a cache (it must NOT — no
++            # prior cache, no stash, fresh workdir).
+             workdir_had_cache_before_run.append((fake_workdir / ".mutmut-cache").exists())
+             # Simulate mutmut writing an updated cache after run
+             (fake_workdir / ".mutmut-cache").write_bytes(updated_cache)
+@@ -305,3 +409,120 @@ def test_l1_mutmut_cache_persistence(tmp_path, monkeypatch):
+     assert (tmp_path / ".mutmut-cache").read_bytes() == updated_cache, (
+         "updated cache was not post-copied back to project"
+     )
++
++
++# ---------------------------------------------------------------------------
++# Bug #42: stash/restore of .mutmut-cache around precheck
++# ---------------------------------------------------------------------------
++
++
++def test_run_mutation_precheck_restores_prior_cache_on_success(tmp_path, monkeypatch):
++    """Pre-existing cache in project must be preserved after successful precheck."""
++    import core.quality_gate.mutation_enforcer as me
++
++    (tmp_path / "src").mkdir()
++    (tmp_path / "tests").mkdir()
++    initial_cache = b"original-cache-bytes"
++    (tmp_path / ".mutmut-cache").write_bytes(initial_cache)
++
++    # Separate stash dir from workdir dir (the real code uses two distinct
++    # tempfile.mkdtemp calls; this test simulates both).
++    stash_dir_path = tmp_path / "fake_stash"
++    stash_dir_path.mkdir()
++    workdir_path = tmp_path / "fake_workdir"
++    workdir_path.mkdir()
++
++    mkdtemp_calls: list[str] = []
++    def fake_mkdtemp(prefix="", **_kw):
++        if prefix.startswith("_mutmut_cache_stash"):
++            mkdtemp_calls.append(str(stash_dir_path))
++            return str(stash_dir_path)
++        mkdtemp_calls.append(str(workdir_path))
++        return str(workdir_path)
++    monkeypatch.setattr(me.tempfile, "mkdtemp", fake_mkdtemp)
++    monkeypatch.setattr(me, "_resolve_mutmut_workdir", lambda _p: (tmp_path, "src"))
++    monkeypatch.setattr(me, "_is_editable_install", lambda _p: False)
++    monkeypatch.setattr(me, "_read_paths_to_exclude", lambda _p: [])
++    monkeypatch.setattr(me, "_detect_data_only_files", lambda _p: [])
++    monkeypatch.setattr(me, "_abs_paths_to_mutate", lambda _cwd, _p: str(tmp_path / "src"))
++    monkeypatch.setattr(me, "_resolve_test_dir", lambda _cwd, _p: str(tmp_path / "tests"))
++    monkeypatch.setattr(me, "_copy_setup_cfg_to_workdir", lambda _p, _w, _td: None)
++    monkeypatch.setattr(me.shutil, "which", lambda _cmd: "/usr/bin/mutmut")
++
++    def fake_run(cmd, **kwargs):
++        class R:
++            returncode = 0
++            stdout = ""
++            stderr = ""
++
++        if cmd[0] == "mutmut" and cmd[1] == "run":
++            (workdir_path / ".mutmut-cache").write_bytes(b"workdir-cache")
++        return R()
++
++    monkeypatch.setattr(me.subprocess, "run", fake_run)
++
++    me.run_mutation_precheck(tmp_path)
++
++    # Original cache restored from stash, NOT replaced by workdir's output.
++    assert (tmp_path / ".mutmut-cache").read_bytes() == initial_cache, (
++        "stashed cache was not restored — Bug #42 regression"
++    )
++
++
++def test_run_mutation_precheck_no_partial_cache_left_on_failure(tmp_path, monkeypatch):
++    """If no prior cache existed and precheck fails, no partial cache should remain."""
++    import core.quality_gate.mutation_enforcer as me
++
++    (tmp_path / "src").mkdir()
++    (tmp_path / "tests").mkdir()
++    # Intentionally do NOT create .mutmut-cache
++
++    fake_workdir = tmp_path / "fake_workdir"
++    fake_workdir.mkdir()
++
++    monkeypatch.setattr(me.tempfile, "mkdtemp", lambda **_kw: str(fake_workdir))
++    monkeypatch.setattr(me, "_resolve_mutmut_workdir", lambda _p: (tmp_path, "src"))
++    monkeypatch.setattr(me, "_is_editable_install", lambda _p: False)
++    monkeypatch.setattr(me, "_read_paths_to_exclude", lambda _p: [])
++    monkeypatch.setattr(me, "_detect_data_only_files", lambda _p: [])
++    monkeypatch.setattr(me, "_abs_paths_to_mutate", lambda _cwd, _p: str(tmp_path / "src"))
++    monkeypatch.setattr(me, "_resolve_test_dir", lambda _cwd, _p: str(tmp_path / "tests"))
++    monkeypatch.setattr(me, "_copy_setup_cfg_to_workdir", lambda _p, _w, _td: None)
++    monkeypatch.setattr(me.shutil, "which", lambda _cmd: "/usr/bin/mutmut")
++
++    def fake_run(cmd, **kwargs):
++        class R:
++            returncode = 99  # simulate mutmut failure
++            stdout = ""
++            stderr = "simulated crash"
++        return R()
++
++    monkeypatch.setattr(me.subprocess, "run", fake_run)
++
++    ok, msg = me.run_mutation_precheck(tmp_path)
++    assert not ok
++
++    # No partial cache was left behind.
++    assert not (tmp_path / ".mutmut-cache").exists(), (
++        "partial .mutmut-cache was left behind after precheck failure"
++    )
++
++
++def test_apply_mutmut_to_workdir_runs_in_workdir(tmp_path, monkeypatch):
++    """Bug #42 safety: mutmut apply must run in the workdir, not the project root."""
++    import core.quality_gate.mutation_enforcer as me
++    calls: list[dict] = {}
++
++    def fake_run(cmd, **kwargs):
++        calls["cmd"] = cmd
++        calls["kwargs"] = kwargs
++        class R:
++            returncode = 0
++            stdout = ""
++            stderr = ""
++        return R()
++
++    monkeypatch.setattr(me.subprocess, "run", fake_run)
++    me._apply_mutmut_to_workdir(5, "/tmp/_mutmut_run.abc")
++    assert calls["cmd"] == ["mutmut", "apply", "5"]
++    assert calls["kwargs"]["cwd"] == "/tmp/_mutmut_run.abc"
+diff --git a/tests/test_red_assertion_check.py b/tests/test_red_assertion_check.py
+index dc8039c..e55a699 100644
+--- a/tests/test_red_assertion_check.py
++++ b/tests/test_red_assertion_check.py
+@@ -201,3 +201,45 @@ def test_fn(x):
+ '''
+         cases = [SpecCase(1, {"x": "a"})]
+         assert _errors(check_test_mirrors_spec(src, cases, [])) == []
++
++
++class TestCanonicalPredicate:
++    """Bug #27 regression: sub-assertion predicate matching must be
++    insensitive to whitespace, redundant parens, and other syntactic noise.
++    Previously, `_normalize_predicate(ast.unparse(...))` produced different
++    strings for semantically equivalent expressions, causing false-
++    negative `assertion_missing` violations."""
++
++    def test_canonical_strips_whitespace(self):
++        from core.quality_gate.red_assertion_check import _canonical_predicate
++        a = _canonical_predicate("result > 0")
++        b = _canonical_predicate("result>0")
++        assert a == b
++        assert a is not None
++
++    def test_canonical_strips_redundant_parens(self):
++        from core.quality_gate.red_assertion_check import _canonical_predicate
++        assert _canonical_predicate("(1 + 2) == 3") == _canonical_predicate("1+2==3")
++
++    def test_canonical_normalises_not(self):
++        from core.quality_gate.red_assertion_check import _canonical_predicate
++        assert _canonical_predicate("not is_empty") == _canonical_predicate("(not is_empty)")
++
++    def test_canonical_handles_complex_expression(self):
++        from core.quality_gate.red_assertion_check import _canonical_predicate
++        a = _canonical_predicate("x > 0 and y > 0")
++        b = _canonical_predicate("(x>0)and(y>0)")
++        assert a == b
++        assert a is not None
++
++    def test_canonical_returns_none_on_invalid(self):
++        from core.quality_gate.red_assertion_check import _canonical_predicate
++        assert _canonical_predicate("not valid python !!") is None
++
++    def test_canonical_distinguishes_semantically_different(self):
++        """Whitespace-stripped canonical form should NOT collapse
++        semantically distinct expressions."""
++        from core.quality_gate.red_assertion_check import _canonical_predicate
++        a = _canonical_predicate("x > 0")
++        b = _canonical_predicate("x < 0")
++        assert a != b

@@ -143,7 +143,7 @@ def _graph_node_count(repo: str) -> int:
     if not _crg_available():
         return _cli_node_count(repo)
     try:
-        stats = _crg_stats(repo_root=repo)
+        stats = _crg_stats(repo_root=repo)  # type: ignore[reportOptionalCall]
         return int(stats.get("total_nodes", stats.get("node_count", 0)))
     except Exception:
         return -1
@@ -167,7 +167,7 @@ def ensure_ready(repo: str) -> dict:
             file=sys.stderr,
         )
         try:
-            _crg_build(repo_root=repo, full_rebuild=True)
+            _crg_build(repo_root=repo, full_rebuild=True)  # type: ignore[reportOptionalCall]
             node_count = _graph_node_count(repo)
             action = "auto_built"
             print(f"[CRG] Graph built: {node_count} nodes.", file=sys.stderr)
@@ -208,7 +208,7 @@ def context(repo: str) -> dict:
             return {"error": ready["reason"]}
 
     try:
-        result = _crg_minimal_context(
+        result = _crg_minimal_context(  # type: ignore[reportOptionalCall]
             task="quality evaluation", repo_root=repo
         )
         return result
@@ -244,7 +244,7 @@ def blast_radius(repo: str, base: str = "HEAD") -> dict:
         }
 
     try:
-        data = _crg_detect_changes(
+        data = _crg_detect_changes(  # type: ignore[reportOptionalCall]
             base=base, repo_root=repo, detail_level="standard"
         )
         return {
@@ -273,7 +273,7 @@ def update(repo: str) -> dict:
         return ({"status": "updated"} if _cli_run(repo, "update", timeout=300)
                 else {"error": "CRG update failed (CLI)"})
     try:
-        _crg_build(repo_root=repo, full_rebuild=False)
+        _crg_build(repo_root=repo, full_rebuild=False)  # type: ignore[reportOptionalCall]
         return {"status": "updated"}
     except Exception as e:
         return {"error": str(e)[:200]}

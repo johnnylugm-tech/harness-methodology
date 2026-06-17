@@ -36,7 +36,7 @@ def extract_minimal_viable_context(
                 max_line = start
                 for child in ast.walk(node):
                     if hasattr(child, "lineno"):
-                        max_line = max(max_line, child.lineno)
+                        max_line = max(max_line, child.lineno)  # type: ignore[reportAttributeAccessIssue]
                 end = max_line
             
             if start <= int(error_line) <= end:

@@ -5607,7 +5607,7 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                     f"  [P2→P3] manifest regeneration FAILED: {_m}\n"
                     f"    P3 entry will use stale P1 manifest. Fix and run:\n"
                     f"    python3 harness_cli.py manifest "
-                    f"--fr-ids {' '.join(_fr_ids)} --sad {sad_path}",
+                    f"--fr-ids {' '.join(_fr_ids)} --sad {sad_path}",  # type: ignore[reportPossiblyUnboundVariable]
                     file=sys.stderr,
                 )
         else:

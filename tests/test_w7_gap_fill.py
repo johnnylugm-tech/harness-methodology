@@ -72,7 +72,7 @@ class TestClaimsVerifier:
 
 # ─── SpecTrackingChecker ──────────────────────────────────────────────────────
 
-def _make_spec_tracking(tmp_path, content: str = None) -> Path:
+def _make_spec_tracking(tmp_path, content: str = None) -> Path:  # type: ignore[reportArgumentType]
     if content is None:
         content = """# Specification Tracking
 

@@ -31,12 +31,12 @@ def _import_extract_sab_from_sad():
     except ImportError:
         pass
     try:
-        from quality_gate.sab_parser import extract_sab_from_sad
+        from quality_gate.sab_parser import extract_sab_from_sad  # type: ignore[reportMissingImports]
         return extract_sab_from_sad
     except ImportError:
         pass
     try:
-        from sab_parser import extract_sab_from_sad
+        from sab_parser import extract_sab_from_sad  # type: ignore[reportMissingImports]
         return extract_sab_from_sad
     except ImportError:
         raise ImportError(

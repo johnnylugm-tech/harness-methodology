@@ -781,12 +781,12 @@ class TestCmdPushMilestone:
         class Args:
             pass
         a = Args()
-        a.type = milestone_type
-        a.project = str(tmp_path)
-        a.fr_ids = kwargs.get("fr_ids", "")
-        a.fr_done = kwargs.get("fr_done")
-        a.fr_total = kwargs.get("fr_total")
-        a.no_git = True
+        a.type = milestone_type  # type: ignore[reportAttributeAccessIssue]
+        a.project = str(tmp_path)  # type: ignore[reportAttributeAccessIssue]
+        a.fr_ids = kwargs.get("fr_ids", "")  # type: ignore[reportAttributeAccessIssue]
+        a.fr_done = kwargs.get("fr_done")  # type: ignore[reportAttributeAccessIssue]
+        a.fr_total = kwargs.get("fr_total")  # type: ignore[reportAttributeAccessIssue]
+        a.no_git = True  # type: ignore[reportAttributeAccessIssue]
 
         # Disable actual git operations
         captured = io.StringIO()
@@ -794,7 +794,7 @@ class TestCmdPushMilestone:
         monkeypatch.setattr("sys.exit", lambda code: code)
         monkeypatch.setattr("harness_cli._make_git", lambda args, project: GitStrategy(project, enabled=False))
         try:
-            exit_code = cmd_push_milestone(a)
+            exit_code = cmd_push_milestone(a)  # type: ignore[reportArgumentType]
         except SystemExit as e:
             exit_code = e.code
         return exit_code, captured.getvalue()
@@ -932,8 +932,8 @@ class TestCmdAdvancePhase:
                     lambda: type("_P", (), {"composite_threshold": lambda s, p: 75.0})(),
                 )
         a = _Args()
-        a.completed_phase = completed
-        a.project = str(tmp_path)
+        a.completed_phase = completed  # type: ignore[reportAttributeAccessIssue]
+        a.project = str(tmp_path)  # type: ignore[reportAttributeAccessIssue]
 
         captured = io.StringIO()
         monkeypatch.setattr("sys.stdout", captured)
@@ -952,7 +952,7 @@ class TestCmdAdvancePhase:
             monkeypatch.setenv("HARNESS_NO_GIT", kwargs["harness_no_git"])
 
         try:
-            exit_code = cmd_advance_phase(a)
+            exit_code = cmd_advance_phase(a)  # type: ignore[reportArgumentType]
         except SystemExit as e:
             exit_code = e.code
         return exit_code, captured.getvalue()
@@ -994,13 +994,13 @@ class TestCmdAdvancePhase:
                 pass
             r = R()
             if "add" in cmd:
-                r.returncode = 1
-                r.stderr = "fatal: not a git repository"
-                r.stdout = ""
+                r.returncode = 1  # type: ignore[reportAttributeAccessIssue]
+                r.stderr = "fatal: not a git repository"  # type: ignore[reportAttributeAccessIssue]
+                r.stdout = ""  # type: ignore[reportAttributeAccessIssue]
             else:
-                r.returncode = 0
-                r.stdout = ""
-                r.stderr = ""
+                r.returncode = 0  # type: ignore[reportAttributeAccessIssue]
+                r.stdout = ""  # type: ignore[reportAttributeAccessIssue]
+                r.stderr = ""  # type: ignore[reportAttributeAccessIssue]
             return r
 
         exit_code, output = self._call_advance_phase(
@@ -1020,13 +1020,13 @@ class TestCmdAdvancePhase:
                 pass
             r = R()
             if "commit" in cmd:
-                r.returncode = 1
-                r.stdout = "nothing to commit, working tree clean"
-                r.stderr = ""
+                r.returncode = 1  # type: ignore[reportAttributeAccessIssue]
+                r.stdout = "nothing to commit, working tree clean"  # type: ignore[reportAttributeAccessIssue]
+                r.stderr = ""  # type: ignore[reportAttributeAccessIssue]
             else:
-                r.returncode = 0
-                r.stdout = ""
-                r.stderr = ""
+                r.returncode = 0  # type: ignore[reportAttributeAccessIssue]
+                r.stdout = ""  # type: ignore[reportAttributeAccessIssue]
+                r.stderr = ""  # type: ignore[reportAttributeAccessIssue]
             return r
 
         exit_code, output = self._call_advance_phase(
@@ -1043,13 +1043,13 @@ class TestCmdAdvancePhase:
                 pass
             r = R()
             if "commit" in cmd:
-                r.returncode = 1
-                r.stdout = ""
-                r.stderr = "error: nothing to commit"
+                r.returncode = 1  # type: ignore[reportAttributeAccessIssue]
+                r.stdout = ""  # type: ignore[reportAttributeAccessIssue]
+                r.stderr = "error: nothing to commit"  # type: ignore[reportAttributeAccessIssue]
             else:
-                r.returncode = 0
-                r.stdout = ""
-                r.stderr = ""
+                r.returncode = 0  # type: ignore[reportAttributeAccessIssue]
+                r.stdout = ""  # type: ignore[reportAttributeAccessIssue]
+                r.stderr = ""  # type: ignore[reportAttributeAccessIssue]
             return r
 
         exit_code, output = self._call_advance_phase(
@@ -1067,13 +1067,13 @@ class TestCmdAdvancePhase:
                 pass
             r = R()
             if "commit" in cmd:
-                r.returncode = 128
-                r.stdout = ""
-                r.stderr = "fatal: unable to create commit"
+                r.returncode = 128  # type: ignore[reportAttributeAccessIssue]
+                r.stdout = ""  # type: ignore[reportAttributeAccessIssue]
+                r.stderr = "fatal: unable to create commit"  # type: ignore[reportAttributeAccessIssue]
             else:
-                r.returncode = 0
-                r.stdout = ""
-                r.stderr = ""
+                r.returncode = 0  # type: ignore[reportAttributeAccessIssue]
+                r.stdout = ""  # type: ignore[reportAttributeAccessIssue]
+                r.stderr = ""  # type: ignore[reportAttributeAccessIssue]
             return r
 
         exit_code, output = self._call_advance_phase(
@@ -1138,8 +1138,8 @@ class TestCmdAdvancePhase:
         class Args:
             pass
         a = Args()
-        a.completed_phase = 3
-        a.project = str(tmp_path)
+        a.completed_phase = 3  # type: ignore[reportAttributeAccessIssue]
+        a.project = str(tmp_path)  # type: ignore[reportAttributeAccessIssue]
 
         captured = io.StringIO()
         monkeypatch.setattr("sys.stdout", captured)
@@ -1148,7 +1148,7 @@ class TestCmdAdvancePhase:
         monkeypatch.setattr("harness.handover_generator.HandoverGenerator.write", fake_write)
         monkeypatch.setattr("harness_cli._advance_prechecks", lambda project, phase: 0)
 
-        exit_code = cmd_advance_phase(a)
+        exit_code = cmd_advance_phase(a)  # type: ignore[reportArgumentType]
         assert exit_code == 0
         assert write_kwargs.get("checkpoint_id", "").startswith("P4-entry")
         assert "3/3 FRs" in write_kwargs.get("task_background", "")
@@ -1188,8 +1188,8 @@ class TestCmdAdvancePhase:
         class Args:
             pass
         a = Args()
-        a.completed_phase = 3
-        a.project = str(tmp_path)
+        a.completed_phase = 3  # type: ignore[reportAttributeAccessIssue]
+        a.project = str(tmp_path)  # type: ignore[reportAttributeAccessIssue]
 
         captured = io.StringIO()
         monkeypatch.setattr("sys.stdout", captured)
@@ -1198,7 +1198,7 @@ class TestCmdAdvancePhase:
         monkeypatch.setattr("harness.handover_generator.HandoverGenerator.write", fake_write)
         monkeypatch.setattr("harness_cli._advance_prechecks", lambda project, phase: 0)
 
-        exit_code = cmd_advance_phase(a)
+        exit_code = cmd_advance_phase(a)  # type: ignore[reportArgumentType]
         assert exit_code == 0
         # gate1 is null → fr_done should be 0, no AttributeError raised
         assert "0/2 FRs" in write_kwargs.get("task_background", "")
@@ -1306,12 +1306,12 @@ class TestCmdAdvancePhase:
             # LocalFetcher calls ["git", "-C", root, "ls-files", "--error-unmatch", path]
             if "ls-files" in cmd and "--error-unmatch" in cmd:
                 r = R()
-                r.returncode = 1  # file not tracked
+                r.returncode = 1  # file not tracked  # type: ignore[reportAttributeAccessIssue]
                 return r
             r = R()
-            r.returncode = 0
-            r.stdout = ""
-            r.stderr = ""
+            r.returncode = 0  # type: ignore[reportAttributeAccessIssue]
+            r.stdout = ""  # type: ignore[reportAttributeAccessIssue]
+            r.stderr = ""  # type: ignore[reportAttributeAccessIssue]
             return r
 
         exit_code, output = self._call_advance_phase(
@@ -1590,17 +1590,17 @@ class TestDispatch:
         class Args:
             pass
         a = Args()
-        a.project = str(tmp_path)
-        a.fr_id = "FR-01"
-        a.role = "developer"
-        a.prompt = "Implement FR-01"
-        a.phase = 3
-        a.no_persona = False
-        a.timeout = 300
+        a.project = str(tmp_path)  # type: ignore[reportAttributeAccessIssue]
+        a.fr_id = "FR-01"  # type: ignore[reportAttributeAccessIssue]
+        a.role = "developer"  # type: ignore[reportAttributeAccessIssue]
+        a.prompt = "Implement FR-01"  # type: ignore[reportAttributeAccessIssue]
+        a.phase = 3  # type: ignore[reportAttributeAccessIssue]
+        a.no_persona = False  # type: ignore[reportAttributeAccessIssue]
+        a.timeout = 300  # type: ignore[reportAttributeAccessIssue]
 
         captured = io.StringIO()
         monkeypatch.setattr("sys.stdout", captured)
-        exit_code = cmd_dispatch(a)
+        exit_code = cmd_dispatch(a)  # type: ignore[reportArgumentType]
         assert exit_code == 0
         assert "FR-01 | developer | success" in captured.getvalue()
         # developer: no persona override, full turns
@@ -1622,17 +1622,17 @@ class TestDispatch:
         class Args:
             pass
         a = Args()
-        a.project = str(tmp_path)
-        a.fr_id = "FR-01"
-        a.role = "reviewer"
-        a.prompt = "Review FR-01"
-        a.phase = 3
-        a.no_persona = False
-        a.timeout = 300
+        a.project = str(tmp_path)  # type: ignore[reportAttributeAccessIssue]
+        a.fr_id = "FR-01"  # type: ignore[reportAttributeAccessIssue]
+        a.role = "reviewer"  # type: ignore[reportAttributeAccessIssue]
+        a.prompt = "Review FR-01"  # type: ignore[reportAttributeAccessIssue]
+        a.phase = 3  # type: ignore[reportAttributeAccessIssue]
+        a.no_persona = False  # type: ignore[reportAttributeAccessIssue]
+        a.timeout = 300  # type: ignore[reportAttributeAccessIssue]
 
         captured = io.StringIO()
         monkeypatch.setattr("sys.stdout", captured)
-        exit_code = cmd_dispatch(a)
+        exit_code = cmd_dispatch(a)  # type: ignore[reportArgumentType]
         assert exit_code == 0
         # reviewer: persona skipped and turns capped at 3
         assert _captured_kwargs.get("persona_override") == ""
@@ -1653,17 +1653,17 @@ class TestDispatch:
         class Args:
             pass
         a = Args()
-        a.project = str(tmp_path)
-        a.fr_id = "FR-02"
-        a.role = "reviewer"
-        a.prompt = "Review FR-02"
-        a.phase = 3
-        a.no_persona = False
-        a.timeout = 300
+        a.project = str(tmp_path)  # type: ignore[reportAttributeAccessIssue]
+        a.fr_id = "FR-02"  # type: ignore[reportAttributeAccessIssue]
+        a.role = "reviewer"  # type: ignore[reportAttributeAccessIssue]
+        a.prompt = "Review FR-02"  # type: ignore[reportAttributeAccessIssue]
+        a.phase = 3  # type: ignore[reportAttributeAccessIssue]
+        a.no_persona = False  # type: ignore[reportAttributeAccessIssue]
+        a.timeout = 300  # type: ignore[reportAttributeAccessIssue]
 
         captured = io.StringIO()
         monkeypatch.setattr("sys.stdout", captured)
-        exit_code = cmd_dispatch(a)
+        exit_code = cmd_dispatch(a)  # type: ignore[reportArgumentType]
         assert exit_code == 1
         # reviewer: persona skipped and turns capped at 3
         assert _captured_kwargs.get("persona_override") == ""
@@ -1685,17 +1685,17 @@ class TestDispatch:
         class Args:
             pass
         a = Args()
-        a.project = str(tmp_path)
-        a.fr_id = "SRS.md"
-        a.role = "BUSINESS_ANALYST"
-        a.prompt = "Review business alignment"
-        a.phase = 1
-        a.no_persona = False
-        a.timeout = 300
+        a.project = str(tmp_path)  # type: ignore[reportAttributeAccessIssue]
+        a.fr_id = "SRS.md"  # type: ignore[reportAttributeAccessIssue]
+        a.role = "BUSINESS_ANALYST"  # type: ignore[reportAttributeAccessIssue]
+        a.prompt = "Review business alignment"  # type: ignore[reportAttributeAccessIssue]
+        a.phase = 1  # type: ignore[reportAttributeAccessIssue]
+        a.no_persona = False  # type: ignore[reportAttributeAccessIssue]
+        a.timeout = 300  # type: ignore[reportAttributeAccessIssue]
 
         captured = io.StringIO()
         monkeypatch.setattr("sys.stdout", captured)
-        exit_code = cmd_dispatch(a)
+        exit_code = cmd_dispatch(a)  # type: ignore[reportArgumentType]
         assert exit_code == 0
         # BUSINESS_ANALYST: persona skipped and turns capped at 3 (same as reviewer)
         assert _captured_kwargs.get("persona_override") == ""
@@ -1718,17 +1718,17 @@ class TestDispatch:
         class Args:
             pass
         a = Args()
-        a.project = str(tmp_path)
-        a.fr_id = "FR-03"
-        a.role = "developer"
-        a.prompt = "Implement FR-03"
-        a.phase = 3
-        a.no_persona = False
-        a.timeout = 300
+        a.project = str(tmp_path)  # type: ignore[reportAttributeAccessIssue]
+        a.fr_id = "FR-03"  # type: ignore[reportAttributeAccessIssue]
+        a.role = "developer"  # type: ignore[reportAttributeAccessIssue]
+        a.prompt = "Implement FR-03"  # type: ignore[reportAttributeAccessIssue]
+        a.phase = 3  # type: ignore[reportAttributeAccessIssue]
+        a.no_persona = False  # type: ignore[reportAttributeAccessIssue]
+        a.timeout = 300  # type: ignore[reportAttributeAccessIssue]
 
         captured = io.StringIO()
         monkeypatch.setattr("sys.stdout", captured)
-        exit_code = cmd_dispatch(a)
+        exit_code = cmd_dispatch(a)  # type: ignore[reportArgumentType]
         assert exit_code == 0
         assert "complete" in captured.getvalue()
         # developer: no persona override, full turns
@@ -1751,17 +1751,17 @@ class TestDispatch:
         class Args:
             pass
         a = Args()
-        a.project = str(tmp_path)
-        a.fr_id = "FR-04"
-        a.role = "developer"
-        a.prompt = "Implement FR-04"
-        a.phase = 3
-        a.no_persona = False
-        a.timeout = 300
+        a.project = str(tmp_path)  # type: ignore[reportAttributeAccessIssue]
+        a.fr_id = "FR-04"  # type: ignore[reportAttributeAccessIssue]
+        a.role = "developer"  # type: ignore[reportAttributeAccessIssue]
+        a.prompt = "Implement FR-04"  # type: ignore[reportAttributeAccessIssue]
+        a.phase = 3  # type: ignore[reportAttributeAccessIssue]
+        a.no_persona = False  # type: ignore[reportAttributeAccessIssue]
+        a.timeout = 300  # type: ignore[reportAttributeAccessIssue]
 
         captured = io.StringIO()
         monkeypatch.setattr("sys.stdout", captured)
-        exit_code = cmd_dispatch(a)
+        exit_code = cmd_dispatch(a)  # type: ignore[reportArgumentType]
         assert exit_code == 0
         # developer: no persona override, full turns
         assert _captured_kwargs.get("persona_override") is None
@@ -1782,10 +1782,10 @@ class TestFinalizeGate1:
         class Args:
             pass
         a = Args()
-        a.gate = gate
-        a.phase = phase
-        a.project = str(tmp_path)
-        a.fr_id = fr_id
+        a.gate = gate  # type: ignore[reportAttributeAccessIssue]
+        a.phase = phase  # type: ignore[reportAttributeAccessIssue]
+        a.project = str(tmp_path)  # type: ignore[reportAttributeAccessIssue]
+        a.fr_id = fr_id  # type: ignore[reportAttributeAccessIssue]
 
         # Write gate1_result.json (needed for bridge.finalize_gate)
         sessi = tmp_path / ".sessi-work"
@@ -1830,7 +1830,7 @@ class TestFinalizeGate1:
         captured = io.StringIO()
         monkeypatch.setattr("sys.stdout", captured)
         try:
-            exit_code = cmd_finalize_gate(a)
+            exit_code = cmd_finalize_gate(a)  # type: ignore[reportArgumentType]
         except SystemExit as e:
             exit_code = e.code
         return exit_code, captured.getvalue()
@@ -1844,10 +1844,10 @@ class TestFinalizeGate1:
         class Args:
             pass
         a = Args()
-        a.gate = 1
-        a.phase = 3
-        a.project = str(tmp_path)
-        a.fr_id = "FR-01"
+        a.gate = 1  # type: ignore[reportAttributeAccessIssue]
+        a.phase = 3  # type: ignore[reportAttributeAccessIssue]
+        a.project = str(tmp_path)  # type: ignore[reportAttributeAccessIssue]
+        a.fr_id = "FR-01"  # type: ignore[reportAttributeAccessIssue]
 
         # Write gate1_result.json but intentionally NO sentinel
         sessi = tmp_path / ".sessi-work"
@@ -1871,7 +1871,7 @@ class TestFinalizeGate1:
         captured = io.StringIO()
         monkeypatch.setattr("sys.stdout", captured)
         try:
-            exit_code = cmd_finalize_gate(a)
+            exit_code = cmd_finalize_gate(a)  # type: ignore[reportArgumentType]
         except SystemExit as e:
             exit_code = e.code
         assert exit_code == 1
@@ -1951,7 +1951,7 @@ class TestFinalizeGate1:
         monkeypatch.setattr("sys.stdout", captured)
         try:
             exit_code = cmd_finalize_gate(
-                type("Args", (), {
+                type("Args", (), {  # type: ignore[reportArgumentType]
                     "gate": 1, "phase": 3, "project": str(tmp_path), "fr_id": "FR-01",
                 })()
             )

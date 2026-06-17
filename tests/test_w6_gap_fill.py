@@ -939,31 +939,31 @@ class TestIntegratedStagePassGenerator:
     def test_run_step1_calls_enforcer(self, tmp_path):
         gen = self._patched_gen(tmp_path)
         mock_result = MagicMock(passed=True, violations=[], block_checks={})
-        gen.enforcer.run.return_value = mock_result
-        gen.enforcer.check_constitution.return_value = {"score": 90.0, "passed": True}
+        gen.enforcer.run.return_value = mock_result  # type: ignore[reportAttributeAccessIssue]
+        gen.enforcer.check_constitution.return_value = {"score": 90.0, "passed": True}  # type: ignore[reportAttributeAccessIssue]
         passed = gen.run_step1_5w1h_scan()
         assert passed is True
-        gen.enforcer.run.assert_called_once_with(level="BLOCK")
+        gen.enforcer.run.assert_called_once_with(level="BLOCK")  # type: ignore[reportAttributeAccessIssue]
 
     def test_run_step1_failed_enforcer(self, tmp_path):
         gen = self._patched_gen(tmp_path)
         mock_result = MagicMock(passed=False, violations=[("violation msg", "fix it")], block_checks={})
-        gen.enforcer.run.return_value = mock_result
-        gen.enforcer.check_constitution.return_value = {"score": 50.0, "passed": False}
+        gen.enforcer.run.return_value = mock_result  # type: ignore[reportAttributeAccessIssue]
+        gen.enforcer.check_constitution.return_value = {"score": 50.0, "passed": False}  # type: ignore[reportAttributeAccessIssue]
         passed = gen.run_step1_5w1h_scan()
         assert passed is False
 
     def test_run_step2_session_log_passed(self, tmp_path):
         gen = self._patched_gen(tmp_path)
         mock_log_result = MagicMock(passed=True, message="ok", details={})
-        gen.claims_verifier.verify_sessions_spawn_log.return_value = mock_log_result
+        gen.claims_verifier.verify_sessions_spawn_log.return_value = mock_log_result  # type: ignore[reportAttributeAccessIssue]
         passed = gen.run_step2_session_log()
         assert passed is True
 
     def test_run_step2_session_log_failed(self, tmp_path):
         gen = self._patched_gen(tmp_path)
         mock_log_result = MagicMock(passed=False, message="missing", details={})
-        gen.claims_verifier.verify_sessions_spawn_log.return_value = mock_log_result
+        gen.claims_verifier.verify_sessions_spawn_log.return_value = mock_log_result  # type: ignore[reportAttributeAccessIssue]
         passed = gen.run_step2_session_log()
         assert passed is False
 

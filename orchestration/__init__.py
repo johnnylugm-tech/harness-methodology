@@ -74,7 +74,7 @@ def run_enforcement_check_with_feedback(
     *,
     max_retries: int = 3,
     auto_fix: bool = False,
-) -> "any":
+) -> "any":  # type: ignore[reportGeneralTypeIssues]
     """Run enforcement check with retry and auto-fix loop.
 
     Args:

@@ -65,3 +65,6 @@ watch = ["watchdog>=3.0"]
 # Run: mutmut run && mutmut results
 [tool.mypy]
 exclude = ['^mutants/']
+
+[tool.pyright]
+extraPaths = ["harness/ssi/scripts"]

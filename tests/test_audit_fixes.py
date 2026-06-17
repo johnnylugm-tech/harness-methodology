@@ -53,7 +53,7 @@ def test_steering_loop_weight_normalization():
         }
     )
     
-    loop = SteeringLoop(mock_provider, config=config, history_path=None)
+    loop = SteeringLoop(mock_provider, config=config, history_path=None)  # type: ignore[reportArgumentType]
     
     # Test case A: all dimensions are 1.0 -> total score should be exactly 1.0
     scores_perfect = {

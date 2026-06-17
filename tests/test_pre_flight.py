@@ -84,9 +84,9 @@ def _make_env_check_args(project_path):
     class Args:
         pass
     a = Args()
-    a.project = str(project_path)
-    a.phase = 3
-    a.fr_id = None
+    a.project = str(project_path)  # type: ignore[reportAttributeAccessIssue]
+    a.phase = 3  # type: ignore[reportAttributeAccessIssue]
+    a.fr_id = None  # type: ignore[reportAttributeAccessIssue]
     return a
 
 
@@ -120,7 +120,7 @@ def test_finalize_env_check_fresh_result_no_warn(tmp_path, capsys):
     _write_sentinel(tmp_path, sentinel_time)
     _write_result(tmp_path, checked_at)
 
-    rc = cmd_finalize_env_check(_make_env_check_args(tmp_path))
+    rc = cmd_finalize_env_check(_make_env_check_args(tmp_path))  # type: ignore[reportArgumentType]
     captured = capsys.readouterr()
     assert rc == 0
     assert "[WARN]" not in captured.out
@@ -136,7 +136,7 @@ def test_finalize_env_check_stale_result_warns(tmp_path, capsys):
     _write_sentinel(tmp_path, sentinel_time)
     _write_result(tmp_path, checked_at)
 
-    rc = cmd_finalize_env_check(_make_env_check_args(tmp_path))
+    rc = cmd_finalize_env_check(_make_env_check_args(tmp_path))  # type: ignore[reportArgumentType]
     captured = capsys.readouterr()
     assert rc == 0  # still passes (warn, not block)
     assert "[WARN]" in captured.out
@@ -153,7 +153,7 @@ def test_finalize_env_check_within_tolerance_no_warn(tmp_path, capsys):
     _write_sentinel(tmp_path, sentinel_time)
     _write_result(tmp_path, checked_at)
 
-    rc = cmd_finalize_env_check(_make_env_check_args(tmp_path))
+    rc = cmd_finalize_env_check(_make_env_check_args(tmp_path))  # type: ignore[reportArgumentType]
     captured = capsys.readouterr()
     assert rc == 0
     assert "[WARN]" not in captured.out

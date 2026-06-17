@@ -53,7 +53,7 @@ class TestGateRemediationReport:
     def test_to_status_string_includes_gate_evidence(self):
         r = GateRemediationReport(
             gate_num=2, phase=3, score=70.0,
-            gate_evidence="Validator returned False"
+            gate_evidence="Validator returned False"  # type: ignore[reportArgumentType]
         )
         s = r.to_status_string()
         assert "Evidence:" in s

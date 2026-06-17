@@ -54,7 +54,7 @@ def auditor_factory():
     """Build a PhaseAuditor that reads from an in-memory file dict."""
     def _make(files: dict[str, str], phase: int = 3) -> PhaseAuditor:
         fetcher = FakeGitHubFetcher(files)
-        return PhaseAuditor(fetcher, phase)
+        return PhaseAuditor(fetcher, phase)  # type: ignore[reportArgumentType]
     return _make
 
 
@@ -89,7 +89,7 @@ class TestC9GatePass:
         files: dict[str, str] = {} if missing else {
             ".methodology/quality_manifest.json": json.dumps(manifest_data or {})
         }
-        return PhaseAuditor(FakeGitHubFetcher(files), phase)
+        return PhaseAuditor(FakeGitHubFetcher(files), phase)  # type: ignore[reportArgumentType]
 
     def test_phase_below_4_returns_info(self):
         """Phases 1-3 have no gate entry requirement — C9 should report INFO."""
@@ -152,7 +152,7 @@ class TestC3AgentBApprovals:
     def _make_auditor(self, phase: int, approval_files: dict) -> PhaseAuditor:
         files: dict[str, str] = {".methodology/sessions_spawn.log": self._sessions_log()}
         files.update({k: json.dumps(v) for k, v in approval_files.items()})
-        return PhaseAuditor(FakeGitHubFetcher(files), phase)
+        return PhaseAuditor(FakeGitHubFetcher(files), phase)  # type: ignore[reportArgumentType]
 
     def test_p3_with_approve_passes(self):
         """P3 with one APPROVE file should give PASS."""
@@ -245,11 +245,11 @@ class TestC10LocalState:
     """C10: Local-only state consistency checks (state.json, gate4_result.json)."""
 
     def _make_auditor(self, phase: int, files: dict) -> PhaseAuditor:
-        return PhaseAuditor(FakeLocalFetcher(files), phase)
+        return PhaseAuditor(FakeLocalFetcher(files), phase)  # type: ignore[reportArgumentType]
 
     def test_github_fetcher_skips_c10(self):
         """C10 must no-op when using GitHubFetcher (is_local=False)."""
-        a = PhaseAuditor(FakeGitHubFetcher({".methodology/state.json": '{"current_phase": 3}'}), 3)
+        a = PhaseAuditor(FakeGitHubFetcher({".methodology/state.json": '{"current_phase": 3}'}), 3)  # type: ignore[reportArgumentType]
         a.check_c10_local_state()
         assert not any(f.check_id == "C10" for f in a.result.findings)
 
@@ -386,7 +386,7 @@ class TestC5P2SadFrCoverage:
             files[".methodology/quality_manifest.json"] = json.dumps(manifest)
         if srs is not None:
             files["01-requirements/SRS.md"] = srs
-        return PhaseAuditor(FakeGitHubFetcher(files), 2)
+        return PhaseAuditor(FakeGitHubFetcher(files), 2)  # type: ignore[reportArgumentType]
 
     def test_no_sad_skips(self):
         a = self._make()
@@ -436,7 +436,7 @@ class TestC5P4TestResultsDepth:
             files["04-testing/TEST_PLAN.md"] = plan
         if results is not None:
             files["04-testing/TEST_RESULTS.md"] = results
-        return PhaseAuditor(FakeGitHubFetcher(files), 4)
+        return PhaseAuditor(FakeGitHubFetcher(files), 4)  # type: ignore[reportArgumentType]
 
     def test_missing_results_critical(self):
         a = self._make("TC-01 TC-02 TC-03", None)
@@ -470,7 +470,7 @@ class TestC1GitTracking:
             p.write_text(content)
         from scripts.phase_auditor import LocalFetcher as LF
         fetcher = LF(project_root=str(tmp_path))
-        fetcher._is_git_tracked = lambda p: p in tracked
+        fetcher._is_git_tracked = lambda p: p in tracked  # type: ignore[reportAttributeAccessIssue]
         return PhaseAuditor(fetcher, 3)
 
     def test_tracked_file_no_git_critical(self, tmp_path):
@@ -502,7 +502,7 @@ class TestC1GitTracking:
         )
 
     def test_remote_fetcher_skips_git_check(self):
-        a = PhaseAuditor(FakeGitHubFetcher({"00-summary/Phase3_STAGE_PASS.md": "content"}), 3)
+        a = PhaseAuditor(FakeGitHubFetcher({"00-summary/Phase3_STAGE_PASS.md": "content"}), 3)  # type: ignore[reportArgumentType]
         a.check_c1_deliverables()
         assert not any(
             "git" in (f.title + f.detail).lower()
@@ -523,7 +523,7 @@ class TestC9GateScoreThreshold:
 
     def _make(self, phase, manifest_content):
         files = {".methodology/quality_manifest.json": manifest_content}
-        return PhaseAuditor(FakeGitHubFetcher(files), phase)
+        return PhaseAuditor(FakeGitHubFetcher(files), phase)  # type: ignore[reportArgumentType]
 
     def test_gate2_score_above_threshold_passes(self):
         a = self._make(4, self._manifest(2, 55.0))
@@ -572,7 +572,7 @@ class TestTraceabilityFrCoverage:
             files["01-requirements/TRACEABILITY_MATRIX.md"] = matrix
         if srs is not None:
             files["01-requirements/SRS.md"] = srs
-        return PhaseAuditor(FakeGitHubFetcher(files), 1)
+        return PhaseAuditor(FakeGitHubFetcher(files), 1)  # type: ignore[reportArgumentType]
 
     def test_full_fr_coverage_passes(self):
         a = self._make(

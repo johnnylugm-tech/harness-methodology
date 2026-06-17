@@ -1073,7 +1073,7 @@ class TestDispatchWritesApprovalJson:
         import types
         output = '{"fr": "FR-01", "review_status": "APPROVE", "docs_embedded": ["SRS.md"], "confidence": 0.9}'
         fake_mod = types.ModuleType("core.agent_spawner")
-        fake_mod.AgentSpawner = self._make_spawner_mock("complete", output)
+        fake_mod.AgentSpawner = self._make_spawner_mock("complete", output)  # type: ignore[reportAttributeAccessIssue]
         monkeypatch.setitem(sys.modules, "core.agent_spawner", fake_mod)
 
         args = argparse.Namespace(
@@ -1092,7 +1092,7 @@ class TestDispatchWritesApprovalJson:
         import sys
         import types
         fake_mod = types.ModuleType("core.agent_spawner")
-        fake_mod.AgentSpawner = self._make_spawner_mock("complete", "Looks good, no JSON here.")
+        fake_mod.AgentSpawner = self._make_spawner_mock("complete", "Looks good, no JSON here.")  # type: ignore[reportAttributeAccessIssue]
         monkeypatch.setitem(sys.modules, "core.agent_spawner", fake_mod)
 
         args = argparse.Namespace(
@@ -1112,7 +1112,7 @@ class TestDispatchWritesApprovalJson:
         import types
         output = '{"fr": "FR-01", "review_status": "APPROVE", "docs_embedded": ["SRS.md"]}'
         fake_mod = types.ModuleType("core.agent_spawner")
-        fake_mod.AgentSpawner = self._make_spawner_mock("complete", output)
+        fake_mod.AgentSpawner = self._make_spawner_mock("complete", output)  # type: ignore[reportAttributeAccessIssue]
         monkeypatch.setitem(sys.modules, "core.agent_spawner", fake_mod)
 
         args = argparse.Namespace(
@@ -1206,7 +1206,7 @@ class TestDispatchSavesAgentAOutput:
         import types
         output = '{"status": "complete", "files": ["SRS.md"], "confidence": 0.9, "citations": ["FR-01"], "summary": "done"}'
         fake_mod = types.ModuleType("core.agent_spawner")
-        fake_mod.AgentSpawner = self._make_spawner_mock("complete", output)
+        fake_mod.AgentSpawner = self._make_spawner_mock("complete", output)  # type: ignore[reportAttributeAccessIssue]
         monkeypatch.setitem(sys.modules, "core.agent_spawner", fake_mod)
 
         args = argparse.Namespace(
@@ -1225,7 +1225,7 @@ class TestDispatchSavesAgentAOutput:
         import sys
         import types
         fake_mod = types.ModuleType("core.agent_spawner")
-        fake_mod.AgentSpawner = self._make_spawner_mock("complete", "All done, no JSON.")
+        fake_mod.AgentSpawner = self._make_spawner_mock("complete", "All done, no JSON.")  # type: ignore[reportAttributeAccessIssue]
         monkeypatch.setitem(sys.modules, "core.agent_spawner", fake_mod)
 
         args = argparse.Namespace(
@@ -1374,9 +1374,9 @@ class TestAdvancePrechecksTDD:
                 pass
             res = _FakeResult()
             if "pytest" in cmd:
-                res.returncode = 1
+                res.returncode = 1  # type: ignore[reportAttributeAccessIssue]
             else:
-                res.returncode = 0
+                res.returncode = 0  # type: ignore[reportAttributeAccessIssue]
             return res
 
         import harness_cli
@@ -1973,7 +1973,7 @@ class TestRunFrStep:
                 return {"status": "complete", "output": "{}"}
 
         fake_mod = types.ModuleType("core.agent_spawner")
-        fake_mod.AgentSpawner = _FakeSpawner
+        fake_mod.AgentSpawner = _FakeSpawner  # type: ignore[reportAttributeAccessIssue]
         monkeypatch.setitem(sys.modules, "core.agent_spawner", fake_mod)
 
         import subprocess as _sp
@@ -2226,7 +2226,7 @@ class TestRunFrStep:
                 return {"status": "complete", "output": _fail_output}
 
         fake_mod = types.ModuleType("core.agent_spawner")
-        fake_mod.AgentSpawner = _FakeSpawner
+        fake_mod.AgentSpawner = _FakeSpawner  # type: ignore[reportAttributeAccessIssue]
         monkeypatch.setitem(sys.modules, "core.agent_spawner", fake_mod)
 
         args = argparse.Namespace(
@@ -2338,7 +2338,7 @@ class TestRunFrStep:
                 return {"status": "complete", "output": "{}"}
 
         fake_mod = types.ModuleType("core.agent_spawner")
-        fake_mod.AgentSpawner = _FakeSpawner
+        fake_mod.AgentSpawner = _FakeSpawner  # type: ignore[reportAttributeAccessIssue]
         monkeypatch.setitem(sys.modules, "core.agent_spawner", fake_mod)
 
         # Mock git commands: make git push fail (returncode 1)
@@ -2377,7 +2377,7 @@ class TestRunFrStep:
                 return {"status": "complete", "output": "{}"}
 
         fake_mod = types.ModuleType("core.agent_spawner")
-        fake_mod.AgentSpawner = _FakeSpawner
+        fake_mod.AgentSpawner = _FakeSpawner  # type: ignore[reportAttributeAccessIssue]
         monkeypatch.setitem(sys.modules, "core.agent_spawner", fake_mod)
 
         run_calls = []
@@ -4290,7 +4290,7 @@ class TestRunToolDispatcher:
         sub_action = next(
             a for a in parser._actions if a.dest == "command" or a.choices and "run-tool" in a.choices
         )
-        assert "run-tool" in sub_action.choices
+        assert "run-tool" in sub_action.choices  # type: ignore[reportOperatorIssue]
 
     def test_run_tool_invokes_tool_runners(self, tmp_path, monkeypatch, capsys):
         from harness_cli import cmd_run_tool

@@ -144,7 +144,7 @@ class TestCRGBridgeExtended:
             setattr(crg_mod, attr, val)
 
     def test_get_hub_nodes_when_available(self):
-        _mock_mcp.mcp__code_review_graph__get_hub_nodes_tool = MagicMock(
+        _mock_mcp.mcp__code_review_graph__get_hub_nodes_tool = MagicMock(  # type: ignore[reportAttributeAccessIssue]
             return_value={"hubs": [{"name": "main", "fan_in": 15}]}
         )
         # Re-import after adding the mock
@@ -162,7 +162,7 @@ class TestCRGBridgeExtended:
         assert result == {}
 
     def test_list_communities_when_available(self):
-        _mock_mcp.mcp__code_review_graph__list_communities_tool = MagicMock(
+        _mock_mcp.mcp__code_review_graph__list_communities_tool = MagicMock(  # type: ignore[reportAttributeAccessIssue]
             return_value={"communities": [{"name": "core", "cohesion": 0.6}]}
         )
         import harness.crg_bridge as crg_mod
@@ -181,7 +181,7 @@ class TestCRGBridgeExtended:
         assert result == {}
 
     def test_semantic_search_when_available(self):
-        _mock_mcp.mcp__code_review_graph__semantic_search_nodes_tool = MagicMock(
+        _mock_mcp.mcp__code_review_graph__semantic_search_nodes_tool = MagicMock(  # type: ignore[reportAttributeAccessIssue]
             return_value={"results": [{"name": "login"}]}
         )
         import harness.crg_bridge as crg_mod
@@ -200,7 +200,7 @@ class TestCRGBridgeExtended:
         assert result == {}
 
     def test_query_graph_when_available(self):
-        _mock_mcp.mcp__code_review_graph__query_graph_tool = MagicMock(
+        _mock_mcp.mcp__code_review_graph__query_graph_tool = MagicMock(  # type: ignore[reportAttributeAccessIssue]
             return_value={"callers": ["a", "b"]}
         )
         import harness.crg_bridge as crg_mod
@@ -219,7 +219,7 @@ class TestCRGBridgeExtended:
         assert result == {}
 
     def test_find_large_functions_when_available(self):
-        _mock_mcp.mcp__code_review_graph__find_large_functions_tool = MagicMock(
+        _mock_mcp.mcp__code_review_graph__find_large_functions_tool = MagicMock(  # type: ignore[reportAttributeAccessIssue]
             return_value={"functions": [{"name": "big_fn", "lines": 200}]}
         )
         import harness.crg_bridge as crg_mod
@@ -238,7 +238,7 @@ class TestCRGBridgeExtended:
         assert result == {}
 
     def test_list_flows_when_available(self):
-        _mock_mcp.mcp__code_review_graph__list_flows_tool = MagicMock(
+        _mock_mcp.mcp__code_review_graph__list_flows_tool = MagicMock(  # type: ignore[reportAttributeAccessIssue]
             return_value={"flows": [{"name": "auth_flow", "criticality": 0.9}]}
         )
         import harness.crg_bridge as crg_mod
@@ -257,7 +257,7 @@ class TestCRGBridgeExtended:
         assert result == {}
 
     def test_check_dead_code_when_available(self):
-        _mock_mcp.mcp__code_review_graph__refactor_tool = MagicMock(
+        _mock_mcp.mcp__code_review_graph__refactor_tool = MagicMock(  # type: ignore[reportAttributeAccessIssue]
             return_value={"dead_symbols": [{"name": "unused_fn"}]}
         )
         import harness.crg_bridge as crg_mod

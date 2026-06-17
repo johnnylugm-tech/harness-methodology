@@ -30,7 +30,7 @@ class FindingData:
     evidence: str
     fr_id: str | None = None
 
-class IssueTrackerExt(IssueTracker):
+class IssueTrackerExt(IssueTracker):  # type: ignore[reportGeneralTypeIssues]
     """IssueTracker + per-FR tagging + FR-level saturation detection."""
 
     def __init__(self):

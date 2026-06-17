@@ -20,7 +20,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
-from generate_full_plan import (
+from generate_full_plan import (  # type: ignore[reportMissingImports]
     _gate_exit_checkpoint,
     _checkpoint_index,
     _load_manifest_fr_ids,
@@ -2397,7 +2397,7 @@ class TestPlanCliContract:
     def test_empty_fr_ids_uses_placeholder_not_percent(self):
         """When fr_ids is empty, the milestone push step must emit a
         visibly unparseable placeholder (e.g. '<N//2>') — NEVER '50%'."""
-        from generate_full_plan import _p3_milestone_push_steps
+        from generate_full_plan import _p3_milestone_push_steps  # type: ignore[reportMissingImports]
         steps = _p3_milestone_push_steps(fr_ids=[], dynamic=True)
         joined = "\n".join(steps)
         assert "--fr-done 50%" not in joined, (

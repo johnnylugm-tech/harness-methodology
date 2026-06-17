@@ -201,7 +201,7 @@ class TestStateLockPath:
         assert result == tmp_path / ".methodology" / ".state.lock"
 
     def test_accepts_string(self, tmp_path):
-        result = state_lock_path(str(tmp_path))
+        result = state_lock_path(str(tmp_path))  # type: ignore[reportArgumentType]
         assert isinstance(result, Path)
         assert result == tmp_path / ".methodology" / ".state.lock"
 

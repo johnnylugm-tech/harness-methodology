@@ -118,7 +118,7 @@ class TestCircuitBreaker:
         now = datetime.now(timezone.utc)
         cb.open_circuit("default_agent")
         state = cb._circuits["default_agent"]
-        diff = (state.cooldown_end - now).total_seconds()
+        diff = (state.cooldown_end - now).total_seconds()  # type: ignore[reportOptionalOperand]
         assert 59 <= diff <= 61
 
     def test_is_open_true_while_in_cooldown(self):

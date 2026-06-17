@@ -10,7 +10,7 @@ from unittest.mock import patch
 SCRIPTS = Path(__file__).parent.parent / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
-import generate_quality_report as gqr  # noqa: E402
+import generate_quality_report as gqr  # noqa: E402  # type: ignore[reportMissingImports]
 
 
 def test_formats_overview_with_communities_and_warnings(tmp_path):

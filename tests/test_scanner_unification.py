@@ -115,8 +115,8 @@ def test_legacy_re_exports_still_work(fixture_repo):
 def test_scan_all_returns_combined_view(fixture_repo):
     from core.traceability.scanner import scan_all
     view = scan_all(fixture_repo)
-    assert set(view["sad_frs"]) == {"FR-01", "FR-02", "FR-03"}
-    assert "FR-01" in view["fr_to_code"]
-    assert "FR-01" in view["fr_to_tests"]
-    assert "core/foo.py" in view["fr_to_modules"]["FR-01"]
+    assert set(view["sad_frs"]) == {"FR-01", "FR-02", "FR-03"}  # type: ignore[reportArgumentType]
+    assert "FR-01" in view["fr_to_code"]  # type: ignore[reportOperatorIssue]
+    assert "FR-01" in view["fr_to_tests"]  # type: ignore[reportOperatorIssue]
+    assert "core/foo.py" in view["fr_to_modules"]["FR-01"]  # type: ignore[reportIndexIssue]
     assert view["ghost_frs"] == []  # nothing in code/tests outside SAD

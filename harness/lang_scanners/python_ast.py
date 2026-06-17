@@ -284,7 +284,7 @@ def run_docstrings(project_root: str) -> tuple[str, int]:
                     self.missing.append(f"{self.filepath}::{node.name}")
 
         def visit_AsyncFunctionDef(self, node):
-            self.visit_FunctionDef(node)
+            self.visit_FunctionDef(node)  # type: ignore[reportArgumentType]
 
     total = 0
     with_doc = 0

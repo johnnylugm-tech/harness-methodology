@@ -417,7 +417,6 @@ class TestSabManifestIntegration:
         })
 
         # Create minimal gate config with tier3_guidance
-        Path(__file__).parent.parent / "harness" / "gate_configs"
         yaml_path = tmp_path / "test_gate.yaml"
         yaml_path.parent.mkdir(parents=True, exist_ok=True)
         import yaml

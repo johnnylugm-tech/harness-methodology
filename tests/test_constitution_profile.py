@@ -102,8 +102,8 @@ class TestDefaults:
 
     def test_file_filter_srs(self):
         k = defaults().file_filter_keywords("srs")
-        assert "srs" in k
-        assert "fr-" in k
+        assert "srs" in k  # type: ignore[reportOperatorIssue]
+        assert "fr-" in k  # type: ignore[reportOperatorIssue]
 
     def test_file_filter_all(self):
         assert defaults().file_filter_keywords("all") == []

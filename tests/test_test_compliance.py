@@ -234,7 +234,7 @@ class TestFlattenTestNames:
 class TestCmdCheckTestInventory:
     """cmd_check_test_inventory(args)."""
 
-    def _make_args(self, tmp_path: Path, **overrides) -> "any":
+    def _make_args(self, tmp_path: Path, **overrides) -> "any":  # type: ignore[reportGeneralTypeIssues]
         import argparse
         ns = argparse.Namespace()
         ns.project = str(tmp_path)
@@ -535,7 +535,7 @@ class TestFinalizeGateCompliance:
             code = cmd_finalize_gate(a)
         except SystemExit as e:
             code = e.code if e.code is not None else 0
-        return code, captured.getvalue()
+        return code, captured.getvalue()  # type: ignore[reportReturnType]
 
     def test_i2_missing_test_file_returns_8(self, tmp_path: Path, monkeypatch):
         """cmd_finalize_gate returns 8 when FR test file is absent (I-2 wiring)."""

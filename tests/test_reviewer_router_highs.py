@@ -16,7 +16,7 @@ Regression tests for 3 HIGH bugs in reviewer_router:
      well-formed responses. Fix: _try_subagent must call
      _build_prompt before dispatch.
 
-  3. _parse_response (line 589) — uses greedy `\{.*\}` regex with
+  3. _parse_response (line 589) — uses greedy `{.*}` regex with
      DOTALL, capturing from first `{` to last `}`. When the
      response contains extra braces (code fences, examples,
      nested arrays), the captured span is invalid JSON, and

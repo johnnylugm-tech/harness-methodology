@@ -636,7 +636,7 @@ class TestToolEvidenceContentValidation:
             "score": 95, "threshold": 90,
             "tool_output": str(stub.relative_to(tmp_path)),
         }}}
-        violations = _check_tool_evidence(ctx, raw)
+        violations = _check_tool_evidence(ctx, raw)  # type: ignore[reportArgumentType]
         assert len(violations) == 1
         assert "stub marker" in violations[0]
 
@@ -651,7 +651,7 @@ class TestToolEvidenceContentValidation:
             "score": 100, "threshold": 100,
             "tool_evidence": "# pre-existing gitleaks evaluation",
         }}}
-        violations = _check_tool_evidence(ctx, raw)
+        violations = _check_tool_evidence(ctx, raw)  # type: ignore[reportArgumentType]
         assert len(violations) == 1
         assert "stub marker" in violations[0]
 
@@ -666,7 +666,7 @@ class TestToolEvidenceContentValidation:
             "score": 100, "threshold": 100,
             "tool_evidence": "No leaks found. Scanning 45 files complete.",
         }}}
-        violations = _check_tool_evidence(ctx, raw)
+        violations = _check_tool_evidence(ctx, raw)  # type: ignore[reportArgumentType]
         assert violations == [], violations
 
 
@@ -710,7 +710,7 @@ class TestHarnessCrossValidation:
 
         # run_tool should never be called when agent score < threshold
         with patch("harness.tool_runners.run_tool") as mock_run:
-            violations = _run_harness_cross_validation(ctx, raw)
+            violations = _run_harness_cross_validation(ctx, raw)  # type: ignore[reportArgumentType]
 
         assert violations == []
         mock_run.assert_not_called()
@@ -735,7 +735,7 @@ class TestHarnessCrossValidation:
             for i in range(30)
         ])
         with patch("harness.tool_runners.run_tool", return_value=(ruff_output, 0)):
-            violations = _run_harness_cross_validation(ctx, raw)
+            violations = _run_harness_cross_validation(ctx, raw)  # type: ignore[reportArgumentType]
 
         assert len(violations) == 1
         assert "fabrication detected" in violations[0]
@@ -755,7 +755,7 @@ class TestHarnessCrossValidation:
 
         # Harness finds 0 violations → score 100 ≥ threshold 90
         with patch("harness.tool_runners.run_tool", return_value=("[]", 0)):
-            violations = _run_harness_cross_validation(ctx, raw)
+            violations = _run_harness_cross_validation(ctx, raw)  # type: ignore[reportArgumentType]
 
         assert violations == []
 
@@ -775,7 +775,7 @@ class TestHarnessCrossValidation:
 
         # (a) no tool_output → blocked
         raw_missing = {"breakdown": {"mutation_testing": {"score": 99}}}
-        v_missing = _run_harness_cross_validation(ctx, raw_missing)
+        v_missing = _run_harness_cross_validation(ctx, raw_missing)  # type: ignore[reportArgumentType]
         assert len(v_missing) == 1
         assert "unverifiable" in v_missing[0]
 
@@ -785,7 +785,7 @@ class TestHarnessCrossValidation:
         out.write_text("Killed 80 mutants\nSurvived 5\nmutation score: 94%\n", encoding="utf-8")
         raw_ok = {"breakdown": {"mutation_testing": {"score": 99,
                                                      "tool_output": ".sessi-work/mutmut_out.txt"}}}
-        v_ok = _run_harness_cross_validation(ctx, raw_ok)
+        v_ok = _run_harness_cross_validation(ctx, raw_ok)  # type: ignore[reportArgumentType]
         assert v_ok == []
 
     def test_tool_timeout_blocks(self, tmp_path):
@@ -802,7 +802,7 @@ class TestHarnessCrossValidation:
 
         # Simulate timeout — agent claims a passing score (95 ≥ 85) but the tool can't confirm it.
         with patch("harness.tool_runners.run_tool", return_value=("TIMEOUT: mypy exceeded 60s", -2)):
-            violations = _run_harness_cross_validation(ctx, raw)
+            violations = _run_harness_cross_validation(ctx, raw)  # type: ignore[reportArgumentType]
 
         assert len(violations) == 1
         assert "timed out" in violations[0]
@@ -820,7 +820,7 @@ class TestHarnessCrossValidation:
         raw = {"breakdown": {"performance": {"score": 90}}}
 
         with patch("harness.tool_runners.run_tool", return_value=("no benchmarks ran", 5)):
-            violations = _run_harness_cross_validation(ctx, raw)
+            violations = _run_harness_cross_validation(ctx, raw)  # type: ignore[reportArgumentType]
 
         assert len(violations) == 1
         assert "no tests" in violations[0] and "unverifiable" in violations[0]
@@ -840,7 +840,7 @@ class TestHarnessCrossValidation:
 
         # radon-mi over an empty graph → "{}" → _score_radon_mi returns None.
         with patch("harness.tool_runners.run_tool", return_value=("{}", 0)):
-            violations = _run_harness_cross_validation(ctx, raw)
+            violations = _run_harness_cross_validation(ctx, raw)  # type: ignore[reportArgumentType]
 
         assert len(violations) == 1
         assert "readability" in violations[0] and "no analysable" in violations[0]
@@ -858,7 +858,7 @@ class TestHarnessCrossValidation:
         raw = {"breakdown": {"architecture": {"score": 95}}}
 
         with patch("harness.tool_runners.run_tool") as mock_run:
-            violations = _run_harness_cross_validation(ctx, raw)
+            violations = _run_harness_cross_validation(ctx, raw)  # type: ignore[reportArgumentType]
 
         assert violations == []
         mock_run.assert_not_called()  # architecture skipped before any tool run
@@ -892,7 +892,7 @@ class TestHarnessCrossValidation:
             return ("Success: no issues found in 3 source files\n", 0)
 
         with patch("harness.tool_runners.run_tool", side_effect=fake_run):
-            violations = _run_harness_cross_validation(ctx, raw)
+            violations = _run_harness_cross_validation(ctx, raw)  # type: ignore[reportArgumentType]
 
         assert len(violations) == 1
         assert "linting" in violations[0]

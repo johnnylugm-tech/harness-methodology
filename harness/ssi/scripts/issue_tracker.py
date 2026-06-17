@@ -113,9 +113,9 @@ def mark_fixed(
     issue_id: str,
     round_num: int,
     commit_sha: str = "",
-    files_changed: list = None,
+    files_changed: list = None,  # type: ignore[reportArgumentType]
     note: str = "",
-    tool_rerun_path: str = None,
+    tool_rerun_path: str = None,  # type: ignore[reportArgumentType]
 ):
     """
     Mark an issue fixed. Traceability fields (commit_sha, files_changed) are
@@ -188,7 +188,7 @@ def summary(registry: dict) -> dict:
         if status in ("open", "regressed"):
             counts["open_by_severity"][sev] = counts["open_by_severity"].get(sev, 0) + 1
 
-    counts["total"] = len(registry["issues"])
+    counts["total"] = len(registry["issues"])  # type: ignore[reportArgumentType]
     counts["open_total"] = counts["by_status"].get("open", 0) + counts["by_status"].get("regressed", 0)
     counts["open_critical"] = counts["open_by_severity"].get("critical", 0)
     counts["open_high"] = counts["open_by_severity"].get("high", 0)
@@ -196,7 +196,7 @@ def summary(registry: dict) -> dict:
     return counts
 
 
-def open_issues(registry: dict, severity_filter: list = None) -> list:
+def open_issues(registry: dict, severity_filter: list = None) -> list:  # type: ignore[reportArgumentType]
     """Return open and regressed issues, sorted by severity (critical first)."""
     issues = [i for i in registry["issues"] if i["status"] in ("open", "regressed")]
     if severity_filter:
@@ -342,7 +342,7 @@ def main():
             commit_sha=commit_sha,
             files_changed=files,
             note=note,
-            tool_rerun_path=tool_rerun_path,
+            tool_rerun_path=tool_rerun_path,  # type: ignore[reportArgumentType]
         )
         save(registry, path)
         print(f"fixed: {iid}")
@@ -361,7 +361,7 @@ def main():
 
     elif cmd == "open":
         sev_filter = sys.argv[3].split(",") if len(sys.argv) > 3 else None
-        print(json.dumps(open_issues(registry, sev_filter), indent=2))
+        print(json.dumps(open_issues(registry, sev_filter), indent=2))  # type: ignore[reportArgumentType]
 
     elif cmd == "accepted":
         print(json.dumps(accepted_risks(registry), indent=2))

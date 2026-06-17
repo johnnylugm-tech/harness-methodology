@@ -91,17 +91,17 @@ class TestExtractSabFromSad:
         sad = tmp_path / "SAD.md"
         sad.write_text(_MINIMAL_SAD)
         spec = extract_sab_from_sad(sad)
-        assert "FastAPIApp" in spec.modules
-        assert "users" in spec.modules
-        assert len(spec.modules) == 4
+        assert "FastAPIApp" in spec.modules  # type: ignore[reportOptionalMemberAccess]
+        assert "users" in spec.modules  # type: ignore[reportOptionalMemberAccess]
+        assert len(spec.modules) == 4  # type: ignore[reportOptionalMemberAccess]
 
     def test_extra_fields(self, tmp_path):
         sad = tmp_path / "SAD.md"
         sad.write_text(_SAD_WITH_EXTRAS)
         spec = extract_sab_from_sad(sad)
-        assert spec.nfr_dimension_mapping == {"NFR-01": "security"}
-        assert spec.architecture_constraints == ["no_direct_db_from_api"]
-        assert spec.high_risk_modules == ["A"]
+        assert spec.nfr_dimension_mapping == {"NFR-01": "security"}  # type: ignore[reportOptionalMemberAccess]
+        assert spec.architecture_constraints == ["no_direct_db_from_api"]  # type: ignore[reportOptionalMemberAccess]
+        assert spec.high_risk_modules == ["A"]  # type: ignore[reportOptionalMemberAccess]
 
     def test_raises_on_corrupt_yaml(self, tmp_path):
         sad = tmp_path / "SAD.md"
@@ -253,18 +253,18 @@ class TestNfrTraceability:
         sad = tmp_path / "SAD.md"
         sad.write_text(_SAD_NFR_TRACEABILITY_ONLY)
         spec = extract_sab_from_sad(sad)
-        assert spec.nfr_dimension_mapping.get("NFR-01") == "performance"
-        assert spec.nfr_dimension_mapping.get("NFR-02") == "security"
+        assert spec.nfr_dimension_mapping.get("NFR-01") == "performance"  # type: ignore[reportOptionalMemberAccess]
+        assert spec.nfr_dimension_mapping.get("NFR-02") == "security"  # type: ignore[reportOptionalMemberAccess]
         # deployability has no scoring tool → advisory_only, NOT in the dimension mapping
-        assert "NFR-09" not in spec.nfr_dimension_mapping
-        assert "deployability" in spec.advisory_only
+        assert "NFR-09" not in spec.nfr_dimension_mapping  # type: ignore[reportOptionalMemberAccess]
+        assert "deployability" in spec.advisory_only  # type: ignore[reportOptionalMemberAccess]
 
     def test_unknown_nfr_type_silently_omitted(self, tmp_path):
         """NFRs with a type not in _NFR_TYPE_TO_DIM are excluded from auto-derivation."""
         sad = tmp_path / "SAD.md"
         sad.write_text(_SAD_NFR_TRACEABILITY_ONLY)
         spec = extract_sab_from_sad(sad)
-        assert "NFR-99" not in spec.nfr_dimension_mapping
+        assert "NFR-99" not in spec.nfr_dimension_mapping  # type: ignore[reportOptionalMemberAccess]
 
     def test_explicit_nfr_dim_mapping_wins_over_traceability(self, tmp_path):
         """When both fields present, explicit nfr_dimension_mapping is NOT overwritten."""
@@ -272,31 +272,31 @@ class TestNfrTraceability:
         sad.write_text(_SAD_BOTH_NFR_FIELDS)
         spec = extract_sab_from_sad(sad)
         # NFR-01 type is 'performance' but explicit mapping says 'reliability' → must keep 'reliability'
-        assert spec.nfr_dimension_mapping.get("NFR-01") == "reliability"
+        assert spec.nfr_dimension_mapping.get("NFR-01") == "reliability"  # type: ignore[reportOptionalMemberAccess]
         # NFR-02 only in traceability, but auto-derive did NOT run → absent from dim mapping
-        assert "NFR-02" not in spec.nfr_dimension_mapping
+        assert "NFR-02" not in spec.nfr_dimension_mapping  # type: ignore[reportOptionalMemberAccess]
 
     def test_traceability_stored_on_spec(self, tmp_path):
         """nfr_traceability is stored verbatim on SABSpec."""
         sad = tmp_path / "SAD.md"
         sad.write_text(_SAD_NFR_TRACEABILITY_ONLY)
         spec = extract_sab_from_sad(sad)
-        assert spec.nfr_traceability["NFR-01"]["module"] == "app.pipeline"
-        assert spec.nfr_traceability["NFR-01"]["target"] == "p95 < 200ms"
+        assert spec.nfr_traceability["NFR-01"]["module"] == "app.pipeline"  # type: ignore[reportOptionalMemberAccess]
+        assert spec.nfr_traceability["NFR-01"]["target"] == "p95 < 200ms"  # type: ignore[reportOptionalMemberAccess]
 
     def test_neither_field_gives_empty_dicts(self, tmp_path):
         """SAD with neither nfr_dimension_mapping nor nfr_traceability → both empty."""
         sad = tmp_path / "SAD.md"
         sad.write_text(_MINIMAL_SAD)
         spec = extract_sab_from_sad(sad)
-        assert spec.nfr_dimension_mapping == {}
-        assert spec.nfr_traceability == {}
+        assert spec.nfr_dimension_mapping == {}  # type: ignore[reportOptionalMemberAccess]
+        assert spec.nfr_traceability == {}  # type: ignore[reportOptionalMemberAccess]
 
     def test_to_dict_includes_nfr_traceability(self, tmp_path):
         """to_dict() must serialise nfr_traceability."""
         sad = tmp_path / "SAD.md"
         sad.write_text(_SAD_NFR_TRACEABILITY_ONLY)
-        d = extract_sab_from_sad(sad).to_dict()
+        d = extract_sab_from_sad(sad).to_dict()  # type: ignore[reportOptionalMemberAccess]
         assert "nfr_traceability" in d
         assert d["nfr_traceability"]["NFR-02"]["module"] == "app.security"
 
@@ -339,10 +339,10 @@ class TestNfrTraceability:
         sad = tmp_path / "SAD.md"
         sad.write_text(_SAD_NFR_TRACEABILITY_ONLY)
         spec = extract_sab_from_sad(sad)
-        assert spec.gate_score_overrides.get("performance") == 75.0
-        assert spec.gate_score_overrides.get("security") == 80.0
+        assert spec.gate_score_overrides.get("performance") == 75.0  # type: ignore[reportOptionalMemberAccess]
+        assert spec.gate_score_overrides.get("security") == 80.0  # type: ignore[reportOptionalMemberAccess]
         # advisory NFR (deployability) contributes no override
-        assert "deployability" not in spec.gate_score_overrides
+        assert "deployability" not in spec.gate_score_overrides  # type: ignore[reportOptionalMemberAccess]
 
     def test_gate_dimension_standard_in_sync_with_gate4_config(self):
         """_GATE_DIMENSION_STANDARD (the NFR floor source) must not drift from the
@@ -432,7 +432,7 @@ class TestRoundTrip:
         spec = extract_sab_from_sad(sad)
         sab_json = tmp_path / ".methodology" / "SAB.json"
         sab_json.parent.mkdir()
-        sab_json.write_text(json.dumps(spec.to_dict(), indent=2))
+        sab_json.write_text(json.dumps(spec.to_dict(), indent=2))  # type: ignore[reportOptionalMemberAccess]
 
         data = json.loads(sab_json.read_text())
         assert data["phase"] == 2
