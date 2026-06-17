@@ -4077,10 +4077,16 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
 def _validate_handoff_p1_to_p2(project: Path) -> list[str]:
     """P1→P2: TEST_INVENTORY.yaml must exist, be non-empty, and cover all FRs."""
     errors: list[str] = []
-    inv_path = project / "01-requirements" / "TEST_INVENTORY.yaml"
+    # NOTE: TEST_INVENTORY.yaml lives at project root per harness design
+    # (cmd_check_test_inventory @ line ~993, D4 checksum @ line ~5018,
+    #  init-project template @ line ~8286). This B.1 check originally
+    # looked at 01-requirements/ — inconsistent with the rest of harness,
+    # and silently blocked every fresh project's P2 entry (Bug
+    # discovered 2026-06-17, integration-test E2E).
+    inv_path = project / "TEST_INVENTORY.yaml"
     if not inv_path.exists():
         return [
-            "TEST_INVENTORY.yaml missing at 01-requirements/TEST_INVENTORY.yaml. "
+            "TEST_INVENTORY.yaml missing at project root. "
             "P1 Sub-Task 4/4 in the plan template produces this file. "
             "Re-run the Phase 1 orchestrator or invoke the inventory skill manually."
         ]
