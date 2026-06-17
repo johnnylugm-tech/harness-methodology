@@ -134,6 +134,16 @@ class PhaseHooks:
         self._kill_switch: Optional[KillSwitch] = None
         self._pkg_dir_cache: Optional[str] = None  # Bug #119: cached setup.cfg package_dir
 
+        if enable_kill_switch:
+            self._kill_switch = KillSwitch()
+
+        self.tracer: Any = None
+        try:
+            from core.observability import init_tracer
+            self.tracer = init_tracer(self.project_path)
+        except ImportError:
+            pass
+
     def _read_pkg_dir_for_sab(self) -> Optional[str]:
         """Return the package source dir (e.g. 'src') for src/-layout projects.
 
@@ -146,15 +156,6 @@ class PhaseHooks:
             from detection.drift_detector import read_package_dir
             self._pkg_dir_cache = read_package_dir(Path(self.project_path))
         return self._pkg_dir_cache
-        if enable_kill_switch:
-            self._kill_switch = KillSwitch()
-
-        self.tracer: Any = None
-        try:
-            from core.observability import init_tracer
-            self.tracer = init_tracer(self.project_path)
-        except ImportError:
-            pass
 
     # PRE-FLIGHT HOOKS
 

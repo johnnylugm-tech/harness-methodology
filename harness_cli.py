@@ -3997,7 +3997,6 @@ def _validate_p3_post_gate2_precondition(
     # the check used .lower() without stripping the hyphen, looking for
     # g1_fr-01.flag and reporting a spurious missing sentinel after a
     # successful Gate 1 finalize.
-    sentinels_dir = project / ".sessi-work" / "sentinels"
     missing_sentinels: list[str] = []
     for fr_id in fr_ids:
         sentinel = _sentinel_path(project, 1, fr_id)

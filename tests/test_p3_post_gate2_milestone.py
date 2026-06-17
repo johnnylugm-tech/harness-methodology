@@ -34,7 +34,7 @@ def _seed_gate2_pass(project: Path, composite: float = 92.25) -> None:
 
 def _seed_fr_sentinel(project: Path, fr_id: str) -> None:
     (project / ".sessi-work" / "sentinels").mkdir(parents=True, exist_ok=True)
-    (project / ".sessi-work" / "sentinels" / f"g1_{fr_id.lower()}.flag").write_text(
+    (project / ".sessi-work" / "sentinels" / f"g1_{fr_id.replace('-', '').lower()}.flag").write_text(
         "test-sentinel\n", encoding="utf-8"
     )
 

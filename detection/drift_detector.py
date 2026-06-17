@@ -491,7 +491,7 @@ class DriftDetector:
                         location=f"SAB layer {layer_name}",
                         description=(
                             f"SAB declares {rel_path} but file not found in codebase "
-                            f"(tried {path_form})"
+                            f"(tried {', '.join(path_variants)})"
                         ),
                         expected=rel_path,
                         actual="not found",
