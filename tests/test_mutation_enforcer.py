@@ -296,6 +296,36 @@ def test_copy_setup_cfg_runner_warning_for_custom_runner_bug_91(tmp_path, capsys
     )
 
 
+@pytest.mark.parametrize("project_runner", [
+    "python3 -m pytest -x --assert=plain --no-header -q /abs/project/tests/",
+    "python3 -m pytest -x",
+    "python -m pytest --tb=short -q",
+    "pytest --tb=short",
+])
+def test_copy_setup_cfg_runner_prefix_match_bug_116(tmp_path, project_runner):
+    """Bug #116: well-known runner with extra flags must be normalised to sys.executable.
+
+    Exact-match on _WELL_KNOWN_RUNNERS missed forms like
+    'python3 -m pytest -x --assert=plain … /abs/path/tests/'.
+    The runner was kept as-is, so on machines where `python3` resolves
+    to an older interpreter the mutmut baseline test fails and score = 0.
+    Prefix matching fixes this: any runner starting with a well-known
+    base is normalised to '{sys.executable} -m pytest'.
+    """
+    src_cfg = tmp_path / "setup.cfg"
+    src_cfg.write_text(f"[mutmut]\nrunner = {project_runner}\n", encoding="utf-8")
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    _copy_setup_cfg_to_workdir(tmp_path, str(workdir), "/abs/path/tests")
+    cp = configparser.ConfigParser()
+    cp.read(str(workdir / "setup.cfg"), encoding="utf-8")
+    runner = cp["mutmut"]["runner"]
+    assert runner == f"{sys.executable} -m pytest", (
+        f"Bug #116: well-known-prefix runner was not normalised to sys.executable; "
+        f"input={project_runner!r} output={runner!r}"
+    )
+
+
 def test_copy_setup_cfg_overrides_tests_dir(tmp_path):
     """Project has tests_dir=tests (relative) → workdir has the absolute path."""
     src_cfg = tmp_path / "setup.cfg"

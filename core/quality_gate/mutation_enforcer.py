@@ -247,7 +247,20 @@ def _copy_setup_cfg_to_workdir(project: Path, workdir: str, abs_test_dir: str = 
     # sys.executable always resolves to a real interpreter, including
     # inside a virtualenv.
     existing_runner = mut.get("runner", "").strip()
-    if existing_runner in _WELL_KNOWN_RUNNERS or not existing_runner:
+    # Bug #116: use prefix matching so 'python3 -m pytest -x --assert=plain …'
+    # is treated as a well-known runner (exact match missed variants with extra
+    # flags, leaving the system `python3` in place even when sys.executable
+    # resolves to a different interpreter — manifests as score=0 on machines
+    # where `python3` is an older version that can't run the test suite).
+    # When a well-known prefix is detected, normalise to the canonical form;
+    # the extra flags in the original runner were for test-discovery workarounds
+    # that --tests-dir already handles.
+    _is_well_known = (
+        not existing_runner
+        or existing_runner in _WELL_KNOWN_RUNNERS
+        or any(existing_runner.startswith(p + " ") for p in _WELL_KNOWN_RUNNERS)
+    )
+    if _is_well_known:
         mut["runner"] = f"{sys.executable} -m pytest"
     else:
         print(f"[WARN] setup.cfg [mutmut] runner is custom ({existing_runner!r}); "
