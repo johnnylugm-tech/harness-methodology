@@ -8909,6 +8909,24 @@ def cmd_init_project(args: argparse.Namespace) -> int:
     # Refresh CLAUDE.md harness status block now that state.json exists
     _update_claude_md(project)
 
+    # 7a. Initialize trace attestation.json (required by pre-commit-check trace_dirt probe).
+    # Without it, every fresh project's first commit fails pre-flight on
+    # `attestation.json missing` — discovered during integration-test E2E
+    # bootstrap, 2026-06-17. `--overwrite` re-creates it (cheap; SAD.md is
+    # not yet authored at init-project time so the matrix is empty).
+    print("\n[7a/11] Initializing trace attestation...")
+    from scripts.build_trace_attestation import (
+        build_attestation,
+        write_attestation,
+    )
+    attestation_path = project / ".methodology" / "trace" / "attestation.json"
+    if attestation_path.exists() and not args.overwrite:
+        print(f"   SKIP: {attestation_path} already exists")
+    else:
+        _attestation = build_attestation(project)
+        _canonical_path, _ = write_attestation(project, _attestation)
+        print(f"   OK — wrote {_canonical_path}")
+
     # 8. Drift monitor hint
     print("\n[8/11] Drift Monitor hint (optional cronjob)")
     print("  Add this crontab entry (edit with: crontab -e):")
