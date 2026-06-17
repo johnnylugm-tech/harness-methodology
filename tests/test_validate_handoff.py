@@ -41,10 +41,7 @@ def _seed_srs(project: Path, frs: list[str]) -> None:
 
 
 def _seed_inventory(project: Path, content: str) -> None:
-    (project / "01-requirements").mkdir(parents=True, exist_ok=True)
-    (project / "01-requirements" / "TEST_INVENTORY.yaml").write_text(
-        content, encoding="utf-8"
-    )
+    (project / "TEST_INVENTORY.yaml").write_text(content, encoding="utf-8")
 
 
 def _seed_test_spec(project: Path, content: str) -> None:
