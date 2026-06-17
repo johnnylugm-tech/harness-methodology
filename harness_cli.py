@@ -3121,6 +3121,56 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
                     print(f"  [WARN] Could not persist gate result to .methodology/: {_gp_err}")
                 break
 
+        # ── Bug #118: keep .methodology/quality_manifest.json gate_results in sync ──
+        # Without this, the next phase's entry_gate sees gate_results.gate{N}=null
+        # and blocks the advance. Pre-fix required a manual edit; auto-patch the
+        # gate that just finalized.
+        _mfst = project_path / ".methodology" / "quality_manifest.json"
+        if _mfst.exists():
+            try:
+                _mfst_json = json.loads(_mfst.read_text(encoding="utf-8"))
+                _mfst_gr = _mfst_json.setdefault("gate_results", {})
+                _gr_key = f"gate{args.gate}"
+                if args.gate == 1 and fr_id:
+                    # Gate 1: per-FR dict under gate1.{fr_id}
+                    _g1 = _mfst_gr.setdefault("gate1", {})
+                    if not isinstance(_g1, dict):
+                        _g1 = {}
+                        _mfst_gr["gate1"] = _g1
+                    _prev = _g1.get(fr_id) or {}
+                    _g1[fr_id] = {
+                        "score": round(result.score, 2),
+                        "quality_complete": result.quality_complete,
+                        "rounds_used": (int(_prev.get("rounds_used", 0)) if isinstance(_prev, dict) else 0) + 1,
+                        "open_critical": result.open_critical,
+                        "open_high": result.open_high,
+                    }
+                else:
+                    # Gate 2+: composite block at gate_results.gate{N}
+                    _prev = _mfst_gr.get(_gr_key) or {}
+                    if not isinstance(_prev, dict):
+                        _prev = {}
+                    _mfst_gr[_gr_key] = {
+                        **_prev,
+                        "score": round(result.score, 2),
+                        "quality_complete": result.quality_complete,
+                        "rounds_used": (int(_prev.get("rounds_used", 0)) if isinstance(_prev, dict) else 0) + 1,
+                        "open_critical": result.open_critical,
+                        "open_high": result.open_high,
+                        "phase": args.phase,
+                        "gate": args.gate,
+                        "fr_scope": fr_id or "all",
+                        "overall_score": round(result.score, 2),
+                    }
+                _mfst.write_text(
+                    json.dumps(_mfst_json, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+                print(f"  manifest        : quality_manifest.json {_gr_key} patched "
+                      f"(score={round(result.score, 2)}, qc={result.quality_complete})")
+            except (OSError, json.JSONDecodeError) as _mf_err:
+                print(f"  [WARN] Could not patch quality_manifest.json gate_results: {_mf_err}")
+
         # ── Structural post-flight for phase-exit gates (gate ≥ 2) ──────────
         # Checks ASPICE artifact cross-references and drift against artifacts
         # finalize-gate called directly also needs these blocking checks so the
