@@ -3162,10 +3162,7 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
                         "fr_scope": fr_id or "all",
                         "overall_score": round(result.score, 2),
                     }
-                _mfst.write_text(
-                    json.dumps(_mfst_json, indent=2, ensure_ascii=False),
-                    encoding="utf-8",
-                )
+                atomic_write_json(_mfst, _mfst_json)
                 print(f"  manifest        : quality_manifest.json {_gr_key} patched "
                       f"(score={round(result.score, 2)}, qc={result.quality_complete})")
             except (OSError, json.JSONDecodeError) as _mf_err:

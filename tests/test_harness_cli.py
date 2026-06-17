@@ -3365,6 +3365,161 @@ class TestFinalizeGatePersistCompositeScore:
 
 
 # =============================================================================
+# Bug #118 — finalize-gate must patch quality_manifest.json gate_results
+# =============================================================================
+
+class TestFinalizeGateManifestPatch:
+    """Bug #118: finalize-gate must keep quality_manifest.gate_results in sync.
+
+    Before the fix, gate_results stayed at its prior value (often null).
+    The next phase's entry_gate reads gate_results.gate{N} and would block
+    on null even though finalize-gate had successfully written gate{N}_result.json.
+
+    Two patching paths:
+      Gate 1: per-FR dict under gate_results.gate1.{fr_id}
+      Gate 2+: composite block at gate_results.gate{N}
+    """
+
+    def _run(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+        gate: int,
+        phase: int,
+        fr_id: str | None,
+        initial_manifest: dict,
+        harness_score: float = 88.5,
+    ) -> tuple[int, dict]:
+        import harness_cli as hc
+        from harness.harness_bridge import GateResult
+
+        sessi = tmp_path / ".sessi-work"
+        sessi.mkdir(parents=True, exist_ok=True)
+        (sessi / f"gate{gate}_result.json").write_text(
+            json.dumps({"composite_score": harness_score}), encoding="utf-8"
+        )
+        meth = tmp_path / ".methodology"
+        meth.mkdir(parents=True, exist_ok=True)
+        manifest_path = meth / "quality_manifest.json"
+        manifest_path.write_text(json.dumps(initial_manifest), encoding="utf-8")
+
+        monkeypatch.setattr(hc, "_finalize_gate_preflight", lambda _a, _p: None)
+        monkeypatch.setattr(hc, "_finalize_gate_fr_checks", lambda _a, _p: None)
+        monkeypatch.setattr(hc, "_finalize_gate_cross_checks", lambda _a, _p: None)
+        monkeypatch.setattr(hc, "_update_state_checkpoint", lambda *_a, **_kw: None)
+        monkeypatch.setattr(hc, "_update_claude_md", lambda _p: None)
+        monkeypatch.setattr(hc, "_record_gate_timestamp", lambda *_a: None)
+        monkeypatch.setattr(hc, "_generate_stage_pass", lambda *_a: None)
+
+        class FakeGit:
+            def ensure_gitignore(self): pass
+            def commit_fr_gate1(self, *_a): pass
+            def commit_and_push_gate(self, *_a): pass
+
+        monkeypatch.setattr(hc, "_make_git", lambda *_a: FakeGit())
+
+        # Stub PhaseHooks so gate≥2 post-flight structural checks pass
+        import core.phase_hooks as ph_mod
+        class _FakeHooks:
+            def __init__(self, *_a, **_kw): pass
+            def postflight_artifact_links(self): return {"passed": True}
+            def postflight_drift_check(self): return {"passed": True}
+        monkeypatch.setattr(ph_mod, "PhaseHooks", _FakeHooks)
+
+        # Stub PhaseTruthVerifier so HR-11 check passes (last gate of phase)
+        import core.quality_gate.phase_truth_verifier as ptv_mod
+        class _FakePTV:
+            def __init__(self, *_a, **_kw): pass
+            def verify(self): return {"passed": True, "total_score": 100.0}
+        monkeypatch.setattr(ptv_mod, "PhaseTruthVerifier", _FakePTV)
+
+        _score = harness_score
+
+        class FakeBridge:
+            def prepare_gate(self, **_kw): return object()
+            def finalize_gate(self, _ctx, **_kw):
+                return GateResult(
+                    gate_num=gate, score=_score, dimensions=[],
+                    open_critical=0, open_high=0,
+                    quality_complete=True, rounds_used=1,
+                )
+
+        import harness.harness_bridge as hb
+        monkeypatch.setattr(hb, "HarnessBridge", FakeBridge)
+
+        args = argparse.Namespace(
+            project=str(tmp_path), gate=gate, phase=phase, fr_id=fr_id,
+        )
+        rc = hc._cmd_finalize_gate_impl(args)
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        return rc, manifest
+
+    def test_gate1_patches_per_fr_dict(self, tmp_path, monkeypatch):
+        """Gate 1 finalize must write gate_results.gate1.{fr_id} with score."""
+        initial = {"fr_ids": ["FR-01"], "gate_results": {"gate1": {}}}
+        rc, manifest = self._run(
+            tmp_path, monkeypatch, gate=1, phase=3, fr_id="FR-01",
+            initial_manifest=initial, harness_score=91.0,
+        )
+        assert rc == 0
+        g1 = manifest["gate_results"]["gate1"]
+        assert "FR-01" in g1, f"FR-01 not patched into gate1: {g1}"
+        assert g1["FR-01"]["score"] == 91.0
+        assert g1["FR-01"]["quality_complete"] is True
+
+    def test_gate2_patches_composite_block(self, tmp_path, monkeypatch):
+        """Gate 2 finalize must write gate_results.gate2 composite block."""
+        initial = {"fr_ids": ["FR-01"], "gate_results": {"gate1": {}, "gate2": None}}
+        rc, manifest = self._run(
+            tmp_path, monkeypatch, gate=2, phase=3, fr_id=None,
+            initial_manifest=initial, harness_score=78.5,
+        )
+        assert rc == 0
+        g2 = manifest["gate_results"]["gate2"]
+        assert isinstance(g2, dict), f"gate2 not patched to dict: {g2}"
+        assert g2["score"] == 78.5
+        assert g2["quality_complete"] is True
+        assert g2["gate"] == 2
+        assert g2["phase"] == 3
+
+    def test_gate1_increments_rounds_used(self, tmp_path, monkeypatch):
+        """Re-finalizing Gate 1 increments rounds_used from the prior value."""
+        initial = {
+            "fr_ids": ["FR-01"],
+            "gate_results": {"gate1": {"FR-01": {"score": 70.0, "rounds_used": 2}}},
+        }
+        _, manifest = self._run(
+            tmp_path, monkeypatch, gate=1, phase=3, fr_id="FR-01",
+            initial_manifest=initial, harness_score=88.0,
+        )
+        assert manifest["gate_results"]["gate1"]["FR-01"]["rounds_used"] == 3
+
+    def test_manifest_write_is_atomic(self, tmp_path, monkeypatch):
+        """quality_manifest.json must be written via atomic_write_json (F1 fix)."""
+        import core.atomic_io as aio
+        captured: list[Path] = []
+        original = aio.atomic_write_json
+
+        def spy(path, data, **kw):
+            captured.append(Path(path))
+            return original(path, data, **kw)
+
+        monkeypatch.setattr(aio, "atomic_write_json", spy)
+        import harness_cli as hc
+        monkeypatch.setattr(hc, "atomic_write_json", spy)
+
+        initial = {"fr_ids": ["FR-01"], "gate_results": {"gate2": None}}
+        self._run(
+            tmp_path, monkeypatch, gate=2, phase=3, fr_id=None,
+            initial_manifest=initial,
+        )
+        manifest_writes = [p for p in captured if p.name == "quality_manifest.json"]
+        assert manifest_writes, (
+            "quality_manifest.json was not written via atomic_write_json (F1 regression)"
+        )
+
+
+# =============================================================================
 # B3: _trace_dirty_state must include fix command in reason string
 # =============================================================================
 
