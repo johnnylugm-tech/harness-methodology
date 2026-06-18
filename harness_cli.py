@@ -848,20 +848,22 @@ def _parse_test_spec(spec_path: Path) -> list[dict]:
     for line in text.splitlines():
         stripped = line.strip()
 
-        # Detect FR section headers: ### FR-XX: ...
-        fr_match = re.match(r"^###\s+(FR-\d+)[:\s]", stripped)
+        # Detect FR section headers: ## FR-XX: ... or ### FR-XX: ...
+        # Accept both H2 and H3 levels so docs and concrete specs can use either.
+        fr_match = re.match(r"^#{2,3}\s+(FR-\d+)[:\s]", stripped)
         if fr_match:
             current_fr = fr_match.group(1)
             in_table = False
             header_skipped = False
             continue
 
-        # Detect any H2 section (## …) — prevents last FR bleeding into next section.
-        # Tags items under a normalised slug so they're traceable but won't be
-        # confused with real FR-IDs (which follow the FR-\d+ pattern).
-        if re.match(r"^##\s+\S", stripped) and not stripped.startswith("###"):
-            h2_text = re.sub(r"^##\s+", "", stripped).strip()
-            current_fr = re.sub(r"\W+", "_", h2_text.lower()).rstrip("_")[:30]
+        # Detect any H2/H3 section that is NOT an FR header — prevents last FR
+        # bleeding into the next section. Tags items under a normalised slug so
+        # they're traceable but won't be confused with real FR-IDs (which follow
+        # the FR-\d+ pattern).
+        if re.match(r"^#{2,3}\s+\S", stripped) and not re.match(r"^#{2,3}\s+(FR-\d+)[:\s]", stripped):
+            h_text = re.sub(r"^#{2,3}\s+", "", stripped).strip()
+            current_fr = re.sub(r"\W+", "_", h_text.lower()).rstrip("_")[:30]
             in_table = False
             header_skipped = False
             continue
@@ -3572,7 +3574,17 @@ def cmd_manifest(args: argparse.Namespace) -> int:
     """Generate quality_manifest.json at P2 exit."""
     from harness.harness_bridge import HarnessBridge
 
-    project = Path(args.sad).resolve().parent
+    sad_resolved = Path(args.sad).resolve()
+    # SAB.json is written under .methodology/ at the project root, so the project
+    # root is the parent directory that *contains* .methodology/. Walking up from
+    # the SAD path until we find it (or fall back to the SAD's parent) keeps the
+    # contract correct regardless of where SAD.md lives (02-architecture/,
+    # docs/, etc.).
+    project = sad_resolved.parent
+    for ancestor in [sad_resolved.parent, *sad_resolved.parents]:
+        if (ancestor / ".methodology").is_dir():
+            project = ancestor
+            break
     # nargs="+" collects space-separated FR IDs, but users may also pass
     # comma-separated values. Split on commas to support both formats.
     fr_ids: list[str] = []
@@ -4556,10 +4568,13 @@ def cmd_status(args: argparse.Namespace) -> int:
             if v is None:
                 print(f"  {g}           : not run")
             elif isinstance(v, dict) and "score" in v:
-                print(f"  {g}           : score={v['score']} complete={v['quality_complete']}")
+                print(f"  {g}           : score={v['score']} complete={v.get('quality_complete', False)}")
             elif isinstance(v, dict):
                 for fr, r in v.items():
-                    print(f"  {g}/{fr}  : score={r['score']} complete={r['quality_complete']}")
+                    if isinstance(r, dict):
+                        print(f"  {g}/{fr}  : score={r.get('score', 0)} complete={r.get('quality_complete', False)}")
+                    else:
+                        print(f"  {g}/{fr}  : {r}")
     else:
         print("\n[Quality Manifest] Not found — run `harness_cli.py manifest` first")
 
