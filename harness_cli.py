@@ -301,7 +301,7 @@ def _verify_all_gate_tools(project: str) -> tuple[bool, list[str]]:
 
     return len(all_missing) == 0, all_missing
 
-def _fr_step_preflight(step: str, project: Path, fr_id: str | None) -> tuple[bool, list[str]]:
+def _fr_step_preflight(step: str, project: Path, fr_id: str | None, srs_path: str | None = None) -> tuple[bool, list[str]]:
     """Verify environment and artifacts are ready before spawning a sub-agent for an FR step.
 
     Returns (ok, error_lines). On ok=[], sub-agent spawn proceeds. On failure,
@@ -318,8 +318,21 @@ def _fr_step_preflight(step: str, project: Path, fr_id: str | None) -> tuple[boo
 
     # ── 2. SRS.md (required for all steps — traceability back to requirements) ─
     srs = project / "SRS.md"
+    if srs_path:
+        srs_arg = Path(srs_path)
+        srs = srs_arg if srs_arg.is_absolute() else project / srs_arg
+    else:
+        for candidate in ["01-requirements/SRS.md", "SRS.md", ".methodology/SRS.md"]:
+            if (project / candidate).exists():
+                srs = project / candidate
+                break
+
     if not srs.exists():
-        errors.append("✗ SRS.md not found in project root (required for all FR steps)")
+        try:
+            rel_path = srs.relative_to(project)
+        except ValueError:
+            rel_path = srs
+        errors.append(f"✗ SRS.md not found at {rel_path} (required for all FR steps)")
 
     # ── 3. quality_manifest.json + FR-ID registration ────────────────────────
     manifest_path = project / ".methodology" / "quality_manifest.json"
@@ -7040,7 +7053,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
         return 0
 
     # 2. Pre-flight checks — must pass before agent dispatch
-    preflight_ok, preflight_errors = _fr_step_preflight(step, project, fr_id)
+    preflight_ok, preflight_errors = _fr_step_preflight(step, project, fr_id, srs_path=getattr(args, "srs", None))
     if not preflight_ok:
         print(f"\n[PRE-FLIGHT FAILED] run-fr-step --fr-id {fr_id} --step {step}", file=sys.stderr)
         for err in preflight_errors:
