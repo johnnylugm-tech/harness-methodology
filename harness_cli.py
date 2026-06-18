@@ -5669,13 +5669,13 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                     except Exception:  # pylint: disable=broad-exception-caught
                         pass
                 if not _fr_ids:
-                    # Fallback: scan SRS.md for "### FR-XX:" headers
+                    # Fallback: scan SRS.md for "### FR-XX:" headers or "| FR-XX |" table rows
                     import re as _re_fr
                     _srs = project / "01-requirements" / "SRS.md"
                     if _srs.exists():
                         _fr_ids = [
                             f"FR-{n}" for n in _re_fr.findall(
-                                r"^###\s+FR-(\d+)\s*:",
+                                r"^(?:###\s+FR-|\|\s*FR-)(\d+)(?:\s*:|\s*\|)",
                                 _srs.read_text(encoding="utf-8"),
                                 _re_fr.MULTILINE,
                             )

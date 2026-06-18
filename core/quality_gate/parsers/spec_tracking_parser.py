@@ -25,6 +25,18 @@ class SpecTrackingParser:
         return "Update log" in content and "Date" in content and "|" in content
 
     @staticmethod
+    def _extract_status(parts: List[str]) -> str:
+        for p in reversed(parts):
+            if not p:
+                continue
+            if any(x in p for x in ("✅", "⚠️", "❌", "DRAFT", "IN_PROGRESS", "NOT_STARTED")):
+                return p
+            p_clean = re.sub(r"[^\w\s]", "", p).strip()
+            if p_clean in ("Done", "Pending", "Not Implemented", "In Progress", "Not Started"):
+                return p
+        return ""
+
+    @staticmethod
     def find_entries_without_status(content: str) -> List[str]:
         """
         Return table-row entries whose last non-empty column lacks a
@@ -32,11 +44,6 @@ class SpecTrackingParser:
         Not Implemented / DRAFT / In Progress / Not Started).
         """
         entries: List[str] = []
-        _status_markers = (
-            "✅", "⚠️", "❌",
-            "Done", "Pending", "Not Implemented",
-            "DRAFT", "IN_PROGRESS", "In Progress", "Not Started", "NOT_STARTED",
-        )
         _header_markers = ("Spec", "Requirement", "Item")
 
         for line in content.split("\n"):
@@ -47,9 +54,9 @@ class SpecTrackingParser:
                 continue
             if any(x in parts[1] for x in _header_markers):
                 continue
-            # Find last non-empty column
-            status_col = next((p for p in reversed(parts) if p), None)
-            if status_col and not any(x in status_col for x in _status_markers):
+            
+            status_col = SpecTrackingParser._extract_status(parts)
+            if not status_col:
                 entries.append(parts[1] if len(parts) > 1 else "Unknown")
         return entries
 
@@ -79,7 +86,7 @@ class SpecTrackingParser:
             if "|" not in stripped or all(c in "|-: " for c in stripped):
                 continue
             parts = [p.strip() for p in line.split("|")]
-            status_col = next((p for p in reversed(parts) if p), "")
+            status_col = SpecTrackingParser._extract_status(parts)
 
             if "✅" in status_col:
                 stats["✅ Done"] += 1
