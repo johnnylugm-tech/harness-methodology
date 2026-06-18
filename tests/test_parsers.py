@@ -102,6 +102,18 @@ class TestSpecTrackingParserCountStatusProseBug121:
         assert stats["⚠️ Pending"] == 2
         assert stats["❌ Not Implemented"] == 2
 
+    def test_id_bug_121_false_positive_prose_in_feature_description(self):
+        # "Done", "Pending", or "Not Implemented" in the feature name must not
+        # trigger a match. The match should only apply to the status column.
+        content = (
+            "FR-01 | Add Done button to Pending page | Not Implemented\n"
+            "FR-02 | Review Pending tasks | Done\n"
+        )
+        stats = SpecTrackingParser.count_status(content)
+        assert stats["✅ Done"] == 1
+        assert stats["⚠️ Pending"] == 0
+        assert stats["❌ Not Implemented"] == 1
+
 
 class TestSpecTrackingParserFindEntriesWithoutStatus:
     def test_no_missing_entries_when_all_have_status(self):

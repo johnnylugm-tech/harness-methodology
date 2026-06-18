@@ -78,26 +78,29 @@ class SpecTrackingParser:
             # (separators contain only "|", "-", ":", and spaces).
             if "|" not in stripped or all(c in "|-: " for c in stripped):
                 continue
-            if "✅" in line:
+            parts = [p.strip() for p in line.split("|")]
+            status_col = next((p for p in reversed(parts) if p), "")
+
+            if "✅" in status_col:
                 stats["✅ Done"] += 1
-            elif "⚠️" in line:
+            elif "⚠️" in status_col:
                 stats["⚠️ Pending"] += 1
-            elif "❌" in line:
+            elif "❌" in status_col:
                 stats["❌ Not Implemented"] += 1
-            elif "DRAFT" in line:
+            elif "DRAFT" in status_col:
                 stats["DRAFT"] += 1
-            elif "IN_PROGRESS" in line or "In Progress" in line:
+            elif "IN_PROGRESS" in status_col or "In Progress" in status_col:
                 stats["IN_PROGRESS"] += 1
-            elif "Not Started" in line or "NOT_STARTED" in line:
+            elif "Not Started" in status_col or "NOT_STARTED" in status_col:
                 stats["Not Started"] += 1
             # Bug #121: plain-text prose statuses recognised by
             # find_entries_without_status() but missing from this chain.
             # Checked after emoji branches so "✅ Done" rows are not
             # double-counted (the emoji branch matches first).
-            elif "Not Implemented" in line:
+            elif "Not Implemented" in status_col:
                 stats["❌ Not Implemented"] += 1
-            elif "Done" in line:
+            elif "Done" in status_col:
                 stats["✅ Done"] += 1
-            elif "Pending" in line:
+            elif "Pending" in status_col:
                 stats["⚠️ Pending"] += 1
         return stats
