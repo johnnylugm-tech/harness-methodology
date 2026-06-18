@@ -32,6 +32,11 @@ def _function_has_assertion(node: ast.AST) -> bool:
     """
     for sub in ast.walk(node):
         if isinstance(sub, ast.Assert):
+            # Reject constant-value assertions (assert True, assert False,
+            # assert None, assert 0, assert "" …).  These are semantically
+            # equivalent to pass/raise and do not verify any behaviour.
+            if isinstance(sub.test, ast.Constant):
+                continue
             return True
         if isinstance(sub, ast.Call):
             fn = sub.func

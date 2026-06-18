@@ -90,4 +90,14 @@ class SpecTrackingParser:
                 stats["IN_PROGRESS"] += 1
             elif "Not Started" in line or "NOT_STARTED" in line:
                 stats["Not Started"] += 1
+            # Bug #121: plain-text prose statuses recognised by
+            # find_entries_without_status() but missing from this chain.
+            # Checked after emoji branches so "✅ Done" rows are not
+            # double-counted (the emoji branch matches first).
+            elif "Not Implemented" in line:
+                stats["❌ Not Implemented"] += 1
+            elif "Done" in line:
+                stats["✅ Done"] += 1
+            elif "Pending" in line:
+                stats["⚠️ Pending"] += 1
         return stats

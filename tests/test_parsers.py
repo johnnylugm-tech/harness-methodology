@@ -59,6 +59,50 @@ class TestSpecTrackingParserCountStatus:
         assert all(v == 0 for v in stats.values())
 
 
+class TestSpecTrackingParserCountStatusProseBug121:
+    """Bug #121b: count_status() was missing plain-text branches for
+    "Done", "Pending", "Not Implemented" — only find_entries_without_status()
+    recognised them, causing completeness to report 0% in prose-only tables."""
+
+    def test_prose_done_counted_bug_121(self):
+        content = (
+            "FR-01 | feature a | Done\n"
+            "FR-02 | feature b | Done\n"
+        )
+        stats = SpecTrackingParser.count_status(content)
+        assert stats["✅ Done"] == 2
+
+    def test_prose_pending_counted_bug_121(self):
+        content = "FR-01 | feature a | Pending\n"
+        stats = SpecTrackingParser.count_status(content)
+        assert stats["⚠️ Pending"] == 1
+
+    def test_prose_not_implemented_counted_bug_121(self):
+        content = "FR-01 | feature a | Not Implemented\n"
+        stats = SpecTrackingParser.count_status(content)
+        assert stats["❌ Not Implemented"] == 1
+
+    def test_emoji_rows_not_double_counted_bug_121(self):
+        # "✅ Done" line must not also trigger the prose "Done" branch
+        content = "FR-01 | feature a | ✅ Done\n"
+        stats = SpecTrackingParser.count_status(content)
+        assert stats["✅ Done"] == 1
+
+    def test_mixed_emoji_and_prose_bug_121(self):
+        content = (
+            "FR-01 | feature a | ✅ Done\n"
+            "FR-02 | feature b | Done\n"
+            "FR-03 | feature c | ⚠️ Pending\n"
+            "FR-04 | feature d | Pending\n"
+            "FR-05 | feature e | ❌ Not Implemented\n"
+            "FR-06 | feature f | Not Implemented\n"
+        )
+        stats = SpecTrackingParser.count_status(content)
+        assert stats["✅ Done"] == 2
+        assert stats["⚠️ Pending"] == 2
+        assert stats["❌ Not Implemented"] == 2
+
+
 class TestSpecTrackingParserFindEntriesWithoutStatus:
     def test_no_missing_entries_when_all_have_status(self):
         content = "FR-01 | Done\nFR-02 | Pending"

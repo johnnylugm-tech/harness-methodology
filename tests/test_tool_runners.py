@@ -362,6 +362,37 @@ class TestRunAstAssertions:
         assert any("test_empty" in z for z in data["zero_assert"])
         assert compute_tool_score("ast-assertions", out, rc) == 75.0
 
+    def test_assert_true_counts_as_zero_assert_bug_121(self, tmp_path):
+        """Bug #121: assert True/False/None/0 must not count as substantive assertion.
+
+        A test containing only a constant assertion is semantically equivalent to
+        pass (assert True) or raise AssertionError (assert False) — it does not
+        verify any code behaviour. The scanner must report it as zero_assert so
+        test_assertion_quality is not inflated to 100 for hollow test suites.
+        """
+        (tmp_path / "tests").mkdir()
+        (tmp_path / "tests" / "test_trivial.py").write_text(
+            "def test_assert_true():\n    assert True\n"
+            "def test_assert_false():\n    assert False\n"
+            "def test_assert_none():\n    assert None\n"
+            "def test_assert_zero():\n    assert 0\n"
+            "def test_real():\n    assert 1 == 2 - 1\n",
+            encoding="utf-8",
+        )
+        out, rc = run_tool("ast-assertions", str(tmp_path))
+        assert rc == 0
+        data = json.loads(out)
+        assert data["total"] == 5
+        assert data["asserted"] == 1, (
+            f"Only test_real should count; got asserted={data['asserted']}, "
+            f"zero_assert={data['zero_assert']}"
+        )
+        trivial_fns = ["test_assert_true", "test_assert_false", "test_assert_none", "test_assert_zero"]
+        for fn in trivial_fns:
+            assert any(fn in z for z in data["zero_assert"]), (
+                f"{fn} should be in zero_assert but isn't: {data['zero_assert']}"
+            )
+
 
 # ---------------------------------------------------------------------------
 # _score_error_handling_coverage + ast-error-handling (Layer 3, error_handling)
