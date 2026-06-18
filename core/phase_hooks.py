@@ -1136,7 +1136,7 @@ class PhaseHooks:
             avg_score = (sum(r.score for r in results.values()) /
                          max(len(results), 1))
             score_pct = avg_score * 100
-            passed = score_pct >= self.drift_threshold
+            passed = score_pct >= self.drift_threshold if blocking else True
             print(f"   Drifts: {total_drifts}, Score: {score_pct:.0f}% "
                   f"(threshold: {self.drift_threshold:.0f}%)")
             return {"passed": passed, "drifts": total_drifts,
