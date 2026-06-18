@@ -55,6 +55,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Optional
@@ -5599,10 +5600,29 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
     # CV-13: Stale .sessi-work/ artifacts can cause the next phase's gate
     # evaluation to skip re-computation (agent sees old result JSONs and
     # assumes they are current). Clean aggressively at every phase transition.
+    # Bug #H fix: preserve .sessi-work/sentinels/ — those files are the
+    # gate-completion evidence consumed by the next phase's
+    # validate-handoff (g1_fr01.flag etc.). Wiping them caused every
+    # advance-phase to drop Gate 1 evidence, so the precondition check
+    # on the next phase always reported "sentinel missing" even after
+    # a successful Gate 1 finalize.
     sessi_work = project / ".sessi-work"
+    sentinels_dir = sessi_work / "sentinels"
+    _sentinels_backup: Optional[Path] = None
+    if sentinels_dir.is_dir():
+        _sentinels_backup = Path(tempfile.mkdtemp(prefix="harness-sentinels-"))
+        shutil.copytree(sentinels_dir, _sentinels_backup / "sentinels")
     if sessi_work.is_dir():
         shutil.rmtree(sessi_work, ignore_errors=True)
         print(f"  [advance-phase] Cleared stale {sessi_work}")
+    if _sentinels_backup is not None:
+        try:
+            sentinels_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(_sentinels_backup / "sentinels", sentinels_dir, dirs_exist_ok=True)
+            _n = sum(1 for _ in sentinels_dir.iterdir() if _.is_file())
+            print(f"  [advance-phase] Preserved {_n} sentinel(s) under {sentinels_dir}")
+        finally:
+            shutil.rmtree(_sentinels_backup, ignore_errors=True)
 
     # Fix Finding #3: auto-regenerate quality_manifest.json at P2 exit.
     #
