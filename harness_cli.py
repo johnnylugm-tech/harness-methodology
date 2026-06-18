@@ -4487,8 +4487,10 @@ def cmd_status(args: argparse.Namespace) -> int:
     coverage_pct = None
     if full:
         import subprocess  # nosec B404
+        # Bug #117 ext: route through sys.executable so the venv's pytest is
+        # used; bare 'pytest' on macOS PATH resolves to CommandLineTools 3.9.
         try:
-            r = subprocess.run(["pytest", "--collect-only", "-q", "--no-header"],
+            r = subprocess.run([sys.executable, "-m", "pytest", "--collect-only", "-q", "--no-header"],
                              cwd=project, capture_output=True, text=True, timeout=30)
             m = re.search(r"(\d+) tests? collected", r.stdout + r.stderr)
             if m:
@@ -4496,7 +4498,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         except Exception:
             pass
         try:
-            r = subprocess.run(["pytest", "--cov=.", "--cov-report=term", "--tb=no", "-q"],
+            r = subprocess.run([sys.executable, "-m", "pytest", "--cov=.", "--cov-report=term", "--tb=no", "-q"],
                              cwd=project, capture_output=True, text=True, timeout=120)
             m = re.search(r"TOTAL\s+\d+\s+\d+\s+(\d+)%", r.stdout + r.stderr)
             if m:

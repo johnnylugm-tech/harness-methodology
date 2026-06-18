@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
 
 from pathlib import Path
 from typing import Callable, Dict, List, Tuple
@@ -255,8 +256,9 @@ def fix_pytest_failures(context, project_root: Path) -> Tuple[bool, str, float]:
     # Run pytest with line-level failure output
     # ODD Optimization: Load runtime_tracer hook to capture test failure state
     try:
+        # Bug #117 ext: route through sys.executable.
         result = subprocess.run(  # nosec B603 B607
-            ["pytest", "-p", "core.auto_fix.runtime_tracer", "--tb=line", "-q", "--no-header"],
+            [sys.executable, "-m", "pytest", "-p", "core.auto_fix.runtime_tracer", "--tb=line", "-q", "--no-header"],
             cwd=project_root,
             capture_output=True,
             text=True,
@@ -284,8 +286,9 @@ def fix_pytest_failures(context, project_root: Path) -> Tuple[bool, str, float]:
         return (False, f"No failures auto-fixable ({len(failures)} remaining)", 20.0)
 
     # Re-run affected tests to verify
+    # Bug #117 ext: route through sys.executable.
     verify_result = subprocess.run(  # nosec B603 B607
-        ["pytest", "--tb=no", "-q"],
+        [sys.executable, "-m", "pytest", "--tb=no", "-q"],
         cwd=project_root,
         capture_output=True,
         text=True,

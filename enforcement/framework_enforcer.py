@@ -221,8 +221,9 @@ class FrameworkEnforcer:
             test_target = "tests"
             
         try:
+            # Bug #117 ext: route through sys.executable.
             proc = subprocess.run(  # nosec B603 B607
-                ["pytest", test_target, f"--cov={cov_source}", "--cov-report=term-missing", "--tb=no", "-q"],
+                [sys.executable, "-m", "pytest", test_target, f"--cov={cov_source}", "--cov-report=term-missing", "--tb=no", "-q"],
                 cwd=self.project_root,
                 capture_output=True,
                 text=True,

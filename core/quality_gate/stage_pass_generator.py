@@ -228,8 +228,10 @@ class IntegratedStagePassGenerator:
             test_target = "."
             
         try:
+            # Bug #117 ext: route through sys.executable so the venv's pytest
+            # is used; bare 'pytest' on macOS PATH resolves to CommandLineTools 3.9.
             result = subprocess.run(  # nosec B603 B607
-                ["pytest", test_target, "--tb=short", "-v"],
+                [sys.executable, "-m", "pytest", test_target, "--tb=short", "-v"],
                 cwd=self.project_root,
                 capture_output=True,
                 text=True,
@@ -256,8 +258,9 @@ class IntegratedStagePassGenerator:
             test_target = "."
             
         try:
+            # Bug #117 ext: see note above.
             result = subprocess.run(  # nosec B603 B607
-                ["pytest", test_target, "--cov", "--cov-report=term-missing"],
+                [sys.executable, "-m", "pytest", test_target, "--cov", "--cov-report=term-missing"],
                 cwd=self.project_root,
                 capture_output=True,
                 text=True,
