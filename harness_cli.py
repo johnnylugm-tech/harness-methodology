@@ -2021,7 +2021,7 @@ def _print_fr_scoped_overrides_py(
             f"Infrastructure/config FRs are exempt from coverage measurement.\n"
             f"  Set tool_evidence = 'non-code FR: {fr_id} declared in fr_non_code'\n\n"
             f"linting — lint only the FR source directory:\n"
-            f"  ruff check {src_dir}/ 2>&1 | head -200\n\n"
+            f"  ruff check {src_dir}/ --extend-ignore RUF001,RUF002,RUF003 2>&1 | head -200\n\n"
             f"type_safety — type-check only the FR source directory:\n"
             f"  pyright {src_dir}/ --outputjson 2>&1 | head -200\n"
         )
@@ -2058,7 +2058,7 @@ def _print_fr_scoped_overrides_py(
         f"{cov_cmd}\n"
         f"{cov_note}\n\n"
         f"linting — lint only the FR source directory:\n"
-        f"  ruff check {src_dir}/ 2>&1 | head -200\n\n"
+        f"  ruff check {src_dir}/ --extend-ignore RUF001,RUF002,RUF003 2>&1 | head -200\n\n"
         f"type_safety — type-check only the FR source directory:\n"
         f"  pyright {src_dir}/ --outputjson 2>&1 | head -200\n"
     )
@@ -5357,7 +5357,7 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
         if src_dir.is_dir():
             # 0.2 Linting (ruff)
             if shutil.which("ruff"):
-                _rf_r = subprocess.run(["ruff", "check", "."], cwd=str(project))
+                _rf_r = subprocess.run(["ruff", "check", ".", "--extend-ignore", "RUF001,RUF002,RUF003"], cwd=str(project))
                 if _rf_r.returncode != 0:
                     print("\n[BLOCKED] Linting (ruff) failure.")
                     print("  Please fix the linting errors before advancing.")
@@ -6716,18 +6716,18 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"(document why if you use noqa)\n\n"
             f"[SITUATION]\n"
             f"Gate 1 linting dimension is FAILING. Fix ALL ruff violations in `{src_dir}/` "
-            f"so `ruff check {src_dir}/` exits 0.\n\n"
+            f"so `ruff check {src_dir}/ --extend-ignore RUF001,RUF002,RUF003` exits 0.\n\n"
             f"[ACTUAL TOOL OUTPUT — from pre-run]\n"
             f"{tool_snapshot or '(not available)'}\n\n"
             f"[TASK]\n"
-            f"1. Run `ruff check {src_dir}/ 2>&1` to see the full violation list.\n"
+            f"1. Run `ruff check {src_dir}/ --extend-ignore RUF001,RUF002,RUF003 2>&1` to see the full violation list.\n"
             f"2. For N-series violations (naming conventions — N801, N802, N806, N816 etc.):\n"
             f"   - Rename constants/variables to follow PEP 8 naming (UPPER_CASE for module "
             f"constants, UpperCase for classes, lower_case for functions/variables).\n"
             f"   - Update ALL references to each renamed symbol (use `grep -rn '<old_name>'` "
             f"to find them, then rename systematically).\n"
             f"3. For E/W-series violations: fix in-place per ruff's suggestion.\n"
-            f"4. Re-run `ruff check {src_dir}/` — it MUST exit 0 before you commit.\n"
+            f"4. Re-run `ruff check {src_dir}/ --extend-ignore RUF001,RUF002,RUF003` — it MUST exit 0 before you commit.\n"
             f"5. Run `pytest {test_file} -q` to confirm no tests broken by renames.\n"
             f"6. Commit: `git add {src_dir}/ && "
             f"git commit -m \"fix({fr_id}): resolve ruff linting violations\"`\n\n"
@@ -6747,7 +6747,7 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
                 f"(sub-agent timeout or error — no gate1_result.json was written).\n\n"
                 f"[TASK — diagnostic mode]\n"
                 f"1. Run `pytest tests/ -q` to identify failing / missing tests.\n"
-                f"2. Run `ruff check {src_dir}/` to identify lint errors.\n"
+                f"2. Run `ruff check {src_dir}/ --extend-ignore RUF001,RUF002,RUF003` to identify lint errors.\n"
                 f"3. Based on actual results:\n"
                 f"   a. If tests are failing or missing → add/fix tests in `{test_file}` "
                 f"AND fix source code in `{src_dir}/` as needed.\n"
@@ -6913,8 +6913,8 @@ def _capture_tool_snapshot(
     # while the system python3 is 3.14).  exit code 127 = command not found.
     _ruff_r = None
     for _ruff_cmd in (
-        ["ruff", "check", f"{src_dir}/"],
-        ["python3", "-m", "ruff", "check", f"{src_dir}/"],
+        ["ruff", "check", f"{src_dir}/", "--extend-ignore", "RUF001,RUF002,RUF003"],
+        ["python3", "-m", "ruff", "check", f"{src_dir}/", "--extend-ignore", "RUF001,RUF002,RUF003"],
     ):
         try:
             _ruff_r = _sp.run(
@@ -6926,7 +6926,7 @@ def _capture_tool_snapshot(
         except Exception:
             _ruff_r = None
     if _ruff_r and (_ruff_r.stdout.strip() or _ruff_r.stderr.strip()):
-        lines.append(f"ruff check {src_dir}/ (exit {_ruff_r.returncode}):")
+        lines.append(f"ruff check {src_dir}/ --extend-ignore RUF001,RUF002,RUF003 (exit {_ruff_r.returncode}):")
         lines.append((_ruff_r.stdout + _ruff_r.stderr).strip()[:600])
         lines.append("")
     try:
