@@ -403,6 +403,8 @@ class TestRegressionGuardEndToEnd:
                 return MagicMock(returncode=0, stdout=out)
             if cmd[0] == "git" and "diff" in cmd:
                 return MagicMock(returncode=0, stdout="")
+            if cmd[0] == "git" and "show" in cmd:
+                return MagicMock(returncode=1, stdout="")
             return claude_proc
 
         with patch("shutil.which", return_value="/usr/bin/claude"):
@@ -430,6 +432,8 @@ class TestRegressionGuardEndToEnd:
                 return MagicMock(returncode=0, stdout=out)
             if cmd[0] == "git" and "diff" in cmd:
                 return MagicMock(returncode=0, stdout="")
+            if cmd[0] == "git" and "show" in cmd:
+                return MagicMock(returncode=1, stdout="")
             return claude_proc
 
         with patch("shutil.which", return_value="/usr/bin/claude"):
@@ -472,6 +476,8 @@ class TestRegressionGuardEndToEnd:
             if cmd[0] == "git" and "diff" in cmd:
                 # XX-marker check — no markers
                 return MagicMock(returncode=0, stdout="")
+            if cmd[0] == "git" and "show" in cmd:
+                return MagicMock(returncode=1, stdout="")
             return claude_proc
 
         with patch("shutil.which", return_value="/usr/bin/claude"):

@@ -372,6 +372,14 @@ class AgentSpawner:
             # absolute threshold: 50+ lines removed in a single file in
             # a 30-min TDD step is almost certainly a destructive edit.
             if net_removed > 50:
+                # AST-based refinement: ignore docstring/comment mass deletions in Python
+                if path.endswith(".py"):
+                    try:
+                        logical_removed = self._calculate_logical_removal(path, pre_sha)
+                        if logical_removed is not None and logical_removed <= 50:
+                            continue  # Actual code logic removed is within safe limits
+                    except Exception:
+                        pass
                 suspect_lines_removed.append((path, net_removed))
             # Look for XX...XX mutator markers left in source — this is
             # the exact pattern TDD-IMPROVE introduced in Bug #39.
@@ -393,3 +401,56 @@ class AgentSpawner:
         if suspect_xx_markers:
             flags["xx_markers_introduced"] = suspect_xx_markers
         return flags
+
+    def _calculate_logical_removal(self, path: str, pre_sha: Optional[str]) -> Optional[int]:
+        """Calculate net removed lines ignoring comments and docstrings for Python."""
+        import ast
+        import subprocess
+
+        def get_logical_lines(source: str) -> int:
+            if not source.strip(): return 0
+            try:
+                parsed = ast.parse(source)
+            except SyntaxError:
+                return len(source.splitlines())
+            
+            class DocstringRemover(ast.NodeTransformer):
+                def _remove_docstring(self, node):
+                    self.generic_visit(node)
+                    if node.body and isinstance(node.body[0], ast.Expr) and isinstance(node.body[0].value, ast.Constant) and isinstance(node.body[0].value.value, str):
+                        node.body = node.body[1:]
+                    return node
+                def visit_Module(self, node): return self._remove_docstring(node)
+                def visit_ClassDef(self, node): return self._remove_docstring(node)
+                def visit_FunctionDef(self, node): return self._remove_docstring(node)
+                def visit_AsyncFunctionDef(self, node): return self._remove_docstring(node)
+
+            parsed = DocstringRemover().visit(parsed)
+            try:
+                return len(ast.unparse(parsed).splitlines())
+            except Exception:
+                return len(source.splitlines())
+
+        if not self.project_path:
+            return None
+
+        try:
+            diff_base = pre_sha or "HEAD"
+            r_pre = subprocess.run(
+                ["git", "show", f"{diff_base}:{path}"],
+                capture_output=True, text=True, cwd=str(self.project_path)
+            )
+            pre_source = r_pre.stdout if r_pre.returncode == 0 else ""
+            if not pre_source:
+                # If we couldn't read the original file, we can't reliably parse it.
+                # Fall back to raw diff line counts.
+                return None
+            
+            post_path = self.project_path / path
+            post_source = post_path.read_text(encoding="utf-8") if post_path.exists() else ""
+
+            pre_lines = get_logical_lines(pre_source)
+            post_lines = get_logical_lines(post_source)
+            return pre_lines - post_lines
+        except Exception:
+            return None
