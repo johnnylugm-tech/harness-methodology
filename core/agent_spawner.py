@@ -439,7 +439,7 @@ class AgentSpawner:
             diff_base = pre_sha or "HEAD"
             r_pre = subprocess.run(
                 ["git", "show", f"{diff_base}:{path}"],
-                capture_output=True, text=True, cwd=str(self.project_path)
+                capture_output=True, text=True, cwd=str(self.project_path), timeout=10
             )
             pre_source = r_pre.stdout if r_pre.returncode == 0 else ""
             if not pre_source:
@@ -448,7 +448,7 @@ class AgentSpawner:
                 return None
             
             post_path = self.project_path / path
-            post_source = post_path.read_text(encoding="utf-8") if post_path.exists() else ""
+            post_source = post_path.read_text(encoding="utf-8", errors="replace") if post_path.exists() else ""
 
             pre_lines = get_logical_lines(pre_source)
             post_lines = get_logical_lines(post_source)
