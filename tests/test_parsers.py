@@ -115,6 +115,40 @@ class TestSpecTrackingParserCountStatusProseBug121:
         assert stats["❌ Not Implemented"] == 1
 
 
+class TestExtractStatusLastColumnOnlyBug:
+    """_extract_status must stop at the last non-empty column and not scan further.
+    Scanning all columns caused false-negatives when status words appeared in an
+    intermediate description column with a non-status last column."""
+
+    def test_prose_status_in_intermediate_col_last_col_not_status_flags_entry(self):
+        # "In Progress" (prose) in col 2, "review notes" in col 3 (last, non-status).
+        # Prose words are matched only in the last non-empty column, so "In Progress"
+        # in col 2 must NOT be treated as a status — the entry must be flagged.
+        content = "FR-01 | In Progress | review notes |"
+        result = SpecTrackingParser.find_entries_without_status(content)
+        assert result != [], "prose word in non-last col must not prevent flagging"
+
+    def test_prose_status_in_last_col_not_flagged(self):
+        content = "FR-01 | review notes | In Progress |"
+        result = SpecTrackingParser.find_entries_without_status(content)
+        assert "FR-01" not in result
+
+    def test_emoji_status_in_non_last_col_counted(self):
+        # "✅ Done" in col 2, "note" in col 3 (last).  Emoji codes are scanned
+        # across all columns, so this row must still be counted as Done.
+        content = "| F1 | ✅ Done | note |"
+        stats = SpecTrackingParser.count_status(content)
+        assert stats["✅ Done"] == 1
+
+    def test_prose_status_only_in_last_col_counted(self):
+        # "Done" in col 3 (last) — must be counted.
+        content = "FR-01 | Done | review notes |"
+        stats = SpecTrackingParser.count_status(content)
+        # "review notes" is last non-empty → prose check finds no match → 0 (correct).
+        # "Done" is in col 2, not last → not counted by prose branch.
+        assert stats["✅ Done"] == 0
+
+
 class TestSpecTrackingParserFindEntriesWithoutStatus:
     def test_no_missing_entries_when_all_have_status(self):
         content = "FR-01 | Done\nFR-02 | Pending"

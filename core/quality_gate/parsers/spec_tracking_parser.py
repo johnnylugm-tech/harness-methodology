@@ -26,14 +26,21 @@ class SpecTrackingParser:
 
     @staticmethod
     def _extract_status(parts: List[str]) -> str:
-        for p in reversed(parts):
-            if not p:
-                continue
+        non_empty = [p for p in reversed(parts) if p]
+        # Phase 1: scan all columns for emoji / abbreviated codes.  These are
+        # distinctive enough (✅ / ⚠️ / ❌ / DRAFT / IN_PROGRESS …) to be safe
+        # to match in any column, which handles tables like "| FR | ✅ Done | note |"
+        # where the status column is not the last one.
+        for p in non_empty:
             if any(x in p for x in ("✅", "⚠️", "❌", "DRAFT", "IN_PROGRESS", "NOT_STARTED")):
                 return p
-            p_clean = re.sub(r"[^\w\s]", "", p).strip()
+        # Phase 2: prose words only in the last non-empty column.  Scanning all
+        # columns for "Done" / "In Progress" etc. caused false-negatives when those
+        # words appeared inside feature descriptions rather than the status column.
+        if non_empty:
+            p_clean = re.sub(r"[^\w\s]", "", non_empty[0]).strip()
             if p_clean in ("Done", "Pending", "Not Implemented", "In Progress", "Not Started"):
-                return p
+                return non_empty[0]
         return ""
 
     @staticmethod

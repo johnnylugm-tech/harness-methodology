@@ -301,7 +301,7 @@ def _verify_all_gate_tools(project: str) -> tuple[bool, list[str]]:
 
     return len(all_missing) == 0, all_missing
 
-def _fr_step_preflight(step: str, project: Path, fr_id: str | None, srs_path: str | None = None) -> tuple[bool, list[str]]:
+def _fr_step_preflight(step: str, project: Path, fr_id: str | None, srs_path: "Path | str | None" = None) -> tuple[bool, list[str]]:
     """Verify environment and artifacts are ready before spawning a sub-agent for an FR step.
 
     Returns (ok, error_lines). On ok=[], sub-agent spawn proceeds. On failure,
@@ -7012,7 +7012,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
     fr_id = args.fr_id
     step = args.step.upper()
     project = Path(args.project).resolve()
-    srs_path = Path(args.srs).resolve() if getattr(args, "srs", None) else None
+    srs_path = Path(args.srs).resolve() if args.srs else None
 
     # Compute src_dir and test_file — used by GATE1 retry and _capture_tool_snapshot.
     _num_match = re.match(r"FR-(\d+)", fr_id)
@@ -7053,7 +7053,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
         return 0
 
     # 2. Pre-flight checks — must pass before agent dispatch
-    preflight_ok, preflight_errors = _fr_step_preflight(step, project, fr_id, srs_path=getattr(args, "srs", None))
+    preflight_ok, preflight_errors = _fr_step_preflight(step, project, fr_id, srs_path=srs_path)
     if not preflight_ok:
         print(f"\n[PRE-FLIGHT FAILED] run-fr-step --fr-id {fr_id} --step {step}", file=sys.stderr)
         for err in preflight_errors:
