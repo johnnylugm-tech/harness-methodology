@@ -490,3 +490,119 @@ class TestRegressionGuardEndToEnd:
             "Guard must fire for committed destructive edits, not just uncommitted ones"
         )
         assert "lines_removed>50" in result["regression_flags"]
+
+    def test_spawn_exempts_docstring_mass_deletion(self, tmp_path):
+        """REGRESSION_GUARD must NOT fire when >50 raw lines removed are a docstring.
+
+        AST-based logical-line counting should determine that zero real code was
+        removed and exempt the file, so spawn() returns 'complete' not REGRESSION_GUARD.
+        """
+        (tmp_path / ".git").mkdir()
+        spawner = AgentSpawner(project_path=tmp_path)
+        claude_proc = self._make_claude_proc()
+
+        # Pre: 63-line module docstring + tiny function.  Post: docstring removed.
+        pre_source = '"""\n' + "\n".join(["Long description line."] * 61) + '\n"""\ndef foo():\n    return 1\n'
+        post_source = "def foo():\n    return 1\n"
+
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        (src_dir / "models.py").write_text(post_source, encoding="utf-8")
+
+        call_count = [0]
+
+        def side_effect(cmd, **kw):
+            if cmd[0] == "git" and "--numstat" in cmd:
+                call_count[0] += 1
+                # pre: 5 added 0 removed; post: 5 added 63 removed (raw)
+                out = "5\t0\tsrc/models.py\n" if call_count[0] == 1 else "5\t63\tsrc/models.py\n"
+                return MagicMock(returncode=0, stdout=out)
+            if cmd[0] == "git" and "diff" in cmd:
+                return MagicMock(returncode=0, stdout="")
+            if cmd[0] == "git" and "show" in cmd:
+                return MagicMock(returncode=0, stdout=pre_source)
+            return claude_proc
+
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            with patch("core.agent_spawner.subprocess.run", side_effect=side_effect):
+                result = spawner.spawn(
+                    role="developer", prompt="Improve FR-01",
+                    context={}, model="claude", fr_id="FR-01",
+                )
+        assert result["status"] == "complete", (
+            f"Docstring-only removal must not trigger REGRESSION_GUARD: {result.get('regression_flags')}"
+        )
+
+
+class TestCalculateLogicalRemoval:
+    """Unit tests for AgentSpawner._calculate_logical_removal."""
+
+    def test_docstring_removal_produces_near_zero_logical_delta(self, tmp_path):
+        """Removing a 60-line module docstring should yield a logical delta near 0."""
+        spawner = AgentSpawner(project_path=tmp_path)
+
+        pre_source = '"""\n' + "\n".join(["Description."] * 60) + '\n"""\ndef foo():\n    return 1\n'
+        post_source = "def foo():\n    return 1\n"
+
+        post_file = tmp_path / "src" / "foo.py"
+        post_file.parent.mkdir()
+        post_file.write_text(post_source, encoding="utf-8")
+
+        with patch("core.agent_spawner.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout=pre_source)
+            result = spawner._calculate_logical_removal("src/foo.py", "deadbeef")
+
+        assert result is not None
+        assert result <= 0, "Docstring lines must not count as logical code removal"
+
+    def test_syntax_error_in_pre_source_returns_none(self, tmp_path):
+        """SyntaxError in the historical file must return None (skip exemption)
+        rather than falling back to raw line count, which could cause false negatives."""
+        spawner = AgentSpawner(project_path=tmp_path)
+
+        invalid_source = "def foo(\n    # unclosed — syntactically invalid\n"
+        post_file = tmp_path / "src" / "foo.py"
+        post_file.parent.mkdir()
+        post_file.write_text("def foo(): return 1\n", encoding="utf-8")
+
+        with patch("core.agent_spawner.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout=invalid_source)
+            result = spawner._calculate_logical_removal("src/foo.py", "deadbeef")
+
+        assert result is None, "SyntaxError must yield None, not a raw fallback count"
+
+    def test_timeout_returns_none(self, tmp_path):
+        """subprocess.TimeoutExpired on git show must return None gracefully."""
+        import subprocess as _sp
+        spawner = AgentSpawner(project_path=tmp_path)
+
+        with patch("core.agent_spawner.subprocess.run") as mock_run:
+            mock_run.side_effect = _sp.TimeoutExpired(["git", "show"], 10)
+            result = spawner._calculate_logical_removal("src/foo.py", "deadbeef")
+
+        assert result is None
+
+    def test_unicode_error_in_pre_source_returns_none(self, tmp_path):
+        """UnicodeDecodeError from git show must return None gracefully."""
+        spawner = AgentSpawner(project_path=tmp_path)
+
+        with patch("core.agent_spawner.subprocess.run") as mock_run:
+            mock_run.side_effect = UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid byte")
+            result = spawner._calculate_logical_removal("src/foo.py", "deadbeef")
+
+        assert result is None
+
+    def test_no_project_path_returns_none(self):
+        spawner = AgentSpawner(project_path=None)
+        result = spawner._calculate_logical_removal("src/foo.py", "deadbeef")
+        assert result is None
+
+    def test_git_show_failure_returns_none(self, tmp_path):
+        """git show returncode != 0 (file not in that commit) must return None."""
+        spawner = AgentSpawner(project_path=tmp_path)
+
+        with patch("core.agent_spawner.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=128, stdout="")
+            result = spawner._calculate_logical_removal("src/foo.py", "deadbeef")
+
+        assert result is None

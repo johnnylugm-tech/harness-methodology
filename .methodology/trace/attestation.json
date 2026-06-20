@@ -1,20 +1,20 @@
 {
   "schema": "harness/traceability/attestation/v1",
-  "git_sha": "b2b2444c986638b59410b800b045a956b4da5d41",
-  "content_sha256": "225814125438bdab227623664d7dcdefd4fcaf557394194d719d55f7dbd7d8f5",
+  "git_sha": "4e312f8285038c7cb5292e890dd2e2225543b7eb",
+  "content_sha256": "ed728259bcc63b3e6022a00f6ba3703abbbc8a14d13ebd3fab73254c2c137d1b",
   "tool": "scripts/build_trace_attestation.py",
-  "overlay_used": "/Users/johnny/projects/omnibot/harness/TRACEABILITY_MATRIX.overlay.yaml",
+  "overlay_used": "/Users/johnny/projects/harness-methodology/TRACEABILITY_MATRIX.overlay.yaml",
   "overlay_errors": [],
   "matrix": {
     "schema_version": "harness/traceability/overlay/v1",
-    "project_id": "harness",
+    "project_id": "harness-methodology",
     "completeness": {
       "total_requirements": 7,
       "srs_coverage": "0.0%",
-      "code_coverage": "0.0%",
-      "test_coverage": "100.0%",
+      "code_coverage": "100.0%",
+      "test_coverage": "0.0%",
       "verification_rate": "0.0%",
-      "total_links": 31,
+      "total_links": 32,
       "missing_mappings": {
         "fr_without_srs": [
           "FR-01",
@@ -25,7 +25,8 @@
           "FR-07",
           "FR-99"
         ],
-        "fr_without_code": [
+        "fr_without_code": [],
+        "fr_without_test": [
           "FR-01",
           "FR-02",
           "FR-03",
@@ -33,8 +34,7 @@
           "FR-05",
           "FR-07",
           "FR-99"
-        ],
-        "fr_without_test": []
+        ]
       }
     },
     "missing": {
@@ -47,7 +47,8 @@
         "FR-07",
         "FR-99"
       ],
-      "fr_without_code": [
+      "fr_without_code": [],
+      "fr_without_test": [
         "FR-01",
         "FR-02",
         "FR-03",
@@ -55,16 +56,15 @@
         "FR-05",
         "FR-07",
         "FR-99"
-      ],
-      "fr_without_test": []
+      ]
     },
     "requirements": {
       "FR-01": {
         "fr_id": "FR-01",
-        "status": "not_implemented",
+        "status": "in_progress",
         "srs_section": null,
-        "code_files": [],
-        "test_files": [
+        "code_files": [
+          "constitution/citation_parser.py",
           "tests/test_attestation_verify.py",
           "tests/test_citation_parser.py",
           "tests/test_drift_detector.py",
@@ -80,15 +80,15 @@
           "tests/test_trace_dirty_state.py",
           "tests/test_traceability_pipeline.py"
         ],
+        "test_files": [],
         "sad_module": "—",
         "priority": "HIGH"
       },
       "FR-02": {
         "fr_id": "FR-02",
-        "status": "not_implemented",
+        "status": "in_progress",
         "srs_section": null,
-        "code_files": [],
-        "test_files": [
+        "code_files": [
           "tests/test_attestation_verify.py",
           "tests/test_gate_trace_dimension.py",
           "tests/test_harness_cli.py",
@@ -97,66 +97,67 @@
           "tests/test_scanner_unification.py",
           "tests/test_traceability_pipeline.py"
         ],
+        "test_files": [],
         "sad_module": "—",
         "priority": "HIGH"
       },
       "FR-03": {
         "fr_id": "FR-03",
-        "status": "not_implemented",
+        "status": "in_progress",
         "srs_section": null,
-        "code_files": [],
-        "test_files": [
+        "code_files": [
           "tests/test_scanner_js_traceability.py",
           "tests/test_traceability_pipeline.py"
         ],
+        "test_files": [],
         "sad_module": "—",
         "priority": "HIGH"
       },
       "FR-04": {
         "fr_id": "FR-04",
-        "status": "not_implemented",
+        "status": "in_progress",
         "srs_section": null,
-        "code_files": [],
-        "test_files": [
+        "code_files": [
           "tests/test_traceability_pipeline.py"
         ],
+        "test_files": [],
         "sad_module": "—",
         "priority": "HIGH"
       },
       "FR-05": {
         "fr_id": "FR-05",
-        "status": "not_implemented",
+        "status": "in_progress",
         "srs_section": null,
-        "code_files": [],
-        "test_files": [
+        "code_files": [
           "tests/test_traceability_pipeline.py"
         ],
+        "test_files": [],
         "sad_module": "—",
         "priority": "HIGH"
       },
       "FR-07": {
         "fr_id": "FR-07",
-        "status": "not_implemented",
+        "status": "in_progress",
         "srs_section": null,
-        "code_files": [],
-        "test_files": [
+        "code_files": [
           "tests/test_gate1_live_coverage.py",
           "tests/test_traceability_pipeline.py"
         ],
+        "test_files": [],
         "sad_module": "—",
         "priority": "HIGH"
       },
       "FR-99": {
         "fr_id": "FR-99",
-        "status": "not_implemented",
+        "status": "in_progress",
         "srs_section": null,
-        "code_files": [],
-        "test_files": [
+        "code_files": [
           "tests/test_4a_denominator_dedup.py",
           "tests/test_scanner_mutation_coverage.py",
           "tests/test_traceability_auto_fix.py",
           "tests/test_traceability_pipeline.py"
         ],
+        "test_files": [],
         "sad_module": "—",
         "priority": "HIGH"
       },

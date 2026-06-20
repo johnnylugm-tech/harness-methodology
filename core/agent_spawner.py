@@ -407,14 +407,16 @@ class AgentSpawner:
         import ast
         import subprocess
 
-        def get_logical_lines(source: str) -> int:
+        def get_logical_lines(source: str) -> Optional[int]:
             if not source.strip():
                 return 0
             try:
                 parsed = ast.parse(source)
             except SyntaxError:
-                return len(source.splitlines())
-            
+                # Syntactically invalid source (mid-edit) — we can't determine
+                # logical line count reliably, so return None to skip exemption.
+                return None
+
             class DocstringRemover(ast.NodeTransformer):
                 def _remove_docstring(self, node):
                     self.generic_visit(node)
@@ -430,7 +432,7 @@ class AgentSpawner:
             try:
                 return len(ast.unparse(parsed).splitlines())
             except Exception:
-                return len(source.splitlines())
+                return None
 
         if not self.project_path:
             return None
@@ -439,19 +441,22 @@ class AgentSpawner:
             diff_base = pre_sha or "HEAD"
             r_pre = subprocess.run(
                 ["git", "show", f"{diff_base}:{path}"],
-                capture_output=True, text=True, cwd=str(self.project_path), timeout=10
+                capture_output=True, encoding="utf-8", errors="replace",
+                cwd=str(self.project_path), timeout=10,
             )
             pre_source = r_pre.stdout if r_pre.returncode == 0 else ""
             if not pre_source:
                 # If we couldn't read the original file, we can't reliably parse it.
                 # Fall back to raw diff line counts.
                 return None
-            
+
             post_path = self.project_path / path
             post_source = post_path.read_text(encoding="utf-8", errors="replace") if post_path.exists() else ""
 
             pre_lines = get_logical_lines(pre_source)
             post_lines = get_logical_lines(post_source)
+            if pre_lines is None or post_lines is None:
+                return None
             return pre_lines - post_lines
         except Exception:
             return None
