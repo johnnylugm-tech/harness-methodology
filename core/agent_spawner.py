@@ -408,7 +408,8 @@ class AgentSpawner:
         import subprocess
 
         def get_logical_lines(source: str) -> int:
-            if not source.strip(): return 0
+            if not source.strip():
+                return 0
             try:
                 parsed = ast.parse(source)
             except SyntaxError:
