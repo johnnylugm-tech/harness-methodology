@@ -34,11 +34,13 @@ class SpecTrackingParser:
         for p in non_empty:
             if any(x in p for x in ("✅", "⚠️", "❌", "DRAFT", "IN_PROGRESS", "NOT_STARTED")):
                 return p
-        # Phase 2: prose words in ANY column. The status column may not be the last column.
-        for p in non_empty:
-            p_clean = re.sub(r"[^\w\s\-]", "", p).strip().lower()
+        # Phase 2: prose words ONLY in the last non-empty column.  Scanning all
+        # columns for "Done" / "In Progress" etc. caused false-negatives when those
+        # words appeared inside feature descriptions rather than the status column.
+        if non_empty:
+            p_clean = re.sub(r"[^\w\s\-]", "", non_empty[0]).strip().lower()
             if p_clean in ("done", "pending", "not implemented", "in progress", "in-progress", "not started", "deferred"):
-                return p
+                return non_empty[0]
         return ""
 
     @staticmethod
@@ -58,9 +60,7 @@ class SpecTrackingParser:
                 continue
             
             parts = [p.strip() for p in line.split("|")]
-            # Spec tracking rows generally have at least ID, Title, Status
-            # meaning at least 3 data columns, which splits into 5 parts: ['', 'ID', 'Title', 'Status', '']
-            if len(parts) < 5:
+            if len(parts) < 4:
                 continue
             # Check if this row is a header row by seeing if it contains header names
             if any(x.lower() in parts[1].lower() or x.lower() in parts[2].lower() for x in _header_markers):
