@@ -34,32 +34,34 @@ class SpecTrackingParser:
         for p in non_empty:
             if any(x in p for x in ("✅", "⚠️", "❌", "DRAFT", "IN_PROGRESS", "NOT_STARTED")):
                 return p
-        # Phase 2: prose words only in the last non-empty column.  Scanning all
-        # columns for "Done" / "In Progress" etc. caused false-negatives when those
-        # words appeared inside feature descriptions rather than the status column.
-        if non_empty:
-            p_clean = re.sub(r"[^\w\s]", "", non_empty[0]).strip()
-            if p_clean in ("Done", "Pending", "Not Implemented", "In Progress", "Not Started"):
-                return non_empty[0]
+        # Phase 2: prose words in ANY column. The status column may not be the last column.
+        for p in non_empty:
+            p_clean = re.sub(r"[^\w\s\-]", "", p).strip().lower()
+            if p_clean in ("done", "pending", "not implemented", "in progress", "in-progress", "not started", "deferred"):
+                return p
         return ""
 
     @staticmethod
     def find_entries_without_status(content: str) -> List[str]:
         """
-        Return table-row entries whose last non-empty column lacks a
+        Return table-row entries whose columns lack a
         recognised status marker (✅ / ⚠️ / ❌ / Done / Pending /
         Not Implemented / DRAFT / In Progress / Not Started).
         """
         entries: List[str] = []
-        _header_markers = ("Spec", "Requirement", "Item")
+        _header_markers = ("Spec", "Requirement", "Item", "FR ID", "NFR ID", "Title")
 
         for line in content.split("\n"):
-            if "|" not in line or line.strip().startswith("|"):
+            stripped = line.strip()
+            # Ignore if it doesn't contain "|" or is just a separator line
+            if "|" not in stripped or all(c in "|-: " for c in stripped):
                 continue
+            
             parts = [p.strip() for p in line.split("|")]
             if len(parts) < 4:
                 continue
-            if any(x in parts[1] for x in _header_markers):
+            # Check if this row is a header row by seeing if it contains header names
+            if any(x.lower() in parts[1].lower() or x.lower() in parts[2].lower() for x in _header_markers):
                 continue
             
             status_col = SpecTrackingParser._extract_status(parts)
@@ -103,7 +105,7 @@ class SpecTrackingParser:
                 stats["❌ Not Implemented"] += 1
             elif "DRAFT" in status_col:
                 stats["DRAFT"] += 1
-            elif "IN_PROGRESS" in status_col or "In Progress" in status_col:
+            elif "IN_PROGRESS" in status_col or "In Progress" in status_col or "In-Progress" in status_col:
                 stats["IN_PROGRESS"] += 1
             elif "Not Started" in status_col or "NOT_STARTED" in status_col:
                 stats["Not Started"] += 1
@@ -117,4 +119,8 @@ class SpecTrackingParser:
                 stats["✅ Done"] += 1
             elif "Pending" in status_col:
                 stats["⚠️ Pending"] += 1
+            elif "Deferred" in status_col:
+                if "Deferred" not in stats:
+                    stats["Deferred"] = 0
+                stats["Deferred"] += 1
         return stats
