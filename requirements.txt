@@ -50,3 +50,8 @@ mutmut==2.5.1
 # hard-constrains opentelemetry-exporter-otlp-proto-http to ~=1.37. A wider
 # pin here would break `pip install -r requirements.txt` for the JS/TS path.
 opentelemetry-exporter-otlp-proto-http~=1.37.0
+
+# architecture (gate 3-4: architecture dimension via code-review-graph)
+# CRG requires igraph for accurate Leiden community detection.
+# Without it, it falls back to a coarse directory-based grouping which heavily degrades cohesion scores.
+igraph==1.0.0
