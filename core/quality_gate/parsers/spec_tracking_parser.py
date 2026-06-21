@@ -58,7 +58,9 @@ class SpecTrackingParser:
                 continue
             
             parts = [p.strip() for p in line.split("|")]
-            if len(parts) < 4:
+            # Spec tracking rows generally have at least ID, Title, Status
+            # meaning at least 3 data columns, which splits into 5 parts: ['', 'ID', 'Title', 'Status', '']
+            if len(parts) < 5:
                 continue
             # Check if this row is a header row by seeing if it contains header names
             if any(x.lower() in parts[1].lower() or x.lower() in parts[2].lower() for x in _header_markers):
