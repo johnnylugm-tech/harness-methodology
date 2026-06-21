@@ -60,6 +60,7 @@ RISK_DEEP_THRESHOLD = _tf("CRG_RISK_DEEP", 0.7)
 RISK_FAST_THRESHOLD = _tf("CRG_RISK_FAST", 0.3)
 COHESION_HEALTHY = _tf("CRG_COHESION_HEALTHY", 0.3)
 COMMUNITY_OVERSIZED = _ti("CRG_COMMUNITY_OVERSIZED", 50)
+COMMUNITY_MIN_SIZE = _ti("CRG_COMMUNITY_MIN_SIZE", 5)
 DEAD_CODE_ESCALATE_RATIO = _tf("CRG_DEAD_CODE_RATIO", 0.05)
 HUB_CRITICAL_FAN_IN = _ti("CRG_HUB_CRIT_FANIN", 15)
 HUB_HIGH_FAN_IN = _ti("CRG_HUB_HIGH_FANIN", 8)
@@ -145,7 +146,7 @@ def compute_community_cohesion_score(communities: list) -> dict:
         cohesion = c.get("cohesion", 1.0)
         size = c.get("size", 0)
         reasons = []
-        if cohesion < COHESION_HEALTHY:
+        if cohesion < COHESION_HEALTHY and size >= COMMUNITY_MIN_SIZE:
             reasons.append(f"low_cohesion({cohesion:.2f})")
         if size > COMMUNITY_OVERSIZED:
             reasons.append(f"oversized({size})")
@@ -172,6 +173,7 @@ def compute_community_cohesion_score(communities: list) -> dict:
         "unhealthy": unhealthy,
         "_cohesion_threshold": COHESION_HEALTHY,
         "_community_oversized": COMMUNITY_OVERSIZED,
+        "_community_min_size": COMMUNITY_MIN_SIZE,
     }
 
 
@@ -381,6 +383,7 @@ def compute_metrics(recon: dict, prev_metrics: Optional[dict] = None) -> dict:
             "risk_fast": RISK_FAST_THRESHOLD,
             "cohesion_healthy": COHESION_HEALTHY,
             "community_oversized": COMMUNITY_OVERSIZED,
+            "community_min_size": COMMUNITY_MIN_SIZE,
             "dead_code_escalate_ratio": DEAD_CODE_ESCALATE_RATIO,
             "hub_critical_fan_in": HUB_CRITICAL_FAN_IN,
             "hub_high_fan_in": HUB_HIGH_FAN_IN,
@@ -566,6 +569,7 @@ def main():
                     "risk_fast": RISK_FAST_THRESHOLD,
                     "cohesion_healthy": COHESION_HEALTHY,
                     "community_oversized": COMMUNITY_OVERSIZED,
+                    "community_min_size": COMMUNITY_MIN_SIZE,
                     "dead_code_escalate_ratio": DEAD_CODE_ESCALATE_RATIO,
                     "hub_critical_fan_in": HUB_CRITICAL_FAN_IN,
                     "hub_high_fan_in": HUB_HIGH_FAN_IN,
