@@ -51,19 +51,15 @@ class SpecTrackingParser:
         Not Implemented / DRAFT / In Progress / Not Started).
         """
         entries: List[str] = []
-        _header_markers = ("Spec", "Requirement", "Item", "FR ID", "NFR ID", "Title")
+        _header_markers = ("Spec", "Requirement", "Item")
 
         for line in content.split("\n"):
-            stripped = line.strip()
-            # Ignore if it doesn't contain "|" or is just a separator line
-            if "|" not in stripped or all(c in "|-: " for c in stripped):
+            if "|" not in line or line.strip().startswith("|"):
                 continue
-            
             parts = [p.strip() for p in line.split("|")]
             if len(parts) < 4:
                 continue
-            # Check if this row is a header row by seeing if it contains header names
-            if any(x.lower() in parts[1].lower() or x.lower() in parts[2].lower() for x in _header_markers):
+            if any(x in parts[1] for x in _header_markers):
                 continue
             
             status_col = SpecTrackingParser._extract_status(parts)
