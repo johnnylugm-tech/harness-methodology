@@ -149,6 +149,67 @@ class TestExtractStatusLastColumnOnlyBug:
         assert stats["✅ Done"] == 0
 
 
+class TestCountStatusNewStatuses:
+    """Deferred and hyphenated In-Progress added in recent commits; case-insensitive
+    matching in _extract_status Phase 2 means count_status must also handle lowercase
+    variants returned from the raw column value."""
+
+    def test_deferred_counted(self):
+        content = "| FR-01 | feature | Deferred |\n"
+        stats = SpecTrackingParser.count_status(content)
+        assert stats["Deferred"] == 1
+
+    def test_deferred_lowercase_counted(self):
+        # _extract_status Phase 2 now matches case-insensitively, so "deferred"
+        # (lowercase) is returned as-is; count_status must handle it.
+        content = "| FR-01 | feature | deferred |\n"
+        stats = SpecTrackingParser.count_status(content)
+        assert stats["Deferred"] == 1
+
+    def test_in_progress_hyphen_counted(self):
+        content = "| FR-01 | feature | In-Progress |\n"
+        stats = SpecTrackingParser.count_status(content)
+        assert stats["IN_PROGRESS"] == 1
+
+    def test_in_progress_hyphen_lowercase_counted(self):
+        content = "| FR-01 | feature | in-progress |\n"
+        stats = SpecTrackingParser.count_status(content)
+        assert stats["IN_PROGRESS"] == 1
+
+    def test_deferred_in_initial_stats_dict(self):
+        # "Deferred" must be pre-declared so callers can iterate stats.keys()
+        # without surprises even when no Deferred rows exist.
+        stats = SpecTrackingParser.count_status("")
+        assert "Deferred" in stats
+        assert stats["Deferred"] == 0
+
+    def test_not_started_lowercase_counted(self):
+        content = "| FR-01 | feature | not started |\n"
+        stats = SpecTrackingParser.count_status(content)
+        assert stats["Not Started"] == 1
+
+
+class TestExtractStatusNewValues:
+    """_extract_status must recognise 'Deferred' and 'In-Progress' (with hyphen)
+    as valid status values in the last non-empty column."""
+
+    def test_deferred_recognized(self):
+        parts = ["", "FR-01", "feature desc", "Deferred", ""]
+        assert SpecTrackingParser._extract_status(parts) != ""
+
+    def test_deferred_lowercase_recognized(self):
+        parts = ["", "FR-01", "feature desc", "deferred", ""]
+        assert SpecTrackingParser._extract_status(parts) != ""
+
+    def test_in_progress_hyphen_recognized(self):
+        parts = ["", "FR-01", "feature desc", "In-Progress", ""]
+        assert SpecTrackingParser._extract_status(parts) != ""
+
+    def test_in_progress_hyphen_lowercase_recognized(self):
+        parts = ["", "FR-01", "feature desc", "in-progress", ""]
+        assert SpecTrackingParser._extract_status(parts) != ""
+
+
 class TestSpecTrackingParserFindEntriesWithoutStatus:
     def test_no_missing_entries_when_all_have_status(self):
         content = "FR-01 | Done\nFR-02 | Pending"

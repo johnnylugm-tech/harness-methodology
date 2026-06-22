@@ -73,9 +73,9 @@ class SpecTrackingParser:
         Count lines containing each status emoji/keyword.
 
         Returns dict with keys "✅ Done", "⚠️ Pending", "❌ Not Implemented",
-        "DRAFT", "IN_PROGRESS", "Not Started".  Projects that use prose status
-        words instead of emoji (e.g. during Phase 1 spec tracking) are counted
-        correctly so completeness is not reported as 0%.
+        "DRAFT", "IN_PROGRESS", "Not Started", "Deferred".  Projects that use
+        prose status words instead of emoji (e.g. during Phase 1 spec tracking)
+        are counted correctly so completeness is not reported as 0%.
         """
         stats: Dict[str, int] = {
             "✅ Done": 0,
@@ -84,6 +84,7 @@ class SpecTrackingParser:
             "DRAFT": 0,
             "IN_PROGRESS": 0,
             "Not Started": 0,
+            "Deferred": 0,
         }
         for line in content.split("\n"):
             stripped = line.strip()
@@ -94,6 +95,7 @@ class SpecTrackingParser:
                 continue
             parts = [p.strip() for p in line.split("|")]
             status_col = SpecTrackingParser._extract_status(parts)
+            status_lower = status_col.lower()
 
             if "✅" in status_col:
                 stats["✅ Done"] += 1
@@ -103,22 +105,20 @@ class SpecTrackingParser:
                 stats["❌ Not Implemented"] += 1
             elif "DRAFT" in status_col:
                 stats["DRAFT"] += 1
-            elif "IN_PROGRESS" in status_col or "In Progress" in status_col or "In-Progress" in status_col:
+            elif "in_progress" in status_lower or "in progress" in status_lower or "in-progress" in status_lower:
                 stats["IN_PROGRESS"] += 1
-            elif "Not Started" in status_col or "NOT_STARTED" in status_col:
+            elif "not_started" in status_lower or "not started" in status_lower:
                 stats["Not Started"] += 1
             # Bug #121: plain-text prose statuses recognised by
             # find_entries_without_status() but missing from this chain.
             # Checked after emoji branches so "✅ Done" rows are not
             # double-counted (the emoji branch matches first).
-            elif "Not Implemented" in status_col:
+            elif "not implemented" in status_lower:
                 stats["❌ Not Implemented"] += 1
-            elif "Done" in status_col:
+            elif "done" in status_lower:
                 stats["✅ Done"] += 1
-            elif "Pending" in status_col:
+            elif "pending" in status_lower:
                 stats["⚠️ Pending"] += 1
-            elif "Deferred" in status_col:
-                if "Deferred" not in stats:
-                    stats["Deferred"] = 0
+            elif "deferred" in status_lower:
                 stats["Deferred"] += 1
         return stats

@@ -153,3 +153,39 @@ class TestRunIndependentCrg:
              patch("harness.crg_independent.subprocess.run", side_effect=fake_run):
             with pytest.raises(CrgIndependentError, match="invalid JSON"):
                 run_independent_crg(str(tmp_path), str(tmp_path / ".sessi-work"))
+
+
+class TestCommunityMinSizeExemption:
+    """Tiny communities (size < COMMUNITY_MIN_SIZE=5) must not be penalised for
+    low cohesion — they have too few nodes to produce meaningful structural edges."""
+
+    def _score(self, communities):
+        from harness.ssi.scripts.crg_analysis import compute_community_cohesion_score
+        return compute_community_cohesion_score(communities)
+
+    def test_tiny_community_low_cohesion_not_penalised(self):
+        # size=3 < min(5), cohesion below threshold → exempted → counts as healthy
+        result = self._score([{"name": "micro", "cohesion": 0.1, "size": 3}])
+        assert result["healthy"] == 1
+        assert result["score"] == 100.0
+
+    def test_border_community_low_cohesion_penalised(self):
+        # size=5 == min(5) → threshold applies → low cohesion → unhealthy
+        result = self._score([{"name": "border", "cohesion": 0.1, "size": 5}])
+        assert result["healthy"] == 0
+        assert len(result["unhealthy"]) == 1
+        assert "low_cohesion" in result["unhealthy"][0]["issues"][0]
+
+    def test_mix_tiny_and_normal(self):
+        # 1 tiny (exempt) + 1 large low-cohesion → score 50%
+        result = self._score([
+            {"name": "micro", "cohesion": 0.1, "size": 2},
+            {"name": "big", "cohesion": 0.1, "size": 100},
+        ])
+        assert result["healthy"] == 1
+        assert result["score"] == 50.0
+
+    def test_min_size_reported_in_result(self):
+        result = self._score([{"name": "c", "cohesion": 0.9, "size": 10}])
+        assert "_community_min_size" in result
+        assert result["_community_min_size"] == 5
