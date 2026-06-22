@@ -199,10 +199,28 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     # if only python3 exists the check passes but Phase 4+ needs `ln -s`.
     "mutmut": ToolSpec(
         tool_id="mutmut",
-        timeout=0,
+        cmd=("mutmut", "run"),
+        timeout=1800,
         check_cmd="mutmut --help 2>&1",
         human_name="mutmut",
-        skip_inline=True,
+        scorer="mutmut",
+        skip_inline=False,
+    ),
+    "import-linter": ToolSpec(
+        tool_id="import-linter",
+        cmd=("lint-imports",),
+        timeout=60,
+        check_cmd="lint-imports --help 2>&1",
+        human_name="import-linter",
+        scorer="exit-code-binary",
+    ),
+    "system-verification": ToolSpec(
+        tool_id="system-verification",
+        cmd=("make", "verify-system"),
+        timeout=300,
+        check_cmd="make --version 2>&1",
+        human_name="System Verification Target",
+        scorer="exit-code-binary",
     ),
     "scancode": ToolSpec(
         tool_id="scancode",
@@ -423,6 +441,8 @@ DIMENSION_TOOLS: dict[str, dict[str, DimensionTool]] = {
         "performance":            "pytest-benchmark",
         "integration_coverage":   "pytest-cov-integration",
         "test_assertion_quality": "ast-assertions",
+        "architecture_constraints": "import-linter",
+        "execute_verification_target": "system-verification",
     },
     # type_safety is the only JS/TS divergence: TS type-checks natively
     # (tsc --noEmit); pure JS enforces JSDoc types via tsc --checkJs

@@ -9,6 +9,10 @@
 ## 1. Architecture Overview
 {High-level architecture description}
 
+### 1.1 System Verification Target
+> **Phase 3 Gate 2 Requirement**: You MUST define a `System Verification Target` here. This is a single command or script (e.g., `make e2e` or `./scripts/verify.sh`) that the harness will execute at Gate 2. If it exits with a non-zero status, Gate 2 will fail. It must prove the system can be assembled and executed.
+**Verification Command**: `{command}`
+
 ## 2. Module Design
 
 ### 2.1 Directory Structure Design Principles

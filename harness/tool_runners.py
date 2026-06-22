@@ -462,6 +462,24 @@ def _score_js_bench(output: str, _returncode: int) -> Optional[float]:
     return max(0.0, score)
 
 
+def _score_exit_code_binary(output: str, returncode: int) -> float:
+    """Score based entirely on exit code (0 -> 100, else 0)."""
+    if returncode == 0:
+        return 100.0
+    return 0.0
+
+def _score_mutmut(output: str, returncode: int) -> float:
+    """Score mutmut run output."""
+    killed_m = re.search(r"Killed: (\d+)", output)
+    survived_m = re.search(r"Survived: (\d+)", output)
+    killed = int(killed_m.group(1)) if killed_m else 0
+    survived = int(survived_m.group(1)) if survived_m else 0
+    total = killed + survived
+    if total == 0:
+        return 0.0
+    return round(100.0 * killed / total, 1)
+
+
 # Scorer functions keyed by ToolSpec.scorer id (toolchain registry). Multiple
 # tools may share one scorer (e.g. eslint-family tools added per language).
 _SCORERS: dict[str, Callable[[str, int], Optional[float]]] = {
@@ -485,4 +503,6 @@ _SCORERS: dict[str, Callable[[str, int], Optional[float]]] = {
     "semgrep":          _score_semgrep,
     "coverage-summary": _score_coverage_summary,
     "js-bench":         _score_js_bench,
+    "exit-code-binary": _score_exit_code_binary,
+    "mutmut":           _score_mutmut,
 }

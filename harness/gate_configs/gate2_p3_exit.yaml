@@ -14,6 +14,7 @@ dimensions:
   - { name: mutation_testing,      tier: 1, threshold: 70,  weight: 0.10, tool: mutmut,         requires_tool_execution: true }
   - { name: integration_coverage,  tier: 2, threshold: 60,  weight: 0.10, tool: pytest-cov-integration,         requires_tool_execution: true }
   - { name: test_assertion_quality, tier: 2, threshold: 60,  weight: 0.06, tool: ast-assertions,         requires_tool_execution: true }
+  - { name: execute_verification_target, tier: 1, threshold: 100, weight: 0.10, tool: system-verification, requires_tool_execution: true }
   # PR 4: closed-loop bidirectional traceability. requires_tool_execution: false
   # means S4 (cross-validation) skips the tool-runner; compute_trace_dimension
   # patches the score in at finalize time. 4a threshold 100% applies to FRs
