@@ -299,7 +299,9 @@ def render_canonical_sab_template(
         if f.name == "layers":
             lines.append("  layers:  # EXAMPLE — replace with your project's layers")
             lines.append(f"    - name: {layer_example}")
-            lines.append(f'      modules: ["{module_example}"]')
+            lines.append(f"      modules:")
+            lines.append(f'        - name: "{module_example}"')
+            lines.append(f'          implemented_in: "{module_example.split(".")[0]}.main"  # OPTIONAL — Use if consolidated into another file')
             lines.append('      allowed_dependencies: ["service"]')
         elif f.name == "allowed_dependencies":
             lines.append("  allowed_dependencies:")

@@ -475,14 +475,17 @@ class DriftDetector:
         for layer in layers:
             layer_name = layer.get("name", "")
             for mod in layer.get("modules", []):
-                sab_files[mod] = layer_name
+                actual_mod = mod.get("implemented_in", mod.get("name", "")) if isinstance(mod, dict) else mod
+                if not isinstance(actual_mod, str):
+                    continue
+                sab_files[actual_mod] = layer_name
                 # Expand with package_dir prefix if applicable
-                if pkg_dir and not mod.endswith("/") and "/" not in mod and not mod.endswith(".py"):
-                    if not mod.startswith(f"{pkg_dir}."):
-                        sab_files[f"{pkg_dir}.{mod}"] = layer_name
+                if pkg_dir and not actual_mod.endswith("/") and "/" not in actual_mod and not actual_mod.endswith(".py"):
+                    if not actual_mod.startswith(f"{pkg_dir}."):
+                        sab_files[f"{pkg_dir}.{actual_mod}"] = layer_name
                 # Also register files inside directories (e.g. "core/quality_gate/" → all files)
-                if mod.endswith("/"):
-                    for py_file in self.project_path.rglob(f"{mod}*.py"):
+                if actual_mod.endswith("/"):
+                    for py_file in self.project_path.rglob(f"{actual_mod}*.py"):
                         rel = str(py_file.relative_to(self.project_path))
                         sab_files[rel] = layer_name
 
