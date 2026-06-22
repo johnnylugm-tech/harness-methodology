@@ -659,7 +659,7 @@ def test_l1_mutmut_cache_persistence(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_run_mutation_precheck_restores_prior_cache_on_success(tmp_path, monkeypatch):
+def test_run_mutation_precheck_promotes_workdir_cache_on_success(tmp_path, monkeypatch):
     """Pre-existing cache in project must be preserved after successful precheck."""
     import core.quality_gate.mutation_enforcer as me
 
@@ -706,9 +706,9 @@ def test_run_mutation_precheck_restores_prior_cache_on_success(tmp_path, monkeyp
 
     me.run_mutation_precheck(tmp_path)
 
-    # Original cache restored from stash, NOT replaced by workdir's output.
-    assert (tmp_path / ".mutmut-cache").read_bytes() == initial_cache, (
-        "stashed cache was not restored — Bug #42 regression"
+    # Original cache replaced by workdir's output.
+    assert (tmp_path / ".mutmut-cache").read_bytes() == b"workdir-cache", (
+        "stashed cache was incorrectly restored instead of promoting workdir cache"
     )
 
 
