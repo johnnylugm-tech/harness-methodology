@@ -345,15 +345,18 @@ class PhaseHooks:
                 pkg_dir = self._read_pkg_dir_for_sab()
                 missing_modules = []
                 for m in modules:
-                    if m.endswith("/") or re.match(r'^FR-\d+$', m):
+                    actual_m = m.get("implemented_in", m.get("name", "")) if isinstance(m, dict) else m
+                    if not isinstance(actual_m, str):
+                        continue
+                    if actual_m.endswith("/") or re.match(r'^FR-\d+$', actual_m):
                         continue
                     if any(
                         (self.project_path / cand).exists()
                         or (self._layout.active_src_dir / cand).exists()
-                        for cand in sab_module_to_path_variants(m, pkg_dir)
+                        for cand in sab_module_to_path_variants(actual_m, pkg_dir)
                     ):
                         continue
-                    missing_modules.append(m)
+                    missing_modules.append(m.get("name", str(m)) if isinstance(m, dict) else m)
                 if missing_modules:
                     violations.append(
                         f"Layer {layer_name}: {len(missing_modules)} modules missing from codebase"

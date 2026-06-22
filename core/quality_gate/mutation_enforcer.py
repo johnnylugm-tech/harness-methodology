@@ -644,7 +644,7 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
             timeout=3600,  # 60 min hard cap — mutation testing is meaningless if it hangs
         )
 
-        if r.returncode != 0:
+        if r.returncode not in (0, 2):
             return False, (
                 f"mutmut run crashed (return code {r.returncode}).\n\n"
                 f"STDOUT:\n{r.stdout.strip()}\n\n"
@@ -687,17 +687,19 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
         # If we reach the finally clause without it being set, the
         # precheck failed (or raised); in that case the workdir cache
         # may be partial, so we discard it.
-        if stash_dir is not None and Path(stash_dir).exists():
+        if _precheck_ok and workdir_cache.exists():
+            # 2. No prior cache, precheck succeeded — promote the
+            #    workdir output to project root.
+            shutil.copy2(workdir_cache, cache_file)
+            if stash_dir is not None and Path(stash_dir).exists():
+                shutil.rmtree(stash_dir, ignore_errors=True)
+        elif stash_dir is not None and Path(stash_dir).exists():
             # 1. Prior cache existed — restore it (project root must be
             #    exactly as it was before this precheck).
             stashed_cache = Path(stash_dir) / ".mutmut-cache"
             if stashed_cache.exists():
                 shutil.copy2(stashed_cache, cache_file)
             shutil.rmtree(stash_dir, ignore_errors=True)
-        elif _precheck_ok and workdir_cache.exists():
-            # 2. No prior cache, precheck succeeded — promote the
-            #    workdir output to project root.
-            shutil.copy2(workdir_cache, cache_file)
         else:
             # 3. No prior cache, precheck failed/raised — discard any
             #    partial workdir output. Leave the project root

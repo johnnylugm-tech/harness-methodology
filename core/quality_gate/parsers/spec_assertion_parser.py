@@ -24,7 +24,7 @@ from core.quality_gate.red_assertion_check import SpecCase, SubAssertion
 __all__ = ["SpecAssertionParser"]
 
 _FR_HEADER = re.compile(r"^###\s+((?:N?FR)-\d+)\b")
-_INPUT_KV = re.compile(r'(\w+)\s*=\s*"([^"]*)"')
+_INPUT_KV = re.compile(r'(\w+)\s*=\s*"((?:[^"\\]|\\.)*)"')
 
 
 def _is_separator(cells: list) -> bool:

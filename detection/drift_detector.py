@@ -57,7 +57,27 @@ def read_package_dir(project_path: Path) -> Optional[str]:
                     val = line[1:].strip()
                     return val or None
         except Exception:  # pylint: disable=broad-exception-caught  # nosec B110
-            return None
+            pass
+
+    import re
+    for candidate in (project_path / "03-development" / "pyproject.toml",
+                      project_path / "pyproject.toml"):
+        if not candidate.exists():
+            continue
+        try:
+            text = candidate.read_text(encoding="utf-8")
+            m = re.search(r'where\s*=\s*\[\s*"([^"]+)"\s*\]', text)
+            if m:
+                return m.group(1)
+        except Exception:
+            pass
+
+    import warnings
+    for cand_dir in (project_path / "03-development" / "src", project_path / "src"):
+        if cand_dir.is_dir():
+            warnings.warn("A 'src/' directory exists but no package_dir is detected in setup.cfg or pyproject.toml.")
+            
+    return None
     return None
 
 
