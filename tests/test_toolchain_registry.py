@@ -118,7 +118,7 @@ class TestRunToolRegistryBehavior:
     """run_tool/compute_tool_score behavior preserved after registry refactor."""
 
     def test_skip_list_tools_return_minus_one(self, tmp_path):
-        assert run_tool("mutmut", str(tmp_path)) == ("", -1)
+        # mutmut was previously skip_inline=True; commit 631782b activated it (skip_inline=False)
         assert run_tool("scancode", str(tmp_path)) == ("", -1)
         assert run_tool("code-review-graph", str(tmp_path)) == ("", -1)
 

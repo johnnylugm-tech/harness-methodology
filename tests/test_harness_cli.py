@@ -4651,3 +4651,86 @@ class TestFrStepPreflightSrsPath:
         # by checking cmd_run_fr_step used args.srs (not getattr with a silent None)
         # The spy isn't reached on skip, but args.srs attribute access must not throw.
         assert args.srs == "docs/SRS.md"  # arg is always available (registered by argparse)
+
+
+# =============================================================================
+# _check_sab_module_alignment  (Amendment Protocol, commit 631782b)
+# =============================================================================
+
+class TestSabModuleAlignmentCheck:
+    """Architecture Amendment Protocol: Gate 1 must block if any .py file in src/
+    is absent from SAB.json modules list.  Prior to the fix, parser.modules() was
+    called on a @property (TypeError), silently caught, so the check always passed."""
+
+    def _make_sab(self, tmp_path: Path, modules: list) -> None:
+        (tmp_path / ".methodology").mkdir(exist_ok=True)
+        sab_data = {
+            "layers": [{"name": "app", "modules": modules}],
+            "allowed_dependencies": [],
+        }
+        (tmp_path / ".methodology" / "SAB.json").write_text(
+            json.dumps(sab_data), encoding="utf-8"
+        )
+
+    def test_skips_when_gate_not_1(self, tmp_path):
+        from harness_cli import _check_sab_module_alignment
+        self._make_sab(tmp_path, [])
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "app.py").write_text("x = 1")
+        assert _check_sab_module_alignment(str(tmp_path), gate=2) is None
+
+    def test_skips_when_no_sab_json(self, tmp_path):
+        from harness_cli import _check_sab_module_alignment
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "app.py").write_text("x = 1")
+        assert _check_sab_module_alignment(str(tmp_path), gate=1) is None
+
+    def test_skips_when_no_src_dir(self, tmp_path):
+        from harness_cli import _check_sab_module_alignment
+        self._make_sab(tmp_path, [])
+        assert _check_sab_module_alignment(str(tmp_path), gate=1) is None
+
+    def test_blocks_on_unregistered_module(self, tmp_path):
+        from harness_cli import _check_sab_module_alignment
+        self._make_sab(tmp_path, [])  # no modules registered
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "app.py").write_text("x = 1")
+        assert _check_sab_module_alignment(str(tmp_path), gate=1) == 1
+
+    def test_passes_when_all_modules_registered(self, tmp_path):
+        from harness_cli import _check_sab_module_alignment
+        self._make_sab(tmp_path, ["app"])
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "app.py").write_text("x = 1")
+        assert _check_sab_module_alignment(str(tmp_path), gate=1) is None
+
+    def test_skips_init_files(self, tmp_path):
+        from harness_cli import _check_sab_module_alignment
+        self._make_sab(tmp_path, [])  # no modules registered
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "__init__.py").write_text("")  # must not count as a module
+        assert _check_sab_module_alignment(str(tmp_path), gate=1) is None
+
+    def test_prefers_03_development_src(self, tmp_path):
+        from harness_cli import _check_sab_module_alignment
+        self._make_sab(tmp_path, [])
+        dev_src = tmp_path / "03-development" / "src"
+        dev_src.mkdir(parents=True)
+        (dev_src / "module.py").write_text("x = 1")
+        fallback = tmp_path / "src"
+        fallback.mkdir()  # fallback exists but should not be used
+        # 03-development/src is preferred; "module" not in SAB → blocked
+        assert _check_sab_module_alignment(str(tmp_path), gate=1) == 1
+
+    def test_nested_module_path(self, tmp_path):
+        from harness_cli import _check_sab_module_alignment
+        self._make_sab(tmp_path, ["core.utils"])
+        src = tmp_path / "src"
+        (src / "core").mkdir(parents=True)
+        (src / "core" / "utils.py").write_text("x = 1")
+        assert _check_sab_module_alignment(str(tmp_path), gate=1) is None

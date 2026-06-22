@@ -60,6 +60,12 @@ def run_tool(
     timeout = timeout_override if timeout_override is not None else spec.timeout
 
     import os
+
+    if spec.required_config_file and not os.path.isfile(
+        os.path.join(root, spec.required_config_file)
+    ):
+        return (f"Skipped: {spec.required_config_file} not found in project root", 0)
+
     test_target = root
     if os.path.isdir(os.path.join(root, "03-development", "tests")):
         test_target = os.path.join(root, "03-development", "tests")
@@ -472,9 +478,13 @@ def _score_mutmut(output: str, returncode: int) -> float:
     """Score mutmut run output."""
     killed_m = re.search(r"Killed: (\d+)", output)
     survived_m = re.search(r"Survived: (\d+)", output)
+    timeout_m = re.search(r"Timeout: (\d+)", output)
     killed = int(killed_m.group(1)) if killed_m else 0
     survived = int(survived_m.group(1)) if survived_m else 0
-    total = killed + survived
+    # Timed-out mutants were not killed; count them as survived so the
+    # score reflects the true kill rate (excluding them inflates the score).
+    timeout = int(timeout_m.group(1)) if timeout_m else 0
+    total = killed + survived + timeout
     if total == 0:
         return 0.0
     return round(100.0 * killed / total, 1)

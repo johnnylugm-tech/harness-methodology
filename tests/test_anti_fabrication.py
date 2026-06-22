@@ -760,31 +760,33 @@ class TestHarnessCrossValidation:
         assert violations == []
 
     def test_skiplist_tool_requires_output_file(self, tmp_path):
-        """S4 hardened: skip-list tools (mutmut/scancode) require a real tool_output file.
+        """S4 hardened: skip-list tools (scancode) require a real tool_output file.
 
         Without a committed file, a high agent score is unverifiable → block.
         With a valid file present, it passes (not re-run).
+        Note: mutmut was previously a skip-list tool; commit 631782b changed it to
+        skip_inline=False so the harness now runs it directly. scancode remains skip-list.
         """
         from harness.harness_bridge import _run_harness_cross_validation
 
         self._make_gate_yaml(tmp_path, 4, [
-            {"name": "mutation_testing", "requires_tool_execution": True, "tool": "mutmut",
-             "threshold": 70},
+            {"name": "license_compliance", "requires_tool_execution": True, "tool": "scancode",
+             "threshold": 80},
         ])
         ctx = self._make_ctx(tmp_path, gate=4)
 
-        # (a) no tool_output → blocked
-        raw_missing = {"breakdown": {"mutation_testing": {"score": 99}}}
+        # (a) no tool_output → blocked (scancode is skip_inline=True — harness cannot re-run it)
+        raw_missing = {"breakdown": {"license_compliance": {"score": 95}}}
         v_missing = _run_harness_cross_validation(ctx, raw_missing)  # type: ignore[reportArgumentType]
         assert len(v_missing) == 1
         assert "unverifiable" in v_missing[0]
 
-        # (b) real committed mutmut output file → passes
-        out = tmp_path / ".sessi-work" / "mutmut_out.txt"
+        # (b) real committed scancode output file → passes
+        out = tmp_path / ".sessi-work" / "scancode_out.txt"
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text("Killed 80 mutants\nSurvived 5\nmutation score: 94%\n", encoding="utf-8")
-        raw_ok = {"breakdown": {"mutation_testing": {"score": 99,
-                                                     "tool_output": ".sessi-work/mutmut_out.txt"}}}
+        out.write_text("Scan completed. No license violations found.\n", encoding="utf-8")
+        raw_ok = {"breakdown": {"license_compliance": {"score": 95,
+                                                       "tool_output": ".sessi-work/scancode_out.txt"}}}
         v_ok = _run_harness_cross_validation(ctx, raw_ok)  # type: ignore[reportArgumentType]
         assert v_ok == []
 

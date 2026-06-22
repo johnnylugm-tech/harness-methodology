@@ -2155,6 +2155,49 @@ def cmd_run_gate(args: argparse.Namespace) -> int:
         return _exit
 
 
+def _check_sab_module_alignment(project: str, gate: int) -> Optional[int]:
+    """Gate 1 Architecture Amendment Protocol: block if unregistered modules found.
+
+    Returns 1 when gate==1 and at least one .py file in src/ is absent from SAB.json.
+    Returns None when the check is skipped (gate != 1, SAB.json missing, no src dir)
+    or when all modules are registered.
+    """
+    if gate != 1:
+        return None
+    sab_path = Path(project) / ".methodology" / "SAB.json"
+    src_dir = Path(project) / "03-development" / "src"
+    if not src_dir.exists():
+        src_dir = Path(project) / "src"
+    if not (sab_path.exists() and src_dir.exists()):
+        return None
+    try:
+        sab_data = json.loads(sab_path.read_text(encoding="utf-8"))
+        sab_modules: set[str] = set()
+        for layer in sab_data.get("layers", []):
+            sab_modules.update(layer.get("modules", []))
+
+        actual_modules = set()
+        for py_file in src_dir.rglob("*.py"):
+            if py_file.name == "__init__.py":
+                continue
+            rel_path = py_file.relative_to(src_dir)
+            mod_name = ".".join(rel_path.with_suffix("").parts)
+            actual_modules.add(mod_name)
+
+        unregistered = actual_modules - sab_modules
+        if unregistered:
+            print(
+                f"\n[BLOCKED] run-gate: Architecture Amendment Protocol violation.\n"
+                f"Unregistered modules detected: {unregistered}\n"
+                f"You must create an Amendment PR to update SAB.json and SAD.md "
+                f"before Gate 1 evaluation can proceed."
+            )
+            return 1
+    except Exception as e:
+        print(f"Warning: SAB Module Alignment Check failed to parse: {e}")
+    return None
+
+
 def _cmd_run_gate_impl(args: argparse.Namespace) -> int:
     """
     Phase 1: prepare gate context and print evaluation instructions for Claude.
@@ -2209,39 +2252,9 @@ def _cmd_run_gate_impl(args: argparse.Namespace) -> int:
         return 8
 
     # Architecture Amendment Protocol: Module Alignment Check (Gate 1)
-    if args.gate == 1:
-        sab_path = Path(project) / ".methodology" / "SAB.json"
-        src_dir = Path(project) / "03-development" / "src"
-        if not src_dir.exists():
-            src_dir = Path(project) / "src"
-        if sab_path.exists() and src_dir.exists():
-            try:
-                from core.quality_gate.sab_parser import SABParser
-                sab_data = json.loads(sab_path.read_text(encoding="utf-8"))
-                parser = SABParser(sab_data)
-                sab_modules = set(parser.modules())
-                
-                actual_modules = set()
-                for py_file in src_dir.rglob("*.py"):
-                    if py_file.name == "__init__.py":
-                        continue
-                    # Convert path to module name, e.g. src/app/main.py -> app.main
-                    # Assuming src_dir is the root of the package namespace
-                    rel_path = py_file.relative_to(src_dir)
-                    mod_name = str(rel_path).replace(".py", "").replace("/", ".")
-                    actual_modules.add(mod_name)
-                
-                unregistered = actual_modules - sab_modules
-                if unregistered:
-                    print(
-                        f"\n[BLOCKED] run-gate: Architecture Amendment Protocol violation.\n"
-                        f"Unregistered modules detected: {unregistered}\n"
-                        f"You must create an Amendment PR to update SAB.json and SAD.md "
-                        f"before Gate 1 evaluation can proceed."
-                    )
-                    return 1
-            except Exception as e:
-                print(f"Warning: SAB Module Alignment Check failed to parse: {e}")
+    _amend_result = _check_sab_module_alignment(project, args.gate)
+    if _amend_result is not None:
+        return _amend_result
 
     bridge = HarnessBridge()
 

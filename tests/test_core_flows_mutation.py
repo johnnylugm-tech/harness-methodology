@@ -21,19 +21,14 @@ from unittest.mock import MagicMock, patch
 # T1: run_tool — SKIP_TOOLS returns ("", -1) and never spawns subprocess
 # ─────────────────────────────────────────────────────────────────────────────
 def test_run_tool_skip_tools_returns_empty_minus_one():
-    """Mutating _SKIP_TOOLS set (e.g. "mutmut"→"XXmutmutXX") breaks this."""
+    """Mutating skip_inline=True tools (e.g. "scancode"→"XXscancodeXX") breaks this.
+    Note: mutmut was previously skip_inline=True but commit 631782b activated it."""
     from harness.tool_runners import run_tool
     with patch("subprocess.run") as mock_sp:
-        out, rc = run_tool("mutmut", "/tmp")
+        out, rc = run_tool("scancode", "/tmp")
         assert out == ""
         assert rc == -1
         mock_sp.assert_not_called()  # must NOT spawn subprocess for skip-list tools
-
-    with patch("subprocess.run") as mock_sp2:
-        out2, rc2 = run_tool("scancode", "/tmp")
-        assert out2 == ""
-        assert rc2 == -1
-        mock_sp2.assert_not_called()
 
 
 # ─────────────────────────────────────────────────────────────────────────────

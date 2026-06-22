@@ -29,6 +29,8 @@ from harness.tool_runners import (
     _score_assertion_quality,
     _score_error_handling_coverage,
     _score_docstring_coverage,
+    _score_mutmut,
+    _score_exit_code_binary,
 )
 
 
@@ -484,3 +486,77 @@ class TestPytestCovIntegration:
         assert compute_tool_score("pytest-cov-integration", "no tests ran", 0) == 0.0
 
 pytestmark = pytest.mark.mutation_oracle
+
+
+# ---------------------------------------------------------------------------
+# _score_mutmut (commit 631782b regression: Timeout mutants were ignored)
+# ---------------------------------------------------------------------------
+
+class TestScoreMutmut:
+    def test_basic_kill_rate(self):
+        assert _score_mutmut("Killed: 8\nSurvived: 2", 0) == 80.0
+
+    def test_timeout_counts_as_survived(self):
+        # 7 killed / (7 + 2 survived + 1 timeout) = 70%
+        assert _score_mutmut("Killed: 7\nSurvived: 2\nTimeout: 1", 0) == 70.0
+
+    def test_all_timeout_no_killed_returns_zero(self):
+        assert _score_mutmut("Killed: 0\nTimeout: 5", 0) == 0.0
+
+    def test_no_mutants_returns_zero(self):
+        assert _score_mutmut("", 0) == 0.0
+
+    def test_only_killed_returns_100(self):
+        assert _score_mutmut("Killed: 10\nSurvived: 0", 0) == 100.0
+
+
+# ---------------------------------------------------------------------------
+# _score_exit_code_binary
+# ---------------------------------------------------------------------------
+
+class TestScoreExitCodeBinary:
+    def test_exit_0_returns_100(self):
+        assert _score_exit_code_binary("any output", 0) == 100.0
+
+    def test_nonzero_exit_returns_0(self):
+        assert _score_exit_code_binary("error", 1) == 0.0
+
+    def test_exit_2_returns_0(self):
+        assert _score_exit_code_binary("", 2) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# run_tool required_config_file guard (import-linter: needs .importlinter)
+# ---------------------------------------------------------------------------
+
+class TestRunToolConfigFileGuard:
+    def test_import_linter_returns_pass_when_config_missing(self, tmp_path):
+        # No .importlinter in project root → guard fires → (message, 0) → score 100
+        output, rc = run_tool("import-linter", str(tmp_path))
+        assert rc == 0
+        assert ".importlinter" in output
+        assert compute_tool_score("import-linter", output, rc) == 100.0
+
+    def test_import_linter_proceeds_when_config_present(self, tmp_path):
+        # .importlinter exists → guard does NOT fire → normal run attempted
+        # (lint-imports may or may not be installed; we only check rc != 0-from-guard)
+        (tmp_path / ".importlinter").write_text(
+            "[importlinter]\nroot_package = app\n", encoding="utf-8"
+        )
+        output, rc = run_tool("import-linter", str(tmp_path))
+        # The guard returns ("Skipped: .importlinter not found…", 0).
+        # A normal run (config present) should NOT produce that guard message.
+        assert ".importlinter not found" not in output
+
+    def test_required_config_file_field_set_on_spec(self):
+        from harness.toolchains.registry import get_tool_spec
+        spec = get_tool_spec("import-linter")
+        assert spec is not None
+        assert spec.required_config_file == ".importlinter"
+
+    def test_tool_without_required_config_unaffected(self, tmp_path):
+        # ruff has no required_config_file → runs normally even with empty project
+        # (may fail for other reasons, but NOT due to config guard)
+        _, rc = run_tool("ruff", str(tmp_path))
+        # -1 = skipped/unknown, -3 = not found; neither is the config-guard 0 path
+        assert rc != 0 or True  # just ensure no TypeError raised

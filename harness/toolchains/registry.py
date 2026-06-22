@@ -54,6 +54,9 @@ class ToolSpec:
     skip_inline: bool = False
     in_process: bool = False
     output_artifact: Optional[str] = None
+    # If set, run_tool checks this file exists in the project root before running.
+    # Missing file → exit code 0 (no config = no contracts defined = no violations).
+    required_config_file: Optional[str] = None
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -213,6 +216,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         check_cmd="lint-imports --help 2>&1",
         human_name="import-linter",
         scorer="exit-code-binary",
+        required_config_file=".importlinter",
     ),
     "system-verification": ToolSpec(
         tool_id="system-verification",
@@ -423,6 +427,11 @@ _JS_COMMON: dict[str, DimensionTool] = {
                                "jest": "jest-cov-integration",
                                "default": "vitest-cov-integration"},
     "test_assertion_quality": "js-assertions",
+    # eslint enforces import boundaries when configured with eslint-plugin-import;
+    # no Python-native import-linter equivalent exists for JS/TS.
+    "architecture_constraints": "eslint",
+    # system-verification (make verify-system) is language-agnostic.
+    "execute_verification_target": "system-verification",
 }
 
 DIMENSION_TOOLS: dict[str, dict[str, DimensionTool]] = {

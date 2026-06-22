@@ -49,7 +49,7 @@ class TestHarnessBridge:
         assert isinstance(config, GateConfig)
         assert config.gate_num == 2
         assert config.score_gate == 75.0
-        assert len(config.dimensions) == 10
+        assert len(config.dimensions) == 11  # 10 original + execute_verification_target (631782b)
 
     def test_gate_blocked_error_attributes(self):
         result = GateResult(gate_num=3, score=60.0, open_critical=2, open_high=3)
