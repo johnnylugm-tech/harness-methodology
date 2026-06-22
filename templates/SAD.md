@@ -129,7 +129,9 @@ sab:
 
   layers:  # EXAMPLE — replace with your project's layers
     - name: api
-      modules: ["app.api.webhooks"]
+      modules:
+        - name: "app.api.webhooks"
+          implemented_in: "app.main"  # OPTIONAL — Use if consolidated into another file
       allowed_dependencies: ["service"]
 
   allowed_dependencies:
