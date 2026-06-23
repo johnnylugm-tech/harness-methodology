@@ -60,6 +60,19 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
+# Fail fast with a clear message when an unsupported Python is used.
+# Common mistake: agents or shells use /usr/bin/python3 (macOS system 3.9)
+# instead of the project's .venv/bin/python. The error otherwise propagates
+# as a cryptic ImportError deep inside the call stack.
+if sys.version_info < (3, 10):
+    print(
+        f"ERROR: harness-methodology requires Python 3.10+. "
+        f"Got {sys.version.split()[0]} at {sys.executable}\n"
+        "  Fix: run with .venv/bin/python or python3.10+ "
+        "instead of /usr/bin/python3 (macOS system Python 3.9)"
+    )
+    sys.exit(1)
+
 if TYPE_CHECKING:
     from harness.git_strategy import GitStrategy
     from harness.harness_bridge import GateBlockedError
