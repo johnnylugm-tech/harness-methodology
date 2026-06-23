@@ -76,12 +76,21 @@ else
     HARNESS_CLI=""
 fi
 
+# Detect venv-aware Python (prefer project .venv over system python3)
+if [ -f "$PROJECT_ROOT/.venv/bin/python" ]; then
+    PYTHON="$PROJECT_ROOT/.venv/bin/python"
+elif [ -f "$PROJECT_ROOT/.venv/bin/python3" ]; then
+    PYTHON="$PROJECT_ROOT/.venv/bin/python3"
+else
+    PYTHON="python3"
+fi
+
 # Get current Phase (from state.json or default to 1)
-PHASE=$(python3 -c "import json; d=json.load(open('.methodology/state.json')); print(d.get('current_phase', 1))" 2>/dev/null || echo "1")
+PHASE=$("$PYTHON" -c "import json; d=json.load(open('.methodology/state.json')); print(d.get('current_phase', 1))" 2>/dev/null || echo "1")
 
 # Check if Python is available
-if ! command -v python3 &> /dev/null; then
-    echo "Warning: python3 not found, skipping quality gate check"
+if ! "$PYTHON" --version &>/dev/null 2>&1; then
+    echo "Warning: python not found ($PYTHON), skipping quality gate check"
     exit 0
 fi
 
@@ -103,7 +112,7 @@ fi
 # Run Quality Gate check
 echo "Running Phase $PHASE Quality Gate check..."
 
-python3 "$HARNESS_CLI" pre-commit-check --phase "$PHASE" --project "$PROJECT_ROOT"
+"$PYTHON" "$HARNESS_CLI" pre-commit-check --phase "$PHASE" --project "$PROJECT_ROOT"
 
 RESULT=$?
 
@@ -167,12 +176,21 @@ else
     HARNESS_CLI=""
 fi
 
+# Detect venv-aware Python (prefer project .venv over system python3)
+if [ -f "$PROJECT_ROOT/.venv/bin/python" ]; then
+    PYTHON="$PROJECT_ROOT/.venv/bin/python"
+elif [ -f "$PROJECT_ROOT/.venv/bin/python3" ]; then
+    PYTHON="$PROJECT_ROOT/.venv/bin/python3"
+else
+    PYTHON="python3"
+fi
+
 # Get current Phase (from state.json or default to 1)
-PHASE=$(python3 -c "import json; d=json.load(open('.methodology/state.json')); print(d.get('current_phase', 1))" 2>/dev/null || echo "1")
+PHASE=$("$PYTHON" -c "import json; d=json.load(open('.methodology/state.json')); print(d.get('current_phase', 1))" 2>/dev/null || echo "1")
 
 # Check if Python is available
-if ! command -v python3 &> /dev/null; then
-    echo "Warning: python3 not found, skipping quality gate check"
+if ! "$PYTHON" --version &>/dev/null 2>&1; then
+    echo "Warning: python not found ($PYTHON), skipping quality gate check"
     exit 0
 fi
 
@@ -187,7 +205,7 @@ echo ""
 echo "Running Phase $PHASE Quality Gate check after merge..."
 echo ""
 
-python3 "$HARNESS_CLI" pre-commit-check --phase "$PHASE" --project "$PROJECT_ROOT" || true
+"$PYTHON" "$HARNESS_CLI" pre-commit-check --phase "$PHASE" --project "$PROJECT_ROOT" || true
 
 echo ""
 echo "Post-merge quality check completed."
@@ -234,12 +252,21 @@ else
     HARNESS_CLI=""
 fi
 
+# Detect venv-aware Python (prefer project .venv over system python3)
+if [ -f "$PROJECT_ROOT/.venv/bin/python" ]; then
+    PYTHON="$PROJECT_ROOT/.venv/bin/python"
+elif [ -f "$PROJECT_ROOT/.venv/bin/python3" ]; then
+    PYTHON="$PROJECT_ROOT/.venv/bin/python3"
+else
+    PYTHON="python3"
+fi
+
 # Get current Phase (from state.json or default to 1)
-PHASE=$(python3 -c "import json; d=json.load(open('.methodology/state.json')); print(d.get('current_phase', 1))" 2>/dev/null || echo "1")
+PHASE=$("$PYTHON" -c "import json; d=json.load(open('.methodology/state.json')); print(d.get('current_phase', 1))" 2>/dev/null || echo "1")
 
 # Check if Python is available
-if ! command -v python3 &> /dev/null; then
-    echo "Warning: python3 not found, skipping quality gate check"
+if ! "$PYTHON" --version &>/dev/null 2>&1; then
+    echo "Warning: python not found ($PYTHON), skipping quality gate check"
     exit 0
 fi
 
@@ -279,7 +306,7 @@ fi
 echo ""
 echo "Running Phase $PHASE full preflight before push..."
 
-python3 "$HARNESS_CLI" run-phase --phase "$PHASE" --project "$PROJECT_ROOT"
+"$PYTHON" "$HARNESS_CLI" run-phase --phase "$PHASE" --project "$PROJECT_ROOT"
 
 RESULT=$?
 
