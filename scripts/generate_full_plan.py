@@ -480,6 +480,62 @@ _GATE_META: dict = {
     4: (85,   15, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · performance(75) · integration_coverage(75) · test_assertion_quality(70) · traceability(100) · composite ≥ 85  [traceability: framework-owned, harness-computed · CRG recon inside run-gate · D4 spec-coverage unified ≥90%]"),
 }
 
+# Populated by generate_full_plan() at call-time from harness_config.json.
+# When non-empty, used instead of _GATE_META so plans reflect enabled features only.
+_effective_gate_meta: dict = {}
+
+
+def _load_harness_features(repo_path: Path) -> dict:
+    """Read feature flags from .methodology/harness_config.json; silent fallback to defaults."""
+    import json as _json
+    _defaults = {"mutation_testing": False, "crg_architecture": True, "phase4_llm_review": True}
+    cfg = repo_path / ".methodology" / "harness_config.json"
+    if not cfg.exists():
+        return dict(_defaults)
+    try:
+        raw = _json.loads(cfg.read_text(encoding="utf-8"))
+        return {**_defaults, **raw.get("features", {})}
+    except Exception:
+        return dict(_defaults)
+
+
+def _build_gate_meta(features: dict) -> dict:
+    """Rebuild _GATE_META with dims filtered by feature flags."""
+    import re as _re
+    result = {}
+    for gate_num, (score_gate, dim_count, dim_str) in _GATE_META.items():
+        parts = dim_str.split(" · composite ", 1)
+        if len(parts) == 2:
+            dims_part = parts[0]
+            tail = " · composite " + parts[1]
+        else:
+            dims_part = dim_str
+            tail = ""
+
+        dims = [d.strip() for d in dims_part.split(" · ")]
+        to_remove: set = set()
+        if not features.get("mutation_testing", False):
+            to_remove.add("mutation_testing(70)")
+        if not features.get("crg_architecture", True):
+            to_remove.add("architecture(80)")
+        if not features.get("phase4_llm_review", True):
+            to_remove.add("adversarial_review(100)")
+
+        filtered = [d for d in dims if d not in to_remove]
+        removed = len(dims) - len(filtered)
+
+        if tail and not features.get("crg_architecture", True):
+            tail = tail.replace(" · CRG recon inside run-gate", "")
+        if tail and not features.get("phase4_llm_review", True):
+            tail = _re.sub(
+                r" · adversarial_review: framework-owned, requires \.methodology/bug_hunt_report\.json",
+                "",
+                tail,
+            )
+
+        result[gate_num] = (score_gate, dim_count - removed, " · ".join(filtered) + tail)
+    return result
+
 # D4 spec-coverage-check thresholds per exit gate (unified v2.6)
 _SPEC_COVERAGE_THRESHOLDS: dict = {2: 60.0, 3: 80.0, 4: 90.0}
 
@@ -1263,8 +1319,6 @@ def _phase_advance_step(phase: int, dynamic: bool = False) -> List[str]:
             "  - type safety: `python3 -m mypy . --ignore-missing-imports` (exit 19)",
             "  - `pytest --tb=short -q --cov=03-development/src --cov-fail-under=100` (exit 9)",
             f"  - `python3 harness_cli.py spec-coverage-check --project . --threshold {_tdd_sc_p8:.1f}` (exit 10, D4 unified v2.6)",
-            "  - mutmut mutation testing (exit 11 — hard block; install: `pip install mutmut`;",
-            "    kill surviving mutants or exclude data-only files via `paths_to_exclude` in setup.cfg)",
             "  > For genuinely untestable lines add: `# pragma: no cover` (requires justification comment).",
             "",
             "### 🎉 Pipeline Complete",
@@ -1322,8 +1376,6 @@ def _phase_advance_step(phase: int, dynamic: bool = False) -> List[str]:
            "    > Note: advance-phase uses mypy; Gate scoring uses pyright. Both must pass.",
            "  - `pytest --tb=short -q --cov=03-development/src --cov-fail-under=100` (exit 9)",
            f"  - `python3 harness_cli.py spec-coverage-check --project . --threshold {_tdd_sc:.1f}` (exit 10, D4 unified v2.6)",
-           "  - mutmut mutation testing (exit 11 — hard block; install: `pip install mutmut`;",
-           "    kill surviving mutants or exclude data-only files via `paths_to_exclude` in setup.cfg)",
            "  > For genuinely untestable lines add: `# pragma: no cover` (requires justification comment).",
            "",
            ] if phase >= 3 else []),
@@ -1479,7 +1531,7 @@ def _dynamic_fr_template_block(phase: int, project: Path) -> List[str]:
             f"- **[ORCH-GREEN]**   `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step TDD-GREEN --project . --srs 01-requirements/SRS.md`",
             f"- **[ORCH-IMPROVE]** `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step TDD-IMPROVE --project .`",
             f"- **[ORCH-GATE1]**   `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step GATE1 --project .`",
-            f"> Gate 1 thresholds: {_GATE_META[1][2]}",
+            f"> Gate 1 thresholds: {(_effective_gate_meta or _GATE_META)[1][2]}",
             f"> Crash recovery: `resume-fr-phase --phase {phase} --project .`",
             ">",
             "> **Gate 1 outcomes:**",
@@ -1665,7 +1717,7 @@ def _gate4_prerequisites_block() -> List[str]:
 
 def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[str]:
     """Phase-exit gate evaluation steps (two-phase + push checkpoint)."""
-    meta = _GATE_META[gate_num]
+    meta = (_effective_gate_meta or _GATE_META)[gate_num]
     crg_note = (
         "  (CRG recon triggered inside run-gate automatically — no separate action needed)"
         if gate_num in (3, 4) else ""
@@ -2880,6 +2932,9 @@ def generate_full_plan(phase: int, repo_path: Path, output_path: Optional[Path] 
     a phase that is already underway. Returns the existing content unchanged in
     that case.
     """
+    global _effective_gate_meta
+    _effective_gate_meta = _build_gate_meta(_load_harness_features(repo_path))
+
     if output_path and output_path.exists() and not force:
         try:
             _existing = output_path.read_text(encoding="utf-8")

@@ -2,14 +2,24 @@ import json
 import os
 from pathlib import Path
 
-from opentelemetry import trace
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import (
-    BatchSpanProcessor,
-    SpanExporter,
-    SpanExportResult,
-)
-from opentelemetry.sdk.resources import Resource
+try:
+    from opentelemetry import trace
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import (
+        BatchSpanProcessor,
+        SpanExporter,
+        SpanExportResult,
+    )
+    from opentelemetry.sdk.resources import Resource
+    _OTEL_AVAILABLE = True
+except ImportError:
+    _OTEL_AVAILABLE = False
+    trace = None  # type: ignore[assignment,misc]
+    TracerProvider = None  # type: ignore[assignment,misc]
+    BatchSpanProcessor = None  # type: ignore[assignment,misc]
+    SpanExporter = object  # type: ignore[assignment,misc]
+    SpanExportResult = type("SpanExportResult", (), {"SUCCESS": 0})()  # type: ignore[assignment,misc]
+    Resource = None  # type: ignore[assignment,misc]
 
 
 # A simple JSON file exporter to record agent trajectories
@@ -58,7 +68,7 @@ def _add_jsonl_exporter(provider: TracerProvider, project_root: Path) -> None:
     provider.add_span_processor(BatchSpanProcessor(JsonFileSpanExporter(log_dir)))
 
 
-def init_tracer(project_root: Path) -> trace.Tracer:
+def init_tracer(project_root: Path):  # -> trace.Tracer | None
     """Initialise and return the OpenTelemetry tracer.
 
     Exporter selection (checked in order):
@@ -75,8 +85,10 @@ def init_tracer(project_root: Path) -> trace.Tracer:
     is initialised once per process and the exporter cannot be changed mid-run.
     """
     global _HARNESS_TRACER_INITIALIZED
+    if not _OTEL_AVAILABLE:
+        return None
     if _HARNESS_TRACER_INITIALIZED:
-        return trace.get_tracer("harness_agent")
+        return trace.get_tracer("harness_agent")  # type: ignore[union-attr]
 
     resource = Resource.create({"service.name": "harness-methodology"})
     provider = TracerProvider(resource=resource)
@@ -109,6 +121,8 @@ def init_tracer(project_root: Path) -> trace.Tracer:
     return trace.get_tracer("harness_agent")
 
 
-def get_tracer() -> trace.Tracer:
-    """Returns the globally configured tracer."""
-    return trace.get_tracer("harness_agent")
+def get_tracer():  # -> trace.Tracer | None
+    """Returns the globally configured tracer, or None if opentelemetry is not installed."""
+    if not _OTEL_AVAILABLE:
+        return None
+    return trace.get_tracer("harness_agent")  # type: ignore[union-attr]

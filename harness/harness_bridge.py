@@ -293,6 +293,26 @@ def _override_adversarial_review_dim_score(
     return _new_dims, _changed
 
 
+# ---------------------------------------------------------------------------
+# Feature-flag dimension filtering
+# ---------------------------------------------------------------------------
+
+_FEATURE_TO_DIM: dict[str, str] = {
+    "mutation_testing": "mutation_testing",
+    "crg_architecture": "architecture",
+    "phase4_llm_review": "adversarial_review",
+}
+
+
+def _is_dim_disabled(dim_name: str, project_root: str) -> bool:
+    """True when this dimension's feature flag is disabled in harness_config.json."""
+    feat = next((f for f, d in _FEATURE_TO_DIM.items() if d == dim_name), None)
+    if feat is None:
+        return False
+    from core.harness_config import get_feature
+    return not get_feature(project_root, feat)
+
+
 def _extract_mutmut_kill_rate(content: str) -> "float | None":
     """Parse a mutmut tool_output file and return the computed kill rate (0-100).
 
@@ -657,6 +677,8 @@ def _check_tool_evidence(ctx: "GateContext", raw: dict) -> list[str]:
 
     for dim in cfg.get("dimensions", []):
         dim_name = dim.get("name", "")
+        if _is_dim_disabled(dim_name, ctx.project_root):
+            continue
         requires_tool = dim.get("requires_tool_execution", False)
         if not requires_tool:
             continue
@@ -904,6 +926,8 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
 
     for dim in cfg.get("dimensions", []):
         dim_name = dim.get("name", "")
+        if _is_dim_disabled(dim_name, ctx.project_root):
+            continue
         requires_tool = dim.get("requires_tool_execution", False)
         tool = dim.get("tool")
         threshold = float(dim.get("threshold", 0))
@@ -1982,6 +2006,23 @@ class HarnessBridge:
             _config_dim_list = ctx.config.get('dimensions', [])
         else:
             _config_dim_list = getattr(ctx.config, 'dimensions', [])
+
+        # Compute which dimensions are disabled via harness_config.json (once per gate).
+        from core.harness_config import load_harness_config as _load_hcfg
+        _hfeatures = _load_hcfg(ctx.project_root)
+        _disabled_dims: frozenset[str] = frozenset(
+            dn for ft, dn in _FEATURE_TO_DIM.items()
+            if not _hfeatures.get(ft, True)
+        )
+        if _disabled_dims:
+            for _dn in sorted(_disabled_dims):
+                print(f"[harness] {_dn}: disabled via harness_config.json — excluded from evaluation")
+            _config_dim_list = [
+                _d for _d in _config_dim_list
+                if (_d.get('name') if isinstance(_d, dict) else getattr(_d, 'name', ''))
+                not in _disabled_dims
+            ]
+
         for _d in _config_dim_list:
             _dname = _d.get('name') if isinstance(_d, dict) else getattr(_d, 'name', '')
             _dweight = _d.get('weight') if isinstance(_d, dict) else getattr(_d, 'weight', 0.0)
@@ -2012,6 +2053,10 @@ class HarnessBridge:
                 threshold=dim_data.get("threshold", 0.0),
                 issues=dim_data.get("issues", []),
             ))
+
+        # Remove any agent-reported dims whose feature is disabled.
+        if _disabled_dims:
+            dims = [d for d in dims if d.name not in _disabled_dims]
 
         # Apply gate_score_overrides from quality_manifest as threshold floor.
         # Never lower a threshold below what the gate YAML / Claude set — only raise it.

@@ -1235,6 +1235,10 @@ def cmd_crg_arch_check(args: argparse.Namespace) -> int:
     where CRG never ran in CI (architecture scoring was local-only).
     """
     project = Path(args.project).resolve()
+    from core.harness_config import get_feature as _get_feature
+    if not _get_feature(str(project), "crg_architecture"):
+        print("[crg-arch-check] INFO: crg_architecture disabled in harness_config.json — skipping")
+        return 0
     work_dir = project / ".sessi-work"
     try:
         from harness.crg_independent import run_independent_crg
@@ -2847,45 +2851,49 @@ def _check_gate4_prerequisites(project: Path) -> "tuple[bool, set[str]]":
     # reconnaissance protocol).
     # A missing or empty file means CRG was never run — architecture-tier
     # scores derived from CRG data are therefore groundless.
-    try:
-        import yaml as _yaml
-        import glob as _b3glob
-        _crg_cfg_files = sorted(_b3glob.glob(
-            str(project / "harness" / "gate_configs" / "gate4_*.yaml")
-        ))
-        _crg_recon_required = False
-        for _crg_cfg_path in _crg_cfg_files:
-            try:
-                _crg_cfg = _yaml.safe_load(Path(_crg_cfg_path).read_text(encoding="utf-8"))
-                if (_crg_cfg or {}).get("crg", {}).get("reconnaissance"):
-                    _crg_recon_required = True
-                    break
-            except Exception as _b3_cfg_exc:
-                print(f"[Gate 4] B3: skipping {_crg_cfg_path} (parse error: {_b3_cfg_exc})",
-                      file=sys.stderr)
-        if _crg_recon_required:
-            recon_file = project / ".sessi-work" / "crg_reconnaissance.json"
-            recon_exists = recon_file.is_file() and recon_file.stat().st_size > 0
-            if not recon_exists:
-                print(
-                    "\n[BLOCKED] Gate 4 (B3): CRG reconnaissance output not found.\n"
-                    f"  Expected: {recon_file} (non-empty)\n"
-                    "  Gate 4 config declares crg.reconnaissance: true — the CRG bridge\n"
-                    "  must be executed before finalize-gate to provide architecture-tier\n"
-                    "  evaluation context.\n"
-                    "  Run the CRG reconnaissance protocol, then re-run:\n"
-                    "    python harness_cli.py finalize-gate --gate 4 --phase 6 --project .",
-                    file=sys.stderr,
-                )
-                blocked = True
-            else:
-                print(
-                    f"[Gate 4] B3: CRG recon output found "
-                    f"({recon_file.name}, {recon_file.stat().st_size} bytes) ✅",
-                    file=sys.stderr,
-                )
-    except Exception as _b3exc:
-        print(f"[Gate 4] B3: CRG recon check error ({_b3exc}) — skipping", file=sys.stderr)
+    from core.harness_config import get_feature as _get_feature_b3
+    if not _get_feature_b3(str(project), "crg_architecture"):
+        print("[Gate 4] B3: CRG recon check skipped (crg_architecture disabled)", file=sys.stderr)
+    else:
+        try:
+            import yaml as _yaml
+            import glob as _b3glob
+            _crg_cfg_files = sorted(_b3glob.glob(
+                str(project / "harness" / "gate_configs" / "gate4_*.yaml")
+            ))
+            _crg_recon_required = False
+            for _crg_cfg_path in _crg_cfg_files:
+                try:
+                    _crg_cfg = _yaml.safe_load(Path(_crg_cfg_path).read_text(encoding="utf-8"))
+                    if (_crg_cfg or {}).get("crg", {}).get("reconnaissance"):
+                        _crg_recon_required = True
+                        break
+                except Exception as _b3_cfg_exc:
+                    print(f"[Gate 4] B3: skipping {_crg_cfg_path} (parse error: {_b3_cfg_exc})",
+                          file=sys.stderr)
+            if _crg_recon_required:
+                recon_file = project / ".sessi-work" / "crg_reconnaissance.json"
+                recon_exists = recon_file.is_file() and recon_file.stat().st_size > 0
+                if not recon_exists:
+                    print(
+                        "\n[BLOCKED] Gate 4 (B3): CRG reconnaissance output not found.\n"
+                        f"  Expected: {recon_file} (non-empty)\n"
+                        "  Gate 4 config declares crg.reconnaissance: true — the CRG bridge\n"
+                        "  must be executed before finalize-gate to provide architecture-tier\n"
+                        "  evaluation context.\n"
+                        "  Run the CRG reconnaissance protocol, then re-run:\n"
+                        "    python harness_cli.py finalize-gate --gate 4 --phase 6 --project .",
+                        file=sys.stderr,
+                    )
+                    blocked = True
+                else:
+                    print(
+                        f"[Gate 4] B3: CRG recon output found "
+                        f"({recon_file.name}, {recon_file.stat().st_size} bytes) ✅",
+                        file=sys.stderr,
+                    )
+        except Exception as _b3exc:
+            print(f"[Gate 4] B3: CRG recon check error ({_b3exc}) — skipping", file=sys.stderr)
 
     return blocked, da_waivers
 
@@ -5453,16 +5461,6 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
                     )
                     print("  Add '# pragma: no cover' to the 'async def' line to exclude it.")
                 return 9
-
-        # 1.5 mutmut mutation testing
-        try:
-            from core.quality_gate.mutation_enforcer import run_mutation_precheck
-            passed, msg = run_mutation_precheck(project)
-            if not passed:
-                print(f"\n[BLOCKED] TDD Mutation Testing failure.\n{msg}")
-                return 11
-        except ImportError:
-            pass
 
         # 2. D4 traceability: TEST_SPEC.md → tests/ (spec-coverage — unified)
         #    TEST_SPEC.md is the single source of truth (v2.6).

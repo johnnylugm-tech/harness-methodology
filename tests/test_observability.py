@@ -5,6 +5,8 @@ Branch 1: OTEL_EXPORTER_OTLP_ENDPOINT set → OTLP HTTP exporter (or graceful
 Branch 2: OTEL_EXPORTER=console → ConsoleSpanExporter (built-in, no extra deps).
 Branch 3: Neither set → local JSONL at <project>/.harness/traces/agent_trajectory.jsonl.
 """
+import pytest
+pytest.importorskip("opentelemetry", reason="opentelemetry-sdk not installed")
 from unittest.mock import MagicMock, patch
 
 
