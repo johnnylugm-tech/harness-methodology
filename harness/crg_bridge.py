@@ -226,7 +226,7 @@ class CRGBridge:
     def get_hub_nodes(self, project_root: str, min_fan_in: int = 5) -> dict[str, Any]:
         """Return high fan-in nodes (structural chokepoints)."""
         return self._call_crg(_crg_hub_nodes, {
-            "repo_root": project_root,
+            "repo_root": project_root, "min_fan_in": min_fan_in,
         })
 
     def list_communities(

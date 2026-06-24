@@ -4262,30 +4262,35 @@ class TestGenerateVerificationReport:
         # Manifest has 1 PASS / 1 FAIL → conditional or FAIL cert
         assert "FAIL" in text or "Conditional" in text
 
-    def test_handoff_validator_passes_when_report_present(self, tmp_path):
-        """P4→P5 validator passes when VERIFICATION_REPORT.md exists at 05-verification/."""
-        from scripts.generate_verification_report import generate_verification_report
+    def test_handoff_validator_passes_when_test_results_present(self, tmp_path):
+        """P4→P5 validator passes when TEST_RESULTS.md exists at 04-testing/."""
         import harness_cli
+        import json
 
         self._setup_project(tmp_path)
-        generate_verification_report(tmp_path)
+        (tmp_path / "04-testing").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "04-testing" / "TEST_RESULTS.md").write_text("A" * 200)
+
+        # Gate 3 pass
+        manifest = tmp_path / ".methodology" / "quality_manifest.json"
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        manifest.write_text(json.dumps({"gates": {"gate3": {"quality_complete": True}}}))
 
         errors = harness_cli._validate_handoff_p4_to_p5(tmp_path)
         assert not errors, (
-            f"Validator should pass when VERIFICATION_REPORT.md exists; got: {errors}"
+            f"Validator should pass when TEST_RESULTS.md exists; got: {errors}"
         )
 
     def test_handoff_validator_gives_actionable_error(self, tmp_path):
-        """P4→P5 validator gives actionable remediation when VERIFICATION_REPORT.md missing."""
+        """P4→P5 validator gives actionable remediation when TEST_RESULTS.md missing."""
         import harness_cli
 
         self._setup_project(tmp_path)
-        # Do NOT generate the report
+        # Do NOT create TEST_RESULTS.md
         errors = harness_cli._validate_handoff_p4_to_p5(tmp_path)
         assert errors, "Validator should error when report missing"
-        assert "VERIFICATION_REPORT.md" in errors[0]
-        # Finding #16 fix: error must include the remediation command
-        assert "generate-verification-report" in errors[0], (
+        assert "TEST_RESULTS.md" in errors[0]
+        assert "Phase 4 orchestrator" in errors[0], (
             f"Error must point to the canonical remediation tool; got: {errors[0]}"
         )
 

@@ -198,7 +198,7 @@ class TestPhaseTruthVerifier:
     def test_check_pytest_passes(self, tmp_path):
         v = self._make_verifier(tmp_path)
         with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0)
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
             passed, score, _ = v.check_pytest()
         assert passed is True
         assert score == 100.0
@@ -206,7 +206,7 @@ class TestPhaseTruthVerifier:
     def test_check_pytest_fails(self, tmp_path):
         v = self._make_verifier(tmp_path)
         with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=1)
+            mock_run.return_value = MagicMock(returncode=1, stdout="FAILED test", stderr="")
             passed, score, _ = v.check_pytest()
         assert passed is False
         assert score == 0.0
