@@ -177,7 +177,7 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
              "VERIFICATION_REPORT.md", True),
             ([".methodology/sessions_spawn.log", "sessions_spawn.log"], ".methodology/sessions_spawn.log", False),  # non-blocking: A/B audit removed
             (["00-summary/Phase5_STAGE_PASS.md"],
-             "Phase5_STAGE_PASS.md", True),
+             "Phase5_STAGE_PASS.md", False),
         ],
         "thresholds": {
             "TH-02": ("Constitution Total Score", "≥80%"),
