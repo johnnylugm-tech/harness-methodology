@@ -2334,7 +2334,7 @@ class HarnessBridge:
         if _gate_passes and not result.quality_complete:
             result = dataclasses.replace(result, quality_complete=True)
 
-        self._update_quality_manifest(ctx.gate_num, ctx.fr_id, result, da_waivers=da_waivers)
+        self._update_quality_manifest(ctx.gate_num, ctx.fr_id, result, da_waivers=da_waivers, project_root=ctx.project_root)
 
         self._effort.record(EffortRecord(
             phase=ctx.phase, gate_num=ctx.gate_num, agent_id="GATE",

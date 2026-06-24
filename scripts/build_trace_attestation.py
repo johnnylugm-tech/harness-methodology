@@ -121,6 +121,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--trace-dir", default=str(DEFAULT_TRACE_DIR))
     parser.add_argument("--json", action="store_true",
                         help="Print attestation JSON to stdout")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Check for differences without writing (prevents overwriting manual edits)")
     args = parser.parse_args(argv)
 
     project = Path(args.project).resolve()
@@ -131,6 +133,14 @@ def main(argv: Optional[list[str]] = None) -> int:
     trace_dir = Path(args.trace_dir)
 
     attestation = build_attestation(project, overlay_path=overlay_path)
+
+    if args.dry_run:
+        existing_path = project / trace_dir / COMMITTED_NAME
+        if existing_path.exists():
+            existing = json.loads(existing_path.read_text(encoding="utf-8"))
+            if existing.get("matrix") != attestation["matrix"]:
+                print(f"WARNING: {COMMITTED_NAME} differs from generated matrix.", file=sys.stderr)
+                print("Manual edits will be overwritten if you run with --write.", file=sys.stderr)
 
     if args.write:
         canonical, latest = write_attestation(project, attestation, trace_dir)

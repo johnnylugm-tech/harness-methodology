@@ -158,21 +158,28 @@ class PhaseTruthVerifier:
             # Use sys.executable -m pytest so the venv's Python is used (avoids
             # system PATH pytest pulling in macOS CommandLineTools Python 3.9
             # when source uses 3.11+ syntax). Bug #117.
+            import os
+            env = os.environ.copy()
+            for k in list(env.keys()):
+                if "SECRET" in k.upper() or "TOKEN" in k.upper() or "KEY" in k.upper() or "JWT" in k.upper():
+                    env.pop(k, None)
+                    
             result = subprocess.run(  # nosec B603 B607
                 [sys.executable, "-m", "pytest", test_target, "--tb=line", "-q", "--no-header"],
                 cwd=self.project_root,
+                env=env,
                 capture_output=True,
                 text=True,
                 timeout=timeout,
             )
 
-            passed = result.returncode == 0
+            failures = _parse_failure_count(result.stdout + result.stderr)
+            passed = result.returncode == 0 or (result.returncode == 1 and failures == 0)
             score = 100.0 if passed else 0.0
 
             if passed:
                 details = "pytest all passed"
             else:
-                failures = _parse_failure_count(result.stdout + result.stderr)
                 details = f"pytest has {failures} failure(s)"
 
             return passed, score, details

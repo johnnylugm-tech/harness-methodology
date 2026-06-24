@@ -95,7 +95,10 @@ def scan_fr_annotations(
             text = src_file.read_text(encoding="utf-8", errors="replace")
         except Exception:
             continue
-        found = {_norm_fr(m) for m in FR_TAG_PATTERN.findall(text)}
+        found = set()
+        for m in re.finditer(r'\[((?:FR-\d+(?:,\s*)?)+)\]', text, re.IGNORECASE):
+            for inner_m in re.finditer(r'FR-(\d+)', m.group(1), re.IGNORECASE):
+                found.add(_norm_fr(inner_m.group(1)))
         rel = str(src_file.relative_to(project))
         for fr_id in found:
             if rel not in fr_to_files.setdefault(fr_id, []):
@@ -132,11 +135,12 @@ def scan_test_fr_coverage(
             text = test_file.read_text(encoding="utf-8", errors="replace")
         except Exception:
             continue
-        for m in FR_TAG_PATTERN.finditer(text):
-            fr_id = _norm_fr(m.group(1))
-            rel = str(test_file.relative_to(project))
-            if rel not in fr_to_tests.setdefault(fr_id, []):
-                fr_to_tests[fr_id].append(rel)
+        for m in re.finditer(r'\[((?:FR-\d+(?:,\s*)?)+)\]', text, re.IGNORECASE):
+            for inner_m in re.finditer(r'FR-(\d+)', m.group(1), re.IGNORECASE):
+                fr_id = _norm_fr(inner_m.group(1))
+                rel = str(test_file.relative_to(project))
+                if rel not in fr_to_tests.setdefault(fr_id, []):
+                    fr_to_tests[fr_id].append(rel)
     for lst in fr_to_tests.values():
         lst.sort()
     return fr_to_tests
