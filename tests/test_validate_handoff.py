@@ -210,25 +210,57 @@ class TestHandoffP3ToP4:
 
 
 class TestHandoffP4ToP5:
-    def test_missing_report_blocks(self, tmp_path: Path):
-        errs = _validate_handoff(tmp_path, from_phase=4)
-        assert any("VERIFICATION_REPORT.md missing" in e for e in errs)
+    # P4→P5 handoff now checks P4's TEST_RESULTS.md (P4's deliverable), not
+    # the P5-produced VERIFICATION_REPORT.md (harness-methodology handoff-loop
+    # bug fix: P5 file at P4→P5 boundary is chicken-and-egg).
 
-    def test_short_report_blocks(self, tmp_path: Path):
-        (tmp_path / "04-verification").mkdir(parents=True, exist_ok=True)
-        (tmp_path / "04-verification" / "VERIFICATION_REPORT.md").write_text(
+    def test_missing_results_blocks(self, tmp_path: Path):
+        errs = _validate_handoff(tmp_path, from_phase=4)
+        assert any("TEST_RESULTS.md missing" in e for e in errs)
+
+    def test_short_results_blocks(self, tmp_path: Path):
+        (tmp_path / "04-testing").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "04-testing" / "TEST_RESULTS.md").write_text(
             "tiny", encoding="utf-8"
         )
         errs = _validate_handoff(tmp_path, from_phase=4)
         assert any("suspiciously short" in e for e in errs)
 
-    def test_full_report_passes(self, tmp_path: Path):
-        (tmp_path / "04-verification").mkdir(parents=True, exist_ok=True)
-        (tmp_path / "04-verification" / "VERIFICATION_REPORT.md").write_text(
+    def test_full_results_passes(self, tmp_path: Path):
+        (tmp_path / "04-testing").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "04-testing" / "TEST_RESULTS.md").write_text(
             "x" * 2000, encoding="utf-8"
         )
         errs = _validate_handoff(tmp_path, from_phase=4)
         assert errs == []
+
+    def test_results_pass_with_gate3_pass(self, tmp_path: Path):
+        (tmp_path / "04-testing").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "04-testing" / "TEST_RESULTS.md").write_text(
+            "x" * 2000, encoding="utf-8"
+        )
+        methodology = tmp_path / ".methodology"
+        methodology.mkdir(parents=True, exist_ok=True)
+        (methodology / "quality_manifest.json").write_text(
+            '{"gate_results": {"gate_3": {"status": "PASS"}}}',
+            encoding="utf-8",
+        )
+        errs = _validate_handoff(tmp_path, from_phase=4)
+        assert errs == []
+
+    def test_results_fail_when_gate3_not_pass(self, tmp_path: Path):
+        (tmp_path / "04-testing").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "04-testing" / "TEST_RESULTS.md").write_text(
+            "x" * 2000, encoding="utf-8"
+        )
+        methodology = tmp_path / ".methodology"
+        methodology.mkdir(parents=True, exist_ok=True)
+        (methodology / "quality_manifest.json").write_text(
+            '{"gate_results": {"gate_3": {"status": "FAIL"}}}',
+            encoding="utf-8",
+        )
+        errs = _validate_handoff(tmp_path, from_phase=4)
+        assert any("Gate 3 status" in e for e in errs)
 
 
 class TestHandoffP5ToP6:

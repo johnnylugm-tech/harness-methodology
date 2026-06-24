@@ -4332,30 +4332,47 @@ def _validate_handoff_p3_to_p4(project: Path) -> list[str]:
 
 
 def _validate_handoff_p4_to_p5(project: Path) -> list[str]:
-    """P4→P5: VERIFICATION_REPORT.md must exist with non-trivial content.
+    """P4→P5: TEST_RESULTS.md (P4's deliverable) must exist with non-trivial content,
+    AND Gate 3 must be PASS in quality_manifest.json.
 
-    P5 plan's VERIFY-REPORT task produces this file at
-    `05-verification/VERIFICATION_REPORT.md` via
-    `python3 harness_cli.py generate-verification-report`. Earlier validator
-    looked at `04-verification/VERIFICATION_REPORT.md` (P4 path) which was
-    never the production site — Finding #16. Accept either canonical P5 path
-    or a legacy 04-verification fallback to avoid breaking older projects.
+    Bug fix (harness-methodology handoff-loop): the previous implementation
+    required `05-verification/VERIFICATION_REPORT.md` here, but that file is
+    *produced by Phase 5* — checking it on P4→P5 handoff is a chicken-and-egg
+    that blocks every fresh Phase 5 entry. Aligned with the other handoff
+    validators (P1→P2 checks P1's SRS, P2→P3 checks P2's TEST_SPEC, etc.):
+    verify the *upstream* phase's deliverable, not the downstream one.
+
+    VERIFICATION_REPORT.md existence is still asserted by `_validate_handoff_p5_to_p6`
+    below, which is the correct handoff boundary for that file.
     """
     errors: list[str] = []
-    canonical = project / "05-verification" / "VERIFICATION_REPORT.md"
-    legacy = project / "04-verification" / "VERIFICATION_REPORT.md"
-    if not (canonical.exists() or legacy.exists()):
+    results_path = project / "04-testing" / "TEST_RESULTS.md"
+    if not results_path.exists():
         return [
-            "VERIFICATION_REPORT.md missing at 05-verification/VERIFICATION_REPORT.md. "
-            "Run: python3 harness_cli.py generate-verification-report --project ."
+            "TEST_RESULTS.md missing at 04-testing/TEST_RESULTS.md. "
+            "Phase 4 produces this file. Re-run Phase 4 orchestrator."
         ]
-    report = canonical if canonical.exists() else legacy
-    text = report.read_text(encoding="utf-8", errors="replace").strip()
+    text = results_path.read_text(encoding="utf-8", errors="replace").strip()
     if len(text) < 200:
         errors.append(
-            f"VERIFICATION_REPORT.md is suspiciously short ({len(text)} chars). "
-            f"Real verification reports are ≥ 1KB. Possible stub."
+            f"TEST_RESULTS.md is suspiciously short ({len(text)} chars). "
+            f"Real test results are ≥ 1KB. Possible stub."
         )
+    # Gate 3 PASS precondition: verified via quality_manifest.json (written by P4
+    # workflow). This mirrors `_validate_p3_post_gate2_precondition` semantics.
+    manifest_path = project / ".methodology" / "quality_manifest.json"
+    if manifest_path.exists():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            gate3 = (manifest.get("gate_results") or {}).get("gate_3") or {}
+            if gate3.get("status") != "PASS":
+                errors.append(
+                    "Gate 3 status in quality_manifest.json is "
+                    f"{gate3.get('status')!r} (expected 'PASS'). "
+                    "Re-run Phase 4 Gate 3 evaluation."
+                )
+        except (json.JSONDecodeError, OSError):
+            pass  # unparseable manifest is a separate concern; don't double-fail here
     return errors
 
 
