@@ -479,10 +479,16 @@ class DriftDetector:
                 if not isinstance(actual_mod, str):
                     continue
                 sab_files[actual_mod] = layer_name
-                # Expand with package_dir prefix if applicable
-                if pkg_dir and not actual_mod.endswith("/") and "/" not in actual_mod and not actual_mod.endswith(".py"):
-                    if not actual_mod.startswith(f"{pkg_dir}."):
-                        sab_files[f"{pkg_dir}.{actual_mod}"] = layer_name
+                # Pre-register a pkg_dir-prefixed dotted key so Check 2
+                # (unregistered files) can match src/-layout file paths.
+                # Normalise pkg_dir to dot notation — otherwise a
+                # slash-containing pkg_dir like "03-development/src"
+                # produces a malformed dotted+slash hybrid that
+                # sab_module_to_path_variants() returns as a literal
+                # path instead of resolving.
+                if pkg_dir and not actual_mod.endswith("/") and not actual_mod.endswith(".py"):
+                    norm_pkg = pkg_dir.replace("/", ".")
+                    sab_files[f"{norm_pkg}.{actual_mod}"] = layer_name
                 # Also register files inside directories (e.g. "core/quality_gate/" → all files)
                 if actual_mod.endswith("/"):
                     for py_file in self.project_path.rglob(f"{actual_mod}*.py"):

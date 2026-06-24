@@ -495,6 +495,7 @@ def _build_gate_meta(features: dict) -> dict:
 
         dims = [d.strip() for d in dims_part.split(" · ")]
         to_remove: set = set()
+        # Feature-flag → dimension mapping mirrors core.harness_config._DIM_TO_FEATURE
         if not features.get("mutation_testing", False):
             to_remove.add("mutation_testing(70)")
         if not features.get("crg_architecture", True):

@@ -296,21 +296,26 @@ def _override_adversarial_review_dim_score(
 # ---------------------------------------------------------------------------
 # Feature-flag dimension filtering
 # ---------------------------------------------------------------------------
-
-_DIM_TO_FEATURE: dict[str, str] = {
-    "mutation_testing": "mutation_testing",
-    "architecture": "crg_architecture",
-    "adversarial_review": "phase4_llm_review",
-}
+# Canonical definitions live in core.harness_config — import from there.
+from core.harness_config import _DIM_TO_FEATURE, is_dim_disabled  # noqa: F401
+# Backward-compat alias (prefer core.harness_config.is_dim_disabled).
+_is_dim_disabled = is_dim_disabled
 
 
-def _is_dim_disabled(dim_name: str, project_root: str) -> bool:
-    """True when this dimension's feature flag is disabled in harness_config.json."""
-    feat = _DIM_TO_FEATURE.get(dim_name)
-    if feat is None:
-        return False
-    from core.harness_config import get_feature
-    return not get_feature(project_root, feat)
+def filter_enabled_dimensions(
+    dim_list: "list[dict]", project_root: str
+) -> "list[dict]":
+    """Return *dim_list* with feature-flag-disabled dimensions removed.
+
+    Call this immediately after ``yaml.safe_load()`` on a gate config so
+    all downstream code sees a consistent, pre-filtered dimension list.
+    Uses :func:`core.harness_config.is_dim_disabled` — the single source
+    of truth for dim→feature→flag is always in ``harness_config.py``.
+    """
+    return [
+        d for d in dim_list
+        if not is_dim_disabled(d.get("name", ""), project_root)
+    ]
 
 
 def _extract_mutmut_kill_rate(content: str) -> "float | None":
@@ -662,6 +667,10 @@ def _check_tool_evidence(ctx: "GateContext", raw: dict) -> list[str]:
     except Exception:
         return []
 
+    cfg["dimensions"] = filter_enabled_dimensions(
+        cfg.get("dimensions", []), ctx.project_root
+    )
+
     violations: list[str] = []
     breakdown = raw.get("breakdown", {})
 
@@ -677,8 +686,6 @@ def _check_tool_evidence(ctx: "GateContext", raw: dict) -> list[str]:
 
     for dim in cfg.get("dimensions", []):
         dim_name = dim.get("name", "")
-        if _is_dim_disabled(dim_name, ctx.project_root):
-            continue
         requires_tool = dim.get("requires_tool_execution", False)
         if not requires_tool:
             continue
@@ -895,6 +902,10 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
     except Exception as exc:
         print(f"  [S4-WARN] cross-validation disabled: failed to parse {cfg_path.name}: {exc}")
         return []
+
+    cfg["dimensions"] = filter_enabled_dimensions(
+        cfg.get("dimensions", []), ctx.project_root
+    )
 
     try:
         from harness.tool_runners import run_tool, compute_tool_score

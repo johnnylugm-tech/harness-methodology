@@ -265,18 +265,17 @@ def _verify_gate_tools(
     except Exception:
         return True, []
 
+    from harness.harness_bridge import filter_enabled_dimensions
+    cfg["dimensions"] = filter_enabled_dimensions(
+        cfg.get("dimensions", []), target_root
+    )
+
     missing: list[str] = []
-    from core.harness_config import get_feature as _hcfg_feat
-    from harness.harness_bridge import _DIM_TO_FEATURE
     for dim in cfg.get("dimensions", []):
         dim_name = dim.get("name", "")
         requires_tool = dim.get("requires_tool_execution", False)
         if not requires_tool:
             continue  # LLM-evaluated dimension — skip tool check
-        # Skip dimensions whose feature flag is disabled in harness_config.json
-        _dim_feat = _DIM_TO_FEATURE.get(dim_name)
-        if _dim_feat is not None and not _hcfg_feat(target_root, _dim_feat):
-            continue
         tool_name = dim.get("tool")  # May be None for older configs
         ok, diag = _check_tool_for_dim(
             dim_name, tool_name, language, project_root=target_root
@@ -1241,8 +1240,8 @@ def cmd_crg_arch_check(args: argparse.Namespace) -> int:
     where CRG never ran in CI (architecture scoring was local-only).
     """
     project = Path(args.project).resolve()
-    from core.harness_config import get_feature as _get_feature
-    if not _get_feature(str(project), "crg_architecture"):
+    from core.harness_config import is_dim_disabled
+    if is_dim_disabled("architecture", str(project)):
         print("[crg-arch-check] INFO: crg_architecture disabled in harness_config.json — skipping")
         return 0
     work_dir = project / ".sessi-work"
@@ -2857,8 +2856,8 @@ def _check_gate4_prerequisites(project: Path) -> "tuple[bool, set[str]]":
     # reconnaissance protocol).
     # A missing or empty file means CRG was never run — architecture-tier
     # scores derived from CRG data are therefore groundless.
-    from core.harness_config import get_feature as _get_feature_b3
-    if not _get_feature_b3(str(project), "crg_architecture"):
+    from core.harness_config import is_dim_disabled
+    if is_dim_disabled("architecture", str(project)):
         print("[Gate 4] B3: CRG recon check skipped (crg_architecture disabled)", file=sys.stderr)
     else:
         try:

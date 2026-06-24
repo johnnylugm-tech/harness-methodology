@@ -104,12 +104,12 @@ class TestPhase4LLMReview:
         (tmp_path / ".methodology" / "harness_config.json").write_text(
             json.dumps({"version": 1, "features": {"phase4_llm_review": False}})
         )
-        from harness.harness_bridge import _is_dim_disabled
-        assert _is_dim_disabled("adversarial_review", str(tmp_path)) is True
+        from core.harness_config import is_dim_disabled
+        assert is_dim_disabled("adversarial_review", str(tmp_path)) is True
 
     def test_adversarial_review_enabled_by_default(self, tmp_path):
-        from harness.harness_bridge import _is_dim_disabled
-        assert _is_dim_disabled("adversarial_review", str(tmp_path)) is False
+        from core.harness_config import is_dim_disabled
+        assert is_dim_disabled("adversarial_review", str(tmp_path)) is False
 
 
 # ---------------------------------------------------------------------------
@@ -122,12 +122,12 @@ class TestCRGArchitecture:
         (tmp_path / ".methodology" / "harness_config.json").write_text(
             json.dumps({"version": 1, "features": {"crg_architecture": False}})
         )
-        from harness.harness_bridge import _is_dim_disabled
-        assert _is_dim_disabled("architecture", str(tmp_path)) is True
+        from core.harness_config import is_dim_disabled
+        assert is_dim_disabled("architecture", str(tmp_path)) is True
 
     def test_architecture_enabled_by_default(self, tmp_path):
-        from harness.harness_bridge import _is_dim_disabled
-        assert _is_dim_disabled("architecture", str(tmp_path)) is False
+        from core.harness_config import is_dim_disabled
+        assert is_dim_disabled("architecture", str(tmp_path)) is False
 
 
 # ---------------------------------------------------------------------------
@@ -136,23 +136,23 @@ class TestCRGArchitecture:
 
 class TestDimFiltering:
     def test_is_dim_disabled_unknown_dim_returns_false(self, tmp_path):
-        from harness.harness_bridge import _is_dim_disabled
-        assert _is_dim_disabled("linting", str(tmp_path)) is False
-        assert _is_dim_disabled("security", str(tmp_path)) is False
+        from core.harness_config import is_dim_disabled
+        assert is_dim_disabled("linting", str(tmp_path)) is False
+        assert is_dim_disabled("security", str(tmp_path)) is False
 
     def test_mutation_testing_dim_disabled_when_flag_off(self, tmp_path):
         (tmp_path / ".methodology").mkdir()
         (tmp_path / ".methodology" / "harness_config.json").write_text(
             json.dumps({"version": 1, "features": {"mutation_testing": True}})
         )
-        from harness.harness_bridge import _is_dim_disabled
+        from core.harness_config import is_dim_disabled
         # mutation_testing=True means NOT disabled
-        assert _is_dim_disabled("mutation_testing", str(tmp_path)) is False
+        assert is_dim_disabled("mutation_testing", str(tmp_path)) is False
 
     def test_mutation_testing_dim_disabled_when_flag_on_false(self, tmp_path):
         # default: mutation_testing=False → dim IS disabled
-        from harness.harness_bridge import _is_dim_disabled
-        assert _is_dim_disabled("mutation_testing", str(tmp_path)) is True
+        from core.harness_config import is_dim_disabled
+        assert is_dim_disabled("mutation_testing", str(tmp_path)) is True
 
 
 # ---------------------------------------------------------------------------
