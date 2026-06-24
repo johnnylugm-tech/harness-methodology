@@ -4274,7 +4274,7 @@ class TestGenerateVerificationReport:
         # Gate 3 pass
         manifest = tmp_path / ".methodology" / "quality_manifest.json"
         manifest.parent.mkdir(parents=True, exist_ok=True)
-        manifest.write_text(json.dumps({"gates": {"gate3": {"quality_complete": True}}}))
+        manifest.write_text(json.dumps({"gate_results": {"gate3": {"quality_complete": True}}}))
 
         errors = harness_cli._validate_handoff_p4_to_p5(tmp_path)
         assert not errors, (
