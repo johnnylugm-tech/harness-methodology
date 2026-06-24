@@ -96,7 +96,7 @@ def scan_fr_annotations(
         except Exception:
             continue
         found = set()
-        for m in re.finditer(r'\[((?:FR-\d+(?:,\s*)?)+)\]', text, re.IGNORECASE):
+        for m in re.finditer(r'\[\s*((?:FR-\d+(?:,\s*)?)+)\s*\]', text, re.IGNORECASE):
             for inner_m in re.finditer(r'FR-(\d+)', m.group(1), re.IGNORECASE):
                 found.add(_norm_fr(inner_m.group(1)))
         rel = str(src_file.relative_to(project))
@@ -135,7 +135,7 @@ def scan_test_fr_coverage(
             text = test_file.read_text(encoding="utf-8", errors="replace")
         except Exception:
             continue
-        for m in re.finditer(r'\[((?:FR-\d+(?:,\s*)?)+)\]', text, re.IGNORECASE):
+        for m in re.finditer(r'\[\s*((?:FR-\d+(?:,\s*)?)+)\s*\]', text, re.IGNORECASE):
             for inner_m in re.finditer(r'FR-(\d+)', m.group(1), re.IGNORECASE):
                 fr_id = _norm_fr(inner_m.group(1))
                 rel = str(test_file.relative_to(project))

@@ -636,9 +636,11 @@ class PhaseTruthVerifier:
 
 
 def _parse_failure_count(output: str) -> int:
-    """Count FAILED lines in pytest output."""
+    """Count FAILED and ERROR lines in pytest output."""
     import re
-    return len(re.findall(r"^FAILED\s+", output, re.MULTILINE))
+    fails = len(re.findall(r"^FAILED\s+", output, re.MULTILINE))
+    errs = len(re.findall(r"^ERROR\s+", output, re.MULTILINE))
+    return fails + errs
 
 
 if __name__ == "__main__":  # pragma: no cover
