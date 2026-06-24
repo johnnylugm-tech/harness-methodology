@@ -448,7 +448,8 @@ class PhaseTruthVerifier:
         section_count = content.count("\n## ") + content.count("\n# ")
         if section_count < 2:
             issues.append("Fewer than 2 markdown sections — may lack structure")
-        has_ref = bool(re.search(r"\[(TASK|FR|NFR)-\d+\]", content, re.IGNORECASE))
+        # P5-BUG-04: Support ranges like FR-01..09 without strict brackets
+        has_ref = bool(re.search(r"(?:TASK|FR|NFR)-\d+(?:\.\.\d+)?", content, re.IGNORECASE))
         if not has_ref:
             issues.append("No task/FR/NFR references found")
 

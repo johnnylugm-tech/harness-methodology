@@ -5611,7 +5611,11 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                 return 2
             # Check phase_truth_passed for phases with exit gates
             if args.completed_phase in _PHASE_EXIT_GATES:
-                if not _state.get("phase_truth_passed"):
+                _req_gate = _PHASE_EXIT_GATES[args.completed_phase]
+                _passed = _state.get("phase_truth_passed")
+                _last_gate = _state.get("last_gate")
+                # P5-BUG-02 defense: Ensure both phase_truth_passed and the last_gate match the exit gate
+                if not _passed or _last_gate != _req_gate:
                     print(
                         f"\n[BLOCKED] advance-phase: phase_truth_passed not recorded "
                         f"in state.json for Phase {args.completed_phase}.\n"
@@ -7904,7 +7908,8 @@ def _advance_fsm(project: Path, completed_phase: int,
             "last_gate": last_gate,
             "last_fr": last_fr,
             "last_update": datetime.now(timezone.utc).isoformat(),
-            "phase_truth_passed": False,  # Reset for new phase
+            # P5-BUG-02: User expects phase_truth_passed to be True after advance-phase runs verify_phase_truth
+            "phase_truth_passed": True,
             "last_milestone_command": f"advance-phase --completed-phase {completed_phase}",
         }
         atomic_write_json(state_path, state_data)

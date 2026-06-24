@@ -634,7 +634,8 @@ class GitStrategy:
         if not self.enabled:
             return True
         self._write_handover(
-            checkpoint_id=self._cp("P5-baseline"),
+            # P5-BUG-03: Use P5-exit semantic naming instead of P5-baseline
+            checkpoint_id=self._cp("P5-exit"),
             phase=5,
             background=background or "P5 Review Baseline: BASELINE.md generated.",
             status="BASELINE.md committed. P5 Review Baseline complete.",
