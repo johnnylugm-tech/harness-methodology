@@ -242,7 +242,7 @@ class TestHandoffP4ToP5:
         methodology = tmp_path / ".methodology"
         methodology.mkdir(parents=True, exist_ok=True)
         (methodology / "quality_manifest.json").write_text(
-            '{"gate_results": {"gate_3": {"status": "PASS"}}}',
+            '{"gates": {"gate3": {"quality_complete": true}}}',
             encoding="utf-8",
         )
         errs = _validate_handoff(tmp_path, from_phase=4)
@@ -256,11 +256,11 @@ class TestHandoffP4ToP5:
         methodology = tmp_path / ".methodology"
         methodology.mkdir(parents=True, exist_ok=True)
         (methodology / "quality_manifest.json").write_text(
-            '{"gate_results": {"gate_3": {"status": "FAIL"}}}',
+            '{"gates": {"gate3": {"quality_complete": false}}}',
             encoding="utf-8",
         )
         errs = _validate_handoff(tmp_path, from_phase=4)
-        assert any("Gate 3 status" in e for e in errs)
+        assert any("Gate 3 not PASS" in e for e in errs)
 
 
 class TestHandoffP5ToP6:

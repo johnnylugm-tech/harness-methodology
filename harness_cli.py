@@ -4359,16 +4359,19 @@ def _validate_handoff_p4_to_p5(project: Path) -> list[str]:
             f"Real test results are ≥ 1KB. Possible stub."
         )
     # Gate 3 PASS precondition: verified via quality_manifest.json (written by P4
-    # workflow). This mirrors `_validate_p3_post_gate2_precondition` semantics.
+    # workflow). Mirrors the entry-gate check at harness_cli.py:_verify_entry_gate
+    # (lines ~1555-1566): key is `gates.gate3` (no underscore), and the field
+    # that signals completion is `quality_complete` (not `status`).
     manifest_path = project / ".methodology" / "quality_manifest.json"
     if manifest_path.exists():
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            gate3 = (manifest.get("gate_results") or {}).get("gate_3") or {}
-            if gate3.get("status") != "PASS":
+            gates = manifest.get("gates") or {}
+            gate3 = gates.get("gate3") or {}
+            if not gate3.get("quality_complete"):
                 errors.append(
-                    "Gate 3 status in quality_manifest.json is "
-                    f"{gate3.get('status')!r} (expected 'PASS'). "
+                    "Gate 3 not PASS in .methodology/quality_manifest.json "
+                    "(gates.gate3.quality_complete is not True). "
                     "Re-run Phase 4 Gate 3 evaluation."
                 )
         except (json.JSONDecodeError, OSError):
