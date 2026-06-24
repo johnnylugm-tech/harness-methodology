@@ -13,8 +13,8 @@ authors = [
     {name = "Johnny Lugm"},
 ]
 dependencies = [
-    "opentelemetry-api>=1.20.0",
-    "opentelemetry-sdk>=1.20.0",
+    "opentelemetry-api>=1.20.0, <1.38.0",
+    "opentelemetry-sdk>=1.20.0, <1.38.0",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",

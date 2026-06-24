@@ -297,7 +297,7 @@ def _override_adversarial_review_dim_score(
 # Feature-flag dimension filtering
 # ---------------------------------------------------------------------------
 # Canonical definitions live in core.harness_config — import from there.
-from core.harness_config import _DIM_TO_FEATURE, is_dim_disabled  # noqa: F401
+from core.harness_config import _DIM_TO_FEATURE, is_dim_disabled  # noqa: F401, E402
 # Backward-compat alias (prefer core.harness_config.is_dim_disabled).
 _is_dim_disabled = is_dim_disabled
 
