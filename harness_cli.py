@@ -266,16 +266,15 @@ def _verify_gate_tools(
         return True, []
 
     missing: list[str] = []
-    # Feature-flag skip: mirrors _DIM_TO_FEATURE in harness_bridge.py — keep in sync.
     from core.harness_config import get_feature as _hcfg_feat
-    _vtg_feat_map = {"mutation_testing": "mutation_testing"}
+    from harness.harness_bridge import _DIM_TO_FEATURE
     for dim in cfg.get("dimensions", []):
         dim_name = dim.get("name", "")
         requires_tool = dim.get("requires_tool_execution", False)
         if not requires_tool:
             continue  # LLM-evaluated dimension — skip tool check
         # Skip dimensions whose feature flag is disabled in harness_config.json
-        _dim_feat = _vtg_feat_map.get(dim_name)
+        _dim_feat = _DIM_TO_FEATURE.get(dim_name)
         if _dim_feat is not None and not _hcfg_feat(target_root, _dim_feat):
             continue
         tool_name = dim.get("tool")  # May be None for older configs
