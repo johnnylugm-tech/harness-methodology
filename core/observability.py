@@ -18,7 +18,7 @@ except ImportError:
     TracerProvider = None  # type: ignore[assignment,misc]
     BatchSpanProcessor = None  # type: ignore[assignment,misc]
     SpanExporter = object  # type: ignore[assignment,misc]
-    SpanExportResult = type("SpanExportResult", (), {"SUCCESS": 0})()  # type: ignore[assignment,misc]
+    SpanExportResult = type("SpanExportResult", (), {"SUCCESS": 0})  # type: ignore[assignment,misc]
     Resource = None  # type: ignore[assignment,misc]
 
 

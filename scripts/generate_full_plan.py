@@ -28,6 +28,7 @@ import sys
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional, cast
+from core.harness_config import load_harness_config as _load_harness_config
 from core.utils.project_layout import ProjectLayout
 
 try:
@@ -480,28 +481,8 @@ _GATE_META: dict = {
     4: (85,   15, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · performance(75) · integration_coverage(75) · test_assertion_quality(70) · traceability(100) · composite ≥ 85  [traceability: framework-owned, harness-computed · CRG recon inside run-gate · D4 spec-coverage unified ≥90%]"),
 }
 
-# Populated by generate_full_plan() at call-time from harness_config.json.
-# When non-empty, used instead of _GATE_META so plans reflect enabled features only.
-_effective_gate_meta: dict = {}
-
-
-def _load_harness_features(repo_path: Path) -> dict:
-    """Read feature flags from .methodology/harness_config.json; silent fallback to defaults."""
-    import json as _json
-    _defaults = {"mutation_testing": False, "crg_architecture": True, "phase4_llm_review": True}
-    cfg = repo_path / ".methodology" / "harness_config.json"
-    if not cfg.exists():
-        return dict(_defaults)
-    try:
-        raw = _json.loads(cfg.read_text(encoding="utf-8"))
-        return {**_defaults, **raw.get("features", {})}
-    except Exception:
-        return dict(_defaults)
-
-
 def _build_gate_meta(features: dict) -> dict:
     """Rebuild _GATE_META with dims filtered by feature flags."""
-    import re as _re
     result = {}
     for gate_num, (score_gate, dim_count, dim_str) in _GATE_META.items():
         parts = dim_str.split(" · composite ", 1)
@@ -527,7 +508,7 @@ def _build_gate_meta(features: dict) -> dict:
         if tail and not features.get("crg_architecture", True):
             tail = tail.replace(" · CRG recon inside run-gate", "")
         if tail and not features.get("phase4_llm_review", True):
-            tail = _re.sub(
+            tail = re.sub(
                 r" · adversarial_review: framework-owned, requires \.methodology/bug_hunt_report\.json",
                 "",
                 tail,
@@ -1505,7 +1486,7 @@ def _validate_handoff_precondition_block(phase: int) -> List[str]:
     ]
 
 
-def _dynamic_fr_template_block(phase: int, project: Path) -> List[str]:
+def _dynamic_fr_template_block(phase: int, project: Path, gate_meta: "dict | None" = None) -> List[str]:
     """FR task template for dynamic plans — each {FR-ID} is expanded at execution time."""
     use_carryforward = phase in (4, 5, 7, 8)
     if use_carryforward:
@@ -1531,7 +1512,7 @@ def _dynamic_fr_template_block(phase: int, project: Path) -> List[str]:
             f"- **[ORCH-GREEN]**   `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step TDD-GREEN --project . --srs 01-requirements/SRS.md`",
             f"- **[ORCH-IMPROVE]** `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step TDD-IMPROVE --project .`",
             f"- **[ORCH-GATE1]**   `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step GATE1 --project .`",
-            f"> Gate 1 thresholds: {(_effective_gate_meta or _GATE_META)[1][2]}",
+            f"> Gate 1 thresholds: {(gate_meta or _GATE_META)[1][2]}",
             f"> Crash recovery: `resume-fr-phase --phase {phase} --project .`",
             ">",
             "> **Gate 1 outcomes:**",
@@ -1715,9 +1696,9 @@ def _gate4_prerequisites_block() -> List[str]:
     ]
 
 
-def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int) -> List[str]:
+def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int, gate_meta: "dict | None" = None) -> List[str]:
     """Phase-exit gate evaluation steps (two-phase + push checkpoint)."""
-    meta = (_effective_gate_meta or _GATE_META)[gate_num]
+    meta = (gate_meta or _GATE_META)[gate_num]
     crg_note = (
         "  (CRG recon triggered inside run-gate automatically — no separate action needed)"
         if gate_num in (3, 4) else ""
@@ -2203,7 +2184,7 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
     return lines
 
 
-def generate_phase3_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False) -> List[str]:
+def generate_phase3_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False, gate_meta: "dict | None" = None) -> List[str]:
     """Generate Phase 3 detailed tasks (Implementation + Gate 1 per-FR + Gate 2 exit)"""
     lines = []
     lines.append("## Phase 3 Tasks: Implementation")
@@ -2220,7 +2201,7 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
         lines.extend(_entry_gate_check(3))
         lines.extend(_preflight_steps(3))
         lines.extend(_dynamic_phase_context_block(3))
-        lines.extend(_dynamic_fr_template_block(3, repo_path))
+        lines.extend(_dynamic_fr_template_block(3, repo_path, gate_meta=gate_meta))
         lines.extend(_p3_milestone_push_steps(fr_ids, dynamic=True))
     else:
         frs = parse_srs_fr_sections(srs_path)
@@ -2371,7 +2352,7 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
 
         lines.extend(_p3_milestone_push_steps(fr_ids))
 
-    lines.extend(_gate_exit_checkpoint(gate_num=2, phase=3, checkpoint_n=checkpoint_n))
+    lines.extend(_gate_exit_checkpoint(gate_num=2, phase=3, checkpoint_n=checkpoint_n, gate_meta=gate_meta))
 
     lines.append("### Phase 3 Deliverables")
     lines.append("- `03-development/src/` - All FR modules implemented")
@@ -2386,7 +2367,7 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
     return lines
 
 
-def generate_phase4_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False) -> List[str]:
+def generate_phase4_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False, gate_meta: "dict | None" = None) -> List[str]:
     """Generate Phase 4 detailed tasks (Testing + Gate 1 per-FR + Gate 3 exit)"""
     lines = []
     lines.append("## Phase 4 Tasks: Test Planning & Execution")
@@ -2417,7 +2398,7 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
         lines.append("- Verify TEST_PLAN.md covers all FRs from manifest/quality_manifest.json")
         lines.append("- **[TP-DONE]** TEST_PLAN.md written: all FRs have ≥1 test case, NFRs addressed")
         lines.append("")
-        lines.extend(_dynamic_fr_template_block(4, repo_path))
+        lines.extend(_dynamic_fr_template_block(4, repo_path, gate_meta=gate_meta))
         lines.extend(_milestone_push_steps(fr_ids, phase=4, pre_gate=3,
                                            push_prefixes=("⑤", "⑥"),
                                            dynamic=True))
@@ -2553,7 +2534,7 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
         lines.extend(_milestone_push_steps(fr_ids, phase=4, pre_gate=3,
                                            push_prefixes=("⑤", "⑥")))
 
-    lines.extend(_gate_exit_checkpoint(gate_num=3, phase=4, checkpoint_n=checkpoint_n))
+    lines.extend(_gate_exit_checkpoint(gate_num=3, phase=4, checkpoint_n=checkpoint_n, gate_meta=gate_meta))
 
     lines.append("### Phase 4 Deliverables")
     lines.append("- `04-testing/TEST_PLAN.md` - Test plan")
@@ -2569,7 +2550,7 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
     return lines
 
 
-def generate_phase5_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
+def generate_phase5_tasks(repo_path: Path, dynamic: bool = False, gate_meta: "dict | None" = None) -> List[str]:
     """Generate Phase 5 detailed tasks (Verification & Delivery + Gate 1 per-FR)"""
     lines = []
     lines.append("## Phase 5 Tasks: Verification & Delivery")
@@ -2593,7 +2574,7 @@ def generate_phase5_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
 
     if dynamic:
         lines.extend(_dynamic_phase_context_block(5))
-        lines.extend(_dynamic_fr_template_block(5, repo_path))
+        lines.extend(_dynamic_fr_template_block(5, repo_path, gate_meta=gate_meta))
     elif manifest_fr_ids:
         lines.append("### FR Verification Tasks ({} total)".format(len(manifest_fr_ids)))
         lines.append("")
@@ -2648,7 +2629,7 @@ def generate_phase5_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     return lines
 
 
-def generate_phase6_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
+def generate_phase6_tasks(repo_path: Path, dynamic: bool = False, gate_meta: "dict | None" = None) -> List[str]:
     """Generate Phase 6 detailed tasks (Quality Assurance — Gate 4 full replacement)"""
     lines = []
     lines.append("## Phase 6 Tasks: Quality Assurance")
@@ -2696,7 +2677,7 @@ def generate_phase6_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
 
     lines.extend(_gate4_prerequisites_block())
 
-    lines.extend(_gate_exit_checkpoint(gate_num=4, phase=6, checkpoint_n=1))
+    lines.extend(_gate_exit_checkpoint(gate_num=4, phase=6, checkpoint_n=1, gate_meta=gate_meta))
 
     lines.append("### Phase 6 Deliverables")
     lines.append("- Gate 4 PASS (composite ≥ 85, all 15 dims, CRG recon done)")
@@ -2711,7 +2692,7 @@ def generate_phase6_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     return lines
 
 
-def generate_phase7_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
+def generate_phase7_tasks(repo_path: Path, dynamic: bool = False, gate_meta: "dict | None" = None) -> List[str]:
     """Generate Phase 7 detailed tasks (Risk Management + Gate 1 per-FR)"""
     lines = []
     lines.append("## Phase 7 Tasks: Risk Management")
@@ -2735,7 +2716,7 @@ def generate_phase7_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
 
     if dynamic:
         lines.extend(_dynamic_phase_context_block(7))
-        lines.extend(_dynamic_fr_template_block(7, repo_path))
+        lines.extend(_dynamic_fr_template_block(7, repo_path, gate_meta=gate_meta))
         lines.extend([
             "### P7 Risk Register Generation",
             "",
@@ -2804,7 +2785,7 @@ def generate_phase7_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
     return lines
 
 
-def generate_phase8_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
+def generate_phase8_tasks(repo_path: Path, dynamic: bool = False, gate_meta: "dict | None" = None) -> List[str]:
     """Generate Phase 8 detailed tasks (Configuration Management + Gate 1 per-FR)"""
     lines = []
     lines.append("## Phase 8 Tasks: Configuration Management")
@@ -2828,7 +2809,7 @@ def generate_phase8_tasks(repo_path: Path, dynamic: bool = False) -> List[str]:
 
     if dynamic:
         lines.extend(_dynamic_phase_context_block(8))
-        lines.extend(_dynamic_fr_template_block(8, repo_path))
+        lines.extend(_dynamic_fr_template_block(8, repo_path, gate_meta=gate_meta))
         lines.extend([
             "### P8 Configuration Records Generation",
             "",
@@ -2932,8 +2913,7 @@ def generate_full_plan(phase: int, repo_path: Path, output_path: Optional[Path] 
     a phase that is already underway. Returns the existing content unchanged in
     that case.
     """
-    global _effective_gate_meta
-    _effective_gate_meta = _build_gate_meta(_load_harness_features(repo_path))
+    gate_meta = _build_gate_meta(_load_harness_config(repo_path))
 
     if output_path and output_path.exists() and not force:
         try:
@@ -2961,12 +2941,12 @@ def generate_full_plan(phase: int, repo_path: Path, output_path: Optional[Path] 
     generators = {
         1: lambda: generate_phase1_tasks(repo_path, _srs, dynamic=dynamic),
         2: lambda: generate_phase2_tasks(repo_path, _srs, dynamic=dynamic),
-        3: lambda: generate_phase3_tasks(repo_path, _srs, dynamic=dynamic),
-        4: lambda: generate_phase4_tasks(repo_path, _srs, dynamic=dynamic),
-        5: lambda: generate_phase5_tasks(repo_path, dynamic=dynamic),
-        6: lambda: generate_phase6_tasks(repo_path, dynamic=dynamic),
-        7: lambda: generate_phase7_tasks(repo_path, dynamic=dynamic),
-        8: lambda: generate_phase8_tasks(repo_path, dynamic=dynamic),
+        3: lambda: generate_phase3_tasks(repo_path, _srs, dynamic=dynamic, gate_meta=gate_meta),
+        4: lambda: generate_phase4_tasks(repo_path, _srs, dynamic=dynamic, gate_meta=gate_meta),
+        5: lambda: generate_phase5_tasks(repo_path, dynamic=dynamic, gate_meta=gate_meta),
+        6: lambda: generate_phase6_tasks(repo_path, dynamic=dynamic, gate_meta=gate_meta),
+        7: lambda: generate_phase7_tasks(repo_path, dynamic=dynamic, gate_meta=gate_meta),
+        8: lambda: generate_phase8_tasks(repo_path, dynamic=dynamic, gate_meta=gate_meta),
     }
 
     generator = generators.get(phase)

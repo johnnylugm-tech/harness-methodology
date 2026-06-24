@@ -40,5 +40,8 @@ def load_harness_config(project: "str | Path") -> dict:
 
 
 def get_feature(project: "str | Path", key: str) -> Any:
-    """Return the value of a single feature flag."""
+    """Return the value of a single feature flag.
+
+    Returns None for unknown keys (keys not in _DEFAULTS).
+    """
     return load_harness_config(project).get(key, _DEFAULTS.get(key))

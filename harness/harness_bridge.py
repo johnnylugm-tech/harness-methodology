@@ -297,16 +297,16 @@ def _override_adversarial_review_dim_score(
 # Feature-flag dimension filtering
 # ---------------------------------------------------------------------------
 
-_FEATURE_TO_DIM: dict[str, str] = {
+_DIM_TO_FEATURE: dict[str, str] = {
     "mutation_testing": "mutation_testing",
-    "crg_architecture": "architecture",
-    "phase4_llm_review": "adversarial_review",
+    "architecture": "crg_architecture",
+    "adversarial_review": "phase4_llm_review",
 }
 
 
 def _is_dim_disabled(dim_name: str, project_root: str) -> bool:
     """True when this dimension's feature flag is disabled in harness_config.json."""
-    feat = next((f for f, d in _FEATURE_TO_DIM.items() if d == dim_name), None)
+    feat = _DIM_TO_FEATURE.get(dim_name)
     if feat is None:
         return False
     from core.harness_config import get_feature
@@ -2008,11 +2008,12 @@ class HarnessBridge:
             _config_dim_list = getattr(ctx.config, 'dimensions', [])
 
         # Compute which dimensions are disabled via harness_config.json (once per gate).
+        # load_harness_config always returns all known keys so [ft] is safe (no KeyError).
         from core.harness_config import load_harness_config as _load_hcfg
         _hfeatures = _load_hcfg(ctx.project_root)
         _disabled_dims: frozenset[str] = frozenset(
-            dn for ft, dn in _FEATURE_TO_DIM.items()
-            if not _hfeatures.get(ft, True)
+            dn for dn, ft in _DIM_TO_FEATURE.items()
+            if not _hfeatures[ft]
         )
         if _disabled_dims:
             for _dn in sorted(_disabled_dims):
