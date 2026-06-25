@@ -20,6 +20,7 @@ Planned consumers (not yet wired up):
 from __future__ import annotations
 
 import ast
+import functools
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -62,6 +63,7 @@ def _blank_spans(text: str, spans: list[tuple[int, int]]) -> str:
     return text
 
 
+@functools.lru_cache(maxsize=256)
 def strip_docstrings(text: str) -> str:
     """Return text with all docstrings removed (newlines preserved,
     non-newline chars replaced with spaces so line numbers stay aligned
@@ -154,16 +156,20 @@ def audit_grep(
     exclude_docstrings: bool = True,
     exclude_comments: bool = False,
 ) -> list[Hit]:
-    """Scan `src_dir` recursively for `*.py` files; return every Hit
-    matching `pattern*.
+    """Scan `src_dir` recursively for ``*.py`` files; return every Hit
+    matching ``pattern``.
 
-    `pattern` MUST be a compiled regex (use `re.compile(...)`). Audits
+    ``pattern`` MUST be a compiled regex (use ``re.compile(...)``). Audits
     that need raw string patterns should compile them once at module
     level — never recompile per call.
 
     Line numbers refer to the ORIGINAL text so reports cite the
     actual offending source line, even when docstrings/comments are
     stripped for matching.
+
+    Optimisation: the original text is scanned first; stripping (AST parsing)
+    is only triggered when a hit is confirmed in the original text, avoiding
+    costly AST work on clean files.
     """
     src_dir = Path(src_dir)
     if not src_dir.is_dir():
@@ -178,21 +184,42 @@ def audit_grep(
         except OSError:
             continue
 
-        # Strip for matching; preserve original text for line reporting.
-        scan_text = text
-        if exclude_docstrings:
-            scan_text = strip_docstrings(scan_text)
-        if exclude_comments:
-            scan_text = strip_comments(scan_text)
+        # Pre-split once for original-line lookups (shared by all hits).
+        text_lines = text.splitlines()
+        needs_strip = exclude_docstrings or exclude_comments
 
-        for line_no, line in enumerate(scan_text.splitlines(), 1):
-            if pattern.search(line):
-                # Report the original line (preserves line numbers).
-                original_line = text.splitlines()[line_no - 1] \
-                    if line_no - 1 < len(text.splitlines()) else line
-                hits.append(Hit(
-                    path=str(py_file),
-                    line_no=line_no,
-                    line_text=original_line.rstrip(),
-                ))
+        # Fast path: scan the original text first.  Only invoke the expensive
+        # strip (AST parse + blank) when there is at least one confirmed hit.
+        if needs_strip:
+            hit_lines: set[int] = set()
+            for line_no, line in enumerate(text_lines, 1):
+                if pattern.search(line):
+                    hit_lines.add(line_no)
+            if not hit_lines:
+                continue  # Clean file — skip stripping entirely.
+
+            # Build stripped scan_text only for the files that have hits.
+            scan_text = text
+            if exclude_docstrings:
+                scan_text = strip_docstrings(scan_text)
+            if exclude_comments:
+                scan_text = strip_comments(scan_text)
+            # Re-scan stripped text against confirmed hit lines.
+            scan_lines = scan_text.splitlines()
+            for line_no in hit_lines:
+                if line_no <= len(scan_lines) and pattern.search(scan_lines[line_no - 1]):
+                    hits.append(Hit(
+                        path=str(py_file),
+                        line_no=line_no,
+                        line_text=text_lines[line_no - 1].rstrip(),
+                    ))
+        else:
+            # No stripping needed — scan original text directly.
+            for line_no, line in enumerate(text_lines, 1):
+                if pattern.search(line):
+                    hits.append(Hit(
+                        path=str(py_file),
+                        line_no=line_no,
+                        line_text=line.rstrip(),
+                    ))
     return hits
