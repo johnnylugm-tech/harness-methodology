@@ -3199,6 +3199,13 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
                     try:
                         _gp_json = json.loads(_gp_src.read_text(encoding="utf-8"))
                         _gp_json["composite_score"] = round(result.score, 4)
+                        # P6-BUG-13: also patch harness-computed fields so that
+                        # PhaseAuditor C10 and advance-phase can read gate PASS
+                        # status from the committable .methodology/ copy without
+                        # requiring a manual post-finalize patch.
+                        _gp_json["quality_complete"] = result.quality_complete
+                        _gp_json["verdict"] = "PASS" if result.quality_complete else "FAIL"
+                        _gp_json["passed"] = result.quality_complete
                         _gp_dst.write_text(
                             json.dumps(_gp_json, indent=2, ensure_ascii=False),
                             encoding="utf-8",
