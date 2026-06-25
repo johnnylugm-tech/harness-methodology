@@ -2177,12 +2177,45 @@ def cmd_run_gate(args: argparse.Namespace) -> int:
         return _exit
 
 
+def _normalize_sab_module_to_dotted(mod: str) -> Optional[str]:
+    """Normalise a SAB ``modules`` entry into a dotted module name.
+
+    SAB entries may use either dotted notation (``taskq.cli``,
+    ``core.utils``) or path notation (``taskq/cli.py``,
+    ``03-development/src/taskq/cli.py``). Both forms map to the same
+    dotted name after stripping the project-relative path prefix
+    (``03-development/src/`` or ``src/``) and the ``.py`` suffix.
+
+    Returns ``None`` for directory markers (trailing ``/``) and
+    non-string entries — these are skipped by the alignment check.
+    """
+    if not isinstance(mod, str):
+        return None
+    stripped = mod
+    for prefix in ("03-development/src/", "src/"):
+        if stripped.startswith(prefix):
+            stripped = stripped[len(prefix):]
+            break
+    if stripped.endswith("/"):
+        return None
+    if stripped.endswith(".py"):
+        stripped = stripped[:-3]
+    if not stripped:
+        return None
+    return stripped.replace("/", ".")
+
+
 def _check_sab_module_alignment(project: str, gate: int) -> Optional[int]:
     """Gate 1 Architecture Amendment Protocol: block if unregistered modules found.
 
     Returns 1 when gate==1 and at least one .py file in src/ is absent from SAB.json.
     Returns None when the check is skipped (gate != 1, SAB.json missing, no src dir)
     or when all modules are registered.
+
+    SAB ``modules`` entries may be expressed in either dotted
+    (``taskq.cli``) or path (``03-development/src/taskq/cli.py``) form;
+    both are normalised to dotted names before comparison so the check
+    agrees with `drift_detector.sab_module_to_path_variants`.
     """
     if gate != 1:
         return None
@@ -2196,9 +2229,12 @@ def _check_sab_module_alignment(project: str, gate: int) -> Optional[int]:
         sab_data = json.loads(sab_path.read_text(encoding="utf-8"))
         sab_modules: set[str] = set()
         for layer in sab_data.get("layers", []):
-            sab_modules.update(layer.get("modules", []))
+            for mod in layer.get("modules", []):
+                dotted = _normalize_sab_module_to_dotted(mod)
+                if dotted is not None:
+                    sab_modules.add(dotted)
 
-        actual_modules = set()
+        actual_modules: set[str] = set()
         for py_file in src_dir.rglob("*.py"):
             if py_file.name == "__init__.py":
                 continue

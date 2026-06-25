@@ -4859,3 +4859,61 @@ class TestSabModuleAlignmentCheck:
         (src / "core").mkdir(parents=True)
         (src / "core" / "utils.py").write_text("x = 1")
         assert _check_sab_module_alignment(str(tmp_path), gate=1) is None
+
+    def test_sab_path_notation_matches_actual(self, tmp_path):
+        """SAB entries written as ``03-development/src/<pkg>/<mod>.py`` (real
+        project layout — paths written by ``scripts/generate_sab.py``) must
+        match actual files even though the format differs from dotted
+        notation. Regression: prior to the fix, every module was reported as
+        unregistered because path-format SAB entries never intersected with
+        dotted-format actual module names."""
+        from harness_cli import _check_sab_module_alignment
+        self._make_sab(
+            tmp_path,
+            [
+                "03-development/src/taskq/cli.py",
+                "03-development/src/taskq/store.py",
+                "03-development/src/taskq/executor.py",
+                "03-development/src/__main__.py",
+            ],
+        )
+        src = tmp_path / "03-development" / "src" / "taskq"
+        src.mkdir(parents=True)
+        for name in ("cli.py", "store.py", "executor.py"):
+            (src / name).write_text("x = 1")
+        (tmp_path / "03-development" / "src" / "__main__.py").write_text("")
+        assert _check_sab_module_alignment(str(tmp_path), gate=1) is None
+
+    def test_sab_path_notation_detects_unregistered(self, tmp_path):
+        """Path-notation SAB listing must still detect unregistered modules —
+        mixing SAB paths with new actual files should block Gate 1."""
+        from harness_cli import _check_sab_module_alignment
+        self._make_sab(tmp_path, ["03-development/src/taskq/cli.py"])
+        src = tmp_path / "03-development" / "src" / "taskq"
+        src.mkdir(parents=True)
+        (src / "cli.py").write_text("x = 1")
+        (src / "store.py").write_text("x = 1")  # not in SAB
+        assert _check_sab_module_alignment(str(tmp_path), gate=1) == 1
+
+    def test_sab_mixed_dotted_and_path(self, tmp_path):
+        """SAB entries may mix dotted and path notations in different layers;
+        both must normalise to the same set."""
+        from harness_cli import _check_sab_module_alignment
+        (tmp_path / ".methodology").mkdir(exist_ok=True)
+        sab_data = {
+            "layers": [
+                {"name": "core", "modules": ["core.utils"]},
+                {"name": "app", "modules": ["03-development/src/app/main.py"]},
+            ],
+            "allowed_dependencies": [],
+        }
+        (tmp_path / ".methodology" / "SAB.json").write_text(
+            json.dumps(sab_data), encoding="utf-8"
+        )
+        dev_src = tmp_path / "03-development" / "src"
+        dev_src.mkdir(parents=True)
+        (dev_src / "core").mkdir()
+        (dev_src / "core" / "utils.py").write_text("x = 1")
+        (dev_src / "app").mkdir()
+        (dev_src / "app" / "main.py").write_text("x = 1")
+        assert _check_sab_module_alignment(str(tmp_path), gate=1) is None
