@@ -10,7 +10,7 @@ Phase Artifacts Mapping:
 - Phase 2: SRS.md -> Architecture requirements
 - Phase 3: SRS.md + SAD.md -> Implementation tasks
 - Phase 4: SRS.md + SAD.md + Code -> Testing tasks
-- Phase 5: TEST_RESULTS.md + BASELINE.md -> Verification tasks
+- Phase 5: TEST_RESULTS.md -> Verification tasks
 - Phase 6: QUALITY_REPORT.md -> Quality assurance tasks
 - Phase 7: RISK_REGISTER.md -> Risk management tasks
 - Phase 8: CONFIG_RECORDS.md -> Configuration tasks
@@ -1029,7 +1029,7 @@ def _entry_gate_check(phase: int) -> List[str]:
     # Phase 6 entry: also verify P5 output artifacts per SAD.md §2.4.3,
     # and run D4 spec-coverage pre-check to catch the 80→90 gap early.
     if phase == 6:
-        lines.insert(3, "  Verify P5 output artifacts exist: `05-verification/VERIFICATION_REPORT.md` + `05-verification/BASELINE.md`")
+        lines.insert(3, "  Verify P5 output artifacts exist: `05-verification/VERIFICATION_REPORT.md`")
         lines.extend([
             "- **[D4-PRECHECK]** Verify spec-coverage meets Gate 4 threshold BEFORE starting P6 (avoid late surprise):",
             "  ```bash",
@@ -1330,7 +1330,7 @@ def _phase_advance_step(phase: int, dynamic: bool = False) -> List[str]:
         # Git tag step: SKILL.md §0.4 requires Gate 4 tag only (P6→P7 transition)
         *(["- **[GIT-TAG]** Push Gate 4 git tag (SKILL.md §0.4):",
            "  ```bash",
-           "  SCORE=$(python3 -c \"import json; d=json.load(open('.sessi-work/gate4_result.json')); print(d.get('composite_score','XX'))\" 2>/dev/null || echo 'XX')",
+           "  SCORE=$(python3 -c \"import json; d=json.load(open('.methodology/quality_manifest.json')); print(d.get('composite_score','XX'))\" 2>/dev/null || echo 'XX')",
            "  git tag -a \"harness-v4-$(date +%Y%m%d)-score${SCORE}\" -m \"Gate 4 PASS (score ${SCORE})\"",
            "  git push origin --tags",
            "  ```",
@@ -1775,13 +1775,13 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int, gate_met
             "- **G4f** Generate Final Sign-Off:",
             "  Create `FINAL_SIGN_OFF.md` at project root.",
             "  Include: project name, completion date, Gate 4 composite score, sign-off statement.",
-            "  Must reference `BASELINE.md` and `VERIFICATION_REPORT.md` (verification provenance).",
+            "  Must reference `VERIFICATION_REPORT.md` (verification provenance).",
             "",
             "- **G4g** Agent B Peer Review (HR-01):",
             "  Agent B (reviewer — stateless) explicitly reviews ALL deliverables.",
             "  1. Review `06-quality/QUALITY_REPORT.md`, `RELEASE_NOTES.md`, and `FINAL_SIGN_OFF.md`.",
             "  2. Cross-check `.methodology/quality_manifest.json` Gate 4 scoring logic.",
-            "  3. Reference `05-verification/VERIFICATION_REPORT.md` and `BASELINE.md` for historical traceability.",
+            "  3. Reference `05-verification/VERIFICATION_REPORT.md` for historical traceability.",
             "  4. Generate approval JSON files in `.methodology/agent_b_approvals/` with these exact filenames:",
             "     `QUALITY_REPORT.md.json`, `RELEASE_NOTES.md.json`, `FINAL_SIGN_OFF.md.json`, `quality_manifest.json`.",
             "     **Note:** Agent B must write these 4 files using file-write tools inside the session.",
@@ -1855,7 +1855,7 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int, gate_met
            "  > (`harness/crg_independent.py`) and overrides any agent-recorded score with",
            "  > `community_cohesion`. error_handling is tool-scored (`ast-error-handling`), not CRG.",
            "  > If architecture = 0 due to Orchestrator/hub-and-spoke pattern: complete DA challenge (A3 above)",
-           "  > and set `da_waiver` in gate4_result.json to bypass the threshold.",
+           "  > and set `da_waiver` in quality_manifest.json to bypass the threshold.",
            "  > See `harness/ssi/prompts/evaluate_dimension.md` §Orchestrator Pattern False Positive.",
            "  > **traceability** is also framework-owned: the harness calls `compute_trace_dimension()`",
            "  > inside `finalize-gate` and injects the score automatically. Do NOT report a traceability",
@@ -1929,7 +1929,7 @@ def _checkpoint_index(fr_ids: List[str], phase: int) -> List[str]:
         lines.append("> - MILESTONE: P4-mid push (≥50% FRs Gate 1 PASS) → **HANDOVER.md**")
         lines.append("> - MILESTONE: P4-pre-gate3 push (all FRs done, before Gate 3) → **HANDOVER.md**")
     if phase == 5:
-        lines.append("> - MILESTONE: P5-baseline push (BASELINE.md generated) → **HANDOVER.md**")
+        lines.append("> - MILESTONE: P5-baseline push (VERIFICATION_REPORT.md generated) → **HANDOVER.md**")
     if phase == 7:
         lines.append("> - MILESTONE: P7 exit push (risk register complete) → **HANDOVER.md**")
     if phase == 8:
@@ -2596,7 +2596,7 @@ def generate_phase5_tasks(repo_path: Path, dynamic: bool = False, gate_meta: "di
     lines.extend([
         "### P5 System Verification",
         "",
-        "- **[BASELINE]** Generate `05-verification/BASELINE.md` (system state snapshot):",
+        "- **[BASELINE]** Generate `05-verification/VERIFICATION_REPORT.md` (system state snapshot):",
         "  - Document: current version, test results summary, coverage %, Gate 3 composite score",
         "  - Reference: `04-testing/TEST_RESULTS.md` and `03-development/src/` module list",
         "- **[VERIFY-REPORT]** Generate `05-verification/VERIFICATION_REPORT.md`:",
@@ -2612,7 +2612,7 @@ def generate_phase5_tasks(repo_path: Path, dynamic: bool = False, gate_meta: "di
     lines.extend([
         "### P5 Milestone Push (10-Push Strategy ⑦)",
         "",
-        "- **PUSH ⑦ — P5-baseline** (after BASELINE.md is generated):",
+        "- **PUSH ⑦ — P5-baseline** (after VERIFICATION_REPORT.md is generated):",
         "  ```bash",
         "  python3 harness_cli.py push-milestone --type p5-baseline --project .",
         "  ```",
@@ -2621,7 +2621,7 @@ def generate_phase5_tasks(repo_path: Path, dynamic: bool = False, gate_meta: "di
     ])
 
     lines.append("### Phase 5 Deliverables")
-    lines.append("- `05-verification/BASELINE.md` - System baseline")
+    lines.append("- `05-verification/VERIFICATION_REPORT.md` - System baseline")
     lines.append("- `05-verification/VERIFICATION_REPORT.md` - Verification report")
     lines.append(_sessions_spawn_deliverable())
     lines.append("- Gate 1 PASS for every FR")
