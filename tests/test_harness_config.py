@@ -5,7 +5,7 @@ import json
 import pytest
 from pathlib import Path
 
-from core.harness_config import load_harness_config, get_feature
+from core.harness_config import STALL_TIMEOUTS, get_feature, get_timeout, load_harness_config
 
 pytestmark = [pytest.mark.mutation_oracle, pytest.mark.core]
 
@@ -193,3 +193,36 @@ class TestBuildGateMeta:
         meta = _build_gate_meta({"mutation_testing": True, "crg_architecture": True, "phase4_llm_review": True})
         for gate_num in (1, 2, 3, 4):
             assert meta[gate_num] == _GATE_META[gate_num]
+
+
+# ---------------------------------------------------------------------------
+# TestStallTimeouts — Improvement B (centralize stall thresholds)
+# ---------------------------------------------------------------------------
+
+class TestStallTimeouts:
+    """STALL_TIMEOUTS is the single source of truth for stall/timeout
+    thresholds. Previously hardcoded across 6+ sites in harness_cli.py and
+    mutation_enforcer.py with values 300/600/1200/3600 — adding a new timeout
+    required grepping every call site."""
+
+    def test_stall_timeouts_dict_complete(self):
+        """All keys expected by call sites must be present."""
+        for key in ("subprocess", "task_default", "task_dev", "fr_step",
+                    "mutation", "state_alert_min"):
+            assert key in STALL_TIMEOUTS, f"missing STALL_TIMEOUTS key: {key}"
+            assert STALL_TIMEOUTS[key] > 0
+
+    def test_get_timeout_returns_dict_value(self):
+        assert get_timeout("subprocess") == 300
+        assert get_timeout("task_default") == 300
+        assert get_timeout("task_dev") == 1200
+        assert get_timeout("fr_step") == 600
+        assert get_timeout("mutation") == 3600
+
+    def test_get_timeout_unknown_key_returns_fallback(self):
+        """Unknown keys fall back to 600s instead of crashing."""
+        assert get_timeout("nonexistent_key") == 600
+
+    def test_stall_timeouts_values_are_int(self):
+        for v in STALL_TIMEOUTS.values():
+            assert isinstance(v, int)

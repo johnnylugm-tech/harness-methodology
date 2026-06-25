@@ -87,6 +87,7 @@ sys.path.insert(0, str(_REPO_ROOT))
 # Atomic state-file writers (CV-3 / SG-12 from robustness audit)
 from core.atomic_io import atomic_write_json, file_lock, state_lock_path  # noqa: E402
 from core.pre_flight import check_cli_tools  # noqa: E402
+from core.harness_config import get_timeout  # noqa: E402
 # Bug #105: framework-owned mutation_testing path. Pyright cannot resolve this
 # import statically (no type stub for core.quality_gate.mutation_enforcer),
 # so we silence reportAttributeAccessIssue here.
@@ -605,6 +606,18 @@ def cmd_plan_all(args: argparse.Namespace) -> int:
 
     _force = getattr(args, "force", False)
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Guard quality_manifest.json from accidental shrink. `plan-all` only
+    # regenerates phaseN_plan.md + plan_status.md; it never writes
+    # quality_manifest.json. If a manifest already exists we leave it alone
+    # regardless of --force, because the manifest holds accumulated Gate
+    # scores and shrinking it resets pipeline progress.
+    _manifest = out_dir / "quality_manifest.json"
+    if _manifest.exists():
+        print(
+            f"[PRESERVE] {_manifest.name} already exists; "
+            "plan-all does not touch it. Use 'manifest --force' to regenerate."
+        )
     results = []
     for phase_num in range(1, 9):
         out_path = out_dir / f"phase{phase_num}_plan.md"
@@ -2524,7 +2537,7 @@ def cmd_run_env_check(args: argparse.Namespace) -> int:
             cmd,
             capture_output=True,
             text=True,
-            timeout=300,
+            timeout=get_timeout("subprocess"),
             cwd=str(Path(project).resolve()),
             env=_child_env(),
         )
@@ -5866,7 +5879,7 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
             try:
                 subprocess.run(
                     [_crg_bin, "wiki", "--repo", str(project)],
-                    check=True, capture_output=True, text=True, timeout=300,
+                    check=True, capture_output=True, text=True, timeout=get_timeout("subprocess"),
                 )
                 print("  [CRG] Wiki updated → .code-review-graph/wiki/")
             except Exception as _w:  # non-blocking, but surface the reason (no silent pass)
@@ -6108,7 +6121,7 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
     # Use None sentinel to distinguish "user didn't specify" from explicit --timeout 300.
     _raw_timeout: int | None = args.timeout
     if _raw_timeout is None:
-        _raw_timeout = 1200 if (args.phase in {1, 2} and not is_reviewer) else 300
+        _raw_timeout = get_timeout("task_dev") if (args.phase in {1, 2} and not is_reviewer) else get_timeout("task_default")
     result = spawner.spawn(
         role=args.role,
         prompt=_prompt,
@@ -7286,7 +7299,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
         )
     except (OSError, json.JSONDecodeError, AttributeError):
         pass
-    _fr_timeout = _fr_conf.get("timeout", getattr(args, "timeout", 600))
+    _fr_timeout = _fr_conf.get("timeout", getattr(args, "timeout", get_timeout("fr_step")))
     _fr_max_fix_rounds = _fr_conf.get("max_fix_rounds", getattr(args, "max_fix_rounds", 3))
     _fr_code_fix_max_turns: int | None = _fr_conf.get("code_fix_max_turns")
 
@@ -9383,6 +9396,27 @@ def cmd_init_project(args: argparse.Namespace) -> int:
     print(f"{'='*60}")
     print(f"  Phase {phase} → .methodology/state.json")
     print()
+
+    # Improvement C: SAB auto-amend on P3 init.
+    # P3 introduces new modules under 03-development/src/; previously the user
+    # had to hand-edit .methodology/SAB.json to register them, otherwise
+    # `_check_sab_module_alignment` would BLOCK the gate. Run the amender so
+    # the manifest is in sync with the source tree before the user starts TDD.
+    if phase == 3:
+        try:
+            from core.quality_gate.sab_amender import amend_sab
+            added = amend_sab(project)
+            if added:
+                print(f"[SAB AMEND] Added {len(added)} module(s) to "
+                      ".methodology/SAB.json:")
+                for m in added:
+                    print(f"  + {m}")
+                print("  Review layer assignment and commit SAB.json.")
+            else:
+                print("[SAB] No new modules to register (in sync).")
+        except Exception as exc:  # amend is best-effort, never blocks init
+            print(f"[SAB AMEND] Warning: amend failed: {exc}")
+
     for line in _checklist:
         print(line)
     print(f"  Full docs: {harness_root}/INTEGRATION.md")
