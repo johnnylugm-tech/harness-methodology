@@ -5,7 +5,9 @@ forbidden call site AND docstrings/comments that mention the API as a
 warning or example. Audits need to exclude those false positives.
 
 This module provides:
-  - strip_docstrings(text) → text with all triple-quoted strings removed
+  - strip_docstrings(text) → text with docstrings removed (first Expr of
+    Module/ClassDef/FunctionDef/AsyncFunctionDef). Inline triple-quoted
+    strings that are NOT docstrings are preserved.
   - strip_comments(text)   → text with all '#' line comments removed
   - audit_grep(src_dir, pattern, ...) → list of Hit(path, line, text)
 
@@ -20,7 +22,6 @@ Planned consumers (not yet wired up):
 from __future__ import annotations
 
 import ast
-import functools
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -63,80 +64,48 @@ def _blank_spans(text: str, spans: list[tuple[int, int]]) -> str:
     return text
 
 
-@functools.lru_cache(maxsize=256)
 def strip_docstrings(text: str) -> str:
-    """Return text with all docstrings removed (newlines preserved,
-    non-newline chars replaced with spaces so line numbers stay aligned
-    with the original source).
+    """Return text with docstrings removed (newlines preserved, non-newline
+    chars replaced with spaces so line numbers stay aligned with the source).
 
-    Uses the AST to find docstrings, which correctly handles:
-    - Multi-line triple-quoted strings containing " or '
-    - Strings with embedded triple-quote sequences as literal content
-    - Module, class, and function docstrings
+    A docstring is the first Expr-statement of a Module, ClassDef,
+    FunctionDef, or AsyncFunctionDef (per ``ast.get_docstring``). Other
+    triple-quoted strings — inline literals mid-function, class-level
+    constants, etc. — are NOT stripped; they are legitimate code.
 
-    Unlike a regex heuristic, AST parsing respects Python's tokenisation
-    rules and will never misidentify a closing delimiter.
+    Raises ``SyntaxError`` if *text* is not valid Python. Callers that may
+    receive malformed source (e.g. audit over mid-edit files) must handle
+    that case at the call site.
     """
-    if not text.strip():
-        return text
-    try:
-        tree = ast.parse(text)
-    except SyntaxError:
-        # Syntactically invalid source (mid-edit) — fall back to no stripping
-        # so we don't corrupt an incomplete file.
-        return text
+    tree = ast.parse(text)
+    # Precompute line offsets once: O(file_size). Per-docstring lookup is
+    # then O(1) instead of re-splitting the full text on every match.
+    lines = text.splitlines(keepends=True)
+    line_starts: list[int] = [0]
+    for line in lines:
+        line_starts.append(line_starts[-1] + len(line))
 
     spans: list[tuple[int, int]] = []
-
-    class DocstringCollector(ast.NodeVisitor):
-        def _record_docstring(
-            self,
-            node: ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef,
-        ) -> None:
-            doc = ast.get_docstring(node)
-            # Only trust get_docstring — it correctly returns None for:
-            #   - modules whose first statement is not a string literal
-            #   - classes/functions whose body is empty or first stmt is not a string
-            # Never re-detect based on raw Constant checks; that would produce false
-            # positives on strings that happen to be the first body element.
-            if doc is None or not node.body:
-                return
-            first = node.body[0]
-            if not isinstance(first, ast.Expr):
-                return
-            # Convert line/column positions to absolute character offsets.
-            # lineno/end_lineno are 1-based; splitlines(keepends=True) is
-            # 0-indexed, so subtract 1 from lineno to get the right slice.
-            lines = text.splitlines(keepends=True)
-            first_lineno = first.lineno or 0
-            first_end_lineno = first.end_lineno or 0
-            first_end_col_offset = first.end_col_offset or 0
-            start = (
-                sum(len(ln) for ln in lines[: first_lineno - 1])
-            ) + first.col_offset
-            # end of the closing delimiter line + 1 to include its newline.
-            end = (
-                sum(len(ln) for ln in lines[: first_end_lineno - 1])
-            ) + first_end_col_offset
-            spans.append((start, end))
-
-        def visit_Module(self, node: ast.Module) -> None:
-            self._record_docstring(node)
-            self.generic_visit(node)
-
-        def visit_ClassDef(self, node: ast.ClassDef) -> None:
-            self._record_docstring(node)
-            self.generic_visit(node)
-
-        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-            self._record_docstring(node)
-            self.generic_visit(node)
-
-        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
-            self._record_docstring(node)
-            self.generic_visit(node)
-
-    DocstringCollector().visit(tree)
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if ast.get_docstring(node) is None or not node.body:
+            continue
+        first = node.body[0]
+        if not isinstance(first, ast.Expr):
+            continue
+        # Contract: every Expr yielded by ast.parse has 1-based lineno/
+        # end_lineno/col_offset. Asserting surfaces the assumption and
+        # satisfies the type checker (stubs type these as int | None).
+        assert (
+            first.lineno is not None
+            and first.end_lineno is not None
+            and first.col_offset is not None
+            and first.end_col_offset is not None
+        )
+        start = line_starts[first.lineno - 1] + first.col_offset
+        end = line_starts[first.end_lineno - 1] + first.end_col_offset
+        spans.append((start, end))
     if not spans:
         return text
     return _blank_spans(text, spans)
@@ -201,7 +170,13 @@ def audit_grep(
             # Build stripped scan_text only for the files that have hits.
             scan_text = text
             if exclude_docstrings:
-                scan_text = strip_docstrings(scan_text)
+                try:
+                    scan_text = strip_docstrings(scan_text)
+                except SyntaxError:
+                    # Malformed source (mid-edit). Skip the file: we can't
+                    # reliably tell docstring content from real code, so
+                    # reporting either way risks false positives.
+                    continue
             if exclude_comments:
                 scan_text = strip_comments(scan_text)
             # Re-scan stripped text against confirmed hit lines.

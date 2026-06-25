@@ -51,9 +51,10 @@ def load_harness_config(project: "str | Path") -> dict:
 def get_feature(project: "str | Path", key: str) -> Any:
     """Return the value of a single feature flag.
 
-    For keys in ``_DEFAULTS``, returns the file-overlaid value or the default.
-    For keys not in ``_DEFAULTS`` (future/unknown features), returns the
-    ``_DEFAULTS`` fallback (None for missing entries).
+    The returned dict from ``load_harness_config`` already contains every
+    key in ``_DEFAULTS`` (file value overlaid on default), so this returns
+    ``None`` only when *key* is not in ``_DEFAULTS`` and the loaded dict
+    has no entry for it.
     """
     return load_harness_config(project).get(key)
 
