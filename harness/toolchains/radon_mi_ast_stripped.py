@@ -33,15 +33,27 @@ def main():
             try:
                 source = original_path.read_text(encoding="utf-8")
                 tree = ast.parse(source)
+                
+                # Gather line ranges to blank out
+                ranges_to_blank = []
                 for node in ast.walk(tree):
                     if isinstance(node, (ast.FunctionDef, ast.ClassDef, ast.AsyncFunctionDef, ast.Module)):
                         if ast.get_docstring(node) is not None:
-                            # Only pop if the first statement is actually a docstring
                             if node.body and isinstance(node.body[0], ast.Expr) and isinstance(node.body[0].value, ast.Constant) and isinstance(node.body[0].value.value, str):
-                                node.body.pop(0)
-                                if not node.body:
-                                    node.body.append(ast.Pass())
-                stripped = ast.unparse(tree)
+                                expr = node.body[0]
+                                if hasattr(expr, "lineno") and hasattr(expr, "end_lineno"):
+                                    ranges_to_blank.append((expr.lineno, expr.end_lineno))
+                
+                # Blank out the lines. Replacing with empty string removes docstrings from
+                # radon's multi count, preventing the sin() penalty bug on heavy docstring files,
+                # while preserving all legitimate '#' comments for the normal comment bonus.
+                lines = source.splitlines()
+                for start, end in ranges_to_blank:
+                    for i in range(start - 1, end):
+                        if 0 <= i < len(lines):
+                            lines[i] = ""
+                
+                stripped = "\n".join(lines)
                 
                 rel_path = original_path.relative_to(root_dir)
                 target_path = tmp_root / rel_path
