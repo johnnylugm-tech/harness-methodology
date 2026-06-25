@@ -623,6 +623,48 @@ class TestCmdAuditStructure:
         assert files["04-testing/TEST_PLAN.md"] == "suspicious"
         assert files["04-testing/TEST_RESULTS.md"] == "suspicious"
 
+    # --- Bug 7 regression: P7 artifact list single source of truth ---
+    # Before the fix, the P7 list was duplicated in 8+ places (drift_detector,
+    # framework_enforcer, harness_cli, verify_path_consistency, etc.). Any
+    # rename required editing all of them. Tests below verify the centralized
+    # phase_artifacts() function and that all consumers agree.
+
+    def test_phase_artifacts_p7_is_canonical_three_files(self):
+        """phase_artifacts(7) must return the 3 Phase 7 deliverables."""
+        from core.utils.project_layout import phase_artifacts
+        assert phase_artifacts(7) == [
+            "07-risk/RISK_REGISTER.md",
+            "07-risk/RISK_MITIGATION_PLANS.md",
+            "07-risk/RISK_STATUS_REPORT.md",
+        ]
+
+    def test_phase_artifacts_returns_copy(self):
+        """Mutating the returned list must not affect the canonical map."""
+        from core.utils.project_layout import phase_artifacts, PHASE_ARTIFACTS
+        result = phase_artifacts(7)
+        result.append("MUTATED.md")
+        assert "MUTATED.md" not in PHASE_ARTIFACTS[7]
+
+    def test_phase_artifacts_unknown_phase_returns_empty(self):
+        from core.utils.project_layout import phase_artifacts
+        assert phase_artifacts(0) == []
+        assert phase_artifacts(99) == []
+
+    def test_audit_structure_p7_matches_centralized_list(self, tmp_path):
+        """cmd_audit_structure's P7 entry must equal phase_artifacts(7)."""
+        # Set up the 3 P7 deliverables.
+        (tmp_path / "07-risk").mkdir()
+        for name in ("RISK_REGISTER.md", "RISK_MITIGATION_PLANS.md",
+                     "RISK_STATUS_REPORT.md"):
+            (tmp_path / "07-risk" / name).write_text("# H1\n\n## Section\n\n" + "x" * 200)
+        data = self._audit_json(tmp_path)
+        actual = {
+            f["path"]
+            for f in data["dimensions"]["artifact_completeness"]["details"]["P7"]["files"]
+        }
+        from core.utils.project_layout import phase_artifacts
+        assert actual == set(phase_artifacts(7))
+
 
 # =============================================================================
 # cmd_audit_structure — init → audit round-trip
@@ -5123,6 +5165,129 @@ class TestPrintFrScopedOverridesPy:
         # Imports still drive scope when owned path is missing.
         assert "cache.py" in out
         assert "cli.py" in out
+
+    def test_does_not_crash_on_dot_trace(self, tmp_path, capsys, recwarn):
+        """fr_trace='.' (or '..') previously raised ValueError from
+        Path.with_suffix() and aborted the entire Gate 1 run. A malformed
+        trace must now warn and fall back to import-based detection."""
+        from harness_cli import _print_fr_scoped_overrides_py
+        self._setup(tmp_path)
+        manifest = {
+            "fr_module_traceability": {"FR-04": "."},
+            "quality_targets": {"min_coverage": 80},
+        }
+        # Must not raise.
+        _print_fr_scoped_overrides_py(
+            str(tmp_path), "FR-04",
+            "03-development/tests/test_fr04.py", "03-development/src",
+            manifest, non_code_frs=set(), cov_threshold=80,
+        )
+        out = capsys.readouterr().out
+        # Falls back to imports (all 3 modules appear).
+        for mod in ("cache.py", "cli.py", "store.py"):
+            assert mod in out, f"{mod} should appear after malformed trace"
+        # And a warning was emitted.
+        assert any(
+            "malformed" in str(w.message) for w in recwarn.list
+        ), "expected a malformed-trace warning"
+
+    def test_does_not_crash_on_double_dot_trace(self, tmp_path, capsys, recwarn):
+        """Same protection for '..' trace."""
+        from harness_cli import _print_fr_scoped_overrides_py
+        self._setup(tmp_path)
+        manifest = {
+            "fr_module_traceability": {"FR-04": ".."},
+            "quality_targets": {"min_coverage": 80},
+        }
+        _print_fr_scoped_overrides_py(
+            str(tmp_path), "FR-04",
+            "03-development/tests/test_fr04.py", "03-development/src",
+            manifest, non_code_frs=set(), cov_threshold=80,
+        )
+        out = capsys.readouterr().out
+        for mod in ("cache.py", "cli.py", "store.py"):
+            assert mod in out
+        assert any("malformed" in str(w.message) for w in recwarn.list)
+
+    def test_does_not_crash_on_traversal_segment_trace(self, tmp_path, capsys, recwarn):
+        """A trace containing '..' as a path segment (e.g. 'taskq/../sub')
+        must be rejected before any path is constructed."""
+        from harness_cli import _print_fr_scoped_overrides_py
+        self._setup(tmp_path)
+        manifest = {
+            "fr_module_traceability": {"FR-04": "taskq/../outside"},
+            "quality_targets": {"min_coverage": 80},
+        }
+        _print_fr_scoped_overrides_py(
+            str(tmp_path), "FR-04",
+            "03-development/tests/test_fr04.py", "03-development/src",
+            manifest, non_code_frs=set(), cov_threshold=80,
+        )
+        out = capsys.readouterr().out
+        for mod in ("cache.py", "cli.py", "store.py"):
+            assert mod in out
+        assert any("malformed" in str(w.message) for w in recwarn.list)
+
+    def test_warns_on_non_string_trace(self, tmp_path, capsys, recwarn):
+        """Non-string fr_trace (int, dict, etc.) must warn and fall back
+        to imports rather than silently ignoring the schema violation."""
+        from harness_cli import _print_fr_scoped_overrides_py
+        self._setup(tmp_path)
+        manifest = {
+            "fr_module_traceability": {"FR-04": 42},
+            "quality_targets": {"min_coverage": 80},
+        }
+        _print_fr_scoped_overrides_py(
+            str(tmp_path), "FR-04",
+            "03-development/tests/test_fr04.py", "03-development/src",
+            manifest, non_code_frs=set(), cov_threshold=80,
+        )
+        out = capsys.readouterr().out
+        for mod in ("cache.py", "cli.py", "store.py"):
+            assert mod in out
+        assert any(
+            "expected str or list[str]" in str(w.message) for w in recwarn.list
+        )
+
+    def test_accepts_list_of_traces(self, tmp_path, capsys, recwarn):
+        """fr_trace may also be list[str] (multiple owned modules)."""
+        from harness_cli import _print_fr_scoped_overrides_py
+        self._setup(tmp_path)
+        manifest = {
+            "fr_module_traceability": {"FR-04": ["taskq.cache", "taskq.cli"]},
+            "quality_targets": {"min_coverage": 80},
+        }
+        _print_fr_scoped_overrides_py(
+            str(tmp_path), "FR-04",
+            "03-development/tests/test_fr04.py", "03-development/src",
+            manifest, non_code_frs=set(), cov_threshold=80,
+        )
+        out = capsys.readouterr().out
+        # Both owned modules appear; store.py (not owned, not imported by test)
+        # should not appear since traceability claims all imports already.
+        assert "cache.py" in out
+        assert "cli.py" in out
+        assert not any("malformed" in str(w.message) for w in recwarn.list)
+
+    def test_list_with_non_string_emits_warning(self, tmp_path, capsys, recwarn):
+        """A list containing non-string entries warns and processes only
+        the valid strings."""
+        from harness_cli import _print_fr_scoped_overrides_py
+        self._setup(tmp_path)
+        manifest = {
+            "fr_module_traceability": {"FR-04": ["taskq.cache", 42, None]},
+            "quality_targets": {"min_coverage": 80},
+        }
+        _print_fr_scoped_overrides_py(
+            str(tmp_path), "FR-04",
+            "03-development/tests/test_fr04.py", "03-development/src",
+            manifest, non_code_frs=set(), cov_threshold=80,
+        )
+        out = capsys.readouterr().out
+        assert "cache.py" in out
+        assert any(
+            "non-string entries" in str(w.message) for w in recwarn.list
+        )
 
 
 # =============================================================================

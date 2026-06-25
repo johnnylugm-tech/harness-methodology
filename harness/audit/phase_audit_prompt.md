@@ -26,6 +26,8 @@ and the defaults below, verify:
 | 7 | `07-risk/RISK_REGISTER.md`, `07-risk/RISK_MITIGATION_PLANS.md`, `07-risk/RISK_STATUS_REPORT.md` |
 | 8 | `08-config/CONFIG_RECORDS.md`, `08-config/RELEASE_CHECKLIST.md` |
 
+> Note: keep this table in sync with `PHASE_ARTIFACTS` in `core/utils/project_layout.py` (single source of truth).
+
 For each path:
 - Does the file/directory exist on disk?
 - Is the file tracked by git? (`git ls-files <path>`)
