@@ -264,18 +264,18 @@ class TestHandoffP4ToP5:
 
 
 class TestHandoffP5ToP6:
-    def test_missing_baseline_blocks(self, tmp_path: Path):
+    def test_missing_report_blocks(self, tmp_path: Path):
         errs = _validate_handoff(tmp_path, from_phase=5)
-        assert any("BASELINE.md missing" in e for e in errs)
+        assert any("VERIFICATION_REPORT.md missing" in e for e in errs)
 
-    def test_baseline_at_05_dir_passes(self, tmp_path: Path):
+    def test_report_at_05_dir_passes(self, tmp_path: Path):
         (tmp_path / "05-verification").mkdir(parents=True, exist_ok=True)
-        (tmp_path / "05-verification" / "BASELINE.md").write_text("# BASELINE\n", encoding="utf-8")
+        (tmp_path / "05-verification" / "VERIFICATION_REPORT.md").write_text("# VERIFICATION\n", encoding="utf-8")
         errs = _validate_handoff(tmp_path, from_phase=5)
         assert errs == []
 
-    def test_baseline_at_root_passes(self, tmp_path: Path):
-        (tmp_path / "BASELINE.md").write_text("# BASELINE\n", encoding="utf-8")
+    def test_report_at_root_passes(self, tmp_path: Path):
+        (tmp_path / "VERIFICATION_REPORT.md").write_text("# VERIFICATION\n", encoding="utf-8")
         errs = _validate_handoff(tmp_path, from_phase=5)
         assert errs == []
 
@@ -297,36 +297,36 @@ class TestHandoffP6ToP7:
         assert any("RELEASE_NOTES.md missing" in e for e in errs)
         assert any("FINAL_SIGN_OFF.md missing" in e for e in errs)
 
-    def test_quality_artifacts_present_but_gate4_missing_blocks(self, tmp_path: Path):
+    def test_quality_artifacts_present_but_manifest_missing_blocks(self, tmp_path: Path):
         (tmp_path / "06-quality").mkdir(parents=True, exist_ok=True)
         for name in ("QUALITY_REPORT.md", "RELEASE_NOTES.md", "FINAL_SIGN_OFF.md"):
             (tmp_path / "06-quality" / name).write_text(f"# {name}\n", encoding="utf-8")
         errs = _validate_handoff(tmp_path, from_phase=6)
-        # gate4_result.json still missing → still blocked
-        assert any("gate4_result.json missing" in e for e in errs)
+        # quality_manifest.json missing → still blocked
+        assert any("quality_manifest.json missing" in e for e in errs)
 
     def test_quality_artifacts_with_gate4_pass_passes(self, tmp_path: Path):
         (tmp_path / "06-quality").mkdir(parents=True, exist_ok=True)
         for name in ("QUALITY_REPORT.md", "RELEASE_NOTES.md", "FINAL_SIGN_OFF.md"):
             (tmp_path / "06-quality" / name).write_text(f"# {name}\n", encoding="utf-8")
-        (tmp_path / ".sessi-work").mkdir(parents=True, exist_ok=True)
-        (tmp_path / ".sessi-work" / "gate4_result.json").write_text(
-            json.dumps({"verdict": "PASS"}), encoding="utf-8"
+        (tmp_path / ".methodology").mkdir(parents=True, exist_ok=True)
+        (tmp_path / ".methodology" / "quality_manifest.json").write_text(
+            json.dumps({"gate_results": {"gate4": {"quality_complete": True}}}), encoding="utf-8"
         )
         errs = _validate_handoff(tmp_path, from_phase=6)
         assert errs == []
 
     def test_gate4_fail_blocks_handoff(self, tmp_path: Path):
-        """Even with all deliverables present, a FAIL gate4 verdict must block P7 entry."""
+        """Even with all deliverables present, a FALSE gate4 verdict must block P7 entry."""
         (tmp_path / "06-quality").mkdir(parents=True, exist_ok=True)
         for name in ("QUALITY_REPORT.md", "RELEASE_NOTES.md", "FINAL_SIGN_OFF.md"):
             (tmp_path / "06-quality" / name).write_text(f"# {name}\n", encoding="utf-8")
-        (tmp_path / ".sessi-work").mkdir(parents=True, exist_ok=True)
-        (tmp_path / ".sessi-work" / "gate4_result.json").write_text(
-            json.dumps({"verdict": "FAIL"}), encoding="utf-8"
+        (tmp_path / ".methodology").mkdir(parents=True, exist_ok=True)
+        (tmp_path / ".methodology" / "quality_manifest.json").write_text(
+            json.dumps({"gate_results": {"gate4": {"quality_complete": False}}}), encoding="utf-8"
         )
         errs = _validate_handoff(tmp_path, from_phase=6)
-        assert any("verdict" in e and "FAIL" in e for e in errs)
+        assert any("gate_results.gate4.quality_complete is not True" in e for e in errs)
 
 
 class TestHandoffP7ToP8:
@@ -365,9 +365,9 @@ class TestHandoffDispatch:
         (tmp_path / "06-quality").mkdir(parents=True, exist_ok=True)
         for name in ("QUALITY_REPORT.md", "RELEASE_NOTES.md", "FINAL_SIGN_OFF.md"):
             (tmp_path / "06-quality" / name).write_text(f"# {name}\n", encoding="utf-8")
-        (tmp_path / ".sessi-work").mkdir(parents=True, exist_ok=True)
-        (tmp_path / ".sessi-work" / "gate4_result.json").write_text(
-            json.dumps({"verdict": "PASS"}), encoding="utf-8"
+        (tmp_path / ".methodology").mkdir(parents=True, exist_ok=True)
+        (tmp_path / ".methodology" / "quality_manifest.json").write_text(
+            json.dumps({"gate_results": {"gate4": {"quality_complete": True}}}), encoding="utf-8"
         )
         assert _validate_handoff(tmp_path, from_phase=6) == []
 
