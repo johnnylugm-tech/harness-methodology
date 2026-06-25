@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 from typing import Optional, Union
 
 # Vendored semgrep ruleset (pinned content → reproducible security scores).
@@ -70,7 +71,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         tool_id="ruff",
         cmd=("ruff", "check", "{root}", "--output-format", "json", "--exit-zero"),
         timeout=30,
-        check_cmd="ruff --version 2>&1 || python3 -m ruff --version 2>&1",
+        check_cmd=f"ruff --version 2>&1 || {sys.executable} -m ruff --version 2>&1",
         human_name="ruff",
         scorer="ruff",
     ),
@@ -137,7 +138,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     ),
     "readability-v2": ToolSpec(
         tool_id="readability-v2",
-        cmd=("python3", "-m", "harness.toolchains.readability_v2", "{root}"),
+        cmd=(sys.executable, "-m", "harness.toolchains.readability_v2", "{root}"),
         timeout=30,
         check_cmd="radon --version 2>&1",
         human_name="radon (readability-v2)",
@@ -145,7 +146,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     ),
     "radon-mi": ToolSpec(
         tool_id="radon-mi",
-        cmd=("python3", "-m", "harness.toolchains.radon_mi_ast_stripped", "{root}"),
+        cmd=(sys.executable, "-m", "harness.toolchains.radon_mi_ast_stripped", "{root}"),
         timeout=30,
         check_cmd="radon --version 2>&1",
         human_name="radon (radon-mi)",
@@ -159,7 +160,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         cmd=("pytest", "{root}", "--benchmark-only", "--benchmark-disable-gc",
              "--benchmark-columns", "mean,max", "--tb", "no", "-q"),
         timeout=180,
-        check_cmd="pytest --version 2>&1 && python3 -c 'import pytest_benchmark' 2>&1",
+        check_cmd=f"pytest --version 2>&1 && {sys.executable} -c 'import pytest_benchmark' 2>&1",
         human_name="pytest-benchmark",
         scorer="pytest-benchmark",
     ),
@@ -183,7 +184,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     "ast-assertions": ToolSpec(
         tool_id="ast-assertions",
         timeout=30,
-        check_cmd="python3 -c 'import ast; ast.parse(\"x=1\")' 2>&1",
+        check_cmd=f"{sys.executable} -c 'import ast; ast.parse(\"x=1\")' 2>&1",
         human_name="ast (assertions)",
         scorer="ast-assertions",
         in_process=True,
@@ -191,7 +192,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     "ast-error-handling": ToolSpec(
         tool_id="ast-error-handling",
         timeout=30,
-        check_cmd="python3 -c 'import ast; ast.parse(\"try:\\n pass\\nexcept: pass\")' 2>&1",
+        check_cmd=f"{sys.executable} -c 'import ast; ast.parse(\"try:\\n pass\\nexcept: pass\")' 2>&1",
         human_name="ast (error-handling)",
         scorer="ast-error-handling",
         in_process=True,
@@ -199,7 +200,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     "ast-docstrings": ToolSpec(
         tool_id="ast-docstrings",
         timeout=30,
-        check_cmd="python3 -c 'import ast; ast.parse(\"def f():\\n \\\"\\\"\\\"doc\\\"\\\"\\\"\\n pass\")' 2>&1",
+        check_cmd=f"{sys.executable} -c 'import ast; ast.parse(\"def f():\\n \\\"\\\"\\\"doc\\\"\\\"\\\"\\n pass\")' 2>&1",
         human_name="ast (docstrings)",
         scorer="ast-docstrings",
         in_process=True,
@@ -367,7 +368,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     "js-assertions": ToolSpec(
         tool_id="js-assertions",
         timeout=30,
-        check_cmd=("python3 -c 'import tree_sitter, tree_sitter_javascript, "
+        check_cmd=(f"{sys.executable} -c 'import tree_sitter, tree_sitter_javascript, "
                    "tree_sitter_typescript' 2>&1"),
         human_name="tree-sitter (assertions)",
         scorer="ast-assertions",
@@ -376,7 +377,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     "js-error-handling": ToolSpec(
         tool_id="js-error-handling",
         timeout=30,
-        check_cmd=("python3 -c 'import tree_sitter, tree_sitter_javascript, "
+        check_cmd=(f"{sys.executable} -c 'import tree_sitter, tree_sitter_javascript, "
                    "tree_sitter_typescript' 2>&1"),
         human_name="tree-sitter (error-handling)",
         scorer="ast-error-handling",
@@ -385,7 +386,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     "js-doc-coverage": ToolSpec(
         tool_id="js-doc-coverage",
         timeout=30,
-        check_cmd=("python3 -c 'import tree_sitter, tree_sitter_javascript, "
+        check_cmd=(f"{sys.executable} -c 'import tree_sitter, tree_sitter_javascript, "
                    "tree_sitter_typescript' 2>&1"),
         human_name="tree-sitter (JSDoc coverage)",
         scorer="ast-docstrings",
@@ -396,7 +397,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     "js-mi": ToolSpec(
         tool_id="js-mi",
         timeout=60,
-        check_cmd=("python3 -c 'import tree_sitter, tree_sitter_javascript, "
+        check_cmd=(f"{sys.executable} -c 'import tree_sitter, tree_sitter_javascript, "
                    "tree_sitter_typescript' 2>&1"),
         human_name="tree-sitter (maintainability index)",
         scorer="radon-mi",

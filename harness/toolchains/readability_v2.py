@@ -44,6 +44,24 @@ def main():
     for file_path, blocks in cc_data.items():
         if not isinstance(blocks, list):
             continue
+            
+        parts = file_path.split("/")
+        
+        # Ignore dot-directories (like .venv)
+        if any(p.startswith(".") for p in parts[:-1]):
+            continue
+            
+        # Ignore root dot-files
+        if len(parts) == 1 and parts[0].startswith("."):
+            continue
+            
+        exclude_dirs = {"tests", "scripts", "harness", "alembic", "venv"}
+        if any(d in parts for d in exclude_dirs) or "conftest.py" in parts:
+            continue
+            
+        # Ignore root scripts (except main.py if present)
+        if len(parts) == 1 and parts[0] != "main.py":
+            continue
         
         # Calculate file average CC
         complexities = [b.get("complexity", 1) for b in blocks if isinstance(b, dict) and "complexity" in b]

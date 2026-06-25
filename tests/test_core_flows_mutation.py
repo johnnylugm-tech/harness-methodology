@@ -293,6 +293,7 @@ def test_run_tool_dispatches_all_cmds_tools(tmp_path):
 
     # Each entry: (tool_name, expected_binary, required_flags)
     # Flags listed are literals from tool_runners.py — mutations to any one are caught.
+    import sys
     tool_checks = [
         ("ruff",       "ruff",     ["--output-format", "json", "check"]),
         ("mypy",       "mypy",     ["--ignore-missing-imports", "--no-color-output", "--no-error-summary"]),
@@ -302,7 +303,8 @@ def test_run_tool_dispatches_all_cmds_tools(tmp_path):
         ("gitleaks",   "gitleaks", ["detect"]),
         ("bandit",     "bandit",   ["-r", "-f", "json", "--exit-zero"]),
         ("radon-cc",   "radon",    ["cc", "-j", "--min"]),
-        ("radon-mi",   "python3",  ["-m", "harness.toolchains.radon_mi_ast_stripped"]),
+        ("radon-mi",   sys.executable,  ["-m", "harness.toolchains.radon_mi_ast_stripped"]),
+        ("readability-v2", sys.executable, ["-m", "harness.toolchains.readability_v2"]),
     ]
     for tool_name, expected_bin, required_flags in tool_checks:
         with patch("subprocess.run", return_value=mock_result) as mock_sp:
