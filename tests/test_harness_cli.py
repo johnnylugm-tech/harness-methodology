@@ -4487,6 +4487,92 @@ class TestRunToolDispatcher:
         assert payload["score"] == 50.0
 
 
+class TestSubmoduleDriftAdvisory:
+    """Phase 6 improvement #3: advance-phase postflight detects when the
+    harness/ submodule HEAD is behind origin/main (e.g. CI auto-fix landed)
+    and prints an actionable warning. Non-blocking by design.
+    """
+
+    def _setup_submodule(self, tmp_path: Path) -> tuple[Path, Path]:
+        """Create a fake main repo + harness/ submodule with a bare 'origin'
+        remote. Returns (project, sub) where project/harness is a real git
+        submodule that can be ahead/behind by making local commits.
+        """
+        import subprocess as sp
+        proj = tmp_path
+        (proj / ".gitmodules").write_text(
+            '[submodule "harness"]\n\tpath = harness\n\turl = x\n'
+        )
+        sub = proj / "harness"
+        sub.mkdir()
+        for d in [proj, sub]:
+            sp.run(["git", "-C", str(d), "init", "-q"], check=True)
+            sp.run(["git", "-C", str(d), "config", "user.email", "t@t.com"], check=True)
+            sp.run(["git", "-C", str(d), "config", "user.name", "T"], check=True)
+        # Bare "origin"
+        bare = tmp_path.parent / (tmp_path.name + "_origin.git")
+        sp.run(["git", "clone", "--bare", str(sub), str(bare)],
+               check=True, capture_output=True)
+        sp.run(["git", "-C", str(sub), "remote", "add", "origin", str(bare)],
+               check=True)
+        (sub / "x").write_text("a")
+        sp.run(["git", "-C", str(sub), "add", "."], check=True)
+        sp.run(["git", "-C", str(sub), "commit", "-q", "-m", "init"], check=True)
+        sp.run(["git", "-C", str(sub), "push", "-q", "origin", "HEAD:main"],
+               capture_output=True)
+        return proj, sub
+
+    def test_no_warning_when_in_sync(self, tmp_path, capsys):
+        """HEAD == origin/main → no drift warning printed."""
+        from harness_cli import _check_submodule_drift
+        proj, sub = self._setup_submodule(tmp_path)
+        _check_submodule_drift(proj)
+        captured = capsys.readouterr()
+        assert "harness/ submodule is" not in captured.out
+        assert "CI may have applied" not in captured.out
+
+    def test_warning_when_local_ahead(self, tmp_path, capsys):
+        """origin has commit not in local → "behind" warning printed."""
+        import subprocess as sp
+        from harness_cli import _check_submodule_drift
+        proj, sub = self._setup_submodule(tmp_path)
+        # Simulate CI landing a commit on origin/main that local doesn't have:
+        # add a commit on a separate branch, push to origin/main, then reset
+        # local back so local is missing that commit.
+        bare = tmp_path.parent / (tmp_path.name + "_origin.git")
+        # Clone origin into a "ci" worktree, push a new commit
+        ci = tmp_path.parent / (tmp_path.name + "_ci")
+        sp.run(["git", "clone", "-q", str(bare), str(ci)], check=True)
+        sp.run(["git", "-C", str(ci), "config", "user.email", "ci@ci.com"], check=True)
+        sp.run(["git", "-C", str(ci), "config", "user.name", "CI"], check=True)
+        (ci / "y").write_text("ci-fix")
+        sp.run(["git", "-C", str(ci), "add", "."], check=True)
+        sp.run(["git", "-C", str(ci), "commit", "-q", "-m", "ci-fix"], check=True)
+        sp.run(["git", "-C", str(ci), "push", "-q", "origin", "HEAD:main"],
+               check=True)
+        # Local sub is unchanged → HEAD still at "init", origin/main at "ci-fix"
+        _check_submodule_drift(proj)
+        captured = capsys.readouterr()
+        assert "harness/ submodule is 1 commit(s) behind origin/main" in captured.out
+        assert "CI may have applied test-fix commits" in captured.out
+        assert "Pull + bump pointer" in captured.out
+
+    def test_silent_when_fetch_fails(self, tmp_path, capsys):
+        """No origin access (offline) → silently skip, no error."""
+        from harness_cli import _check_submodule_drift
+        proj = tmp_path
+        sub = proj / "harness"
+        sub.mkdir()
+        (sub / ".git").mkdir()  # marker; no remote configured
+        (proj / ".gitmodules").write_text(
+            '[submodule "harness"]\n\tpath = harness\n\turl = x\n'
+        )
+        _check_submodule_drift(proj)
+        captured = capsys.readouterr()
+        assert "Traceback" not in captured.out
+        assert "harness/ submodule is" not in captured.out
+
+
 class TestPushMilestoneDryRun:
     """Bug #112: push-milestone --dry-run disables git operations."""
 
