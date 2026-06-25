@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 
 from core.audit.grep_docstring_aware import (
-    Hit,
     audit_grep,
     strip_comments,
     strip_docstrings,
