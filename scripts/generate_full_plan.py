@@ -1728,7 +1728,7 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int, gate_met
         "| architecture (G3/G4 only) | Community cohesion low → add cross-module integration tests, break hub-and-spoke coupling, or file a DA waiver if the pattern is intentional (Orchestrator). |",
         "| error_handling | (1) **Presence**: add try/except blocks. `grep -r 'try:' 03-development/src/` to see coverage. (2) **Anti-patterns** (v2.9 A1, −5 each): remove `except BaseException:` (flagged even with re-raise), bare `except:` without re-raise, `except Exception: pass`. Run `python3 harness_cli.py run-tool ast-error-handling --project .` to see exact deductions. |",
         "| documentation | Add docstrings to public functions/classes. `python3 -m ast_docstrings` or manual: every `def`/`class` in `03-development/src/` needs a docstring. |",
-        "| readability | Refactor complex functions (radon-mi < B grade). Run `radon mi 03-development/src/ -j` to see scores per file. |",
+        "| readability | Refactor complex functions (readability_v2 < 65). Run `python3 -m harness.toolchains.readability_v2 03-development/src/` to see scores per file. |",
         "| performance | Add pytest-benchmark tests. Create `tests/test_perf.py` with `def test_latency(benchmark): ...` |",
         "| test_assertion_quality | Add `assert` statements to test functions. Every test must have ≥1 substantive assertion. |",
         "| integration_coverage | Add integration tests in `03-development/tests/integration/` that exercise end-to-end flows. |",
