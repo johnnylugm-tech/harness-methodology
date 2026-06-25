@@ -20,14 +20,16 @@ pytestmark = [pytest.mark.core]
 
 class TestStripDocstrings:
     def test_strips_double_triple_quoted(self):
-        text = 'before\n"""\nshell=True\n"""\nafter\n'
+        # A true module-level docstring (first statement) should be stripped.
+        text = '"""\nshell=True\n"""\nafter\n'
         out = strip_docstrings(text)
         assert "shell=True" not in out
         # Newlines preserved so line numbers stay aligned.
         assert out.count("\n") == text.count("\n")
 
     def test_strips_single_triple_quoted(self):
-        text = "before\n'''\nshell=True\n'''\nafter\n"
+        # A true module-level docstring should be stripped.
+        text = "'''\nshell=True\n'''\nafter\n"
         out = strip_docstrings(text)
         assert "shell=True" not in out
 

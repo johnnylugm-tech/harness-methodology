@@ -298,8 +298,6 @@ def _override_adversarial_review_dim_score(
 # ---------------------------------------------------------------------------
 # Canonical definitions live in core.harness_config — import from there.
 from core.harness_config import _DIM_TO_FEATURE, is_dim_disabled  # noqa: F401, E402
-# Backward-compat alias (prefer core.harness_config.is_dim_disabled).
-_is_dim_disabled = is_dim_disabled
 
 
 def filter_enabled_dimensions(
@@ -937,8 +935,6 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
 
     for dim in cfg.get("dimensions", []):
         dim_name = dim.get("name", "")
-        if _is_dim_disabled(dim_name, ctx.project_root):
-            continue
         requires_tool = dim.get("requires_tool_execution", False)
         tool = dim.get("tool")
         threshold = float(dim.get("threshold", 0))

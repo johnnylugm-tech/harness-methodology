@@ -51,9 +51,11 @@ def load_harness_config(project: "str | Path") -> dict:
 def get_feature(project: "str | Path", key: str) -> Any:
     """Return the value of a single feature flag.
 
-    Returns None for unknown keys (keys not in _DEFAULTS).
+    For keys in ``_DEFAULTS``, returns the file-overlaid value or the default.
+    For keys not in ``_DEFAULTS`` (future/unknown features), returns the
+    ``_DEFAULTS`` fallback (None for missing entries).
     """
-    return load_harness_config(project).get(key, _DEFAULTS.get(key))
+    return load_harness_config(project).get(key)
 
 
 def is_dim_disabled(dim_name: str, project_root: "str | Path") -> bool:

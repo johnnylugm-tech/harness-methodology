@@ -19,20 +19,15 @@ Planned consumers (not yet wired up):
 """
 from __future__ import annotations
 
+import ast
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Pattern
 
 
-# Triple-quoted string literals: """...""" or '''...''' with lazy
-# matching so the first closing fence terminates the strip.
-_TRIPLE_DOUBLE = re.compile(r'"""[\s\S]*?"""', re.MULTILINE)
-_TRIPLE_SINGLE = re.compile(r"'''[\s\S]*?'''", re.MULTILINE)
-
 # Line comment: '#' to end of line. We do NOT touch the leading '#!' of
-# a shebang — that's not Python-comment syntax anyway (regex would still
-# strip it, but a shebang on line 0 has no semantic effect on audits).
+# a shebang — that would corrupt the source on line 0.
 _LINE_COMMENT = re.compile(r"#[^\n]*")
 
 
@@ -53,13 +48,96 @@ def _preserve_newlines(match: re.Match) -> str:
     return "".join(c if c == "\n" else " " for c in match.group(0))
 
 
+def _blank_spans(text: str, spans: list[tuple[int, int]]) -> str:
+    """Blank out all [start, end) character offsets in *text* with spaces,
+    preserving line structure so splitlines() indices stay aligned.
+
+    Processes spans in descending order so earlier deletions don't shift
+    later offsets in the string.
+    """
+    for start, end in sorted(spans, reverse=True):
+        middle = text[start:end]
+        blanked = "".join(c if c == "\n" else " " for c in middle)
+        text = text[:start] + blanked + text[end:]
+    return text
+
+
 def strip_docstrings(text: str) -> str:
-    """Return text with all triple-quoted strings removed (newlines
-    preserved, non-newline chars replaced with spaces so line numbers
-    stay aligned with the original source)."""
-    out = _TRIPLE_DOUBLE.sub(_preserve_newlines, text)
-    out = _TRIPLE_SINGLE.sub(_preserve_newlines, out)
-    return out
+    """Return text with all docstrings removed (newlines preserved,
+    non-newline chars replaced with spaces so line numbers stay aligned
+    with the original source).
+
+    Uses the AST to find docstrings, which correctly handles:
+    - Multi-line triple-quoted strings containing " or '
+    - Strings with embedded triple-quote sequences as literal content
+    - Module, class, and function docstrings
+
+    Unlike a regex heuristic, AST parsing respects Python's tokenisation
+    rules and will never misidentify a closing delimiter.
+    """
+    if not text.strip():
+        return text
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        # Syntactically invalid source (mid-edit) — fall back to no stripping
+        # so we don't corrupt an incomplete file.
+        return text
+
+    spans: list[tuple[int, int]] = []
+
+    class DocstringCollector(ast.NodeVisitor):
+        def _record_docstring(
+            self,
+            node: ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef,
+        ) -> None:
+            doc = ast.get_docstring(node)
+            # Only trust get_docstring — it correctly returns None for:
+            #   - modules whose first statement is not a string literal
+            #   - classes/functions whose body is empty or first stmt is not a string
+            # Never re-detect based on raw Constant checks; that would produce false
+            # positives on strings that happen to be the first body element.
+            if doc is None or not node.body:
+                return
+            first = node.body[0]
+            if not isinstance(first, ast.Expr):
+                return
+            # Convert line/column positions to absolute character offsets.
+            # lineno/end_lineno are 1-based; splitlines(keepends=True) is
+            # 0-indexed, so subtract 1 from lineno to get the right slice.
+            lines = text.splitlines(keepends=True)
+            first_lineno = first.lineno or 0
+            first_end_lineno = first.end_lineno or 0
+            first_end_col_offset = first.end_col_offset or 0
+            start = (
+                sum(len(l) for l in lines[: first_lineno - 1])
+            ) + first.col_offset
+            # end of the closing delimiter line + 1 to include its newline.
+            end = (
+                sum(len(l) for l in lines[: first_end_lineno - 1])
+            ) + first_end_col_offset
+            spans.append((start, end))
+
+        def visit_Module(self, node: ast.Module) -> None:
+            self._record_docstring(node)
+            self.generic_visit(node)
+
+        def visit_ClassDef(self, node: ast.ClassDef) -> None:
+            self._record_docstring(node)
+            self.generic_visit(node)
+
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+            self._record_docstring(node)
+            self.generic_visit(node)
+
+        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+            self._record_docstring(node)
+            self.generic_visit(node)
+
+    DocstringCollector().visit(tree)
+    if not spans:
+        return text
+    return _blank_spans(text, spans)
 
 
 def strip_comments(text: str) -> str:
@@ -77,7 +155,7 @@ def audit_grep(
     exclude_comments: bool = False,
 ) -> list[Hit]:
     """Scan `src_dir` recursively for `*.py` files; return every Hit
-    matching `pattern`.
+    matching `pattern*.
 
     `pattern` MUST be a compiled regex (use `re.compile(...)`). Audits
     that need raw string patterns should compile them once at module

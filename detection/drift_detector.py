@@ -77,8 +77,7 @@ def read_package_dir(project_path: Path) -> Optional[str]:
     for cand_dir in (project_path / "03-development" / "src", project_path / "src"):
         if cand_dir.is_dir():
             warnings.warn("A 'src/' directory exists but no package_dir is detected in setup.cfg or pyproject.toml.")
-            
-    return None
+
     return None
 
 

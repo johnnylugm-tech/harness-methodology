@@ -30,6 +30,11 @@ from harness.toolchains import get_tool_spec
 # file (ToolSpec.output_artifact) — scorers split on it to get the report JSON.
 _ARTIFACT_MARKER = "\n=== TOOL_OUTPUT_ARTIFACT ===\n"
 
+# Pre-compiled patterns for _score_mutmut (avoid per-call regex compilation).
+_MUTMUT_KILLED_RE = re.compile(r"Killed: (\d+)")
+_MUTMUT_SURVIVED_RE = re.compile(r"Survived: (\d+)")
+_MUTMUT_TIMEOUT_RE = re.compile(r"Timeout: (\d+)")
+
 
 def run_tool(
     tool: str,
@@ -488,9 +493,9 @@ def _score_exit_code_binary(output: str, returncode: int) -> float:
 
 def _score_mutmut(output: str, returncode: int) -> float:
     """Score mutmut run output."""
-    killed_m = re.search(r"Killed: (\d+)", output)
-    survived_m = re.search(r"Survived: (\d+)", output)
-    timeout_m = re.search(r"Timeout: (\d+)", output)
+    killed_m = _MUTMUT_KILLED_RE.search(output)
+    survived_m = _MUTMUT_SURVIVED_RE.search(output)
+    timeout_m = _MUTMUT_TIMEOUT_RE.search(output)
     killed = int(killed_m.group(1)) if killed_m else 0
     survived = int(survived_m.group(1)) if survived_m else 0
     # Timed-out mutants were not killed; count them as survived so the
