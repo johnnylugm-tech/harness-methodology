@@ -1365,6 +1365,8 @@ def _phase_advance_step(phase: int, dynamic: bool = False) -> List[str]:
         "  ```bash",
         f"  python3 harness_cli.py advance-phase --completed {phase} --project .",
         "  ```",
+        "  > **Note**: `advance-phase` will automatically check for harness submodule drift.",
+        "  > If it prints a warning that you are behind `origin/main`, it is non-blocking and for your information only.",
         f"- Confirm `HANDOVER.md` reflects Phase {next_phase} entry (`P{next_phase}-entry` checkpoint, correct plan path)",
         f"- Open `phase{next_phase}_plan.md` and follow from the top.",
         f"- If session crashes during Phase {next_phase}: read `HANDOVER.md` or run `generate-next-plan`",
@@ -1475,11 +1477,11 @@ def _validate_handoff_precondition_block(phase: int) -> List[str]:
         f"  > Verifies P{from_phase} deliverables are present and well-formed "
         "(e.g. P1 TEST_INVENTORY.yaml non-empty + covers all FRs; P2 "
         "TEST_SPEC.md has parseable named test cases; P3 all FRs have "
-        "per-FR Gate 1 sentinels; P4 VERIFICATION_REPORT.md non-trivial; "
-        "P5 BASELINE.md exists; P6 06-quality/QUALITY_REPORT.md + "
-        "RELEASE_NOTES.md + FINAL_SIGN_OFF.md + .sessi-work/gate4_result.json "
-        "verdict=PASS; P7 07-risk/RISK_REGISTER.md + RISK_MITIGATION_PLANS.md + "
-        "RISK_STATUS_REPORT.md).",
+        "per-FR Gate 1 sentinels; P4 TEST_RESULTS.md non-trivial; "
+        "P5 VERIFICATION_REPORT.md non-trivial; P6 06-quality/QUALITY_REPORT.md + "
+        "RELEASE_NOTES.md + FINAL_SIGN_OFF.md + .methodology/quality_manifest.json "
+        "gate_results.gate4.quality_complete=true; P7 07-risk/RISK_REGISTER.md + "
+        "RISK_MITIGATION_PLANS.md + RISK_STATUS_REPORT.md).",
         "  > If exit 1: read the error list, fix the upstream deliverable, "
         "re-run until exit 0. Do NOT proceed with Phase "
         f"{phase} work on a BLOCKED handoff.",
