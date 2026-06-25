@@ -5187,3 +5187,86 @@ class TestCmdPlanAllPreservesManifest:
         out = capsys.readouterr().out
         assert "[PRESERVE]" not in out
         assert rc == 0
+
+
+# =============================================================================
+# H: GATE1-DELTA batch auto-skip (regression — Improvement H)
+# =============================================================================
+#
+# When advancing from P4/P5/P7/P8, _check_gate1_live_coverage consults
+# _fr_code_changed_since_last_gate1 for every FR. If ALL FRs are unchanged
+# since their last Gate 1 PASS, the live pytest run is skipped (return 0)
+# to avoid wasting 8 redundant coverage runs per advance.
+#
+# These tests verify the batch auto-skip is robust: empty FR list, missing
+# FR git history, and one-changed-all-unchanged all behave correctly.
+
+class TestGate1DeltaBatchAutoSkip:
+    """Phase 4/5/7/8 advance batch: skip live pytest when all FRs unchanged."""
+
+    def _manifest(self, tmp_path, fr_ids):
+        import json
+        m = tmp_path / ".methodology" / "quality_manifest.json"
+        m.parent.mkdir(parents=True, exist_ok=True)
+        m.write_text(json.dumps({
+            "fr_ids": fr_ids,
+            "quality_targets": {"min_coverage": 80},
+        }))
+        return m
+
+    def test_all_unchanged_returns_0_skips_pytest(self, tmp_path):
+        """When every FR is unchanged since last Gate1 PASS, batch returns 0
+        WITHOUT invoking the live pytest validator."""
+        import harness_cli
+        self._manifest(tmp_path, ["FR-01", "FR-02"])
+        with mock.patch.object(
+            harness_cli, "_fr_code_changed_since_last_gate1", return_value=False
+        ), mock.patch.object(
+            harness_cli, "_validate_fr_coverage_immediate"
+        ) as mock_pytest:
+            rc = harness_cli._check_gate1_live_coverage(tmp_path, 4)
+        assert rc == 0
+        mock_pytest.assert_not_called(), "must skip pytest when all unchanged"
+
+    def test_any_changed_runs_pytest(self, tmp_path):
+        """If even one FR changed, fall through to live pytest path."""
+        import harness_cli
+        self._manifest(tmp_path, ["FR-01", "FR-02"])
+        # FR-01 changed, FR-02 unchanged → not "all unchanged"
+        with mock.patch.object(
+            harness_cli, "_fr_code_changed_since_last_gate1",
+            side_effect=lambda fr, p: fr == "FR-01",
+        ), mock.patch.object(
+            harness_cli, "_validate_fr_coverage_immediate", return_value=95.0,
+        ) as mock_pytest:
+            rc = harness_cli._check_gate1_live_coverage(tmp_path, 7)
+        assert rc == 0
+        # Pytest MUST be invoked when any FR changed.
+        assert mock_pytest.called
+
+    def test_empty_fr_list_returns_0_without_pytest(self, tmp_path):
+        """Non-FR project (no fr_ids in manifest) — bypass entirely."""
+        import harness_cli
+        self._manifest(tmp_path, [])
+        with mock.patch.object(
+            harness_cli, "_validate_fr_coverage_immediate"
+        ) as mock_pytest:
+            rc = harness_cli._check_gate1_live_coverage(tmp_path, 4)
+        assert rc == 0
+        mock_pytest.assert_not_called()
+
+    def test_gate1_live_coverage_exception_in_changed_check_falls_through(
+        self, tmp_path
+    ):
+        """If the changed-check raises, default to running pytest (safe)."""
+        import harness_cli
+        self._manifest(tmp_path, ["FR-01"])
+        with mock.patch.object(
+            harness_cli, "_fr_code_changed_since_last_gate1",
+            side_effect=RuntimeError("git error"),
+        ), mock.patch.object(
+            harness_cli, "_validate_fr_coverage_immediate", return_value=85.0,
+        ) as mock_pytest:
+            rc = harness_cli._check_gate1_live_coverage(tmp_path, 4)
+        assert rc == 0
+        assert mock_pytest.called
