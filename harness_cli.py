@@ -604,6 +604,18 @@ def cmd_plan_all(args: argparse.Namespace) -> int:
 
     _force = getattr(args, "force", False)
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Guard quality_manifest.json from accidental shrink. `plan-all` only
+    # regenerates phaseN_plan.md + plan_status.md; it never writes
+    # quality_manifest.json. If a manifest already exists we leave it alone
+    # regardless of --force, because the manifest holds accumulated Gate
+    # scores and shrinking it resets pipeline progress.
+    _manifest = out_dir / "quality_manifest.json"
+    if _manifest.exists():
+        print(
+            f"[PRESERVE] {_manifest.name} already exists; "
+            "plan-all does not touch it. Use 'manifest --force' to regenerate."
+        )
     results = []
     for phase_num in range(1, 9):
         out_path = out_dir / f"phase{phase_num}_plan.md"

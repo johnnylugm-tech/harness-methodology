@@ -5123,3 +5123,67 @@ class TestPrintFrScopedOverridesPy:
         # Imports still drive scope when owned path is missing.
         assert "cache.py" in out
         assert "cli.py" in out
+
+
+# =============================================================================
+# cmd_plan_all — preserve existing quality_manifest.json
+# =============================================================================
+
+class TestCmdPlanAllPreservesManifest:
+    """Regression for the P7 footgun: `plan-all --force` must NEVER touch an
+    existing quality_manifest.json. The manifest holds accumulated Gate scores
+    across phases; shrinking it (because plan-all re-derives the FR list from
+    SAD.md) resets pipeline progress and breaks carry-forward."""
+
+    @staticmethod
+    def _make_args(project: str, force: bool = False):
+        import argparse
+        ns = argparse.Namespace()
+        ns.project = project
+        ns.output_dir = None
+        ns.force = force
+        return ns
+
+    def _seed(self, tmp_path):
+        (tmp_path / ".methodology").mkdir()
+        # Minimal SRS so generate_full_plan doesn't choke on missing input.
+        (tmp_path / "01-requirements").mkdir()
+        (tmp_path / "01-requirements" / "SRS.md").write_text(
+            "# SRS\n\n### FR-01: Foo\n\n### FR-02: Bar\n\n" + "x" * 200
+        )
+        return tmp_path
+
+    def test_plan_all_preserves_existing_quality_manifest(self, tmp_path, capsys):
+        from harness_cli import cmd_plan_all
+
+        self._seed(tmp_path)
+        manifest_path = tmp_path / ".methodology" / "quality_manifest.json"
+        original = {
+            "fr_module_traceability": {"FR-01": "taskq.core"},
+            "gate_results": {
+                "gate1": {
+                    "FR-01": {"score": 96.8, "passed": True},
+                    "FR-02": {"score": 95.6, "passed": True},
+                },
+            },
+        }
+        manifest_path.write_text(json.dumps(original))
+
+        rc = cmd_plan_all(self._make_args(str(tmp_path), force=True))
+        out = capsys.readouterr().out
+
+        assert "[PRESERVE]" in out
+        assert "quality_manifest.json" in out
+        # Manifest byte-equal — not regenerated, not shrunk.
+        assert json.loads(manifest_path.read_text()) == original
+        assert rc == 0
+
+    def test_plan_all_runs_normally_when_manifest_absent(self, tmp_path, capsys):
+        from harness_cli import cmd_plan_all
+
+        self._seed(tmp_path)
+        # No quality_manifest.json — plan-all proceeds normally.
+        rc = cmd_plan_all(self._make_args(str(tmp_path)))
+        out = capsys.readouterr().out
+        assert "[PRESERVE]" not in out
+        assert rc == 0
