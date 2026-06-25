@@ -514,6 +514,7 @@ _SCORERS: dict[str, Callable[[str, int], Optional[float]]] = {
     "bandit":           _score_bandit,
     "radon-cc":         _score_radon_cc,
     "radon-mi":         _score_radon_mi,
+    "readability-v2":   _score_readability_v2,
     "pytest-benchmark": _score_pytest_benchmark,
     "ast-assertions":   _score_assertion_quality,
     "ast-error-handling": _score_error_handling_coverage,
