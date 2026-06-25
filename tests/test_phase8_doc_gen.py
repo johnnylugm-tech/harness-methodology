@@ -59,6 +59,38 @@ class TestPhase8DocGen:
         assert "{project_name}" not in text  # converted to ${...} then substituted
         assert "${project_name}" not in text
 
+    def test_template_double_braces_pass_through_literally(self, tmp_path):
+        """`{{var}}` (markdown-style literal braces around a placeholder)
+        must pass through unchanged. The pre-fix regex matched the inner
+        `{var}` of `{{var}}`, producing `{${var}}` and rendering as
+        ``{value}`` — silently corrupting templates that used double
+        braces for visual formatting.
+
+        Tested by importing ``_render_template`` directly with a synthetic
+        template (the script loads templates from the repo-relative
+        ``templates/`` dir, so we cannot inject via the file path here)."""
+        from scripts.phase8_doc_gen import _render_template
+
+        synthetic = tmp_path / "tpl.md"
+        synthetic.write_text(
+            "a {project_name} b {{config}} c {d} d {{e}} f",
+            encoding="utf-8",
+        )
+        out = _render_template(
+            synthetic, {"project_name": "X", "d": "Y", "config": "ignored", "e": "ignored"}
+        )
+        # Regular single-brace placeholders are substituted.
+        assert "X" in out and "Y" in out
+        # Double-brace placeholders pass through literally.
+        assert "{{config}}" in out, (
+            f"double-brace {{config}} mangled; output:\n{out!r}"
+        )
+        assert "{{e}}" in out, (
+            f"double-brace {{e}} mangled; output:\n{out!r}"
+        )
+        # And we did NOT produce a stray {value} artifact.
+        assert "{X}" not in out and "{Y}" not in out
+
     def test_missing_methodology_returns_error(self, tmp_path):
         # No .methodology dir → must exit non-zero, not crash.
         subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)

@@ -2,35 +2,66 @@ from pathlib import Path
 from typing import Union
 
 # Canonical artifact paths per phase, relative to project root.
-# Single source of truth — every audit/verifier/drift site should consume
-# ``phase_artifacts(n)`` instead of inlining the same string list. Adding
-# or renaming a phase deliverable updates one place, not N.
-PHASE_ARTIFACTS: dict[int, list[str]] = {
+# Single source of truth: every entry is derived from the matching
+# ``ProjectLayout`` property below (see _PHASE_PROP_MAP). To rename a
+# phase deliverable, update the property; to add a new one, add the
+# property + extend the corresponding _PHASE_PROP_MAP entry.
+_PHASE_PROP_MAP: dict[int, list[tuple[str, str]]] = {
     1: [
-        "01-requirements/SRS.md",
-        "01-requirements/SPEC_TRACKING.md",
-        "01-requirements/TRACEABILITY_MATRIX.md",
+        ("phase1_requirements_dir", "SRS.md"),
+        ("phase1_requirements_dir", "SPEC_TRACKING.md"),
+        ("phase1_requirements_dir", "TRACEABILITY_MATRIX.md"),
     ],
-    2: ["02-architecture/SAD.md"],
-    3: ["03-development/src/", "03-development/tests/"],
-    4: ["04-testing/TEST_PLAN.md", "04-testing/TEST_RESULTS.md"],
-    5: ["05-verification/BASELINE.md", "05-verification/VERIFICATION_REPORT.md"],
-    6: ["06-quality/QUALITY_REPORT.md"],
+    2: [("phase2_architecture_dir", "SAD.md")],
+    3: [("active_src_dir", ""), ("active_test_dir", "")],
+    4: [
+        ("phase4_testing_dir", "TEST_PLAN.md"),
+        ("phase4_testing_dir", "TEST_RESULTS.md"),
+    ],
+    5: [
+        ("phase5_verification_dir", "BASELINE.md"),
+        ("phase5_verification_dir", "VERIFICATION_REPORT.md"),
+    ],
+    6: [("phase6_quality_dir", "QUALITY_REPORT.md")],
     7: [
-        "07-risk/RISK_REGISTER.md",
-        "07-risk/RISK_MITIGATION_PLANS.md",
-        "07-risk/RISK_STATUS_REPORT.md",
+        ("phase7_risk_dir", "RISK_REGISTER.md"),
+        ("phase7_risk_dir", "RISK_MITIGATION_PLANS.md"),
+        ("phase7_risk_dir", "RISK_STATUS_REPORT.md"),
     ],
-    8: ["08-config/CONFIG_RECORDS.md", "08-config/RELEASE_CHECKLIST.md"],
+    8: [
+        ("phase8_config_dir", "CONFIG_RECORDS.md"),
+        ("phase8_config_dir", "RELEASE_CHECKLIST.md"),
+    ],
 }
 
 
 def phase_artifacts(phase_num: int) -> list[str]:
     """Return a copy of the canonical artifact paths for ``phase_num``.
 
-    Empty list when the phase has no mandatory document artifacts.
+    Paths are derived from the corresponding ``ProjectLayout`` properties
+    (see ``_PHASE_PROP_MAP``). Empty list when the phase has no
+    mandatory document artifacts. P3 uses ``active_src_dir`` /
+    ``active_test_dir`` so the documented ``./src`` / ``./tests`` fallback
+    for projects that do not have a ``03-development/`` directory is
+    preserved.
     """
-    return list(PHASE_ARTIFACTS.get(phase_num, []))
+    layout = ProjectLayout(".")
+    mapping = _PHASE_PROP_MAP.get(phase_num, [])
+    out: list[str] = []
+    for prop_name, suffix in mapping:
+        base = getattr(layout, prop_name)
+        path = (base / suffix) if suffix else base
+        rel = layout.get_relative_str(path)
+        if suffix == "":
+            rel = rel + "/" if not rel.endswith("/") else rel
+        out.append(rel)
+    return out
+
+
+# Convenience view: same shape as the old PHASE_ARTIFACTS module dict
+# (Phase -> [relative paths]) for callers that walk all phases.
+# Initialized lazily below the ProjectLayout class definition.
+PHASE_ARTIFACTS: dict[int, list[str]] = {}
 
 
 class ProjectLayout:
@@ -213,3 +244,12 @@ class ProjectLayout:
             8: self.phase8_config_dir,
         }
         return mapping.get(phase, self.root / "docs")
+
+
+# Populate PHASE_ARTIFACTS now that ProjectLayout is defined. Done as a
+# single eager materialization (no per-call cost) and immediately after
+# the class so any future property rename triggers a deterministic
+# layout.get_relative_str() recompute.
+PHASE_ARTIFACTS.update(
+    {phase_num: phase_artifacts(phase_num) for phase_num in _PHASE_PROP_MAP}
+)

@@ -101,5 +101,18 @@ STALL_TIMEOUTS: dict[str, int] = {
 
 
 def get_timeout(key: str) -> int:
-    """Return the stall/timeout threshold for ``key``, falling back to 600s."""
-    return int(STALL_TIMEOUTS.get(key, 600))
+    """Return the stall/timeout threshold for ``key``.
+
+    Raises ``KeyError`` for unknown keys. A typo'd key (e.g. ``"subproc"``
+    instead of ``"subprocess"``) used to silently fall back to 600s,
+    which would 2x the wallclock of env-check / wiki-update subprocesses
+    or 6x-shorten mutation testing runs with no log line. Strict mode
+    surfaces the typo at the first call site.
+    """
+    try:
+        return int(STALL_TIMEOUTS[key])
+    except KeyError as exc:
+        valid = ", ".join(sorted(STALL_TIMEOUTS))
+        raise KeyError(
+            f"unknown STALL_TIMEOUTS key: {key!r}; valid keys: {valid}"
+        ) from exc

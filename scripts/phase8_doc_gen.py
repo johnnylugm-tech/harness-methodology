@@ -93,9 +93,15 @@ def _render_template(template_path: Path, context: dict) -> str:
     where a new template field appears before the generator learns it.
     """
     text = template_path.read_text(encoding="utf-8")
-    # Convert {var} placeholders to ${var} for Template, but skip escaped
-    # \{\} so markdown tables with literal braces survive untouched.
-    converted = re.sub(r"(?<!\\)\{([a-zA-Z_][a-zA-Z_0-9]*)\}", r"${\1}", text)
+    # Convert {var} placeholders to ${var} for Template. Three boundaries:
+    #   (?<!\\)   — not preceded by a backslash (skip escaped \{)
+    #   (?<!\{)   — not preceded by another { (skip {{var}} double braces
+    #                which Template leaves literal as long as we don't
+    #                touch the inner one)
+    #   (?!\})    — not followed by a } (skip the closing half of {{var}})
+    converted = re.sub(
+        r"(?<!\\)(?<!\{)\{([a-zA-Z_][a-zA-Z_0-9]*)\}(?!\})", r"${\1}", text
+    )
     return Template(converted).safe_substitute(context)
 
 

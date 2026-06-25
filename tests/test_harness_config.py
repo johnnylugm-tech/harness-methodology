@@ -219,9 +219,11 @@ class TestStallTimeouts:
         assert get_timeout("fr_step") == 600
         assert get_timeout("mutation") == 3600
 
-    def test_get_timeout_unknown_key_returns_fallback(self):
-        """Unknown keys fall back to 600s instead of crashing."""
-        assert get_timeout("nonexistent_key") == 600
+    def test_get_timeout_unknown_key_raises(self):
+        """Unknown keys raise KeyError so a typo can't silently 2x or 6x
+        a subprocess's wallclock. See core.harness_config.get_timeout."""
+        with pytest.raises(KeyError, match="nonexistent_key"):
+            get_timeout("nonexistent_key")
 
     def test_stall_timeouts_values_are_int(self):
         for v in STALL_TIMEOUTS.values():

@@ -2511,8 +2511,15 @@ class HarnessBridge:
         fr_ids: list[str],
         sad_path: str,
         project_root: str | None = None,
-    ) -> Path:
+        force: bool = False,
+    ) -> Path | None:
         """Called at P2 exit. Parses SAD.md -> constraints + high_risk_modules.
+
+        ``force=False`` (default) refuses to overwrite an existing manifest and
+        returns ``None``; the caller decides what to do (preserve is the
+        safer default because the manifest holds accumulated Gate scores
+        that ``plan-all`` does not own). ``force=True`` overwrites and
+        returns the path.
 
         ``project_root`` is the project root the manifest is written under.
         Required: a CWD-relative path would silently corrupt harness state
@@ -2592,6 +2599,8 @@ class HarnessBridge:
                 file=sys.stderr,
             )
         out = Path(project_root) / ".methodology" / "quality_manifest.json"
+        if out.exists() and not force:
+            return None
         out.parent.mkdir(parents=True, exist_ok=True)
         # Atomic write so a SIGKILL mid-flush doesn't corrupt the
         # harness state manifest.

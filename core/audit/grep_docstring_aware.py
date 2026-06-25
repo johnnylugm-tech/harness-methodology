@@ -13,8 +13,8 @@ Pattern is a compiled regex; audit_grep matches line-by-line after
 stripping the requested categories. Line numbers refer to the ORIGINAL
 text so reports can cite real source positions.
 
-Used by:
-  - scripts/shell_audit.py (NFR-02 'no shell=True')
+Planned consumers (not yet wired up):
+  - scripts/shell_audit.py (NFR-02 'no shell=True') — TODO
   - future audits for os.system / eval / pickle.loads / etc.
 """
 from __future__ import annotations

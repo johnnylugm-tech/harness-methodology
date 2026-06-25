@@ -609,14 +609,26 @@ def cmd_plan_all(args: argparse.Namespace) -> int:
 
     # Guard quality_manifest.json from accidental shrink. `plan-all` only
     # regenerates phaseN_plan.md + plan_status.md; it never writes
-    # quality_manifest.json. If a manifest already exists we leave it alone
-    # regardless of --force, because the manifest holds accumulated Gate
-    # scores and shrinking it resets pipeline progress.
+    # quality_manifest.json. If a manifest already exists *and* is a
+    # readable, valid JSON file we leave it alone — because the manifest
+    # holds accumulated Gate scores and shrinking it resets pipeline
+    # progress. An empty file, a directory, a broken symlink, or
+    # non-JSON content all bypass this guard so plan-all can proceed
+    # (the manifest is effectively absent in those cases).
     _manifest = out_dir / "quality_manifest.json"
-    if _manifest.exists():
+    if _manifest.is_file():
+        try:
+            json.loads(_manifest.read_text(encoding="utf-8"))
+            _manifest_usable = True
+        except (OSError, json.JSONDecodeError):
+            _manifest_usable = False
+    else:
+        _manifest_usable = False
+    if _manifest_usable:
         print(
             f"[PRESERVE] {_manifest.name} already exists; "
-            "plan-all does not touch it. Use 'manifest --force' to regenerate."
+            "plan-all does not touch it. Use 'harness_cli manifest --force "
+            "--fr-ids ... --sad ...' to regenerate."
         )
     results = []
     for phase_num in range(1, 9):
@@ -3773,7 +3785,12 @@ def _generate_sab_json(project: Path) -> bool:
         return False
 
 def cmd_manifest(args: argparse.Namespace) -> int:
-    """Generate quality_manifest.json at P2 exit."""
+    """Generate quality_manifest.json at P2 exit.
+
+    Refuses to overwrite an existing manifest unless ``--force`` is passed,
+    because the manifest holds accumulated Gate scores that ``plan-all`` and
+    other commands depend on; shrinking it silently resets pipeline progress.
+    """
     from harness.harness_bridge import HarnessBridge
 
     sad_resolved = Path(args.sad).resolve()
@@ -3796,7 +3813,16 @@ def cmd_manifest(args: argparse.Namespace) -> int:
     out = bridge.generate_quality_manifest(
         fr_ids=fr_ids,
         sad_path=args.sad,
+        project_root=str(project),
+        force=getattr(args, "force", False),
     )
+    if out is None:
+        manifest_path = project / ".methodology" / "quality_manifest.json"
+        print(
+            f"[PRESERVE] {manifest_path.name} already exists; "
+            "use --force to regenerate."
+        )
+        return 0
     print(f"quality_manifest.json written → {out}")
     manifest = json.loads(out.read_text(encoding="utf-8"))
     print(f"  fr_ids        : {manifest['fr_ids']}")
@@ -5958,6 +5984,7 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                     fr_ids=_fr_ids,
                     sad_path=str(sad_path),
                     project_root=str(project),
+                    force=True,
                 )
                 print(
                     f"  [P2→P3] quality_manifest.json regenerated → {_out} "
@@ -5977,6 +6004,28 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                 f"  [P2→P3] {sad_path} not found — manifest regeneration skipped.\n"
                 f"    P3 entry will use the existing manifest. Create SAD.md and run:\n"
                 f"    python3 harness_cli.py manifest --fr-ids FR-XX [...] --sad {sad_path}",
+                file=sys.stderr,
+            )
+
+    # P7→P8: deterministic baseline for CONFIG_RECORDS.md / RELEASE_CHECKLIST.md.
+    # LLM agents had been authoring these from scratch and stalling in P8 (4 stalls
+    # in the workflow record before this change). The deterministic generator
+    # builds both files from state.json + quality_manifest.json + git state;
+    # the LLM agent that runs P8 can then review and append human-only context
+    # instead of re-deriving the whole structure.
+    if next_phase == 8:
+        try:
+            from scripts.phase8_doc_gen import generate as _p8_generate
+            _p8_result = _p8_generate(project)
+            print(
+                f"  [P7→P8] CONFIG_RECORDS.md + RELEASE_CHECKLIST.md generated → "
+                f"{_p8_result['config_path'].parent}"
+            )
+        except Exception as _p8e:  # pylint: disable=broad-exception-caught
+            print(
+                f"  [P7→P8] phase8_doc_gen failed: {_p8e}\n"
+                f"    P8 entry will rely on LLM generation. Investigate:\n"
+                f"    python3 scripts/phase8_doc_gen.py --project {project}",
                 file=sys.stderr,
             )
 
@@ -6008,6 +6057,8 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
         ]
         if _manifest_regenerated:
             _add_targets.append(".methodology/quality_manifest.json")
+        if next_phase == 8:
+            _add_targets += ["08-config/CONFIG_RECORDS.md", "08-config/RELEASE_CHECKLIST.md"]
         add_result = subprocess.run(
             ["git", "-C", str(project), "add", *_add_targets],
             capture_output=True, text=True,
@@ -9972,6 +10023,9 @@ def build_parser() -> argparse.ArgumentParser:
     mf.add_argument("--sad",    default="02-architecture/SAD.md", help="Path to SAD.md")
     mf.add_argument("--no-git", action="store_true", dest="no_git",
                     help="Disable git commit/push after manifest generation")
+    mf.add_argument("--force", action="store_true",
+                    help="Overwrite an existing quality_manifest.json "
+                         "(default: preserve existing manifest)")
     mf.set_defaults(func=cmd_manifest)
 
     # generate-verification-report  (P5 — fixes Finding #16)

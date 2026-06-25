@@ -6,9 +6,10 @@ Currently provides:
     like NFR-02 'no shell=True' do not false-positive on docstring
     text mentioning the forbidden API.
 
-Existing ad-hoc implementations (e.g. scripts/shell_audit.py) should
-be rewritten to use this helper so all audits share the same
-docstring/comment exclusion logic.
+When ``scripts/shell_audit.py`` lands (NFR-02 enforcement), it should
+use this helper so all audits share the same docstring/comment
+exclusion logic. Until then the helper is exposed for tests and
+future audits.
 """
 from core.audit.grep_docstring_aware import (
     Hit,
