@@ -86,6 +86,7 @@ sys.path.insert(0, str(_REPO_ROOT))
 # Atomic state-file writers (CV-3 / SG-12 from robustness audit)
 from core.atomic_io import atomic_write_json, file_lock, state_lock_path  # noqa: E402
 from core.pre_flight import check_cli_tools  # noqa: E402
+from core.harness_config import get_timeout  # noqa: E402
 # Bug #105: framework-owned mutation_testing path. Pyright cannot resolve this
 # import statically (no type stub for core.quality_gate.mutation_enforcer),
 # so we silence reportAttributeAccessIssue here.
@@ -2496,7 +2497,7 @@ def cmd_run_env_check(args: argparse.Namespace) -> int:
             cmd,
             capture_output=True,
             text=True,
-            timeout=300,
+            timeout=get_timeout("subprocess"),
             cwd=str(Path(project).resolve()),
             env=_child_env(),
         )
@@ -5838,7 +5839,7 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
             try:
                 subprocess.run(
                     [_crg_bin, "wiki", "--repo", str(project)],
-                    check=True, capture_output=True, text=True, timeout=300,
+                    check=True, capture_output=True, text=True, timeout=get_timeout("subprocess"),
                 )
                 print("  [CRG] Wiki updated → .code-review-graph/wiki/")
             except Exception as _w:  # non-blocking, but surface the reason (no silent pass)
@@ -6080,7 +6081,7 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
     # Use None sentinel to distinguish "user didn't specify" from explicit --timeout 300.
     _raw_timeout: int | None = args.timeout
     if _raw_timeout is None:
-        _raw_timeout = 1200 if (args.phase in {1, 2} and not is_reviewer) else 300
+        _raw_timeout = get_timeout("task_dev") if (args.phase in {1, 2} and not is_reviewer) else get_timeout("task_default")
     result = spawner.spawn(
         role=args.role,
         prompt=_prompt,
@@ -7258,7 +7259,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
         )
     except (OSError, json.JSONDecodeError, AttributeError):
         pass
-    _fr_timeout = _fr_conf.get("timeout", getattr(args, "timeout", 600))
+    _fr_timeout = _fr_conf.get("timeout", getattr(args, "timeout", get_timeout("fr_step")))
     _fr_max_fix_rounds = _fr_conf.get("max_fix_rounds", getattr(args, "max_fix_rounds", 3))
     _fr_code_fix_max_turns: int | None = _fr_conf.get("code_fix_max_turns")
 

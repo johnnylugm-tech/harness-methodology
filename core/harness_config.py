@@ -67,3 +67,39 @@ def is_dim_disabled(dim_name: str, project_root: "str | Path") -> bool:
     if feat is None:
         return False
     return not get_feature(project_root, feat)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Stall / timeout thresholds — single source of truth
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Before this dict existed, timeouts were hardcoded at 6+ call sites in
+# harness_cli.py and other modules, with values ranging from 300s to 3600s.
+# Adding a new timeout meant grepping every call site; tuning one required
+# editing many files; debugging "why is gate X stalling?" required reading
+# multiple modules. Centralise them here so a future operator can change
+# them in one place and add new keys for new code paths.
+#
+# Keys:
+#   subprocess      subprocess.run timeout (CLI gate runs)
+#   task_default    per-task timeout during normal phases
+#   task_dev        per-task timeout during P1/P2 development (more lenient)
+#   fr_step         default --timeout for `run-fr-step` GATE1-DELTA
+#   mutation        cap on mutation testing run (an entire gate)
+#   state_alert_min base minutes before a phase alerts on no-progress
+#
+# All values are in seconds (or minutes for *_min keys).
+
+STALL_TIMEOUTS: dict[str, int] = {
+    "subprocess": 300,
+    "task_default": 300,
+    "task_dev": 1200,
+    "fr_step": 600,
+    "mutation": 3600,
+    "state_alert_min": 180,
+}
+
+
+def get_timeout(key: str) -> int:
+    """Return the stall/timeout threshold for ``key``, falling back to 600s."""
+    return int(STALL_TIMEOUTS.get(key, 600))
