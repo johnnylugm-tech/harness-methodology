@@ -2030,7 +2030,7 @@ def _print_fr_scoped_overrides_py(
     # only — measuring all 6 modules reports ~17% per FR instead of 100%.
     src_files: list[str] = []
     fr_trace = manifest_data.get("fr_module_traceability", {}).get(fr_id)
-    if fr_trace:
+    if isinstance(fr_trace, str) and fr_trace:
         owned_path = (
             Path(project) / src_dir / Path(fr_trace.replace(".", "/")).with_suffix(".py")
         )
@@ -9527,7 +9527,7 @@ def cmd_audit_structure(args: argparse.Namespace) -> int:
         # digits is all optional so documents written without the [XX]
         # convention still pass.
         if phase_num in _FR_REF_PHASES and not _re.search(
-            r"\[?\(?(?:TASK|FR|NFR)[\s\-_]*\(?(\d+)\]?\)?", content, _re.IGNORECASE
+            r"\[?\(?(?:TASK|FR|NFR)[\s\-_]*\(?(?:\d+)\]?\)?", content, _re.IGNORECASE
         ):
             issues.append("no [TASK/FR/NFR-XX] references")
         return {"quality": "good" if not issues else "suspicious", "issues": issues}

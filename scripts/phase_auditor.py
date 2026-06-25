@@ -1324,7 +1324,7 @@ class PhaseAuditor:
         ))
 
     def _check_risk_status_report_depth(self):
-        content = self._content(["07-risk/RISK_STATUS_REPORT.md", "07-risk/RISK_ASSESSMENT.md"])
+        content = self._content(["07-risk/RISK_STATUS_REPORT.md"])
         if not content:
             return
         h2_count = len(re.findall(r"^## ", content, re.MULTILINE))
