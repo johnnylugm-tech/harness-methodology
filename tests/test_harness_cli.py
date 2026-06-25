@@ -508,7 +508,6 @@ class TestCmdAuditStructure:
     # failed CI on every main push.
 
     def test_p7_artifact_list_uses_three_actual_files(self, tmp_path):
-        from harness_cli import cmd_audit_structure
 
         (tmp_path / "07-risk").mkdir()
         (tmp_path / "07-risk" / "RISK_REGISTER.md").write_text(
@@ -536,7 +535,6 @@ class TestCmdAuditStructure:
 
     def test_p7_artifact_list_does_not_require_risk_assessment(self, tmp_path):
         """RISK_ASSESSMENT.md must NOT be in the P7 required list."""
-        from harness_cli import cmd_audit_structure
 
         (tmp_path / "07-risk").mkdir()
         # Provide only the 3 actual deliverables — no RISK_ASSESSMENT.md.
@@ -561,7 +559,6 @@ class TestCmdAuditStructure:
     # clearly traced requirements.
 
     def test_p4_fr_reference_accepts_variants(self, tmp_path):
-        from harness_cli import cmd_audit_structure
 
         (tmp_path / "04-testing").mkdir()
         # Variant A: hyphen-separated bracket form — canonical
@@ -588,7 +585,6 @@ class TestCmdAuditStructure:
 
     def test_p4_fr_reference_accepts_range_notation(self, tmp_path):
         """Documents using 'FR (01-05)' range notation should pass."""
-        from harness_cli import cmd_audit_structure
 
         (tmp_path / "04-testing").mkdir()
         (tmp_path / "04-testing" / "TEST_PLAN.md").write_text(
@@ -610,7 +606,6 @@ class TestCmdAuditStructure:
 
     def test_p4_fr_reference_still_flags_doc_with_no_reference(self, tmp_path):
         """A P4 doc with zero FR/NFR references must still be flagged."""
-        from harness_cli import cmd_audit_structure
 
         (tmp_path / "04-testing").mkdir()
         (tmp_path / "04-testing" / "TEST_PLAN.md").write_text(
