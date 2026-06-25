@@ -302,7 +302,7 @@ def test_run_tool_dispatches_all_cmds_tools(tmp_path):
         ("gitleaks",   "gitleaks", ["detect"]),
         ("bandit",     "bandit",   ["-r", "-f", "json", "--exit-zero"]),
         ("radon-cc",   "radon",    ["cc", "-j", "--min"]),
-        ("radon-mi",   "radon",    ["mi", "-j"]),
+        ("radon-mi",   "python3",  ["-m", "harness.toolchains.radon_mi_ast_stripped"]),
     ]
     for tool_name, expected_bin, required_flags in tool_checks:
         with patch("subprocess.run", return_value=mock_result) as mock_sp:
