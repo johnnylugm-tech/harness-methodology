@@ -4917,3 +4917,87 @@ class TestSabModuleAlignmentCheck:
         (dev_src / "app").mkdir()
         (dev_src / "app" / "main.py").write_text("x = 1")
         assert _check_sab_module_alignment(str(tmp_path), gate=1) is None
+
+
+# =============================================================================
+# _print_fr_scoped_overrides_py  (FR scope uses fr_module_traceability,
+# not import-based detection — commit pending)
+# =============================================================================
+
+class TestPrintFrScopedOverridesPy:
+    """When ``quality_manifest.json`` declares ``fr_module_traceability[fr_id]``,
+    _print_fr_scoped_overrides_py must scope coverage to that module alone,
+    not to every module imported by the test file. Prior to the fix, a test
+    that imported helpers from other FRs' modules reported ~1/N coverage
+    instead of the true per-module coverage, blocking legitimate GATE1-DELTA
+    re-evaluations in carry-forward phases (P5/P7/P8)."""
+
+    def _setup(self, tmp_path):
+        (tmp_path / ".methodology").mkdir(exist_ok=True)
+        # Project layout: 03-development/{src,tests}/<pkg>/<mod>.py
+        (tmp_path / "03-development" / "src" / "taskq").mkdir(parents=True)
+        (tmp_path / "03-development" / "tests").mkdir(parents=True)
+        for mod in ("cache", "cli", "store"):
+            (tmp_path / "03-development" / "src" / "taskq" / f"{mod}.py").write_text("x = 1")
+        (tmp_path / "03-development" / "tests" / "test_fr04.py").write_text(
+            "from taskq.cli import cmd\n"
+            "from taskq.store import load_task\n"
+            "from taskq.cache import lookup\n"
+        )
+        return tmp_path
+
+    def test_uses_fr_module_traceability_when_present(self, tmp_path, capsys):
+        from harness_cli import _print_fr_scoped_overrides_py
+        self._setup(tmp_path)
+        manifest = {
+            "fr_module_traceability": {"FR-04": "taskq.cache"},
+            "quality_targets": {"min_coverage": 80},
+        }
+        _print_fr_scoped_overrides_py(
+            str(tmp_path), "FR-04",
+            "03-development/tests/test_fr04.py", "03-development/src",
+            manifest, non_code_frs=set(), cov_threshold=80,
+        )
+        out = capsys.readouterr().out
+        # Only the owned module (cache) should appear in the include flag.
+        assert "cache.py" in out
+        assert "cli.py" not in out
+        assert "store.py" not in out
+
+    def test_falls_back_to_imports_when_no_traceability(self, tmp_path, capsys):
+        """No ``fr_module_traceability`` → fall back to import-based detection
+        (preserves backward compatibility for projects that never declared
+        the trace)."""
+        from harness_cli import _print_fr_scoped_overrides_py
+        self._setup(tmp_path)
+        manifest = {"quality_targets": {"min_coverage": 80}}
+        _print_fr_scoped_overrides_py(
+            str(tmp_path), "FR-04",
+            "03-development/tests/test_fr04.py", "03-development/src",
+            manifest, non_code_frs=set(), cov_threshold=80,
+        )
+        out = capsys.readouterr().out
+        # All imported modules (cache, cli, store) appear because no
+        # traceability declares the FR's owned module.
+        for mod in ("cache.py", "cli.py", "store.py"):
+            assert f"{mod}" in out, f"{mod} should appear in fallback scope"
+
+    def test_skips_traceability_when_owned_path_missing(self, tmp_path, capsys):
+        """If fr_module_traceability points to a file that does not exist
+        (e.g. stale trace after refactor), fall back to imports rather than
+        reporting an empty scope."""
+        from harness_cli import _print_fr_scoped_overrides_py
+        self._setup(tmp_path)
+        manifest = {
+            "fr_module_traceability": {"FR-04": "taskq.deleted_module"},
+            "quality_targets": {"min_coverage": 80},
+        }
+        _print_fr_scoped_overrides_py(
+            str(tmp_path), "FR-04",
+            "03-development/tests/test_fr04.py", "03-development/src",
+            manifest, non_code_frs=set(), cov_threshold=80,
+        )
+        out = capsys.readouterr().out
+        # Imports still drive scope when owned path is missing.
+        assert "cache.py" in out
+        assert "cli.py" in out

@@ -2021,8 +2021,27 @@ def _print_fr_scoped_overrides_py(
     cov_threshold: int,
 ) -> None:
     """Print Gate-1 FR-scoped tool commands for a Python project."""
-    # Detect FR-specific source files by parsing the test file's imports.
-    src_files = _fr_source_files_from_imports(Path(project), test_file, src_dir)
+    # Priority 1: fr_module_traceability from manifest (authoritative mapping
+    # FR-XX → owned module). This avoids the import-based scope problem where
+    # a TDD test imports helpers from other FRs' modules, inflating the
+    # scope and diluting coverage. Example: test_fr04.py imports
+    # taskq.{cli, store, executor, config, models, cache} as helpers, but
+    # fr_module_traceability["FR-04"] = "taskq.cache" says FR-04 owns cache
+    # only — measuring all 6 modules reports ~17% per FR instead of 100%.
+    src_files: list[str] = []
+    fr_trace = manifest_data.get("fr_module_traceability", {}).get(fr_id)
+    if fr_trace:
+        owned_path = (
+            Path(project) / src_dir / Path(fr_trace.replace(".", "/")).with_suffix(".py")
+        )
+        if owned_path.exists():
+            src_files = [str(owned_path.relative_to(project))]
+
+    # Priority 2: detect FR-specific source files by parsing the test file's
+    # imports. Used when fr_module_traceability is absent or the owned path
+    # does not exist on disk.
+    if not src_files:
+        src_files = _fr_source_files_from_imports(Path(project), test_file, src_dir)
 
     # Issue 4: manual fr_scope_overrides — merges declared files into scope.
     # Use when __init__.py transitive re-exports can't be auto-detected.
