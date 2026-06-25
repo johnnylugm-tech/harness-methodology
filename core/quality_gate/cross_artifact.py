@@ -21,7 +21,7 @@ import json
 import re
 from pathlib import Path
 from typing import Any, Dict, List
-from core.utils.project_layout import ProjectLayout
+from core.utils.project_layout import ProjectLayout, phase_artifacts as _phase_artifacts
 
 
 # Canonical artifact paths per phase (relative to project root)
@@ -49,11 +49,7 @@ def check_phase_title(project_root: Path, phase: int) -> List[Dict[str, str]]:
             layout.get_relative_str(layout.phase5_verification_dir / "VERIFICATION_REPORT.md"),
         ],
         6: [layout.get_relative_str(layout.phase6_quality_dir / "QUALITY_REPORT.md")],
-        7: [
-            layout.get_relative_str(layout.phase7_risk_dir / "RISK_REGISTER.md"),
-            layout.get_relative_str(layout.phase7_risk_dir / "RISK_MITIGATION_PLANS.md"),
-            layout.get_relative_str(layout.phase7_risk_dir / "RISK_STATUS_REPORT.md"),
-        ],
+        7: _phase_artifacts(7),
         8: [
             layout.get_relative_str(layout.phase8_config_dir / "CONFIG_RECORDS.md"),
             layout.get_relative_str(layout.phase8_config_dir / "RELEASE_CHECKLIST.md"),

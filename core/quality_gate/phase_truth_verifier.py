@@ -24,6 +24,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 from core.utils.project_layout import ProjectLayout
+from core.utils.project_layout import phase_artifacts as _phase_artifacts
 
 # Ensure core/ is on sys.path so sibling quality_gate.* imports resolve
 _script_dir = Path(__file__).resolve().parent  # quality_gate/
@@ -480,11 +481,7 @@ class PhaseTruthVerifier:
                 layout.get_relative_str(layout.verification_report_path),
             ],
             6: [layout.get_relative_str(layout.quality_report_path)],
-            7: [
-                layout.get_relative_str(layout.risk_register_path),
-                layout.get_relative_str(layout.risk_mitigation_plans_path),
-                layout.get_relative_str(layout.risk_status_report_path),
-            ],
+            7: _phase_artifacts(7),
             8: [
                 layout.get_relative_str(layout.config_records_path),
                 layout.get_relative_str(layout.release_checklist_path),

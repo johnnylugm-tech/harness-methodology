@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional, Set
+from core.utils.project_layout import phase_artifacts
 
 
 # ---------------------------------------------------------------------------
@@ -243,7 +244,7 @@ class DriftDetector:
         4: ["04-testing/TEST_PLAN.md", "04-testing/TEST_RESULTS.md"],
         5: ["05-verification/BASELINE.md", "05-verification/VERIFICATION_REPORT.md"],
         6: ["06-quality/QUALITY_REPORT.md"],
-        7: ["07-risk/RISK_REGISTER.md", "07-risk/RISK_MITIGATION_PLANS.md", "07-risk/RISK_STATUS_REPORT.md"],
+        7: phase_artifacts(7),
         8: ["08-config/CONFIG_RECORDS.md", "08-config/RELEASE_CHECKLIST.md"],
     }
 

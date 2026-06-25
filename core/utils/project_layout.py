@@ -1,6 +1,38 @@
 from pathlib import Path
 from typing import Union
 
+# Canonical artifact paths per phase, relative to project root.
+# Single source of truth — every audit/verifier/drift site should consume
+# ``phase_artifacts(n)`` instead of inlining the same string list. Adding
+# or renaming a phase deliverable updates one place, not N.
+PHASE_ARTIFACTS: dict[int, list[str]] = {
+    1: [
+        "01-requirements/SRS.md",
+        "01-requirements/SPEC_TRACKING.md",
+        "01-requirements/TRACEABILITY_MATRIX.md",
+    ],
+    2: ["02-architecture/SAD.md"],
+    3: ["03-development/src/", "03-development/tests/"],
+    4: ["04-testing/TEST_PLAN.md", "04-testing/TEST_RESULTS.md"],
+    5: ["05-verification/BASELINE.md", "05-verification/VERIFICATION_REPORT.md"],
+    6: ["06-quality/QUALITY_REPORT.md"],
+    7: [
+        "07-risk/RISK_REGISTER.md",
+        "07-risk/RISK_MITIGATION_PLANS.md",
+        "07-risk/RISK_STATUS_REPORT.md",
+    ],
+    8: ["08-config/CONFIG_RECORDS.md", "08-config/RELEASE_CHECKLIST.md"],
+}
+
+
+def phase_artifacts(phase_num: int) -> list[str]:
+    """Return a copy of the canonical artifact paths for ``phase_num``.
+
+    Empty list when the phase has no mandatory document artifacts.
+    """
+    return list(PHASE_ARTIFACTS.get(phase_num, []))
+
+
 class ProjectLayout:
     """全域專案路徑解析器 (Single Source of Truth)"""
     def __init__(self, project_root: Union[Path, str]):
@@ -72,12 +104,6 @@ class ProjectLayout:
     def risk_register_path(self) -> Path:          return self.phase7_risk_dir / "RISK_REGISTER.md"
     @property
     def risk_mitigation_plans_path(self) -> Path:  return self.phase7_risk_dir / "RISK_MITIGATION_PLANS.md"
-
-    # Deprecated: Phase 7 produces RISK_REGISTER.md / RISK_MITIGATION_PLANS.md /
-    # RISK_STATUS_REPORT.md. Kept as a back-compat alias pointing at the register
-    # so legacy callers do not crash. New code should use risk_register_path.
-    @property
-    def risk_assessment_path(self) -> Path:        return self.risk_register_path
 
     @property
     def config_records_path(self) -> Path:         return self.phase8_config_dir / "CONFIG_RECORDS.md"

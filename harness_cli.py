@@ -56,6 +56,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import warnings
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Optional
@@ -2028,14 +2029,53 @@ def _print_fr_scoped_overrides_py(
     # taskq.{cli, store, executor, config, models, cache} as helpers, but
     # fr_module_traceability["FR-04"] = "taskq.cache" says FR-04 owns cache
     # only — measuring all 6 modules reports ~17% per FR instead of 100%.
+    # Accepts str or list[str]; malformed entries (".", "..", empty,
+    # path-traversal, non-string) emit a warning and fall back to imports
+    # rather than crashing the audit with ValueError from Path.with_suffix.
     src_files: list[str] = []
     fr_trace = manifest_data.get("fr_module_traceability", {}).get(fr_id)
-    if isinstance(fr_trace, str) and fr_trace:
-        owned_path = (
-            Path(project) / src_dir / Path(fr_trace.replace(".", "/")).with_suffix(".py")
+    trace_entries: list[str] = []
+    if isinstance(fr_trace, str):
+        trace_entries = [fr_trace]
+    elif isinstance(fr_trace, list):
+        non_str = [t for t in fr_trace if not isinstance(t, str)]
+        trace_entries = [t for t in fr_trace if isinstance(t, str)]
+        if non_str:
+            warnings.warn(
+                f"fr_module_traceability[{fr_id}] contains non-string entries; "
+                f"non-string entries ignored",
+                stacklevel=3,
+            )
+    elif fr_trace is not None:
+        warnings.warn(
+            f"fr_module_traceability[{fr_id}] is {type(fr_trace).__name__}, "
+            f"expected str or list[str]; falling back to import-based detection",
+            stacklevel=3,
         )
+
+    for trace in trace_entries:
+        parts = trace.replace("\\", "/").split("/")
+        if not trace or any(p in (".", "..") for p in parts):
+            warnings.warn(
+                f"fr_module_traceability[{fr_id}]={trace!r} is malformed "
+                f"(empty or contains '.' / '..' path segment); skipped",
+                stacklevel=3,
+            )
+            continue
+        try:
+            owned_path = (
+                Path(project) / src_dir
+                / Path(trace.replace(".", "/")).with_suffix(".py")
+            )
+        except ValueError as exc:
+            warnings.warn(
+                f"fr_module_traceability[{fr_id}]={trace!r} produced invalid "
+                f"path ({exc}); skipped",
+                stacklevel=3,
+            )
+            continue
         if owned_path.exists():
-            src_files = [str(owned_path.relative_to(project))]
+            src_files.append(str(owned_path.relative_to(project)))
 
     # Priority 2: detect FR-specific source files by parsing the test file's
     # imports. Used when fr_module_traceability is absent or the owned path
@@ -9434,6 +9474,7 @@ def cmd_audit_structure(args: argparse.Namespace) -> int:
     """
     import json as _json
     import re as _re
+    from core.utils.project_layout import phase_artifacts as _phase_artifacts
 
     project = Path(args.project).resolve()
 
@@ -9456,7 +9497,7 @@ def cmd_audit_structure(args: argparse.Namespace) -> int:
         4: ["04-testing/TEST_PLAN.md", "04-testing/TEST_RESULTS.md"],
         5: ["05-verification/BASELINE.md", "05-verification/VERIFICATION_REPORT.md"],
         6: ["06-quality/QUALITY_REPORT.md"],
-        7: ["07-risk/RISK_REGISTER.md", "07-risk/RISK_MITIGATION_PLANS.md", "07-risk/RISK_STATUS_REPORT.md"],
+        7: _phase_artifacts(7),
         8: ["08-config/CONFIG_RECORDS.md", "08-config/RELEASE_CHECKLIST.md"],
     }
     PHASE_ARTIFACTS = {k: v for k, v in _ALL_PHASE_ARTIFACTS.items() if k <= current_phase}
