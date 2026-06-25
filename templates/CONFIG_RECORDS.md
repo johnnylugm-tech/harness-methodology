@@ -1,43 +1,43 @@
-# CONFIG_RECORDS.md - {Project Name}
+# CONFIG_RECORDS.md - {project_name}
 
 > On-demand Lazy Load template.
 
 ## 1. Version Information
 - Version: v{version}
-- Git Commit: {hash}
-- Release Date: {date}
+- Git Commit: {git_hash}
+- Release Date: {release_date}
 
 ## 2. Runtime Configuration
 | Environment | Config |
 |-------------|--------|
-| Development | {config} |
-| Production | {config} |
+| Development | {{config}} |
+| Production | {{config}} |
 
 ## 3. Dependency List
 ```
-{pip freeze / npm lock output}
+{{pip freeze / npm lock output}}
 ```
 
 ## 4. Environment Variables
 | Variable | Type | Description |
 |----------|------|-------------|
-| {VAR} | secret | {description} |
+| {{VAR}} | secret | {{description}} |
 
 ## 5. Deployment Log
 | Date | Version | Method | Executor |
 |------|---------|--------|----------|
-| {date} | {ver} | {method} | {name} |
+| {release_date} | {version} | {{method}} | {{name}} |
 
 ## 6. Configuration Change Log
 | Phase | Change | Rationale |
 |-------|--------|----------|
-| Phase 8 | {change} | {reason} |
+| Phase 8 | {{change}} | {{reason}} |
 
 ## 7. Rollback SOP
-**Trigger Condition**: {condition}
+**Trigger Condition**: {{condition}}
 **Commands**:
 ```bash
-{rollback commands}
+{{rollback commands}}
 ```
 
 ## 8. Configuration Compliance

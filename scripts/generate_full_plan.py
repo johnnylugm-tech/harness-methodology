@@ -2894,7 +2894,7 @@ def generate_phase8_tasks(repo_path: Path, dynamic: bool = False, gate_meta: "di
         "- **[P8-ARCHIVE]** Create `.methodology-archive/` directory (required for CI `p8-archive-check`):",
         "  ```bash",
         "  mkdir -p .methodology-archive",
-        "  cp -r .sessi-work/ .methodology-archive/",
+        "  cp -r .methodology/ .methodology-archive/",
         "  ```",
         "  > Must run BEFORE `push-milestone --type p8`; `_validate_p8_completion()` in push-milestone auto-verifies.",
         "  > CI job `p8-archive-check` also validates this directory on push to main.",
