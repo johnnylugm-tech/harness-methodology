@@ -4388,12 +4388,12 @@ def _validate_handoff_p4_to_p5(project: Path) -> list[str]:
 
 
 def _validate_handoff_p5_to_p6(project: Path) -> list[str]:
-    """P5→P6: BASELINE.md must exist (same as push-milestone p5-baseline precondition)."""
+    """P5→P6: VERIFICATION_REPORT.md must exist (aligned with plan text)."""
     errors: list[str] = []
-    baseline = project / "05-verification" / "BASELINE.md"
-    if not baseline.exists() and not (project / "BASELINE.md").exists():
+    report = project / "05-verification" / "VERIFICATION_REPORT.md"
+    if not report.exists() and not (project / "VERIFICATION_REPORT.md").exists():
         return [
-            "BASELINE.md missing at 05-verification/BASELINE.md (or BASELINE.md). "
+            "VERIFICATION_REPORT.md missing at 05-verification/VERIFICATION_REPORT.md (or VERIFICATION_REPORT.md). "
             "Phase 5 produces this file via the verify methodology."
         ]
     return errors
@@ -4401,24 +4401,30 @@ def _validate_handoff_p5_to_p6(project: Path) -> list[str]:
 
 def _validate_handoff_p6_to_p7(project: Path) -> list[str]:
     """P6→P7: QUALITY_REPORT.md, RELEASE_NOTES.md, FINAL_SIGN_OFF.md must exist
-    (same artifacts P6 dispatch review covers; also gate4_result.json must be PASS)."""
+    (same artifacts P6 dispatch review covers; also gate4 quality_complete must be True)."""
     errors: list[str] = []
     q6 = project / "06-quality"
     for name in ("QUALITY_REPORT.md", "RELEASE_NOTES.md", "FINAL_SIGN_OFF.md"):
-        if not (q6 / name).exists():
-            errors.append(f"{name} missing at 06-quality/{name}. Phase 6 produces this file.")
-    gate4 = project / ".sessi-work" / "gate4_result.json"
-    if gate4.exists():
+        if not (q6 / name).exists() and not (project / name).exists():
+            errors.append(f"{name} missing at 06-quality/{name} (or root). Phase 6 produces this file.")
+            
+    manifest_path = project / ".methodology" / "quality_manifest.json"
+    if manifest_path.exists():
         try:
             import json as _json
-            _g4 = _json.loads(gate4.read_text(encoding="utf-8"))
-            _verdict = _g4.get("verdict") or _g4.get("summary", {}).get("verdict")
-            if _verdict and _verdict not in ("PASS", "pass"):
-                errors.append(f"gate4 verdict is {_verdict!r} (expected PASS)")
+            manifest = _json.loads(manifest_path.read_text(encoding="utf-8"))
+            gate_results = manifest.get("gate_results") or {}
+            gate4 = gate_results.get("gate4") or {}
+            if not gate4.get("quality_complete"):
+                errors.append(
+                    "Gate 4 not PASS in .methodology/quality_manifest.json "
+                    "(gate_results.gate4.quality_complete is not True). "
+                    "Re-run Phase 6 Gate 4 evaluation."
+                )
         except Exception:  # pylint: disable=broad-exception-caught
             pass  # malformed JSON is a separate concern; don't block handoff
     else:
-        errors.append("gate4_result.json missing; run `finalize-gate --gate 4 --phase 6` first.")
+        errors.append("quality_manifest.json missing; run `finalize-gate --gate 4 --phase 6` first.")
     return errors
 
 
