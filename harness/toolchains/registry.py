@@ -135,6 +135,14 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         human_name="radon (radon-cc)",
         scorer="radon-cc",
     ),
+    "readability-v2": ToolSpec(
+        tool_id="readability-v2",
+        cmd=("python3", "-m", "harness.toolchains.readability_v2", "{root}"),
+        timeout=30,
+        check_cmd="radon --version 2>&1",
+        human_name="radon (readability-v2)",
+        scorer="readability-v2",
+    ),
     "radon-mi": ToolSpec(
         tool_id="radon-mi",
         cmd=("python3", "-m", "harness.toolchains.radon_mi_ast_stripped", "{root}"),
@@ -444,7 +452,7 @@ DIMENSION_TOOLS: dict[str, dict[str, DimensionTool]] = {
         "license_compliance":     "scancode",
         "mutation_testing":       "mutmut",
         "architecture":           "code-review-graph",
-        "readability":            "radon-mi",
+        "readability":            "readability-v2",
         "error_handling":         "ast-error-handling",
         "documentation":          "ast-docstrings",
         "performance":            "pytest-benchmark",

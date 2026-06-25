@@ -258,6 +258,18 @@ def _score_radon_mi(output: str, _returncode: int) -> Optional[float]:
         return None  # Tool crash / non-JSON stderr — cannot score
 
 
+def _score_readability_v2(output: str, _returncode: int) -> Optional[float]:
+    """Score readability_v2 (LLOC-weighted CC)."""
+    import json as _json
+    try:
+        data = _json.loads(output)
+        if "project_score" in data:
+            return float(data["project_score"])
+        return None
+    except (_json.JSONDecodeError, ValueError):
+        return None
+
+
 
 
 def _score_pytest_benchmark(output: str, returncode: int) -> Optional[float]:
