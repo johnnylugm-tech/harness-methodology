@@ -266,11 +266,6 @@ def test_main_preview_not_found():
         mf.assert_called_once()
 
 
-@pytest.mark.skip(reason="main() `else` path creates real instance; covered by test_main_sync_called")
-def test_main_unknown_command():
-    pass
-
-
 def test_generate_with_rules(generator, temp_constitution):
     policies = generator.generate(temp_constitution)
     assert len(policies) == 3
