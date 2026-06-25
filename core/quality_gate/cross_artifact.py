@@ -50,8 +50,9 @@ def check_phase_title(project_root: Path, phase: int) -> List[Dict[str, str]]:
         ],
         6: [layout.get_relative_str(layout.phase6_quality_dir / "QUALITY_REPORT.md")],
         7: [
-            layout.get_relative_str(layout.phase7_risk_dir / "RISK_ASSESSMENT.md"),
             layout.get_relative_str(layout.phase7_risk_dir / "RISK_REGISTER.md"),
+            layout.get_relative_str(layout.phase7_risk_dir / "RISK_MITIGATION_PLANS.md"),
+            layout.get_relative_str(layout.phase7_risk_dir / "RISK_STATUS_REPORT.md"),
         ],
         8: [
             layout.get_relative_str(layout.phase8_config_dir / "CONFIG_RECORDS.md"),

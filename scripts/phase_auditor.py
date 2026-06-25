@@ -215,12 +215,12 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
         "ab_rounds": 1,
         "constitution_type": None,
         "deliverables": [
-            (["07-risk/RISK_STATUS_REPORT.md", "07-risk/RISK_ASSESSMENT.md"],
-             "RISK_STATUS_REPORT.md / RISK_ASSESSMENT.md -- Risk Status Report", True),
             (["07-risk/RISK_REGISTER.md"],
              "RISK_REGISTER.md", True),
             (["07-risk/RISK_MITIGATION_PLANS.md"],
              "RISK_MITIGATION_PLANS.md -- Risk Mitigation Plans", True),
+            (["07-risk/RISK_STATUS_REPORT.md"],
+             "RISK_STATUS_REPORT.md -- Risk Status Report", True),
             ([".methodology/sessions_spawn.log", "sessions_spawn.log"], ".methodology/sessions_spawn.log", False),  # non-blocking: A/B audit removed
             (["00-summary/Phase7_STAGE_PASS.md"],
              "Phase7_STAGE_PASS.md", True),

@@ -365,7 +365,7 @@ def _phase_configs() -> dict[int, PhaseConfig]:
         4: PhaseConfig(phase_num=4, name="Testing", entry_score=75, exit_gate=3, key_artifact="TEST_RESULTS.md", per_fr_gate1=True),
         5: PhaseConfig(phase_num=5, name="Verification", entry_score=80, exit_gate=None, key_artifact="VERIFICATION_REPORT.md", per_fr_gate1=True),
         6: PhaseConfig(phase_num=6, name="Quality", entry_score=85, exit_gate=4, key_artifact="QUALITY_REPORT.md", per_fr_gate1=False),
-        7: PhaseConfig(phase_num=7, name="Risk", entry_score=85, exit_gate=None, key_artifact="RISK_ASSESSMENT.md", per_fr_gate1=True),
+        7: PhaseConfig(phase_num=7, name="Risk", entry_score=85, exit_gate=None, key_artifact="RISK_REGISTER.md", per_fr_gate1=True),
         8: PhaseConfig(phase_num=8, name="Configuration", entry_score=85, exit_gate=None, key_artifact="CONFIG_RECORDS.md", per_fr_gate1=True),
     }
 

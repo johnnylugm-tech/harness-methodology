@@ -33,8 +33,9 @@ PHASE_ARTIFACT_PATHS: Dict[int, List[str]] = {
     ],
     6: [_dummy_layout.get_relative_str(_dummy_layout.quality_report_path)],
     7: [
-        _dummy_layout.get_relative_str(_dummy_layout.risk_assessment_path),
         _dummy_layout.get_relative_str(_dummy_layout.risk_register_path),
+        _dummy_layout.get_relative_str(_dummy_layout.risk_mitigation_plans_path),
+        _dummy_layout.get_relative_str(_dummy_layout.risk_status_report_path),
     ],
     8: [
         _dummy_layout.get_relative_str(_dummy_layout.config_records_path),

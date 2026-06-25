@@ -330,7 +330,7 @@ class FrameworkEnforcer:
             4: {"Phase 4 (VERIFY)":      ["04-testing/TEST_PLAN.md", "04-testing/TEST_RESULTS.md"]},
             5: {"Phase 5 (SYSTEM_TEST)": ["05-verification/BASELINE.md", "05-verification/VERIFICATION_REPORT.md"]},
             6: {"Phase 6 (QUALITY)":     ["06-quality/QUALITY_REPORT.md"]},
-            7: {"Phase 7 (RISK)":        ["07-risk/RISK_ASSESSMENT.md", "07-risk/RISK_REGISTER.md"]},
+            7: {"Phase 7 (RISK)":        ["07-risk/RISK_REGISTER.md", "07-risk/RISK_MITIGATION_PLANS.md", "07-risk/RISK_STATUS_REPORT.md"]},
             8: {"Phase 8 (CONFIG)":      ["08-config/CONFIG_RECORDS.md", "08-config/RELEASE_CHECKLIST.md"]},
         }
         missing = []

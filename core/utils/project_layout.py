@@ -67,11 +67,17 @@ class ProjectLayout:
     def quality_report_path(self) -> Path:         return self.phase6_quality_dir / "QUALITY_REPORT.md"
 
     @property
-    def risk_assessment_path(self) -> Path:        return self.phase7_risk_dir / "RISK_ASSESSMENT.md"
-    @property
     def risk_status_report_path(self) -> Path:     return self.phase7_risk_dir / "RISK_STATUS_REPORT.md"
     @property
     def risk_register_path(self) -> Path:          return self.phase7_risk_dir / "RISK_REGISTER.md"
+    @property
+    def risk_mitigation_plans_path(self) -> Path:  return self.phase7_risk_dir / "RISK_MITIGATION_PLANS.md"
+
+    # Deprecated: Phase 7 produces RISK_REGISTER.md / RISK_MITIGATION_PLANS.md /
+    # RISK_STATUS_REPORT.md. Kept as a back-compat alias pointing at the register
+    # so legacy callers do not crash. New code should use risk_register_path.
+    @property
+    def risk_assessment_path(self) -> Path:        return self.risk_register_path
 
     @property
     def config_records_path(self) -> Path:         return self.phase8_config_dir / "CONFIG_RECORDS.md"

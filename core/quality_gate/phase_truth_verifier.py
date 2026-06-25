@@ -481,8 +481,9 @@ class PhaseTruthVerifier:
             ],
             6: [layout.get_relative_str(layout.quality_report_path)],
             7: [
-                layout.get_relative_str(layout.risk_assessment_path),
                 layout.get_relative_str(layout.risk_register_path),
+                layout.get_relative_str(layout.risk_mitigation_plans_path),
+                layout.get_relative_str(layout.risk_status_report_path),
             ],
             8: [
                 layout.get_relative_str(layout.config_records_path),
