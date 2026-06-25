@@ -4497,6 +4497,12 @@ class TestSubmoduleDriftAdvisory:
         """Create a fake main repo + harness/ submodule with a bare 'origin'
         remote. Returns (project, sub) where project/harness is a real git
         submodule that can be ahead/behind by making local commits.
+
+        Uses ``git update-ref`` instead of ``git push`` to populate the bare
+        repo so the test is portable across CI environments where local
+        transport push may be blocked by safe.directory or receive hooks.
+        Commits are made BEFORE the bare clone so the bare repo already holds
+        the commit objects at clone time.
         """
         import subprocess as sp
         proj = tmp_path
@@ -4509,18 +4515,27 @@ class TestSubmoduleDriftAdvisory:
             sp.run(["git", "-C", str(d), "init", "-q"], check=True)
             sp.run(["git", "-C", str(d), "config", "user.email", "t@t.com"], check=True)
             sp.run(["git", "-C", str(d), "config", "user.name", "T"], check=True)
-        # Bare "origin"
+        # Commit FIRST so bare clone gets the object
+        (sub / "x").write_text("a")
+        sp.run(["git", "-C", str(sub), "add", "."], check=True)
+        sp.run(["git", "-C", str(sub), "commit", "-q", "-m", "init"], check=True)
+        # Bare "origin" — cloned AFTER commit so it already has the object
         bare = tmp_path.parent / (tmp_path.name + "_origin.git")
         sp.run(["git", "clone", "--bare", str(sub), str(bare)],
                check=True, capture_output=True)
         sp.run(["git", "-C", str(sub), "remote", "add", "origin", str(bare)],
                check=True)
-        (sub / "x").write_text("a")
-        sp.run(["git", "-C", str(sub), "add", "."], check=True)
-        sp.run(["git", "-C", str(sub), "commit", "-q", "-m", "init"], check=True)
-        sp.run(["git", "-C", str(sub), "push", "-q", "origin", "HEAD:main"],
-               capture_output=True)
+        # Sync bare/origin HEAD ref to match sub HEAD (transport-independent)
+        head_sha = sp.run(
+            ["git", "-C", str(sub), "rev-parse", "HEAD"],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+        sp.run(
+            ["git", "-C", str(bare), "update-ref", "refs/heads/main", head_sha],
+            check=True,
+        )
         return proj, sub
+
 
     def test_no_warning_when_in_sync(self, tmp_path, capsys):
         """HEAD == origin/main → no drift warning printed."""
@@ -4532,15 +4547,18 @@ class TestSubmoduleDriftAdvisory:
         assert "CI may have applied" not in captured.out
 
     def test_warning_when_local_ahead(self, tmp_path, capsys):
-        """origin has commit not in local → "behind" warning printed."""
+        """origin has commit not in local → "behind" warning printed.
+
+        Simulates a CI-authored commit landing on origin/main by writing
+        a new commit object + updating the bare ref directly with
+        ``git update-ref`` — no push transport required.
+        """
         import subprocess as sp
         from harness_cli import _check_submodule_drift
         proj, sub = self._setup_submodule(tmp_path)
-        # Simulate CI landing a commit on origin/main that local doesn't have:
-        # add a commit on a separate branch, push to origin/main, then reset
-        # local back so local is missing that commit.
         bare = tmp_path.parent / (tmp_path.name + "_origin.git")
-        # Clone origin into a "ci" worktree, push a new commit
+
+        # Build the "ci-fix" commit in a local clone of bare (no network needed)
         ci = tmp_path.parent / (tmp_path.name + "_ci")
         sp.run(["git", "clone", "-q", str(bare), str(ci)], check=True)
         sp.run(["git", "-C", str(ci), "config", "user.email", "ci@ci.com"], check=True)
@@ -4548,14 +4566,30 @@ class TestSubmoduleDriftAdvisory:
         (ci / "y").write_text("ci-fix")
         sp.run(["git", "-C", str(ci), "add", "."], check=True)
         sp.run(["git", "-C", str(ci), "commit", "-q", "-m", "ci-fix"], check=True)
-        sp.run(["git", "-C", str(ci), "push", "-q", "origin", "HEAD:main"],
-               check=True)
+        ci_sha = sp.run(
+            ["git", "-C", str(ci), "rev-parse", "HEAD"],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+
+        # Inject the new commit objects into bare via git fetch (local path, no network)
+        sp.run(
+            ["git", "-C", str(bare), "fetch", str(ci), "HEAD"],
+            check=True, capture_output=True,
+        )
+
+        # Advance origin/main ref — transport-independent
+        sp.run(
+            ["git", "-C", str(bare), "update-ref", "refs/heads/main", ci_sha],
+            check=True,
+        )
+
         # Local sub is unchanged → HEAD still at "init", origin/main at "ci-fix"
         _check_submodule_drift(proj)
         captured = capsys.readouterr()
         assert "harness/ submodule is 1 commit(s) behind origin/main" in captured.out
         assert "CI may have applied test-fix commits" in captured.out
         assert "Pull + bump pointer" in captured.out
+
 
     def test_silent_when_fetch_fails(self, tmp_path, capsys):
         """No origin access (offline) → silently skip, no error."""
