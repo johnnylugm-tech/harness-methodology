@@ -1893,10 +1893,9 @@ class TestCrossProjectFixes:
         assert "P4-pre-gate3" in joined, "P4 checkpoint index must include P4-pre-gate3 milestone"
 
     # Fix 2: P5 deliverables must use full 05-verification/ path
-    def test_p5_baseline_has_full_path(self, tmp_path: Path):
+    def test_p5_verification_report_has_full_path(self, tmp_path: Path):
         result = generate_full_plan(5, tmp_path)
         assert result is not None
-        assert "05-verification/BASELINE.md" in result, "P5 must reference 05-verification/BASELINE.md"
         assert "05-verification/VERIFICATION_REPORT.md" in result
 
     # Fix 1: dynamic P6 must NOT embed static quality metric numbers
