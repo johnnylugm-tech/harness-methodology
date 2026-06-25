@@ -9356,6 +9356,27 @@ def cmd_init_project(args: argparse.Namespace) -> int:
     print(f"{'='*60}")
     print(f"  Phase {phase} → .methodology/state.json")
     print()
+
+    # Improvement C: SAB auto-amend on P3 init.
+    # P3 introduces new modules under 03-development/src/; previously the user
+    # had to hand-edit .methodology/SAB.json to register them, otherwise
+    # `_check_sab_module_alignment` would BLOCK the gate. Run the amender so
+    # the manifest is in sync with the source tree before the user starts TDD.
+    if phase == 3:
+        try:
+            from core.quality_gate.sab_amender import amend_sab
+            added = amend_sab(project)
+            if added:
+                print(f"[SAB AMEND] Added {len(added)} module(s) to "
+                      ".methodology/SAB.json:")
+                for m in added:
+                    print(f"  + {m}")
+                print("  Review layer assignment and commit SAB.json.")
+            else:
+                print("[SAB] No new modules to register (in sync).")
+        except Exception as exc:  # amend is best-effort, never blocks init
+            print(f"[SAB AMEND] Warning: amend failed: {exc}")
+
     for line in _checklist:
         print(line)
     print(f"  Full docs: {harness_root}/INTEGRATION.md")
