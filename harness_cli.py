@@ -9456,7 +9456,7 @@ def cmd_audit_structure(args: argparse.Namespace) -> int:
         4: ["04-testing/TEST_PLAN.md", "04-testing/TEST_RESULTS.md"],
         5: ["05-verification/BASELINE.md", "05-verification/VERIFICATION_REPORT.md"],
         6: ["06-quality/QUALITY_REPORT.md"],
-        7: ["07-risk/RISK_ASSESSMENT.md", "07-risk/RISK_REGISTER.md"],
+        7: ["07-risk/RISK_REGISTER.md", "07-risk/RISK_MITIGATION_PLANS.md", "07-risk/RISK_STATUS_REPORT.md"],
         8: ["08-config/CONFIG_RECORDS.md", "08-config/RELEASE_CHECKLIST.md"],
     }
     PHASE_ARTIFACTS = {k: v for k, v in _ALL_PHASE_ARTIFACTS.items() if k <= current_phase}
@@ -9520,8 +9520,14 @@ def cmd_audit_structure(args: argparse.Namespace) -> int:
         is_yaml = fpath.name.endswith(".yaml") or fpath.name.endswith(".yml")
         if not is_yaml and len(_re.findall(r"(?:^|\n)#{1,6} ", content)) < 2:
             issues.append("< 2 markdown sections")
+        # Accept common FR/NFR reference variants:
+        #   - canonical:  [FR-01], FR-01, FR01, fr_01
+        #   - ranges:     FR (01-05), [FR(01-05)]
+        # The leading bracket, hyphen, underscore or space between letters and
+        # digits is all optional so documents written without the [XX]
+        # convention still pass.
         if phase_num in _FR_REF_PHASES and not _re.search(
-            r"\[?(TASK|FR|NFR)-(\d+)\]?", content, _re.IGNORECASE
+            r"\[?\(?(?:TASK|FR|NFR)[\s\-_]*\(?(\d+)\]?\)?", content, _re.IGNORECASE
         ):
             issues.append("no [TASK/FR/NFR-XX] references")
         return {"quality": "good" if not issues else "suspicious", "issues": issues}

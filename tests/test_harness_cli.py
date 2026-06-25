@@ -501,6 +501,133 @@ class TestCmdAuditStructure:
             "file-initial # header not counted as a section"
         )
 
+    # --- Bug 5 regression: P7 artifact list matches actual workflow output ---
+    # Before the fix, audit-structure required 07-risk/RISK_ASSESSMENT.md which
+    # is NEVER produced by the Phase 7 workflow — it outputs RISK_REGISTER.md,
+    # RISK_MITIGATION_PLANS.md, RISK_STATUS_REPORT.md. The audit therefore
+    # failed CI on every main push.
+
+    def test_p7_artifact_list_uses_three_actual_files(self, tmp_path):
+        from harness_cli import cmd_audit_structure
+
+        (tmp_path / "07-risk").mkdir()
+        (tmp_path / "07-risk" / "RISK_REGISTER.md").write_text(
+            "# Risk Register\n\n## Section\n\n" + "x" * 200
+        )
+        (tmp_path / "07-risk" / "RISK_MITIGATION_PLANS.md").write_text(
+            "# Mitigation Plans\n\n## Section\n\n" + "x" * 200
+        )
+        (tmp_path / "07-risk" / "RISK_STATUS_REPORT.md").write_text(
+            "# Risk Status\n\n## Section\n\n" + "x" * 200
+        )
+
+        data = self._audit_json(tmp_path)
+        p7 = data["dimensions"]["artifact_completeness"]["details"]["P7"]
+        assert p7["all_present"] is True, (
+            f"P7 artifacts should all exist; got {p7}"
+        )
+        expected = {
+            "07-risk/RISK_REGISTER.md",
+            "07-risk/RISK_MITIGATION_PLANS.md",
+            "07-risk/RISK_STATUS_REPORT.md",
+        }
+        actual = {f["path"] for f in p7["files"]}
+        assert actual == expected, f"P7 expected {expected}, got {actual}"
+
+    def test_p7_artifact_list_does_not_require_risk_assessment(self, tmp_path):
+        """RISK_ASSESSMENT.md must NOT be in the P7 required list."""
+        from harness_cli import cmd_audit_structure
+
+        (tmp_path / "07-risk").mkdir()
+        # Provide only the 3 actual deliverables — no RISK_ASSESSMENT.md.
+        (tmp_path / "07-risk" / "RISK_REGISTER.md").write_text("x" * 300)
+        (tmp_path / "07-risk" / "RISK_MITIGATION_PLANS.md").write_text("x" * 300)
+        (tmp_path / "07-risk" / "RISK_STATUS_REPORT.md").write_text("x" * 300)
+
+        data = self._audit_json(tmp_path)
+        p7_files = {
+            f["path"]
+            for f in data["dimensions"]["artifact_completeness"]["details"]["P7"]["files"]
+        }
+        assert "07-risk/RISK_ASSESSMENT.md" not in p7_files, (
+            "RISK_ASSESSMENT.md is not produced by Phase 7 workflow; "
+            "do not require it as a CI artifact"
+        )
+
+    # --- Bug 6 regression: P4 FR-reference regex accepts common variants ---
+    # Before the fix, the regex `\[?(TASK|FR|NFR)-(\d+)\]?` required a hyphen
+    # between the letters and the digits, so TEST_RESULTS.md that referenced
+    # "FR (01–05)" or "fr_01.py" was flagged as suspicious even though it
+    # clearly traced requirements.
+
+    def test_p4_fr_reference_accepts_variants(self, tmp_path):
+        from harness_cli import cmd_audit_structure
+
+        (tmp_path / "04-testing").mkdir()
+        # Variant A: hyphen-separated bracket form — canonical
+        (tmp_path / "04-testing" / "TEST_PLAN.md").write_text(
+            "# Test Plan\n\n## Section\n\n"
+            "Coverage for [FR-01], [FR-02], [NFR-03].\n" + "x" * 200
+        )
+        # Variant B: underscore + lowercase file path reference
+        (tmp_path / "04-testing" / "TEST_RESULTS.md").write_text(
+            "# Test Results\n\n## Section\n\n"
+            "Files test_fr01.py and test_fr02.py and test_fr03.py and "
+            "test_fr04.py and test_fr05.py all pass.\n" + "x" * 200
+        )
+
+        data = self._audit_json(tmp_path)
+        files = {
+            f["path"]: f["quality"]
+            for f in data["dimensions"]["content_quality"]["details"]["P4"]["files"]
+        }
+        assert files["04-testing/TEST_PLAN.md"] == "good"
+        assert files["04-testing/TEST_RESULTS.md"] == "good", (
+            "underscore form 'fr_01.py' should satisfy FR reference check"
+        )
+
+    def test_p4_fr_reference_accepts_range_notation(self, tmp_path):
+        """Documents using 'FR (01-05)' range notation should pass."""
+        from harness_cli import cmd_audit_structure
+
+        (tmp_path / "04-testing").mkdir()
+        (tmp_path / "04-testing" / "TEST_PLAN.md").write_text(
+            "# Test Plan\n\n## Section\n\n"
+            "All FR (01-05) and NFR (01-05) tested.\n" + "x" * 200
+        )
+        (tmp_path / "04-testing" / "TEST_RESULTS.md").write_text(
+            "# Test Results\n\n## Section\n\n175 cases passed.\n" + "x" * 200
+        )
+
+        data = self._audit_json(tmp_path)
+        files = {
+            f["path"]: f["quality"]
+            for f in data["dimensions"]["content_quality"]["details"]["P4"]["files"]
+        }
+        assert files["04-testing/TEST_PLAN.md"] == "good", (
+            "range form 'FR (01-05)' should satisfy FR reference check"
+        )
+
+    def test_p4_fr_reference_still_flags_doc_with_no_reference(self, tmp_path):
+        """A P4 doc with zero FR/NFR references must still be flagged."""
+        from harness_cli import cmd_audit_structure
+
+        (tmp_path / "04-testing").mkdir()
+        (tmp_path / "04-testing" / "TEST_PLAN.md").write_text(
+            "# Test Plan\n\n## Section\n\nAll good.\n" + "x" * 200
+        )
+        (tmp_path / "04-testing" / "TEST_RESULTS.md").write_text(
+            "# Test Results\n\n## Section\n\nAll good.\n" + "x" * 200
+        )
+
+        data = self._audit_json(tmp_path)
+        files = {
+            f["path"]: f["quality"]
+            for f in data["dimensions"]["content_quality"]["details"]["P4"]["files"]
+        }
+        assert files["04-testing/TEST_PLAN.md"] == "suspicious"
+        assert files["04-testing/TEST_RESULTS.md"] == "suspicious"
+
 
 # =============================================================================
 # cmd_audit_structure — init → audit round-trip
