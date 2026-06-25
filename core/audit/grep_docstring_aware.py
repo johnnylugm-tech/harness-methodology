@@ -112,11 +112,11 @@ def strip_docstrings(text: str) -> str:
             first_end_lineno = first.end_lineno or 0
             first_end_col_offset = first.end_col_offset or 0
             start = (
-                sum(len(l) for l in lines[: first_lineno - 1])
+                sum(len(ln) for ln in lines[: first_lineno - 1])
             ) + first.col_offset
             # end of the closing delimiter line + 1 to include its newline.
             end = (
-                sum(len(l) for l in lines[: first_end_lineno - 1])
+                sum(len(ln) for ln in lines[: first_end_lineno - 1])
             ) + first_end_col_offset
             spans.append((start, end))
 
