@@ -137,7 +137,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     ),
     "radon-mi": ToolSpec(
         tool_id="radon-mi",
-        cmd=("radon", "mi", "{root}", "-j"),
+        cmd=("python3", "-m", "harness.toolchains.radon_mi_ast_stripped", "{root}"),
         timeout=30,
         check_cmd="radon --version 2>&1",
         human_name="radon (radon-mi)",
