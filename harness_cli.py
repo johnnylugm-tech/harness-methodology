@@ -2634,6 +2634,14 @@ def _verify_env_check_claims(project: Path) -> "list[str]":
             name = _stripped.split()[0] if _stripped else raw_name
             if not name:
                 continue
+            # v2.13 Bug #123 fix: skip framework-internal subcommands.
+            # Names ending in `.py` (e.g. "harness_cli.py finalize-env-check") are
+            # subcommands of framework scripts, not standalone PATH tools — they
+            # never appear in `shutil.which()` results. Without this skip, every
+            # env-check that reports a framework subcommand FAILs with a false
+            # "fabricated claim" finding, blocking P3/P5/P7 entry.
+            if name.lower().endswith(".py"):
+                continue
             _found = shutil.which(name) is not None
             if not _found:
                 # PATH miss: also check venv-local bin/ and Python import as fallbacks.
