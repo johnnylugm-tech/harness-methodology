@@ -58,7 +58,9 @@ def _seed_manifest_frs(project: Path, frs: list[str]) -> None:
 
 def _seed_fr_sentinel(project: Path, fr_id: str) -> None:
     (project / ".sessi-work" / "sentinels").mkdir(parents=True, exist_ok=True)
-    (project / ".sessi-work" / "sentinels" / f"g1_{fr_id.replace('-', '').lower()}.flag").write_text(
+    # v2.13: per-phase sentinel path (Bug #121). validate-handoff is invoked
+    # from Phase 3+ advance-phase, so write the Phase-scoped sentinel.
+    (project / ".sessi-work" / "sentinels" / f"g1_p3_{fr_id.replace('-', '').lower()}.flag").write_text(
         "test-sentinel\n", encoding="utf-8"
     )
 

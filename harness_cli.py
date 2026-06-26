@@ -1829,28 +1829,54 @@ def cmd_pre_commit_check(args: argparse.Namespace) -> int:
     print("[INFO] Next steps:")
     return 0
 
-def _sentinel_path(project: Path, gate: int, fr_id: str | None) -> Path:
-    """Return the sentinel file path that run-gate writes and finalize-gate verifies."""
+def _sentinel_path(project: Path, gate: int, fr_id: str | None, phase: int | None = None) -> Path:
+    """Return the sentinel file path that run-gate writes and finalize-gate verifies.
+
+    v2.13 sentinel scope fix: include phase in the path so that Gate 1 written
+    by Phase 1 (spec coverage) does NOT satisfy Gate 1 required by Phase 3
+    (code coverage). Without phase, the same `g1_fr01.flag` path is reused
+    across phases and stale Phase 1 sentinels leak into Phase 3 pre-checks.
+
+    Path format:
+      FR-specific:  g{gate}_p{phase}_{fr}.flag    e.g. g1_p3_fr01.flag
+      Phase-level:  g{gate}_p{phase}_phase.flag  e.g. g2_p3_phase.flag (fr_id=None)
+    """
     key = (fr_id or "phase").replace("-", "").lower()
     d = project / ".sessi-work" / "sentinels"
-    return d / f"g{gate}_{key}.flag"
+    if phase is None:
+        # Back-compat: callers that did not pass phase get the legacy path.
+        # New callers MUST pass phase explicitly (see Bug #121).
+        return d / f"g{gate}_{key}.flag"
+    return d / f"g{gate}_p{phase}_{key}.flag"
 
 
-def _finalize_sentinel_path(project: Path, gate: int, fr_id: str | None) -> Path:
-    """Return the sentinel that finalize-gate writes. advance-phase verifies it."""
+def _finalize_sentinel_path(project: Path, gate: int, fr_id: str | None, phase: int | None = None) -> Path:
+    """Return the sentinel that finalize-gate writes. advance-phase verifies it.
+
+    See _sentinel_path for the v2.13 phase-scoping rationale.
+    """
     key = (fr_id or "phase").replace("-", "").lower()
     d = project / ".sessi-work" / "sentinels"
-    
+
+    if phase is not None:
+        return d / f"g{gate}_p{phase}_{key}.finalized"
+
+    # Legacy fallback (no phase provided): prefer the new-style .finalized;
+    # fall back to legacy .flag with hyphen-stripped fr id (Bug #120 compat).
     std_path = d / f"g{gate}_{key}.finalized"
     if fr_id:
         legacy_path = d / f"g{gate}_{fr_id}.flag"
         if not std_path.exists() and legacy_path.exists():
             return legacy_path
-            
+
     return std_path
 
 
-def _write_finalize_sentinels_for_tests(project: Path, fr_ids: list[str] | None = None):
+def _write_finalize_sentinels_for_tests(
+    project: Path,
+    fr_ids: list[str] | None = None,
+    phase: int | None = None,
+):
     """Create the finalize sentinels that advance-phase checks.
 
     Tests that exercise _advance_prechecks must call this BEFORE invoking
@@ -1859,6 +1885,11 @@ def _write_finalize_sentinels_for_tests(project: Path, fr_ids: list[str] | None 
     Creates: Gate 1 per-FR sentinel for each fr_id (auto-detected from
     quality_manifest.json if not provided), plus the phase-exit
     gate sentinel for every known exit gate.
+
+    v2.13: `phase` is the caller's current phase; if provided, sentinels
+    are written under the per-phase path (g1_p{phase}_{fr}.finalized).
+    If None (legacy test path), uses the non-phase-scoped path so old
+    tests that don't know about phases still work.
     """
     frs = list(fr_ids) if fr_ids else []
     if not frs:
@@ -1872,13 +1903,13 @@ def _write_finalize_sentinels_for_tests(project: Path, fr_ids: list[str] | None 
             except (json.JSONDecodeError, OSError):
                 pass
     for _frid in frs:
-        _sf = _finalize_sentinel_path(project, 1, _frid)
+        _sf = _finalize_sentinel_path(project, 1, _frid, phase=phase)
         _sf.parent.mkdir(parents=True, exist_ok=True)
         _sf.write_text("test-sentinel\n", encoding="utf-8")
     # Also write phase-level exit gate sentinels for phases 3,4,6 so any test
     # that advances past these phases has them available.
     for _phase, _gate in sorted(_PHASE_EXIT_GATES.items()):
-        _sf = _finalize_sentinel_path(project, _gate, None)
+        _sf = _finalize_sentinel_path(project, _gate, None, phase=_phase)
         _sf.parent.mkdir(parents=True, exist_ok=True)
         _sf.write_text("test-sentinel\n", encoding="utf-8")
 
@@ -2470,7 +2501,8 @@ def _cmd_run_gate_impl(args: argparse.Namespace) -> int:
 
     # Write sentinel so finalize-gate can verify run-gate was actually called.
     # Without this file, finalize-gate will block to prevent fabricated gate scores.
-    sf = _sentinel_path(Path(project), args.gate, fr_id)
+    # v2.13: pass args.phase so the sentinel is scoped to this phase (Bug #121).
+    sf = _sentinel_path(Path(project), args.gate, fr_id, phase=args.phase)
     sf.parent.mkdir(parents=True, exist_ok=True)
     sf.write_text(f"{datetime.now(timezone.utc).isoformat()}\n", encoding="utf-8")
     print(f"[SENTINEL] {sf.relative_to(Path(project))} written.")
@@ -3090,7 +3122,9 @@ def _finalize_gate_preflight(args: argparse.Namespace, project_path: Path) -> "i
         return 1
 
     # Sentinel: run-gate must have been called before finalize-gate
-    sf = _sentinel_path(project_path, args.gate, fr_id)
+    # v2.13: pass args.phase so the path matches what run-gate wrote
+    # in the same phase (Bug #121 — no cross-phase sentinel reuse).
+    sf = _sentinel_path(project_path, args.gate, fr_id, phase=args.phase)
     if not sf.exists():
         print(
             f"\n[BLOCKED] run-gate --gate {args.gate} --phase {args.phase}"
@@ -3294,7 +3328,9 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
 
         # Write finalize sentinel — advance-phase checks this to prove finalize-gate
         # was actually called (not bypassed by fabricating quality_manifest.json).
-        _fsf = _finalize_sentinel_path(project_path, args.gate, fr_id)
+        # v2.13: pass args.phase so the path matches run-gate's per-phase path
+        # (Bug #121).
+        _fsf = _finalize_sentinel_path(project_path, args.gate, fr_id, phase=args.phase)
         _fsf.parent.mkdir(parents=True, exist_ok=True)
         _fsf.write_text(f"{datetime.now(timezone.utc).isoformat()}\n", encoding="utf-8")
 
@@ -4237,7 +4273,9 @@ def _validate_p3_post_gate2_precondition(
     # successful Gate 1 finalize.
     missing_sentinels: list[str] = []
     for fr_id in fr_ids:
-        sentinel = _sentinel_path(project, 1, fr_id)
+        # v2.13: this precondition is Phase 3-specific (filename _validate_p3_…);
+        # pass phase=3 explicitly so we look for the per-phase path (Bug #121).
+        sentinel = _sentinel_path(project, 1, fr_id, phase=3)
         if not sentinel.exists():
             missing_sentinels.append(fr_id)
     if missing_sentinels:
@@ -5432,7 +5470,9 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
     # Exit gate check (phase-level): Gate 2 for P3, Gate 3 for P4, Gate 4 for P6
     if completed_phase in _PHASE_EXIT_GATES:
         _exit_gate = _PHASE_EXIT_GATES[completed_phase]
-        _fs = _finalize_sentinel_path(project, _exit_gate, None)
+        # v2.13: pass completed_phase so the path matches what finalize-gate
+        # wrote (Bug #121 — no cross-phase sentinel reuse).
+        _fs = _finalize_sentinel_path(project, _exit_gate, None, phase=completed_phase)
         if not _fs.exists():
             _missing_finalize.append(
                 f"Gate {_exit_gate} (phase-exit) — expected {_fs.name}"
@@ -5450,7 +5490,9 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
     if completed_phase >= 3 and _fr_ids_for_finalize:
         _missing_fr_finalize: list[str] = []
         for _frid in _fr_ids_for_finalize:
-            _fs = _finalize_sentinel_path(project, 1, _frid)
+            # v2.13: pass completed_phase so the path matches finalize-gate's
+            # per-phase write (Bug #121).
+            _fs = _finalize_sentinel_path(project, 1, _frid, phase=completed_phase)
             if not _fs.exists():
                 # DELTA auto-skip exemption: if no code changed since last Gate 1,
                 # the per-FR finalize step was never called (correctly). Skip check

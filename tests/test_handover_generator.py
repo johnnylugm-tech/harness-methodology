@@ -1938,7 +1938,8 @@ class TestFinalizeGate1:
         # No sessions_spawn.log — would normally block for P1-P2
         _sentinel_dir = sessi / "sentinels"
         _sentinel_dir.mkdir(parents=True, exist_ok=True)
-        (_sentinel_dir / "g1_fr01.flag").write_text("test")
+        # v2.13: per-phase sentinel path (Bug #121)
+        (_sentinel_dir / "g1_p3_fr01.flag").write_text("test")
 
         import io
         from harness_cli import cmd_finalize_gate

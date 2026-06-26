@@ -34,7 +34,9 @@ def _seed_gate2_pass(project: Path, composite: float = 92.25) -> None:
 
 def _seed_fr_sentinel(project: Path, fr_id: str) -> None:
     (project / ".sessi-work" / "sentinels").mkdir(parents=True, exist_ok=True)
-    (project / ".sessi-work" / "sentinels" / f"g1_{fr_id.replace('-', '').lower()}.flag").write_text(
+    # v2.13: per-phase sentinel path (Bug #121). _validate_p3_post_gate2_precondition
+    # now reads g1_p3_*.flag (Phase-3-scoped Gate 1 sentinel).
+    (project / ".sessi-work" / "sentinels" / f"g1_p3_{fr_id.replace('-', '').lower()}.flag").write_text(
         "test-sentinel\n", encoding="utf-8"
     )
 
