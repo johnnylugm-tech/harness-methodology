@@ -2605,6 +2605,24 @@ def cmd_run_env_check(args: argparse.Namespace) -> int:
         print("[ERROR] env-check agent fabricated claims:\n  " + "\n  ".join(_fab), file=sys.stderr)
         return 1
 
+    # Bug #127 root-cause fix (2026-06-27): reflect the agent's `ready` flag in
+    # this command's exit code so callers (workflows / CI) can branch on `$?`
+    # without spawning a second sub-agent or parsing free-form LLM output.
+    # Previously the command always returned 0 even when the agent wrote
+    # ready=false, forcing every workflow JS to do its own LLM-orchestrator
+    # judgment pass on the result — fragile and prone to hallucinated failures.
+    try:
+        _ready_data = json.loads(result_path.read_text(encoding="utf-8"))
+        _ready = bool(_ready_data.get("ready", False))
+    except (ValueError, OSError):
+        _ready = False
+    if not _ready:
+        print(
+            f"[BLOCKED] env-check sub-agent wrote ready=false. "
+            f"Re-run after fixing the missing items listed in {result_path}."
+        )
+        return 1
+
     print(f"[INFO] env-check complete. Result: {result_path}")
     return 0
 
