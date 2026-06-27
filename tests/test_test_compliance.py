@@ -514,7 +514,7 @@ class TestFinalizeGateCompliance:
         key = fr_id.replace("-", "").lower()
         sentinel_dir = sessi / "sentinels"
         sentinel_dir.mkdir(parents=True, exist_ok=True)
-        (sentinel_dir / f"g{gate}_{key}.flag").write_text("test")
+        (sentinel_dir / f"g{gate}_p{phase}_{key}.flag").write_text("test")
 
     def _run(self, monkeypatch, tmp_path: Path,
              gate: int = 1, phase: int = 3, fr_id: str = "FR-07") -> tuple[int, str]:

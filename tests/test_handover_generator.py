@@ -898,7 +898,7 @@ class TestCmdAdvancePhase:
         else:
             # Create finalize-gate sentinels so the sentinel check passes
             import harness_cli as _hc
-            _hc._write_finalize_sentinels_for_tests(tmp_path)
+            _hc._write_finalize_sentinels_for_tests(tmp_path, phase=completed)
             # PhaseTruthVerifier needs sessions_spawn.log + real project
             # structure — mock it since no tmp_path test provides those.
             class _FakeVer:
@@ -1822,7 +1822,7 @@ class TestFinalizeGate1:
         _sentinel_key = (fr_id or "phase").replace("-", "").lower()
         _sentinel_dir = tmp_path / ".sessi-work" / "sentinels"
         _sentinel_dir.mkdir(parents=True, exist_ok=True)
-        (_sentinel_dir / f"g{gate}_{_sentinel_key}.flag").write_text("test")
+        (_sentinel_dir / f"g{gate}_p{phase}_{_sentinel_key}.flag").write_text("test")
 
         # Disable git ops
         monkeypatch.setattr("harness_cli._make_git",
