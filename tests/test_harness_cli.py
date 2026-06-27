@@ -3189,6 +3189,21 @@ class TestGitTestPatterns:
         (tmp_path / "tests").mkdir()
         patterns = harness_cli._git_test_patterns(tmp_path, "01", "1")
         assert patterns == ["tests/test_fr01.py", "tests/test_fr1.py"]
+        dirs = harness_cli._get_test_directories(tmp_path)
+        assert len(dirs) == 1
+        assert dirs[0].name == "tests"
+
+    def test_canonical_layout_directly(self, tmp_path):
+        """Bug #130: 03-development/tests/ used directly (no symlink) works."""
+        import harness_cli
+        can_tests = tmp_path / "03-development" / "tests"
+        can_tests.mkdir(parents=True)
+        patterns = harness_cli._git_test_patterns(tmp_path, "01", "1")
+        assert "03-development/tests/test_fr01.py" in patterns
+        assert "03-development/tests/test_fr1.py" in patterns
+        dirs = harness_cli._get_test_directories(tmp_path)
+        assert len(dirs) == 1
+        assert dirs[0] == can_tests
 
     def test_symlink_adds_resolved_patterns(self, tmp_path):
         """When tests/ → 03-development/tests/, include git-tracked real paths."""
@@ -3201,6 +3216,9 @@ class TestGitTestPatterns:
         assert "03-development/tests/test_fr01.py" in patterns
         assert "03-development/tests/test_fr1.py" in patterns
         assert len(patterns) == 4
+        dirs = harness_cli._get_test_directories(tmp_path)
+        assert len(dirs) == 1
+        assert dirs[0] == real
 
     def test_symlink_outside_project_ignored(self, tmp_path):
         """Symlink resolving outside project root → ValueError caught, no extra patterns."""

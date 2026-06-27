@@ -681,46 +681,60 @@ def _collect_shared_test_files(project: Path, base: str,
         pass
 
 
+def _get_test_directories(project: Path) -> list[Path]:
+    """Return all valid test directories (resolving symlinks and canonical layout)."""
+    dirs = []
+    
+    # 1. Project root tests/
+    tests_root = project / "tests"
+    if tests_root.is_dir() and not tests_root.is_symlink():
+        dirs.append(tests_root)
+        
+    if tests_root.is_symlink():
+        try:
+            real_tests = tests_root.resolve()
+            if real_tests.is_dir() and real_tests not in dirs:
+                dirs.append(real_tests)
+        except ValueError:
+            pass
+            
+    # 2. Canonical harness layout
+    canonical_tests = project / "03-development" / "tests"
+    if canonical_tests.is_dir():
+        # Avoid duplicate if symlink already resolved to canonical
+        if canonical_tests.resolve() not in [d.resolve() for d in dirs]:
+            dirs.append(canonical_tests)
+            
+    return dirs
+
+
 def _git_test_patterns(project: Path, num: str, num_raw: str) -> list[str]:
     """Return git-tracked test file path patterns, resolving symlinks.
 
-    When ``tests/`` is a symlink (e.g. → 03-development/tests/), git tracks
-    the real path. Without resolution, ``git log -- tests/test_fr01.py``
-    silently returns nothing because git has ``03-development/tests/test_fr01.py``.
-
-    Bug #130 fix (2026-06-27): the canonical harness layout places tests at
-    ``03-development/tests/`` (not ``tests/`` at the project root). Without
-    explicit patterns for ``03-development/tests/``, `git log` returns empty
-    and D1-RED blocks with "tests/test_frNN.py has no git history" even
-    though the file exists at the canonical harness path. Generalized: any
-    project whose test files live under a non-root tests/ directory needs
-    that directory listed alongside the symlink-resolved paths.
+    Bug #130 fix (2026-06-27): canonical harness layout places tests at
+    ``03-development/tests/``. Without explicit patterns for it, `git log`
+    returns empty and D1-RED blocks. We scan all valid test directories
+    returned by `_get_test_directories`.
     """
-    patterns = [f"tests/test_fr{num}.py", f"tests/test_fr{num_raw}.py"]
-    _collect_shared_test_files(project, "tests", patterns)
+    patterns = []
+    # Always include 'tests/' by default to preserve historical behavior
+    test_dirs_rel = ["tests"]
 
-    tests_link = project / "tests"
-    if tests_link.is_symlink():
+    for d in _get_test_directories(project):
         try:
-            real_tests = tests_link.resolve().relative_to(project.resolve())
-            patterns += [
-                f"{real_tests}/test_fr{num}.py",
-                f"{real_tests}/test_fr{num_raw}.py",
-            ]
-            _collect_shared_test_files(project, str(real_tests), patterns)
+            d_rel = str(d.resolve().relative_to(project.resolve()))
+            if d_rel not in test_dirs_rel:
+                test_dirs_rel.append(d_rel)
         except ValueError:
-            pass
+            continue
 
-    # Bug #130: also probe the canonical harness layout `03-development/tests/`
-    # when no `tests/` symlink exists. Some projects use the canonical layout
-    # directly; symlink-resolution alone misses them.
-    canonical_tests = project / "03-development" / "tests"
-    if canonical_tests.is_dir():
-        patterns += [
-            f"03-development/tests/test_fr{num}.py",
-            f"03-development/tests/test_fr{num_raw}.py",
-        ]
-        _collect_shared_test_files(project, "03-development/tests", patterns)
+    for d_rel in test_dirs_rel:
+        patterns.extend([
+            f"{d_rel}/test_fr{num}.py",
+            f"{d_rel}/test_fr{num_raw}.py",
+        ])
+        _collect_shared_test_files(project, d_rel, patterns)
+
     return patterns
 
 
@@ -734,11 +748,15 @@ def _check_fr_test_file_exists(project: Path, fr_id: str) -> tuple[bool, str]:
     if not m:
         return True, ""
     num = m.group(1).zfill(2)
-    test_dir = project / "03-development" / "tests" if (project / "03-development" / "tests").is_dir() else project / "tests"
+    test_dirs = _get_test_directories(project)
+    if not test_dirs:
+        test_dirs = [project / "tests"]  # default fallback
+        
     patterns = [f"test_fr{num}.py", f"test_fr{num.lstrip('0')}.py"]
-    for pat in patterns:
-        if (test_dir / pat).exists():
-            return True, ""
+    for test_dir in test_dirs:
+        for pat in patterns:
+            if (test_dir / pat).exists():
+                return True, ""
     return False, (
         f"[BLOCKED] FR test file missing: tests/test_fr{num}.py\n"
         "  TDD requires a test file BEFORE implementation is merged.\n"
@@ -1097,10 +1115,9 @@ def _run_spec_coverage_check(
     # both scans (dedup via set union) so projects with either layout
     # produce the correct coverage percentage.
     _lang = project_language(project)
-    actual_fns = _scan_test_functions(project / "tests", _lang)
-    _canonical_tests = project / "03-development" / "tests"
-    if _canonical_tests.is_dir():
-        actual_fns |= _scan_test_functions(_canonical_tests, _lang)
+    actual_fns = set()
+    for test_dir in _get_test_directories(project):
+        actual_fns |= _scan_test_functions(test_dir, _lang)
 
     covered = [i for i in items if i["test_fn"] in actual_fns]
     missing = [i for i in items if i["test_fn"] not in actual_fns]
