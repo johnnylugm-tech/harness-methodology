@@ -687,6 +687,14 @@ def _git_test_patterns(project: Path, num: str, num_raw: str) -> list[str]:
     When ``tests/`` is a symlink (e.g. → 03-development/tests/), git tracks
     the real path. Without resolution, ``git log -- tests/test_fr01.py``
     silently returns nothing because git has ``03-development/tests/test_fr01.py``.
+
+    Bug #130 fix (2026-06-27): the canonical harness layout places tests at
+    ``03-development/tests/`` (not ``tests/`` at the project root). Without
+    explicit patterns for ``03-development/tests/``, `git log` returns empty
+    and D1-RED blocks with "tests/test_frNN.py has no git history" even
+    though the file exists at the canonical harness path. Generalized: any
+    project whose test files live under a non-root tests/ directory needs
+    that directory listed alongside the symlink-resolved paths.
     """
     patterns = [f"tests/test_fr{num}.py", f"tests/test_fr{num_raw}.py"]
     _collect_shared_test_files(project, "tests", patterns)
@@ -702,6 +710,17 @@ def _git_test_patterns(project: Path, num: str, num_raw: str) -> list[str]:
             _collect_shared_test_files(project, str(real_tests), patterns)
         except ValueError:
             pass
+
+    # Bug #130: also probe the canonical harness layout `03-development/tests/`
+    # when no `tests/` symlink exists. Some projects use the canonical layout
+    # directly; symlink-resolution alone misses them.
+    canonical_tests = project / "03-development" / "tests"
+    if canonical_tests.is_dir():
+        patterns += [
+            f"03-development/tests/test_fr{num}.py",
+            f"03-development/tests/test_fr{num_raw}.py",
+        ]
+        _collect_shared_test_files(project, "03-development/tests", patterns)
     return patterns
 
 
@@ -1070,7 +1089,18 @@ def _run_spec_coverage_check(
             return (1, 0.0)
 
     from core.utils.lang_patterns import project_language
-    actual_fns = _scan_test_functions(project / "tests", project_language(project))
+
+    # Bug #130 fix (2026-06-27): the canonical harness layout puts tests at
+    # `03-development/tests/`, not `<project>/tests/`. _scan_test_functions
+    # reads only the directory it's pointed at, so without scanning both
+    # paths D4 spec-coverage reports 0% on the canonical layout. Combine
+    # both scans (dedup via set union) so projects with either layout
+    # produce the correct coverage percentage.
+    _lang = project_language(project)
+    actual_fns = _scan_test_functions(project / "tests", _lang)
+    _canonical_tests = project / "03-development" / "tests"
+    if _canonical_tests.is_dir():
+        actual_fns |= _scan_test_functions(_canonical_tests, _lang)
 
     covered = [i for i in items if i["test_fn"] in actual_fns]
     missing = [i for i in items if i["test_fn"] not in actual_fns]
