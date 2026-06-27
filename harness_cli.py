@@ -2669,6 +2669,32 @@ def _verify_env_check_claims(project: Path) -> "list[str]":
                 if _venv and os.path.exists(os.path.join(_venv, "bin", name)):
                     _found = True
                 if not _found:
+                    # Bug #128 root-cause fix (2026-06-27): semantic venv-Python names
+                    # like "venv-python", "python-venv", "venv-python3" are LOGICAL
+                    # names meaning "the Python interpreter inside the project's
+                    # virtualenv", not literal PATH binaries. The agent's claim is
+                    # honest when (a) the running interpreter is itself a venv
+                    # interpreter (`sys.prefix != sys.base_prefix`), or (b) a
+                    # project-local venv (.venv/venv) exists and contains a Python
+                    # binary. Without this fallback, every project using venv-
+                    # semantic naming gets a false "fabricated claim" finding and
+                    # P3/P5/P7 entry is wrongly blocked. Generalization: any name
+                    # whose lowercased tokens contain both "venv" and "python"
+                    # is treated as a venv-Python semantic name.
+                    _name_lc = name.lower()
+                    if "venv" in _name_lc and "python" in _name_lc:
+                        try:
+                            if sys.prefix != getattr(sys, "base_prefix", sys.prefix):
+                                _found = True
+                            else:
+                                for _venv_dir in (".venv", "venv"):
+                                    _cand = project / _venv_dir / "bin" / "python3"
+                                    if _cand.exists():
+                                        _found = True
+                                        break
+                        except Exception:
+                            pass
+                if not _found:
                     # Python package fallback: "import <name>" via the current interpreter.
                     _pkg = name.replace("-", "_")
                     try:
