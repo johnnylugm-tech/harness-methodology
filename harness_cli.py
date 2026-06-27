@@ -2613,7 +2613,7 @@ def cmd_run_env_check(args: argparse.Namespace) -> int:
     # judgment pass on the result — fragile and prone to hallucinated failures.
     try:
         _ready_data = json.loads(result_path.read_text(encoding="utf-8"))
-        _ready = bool(_ready_data.get("ready", False))
+        _ready = bool(_ready_data.get("ready", False)) if isinstance(_ready_data, dict) else False
     except (ValueError, OSError):
         _ready = False
     if not _ready:

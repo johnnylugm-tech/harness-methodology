@@ -903,6 +903,67 @@ class TestVerifyEnvCheckClaims:
         )
 
 
+class TestCmdRunEnvCheck:
+    """Bug #127: cmd_run_env_check exit code reflects ready flag."""
+
+    def _setup_mock_result(self, project, content: str, monkeypatch) -> None:
+        import shutil
+        import subprocess
+        work = project / ".sessi-work"
+        work.mkdir(parents=True, exist_ok=True)
+        (work / "env_check_result.json").write_text(content, encoding="utf-8")
+        monkeypatch.setattr(shutil, "which", lambda x: "/fake/claude")
+        class FakeProc:
+            returncode = 0
+            stderr = ""
+        monkeypatch.setattr(subprocess, "run", lambda *a, **kw: FakeProc())
+
+    def test_ready_true_exits_0(self, tmp_path, monkeypatch, capsys):
+        from harness_cli import cmd_run_env_check
+        self._setup_mock_result(tmp_path, '{"ready": true}', monkeypatch)
+        args = type("Args", (), {"project": str(tmp_path), "phase": 1, "fr_id": None})()
+        monkeypatch.setattr("harness_cli._verify_env_check_claims", lambda p: [])
+        assert cmd_run_env_check(args) == 0
+
+    def test_ready_false_exits_1(self, tmp_path, monkeypatch, capsys):
+        from harness_cli import cmd_run_env_check
+        self._setup_mock_result(tmp_path, '{"ready": false}', monkeypatch)
+        args = type("Args", (), {"project": str(tmp_path), "phase": 1, "fr_id": None})()
+        monkeypatch.setattr("harness_cli._verify_env_check_claims", lambda p: [])
+        assert cmd_run_env_check(args) == 1
+        out, err = capsys.readouterr()
+        assert "[BLOCKED]" in out
+
+    def test_missing_ready_key_exits_1(self, tmp_path, monkeypatch, capsys):
+        from harness_cli import cmd_run_env_check
+        self._setup_mock_result(tmp_path, '{"other": "data"}', monkeypatch)
+        args = type("Args", (), {"project": str(tmp_path), "phase": 1, "fr_id": None})()
+        monkeypatch.setattr("harness_cli._verify_env_check_claims", lambda p: [])
+        assert cmd_run_env_check(args) == 1
+
+    def test_missing_file_exits_1(self, tmp_path, monkeypatch, capsys):
+        from harness_cli import cmd_run_env_check
+        self._setup_mock_result(tmp_path, '{"ready": true}', monkeypatch)
+        (tmp_path / ".sessi-work" / "env_check_result.json").unlink()
+        args = type("Args", (), {"project": str(tmp_path), "phase": 1, "fr_id": None})()
+        monkeypatch.setattr("harness_cli._verify_env_check_claims", lambda p: [])
+        assert cmd_run_env_check(args) == 1
+
+    def test_malformed_json_exits_1(self, tmp_path, monkeypatch, capsys):
+        from harness_cli import cmd_run_env_check
+        self._setup_mock_result(tmp_path, 'not valid json', monkeypatch)
+        args = type("Args", (), {"project": str(tmp_path), "phase": 1, "fr_id": None})()
+        monkeypatch.setattr("harness_cli._verify_env_check_claims", lambda p: [])
+        assert cmd_run_env_check(args) == 1
+
+    def test_json_not_a_dict_exits_1(self, tmp_path, monkeypatch, capsys):
+        from harness_cli import cmd_run_env_check
+        self._setup_mock_result(tmp_path, '["ready"]', monkeypatch)
+        args = type("Args", (), {"project": str(tmp_path), "phase": 1, "fr_id": None})()
+        monkeypatch.setattr("harness_cli._verify_env_check_claims", lambda p: [])
+        assert cmd_run_env_check(args) == 1
+
+
 class TestValidateP8Completion:
     """Tests for _validate_p8_completion pre-flight checks."""
 
