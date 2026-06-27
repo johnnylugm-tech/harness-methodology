@@ -2687,8 +2687,10 @@ def _verify_env_check_claims(project: Path) -> "list[str]":
                             if sys.prefix != getattr(sys, "base_prefix", sys.prefix):
                                 _found = True
                             else:
+                                exe_name = "python.exe" if os.name == "nt" else "python3"
+                                bindir = "Scripts" if os.name == "nt" else "bin"
                                 for _venv_dir in (".venv", "venv"):
-                                    _cand = project / _venv_dir / "bin" / "python3"
+                                    _cand = project / _venv_dir / bindir / exe_name
                                     if _cand.exists():
                                         _found = True
                                         break

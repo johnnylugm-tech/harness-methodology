@@ -902,6 +902,54 @@ class TestVerifyEnvCheckClaims:
             "not be flagged as fabrication just because it's not on PATH"
         )
 
+    def test_venv_python_fallback_active_venv(self, tmp_path, monkeypatch):
+        """Bug #128: semantic venv-python passes if active venv is detected."""
+        from harness_cli import _verify_env_check_claims
+        import sys
+        self._write(tmp_path, {"cli_tools": {"required": [{"name": "venv-python", "present": True}]}})
+        monkeypatch.setattr(sys, "prefix", "/mock/venv")
+        monkeypatch.setattr(sys, "base_prefix", "/mock/base")
+        assert _verify_env_check_claims(tmp_path) == []
+
+    def test_venv_python_fallback_inactive_unix(self, tmp_path, monkeypatch):
+        """Bug #128: semantic venv-python passes if inactive venv exists (Unix)."""
+        from harness_cli import _verify_env_check_claims
+        import sys
+        import os
+        self._write(tmp_path, {"cli_tools": {"required": [{"name": "python-venv", "present": True}]}})
+        monkeypatch.setattr(sys, "prefix", "/mock/base")
+        monkeypatch.setattr(sys, "base_prefix", "/mock/base")
+        monkeypatch.setattr(os, "name", "posix")
+        (tmp_path / ".venv" / "bin").mkdir(parents=True)
+        (tmp_path / ".venv" / "bin" / "python3").touch()
+        assert _verify_env_check_claims(tmp_path) == []
+
+    def test_venv_python_fallback_inactive_windows(self, tmp_path, monkeypatch):
+        """Bug #128: semantic venv-python passes if inactive venv exists (Windows)."""
+        from harness_cli import _verify_env_check_claims
+        import sys
+        import os
+        self._write(tmp_path, {"cli_tools": {"required": [{"name": "venv-python3", "present": True}]}})
+        monkeypatch.setattr(sys, "prefix", "/mock/base")
+        monkeypatch.setattr(sys, "base_prefix", "/mock/base")
+        monkeypatch.setattr(os, "name", "nt")
+        (tmp_path / ".venv" / "Scripts").mkdir(parents=True)
+        (tmp_path / ".venv" / "Scripts" / "python.exe").touch()
+        assert _verify_env_check_claims(tmp_path) == []
+
+    def test_venv_python_fallback_fails(self, tmp_path, monkeypatch):
+        """Bug #128: semantic venv-python fails if no venv detected."""
+        from harness_cli import _verify_env_check_claims
+        import sys
+        import os
+        self._write(tmp_path, {"cli_tools": {"required": [{"name": "venv-python", "present": True}]}})
+        monkeypatch.setattr(sys, "prefix", "/mock/base")
+        monkeypatch.setattr(sys, "base_prefix", "/mock/base")
+        monkeypatch.setattr(os, "name", "posix")
+        findings = _verify_env_check_claims(tmp_path)
+        assert len(findings) == 1
+        assert "venv-python" in findings[0]
+
 
 class TestCmdRunEnvCheck:
     """Bug #127: cmd_run_env_check exit code reflects ready flag."""
