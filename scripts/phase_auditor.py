@@ -943,7 +943,7 @@ class PhaseAuditor:
             return
 
         # FR count
-        fr_matches = re.findall(r"FR-\d+", content)
+        fr_matches = re.findall(r"\bFR-\d+\b", content)
         fr_count = len(set(fr_matches))
         min_fr = self.spec.get("min_fr_count", 3)
         if fr_count >= min_fr:
@@ -1055,7 +1055,7 @@ class PhaseAuditor:
 
         # FR coverage: cross-check every FR-ID from SRS.md appears in the matrix
         srs = self._content(["01-requirements/SRS.md"]) or ""
-        srs_frs = sorted(set(re.findall(r"FR-\d+", srs)))
+        srs_frs = sorted(set(re.findall(r"\bFR-\d+\b", srs)))
         if srs_frs:
             missing_frs = [fr for fr in srs_frs if fr not in content]
             covered = len(srs_frs) - len(missing_frs)
@@ -1132,7 +1132,7 @@ class PhaseAuditor:
         if not fr_ids:
             # Fallback: extract from SRS.md
             srs = self._content(["01-requirements/SRS.md"]) or ""
-            fr_ids = sorted(set(re.findall(r"FR-\d+", srs)))
+            fr_ids = sorted(set(re.findall(r"\bFR-\d+\b", srs)))
 
         if not fr_ids:
             self.result.add(Finding(
