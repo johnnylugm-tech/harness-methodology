@@ -2,7 +2,33 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+from pathlib import Path
 from typing import Union
+
+def check_submodule_safety(submodule_path: Path = Path("harness")) -> tuple[bool, str]:
+    """Step 0 of pre-flight: detect uncommitted edits in the harness/ submodule
+    that `git submodule update --remote` would silently clobber.
+
+    Returns (ok, diagnostic). On failure, diagnostic is a remediation message
+    that includes the count of uncommitted files and the exact paths.
+
+    This is a hard-fail (returns False) when edits exist; callers should raise.
+    Silent skip when the path is not a submodule (project-side harness CLI).
+    """
+    from core.submodule_guard import check_uncommitted_edits, is_submodule
+    if not is_submodule(submodule_path):
+        return True, "not-a-submodule-skip"
+    edits = check_uncommitted_edits(submodule_path)
+    if not edits:
+        return True, "ok"
+    sample = ", ".join(str(p) for p in edits[:5])
+    more = f" (+{len(edits) - 5} more)" if len(edits) > 5 else ""
+    return False, (
+        f"harness/ submodule has {len(edits)} uncommitted edit(s): "
+        f"{sample}{more}. "
+        f"Commit submodule changes first, or use "
+        f"`git submodule update --remote --no-fetch` to preserve."
+    )
 
 def check_env_vars(required_keys: list[str]) -> list[str]:
     """Check if required environment variables are set. Returns list of missing keys."""

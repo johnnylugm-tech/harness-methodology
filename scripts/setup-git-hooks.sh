@@ -218,6 +218,76 @@ echo -e "${GREEN}OK${NC} Created post-merge hook"
 
 
 # =============================================================================
+# pre-commit Hook (improvement E2)
+# =============================================================================
+# Triggered before commit.
+# Detect uncommitted edits in the harness/ submodule before they can be lost
+# to `git submodule update --remote`. Non-fatal: prints warning + remediation
+# but does NOT block the commit (commit-blocking is done by pre_flight at
+# phase advance). The flag --mode=check-edits keeps the hook side-effect-free.
+# =============================================================================
+
+PRE_COMMIT_HOOK="$HOOKS_DIR/pre-commit"
+
+cat > "$PRE_COMMIT_HOOK" << 'HOOK_SCRIPT'
+#!/bin/bash
+# =============================================================================
+# pre-commit hook — submodule guard
+# =============================================================================
+# Detects uncommitted edits in harness/ submodule. Warns (does NOT block)
+# the developer with remediation steps. The hard-raise behavior lives in
+# pre_flight.check_submodule_safety, called from advance-phase.
+# =============================================================================
+
+set -e
+
+# Unset git worktree env vars so all git commands resolve to this repo
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
+
+# Get project root directory
+PROJECT_ROOT=$(git rev-parse --show-toplevel)
+
+# Auto-detect harness/ submodule
+if [ -d "$PROJECT_ROOT/harness" ]; then
+    SUBMODULE="$PROJECT_ROOT/harness"
+elif [ -f "$PROJECT_ROOT/.gitmodules" ]; then
+    # First submodule listed wins
+    SUBMODULE=$(git config --file "$PROJECT_ROOT/.gitmodules" --get-regexp '^submodule\..*\.path$' | head -1 | awk '{print $2}' | sed "s|^|$PROJECT_ROOT/|")
+else
+    SUBMODULE=""
+fi
+
+if [ -z "$SUBMODULE" ] || [ ! -d "$SUBMODULE" ]; then
+    exit 0  # no submodule → skip
+fi
+
+# Detect venv-aware Python
+if [ -f "$PROJECT_ROOT/.venv/bin/python" ]; then
+    PYTHON="$PROJECT_ROOT/.venv/bin/python"
+elif [ -f "$PROJECT_ROOT/.venv/bin/python3" ]; then
+    PYTHON="$PROJECT_ROOT/.venv/bin/python3"
+else
+    PYTHON="python3"
+fi
+
+# Run submodule guard check-edits mode (non-blocking, prints to stdout)
+EDITS=$("$PYTHON" -m core.submodule_guard --submodule "$SUBMODULE" --mode check-edits 2>/dev/null || true)
+if [ -n "$EDITS" ]; then
+    echo "[submodule-guard] WARNING: harness/ submodule has uncommitted edit(s):"
+    echo "$EDITS" | sed 's/^/  /'
+    echo "  These would be lost on 'git submodule update --remote'."
+    echo "  Commit them first, or use --no-fetch to preserve."
+fi
+
+exit 0
+HOOK_SCRIPT
+
+chmod +x "$PRE_COMMIT_HOOK"
+
+echo -e "${GREEN}OK${NC} Created pre-commit hook (submodule guard)"
+
+
+# =============================================================================
 # pre-push Hook (optional)
 # =============================================================================
 # Triggered before push.
@@ -342,6 +412,7 @@ echo "=============================================="
 echo ""
 echo "Hooks installed:"
 echo "  - prepare-commit-msg: Block commits if Phase not passed"
+echo "  - pre-commit: Warn on uncommitted submodule edits (improvement E2)"
 echo "  - post-merge: Check Phase status after merge"
 echo "  - pre-push: Check before pushing"
 echo ""

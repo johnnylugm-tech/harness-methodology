@@ -5472,38 +5472,17 @@ def _check_submodule_drift(project: Path) -> None:
     """Phase 6 improvement #3: detect when harness/ submodule HEAD is behind
     origin/main (e.g. CI auto-fix landed). Prints actionable warning.
     Non-blocking — silent skip when offline / no origin access.
+
+    Bug fix E (improvement E2 of plan): delegated to core.submodule_guard
+    so the same logic is shared with pre_flight.check_submodule_safety and
+    the optional pre-commit hook. HEAD-behind remains non-blocking; only
+    uncommitted-edit detection is a hard raise.
     """
+    from core.submodule_guard import check_behind_remote
     _sub = project / "harness"
-    if not ((_sub / ".git").exists() or (project / ".gitmodules").exists()):
-        return
-    _fetch = subprocess.run(
-        ["git", "-C", str(_sub), "fetch", "origin"],
-        capture_output=True, text=True, timeout=30,
-    )
-    if _fetch.returncode != 0:
-        return  # offline / no creds → silent
-    _local = subprocess.run(
-        ["git", "-C", str(_sub), "rev-parse", "HEAD"],
-        capture_output=True, text=True, timeout=10,
-    )
-    _remote = subprocess.run(
-        ["git", "-C", str(_sub), "rev-parse", "origin/main"],
-        capture_output=True, text=True, timeout=10,
-    )
-    if _local.returncode != 0 or _remote.returncode != 0:
-        return
-    _local_sha = _local.stdout.strip()
-    _remote_sha = _remote.stdout.strip()
-    if _local_sha == _remote_sha:
-        return
-    _rev_list = subprocess.run(
-        ["git", "-C", str(_sub), "rev-list",
-         "--left-right", "--count", f"{_local_sha}...{_remote_sha}"],
-        capture_output=True, text=True, timeout=10,
-    )
-    if _rev_list.returncode != 0:
-        return
-    _behind = _rev_list.stdout.strip().split()[1]
+    _behind = check_behind_remote(_sub)
+    if _behind <= 0:
+        return  # offline (-1) or already up to date (0) → silent
     print(
         f"\n[WARN] harness/ submodule is {_behind} commit(s) behind "
         f"origin/main. CI may have applied test-fix commits."
@@ -5529,6 +5508,7 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
       15 = Phase{N+1}_plan.md not found (generate-next-plan not run)
       16 = Constitution postflight below phase threshold (all phases)
       17 = Unresolved deferred fixes in deferred_fixes.md (P3+)
+      18 = Submodule guard: harness/ has uncommitted edits that would be clobbered
     """
     # ── P1 checksum: TEST_INVENTORY.yaml baseline ────────────────────
     if completed_phase == 1:
@@ -5875,6 +5855,17 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
             )
             print(f"  Install: pip install {' '.join(_missing_pkgs)}")
             print("  (Non-blocking — integration tests will fail without these)")
+
+    # ── Submodule guard (improvement E2) ───────────────────────────────
+    # Detect uncommitted edits in harness/ submodule before `git submodule
+    # update --remote` would silently clobber them. Hard-fail (exit 18) on
+    # unsafe state. Silent skip when path is not a submodule (project-side
+    # harness CLI uses pre_flight.check_submodule_safety directly).
+    from core.pre_flight import check_submodule_safety
+    _sub_safe, _sub_diag = check_submodule_safety(project / "harness")
+    if not _sub_safe:
+        print(f"\n[BLOCKED] {_sub_diag}")
+        return 18
 
     # ── Submodule drift advisory (non-blocking) ──────────────────────
     _check_submodule_drift(project)
