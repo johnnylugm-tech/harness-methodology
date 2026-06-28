@@ -1,0 +1,69 @@
+# Deliverable schema — authoritative H1 / diskPrefix contract.
+#
+# Bug C (improvement C of 5-point plan): `diskPrefix` was a hardcoded string
+# in each workflow JS cfg (phase1-requirements.js srsCfg/specTrackCfg/
+# traceCfg/testInvCfg). The H1 text the loader regex expected did NOT match
+# the actual H1 A wrote, AND did NOT match the template stub H1. Three sources
+# of truth drifted independently.
+#
+# This schema fixes that by declaring per-deliverable:
+#   disk_prefix: the EXACT substring the workflow JS loader regex expects
+#                on an H1 line (per Bug C, this is the semantic phrase A
+#                is told to use).
+#   template_h1: the EXACT first line of harness/templates/<file>. Used as
+#                a baseline; if A's deliverable H1 deviates from the
+#                template, that's intentional — workflow JS prompt must
+#                instruct A to use disk_prefix instead.
+#   expected_actual_h1_pattern: the regex the live deliverable (e.g.
+#                01-requirements/SRS.md) should match after A's first
+#                authoring round.
+#
+# Commonality: per-deliverable, not per-phase. SRS.md is used by P1, P2,
+# P3, P4 — schema is the authority for all of them.
+
+deliverables:
+
+  SRS:
+    disk_path_segment: 01-requirements/SRS.md
+    template_path: SRS.md
+    disk_prefix: "Software Requirements Specification"
+    template_h1: "# SRS - {Project Name}"
+    template_h1_pattern: "^#\s+SRS\s+-\s+\{Project Name\}"
+    expected_actual_h1_pattern: "^#\s+Software Requirements Specification"
+    workflow_js_var: "srsCfg.diskPrefix"
+    phase_usage: [1, 2, 3, 4]
+
+  SPEC_TRACKING:
+    disk_path_segment: 01-requirements/SPEC_TRACKING.md
+    template_path: SPEC_TRACKING.md
+    disk_prefix: "Specification Tracking Matrix"
+    template_h1: "# SPEC_TRACKING.md"
+    template_h1_pattern: "^#\s+SPEC_TRACKING\.md\b"
+    expected_actual_h1_pattern: "^#\s+Specification Tracking Matrix"
+    workflow_js_var: "specTrackCfg.diskPrefix"
+    phase_usage: [1, 2, 3]
+
+  TRACEABILITY_MATRIX:
+    disk_path_segment: 01-requirements/TRACEABILITY_MATRIX.md
+    template_path: TRACEABILITY_MATRIX.md
+    disk_prefix: "Traceability Matrix"
+    template_h1: "# TRACEABILITY_MATRIX.md"
+    template_h1_pattern: "^#\s+TRACEABILITY_MATRIX\.md\b"
+    expected_actual_h1_pattern: "^#\s+Traceability Matrix"
+    workflow_js_var: "traceCfg.diskPrefix"
+    phase_usage: [1, 2, 3, 4]
+
+  TEST_INVENTORY:
+    disk_path_segment: TEST_INVENTORY.yaml
+    template_path: TEST_INVENTORY.yaml
+    disk_prefix: "# TEST_INVENTORY.yaml"
+    template_h1: "# TEST_INVENTORY.yaml — P1 Naming Authority"
+    template_h1_pattern: "^#\s+TEST_INVENTORY\.yaml\b"
+    expected_actual_h1_pattern: "^#\s+TEST_INVENTORY\.yaml\b"
+    workflow_js_var: "testInvCfg.diskPrefix"
+    phase_usage: [1, 2, 3, 4]
+    notes: |
+      YAML files have no H1 concept. The disk_prefix '# TEST_INVENTORY.yaml'
+      is a comment-based anchor that MUST appear on the first line of the
+      file (Bug C fix #138). The check_methodology_consistency.py validator
+      asserts this matches the template_h1 first line within 1 line tolerance.

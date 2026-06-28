@@ -1,0 +1,50 @@
+# Methodology rule registry — single source of truth for plan source, workflow
+# JS prompts, and B-1 / B-2 reviewer checklists.
+#
+# Bug A (improvement A of 5-point plan): the same rule (Canonical
+# Interpretation, Severity Rubric, No-Prescription) lived in 3 places — the
+# plan source string in generate_full_plan.py:572/579, the workflow JS
+# srsAPrompt / srsBChecklist literals in .claude/workflows/phase*.js, and the
+# B-2 reviewer prompt. Drift between them was the root cause of the original
+# P1 HR-12 deadlock on ambiguous canonical phrases.
+#
+# Each rule has:
+#   id: kebab-case identifier (R-CANONICAL-INTERP-001 form)
+#   text: canonical text. The plan source and workflow JS prompts embed this
+#         text in their respective surfaces; the check_methodology_consistency.py
+#         tool verifies byte-equality across surfaces via @rule markers.
+#   surfaces: which surfaces must carry this rule text. One of:
+#       plan_task_hint — generate_full_plan.py task_hint block for the matching deliverable
+#       plan_checks — generate_full_plan.py checks[] for the matching deliverable
+#       workflow_a_prompt — .claude/workflows/phase*.js *APrompt literal
+#       workflow_b_checklist — .claude/workflows/phase*.js *BChecklist literal
+#       constitution_doc — harness/constitution/CONSTITUTION.md §X
+#
+# Adding a new rule:
+#   1. Add an entry here.
+#   2. Add a `<!-- @rule R-X -->` marker in the plan source text that wraps the
+#      canonical text (see generate_full_plan.py:572 for the pattern).
+#   3. Add a `// @rule R-X` marker in the workflow JS prompt that wraps the
+#      same canonical text (see .claude/workflows/phase1-requirements.js srsAPrompt).
+#   4. Run `python3 harness/scripts/check_methodology_consistency.py` — it will
+#      refuse to pass unless all surfaces agree byte-equal.
+
+rules:
+
+  R-CANONICAL-INTERP-001:
+    text: |
+      CANONICAL INTERPRETATION RULE (anti-over-specification — fixes B-2 false-positive on ambiguous canonical): when the canonical spec uses ambiguous terms (e.g. 'excluding subprocess execution', 'retry on failed/timeout', 'last N chars'), Agent A MUST transcribe the verbatim canonical phrase into the AC, NOT interpret what the phrase means in implementation. Fidelity-preserving template: '<verbatim canonical phrase> — measurement / interpretation boundary is owned by the test harness per <canonical line>.' DERIVED tag: when A makes any interpretation choice beyond verbatim canonical, A MUST mark it 'DERIVED: <canonical-line> — <one-line rationale>' and cite <canonical-line> immediately above the AC. Forbidden: prescriptive clauses added by A alone when canonical uses ambiguous terms. If A cannot transcribe verbatim without interpretation, emit NFR-99.
+    surfaces: [plan_task_hint, workflow_a_prompt, constitution_doc]
+    applies_to_deliverables: [SRS.md]
+
+  R-SEVERITY-RUBRIC-001:
+    text: |
+      SEVERITY RUBRIC for B gaps (B-1 calibration): high = A added a NEW requirement / AC not derivable from any canonical sentence (real_invention); medium = A over-specified an ambiguous canonical clause (over_interpretation, lacks DERIVED tag / NFR-99 deferral); low = methodology / process artifacts (sha256, PI regex tables, 'Methodology pin') or minor canonical-citation gaps. Apply this rubric when grading A's deliverable — do not let 'over-interpretation' auto-escalate to high.
+    surfaces: [plan_checks, workflow_b_checklist]
+    applies_to_deliverables: [SRS.md]
+
+  R-NO-PRESCRIPTION-001:
+    text: |
+      NO-PRESCRIPTION RULE (anti-methodology-injection): Agent A MUST NOT add methodology/process artifacts to the deliverable that are not required by SRS scope (e.g. prompt-injection regex tables, sha256 hashes of canonical files, 'Methodology pin' sections). These are workflow internals; they belong in .sessi-work/ debug artifacts, NOT in SRS.md. Exception: SRS §8 Open Issues MAY reference the prompt-injection scan outcome as a one-line summary only.
+    surfaces: [plan_task_hint, workflow_a_prompt]
+    applies_to_deliverables: [SRS.md]
