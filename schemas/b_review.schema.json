@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://harness-methodology/schemas/b_review.schema.json",
+  "title": "B Reviewer Output — workflow JS sub-task B-2 surface",
+  "description": "Validates the JSON that workflow JS agents (phase1-requirements.js, etc.) parse from the B sub-agent round. Required by review_schema_validator.validate_b_output() and enforced by auto_fix.dispatch() to distinguish real_invention from over_interpretation gaps.",
+  "type": "object",
+  "required": ["review_status", "gaps"],
+  "properties": {
+    "review_status": {
+      "type": "string",
+      "enum": ["APPROVE", "REJECT", "CANCELLED"],
+      "description": "APPROVE = gaps exist but tolerable; REJECT = blocking failure; CANCELLED = framework-level error (schema violation, dispatch failure)."
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Reviewer self-rated confidence. Optional in workflow JS surface but used by review_schema_validator for synthesis."
+    },
+    "summary": {
+      "type": "string",
+      "description": "Free-text rationale. Optional."
+    },
+    "reason": {
+      "type": "string",
+      "description": "Workflow-JS surface uses 'reason' instead of 'summary' for B-2 concise rationale. Either-or accepted."
+    },
+    "citations": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Optional list of file:line references supporting the review."
+    },
+    "docs_embedded": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Optional list of docs the reviewer cross-checked."
+    },
+    "gaps": {
+      "type": "array",
+      "description": "Structured gap list. Each gap MUST carry evidence_type so the framework can distinguish real invention (escalates to high) from over-interpretation (auto-fix path) from methodology artifacts (silent low).",
+      "items": {
+        "type": "object",
+        "required": ["severity", "evidence_type", "canonical_ref", "message"],
+        "properties": {
+          "severity": {
+            "type": "string",
+            "enum": ["low", "medium", "high"],
+            "description": "high = real_invention (real new requirement); medium = over_interpretation (ambiguous canonical, missing DERIVED tag / NFR-99); low = methodology_artifact (sha256, regex tables, 'Methodology pin')."
+          },
+          "evidence_type": {
+            "type": "string",
+            "enum": ["real_invention", "over_interpretation", "methodology_artifact"],
+            "description": "Required classifier. Tells framework which fix strategy to dispatch. real_invention → HR-12 escalate; over_interpretation → fix_over_interpretation_gap; methodology_artifact → silent low."
+          },
+          "canonical_ref": {
+            "type": "string",
+            "description": "Pointer to SPEC.md / canonical source (file:line, section ID, or FR/NFR ID). Empty string allowed only when evidence_type=methodology_artifact."
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable gap description."
+          },
+          "fr_id": {
+            "type": ["string", "null"],
+            "description": "Optional: which FR this gap belongs to. Null allowed when gap is project-wide."
+          }
+        }
+      }
+    }
+  }
+}

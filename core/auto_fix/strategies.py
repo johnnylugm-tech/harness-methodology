@@ -571,6 +571,70 @@ def fix_drift(context, project_root: Path) -> Tuple[bool, str, float]:
     return (True, f"Updated {updated} drift item(s)", 50.0)
 
 
+def fix_over_interpretation_gap(context, project_root: Path) -> Tuple[bool, str, float]:
+    """Strategy for B-2 gaps with evidence_type=over_interpretation (Bug B fix).
+
+    When B marks a gap as `over_interpretation` (canonical phrase was ambiguous
+    and A picked an interpretation without DERIVED tag or NFR-99 deferral), this
+    strategy records a fix proposal and emits a stub marker on the affected
+    deliverable. The actual semantic fix (injecting DERIVED tag / NFR-99 deferral
+    / rewriting as verbatim canonical) is performed by the next A round — A is
+    the only agent with the prompt context to choose between the three legitimate
+    paths per the Canonical Interpretation Rule.
+
+    Why this is NOT auto-applied: the choice between DERIVED, NFR-99, or
+    verbatim-transcription is semantic, not syntactic. A Python script cannot
+    decide which path matches the canonical intent without re-running the same
+    LLM call that B used. The strategy exists so AutoFixEngine has a registered
+    handler (so dispatch() does not raise), and so a fix proposal is persisted
+    to `.methodology/trace/over_interpretation_proposal.md` for the next A round
+    to consume.
+
+    Returns (False, ..., 0.0) when no canonical_ref is provided (cannot act),
+    (True, ..., 60.0) when proposal is recorded.
+    """
+    canonical_ref = context.details.get("canonical_ref", "")
+    gap_message = context.details.get("gap_message", "")
+    fr_id = context.details.get("fr_id")
+    deliverable = context.details.get("deliverable", "SRS.md")
+
+    if not canonical_ref:
+        return (
+            False,
+            "over_interpretation gap has no canonical_ref — cannot propose fix",
+            0.0,
+        )
+
+    proposal_dir = project_root / ".methodology" / "trace"
+    proposal_dir.mkdir(parents=True, exist_ok=True)
+    proposal_path = proposal_dir / "over_interpretation_proposal.md"
+
+    # Append (idempotent on canonical_ref header)
+    header = f"\n\n## over_interpretation: {canonical_ref}\n"
+    if proposal_path.exists() and header.strip() in proposal_path.read_text():
+        return (True, f"Proposal already recorded for {canonical_ref}", 60.0)
+
+    with proposal_path.open("a", encoding="utf-8") as f:
+        f.write(header)
+        f.write(f"- **Deliverable**: {deliverable}\n")
+        if fr_id:
+            f.write(f"- **FR/NFR**: {fr_id}\n")
+        f.write(f"- **B message**: {gap_message}\n")
+        f.write(f"- **Canonical ref**: {canonical_ref}\n")
+        f.write("- **Next A round must choose ONE of**:\n")
+        f.write("  1. Inject `DERIVED: <canonical-line> — <one-line rationale>` "
+                "above the affected AC.\n")
+        f.write("  2. Rewrite AC as verbatim canonical phrase "
+                "(fidelity-preserving template per Canonical Interpretation Rule).\n")
+        f.write("  3. Defer as NFR-99 ambiguity resolution in §8 Open Issues.\n")
+
+    return (
+        True,
+        f"Recorded over_interpretation proposal for {canonical_ref} in {proposal_path}",
+        60.0,
+    )
+
+
 # ── Strategy registry ────────────────────────────────────────────────────────
 
 STRATEGY_REGISTRY: Dict[str, Callable] = {
@@ -586,6 +650,7 @@ STRATEGY_REGISTRY: Dict[str, Callable] = {
     "low_constitution_score": fix_constitution_dimension,
     "gap_critical": fix_gap_critical,
     "drift_detected": fix_drift,
+    "over_interpretation_gap": fix_over_interpretation_gap,
 }
 
 # ── Internal helpers ─────────────────────────────────────────────────────────

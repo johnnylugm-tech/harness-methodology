@@ -669,7 +669,7 @@ class ReviewerRouter:
         try:
             parsed = json.loads(raw)
             if isinstance(parsed, dict) and "review_status" in parsed:
-                return parsed
+                return self._validate_after_parse(parsed)
         except (json.JSONDecodeError, ValueError):
             pass
         # Fallback: walk the response and find the first balanced
@@ -691,10 +691,30 @@ class ReviewerRouter:
             except json.JSONDecodeError:
                 continue
             if isinstance(obj, dict) and "review_status" in obj:
-                return obj
+                return self._validate_after_parse(obj)
         return {
             "review_status": "REJECT",
             "confidence": 0.0,
             "violations": ["parse_error"],
             "summary": raw[:200],
         }
+
+    def _validate_after_parse(self, parsed: dict) -> dict:
+        """Defensive layer (Bug B fix): validate gaps against b_review_schema.json
+        if the B sub-agent returned the workflow-JS shape (gaps[]).
+
+        Older sub-task decomposition uses violations[]; that path is unchanged.
+        Schema violations synthesize CANCELLED with one methodology_artifact gap,
+        triggering exactly one retry (no infinite loop).
+        """
+        # Old sub-task decomposition shape — leave unchanged
+        if "violations" in parsed and "gaps" not in parsed:
+            return parsed
+        # Workflow JS surface — validate via review_schema_validator
+        try:
+            from core.review_schema_validator import validate_b_output
+            result = validate_b_output(parsed, phase=0, deliverable="")
+            return result.normalized
+        except ImportError:
+            # Defensive: validator module unavailable (sandbox etc.) → return as-is
+            return parsed

@@ -548,4 +548,74 @@ class TestAutoFixEngine:
         result = engine.fix(context)
         assert result.escalation == EscalationCondition.HARD_RULE_VIOLATION
 
+
+# ── Bug B fix: fix_over_interpretation_gap strategy (added 2026-06-28) ──────
+
+
+class TestFixOverInterpretationGap:
+    """Tests for the new `over_interpretation_gap` strategy registered alongside
+    Bug B (HR-12 regression guard). Strategy records a proposal file rather than
+    auto-applying semantic fixes — see strategies.py docstring for rationale."""
+
+    def test_strategy_is_registered(self):
+        from core.auto_fix.strategies import STRATEGY_REGISTRY, fix_over_interpretation_gap
+        assert STRATEGY_REGISTRY["over_interpretation_gap"] is fix_over_interpretation_gap
+
+    def test_records_proposal_with_canonical_ref(self, tmp_path: Path):
+        from core.auto_fix.strategies import fix_over_interpretation_gap
+        ctx = FixContext(
+            source="review_schema_validator",
+            problem_type="over_interpretation_gap",
+            severity="medium",
+            phase=1,
+            project_root=tmp_path,
+            details={
+                "canonical_ref": "SPEC.md:58",
+                "gap_message": "Ambiguous 'excluding subprocess execution'",
+                "fr_id": "NFR-01",
+                "deliverable": "01-requirements/SRS.md",
+            },
+        )
+        success, action, confidence = fix_over_interpretation_gap(ctx, tmp_path)
+        assert success is True
+        assert confidence == 60.0
+        proposal = tmp_path / ".methodology" / "trace" / "over_interpretation_proposal.md"
+        assert proposal.exists()
+        text = proposal.read_text()
+        assert "SPEC.md:58" in text
+        assert "NFR-01" in text
+        assert "DERIVED" in text
+        assert "NFR-99" in text
+
+    def test_returns_false_when_canonical_ref_missing(self, tmp_path: Path):
+        from core.auto_fix.strategies import fix_over_interpretation_gap
+        ctx = FixContext(
+            source="review_schema_validator",
+            problem_type="over_interpretation_gap",
+            severity="medium",
+            phase=1,
+            project_root=tmp_path,
+            details={"canonical_ref": "", "gap_message": "x"},
+        )
+        success, action, confidence = fix_over_interpretation_gap(ctx, tmp_path)
+        assert success is False
+        assert confidence == 0.0
+
+    def test_idempotent_on_duplicate_canonical_ref(self, tmp_path: Path):
+        from core.auto_fix.strategies import fix_over_interpretation_gap
+        ctx = FixContext(
+            source="review_schema_validator",
+            problem_type="over_interpretation_gap",
+            severity="medium",
+            phase=1,
+            project_root=tmp_path,
+            details={"canonical_ref": "SPEC.md:11", "gap_message": "x"},
+        )
+        fix_over_interpretation_gap(ctx, tmp_path)
+        fix_over_interpretation_gap(ctx, tmp_path)
+        proposal = tmp_path / ".methodology" / "trace" / "over_interpretation_proposal.md"
+        text = proposal.read_text()
+        # Only one header line for SPEC.md:11
+        assert text.count("## over_interpretation: SPEC.md:11") == 1
+
 pytestmark = pytest.mark.auto_fix
