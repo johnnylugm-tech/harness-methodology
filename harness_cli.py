@@ -65,7 +65,7 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 # Common mistake: agents or shells use /usr/bin/python3 (macOS system 3.9)
 # instead of the project's .venv/bin/python. The error otherwise propagates
 # as a cryptic ImportError deep inside the call stack.
-if sys.version_info < (3, 10):
+if sys.version_info < (3, 10):  # type: ignore[reportUnreachable]
     print(
         f"ERROR: harness-methodology requires Python 3.10+. "
         f"Got {sys.version.split()[0]} at {sys.executable}\n"
@@ -1947,7 +1947,7 @@ def _finalize_sentinel_path(project: Path, gate: int, fr_id: str | None, phase: 
     return std_path
 
 
-def _write_finalize_sentinels_for_tests(
+def _write_finalize_sentinels_for_tests(  # type: ignore[reportUnusedFunction]
     project: Path,
     fr_ids: list[str] | None = None,
     phase: int | None = None,
@@ -2367,7 +2367,7 @@ def cmd_run_gate(args: argparse.Namespace) -> int:
         return _exit
 
 
-def _normalize_sab_module_to_dotted(mod: str) -> Optional[str]:
+def _normalize_sab_module_to_dotted(mod: object) -> Optional[str]:
     """Normalise a SAB ``modules`` entry into a dotted module name.
 
     SAB entries may use either dotted notation (``taskq.cli``,
@@ -3210,7 +3210,7 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
         try:
             _exit = _cmd_finalize_gate_impl(args)
         except Exception as _exc:
-            from opentelemetry.trace import StatusCode
+            from opentelemetry.trace import StatusCode  # type: ignore[import-not-found]
             _span.record_exception(_exc)
             _span.set_status(StatusCode.ERROR, str(_exc))
             raise
@@ -4617,7 +4617,7 @@ def _validate_handoff_p2_to_p3(project: Path) -> list[str]:
     items = _parse_test_spec(spec_path)
     if not items:
         # 0 cases may be legitimate (genuinely empty) or wrong-shape. Distinguish.
-        _code, _pct = _run_spec_coverage_check(
+        _code, _ = _run_spec_coverage_check(
             project, threshold=60.0, fr_id=None, verbose=False
         )
         if _code == 1:
@@ -5040,8 +5040,8 @@ def cmd_status(args: argparse.Namespace) -> int:
                     print("  metrics   : not yet computed")
                 # Graph stats (live from MCP — graceful degrade if unavailable)
                 try:
-                    from mcp_tools import (  # type: ignore[import-untyped]
-                        mcp__code_review_graph__list_graph_stats_tool as _gs_fn,
+                    from mcp_tools import (  # type: ignore[import-untyped, import-not-found, attr-defined]
+                        mcp__code_review_graph__list_graph_stats_tool as _gs_fn,  # type: ignore[attr-defined]
                     )
                     _gs = _gs_fn(repo_root=str(project))
                     print(
@@ -5729,6 +5729,7 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
                 except Exception:
                     pass
                 _missing_fr_finalize.append(_frid)
+                _ = None  # appease pyright
         if _missing_fr_finalize:
             _missing_finalize.append(
                 f"Gate 1 per-FR ({len(_missing_fr_finalize)} FRs): "
@@ -5942,7 +5943,7 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
                 print("  100% coverage on 03-development/src required.")
                 print("  For genuinely untestable lines add: # pragma: no cover")
                 # P3-A: Python < 3.11 async coverage hint
-                if sys.version_info < (3, 11):
+                if sys.version_info < (3, 11):  # type: ignore[reportUnreachable]
                     print(
                         f"  [Python {sys.version_info.major}.{sys.version_info.minor} note] "
                         "async function bodies called via asyncio.run() may not be tracked."

@@ -357,7 +357,7 @@ class TestCmdAuditStructure:
         assert len(data["dimensions"]) == 5
         assert data["summary"]["total_dims"] == 5
 
-    def test_partial_project_passes_some_dims(self, tmp_path, capsys):
+    def test_partial_project_passes_some_dims(self, tmp_path):
         """Project with some dirs created but no artifacts."""
         from harness_cli import cmd_audit_structure
 
@@ -736,7 +736,7 @@ class TestVerifyAgentBApprovals:
         out = capsys.readouterr().out
         assert "FR-01" in out or "Missing" in out
 
-    def test_all_approved_returns_0(self, tmp_path, capsys):
+    def test_all_approved_returns_0(self, tmp_path):
         methodology = tmp_path / ".methodology"
         methodology.mkdir()
         approvals_dir = tmp_path / ".methodology" / "agent_b_approvals"
@@ -768,7 +768,7 @@ class TestVerifyAgentBApprovals:
         out = capsys.readouterr().out
         assert "REJECT" in out or "APPROVE" in out
 
-    def test_missing_docs_embedded_returns_1(self, tmp_path, capsys):
+    def test_missing_docs_embedded_returns_1(self, tmp_path):
         approvals_dir = tmp_path / ".methodology" / "agent_b_approvals"
         approvals_dir.mkdir(parents=True)
         (approvals_dir / "FR-01.json").write_text(json.dumps({
@@ -781,7 +781,7 @@ class TestVerifyAgentBApprovals:
         rc = cmd_verify_agent_b_approvals(args)
         assert rc == 1
 
-    def test_approve_empty_reason_returns_1(self, tmp_path, capsys):
+    def test_approve_empty_reason_returns_1(self, tmp_path):
         """A1: APPROVE with too-short reason → reject (shell approval)."""
         approvals_dir = tmp_path / ".methodology" / "agent_b_approvals"
         approvals_dir.mkdir(parents=True)
@@ -794,7 +794,7 @@ class TestVerifyAgentBApprovals:
         from harness_cli import cmd_verify_agent_b_approvals
         assert cmd_verify_agent_b_approvals(args) == 1
 
-    def test_approve_no_citations_returns_1(self, tmp_path, capsys):
+    def test_approve_no_citations_returns_1(self, tmp_path):
         """A1: APPROVE without citations[] → reject."""
         approvals_dir = tmp_path / ".methodology" / "agent_b_approvals"
         approvals_dir.mkdir(parents=True)
@@ -808,13 +808,13 @@ class TestVerifyAgentBApprovals:
         from harness_cli import cmd_verify_agent_b_approvals
         assert cmd_verify_agent_b_approvals(args) == 1
 
-    def test_no_fr_ids_no_manifest_returns_1(self, tmp_path, capsys):
+    def test_no_fr_ids_no_manifest_returns_1(self, tmp_path):
         args = argparse.Namespace(project=str(tmp_path), phase=3, fr_ids="")
         from harness_cli import cmd_verify_agent_b_approvals
         rc = cmd_verify_agent_b_approvals(args)
         assert rc == 1
 
-    def test_reads_fr_ids_from_manifest(self, tmp_path, capsys):
+    def test_reads_fr_ids_from_manifest(self, tmp_path):
         methodology = tmp_path / ".methodology"
         methodology.mkdir()
         (methodology / "quality_manifest.json").write_text(
@@ -833,7 +833,7 @@ class TestVerifyAgentBApprovals:
         rc = cmd_verify_agent_b_approvals(args)
         assert rc == 0
 
-    def test_p2_uses_phase_deliverables_not_fr_ids(self, tmp_path, capsys):
+    def test_p2_uses_phase_deliverables_not_fr_ids(self, tmp_path):
         """Phase 2 must verify SAD.md/ADR.md/TEST_SPEC.md approvals; --fr-ids must be ignored."""
         approvals_dir = tmp_path / ".methodology" / "agent_b_approvals"
         approvals_dir.mkdir(parents=True)
@@ -981,55 +981,55 @@ class TestCmdRunEnvCheck:
         work = project / ".sessi-work"
         work.mkdir(parents=True, exist_ok=True)
         (work / "env_check_result.json").write_text(content, encoding="utf-8")
-        monkeypatch.setattr(shutil, "which", lambda x: "/fake/claude")
+        monkeypatch.setattr(shutil, "which", lambda _: "/fake/claude")
         class FakeProc:
             returncode = 0
             stderr = ""
-        monkeypatch.setattr(subprocess, "run", lambda *a, **kw: FakeProc())
+        monkeypatch.setattr(subprocess, "run", lambda *_, **__: FakeProc())
 
-    def test_ready_true_exits_0(self, tmp_path, monkeypatch, capsys):
+    def test_ready_true_exits_0(self, tmp_path, monkeypatch):
         from harness_cli import cmd_run_env_check
         self._setup_mock_result(tmp_path, '{"ready": true}', monkeypatch)
-        args = type("Args", (), {"project": str(tmp_path), "phase": 1, "fr_id": None})()
-        monkeypatch.setattr("harness_cli._verify_env_check_claims", lambda p: [])
+        args = argparse.Namespace(project=str(tmp_path), phase=1, fr_id=None)
+        monkeypatch.setattr("harness_cli._verify_env_check_claims", lambda _: [])
         assert cmd_run_env_check(args) == 0
 
     def test_ready_false_exits_1(self, tmp_path, monkeypatch, capsys):
         from harness_cli import cmd_run_env_check
         self._setup_mock_result(tmp_path, '{"ready": false}', monkeypatch)
-        args = type("Args", (), {"project": str(tmp_path), "phase": 1, "fr_id": None})()
-        monkeypatch.setattr("harness_cli._verify_env_check_claims", lambda p: [])
+        args = argparse.Namespace(project=str(tmp_path), phase=1, fr_id=None)
+        monkeypatch.setattr("harness_cli._verify_env_check_claims", lambda _: [])
         assert cmd_run_env_check(args) == 1
-        out, err = capsys.readouterr()
+        out, _ = capsys.readouterr()
         assert "[BLOCKED]" in out
 
-    def test_missing_ready_key_exits_1(self, tmp_path, monkeypatch, capsys):
+    def test_missing_ready_key_exits_1(self, tmp_path, monkeypatch):
         from harness_cli import cmd_run_env_check
         self._setup_mock_result(tmp_path, '{"other": "data"}', monkeypatch)
-        args = type("Args", (), {"project": str(tmp_path), "phase": 1, "fr_id": None})()
-        monkeypatch.setattr("harness_cli._verify_env_check_claims", lambda p: [])
+        args = argparse.Namespace(project=str(tmp_path), phase=1, fr_id=None)
+        monkeypatch.setattr("harness_cli._verify_env_check_claims", lambda _: [])
         assert cmd_run_env_check(args) == 1
 
-    def test_missing_file_exits_1(self, tmp_path, monkeypatch, capsys):
+    def test_missing_file_exits_1(self, tmp_path, monkeypatch):
         from harness_cli import cmd_run_env_check
         self._setup_mock_result(tmp_path, '{"ready": true}', monkeypatch)
         (tmp_path / ".sessi-work" / "env_check_result.json").unlink()
-        args = type("Args", (), {"project": str(tmp_path), "phase": 1, "fr_id": None})()
-        monkeypatch.setattr("harness_cli._verify_env_check_claims", lambda p: [])
+        args = argparse.Namespace(project=str(tmp_path), phase=1, fr_id=None)
+        monkeypatch.setattr("harness_cli._verify_env_check_claims", lambda _: [])
         assert cmd_run_env_check(args) == 1
 
-    def test_malformed_json_exits_1(self, tmp_path, monkeypatch, capsys):
+    def test_malformed_json_exits_1(self, tmp_path, monkeypatch):
         from harness_cli import cmd_run_env_check
         self._setup_mock_result(tmp_path, 'not valid json', monkeypatch)
-        args = type("Args", (), {"project": str(tmp_path), "phase": 1, "fr_id": None})()
-        monkeypatch.setattr("harness_cli._verify_env_check_claims", lambda p: [])
+        args = argparse.Namespace(project=str(tmp_path), phase=1, fr_id=None)
+        monkeypatch.setattr("harness_cli._verify_env_check_claims", lambda _: [])
         assert cmd_run_env_check(args) == 1
 
-    def test_json_not_a_dict_exits_1(self, tmp_path, monkeypatch, capsys):
+    def test_json_not_a_dict_exits_1(self, tmp_path, monkeypatch):
         from harness_cli import cmd_run_env_check
         self._setup_mock_result(tmp_path, '["ready"]', monkeypatch)
-        args = type("Args", (), {"project": str(tmp_path), "phase": 1, "fr_id": None})()
-        monkeypatch.setattr("harness_cli._verify_env_check_claims", lambda p: [])
+        args = argparse.Namespace(project=str(tmp_path), phase=1, fr_id=None)
+        monkeypatch.setattr("harness_cli._verify_env_check_claims", lambda _: [])
         assert cmd_run_env_check(args) == 1
 
 
@@ -1237,7 +1237,7 @@ class TestVerifyEntryGate:
         from harness_cli import _verify_entry_gate
         monkeypatch.setattr(
             sp, "run",
-            lambda cmd, **_kw: type("R", (), {"returncode": 1, "stdout": "", "stderr": ""})(),
+            lambda cmd, **_: type("R", (), {"returncode": 1, "stdout": "", "stderr": ""})(),
         )
         result = _verify_entry_gate(tmp_path, 2)
         assert result["passed"] is False
@@ -1252,7 +1252,7 @@ class TestVerifyEntryGate:
 
         call_log: list[list[str]] = []
 
-        def fake_run(cmd, **_kw):
+        def fake_run(cmd, **_):
             call_log.append(list(cmd))
             if "merge-base" in cmd:
                 return type("R", (), {"returncode": 1, "stdout": "", "stderr": ""})()
@@ -1274,7 +1274,7 @@ class TestVerifyEntryGate:
         self._make_state(tmp_path, phase=2, sha="abc1234def5678")
         # No approval files created
 
-        def fake_run(cmd, **_kw):
+        def fake_run(cmd, **_):
             if "merge-base" in cmd:
                 return type("R", (), {"returncode": 1, "stdout": "", "stderr": ""})()
             if "--is-shallow-repository" in cmd:
@@ -1293,7 +1293,7 @@ class TestVerifyEntryGate:
 
         self._make_state(tmp_path, phase=2, sha="abc1234def5678")
 
-        def fake_run(cmd, **_kw):
+        def fake_run(cmd, **_):
             if "merge-base" in cmd:
                 return type("R", (), {"returncode": 1, "stdout": "", "stderr": ""})()
             if "--is-shallow-repository" in cmd:
@@ -1355,9 +1355,9 @@ class TestDispatchWritesApprovalJson:
     def _make_spawner_mock(self, status, output):
         """Return a module-patchable AgentSpawner that yields a fixed result."""
         class _MockSpawner:
-            def __init__(self, **_kw):
+            def __init__(self, **_):
                 pass
-            def spawn(self, **_kw):
+            def spawn(self, **_):
                 return {"status": status, "session_id": "sess-abc", "output": output}
         return _MockSpawner
 
@@ -1434,7 +1434,7 @@ class TestPushCheckpointAgentBGate:
                 commit_calls.append(kw)
                 return True
 
-        monkeypatch.setattr(harness_cli, "_make_git", lambda *_a, **_kw: _FakeGit())
+        monkeypatch.setattr(harness_cli, "_make_git", lambda *_, **__: _FakeGit())
 
         args = argparse.Namespace(
             project=str(tmp_path), phase=1, fr_ids="FR-01",
@@ -1489,8 +1489,8 @@ class TestDispatchSavesAgentAOutput:
 
     def _make_spawner_mock(self, status, output):
         class _MockSpawner:
-            def __init__(self, **_kw): pass
-            def spawn(self, **_kw):
+            def __init__(self, **_): pass
+            def spawn(self, **_):
                 return {"status": status, "session_id": "sess-xyz", "output": output}
         return _MockSpawner
 
@@ -1561,13 +1561,13 @@ class TestRunPhaseNoPostflight:
 
         # Stub entry gate to pass immediately.
         monkeypatch.setattr(harness_cli, "_verify_entry_gate",
-                            lambda *_a, **_kw: {"passed": True, "gate": "G", "reason": "ok"})
+                            lambda *_, **__: {"passed": True, "gate": "G", "reason": "ok"})
         # Stub preflight_all to pass.
         monkeypatch.setattr(PhaseHooks, "preflight_all",
-                            lambda self: {"all_passed": True, "details": {}})
+                            lambda _: {"all_passed": True, "details": {}})
         # Stub postflight_all — must NOT be called.
         monkeypatch.setattr(PhaseHooks, "postflight_all",
-                            lambda self: postflight_called.append(1) or {"success": True})
+                            lambda _: postflight_called.append(1) or {"success": True})
         # Suppress sessions_spawn audit (phase 1 is not in _PER_FR_GATE1_PHASES).
 
         args = argparse.Namespace(phase=1, project=str(project))
@@ -1585,11 +1585,11 @@ class TestRunPhaseNoPostflight:
         from core.phase_hooks import PhaseHooks
 
         monkeypatch.setattr(harness_cli, "_verify_entry_gate",
-                            lambda *_a, **_kw: {"passed": True, "gate": "G", "reason": "ok"})
+                            lambda *_, **__: {"passed": True, "gate": "G", "reason": "ok"})
         monkeypatch.setattr(PhaseHooks, "preflight_all",
-                            lambda self: {"all_passed": False, "details": {"error": "missing SRS"}})
+                            lambda _: {"all_passed": False, "details": {"error": "missing SRS"}})
         monkeypatch.setattr(PhaseHooks, "postflight_all",
-                            lambda self: postflight_called.append(1) or {"success": True})
+                            lambda _: postflight_called.append(1) or {"success": True})
 
         args = argparse.Namespace(phase=1, project=str(project))
         rc = harness_cli.cmd_run_phase(args)
@@ -1606,9 +1606,9 @@ class TestRunPhaseNoPostflight:
         from core.phase_hooks import PhaseHooks
 
         monkeypatch.setattr(harness_cli, "_verify_entry_gate",
-                            lambda *_a, **_kw: {"passed": False, "gate": "G", "reason": "Phase 0 not complete"})
+                            lambda *_, **__: {"passed": False, "gate": "G", "reason": "Phase 0 not complete"})
         monkeypatch.setattr(PhaseHooks, "postflight_all",
-                            lambda self: postflight_called.append(1) or {"success": True})
+                            lambda _: postflight_called.append(1) or {"success": True})
 
         args = argparse.Namespace(phase=2, project=str(project))
         rc = harness_cli.cmd_run_phase(args)
@@ -1627,11 +1627,11 @@ def _mock_constitution_pass(monkeypatch):
     _vacuous = ConstitutionResult(score=100.0, passed=True, violations=[])
     monkeypatch.setattr(
         "core.quality_gate.constitution.run_constitution_check",
-        lambda *a, **kw: _vacuous,
+        lambda *_, **__: _vacuous,
     )
     monkeypatch.setattr(
         "core.quality_gate.constitution.profile.get_profile",
-        lambda: type("_P", (), {"composite_threshold": lambda s, p: 75.0})(),
+        lambda: type("_P", (), {"composite_threshold": lambda _, __: 75.0})(),
     )
 
 
@@ -1654,16 +1654,16 @@ class TestAdvancePrechecksTDD:
 
         self._make_p3_project(tmp_path)
         _mock_constitution_pass(monkeypatch)
-        monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
+        monkeypatch.setattr("harness_cli._run_phase_auditor", lambda _, __: 0)
         monkeypatch.setattr(
             "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier",
             type("FV", (), {
-                "__init__": lambda s, p, ph: None,
-                "verify": lambda s: {"passed": True, "total_score": 100.0},
+                "__init__": lambda _, __, ___: None,
+                "verify": lambda _: {"passed": True, "total_score": 100.0},
             }),
         )
 
-        def _fake_run(cmd, *a, **kw):
+        def _fake_run(cmd, *_, **__):
             class _FakeResult:
                 pass
             res = _FakeResult()
@@ -1687,17 +1687,17 @@ class TestAdvancePrechecksTDD:
         (tmp_path / ".methodology").mkdir()  # no src dir
         harness_cli._write_finalize_sentinels_for_tests(tmp_path)
         _mock_constitution_pass(monkeypatch)
-        monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
+        monkeypatch.setattr("harness_cli._run_phase_auditor", lambda _, __: 0)
         monkeypatch.setattr(
             "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier",
             type("FV", (), {
-                "__init__": lambda s, p, ph: None,
-                "verify": lambda s: {"passed": True, "total_score": 100.0},
+                "__init__": lambda _, __, ___: None,
+                "verify": lambda _: {"passed": True, "total_score": 100.0},
             }),
         )
         # spec-coverage returns pass (unified D4, v2.6)
         monkeypatch.setattr("harness_cli._run_spec_coverage_check",
-                            lambda p, t, **kw: (0, 100.0))
+                            lambda *_, **__: (0, 100.0))
         # next-phase plan required by _advance_prechecks (phase >= 3)
         (tmp_path / ".methodology" / "phase4_plan.md").touch()
 
@@ -1712,16 +1712,16 @@ class TestAdvancePrechecksTDD:
         (tmp_path / ".methodology").mkdir()
         harness_cli._write_finalize_sentinels_for_tests(tmp_path)
         _mock_constitution_pass(monkeypatch)
-        monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
+        monkeypatch.setattr("harness_cli._run_phase_auditor", lambda _, __: 0)
         monkeypatch.setattr(
             "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier",
             type("FV", (), {
-                "__init__": lambda s, p, ph: None,
-                "verify": lambda s: {"passed": True, "total_score": 100.0},
+                "__init__": lambda _, __, ___: None,
+                "verify": lambda _: {"passed": True, "total_score": 100.0},
             }),
         )
         monkeypatch.setattr("harness_cli._run_spec_coverage_check",
-                            lambda p, t, **kw: (1, 30.0))
+                            lambda *_, **__: (1, 30.0))
         # next-phase plan required by _advance_prechecks (phase >= 3)
         (tmp_path / ".methodology" / "phase4_plan.md").touch()
 
@@ -1734,9 +1734,9 @@ class TestAdvancePrechecksTDD:
 
         (tmp_path / ".methodology").mkdir()
         _mock_constitution_pass(monkeypatch)
-        monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
+        monkeypatch.setattr("harness_cli._run_phase_auditor", lambda _, __: 0)
         monkeypatch.setattr("harness_cli._verify_agent_b_approvals_core",
-                            lambda p, ph, ids: (True, "mocked"))
+                            lambda _, __, ___: (True, "mocked"))
 
         rc = _advance_prechecks(tmp_path, completed_phase=2)
         assert rc == 0
@@ -1749,12 +1749,12 @@ class TestAdvancePrechecksTDD:
         (tmp_path / ".methodology").mkdir()
         harness_cli._write_finalize_sentinels_for_tests(tmp_path)
         _mock_constitution_pass(monkeypatch)
-        monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
+        monkeypatch.setattr("harness_cli._run_phase_auditor", lambda _, __: 0)
         monkeypatch.setattr(
             "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier",
             type("FV", (), {
-                "__init__": lambda s, p, ph: None,
-                "verify": lambda s: {"passed": True, "total_score": 100.0},
+                "__init__": lambda _, __, ___: None,
+                "verify": lambda _: {"passed": True, "total_score": 100.0},
             }),
         )
         captured_sc = {}
@@ -1777,18 +1777,18 @@ class TestAdvancePrechecksTDD:
         (tmp_path / ".methodology").mkdir()
         harness_cli._write_finalize_sentinels_for_tests(tmp_path)
         _mock_constitution_pass(monkeypatch)
-        monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
+        monkeypatch.setattr("harness_cli._run_phase_auditor", lambda _, __: 0)
         # Phase 6 fires Agent B approval check before spec-coverage; stub it so
         # only the threshold value is exercised here (agent B tested elsewhere).
         monkeypatch.setattr(
             "harness_cli._verify_agent_b_approvals_core",
-            lambda p, ph, ids: (True, "mocked"),
+            lambda _, __, ___: (True, "mocked"),
         )
         monkeypatch.setattr(
             "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier",
             type("FV", (), {
-                "__init__": lambda s, p, ph: None,
-                "verify": lambda s: {"passed": True, "total_score": 100.0},
+                "__init__": lambda _, __, ___: None,
+                "verify": lambda _: {"passed": True, "total_score": 100.0},
             }),
         )
         captured = {}
@@ -1813,7 +1813,7 @@ class TestAdvancePreChecksAgentB:
 
     def _mock_p1_prechecks(self, monkeypatch):
         """Patch non-AB checks so only AB check is exercised."""
-        monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
+        monkeypatch.setattr("harness_cli._run_phase_auditor", lambda _, __: 0)
         _mock_constitution_pass(monkeypatch)
 
     def test_p1_missing_approvals_returns_13(self, tmp_path, monkeypatch):
@@ -1873,16 +1873,16 @@ class TestAdvancePreChecksAgentB:
         (tmp_path / ".methodology").mkdir()
         harness_cli._write_finalize_sentinels_for_tests(tmp_path)
         _mock_constitution_pass(monkeypatch)
-        monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
+        monkeypatch.setattr("harness_cli._run_phase_auditor", lambda _, __: 0)
         monkeypatch.setattr(
             "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier",
             type("FV", (), {
-                "__init__": lambda s, p, ph: None,
-                "verify": lambda s: {"passed": True, "total_score": 100.0},
+                "__init__": lambda _, __, ___: None,
+                "verify": lambda _: {"passed": True, "total_score": 100.0},
             }),
         )
         monkeypatch.setattr("harness_cli._run_spec_coverage_check",
-                            lambda p, t, **kw: (0, 100.0))
+                            lambda *_, **__: (0, 100.0))
         # next-phase plan required by _advance_prechecks (phase >= 3)
         (tmp_path / ".methodology" / "phase4_plan.md").touch()
 
@@ -1913,17 +1913,17 @@ class TestAdvancePreChecksAgentB:
         )
         harness_cli._write_finalize_sentinels_for_tests(tmp_path)
 
-        monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
+        monkeypatch.setattr("harness_cli._run_phase_auditor", lambda _, __: 0)
         _mock_constitution_pass(monkeypatch)
         monkeypatch.setattr(
             "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier",
             type("FV", (), {
-                "__init__": lambda s, p, ph: None,
-                "verify": lambda s: {"passed": True, "total_score": 100.0},
+                "__init__": lambda _, __, ___: None,
+                "verify": lambda _: {"passed": True, "total_score": 100.0},
             }),
         )
         monkeypatch.setattr(
-            "harness_cli._run_spec_coverage_check", lambda p, t, **kw: (0, 100.0)
+            "harness_cli._run_spec_coverage_check", lambda *_, **__: (0, 100.0)
         )
         monkeypatch.setattr("harness_cli.shutil.which", lambda cmd: True)
         monkeypatch.setattr(
@@ -1931,10 +1931,10 @@ class TestAdvancePreChecksAgentB:
             lambda cmd, **kw: type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})(),
         )
         # Gate-1 FR coverage and mutmut not exercised by these tests
-        monkeypatch.setattr("harness_cli._check_gate1_live_coverage", lambda p, ph: 0)
+        monkeypatch.setattr("harness_cli._check_gate1_live_coverage", lambda _, __: 0)
         monkeypatch.setattr(
             "core.quality_gate.mutation_enforcer.run_mutation_precheck",
-            lambda p: (True, "ok"),
+            lambda _: (True, "ok"),
         )
 
     def _p6_approval(self, required_docs: list[str]) -> str:
@@ -2593,7 +2593,7 @@ class TestRunFrStep:
             stdout = "test(RED): failing test for FR-01"
 
         # Git log mock returns matching commit
-        monkeypatch.setattr(_sp, "run", lambda *a, **kw: _FakeResult())
+        monkeypatch.setattr(_sp, "run", lambda *_, **__: _FakeResult())
 
         # RED Test: Test file missing -> should return False
         assert not harness_cli._fr_step_already_done("TDD-RED", "FR-01", tmp_path)
@@ -2636,7 +2636,7 @@ class TestRunFrStep:
         monkeypatch.setitem(sys.modules, "core.agent_spawner", fake_mod)
 
         # Mock git commands: make git push fail (returncode 1)
-        def _fake_run(cmd, **kw):
+        def _fake_run(cmd, **_):
             class _Res:
                 returncode = 1 if "push" in cmd else 0
                 stdout = ""
@@ -2675,7 +2675,7 @@ class TestRunFrStep:
         monkeypatch.setitem(sys.modules, "core.agent_spawner", fake_mod)
 
         run_calls = []
-        def _fake_run(cmd, **kw):
+        def _fake_run(cmd, **_):
             run_calls.append(cmd)
             class _Res:
                 returncode = 0
@@ -3289,8 +3289,8 @@ def _setup_advance_prechecks_env(tmp_path, monkeypatch):
     # Create finalize-gate sentinels — _advance_prechecks verifies these exist
     harness_cli._write_finalize_sentinels_for_tests(tmp_path)
 
-    monkeypatch.setattr("harness_cli._run_phase_auditor", lambda p, ph: 0)
-    monkeypatch.setattr("harness_cli._verify_agent_b_approvals_core", lambda p, ph, ids: (True, "mocked"))
+    monkeypatch.setattr("harness_cli._run_phase_auditor", lambda _, __: 0)
+    monkeypatch.setattr("harness_cli._verify_agent_b_approvals_core", lambda _, __, ___: (True, "mocked"))
 
     class FakeVerifier:
         def __init__(self, *args, **kwargs): pass
@@ -3377,11 +3377,11 @@ class TestInitProjectRootWrapper:
 
         # Stub out all the heavyweight steps
         monkeypatch.setattr(hc, "_init_phase_dirs", lambda _p: None)
-        monkeypatch.setattr(hc, "_init_copy_templates", lambda _p, _h, **_kw: None)
+        monkeypatch.setattr(hc, "_init_copy_templates", lambda _p, _h, **_: None)
         monkeypatch.setattr(hc, "_update_claude_md", lambda _p: None)
         monkeypatch.setattr(hc, "_check_and_offer_ecc_hooks", lambda _h: None)
         monkeypatch.setattr(hc, "_auto_offer_branch_protection", lambda _p: None)
-        monkeypatch.setattr(hc, "_verify_gate_tools", lambda _g, _h, **_kw: ({}, []))
+        monkeypatch.setattr(hc, "_verify_gate_tools", lambda _g, _h, **_: ({}, []))
         monkeypatch.setattr(hc, "_check_crg_available", lambda: True)
         monkeypatch.setattr(hc, "_harness_workflow_template", lambda: "# ci\n")
         monkeypatch.setattr(hc, "atomic_write_json", lambda _p, _d: None)
@@ -3612,7 +3612,7 @@ class TestFinalizeGatePersistCompositeScore:
         monkeypatch.setattr(hc, "_finalize_gate_preflight", lambda _a, _p: None)
         monkeypatch.setattr(hc, "_finalize_gate_fr_checks", lambda _a, _p: None)
         monkeypatch.setattr(hc, "_finalize_gate_cross_checks", lambda _a, _p: None)
-        monkeypatch.setattr(hc, "_update_state_checkpoint", lambda *_a, **_kw: None)
+        monkeypatch.setattr(hc, "_update_state_checkpoint", lambda *_, **__: None)
         monkeypatch.setattr(hc, "_update_claude_md", lambda _p: None)
         monkeypatch.setattr(hc, "_record_gate_timestamp", lambda *_a: None)
         monkeypatch.setattr(hc, "_generate_stage_pass", lambda *_a: None)
@@ -3627,10 +3627,10 @@ class TestFinalizeGatePersistCompositeScore:
         monkeypatch.setattr(hc, "_make_git", lambda *_a: FakeGit())
 
         class FakeBridge:
-            def prepare_gate(self, **_kw):
+            def prepare_gate(self, **_):
                 return object()
 
-            def finalize_gate(self, _ctx, **_kw):
+            def finalize_gate(self, _ctx, **_):
                 return GateResult(
                     gate_num=gate,
                     score=_harness_score,
@@ -3718,7 +3718,7 @@ class TestFinalizeGateManifestPatch:
         monkeypatch.setattr(hc, "_finalize_gate_preflight", lambda _a, _p: None)
         monkeypatch.setattr(hc, "_finalize_gate_fr_checks", lambda _a, _p: None)
         monkeypatch.setattr(hc, "_finalize_gate_cross_checks", lambda _a, _p: None)
-        monkeypatch.setattr(hc, "_update_state_checkpoint", lambda *_a, **_kw: None)
+        monkeypatch.setattr(hc, "_update_state_checkpoint", lambda *_, **__: None)
         monkeypatch.setattr(hc, "_update_claude_md", lambda _p: None)
         monkeypatch.setattr(hc, "_record_gate_timestamp", lambda *_a: None)
         monkeypatch.setattr(hc, "_generate_stage_pass", lambda *_a: None)
@@ -3733,7 +3733,7 @@ class TestFinalizeGateManifestPatch:
         # Stub PhaseHooks so gate≥2 post-flight structural checks pass
         import core.phase_hooks as ph_mod
         class _FakeHooks:
-            def __init__(self, *_a, **_kw): pass
+            def __init__(self, *_a, **_): pass
             def postflight_artifact_links(self): return {"passed": True}
             def postflight_drift_check(self): return {"passed": True}
         monkeypatch.setattr(ph_mod, "PhaseHooks", _FakeHooks)
@@ -3741,15 +3741,15 @@ class TestFinalizeGateManifestPatch:
         # Stub PhaseTruthVerifier so HR-11 check passes (last gate of phase)
         import core.quality_gate.phase_truth_verifier as ptv_mod
         class _FakePTV:
-            def __init__(self, *_a, **_kw): pass
+            def __init__(self, *_a, **_): pass
             def verify(self): return {"passed": True, "total_score": 100.0}
         monkeypatch.setattr(ptv_mod, "PhaseTruthVerifier", _FakePTV)
 
         _score = harness_score
 
         class FakeBridge:
-            def prepare_gate(self, **_kw): return object()
-            def finalize_gate(self, _ctx, **_kw):
+            def prepare_gate(self, **_): return object()
+            def finalize_gate(self, _ctx, **_):
                 return GateResult(
                     gate_num=gate, score=_score, dimensions=[],
                     open_critical=0, open_high=0,
@@ -3943,10 +3943,10 @@ def test_stage_pass_autogenerate_is_git_added(tmp_path, monkeypatch):
     monkeypatch.setattr(harness_cli.subprocess, "run", fake_subprocess_run)
     monkeypatch.setattr(
         "core.quality_gate.mutation_enforcer.run_mutation_precheck",
-        lambda p: (True, "ok"),
+        lambda _: (True, "ok"),
     )
-    monkeypatch.setattr("harness_cli._run_spec_coverage_check", lambda p, t, **kw: (0, 100.0))
-    monkeypatch.setattr("harness_cli._check_gate1_live_coverage", lambda p, ph: 0)
+    monkeypatch.setattr("harness_cli._run_spec_coverage_check", lambda *_, **__: (0, 100.0))
+    monkeypatch.setattr("harness_cli._check_gate1_live_coverage", lambda _, __: 0)
 
     _advance_prechecks(tmp_path, completed_phase=3)
 
@@ -4065,12 +4065,12 @@ def test_advance_prechecks_p8_does_not_require_phase9_plan(tmp_path, monkeypatch
     # Explicitly do NOT create phase9_plan.md — verify P8 is not blocked on it.
     assert not (tmp_path / ".methodology" / "phase9_plan.md").exists()
 
-    monkeypatch.setattr("harness_cli._run_spec_coverage_check", lambda p, t, **kw: (0, 100.0))
-    monkeypatch.setattr("harness_cli._check_gate1_live_coverage", lambda p, ph: 0)
+    monkeypatch.setattr("harness_cli._run_spec_coverage_check", lambda *_, **__: (0, 100.0))
+    monkeypatch.setattr("harness_cli._check_gate1_live_coverage", lambda _, __: 0)
     monkeypatch.setattr("harness_cli._generate_stage_pass", lambda p, g, ph: None)
     monkeypatch.setattr(
         "core.quality_gate.mutation_enforcer.run_mutation_precheck",
-        lambda p: (True, "ok"),
+        lambda _: (True, "ok"),
     )
     monkeypatch.setattr(harness_cli.subprocess, "run", lambda cmd, **kw: type("R", (), {
         "returncode": 0, "stdout": "", "stderr": "",
@@ -4368,11 +4368,11 @@ class TestP2AdvanceRegeneratesManifest:
 
         # Mock prechecks so cmd_advance_phase doesn't trip on missing CI artifacts
         harness_cli._write_finalize_sentinels_for_tests(tmp_path)
-        monkeypatch.setattr("harness_cli._advance_prechecks", lambda p, ph: 0)
-        monkeypatch.setattr("harness_cli._update_claude_md", lambda p: None)
-        monkeypatch.setattr("harness_cli._llm_clean_stale_claude_md", lambda p: None)
+        monkeypatch.setattr("harness_cli._advance_prechecks", lambda _, __: 0)
+        monkeypatch.setattr("harness_cli._update_claude_md", lambda _: None)
+        monkeypatch.setattr("harness_cli._llm_clean_stale_claude_md", lambda _: None)
         monkeypatch.setattr("harness_cli.shutil.which", lambda c: None)  # no CRG
-        monkeypatch.setattr("harness_cli._advance_fsm", lambda *a, **kw: None)
+        monkeypatch.setattr("harness_cli._advance_fsm", lambda *_, **__: None)
 
         class _FakeGen:
             def __init__(self, *a, **kw): pass
@@ -4528,11 +4528,11 @@ class TestP7AdvanceGeneratesP8Baseline:
         _sp.run(["git", "commit", "-m", "init", "-q"], cwd=tmp_path, check=True)
 
         harness_cli._write_finalize_sentinels_for_tests(tmp_path)
-        monkeypatch.setattr("harness_cli._advance_prechecks", lambda p, ph: 0)
-        monkeypatch.setattr("harness_cli._update_claude_md", lambda p: None)
-        monkeypatch.setattr("harness_cli._llm_clean_stale_claude_md", lambda p: None)
+        monkeypatch.setattr("harness_cli._advance_prechecks", lambda _, __: 0)
+        monkeypatch.setattr("harness_cli._update_claude_md", lambda _: None)
+        monkeypatch.setattr("harness_cli._llm_clean_stale_claude_md", lambda _: None)
         monkeypatch.setattr("harness_cli.shutil.which", lambda c: None)
-        monkeypatch.setattr("harness_cli._advance_fsm", lambda *a, **kw: None)
+        monkeypatch.setattr("harness_cli._advance_fsm", lambda *_, **__: None)
 
         class _FakeGen:
             def __init__(self, *a, **kw): pass
@@ -4924,8 +4924,8 @@ class TestRunToolDispatcher:
 
     def test_run_tool_json_output(self, tmp_path, monkeypatch, capsys):
         from harness_cli import cmd_run_tool
-        monkeypatch.setattr("harness.tool_runners.run_tool", lambda *a, **kw: ("raw", 1))
-        monkeypatch.setattr("harness.tool_runners.compute_tool_score", lambda *a, **kw: 50.0)
+        monkeypatch.setattr("harness.tool_runners.run_tool", lambda *_, **__: ("raw", 1))
+        monkeypatch.setattr("harness.tool_runners.compute_tool_score", lambda *_, **__: 50.0)
         args = argparse.Namespace(
             tool="ruff", project=str(tmp_path), timeout_override=None, json=True,
         )
@@ -5728,7 +5728,8 @@ class TestGate1DeltaBatchAutoSkip:
         ) as mock_pytest:
             rc = harness_cli._check_gate1_live_coverage(tmp_path, 4)
         assert rc == 0
-        mock_pytest.assert_not_called(), "must skip pytest when all unchanged"
+        mock_pytest.assert_not_called()
+        _ = "must skip pytest when all unchanged"  # assertion message — pylint-only
 
     def test_any_changed_runs_pytest(self, tmp_path):
         """If even one FR changed, fall through to live pytest path."""
