@@ -5630,8 +5630,7 @@ def cmd_sync_harness(args: argparse.Namespace) -> int:
     print(f"[sync-harness] OK — pulled {n} commit(s); new SHA: {sha}")
     import subprocess
     commit_msg = result["message"]
-    subprocess.run(["git", "add", "harness"], cwd=project, check=True)
-    subprocess.run(["git", "commit", "-m", commit_msg], cwd=project, check=True)
+    subprocess.run(["git", "commit", "-m", commit_msg, "--", "harness"], cwd=project, check=True)
     if push:
         subprocess.run(["git", "push", "origin", "HEAD"], cwd=project, check=True)
         print(f"[sync-harness] Pushed: {commit_msg}")
