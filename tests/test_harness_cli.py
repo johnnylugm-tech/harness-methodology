@@ -4,8 +4,31 @@ from __future__ import annotations
 
 import argparse
 import json
+import pytest
 from pathlib import Path
 from unittest import mock
+
+
+# =============================================================================
+# _fr_num_str
+# =============================================================================
+
+
+class TestFrNumStr:
+    @pytest.mark.parametrize("fr_id,expected", [
+        ("FR-01", "01"),
+        ("FR-1", "01"),
+        ("fr01", "01"),
+        ("FR_12", "12"),
+        ("FR-100", "100"),   # 3-digit preserved
+        ("NFR-01", "01"),    # NFR prefix
+        ("NFR-07", "07"),
+        ("TASK-03", "03"),   # TASK prefix
+        ("invalid", "invalid"),  # passthrough on parse failure
+    ])
+    def test_fr_num_str(self, fr_id, expected):
+        from harness_cli import _fr_num_str
+        assert _fr_num_str(fr_id) == expected
 
 
 # =============================================================================

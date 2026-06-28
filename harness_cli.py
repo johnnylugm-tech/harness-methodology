@@ -105,7 +105,7 @@ def _fr_num_str(fr_id: str) -> str:
     """
     try:
         canon = canonical_form(fr_id)
-        m = re.match(r"FR-(\d+)", canon)
+        m = re.match(r"(?:FR|NFR|TASK)-(\d+)", canon)
         if m:
             return m.group(1).zfill(2)
         return canon
@@ -775,7 +775,7 @@ def _check_fr_test_file_exists(project: Path, fr_id: str) -> tuple[bool, str]:
     if not test_dirs:
         test_dirs = [project / "tests"]  # default fallback
         
-    patterns = [f"test_fr{num}.py", f"test_fr{num.lstrip('0')}.py"]
+    patterns = [f"test_fr{num}.py", f"test_fr{str(int(num))}.py"]
     for test_dir in test_dirs:
         for pat in patterns:
             if (test_dir / pat).exists():
@@ -804,7 +804,7 @@ def _check_red_phase_ordering(project: Path, fr_id: str) -> tuple[bool, str]:
     if not m:
         return True, ""
     num = m.group(1).zfill(2)
-    num_raw = num.lstrip('0')
+    num_raw = str(int(num))
     test_patterns = _git_test_patterns(project, num, num_raw)
 
     def _first_sha(patterns: list[str],
@@ -1914,8 +1914,13 @@ def _sentinel_path(project: Path, gate: int, fr_id: str | None, phase: int | Non
     key = (fr_id or "phase").replace("-", "").lower()
     d = project / ".sessi-work" / "sentinels"
     if phase is None:
-        # Back-compat: callers that did not pass phase get the legacy path.
-        # New callers MUST pass phase explicitly (see Bug #121).
+        warnings.warn(
+            f"_sentinel_path(gate={gate}, fr_id={fr_id!r}) called without phase= "
+            "(Bug #121 regression risk): cross-phase sentinel collision possible. "
+            "Pass phase= explicitly.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return d / f"g{gate}_{key}.flag"
     return d / f"g{gate}_p{phase}_{key}.flag"
 
@@ -6640,7 +6645,7 @@ def _fr_code_changed_since_last_gate1(fr_id: str, project: Path) -> bool:
     num_match = re.match(r"FR-(\d+)", fr_id)
     num_str = num_match.group(1).zfill(2) if num_match else ""
     if num_str:
-        for p in _git_test_patterns(project, num_str, num_str.lstrip('0')):
+        for p in _git_test_patterns(project, num_str, str(int(num_str)) if num_str.isdigit() else num_str.lstrip('0')):
             fr_files.append(p)
             
     r_test = _sp.run(

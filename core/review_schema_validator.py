@@ -38,6 +38,8 @@ try:
 except ImportError:  # pragma: no cover — jsonschema is a stdlib dep of harness
     jsonschema = None
 
+from core.review_quota import enforce_quota
+
 
 SCHEMA_PATH = Path(__file__).parent.parent / "schemas" / "b_review.schema.json"
 
@@ -86,16 +88,12 @@ def validate_b_output(raw: dict | Any, phase: int = 0, deliverable: str = "") ->
     # H: apply review_quota — cap findings under DEFAULT_MAX_QUOTA weight.
     # Findings that don't fit go to overflow (annotation, not throw) so callers
     # can decide whether to triage or surface. Annotated gap.category is added.
-    try:
-        from core.review_quota import enforce_quota
-        gaps = normalized.get("gaps") or []
-        kept, overflow = enforce_quota(gaps)
-        normalized["gaps"] = kept
-        if overflow:
-            normalized["_overflow_findings"] = overflow
-            normalized["_overflow_count"] = len(overflow)
-    except ImportError:
-        pass  # review_quota not available — skip quota enforcement
+    gaps = normalized.get("gaps") or []
+    kept, overflow = enforce_quota(gaps)
+    normalized["gaps"] = kept
+    if overflow:
+        normalized["_overflow_findings"] = overflow
+        normalized["_overflow_count"] = len(overflow)
     return ValidationResult(True, normalized, None, synthesized=False)
 
 
@@ -189,5 +187,5 @@ def enforce_escalation(
         return EscalationAction.RETRY, "REJECT — fix and re-dispatch"
     if status == "CANCELLED":
         return EscalationAction.RETRY, "CANCELLED — framework-side retry"
-    # Unknown status — treat as reject to be safe
-    return EscalationAction.REJECT, f"unknown review_status: {status!r}"
+    # Unknown status — retry (don't terminate prematurely on transient/unexpected status)
+    return EscalationAction.RETRY, f"unknown review_status: {status!r} — retrying"

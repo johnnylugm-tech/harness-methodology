@@ -41,6 +41,7 @@ class TestCategorizeFinding:
         ("high", None, "must-fix"),  # missing evidence_type → real_invention default
         ("high", "", "must-fix"),
         ("HIGH", "REAL_INVENTION", "must-fix"),  # case-insensitive
+        ("high", "fabrication", "must-fix"),  # unknown evidence_type → conservative must-fix
         # Medium severity
         ("medium", "real_invention", "should-fix"),
         ("medium", "over_interpretation", "nit"),

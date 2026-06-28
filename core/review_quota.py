@@ -75,6 +75,8 @@ def categorize_finding(finding: dict) -> FindingCategory:
             return "should-fix"
         if evidence_type == "methodology_artifact":
             return "nit"
+        # Unknown evidence_type: treat conservatively as must-fix (not nit)
+        return "must-fix"
 
     if severity == "medium" and evidence_type in (None, "", "real_invention"):
         return "should-fix"

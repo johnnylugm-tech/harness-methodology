@@ -234,11 +234,11 @@ class TestEnforceEscalation:
             # this scenario shouldn't reach round 5 with the same gap set.
             assert action in (EscalationAction.RETRY, EscalationAction.ESCALATE_HUMAN)
 
-    def test_unknown_status_returns_reject(self):
+    def test_unknown_status_returns_retry(self):
         b = _approve_clean()
         b["review_status"] = "WEIRD"
         action, reason = enforce_escalation(b, round_num=1)
-        assert action == EscalationAction.REJECT
+        assert action == EscalationAction.RETRY
         assert "unknown" in reason.lower()
 
 

@@ -73,17 +73,18 @@ def fetch_remote(submodule_path: Path, remote: str = "origin") -> bool:
 
 
 def behind_count(submodule_path: Path, remote: str = "origin",
-                  branch: str = "main") -> int:
+                  branch: str = "main", fetch: bool = True) -> int:
     """Return commit count behind `remote/branch`.
 
     Returns -1 if offline (cannot fetch) or remote branch unknown.
     Returns 0 if up-to-date.
 
-    Calls fetch_remote() internally so callers don't need to.
+    When fetch=True (default), fetches from remote before counting.
+    Pass fetch=False if the caller already fetched to avoid a double fetch.
     """
-    # Fetch first so origin/<branch> is up-to-date
-    if not fetch_remote(submodule_path, remote=remote):
-        return -1
+    if fetch:
+        if not fetch_remote(submodule_path, remote=remote):
+            return -1
 
     try:
         result = _run(
@@ -144,8 +145,8 @@ def sync_submodule(
             "Check network connectivity."
         )
 
-    # Step 3: compute behind count
-    n_behind = behind_count(submodule_path, remote=remote, branch=branch)
+    # Step 3: compute behind count (fetch already done at Step 2)
+    n_behind = behind_count(submodule_path, remote=remote, branch=branch, fetch=False)
     if n_behind < 0:
         raise SubmoduleSyncError(
             f"failed to determine commit count behind {remote}/{branch}"
@@ -231,19 +232,20 @@ def _cli() -> int:
         return 2
 
     if args.check_only:
-        if not fetch_remote(submodule, remote=args.remote):
+        n = behind_count(submodule, remote=args.remote, branch=args.branch)
+        if n == -1:
             print("[harness-sync] ERROR: fetch failed (offline?)", file=sys.stderr)
             return 3
-        n = behind_count(submodule, remote=args.remote, branch=args.branch)
         sha = current_sha(submodule)
         print(f"[harness-sync] {sha} is {n} commits behind {args.remote}/{args.branch}")
         return 0 if n == 0 else 1
 
+    push = not args.no_push
     try:
         result = sync_submodule(
             submodule,
             message_template=args.message,
-            push=not args.no_push,
+            push=push,
             remote=args.remote,
             branch=args.branch,
         )
@@ -253,10 +255,34 @@ def _cli() -> int:
 
     n = result["behind_count"]
     sha = result["short_sha"]
+    if n == 0:
+        print(f"[harness-sync] OK — already up-to-date ({sha})")
+        return 0
+
     print(f"[harness-sync] OK — pulled {n} commit(s); new SHA: {sha}")
-    if result["pushed"]:
-        print(f"[harness-sync] Message: {result['message']}")
-        print("[harness-sync] NOTE: parent-repo commit + push handled by caller.")
+
+    # Commit the submodule pointer bump in the parent repo
+    parent_repo = submodule.parent
+    submodule_name = submodule.name
+    commit_msg = result["message"]
+    try:
+        _run(["git", "-C", str(parent_repo), "add", submodule_name])
+        _run(["git", "-C", str(parent_repo), "commit", "-m", commit_msg])
+    except subprocess.CalledProcessError as e:
+        print(f"[harness-sync] FAILED: parent-repo commit failed: {e.stderr or e.stdout}",
+              file=sys.stderr)
+        return 19
+
+    if push:
+        try:
+            _run(["git", "-C", str(parent_repo), "push", args.remote, "HEAD"])
+        except subprocess.CalledProcessError as e:
+            print(f"[harness-sync] FAILED: parent-repo push failed: {e.stderr or e.stdout}",
+                  file=sys.stderr)
+            return 19
+        print(f"[harness-sync] Pushed: {commit_msg}")
+    else:
+        print(f"[harness-sync] (--no-push) Committed locally: {commit_msg}")
     return 0
 
 

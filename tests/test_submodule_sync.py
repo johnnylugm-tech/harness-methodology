@@ -18,6 +18,7 @@ Commonality: framework-level. All consumers of harness/ submodule benefit.
 
 import subprocess
 from pathlib import Path
+from unittest import mock
 
 import pytest
 
@@ -195,6 +196,144 @@ class TestSyncSubmoduleBehind:
         assert result["behind_count"] == 2
         # After sync, file content should be v3
         assert (consumer / "init.txt").read_text() == "v3"
+
+
+# ---------------------------------------------------------------------------
+# behind_count: fetch parameter (C6 — no double fetch)
+# ---------------------------------------------------------------------------
+
+
+class TestBehindCountFetchParam:
+    def test_fetch_false_skips_fetch_remote(self, tmp_path: Path):
+        """behind_count(fetch=False) must not call fetch_remote."""
+        repo = tmp_path / "repo"
+        _make_git_repo(repo)
+        with mock.patch("core.submodule_sync.fetch_remote") as mock_fetch:
+            behind_count(repo, fetch=False)
+        mock_fetch.assert_not_called()
+
+    def test_fetch_true_calls_fetch_remote(self, tmp_path: Path):
+        """behind_count(fetch=True, default) calls fetch_remote exactly once."""
+        repo = tmp_path / "repo"
+        _make_git_repo(repo)
+        with mock.patch("core.submodule_sync.fetch_remote", return_value=False) as mock_fetch:
+            result = behind_count(repo, fetch=True)
+        mock_fetch.assert_called_once()
+        assert result == -1  # fetch failed → -1
+
+    def test_sync_submodule_does_not_double_fetch(self, tmp_path: Path):
+        """sync_submodule must call fetch_remote exactly once (not twice via behind_count)."""
+        # Use same behind-by-N setup as TestSyncSubmoduleBehind
+        local_remote = tmp_path / "remote.git"
+        local_remote.mkdir()
+        subprocess.run(["git", "-C", str(local_remote), "init", "--bare", "-b", "main"],
+                       check=True, capture_output=True)
+        seed = tmp_path / "seed"
+        _make_git_repo(seed, file_content="v1")
+        subprocess.run(["git", "-C", str(seed), "remote", "add",
+                        "origin", str(local_remote)], check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(seed), "push", "-u",
+                        "origin", "main"], check=True, capture_output=True)
+        consumer = tmp_path / "consumer"
+        consumer.mkdir()
+        subprocess.run(["git", "-C", str(consumer), "clone",
+                        str(local_remote), "."], check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(consumer), "config", "user.email",
+                        "test@example.com"], check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(consumer), "config", "user.name",
+                        "Test"], check=True, capture_output=True)
+        # Push 1 commit to remote so consumer is behind
+        (seed / "init.txt").write_text("v2")
+        subprocess.run(["git", "-C", str(seed), "commit", "-am", "v2"],
+                       check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(seed), "push", "origin", "main"],
+                       check=True, capture_output=True)
+
+        with mock.patch("core.submodule_sync.fetch_remote", wraps=fetch_remote) as spy:
+            sync_submodule(consumer)
+
+        # Must be exactly 1 call — not 2 (sync_submodule step 2 + behind_count internal)
+        assert spy.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# CLI: parent-repo commit (C7)
+# ---------------------------------------------------------------------------
+
+
+def _count_commits(repo: Path) -> int:
+    r = subprocess.run(
+        ["git", "-C", str(repo), "rev-list", "--count", "HEAD"],
+        capture_output=True, text=True, check=True,
+    )
+    return int(r.stdout.strip())
+
+
+class TestCliParentRepoCommit:
+    def test_cli_commits_parent_repo(self, tmp_path: Path):
+        """_cli() must commit the submodule pointer bump in the parent repo."""
+        # Bare remote for the submodule
+        remote_sub = tmp_path / "remote_sub.git"
+        remote_sub.mkdir()
+        subprocess.run(["git", "-C", str(remote_sub), "init", "--bare", "-b", "main"],
+                       check=True, capture_output=True)
+        seed = tmp_path / "seed"
+        _make_git_repo(seed, file_content="v1")
+        subprocess.run(["git", "-C", str(seed), "remote", "add",
+                        "origin", str(remote_sub)], check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(seed), "push", "-u", "origin", "main"],
+                       check=True, capture_output=True)
+
+        # Parent repo: init, clone harness/ inside it, commit the gitlink
+        parent = tmp_path / "parent"
+        parent.mkdir()
+        subprocess.run(["git", "-C", str(parent), "init", "-b", "main"],
+                       check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(parent), "config", "user.email",
+                        "test@example.com"], check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(parent), "config", "user.name",
+                        "Test"], check=True, capture_output=True)
+        # Clone via -c protocol.file.allow=always to bypass local-transport security
+        subprocess.run(
+            ["git", "-c", "protocol.file.allow=always",
+             "-C", str(parent), "clone", str(remote_sub), "harness"],
+            check=True, capture_output=True,
+        )
+        subprocess.run(["git", "-C", str(parent / "harness"), "config",
+                        "user.email", "test@example.com"], check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(parent / "harness"), "config",
+                        "user.name", "Test"], check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(parent), "add", "harness"],
+                       check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(parent), "commit", "-m", "initial harness"],
+                       check=True, capture_output=True)
+
+        # Push 1 more commit to remote_sub so harness/ is 1 behind
+        (seed / "init.txt").write_text("v2")
+        subprocess.run(["git", "-C", str(seed), "commit", "-am", "v2"],
+                       check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(seed), "push", "origin", "main"],
+                       check=True, capture_output=True)
+
+        commits_before = _count_commits(parent)
+
+        import sys
+        old_argv = sys.argv
+        sys.argv = [
+            "harness-sync",
+            "--submodule", str(parent / "harness"),
+            "--no-push",
+        ]
+        try:
+            import core.submodule_sync as _mod
+            exit_code = _mod._cli()
+        finally:
+            sys.argv = old_argv
+
+        assert exit_code == 0
+        assert _count_commits(parent) == commits_before + 1, (
+            "_cli() must create exactly one new commit in the parent repo"
+        )
 
 
 # ---------------------------------------------------------------------------
