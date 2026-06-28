@@ -279,12 +279,32 @@ if [ -n "$EDITS" ]; then
     echo "  Commit them first, or use --no-fetch to preserve."
 fi
 
+# I: canonical FR-ID lint on staged Python/JS files (non-blocking by default;
+# pass --strict to block commits that introduce non-canonical FR-IDs).
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(py|js|mjs|ts)$' || true)
+if [ -n "$STAGED_FILES" ]; then
+    cd "$PROJECT_ROOT/harness"  # canonical_lint expects to import core.*
+    CANON_HITS=$("$PYTHON" -m core.canonical_lint $STAGED_FILES 2>&1 || true)
+    CANON_EXIT=$?
+    cd "$PROJECT_ROOT"
+    if [ $CANON_EXIT -ne 0 ] && [ -n "$CANON_HITS" ]; then
+        echo ""
+        echo "[canonical-lint] WARNING: non-canonical FR-ID(s) detected:"
+        echo "$CANON_HITS" | sed 's/^/  /'
+        echo "  Use canonical_form() from core.canonical_form to normalise."
+        if [ "${HARNESS_STRICT_CANONICAL:-0}" = "1" ]; then
+            echo "  HARNESS_STRICT_CANONICAL=1 → blocking commit."
+            exit 1
+        fi
+    fi
+fi
+
 exit 0
 HOOK_SCRIPT
 
 chmod +x "$PRE_COMMIT_HOOK"
 
-echo -e "${GREEN}OK${NC} Created pre-commit hook (submodule guard)"
+echo -e "${GREEN}OK${NC} Created pre-commit hook (submodule guard + canonical-lint)"
 
 
 # =============================================================================
@@ -412,7 +432,7 @@ echo "=============================================="
 echo ""
 echo "Hooks installed:"
 echo "  - prepare-commit-msg: Block commits if Phase not passed"
-echo "  - pre-commit: Warn on uncommitted submodule edits (improvement E2)"
+echo "  - pre-commit: Warn on uncommitted submodule edits (improvement E2) + canonical FR-ID lint (improvement I)"
 echo "  - post-merge: Check Phase status after merge"
 echo "  - pre-push: Check before pushing"
 echo ""

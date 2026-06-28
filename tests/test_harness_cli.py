@@ -552,25 +552,26 @@ class TestCmdAuditStructure:
             "do not require it as a CI artifact"
         )
 
-    # --- Bug 6 regression: P4 FR-reference regex accepts common variants ---
-    # Before the fix, the regex `\[?(TASK|FR|NFR)-(\d+)\]?` required a hyphen
-    # between the letters and the digits, so TEST_RESULTS.md that referenced
-    # "FR (01–05)" or "fr_01.py" was flagged as suspicious even though it
-    # clearly traced requirements.
+    # --- I: P4 FR-reference regex now STRICT CANONICAL ---
+    # Previously accepted 4 variants (FR-01, FR01, fr_01, FR(01)). I improvement
+    # narrows to canonical form (FR-NN / TASK-NN / NFR-NN, ≥2 digits). Tests
+    # below verify:
+    #   - canonical forms pass
+    #   - non-canonical forms (e.g. test_fr01.py without hyphen) are flagged
+    # Use `python3 -m core.canonical_lint <file>` to find/fix non-canonical.
 
-    def test_p4_fr_reference_accepts_variants(self, tmp_path):
+    def test_p4_fr_reference_accepts_canonical(self, tmp_path):
+        """Documents with CANONICAL FR-NN / NFR-NN references must pass."""
 
         (tmp_path / "04-testing").mkdir()
-        # Variant A: hyphen-separated bracket form — canonical
         (tmp_path / "04-testing" / "TEST_PLAN.md").write_text(
             "# Test Plan\n\n## Section\n\n"
             "Coverage for [FR-01], [FR-02], [NFR-03].\n" + "x" * 200
         )
-        # Variant B: underscore + lowercase file path reference
+        # Filename references are also canonical via FR- prefix in narrative
         (tmp_path / "04-testing" / "TEST_RESULTS.md").write_text(
             "# Test Results\n\n## Section\n\n"
-            "Files test_fr01.py and test_fr02.py and test_fr03.py and "
-            "test_fr04.py and test_fr05.py all pass.\n" + "x" * 200
+            "Files for FR-01, FR-02, FR-03, FR-04, FR-05 all pass.\n" + "x" * 200
         )
 
         data = self._audit_json(tmp_path)
@@ -579,20 +580,16 @@ class TestCmdAuditStructure:
             for f in data["dimensions"]["content_quality"]["details"]["P4"]["files"]
         }
         assert files["04-testing/TEST_PLAN.md"] == "good"
-        assert files["04-testing/TEST_RESULTS.md"] == "good", (
-            "underscore form 'fr_01.py' should satisfy FR reference check"
-        )
+        assert files["04-testing/TEST_RESULTS.md"] == "good"
 
-    def test_p4_fr_reference_accepts_range_notation(self, tmp_path):
-        """Documents using 'FR (01-05)' range notation should pass."""
+    def test_p4_fr_reference_flags_non_canonical(self, tmp_path):
+        """Documents with non-canonical (e.g. FR01, fr_01) must be flagged."""
 
         (tmp_path / "04-testing").mkdir()
+        # Non-canonical: FR01 without hyphen
         (tmp_path / "04-testing" / "TEST_PLAN.md").write_text(
             "# Test Plan\n\n## Section\n\n"
-            "All FR (01-05) and NFR (01-05) tested.\n" + "x" * 200
-        )
-        (tmp_path / "04-testing" / "TEST_RESULTS.md").write_text(
-            "# Test Results\n\n## Section\n\n175 cases passed.\n" + "x" * 200
+            "Coverage for FR01, FR02, NFR03.\n" + "x" * 200
         )
 
         data = self._audit_json(tmp_path)
@@ -600,8 +597,8 @@ class TestCmdAuditStructure:
             f["path"]: f["quality"]
             for f in data["dimensions"]["content_quality"]["details"]["P4"]["files"]
         }
-        assert files["04-testing/TEST_PLAN.md"] == "good", (
-            "range form 'FR (01-05)' should satisfy FR reference check"
+        assert files["04-testing/TEST_PLAN.md"] == "suspicious", (
+            "non-canonical FR01 (without hyphen) should be flagged as suspicious"
         )
 
     def test_p4_fr_reference_still_flags_doc_with_no_reference(self, tmp_path):

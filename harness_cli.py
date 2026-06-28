@@ -88,6 +88,29 @@ sys.path.insert(0, str(_REPO_ROOT))
 from core.atomic_io import atomic_write_json, file_lock, state_lock_path  # noqa: E402
 from core.pre_flight import check_cli_tools  # noqa: E402
 from core.harness_config import get_timeout  # noqa: E402
+from core.canonical_form import canonical_form  # noqa: E402  # I: single source of truth for FR/NFR/TASK IDs
+
+
+# I: helper for test_frNN.py / sentinel filenames — replaces 6 sites that each
+# did their own `re.match(r"FR-(\\d+)", fr_id)` + fallback `re.sub("[^a-z0-9]", ...)`.
+def _fr_num_str(fr_id: str) -> str:
+    """Return zero-padded digit string from FR-ID (canonical_form first).
+
+    Examples:
+      _fr_num_str("FR-01") -> "01"
+      _fr_num_str("fr01") -> "01"   # canonicalised via canonical_form
+      _fr_num_str("FR_12") -> "12"
+      _fr_num_str("FR-100") -> "100" # 3+ digits preserved
+      _fr_num_str("invalid") -> "invalid"  # passthrough on parse failure
+    """
+    try:
+        canon = canonical_form(fr_id)
+        m = re.match(r"FR-(\d+)", canon)
+        if m:
+            return m.group(1).zfill(2)
+        return canon
+    except ValueError:
+        return fr_id
 # Bug #105: framework-owned mutation_testing path. Pyright cannot resolve this
 # import statically (no type stub for core.quality_gate.mutation_enforcer),
 # so we silence reportAttributeAccessIssue here.
@@ -2493,11 +2516,16 @@ def _cmd_run_gate_impl(args: argparse.Namespace) -> int:
     # the evaluator only measures coverage for this FR's source files, not the
     # entire project (which dilutes the score with other FRs at 0%).
     if fr_id and args.gate == 1:
-        _num_match = re.match(r"FR-(\d+)", fr_id)
+        # I: use canonical_form() — handles all variants (FR-01, fr01, FR_01, etc.)
+        try:
+            _canon = canonical_form(fr_id)
+        except ValueError:
+            _canon = fr_id
+        _num_match = re.match(r"FR-(\d+)", _canon)
         _num_str = (
             _num_match.group(1).zfill(2)
             if _num_match
-            else re.sub(r"[^a-z0-9]", "_", fr_id.lower()).strip("_")
+            else _canon
         )
         _test_dir_str = "03-development/tests" if (Path(project) / "03-development" / "tests").is_dir() else "tests"
         _test_file = f"{_test_dir_str}/test_fr{_num_str}.py"
@@ -4553,10 +4581,11 @@ def _validate_handoff_p1_to_p2(project: Path) -> list[str]:
         fr_tests = inventory.get("fr_tests") or {}
         for fr_id, names in fr_tests.items():
             if names:  # non-empty list of test names
-                # FR IDs may be stored as "FR-01" or "fr01" — normalise
-                norm = fr_id.upper().replace("_", "-")
-                if not norm.startswith("FR-"):
-                    norm = f"FR-{norm}"
+                # I: use canonical_form() — handles all variants
+                try:
+                    norm = canonical_form(fr_id)
+                except ValueError:
+                    continue
                 if norm in declared_frs:
                     covered_frs.add(norm)
         missing_frs = declared_frs - covered_frs
@@ -6438,8 +6467,7 @@ def _fr_step_already_done(step: str, fr_id: str, project: Path) -> bool:
 
     # Dual verification for TDD
     if step.upper() == "TDD-RED":
-        num_match = re.match(r"FR-(\d+)", fr_id)
-        num_str = num_match.group(1).zfill(2) if num_match else re.sub(r"[^a-z0-9]", "_", fr_id.lower()).strip("_")
+        num_str = _fr_num_str(fr_id)
         test_dir = project / "03-development" / "tests" if (project / "03-development" / "tests").is_dir() else project / "tests"
         test_file = test_dir / f"test_fr{num_str}.py"
         return test_file.exists()
@@ -6447,8 +6475,7 @@ def _fr_step_already_done(step: str, fr_id: str, project: Path) -> bool:
         src_dir = project / "03-development" / "src"
         if not src_dir.exists():
             return False
-        num_match = re.match(r"FR-(\d+)", fr_id)
-        num_str = num_match.group(1).zfill(2) if num_match else re.sub(r"[^a-z0-9]", "_", fr_id.lower()).strip("_")
+        num_str = _fr_num_str(fr_id)
         for py_file in src_dir.glob("**/*.py"):
             if num_str in py_file.name:
                 return True
@@ -6787,8 +6814,7 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
     src_dir, srs_path normalisation, spec data) done once here.
     """
     step = step.upper()
-    num_match = re.match(r"FR-(\d+)", fr_id)
-    num_str = num_match.group(1).zfill(2) if num_match else re.sub(r"[^a-z0-9]", "_", fr_id.lower()).strip("_")
+    num_str = _fr_num_str(fr_id)
     test_dir_str = "03-development/tests" if (project / "03-development" / "tests").is_dir() else "tests"
     test_file = f"{test_dir_str}/test_fr{num_str}.py"
     src_dir = "03-development/src"
@@ -7460,10 +7486,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
     srs_path = Path(args.srs).resolve() if args.srs else None
 
     # Compute src_dir and test_file — used by GATE1 retry and _capture_tool_snapshot.
-    _num_match = re.match(r"FR-(\d+)", fr_id)
-    _num_str = _num_match.group(1).zfill(2) if _num_match else re.sub(
-        r"[^a-z0-9]", "_", fr_id.lower()
-    ).strip("_")
+    _num_str = _fr_num_str(fr_id)
     src_dir = "03-development/src"
     test_dir_str = "03-development/tests" if (project / "03-development" / "tests").is_dir() else "tests"
     test_file = f"{test_dir_str}/test_fr{_num_str}.py"
@@ -9780,16 +9803,14 @@ def cmd_audit_structure(args: argparse.Namespace) -> int:
         is_yaml = fpath.name.endswith(".yaml") or fpath.name.endswith(".yml")
         if not is_yaml and len(_re.findall(r"(?:^|\n)#{1,6} ", content)) < 2:
             issues.append("< 2 markdown sections")
-        # Accept common FR/NFR reference variants:
-        #   - canonical:  [FR-01], FR-01, FR01, fr_01
-        #   - ranges:     FR (01-05), [FR(01-05)]
-        # The leading bracket, hyphen, underscore or space between letters and
-        # digits is all optional so documents written without the [XX]
-        # convention still pass.
+        # I: require CANONICAL FR-ID form (FR-NN / TASK-NN / NFR-NN, ≥2 digits).
+        # Previously accepted 4 variants (FR-01, FR01, fr_01, FR(01)) which
+        # masked source-code inconsistencies. Now strict — run canonical_lint
+        # to find/fix variants in existing docs.
         if phase_num in _FR_REF_PHASES and not _re.search(
-            r"\[?\(?(?:TASK|FR|NFR)[\s\-_]*\(?(?:\d+)\]?\)?", content, _re.IGNORECASE
+            r"\b(?:TASK|FR|NFR)-\d{2,}\b", content
         ):
-            issues.append("no [TASK/FR/NFR-XX] references")
+            issues.append("no [TASK/FR/NFR-NN] canonical references")
         return {"quality": "good" if not issues else "suspicious", "issues": issues}
 
     quality_status = {}
