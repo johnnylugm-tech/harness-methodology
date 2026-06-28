@@ -83,6 +83,19 @@ def validate_b_output(raw: dict | Any, phase: int = 0, deliverable: str = "") ->
 
     # Schema-valid — apply HR-12 regression guard: over_interpretation caps at medium
     normalized = _downgrade_over_interpretation(dict(raw))
+    # H: apply review_quota — cap findings under DEFAULT_MAX_QUOTA weight.
+    # Findings that don't fit go to overflow (annotation, not throw) so callers
+    # can decide whether to triage or surface. Annotated gap.category is added.
+    try:
+        from core.review_quota import enforce_quota
+        gaps = normalized.get("gaps") or []
+        kept, overflow = enforce_quota(gaps)
+        normalized["gaps"] = kept
+        if overflow:
+            normalized["_overflow_findings"] = overflow
+            normalized["_overflow_count"] = len(overflow)
+    except ImportError:
+        pass  # review_quota not available — skip quota enforcement
     return ValidationResult(True, normalized, None, synthesized=False)
 
 
