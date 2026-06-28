@@ -5628,18 +5628,15 @@ def cmd_sync_harness(args: argparse.Namespace) -> int:
         return 0
 
     print(f"[sync-harness] OK — pulled {n} commit(s); new SHA: {sha}")
+    import subprocess
+    commit_msg = result["message"]
+    subprocess.run(["git", "add", "harness"], cwd=project, check=True)
+    subprocess.run(["git", "commit", "-m", commit_msg], cwd=project, check=True)
     if push:
-        # Commit + push in the parent repo (we're currently in the parent)
-        import subprocess
-        commit_msg = result["message"]
-        subprocess.run(["git", "add", "harness"], cwd=project, check=True)
-        subprocess.run(["git", "commit", "-m", commit_msg], cwd=project, check=True)
         subprocess.run(["git", "push", "origin", "HEAD"], cwd=project, check=True)
         print(f"[sync-harness] Pushed: {commit_msg}")
     else:
-        commit_msg = result["message"]
-        print(f"[sync-harness] (--no-push) Message that would be used: {commit_msg}")
-        print(f'[sync-harness] Run "git add harness && git commit -m \'{commit_msg}\'" manually.')
+        print(f"[sync-harness] (--no-push) Committed locally: {commit_msg}")
     return 0
 
 
@@ -6645,7 +6642,7 @@ def _fr_code_changed_since_last_gate1(fr_id: str, project: Path) -> bool:
     num_match = re.match(r"FR-(\d+)", fr_id)
     num_str = num_match.group(1).zfill(2) if num_match else ""
     if num_str:
-        for p in _git_test_patterns(project, num_str, str(int(num_str)) if num_str.isdigit() else num_str.lstrip('0')):
+        for p in _git_test_patterns(project, num_str, str(int(num_str))):
             fr_files.append(p)
             
     r_test = _sp.run(

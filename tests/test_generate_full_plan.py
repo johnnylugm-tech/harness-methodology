@@ -89,33 +89,33 @@ def project(tmp_path: Path) -> Path:
 
 class TestGateExitCheckpoint:
     def test_gate2_label(self):
-        lines = _gate_exit_checkpoint(2, 3, 5)
+        lines = _gate_exit_checkpoint(2, 3)
         joined = "\n".join(lines)
         assert "CHECKPOINT-GATE-2" in joined
         assert "Phase 3 Exit" in joined
 
     def test_gate3_command(self):
-        lines = _gate_exit_checkpoint(3, 4, 4)
+        lines = _gate_exit_checkpoint(3, 4)
         joined = "\n".join(lines)
         assert "run-gate --gate 3 --phase 4" in joined
         assert "finalize-gate --gate 3 --phase 4" in joined
 
     def test_gate4_no_hermes_note(self):
         """Gate 4 is fully automated — no Hermes APPROVE step."""
-        lines = _gate_exit_checkpoint(4, 6, 1)
+        lines = _gate_exit_checkpoint(4, 6)
         joined = "\n".join(lines)
         assert "Hermes" not in joined
         assert "await-hermes-approve" not in joined
 
     def test_gate4_result_json(self):
-        lines = _gate_exit_checkpoint(4, 6, 1)
+        lines = _gate_exit_checkpoint(4, 6)
         joined = "\n".join(lines)
         assert "gate4_result.json" in joined
 
     def test_early_stop_cases_present(self):
         """GAP-E fix: early-stop cases must appear in exit gate checklist."""
         for gate_num, phase in [(2, 3), (3, 4), (4, 6)]:
-            lines = _gate_exit_checkpoint(gate_num, phase, 1)
+            lines = _gate_exit_checkpoint(gate_num, phase)
             joined = "\n".join(lines)
             assert "CASE 1" in joined, f"Gate {gate_num} missing CASE 1"
             assert "CASE 2" in joined, f"Gate {gate_num} missing CASE 2"
@@ -126,13 +126,13 @@ class TestGateExitCheckpoint:
     def test_crg_note_for_gates_3_and_4(self):
         """GAP-D fix: CRG recon is automatic — noted as inside run-gate."""
         for gate_num, phase in [(3, 4), (4, 6)]:
-            lines = _gate_exit_checkpoint(gate_num, phase, 1)
+            lines = _gate_exit_checkpoint(gate_num, phase)
             joined = "\n".join(lines)
             assert "CRG" in joined
             assert "inside run-gate" in joined or "automatically" in joined
 
     def test_no_crg_note_for_gate_2(self):
-        lines = _gate_exit_checkpoint(2, 3, 1)
+        lines = _gate_exit_checkpoint(2, 3)
         joined = "\n".join(lines)
         assert "CRG" not in joined
 
@@ -625,78 +625,78 @@ class TestEntryGateCheck:
 class TestReviewCheckpoint:
     def test_phase1_lists_srs_deliverables(self):
         """GAP-K3 fix: P1 review checkpoint lists SRS deliverables."""
-        joined = "\n".join(_review_checkpoint(1, 1))
+        joined = "\n".join(_review_checkpoint(1))
         assert "SRS.md" in joined
         assert "CHECKPOINT-PEER-REVIEW" in joined
 
     def test_phase2_lists_sad_deliverables(self):
         """GAP-K3 fix: P2 review checkpoint lists SAD deliverables."""
-        joined = "\n".join(_review_checkpoint(2, 1))
+        joined = "\n".join(_review_checkpoint(2))
         assert "SAD.md" in joined
 
     def test_contains_approve_reject(self):
-        joined = "\n".join(_review_checkpoint(1, 1))
+        joined = "\n".join(_review_checkpoint(1))
         assert "APPROVE" in joined
         assert "REJECT" in joined
 
     def test_contains_git_push(self):
-        joined = "\n".join(_review_checkpoint(2, 1))
+        joined = "\n".join(_review_checkpoint(2))
         assert "push-checkpoint" in joined
         assert "HANDOVER.md" in joined
 
     def test_heading_h3(self):
-        lines = _review_checkpoint(1, 1)
+        lines = _review_checkpoint(1)
         assert any(line.startswith("### 🔒 CHECKPOINT-PEER-REVIEW") for line in lines)
 
     def test_not_harness_gate(self):
         """GAP-K fix: P1/P2 checkpoint must clarify it's NOT harness run-gate."""
-        joined = "\n".join(_review_checkpoint(1, 1))
+        joined = "\n".join(_review_checkpoint(1))
         assert "NOT" in joined
         assert "run-gate" in joined
 
     def test_hr12_max_rounds(self):
         """HR-12: max 5 rounds applies to review loop too."""
-        joined = "\n".join(_review_checkpoint(2, 1))
+        joined = "\n".join(_review_checkpoint(2))
         assert "5 rounds" in joined or "HR-12" in joined
 
     def test_no_human_reviewer_language(self):
         """Exit gate must NOT use 'Reviewer reads/records' — that implies human, not sub-agent."""
         for phase in (1, 2):
-            joined = "\n".join(_review_checkpoint(phase, 1))
+            joined = "\n".join(_review_checkpoint(phase))
             assert "Reviewer reads" not in joined, f"P{phase}: 'Reviewer reads' is human-reviewer language"
             assert "Reviewer records" not in joined, f"P{phase}: 'Reviewer records' is human-reviewer language"
 
     def test_has_stateless_subagent_dispatch(self):
         """Exit gate must dispatch Agent B as STATELESS subagent (same as inline [B-1])."""
         for phase in (1, 2):
-            joined = "\n".join(_review_checkpoint(phase, 1))
+            joined = "\n".join(_review_checkpoint(phase))
             assert "STATELESS" in joined, f"P{phase}: missing STATELESS subagent dispatch"
             assert "dispatch as **STATELESS** subagent" in joined, \
                 f"P{phase}: missing explicit dispatch instruction"
 
     def test_has_correct_role_b(self):
         """Exit gate must name the correct Agent B role per phase."""
-        assert "BUSINESS_ANALYST" in "\n".join(_review_checkpoint(1, 1))
-        assert "TECH_LEAD" in "\n".join(_review_checkpoint(2, 1))
+        assert "BUSINESS_ANALYST" in "\n".join(_review_checkpoint(1))
+        assert "TECH_LEAD" in "\n".join(_review_checkpoint(2))
 
     def test_no_reviewer_xxxx_placeholder(self):
         """reviewer: XXXX looks like a human name field — must not appear."""
         for phase in (1, 2):
-            joined = "\n".join(_review_checkpoint(phase, 1))
+            joined = "\n".join(_review_checkpoint(phase))
             assert '"reviewer": "XXXX"' not in joined, \
                 f"P{phase}: reviewer XXXX placeholder implies human identity"
 
     def test_has_b1_b2_labels(self):
         """Exit gate must use [B-1][B-2] labels consistent with inline sub-task dispatch."""
         for phase in (1, 2):
-            joined = "\n".join(_review_checkpoint(phase, 1))
+            joined = "\n".join(_review_checkpoint(phase))
             assert "[B-1]" in joined, f"P{phase}: missing [B-1] dispatch step"
             assert "[B-2]" in joined, f"P{phase}: missing [B-2] response parsing step"
 
     def test_has_prompt_template(self):
         """Exit gate must include Agent B prompt template (not just checklist)."""
         for phase in (1, 2):
-            joined = "\n".join(_review_checkpoint(phase, 1))
+            joined = "\n".join(_review_checkpoint(phase))
             assert "You are" in joined, f"P{phase}: missing Agent B prompt template"
             assert "Return JSON only" in joined, f"P{phase}: missing JSON return instruction"
 
@@ -1717,7 +1717,7 @@ class TestFe3e429Fixes:
 
     # C5 structural: G4e/G4f must come from _gate_exit_checkpoint, not a separate block
     def test_c5_gate_exit_checkpoint_gate4_has_g4e_g4f(self):
-        lines = _gate_exit_checkpoint(4, 6, 1)
+        lines = _gate_exit_checkpoint(4, 6)
         joined = "\n".join(lines)
         assert "G4e" in joined
         assert "G4f" in joined
@@ -1974,7 +1974,7 @@ class TestCrossProjectFixes:
 
     # Fix 6: Gate 4 exit checkpoint must label PUSH ⑧
     def test_push_8_labeled_in_gate4_exit(self):
-        lines = _gate_exit_checkpoint(4, 6, 1)
+        lines = _gate_exit_checkpoint(4, 6)
         joined = "\n".join(lines)
         assert "PUSH ⑧" in joined, "_gate_exit_checkpoint(gate_num=4) must mention PUSH ⑧"
 
@@ -2092,7 +2092,7 @@ class TestReviewerDesignFixes:
     # Auto-fix: Gate 2/3/4 must mention auto-fix engine
     def test_gate_exit_has_autofix_note(self):
         for gate_num in (2, 3, 4):
-            lines = _gate_exit_checkpoint(gate_num, gate_num + 1 if gate_num < 4 else 6, 1)
+            lines = _gate_exit_checkpoint(gate_num, gate_num + 1 if gate_num < 4 else 6)
             joined = "\n".join(lines)
             assert "Auto-fix engine" in joined, f"Gate {gate_num} must mention auto-fix engine"
 

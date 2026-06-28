@@ -911,7 +911,7 @@ class PhaseAuditor:
         if phase == 1:
             self._check_srs_depth()
             self._check_spec_tracking_depth()
-            self._check_traceability_depth(phase)
+            self._check_traceability_depth()
 
         elif phase == 2:
             self._check_sad_depth()
@@ -1026,7 +1026,7 @@ class PhaseAuditor:
                 detail="",
             ))
 
-    def _check_traceability_depth(self, _phase: int):
+    def _check_traceability_depth(self):
         content = self._content([
             "01-requirements/TRACEABILITY_MATRIX.md",
         ])
@@ -1773,8 +1773,8 @@ class PhaseAuditor:
 # 5. REPORT GENERATOR
 # ─────────────────────────────────────────────
 
-def generate_report(result: AuditResult, _output_format: str = "markdown") -> str:
-    """Render audit results as markdown or JSON report."""
+def generate_report(result: AuditResult) -> str:
+    """Render audit results as a markdown report."""
     verdict_icon = {"PASS": "\u2705", "CONDITIONAL_PASS": "\u26a0\ufe0f", "FAIL": "\u274c"}.get(result.verdict, "\u2753")
     verdict_label = {
         "PASS": "Passed",
