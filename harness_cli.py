@@ -4301,6 +4301,125 @@ def cmd_verify_agent_b_approvals(args: argparse.Namespace) -> int:
     print(report)
     return 0 if passed else 1
 
+def cmd_write_approval(args: argparse.Namespace) -> int:
+    """Deterministically persist an Agent B approval JSON to disk + verify in-process.
+
+    Replaces the LLM-as-shell-wrapper pattern in workflow JS (persistApproval helper
+    that wrapped `python3 -c "open().write()"` + a second `agent()` call for disk
+    verification — same anti-pattern, double agent round-trip, no real verification).
+
+    Architecture (Bug v22 fix, 2026-06-29): write + verify happen in a single Python
+    call so the harness can guarantee the file exists with the expected content.
+    The Bash invocation by the workflow tool sees a single deterministic exit code
+    (0 = written + verified; 1 = write failed; 2 = verify failed).
+
+    Usage:
+      python harness_cli.py write-approval --fr-id SRS.md --json '<json>'
+      echo '<json>' | python harness_cli.py write-approval --fr-id SRS.md --stdin
+    """
+    import json as _json
+
+    project = Path(args.project).resolve()
+    fr_id = args.fr_id
+    if not fr_id:
+        print("[write-approval] ERROR: --fr-id is required", file=sys.stderr)
+        return 1
+
+    # Resolve JSON payload from --json arg or stdin
+    if args.stdin:
+        raw = sys.stdin.read()
+    else:
+        raw = args.json or ""
+    if not raw:
+        print("[write-approval] ERROR: no JSON payload (--json or --stdin required)", file=sys.stderr)
+        return 1
+
+    # Validate JSON is parseable before any disk I/O
+    try:
+        payload = _json.loads(raw)
+    except _json.JSONDecodeError as e:
+        print(f"[write-approval] ERROR: invalid JSON payload: {e}", file=sys.stderr)
+        return 1
+
+    approvals_dir = project / ".methodology" / "agent_b_approvals"
+    approval_path = approvals_dir / f"{fr_id}.json"
+    try:
+        approvals_dir.mkdir(parents=True, exist_ok=True)
+        # Atomic write (tmp + os.replace) — same pattern as taskq NFR-03 atomic contract
+        tmp_path = approval_path.with_suffix(approval_path.suffix + ".tmp")
+        tmp_path.write_text(_json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp_path, approval_path)
+    except OSError as e:
+        print(f"[write-approval] ERROR: write failed for {approval_path}: {e}", file=sys.stderr)
+        return 1
+
+    # Deterministic in-process verify (replaces LLM-as-shell-wrapper disk check)
+    if not approval_path.is_file():
+        print(f"[write-approval] ERROR: verify failed — {approval_path} not on disk after write", file=sys.stderr)
+        return 2
+    size = approval_path.stat().st_size
+    if size < 10:
+        print(f"[write-approval] ERROR: verify failed — {approval_path} only {size} bytes", file=sys.stderr)
+        return 2
+
+    print(f"[write-approval] OK: {approval_path} ({size} bytes, written + verified)")
+    return 0
+
+
+def cmd_verify_file(args: argparse.Namespace) -> int:
+    """Deterministically verify a file exists and (optionally) has parseable content.
+
+    Replaces 18 LLM-as-shell-wrapper sites across 6 phase workflow JS files
+    (ctxCheck / load-ctx-a / envReport / persistApproval verify). Single Python call
+    reads the file, validates min-bytes, optionally parses JSON/YAML, and emits
+    one deterministic exit code that the workflow JS regex-matches on stdout.
+
+    Usage:
+      python harness_cli.py verify-file --file path/to/ctx.json --expect json --min-bytes 50
+      python harness_cli.py verify-file --file path/to/file --min-bytes 1   # any non-empty file
+    """
+    import json as _json
+
+    file_path = Path(args.file)
+    if not file_path.is_absolute():
+        file_path = (Path(args.project).resolve() / file_path) if args.project else file_path
+
+    expect = (args.expect or "any").lower()  # any | json | yaml | text
+    min_bytes = args.min_bytes if args.min_bytes is not None else 1
+
+    if not file_path.exists():
+        print(f"[verify-file] MISSING: {file_path}", file=sys.stderr)
+        return 1
+    if not file_path.is_file():
+        print(f"[verify-file] NOT_A_FILE: {file_path}", file=sys.stderr)
+        return 1
+
+    size = file_path.stat().st_size
+    if size < min_bytes:
+        print(f"[verify-file] TOO_SMALL: {file_path} ({size} bytes < {min_bytes})", file=sys.stderr)
+        return 1
+
+    if expect == "json":
+        try:
+            _json.loads(file_path.read_text(encoding="utf-8"))
+        except (_json.JSONDecodeError, UnicodeDecodeError, OSError) as e:
+            print(f"[verify-file] INVALID_JSON: {file_path}: {e}", file=sys.stderr)
+            return 1
+    elif expect == "yaml":
+        try:
+            import yaml as _yaml  # type: ignore
+            _yaml.safe_load(file_path.read_text(encoding="utf-8"))
+        except ImportError:
+            print("[verify-file] WARN: PyYAML not installed — skipping YAML parse, treating as text", file=sys.stderr)
+        except Exception as e:  # yaml.YAMLError + others
+            print(f"[verify-file] INVALID_YAML: {file_path}: {e}", file=sys.stderr)
+            return 1
+    # expect == "any" | "text" — just existence + size check
+
+    print(f"[verify-file] OK: {file_path} ({size} bytes, expect={expect})")
+    return 0
+
+
 def _validate_p8_completion(project: Path) -> list[str]:
     """Pre-flight checks required before push-milestone --type p8 is allowed."""
     errors: list[str] = []
@@ -10236,6 +10355,39 @@ def build_parser() -> argparse.ArgumentParser:
     vab.add_argument("--fr-ids",  default="", dest="fr_ids",
                      help="Comma-separated FR IDs (default: read from quality_manifest.json)")
     vab.set_defaults(func=cmd_verify_agent_b_approvals)
+
+    # write-approval (architectural fix for Bug v22 — replaces LLM-as-shell-wrapper persistApproval)
+    wa = sub.add_parser(
+        "write-approval",
+        help="Deterministically persist an Agent B approval JSON to disk + verify in one call "
+             "(replaces workflow JS persistApproval LLM-as-shell-wrapper; atomic write + size check, "
+             "exit 0=ok 1=write-fail 2=verify-fail).",
+    )
+    wa.add_argument("--project", default=".", help="Project root (default: .)")
+    wa.add_argument("--fr-id", required=True, dest="fr_id",
+                    help="Deliverable ID (e.g. 'SRS.md'). File written to "
+                         ".methodology/agent_b_approvals/<fr-id>.json")
+    wa.add_argument("--json", default=None,
+                    help="JSON payload as a string. Use single quotes around the JSON to escape "
+                         "inner double quotes in shell.")
+    wa.add_argument("--stdin", action="store_true",
+                    help="Read JSON payload from stdin (alternative to --json for large payloads)")
+    wa.set_defaults(func=cmd_write_approval)
+
+    # verify-file (architectural fix — replaces 18 LLM-as-shell-wrapper verify sites in 6 phases)
+    vf = sub.add_parser(
+        "verify-file",
+        help="Deterministically verify a file exists + meets size/parse criteria "
+             "(replaces workflow JS ctxCheck / load-ctx-a / envReport / persistApproval verify). "
+             "Exit 0=ok, 1=missing/invalid.",
+    )
+    vf.add_argument("--file", required=True, help="File path to verify (absolute, or relative to --project)")
+    vf.add_argument("--project", default=".", help="Project root for relative --file paths (default: .)")
+    vf.add_argument("--expect", choices=["any", "json", "yaml", "text"], default="any",
+                    help="Content expectation: any (default) | json (parse) | yaml (parse) | text (any)")
+    vf.add_argument("--min-bytes", type=int, default=1, dest="min_bytes",
+                    help="Minimum file size in bytes (default: 1)")
+    vf.set_defaults(func=cmd_verify_file)
 
     # run-gate (Phase 1: prepare + print evaluation prompt)
     rg = sub.add_parser("run-gate", help="Prepare gate evaluation; print prompt for Claude")
