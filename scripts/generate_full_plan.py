@@ -1151,7 +1151,7 @@ def _review_checkpoint(phase: int, checkpoint_n: int) -> List[str]:
         "",
         "- **[B-APPROVAL]** ✅ Persist Agent B approval JSONs for each deliverable to `.methodology/agent_b_approvals/<id>.json`",
         "  > Required by `harness_cli.py advance-phase` via `_verify_agent_b_approvals_core`.",
-        "  > Each file MUST contain: `{\"fr\": \"<id>\", \"review_status\": \"APPROVE\", \"reason\": \"<≥40 chars>\", \"citations\": [\"file:line\"], \"docs_embedded\": [\"<basename of each source doc>\"], \"confidence\": <0.0-1.0>}`",
+        "  > Each file MUST contain: `{\"fr\": \"<id>\", \"review_status\": \"APPROVE\", \"reason\": \"<≥40 chars>\", \"citations\": [\"file:line\"], \"docs_embedded\": [\"<basename of each source doc>\"]}`",
         f"  > Phase {phase} deliverable IDs = phase deliverables (see `harness_cli.py _PHASE_DELIVERABLES[{phase}]`, e.g., for Phase 1: SRS.md, SPEC_TRACKING.md, TRACEABILITY_MATRIX.md, TEST_INVENTORY.yaml).",
         "  > `<id>` MUST match the full _PHASE_DELIVERABLES[N] entry EXACTLY, including file extension (e.g. `SRS.md` → file `SRS.md.json`). Harness matches `approvals_dir / f\"{did}.json\"` directly without stem-stripping.",
         "  > Use Bash + Python (harness_cli.py write-approval subcommand if available, else direct Write tool) — do NOT use Edit (whole-file write only).",

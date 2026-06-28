@@ -266,8 +266,7 @@ def _cli() -> int:
     submodule_name = submodule.name
     commit_msg = result["message"]
     try:
-        _run(["git", "-C", str(parent_repo), "add", submodule_name])
-        _run(["git", "-C", str(parent_repo), "commit", "-m", commit_msg])
+        _run(["git", "-C", str(parent_repo), "commit", "-m", commit_msg, "--", submodule_name])
     except subprocess.CalledProcessError as e:
         print(f"[harness-sync] FAILED: parent-repo commit failed: {e.stderr or e.stdout}",
               file=sys.stderr)
