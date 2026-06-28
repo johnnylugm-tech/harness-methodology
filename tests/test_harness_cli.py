@@ -5016,7 +5016,7 @@ class TestSubmoduleDriftAdvisory:
         captured = capsys.readouterr()
         assert "harness/ submodule is 1 commit(s) behind origin/main" in captured.out
         assert "CI may have applied test-fix commits" in captured.out
-        assert "Pull + bump pointer" in captured.out
+        assert "sync-harness" in captured.out  # J: one-shot sync command
 
 
     def test_silent_when_fetch_fails(self, tmp_path, capsys):

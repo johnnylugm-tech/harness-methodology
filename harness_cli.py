@@ -5502,25 +5502,78 @@ def _check_submodule_drift(project: Path) -> None:
     origin/main (e.g. CI auto-fix landed). Prints actionable warning.
     Non-blocking — silent skip when offline / no origin access.
 
-    Bug fix E (improvement E2 of plan): delegated to core.submodule_guard
-    so the same logic is shared with pre_flight.check_submodule_safety and
-    the optional pre-commit hook. HEAD-behind remains non-blocking; only
-    uncommitted-edit detection is a hard raise.
+    J improvement: prefer `harness sync` (one-shot) over manual 4-step process.
+    Delegates to core.submodule_sync.behind_count() for the count.
     """
-    from core.submodule_guard import check_behind_remote
+    from core.submodule_sync import behind_count as _behind_count
     _sub = project / "harness"
-    _behind = check_behind_remote(_sub)
+    _behind = _behind_count(_sub)
     if _behind <= 0:
         return  # offline (-1) or already up to date (0) → silent
     print(
         f"\n[WARN] harness/ submodule is {_behind} commit(s) behind "
         f"origin/main. CI may have applied test-fix commits."
     )
-    print("  Pull + bump pointer:")
+    print("  Quick fix — one-shot sync:")
+    print(f"    python3 -m harness.cli sync-harness")
+    print(f"  Or manually:")
     print(f"    git -C {project}/harness pull --ff-only origin main")
     print(f"    git -C {project} add harness && git commit -m "
           f"'chore(harness): bump submodule to latest'")
     print("  (Non-blocking — local checkout is still functional.)")
+
+
+def cmd_sync_harness(args: argparse.Namespace) -> int:
+    """J: `harness sync` — pull + commit + push harness submodule.
+
+    One-shot replacement for the 4-step manual process:
+      1. cd harness && git pull --ff-only
+      2. cd .. && git add harness
+      3. git commit -m "chore(harness): bump to v <sha>"
+      4. git push
+
+    Pre-condition: working tree must be clean (asserted).
+    """
+    from core.submodule_sync import (
+        SubmoduleSyncError,
+        sync_submodule,
+        current_sha,
+    )
+    project = Path(getattr(args, "project", "."))
+    submodule = project / (args.submodule or "harness")
+    push = not getattr(args, "no_push", False)
+
+    try:
+        result = sync_submodule(
+            submodule,
+            push=push,
+            remote=getattr(args, "remote", "origin"),
+            branch=getattr(args, "branch", "main"),
+        )
+    except SubmoduleSyncError as e:
+        print(f"[sync-harness] FAILED: {e}", file=sys.stderr)
+        return 19
+
+    n = result["behind_count"]
+    sha = result["short_sha"]
+    if n == 0:
+        print(f"[sync-harness] OK — already up-to-date ({sha})")
+        return 0
+
+    print(f"[sync-harness] OK — pulled {n} commit(s); new SHA: {sha}")
+    if push:
+        # Commit + push in the parent repo (we're currently in the parent)
+        import subprocess
+        commit_msg = result["message"]
+        subprocess.run(["git", "add", "harness"], cwd=project, check=True)
+        subprocess.run(["git", "commit", "-m", commit_msg], cwd=project, check=True)
+        subprocess.run(["git", "push", "origin", "HEAD"], cwd=project, check=True)
+        print(f"[sync-harness] Pushed: {commit_msg}")
+    else:
+        commit_msg = result["message"]
+        print(f"[sync-harness] (--no-push) Message that would be used: {commit_msg}")
+        print(f'[sync-harness] Run "git add harness && git commit -m \'{commit_msg}\'" manually.')
+    return 0
 
 
 def _advance_prechecks(project: Path, completed_phase: int) -> int:
@@ -9990,6 +10043,19 @@ def build_parser() -> argparse.ArgumentParser:
     pp.add_argument("--force", action="store_true",
                     help="Overwrite an existing plan even if it has progress marks ([x])")
     pp.set_defaults(func=cmd_plan_phase)
+
+    # J: sync-harness — pull + commit + push harness submodule in one shot
+    sh = sub.add_parser(
+        "sync-harness",
+        help="Pull + commit + push harness submodule (J improvement)",
+    )
+    sh.add_argument("--project", default=".", help="Project root (default: .)")
+    sh.add_argument("--submodule", default="harness", help="Submodule path (default: harness)")
+    sh.add_argument("--remote", default="origin", help="Remote name (default: origin)")
+    sh.add_argument("--branch", default="main", help="Branch name (default: main)")
+    sh.add_argument("--no-push", action="store_true",
+                    help="Skip push; just pull + show commit message")
+    sh.set_defaults(func=cmd_sync_harness)
 
     # plan-all
     pa = sub.add_parser("plan-all",
