@@ -5749,3 +5749,64 @@ class TestGate1DeltaBatchAutoSkip:
             rc = harness_cli._check_gate1_live_coverage(tmp_path, 4)
         assert rc == 0
         assert mock_pytest.called
+
+
+class TestCmdReadFile:
+    def test_read_file_ok(self, tmp_path):
+        import harness_cli
+        f = tmp_path / "test.txt"
+        f.write_text("Hello World", encoding="utf-8")
+        out_json = tmp_path / "out.json"
+        
+        args = argparse.Namespace(
+            file=str(f),
+            expect_prefix=None,
+            min_length=0,
+            max_length=None,
+            content=True,
+            content_out=None,
+            json_out=str(out_json),
+            quiet=True
+        )
+        rc = harness_cli.cmd_read_file(args)
+        assert rc == 0
+        data = json.loads(out_json.read_text(encoding="utf-8"))
+        assert data["status"] == "OK"
+        assert data["content"] == "Hello World"
+        
+    def test_read_file_missing(self, tmp_path):
+        import harness_cli
+        f = tmp_path / "missing.txt"
+        
+        args = argparse.Namespace(
+            file=str(f),
+            expect_prefix=None,
+            min_length=0,
+            max_length=None,
+            content=False,
+            content_out=None,
+            json_out=None,
+            quiet=True
+        )
+        rc = harness_cli.cmd_read_file(args)
+        assert rc == 1
+
+    def test_read_file_content_out(self, tmp_path):
+        import harness_cli
+        f = tmp_path / "test.txt"
+        f.write_text("Hello Content", encoding="utf-8")
+        out_content = tmp_path / "content.txt"
+        
+        args = argparse.Namespace(
+            file=str(f),
+            expect_prefix=None,
+            min_length=0,
+            max_length=None,
+            content=True,
+            content_out=str(out_content),
+            json_out=None,
+            quiet=True
+        )
+        rc = harness_cli.cmd_read_file(args)
+        assert rc == 0
+        assert out_content.read_text(encoding="utf-8") == "Hello Content"
