@@ -184,6 +184,14 @@ CLASSIFICATION_TABLE: Dict[str, Dict[str, Any]] = {
         "problem_type": "pytest_failures",
     },
 
+    # ── core/review_schema_validator.py ──
+    "review_schema_validator/over_interpretation_gap": {
+        "strategy": FixStrategy.AUTO_FIX,
+        "confidence": 80.0,
+        "max_rounds": 2,
+        "problem_type": "over_interpretation_gap",
+    },
+
     # ── steering/steering_loop.py ──
     "steering_loop/convergence_stalled": {
         "strategy": FixStrategy.AUTO_FIX,
