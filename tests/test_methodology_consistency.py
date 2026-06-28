@@ -17,7 +17,6 @@ Commonality: phase-agnostic. Reads the registry + schema once and validates
 every rule / deliverable across all surfaces.
 """
 
-import re
 from pathlib import Path
 
 import pytest
@@ -382,6 +381,11 @@ class TestEndToEnd:
         # Tests run with harness/ as cwd; the script is at scripts/<name>.
         script = Path("scripts/check_methodology_consistency.py").resolve()
         assert script.exists(), f"script missing: {script}"
+
+        # If we are running in a standalone clone (e.g. CI) rather than as a submodule
+        # inside a host project, the workflow JS dir won't exist.
+        if not (script.parent.parent.parent / ".claude" / "workflows").exists():
+            pytest.skip("Standalone repo — no host project workflows to check against")
 
         result = subprocess.run(
             ["python3", str(script)],

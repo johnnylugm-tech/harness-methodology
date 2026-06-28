@@ -14,7 +14,6 @@ regression target. These tests verify:
 Commonality: phase-agnostic. Validates any B JSON regardless of which phase.
 """
 
-import copy
 
 import pytest
 
