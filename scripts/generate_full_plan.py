@@ -46,7 +46,7 @@ _NFR_TYPES_CHECK = (
 )
 
 
-def _nfr_types_check_satisfied(check_string: str, all_nfr_types) -> list[str]:
+def nfr_types_check_satisfied(check_string: str, all_nfr_types) -> list[str]:
     """Return the list of NFR types from *all_nfr_types* absent from
     *check_string*. Empty list = every type is present.
 
@@ -1063,7 +1063,7 @@ def _entry_gate_check(phase: int) -> List[str]:
     return lines
 
 
-def _review_checkpoint(phase: int, checkpoint_n: int) -> List[str]:
+def _review_checkpoint(phase: int, _checkpoint_n: int) -> List[str]:
     """Agent B peer-review checkpoint for P1/P2 (deliverable review — NOT harness run-gate).
 
     Agent B is dispatched as a STATELESS sub-agent (same pattern as inline [B-1][B-2]).
@@ -1738,7 +1738,7 @@ def _gate4_prerequisites_block() -> List[str]:
     ]
 
 
-def _gate_exit_checkpoint(gate_num: int, phase: int, checkpoint_n: int, gate_meta: "dict | None" = None) -> List[str]:
+def _gate_exit_checkpoint(gate_num: int, phase: int, _checkpoint_n: int, gate_meta: "dict | None" = None) -> List[str]:
     """Phase-exit gate evaluation steps (two-phase + push checkpoint)."""
     meta = (gate_meta or _GATE_META)[gate_num]
     crg_note = (
@@ -2096,7 +2096,7 @@ def generate_phase1_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
     lines.append("")
 
     lines.extend(_constitution_self_check(1))
-    lines.extend(_review_checkpoint(1, checkpoint_n=1))
+    lines.extend(_review_checkpoint(1, _checkpoint_n=1))
     lines.extend(_phase_advance_step(1, dynamic=dynamic))
     return lines
 
@@ -2221,7 +2221,7 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
     lines.append("")
 
     lines.extend(_constitution_self_check(2))
-    lines.extend(_review_checkpoint(2, checkpoint_n=1))
+    lines.extend(_review_checkpoint(2, _checkpoint_n=1))
     lines.extend(_phase_advance_step(2, dynamic=dynamic))
     return lines
 
@@ -2394,7 +2394,7 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
 
         lines.extend(_p3_milestone_push_steps(fr_ids))
 
-    lines.extend(_gate_exit_checkpoint(gate_num=2, phase=3, checkpoint_n=checkpoint_n, gate_meta=gate_meta))
+    lines.extend(_gate_exit_checkpoint(gate_num=2, phase=3, _checkpoint_n=checkpoint_n, gate_meta=gate_meta))
 
     lines.append("### Phase 3 Deliverables")
     lines.append("- `03-development/src/` - All FR modules implemented")
@@ -2576,7 +2576,7 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
         lines.extend(_milestone_push_steps(fr_ids, phase=4, pre_gate=3,
                                            push_prefixes=("⑤", "⑥")))
 
-    lines.extend(_gate_exit_checkpoint(gate_num=3, phase=4, checkpoint_n=checkpoint_n, gate_meta=gate_meta))
+    lines.extend(_gate_exit_checkpoint(gate_num=3, phase=4, _checkpoint_n=checkpoint_n, gate_meta=gate_meta))
 
     lines.append("### Phase 4 Deliverables")
     lines.append("- `04-testing/TEST_PLAN.md` - Test plan")
@@ -2719,7 +2719,7 @@ def generate_phase6_tasks(repo_path: Path, dynamic: bool = False, gate_meta: "di
 
     lines.extend(_gate4_prerequisites_block())
 
-    lines.extend(_gate_exit_checkpoint(gate_num=4, phase=6, checkpoint_n=1, gate_meta=gate_meta))
+    lines.extend(_gate_exit_checkpoint(gate_num=4, phase=6, _checkpoint_n=1, gate_meta=gate_meta))
 
     lines.append("### Phase 6 Deliverables")
     lines.append("- Gate 4 PASS (composite ≥ 85, all 15 dims, CRG recon done)")

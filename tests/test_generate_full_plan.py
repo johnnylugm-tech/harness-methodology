@@ -1540,9 +1540,9 @@ class TestSabContractInPlan:
         _NFR_TYPES_CHECK was deleted."""
         from core.quality_gate.sab_parser import ALL_NFR_TYPES
         from scripts.generate_full_plan import (
-            _NFR_TYPES_CHECK, _nfr_types_check_satisfied,
+            _NFR_TYPES_CHECK, nfr_types_check_satisfied,
         )
-        missing = _nfr_types_check_satisfied(_NFR_TYPES_CHECK, ALL_NFR_TYPES)
+        missing = nfr_types_check_satisfied(_NFR_TYPES_CHECK, ALL_NFR_TYPES)
         assert missing == [], (
             f"NFR types {missing!r} from ALL_NFR_TYPES missing from "
             f"_NFR_TYPES_CHECK = {_NFR_TYPES_CHECK!r}"
@@ -1606,9 +1606,9 @@ class TestSabContractInPlan:
         in a comment, so the old guard passed regardless of what
         _NFR_TYPES_CHECK contained."""
         from core.quality_gate.sab_parser import ALL_NFR_TYPES
-        from scripts.generate_full_plan import _nfr_types_check_satisfied
+        from scripts.generate_full_plan import nfr_types_check_satisfied
         neutered = "All NFR types look legal?"
-        missing = _nfr_types_check_satisfied(neutered, ALL_NFR_TYPES)
+        missing = nfr_types_check_satisfied(neutered, ALL_NFR_TYPES)
         # Compare as sets — the helper preserves ALL_NFR_TYPES order, so a
         # set comparison is what asserts "every type is reported as missing"
         # without coupling the test to a specific ordering choice.
