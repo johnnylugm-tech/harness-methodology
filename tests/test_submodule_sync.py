@@ -126,7 +126,7 @@ class TestSyncSubmoduleUpToDate:
         # Setup: local remote with one initial commit; clone to consumer
         local_remote = tmp_path / "remote.git"
         local_remote.mkdir()
-        subprocess.run(["git", "-C", str(local_remote), "init", "--bare"],
+        subprocess.run(["git", "-C", str(local_remote), "init", "--bare", "-b", "main"],
                        check=True, capture_output=True)
         seed = tmp_path / "seed"
         _make_git_repo(seed, file_content="v1")
@@ -161,7 +161,7 @@ class TestSyncSubmoduleBehind:
         # Setup: bare remote
         local_remote = tmp_path / "remote.git"
         local_remote.mkdir()
-        subprocess.run(["git", "-C", str(local_remote), "init", "--bare"],
+        subprocess.run(["git", "-C", str(local_remote), "init", "--bare", "-b", "main"],
                        check=True, capture_output=True)
         # Seed clone (used to push initial commits and subsequent updates)
         seed = tmp_path / "seed"
