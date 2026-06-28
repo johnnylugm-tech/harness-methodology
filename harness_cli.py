@@ -4242,7 +4242,20 @@ def _verify_agent_b_approvals_core(
             )
             continue
         embedded = data.get("docs_embedded", [])
-        missing_docs = [d for d in required_docs if d not in embedded]
+        # Bug v26 fix (2026-06-29): required_docs may be basenames ("SRS.md") while
+        # B agent writes full repo-relative paths ("01-requirements/SRS.md"). Normalize
+        # both sides to a comparable form (basename + full path) before the membership
+        # check so neither authoring convention triggers a false-positive missing-docs
+        # failure. Previously the strict `d not in embedded` rejected "SRS.md" because
+        # the list contained "01-requirements/SRS.md" — a contract mismatch, not a
+        # real coverage gap.
+        def _norm(s: str) -> set[str]:
+            p = Path(s)
+            return {s, p.name, str(p).lstrip("./")}
+        embedded_norm: set[str] = set()
+        for e in embedded:
+            embedded_norm |= _norm(str(e))
+        missing_docs = [d for d in required_docs if not (_norm(d) & embedded_norm)]
         if missing_docs:
             errors.append(
                 f"{did}: docs_embedded missing {missing_docs} — "
