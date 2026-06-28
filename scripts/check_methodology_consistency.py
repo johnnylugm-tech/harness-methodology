@@ -149,7 +149,7 @@ def _parse_simple_yaml(text: str) -> dict:
 
         if not stack:
             raise ValueError(f"YAML parse error at line {i+1}: indent mismatch")
-        parent = stack[-1][1]
+        parent = cast(Any, stack[-1][1])
 
         if ":" in stripped and not stripped.lstrip().startswith("- "):
             key, _, val = stripped.lstrip().partition(":")

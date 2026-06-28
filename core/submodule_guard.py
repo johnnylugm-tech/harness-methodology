@@ -176,8 +176,8 @@ def _cli() -> int:
             return 1
     elif args.mode == "check-edits":
         edits = check_uncommitted_edits(sub)
-        for e in edits:
-            print(str(e))
+        for edit_path in edits:
+            print(str(edit_path))
         return 0
     else:  # check-behind
         behind = check_behind_remote(sub)
