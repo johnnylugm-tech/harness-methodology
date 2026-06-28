@@ -5515,8 +5515,8 @@ def _check_submodule_drift(project: Path) -> None:
         f"origin/main. CI may have applied test-fix commits."
     )
     print("  Quick fix — one-shot sync:")
-    print(f"    python3 -m harness.cli sync-harness")
-    print(f"  Or manually:")
+    print("    python3 -m harness.cli sync-harness")
+    print("  Or manually:")
     print(f"    git -C {project}/harness pull --ff-only origin main")
     print(f"    git -C {project} add harness && git commit -m "
           f"'chore(harness): bump submodule to latest'")
@@ -5537,7 +5537,6 @@ def cmd_sync_harness(args: argparse.Namespace) -> int:
     from core.submodule_sync import (
         SubmoduleSyncError,
         sync_submodule,
-        current_sha,
     )
     project = Path(getattr(args, "project", "."))
     submodule = project / (args.submodule or "harness")

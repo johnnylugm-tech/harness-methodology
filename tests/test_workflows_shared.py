@@ -22,7 +22,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
 
 # Workflow scripts live outside `harness/` source tree; sys.path is set by
 # conftest.py at project root.
@@ -57,7 +56,7 @@ class TestRunWithRetry:
 
         monkeypatch.setattr("time.sleep", fake_sleep)
         # Use /bin/sh -c with counter
-        result = run_with_retry(
+        _ = run_with_retry(
             ["/bin/sh", "-c", "echo $((n+=1)) > /dev/null; [ \"$(cat /tmp/cnt 2>/dev/null)\" = \"2\" ] && true || (echo 1 > /tmp/cnt; false)"],
             max_attempts=5, initial_delay=0.001,
         )
