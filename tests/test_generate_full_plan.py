@@ -2103,6 +2103,15 @@ class TestReviewerDesignFixes:
         assert "machine-generated" in result, "P2 review must explain quality_manifest.json/SAB.json are machine-generated"
 
 
+    def test_b_approval_checkpoint_contract(self, project: Path):
+        """Verify that B-APPROVAL step and JSON schema contract is clearly present in phase review checkpoints."""
+        result = generate_full_plan(1, project)
+        assert result is not None
+        assert "[B-APPROVAL]" in result, "Review checkpoint must contain [B-APPROVAL] step"
+        assert ".methodology/agent_b_approvals/<id>.json" in result, "Must specify correct JSON persistence path"
+        assert '"review_status": "APPROVE"' in result, "Must document the required JSON schema"
+
+
 # ─── Phase 7-8 execution review fixes (A/B/C/D) ──────────────────────────────
 
 class TestPhase78ReviewFixes:
