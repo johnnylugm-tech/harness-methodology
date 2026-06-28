@@ -809,6 +809,26 @@ def _deliverable_ab_block(phase: int, deliverable: Dict, sub_n: int, total: int,
             )
         checks.insert(0, "Upstream deliverable review caveats addressed? (check previous B-2 gaps field)")
 
+    # Bug D fix (improvement D of plan): anti-over-specification framework
+    # invariant. For SRS sub-task, attach canonical_diff evidence path so B-1
+    # reviewer can grade A's over_spec_score instead of relying on prompt-level
+    # rules alone. Try/except semantics: if SPEC.md is missing (Elicitation
+    # mode) or canonical_diff.py fails, the path is still emitted (with
+    # warning text in embed_docs) so B-1 sees the absence is documented,
+    # not silent. The actual diff JSON is generated on-demand by A round
+    # (see harness/scripts/canonical_diff.py — A/B round calls it before B-1).
+    if label == "SRS.md":
+        embed_docs.append(
+            "srs_vs_spec_diff.json — produced by `python3 "
+            "harness/scripts/canonical_diff.py --srs 01-requirements/SRS.md "
+            "--spec SPEC.md --out srs_vs_spec_diff.json`. Each AC clause is "
+            "scored 0.0 (verbatim canonical) to 1.0 (pure invention); gaps "
+            "with over_spec_score > 0.7 are framework-flagged. If file is "
+            "missing (Elicitation mode or SPEC.md absent), treat all ACs as "
+            "potential over-spec and apply the rubric from §A-1 prompt-level "
+            "Canonical Interpretation Rule."
+        )
+
     # Final sub-task: integration consistency check across all upstream deliverables.
     if is_last and total > 1:
         checks.append("All upstream deliverables consistent with each other? No contradictory decisions?")

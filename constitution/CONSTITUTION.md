@@ -260,6 +260,26 @@
 
 ---
 
-*本文檔最後更新：2026-05-08*
-*版本：2.4.0*
+## 8. Framework-Level Invariants（5-point improvement 2026-06-28）
+
+Bug D/E-style 改善把 prompt-level 規則升級為 framework-level invariants。詳見
+`harness/scripts/canonical_diff.py` + `harness/constitution/invariant_engine.py`。
+
+### 8.1 Anti-over-specification (Bug D)
+- **Invariant**: 任何 deliverable (SRS.md / TEST_SPEC.md / VERIFICATION_REPORT.md) 不得添加無法從 canonical spec 衍生的 prescriptive clauses。
+- **Enforcement**: `canonical_diff.py` 對每條 AC 計算 over_spec_score [0, 1]；score > 0.7 的 AC 必須 (a) verbatim transcription、(b) DERIVED tag、或 (c) NFR-99 deferral。
+- **Elicitation mode**: SPEC.md 缺席時自動退化為 prompt-level rule（不 block phase）。
+
+### 8.2 B-review schema (Bug B)
+- **Invariant**: B reviewer JSON 必須 conform to `schemas/b_review.schema.json`；gap 必須有 `evidence_type` ∈ {real_invention, over_interpretation, methodology_artifact}。
+- **Enforcement**: `core/review_schema_validator.validate_b_output()` 驗證；schema 違規 synthesize CANCELLED（單次 retry，no infinite loop）。`over_interpretation` 永遠 cap 在 medium severity（HR-12 regression guard）。
+
+### 8.3 Submodule guard (Bug E)
+- **Invariant**: `git submodule update --remote` 必須在 submodule 無 uncommitted edit 時才能跑。
+- **Enforcement**: `core/submodule_guard.check_uncommitted_edits` + `core/pre_flight.check_submodule_safety`（Step 0）；setup-git-hooks.sh 安裝 pre-commit hook 提供 non-blocking warning。
+
+---
+
+*本文檔最後更新：2026-06-28*
+*版本：2.5.0*
 *此為 harness-methodology 的編譯後 artifact，源自 methodology-v2 v9.1*
