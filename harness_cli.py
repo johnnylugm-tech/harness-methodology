@@ -5224,6 +5224,69 @@ def cmd_load_context(args: argparse.Namespace) -> int:
     return 0
 
 # ---------------------------------------------------------------------------
+# read-file (deterministic file read for workflow JS agents)
+# ---------------------------------------------------------------------------
+#
+# Wraps scripts/file_loader.load_file() with CLI argument parsing so that
+# workflow JS (which cannot use host APIs per playbook §4) can call this via
+# the Bash tool through a SHELL WRAPPER agent. All validation (prefix, length,
+# SHA-256, 8 MiB cap) happens server-side in Python — the LLM agent's only job
+# is to emit the JSON stdout verbatim, eliminating LLM-interpretation failure
+# modes documented in fc99e7f (v6 revert) and the 32-commit churn on
+# loadFileViaBash/Python.
+#
+# Exit codes (machine-readable contract for workflow JS):
+#   0 = OK (file exists, prefix matches, length within bounds)
+#   1 = MISSING / PREFIX_MISMATCH / TOO_SHORT / TOO_LONG (recoverable)
+#   2 = READ_ERROR (fatal: OSError, UnicodeDecodeError, etc.)
+#
+# Commonality: same flag surface as scripts/file_loader.py CLI, so callers can
+# pick whichever entry point (standalone script or this CLI) without learning
+# a new API.
+def cmd_read_file(args: argparse.Namespace) -> int:
+    from scripts.file_loader import load_file  # lazy import — file_loader.py is heavy
+
+    result = load_file(
+        file_path=args.file,
+        expect_prefix=args.expect_prefix,
+        min_length=args.min_length,
+        max_length=args.max_length,
+        include_content=args.content,
+    )
+
+    json_text = json.dumps(result, indent=2, ensure_ascii=False)
+
+    if args.json_out:
+        Path(args.json_out).write_text(json_text, encoding="utf-8")
+    else:
+        print(json_text)
+
+    if args.content_out and result.get("content") is not None:
+        Path(args.content_out).write_text(result["content"], encoding="utf-8")
+
+    if not args.quiet:
+        status = result["status"]
+        sha = result["content_sha256"]
+        sha_short = (sha[:12] + "...") if sha else "(none)"
+        msg = (
+            f"[read-file] {status} "
+            f"file={args.file} "
+            f"sha256={sha_short} "
+            f"bytes={result['byte_size']} "
+            f"lines={result['line_count']}"
+        )
+        if status != "OK":
+            msg += f" — {result['diagnostic']}"
+        print(msg, file=sys.stderr)
+
+    if result["status"] == "OK":
+        return 0
+    if result["status"] in {"MISSING", "PREFIX_MISMATCH", "TOO_SHORT", "TOO_LONG"}:
+        return 1
+    return 2  # READ_ERROR
+
+
+# ---------------------------------------------------------------------------
 # effort
 # ---------------------------------------------------------------------------
 
@@ -10270,6 +10333,23 @@ def build_parser() -> argparse.ArgumentParser:
     lc.add_argument("--project", default=".", help="Project root (default: .)")
     lc.add_argument("--json",    action="store_true", help="Output as JSON (default behavior)")
     lc.set_defaults(func=cmd_load_context)
+
+    # read-file (deterministic file read; CLI wrapper over scripts/file_loader.py)
+    rf = sub.add_parser(
+        "read-file",
+        help="Deterministic file read with server-side prefix/length/SHA validation. "
+             "Use from workflow JS via Bash agent to avoid LLM-as-shell hallucination "
+             "of file content.",
+    )
+    rf.add_argument("--file", required=True, help="Path to the file to load (absolute or relative to project root)")
+    rf.add_argument("--expect-prefix", default=None, help="If set, file's first line must start with this string")
+    rf.add_argument("--min-length", type=int, default=0, help="Minimum byte size; below returns TOO_SHORT")
+    rf.add_argument("--max-length", type=int, default=None, help="Maximum byte size; above truncates content with a suffix")
+    rf.add_argument("--content", action="store_true", help="Include (possibly truncated) content text in JSON output")
+    rf.add_argument("--content-out", default=None, help="If set, also write content to this path")
+    rf.add_argument("--json-out", default=None, help="If set, write JSON result to this path; otherwise print to stdout")
+    rf.add_argument("--quiet", action="store_true", help="Suppress the human-readable status line on stderr")
+    rf.set_defaults(func=cmd_read_file)
 
     # effort
     ef = sub.add_parser("effort", help="Show gate effort metrics summary")
