@@ -3613,9 +3613,15 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
         # all genuinely score 100.  Blocking this case is a false positive.
         # The suspicious pattern is mid-range uniformity (e.g. all 78.5),
         # not ceiling uniformity.
-        if len(result.dimensions) >= 3:
+        # Exclude not-yet-applicable dims (score=None — e.g. CRG architecture
+        # override or a benchmark-less perf dim at Gate 2+) before the variance
+        # math.  Mirrors harness_bridge None handling (skip None dims); without
+        # it, statistics.pstdev/sum raise TypeError on None, crashing
+        # finalize-gate AFTER the manifest patch — a split-write that leaves
+        # gate_results recorded but the gate un-finalized.
+        _d_scores = [d.score for d in result.dimensions if d.score is not None]
+        if len(_d_scores) >= 3:
             import statistics as _stats
-            _d_scores = [d.score for d in result.dimensions]
             _d_stdev = _stats.pstdev(_d_scores)
             _d_mean = sum(_d_scores) / len(_d_scores)
             _saturated = _d_mean >= 99.5  # all tools at maximum — not suspicious

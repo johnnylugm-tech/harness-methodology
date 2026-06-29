@@ -3832,6 +3832,85 @@ class TestFinalizeGateManifestPatch:
 
 
 # =============================================================================
+# D2 variance check must tolerate a None-scored dimension
+# =============================================================================
+
+class TestFinalizeGateNoneDimVariance:
+    """Regression: the D2 score-uniformity check must not crash on score=None.
+
+    harness_bridge legitimately emits dimensions with score=None (a not-yet-
+    applicable dim — e.g. the CRG architecture override or a benchmark-less
+    perf dim). finalize-gate ran statistics.pstdev/sum over the raw scores;
+    a None raised TypeError AFTER the manifest patch but before the gate was
+    finalized — a split-write that left gate_results recorded while the
+    finalized sentinel / fr_progress were never written.
+    """
+
+    def _run_with_dims(self, tmp_path, monkeypatch, dims):
+        import harness_cli as hc
+        from harness.harness_bridge import GateResult
+
+        sessi = tmp_path / ".sessi-work"
+        sessi.mkdir(parents=True, exist_ok=True)
+        (sessi / "gate1_result.json").write_text(
+            json.dumps({"composite_score": 92.0}), encoding="utf-8"
+        )
+        meth = tmp_path / ".methodology"
+        meth.mkdir(parents=True, exist_ok=True)
+        (meth / "quality_manifest.json").write_text(
+            json.dumps({"fr_ids": ["FR-01"], "gate_results": {"gate1": {}}}),
+            encoding="utf-8",
+        )
+
+        monkeypatch.setattr(hc, "_finalize_gate_preflight", lambda _a, _p: None)
+        monkeypatch.setattr(hc, "_finalize_gate_fr_checks", lambda _a, _p: None)
+        monkeypatch.setattr(hc, "_finalize_gate_cross_checks", lambda _a, _p: None)
+        monkeypatch.setattr(hc, "_update_state_checkpoint", lambda *_, **__: None)
+        monkeypatch.setattr(hc, "_update_claude_md", lambda _p: None)
+        monkeypatch.setattr(hc, "_record_gate_timestamp", lambda *_a: None)
+        monkeypatch.setattr(hc, "_generate_stage_pass", lambda *_a: None)
+
+        class FakeGit:
+            def ensure_gitignore(self): pass
+            def commit_fr_gate1(self, *_a): pass
+            def commit_and_push_gate(self, *_a): pass
+        monkeypatch.setattr(hc, "_make_git", lambda *_a: FakeGit())
+
+        class FakeBridge:
+            def prepare_gate(self, **_): return object()
+            def finalize_gate(self, _ctx, **_):
+                return GateResult(
+                    gate_num=1, score=92.0, dimensions=dims,
+                    open_critical=0, open_high=0,
+                    quality_complete=True, rounds_used=1,
+                )
+        import harness.harness_bridge as hb
+        monkeypatch.setattr(hb, "HarnessBridge", FakeBridge)
+
+        args = argparse.Namespace(
+            project=str(tmp_path), gate=1, phase=3, fr_id="FR-01",
+        )
+        return hc._cmd_finalize_gate_impl(args)
+
+    def test_none_scored_dim_does_not_crash_finalize(self, tmp_path, monkeypatch):
+        """A None-scored dim must be skipped, not crash pstdev/sum (split-write)."""
+        from harness.harness_bridge import DimResult
+        dims = [
+            DimResult(name="linting", score=100.0, threshold=90.0),
+            DimResult(name="type_safety", score=95.0, threshold=85.0),
+            DimResult(name="test_coverage", score=90.0, threshold=80.0),
+            DimResult(name="architecture", score=None, threshold=80.0),  # type: ignore[arg-type]
+        ]
+        rc = self._run_with_dims(tmp_path, monkeypatch, dims)
+        assert rc == 0, f"finalize crashed/blocked on a None-scored dim: rc={rc}"
+        # The gate must actually be finalized: gate_results.gate1 patched with FR-01.
+        g1 = json.loads(
+            (tmp_path / ".methodology" / "quality_manifest.json").read_text()
+        )["gate_results"]["gate1"]
+        assert "FR-01" in g1, f"gate not finalized (split-write): {g1}"
+
+
+# =============================================================================
 # B3: _trace_dirty_state must include fix command in reason string
 # =============================================================================
 
