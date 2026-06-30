@@ -995,17 +995,134 @@ class GitStrategy:
         return True
 
     def _commit_and_push(self, message: str, skip_hooks: bool = False) -> bool:
+        """Commit then push, with ancestor-direction pre-flight.
+
+        Pre-flight (added in fix commit ...): detect whether the local HEAD
+        is ahead / behind / diverged from the upstream tracking ref BEFORE
+        invoking `git push`.  Without this, ``git push`` silently fails
+        when origin has commits local lacks (replay / baseline re-run
+        scenarios), and the only signal is a bare ``[git WARN]`` line
+        with no actionable hint for the operator.
+
+        Behavior matrix:
+
+          direction    | action                                  | print
+          -------------+-----------------------------------------+--------------------------
+          'ahead'      | proceed with `git push` (fast-forward)  | "pushed → remote"
+          'no-remote'  | proceed with `git push` (best-effort)   | "pushed → remote"
+          'behind'     | refuse (would clobber upstream)        | REFUSE + rebase/merge hint
+          'diverged'   | refuse (manual resolution required)    | REFUSE + rebase/merge hint
+
+        Ancestor tests use ``git merge-base --is-ancestor`` which returns 0
+        when the named commit IS reachable from the comparison target.
+        See _detect_push_ancestor_direction for full contract.
+
+        Push failures from `git push` itself (network / auth / hook) are
+        STILL reported via the existing ``r.stderr[:200]`` path — this
+        only short-circuits the silently-broken non-fast-forward case.
+        """
         if not self._commit(message, skip_hooks=skip_hooks):
             return False
         if not self.push:
             print("  [git] push skipped (push=False)")
             return True
+        # Pre-flight: ancestor direction between local HEAD and upstream.
+        # Cheap when 'ahead' (a single rev-parse + merge-base); the fetch
+        # only round-trips to origin when an upstream is configured.
+        direction = self._detect_push_ancestor_direction()
+        if direction == "behind":
+            ahead_count = self._run_git(
+                "rev-list", "--count", "HEAD..@{u}"
+            )
+            n_raw = (ahead_count.stdout or "").strip()
+            n = n_raw if n_raw.isdigit() else "?"
+            print(
+                f"  [git REFUSE] upstream is ahead of local HEAD by {n} "
+                f"commit(s). Refusing to push (would clobber upstream history).\n"
+                f"  Common cause: replay / baseline-re-run where local was "
+                f"rewound (e.g. `git reset` to an old SHA) and upstream moved "
+                f"forward during the replay window.\n"
+                f"  To reconcile, run ONE of:\n"
+                f"    git fetch origin <branch> && "
+                f"git rebase origin/<branch>    # linear history (preferred)\n"
+                f"    git fetch origin <branch> && "
+                f"git merge --no-ff origin/<branch>   # preserves both lines\n"
+                f"  Then re-run the failing phase / push-checkpoint command."
+            )
+            return False
+        if direction == "diverged":
+            print(
+                "  [git REFUSE] local HEAD and upstream have diverged "
+                "(neither is ancestor of the other). Refusing to push;\n"
+                "  resolve manually with `git rebase` or `git merge --no-ff`."
+            )
+            return False
+        # direction is 'ahead' or 'no-remote' — safe to attempt the push.
         r = self._run_git("push")
         if r.returncode != 0:
             print(f"  [git WARN] git push failed: {r.stderr[:200]}")
             return False
         print("  [git] pushed → remote")
         return True
+
+    def _detect_push_ancestor_direction(self) -> str:
+        """Detect ancestor direction of local HEAD vs upstream tracking ref.
+
+        Returns one of:
+
+          'ahead'     — upstream ref IS an ancestor of local HEAD.
+                         Fast-forward push will succeed.
+          'behind'    — local HEAD IS an ancestor of upstream ref.
+                         Would clobber upstream; refuse.
+                         Common in baseline / replay re-runs where local was
+                         reset to an old commit and upstream moved forward.
+          'diverged'  — neither is ancestor of the other (true diamond).
+                         Refuse; needs manual rebase/merge.
+          'no-remote' — no upstream tracking ref / no remote / network down.
+                         Best-effort push; caller's `git push` will either
+                         succeed (first push) or surface its own error.
+
+        Implementation notes:
+          - Uses @{u} (upstream tracking ref) rather than hardcoding
+            'origin/main'; honors whatever the operator has configured
+            via `git branch --set-upstream-to=...`.
+          - Best-effort `fetch --no-tags` to detect a remote that moved
+            forward since the last fetch (the original bug — fetch-then-compare
+            catches "upstream moved while we were replaying").
+          - All git calls go through self._run_git which swallows subprocess
+            exceptions and returns a Fake result; any exception path becomes
+            'no-remote' → caller falls through to plain `git push`.
+        """
+        up = self._run_git("rev-parse", "--abbrev-ref", "--symbolic", "@{u}")
+        if up.returncode != 0 or not (up.stdout or "").strip():
+            return "no-remote"
+        upstream = up.stdout.strip()  # e.g. 'origin/main'
+        remote_name = upstream.split("/", 1)[0]
+
+        # Best-effort fetch to ensure we compare against latest upstream,
+        # not a stale local tracking ref. Use --no-tags so we don't pull
+        # upstream tag objects we don't read. Failure here is non-fatal:
+        # we fall back to (potentially stale) local tracking refs.
+        self._run_git("fetch", "--no-tags", remote_name)
+
+        remote_sha = self._run_git("rev-parse", upstream).stdout or ""
+        local_sha = self._run_git("rev-parse", "HEAD").stdout or ""
+        remote_sha = remote_sha.strip()
+        local_sha = local_sha.strip()
+        if not remote_sha or not local_sha:
+            return "no-remote"
+        if remote_sha == local_sha:
+            # Identical → nothing to push; safe to report as 'ahead' so
+            # the existing `git push` call no-ops without warning.
+            return "ahead"
+
+        # git merge-base --is-ancestor A B → 0 iff A is reachable from B
+        # (i.e., A is older or equal).
+        if self._run_git("merge-base", "--is-ancestor", remote_sha, local_sha).returncode == 0:
+            return "ahead"
+        if self._run_git("merge-base", "--is-ancestor", local_sha, remote_sha).returncode == 0:
+            return "behind"
+        return "diverged"
 
     def _tag_release(self, score: float) -> None:
         # Score validation: `int(float('inf'))` raises OverflowError
