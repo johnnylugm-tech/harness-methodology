@@ -83,6 +83,21 @@ class TestHarnessBridgeIntegration:
                 assert out_path is not None
                 assert out_path.exists()
 
+    def test_generate_quality_manifest_dedups_fr_ids(self, tmp_path):
+        """Duplicate fr_ids (e.g. a workflow re-passing the FR set across phases)
+        must be de-duplicated with order preserved — fr_ids is a registry, not a
+        multiset; duplicates inflate the 'N FRs' count and the per-FR Gate 1 loop."""
+        bridge = HarnessBridge()
+        with patch("harness.harness_bridge.Path", side_effect=lambda *args: tmp_path / Path(*args) if ".methodology" in str(args) else Path(*args)):
+            with patch("scripts.generate_sab.parse_sad", return_value={}):
+                out_path = bridge.generate_quality_manifest(
+                    fr_ids=["FR-01", "FR-02", "FR-03", "FR-01", "FR-02", "FR-03"],
+                    sad_path="SAD.md", force=True,
+                )
+                import json
+                data = json.loads(out_path.read_text())
+                assert data["fr_ids"] == ["FR-01", "FR-02", "FR-03"]
+
 
 class TestGateContext:
     """Tests for GateContext dataclass and evaluation_prompt()."""

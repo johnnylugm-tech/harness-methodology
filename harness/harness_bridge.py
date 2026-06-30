@@ -2525,6 +2525,13 @@ class HarnessBridge:
         existing ``test_generate_quality_manifest_creates_file`` harness
         uses the old signature and would otherwise break.
         """
+        # Defensive de-dup (preserve order): callers may pass a CSV/list that
+        # accumulated duplicates upstream (e.g. a workflow re-passing the FR set
+        # across phases). fr_ids is a registry, not a multiset — duplicates inflate
+        # the "N FRs" count in load-context / run-phase output and re-list the same
+        # FR in the per-FR Gate 1 loop.
+        fr_ids = list(dict.fromkeys(fr_ids))
+
         # Resolve project_root with safe default. If the caller didn't
         # pass one, we use os.getcwd() — but emit a WARNING so the
         # CWD-rel hazard is visible in the logs (helps diagnose
