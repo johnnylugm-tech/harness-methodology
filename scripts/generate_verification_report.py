@@ -167,21 +167,25 @@ def generate_verification_report(project_root: str | Path) -> Path:
     pass_pct = (100.0 * pass_count / total) if total else 0.0
 
     # Certification block
-    if deferred:
+    # Bug H4 fix: previous logic checked `deferred` first, so a project with
+    # any deferred issues AND any Gate 1 FAIL was reported as Conditional PASS.
+    # Certification must be ordered by gate priority: empty manifest → unknown,
+    # any Gate 1 FAIL → fail, otherwise deferred decides PASS vs Conditional PASS.
+    if total == 0:
+        cert = "**UNKNOWN** — No FRs declared in manifest. Verify project scope."
+    elif pass_count < total:
+        cert = (
+            f"**FAIL** — {pass_count}/{total} FRs PASS at Gate 1. "
+            "Resolve failing FRs before P5 exit."
+        )
+    elif deferred:
         cert = (
             "**Conditional PASS** — Gate 1 complete for all FRs; "
             f"{len(deferred)} Gate 3 issue(s) deferred with justification:\n\n"
             + "\n".join(f"- {d}" for d in deferred)
         )
-    elif pass_count == total and total > 0:
-        cert = "**PASS** — All FRs verified PASS at Gate 1. No Gate 3 deferred issues."
-    elif total == 0:
-        cert = "**UNKNOWN** — No FRs declared in manifest. Verify project scope."
     else:
-        cert = (
-            f"**FAIL** — {pass_count}/{total} FRs PASS at Gate 1. "
-            "Resolve failing FRs before P5 exit."
-        )
+        cert = "**PASS** — All FRs verified PASS at Gate 1. No Gate 3 deferred issues."
 
     body = f"""# VERIFICATION_REPORT — {project.name}
 

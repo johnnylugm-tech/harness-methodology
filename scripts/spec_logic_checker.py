@@ -255,12 +255,25 @@ class SemanticValidator:
         if verification == "output_len_le_input":
             if re.search(r'\+\s*["\'][.?!\s]', code):
                 return False, f"{fr_id} may insert extra characters"
+            return True, f"{fr_id}: output_len_le_input check passed"
 
         elif verification == "single_file_format_equals_multi":
             if re.search(r'if\s+len\([^)]+\)\s*==\s*1\s*:', code):
                 return True, f"{fr_id} has special handling, confirm consistency"
+            return True, f"{fr_id}: single_file_format_equals_multi check passed"
 
-        return True, "Logic conforms to SRS"
+        elif verification == "manual_verification_required":
+            # By-design marker — caller is expected to do manual review.
+            return True, f"{fr_id}: requires manual verification"
+
+        else:
+            # Bug H2 fix: unhandled verification strategies used to silently
+            # return "Logic conforms to SRS" — a false PASS. Surface that
+            # human review is required so callers don't treat this as auto-verified.
+            return True, (
+                f"{fr_id}: verification '{verification}' is not auto-checkable; "
+                "manual review required"
+            )
 
 
 def main():

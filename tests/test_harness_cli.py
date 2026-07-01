@@ -5913,3 +5913,79 @@ class TestCmdReadFile:
         rc = harness_cli.cmd_read_file(args)
         assert rc == 0
         assert out_content.read_text(encoding="utf-8") == "Hello Content"
+
+
+# =============================================================================
+# Finding H1: backup temp dir must be cleaned up on any exception
+# =============================================================================
+
+class TestBackupTempDirCleanup:
+    """Regression test for Finding H1: the backup temp dir created at the
+    start of cmd_advance_phase's sentinels-preserve block must be cleaned
+    up even if shutil.rmtree(sessi_work) raises a non-OSError that
+    ignore_errors does not swallow.
+    """
+
+    def _setup_minimal(self, tmp_path, monkeypatch):
+        import harness_cli
+        (tmp_path / ".methodology").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "01-requirements").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "02-architecture").mkdir(parents=True, exist_ok=True)
+        (tmp_path / ".methodology" / "phase2_plan.md").touch()
+        (tmp_path / ".methodology" / "phase3_plan.md").touch()
+        (tmp_path / "01-requirements" / "SRS.md").write_text(
+            "# SRS\n\n### FR-01: alpha\n", encoding="utf-8"
+        )
+        (tmp_path / "02-architecture" / "SAD.md").write_text(
+            "# SAD\n", encoding="utf-8"
+        )
+        sentinels = tmp_path / ".sessi-work" / "sentinels"
+        sentinels.mkdir(parents=True)
+        (sentinels / "g1_fr01.flag").write_text("ok", encoding="utf-8")
+
+        harness_cli._write_finalize_sentinels_for_tests(tmp_path)
+        monkeypatch.setattr("harness_cli._advance_prechecks", lambda _, __: 0)
+        monkeypatch.setattr("harness_cli._update_claude_md", lambda _: None)
+        monkeypatch.setattr("harness_cli._llm_clean_stale_claude_md", lambda _: None)
+        monkeypatch.setattr("harness_cli.shutil.which", lambda c: None)
+        monkeypatch.setattr("harness_cli._advance_fsm", lambda *_, **__: None)
+
+        class _FakeGen:
+            def __init__(self, *a, **kw): pass
+            def write(self, *a, **kw): pass
+        monkeypatch.setattr("harness_cli.HandoverGenerator", _FakeGen)
+
+        class _R:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+        monkeypatch.setattr(harness_cli.subprocess, "run", lambda *a, **kw: _R())
+
+    def test_backup_tempdir_cleaned_when_rmtree_sessi_work_raises(
+        self, tmp_path, monkeypatch
+    ):
+        """If shutil.rmtree(sessi_work, ignore_errors=True) raises
+        RuntimeError, the harness-sentinels-* backup temp dir must still
+        be removed by the outer try/finally."""
+        import shutil as _real_shutil
+
+        self._setup_minimal(tmp_path, monkeypatch)
+
+        def fake_rmtree(path, *args, **kwargs):
+            if ".sessi-work" in str(path):
+                raise RuntimeError("simulated non-OSError")
+            return _real_shutil.rmtree(path, *args, **kwargs)
+        monkeypatch.setattr("harness_cli.shutil.rmtree", fake_rmtree)
+
+        from harness_cli import cmd_advance_phase
+        import argparse
+        args = argparse.Namespace(project=str(tmp_path), completed_phase=2)
+
+        before = set(Path("/tmp").glob("harness-sentinels-*"))
+        try:
+            cmd_advance_phase(args)
+        except RuntimeError:
+            pass  # expected — function may propagate or swallow
+        after = set(Path("/tmp").glob("harness-sentinels-*"))
+        leaked = after - before
+        assert not leaked, f"Backup temp dir leaked: {leaked}"

@@ -366,7 +366,10 @@ def parse_srs_fr_nfr_xref(srs_path) -> Dict[str, List[str]]:
 
     # Determine which column index holds 'NFR Association'.
     header_line = header_match.group(0)
-    cols = [c.strip() for c in header_line.split('|') if c.strip()]
+    # Bug H3 fix: keep cell positions so nfr_col_idx lines up with rows below
+    # (rows may have empty middle cells — `if c.strip()` dropped them and
+    # shifted column indices, silently associating FRs with the wrong column).
+    cols = [c.strip() for c in header_line.split('|')[1:-1]]
     nfr_col_idx = next(
         (i for i, c in enumerate(cols) if 'nfr' in c.lower() and 'assoc' in c.lower()),
         -1,
@@ -386,8 +389,8 @@ def parse_srs_fr_nfr_xref(srs_path) -> Dict[str, List[str]]:
         # Skip separator rows (|---|---|)
         if re.match(r'^\|[\s\-|]+\|$', line):
             continue
-        cells = [c.strip() for c in line.split('|') if c.strip()]
-        if not cells:
+        cells = [c.strip() for c in line.split('|')[1:-1]]
+        if not any(cells):
             continue
         # First cell must be a bare FR-XX id
         fr_match = re.match(r'^(FR-\d+)$', cells[0])

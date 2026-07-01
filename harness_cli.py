@@ -6386,19 +6386,23 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
     sessi_work = project / ".sessi-work"
     sentinels_dir = sessi_work / "sentinels"
     _sentinels_backup: Optional[Path] = None
-    if sentinels_dir.is_dir():
-        _sentinels_backup = Path(tempfile.mkdtemp(prefix="harness-sentinels-"))
-        shutil.copytree(sentinels_dir, _sentinels_backup / "sentinels")
-    if sessi_work.is_dir():
-        shutil.rmtree(sessi_work, ignore_errors=True)
-        print(f"  [advance-phase] Cleared stale {sessi_work}")
-    if _sentinels_backup is not None:
-        try:
+    # Bug H1 fix: wrap backup→rm→restore in try/finally so the temp dir is
+    # cleaned up even if shutil.rmtree / copytree raises a non-OSError
+    # (KeyboardInterrupt, RuntimeError, etc.) that ignore_errors won't swallow.
+    try:
+        if sentinels_dir.is_dir():
+            _sentinels_backup = Path(tempfile.mkdtemp(prefix="harness-sentinels-"))
+            shutil.copytree(sentinels_dir, _sentinels_backup / "sentinels")
+        if sessi_work.is_dir():
+            shutil.rmtree(sessi_work, ignore_errors=True)
+            print(f"  [advance-phase] Cleared stale {sessi_work}")
+        if _sentinels_backup is not None:
             sentinels_dir.mkdir(parents=True, exist_ok=True)
             shutil.copytree(_sentinels_backup / "sentinels", sentinels_dir, dirs_exist_ok=True)
             _n = sum(1 for _ in sentinels_dir.iterdir() if _.is_file())
             print(f"  [advance-phase] Preserved {_n} sentinel(s) under {sentinels_dir}")
-        finally:
+    finally:
+        if _sentinels_backup is not None:
             shutil.rmtree(_sentinels_backup, ignore_errors=True)
 
     # Fix Finding #3: auto-regenerate quality_manifest.json at P2 exit.
