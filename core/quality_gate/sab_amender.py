@@ -40,31 +40,56 @@ _DEFAULT_SRC_DIR = "03-development/src"
 
 
 def discover_modules(project_root: Path, src_dir: str = _DEFAULT_SRC_DIR) -> list[str]:
-    """Return sorted list of module paths under `<project>/<src_dir>/`.
+    """Return sorted list of dotted module names under `<project>/<src_dir>/`.
 
-    Format matches SAB.json convention: '03-development/src/taskq/cli.py'
-    (POSIX path, no leading './', no trailing '/').
+    Mirrors `_check_sab_module_alignment` in harness_cli.py: skip
+    ``__pycache__`` and ``__init__.py`` (package marker, not a SAB module)
+    and emit dotted form (``taskq.core.models``), not the raw project-relative
+    path. The two functions must use the SAME representation, otherwise an
+    amend run can never close the BLOCKED it was supposed to fix — the path
+    strings written into SAB.json by amend would never equal the dotted
+    strings checked against SAB.json by the gate.
     """
     src_path = project_root / src_dir
     if not src_path.is_dir():
         return []
     found = []
     for py in sorted(src_path.rglob("*.py")):
-        # Skip __pycache__ and __init__.py — neither is a SAB module.
         if "__pycache__" in py.parts:
             continue
-        rel = py.relative_to(project_root)
-        # Normalise Windows backslashes to POSIX for cross-platform SAB.json.
-        found.append(rel.as_posix())
+        if py.name == "__init__.py":
+            continue
+        rel = py.relative_to(src_path)
+        parts = rel.with_suffix("").parts
+        if not parts:
+            continue
+        found.append(".".join(parts))
     return found
 
 
 def _flatten_registered(sab: dict) -> set[str]:
-    """Union of every layer's modules list."""
+    """Union of every layer's modules list, normalised to dotted form.
+
+    SAB entries may be expressed in either dotted (``taskq.cli``) or path
+    (``taskq/cli.py``, ``03-development/src/taskq/cli.py``) form; both are
+    normalised to dotted here so the comparison against `discover_modules`
+    agrees with `_check_sab_module_alignment` in harness_cli.py.
+    """
     out: set[str] = set()
     for layer in sab.get("layers", []):
         for m in layer.get("modules", []):
-            out.add(m)
+            if not isinstance(m, str):
+                continue
+            stripped = m.strip().lstrip("./")
+            for prefix in ("03-development/src/", "src/"):
+                if stripped.startswith(prefix):
+                    stripped = stripped[len(prefix):]
+                    break
+            if stripped.endswith("/") or not stripped:
+                continue
+            if stripped.endswith(".py"):
+                stripped = stripped[:-3]
+            out.add(stripped.replace("/", "."))
     return out
 
 

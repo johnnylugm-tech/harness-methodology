@@ -9937,6 +9937,51 @@ def cmd_init_project(args: argparse.Namespace) -> int:
     print(f"  Full docs: {harness_root}/INTEGRATION.md")
     return 0
 
+
+def cmd_amend_sab(args: argparse.Namespace) -> int:
+    """Run the SAB Architecture Amendment Protocol as a standalone subcommand.
+
+    `run-gate --gate 1` blocks with `[BLOCKED] Architecture Amendment Protocol
+    violation` when 03-development/src/ has modules absent from any SAB layer.
+    The amend logic already runs inside `init-project --phase 3`, but a Phase 3
+    TDD/GATE1 agent that sees the [BLOCKED] message has no CLI to recover —
+    it has to either hand-edit SAB.json or restart init-project. This wraps
+    `core.quality_gate.sab_amender.amend_sab` so any agent can self-heal:
+
+        python3 harness_cli.py amend-sab --project .
+        python3 harness_cli.py amend-sab --project . --dry-run
+        python3 harness_cli.py amend-sab --project . --src-dir src
+
+    Idempotent: re-running adds nothing on the second call.
+    Returns 0 on success (including no-op), 1 on hard failure.
+    """
+    project = Path(args.project).resolve()
+    try:
+        from core.quality_gate.sab_amender import amend_sab
+        added = amend_sab(project, src_dir=args.src_dir, dry_run=args.dry_run)
+    except Exception as exc:
+        print(f"[amend-sab] failed: {exc}", file=sys.stderr)
+        return 1
+
+    if args.dry_run:
+        if added:
+            print(f"[amend-sab] dry-run: would add {len(added)} module(s):")
+            for m in added:
+                print(f"  + {m}")
+        else:
+            print("[amend-sab] dry-run: SAB is already in sync.")
+        return 0
+
+    if added:
+        print(f"[amend-sab] Added {len(added)} module(s) to .methodology/SAB.json:")
+        for m in added:
+            print(f"  + {m}")
+        print("  Review layer assignment, then commit SAB.json before re-running run-gate.")
+    else:
+        print("[amend-sab] SAB already in sync with 03-development/src/.")
+    return 0
+
+
 def cmd_kill_switch(args: argparse.Namespace) -> int:
     """CLI surface for the M1 KillSwitch (CV-6 from robustness audit).
 
@@ -10817,6 +10862,19 @@ def build_parser() -> argparse.ArgumentParser:
     ip.add_argument("--setup-branch-protection", action="store_true",
                     help="Configure GitHub branch protection for main with required checks")
     ip.set_defaults(func=cmd_init_project)
+
+    # amend-sab (SAB Architecture Amendment Protocol — standalone)
+    asab = sub.add_parser(
+        "amend-sab",
+        help="Run SAB Architecture Amendment Protocol: register 03-development/src/ modules "
+             "missing from .methodology/SAB.json (recovers run-gate BLOCKED state)",
+    )
+    asab.add_argument("--project", required=True, help="Target project root path")
+    asab.add_argument("--src-dir", default="03-development/src",
+                    help="Source directory to scan (default: 03-development/src)")
+    asab.add_argument("--dry-run", action="store_true",
+                    help="List modules that would be added without writing SAB.json")
+    asab.set_defaults(func=cmd_amend_sab)
 
     # audit-structure
     aus = sub.add_parser(
