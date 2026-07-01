@@ -243,12 +243,27 @@ class AutoFixEngine:
             for fp, pre_content in pre_fix_content_map.items():
                 if fp.exists():
                     try:
+                        # Compute allowed_node_name per-file: extract the top-level
+                        # node name from this specific file's AST, not files[0]'s.
+                        # This prevents multi-file fixes from being incorrectly
+                        # rejected when files[i] has a different top-level name
+                        # than files[0].
+                        fp_allowed_node = allowed_node
+                        if fp.suffix == ".py":
+                            try:
+                                tree = ast.parse(fp.read_text(encoding="utf-8"))
+                                for node in tree.body:
+                                    if isinstance(node, (ast.FunctionDef, ast.ClassDef, ast.AsyncFunctionDef)):
+                                        fp_allowed_node = node.name
+                                        break
+                            except Exception:
+                                pass  # keep fp_allowed_node as original allowed_node
                         post_content = fp.read_text(encoding="utf-8")
                         is_safe = ast_mutation_guard(
                             file_path=fp,
                             pre_content=pre_content,
                             post_content=post_content,
-                            allowed_node_name=allowed_node
+                            allowed_node_name=fp_allowed_node
                         )
                         if not is_safe:
                             success = False

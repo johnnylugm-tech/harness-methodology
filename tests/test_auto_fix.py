@@ -411,11 +411,9 @@ class TestGuardrails:
         b_py.write_text('class B:\n    def bar(self):\n        pass\n', encoding='utf-8')
 
         # Simulate: error line is in b.py (line 1 = class B:), so extract returns "B"
-        print(f"DEBUG b_py content: {b_py.read_text()!r}")
         _mvc_text, allowed_node_from_b = extract_minimal_viable_context(
             b_py, error_line=1, project_root=tmp_path
         )
-        print(f"DEBUG allowed_node_from_b: {allowed_node_from_b!r}")
         assert allowed_node_from_b == "B", (
             f"extract_minimal_viable_context(b.py) returned {allowed_node_from_b!r}, expected 'B'"
         )
