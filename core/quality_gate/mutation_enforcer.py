@@ -506,8 +506,8 @@ def _count_mutmut_results(cache_path: Path) -> tuple[int, int]:
         survived = cur.fetchone()[0]
         db.close()
         return killed, survived
-    except Exception:
-        return 0, 0
+    except (sqlite3.Error, OSError, IOError):
+        raise
 
 
 def run_stryker_precheck(project: Path) -> tuple[bool, str]:
