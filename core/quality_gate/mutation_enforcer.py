@@ -864,6 +864,12 @@ def compute_mutation_score(project: Path) -> tuple[bool, float, str]:
         # valid prior results".
         if workdir_cache.exists():
             shutil.copy2(workdir_cache, cache_file)
+        else:
+            # workdir cache never created (all source excluded). Remove any
+            # stale project-root cache so downstream sees a clean zero, not
+            # a stale score from a prior run.
+            if cache_file.exists():
+                cache_file.unlink()
         return True, score, msg
 
     except subprocess.TimeoutExpired:

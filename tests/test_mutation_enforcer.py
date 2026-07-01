@@ -892,6 +892,50 @@ def test_compute_mutation_score_does_not_promote_on_failure(tmp_path, monkeypatc
     assert not (tmp_path / ".mutmut-cache").exists()
 
 
+# Bug #105 (follow-up): when workdir cache never materializes (all source
+# excluded), a pre-existing project-root cache must be deleted so downstream
+# LLM agents cannot read stale scores.
+def test_stale_cache_removed_when_workdir_cache_absent(tmp_path, monkeypatch):
+    """When workdir cache never materializes, a stale project-root cache must be deleted."""
+    import core.quality_gate.mutation_enforcer as me
+
+    # Pre-existing stale cache at project root.
+    stale_cache = tmp_path / ".mutmut-cache"
+    stale_cache.write_text("old stale data")
+
+    # Minimal project layout.
+    src = tmp_path / "03-development" / "src" / "pkg"
+    src.mkdir(parents=True)
+    (src / "mod.py").write_text("def f():\n    return 1\n")
+    tests = tmp_path / "03-development" / "tests"
+    tests.mkdir()
+    (tests / "test_x.py").write_text("def test_x(): pass\n")
+
+    # Fake mutmut run that produces 0 mutants (all excluded → no cache created
+    # in workdir). The workdir cache (.mutmut-cache) will NOT exist.
+    class FakeRes:
+        returncode = 0
+        stdout = "TotalMutants = 0\n"
+        stderr = ""
+
+    def fake_run(cmd, *args, **kwargs):
+        if isinstance(cmd, list) and len(cmd) >= 2 and cmd[1] == "results":
+            return FakeRes()
+        class R:
+            returncode = 0; stdout = ""; stderr = ""
+        return R()
+
+    monkeypatch.setattr(me.subprocess, "run", fake_run)
+    monkeypatch.setattr(me.shutil, "which", lambda name: "/usr/bin/mutmut" if name == "mutmut" else None)
+
+    ok, score, msg = me.compute_mutation_score(tmp_path)
+
+    assert ok, f"compute_mutation_score returned not-ok: {msg}"
+    assert not stale_cache.exists(), (
+        f"Stale cache should be deleted, but still exists at {stale_cache}"
+    )
+
+
 def test_compute_mutation_score_uses_sys_executable_for_runner(tmp_path, monkeypatch):
     """Bug #91 / #105: setup.cfg rewrite pins the runner to sys.executable so
     mutmut 2.x's hardcoded `python` fallback never gets a chance to crash on
