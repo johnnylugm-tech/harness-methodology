@@ -663,7 +663,7 @@ def test_l1_mutmut_cache_persistence(tmp_path, monkeypatch):
     monkeypatch.setattr(me, "_detect_data_only_files", lambda _p: [])
     monkeypatch.setattr(me, "_abs_paths_to_mutate", lambda _cwd, _paths: str(tmp_path / "src"))
     monkeypatch.setattr(me, "_resolve_test_dir", lambda _cwd, _p: str(tmp_path / "tests"))
-    monkeypatch.setattr(me, "_copy_setup_cfg_to_workdir", lambda _p, _w, _td: None)
+    monkeypatch.setattr(me, "_copy_setup_cfg_to_workdir", lambda _p, _w, _td, **kw: None)
     monkeypatch.setattr(me.shutil, "which", lambda _cmd: "/usr/bin/mutmut")
 
     workdir_had_cache_before_run: list[bool] = []
@@ -733,7 +733,7 @@ def test_run_mutation_precheck_promotes_workdir_cache_on_success(tmp_path, monke
     monkeypatch.setattr(me, "_detect_data_only_files", lambda _p: [])
     monkeypatch.setattr(me, "_abs_paths_to_mutate", lambda _cwd, _p: str(tmp_path / "src"))
     monkeypatch.setattr(me, "_resolve_test_dir", lambda _cwd, _p: str(tmp_path / "tests"))
-    monkeypatch.setattr(me, "_copy_setup_cfg_to_workdir", lambda _p, _w, _td: None)
+    monkeypatch.setattr(me, "_copy_setup_cfg_to_workdir", lambda _p, _w, _td, **kw: None)
     monkeypatch.setattr(me.shutil, "which", lambda _cmd: "/usr/bin/mutmut")
 
     def fake_run(cmd, **kwargs):
@@ -774,7 +774,7 @@ def test_run_mutation_precheck_no_partial_cache_left_on_failure(tmp_path, monkey
     monkeypatch.setattr(me, "_detect_data_only_files", lambda _p: [])
     monkeypatch.setattr(me, "_abs_paths_to_mutate", lambda _cwd, _p: str(tmp_path / "src"))
     monkeypatch.setattr(me, "_resolve_test_dir", lambda _cwd, _p: str(tmp_path / "tests"))
-    monkeypatch.setattr(me, "_copy_setup_cfg_to_workdir", lambda _p, _w, _td: None)
+    monkeypatch.setattr(me, "_copy_setup_cfg_to_workdir", lambda _p, _w, _td, **kw: None)
     monkeypatch.setattr(me.shutil, "which", lambda _cmd: "/usr/bin/mutmut")
 
     def fake_run(cmd, **kwargs):
@@ -890,6 +890,116 @@ def test_compute_mutation_score_does_not_promote_on_failure(tmp_path, monkeypatc
     assert not ok
     assert score == 0.0
     assert not (tmp_path / ".mutmut-cache").exists()
+
+
+# ---------------------------------------------------------------------------
+# Bugs 5 + 6: multi-value testpaths / pythonpath (space-separated)
+# ---------------------------------------------------------------------------
+
+
+def test_testpaths_multi_value_not_joined_as_single_path(tmp_path):
+    """Bug 5: testpaths = 'tests other_tests' must not be joined as one bogus path.
+
+    pytest accepts space-separated testpaths (valid INI syntax). The bug joins
+    the whole string as a single relative path, producing the non-existent
+    '<cfg_dir>/tests other_tests' — pytest then finds nothing.
+    """
+    import core.quality_gate.mutation_enforcer as me
+
+    cfg = tmp_path / "setup.cfg"
+    cfg.write_text("[tool:pytest]\ntestpaths = tests other_tests\n", encoding="utf-8")
+    # Create both directories so the split-resolve produces real absolute paths.
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "other_tests").mkdir()
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    me._copy_setup_cfg_to_workdir(tmp_path, str(workdir), str(tmp_path / "tests"))
+    written = (workdir / "setup.cfg").read_text()
+    # Must not contain the bogus joined path.
+    assert "tests other_tests" not in written, (
+        f"Multi-value testpaths wrongly joined as a single literal path: {written}"
+    )
+
+
+def test_pythonpath_multi_value_not_left_broken(tmp_path):
+    """Bug 6: pythonpath = 'src lib' must not be left as a broken relative path.
+
+    pytest accepts space-separated pythonpath entries. The bug treats the
+    whole string as one path, resolves it as '<cfg_dir>/src lib' (which does
+    not exist), and leaves the broken string in place — causing
+    ModuleNotFoundError for both packages.
+    """
+    import core.quality_gate.mutation_enforcer as me
+
+    cfg = tmp_path / "setup.cfg"
+    cfg.write_text("[tool:pytest]\npythonpath = src lib\n", encoding="utf-8")
+    # Create both directories so split-resolve produces real absolute paths.
+    (tmp_path / "src").mkdir()
+    (tmp_path / "lib").mkdir()
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    me._copy_setup_cfg_to_workdir(tmp_path, str(workdir), str(tmp_path / "tests"))
+    written = (workdir / "setup.cfg").read_text()
+    # Must not leave the broken relative "src lib" string unchanged.
+    assert "pythonpath = src lib" not in written, (
+        f"Multi-value pythonpath left as broken relative string: {written}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Bug 7: _copy_setup_cfg_to_workdir ignores nested cwd from _resolve_mutmut_workdir
+# ---------------------------------------------------------------------------
+
+
+def test_copy_setup_cfg_uses_nested_cwd_setup_cfg_not_project_root(tmp_path):
+    """Bug 7: when _resolve_mutmut_workdir returns a nested cwd that has its
+    own setup.cfg, _copy_setup_cfg_to_workdir MUST read that nested setup.cfg,
+    not always the project-root one.
+
+    Real scenario: project root has a minimal setup.cfg (no [tool:pytest]
+    pythonpath), but 03-development/setup.cfg has pythonpath = src.
+    _resolve_mutmut_workdir detects the nested [mutmut] section and returns
+    cwd=03-development/. _copy_setup_cfg_to_workdir must use 03-development/
+    as the config source so pythonpath is preserved in the workdir copy.
+    """
+    import core.quality_gate.mutation_enforcer as me
+
+    # Root setup.cfg: has [mutmut] but no pythonpath — the bug would use this.
+    (tmp_path / "setup.cfg").write_text(
+        "[mutmut]\npaths_to_mutate = 03-development/src\n",
+        encoding="utf-8",
+    )
+    # Nested cwd has a setup.cfg with pythonpath.
+    nested = tmp_path / "03-development"
+    nested.mkdir()
+    (nested / "setup.cfg").write_text(
+        "[tool:pytest]\npythonpath = src\n",
+        encoding="utf-8",
+    )
+    src_dir = nested / "src"
+    src_dir.mkdir()
+    tests_dir = nested / "tests"
+    tests_dir.mkdir()
+
+    # Simulate what run_mutation_precheck does: pass cwd=nested.
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    me._copy_setup_cfg_to_workdir(tmp_path, str(workdir), str(tests_dir), cwd=nested)
+
+    cp = configparser.ConfigParser()
+    cp.read(str(workdir / "setup.cfg"), encoding="utf-8")
+    # The workdir setup.cfg must contain the pythonpath from the nested
+    # 03-development/setup.cfg, NOT whatever the root setup.cfg has.
+    # If Bug 7 is present, pythonpath will be absent or come from root.
+    assert cp.has_option("tool:pytest", "pythonpath"), (
+        f"pythonpath missing from workdir setup.cfg — "
+        f"_copy_setup_cfg_to_workdir read project-root setup.cfg instead of "
+        f"the nested cwd's setup.cfg"
+    )
+    assert cp["tool:pytest"]["pythonpath"] == str(src_dir.resolve()), (
+        f"pythonpath should be resolved to {src_dir.resolve()}, "
+        f"got {cp['tool:pytest']['pythonpath']!r}"
+    )
 
 
 # Bug #105 (follow-up): when workdir cache never materializes (all source
@@ -1249,7 +1359,7 @@ def test_mutmut_results_crash_returns_false(tmp_path, monkeypatch):
     monkeypatch.setattr(me, "_detect_data_only_files", lambda _p: [])
     monkeypatch.setattr(me, "_abs_paths_to_mutate", lambda _cwd, _paths: str(src))
     monkeypatch.setattr(me, "_resolve_test_dir", lambda _cwd, _p: str(tests))
-    monkeypatch.setattr(me, "_copy_setup_cfg_to_workdir", lambda _p, _w, _td: None)
+    monkeypatch.setattr(me, "_copy_setup_cfg_to_workdir", lambda _p, _w, _td, **kw: None)
 
     ok, msg = me.run_mutation_precheck(tmp_path)
     assert ok is False, f"Expected False for crashed mutmut results, got ({ok}, {msg!r})"
@@ -1303,7 +1413,7 @@ def test_zero_mutants_from_corrupt_cache_returns_false(tmp_path, monkeypatch):
     monkeypatch.setattr(me, "_detect_data_only_files", lambda _p: [])
     monkeypatch.setattr(me, "_abs_paths_to_mutate", lambda _cwd, _paths: str(src))
     monkeypatch.setattr(me, "_resolve_test_dir", lambda _cwd, _p: str(tests))
-    monkeypatch.setattr(me, "_copy_setup_cfg_to_workdir", lambda _p, _w, _td: None)
+    monkeypatch.setattr(me, "_copy_setup_cfg_to_workdir", lambda _p, _w, _td, **kw: None)
 
     ok, score, msg = me.compute_mutation_score(tmp_path)
     assert ok is False, f"Expected False for corrupt-cache mismatch, got ({ok}, {score}, {msg!r})"

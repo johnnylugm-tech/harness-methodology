@@ -22,6 +22,7 @@ import configparser
 import os  # Bug #43: used by _copy_setup_cfg_to_workdir to detect abs testpaths
 import json
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -212,7 +213,12 @@ def _find_source_setup_cfg(project: Path) -> Optional[Path]:
     return None
 
 
-def _copy_setup_cfg_to_workdir(project: Path, workdir: str, abs_test_dir: str = "") -> None:
+def _copy_setup_cfg_to_workdir(
+    project: Path,
+    workdir: str,
+    abs_test_dir: str = "",
+    cwd: Optional[Path] = None,
+) -> None:
     """Copy ``setup.cfg`` into *workdir* with [mutmut] section rewritten for
     temp-workdir context (Bug #41 fix).
 
@@ -224,8 +230,20 @@ def _copy_setup_cfg_to_workdir(project: Path, workdir: str, abs_test_dir: str = 
     Safety: only rewrite `runner` if the existing value is one of the
     well-known defaults (pytest/python-m-pytest/...). If the project uses
     a custom runner (e.g. `make test`), log a warning and leave it alone.
+
+    Bug 7 fix: *cwd* is the resolved mutmut working directory returned by
+    ``_resolve_mutmut_workdir``. When it differs from *project* (nested layout
+    with a subdir-level setup.cfg), read the source config from *cwd* instead
+    of always scanning from project root.
     """
-    setup_cfg = _find_source_setup_cfg(project) or (project / "setup.cfg")
+    # Bug 7: when a nested cwd is provided, use it as the config source
+    # instead of always scanning from project root.
+    if cwd is not None:
+        setup_cfg = cwd / "setup.cfg"
+        if not setup_cfg.exists():
+            setup_cfg = _find_source_setup_cfg(project) or (project / "setup.cfg")
+    else:
+        setup_cfg = _find_source_setup_cfg(project) or (project / "setup.cfg")
     cp = configparser.ConfigParser()
     if setup_cfg.exists():
         cp.read(str(setup_cfg), encoding="utf-8")
@@ -302,9 +320,22 @@ def _copy_setup_cfg_to_workdir(project: Path, workdir: str, abs_test_dir: str = 
     cfg_dir = setup_cfg.parent
     if cp.has_section("tool:pytest") and cp.has_option("tool:pytest", "testpaths"):
         rel = cp["tool:pytest"]["testpaths"].strip()
-        if rel and not os.path.isabs(rel):
-            abs_tp = str((cfg_dir / rel).resolve())
-            cp["tool:pytest"]["testpaths"] = abs_tp
+        if rel:
+            # Bug 5 fix: multi-value testpaths (e.g. "tests other_tests") must
+            # be split and resolved individually. pytest accepts space-separated
+            # paths in INI format. Joining them as one bogus path makes pytest
+            # search a literal "tests other_tests" directory that does not exist.
+            parts = shlex.split(rel)
+            resolved = []
+            for p in parts:
+                if os.path.isabs(p):
+                    resolved.append(p)
+                else:
+                    abs_p = (cfg_dir / p).resolve()
+                    if abs_p.exists():
+                        resolved.append(str(abs_p))
+            if resolved:
+                cp["tool:pytest"]["testpaths"] = " ".join(resolved)
 
     # Bug #106 fix: promote [tool:pytest] pythonpath to absolute. pytest reads
     # `pythonpath` as a cwd-relative path during early startup and inserts it
@@ -316,20 +347,34 @@ def _copy_setup_cfg_to_workdir(project: Path, workdir: str, abs_test_dir: str = 
     # works the same as project-root pytest discovery.
     if cp.has_section("tool:pytest") and cp.has_option("tool:pytest", "pythonpath"):
         rel = cp["tool:pytest"]["pythonpath"].strip()
-        if rel and not os.path.isabs(rel):
-            abs_pp = (cfg_dir / rel).resolve()
-            if abs_pp.exists():
-                cp["tool:pytest"]["pythonpath"] = str(abs_pp)
-            else:
-                # If the relative pythonpath doesn't resolve to a real
-                # directory, leave the original (preserves existing
-                # behavior for misconfigured projects — they'll get the
-                # same ModuleNotFoundError they had before, not a silent
-                # change to a different broken state).
-                print(f"[WARN] setup.cfg [tool:pytest] pythonpath={rel!r} "
-                      f"resolves to {abs_pp} which does not exist; "
-                      f"leaving unchanged.",
-                      file=sys.stderr)
+        if rel:
+            # Bug 6 fix: multi-value pythonpath (e.g. "src lib") must be
+            # split and resolved individually. pytest reads each entry as a
+            # separate sys.path insertion. Leaving "src lib" as one literal
+            # path resolves to <cfg_dir>/src lib (does not exist), breaking
+            # imports for both packages.
+            parts = shlex.split(rel)
+            resolved = []
+            for p in parts:
+                if os.path.isabs(p):
+                    resolved.append(p)
+                else:
+                    abs_pp = (cfg_dir / p).resolve()
+                    if abs_pp.exists():
+                        resolved.append(str(abs_pp))
+                    else:
+                        # Non-existent entry: warn but keep the original
+                        # string for misconfigured projects (preserves
+                        # existing behavior — they'll get the same
+                        # ModuleNotFoundError they had before, not a silent
+                        # change to a different broken state).
+                        print(f"[WARN] setup.cfg [tool:pytest] pythonpath entry={p!r} "
+                              f"resolves to {abs_pp} which does not exist; "
+                              f"not adding to pythonpath.",
+                              file=sys.stderr)
+            if resolved:
+                cp["tool:pytest"]["pythonpath"] = " ".join(resolved)
+            # If none of the parts resolved, leave the original string unchanged.
 
     with open(Path(workdir) / "setup.cfg", "w", encoding="utf-8") as f:
         cp.write(f)
@@ -628,7 +673,7 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
             )
         # Bug #41 fix: rewrite [mutmut] section for temp-workdir context.
         # Must run BEFORE mutmut reads setup.cfg (which it does on startup).
-        _copy_setup_cfg_to_workdir(project, workdir, test_dir)
+        _copy_setup_cfg_to_workdir(project, workdir, test_dir, cwd=cwd)
         # Do NOT copy existing .mutmut-cache into workdir: precheck must always
         # perform a fresh run.  Inheriting an old cache causes mutmut to report
         # previously-survived mutants as still-survived without re-testing them,
@@ -792,7 +837,7 @@ def compute_mutation_score(project: Path) -> tuple[bool, float, str]:
 
         # Bug #41 + #91: rewrite setup.cfg for workdir context (mutmut 2.x
         # hardcodes `python`; modern macOS lacks that symlink).
-        _copy_setup_cfg_to_workdir(project, workdir, test_dir)
+        _copy_setup_cfg_to_workdir(project, workdir, test_dir, cwd=cwd)
 
         cmd = [
             "mutmut", "run",
