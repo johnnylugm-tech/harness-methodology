@@ -594,6 +594,9 @@ class PhaseTruthVerifier:
 
             print(f"{status} {name:<30} {details}")
 
+        # Assign instance attribute for downstream consumers (e.g. to_fix_context)
+        self.results = {r["name"]: r for r in results}
+
         # Renormalize: weighted average across checks that actually ran.
         # If everything was skipped (infra fully broken) we fail-safe with 0%.
         # Math: original weights are designed to sum to 1.0, so dividing by
