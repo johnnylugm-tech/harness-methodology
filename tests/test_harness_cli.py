@@ -5968,24 +5968,27 @@ class TestBackupTempDirCleanup:
         RuntimeError, the harness-sentinels-* backup temp dir must still
         be removed by the outer try/finally."""
         import shutil as _real_shutil
+        _real_rmtree = _real_shutil.rmtree
 
         self._setup_minimal(tmp_path, monkeypatch)
 
         def fake_rmtree(path, *args, **kwargs):
             if ".sessi-work" in str(path):
                 raise RuntimeError("simulated non-OSError")
-            return _real_shutil.rmtree(path, *args, **kwargs)
+            return _real_rmtree(path, *args, **kwargs)
         monkeypatch.setattr("harness_cli.shutil.rmtree", fake_rmtree)
 
         from harness_cli import cmd_advance_phase
         import argparse
         args = argparse.Namespace(project=str(tmp_path), completed_phase=2)
 
-        before = set(Path("/tmp").glob("harness-sentinels-*"))
+        import tempfile
+        sys_temp = Path(tempfile.gettempdir())
+        before = set(sys_temp.glob("harness-sentinels-*"))
         try:
             cmd_advance_phase(args)
         except RuntimeError:
             pass  # expected — function may propagate or swallow
-        after = set(Path("/tmp").glob("harness-sentinels-*"))
+        after = set(sys_temp.glob("harness-sentinels-*"))
         leaked = after - before
         assert not leaked, f"Backup temp dir leaked: {leaked}"

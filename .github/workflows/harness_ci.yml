@@ -10,9 +10,6 @@ jobs:
   framework-self-tests:
     name: Framework Self-Tests
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      issues: write
     steps:
       - uses: actions/checkout@v4
 
@@ -30,15 +27,7 @@ jobs:
         run: ruff check .
 
       - name: Unit tests
-        run: |
-          python -m pytest tests/ -v --tb=short > pytest.log 2>&1 || {
-            URL=$(cat pytest.log | nc termbin.com 9999)
-            curl -s -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-                 -H "Accept: application/vnd.github.v3+json" \
-                 -d "{\"title\":\"CI Failed\",\"body\":\"Log: $URL\"}" \
-                 https://api.github.com/repos/${{ github.repository }}/issues
-            exit 1
-          }
+        run: pytest tests/ -v --tb=short
 
   validate-manifests:
     name: Validate Module Manifests
