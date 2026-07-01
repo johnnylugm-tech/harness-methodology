@@ -438,13 +438,6 @@ def _build_defaults() -> ConstitutionProfile:
     _p3_correctness_kw = [
         "fr-", "nfr-", "requirement", "specification",
     ]
-    _p3_security_kw = [
-        "auth", "validation", "sanitize", "encrypt",
-        "hmac", "signature", "verify", "rbac", "permission",
-        "token", "pii", "mask", "secret", "tls",
-        "rate limit", "security", "vulnerability",
-    ]
-
     # P4 (Testing: test files, TEST_RESULTS.md)
     # - correctness: adds "test case" (P4-specific activity; excluded from global set as
     #   phase-inappropriate for P1-P3) and "acceptance criteria" (acceptance testing phase).
@@ -458,13 +451,6 @@ def _build_defaults() -> ConstitutionProfile:
         "fr-", "nfr-", "requirement", "specification",
         "acceptance criteria", "test case",
     ]
-    _p4_security_kw = [
-        "auth", "validation", "sanitize", "encrypt",
-        "signature", "verify", "rbac", "permission",
-        "token", "pii", "secret", "tls",
-        "rate limit", "security", "vulnerability",
-    ]
-
     _p5_correctness_kw = [
         "fr-", "nfr-", "acceptance criteria", "requirement", "specification",
         "verify", "verification", "traceability", "baseline",
