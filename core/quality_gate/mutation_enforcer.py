@@ -660,7 +660,11 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
             ["mutmut", "results"], cwd=workdir, capture_output=True, text=True,
             timeout=30,
         )
-
+        if res.returncode != 0:
+            return False, (
+                f"mutmut results command failed (return code {res.returncode}).\n"
+                f"STDERR:\n{res.stderr.strip()}"
+            )
         out = res.stdout.strip()
         _write_survivors_artifact(
             project, "mutmut", _parse_mutmut_survivors(out), raw=out

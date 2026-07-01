@@ -1157,3 +1157,56 @@ def test_count_mutmut_results_missing_cache_returns_zeros(tmp_path):
     killed, survived = _count_mutmut_results(cache)
     assert killed == 0
     assert survived == 0
+
+
+# ---------------------------------------------------------------------------
+# Bug: mutmut results returncode never checked
+# ---------------------------------------------------------------------------
+
+
+def test_mutmut_results_crash_returns_false(tmp_path, monkeypatch):
+    """mutmut results returning non-zero must be treated as a precheck failure.
+
+    A crashed mutmut results subprocess (returncode=1, empty stdout, non-empty
+    stderr) was treated as a clean precheck pass because `out = res.stdout.strip()`
+    evaluated to '' and `if out:` was False, causing `_precheck_ok = True`.
+    The fix checks `res.returncode != 0` before reading stdout.
+    """
+    import core.quality_gate.mutation_enforcer as me
+
+    # Minimal project layout so run_mutation_precheck doesn't early-exit.
+    src = tmp_path / "03-development" / "src"
+    src.mkdir(parents=True)
+    tests = tmp_path / "03-development" / "tests"
+    tests.mkdir(parents=True)
+    (tests / "test_x.py").write_text("def test_x(): pass\n")
+
+    def fake_run(cmd, **kwargs):
+        if isinstance(cmd, list) and len(cmd) >= 2 and cmd[1] == "results":
+            # mutmut results crashes: this is the bug we're testing
+            class R:
+                returncode = 1
+                stdout = ""
+                stderr = "mutmut: error: no results yet"
+            return R()
+        # mutmut run succeeds
+        class R:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+        return R()
+
+    monkeypatch.setattr(me.subprocess, "run", fake_run)
+    monkeypatch.setattr(me, "_write_survivors_artifact", lambda *a, **k: None)
+    monkeypatch.setattr(me.shutil, "which", lambda name: "/usr/bin/mutmut" if name == "mutmut" else None)
+    monkeypatch.setattr(me, "_resolve_mutmut_workdir", lambda _p: (tmp_path, "03-development/src"))
+    monkeypatch.setattr(me, "_is_editable_install", lambda _p: False)
+    monkeypatch.setattr(me, "_read_paths_to_exclude", lambda _p: [])
+    monkeypatch.setattr(me, "_detect_data_only_files", lambda _p: [])
+    monkeypatch.setattr(me, "_abs_paths_to_mutate", lambda _cwd, _paths: str(src))
+    monkeypatch.setattr(me, "_resolve_test_dir", lambda _cwd, _p: str(tests))
+    monkeypatch.setattr(me, "_copy_setup_cfg_to_workdir", lambda _p, _w, _td: None)
+
+    ok, msg = me.run_mutation_precheck(tmp_path)
+    assert ok is False, f"Expected False for crashed mutmut results, got ({ok}, {msg!r})"
+    assert "return code 1" in msg, f"Expected error message to mention return code, got: {msg!r}"
