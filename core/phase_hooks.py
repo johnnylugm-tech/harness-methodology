@@ -847,6 +847,18 @@ class PhaseHooks:
         checks["branch_protection"] = self._check_branch_protection()
 
         missing = [k for k, v in checks.items() if not v]
+        # ci-ack: projects that deliberately cannot/will not resolve a component
+        # (e.g. an agent forbidden from touching branch protection rules) can
+        # acknowledge it once via `harness_cli.py ci-ack --component <name>` so
+        # this advisory warning doesn't repeat on every phase's preflight.
+        ack: Dict[str, bool] = {}
+        state_path = self.project_path / ".methodology" / "state.json"
+        if state_path.exists():
+            try:
+                ack = json.loads(state_path.read_text(encoding="utf-8")).get("ci_readiness_ack", {})
+            except Exception:
+                pass
+        missing = [k for k in missing if not ack.get(k)]
         if missing:
             print(f"   WARNING: Missing CI/enforcement components: {missing}")
             if "ecc_hooks" in missing:
