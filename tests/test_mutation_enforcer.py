@@ -27,6 +27,7 @@ from core.quality_gate.mutation_enforcer import (
     _find_source_setup_cfg,
     _paths_to_exclude_flag,
     _count_mutmut_results,
+    run_mutation_precheck,
 )
 
 
@@ -553,6 +554,49 @@ def test_resolve_test_dir_project_root_test_singular(tmp_path):
 def test_resolve_test_dir_no_tests_returns_none(tmp_path):
     """No test dir anywhere → None (caller must hard-error)."""
     assert _resolve_test_dir(tmp_path, tmp_path) is None
+
+
+# ---------------------------------------------------------------------------
+# run_mutation_precheck — Bug: paths_to_mutate used as single literal path
+# ---------------------------------------------------------------------------
+
+
+def test_run_mutation_precheck_rejects_missing_paths(tmp_path, monkeypatch):
+    """Bug: comma-separated paths_to_mutate was joined as one literal path,
+    so src_dir.exists() was always False and the precheck silently returned
+    (True, '') — bypassing the TDD-PRECHECK gate entirely.
+
+    Fix: split on commas and fail on any missing entry.
+    """
+    import core.quality_gate.mutation_enforcer as me
+    from core.utils.lang_patterns import project_language
+
+    # Create a partial setup: core/ exists with foo.py, but bar.py is absent.
+    core_dir = tmp_path / "core"
+    core_dir.mkdir()
+    (core_dir / "foo.py").write_text("", encoding="utf-8")
+    # bar.py intentionally NOT created.
+
+    (tmp_path / "setup.cfg").write_text(
+        "[mutmut]\npaths_to_mutate = core/foo.py,core/bar.py\n",
+        encoding="utf-8",
+    )
+
+    # Ensure mutmut is found so we don't early-return on the shutil.which check.
+    monkeypatch.setattr("shutil.which", lambda _: "/bin/true")
+    monkeypatch.setattr("core.utils.lang_patterns.project_language", lambda _: "python")
+
+    result = me.run_mutation_precheck(tmp_path)
+
+    # Must NOT silently return (True, ''); missing paths must be reported.
+    assert result != (True, ""), (
+        f"BUG: run_mutation_precheck silently returned (True, '') for "
+        f"missing core/bar.py. Expected a non-empty failure message. Got: {result}"
+    )
+    # The fix reports which paths are missing.
+    assert "missing" in result[1] or "bar.py" in result[1], (
+        f"Expected failure message mentioning 'missing' or 'bar.py', got: {result}"
+    )
 
 
 def test_resolve_test_dir_subdir_override(tmp_path):

@@ -566,9 +566,12 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
 
     cwd, paths_to_mutate = _resolve_mutmut_workdir(project)
 
+    paths_list = [p.strip() for p in paths_to_mutate.split(",") if p.strip()]
+    missing = [p for p in paths_list if not (cwd / p).exists()]
+    if missing:
+        return True, f"paths_to_mutate contains missing entries: {missing}"
+
     src_dir = cwd / paths_to_mutate
-    if not src_dir.exists():
-        return True, ""
 
     # --- Bug F: editable install detection ---
     if _is_editable_install(project):
