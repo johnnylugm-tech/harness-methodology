@@ -854,6 +854,70 @@ class PhaseHooks:
         "ecc_hooks", "branch_protection",
     )
 
+    def preflight_manifest_integrity(self) -> Dict[str, Any]:
+        """Fix IV — validate quality_manifest.json structure before any phase preflight.
+
+        Corrupted manifests (truncated fr_ids, empty gate1 dict, missing
+        fr_module_traceability) cause workflows to stall in infinite retry
+        loops because gate1-precheck sees no completed FRs and re-dispatches
+        TDD agents that also cannot complete.  This hook detects the three
+        known corruption patterns and blocks phase entry with a clear
+        recovery command.
+        """
+        print("\n[PRE-FLIGHT] Manifest Integrity Check")
+        manifest_path = self.project_path / ".methodology" / "quality_manifest.json"
+        if not manifest_path.exists():
+            return {"passed": True, "skipped": True,
+                    "reason": "quality_manifest.json not yet created"}
+
+        try:
+            mf = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"  [BLOCKED] quality_manifest.json is unreadable: {exc}")
+            print("  Recovery: git checkout HEAD -- .methodology/quality_manifest.json")
+            return {"passed": False, "blocked": True,
+                    "reason": f"Manifest unreadable: {exc}",
+                    "recovery": "git checkout HEAD -- .methodology/quality_manifest.json"}
+
+        fr_ids = mf.get("fr_ids") or []
+        fr_trace = mf.get("fr_module_traceability") or {}
+        gate_results = mf.get("gate_results") or {}
+        gate1 = gate_results.get("gate1") or {}
+
+        issues: list[str] = []
+
+        # Pattern A: fr_ids truncated (e.g. 3→2 after sub-agent edit)
+        if len(fr_ids) < len(fr_trace):
+            issues.append(
+                f"fr_ids has {len(fr_ids)} entries but fr_module_traceability "
+                f"has {len(fr_trace)} — manifest was likely truncated by a "
+                f"sub-agent. Expected FRs: {sorted(fr_trace.keys())}")
+        # Pattern B: gate1 missing entirely when phase ≥ 3 (should have at least
+        # partial per-FR results)
+        if self.phase is not None and self.phase >= 3 and not gate1:
+            issues.append(
+                "gate_results.gate1 is empty — expected at least partial "
+                "per-FR results for Phase 3+")
+        # Pattern C: fr_ids missing but traceability present (shouldn't happen
+        # after Phase 2 generation)
+        if not fr_ids and fr_trace:
+            issues.append(
+                "fr_ids is empty but fr_module_traceability has entries — "
+                "manifest likely truncated")
+
+        if issues:
+            for issue in issues:
+                print(f"  [BLOCKED] {issue}")
+            print("  Recovery: git checkout HEAD -- .methodology/quality_manifest.json")
+            return {"passed": False, "blocked": True,
+                    "reason": "; ".join(issues),
+                    "recovery": "git checkout HEAD -- .methodology/quality_manifest.json"}
+
+        print(f"  OK: {len(fr_ids)} FRs, "
+              f"{len(fr_trace)} traceability entries, "
+              f"{len(gate1)} gate1 entries")
+        return {"passed": True, "fr_count": len(fr_ids)}
+
     def preflight_ci_readiness(self) -> Dict[str, Any]:
         """Check target project CI wiring + ECC hooks + branch protection (advisory, non-blocking)."""
         print("\n[PRE-FLIGHT] CI Readiness Check")
@@ -1038,6 +1102,7 @@ class PhaseHooks:
         """Run all pre-flight checks."""
         print(f"\n{'='*60}\nPRE-FLIGHT: Phase {self.phase}\n{'='*60}")
         results = {
+            "manifest_integrity": self.preflight_manifest_integrity(),
             "fsm": self.preflight_fsm_check(),
             "bvs_phase_order": self.preflight_bvs_phase_order(),
             "kill_switch": self.preflight_kill_switch(),

@@ -2206,7 +2206,28 @@ def _print_fr_scoped_overrides_py(
             )
             continue
         if owned_path.exists():
-            src_files.append(str(owned_path.relative_to(project)))
+            # Fix III: when owned_path is a thin re-export shim (≤ 5 lines
+            # after stripping comments) and a package directory with the same
+            # stem exists next to it, coverage --include must match the WHOLE
+            # package (e.g. executor/**/*.py), not just the shim file.
+            # Without this, FR-02 executor shows 0% coverage because the real
+            # code lives in executor/runner.py.
+            pkg_dir = owned_path.with_suffix("")
+            if pkg_dir.is_dir() and (pkg_dir / "__init__.py").exists():
+                # Use recursive glob to cover the package directory
+                pkg_glob = str(owned_path.relative_to(project).with_suffix("") / "**" / "*.py")
+                src_files.append(pkg_glob)
+            else:
+                src_files.append(str(owned_path.relative_to(project)))
+        else:
+            # Fix III extension: .py file doesn't exist at all (e.g. executor.py
+            # was never created, but executor/__init__.py + executor/runner.py
+            # exist as an untracked package). Use recursive glob to match the
+            # whole package directory.
+            pkg_dir = owned_path.with_suffix("")
+            if pkg_dir.is_dir() and (pkg_dir / "__init__.py").exists():
+                pkg_glob = str(owned_path.relative_to(project).with_suffix("") / "**" / "*.py")
+                src_files.append(pkg_glob)
 
     # Priority 2: detect FR-specific source files by parsing the test file's
     # imports. Used when fr_module_traceability is absent or the owned path
@@ -7904,6 +7925,58 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
 
     # 4. GATE1: auto-retry with CODE-FIX sub-agent on failure
     if step in ("GATE1", "GATE1-DELTA"):
+        # FIX II: after sub-agent returns, verify manifest was actually
+        # updated. Sub-agents sometimes skip finalize-gate (write
+        # gate1_result.json but never call finalize-gate itself), which
+        # means quality_manifest.json gate1[fr].quality_complete stays
+        # False regardless of evaluation score. Detect this and run
+        # finalize-gate directly so the manifest stays in sync.
+        if _status not in {"ERROR", "TIMEOUT"}:
+            _mf_qc = False
+            try:
+                _mf_path = project / ".methodology" / "quality_manifest.json"
+                if _mf_path.exists():
+                    _mf_json = json.loads(_mf_path.read_text(encoding="utf-8"))
+                    _fr_entry = (_mf_json.get("gate_results", {})
+                                 .get("gate1", {}).get(fr_id, {}))
+                    _mf_qc = bool(_fr_entry.get("quality_complete", False))
+            except (OSError, json.JSONDecodeError):
+                pass
+            _sub_reported_pass = (
+                isinstance(result.get("output", ""), str)
+                and "GATE1: PASS" in result["output"]
+            )
+            if _sub_reported_pass and not _mf_qc:
+                print(
+                    f"[run-fr-step] {fr_id} sub-agent reported GATE1 PASS "
+                    f"but manifest quality_complete is False — "
+                    f"sub-agent likely skipped finalize-gate. "
+                    f"Running finalize-gate directly."
+                )
+                try:
+                    _fix_args = argparse.Namespace(**vars(args))
+                    _fix_args.gate = 1
+                    _fix_args.fr_id = fr_id
+                    _fix_args.phase = args.phase
+                    _fix_args.project = str(project)
+                    _fix_args.delta = False
+                    _fix_rc = _cmd_finalize_gate_impl(_fix_args)
+                    if _fix_rc == 0:
+                        print(
+                            f"[run-fr-step] {fr_id} finalize-gate "
+                            f"recovered — manifest patched"
+                        )
+                    else:
+                        print(
+                            f"[run-fr-step] {fr_id} finalize-gate "
+                            f"recovery failed (rc={_fix_rc})"
+                        )
+                except Exception as _fix_exc:
+                    print(
+                        f"[run-fr-step] {fr_id} finalize-gate recovery "
+                        f"exception: {_fix_exc}"
+                    )
+
         # When agent timed-out or errored, no gate1_result.json was written —
         # failing_dims cannot be parsed. Signal full re-check to CODE-FIX.
         if _status in {"ERROR", "TIMEOUT"}:
