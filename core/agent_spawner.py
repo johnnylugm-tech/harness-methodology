@@ -217,14 +217,14 @@ class AgentSpawner:
         # uncommitted changes the agent made (HEAD may have moved).
         post_diff = self._git_diff_numstat(self.project_path, base=pre_sha or "HEAD")
         regression_flags = self._dispatch_diff_budget(pre_diff, post_diff, pre_sha=pre_sha)
-        self._log_dispatch(
-            role, prompt, parsed, phase, fr_id,
-            regression_flags=regression_flags,
-        )
         # If the guard fired, surface in the parsed result so the caller
         # can treat it as ERROR/REJECT status (Bug #28/#32/#38/#39 pattern).
         if regression_flags and parsed.get("status") == "complete":
             parsed = {**parsed, "status": "REGRESSION_GUARD", "regression_flags": regression_flags}
+        self._log_dispatch(
+            role, prompt, parsed, phase, fr_id,
+            regression_flags=regression_flags,
+        )
         return parsed
 
     def _log_dispatch(self, role: str, task: str, result: dict,
