@@ -21,6 +21,7 @@ import json
 import os
 import smtplib
 import sys
+import traceback
 import urllib.request
 from email.mime.text import MIMEText
 from pathlib import Path
@@ -78,17 +79,26 @@ def main():
     log_file = logs_dir / "drift_monitor.log"
 
     original_stdout = sys.stdout
+    original_stderr = sys.stderr
     with open(log_file, "a") as f:
         sys.stdout = f
+        # Bug M07/M08 fix: redirect stderr to the log file too. Previously
+        # only stdout went to the log, so the [ERROR] line bypassed it
+        # entirely and was only visible on the console. Also write the full
+        # traceback so root cause is recoverable from the log file.
+        sys.stderr = f
         try:
             report = _run_monitor(project_path)
         except Exception as e:
-            print(f"[ERROR] {e}", file=sys.stderr)
+            print(f"[ERROR] {e}")
+            traceback.print_exc()
             sys.stdout = original_stdout
+            sys.stderr = original_stderr
             print(f"DRIFT MONITOR ERROR: {e}")
             return 1
         finally:
             sys.stdout = original_stdout
+            sys.stderr = original_stderr
 
     if report["drifts_detected"]:
         _send_alerts(report)
