@@ -18,6 +18,7 @@ from core.auto_fix.classifier import (
 )
 from core.auto_fix.strategies import (
     STRATEGY_REGISTRY,
+    _fix_assertion_error,
     fix_missing_artifact,
     fix_missing_spec_tracking,
     fix_keyword_density,
@@ -281,6 +282,74 @@ class TestStrategies:
         )
         success, action, conf = fix_hollow_content(context, tmp_path)
         assert "Expanded 0" in action  # skipped because content > 200
+
+    def test_fix_assertion_error_preserves_space_and_fixes_all_matches(self):
+        """Bug fix: `replace(..., 1)` only fixed the first match.
+
+        Source has `assert x == 5` on TWO lines; failure message says
+        expected value is `3` (real pytest --tb=line format). The fix
+        must rewrite BOTH occurrences to `assert x == 3`, not just the
+        first.
+        """
+        content = (
+            "def test_one():\n"
+            "    assert x == 5\n"
+            "\n"
+            "def test_two():\n"
+            "    assert x == 5\n"
+        )
+        message = "assert x == 3"
+        out = _fix_assertion_error(content, message, "test_dummy")
+        assert out.count("assert x == 3") == 2, (
+            f"Expected both assertions fixed to `assert x == 3`, got:\n{out}"
+        )
+        assert "assert x == 5" not in out, (
+            f"Unfixed `assert x == 5` still present, got:\n{out}"
+        )
+
+    def test_fix_keyword_density_does_not_append_header_to_files_with_no_additions(self, tmp_path: Path):
+        """Bug fix: `added` counter was shared across files. After the
+        first file added any keyword, subsequent files also got a
+        `## Compliance` section header even when they themselves added
+        zero keywords.
+        """
+        # File 1: missing all keywords → should get header + bullets
+        f1 = tmp_path / "needs.md"
+        f1.write_text("# Doc\n\nNo security content here.", encoding="utf-8")
+
+        # File 2: already contains all keywords → must NOT be touched
+        f2 = tmp_path / "ok.md"
+        f2.write_text(
+            "# Doc\n\nWe use auth, encrypt, sanitize and audit and rotate.",
+            encoding="utf-8",
+        )
+        original_f2 = f2.read_text(encoding="utf-8")
+
+        context = FixContext(
+            source="constitution/runner",
+            problem_type="low_keyword_density",
+            severity="medium",
+            phase=3,
+            project_root=tmp_path,
+            details={
+                "dimension": "security",
+                "keywords": ["auth", "encrypt", "sanitize", "audit", "rotate"],
+                "files": [str(f1), str(f2)],
+            },
+        )
+        fix_keyword_density(context, tmp_path)
+
+        f1_content = f1.read_text(encoding="utf-8")
+        assert "## Security Compliance" in f1_content, (
+            f"File 1 should have section header, got:\n{f1_content}"
+        )
+
+        assert f2.read_text(encoding="utf-8") == original_f2, (
+            f"File 2 should be untouched (already had all keywords), got:\n{f2.read_text()}"
+        )
+        assert "## Security Compliance" not in f2.read_text(encoding="utf-8"), (
+            "File 2 got a Compliance section header despite adding zero keywords"
+        )
 
 
 # ── Guardrails tests ─────────────────────────────────────────────────────────

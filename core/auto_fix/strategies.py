@@ -156,12 +156,14 @@ def fix_keyword_density(context, project_root: Path) -> Tuple[bool, str, float]:
             continue
         content = p.read_text(encoding="utf-8")
         new_section = f"\n\n## {dimension.title()} Compliance\n\n"
+        file_added = 0
         for kw in keywords[:5]:
             if kw.lower() not in content.lower():
                 new_section += f"- {kw}\n"
-                added += 1
-        if added > 0:
+                file_added += 1
+        if file_added > 0:
             p.write_text(content.rstrip() + new_section, encoding="utf-8")
+            added += file_added
     return (True, f"Added {added} keyword(s) for {dimension}", 80.0)
 
 
@@ -422,15 +424,20 @@ def _fix_assertion_error(content: str, message: str, test_name: str) -> str:
         # Only auto-fix if the actual value looks like a simple literal
         if _is_simple_value(right):
             # In pytest: "assert actual == expected" — left=actual, right=expected
-            # Find the assertion line containing the actual value and fix expected
-            for line in content.split("\n"):
+            # Fix every assertion line containing the actual value.
+            # Always emit canonical ` == ` spacing, regardless of input spacing.
+            lines = content.split("\n")
+            new_lines = []
+            fixed = False
+            for line in lines:
                 stripped = line.strip()
                 if stripped.startswith("assert ") and f" {left} ==" in stripped:
-                    parts = stripped.split("==", 1)
-                    if len(parts) == 2:
-                        new_line = f"{parts[0]}== {right}"
-                        content = content.replace(stripped, new_line, 1)
-                        return content
+                    new_lines.append(f"assert {left} == {right}")
+                    fixed = True
+                    continue
+                new_lines.append(line)
+            if fixed:
+                return "\n".join(new_lines)
 
     # Case 3: "assert func() is True" style — convert to explicit check
     bool_match = re.search(r"assert\s+(.+?)\s+is\s+(True|False)", message)
