@@ -368,9 +368,11 @@ class TestScanDirectory:
     def test_low_score_violations(self, tmp_path):
         docs = tmp_path / "docs"
         docs.mkdir()
-        (docs / "empty.py").write_text(
-            "def placeholder():\n    x = 1\n    y = 2\n    return x + y\n\n\n"
-            "def another():\n    items = [1, 2, 3]\n    return sum(items)\n"
+        # P5 constitution scans VERIFICATION_REPORT.md (not *.py).
+        # A thin markdown with no keywords must score low.
+        (docs / "VERIFICATION_REPORT.md").write_text(
+            "# Verification Report\n\n"
+            "Just some notes.\n\n"
         )
         result = _scan_directory(docs, phase=5, check_type="all")
         assert result.score < 30
@@ -623,13 +625,11 @@ class TestRunConstitutionCheck:
     def test_strict_mode_raises_on_failure(self, tmp_path):
         docs = tmp_path / "docs"
         docs.mkdir()
-        # This Python file contains no constitution keywords (FR-, NFR-, acceptance
-        # criteria, security/auth/RBAC, test coverage, etc.) and no section structure.
-        # Expected score: 0% on all dimensions — well below the P5 80% threshold.
-        # P3+ scans *.py only; .md files in the directory would be ignored.
-        (docs / "empty.py").write_text(
-            "def placeholder():\n    x = 1\n    y = 2\n    return x + y\n\n\n"
-            "def another():\n    items = [1, 2, 3]\n    return sum(items)\n"
+        # P5 constitution scans VERIFICATION_REPORT.md (not *.py).
+        # A thin markdown with no constitution keywords scores 0% —
+        # well below the P5 80% threshold.
+        (docs / "VERIFICATION_REPORT.md").write_text(
+            "# Verification Report\n\nJust some notes.\n"
         )
         with pytest.raises(RuntimeError, match="Constitution check FAILED"):
             run_constitution_check("all", str(docs), current_phase=5,
