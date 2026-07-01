@@ -220,6 +220,52 @@ class TestPolicyEngine:
             (coverage_dir / ".coverage").write_text("75.0", encoding="utf-8")
             assert engine._check_test_coverage() is False
 
+    def test_check_no_bypass_force_with_lease_is_legitimate(self):
+        """--force-with-lease is a safe git flag, must NOT be flagged as bypass."""
+        engine = PolicyEngine()
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv("GIT_COMMAND", "git push --force-with-lease")
+            assert engine._check_no_bypass() is True
+
+    def test_check_no_bypass_force_if_includes_is_legitimate(self):
+        """--force-if-includes is a safe git flag, must NOT be flagged as bypass."""
+        engine = PolicyEngine()
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv("GIT_COMMAND", "git push --force-if-includes")
+            assert engine._check_no_bypass() is True
+
+    def test_check_no_bypass_no_verify_is_bypass(self):
+        """--no-verify is a real bypass flag → must return False."""
+        engine = PolicyEngine()
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv("GIT_COMMAND", "git commit --no-verify -m 'msg'")
+            assert engine._check_no_bypass() is False
+
+    def test_check_no_bypass_exact_token_match(self):
+        """Whole-word boundary: '--force-with-lease' must not match '--force'."""
+        engine = PolicyEngine()
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv("GIT_COMMAND", "git push --force-with-lease origin main")
+            assert engine._check_no_bypass() is True
+
+    def test_check_quality_score_parse_error_fails_closed(self, tmp_path):
+        """Non-numeric content must return False (fail-closed), not crash enforce_all."""
+        engine = PolicyEngine()
+        score_file = tmp_path / ".methodology" / ".quality_score"
+        score_file.parent.mkdir(parents=True, exist_ok=True)
+        score_file.write_text("abc\n", encoding="utf-8")
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.chdir(str(tmp_path))
+            assert engine._check_quality_score() is False
+
+    def test_check_quality_score_missing_file_fail_open(self, tmp_path):
+        """Missing file still returns True (fail-open preserved for missing file)."""
+        engine = PolicyEngine()
+        with pytest.MonkeyPatch.context() as mp:
+            mp.chdir(str(tmp_path))
+            assert engine._check_quality_score() is True
+
     def test_check_quality_score_success(self, tmp_path):
         engine = PolicyEngine()
         score_file = tmp_path / ".methodology" / ".quality_score"

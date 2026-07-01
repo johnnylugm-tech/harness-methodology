@@ -148,14 +148,21 @@ class PolicyEngine:
     def _check_quality_score(self) -> bool:
         score_file = ".methodology/.quality_score"
         if os.path.exists(score_file):
-            with open(score_file, "r", encoding="utf-8") as f:
-                return float(f.read().strip()) >= 90
+            try:
+                with open(score_file, "r", encoding="utf-8") as f:
+                    return float(f.read().strip()) >= 90
+            except ValueError:
+                return False
         return True
 
     def _check_no_bypass(self) -> bool:
+        import re
         suspicious = os.environ.get("GIT_COMMAND", "")
         bypass_keywords = ["--bypass", "--skip", "--no-verify", "--force"]
-        return not any(kw in suspicious for kw in bypass_keywords)
+        return not any(
+            re.search(r"(?:^|[\s=])" + re.escape(kw) + r"(?=[\s=]|$)", suspicious)
+            for kw in bypass_keywords
+        )
 
     def _check_test_coverage(self) -> bool:
         coverage_file = ".methodology/.coverage"
