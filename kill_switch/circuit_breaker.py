@@ -39,8 +39,10 @@ class CircuitBreaker:
                 state.state = CircuitState.CLOSED
                 state.failure_count = 0
                 state.closed_at = datetime.now(timezone.utc)
+            elif state.state == CircuitState.CLOSED:
+                state.failure_count = 0
 
-    def record_failure(self, agent_id: str) -> None:
+    def record_failure(self, agent_id: str, cooldown_seconds: int = 60) -> None:
         """Record failure. Raises CircuitBreakerError when threshold exceeded."""
         with self._lock:
             if agent_id not in self._circuits:
@@ -54,6 +56,10 @@ class CircuitBreaker:
             if state.failure_count >= self.failure_threshold:
                 state.state = CircuitState.OPEN
                 state.opened_at = datetime.now(timezone.utc)
+                state.cooldown_end = datetime.fromtimestamp(
+                    datetime.now(timezone.utc).timestamp() + cooldown_seconds,
+                    tz=timezone.utc
+                )
                 raise CircuitBreakerError(
                     f"Circuit OPEN for {agent_id}: "
                     f"failure_count={state.failure_count} >= "

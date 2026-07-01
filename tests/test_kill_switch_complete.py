@@ -232,6 +232,56 @@ class TestCircuitBreaker:
         config = MonitorConfig("a1", memory_usage_threshold=90.0)
         assert cb.should_trigger("a1", metrics, config) is True
 
+    def test_record_failure_threshold_trip_sets_cooldown_end(self):
+        """Bug 1: record_failure must set cooldown_end when tripping the breaker,
+        otherwise is_open() can never transition to HALF_OPEN."""
+        from kill_switch.circuit_breaker import CircuitBreaker
+        from kill_switch.exceptions import CircuitBreakerError
+        cb = CircuitBreaker()
+        cb.failure_threshold = 2
+        cb.initialize_circuit("a1")
+        cb.record_failure("a1")  # count=1, below threshold
+        with pytest.raises(CircuitBreakerError):
+            cb.record_failure("a1")  # trip on 2nd failure
+        # After threshold trip, cooldown_end must be set so is_open can transition
+        assert cb._circuits["a1"].cooldown_end is not None
+
+    def test_record_failure_threshold_trip_transitions_to_half_open_after_cooldown(self):
+        """Bug 1 end-to-end: after threshold trip, is_open() must transition
+        to HALF_OPEN once cooldown expires."""
+        from kill_switch.circuit_breaker import CircuitBreaker
+        from kill_switch.exceptions import CircuitBreakerError
+        cb = CircuitBreaker()
+        cb.failure_threshold = 2
+        cb.initialize_circuit("a1")
+        cb.record_failure("a1")  # count=1, below threshold
+        with pytest.raises(CircuitBreakerError):
+            cb.record_failure("a1", cooldown_seconds=0)
+        import time
+        time.sleep(0.01)
+        # Cooldown is 0s and has elapsed -> is_open should transition to HALF_OPEN
+        assert cb.is_open("a1") is False
+        assert cb.get_state("a1") == CircuitState.HALF_OPEN
+
+    def test_record_success_in_closed_state_resets_failure_count(self):
+        """Bug 2: a success in CLOSED state must reset failure_count,
+        so a single failure after success cannot immediately re-trip."""
+        from kill_switch.circuit_breaker import CircuitBreaker
+        cb = CircuitBreaker()
+        cb.failure_threshold = 5
+        cb.initialize_circuit("a1")
+        cb.record_failure("a1")
+        cb.record_failure("a1")
+        cb.record_failure("a1")
+        cb.record_failure("a1")  # count=4 (below threshold)
+        assert cb.get_failure_count("a1") == 4
+        cb.record_success("a1")
+        # Success must reset failure_count, otherwise one more failure would re-trip
+        assert cb.get_failure_count("a1") == 0
+        cb.record_failure("a1")  # count=1 (below threshold=5)
+        assert cb.get_failure_count("a1") == 1
+        assert cb.get_state("a1") == CircuitState.CLOSED
+
 
 # ===========================================================================
 # StateManager
@@ -351,13 +401,22 @@ class TestHealthMonitor:
         with pytest.raises(AgentNotFoundError):
             hm.get_metrics("not_monitored")
 
-    def test_get_metrics_returns_health_metrics(self):
+    def test_get_metrics_returns_recorded_metric(self):
+        from datetime import datetime, timezone
+        from kill_switch.exceptions import MetricsUnavailableError
         hm = self._hm()
         hm.start_monitoring("a1", MonitorConfig("a1"))
+        # No metric recorded yet → must raise (no RNG fallback)
+        with pytest.raises(MetricsUnavailableError):
+            hm.get_metrics("a1")
+        now = datetime.now(timezone.utc)
+        recorded = HealthMetrics("a1", error_rate=0.05, latency_p99_ms=150.0,
+                                 memory_usage_percent=55.0, output_rate_kbps=20.0,
+                                 last_health_check=now, timestamp=now)
+        hm.record_metrics("a1", recorded)
         metrics = hm.get_metrics("a1")
         assert metrics.agent_id == "a1"
-        assert 0.0 <= metrics.error_rate <= 1.0
-        assert metrics.latency_p99_ms >= 0.0
+        assert metrics is recorded
 
     def test_start_empty_id_raises(self):
         from kill_switch.exceptions import AgentNotFoundError
@@ -399,6 +458,71 @@ class TestHealthMonitor:
         hm._metrics_buffer.pop("a1", None)  # remove buffer
         with pytest.raises(MetricsUnavailableError):
             hm.get_metrics("a1")
+
+    def test_get_metrics_returns_recorded_metric_not_rng(self):
+        from datetime import datetime, timezone
+        hm = self._hm()
+        hm.start_monitoring("a1", MonitorConfig("a1"))
+        now = datetime.now(timezone.utc)
+        recorded = HealthMetrics("a1", error_rate=0.5, latency_p99_ms=200.0,
+                                 memory_usage_percent=60.0, output_rate_kbps=50.0,
+                                 last_health_check=now, timestamp=now)
+        hm.record_metrics("a1", recorded)
+        result = hm.get_metrics("a1")
+        assert result is recorded
+
+    def test_get_metrics_does_not_regenerate_between_calls(self):
+        from datetime import datetime, timezone
+        hm = self._hm()
+        hm.start_monitoring("a1", MonitorConfig("a1"))
+        now = datetime.now(timezone.utc)
+        recorded = HealthMetrics("a1", error_rate=0.99, latency_p99_ms=9999.0,
+                                 memory_usage_percent=95.0, output_rate_kbps=150.0,
+                                 last_health_check=now, timestamp=now)
+        hm.record_metrics("a1", recorded)
+        first = hm.get_metrics("a1")
+        second = hm.get_metrics("a1")
+        assert first is recorded
+        assert second is recorded
+        assert first is second
+
+    def test_get_metrics_raises_when_buffer_empty(self):
+        from kill_switch.exceptions import MetricsUnavailableError
+        hm = self._hm()
+        hm.start_monitoring("a1", MonitorConfig("a1"))
+        # start_monitoring seeds an empty buffer; nothing recorded
+        with pytest.raises(MetricsUnavailableError):
+            hm.get_metrics("a1")
+
+    def test_get_metrics_thread_safe_with_stop_monitoring(self):
+        import threading
+        from kill_switch.exceptions import AgentNotFoundError
+        hm = self._hm()
+        hm.start_monitoring("a1", MonitorConfig("a1"))
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        recorded = HealthMetrics("a1", error_rate=0.1, latency_p99_ms=100.0,
+                                 memory_usage_percent=50.0, output_rate_kbps=10.0,
+                                 last_health_check=now, timestamp=now)
+        hm.record_metrics("a1", recorded)
+        errors = []
+
+        def reader():
+            try:
+                for _ in range(50):
+                    hm.get_metrics("a1")
+            except AgentNotFoundError:
+                pass  # legitimate race after stop
+            except Exception as e:
+                errors.append(repr(e))
+
+        threads = [threading.Thread(target=reader) for _ in range(4)]
+        for t in threads:
+            t.start()
+        hm.stop_monitoring("a1")
+        for t in threads:
+            t.join()
+        assert errors == []
 
     def test_record_metrics_creates_buffer_for_new_agent(self):
         from datetime import datetime, timezone
@@ -495,17 +619,41 @@ class TestInterruptEngine:
         engine._release_lock("a1", lock)  # should not raise
 
     def test_execute_interrupt_agent_not_found(self):
+        from kill_switch.enums import InterruptOutcome
         engine = self._engine()
         outcome, msg = engine._execute_interrupt_sequence("unknown")
-        assert outcome is not None
+        assert outcome == InterruptOutcome.FAILED
         assert msg == "Agent process not found"
 
     def test_execute_interrupt_agent_found(self):
+        from kill_switch.enums import InterruptOutcome
         engine = self._engine()
         with patch.object(engine, '_get_agent_pid', return_value=12345):
             outcome, msg = engine._execute_interrupt_sequence("a1")
-        assert outcome is not None
+        assert outcome == InterruptOutcome.SUCCESS
         assert msg is None
+
+    def test_manual_trigger_unregistered_agent_returns_failed(self, tmp_path):
+        """Bug fix: manual_trigger for unregistered agent must return FAILED, not SUCCESS."""
+        from kill_switch.kill_switch import KillSwitch
+        from kill_switch.state_manager import StateManager
+        from kill_switch.enums import InterruptOutcome
+        sm = StateManager(state_path=tmp_path / "state")
+        ks = KillSwitch(state_manager=sm)
+        event = ks.manual_trigger("unregistered_agent", "no pid", "op")
+        assert event.outcome == InterruptOutcome.FAILED
+        assert event.error_message == "Agent process not found"
+
+    def test_register_agent_pid_roundtrip(self):
+        engine = self._engine()
+        engine.register_agent_pid("a1", 9999)
+        assert engine._get_agent_pid("a1") == 9999
+
+    def test_register_agent_pid_unregister_clears(self):
+        engine = self._engine()
+        engine.register_agent_pid("a1", 9999)
+        engine.unregister_agent_pid("a1")
+        assert engine._get_agent_pid("a1") is None
 
     def test_trigger_with_state_manager(self, tmp_path):
         from kill_switch.state_manager import StateManager
@@ -535,8 +683,15 @@ class TestKillSwitchFacade:
         return KillSwitch()
 
     def test_start_monitoring_and_is_healthy(self, tmp_path):
+        from datetime import datetime, timezone
         ks = self._ks(tmp_path)
         ks.start_monitoring("a1", MonitorConfig("a1"))
+        now = datetime.now(timezone.utc)
+        ks.health_monitor.record_metrics("a1", HealthMetrics(
+            "a1", error_rate=0.01, latency_p99_ms=100.0,
+            memory_usage_percent=50.0, output_rate_kbps=10.0,
+            last_health_check=now, timestamp=now,
+        ))
         health = ks.get_agent_health("a1")
         assert health is not None
 
