@@ -15,6 +15,7 @@ Crontab:
 import argparse
 import json
 import sys
+import traceback
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -47,13 +48,21 @@ def check_trends(project_path: str) -> int:
     # Calculate elapsed time
     started = ps.get("started_at")
     elapsed_minutes = 0
+    started_at_parse_failed = False
     if started:
         try:
             start_time = datetime.fromisoformat(started)
             elapsed_minutes = int((datetime.now(timezone.utc) - start_time).total_seconds() // 60)
             ps["elapsed_minutes"] = elapsed_minutes
-        except Exception as e:
-            print(f"  Failed to parse started_at: {e}")
+        except Exception:
+            # Bug M01 fix: surface traceback so operator sees real cause.
+            # Silent print made timeout-alert logic appear disabled with no indication.
+            started_at_parse_failed = True
+            print(
+                f"  Failed to parse started_at={started!r}:",
+                file=sys.stderr,
+            )
+            traceback.print_exc(file=sys.stderr)
 
     alerts = []
 
@@ -73,7 +82,11 @@ def check_trends(project_path: str) -> int:
         alerts.append({"type": "PHASE_TIMEOUT", "current": elapsed_minutes,
                        "message": f"Phase running too long: {elapsed_minutes} min (estimated: {estimated_minutes}, threshold: {timeout_threshold})"})
 
-    integrity_score = ps.get("integrity_score", 100)
+    # Bug M02 fix: missing integrity_score must NOT silently default to 100.
+    # Defaulting to 100 hid the case where the field was never written
+    # (pipeline skipped integrity check, crash before write, schema drift, …).
+    # Treat missing as 0 (below floor) so an alert is raised.
+    integrity_score = ps.get("integrity_score", 0)
     if integrity_score < THRESHOLDS["integrity_min"]:
         alerts.append({"type": "INTEGRITY_LOW", "current": integrity_score,
                        "message": f"Integrity score too low: {integrity_score} (floor: {THRESHOLDS['integrity_min']})"})
@@ -82,16 +95,30 @@ def check_trends(project_path: str) -> int:
     state["phase_state"] = ps
     state["trend_alerts"] = [a["type"] for a in alerts]
 
+    state_write_failed = False
     try:
         state_path.write_text(json.dumps(state, indent=2))
-    except Exception as e:
-        print(f"  Failed to write state.json: {e}")
+    except Exception:
+        # Bug M03 fix: surface traceback so operator sees WHY state was not
+        # persisted. Silent return masked permission/ENOSPC/disk-full issues.
+        state_write_failed = True
+        print("  Failed to write state.json:", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+
+    # Bug M01 followup: return non-zero when started_at parsing failed
+    # so the cron job sees the degraded state.
+    if started_at_parse_failed and not alerts:
+        return 1
 
     if alerts:
         print(f"  {len(alerts)} alert(s) found:")
         for alert in alerts:
             print(f"    {alert['message']}")
         send_telegram_alert(state, alerts)
+        return 1
+    elif state_write_failed:
+        # Bug M03 followup: state could not be persisted, even though no
+        # threshold alerts. Surface non-zero so cron knows state is stale.
         return 1
     else:
         print(f"  No alerts. Phase {state.get('current_phase', '?')} running for {elapsed_minutes} min")
