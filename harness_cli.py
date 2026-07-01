@@ -2391,29 +2391,13 @@ def cmd_run_gate(args: argparse.Namespace) -> int:
 def _normalize_sab_module_to_dotted(mod: object) -> Optional[str]:
     """Normalise a SAB ``modules`` entry into a dotted module name.
 
-    SAB entries may use either dotted notation (``taskq.cli``,
-    ``core.utils``) or path notation (``taskq/cli.py``,
-    ``03-development/src/taskq/cli.py``). Both forms map to the same
-    dotted name after stripping the project-relative path prefix
-    (``03-development/src/`` or ``src/``) and the ``.py`` suffix.
-
-    Returns ``None`` for directory markers (trailing ``/``) and
-    non-string entries — these are skipped by the alignment check.
+    Delegates to `core.quality_gate.sab_amender.normalize_sab_module_to_dotted`
+    — the single source of truth for this normalization — so this alignment
+    check and `amend_sab` can never silently disagree about which modules
+    are "registered".
     """
-    if not isinstance(mod, str):
-        return None
-    stripped = mod
-    for prefix in ("03-development/src/", "src/"):
-        if stripped.startswith(prefix):
-            stripped = stripped[len(prefix):]
-            break
-    if stripped.endswith("/"):
-        return None
-    if stripped.endswith(".py"):
-        stripped = stripped[:-3]
-    if not stripped:
-        return None
-    return stripped.replace("/", ".")
+    from core.quality_gate.sab_amender import normalize_sab_module_to_dotted
+    return normalize_sab_module_to_dotted(mod)
 
 
 def _check_sab_module_alignment(project: str, gate: int) -> Optional[int]:

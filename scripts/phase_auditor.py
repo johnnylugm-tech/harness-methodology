@@ -1472,6 +1472,8 @@ class PhaseAuditor:
         try:
             data = json.loads(content)
             score = data.get("integrity_score", 100)
+            if score is None:
+                score = 100
             # Bug M16 fix: integrity_score may be a string (e.g. "90%").
             # Previous code did `if score >= 80` which raises TypeError
             # on int vs str comparison. Coerce to a numeric value.

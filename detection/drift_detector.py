@@ -323,6 +323,7 @@ class DriftDetector:
 
         # Scan Python files for [FR-XX] annotations
         implemented_frs: Set[str] = set()
+        read_error_items: List[DriftItem] = []
         for py_file in self.project_path.rglob("*.py"):
             if "venv" in str(py_file) or "__pycache__" in str(py_file):
                 continue
@@ -330,8 +331,19 @@ class DriftDetector:
                 text = py_file.read_text(encoding="utf-8", errors="replace")
                 for m in self.FR_PATTERN.finditer(text):
                     implemented_frs.add(f"FR-{m.group(1).zfill(2)}")
-            except Exception:  # pylint: disable=broad-exception-caught  # nosec B110
-                pass
+            except (OSError, UnicodeDecodeError) as exc:
+                # Surface per-file read errors instead of silently dropping
+                # them — a dropped file can make an implemented FR look
+                # missing with no diagnostic. Mirrors the M10 fix in
+                # scripts/spec_logic_checker.py.
+                read_error_items.append(DriftItem(
+                    drift_type="spec",
+                    severity=DriftSeverity.LOW,
+                    location=str(py_file),
+                    description=f"Failed to read file while scanning for FR annotations: {exc}",
+                    expected="file readable",
+                    actual="read error",
+                ))
 
         missing = required_frs - implemented_frs
         checked = len(required_frs)
@@ -347,12 +359,12 @@ class DriftDetector:
                 actual="not found",
             )
             for fr in sorted(missing)
-        ]
+        ] + read_error_items
 
         score = 1.0 - (drifted / max(checked, 1))
         return DriftResult(
             drift_type="spec",
-            has_drift=drifted > 0,
+            has_drift=drifted > 0 or bool(read_error_items),
             drift_items=items,
             checked=checked,
             drifted=drifted,

@@ -517,7 +517,7 @@ def run_all(
     rules = load_rules_manifest()
     schema = load_deliverables_schema()
 
-    rule_errors = check_rules(rules, plan_dir=plan_dir, workflow_dir=workflow_dir)
+    rule_errors = check_rules(rules, plan_dir=plan_dir, workflow_dir=workflow_dir, project_root=project_root)
     deliv_errors = check_deliverables(
         schema, plan_dir=plan_dir, workflow_dir=workflow_dir, project_root=project_root,
     )
@@ -559,7 +559,7 @@ def _cli() -> int:
     deliv_errors: list[str] = []
 
     if args.rules_only:
-        rule_errors = check_rules(rules, plan_dir=plan_dir, workflow_dir=workflow_dir)
+        rule_errors = check_rules(rules, plan_dir=plan_dir, workflow_dir=workflow_dir, project_root=project_root)
     elif args.deliverables_only:
         deliv_errors = check_deliverables(
             schema, plan_dir=plan_dir, workflow_dir=workflow_dir, project_root=project_root,

@@ -193,15 +193,16 @@ def check_coverage_report(project_root: Path, _phase: int) -> List[Dict[str, str
         return violations
 
     # Extract claimed coverage percentage
-    # Match only on the "Line coverage" line to avoid picking up target/other %
+    # Match only on the "Line coverage" line to avoid picking up target/other %.
+    # Allow optional leading bullet/indentation ("- Line coverage: 85%").
     claimed_match = re.search(
-        r'(?im)^Line coverage[^\d]*(\d{2,3}(?:\.\d)?)\s*%',
+        r'(?im)^[\s\-*]*Line coverage[^\d]*(\d{2,3}(?:\.\d)?)\s*%',
         cov_content,
     )
     if not claimed_match:
         # Bare percentage: "Overall: 85%" or "Total: 95%"
         bare_m = re.search(
-            r'(?im)^(?:Total|Overall|Average)[:\s]+(\d{2,3}(?:\.\d)?)\s*%',
+            r'(?im)^[\s\-*]*(?:Total|Overall|Average)[:\s]+(\d{2,3}(?:\.\d)?)\s*%',
             cov_content,
         )
         if not bare_m:

@@ -19,6 +19,31 @@ from typing import Callable, Dict, List, Tuple
 # ── AUTO_FIX strategies ──────────────────────────────────────────────────────
 
 
+def _filter_overlay_gaps(
+    project_root: Path, rt, report: dict,
+) -> Tuple[List[str], List[str]]:
+    """Discard uncoded/untested FRs that TRACEABILITY_MATRIX.overlay.yaml marks
+    VERIFIED or Manual. Mirrors the PR 13 fix in core/phase_hooks.py so this
+    retry loop doesn't treat manually-verified FRs as gaps forever.
+    """
+    uncoded_set = set(report.get("uncoded", []))
+    untested_set = set(report.get("untested", []))
+    try:
+        from core.traceability.overlay import (
+            atomic_to_dict, load_overlay, merge_overlay,
+        )
+        overlay = load_overlay(project_root / "TRACEABILITY_MATRIX.overlay.yaml")
+        if overlay:
+            merged = merge_overlay(atomic_to_dict(rt), overlay)
+            for fr_id, row in merged.get("requirements", {}).items():
+                if row.get("status") == "VERIFIED" or "Manual" in str(row.get("test_files", [])):
+                    uncoded_set.discard(fr_id)
+                    untested_set.discard(fr_id)
+    except Exception as e:
+        print(f"   [WARN] Overlay merge failed: {e}")
+    return list(uncoded_set), list(untested_set)
+
+
 def fix_missing_artifact(context, project_root: Path) -> Tuple[bool, str, float]:
     """Generate missing artifact stub with phase-appropriate boilerplate."""
     artifact_name = context.details.get("artifact_name", context.details.get("name", "unknown"))
@@ -84,8 +109,7 @@ def fix_missing_traceability(context, project_root: Path) -> Tuple[bool, str, fl
     for round_idx in range(max_rounds):
         # 1. Re-derive the current gaps
         _rt, report = check_traceability(project_root)
-        uncoded = report.get("uncoded", [])
-        untested = report.get("untested", [])
+        uncoded, untested = _filter_overlay_gaps(project_root, _rt, report)
         if not uncoded and not untested:
             return (True, "All FRs already fully traced", 90.0)
 
@@ -104,8 +128,7 @@ def fix_missing_traceability(context, project_root: Path) -> Tuple[bool, str, fl
 
         # 4. Re-verify
         _rt2, report2 = check_traceability(project_root)
-        still_uncoded = report2.get("uncoded", [])
-        still_untested = report2.get("untested", [])
+        still_uncoded, still_untested = _filter_overlay_gaps(project_root, _rt2, report2)
         if not still_uncoded and not still_untested:
             n = len(uncoded) + len(untested)
             return (True, f"Auto-fixed: {n} gap(s) closed in {round_idx+1} round(s)", 90.0)

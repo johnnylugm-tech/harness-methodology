@@ -39,6 +39,38 @@ from core.atomic_io import atomic_write_json
 _DEFAULT_SRC_DIR = "03-development/src"
 
 
+def normalize_sab_module_to_dotted(mod: object, src_dir: str = _DEFAULT_SRC_DIR) -> str | None:
+    """Normalise a SAB ``modules`` entry into a dotted module name.
+
+    SAB entries may use either dotted notation (``taskq.cli``,
+    ``core.utils``) or path notation (``taskq/cli.py``,
+    ``03-development/src/taskq/cli.py``). Both forms map to the same
+    dotted name after stripping the project-relative path prefix
+    (``<src_dir>/`` or ``src/``) and the ``.py`` suffix.
+
+    Returns ``None`` for directory markers (trailing ``/``) and
+    non-string entries.
+
+    This is the single source of truth for SAB module-name normalization:
+    `_flatten_registered` below and `harness_cli._check_sab_module_alignment`
+    both call this function, so `amend_sab` and the alignment gate can never
+    silently disagree about which modules are "registered".
+    """
+    if not isinstance(mod, str):
+        return None
+    stripped = mod.strip().lstrip("./")
+    src_prefix = src_dir if src_dir.endswith("/") else f"{src_dir}/"
+    for prefix in (src_prefix, "src/"):
+        if stripped.startswith(prefix):
+            stripped = stripped[len(prefix):]
+            break
+    if stripped.endswith("/") or not stripped:
+        return None
+    if stripped.endswith(".py"):
+        stripped = stripped[:-3]
+    return stripped.replace("/", ".")
+
+
 def discover_modules(project_root: Path, src_dir: str = _DEFAULT_SRC_DIR) -> list[str]:
     """Return sorted list of dotted module names under `<project>/<src_dir>/`.
 
@@ -70,27 +102,16 @@ def discover_modules(project_root: Path, src_dir: str = _DEFAULT_SRC_DIR) -> lis
 def _flatten_registered(sab: dict, src_dir: str = _DEFAULT_SRC_DIR) -> set[str]:
     """Union of every layer's modules list, normalised to dotted form.
 
-    SAB entries may be expressed in either dotted (``taskq.cli``) or path
-    (``taskq/cli.py``, ``03-development/src/taskq/cli.py``) form; both are
-    normalised to dotted here so the comparison against `discover_modules`
-    agrees with `_check_sab_module_alignment` in harness_cli.py.
+    Delegates to `normalize_sab_module_to_dotted` so the comparison against
+    `discover_modules` agrees with `_check_sab_module_alignment` in
+    harness_cli.py.
     """
     out: set[str] = set()
-    src_prefix = src_dir if src_dir.endswith("/") else f"{src_dir}/"
     for layer in sab.get("layers", []):
         for m in layer.get("modules", []):
-            if not isinstance(m, str):
-                continue
-            stripped = m.strip().lstrip("./")
-            for prefix in (src_prefix, "src/"):
-                if stripped.startswith(prefix):
-                    stripped = stripped[len(prefix):]
-                    break
-            if stripped.endswith("/") or not stripped:
-                continue
-            if stripped.endswith(".py"):
-                stripped = stripped[:-3]
-            out.add(stripped.replace("/", "."))
+            dotted = normalize_sab_module_to_dotted(m, src_dir)
+            if dotted is not None:
+                out.add(dotted)
     return out
 
 

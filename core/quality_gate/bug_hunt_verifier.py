@@ -128,6 +128,10 @@ def verify_bug_hunt_report(project_root: str) -> BugHuntVerdict:
                     f"{fid}: resolved without evidence — needs fix_commit or "
                     f"repro_test (anti-fabrication)"
                 )
+            elif repro and not isinstance(repro, str):
+                reasons.append(
+                    f"{fid}: repro_test must be a string path, got {type(repro).__name__}"
+                )
             elif repro and isinstance(repro, str) and not (root / repro).is_file():
                 reasons.append(
                     f"{fid}: repro_test '{repro}' does not exist in the project"
