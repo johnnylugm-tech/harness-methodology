@@ -379,12 +379,17 @@ def _scan_file_compliance(file_path: Path, phase: Optional[int] = None) -> Dict[
     # returned 100 and gave a false sense of secrets coverage. Real secret scanning
     # is gitleaks at Gate 2/3/4 (P3+, secrets_scanning dim, threshold 100), which is
     # independently re-run by S4 cross-validation and cannot be faked.
-    s_keywords = profile.dimension_keywords_for_phase("security", phase)
-    s_kw = _keyword_density(content, s_keywords)
+    # Only request keywords for dimensions that are actually active for this phase.
     is_markdown = file_path.suffix.lower() == ".md"
-    s_stuff_penalty = _keyword_stuffing_penalty(content, s_keywords, is_markdown=is_markdown)
-    s_kw *= s_stuff_penalty
-    security = s_kw
+    phase_profile = profile.phases.get(phase)
+    if phase_profile and "security" in phase_profile.active_dimensions:
+        s_keywords = profile.dimension_keywords_for_phase("security", phase)
+        s_kw = _keyword_density(content, s_keywords)
+        s_stuff_penalty = _keyword_stuffing_penalty(content, s_keywords, is_markdown=is_markdown)
+        s_kw *= s_stuff_penalty
+        security = s_kw
+    else:
+        security = 0.0
 
     # ── Maintainability (keyword density + structure signals) ──
     m_keywords = profile.dimension_keywords_for_phase("maintainability", phase)

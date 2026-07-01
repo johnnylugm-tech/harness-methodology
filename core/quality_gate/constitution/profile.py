@@ -429,10 +429,12 @@ def _build_defaults() -> ConstitutionProfile:
     # P3 (Implementation: source code files)
     # - correctness: reduced to FR-reference vocabulary only; source code comments reference
     #   FR/NFR IDs but never contain "acceptance criteria", "traceability matrix", "srs", "sad".
-    # - security: removes whitelist (deprecated term), compare_digest (Python stdlib internals),
-    #   input sanitizer (exact two-word phrase unlikely in code).
-    # - maintainability: kept — source code naturally has class/def/import/docstring patterns.
-    # - composite_threshold=80 (was 90): not every project uses all security primitives.
+    # - security: NOT ACTIVE — Python implementation files do not naturally contain
+    #   security-vocabulary keywords (auth/rbac/tls), permanently capping the score.
+    #   Authoritative quality signal is AST + independent tool scores (Gate 1/2).
+    # - maintainability: NOT ACTIVE — same reasoning as security for code-heavy phases.
+    # - composite_threshold=30.0: well-implemented project with FR/NFR docstring
+    #   references (~50% keyword coverage) can pass; hollow P3 dir scores 0%.
     _p3_correctness_kw = [
         "fr-", "nfr-", "requirement", "specification",
     ]
