@@ -252,6 +252,8 @@ def _cli() -> int:
     except SubmoduleSyncError as e:
         print(f"[harness-sync] FAILED: {e}", file=sys.stderr)
         return 19  # exit code 19 = sync failure
+    except KeyError as e:
+        raise SubmoduleSyncError(f"Unknown placeholder in message template: {e}") from e
 
     n = result["behind_count"]
     sha = result["short_sha"]
