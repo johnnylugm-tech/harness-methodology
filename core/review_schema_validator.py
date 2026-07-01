@@ -33,10 +33,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
 
-try:
-    import jsonschema  # type: ignore
-except ImportError:  # pragma: no cover — jsonschema is a stdlib dep of harness
-    jsonschema = None
+import jsonschema
 
 from core.review_quota import enforce_quota
 
@@ -76,12 +73,11 @@ def validate_b_output(raw: dict | Any, phase: int = 0, deliverable: str = "") ->
         return ValidationResult(False, {}, "raw is not a dict", synthesized=False)
 
     schema = _load_schema()
-    if jsonschema is not None:
-        validator = jsonschema.Draft202012Validator(schema)
-        errors = sorted(validator.iter_errors(raw), key=lambda e: list(e.absolute_path))
-        if errors:
-            synthesized = _synthesize_cancelled(raw, errors[0].message)
-            return ValidationResult(False, synthesized, errors[0].message, synthesized=True)
+    validator = jsonschema.Draft202012Validator(schema)
+    errors = sorted(validator.iter_errors(raw), key=lambda e: list(e.absolute_path))
+    if errors:
+        synthesized = _synthesize_cancelled(raw, errors[0].message)
+        return ValidationResult(False, synthesized, errors[0].message, synthesized=True)
 
     # Schema-valid — apply HR-12 regression guard: over_interpretation caps at medium
     normalized = _downgrade_over_interpretation(dict(raw))
