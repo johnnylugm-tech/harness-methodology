@@ -164,16 +164,34 @@ class AgentSpawner:
                 env=_child_env(),
             )
         except subprocess.TimeoutExpired:
-            return {
+            timeout_result = {
                 "output": f"Agent timed out after {task_timeout}s",
                 "status": "TIMEOUT",
             }
+            post_diff = self._git_diff_numstat(self.project_path, base=pre_sha or "HEAD")
+            regression_flags = self._dispatch_diff_budget(pre_diff, post_diff, pre_sha=pre_sha)
+            self._log_dispatch(
+                role, prompt, timeout_result, phase, fr_id,
+                regression_flags=regression_flags,
+            )
+            if regression_flags:
+                timeout_result = {**timeout_result, "status": "REGRESSION_GUARD", "regression_flags": regression_flags}
+            return timeout_result
         if proc.returncode != 0:
-            return {
+            error_result = {
                 "output": proc.stderr or proc.stdout,
                 "status": "ERROR",
                 "exit_code": proc.returncode,
             }
+            post_diff = self._git_diff_numstat(self.project_path, base=pre_sha or "HEAD")
+            regression_flags = self._dispatch_diff_budget(pre_diff, post_diff, pre_sha=pre_sha)
+            self._log_dispatch(
+                role, prompt, error_result, phase, fr_id,
+                regression_flags=regression_flags,
+            )
+            if regression_flags:
+                error_result = {**error_result, "status": "REGRESSION_GUARD", "regression_flags": regression_flags}
+            return error_result
         try:
             data = json.loads(proc.stdout)
             result = {

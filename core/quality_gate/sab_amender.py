@@ -67,7 +67,7 @@ def discover_modules(project_root: Path, src_dir: str = _DEFAULT_SRC_DIR) -> lis
     return found
 
 
-def _flatten_registered(sab: dict) -> set[str]:
+def _flatten_registered(sab: dict, src_dir: str = _DEFAULT_SRC_DIR) -> set[str]:
     """Union of every layer's modules list, normalised to dotted form.
 
     SAB entries may be expressed in either dotted (``taskq.cli``) or path
@@ -76,12 +76,13 @@ def _flatten_registered(sab: dict) -> set[str]:
     agrees with `_check_sab_module_alignment` in harness_cli.py.
     """
     out: set[str] = set()
+    src_prefix = src_dir if src_dir.endswith("/") else f"{src_dir}/"
     for layer in sab.get("layers", []):
         for m in layer.get("modules", []):
             if not isinstance(m, str):
                 continue
             stripped = m.strip().lstrip("./")
-            for prefix in ("03-development/src/", "src/"):
+            for prefix in (src_prefix, "src/"):
                 if stripped.startswith(prefix):
                     stripped = stripped[len(prefix):]
                     break
@@ -93,9 +94,9 @@ def _flatten_registered(sab: dict) -> set[str]:
     return out
 
 
-def missing_modules(sab: dict, discovered: Iterable[str]) -> list[str]:
+def missing_modules(sab: dict, discovered: Iterable[str], src_dir: str = _DEFAULT_SRC_DIR) -> list[str]:
     """Modules present on disk but not yet in any SAB layer."""
-    registered = _flatten_registered(sab)
+    registered = _flatten_registered(sab, src_dir)
     return [m for m in discovered if m not in registered]
 
 
@@ -135,7 +136,7 @@ def amend_sab(project_root: Path, src_dir: str = _DEFAULT_SRC_DIR,
         return []
 
     discovered = discover_modules(project_root, src_dir)
-    added = missing_modules(sab, discovered)
+    added = missing_modules(sab, discovered, src_dir)
     if not added:
         return []
 

@@ -618,4 +618,44 @@ class TestFixOverInterpretationGap:
         # Only one header line for SPEC.md:11
         assert text.count("## over_interpretation: SPEC.md:11") == 1
 
+# ── AutoFixEngine.fix() integration ──────────────────────────────────────────
+
+
+def test_fix_uses_caller_problem_type(tmp_path: Path):
+    """When caller sets context.problem_type, fix() must not silently drop it."""
+    from core.auto_fix import AutoFixEngine, FixContext, FixStrategy
+    import core.auto_fix.classifier as classifier_module
+
+    engine = AutoFixEngine(project_root=tmp_path)
+    ctx = FixContext(
+        source="phase_hooks",
+        details={"message": "FR-01 not tested"},  # no problem_type in details
+        problem_type="missing_traceability",       # set by caller on the dataclass field
+        severity="medium",
+        phase=1,
+        retry_count=0,
+        project_root=tmp_path,
+    )
+
+    # Track what classify() receives
+    received_details = []
+    orig_classify = classifier_module.classify
+
+    def tracking_classify(source, details):
+        received_details.append(details)
+        # Return a valid tuple to avoid crashing fix()
+        return FixStrategy.HUMAN_REQUIRED, 0.8, 3, "low_constitution_score", "other"
+
+    classifier_module.classify = tracking_classify
+    try:
+        engine.fix(ctx)
+        assert received_details, "classify() was never called"
+        assert "problem_type" in received_details[0], \
+            f"classifier received details without problem_type: {received_details}"
+        assert received_details[0]["problem_type"] == "missing_traceability", \
+            f"problem_type was dropped; classifier got: {received_details[0]}"
+    finally:
+        classifier_module.classify = orig_classify
+
+
 pytestmark = pytest.mark.auto_fix

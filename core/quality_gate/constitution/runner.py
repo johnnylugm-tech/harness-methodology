@@ -381,21 +381,22 @@ def _scan_file_compliance(file_path: Path, phase: Optional[int] = None) -> Dict[
     # independently re-run by S4 cross-validation and cannot be faked.
     s_keywords = profile.dimension_keywords_for_phase("security", phase)
     s_kw = _keyword_density(content, s_keywords)
-    s_stuff_penalty = _keyword_stuffing_penalty(content, s_keywords)
+    is_markdown = file_path.suffix.lower() == ".md"
+    s_stuff_penalty = _keyword_stuffing_penalty(content, s_keywords, is_markdown=is_markdown)
     s_kw *= s_stuff_penalty
     security = s_kw
 
     # ── Maintainability (keyword density + structure signals) ──
     m_keywords = profile.dimension_keywords_for_phase("maintainability", phase)
     m_kw = _keyword_density(content, m_keywords)
-    m_stuff_penalty = _keyword_stuffing_penalty(content, m_keywords)
+    m_stuff_penalty = _keyword_stuffing_penalty(content, m_keywords, is_markdown=is_markdown)
     m_kw *= m_stuff_penalty
     maintainability = m_kw * 0.7 + c_structure * 0.3
 
     # ── Coverage (keyword density) ──
     cov_keywords = profile.dimension_keywords_for_phase("coverage", phase)
     cov_kw = _keyword_density(content, cov_keywords)
-    cov_stuff_penalty = _keyword_stuffing_penalty(content, cov_keywords)
+    cov_stuff_penalty = _keyword_stuffing_penalty(content, cov_keywords, is_markdown=is_markdown)
     cov_kw *= cov_stuff_penalty
     coverage = cov_kw
 
@@ -492,15 +493,34 @@ def _scan_directory(docs_path: Path, phase: int, check_type: str) -> Constitutio
         if phase_dir.exists() and phase_dir.resolve() != docs_path.resolve():
             target_dirs.append(phase_dir)
 
-    # P3+: scan Python source files only — .md compliance docs are gameable (keyword stuffing).
+    # P3/P4: scan Python source files only — .md compliance docs are gameable.
     # P1/P2: scan .md (SRS.md, SAD.md are the actual deliverables for those phases).
-    _scan_pattern = "*.py" if (phase is not None and phase >= 3) else "*.md"
+    # P5-P8: scan the specific markdown deliverable for each phase.
+    DELIVERABLE_MAP = {
+        5: "VERIFICATION_REPORT.md",
+        6: "QUALITY_REPORT.md",
+        7: "RISK_REGISTER.md",
+        8: "CONFIG_RECORDS.md",
+    }
 
     files_scanned = 0
     for directory in target_dirs:
         if not directory.exists():
             continue
-        for item in directory.rglob(_scan_pattern):
+        if phase is not None and phase >= 5:
+            # P5-P8: look for the specific deliverable by name
+            deliverable_name = DELIVERABLE_MAP.get(phase)
+            if deliverable_name:
+                candidate = directory / deliverable_name
+                items = [candidate] if candidate.exists() else []
+            else:
+                items = []
+        elif phase is not None and phase >= 3:
+            # P3/P4: scan Python source files
+            items = list(directory.rglob("*.py"))
+        else:
+            # P1/P2: scan markdown deliverables
+            items = list(directory.rglob("*.md"))
             if any(part.startswith(".") for part in item.relative_to(directory).parts):
                 continue
             if get_profile().is_excluded(item, phase=phase):

@@ -533,6 +533,121 @@ class TestRegressionGuardEndToEnd:
             f"Docstring-only removal must not trigger REGRESSION_GUARD: {result.get('regression_flags')}"
         )
 
+    def test_log_dispatch_receives_regression_guard_status(self):
+        """_log_dispatch must be called AFTER status is overridden to REGRESSION_GUARD.
+
+        Regression guard dispatches were logging status="complete" because
+        _log_dispatch was called before the status override, making
+        sessions_spawn.log entries indistinguishable from normal dispatches.
+        """
+        spawner = AgentSpawner(project_path=Path("/fake/repo"))
+        claude_proc = self._make_claude_proc()
+
+        # pre: (5, 2); post: (5, 65) → net_removed = 63 > 50 threshold
+        pre_numstat = "5\t2\tsrc/taskq/models.py\n"
+        post_numstat = "5\t65\tsrc/taskq/models.py\n"
+        call_count = [0]
+        logged_status = []
+
+        def side_effect(cmd, **kw):
+            if cmd[0] == "git" and "--numstat" in cmd:
+                call_count[0] += 1
+                out = pre_numstat if call_count[0] == 1 else post_numstat
+                return MagicMock(returncode=0, stdout=out)
+            if cmd[0] == "git" and "diff" in cmd:
+                return MagicMock(returncode=0, stdout="")
+            if cmd[0] == "git" and "show" in cmd:
+                return MagicMock(returncode=1, stdout="")
+            return claude_proc
+
+        def mock_log_spawn(**kwargs):
+            logged_status.append(kwargs.get("status"))
+
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            with patch("core.agent_spawner.subprocess.run", side_effect=side_effect):
+                with patch("core.sessions_spawn_logger.SessionsSpawnLogger.log_spawn", side_effect=mock_log_spawn):
+                    result = spawner.spawn(
+                        role="developer", prompt="Improve FR-01",
+                        context={}, model="claude", fr_id="FR-01",
+                    )
+        assert result["status"] == "REGRESSION_GUARD"
+        assert len(logged_status) == 1, f"Expected exactly one log_dispatch call, got {len(logged_status)}"
+        assert logged_status[0] == "REGRESSION_GUARD", (
+            f"_log_dispatch received status={logged_status[0]!r}, "
+            f"expected 'REGRESSION_GUARD'. "
+            f"This means _log_dispatch was called before the status override."
+        )
+
+
+class TestTimeoutRegressionGuard:
+    """Regression guard must run even when sub-agent times out (Bug: early return skipped guard)."""
+
+    def _spawner(self):
+        return AgentSpawner(project_path=Path("/fake/repo"))
+
+    def test_timeout_triggers_regression_guard(self):
+        """TimeoutExpired branch must still call _dispatch_diff_budget before returning."""
+        import subprocess as _sp
+        spawner = self._spawner()
+        guard_called = []
+
+        orig_guard = spawner._dispatch_diff_budget
+
+        def tracking_guard(pre, post, pre_sha=None):
+            guard_called.append((pre, post, pre_sha))
+            return orig_guard(pre, post, pre_sha=pre_sha)
+
+        spawner._dispatch_diff_budget = tracking_guard
+
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            with patch("core.agent_spawner.subprocess.run") as mock_run:
+                mock_run.side_effect = _sp.TimeoutExpired(["claude", "-p"], 60)
+                result = spawner.spawn(
+                    role="developer", prompt="Do task",
+                    context={}, model="claude",
+                )
+
+        assert guard_called, (
+            "_dispatch_diff_budget was not called for timeout — "
+            "regression guard is being skipped on early return"
+        )
+        assert result["status"] == "TIMEOUT"
+        # Guard result should be incorporated even on timeout
+        assert guard_called[0][0] == {}  # pre_diff (pre-spawn snapshot)
+        # post_diff is captured after timeout, git may report changed state
+
+    def test_nonzero_returncode_triggers_regression_guard(self):
+        """Non-zero exit branch must still call _dispatch_diff_budget before returning."""
+        spawner = self._spawner()
+        guard_called = []
+
+        orig_guard = spawner._dispatch_diff_budget
+
+        def tracking_guard(pre, post, pre_sha=None):
+            guard_called.append((pre, post, pre_sha))
+            return orig_guard(pre, post, pre_sha=pre_sha)
+
+        spawner._dispatch_diff_budget = tracking_guard
+
+        mock_proc = MagicMock()
+        mock_proc.returncode = 1
+        mock_proc.stderr = "internal error"
+        mock_proc.stdout = ""
+
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            with patch("core.agent_spawner.subprocess.run", return_value=mock_proc):
+                result = spawner.spawn(
+                    role="developer", prompt="Do task",
+                    context={}, model="claude",
+                )
+
+        assert guard_called, (
+            "_dispatch_diff_budget was not called for non-zero returncode — "
+            "regression guard is being skipped on early return"
+        )
+        assert result["status"] == "ERROR"
+        assert result["exit_code"] == 1
+
 
 class TestCalculateLogicalRemoval:
     """Unit tests for AgentSpawner._calculate_logical_removal."""
