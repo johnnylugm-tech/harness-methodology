@@ -6,7 +6,6 @@ Bug 2: profile.py stale comment block says P3 has threshold=80 and
        maintainability="kept", but actual values are threshold=30.0
        and active_dimensions=["correctness"] only.
 """
-import pytest
 import tempfile
 from pathlib import Path
 from unittest.mock import patch

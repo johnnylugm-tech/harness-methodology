@@ -1,9 +1,7 @@
 """Tests for phase_hooks orphan detection — substring vs exact match."""
 
 import sys
-import os
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 

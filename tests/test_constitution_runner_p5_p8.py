@@ -12,7 +12,6 @@ from pathlib import Path
 from core.quality_gate.constitution.runner import (
     _scan_directory,
     _scan_file_compliance,
-    ConstitutionResult,
 )
 
 

@@ -27,7 +27,6 @@ from core.quality_gate.mutation_enforcer import (
     _find_source_setup_cfg,
     _paths_to_exclude_flag,
     _count_mutmut_results,
-    run_mutation_precheck,
 )
 
 
@@ -569,7 +568,6 @@ def test_run_mutation_precheck_rejects_missing_paths(tmp_path, monkeypatch):
     Fix: split on commas and fail on any missing entry.
     """
     import core.quality_gate.mutation_enforcer as me
-    from core.utils.lang_patterns import project_language
 
     # Create a partial setup: core/ exists with foo.py, but bar.py is absent.
     core_dir = tmp_path / "core"
@@ -992,9 +990,9 @@ def test_copy_setup_cfg_uses_nested_cwd_setup_cfg_not_project_root(tmp_path):
     # 03-development/setup.cfg, NOT whatever the root setup.cfg has.
     # If Bug 7 is present, pythonpath will be absent or come from root.
     assert cp.has_option("tool:pytest", "pythonpath"), (
-        f"pythonpath missing from workdir setup.cfg — "
-        f"_copy_setup_cfg_to_workdir read project-root setup.cfg instead of "
-        f"the nested cwd's setup.cfg"
+        "pythonpath missing from workdir setup.cfg — "
+        "_copy_setup_cfg_to_workdir read project-root setup.cfg instead of "
+        "the nested cwd's setup.cfg"
     )
     assert cp["tool:pytest"]["pythonpath"] == str(src_dir.resolve()), (
         f"pythonpath should be resolved to {src_dir.resolve()}, "
@@ -1032,7 +1030,9 @@ def test_stale_cache_removed_when_workdir_cache_absent(tmp_path, monkeypatch):
         if isinstance(cmd, list) and len(cmd) >= 2 and cmd[1] == "results":
             return FakeRes()
         class R:
-            returncode = 0; stdout = ""; stderr = ""
+            returncode = 0
+            stdout = ""
+            stderr = ""
         return R()
 
     monkeypatch.setattr(me.subprocess, "run", fake_run)
@@ -1445,7 +1445,6 @@ def test_sqlite_error_not_swallowed_as_zero_mutants(tmp_path, monkeypatch):
     # _count_mutmut_results reads from workdir_cache = Path(workdir)/".mutmut-cache".
     # compute_mutation_score creates workdir via tempfile.mkdtemp(...).
     # We mock mkdtemp to return a predictable path so we can create the cache there.
-    import tempfile as _tempfile_module
     fake_workdir = tmp_path / "_mutmut_workdir"
     fake_workdir.mkdir()
 
