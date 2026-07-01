@@ -467,7 +467,30 @@ class PhaseHooks:
             if _fixed:
                 try:
                     _rt2, report2 = check_traceability(self.project_path)  # noqa: F841
-                    # Note: Ideally we re-apply overlay here too, but if it was fixed, it should be atomic-clean
+                    # PR 13 fix: re-apply the overlay to the re-verify report so that
+                    # manually-VERIFIED FRs (whose status lives only in the overlay)
+                    # do not reappear as untested after auto-fix.
+                    try:
+                        from core.traceability.overlay import (
+                            atomic_to_dict, load_overlay, merge_overlay,
+                        )
+                        overlay2 = load_overlay(
+                            self.project_path / "TRACEABILITY_MATRIX.overlay.yaml"
+                        )
+                        if overlay2:
+                            merged2 = merge_overlay(atomic_to_dict(_rt2), overlay2)
+                            _overlay_untested: set = set(report2.get("untested", []))
+                            _overlay_uncoded: set = set(report2.get("uncoded", []))
+                            for fr_id, row in merged2.get("requirements", {}).items():
+                                if (row.get("status") == "VERIFIED"
+                                        or "Manual" in str(row.get("test_files", []))):
+                                    _overlay_untested.discard(fr_id)
+                                    _overlay_uncoded.discard(fr_id)
+                            report2 = dict(report2)
+                            report2["untested"] = list(_overlay_untested)
+                            report2["uncoded"] = list(_overlay_uncoded)
+                    except Exception as _overlay_err:
+                        print(f"   [WARN] re-verify overlay merge failed: {_overlay_err}")
                     still_untested = report2.get("untested", [])
                     still_uncoded = report2.get("uncoded", [])
                     if not still_untested and not still_uncoded:

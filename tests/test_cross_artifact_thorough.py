@@ -76,7 +76,7 @@ def test_check_coverage_report_subprocess_exception(mock_run, tmp_path):
 @patch.dict(os.environ, {"HARNESS_CROSS_ARTIFACT_COV": "1"})
 def test_check_coverage_report_diff_greater_than_10(mock_run, tmp_path):
     (tmp_path / "04-testing").mkdir(parents=True)
-    (tmp_path / "04-testing" / "COVERAGE_REPORT.md").write_text("coverage: 95%")
+    (tmp_path / "04-testing" / "COVERAGE_REPORT.md").write_text("Line coverage: 95%")
     mock_run.return_value = MagicMock(stdout="TOTAL 100 20 80%", stderr="")
     violations = check_coverage_report(tmp_path, 4)
     assert len(violations) == 1
@@ -89,11 +89,11 @@ def test_check_coverage_report_bare_overall_percentage(mock_run, tmp_path):
     """Bare 'Overall: 85%' should be extracted and compared, not silently ignored."""
     (tmp_path / "04-testing").mkdir(parents=True)
     (tmp_path / "04-testing" / "COVERAGE_REPORT.md").write_text("Overall: 85%")
-    mock_run.return_value = MagicMock(stdout="TOTAL 100 20 80%", stderr="")
+    mock_run.return_value = MagicMock(stdout="TOTAL 100 20 74%", stderr="")
     violations = check_coverage_report(tmp_path, 4)
     assert len(violations) == 1
     assert violations[0]["severity"] == "CRITICAL"
-    assert "diff=5.0%" in violations[0]["issue"]
+    assert "diff=11.0%" in violations[0]["issue"]
 
 @patch("subprocess.run")
 @patch.dict(os.environ, {"HARNESS_CROSS_ARTIFACT_COV": "1"})
@@ -111,7 +111,7 @@ def test_check_coverage_report_bare_total_percentage(mock_run, tmp_path):
 @patch.dict(os.environ, {"HARNESS_CROSS_ARTIFACT_COV": "1"})
 def test_check_coverage_report_diff_greater_than_5(mock_run, tmp_path):
     (tmp_path / "04-testing").mkdir(parents=True)
-    (tmp_path / "04-testing" / "COVERAGE_REPORT.md").write_text("coverage: 95%")
+    (tmp_path / "04-testing" / "COVERAGE_REPORT.md").write_text("Line coverage: 95%")
     mock_run.return_value = MagicMock(stdout="TOTAL 100 10 89%", stderr="")
     violations = check_coverage_report(tmp_path, 4)
     assert len(violations) == 1
@@ -122,7 +122,7 @@ def test_check_coverage_report_diff_greater_than_5(mock_run, tmp_path):
 @patch.dict(os.environ, {"HARNESS_CROSS_ARTIFACT_COV": "0"}, clear=True)
 def test_check_coverage_report_fast_path_success(mock_run, tmp_path):
     (tmp_path / "04-testing").mkdir(parents=True)
-    (tmp_path / "04-testing" / "COVERAGE_REPORT.md").write_text("coverage: 95%")
+    (tmp_path / "04-testing" / "COVERAGE_REPORT.md").write_text("Line coverage: 95%")
     (tmp_path / ".coverage").write_text("dummy")
     mock_run.return_value = MagicMock(stdout="82.5\n", stderr="")
     violations = check_coverage_report(tmp_path, 4)
@@ -155,12 +155,12 @@ def test_check_coverage_report_extracts_line_coverage_not_first_percentage(mock_
 
     A file like:
         Coverage target: 80%
-        Actual coverage achieved: 95%
+        Line coverage: 95%
     should extract 95 (Line coverage), not 80 (Coverage target).
     """
     (tmp_path / "04-testing").mkdir(parents=True)
     (tmp_path / "04-testing" / "COVERAGE_REPORT.md").write_text(
-        "Coverage target: 80%\nActual coverage achieved: 95%\n"
+        "Coverage target: 80%\nLine coverage: 95%\n"
     )
     (tmp_path / ".coverage").write_text("dummy")
     # Actual coverage from coverage tool = 95%, same as claimed

@@ -357,6 +357,86 @@ class TestGuardrails:
         assert count == 1
         assert original.read_text() == "original"
 
+    def test_ast_mutation_guard_per_file_allowed_node_multi_file_fix(self, tmp_path: Path):
+        """Multi-file fix: each file must be checked against its own top-level node name.
+
+        Bug: allowed_node_name was computed from files[0] only. If a.py has class A
+        and b.py has class B, checking b.py with allowed_node_name=A (from files[0])
+        would incorrectly flag B as out-of-bounds.
+
+        The fix: ast_mutation_guard accepts a per-file allowed_node_name, so b.py is
+        checked against its own top-level name B.
+        """
+        from core.auto_fix.guardrails import ast_mutation_guard
+
+        # files[0] = a.py with class A
+        a_py = tmp_path / "a.py"
+        a_pre = "class A:\n    def method_a(self):\n        pass\n"
+        a_post = "class A:\n    def method_a(self):\n        pass\n    def new_method(self):\n        pass\n"
+
+        # files[1] = b.py with class B (different top-level name)
+        b_py = tmp_path / "b.py"
+        b_pre = "class B:\n    def method_b(self):\n        pass\n"
+        b_post = "class B:\n    def method_b(self):\n        pass\n    def new_method(self):\n        pass\n"
+
+        # Simulate the bug: guard called with allowed_node_name="A" for BOTH files
+        # This is what the buggy code did (files[0]'s allowed_node used for all files).
+        # a.py should pass with allowed_node_name="A"
+        assert ast_mutation_guard(a_py, a_pre, a_post, allowed_node_name="A") is True
+        # b.py should ALSO pass when checked against its OWN node name "B"
+        assert ast_mutation_guard(b_py, b_pre, b_post, allowed_node_name="B") is True
+        # But b.py would FAIL if we wrongly used allowed_node_name="A" (the bug scenario)
+        assert ast_mutation_guard(b_py, b_pre, b_post, allowed_node_name="A") is False
+
+    def test_auto_fix_engine_multi_file_allowed_node_from_each_file(self, tmp_path: Path):
+        """AutoFixEngine computes per-file allowed_node for AST guard.
+
+        Simulates the full engine flow with two files having different top-level names.
+        The AST guard must not reject b.py just because its top-level class B
+        differs from a.py's top-level class A (which was incorrectly extracted from files[0]).
+
+        Bug reproduction:
+        - files=[a.py(class A), b.py(class B)], error_line in b.py
+        - extract_minimal_viable_context returns allowed_node="A" if called on files[0]
+        - The guard loop then checks b.py with allowed_node="A" and wrongly rejects it
+        """
+        from core.auto_fix.segment_slicing import extract_minimal_viable_context
+        from core.auto_fix.guardrails import ast_mutation_guard
+
+        # Set up two files with different top-level names
+        a_py = tmp_path / "a.py"
+        a_py.write_text('class A:\n    def foo(self):\n        pass\n', encoding='utf-8')
+
+        b_py = tmp_path / "b.py"
+        b_py.write_text('class B:\n    def bar(self):\n        pass\n', encoding='utf-8')
+
+        # Simulate: error line is in b.py (line 1 = class B:), so extract returns "B"
+        print(f"DEBUG b_py content: {b_py.read_text()!r}")
+        _mvc_text, allowed_node_from_b = extract_minimal_viable_context(
+            b_py, error_line=1, project_root=tmp_path
+        )
+        print(f"DEBUG allowed_node_from_b: {allowed_node_from_b!r}")
+        assert allowed_node_from_b == "B", (
+            f"extract_minimal_viable_context(b.py) returned {allowed_node_from_b!r}, expected 'B'"
+        )
+
+        # Simulate the BUG scenario: if the guard loop uses allowed_node="A" (from files[0])
+        # to check b.py, it should be rejected (because "B" != "A")
+        b_pre = b_py.read_text()
+        b_post = 'class B:\n    def bar(self):\n        pass\n    def new_method(self):\n        pass\n'
+        b_py.write_text(b_post, encoding="utf-8")
+
+        # Bug path: b.py wrongly checked with allowed_node="A" (from files[0])
+        bug_result = ast_mutation_guard(b_py, b_pre, b_post, allowed_node_name="A")
+        assert bug_result is False, "Bug not reproduced: b.py should be rejected with allowed_node='A'"
+
+        # Restore b.py
+        b_py.write_text(b_pre, encoding="utf-8")
+
+        # Fix path: b.py correctly checked with allowed_node="B" (its own node)
+        fix_result = ast_mutation_guard(b_py, b_pre, b_post, allowed_node_name="B")
+        assert fix_result is True, "Fix failed: b.py should be accepted with allowed_node='B'"
+
 
 # ── AutoFixEngine tests ─────────────────────────────────────────────────────
 
