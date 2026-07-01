@@ -965,7 +965,12 @@ class PhaseAuditor:
 
         # logic verification method
         logic_count = len(re.findall(r"Logic Verification Method", content))
-        if logic_count >= max(1, fr_count // 2):
+        # Bug M15 fix: previous threshold was `max(1, fr_count // 2)`,
+        # which silently passed 3 FRs with only 1 logic method (ratio 1:3).
+        # SKILL.md intent is 1:1 — each FR has a corresponding Logic
+        # Verification Method. Use the strict 1:1 threshold.
+        required_logic = fr_count
+        if logic_count >= required_logic:
             self.result.add(Finding(
                 check_id="C5",
                 dimension="Document Content Depth",
@@ -1467,6 +1472,24 @@ class PhaseAuditor:
         try:
             data = json.loads(content)
             score = data.get("integrity_score", 100)
+            # Bug M16 fix: integrity_score may be a string (e.g. "90%").
+            # Previous code did `if score >= 80` which raises TypeError
+            # on int vs str comparison. Coerce to a numeric value.
+            if isinstance(score, str):
+                stripped = score.strip().rstrip("%")
+                try:
+                    score = float(stripped)
+                except ValueError:
+                    self.result.add(Finding(
+                        check_id="C8",
+                        dimension="Integrity Tracker",
+                        severity="WARNING",
+                        title=f"⚠️ Integrity Score unparseable: {score!r}",
+                        detail="Expected numeric or 'N%' string; treated as 0.",
+                        rule_ref="HR-09",
+                    ))
+                    return
+            score = float(score)
             violations = data.get("violations", [])
 
             if score >= 80:
