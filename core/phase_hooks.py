@@ -855,7 +855,8 @@ class PhaseHooks:
         state_path = self.project_path / ".methodology" / "state.json"
         if state_path.exists():
             try:
-                ack = json.loads(state_path.read_text(encoding="utf-8")).get("ci_readiness_ack", {})
+                ack_data = json.loads(state_path.read_text(encoding="utf-8")).get("ci_readiness_ack")
+                ack = ack_data if isinstance(ack_data, dict) else {}
             except Exception:
                 pass
         missing = [k for k in missing if not ack.get(k)]
