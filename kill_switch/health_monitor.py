@@ -4,8 +4,6 @@ HealthMonitor Component.
 Continuously collects and buffers agent health metrics.
 """
 
-import random
-from datetime import datetime, timezone
 from threading import Lock
 from typing import Dict, List
 
@@ -40,28 +38,19 @@ class HealthMonitor:
             self._monitoring_config.pop(agent_id, None)
 
     def get_metrics(self, agent_id: str) -> HealthMetrics:
-        """Get metrics."""
-        if agent_id not in self._active_monitors:
-            raise AgentNotFoundError(f"Agent {agent_id} is not being monitored")
-        if agent_id not in self._metrics_buffer:
-            raise MetricsUnavailableError(f"No metrics available for {agent_id}")
-        return self._generate_simulated_metrics(agent_id)
+        """Get most recent recorded metric. Raises if not monitored or no data."""
+        with self._lock:
+            if agent_id not in self._active_monitors:
+                raise AgentNotFoundError(f"Agent {agent_id} is not being monitored")
+            buf = self._metrics_buffer.get(agent_id, [])
+            if not buf:
+                raise MetricsUnavailableError(f"No metrics available for {agent_id}")
+            return buf[-1]
 
     def is_monitoring(self, agent_id: str) -> bool:
         """Is monitoring."""
-        return agent_id in self._active_monitors
-
-    def _generate_simulated_metrics(self, agent_id: str) -> HealthMetrics:
-        now = datetime.now(timezone.utc)
-        return HealthMetrics(
-            agent_id=agent_id,
-            error_rate=random.uniform(0.0, 0.15),  # nosec B311
-            latency_p99_ms=random.uniform(100.0, 6000.0),  # nosec B311
-            memory_usage_percent=random.uniform(30.0, 95.0),  # nosec B311
-            output_rate_kbps=random.uniform(10.0, 150.0),  # nosec B311
-            last_health_check=now,
-            timestamp=now,
-        )
+        with self._lock:
+            return agent_id in self._active_monitors
 
     def record_metrics(self, agent_id: str, metrics: HealthMetrics) -> None:
         """Record metrics."""

@@ -31,11 +31,22 @@ class InterruptEngine:
         self._active_interrupts: Dict[str, InterruptEvent] = {}
         self._interrupt_history: List[InterruptEvent] = []
         self._interrupt_locks: Dict[str, Lock] = {}
+        self._agent_pids: Dict[str, int] = {}
         self._lock = Lock()
         self._audit_logger = audit_logger
         self._use_governance_logger = audit_logger is not None and (
             hasattr(audit_logger, 'log_event') or hasattr(audit_logger, 'log_escalation')
         )
+
+    def register_agent_pid(self, agent_id: str, pid: int) -> None:
+        """Register a process PID for an agent so it can be signalled on interrupt."""
+        with self._lock:
+            self._agent_pids[agent_id] = pid
+
+    def unregister_agent_pid(self, agent_id: str) -> None:
+        """Unregister a previously-registered agent PID."""
+        with self._lock:
+            self._agent_pids.pop(agent_id, None)
 
     def _log_event(self, event_type: KillSwitchEventType, agent_id: str,
                    reason: str, actor: str, metadata: Optional[dict] = None) -> None:
@@ -129,10 +140,11 @@ class InterruptEngine:
     def _execute_interrupt_sequence(self, agent_id: str) -> tuple:
         pid = self._get_agent_pid(agent_id)
         if pid is None:
-            return InterruptOutcome.SUCCESS, "Agent process not found"
+            return InterruptOutcome.FAILED, "Agent process not found"
         logger.info(f"Sending SIGTERM to agent {agent_id} (PID: {pid})")
         time.sleep(0.05)
         return InterruptOutcome.SUCCESS, None
 
     def _get_agent_pid(self, agent_id: str) -> Optional[int]:
-        return None
+        with self._lock:
+            return self._agent_pids.get(agent_id)
