@@ -85,6 +85,30 @@ def test_check_coverage_report_diff_greater_than_10(mock_run, tmp_path):
 
 @patch("subprocess.run")
 @patch.dict(os.environ, {"HARNESS_CROSS_ARTIFACT_COV": "1"})
+def test_check_coverage_report_bare_overall_percentage(mock_run, tmp_path):
+    """Bare 'Overall: 85%' should be extracted and compared, not silently ignored."""
+    (tmp_path / "04-testing").mkdir(parents=True)
+    (tmp_path / "04-testing" / "COVERAGE_REPORT.md").write_text("Overall: 85%")
+    mock_run.return_value = MagicMock(stdout="TOTAL 100 20 80%", stderr="")
+    violations = check_coverage_report(tmp_path, 4)
+    assert len(violations) == 1
+    assert violations[0]["severity"] == "CRITICAL"
+    assert "diff=5.0%" in violations[0]["issue"]
+
+@patch("subprocess.run")
+@patch.dict(os.environ, {"HARNESS_CROSS_ARTIFACT_COV": "1"})
+def test_check_coverage_report_bare_total_percentage(mock_run, tmp_path):
+    """Bare 'Total: 95%' should be extracted and compared, not silently ignored."""
+    (tmp_path / "04-testing").mkdir(parents=True)
+    (tmp_path / "04-testing" / "COVERAGE_REPORT.md").write_text("Total: 95%")
+    mock_run.return_value = MagicMock(stdout="TOTAL 100 20 80%", stderr="")
+    violations = check_coverage_report(tmp_path, 4)
+    assert len(violations) == 1
+    assert violations[0]["severity"] == "CRITICAL"
+    assert "diff=15.0%" in violations[0]["issue"]
+
+@patch("subprocess.run")
+@patch.dict(os.environ, {"HARNESS_CROSS_ARTIFACT_COV": "1"})
 def test_check_coverage_report_diff_greater_than_5(mock_run, tmp_path):
     (tmp_path / "04-testing").mkdir(parents=True)
     (tmp_path / "04-testing" / "COVERAGE_REPORT.md").write_text("coverage: 95%")
@@ -123,6 +147,30 @@ def test_check_coverage_report_fast_path_unparseable(mock_run, tmp_path):
     mock_run.return_value = MagicMock(stdout="unparseable", stderr="")
     violations = check_coverage_report(tmp_path, 4)
     assert len(violations) == 0
+
+@patch("subprocess.run")
+@patch.dict(os.environ, {"HARNESS_CROSS_ARTIFACT_COV": "0"}, clear=True)
+def test_check_coverage_report_extracts_line_coverage_not_first_percentage(mock_run, tmp_path):
+    """Regex must extract 'Line coverage' value, not the first % in the file.
+
+    A file like:
+        Coverage target: 80%
+        Actual coverage achieved: 95%
+    should extract 95 (Line coverage), not 80 (Coverage target).
+    """
+    (tmp_path / "04-testing").mkdir(parents=True)
+    (tmp_path / "04-testing" / "COVERAGE_REPORT.md").write_text(
+        "Coverage target: 80%\nActual coverage achieved: 95%\n"
+    )
+    (tmp_path / ".coverage").write_text("dummy")
+    # Actual coverage from coverage tool = 95%, same as claimed
+    mock_run.return_value = MagicMock(stdout="95\n", stderr="")
+    violations = check_coverage_report(tmp_path, 4)
+    # Must NOT extract 80 (the target); if it did, diff=15% and a CRITICAL would be raised
+    assert not any("80" in str(v) for v in violations), (
+        f"Wrong coverage figure extracted: {violations}"
+    )
+
 
 def test_run_cross_artifact_checks_phase_3(tmp_path):
     # Phase 3 does not check coverage or FR

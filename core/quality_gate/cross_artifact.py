@@ -199,9 +199,16 @@ def check_coverage_report(project_root: Path, _phase: int) -> List[Dict[str, str
         cov_content, re.IGNORECASE,
     )
     if not claimed_match:
-        return violations  # No numeric claim to validate
-
-    claimed_pct = float(claimed_match.group(1))
+        # Bare percentage: "Overall: 85%" or "Total: 95%"
+        bare_m = re.search(
+            r'(?im)^(?:Total|Overall|Average)[:\s]+(\d{2,3}(?:\.\d)?)\s*%',
+            cov_content,
+        )
+        if not bare_m:
+            return violations  # No numeric claim to validate
+        claimed_pct = float(bare_m.group(1))
+    else:
+        claimed_pct = float(claimed_match.group(1))
 
     # Try running pytest --cov to get actual coverage.
     # Guarded behind HARNESS_CROSS_ARTIFACT_COV=1 to avoid re-running the full

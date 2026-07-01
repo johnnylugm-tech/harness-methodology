@@ -1,4 +1,7 @@
+from unittest.mock import patch
+
 from core.quality_gate.spec_tracking_checker import SpecTrackingChecker
+from core.quality_gate.spec_tracking_checker import compute_trace_dimension
 
 def test_spec_tracking_checker_not_found(tmp_path):
     checker = SpecTrackingChecker(tmp_path)
@@ -72,3 +75,23 @@ FR-01 | Done | ok
     checker = SpecTrackingChecker(tmp_path)
     result = checker.check_completeness()
     assert "complete" in result
+
+
+def test_compute_trace_dimension_nfr_scan_exception_is_fail_closed(tmp_path):
+    """NFR scan exception must set nfr_pct=0.0 and passed=False (fail-closed)."""
+    # Mock scan_test_nfr_coverage to raise, simulating malformed/unreadable SRS
+    with patch(
+        "core.quality_gate.spec_tracking_checker.scan_test_nfr_coverage",
+        side_effect=RuntimeError("malformed SRS"),
+    ):
+        result = compute_trace_dimension(tmp_path, gate=2)
+
+    assert result["4c_nfr_to_test_pct"] == 0.0, (
+        f"Expected nfr_pct=0.0 on scan exception, got {result['4c_nfr_to_test_pct']}"
+    )
+    assert result["passed"] is False, (
+        "Expected passed=False on NFR scan exception (fail-closed), got True"
+    )
+    assert "4c" in result.get("error", ""), (
+        f"Expected '4c' in error field, got: {result.get('error', '')}"
+    )

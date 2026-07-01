@@ -521,6 +521,7 @@ def _scan_directory(docs_path: Path, phase: int, check_type: str) -> Constitutio
         else:
             # P1/P2: scan markdown deliverables
             items = list(directory.rglob("*.md"))
+        for item in items:
             if any(part.startswith(".") for part in item.relative_to(directory).parts):
                 continue
             if get_profile().is_excluded(item, phase=phase):

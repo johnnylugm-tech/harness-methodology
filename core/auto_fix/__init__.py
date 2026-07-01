@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from core.auto_fix.error_class import ErrorClass
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -132,6 +132,11 @@ class AutoFixEngine:
 
     def fix(self, context: FixContext) -> FixResult:
         """Main entry: classify -> guard -> fix -> verify. Returns FixResult or escalates."""
+        # Preserve caller's problem_type: inject it into details so classify() reads it.
+        _details = dict(context.details) if context.details else {}
+        if context.problem_type and "problem_type" not in _details:
+            _details["problem_type"] = context.problem_type
+        context = replace(context, details=_details)
         strategy, confidence, max_rounds, problem_type, error_class = self.classify(context)
         context.problem_type = problem_type
 

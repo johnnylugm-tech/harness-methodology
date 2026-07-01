@@ -560,12 +560,15 @@ class TestRegressionGuardEndToEnd:
                 return MagicMock(returncode=1, stdout="")
             return claude_proc
 
+        mock_logger = MagicMock()
+
         def mock_log_spawn(**kwargs):
             logged_status.append(kwargs.get("status"))
+        mock_logger.log_spawn = mock_log_spawn
 
         with patch("shutil.which", return_value="/usr/bin/claude"):
             with patch("core.agent_spawner.subprocess.run", side_effect=side_effect):
-                with patch("core.sessions_spawn_logger.SessionsSpawnLogger.log_spawn", side_effect=mock_log_spawn):
+                with patch("core.sessions_spawn_logger.SessionsSpawnLogger", return_value=mock_logger):
                     result = spawner.spawn(
                         role="developer", prompt="Improve FR-01",
                         context={}, model="claude", fr_id="FR-01",
