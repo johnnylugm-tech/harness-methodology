@@ -526,12 +526,15 @@ class TestStateManagerExtra:
 # ─── PatternMatcher extra paths ───────────────────────────────────────────────
 
 class TestPatternMatcherExtra:
-    def test_rule_invalid_regex_compiled_none(self):
+    def test_rule_invalid_regex_raises(self):
+        """Bug fix: malformed regex on a FORBIDDEN rule must raise re.error
+        at construction (fail-loud). Previously it was silently swallowed,
+        making the rule inert and bypassing the check at runtime.
+        """
+        import re
         from detection.pattern_matcher import Rule, RuleType
-        r = Rule(name="bad", rule_type=RuleType.FORBIDDEN, pattern="[invalid(", description="test")
-        assert r._compiled is None
-        assert r.matches("anything") is False
-        assert r.find_all("anything") == []
+        with pytest.raises(re.error):
+            Rule(name="bad", rule_type=RuleType.FORBIDDEN, pattern="[invalid(", description="test")
 
     def test_rule_find_all(self):
         from detection.pattern_matcher import Rule, RuleType

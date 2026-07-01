@@ -51,11 +51,14 @@ class Rule:
     _compiled: Any = field(default=None, repr=False)
 
     def __post_init__(self):
-        """Compile the regex pattern upon initialization."""
-        try:
-            self._compiled = re.compile(self.pattern, re.MULTILINE | re.IGNORECASE)
-        except re.error:
-            self._compiled = None
+        """Compile the regex pattern upon initialization.
+
+        Fail-loud: a malformed pattern is a config bug that must surface at
+        construction time. Previously this swallowed re.error and set
+        _compiled=None, which made FORBIDDEN rules silently inert and
+        bypassed the check at runtime.
+        """
+        self._compiled = re.compile(self.pattern, re.MULTILINE | re.IGNORECASE)
 
     def matches(self, text: str) -> bool:
         """Return True if the pattern matches the given text."""

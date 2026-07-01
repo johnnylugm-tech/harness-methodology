@@ -508,6 +508,71 @@ class TestGapDetector:
         # At least one gap should have downstream_missing=True after mark
         assert isinstance(gaps, list)
 
+    def test_detect_helper_exception_logs_warning(self, caplog):
+        """Bug fix: a failing _detect_incomplete helper must surface a warning
+        and NOT silently produce an empty gap list when other helpers succeed.
+        """
+        import logging
+        from gap_detector.detector import GapDetector
+
+        spec = _make_parsed_spec([("UserAuth", "P1"), ("Login", "P1")])
+        code = _make_scanned_code([("Login", "")])  # Login implemented, UserAuth missing
+        detector = GapDetector(spec, code)
+
+        with patch.object(
+            detector, "_detect_incomplete",
+            side_effect=TypeError("schema drift"),
+        ):
+            with caplog.at_level(logging.WARNING, logger="gap_detector"):
+                gaps = detector.detect()
+
+        assert any(g.gap_type == "MISSING" for g in gaps), (
+            "MISSING gap must still be detected even when _detect_incomplete fails"
+        )
+        warning_msgs = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+        assert any("_detect_incomplete" in m for m in warning_msgs), (
+            f"Expected warning naming _detect_incomplete, got: {warning_msgs}"
+        )
+
+    def test_detect_mark_downstream_logs_warning_on_schema_error(self, caplog):
+        """Bug fix: _mark_downstream_effects with a TypeError must log a warning
+        and NOT silently swallow it (the gaps it had should still be returned).
+        """
+        import logging
+        from gap_detector.detector import GapDetector
+
+        spec = _make_parsed_spec([("Missing", "P1")])
+        code = _make_scanned_code([])
+        detector = GapDetector(spec, code)
+
+        with patch.object(
+            detector, "_mark_downstream_effects",
+            side_effect=TypeError("schema drift"),
+        ):
+            with caplog.at_level(logging.WARNING, logger="gap_detector"):
+                gaps = detector.detect()
+
+        assert any(g.gap_type == "MISSING" for g in gaps)
+        warning_msgs = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+        assert any("_mark_downstream_effects" in m for m in warning_msgs)
+
+    def test_detect_non_predictable_exception_propagates(self):
+        """Bug fix: only predictable schema/data errors (KeyError, AttributeError,
+        TypeError) should be caught in detect helpers. Other exceptions propagate.
+        """
+        from gap_detector.detector import GapDetector
+
+        spec = _make_parsed_spec([("F", "P1")])
+        code = _make_scanned_code([])
+        detector = GapDetector(spec, code)
+
+        with patch.object(
+            detector, "_detect_incomplete",
+            side_effect=RuntimeError("unexpected bug"),
+        ):
+            with pytest.raises(RuntimeError):
+                detector.detect()
+
 
 # ===========================================================================
 # reporter.py

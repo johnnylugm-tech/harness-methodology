@@ -444,11 +444,29 @@ class TestGapDetectorEdge:
         code = ScannedCode(modules=modules)
         return GapDetector(spec, code)
 
-    def test_detect_match_exception_returns_empty(self):
+    def test_detect_match_runtime_error_propagates(self):
+        """Bug fix: only predictable schema/data errors are swallowed in
+        _match_spec_to_code. Unexpected RuntimeError propagates so the caller
+        can fail loud instead of silently producing false-PASS.
+        """
         detector = self._make_detector()
         with patch.object(detector, "_match_spec_to_code", side_effect=RuntimeError("boom")):
-            result = detector.detect()
-            assert result == []
+            with pytest.raises(RuntimeError):
+                detector.detect()
+
+    def test_detect_match_predictable_error_returns_empty(self, caplog):
+        """Bug fix: KeyError/AttributeError/TypeError in _match_spec_to_code
+        are still swallowed with a logged warning (legacy compatibility),
+        but other exceptions propagate.
+        """
+        import logging
+        detector = self._make_detector()
+        with patch.object(detector, "_match_spec_to_code", side_effect=KeyError("bad-key")):
+            with caplog.at_level(logging.WARNING, logger="gap_detector"):
+                result = detector.detect()
+        assert result == []
+        warning_msgs = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+        assert any("_match_spec_to_code" in m for m in warning_msgs)
 
     def test_get_summary_orphaned(self):
         from gap_detector.detector import Gap

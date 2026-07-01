@@ -2,7 +2,11 @@
 Unit tests for PatternMatcher.
 """
 
-from detection.pattern_matcher import PatternMatcher, RuleSet
+import re
+
+import pytest
+
+from detection.pattern_matcher import PatternMatcher, RuleSet, Rule, RuleType
 
 
 class TestPatternMatcher:
@@ -68,3 +72,30 @@ class TestPatternMatcher:
         data = res.to_dict()
         assert data["passed"] is False
         assert data["forbidden_hits"][0]["rule"] == "rule1"
+
+
+class TestRuleRegexErrorHandling:
+    """Bug fix: Rule.__post_init__ must NOT silently swallow re.error on a
+    FORBIDDEN rule — otherwise a malformed regex makes the rule inert and
+    bypasses the check. Failing the rule at construction is the correct
+    fail-loud behavior.
+    """
+
+    def test_invalid_pattern_raises_at_construction(self):
+        """Malformed regex on a FORBIDDEN rule must raise re.error at __post_init__."""
+        with pytest.raises(re.error):
+            Rule(name="bad", rule_type=RuleType.FORBIDDEN, pattern="[abc")
+
+    def test_invalid_pattern_via_from_dict_raises(self):
+        """RuleSet.from_dict must surface the regex error, not hide it."""
+        with pytest.raises(re.error):
+            RuleSet.from_dict([
+                {"name": "bad", "type": "FORBIDDEN", "pattern": "[abc"},
+            ])
+
+    def test_valid_pattern_compiles_normally(self):
+        """Sanity: well-formed regex still compiles."""
+        rule = Rule(name="ok", rule_type=RuleType.FORBIDDEN, pattern=r"secret")
+        assert rule._compiled is not None
+        assert rule.matches("a secret thing") is True
+        assert rule.matches("nothing here") is False

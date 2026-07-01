@@ -4,11 +4,17 @@ Detects gaps between SPEC.md specifications and actual code implementation.
 Types: MISSING, INCOMPLETE, ORPHANED.
 """
 
+import logging
 from dataclasses import dataclass
 from typing import Optional
 
 from gap_detector.parser import ParsedSpec, FeatureItem
 from gap_detector.scanner import ScannedCode, CodeItem
+
+logger = logging.getLogger(__name__)
+
+# Errors expected from schema/data access; predictable but recoverable per-helper.
+_PREDICTABLE_HELPER_ERRORS = (KeyError, AttributeError, TypeError)
 
 
 def _levenshtein_distance(s1: str, s2: str) -> int:
@@ -77,17 +83,19 @@ class GapDetector:
         self._matches: list = []
         try:
             self._matches = self._match_spec_to_code()
-        except Exception:
+        except _PREDICTABLE_HELPER_ERRORS as e:
+            logger.warning("_match_spec_to_code failed with %s: %s", type(e).__name__, e)
             return []
         for fn in [self._detect_missing, self._detect_incomplete, self._detect_orphaned]:
+            fn_name = getattr(fn, "__name__", repr(fn))
             try:
                 self._gaps.extend(fn())
-            except Exception:  # nosec B110
-                pass
+            except _PREDICTABLE_HELPER_ERRORS as e:
+                logger.warning("%s failed with %s: %s", fn_name, type(e).__name__, e)
         try:
             self._mark_downstream_effects()
-        except Exception:  # nosec B110
-            pass
+        except _PREDICTABLE_HELPER_ERRORS as e:
+            logger.warning("_mark_downstream_effects failed with %s: %s", type(e).__name__, e)
         return self._gaps
 
     def get_summary(self) -> GapSummary:
