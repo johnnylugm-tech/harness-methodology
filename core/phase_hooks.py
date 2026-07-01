@@ -704,6 +704,21 @@ class PhaseHooks:
                         decl_text += f.read_text(encoding="utf-8", errors="replace")
                     except OSError:
                         pass
+
+        # Parse declared env keys exactly — substring matching caused a bug where
+        # KOKORO_BACKEND_URL passed as "declared" when only LEGACY_KOKORO_BACKEND_URL_V1
+        # was actually in .env.example. .env files use KEY=value; YAML uses KEY: value.
+        declared_keys: set[str] = set()
+        for line in decl_text.splitlines():
+            stripped = line.strip()
+            # .env  KEY=value  (stop at = or : to get the bare key)
+            eq_pos = stripped.find("=")
+            colon_pos = stripped.find(":")
+            delim = min(eq_pos, colon_pos) if min(eq_pos, colon_pos) != -1 else max(eq_pos, colon_pos)
+            if delim > 0:
+                key = stripped[:delim].strip()
+                if key and key.isidentifier() and key.isupper():
+                    declared_keys.add(key)
         if not decl_files:
             print("   Skipped: no env declaration sources "
                   "(.env.example / docker-compose / deployment / README)")
@@ -744,7 +759,7 @@ class PhaseHooks:
                         )
 
         orphans = {k: loc for k, loc in sorted(used.items())
-                   if k not in decl_text}
+                   if k not in declared_keys}
         blocking = self.phase is None or self.phase >= 4
         passed = (not orphans) or (not blocking)
         if orphans:
