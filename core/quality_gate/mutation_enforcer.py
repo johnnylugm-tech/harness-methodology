@@ -837,6 +837,19 @@ def compute_mutation_score(project: Path) -> tuple[bool, float, str]:
         # The authoritative source is the `Mutant` table in the cache db.
         killed, survived = _count_mutmut_results(workdir_cache)
         total = killed + survived
+
+        # Cross-check: if sqlite is 0 but text output says non-zero, sqlite may be corrupt.
+        text_total = 0
+        if total == 0 and out:
+            m = re.search(r"TotalMutants\s*=\s*(\d+)", out)
+            if m:
+                text_total = int(m.group(1))
+        if total == 0 and text_total > 0:
+            return False, 0.0, (
+                f"mutmut produced 0 mutants in cache but text output shows {text_total} total mutants. "
+                f"Cache may be corrupt or unreadable."
+            )
+
         if total == 0:
             score = 0.0
             msg = "mutmut produced 0 mutants. Score = 0."

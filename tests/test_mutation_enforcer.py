@@ -1210,3 +1210,57 @@ def test_mutmut_results_crash_returns_false(tmp_path, monkeypatch):
     ok, msg = me.run_mutation_precheck(tmp_path)
     assert ok is False, f"Expected False for crashed mutmut results, got ({ok}, {msg!r})"
     assert "return code 1" in msg, f"Expected error message to mention return code, got: {msg!r}"
+
+
+# Bug: corrupt sqlite cache indistinguishable from zero mutants
+# ---------------------------------------------------------------------------
+
+
+def test_zero_mutants_from_corrupt_cache_returns_false(tmp_path, monkeypatch):
+    """Zero mutants from sqlite but non-zero from text output must fail.
+
+    When `_count_mutmut_results` returns (0, 0) because the sqlite cache is
+    corrupt or unreadable, but `mutmut results` stdout contains a non-zero
+    TotalMutants line, `compute_mutation_score` must return False — not a false
+    clean pass — so that a corrupt cache cannot report a passing score.
+    """
+    import core.quality_gate.mutation_enforcer as me
+
+    src = tmp_path / "03-development" / "src"
+    src.mkdir(parents=True)
+    tests = tmp_path / "03-development" / "tests"
+    tests.mkdir(parents=True)
+    (tests / "test_x.py").write_text("def test_x(): pass\n")
+
+    def fake_count(*a, **k):
+        return (0, 0)  # sqlite says 0 (corrupt cache)
+
+    class FakeRes:
+        returncode = 0
+        stdout = "TotalMutants = 42\nSurvived(3)"
+        stderr = ""
+
+    def fake_run(cmd, *args, **kwargs):
+        if isinstance(cmd, list) and len(cmd) >= 2 and cmd[1] == "results":
+            return FakeRes()
+        class R:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+        return R()
+
+    monkeypatch.setattr(me, "_count_mutmut_results", fake_count)
+    monkeypatch.setattr(me.subprocess, "run", fake_run)
+    monkeypatch.setattr(me, "_write_survivors_artifact", lambda *a, **k: None)
+    monkeypatch.setattr(me.shutil, "which", lambda name: "/usr/bin/mutmut" if name == "mutmut" else None)
+    monkeypatch.setattr(me, "_resolve_mutmut_workdir", lambda _p: (tmp_path, "03-development/src"))
+    monkeypatch.setattr(me, "_is_editable_install", lambda _p: False)
+    monkeypatch.setattr(me, "_read_paths_to_exclude", lambda _p: [])
+    monkeypatch.setattr(me, "_detect_data_only_files", lambda _p: [])
+    monkeypatch.setattr(me, "_abs_paths_to_mutate", lambda _cwd, _paths: str(src))
+    monkeypatch.setattr(me, "_resolve_test_dir", lambda _cwd, _p: str(tests))
+    monkeypatch.setattr(me, "_copy_setup_cfg_to_workdir", lambda _p, _w, _td: None)
+
+    ok, score, msg = me.compute_mutation_score(tmp_path)
+    assert ok is False, f"Expected False for corrupt-cache mismatch, got ({ok}, {score}, {msg!r})"
+    assert "42" in msg, f"Expected error message to mention text-output total 42, got: {msg!r}"
