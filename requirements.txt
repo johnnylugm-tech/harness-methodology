@@ -35,7 +35,7 @@ tree-sitter-typescript==0.23.2
 
 # runtime (YAML config parsing — not a scorer)
 pyyaml==6.0.3
-jsonschema==4.23.0
+jsonschema==4.25.1
 
 # mutation testing tooling (framework self-test baseline; see setup.cfg [mutmut])
 # Using 2.x — mutmut 3.x is incompatible with this repo's sys.path layout
