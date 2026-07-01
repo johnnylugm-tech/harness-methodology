@@ -285,15 +285,18 @@ class TestReVerifyOverlay:
     ):
         """Auto-fix re-verify skips overlay → manually-VERIFIED FRs reappear as untested.
 
-        Scenario: Two FRs are initially untested.
-          - FR-07: manually verified (marked VERIFIED in overlay)
-          - FR-08: genuinely untested, will be auto-fixed
+        Scenario:
+          - FR-07: has code but no test (scanner: IN_PROGRESS). User manually
+            reviewed the code and marks it VERIFIED in overlay using the
+            "test_files: ['Manual: ...']" pattern.
+          - FR-08: has code but no test → genuinely untested. Auto-fix will fix it.
 
-        Initial pass: overlay filters FR-07 out, FR-08 remains → auto-fix dispatched.
-        After auto-fix "succeeds" on FR-08, re-verify runs check_traceability().
-        BUG: without overlay re-application, FR-07 would reappear as untested
-        even though it was manually verified.
-        FIX: re-apply overlay to report2 so FR-07 stays filtered.
+        Initial pass: FR-07 is filtered out by overlay (test_files contains "Manual").
+                      FR-08 remains → auto-fix dispatched for FR-08.
+        After auto-fix creates a test for FR-08, re-verify runs check_traceability().
+        BUG (without fix): FR-07 would reappear in still_untested because the
+                           overlay is not re-applied to the re-verify report2.
+        FIX: re-apply overlay to report2 so FR-07 stays filtered → passed=True.
         """
         import yaml
 
@@ -307,17 +310,19 @@ class TestReVerifyOverlay:
 
         src = tmp_path / "core"
         src.mkdir()
-        # FR-07: code+test (would be untested if not for overlay manual test_files)
+        # FR-07: has code, no test → IN_PROGRESS by scanner (not in untested list
+        # unless overlay filter uses "Manual" in test_files to suppress it)
         (src / "feat.py").write_text('"""[FR-07]""" def feat(): pass\n')
-        # FR-08: code only, no test → genuinely untested
+        # FR-08: has code, no test → genuinely untested
         (src / "pending.py").write_text('"""[FR-08]""" def pending(): pass\n')
 
         tests_dir = tmp_path / "tests"
         tests_dir.mkdir()
-        # FR-07 has test (so overlay can mark it VERIFIED)
-        (tests_dir / "test_feat.py").write_text('"""[FR-07]"""\n')
+        # No test files for either FR → both would be untested without overlay
 
-        # Overlay marks FR-07 VERIFIED (manual annotation) but leaves FR-08 alone
+        # Overlay marks FR-07 as manually verified via test_files: ["Manual"].
+        # The overlay filter in preflight_traceability uses:
+        #   "Manual" in str(row.get("test_files", []))
         overlay_path = tmp_path / "TRACEABILITY_MATRIX.overlay.yaml"
         overlay_data = {
             "schema": "harness/traceability/overlay/v1",
@@ -326,18 +331,22 @@ class TestReVerifyOverlay:
                     "fr_id": "FR-07",
                     "status": "VERIFIED",
                     "code_files": ["core/feat.py"],
-                    "test_files": ["tests/manual_FR-07.py"],
+                    "test_files": ["Manual: reviewed by QA team"],
                     "justification": "Verified manually per ASPICE exception",
                 },
             ],
         }
         overlay_path.write_text(yaml.safe_dump(overlay_data), encoding="utf-8")
 
-        # --- Mock _dispatch_trace_auto_fix to return True (auto-fix "succeeds")
+        # --- Mock _dispatch_trace_auto_fix: returns True AND creates test for FR-08
         dispatched_calls = []
 
         def mock_dispatch(project_path, untested, uncoded, phase=None):
             dispatched_calls.append((list(untested), list(uncoded)))
+            # Simulate auto-fix: create test file for FR-08 on disk
+            (Path(project_path) / "tests" / "test_pending.py").write_text(
+                '"""[FR-08]"""\n'
+            )
             return True
 
         from core import phase_hooks as ph_module
@@ -347,21 +356,21 @@ class TestReVerifyOverlay:
         hooks = ph_module.PhaseHooks(str(tmp_path), phase=5)
         result = hooks.preflight_traceability()
 
-        # --- Verify auto-fix was dispatched (FR-08 was genuinely untested)
-        assert len(dispatched_calls) == 1, "auto-fix should have been dispatched for FR-08"
+        # --- Verify auto-fix was dispatched for FR-08 (FR-07 was overlay-filtered)
+        assert len(dispatched_calls) == 1, "auto-fix should have been dispatched"
         dispatched_untested = dispatched_calls[0][0]
-        # FR-07 should have been filtered out by overlay in the initial pass
         assert "FR-07" not in dispatched_untested, (
-            "FR-07 is manually VERIFIED in overlay and should be filtered before dispatch"
+            "FR-07 should have been filtered by overlay before dispatch"
         )
-        assert "FR-08" in dispatched_untested, "FR-08 is genuinely untested and should be dispatched"
+        assert "FR-08" in dispatched_untested, "FR-08 should have been dispatched"
 
-        # --- Key assertion: after re-verify, FR-07 must NOT appear as still_untested
-        # BUG would cause FR-07 to reappear in still_untested because overlay is not
-        # re-applied to the re-verify report2.
-        # With the fix: passed=True because re-verify respects overlay and FR-07 stays out.
+        # --- Key assertion: FR-07 must NOT appear in still_untested after re-verify.
+        # Without the PR 13 fix: FR-07 reappears in still_untested (overlay not
+        #   re-applied to report2) → passed=False.
+        # With the fix: re-apply overlay filters FR-07 out → still_untested=[],
+        #   still_uncoded=[] → passed=True.
         assert result["passed"] is True, (
-            "FR-07 is manually VERIFIED in overlay; re-verify must respect "
-            "the overlay and not re-report FR-07 as still_untested. "
-            f"Dispatched untested was: {dispatched_untested}"
+            "FR-07 is manually VERIFIED in overlay (test_files=['Manual: ...']); "
+            "re-verify must respect the overlay and not re-report FR-07 as "
+            f"still_untested. Dispatched untested was: {dispatched_untested}"
         )
