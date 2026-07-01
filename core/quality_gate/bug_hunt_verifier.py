@@ -107,7 +107,8 @@ def verify_bug_hunt_report(project_root: str) -> BugHuntVerdict:
             continue  # adversarial verify rejected it — never blocks
 
         severity = str(finding.get("severity", "")).lower()
-        resolution = finding.get("resolution") or {}
+        _resolution = finding.get("resolution")
+        resolution = _resolution if isinstance(_resolution, dict) else {}
         status = str(resolution.get("status", "")).lower()
         if status not in _VALID_STATUSES:
             reasons.append(f"{fid}: invalid resolution.status {status!r}")
@@ -127,7 +128,7 @@ def verify_bug_hunt_report(project_root: str) -> BugHuntVerdict:
                     f"{fid}: resolved without evidence — needs fix_commit or "
                     f"repro_test (anti-fabrication)"
                 )
-            elif repro and not (root / repro).is_file():
+            elif repro and isinstance(repro, str) and not (root / repro).is_file():
                 reasons.append(
                     f"{fid}: repro_test '{repro}' does not exist in the project"
                 )
