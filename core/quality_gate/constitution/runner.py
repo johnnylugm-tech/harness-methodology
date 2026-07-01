@@ -382,14 +382,14 @@ def _scan_file_compliance(file_path: Path, phase: Optional[int] = None) -> Dict[
     # Only request keywords for dimensions that are actually active for this phase.
     is_markdown = file_path.suffix.lower() == ".md"
     phase_profile = profile.phases.get(phase)
-    if phase_profile and "security" in phase_profile.active_dimensions:
+    if phase_profile and "security" not in phase_profile.active_dimensions:
+        security = 0.0
+    else:
         s_keywords = profile.dimension_keywords_for_phase("security", phase)
         s_kw = _keyword_density(content, s_keywords)
         s_stuff_penalty = _keyword_stuffing_penalty(content, s_keywords, is_markdown=is_markdown)
         s_kw *= s_stuff_penalty
         security = s_kw
-    else:
-        security = 0.0
 
     # ── Maintainability (keyword density + structure signals) ──
     m_keywords = profile.dimension_keywords_for_phase("maintainability", phase)
