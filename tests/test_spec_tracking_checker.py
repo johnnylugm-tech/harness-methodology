@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 from core.quality_gate.spec_tracking_checker import SpecTrackingChecker
 from core.quality_gate.spec_tracking_checker import compute_trace_dimension
@@ -79,9 +79,22 @@ FR-01 | Done | ok
 
 def test_compute_trace_dimension_nfr_scan_exception_is_fail_closed(tmp_path):
     """NFR scan exception must set nfr_pct=0.0 and passed=False (fail-closed)."""
-    # Mock scan_test_nfr_coverage to raise, simulating malformed/unreadable SRS
+    # Minimal mock so 4a/4b succeed; 4c NFR scan raises
+    mock_rt = MagicMock()
+    mock_rt.requirements = {}
+    mock_report = {"completeness": {"missing_mappings": {}}}
+
     with patch(
-        "core.quality_gate.spec_tracking_checker.scan_test_nfr_coverage",
+        "core.traceability.scanner.check_traceability",
+        return_value=(mock_rt, mock_report),
+    ), patch(
+        "scripts.build_traceability.build_traceability",
+        return_value=mock_rt,
+    ), patch(
+        "core.traceability.scanner.extract_nfr_ids_from_srs",
+        return_value=["NFR-01", "NFR-02"],
+    ), patch(
+        "core.traceability.scanner.scan_test_nfr_coverage",
         side_effect=RuntimeError("malformed SRS"),
     ):
         result = compute_trace_dimension(tmp_path, gate=2)

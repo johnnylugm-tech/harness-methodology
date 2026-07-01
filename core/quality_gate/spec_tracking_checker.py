@@ -333,6 +333,13 @@ def compute_trace_dimension(project, gate: int) -> dict:
                 nfr_pct = round(len(covered) / len(nfr_ids) * 100, 2)
                 nfr_untested = sorted(nfr_ids - covered)
         except Exception as e:
+            # Fail-closed: NFR scan errors (malformed/unreadable SRS) must not
+            # silently pass as 100% coverage. Unlike 4a/4b which also set their
+            # dimension to 0.0, here we additionally force passed=False to
+            # guarantee the gate fails, since the merged_pct guard (min of the
+            # three) would otherwise still pass if 4a/4b happened to be high.
+            nfr_pct = 0.0
+            result["passed"] = False
             result["error"] = (result["error"] or "") + f" 4c: {e}"
     result["4c_nfr_to_test_pct"] = nfr_pct
     result["nfr_untested"] = nfr_untested
