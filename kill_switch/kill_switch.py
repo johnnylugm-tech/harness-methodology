@@ -9,7 +9,7 @@ from typing import List, Optional
 
 from .circuit_breaker import CircuitBreaker
 from .enums import CircuitState, KillReason
-from .exceptions import AgentNotFoundError, CircuitBreakerError, InterruptInProgressError
+from .exceptions import AgentNotFoundError, CircuitBreakerError, InterruptInProgressError, MetricsUnavailableError
 from .health_monitor import HealthMonitor
 from .interrupt_engine import InterruptEngine
 from .models import InterruptEvent, MonitorConfig
@@ -21,10 +21,15 @@ logger = logging.getLogger(__name__)
 class KillSwitch:
     """Main Kill-Switch facade class."""
 
-    def __init__(self, audit_logger=None, state_manager: Optional[StateManager] = None) -> None:
+    def __init__(
+        self,
+        audit_logger=None,
+        state_manager: Optional[StateManager] = None,
+        failure_threshold: int = 5,
+    ) -> None:
         """Initialize instance."""
         self.health_monitor = HealthMonitor()
-        self.circuit_breaker = CircuitBreaker()
+        self.circuit_breaker = CircuitBreaker(failure_threshold=failure_threshold)
         self.state_manager = state_manager or StateManager()
         self.interrupt_engine = InterruptEngine(
             audit_logger=audit_logger,
@@ -35,6 +40,9 @@ class KillSwitch:
         """Start monitoring."""
         if config is None:
             config = MonitorConfig(agent_id=agent_id)
+        else:
+            # Propagate the configured threshold so the breaker is in sync with config.
+            self.circuit_breaker.failure_threshold = config.failure_threshold
         self.health_monitor.start_monitoring(agent_id, config)
         self.circuit_breaker.initialize_circuit(agent_id)
 
@@ -91,9 +99,14 @@ class KillSwitch:
         """Evaluate and trigger."""
         try:
             metrics = self.health_monitor.get_metrics(agent_id)
-        except Exception as e:
+        except (AgentNotFoundError, MetricsUnavailableError) as e:
             logger.warning(f"Could not get metrics for {agent_id}: {e}")
             return False
+        # Bug 3 fix: if the circuit is already OPEN, an interrupt has already
+        # been triggered. Short-circuit here to prevent duplicate InterruptEvent
+        # entries on every subsequent tick. Return True (gate is open).
+        if self.circuit_breaker.is_open(agent_id):
+            return True
 
         if self.circuit_breaker.should_trigger(agent_id, metrics, config):
             try:
@@ -102,6 +115,9 @@ class KillSwitch:
                 pass  # threshold exceeded; circuit already OPEN
             except AgentNotFoundError:
                 logger.warning(f"Agent {agent_id} not registered in circuit breaker; skipping record_failure")
+            # After recording, the breaker may have transitioned to OPEN
+            # (e.g. failure_count reached threshold). Open + interrupt exactly
+            # once. Future ticks short-circuit at the is_open() check above.
             if self.circuit_breaker.get_failure_count(agent_id) >= config.failure_threshold:
                 self.circuit_breaker.open_circuit(agent_id, cooldown_seconds=config.cooldown_seconds)
                 try:

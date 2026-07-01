@@ -869,6 +869,122 @@ class TestKillSwitchExtras:
             with patch.object(ks.circuit_breaker, 'get_failure_count', return_value=0):
                 assert ks.evaluate_and_trigger("test-agent", MonitorConfig("test-agent")) is False
 
+    # ----- Bug 1 (task #33): bare except Exception must not mask real bugs -----
+    def test_evaluate_and_trigger_propagates_attribute_error(self):
+        """AttributeError from get_metrics must propagate (real bug), not be silenced."""
+        from kill_switch.kill_switch import KillSwitch
+        from kill_switch.models import MonitorConfig
+        ks = KillSwitch()
+        ks.start_monitoring("attr-agent", MonitorConfig("attr-agent"))
+        with patch.object(
+            ks.health_monitor, 'get_metrics',
+            side_effect=AttributeError("'NoneType' has no attribute 'memory_usage_percent'"),
+        ):
+            with pytest.raises(AttributeError):
+                ks.evaluate_and_trigger("attr-agent", MonitorConfig("attr-agent"))
+
+    def test_evaluate_and_trigger_swallows_metrics_unavailable(self):
+        """Positive case for the narrowed except: MetricsUnavailableError is still caught."""
+        from kill_switch.kill_switch import KillSwitch
+        from kill_switch.models import MonitorConfig
+        from kill_switch.exceptions import MetricsUnavailableError
+        ks = KillSwitch()
+        ks.start_monitoring("metrics-agent", MonitorConfig("metrics-agent"))
+        with patch.object(
+            ks.health_monitor, 'get_metrics',
+            side_effect=MetricsUnavailableError("no buffered metrics"),
+        ):
+            assert ks.evaluate_and_trigger("metrics-agent", MonitorConfig("metrics-agent")) is False
+
+    # ----- Bug 2 (task #33): threshold divergence -----
+    def test_evaluate_and_trigger_threshold_aligns_with_circuit_breaker(self):
+        """When config.failure_threshold=10 the breaker must be constructed with 10,
+        not the default 5. Strongest discriminator: passing threshold through to the
+        breaker means record_failure does NOT raise CircuitBreakerError until the
+        10th call. The buggy code would raise at the 5th call (default threshold).
+        """
+        from kill_switch.kill_switch import KillSwitch
+        from kill_switch.models import MonitorConfig
+        from kill_switch.enums import CircuitState, KillReason
+        from kill_switch.exceptions import CircuitBreakerError
+        from datetime import datetime, timezone
+        ks = KillSwitch(failure_threshold=10)
+        ks.start_monitoring("threshold-agent", MonitorConfig("threshold-agent", failure_threshold=10))
+        ks.circuit_breaker.initialize_circuit("threshold-agent")
+        # Discriminator #1: the breaker itself was constructed with 10, not 5.
+        assert ks.circuit_breaker.failure_threshold == 10
+        now = datetime.now(timezone.utc)
+        bad_m = HealthMetrics(
+            "threshold-agent", error_rate=0.5, latency_p99_ms=100.0,
+            memory_usage_percent=50.0, output_rate_kbps=10.0,
+            last_health_check=now, timestamp=now,
+        )
+        config = MonitorConfig("threshold-agent", failure_threshold=10)
+        # Discriminator #2: the breaker does not raise until the 10th record_failure call.
+        raise_counts: list[int] = []
+        original_record = ks.circuit_breaker.record_failure
+        def wrap_record(agent_id, *a, **kw):
+            try:
+                return original_record(agent_id, *a, **kw)
+            except CircuitBreakerError:
+                raise_counts.append(ks.circuit_breaker.get_failure_count(agent_id))
+                raise
+        ks.circuit_breaker.record_failure = wrap_record  # type: ignore[method-assign]
+        with patch.object(ks.health_monitor, 'get_metrics', return_value=bad_m):
+            with patch.object(ks.circuit_breaker, 'should_trigger', return_value=True):
+                for _ in range(9):
+                    ks.evaluate_and_trigger("threshold-agent", config)
+                with patch.object(ks.interrupt_engine, 'trigger_interrupt') as mock_trigger:
+                    result = ks.evaluate_and_trigger("threshold-agent", config)
+        assert result is True
+        assert ks.circuit_breaker.get_failure_count("threshold-agent") == 10
+        assert ks.circuit_breaker.get_state("threshold-agent") == CircuitState.OPEN
+        # After the fix the breaker raises only at the 10th call. Before the fix
+        # it raises at the 5th call, then on every subsequent call as well.
+        # The KEY invariant: first raise happens at count >= 10 (not count == 5).
+        assert all(c >= 10 for c in raise_counts) and raise_counts, (
+            f"record_failure raised early at counts {raise_counts}; "
+            f"expected first raise at count == 10 (threshold=10)"
+        )
+        mock_trigger.assert_called_once()
+        _, kwargs = mock_trigger.call_args
+        assert kwargs["agent_id"] == "threshold-agent"
+        assert kwargs["reason_type"] == KillReason.ERROR_RATE_EXCEEDED
+
+    # ----- Bug 3 (task #33): duplicate InterruptEvent on subsequent ticks -----
+    def test_evaluate_and_trigger_no_duplicate_interrupt_event(self):
+        """Once the circuit is OPEN, a second tick must NOT generate a second InterruptEvent.
+
+        Per task spec, evaluate_and_trigger returns True on a tick when the
+        circuit is already OPEN (gate is open, already-triggered short-circuit).
+        The KEY assertion is that InterruptEvent count stays at exactly 1.
+        """
+        from kill_switch.kill_switch import KillSwitch
+        from kill_switch.models import MonitorConfig
+        from datetime import datetime, timezone
+        ks = KillSwitch()
+        ks.start_monitoring("dup-agent", MonitorConfig("dup-agent", failure_threshold=1))
+        ks.circuit_breaker.initialize_circuit("dup-agent")
+        now = datetime.now(timezone.utc)
+        bad_m = HealthMetrics(
+            "dup-agent", error_rate=0.5, latency_p99_ms=100.0,
+            memory_usage_percent=50.0, output_rate_kbps=10.0,
+            last_health_check=now, timestamp=now,
+        )
+        config = MonitorConfig("dup-agent", failure_threshold=1)
+        with patch.object(ks.health_monitor, 'get_metrics', return_value=bad_m):
+            with patch.object(ks.circuit_breaker, 'should_trigger', return_value=True):
+                r1 = ks.evaluate_and_trigger("dup-agent", config)
+        assert r1 is True
+        with patch.object(ks.health_monitor, 'get_metrics', return_value=bad_m):
+            with patch.object(ks.circuit_breaker, 'should_trigger', return_value=True):
+                r2 = ks.evaluate_and_trigger("dup-agent", config)
+        history = ks.interrupt_engine.get_interrupt_history(agent_id="dup-agent")
+        # KEY invariant: only ONE InterruptEvent, even after two consecutive ticks.
+        assert len(history) == 1
+        # Per task spec: already-triggered short-circuit returns True.
+        assert r2 is True
+
 # ===========================================================================
 # IssueTrackerExt
 # ===========================================================================
