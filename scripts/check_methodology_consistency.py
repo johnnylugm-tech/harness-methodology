@@ -216,7 +216,14 @@ def load_rules_manifest(path: Path = RULES_MANIFEST) -> dict:
     """Load and parse the rule registry. Returns dict {rule_id: rule_dict}."""
     if not path.exists():
         return {}
-    raw = _parse_simple_yaml(path.read_text(encoding="utf-8"))
+    try:
+        raw = _parse_simple_yaml(path.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        # Bug M04 fix: malformed YAML must not abort the whole CLI.
+        # Degrade to empty registry with a warning so callers (and the
+        # consistency check) can still report their own diagnostics.
+        print(f"  [WARN] rules manifest parse failed ({path}): {exc}", file=sys.stderr)
+        return {}
     rules = raw.get("rules") or {}
     return rules
 
@@ -367,6 +374,7 @@ def check_rules(
     rules: dict,
     plan_dir: Path = PLAN_DIR_DEFAULT,
     workflow_dir: Path = WORKFLOW_JS_DIR_DEFAULT,
+    project_root: Path | None = None,
 ) -> list[str]:
     """Validate that every rule's canonical text is present in every declared
     surface (plan source / workflow JS prompt / B checklist / constitution).
@@ -424,8 +432,23 @@ def check_rules(
                         f"missing: {missing[:3]})"
                     )
             elif surface == "constitution_doc":
-                # Optional: CONSTITUTION.md may not exist; warn but skip if absent
-                pass  # constitution text matching is optional — see §8 references
+                # Bug M05 fix: when a rule declares surface=constitution_doc but
+                # CONSTITUTION.md is missing, emit a diagnostic. Previously this
+                # silently passed, hiding drift between the rule registry and
+                # the canonical constitution.
+                constitution_path = project_root / "CONSTITUTION.md" if project_root else Path("CONSTITUTION.md")
+                if not constitution_path.exists():
+                    errors.append(
+                        f"[{rule_id}] constitution_doc surface declared but "
+                        f"CONSTITUTION.md is missing at {constitution_path}"
+                    )
+                    continue
+                missing = [t for t in tokens if t not in constitution_path.read_text(encoding="utf-8")]
+                if missing:
+                    errors.append(
+                        f"[{rule_id}] {len(missing)}/{len(tokens)} fingerprint "
+                        f"tokens missing in CONSTITUTION.md (missing: {missing[:3]})"
+                    )
 
     return errors
 
@@ -435,7 +458,7 @@ def _extract_fingerprint_tokens(text: str, n: int = 4) -> list[str]:
 
     Picks tokens that are unlikely to collide with stopwords or formatting.
     Heuristic: pick tokens >= 8 chars that are content-bearing (not common
-    English). If fewer than N candidates, fall back to >= 5 char tokens.
+    English). If fewer than N candidates, fall back to >= 3 char tokens.
     """
     STOP = frozenset("""
         a an the and or of in on at to for with by from as is are be been
@@ -445,11 +468,17 @@ def _extract_fingerprint_tokens(text: str, n: int = 4) -> list[str]:
         rule rules rule: canonical interpret interpretation verbatim canonical:
     """.split())
 
-    words = re.findall(r"[A-Za-z][A-Za-z0-9\-]{4,}", text)
+    # Bug M06 fix: primary pass uses 5+ chars (>= 1 + 4 more).
+    # Fallback reuses the same regex (still 5+ chars) → never recovers shorter
+    # tokens. Use a shorter regex in fallback (3+ chars) so short canonical
+    # texts still produce a usable fingerprint.
+    PRIMARY_RE = re.compile(r"[A-Za-z][A-Za-z0-9\-]{4,}")
+    FALLBACK_RE = re.compile(r"[A-Za-z][A-Za-z0-9\-]{2,}")
+
     seen: set[str] = set()
     tokens: list[str] = []
     # First pass: >= 8 chars, skip stopwords, prefer rare terms
-    for w in words:
+    for w in PRIMARY_RE.findall(text):
         wl = w.lower()
         if wl in STOP or len(w) < 8 or wl in seen:
             continue
@@ -457,11 +486,12 @@ def _extract_fingerprint_tokens(text: str, n: int = 4) -> list[str]:
         tokens.append(w)
         if len(tokens) >= n:
             break
-    # Fallback: >= 5 chars if first pass insufficient
+    # Fallback: shorter tokens (>= 3 chars) if first pass insufficient.
+    # Bug M06: this used to reuse the same regex, so fallback never fired.
     if len(tokens) < n:
-        for w in words:
+        for w in FALLBACK_RE.findall(text):
             wl = w.lower()
-            if wl in STOP or len(w) < 5 or wl in seen:
+            if wl in STOP or wl in seen:
                 continue
             seen.add(wl)
             tokens.append(w)
