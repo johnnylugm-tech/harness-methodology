@@ -614,10 +614,21 @@ class TestEntryGateCheck:
         assert "Phase 1" in joined
 
     def test_contains_return_instruction(self):
-        """Agent must know to return to previous phase if check fails."""
+        """Agent must know to return to previous phase if check fails.
+
+        Bug M23 fix: the action is now conditional on the predecessor's
+        gate being PASS. If the proof explicitly indicates the predecessor
+        gate is already complete (proof contains "completed" or "PASS"),
+        the action switches to "verify ... recorded in quality_manifest"
+        instead of the misleading "return to Phase N".
+        """
         for phase in [4, 5, 6, 7, 8]:
             joined = "\n".join(_entry_gate_check(phase))
-            assert "return to Phase" in joined or "return" in joined.lower()
+            # Either return-to OR verify-and-confirm must be present
+            assert (
+                "return to Phase" in joined
+                or "verify" in joined.lower()
+            ), f"phase {phase}: entry gate check must give actionable instruction, got {joined!r}"
 
 
 # ─── _review_checkpoint ──────────────────────────────────────────────────────

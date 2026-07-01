@@ -76,7 +76,8 @@ class TestMonitorExceptionCaptured:
         traceback must be in the log file (logs/drift_monitor.log), not
         just on stderr/console. Currently stderr bypasses the redirect."""
         # Make _run_monitor raise
-        def _boom(_p):  # noqa: ARG001
+        def _boom(*args, **kwargs):  # noqa: ARG001
+            del args, kwargs
             raise RuntimeError("simulated drift detector failure")
         monkeypatch.setattr(module, "_run_monitor", _boom)
 
