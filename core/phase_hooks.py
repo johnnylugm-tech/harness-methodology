@@ -811,6 +811,11 @@ class PhaseHooks:
             print(f"   Gap analysis error: {exc}")
             return {"passed": True, "skipped": True, "error": str(exc)}
 
+    CI_READINESS_COMPONENTS = (
+        "ci_workflow", "git_hooks", "harness_importable",
+        "ecc_hooks", "branch_protection",
+    )
+
     def preflight_ci_readiness(self) -> Dict[str, Any]:
         """Check target project CI wiring + ECC hooks + branch protection (advisory, non-blocking)."""
         print("\n[PRE-FLIGHT] CI Readiness Check")

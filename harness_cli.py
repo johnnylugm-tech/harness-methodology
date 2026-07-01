@@ -4144,6 +4144,11 @@ def cmd_ci_ack(args: argparse.Namespace) -> int:
     Usage:
       python3 harness_cli.py ci-ack --component branch_protection --project .
     """
+    from core.phase_hooks import PhaseHooks
+    if args.component not in PhaseHooks.CI_READINESS_COMPONENTS:
+        print(f"[ERROR] Unknown component '{args.component}'. Valid components: "
+              f"{', '.join(PhaseHooks.CI_READINESS_COMPONENTS)}")
+        return 1
     project = Path(args.project).resolve()
     state_path = project / ".methodology" / "state.json"
     if not state_path.exists():
