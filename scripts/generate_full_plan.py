@@ -1017,7 +1017,26 @@ def _entry_gate_check(phase: int) -> List[str]:
     # Naive phase-1 is wrong when entry gate jumps over a phase (P6 needs P4, not P5)
     m = re.search(r'from P(\d+)', proof)
     prev_phase = int(m.group(1)) if m else phase - 1
-    gate_action = f"return to Phase {prev_phase} and complete exit gate first" if prev_phase >= phase - 2 else f"verify Phase {prev_phase} Gate PASS is recorded in quality_manifest.json and confirm all intervening phases (P{prev_phase+1}–P{phase-1}) completed their tasks"
+    # Bug M23 fix: previous condition `prev_phase >= phase - 2` triggered
+    # the "return to Phase N" instruction whenever the proof's predecessor
+    # was within 2 of the current phase, even if that predecessor's gate
+    # was already PASS. This incorrectly told operators to revisit a
+    # phase that had already been completed. The "return to" action is
+    # only appropriate when the predecessor's gate is NOT yet PASS.
+    # Since this function is informational and the actual gate status
+    # must be checked by the operator against quality_manifest.json,
+    # we now default to the verify-and-confirm phrasing and only emit
+    # "return to" if the proof explicitly says the predecessor gate
+    # has NOT been completed yet.
+    prev_gate_completed = "completed" in proof.lower() or "PASS" in proof
+    if prev_gate_completed:
+        gate_action = (
+            f"verify Phase {prev_phase} Gate PASS is recorded in "
+            f"quality_manifest.json and confirm all intervening phases "
+            f"(P{prev_phase+1}–P{phase-1}) completed their tasks"
+        )
+    else:
+        gate_action = f"return to Phase {prev_phase} and complete exit gate first"
     lines = [
         "### Entry Gate Verification",
         "",

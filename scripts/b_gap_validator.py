@@ -198,7 +198,12 @@ def verify_gap_against_doc(gap_message: str, doc_content: str,
     unverified: list[str] = []
 
     for term in terms:
-        if term.lower() in doc_lower:
+        # Bug M18 fix: previous code used `term in doc_lower` (substring
+        # containment), so short terms like "py" matched "pyright",
+        # "python", "type.py" — inflating matched_terms and verification
+        # rates. Use word-boundary regex matching instead.
+        pattern = re.compile(rf"\b{re.escape(term.lower())}\b")
+        if pattern.search(doc_lower):
             matched.append(term)
         else:
             unverified.append(term)

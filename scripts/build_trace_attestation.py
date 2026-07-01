@@ -137,7 +137,18 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.dry_run:
         existing_path = project / trace_dir / COMMITTED_NAME
         if existing_path.exists():
-            existing = json.loads(existing_path.read_text(encoding="utf-8"))
+            try:
+                existing = json.loads(existing_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError) as exc:
+                # Bug M21 fix: previously a malformed existing attestation
+                # file would raise an uncaught JSONDecodeError or KeyError
+                # (when 'matrix' key was missing). Now treat the existing
+                # file as having an empty matrix and warn the operator.
+                print(
+                    f"WARNING: failed to parse existing {COMMITTED_NAME}: {exc}",
+                    file=sys.stderr,
+                )
+                existing = {}
             if existing.get("matrix") != attestation["matrix"]:
                 print(f"WARNING: {COMMITTED_NAME} differs from generated matrix.", file=sys.stderr)
                 print("Manual edits will be overwritten if you run with --write.", file=sys.stderr)

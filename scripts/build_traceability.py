@@ -63,7 +63,23 @@ def build_traceability(
     code_fr_map = scan_python_fr_annotations(project)
 
     # 3. Scan tests for FR coverage
-    tests_dir = project / "03-development" / "tests" if (project / "03-development" / "tests").is_dir() else project / "tests"
+    has_03_tests = (project / "03-development" / "tests").is_dir()
+    has_root_tests = (project / "tests").is_dir()
+    # Bug M26 fix: previously the fallback `else project / "tests"`
+    # evaluated even when neither directory existed, silently producing
+    # zero test coverage with no diagnostic. Now emit a warning on the
+    # returned model so the report reflects the missing test layer.
+    if has_03_tests:
+        tests_dir = project / "03-development" / "tests"
+    elif has_root_tests:
+        tests_dir = project / "tests"
+    else:
+        tests_dir = project / "tests"  # used for the scan; result is empty
+        # Use setattr to attach a transient warning to the model without
+        # modifying the upstream class definition.
+        setattr(rt, "no_tests_warning",
+                f"No tests directory found under {project}/03-development/tests "
+                f"or {project}/tests — coverage report is empty.")
     test_fr_map = scan_test_fr_coverage(tests_dir)
 
     # 4. Merge all FR IDs

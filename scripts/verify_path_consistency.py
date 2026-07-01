@@ -93,11 +93,25 @@ def main():
             print(f"  Tool paths: {tool_phase_paths}")
 
         plan_dir = plan_path_str.rstrip("/")
+        # Bug M17 fix: previously the check was GATED on tool_phase_paths
+        # being non-empty — when no tool paths were extracted, the check
+        # was SKIPPED and "STATUS: CONSISTENT" was printed. A tool file
+        # missing a phase reference was silently treated as consistent.
+        # Now we report UNVERIFIED when no tool paths exist, and CONSISTENT
+        # only when the plan path is actually in the tool paths.
         if tool_phase_paths and plan_dir not in [p.rstrip("/") for p in tool_phase_paths]:
             inconsistencies.append({"phase": phase, "plan_path": plan_path_str, "tool_paths": tool_phase_paths})
             print("  STATUS: INCONSISTENT")
-        else:
+        elif tool_phase_paths:
             print("  STATUS: CONSISTENT")
+        else:
+            inconsistencies.append({
+                "phase": phase,
+                "plan_path": plan_path_str,
+                "tool_paths": set(),
+                "reason": "no tool phase references extracted — unverified",
+            })
+            print("  STATUS: UNVERIFIED (no tool phase refs found)")
 
     print("\n" + "=" * 60)
     print("SUMMARY")

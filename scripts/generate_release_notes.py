@@ -65,17 +65,30 @@ def _get_latest_gate_score(project: Path) -> dict[str, Any]:
     """Extract latest gate score from quality_manifest.json."""
     manifest_path = project / ".methodology" / "quality_manifest.json"
     if not manifest_path.exists():
-        return {"score": "N/A", "gate": "N/A"}
+        return {"score": "N/A", "gate": "N/A", "error": "manifest not found"}
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        gate_results = manifest.get("gate_results", {})
-        # Find highest completed gate
-        for gate_num in (4, 3, 2):
-            gate_data = gate_results.get(f"gate{gate_num}", {})
-            if isinstance(gate_data, dict) and gate_data.get("quality_complete"):
-                return {"gate": gate_num, "score": gate_data.get("score", "N/A")}
-    except Exception:
-        pass
+    except json.JSONDecodeError as exc:
+        # Bug M20 fix: previously a malformed manifest returned silent
+        # N/A. Now the failure cause is included so release notes can
+        # surface that the gate score is not actually known.
+        return {
+            "score": "N/A",
+            "gate": "N/A",
+            "error": f"malformed manifest JSON: {exc}",
+        }
+    except OSError as exc:
+        return {
+            "score": "N/A",
+            "gate": "N/A",
+            "error": f"manifest read error: {exc}",
+        }
+    gate_results = manifest.get("gate_results", {})
+    # Find highest completed gate
+    for gate_num in (4, 3, 2):
+        gate_data = gate_results.get(f"gate{gate_num}", {})
+        if isinstance(gate_data, dict) and gate_data.get("quality_complete"):
+            return {"gate": gate_num, "score": gate_data.get("score", "N/A")}
     return {"score": "N/A", "gate": "N/A"}
 
 

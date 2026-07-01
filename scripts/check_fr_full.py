@@ -62,8 +62,13 @@ def run_linter(project: Path, files: list) -> tuple:
             linter_cmd = cmd
             break
     if not linter_cmd:
-        print("  pylint not found, skipping Lint")
-        return True, []
+        # Bug M19 fix: previously returned (True, []) which silently
+        # passed the linter check when neither pylint nor pylint3 was
+        # installed. Layer 3 CQG could be defeated by simply not having
+        # the linter available. Now report failure with a clear error.
+        msg = "pylint / pylint3 not found in PATH — linter check cannot run"
+        print(f"  {msg}")
+        return False, [msg]
     for py_file in py_files:
         result = subprocess.run(  # nosec B603
             [linter_cmd, "--errors-only", str(py_file)],

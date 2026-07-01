@@ -24,6 +24,36 @@ def get_current_version():
     return match.group(1) if match else None
 
 
+def _bump_readme_only_current(
+    content: str,
+    pattern: str,
+    replacement: str,
+    current_version_str: str = "",
+) -> tuple[str, int]:
+    """Bump README only on lines that look like a 'current version' marker.
+
+    Lines that mention historical / legacy versions (e.g. inside a
+    changelog or deprecation note) are preserved.
+
+    `current_version_str` is accepted for future use (e.g. to detect
+    that a legacy mention refers to an older version) and is currently
+    a no-op parameter.
+    """
+    del current_version_str  # reserved for future use
+    rx = re.compile(pattern)
+    marker_re = re.compile(r"(?i)(current\s+version|version\s*[:=]|^#+\s*version)")
+    new_lines: list[str] = []
+    count = 0
+    for line in content.splitlines(keepends=True):
+        if rx.search(line) and marker_re.search(line):
+            replaced = rx.sub(replacement, line)
+            new_lines.append(replaced)
+            count += len(rx.findall(line))
+        else:
+            new_lines.append(line)
+    return "".join(new_lines), count
+
+
 def bump_version(new_version: str):
     """Update version across all project files."""
     files_patterns = {
@@ -40,7 +70,15 @@ def bump_version(new_version: str):
             continue
 
         content = filepath.read_text()
-        new_content, count = re.subn(pattern, replacement, content)
+        if filename == "README.md":
+            # Bug M25 fix: previous pattern r'v\d+\.\d+\.\d+' matched
+            # every v-version mention in README, including historical
+            # references like "v1.0.0 (legacy)". Restrict to lines that
+            # contain the current version marker (e.g. "Current version:
+            # v2.0.0" or "Version: v2.0.0"), not legacy / changelog mentions.
+            new_content, count = _bump_readme_only_current(content, pattern, replacement, current_version_str=replacement)
+        else:
+            new_content, count = re.subn(pattern, replacement, content)
         if count > 0:
             filepath.write_text(new_content)
             updated.append((filename, count))
