@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from core.auto_fix.error_class import ErrorClass
 
+import ast
 import time
 from dataclasses import dataclass, field, replace
 from enum import Enum
