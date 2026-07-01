@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -55,11 +56,16 @@ def _extract_acceptance_criteria(srs_path: Path) -> dict[str, list[str]]:
 
     import re
     # Find each FR block and the ACs under it
+    # Bug M11 fix: accept any separator after FR-N (colon, em-dash, space,
+    # or end of line). The previous regex required ":" and silently
+    # skipped em-dash / space variants, causing ACs to attach to wrong FR.
+    fr_header_re = re.compile(r"^###\s+FR-(\d+)\s*(?:[:\-—]|\s|$)")
+    ac_line_re = re.compile(r"^\s*(AC-FR-\d+-\d+)\s*[:\-—]\s*(.+)$")
     fr_blocks: dict[str, list[str]] = {}
     current_fr: str | None = None
     for line in text.splitlines():
-        m_fr = re.match(r"^###\s+FR-(\d+)\s*:", line)
-        m_ac = re.match(r"^\s*(AC-FR-\d+-\d+)\s*:\s*(.+)$", line)
+        m_fr = fr_header_re.match(line)
+        m_ac = ac_line_re.match(line)
         if m_fr:
             current_fr = f"FR-{m_fr.group(1)}"
             fr_blocks.setdefault(current_fr, [])
@@ -252,7 +258,11 @@ def main() -> int:
     try:
         out = generate_verification_report(project)
     except Exception as exc:  # surface error rather than silent fail
+        # Bug M12 fix: print full traceback so the operator sees the
+        # actual failing call. Comment claimed this already surfaced
+        # errors but str(exc) alone hides the cause.
         print(f"[FAIL] {exc}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
         return 1
 
     # If --output is custom, copy the default output there too
