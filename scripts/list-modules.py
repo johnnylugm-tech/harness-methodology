@@ -10,6 +10,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -31,17 +32,18 @@ REQUIRED_FIELDS = ["name", "version", "category", "description", "depends_on", "
 VALID_CATEGORIES = {"core", "detection", "infrastructure", "safety", "control"}
 
 
+_SEMVER_RE = re.compile(
+    r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.\-]+)?$"  # MAJOR.MINOR.PATCH[-prerelease][+build]
+)
+
+
 def _is_semver(version: str) -> bool:
-    parts = version.split(".")
-    if len(parts) != 3:
+    # Bug M13 fix: previous implementation split on '.' and required exactly
+    # 3 parts, which rejected "1.0.0-beta.1" (4 parts after split). Use a
+    # proper semver regex that accepts pre-release / build metadata suffix.
+    if not isinstance(version, str) or not version:
         return False
-    for p in parts:
-        if not p.isdigit():
-            # Allow pre-release suffix after first segment (e.g. 1.0.0-beta.1)
-            clean = p.split("-")[0]
-            if not clean.isdigit():
-                return False
-    return True
+    return bool(_SEMVER_RE.match(version))
 
 
 def _load_manifest(path: Path) -> dict:
@@ -116,7 +118,17 @@ def validate_skill_md_frontmatter() -> list[str]:
         else:
             import yaml
             fm = yaml.safe_load(parts[1])
-            if fm.get("name") != "harness-methodology":
+            # Bug M14 fix: yaml.safe_load on empty / whitespace-only input
+            # returns None. Calling None.get("name") raised AttributeError
+            # which the bare except wrapped as a generic "parse error",
+            # hiding the real cause. Check the type explicitly.
+            if fm is None:
+                errors.append("SKILL.md frontmatter is empty (no name declared)")
+            elif not isinstance(fm, dict):
+                errors.append(
+                    f"SKILL.md frontmatter is not a mapping (got {type(fm).__name__})"
+                )
+            elif fm.get("name") != "harness-methodology":
                 errors.append(
                     f"SKILL.md frontmatter name '{fm.get('name')}' "
                     f"does not match 'harness-methodology'"
