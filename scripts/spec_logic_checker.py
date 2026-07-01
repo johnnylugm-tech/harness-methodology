@@ -74,16 +74,27 @@ class SpecLogicChecker:
         """Scan all Python files"""
         python_files = list(self.project_path.rglob("*.py"))
 
-        # Exclude tests and virtual environments
-        python_files = [
-            f for f in python_files
-            if "test" not in f.name.lower()
-            and "venv" not in str(f)
-            and "__pycache__" not in str(f)
-        ]
+        # Bug M09 fix: exclude test files by PATH COMPONENT, not substring.
+        # The previous `if "test" not in f.name.lower()` rejected legit
+        # production files like latest_api.py, contest.py, attestation/ —
+        # all of which contain "test" as a substring. Use parts-based check
+        # so a file named "latest_api.py" is kept, but a file under a
+        # "test" or "tests" directory (or named "test_*.py") is excluded.
+        def _is_excluded(p: Path) -> bool:
+            parts_lower = {part.lower() for part in p.parts}
+            if "test" in parts_lower or "tests" in parts_lower:
+                return True
+            if p.name.lower().startswith("test_"):
+                return True
+            if "venv" in parts_lower or "__pycache__" in parts_lower:
+                return True
+            return False
+
+        python_files = [f for f in python_files if not _is_excluded(f)]
 
         files_checked = 0
         functions_checked = 0
+        read_errors = 0
 
         for py_file in python_files:
             files_checked += 1
@@ -92,8 +103,19 @@ class SpecLogicChecker:
                 file_issues = self._check_file(content, str(py_file))
                 self.issues.extend(file_issues)
                 functions_checked += len(re.findall(r'def\s+\w+', content))
-            except Exception:  # nosec B110
-                pass
+            except (OSError, UnicodeDecodeError) as exc:
+                # Bug M10 fix: surface per-file read errors instead of
+                # silently dropping them. The error is recorded as an
+                # issue so the report reflects the actual scan coverage.
+                read_errors += 1
+                self.issues.append(LogicIssue(
+                    file_path=str(py_file),
+                    function_name="<file-read>",
+                    line_number=0,
+                    issue_type="read_error",
+                    description=f"Failed to read file: {exc}",
+                    severity="LOW",
+                ))
 
         score = self._calculate_score(len(self.issues), functions_checked)
 
