@@ -278,7 +278,7 @@ def _cli() -> int:
         try:
             _run(["git", "-C", str(parent_repo), "push", args.remote, "HEAD"])
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-            print(f"[harness-sync] FAILED: parent-repo push failed: {e.stderr or e.stdout}",
+            print(f"[harness-sync] FAILED: parent-repo push failed: {(e.stderr or e.stdout or b'').decode()}",
                   file=sys.stderr)
             return 19
         print(f"[harness-sync] Pushed: {commit_msg}")

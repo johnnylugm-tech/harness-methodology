@@ -164,7 +164,7 @@ class AgentSpawner:
                 env=_child_env(),
             )
         except subprocess.TimeoutExpired:
-            timeout_result = {
+            timeout_result: dict[str, Any] = {
                 "output": f"Agent timed out after {task_timeout}s",
                 "status": "TIMEOUT",
             }
@@ -373,7 +373,7 @@ class AgentSpawner:
         as the `regression_flags` field. Flags are warnings only; the
         authoritative gate is the explicit check in cmd_run_fr_step.
         """
-        flags: dict[str, object] = {}
+        flags: dict[str, Any] = {}
         # Compute net change per file: (added, removed) under post
         # MINUS (added, removed) under pre. Then classify.
         suspect_lines_removed: list[tuple[str, int]] = []

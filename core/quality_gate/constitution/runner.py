@@ -381,7 +381,7 @@ def _scan_file_compliance(file_path: Path, phase: Optional[int] = None) -> Dict[
     # independently re-run by S4 cross-validation and cannot be faked.
     # Only request keywords for dimensions that are actually active for this phase.
     is_markdown = file_path.suffix.lower() == ".md"
-    phase_profile = profile.phases.get(phase)
+    phase_profile = profile.phases.get(phase) if phase is not None else None
     if phase_profile and "security" not in phase_profile.active_dimensions:
         security = 0.0
     else:
