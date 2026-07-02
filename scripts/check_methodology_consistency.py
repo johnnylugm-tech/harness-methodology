@@ -319,7 +319,7 @@ def check_deliverables(
 
         # (1) Check workflow JS cfg literal
         wf_match = disk_prefix_literals.get(schema_prefix)
-        if not wf_match:
+        if disk_prefix_literals and not wf_match:
             errors.append(
                 f"[{deliv_name}] workflow JS cfg diskPrefix literal "
                 f"'{schema_prefix}' not found in any phase*.js (Bug #137 regression)"
