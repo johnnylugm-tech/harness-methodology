@@ -892,12 +892,32 @@ class PhaseHooks:
                 f"fr_ids has {len(fr_ids)} entries but fr_module_traceability "
                 f"has {len(fr_trace)} — manifest was likely truncated by a "
                 f"sub-agent. Expected FRs: {sorted(fr_trace.keys())}")
-        # Pattern B: gate1 missing entirely when phase ≥ 3 (should have at least
-        # partial per-FR results)
+        # Pattern B: gate1 emptied while independent evidence says Gate 1 has
+        # run — that is corruption. A fresh Phase 3 entry (post-reset, or right
+        # after P2 manifest generation) legitimately has an empty gate1: no FR
+        # has been finalized yet. Distinguish via the FSM (state.json
+        # last_gate/last_fr are set only by finalize-gate) and residual per-FR
+        # artifacts, instead of blocking on emptiness alone.
         if self.phase is not None and self.phase >= 3 and not gate1:
-            issues.append(
-                "gate_results.gate1 is empty — expected at least partial "
-                "per-FR results for Phase 3+")
+            evidence: list[str] = []
+            try:
+                _st = json.loads(self.state_path.read_text(encoding="utf-8"))
+                if _st.get("last_gate") or _st.get("last_fr"):
+                    evidence.append(
+                        f"state.json last_gate={_st.get('last_gate')!r} "
+                        f"last_fr={_st.get('last_fr')!r}")
+            except (OSError, json.JSONDecodeError):
+                pass
+            _md = self._layout.methodology_dir
+            for _artifact in ("gate1_result.json", "fr_progress.json",
+                              ".gate1_scores.json"):
+                if (_md / _artifact).exists():
+                    evidence.append(_artifact)
+            if evidence:
+                issues.append(
+                    "gate_results.gate1 is empty but Gate 1 has run "
+                    f"(evidence: {', '.join(evidence)}) — manifest per-FR "
+                    "results were likely wiped")
         # Pattern C: fr_ids missing but traceability present (shouldn't happen
         # after Phase 2 generation)
         if not fr_ids and fr_trace:
