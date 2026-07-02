@@ -76,3 +76,4 @@ XX.*
 .methodology/state.json
 .git_diff*.txt
 docs/proposals/
+.harness-bug-hunt/
