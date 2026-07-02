@@ -26,7 +26,7 @@ deliverables:
   SRS:
     disk_path_segment: 01-requirements/SRS.md
     template_path: SRS.md
-    disk_prefix: "Software Requirements Specification"
+    disk_prefix: "# Software Requirements Specification"
     template_h1: "# SRS - {Project Name}"
     template_h1_pattern: "^#\s+SRS\s+-\s+\{Project Name\}"
     expected_actual_h1_pattern: "^#\s+Software Requirements Specification"
@@ -36,7 +36,7 @@ deliverables:
   SPEC_TRACKING:
     disk_path_segment: 01-requirements/SPEC_TRACKING.md
     template_path: SPEC_TRACKING.md
-    disk_prefix: "Specification Tracking Matrix"
+    disk_prefix: "# Specification Tracking Matrix"
     template_h1: "# SPEC_TRACKING.md"
     template_h1_pattern: "^#\s+SPEC_TRACKING\.md\b"
     expected_actual_h1_pattern: "^#\s+Specification Tracking Matrix"
@@ -46,7 +46,7 @@ deliverables:
   TRACEABILITY_MATRIX:
     disk_path_segment: 01-requirements/TRACEABILITY_MATRIX.md
     template_path: TRACEABILITY_MATRIX.md
-    disk_prefix: "Traceability Matrix"
+    disk_prefix: "# Traceability Matrix"
     template_h1: "# TRACEABILITY_MATRIX.md"
     template_h1_pattern: "^#\s+TRACEABILITY_MATRIX\.md\b"
     expected_actual_h1_pattern: "^#\s+Traceability Matrix"

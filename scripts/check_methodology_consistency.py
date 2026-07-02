@@ -436,7 +436,11 @@ def check_rules(
                 # CONSTITUTION.md is missing, emit a diagnostic. Previously this
                 # silently passed, hiding drift between the rule registry and
                 # the canonical constitution.
-                constitution_path = project_root / "CONSTITUTION.md" if project_root else Path("CONSTITUTION.md")
+                # CONSTITUTION.md is a harness-canonical document, not a host-
+                # project deliverable — resolve it relative to the harness repo
+                # (rules/manifest.yaml: "constitution_doc — harness/constitution/
+                # CONSTITUTION.md §X"), never the host project_root.
+                constitution_path = HARNESS_ROOT / "constitution" / "CONSTITUTION.md"
                 if not constitution_path.exists():
                     errors.append(
                         f"[{rule_id}] constitution_doc surface declared but "

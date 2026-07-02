@@ -269,6 +269,8 @@ Bug D/E-style 改善把 prompt-level 規則升級為 framework-level invariants�
 - **Invariant**: 任何 deliverable (SRS.md / TEST_SPEC.md / VERIFICATION_REPORT.md) 不得添加無法從 canonical spec 衍生的 prescriptive clauses。
 - **Enforcement**: `canonical_diff.py` 對每條 AC 計算 over_spec_score [0, 1]；score > 0.7 的 AC 必須 (a) verbatim transcription、(b) DERIVED tag、或 (c) NFR-99 deferral。
 - **Elicitation mode**: SPEC.md 缺席時自動退化為 prompt-level rule（不 block phase）。
+- **Canonical rule text** (`rules/manifest.yaml` R-CANONICAL-INTERP-001 — this doc is a declared surface; keep verbatim):
+  > CANONICAL INTERPRETATION RULE (anti-over-specification — fixes B-2 false-positive on ambiguous canonical): when the canonical spec uses ambiguous terms (e.g. 'excluding subprocess execution', 'retry on failed/timeout', 'last N chars'), Agent A MUST transcribe the verbatim canonical phrase into the AC, NOT interpret what the phrase means in implementation. Fidelity-preserving template: '<verbatim canonical phrase> — measurement / interpretation boundary is owned by the test harness per <canonical line>.' DERIVED tag: when A makes any interpretation choice beyond verbatim canonical, A MUST mark it 'DERIVED: <canonical-line> — <one-line rationale>' and cite <canonical-line> immediately above the AC. Forbidden: prescriptive clauses added by A alone when canonical uses ambiguous terms. If A cannot transcribe verbatim without interpretation, emit NFR-99.
 
 ### 8.2 B-review schema (Bug B)
 - **Invariant**: B reviewer JSON 必須 conform to `schemas/b_review.schema.json`；gap 必須有 `evidence_type` ∈ {real_invention, over_interpretation, methodology_artifact}。

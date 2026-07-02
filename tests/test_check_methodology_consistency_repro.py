@@ -55,13 +55,16 @@ class TestM04MalformedYamlGraceful:
 
 class TestM05ConstitutionSurfaceDiagnostic:
     def test_constitution_surface_emits_warning_when_missing(
-        self, module, tmp_path
+        self, module, tmp_path, monkeypatch
     ):
         """Bug M05 regression: when a rule declares surface=constitution_doc
         but CONSTITUTION.md is absent, the check should produce a diagnostic,
         not silently pass."""
-        # No CONSTITUTION.md created
-        assert not (tmp_path / "CONSTITUTION.md").exists()
+        # CONSTITUTION.md resolves via HARNESS_ROOT/constitution/ (it is a
+        # harness-canonical doc, not a host-project deliverable) — sandbox by
+        # pointing HARNESS_ROOT at an empty tmp dir.
+        monkeypatch.setattr(module, "HARNESS_ROOT", tmp_path)
+        assert not (tmp_path / "constitution" / "CONSTITUTION.md").exists()
 
         rules = {
             "R-1": {
@@ -78,9 +81,11 @@ class TestM05ConstitutionSurfaceDiagnostic:
             f"got errors={errors}"
         )
 
-    def test_constitution_surface_passes_when_present(self, module, tmp_path):
+    def test_constitution_surface_passes_when_present(self, module, tmp_path, monkeypatch):
         """Sanity: when CONSTITUTION.md exists, check does not error on this surface."""
-        (tmp_path / "CONSTITUTION.md").write_text(
+        monkeypatch.setattr(module, "HARNESS_ROOT", tmp_path)
+        (tmp_path / "constitution").mkdir()
+        (tmp_path / "constitution" / "CONSTITUTION.md").write_text(
             "Some canonical rule text with enough words to fingerprint properly.\n",
             encoding="utf-8",
         )
