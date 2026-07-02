@@ -120,3 +120,107 @@ def test_fallback_at_threshold_boundary_inclusive():
     # Boundary: 80.0 >= 80.0 should pass
     action, _ = _decide_fallback_action(80.0, 80.0)
     assert action == "continue"
+
+
+# ---------------------------------------------------------------------------
+# Manifest stamp logic (Phase 4 P4.Bug2): when live coverage meets the
+# threshold, the fallback must stamp gate1.{fr_id}.quality_complete = True
+# into the manifest, otherwise the phase4-testing.js verify-agent (which
+# reads quality_complete from the manifest, not from live measurement) will
+# still report GATE1_VERIFIED_FAIL even after the loop continues.
+# ---------------------------------------------------------------------------
+
+def _stamp_manifest_gate1(project: Path, fr_id: str,
+                          live_cov: float) -> None:
+    """Re-implementation of the inline stamp logic in
+    cmd_run_fr_step's COVERAGE-FIX fallback. Mirrors the exact semantics
+    (atomic write via .tmp + os.replace) so we can test the contract
+    without re-implementing it through the full cmd_run_fr_step path.
+    """
+    import os
+    import json as _json
+    mfst_path = project / ".methodology" / "quality_manifest.json"
+    mfst = _json.loads(mfst_path.read_text(encoding="utf-8"))
+    gr = mfst.setdefault("gate_results", {})
+    g1 = gr.setdefault("gate1", {})
+    fr_entry = g1.setdefault(fr_id, {})
+    fr_entry["quality_complete"] = True
+    fr_entry["score"] = float(live_cov)
+    fr_entry["coverage_fallback"] = "inline-fallback@8abe4f9"
+    tmp = mfst_path.with_suffix(".json.tmp")
+    tmp.write_text(_json.dumps(mfst, indent=2, sort_keys=True),
+                   encoding="utf-8")
+    os.replace(str(tmp), str(mfst_path))
+
+
+def test_stamp_sets_quality_complete_true_for_false_positive():
+    """When the fallback decides the LOW_COVERAGE was a false positive,
+    it must stamp quality_complete=True in the manifest, otherwise the
+    workflow's GATE1-verify (which reads the manifest, not live coverage)
+    will still report FAIL."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project = Path(tmpdir)
+        mfst_dir = project / ".methodology"
+        mfst_dir.mkdir()
+        mfst_path = mfst_dir / "quality_manifest.json"
+        mfst_path.write_text(json.dumps({
+            "quality_targets": {"min_coverage": 80.0},
+            "fr_ids": ["FR-02"],
+            "gate_results": {"gate1": {"FR-02": {
+                "score": 66.0,
+                "quality_complete": False,
+            }}},
+        }))
+
+        _stamp_manifest_gate1(project, "FR-02", 100.0)
+
+        updated = json.loads(mfst_path.read_text(encoding="utf-8"))
+        g1 = updated["gate_results"]["gate1"]["FR-02"]
+        assert g1["quality_complete"] is True
+        assert g1["score"] == 100.0
+        assert g1["coverage_fallback"] == "inline-fallback@8abe4f9"
+
+
+def test_stamp_preserves_unrelated_gate_entries():
+    """Stamping FR-02 must not disturb gate1.FR-01 / gate1.FR-03 entries
+    that have already PASSED."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project = Path(tmpdir)
+        mfst_dir = project / ".methodology"
+        mfst_dir.mkdir()
+        mfst_path = mfst_dir / "quality_manifest.json"
+        mfst_path.write_text(json.dumps({
+            "quality_targets": {"min_coverage": 80.0},
+            "fr_ids": ["FR-01", "FR-02", "FR-03"],
+            "gate_results": {"gate1": {
+                "FR-01": {"score": 100.0, "quality_complete": True},
+                "FR-02": {"score": 66.0, "quality_complete": False},
+                "FR-03": {"score": 97.28, "quality_complete": True},
+            }},
+        }))
+
+        _stamp_manifest_gate1(project, "FR-02", 100.0)
+
+        updated = json.loads(mfst_path.read_text(encoding="utf-8"))
+        assert updated["gate_results"]["gate1"]["FR-01"]["quality_complete"] is True
+        assert updated["gate_results"]["gate1"]["FR-03"]["quality_complete"] is True
+        assert updated["gate_results"]["gate1"]["FR-02"]["quality_complete"] is True
+
+
+def test_stamp_writes_atomically_no_leftover_tmp_file():
+    """The atomic write pattern (write .tmp + os.replace) must leave no
+    .json.tmp file behind."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project = Path(tmpdir)
+        mfst_dir = project / ".methodology"
+        mfst_dir.mkdir()
+        mfst_path = mfst_dir / "quality_manifest.json"
+        mfst_path.write_text(json.dumps({
+            "fr_ids": ["FR-02"],
+            "gate_results": {"gate1": {"FR-02": {}}},
+        }))
+
+        _stamp_manifest_gate1(project, "FR-02", 100.0)
+
+        assert not mfst_path.with_suffix(".json.tmp").exists()
+        assert mfst_path.exists()
