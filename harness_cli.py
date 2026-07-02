@@ -2746,13 +2746,37 @@ def _verify_env_check_claims(project: Path) -> "list[str]":
             if name.lower().endswith(".py"):
                 continue
             _found = shutil.which(name) is not None
+            _bindir = "Scripts" if os.name == "nt" else "bin"
             if not _found:
                 # PATH miss: also check venv-local bin/ and Python import as fallbacks.
                 # Covers tools installed only inside .venv and Python packages (e.g.
                 # pydantic) that are not CLI binaries but are valid "present" claims.
-                _venv = os.environ.get("VIRTUAL_ENV", "")
-                if _venv and os.path.exists(os.path.join(_venv, "bin", name)):
-                    _found = True
+                #
+                # Bug #129 root-cause fix (2026-07-02): probe project-local venvs
+                # (.venv/venv) directly, not only $VIRTUAL_ENV. Orchestrated runs
+                # invoke `.venv/bin/python harness_cli.py ...` without activating,
+                # so VIRTUAL_ENV is never exported and the old probe was dead code
+                # there — honest claims about venv-only tools were flagged as
+                # fabricated. Also normalize python-version-semantic names
+                # ("python311" → "python3.11"): sub-agents name the interpreter
+                # after the SAD version string, but the binary is `python3.11`.
+                # A wrong-version claim (e.g. python312 with only 3.11 installed)
+                # still fails every probe and stays flagged.
+                _cands = [name]
+                _pv = re.fullmatch(r"python[-_.]?(\d)[-_.]?(\d+)", name.lower())
+                if _pv:
+                    _cands.append(f"python{_pv.group(1)}.{_pv.group(2)}")
+                _venv_dirs = [os.environ.get("VIRTUAL_ENV", "")]
+                _venv_dirs += [str(project / d) for d in (".venv", "venv")]
+                for _cn in _cands:
+                    if _cn != name and shutil.which(_cn):
+                        _found = True
+                    for _vd in _venv_dirs:
+                        if _vd and os.path.exists(os.path.join(_vd, _bindir, _cn)):
+                            _found = True
+                            break
+                    if _found:
+                        break
                 if not _found:
                     # Bug #128 root-cause fix (2026-06-27): semantic venv-Python names
                     # like "venv-python", "python-venv", "venv-python3" are LOGICAL
@@ -2797,14 +2821,26 @@ def _verify_env_check_claims(project: Path) -> "list[str]":
                             )
                     except Exception:
                         pass
-                    try:
-                        _r = subprocess.run(
-                            [sys.executable, "-c", f"import {_pkg}"],
-                            capture_output=True, timeout=5, env=_import_env,
-                        )
-                        _found = _r.returncode == 0
-                    except Exception:
-                        pass
+                    # Bug #129: try the project venv's python too — whether a
+                    # plugin-only package (e.g. pytest-cov) verifies must not
+                    # depend on which interpreter happens to run harness_cli.
+                    _interps = [sys.executable]
+                    _py_exe = "python.exe" if os.name == "nt" else "python"
+                    for _vd in (".venv", "venv"):
+                        _vp = project / _vd / _bindir / _py_exe
+                        if _vp.exists():
+                            _interps.append(str(_vp))
+                    for _interp in _interps:
+                        try:
+                            _r = subprocess.run(
+                                [_interp, "-c", f"import {_pkg}"],
+                                capture_output=True, timeout=5, env=_import_env,
+                            )
+                            if _r.returncode == 0:
+                                _found = True
+                                break
+                        except Exception:
+                            pass
             if not _found:
                 findings.append(
                     f"cli_tool '{raw_name}': claimed present, but not found on PATH, "

@@ -46,7 +46,7 @@
             "type": "object",
             "required": ["name", "present"],
             "properties": {
-              "name": {"type": "string", "description": "Tool name."},
+              "name": {"type": "string", "description": "Exact executable name as invoked during verification (e.g. `python3.11`, not `python311`), or importable Python module name for library/plugin requirements (e.g. `pytest_cov`). No logical aliases — the framework independently re-verifies each name."},
               "present": {"type": "boolean"},
               "version": {"type": "string", "description": "Required version from SAD.md."},
               "fix": {"type": "string", "description": "Install command if missing."}

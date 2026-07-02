@@ -1017,6 +1017,85 @@ class TestVerifyEnvCheckClaims:
         assert len(findings) == 1
         assert "venv-python" in findings[0]
 
+    def test_tool_in_project_venv_bin_without_virtual_env(self, tmp_path, monkeypatch):
+        """Bug #129: tools installed only in project-local .venv/bin must pass
+        even when $VIRTUAL_ENV is unset. Orchestrated runs invoke
+        `.venv/bin/python harness_cli.py ...` directly, which never exports
+        VIRTUAL_ENV — the old $VIRTUAL_ENV-only probe was dead code there.
+        """
+        from harness_cli import _verify_env_check_claims
+        monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+        (tmp_path / ".venv" / "bin").mkdir(parents=True)
+        (tmp_path / ".venv" / "bin" / "faketool_only_in_venv_xyz").touch()
+        self._write(tmp_path, {"cli_tools": {"required": [
+            {"name": "faketool_only_in_venv_xyz", "present": True},
+        ]}})
+        assert _verify_env_check_claims(tmp_path) == []
+
+    def test_import_fallback_uses_project_venv_python(self, tmp_path, monkeypatch):
+        """Bug #129: the import fallback must also try the project venv's
+        python, not only sys.executable — whether a plugin-only package
+        (e.g. pytest-cov) passes must not depend on which interpreter
+        happens to run harness_cli.
+        """
+        from harness_cli import _verify_env_check_claims
+        monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+        bindir = tmp_path / ".venv" / "bin"
+        bindir.mkdir(parents=True)
+        # Stand-in venv python: succeeds for any `-c "import ..."` probe.
+        fake_py = bindir / "python"
+        fake_py.write_text("#!/bin/sh\nexit 0\n")
+        fake_py.chmod(0o755)
+        self._write(tmp_path, {"cli_tools": {"required": [
+            {"name": "pkg_only_in_project_venv_xyz", "present": True},
+        ]}})
+        assert _verify_env_check_claims(tmp_path) == []
+
+    def test_python_version_semantic_name_resolves(self, tmp_path, monkeypatch):
+        """Bug #129: 'python311' is a version-semantic name for the
+        `python3.11` binary — honest when that binary actually exists.
+        """
+        from harness_cli import _verify_env_check_claims
+        import harness_cli as hc
+        monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+        monkeypatch.setattr(hc.shutil, "which", lambda *_a, **_k: None)
+        (tmp_path / ".venv" / "bin").mkdir(parents=True)
+        (tmp_path / ".venv" / "bin" / "python3.11").touch()
+        self._write(tmp_path, {"cli_tools": {"required": [
+            {"name": "python311", "present": True},
+        ]}})
+        assert _verify_env_check_claims(tmp_path) == []
+
+    def test_absent_tool_still_flagged_with_venv_present(self, tmp_path, monkeypatch):
+        """Anti-fraud must survive Bug #129 widening: a tool present nowhere
+        (PATH, project venvs, import) is still flagged even when a project
+        venv directory exists.
+        """
+        from harness_cli import _verify_env_check_claims
+        monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+        (tmp_path / ".venv" / "bin").mkdir(parents=True)
+        self._write(tmp_path, {"cli_tools": {"required": [
+            {"name": "definitely_not_a_real_tool_xyz", "present": True},
+        ]}})
+        findings = _verify_env_check_claims(tmp_path)
+        assert any("definitely_not_a_real_tool_xyz" in f for f in findings)
+
+    def test_python_version_semantic_wrong_version_flagged(self, tmp_path, monkeypatch):
+        """Anti-fraud: 'python312' claimed when only python3.11 exists must
+        still be flagged — version-semantic normalization is not a blank pass.
+        """
+        from harness_cli import _verify_env_check_claims
+        import harness_cli as hc
+        monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+        monkeypatch.setattr(hc.shutil, "which", lambda *_a, **_k: None)
+        (tmp_path / ".venv" / "bin").mkdir(parents=True)
+        (tmp_path / ".venv" / "bin" / "python3.11").touch()
+        self._write(tmp_path, {"cli_tools": {"required": [
+            {"name": "python312", "present": True},
+        ]}})
+        findings = _verify_env_check_claims(tmp_path)
+        assert any("python312" in f for f in findings)
+
 
 class TestCmdRunEnvCheck:
     """Bug #127: cmd_run_env_check exit code reflects ready flag."""
