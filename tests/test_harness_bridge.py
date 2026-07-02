@@ -67,7 +67,7 @@ class TestHarnessBridgeIntegration:
         bridge = HarnessBridge()
         with patch("harness.harness_bridge.Path", side_effect=lambda *args: tmp_path / Path(*args) if ".methodology" in str(args) else Path(*args)):
             with patch("scripts.generate_sab.parse_sad", return_value={"constraints": ["C1"]}):
-                out_path = bridge.generate_quality_manifest(fr_ids=["FR-01"], sad_path="SAD.md", force=True)
+                out_path = bridge.generate_quality_manifest(fr_ids=["FR-01"], sad_path="SAD.md", project_root=str(tmp_path), force=True)
                 assert out_path is not None
                 assert out_path.exists()
                 import json
@@ -79,7 +79,7 @@ class TestHarnessBridgeIntegration:
         bridge = HarnessBridge()
         with patch("harness.harness_bridge.Path", side_effect=lambda *args: tmp_path / Path(*args) if ".methodology" in str(args) else Path(*args)):
             with patch("scripts.generate_sab.parse_sad", side_effect=ImportError):
-                out_path = bridge.generate_quality_manifest(fr_ids=["FR-01"], sad_path="SAD.md", force=True)
+                out_path = bridge.generate_quality_manifest(fr_ids=["FR-01"], sad_path="SAD.md", project_root=str(tmp_path), force=True)
                 assert out_path is not None
                 assert out_path.exists()
 
@@ -92,7 +92,7 @@ class TestHarnessBridgeIntegration:
             with patch("scripts.generate_sab.parse_sad", return_value={}):
                 out_path = bridge.generate_quality_manifest(
                     fr_ids=["FR-01", "FR-02", "FR-03", "FR-01", "FR-02", "FR-03"],
-                    sad_path="SAD.md", force=True,
+                    sad_path="SAD.md", project_root=str(tmp_path), force=True,
                 )
                 import json
                 data = json.loads(out_path.read_text())
@@ -582,7 +582,7 @@ class TestSabClosureGaps:
             with patch.object(bridge, "_parse_nfr_from_srs", return_value={}):
                 with patch.object(bridge, "_parse_nfr_fr_xref", return_value={}):
                     with patch("harness.harness_bridge.Path", side_effect=_path_redirect):
-                        p = bridge.generate_quality_manifest(["FR-01"], "SAD.md", force=True)
+                        p = bridge.generate_quality_manifest(["FR-01"], "SAD.md", project_root=str(tmp_path), force=True)
         assert p is not None
         data = json.loads(p.read_text())
         assert data["gate_score_overrides"] == {
@@ -607,7 +607,7 @@ class TestSabClosureGaps:
             with patch.object(bridge, "_parse_nfr_from_srs", return_value={}):
                 with patch.object(bridge, "_parse_nfr_fr_xref", return_value={}):
                     with patch("harness.harness_bridge.Path", side_effect=_path_redirect):
-                        p = bridge.generate_quality_manifest(["FR-01"], "SAD.md", force=True)
+                        p = bridge.generate_quality_manifest(["FR-01"], "SAD.md", project_root=str(tmp_path), force=True)
         assert p is not None
         data = json.loads(p.read_text())
         assert data["gate_score_overrides"] == {}

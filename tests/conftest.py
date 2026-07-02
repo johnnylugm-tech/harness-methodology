@@ -16,6 +16,32 @@ if "mcp_tools" not in sys.modules:
 
 
 # ---------------------------------------------------------------------------
+# CWD invariance (2026-07-02 incident)
+# ---------------------------------------------------------------------------
+#
+# A host project ran bare `pytest` from ITS root; a stale testpaths made
+# pytest fall back to rootdir collection, which swept in harness/tests/.
+# Several tests here exercise production writers whose project_root argument
+# has a CWD fallback (generate_quality_manifest, decision logs, effort
+# tracker, steering history) — they wrote into the HOST project's
+# .methodology/, truncating its quality_manifest.json (fr_ids 3→1, gate1
+# wiped) and corrupting the pipeline state.
+#
+# This suite documents "tests run with harness/ as cwd" (see
+# test_methodology_consistency.py). Pin that assumption for every test so
+# the suite behaves identically regardless of the caller's cwd: any residual
+# CWD-relative write can only land in harness/.methodology (gitignored
+# scratch), never in a host project's live state.
+
+_HARNESS_ROOT = Path(__file__).resolve().parent.parent
+
+
+@pytest.fixture(autouse=True)
+def _cwd_pinned_to_harness_root(monkeypatch):
+    monkeypatch.chdir(_HARNESS_ROOT)
+
+
+# ---------------------------------------------------------------------------
 # Improvement I: make_sab_from_sad fixture factory
 # ---------------------------------------------------------------------------
 #

@@ -2783,11 +2783,24 @@ def _verify_env_check_claims(project: Path) -> "list[str]":
                             pass
                 if not _found:
                     # Python package fallback: "import <name>" via the current interpreter.
+                    # src-layout projects (e.g. 03-development/src/taskq) are importable
+                    # only with the project's src root on PYTHONPATH — the deliverable
+                    # package is a valid "present" claim even before pip install.
                     _pkg = name.replace("-", "_")
+                    _import_env = {**os.environ}
+                    try:
+                        from core.utils.project_layout import ProjectLayout
+                        _src_dir = ProjectLayout(project).active_src_dir
+                        if _src_dir.is_dir():
+                            _import_env["PYTHONPATH"] = os.pathsep.join(
+                                p for p in (str(_src_dir), _import_env.get("PYTHONPATH", "")) if p
+                            )
+                    except Exception:
+                        pass
                     try:
                         _r = subprocess.run(
                             [sys.executable, "-c", f"import {_pkg}"],
-                            capture_output=True, timeout=5,
+                            capture_output=True, timeout=5, env=_import_env,
                         )
                         _found = _r.returncode == 0
                     except Exception:
