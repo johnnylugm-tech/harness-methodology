@@ -65,13 +65,26 @@ class TestDecisionLogWriter:
         assert "Reviewer_4_" in path.name
         assert path.name.endswith(".yaml")
 
-    def test_sequence_increments(self, writer):
+    def test_concurrent_writes_get_unique_paths(self, writer):
+        """Two writes with identical inputs must produce DIFFERENT paths — the
+        old seq-based scheme (glob-count + 1) had a TOCTOU window where two
+        writers could both read len=N and clobber each other. Filename
+        uniqueness is now driven by uuid4, not a sequence counter."""
         entry = _entry(agent_id="GATE", phase=2, decision="GATE_BLOCK", reasoning="low")
         p1 = writer.write(entry)
         p2 = writer.write(entry)
         assert p1 != p2
-        assert "001" in p1.name
-        assert "002" in p2.name
+        # Both files survive — neither writer overwrote the other.
+        assert p1.exists()
+        assert p2.exists()
+
+    def test_agent_id_metachars_are_sanitized(self, writer):
+        """Glob metacharacters in agent_id must be escaped so planted decoys
+        cannot inflate the seq counter (or, post-fix, cause filename collisions)."""
+        entry = _entry(agent_id="AG*x", phase=3)
+        path = writer.write(entry)
+        assert "*" not in path.name
+        assert "AG_x" in path.name
 
     def test_content_readable(self, writer):
         path = writer.write(_entry(gate_score=90.0, fr_id="FR-001"))

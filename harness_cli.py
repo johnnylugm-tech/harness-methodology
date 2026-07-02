@@ -3067,10 +3067,23 @@ def _check_gate4_prerequisites(project: Path) -> "tuple[bool, set[str]]":
                   file=sys.stderr)
         else:
             issue_registry = (project / issue_registry_path_str) if not Path(issue_registry_path_str).is_absolute() else Path(issue_registry_path_str)
-            if not issue_registry.exists():
+            # Containment check: agent-controlled path must resolve inside the
+            # project root. Blocking traversal (`../../etc/passwd`) probes here
+            # even though the registry contents are only advisory.
+            try:
+                if not issue_registry.resolve().is_relative_to(project.resolve()):
+                    print(
+                        f"[Gate 4] (A5, advisory): issue_registry_path escapes project root "
+                        f"({issue_registry}); refusing to read.",
+                        file=sys.stderr,
+                    )
+                    issue_registry = None
+            except (OSError, RuntimeError):
+                issue_registry = None
+            if issue_registry is not None and not issue_registry.exists():
                 print(f"[Gate 4] (A5, advisory): issue registry not found: {issue_registry}",
                       file=sys.stderr)
-            else:
+            elif issue_registry is not None:
                 try:
                     registry_data = json.loads(issue_registry.read_text(encoding="utf-8"))
                     if not registry_data:
@@ -6083,7 +6096,17 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
         # Runs outside src_dir.is_dir() intentionally: gitleaks scans the whole
         # repo (docs, configs, history), not just the source tree.
         if shutil.which("gitleaks"):
-            _gl_r = subprocess.run(["gitleaks", "detect", "--source", "."], cwd=str(project))
+            try:
+                _gl_r = subprocess.run(
+                    ["gitleaks", "detect", "--source", "."],
+                    cwd=str(project),
+                    capture_output=True,
+                    text=True,
+                    timeout=get_timeout("gitleaks"),
+                )
+            except subprocess.TimeoutExpired:
+                print("\n[BLOCKED] Secrets Scanning (gitleaks) timed out.")
+                return 20
             if _gl_r.returncode != 0:
                 print("\n[BLOCKED] Secrets Scanning (gitleaks) failure.")
                 print("  Hardcoded secrets detected in the codebase/docs.")

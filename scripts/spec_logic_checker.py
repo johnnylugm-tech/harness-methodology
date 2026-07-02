@@ -231,10 +231,25 @@ class SemanticValidator:
 
         try:
             content = Path(self.srs_path).read_text(encoding="utf-8")
+            # Skip fenced ```code blocks``` so a placeholder like
+            # `| FR-99 | example |` inside a code sample doesn't get parsed
+            # as a real requirement.
+            content_clean = re.sub(r'```.*?```', '', content, flags=re.DOTALL)
+            seen_fr: set[str] = set()
 
-            for match in re.finditer(r'\|\s*FR-(\d+)\s*\|([^\n|]+)', content):
+            for match in re.finditer(
+                r'^\|\s*FR-(\d+)\s*\|([^\n|]+)',
+                content_clean,
+                re.MULTILINE,
+            ):
                 fr_id = f"FR-{match.group(1)}"
                 description = match.group(2).strip()
+
+                # Warn (silently here, surfaced via duplicate-key overwrites) on
+                # duplicate FR ids in the spec — only the first occurrence wins.
+                if fr_id in seen_fr:
+                    continue
+                seen_fr.add(fr_id)
 
                 verification = self._infer_verification(description)
                 requirements[fr_id] = {

@@ -437,9 +437,11 @@ def _crg_enrich_gate_findings(
         if (r.get("line_count") or 0) >= 300
     ]
     if warn_items:
-        for _d in dims:
+        for _i, _d in enumerate(dims):
             if _d.name == "architecture":
-                _d.issues.append({
+                # Build a NEW DimResult instead of mutating caller's object —
+                # downstream overrides rely on the original list being untouched.
+                new_issue = {
                     "severity": "medium",
                     "message": (
                         f"Large functions detected (≥300 lines): {len(warn_items)} function(s). "
@@ -447,16 +449,17 @@ def _crg_enrich_gate_findings(
                     ),
                     "evidence": "; ".join(warn_items[:5]),
                     "source": "crg:find_large_functions",
-                })
+                }
+                dims[_i] = dataclasses.replace(_d, issues=_d.issues + [new_issue])
 
     # ── 2. get_hub_nodes → architecture findings (re-used in step 8) ──
     hub_data = crg.get_hub_nodes(project_root, min_fan_in=8)
     hub_hubs = (hub_data or {}).get("hubs", [])
     critical_hubs = [h for h in hub_hubs if (h.get("fan_in") or 0) >= 15]
     if critical_hubs:
-        for _d in dims:
+        for _i, _d in enumerate(dims):
             if _d.name == "architecture":
-                _d.issues.append({
+                new_issue = {
                     "severity": "high",
                     "message": (
                         f"Critical hub nodes (fan_in≥15): {len(critical_hubs)} found. "
@@ -467,7 +470,8 @@ def _crg_enrich_gate_findings(
                         for h in critical_hubs[:5]
                     ),
                     "source": "crg:get_hub_nodes",
-                })
+                }
+                dims[_i] = dataclasses.replace(_d, issues=_d.issues + [new_issue])
 
     # ── 3. check_dead_code → architecture findings ────────────────────
     dc_data = crg.check_dead_code(project_root, kind="Function")
@@ -478,9 +482,9 @@ def _crg_enrich_gate_findings(
         # an extra MCP call. >20 is reliably > 5% of any non-trivial project,
         # matching crg_analysis.DEAD_CODE_ESCALATE_RATIO intent.
         sev = "medium" if len(prod_dead) > 20 else "low"
-        for _d in dims:
+        for _i, _d in enumerate(dims):
             if _d.name == "architecture":
-                _d.issues.append({
+                new_issue = {
                     "severity": sev,
                     "message": (
                         f"Dead code: {len(prod_dead)} unreferenced functions/classes "
@@ -490,7 +494,8 @@ def _crg_enrich_gate_findings(
                         x.get("name", "?") for x in prod_dead[:5]
                     ),
                     "source": "crg:refactor_tool(dead_code)",
-                })
+                }
+                dims[_i] = dataclasses.replace(_d, issues=_d.issues + [new_issue])
 
     # ── 4. get_review_context → crg_review_context in gate_result ─────
     rc = crg.get_review_context(project_root, detail_level="minimal")
@@ -541,9 +546,9 @@ def _crg_enrich_gate_findings(
         or "untested" in str(g.get("description", "")).lower()
     ][:5]
     if untested_gaps:
-        for _d in dims:
+        for _i, _d in enumerate(dims):
             if _d.name == "test_coverage":
-                _d.issues.append({
+                new_issue = {
                     "severity": "medium",
                     "message": (
                         f"CRG knowledge gaps: {len(untested_gaps)} untested critical path(s) detected."
@@ -553,15 +558,16 @@ def _crg_enrich_gate_findings(
                         for g in untested_gaps
                     ),
                     "source": "crg:get_knowledge_gaps",
-                })
+                }
+                dims[_i] = dataclasses.replace(_d, issues=_d.issues + [new_issue])
 
     # ── 8. list_flows → error_handling context + crg_critical_flows ───
     flow_data = crg.list_flows(project_root, limit=10, sort_by="criticality")
     crit_flows = (flow_data or {}).get("flows", [])
     if crit_flows:
-        for _d in dims:
+        for _i, _d in enumerate(dims):
             if _d.name == "error_handling":
-                _d.issues.append({
+                new_issue = {
                     "severity": "low",
                     "message": (
                         f"Top {len(crit_flows)} critical execution flows — "
@@ -572,7 +578,8 @@ def _crg_enrich_gate_findings(
                         for f in crit_flows[:5]
                     ),
                     "source": "crg:list_flows",
-                })
+                }
+                dims[_i] = dataclasses.replace(_d, issues=_d.issues + [new_issue])
         if result_path.exists():
             try:
                 _gr = json.loads(result_path.read_text(encoding="utf-8"))
@@ -601,7 +608,7 @@ def _crg_enrich_gate_findings(
         _new_dims = []
         for _d in dims:
             if _d.name == "test_coverage":
-                _d.issues.append({
+                new_issue = {
                     "severity": "high",
                     "message": (
                         f"Hub functions with no test linkage: {len(untested_hubs)} found. "
@@ -609,7 +616,7 @@ def _crg_enrich_gate_findings(
                     ),
                     "evidence": "; ".join(untested_hubs),
                     "source": "crg:query_graph(tests_for)",
-                })
+                }
                 _new_score = round(max(0.0, (_d.score or 0.0) - _hub_penalty), 1)
                 print(
                     f"[harness] CRG hub penalty test_coverage: {_d.score:.1f} → "
@@ -618,7 +625,11 @@ def _crg_enrich_gate_findings(
                 )
                 if _new_score != _d.score:
                     _score_overridden = True
-                _new_dims.append(dataclasses.replace(_d, score=_new_score))
+                # Combine issue-add and score-change into ONE replace to avoid two passes
+                # over the original DimResult and to keep `issues` as a fresh list.
+                _new_dims.append(dataclasses.replace(
+                    _d, score=_new_score, issues=_d.issues + [new_issue]
+                ))
             else:
                 _new_dims.append(_d)
         dims = _new_dims
@@ -662,8 +673,11 @@ def _check_tool_evidence(ctx: "GateContext", raw: dict) -> list[str]:
 
     try:
         cfg = _yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
-    except Exception:
+    except (ImportError, _yaml.YAMLError, OSError):
+        # Narrow except: yaml errors + read errors only. Bare Exception would
+        # also swallow KeyboardInterrupt / SystemExit and unrelated bugs.
         return []
+
 
     cfg["dimensions"] = filter_enabled_dimensions(
         cfg.get("dimensions", []), ctx.project_root
@@ -2052,13 +2066,18 @@ class HarnessBridge:
 
         dims: list[DimResult] = []
         for dim_name, dim_data in raw.get("breakdown", {}).items():
-            score = dim_data.get("score", 0.0)
+            # `dict.get(k, default)` only substitutes when the key is absent;
+            # an explicit JSON `null` still surfaces as None and crashes `min(None, _)`.
+            raw_score = dim_data.get("score")
+            score = float(raw_score) if raw_score is not None else 0.0
+            raw_thresh = dim_data.get("threshold")
+            threshold = float(raw_thresh) if raw_thresh is not None else 0.0
             if dim_name == "test_coverage" and _spec_names:
                 score = min(score, _spec_cap)
             dims.append(DimResult(
                 name=dim_name,
                 score=score,
-                threshold=dim_data.get("threshold", 0.0),
+                threshold=threshold,
                 issues=dim_data.get("issues", []),
             ))
 
@@ -2275,8 +2294,10 @@ class HarnessBridge:
             gate_num=ctx.gate_num,
             score=_overall_score,
             dimensions=dims,
-            open_critical=raw.get("open_critical_count", raw.get("open_critical", 0)),
-            open_high=raw.get("open_high_count", raw.get("open_high", 0)),
+            # JSON `null` bypasses `dict.get(k, default)` and surfaces as None —
+            # coerce defensively so a None never reaches `open_critical == 0` checks.
+            open_critical=int(raw.get("open_critical_count") or raw.get("open_critical") or 0),
+            open_high=int(raw.get("open_high_count") or raw.get("open_high") or 0),
             quality_complete=_quality_complete,
             rounds_used=raw.get("rounds_used", 1),
         )

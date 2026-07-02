@@ -156,9 +156,15 @@ class AutoFixEngine:
             self._all_results.append(result)
             return result
 
-        # Round counter
+        # Round counter — must monotonically reflect ATTEMPT NUMBER so HR-12 can ever fire.
+        # The previous code reassigned to context.retry_count, which (a) never grew across
+        # calls in a retry loop, and (b) discarded the previous attempt's count entirely.
+        # Take the max of (stored count, context.retry_count+1) so a single call with a
+        # high retry_count still escalates immediately, AND repeated calls accumulate.
         round_key = f"{context.source}:{problem_type}"
-        self._round_counters[round_key] = context.retry_count
+        self._round_counters[round_key] = max(
+            self._round_counters.get(round_key, 0), context.retry_count + 1
+        )
 
         # Snapshot pre-fix HEAD for CRG drift comparison (Point 4)
         import subprocess as _sp
