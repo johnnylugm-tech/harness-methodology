@@ -32,6 +32,19 @@ def _child_env() -> dict[str, str]:
     env = os.environ.copy()
     for key in _SDK_STREAM_MARKERS:
         env.pop(key, None)
+    # [env-check] Bug #129/#128/#123 class root cause: orchestrated runs
+    # inherit the shell env which may not have .venv/bin in PATH (no
+    # VIRTUAL_ENV export). Sub-agent then sees system python (no pytest-cov)
+    # and nondeterministically fabricates claims. Inject .venv/bin into PATH
+    # so sub-agent sees the project's actual toolchain.
+    _project = Path.cwd()
+    for _vd in (".venv", "venv"):
+        _bindir = _project / _vd / ("Scripts" if os.name == "nt" else "bin")
+        if _bindir.is_dir():
+            _path = env.get("PATH", "")
+            env["PATH"] = str(_bindir) + os.pathsep + _path if _path else str(_bindir)
+            env.setdefault("VIRTUAL_ENV", str(_project / _vd))
+            break
     return env
 
 

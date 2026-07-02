@@ -6660,6 +6660,7 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
         # manifest.
         _add_targets = [
             ".methodology/state.json", "HANDOVER.md",
+            "CLAUDE.md",
             f".methodology/phase{args.completed_phase}_plan.md",
         ]
         if _manifest_regenerated:
@@ -8225,6 +8226,33 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                 if fix_result.get("status") in _DISPATCH_ERROR_STATUSES:
                     print(f"[run-fr-step] {fix_step_name} failed: "
                           f"{fix_result.get('output','')[:200]}")
+                    # [LINT-FIX fallback] If the spawned LINT-FIX sub-agent
+                    # failed (e.g. ANTHROPIC_API_KEY precedence disabling
+                    # claude.ai connectors), try an inline repair with ruff
+                    # before giving up. This avoids the "sub-agent bypass"
+                    # pattern where the TDD agent hand-writes
+                    # gate1_result.json because LINT-FIX was blocked.
+                    if fix_step_name == "LINT-FIX":
+                        _did = False
+                        for _tool_cmd, _fix_flow in (
+                            ("python3", ["-m", "ruff", "check", src_dir, "--fix"]),
+                            ("python3", ["-m", "ruff", "format", src_dir]),
+                        ):
+                            try:
+                                _tr = subprocess.run(
+                                    [_tool_cmd] + _fix_flow,
+                                    capture_output=True, timeout=30,
+                                )
+                                if _tr.returncode == 0:
+                                    _did = True
+                            except Exception:
+                                pass
+                        if _did:
+                            print(f"  [run-fr-step] LINT-FIX inline fallback "
+                                  f"applied (ruff) — continuing with GATE1")
+                            continue  # retry GATE1 with fixed lint
+                        print(f"  [run-fr-step] LINT-FIX inline fallback "
+                              f"failed — try manual fix")
                     break
             else:
                 print(f"[run-fr-step] {fr_id} GATE1 S3 block (round {fix_round}/{max_fix_rounds})"
