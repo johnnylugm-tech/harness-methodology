@@ -8253,6 +8253,53 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                             continue  # retry GATE1 with fixed lint
                         print("  [run-fr-step] LINT-FIX inline fallback "
                               "failed — try manual fix")
+                    # [COVERAGE-FIX fallback] Same dispatch-error class as
+                    # LINT-FIX: the spawned COVERAGE-FIX sub-agent failed
+                    # because claude.ai connectors were blocked. Unlike
+                    # LINT-FIX (where ruff can auto-repair) we cannot
+                    # auto-write missing tests, but we CAN measure ground
+                    # truth: if live pytest --cov already meets min_coverage
+                    # the agent's LOW_COVERAGE classification was a false
+                    # positive — fall through to GATE1 instead of blocking.
+                    # If coverage is genuinely below threshold, still
+                    # break for human intervention, but now print the REAL
+                    # number (not the agent's possibly-fabricated 66.0) so
+                    # the operator knows the actual delta.
+                    elif fix_step_name == "COVERAGE-FIX":
+                        # Read min_coverage from manifest (default 80.0,
+                        # same default _check_gate1_live_coverage uses).
+                        _cov_min = 80.0
+                        try:
+                            _mfst = json.loads(
+                                (Path(str(project)) / ".methodology"
+                                 / "quality_manifest.json").read_text(
+                                    encoding="utf-8"))
+                            _cov_min = float(
+                                (_mfst.get("quality_targets") or {})
+                                .get("min_coverage", 80.0))
+                        except (OSError, ValueError, json.JSONDecodeError):
+                            pass
+                        try:
+                            _live_cov = _validate_fr_coverage_immediate(
+                                Path(str(project)))
+                        except Exception as _exc:
+                            _live_cov = None
+                            print("  [run-fr-step] COVERAGE-FIX inline "
+                                  f"measurement failed: {_exc}")
+                        if _live_cov is not None and _live_cov >= _cov_min:
+                            print("  [run-fr-step] COVERAGE-FIX inline "
+                                  "fallback: whole-project coverage "
+                                  f"{_live_cov:.1f}% ≥ {_cov_min:.0f}% — "
+                                  "sub-agent LOW_COVERAGE was likely a "
+                                  "false positive (whole-project is a "
+                                  "noisy proxy, not per-FR — humans should "
+                                  "still verify FR-scoped coverage at "
+                                  "advance-phase), continuing GATE1")
+                            continue
+                        print("  [run-fr-step] COVERAGE-FIX inline "
+                              "fallback: whole-project coverage "
+                              f"{_live_cov if _live_cov is not None else 'unmeasurable'}% "
+                              f"< {_cov_min:.0f}% — human needs to add tests")
                     break
             else:
                 print(f"[run-fr-step] {fr_id} GATE1 S3 block (round {fix_round}/{max_fix_rounds})"
