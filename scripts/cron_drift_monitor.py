@@ -31,6 +31,27 @@ sys.path.insert(0, str(project_root))
 
 from detection import DriftDetector  # noqa: E402
 
+# Ordinal rank for drift severity strings — using `max()` on the strings directly
+# does lexicographic comparison (CRITICAL<'H'<'L'<'M') which is semantically
+# inverted; a project with one CRITICAL and many LOW would under-report worst.
+_SEVERITY_RANK: dict[str, int] = {
+    "CRITICAL": 4,
+    "HIGH": 3,
+    "MEDIUM": 2,
+    "LOW": 1,
+    "INFO": 0,
+}
+_UNKNOWN_RANK: int = -1
+
+
+def _worst_severity(values: list[str]) -> str:
+    """Return the most severe DriftSeverity name, or 'UNKNOWN' if the list is empty/unknown."""
+    if not values:
+        return "UNKNOWN"
+    def rank(v: str) -> int:
+        return _SEVERITY_RANK.get(v.upper(), _UNKNOWN_RANK)
+    return max(values, key=rank)
+
 
 def _notify_slack(webhook_url: str, text: str) -> bool:
     """Send drift alert via Slack incoming webhook. Returns True on success."""
@@ -121,7 +142,7 @@ def _run_monitor(project_path: str) -> dict:
     severities: list[str] = []
     for key, result in drifts.items():
         items_sev = [item.severity.value for item in result.drift_items] if result.drift_items else []
-        worst = max(items_sev, default="UNKNOWN")
+        worst = _worst_severity(items_sev)
         severities.append(worst)
         print(f"[DRIFT] {key}: score={result.score:.2f} items={len(result.drift_items)} worst={worst}")
 
@@ -134,7 +155,7 @@ def _run_monitor(project_path: str) -> dict:
         "project": project_path,
         "drifts": {k: {"score": v.score, "items": len(v.drift_items)} for k, v in drifts.items()},
         "avg_score": avg_score,
-        "worst_severity": max(severities, default="UNKNOWN") if severities else "UNKNOWN",
+        "worst_severity": _worst_severity(severities) if severities else "UNKNOWN",
     }
 
 

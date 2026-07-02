@@ -500,12 +500,15 @@ class PhaseAuditor:
             phase_name=self.spec.get("name", f"Phase {phase}"),
             audit_time=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         )
-        # cache of resolved actual paths
-        self._resolved: dict[str, Optional[str]] = {}
+        # cache of resolved actual paths (keyed by the full candidate tuple)
+        self._resolved: dict[tuple[str, ...], Optional[str]] = {}
 
     def _resolve(self, candidates: list[str]) -> Optional[str]:
         """Resolve first-existing path from candidate list, cached."""
-        key = candidates[0]
+        # Cache by the FULL candidate tuple — using only candidates[0] collides when
+        # two deliverable specs share the same first path but diverge after
+        # (e.g. SRS.md vs docs/SRS.md), causing stale resolution across calls.
+        key = tuple(candidates)
         if key not in self._resolved:
             self._resolved[key] = self.gh.resolve_path(candidates)
         return self._resolved[key]

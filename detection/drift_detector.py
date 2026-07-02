@@ -742,17 +742,20 @@ class DriftDetector:
     def _resolve_import_layer(self, import_path: str,
                               layer_to_modules: dict[str, set[str]]) -> Optional[str]:
         """Map an import path to a SAB layer name. Returns None if unmatched."""
-        normalized = import_path.replace(".", "/")
+        # Canonicalize BOTH sides to dotted form so modules stored as
+        # "core.quality_gate" still match an `import_path` of "core/quality_gate/sab_parser".
+        normalized = import_path.replace("/", ".")
         for layer_name, modules in layer_to_modules.items():
             for mod in modules:
+                mod_norm = mod.replace("/", ".")
                 # 1. Exact match
-                if normalized == mod:
+                if normalized == mod_norm:
                     return layer_name
-                # 2. Parent-directory match (e.g. from core import quality_gate matches core/quality_gate/sab_parser)
-                if mod.startswith(normalized + "/"):
+                # 2. Parent-directory match (e.g. from core import quality_gate matches core.quality_gate.sab_parser)
+                if mod_norm.startswith(normalized + "."):
                     return layer_name
                 # 3. Child-object match (e.g. from core.quality_gate.sab_parser import SABSpec)
-                if normalized.startswith(mod + "/"):
+                if normalized.startswith(mod_norm + "."):
                     return layer_name
         return None
 

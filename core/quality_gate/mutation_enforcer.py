@@ -520,6 +520,16 @@ def run_stryker_precheck(project: Path) -> tuple[bool, str]:
     missing tool, a crashed run, or survivors all block.
     """
     import json as _json
+    import shutil as _shutil
+
+    # Precheck: `npx` may be missing entirely on a clean machine — without this,
+    # subprocess.run raises FileNotFoundError which bypasses the (False, reason)
+    # contract and surfaces as a hard traceback to the caller.
+    if not _shutil.which("npx"):
+        return False, (
+            "npx not found on PATH. Required for StrykerJS TDD-PRECHECK.\n"
+            "Install Node.js + npm (Node 18+ recommended)."
+        )
 
     probe = subprocess.run(
         ["npx", "--no-install", "stryker", "--version"],
