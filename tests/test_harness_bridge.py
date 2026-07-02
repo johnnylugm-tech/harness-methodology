@@ -612,6 +612,148 @@ class TestSabClosureGaps:
         data = json.loads(p.read_text())
         assert data["gate_score_overrides"] == {}
 
+    # ── Bug H-A regression tests ─────────────────────────────────────────
+    # SAD.md §5 may carry template placeholder values (FR-01: "app.api.webhooks")
+    # even when .methodology/SAB.json has been project-tailored. Without the
+    # reconcile step, the manifest writes the template values and silently
+    # drifts from runtime arch state. See _reconcile_with_sab_json.
+
+    def _write_sab_json(self, tmp_path: Path, content: dict) -> Path:
+        sab_path = tmp_path / ".methodology" / "SAB.json"
+        sab_path.parent.mkdir(parents=True, exist_ok=True)
+        sab_path.write_text(json.dumps(content, indent=2))
+        return sab_path
+
+    def test_h_a_uses_sab_json_when_sad_5_has_template_placeholders(self, tmp_path, capsys):
+        """§5 says FR-01 → 'app.api.webhooks' (template default) but SAB.json
+        has the project-real mapping. Manifest must follow SAB.json — that
+        is what every downstream hook reads."""
+        bridge = HarnessBridge()
+        sab_return = {
+            "fr_module_traceability": {"FR-01": "app.api.webhooks"},  # template default
+            "constraints": [],
+            "high_risk": [], "nfr_dim_map": {},
+            "nfr_traceability": {}, "quality_targets": {},
+            "gate_score_overrides": {},
+        }
+        self._write_sab_json(tmp_path, {
+            "fr_module_traceability": {
+                "FR-01": "taskq.models",
+                "FR-02": "taskq.executor",
+            },
+            "architecture_constraints": ["no_circular_dependencies"],
+            "high_risk_modules": ["taskq.executor"],
+        })
+        with patch("scripts.generate_sab.parse_sad", return_value=sab_return):
+            with patch.object(bridge, "_parse_nfr_from_srs", return_value={}):
+                with patch.object(bridge, "_parse_nfr_fr_xref", return_value={}):
+                    p = bridge.generate_quality_manifest(
+                        ["FR-01", "FR-02"], "SAD.md",
+                        project_root=str(tmp_path), force=True,
+                    )
+        assert p is not None
+        data = json.loads(p.read_text())
+        # Authoritative values from SAB.json must be present
+        assert data["fr_module_traceability"]["FR-01"] == "taskq.models"
+        assert data["fr_module_traceability"]["FR-02"] == "taskq.executor"
+        assert data["architecture_constraints"] == ["no_circular_dependencies"]
+        assert data["high_risk_modules"] == ["taskq.executor"]
+        # WARN line surfaces the template-placeholder drift
+        err = capsys.readouterr().err
+        assert "disagrees with .methodology/SAB.json" in err
+
+    def test_h_a_no_op_when_sab_json_missing(self, tmp_path):
+        """Without SAB.json the helper is a no-op — current behaviour is
+        preserved (covered by all 87 existing tests; this is the
+        backward-compatibility pin)."""
+        bridge = HarnessBridge()
+        sab_return = {
+            "fr_module_traceability": {"FR-01": "app.api.webhooks"},
+            "constraints": [], "high_risk": [],
+            "nfr_dim_map": {}, "nfr_traceability": {},
+            "quality_targets": {}, "gate_score_overrides": {},
+        }
+        # No SAB.json written → reconciliation must not change values.
+        with patch("scripts.generate_sab.parse_sad", return_value=sab_return):
+            with patch.object(bridge, "_parse_nfr_from_srs", return_value={}):
+                with patch.object(bridge, "_parse_nfr_fr_xref", return_value={}):
+                    p = bridge.generate_quality_manifest(
+                        ["FR-01"], "SAD.md",
+                        project_root=str(tmp_path), force=True,
+                    )
+        assert p is not None
+        data = json.loads(p.read_text())
+        # §5 value preserved when SAB.json is absent
+        assert data["fr_module_traceability"] == {"FR-01": "app.api.webhooks"}
+
+    def test_h_a_idempotent_when_sad_5_and_sab_json_agree(self, tmp_path, capsys):
+        """§5 and SAB.json say the same thing → no WARN, no behaviour change."""
+        bridge = HarnessBridge()
+        shared = {
+            "FR-01": "taskq.models",
+            "FR-02": "taskq.executor",
+            "FR-03": "taskq.cli",
+        }
+        sab_return = {
+            "fr_module_traceability": dict(shared),
+            "constraints": ["no_circular_dependencies"],
+            "high_risk": ["taskq.executor", "taskq.store"],
+            "nfr_dim_map": {"NFR-01": "performance"},
+            "nfr_traceability": {}, "quality_targets": {},
+            "gate_score_overrides": {},
+        }
+        self._write_sab_json(tmp_path, {
+            "fr_module_traceability": dict(shared),
+            "architecture_constraints": ["no_circular_dependencies"],
+            "high_risk_modules": ["taskq.executor", "taskq.store"],
+            "nfr_dimension_mapping": {"NFR-01": "performance"},
+        })
+        with patch("scripts.generate_sab.parse_sad", return_value=sab_return):
+            with patch.object(bridge, "_parse_nfr_from_srs", return_value={}):
+                with patch.object(bridge, "_parse_nfr_fr_xref", return_value={}):
+                    p = bridge.generate_quality_manifest(
+                        ["FR-01", "FR-02", "FR-03"], "SAD.md",
+                        project_root=str(tmp_path), force=True,
+                    )
+        assert p is not None
+        data = json.loads(p.read_text())
+        # All values match what was already in §5
+        assert data["fr_module_traceability"] == shared
+        # No WARN emitted on agreement
+        err = capsys.readouterr().err
+        assert "disagrees with" not in err
+
+    def test_h_a_unaffected_by_dict_key_order(self, tmp_path, capsys):
+        """Ordering difference between §5 and SAB.json dicts is NOT a
+        real disagreement — only structural / value differences count."""
+        bridge = HarnessBridge()
+        sab_return = {
+            "fr_module_traceability": {
+                "FR-02": "taskq.executor",
+                "FR-01": "taskq.models",   # key order swapped vs SAB.json
+            },
+            "constraints": [], "high_risk": [],
+            "nfr_dim_map": {}, "nfr_traceability": {},
+            "quality_targets": {}, "gate_score_overrides": {},
+        }
+        self._write_sab_json(tmp_path, {
+            "fr_module_traceability": {
+                "FR-01": "taskq.models",
+                "FR-02": "taskq.executor",
+            },
+        })
+        with patch("scripts.generate_sab.parse_sad", return_value=sab_return):
+            with patch.object(bridge, "_parse_nfr_from_srs", return_value={}):
+                with patch.object(bridge, "_parse_nfr_fr_xref", return_value={}):
+                    p = bridge.generate_quality_manifest(
+                        ["FR-01", "FR-02"], "SAD.md",
+                        project_root=str(tmp_path), force=True,
+                    )
+        assert p is not None
+        err = capsys.readouterr().err
+        # Dict-ordering difference must NOT be flagged as a disagreement
+        assert "disagrees with" not in err
+
     # ── Gap 4: evaluation_prompt injects fr_module_traceability ────────────
 
     def test_evaluation_prompt_injects_fr_module_for_gate1(self):

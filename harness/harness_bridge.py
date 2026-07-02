@@ -2502,6 +2502,94 @@ class HarnessBridge:
         except Exception:
             return {}
 
+    def _reconcile_with_sab_json(
+        self, parsed: dict, sab_json: dict, source_label: str = "SAD §5"
+    ) -> dict:
+        """Reconcile SAD.md §5 parse result with .methodology/SAB.json content.
+
+        Bug H-A fix: SAD.md §5 is the *declarative* source of architecture
+        state, but in practice the §5 YAML may still carry template placeholder
+        values (e.g. ``FR-01: "app.api.webhooks"``) for projects that never
+        project-tailored §5 after using the canonical template. Meanwhile
+        ``.methodology/SAB.json`` is the *runtime canonical* source — every
+        downstream hook (drift_detector, phase_hooks, _check_sab_constitution,
+        spec_coverage) reads SAB.json, not the §5 YAML. When §5 and SAB.json
+        disagree, the manifest currently writes §5's templated values and
+        silently drifts from what the rest of the harness trusts.
+
+        Root-cause fix: SAB.json wins for architecture-derived fields. §5
+        parse only fills fields absent from SAB.json. When both sides have
+        values and they disagree, a ``[WARN]`` is emitted naming both sides
+        verbatim — the operator can fix §5 (the canonical contract) and
+        regenerate SAB.json to make the disagreement disappear.
+
+        Args:
+            parsed: result of ``scripts.generate_sab.parse_sad(sad_path)``.
+                Keys use sab_parser short aliases (``fr_module_traceability``,
+                ``high_risk``, ``constraints``, ``nfr_dim_map``, etc.).
+            sab_json: parsed ``.methodology/SAB.json`` content. May be empty
+                if the file does not exist or failed to parse.
+            source_label: human-readable source name for the WARN line,
+                e.g. ``"SAD §5"`` or ``"SAD.md"``.
+
+        Returns:
+            dict with the same shape as ``parsed``, but with architecture
+            fields overwritten from SAB.json when SAB.json has non-empty
+            values.
+        """
+        # (parsed_key, sab_key) pairs. SAB.json is canonical for all of these.
+        # nfr_fr_mapping is intentionally excluded — it is SAD-derived prose
+        # data (parsed from §2 cross-reference), never written to SAB.json.
+        field_pairs = [
+            ("fr_module_traceability", "fr_module_traceability"),
+            ("high_risk", "high_risk_modules"),
+            ("constraints", "architecture_constraints"),
+            ("quality_targets", "quality_targets"),
+            ("nfr_dim_map", "nfr_dimension_mapping"),
+            ("nfr_traceability", "nfr_traceability"),
+            ("gate_score_overrides", "gate_score_overrides"),
+        ]
+        merged = dict(parsed)
+
+        for parsed_key, sab_key in field_pairs:
+            sab_val = sab_json.get(sab_key)
+            # Treat empty dict / empty list as "absent" — pure-template
+            # manifests must still benefit from the SAB.json fallback.
+            sab_present = bool(sab_val) and sab_val not in ({}, [], "", None)
+            if not sab_present:
+                continue
+
+            parsed_val = merged.get(parsed_key, ({} if isinstance(sab_val, dict) else []))
+            if parsed_val and self._values_disagree(parsed_val, sab_val):
+                print(
+                    f"  [WARN] {source_label}.{parsed_key} disagrees with "
+                    f".methodology/SAB.json.{sab_key}; using SAB.json "
+                    f"(canonical — drift_detector and all SAB-aware hooks read "
+                    f"SAB.json). Re-run `python3 scripts/generate_sab.py "
+                    f"--project . --overwrite` after editing {source_label}.",
+                    file=sys.stderr,
+                )
+            merged[parsed_key] = sab_val
+
+        return merged
+
+    @staticmethod
+    def _values_disagree(parsed_val: object, sab_val: object) -> bool:
+        """True when parsed (§5) and SAB.json values differ semantically.
+
+        Dict ordering is normalised (JSON serialise → reparse) so that
+        ``{"a": 1, "b": 2}`` vs ``{"b": 2, "a": 1}`` does NOT count as a
+        disagreement — only structural / value differences count.
+        """
+        try:
+            return json.loads(json.dumps(parsed_val, sort_keys=True)) != \
+                json.loads(json.dumps(sab_val, sort_keys=True))
+        except (TypeError, ValueError):
+            # Non-JSON values fall back to literal compare; this branch only
+            # fires for pathological inputs the dataclass contract already
+            # prevents.
+            return parsed_val != sab_val
+
     def generate_quality_manifest(
         self,
         fr_ids: list[str],
@@ -2541,6 +2629,41 @@ class HarnessBridge:
             sab = parse_sad(sad_path)
         except Exception:
             sab = {}
+
+        # Bug H-A fix: reconcile with .methodology/SAB.json as canonical
+        # for architecture-derived fields. SAD.md §5 may still carry
+        # template placeholder values; SAB.json is what drift_detector and
+        # every SAB-aware hook actually reads at runtime. Without this step,
+        # the manifest silently drifts from runtime arch state. See
+        # ``_reconcile_with_sab_json`` for the rationale. Backward-
+        # compatible: if SAB.json is absent, parse_sad's result is used
+        # unchanged.
+        #
+        # IMPORTANT: resolve SAB.json path from `project_root` when available
+        # (the caller already validated it — hr-09 / hr-11), falling back
+        # to a derivation from `sad_path` only if project_root is unknown.
+        # Using `Path(sad_path).parent.parent` alone is CWD-relative for
+        # relative `sad_path` arguments and produces a path the caller's
+        # ``Path`` mock (when patching for tests) cannot redirect — that's
+        # why HR-09 insists on explicit project_root.
+        if project_root:
+            _project_root_for_sab_json = Path(project_root).resolve()
+        else:
+            _project_root_for_sab_json = Path(sad_path).parent.resolve().parent
+        _sab_json_path = _project_root_for_sab_json / ".methodology" / "SAB.json"
+        _sab_json: dict = {}
+        if _sab_json_path.exists():
+            try:
+                _sab_json = json.loads(
+                    _sab_json_path.read_text(encoding="utf-8")
+                )
+            except Exception as _sab_exc:  # pylint: disable=broad-exception-caught
+                print(
+                    f"  [WARN] Could not parse {_sab_json_path} for "
+                    f"reconciliation: {_sab_exc}; falling back to §5 parse.",
+                    file=sys.stderr,
+                )
+        sab = self._reconcile_with_sab_json(sab, _sab_json)
 
         _project_root = Path(sad_path).parent.parent
         nfr_map = sab.get("nfr_dim_map", {})
