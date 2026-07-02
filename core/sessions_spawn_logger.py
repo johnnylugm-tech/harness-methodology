@@ -68,6 +68,17 @@ class SessionsSpawnLogger:
                   **kwargs) -> Dict[str, Any]:
         """Record a new agent spawn event with role and task attribution.
 
+        Standard kwargs written to each entry:
+            phase: int — methodology phase (1-8)
+            fr_id: str | None — functional requirement id (e.g. "FR-01")
+            regression_flags: dict — sub-agent regression guard output
+            error_output: str — truncated stderr/stdout from AgentSpawner when
+                status is ERROR / TIMEOUT / REGRESSION_GUARD (capped ~500 chars).
+                Without this, ERROR sessions only showed status="ERROR" +
+                session_id="" with no clue why spawn failed.
+            exit_code: int | None — subprocess returncode on non-zero exit.
+                None for complete / SPAWNED / PENDING.
+
         Guarded by cross-process file lock (SG-3): parallel log_spawn +
         log_update calls cannot interleave and lose entries.
         """

@@ -233,7 +233,16 @@ class AgentSpawner:
         """Auto-record agent dispatch to .methodology/sessions_spawn.log as a
         non-blocking debug trail. (The HR-10 entry-count audit that consumed this
         log was removed — it was agent-writable / not tamper-evident. This stays as
-        a dispatch trace for debugging; nothing gates on it.)"""
+        a dispatch trace for debugging; nothing gates on it.)
+
+        ERROR observability (SESSIONS_SPAWN-OBSERVABILITY):
+        Always writes `error_output` (truncated stderr/stdout, ~500 chars) and
+        `exit_code` (subprocess returncode) into the log entry. Previously these
+        fields were dropped, so ERROR sessions only showed status="ERROR" +
+        session_id="" with no clue why the spawn failed — and the workflow's
+        retry-on-next-step covered it up. Surfacing stderr lets future ERROR
+        rounds debug the real cause instead of treating the symptom.
+        """
         if not self.project_path:
             return
         try:
@@ -245,6 +254,8 @@ class AgentSpawner:
                 status=result.get("status", "SPAWNED"),
                 phase=phase, fr_id=fr_id,
                 regression_flags=regression_flags or {},
+                error_output=(result.get("output") or "")[:500],
+                exit_code=result.get("exit_code"),
             )
         except Exception as e:
             import sys
