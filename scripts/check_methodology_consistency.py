@@ -388,6 +388,19 @@ def check_rules(
     plan_files = _scan_plan_files(plan_dir)
     js_files = _scan_workflow_js(workflow_dir)
 
+    # Absence-vs-drift: with no source files on a surface there is no
+    # duplicated rule text that can drift (plans are per-run artifacts —
+    # absent on fresh init and between plan-all runs). Skip those surfaces
+    # with a note instead of reporting false fingerprint drift; mirrors the
+    # Bug M05 distinction for constitution_doc. Plan *presence* is enforced
+    # by run-phase preflight, not by this drift checker.
+    if not plan_files:
+        print(f"  [INFO] no phase*_plan.md under {plan_dir} — plan-surface "
+              "rules skipped (run plan-all to generate plans)")
+    if not js_files:
+        print(f"  [INFO] no phase*.js under {workflow_dir} — workflow-surface "
+              "rules skipped")
+
     plan_text = ""
     for fname in plan_files:
         plan_text += (plan_dir / fname).read_text(encoding="utf-8") + "\n"
@@ -416,6 +429,8 @@ def check_rules(
             continue
         for surface in rule.get("surfaces", []):
             if surface in ("plan_task_hint", "plan_checks"):
+                if not plan_files:
+                    continue
                 missing = [t for t in tokens if t not in plan_text]
                 if len(missing) > 0:
                     errors.append(
@@ -424,6 +439,8 @@ def check_rules(
                         f"missing: {missing[:3]})"
                     )
             elif surface in ("workflow_a_prompt", "workflow_b_checklist"):
+                if not js_files:
+                    continue
                 missing = [t for t in tokens if t not in js_text]
                 if len(missing) > 0:
                     errors.append(

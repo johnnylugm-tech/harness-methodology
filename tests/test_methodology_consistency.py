@@ -321,6 +321,39 @@ class TestCheckRules:
         assert any("plan_task_hint" in e and "R-TEST-001" in e for e in errors), \
             f"missing plan drift error: {errors}"
 
+    def test_absent_plan_source_is_not_drift(self, tmp_path: Path, capsys):
+        """Absence-vs-drift: with no phase*_plan.md generated yet (fresh init,
+        or between plan-all runs — plans are per-run artifacts), there is no
+        duplicated rule text that can drift. Plan surfaces must be skipped with
+        an INFO note, not reported as fingerprint-token drift (mirrors the
+        Bug M05 distinction for constitution_doc)."""
+        plan_dir = tmp_path / ".methodology"
+        plan_dir.mkdir()  # exists but holds no phase*_plan.md
+        rules = {
+            "R-TEST-001": {
+                "text": "UNIQUE_FINGERPRINT_TOKEN_XYZ123: this is a test rule.",
+                "surfaces": ["plan_task_hint", "plan_checks"],
+            }
+        }
+        errors = check_rules(rules, plan_dir=plan_dir, workflow_dir=tmp_path / "workflows")
+        assert not any("plan" in e for e in errors), f"false drift on absent plans: {errors}"
+        assert "no phase*_plan.md" in capsys.readouterr().out
+
+    def test_absent_workflow_js_is_not_drift(self, tmp_path: Path, capsys):
+        """Same absence-vs-drift rule for the workflow JS surfaces."""
+        rules = {
+            "R-TEST-001": {
+                "text": "UNIQUE_FINGERPRINT_TOKEN_XYZ123: this is a test rule.",
+                "surfaces": ["workflow_a_prompt"],
+            }
+        }
+        errors = check_rules(
+            rules, plan_dir=tmp_path / ".methodology", workflow_dir=tmp_path / "workflows"
+        )
+        assert not any("workflow JS" in e for e in errors), \
+            f"false drift on absent workflows: {errors}"
+        assert "no phase*.js" in capsys.readouterr().out
+
     def test_tolerates_markdown_formatting_drift_in_workflow_js(
         self, tmp_path: Path
     ):
