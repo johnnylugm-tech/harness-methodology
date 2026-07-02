@@ -9249,22 +9249,35 @@ def _init_copy_templates(project: Path, harness_root: Path, *, overwrite: bool =
     copied = 0
     skipped = 0
     missing = 0
+    protected = 0
     for subdir, filename in artifact_map:
         src = templates_dir / filename
         dst = project / subdir / filename
         if dst.exists() and not overwrite:
             skipped += 1
-        elif src.exists():
-            shutil.copy2(src, dst)
-            copied += 1
-        else:
+        elif not src.exists():
             print(f"   WARNING: template not found: {src}")
             missing += 1
+        elif dst.exists() and dst.read_bytes() != src.read_bytes():
+            # Deliverable differs from its template → authored in-flight state.
+            # Never overwritten, even with --overwrite — mirrors the state.json
+            # never-reset rule (integration-test E2E clobber, 2026-07-02).
+            print(
+                f"   PROTECTED: {dst} differs from template (authored content); "
+                "not overwritten — delete the file manually to re-template it."
+            )
+            protected += 1
+        else:
+            shutil.copy2(src, dst)
+            copied += 1
 
-    # CLAUDE.md.template → project/CLAUDE.md (only if no CLAUDE.md exists)
+    # CLAUDE.md.template → project/CLAUDE.md (only if no CLAUDE.md exists).
+    # An existing CLAUDE.md is never re-copied, even with --overwrite: the
+    # harness auto block is refreshed in place by _update_claude_md, and a
+    # wholesale re-copy only destroys user custom sections below the block.
     claude_tmpl = harness_root / "CLAUDE.md.template"
     claude_dst = project / "CLAUDE.md"
-    if claude_dst.exists() and not overwrite:
+    if claude_dst.exists():
         skipped += 1
     elif claude_tmpl.exists():
         shutil.copy2(claude_tmpl, claude_dst)
@@ -9285,6 +9298,8 @@ def _init_copy_templates(project: Path, harness_root: Path, *, overwrite: bool =
         parts.append(f"copied {copied} template{'s' if copied != 1 else ''}")
     if skipped:
         parts.append(f"{skipped} already existed")
+    if protected:
+        parts.append(f"{protected} authored (protected)")
     if missing:
         parts.append(f"{missing} template(s) not found")
     if parts:

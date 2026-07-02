@@ -105,7 +105,11 @@ class TestInitCopyTemplates:
         assert "copied" in out1
         assert "already existed" in out2
 
-    def test_force_overwrites_existing(self, tmp_path):
+    def test_overwrite_protects_authored_deliverables(self, tmp_path, capsys):
+        """Bug: init-project --overwrite clobbered authored SRS.md/SAD.md/... with
+        template content (integration-test E2E, 2026-07-02). A deliverable whose
+        content differs from its template is authored in-flight state — protected
+        even with overwrite=True, mirroring the state.json never-reset rule."""
         from harness_cli import _init_copy_templates
         import harness_cli as hc
 
@@ -114,12 +118,54 @@ class TestInitCopyTemplates:
         (tmp_path / "02-architecture").mkdir()
         (tmp_path / "02-architecture" / "adr").mkdir()
         srs = tmp_path / "01-requirements" / "SRS.md"
-        srs.write_text("old content")
+        srs.write_text("# Authored SRS — FR-01 taskq.models\n")
 
         _init_copy_templates(tmp_path, harness_root, overwrite=True)
 
-        content = srs.read_text()
-        assert "old content" not in content  # overwritten by template
+        assert srs.read_text() == "# Authored SRS — FR-01 taskq.models\n"
+        out = capsys.readouterr().out
+        assert "PROTECTED" in out
+        assert "SRS.md" in out
+
+    def test_overwrite_refreshes_pristine_template_copies(self, tmp_path, capsys):
+        """A deliverable byte-identical to its template is unauthored — overwrite=True
+        may refresh it (no-op content-wise) and must NOT report PROTECTED."""
+        from harness_cli import _init_copy_templates
+        import harness_cli as hc
+
+        harness_root = Path(hc.__file__).parent
+        (tmp_path / "01-requirements").mkdir()
+        (tmp_path / "02-architecture").mkdir()
+        (tmp_path / "02-architecture" / "adr").mkdir()
+
+        _init_copy_templates(tmp_path, harness_root)
+        capsys.readouterr()
+        template_srs = (harness_root / "templates" / "SRS.md").read_text(encoding="utf-8")
+
+        _init_copy_templates(tmp_path, harness_root, overwrite=True)
+
+        srs = tmp_path / "01-requirements" / "SRS.md"
+        assert srs.read_text(encoding="utf-8") == template_srs
+        out = capsys.readouterr().out
+        assert "PROTECTED" not in out
+
+    def test_overwrite_never_replaces_existing_claude_md(self, tmp_path):
+        """Existing CLAUDE.md is never re-copied wholesale (even with overwrite=True):
+        _update_claude_md refreshes the auto block in place; a full re-copy only
+        destroys user custom sections below the block."""
+        from harness_cli import _init_copy_templates
+        import harness_cli as hc
+
+        harness_root = Path(hc.__file__).parent
+        (tmp_path / "01-requirements").mkdir()
+        (tmp_path / "02-architecture").mkdir()
+        (tmp_path / "02-architecture" / "adr").mkdir()
+        claude = tmp_path / "CLAUDE.md"
+        claude.write_text("# Project: x\n\n## My custom section\nkeep me\n")
+
+        _init_copy_templates(tmp_path, harness_root, overwrite=True)
+
+        assert "keep me" in claude.read_text()
 
     def test_handles_missing_template_source(self, tmp_path, capsys):
         """When a template file is removed, reports WARNING and continues."""
