@@ -8248,11 +8248,11 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                             except Exception:
                                 pass
                         if _did:
-                            print(f"  [run-fr-step] LINT-FIX inline fallback "
-                                  f"applied (ruff) — continuing with GATE1")
+                            print("  [run-fr-step] LINT-FIX inline fallback "
+                                  "applied (ruff) — continuing with GATE1")
                             continue  # retry GATE1 with fixed lint
-                        print(f"  [run-fr-step] LINT-FIX inline fallback "
-                              f"failed — try manual fix")
+                        print("  [run-fr-step] LINT-FIX inline fallback "
+                              "failed — try manual fix")
                     break
             else:
                 print(f"[run-fr-step] {fr_id} GATE1 S3 block (round {fix_round}/{max_fix_rounds})"
