@@ -3150,12 +3150,12 @@ def _check_gate4_prerequisites(project: Path) -> "tuple[bool, set[str]]":
             print("[Gate 4] (A5, advisory): 'issue_registry_path' not set in gate4_result.json.",
                   file=sys.stderr)
         else:
-            issue_registry = (project / issue_registry_path_str) if not Path(issue_registry_path_str).is_absolute() else Path(issue_registry_path_str)
+            issue_registry: Optional[Path] = (project / issue_registry_path_str) if not Path(issue_registry_path_str).is_absolute() else Path(issue_registry_path_str)
             # Containment check: agent-controlled path must resolve inside the
             # project root. Blocking traversal (`../../etc/passwd`) probes here
             # even though the registry contents are only advisory.
             try:
-                if not issue_registry.resolve().is_relative_to(project.resolve()):
+                if issue_registry and not issue_registry.resolve().is_relative_to(project.resolve()):
                     print(
                         f"[Gate 4] (A5, advisory): issue_registry_path escapes project root "
                         f"({issue_registry}); refusing to read.",

@@ -100,6 +100,7 @@ STALL_TIMEOUTS: dict[str, int] = {
     "fr_step": 600,
     "mutation": 3600,
     "state_alert_min": 180,
+    "gitleaks": 300,
 }
 
 
