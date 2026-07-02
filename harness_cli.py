@@ -2670,11 +2670,46 @@ def cmd_run_env_check(args: argparse.Namespace) -> int:
             cwd=str(Path(project).resolve()),
             env=_child_env(),
         )
-    except subprocess.TimeoutExpired:
-        print("[ERROR] env-check sub-agent timed out after 300s.", file=sys.stderr)
-        return 1
+    except subprocess.TimeoutExpired as _te:
+        # Observability (same class as the sessions_spawn ERROR fix):
+        # TimeoutExpired carries the partial captured output — print its tail
+        # so a timeout is never a black box.
+        for _label, _stream in (("stdout", _te.output), ("stderr", _te.stderr)):
+            if _stream:
+                _txt = (_stream.decode("utf-8", "replace")
+                        if isinstance(_stream, bytes) else str(_stream))
+                print(f"[TIMEOUT-{_label}] ...{_txt[-500:]}", file=sys.stderr)
+        # Bug #138 root-cause fix (2026-07-02): "process exited within the
+        # timeout" is the wrong success proxy. The check has already succeeded
+        # once env_check_result.json is (re)written — the sub-agent's
+        # post-artifact wrap-up (finalize-env-check + final response) can
+        # legitimately outlive the timeout (observed: artifact at 143s, kill
+        # at 300s). Fall through to the artifact verification below when the
+        # artifact was written by THIS spawn (mtime >= this run's sentinel);
+        # fail only when it wasn't. A leftover artifact from a previous run
+        # is older than the sentinel and is NOT accepted.
+        _rp = Path(project) / ".sessi-work" / "env_check_result.json"
+        try:
+            _fresh = _rp.exists() and _rp.stat().st_mtime >= sf.stat().st_mtime
+        except OSError:
+            _fresh = False
+        if not _fresh:
+            print(
+                f"[ERROR] env-check sub-agent timed out after "
+                f"{get_timeout('subprocess')}s without writing "
+                f"env_check_result.json.",
+                file=sys.stderr,
+            )
+            return 1
+        print(
+            "[WARN] env-check sub-agent timed out during wrap-up, but "
+            "env_check_result.json was written by this run — proceeding "
+            "with artifact verification.",
+            file=sys.stderr,
+        )
+        proc = None
 
-    if proc.returncode != 0:
+    if proc is not None and proc.returncode != 0:
         print(f"[ERROR] env-check sub-agent failed (exit {proc.returncode}).", file=sys.stderr)
         if proc.stderr:
             print(proc.stderr[:500], file=sys.stderr)

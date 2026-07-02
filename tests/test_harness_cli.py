@@ -1157,6 +1157,90 @@ class TestCmdRunEnvCheck:
         monkeypatch.setattr("harness_cli._verify_env_check_claims", lambda _: [])
         assert cmd_run_env_check(args) == 1
 
+    # -- Bug #138: timeout must use artifact-based success, not process exit --
+
+    def _setup_timeout(self, tmp_path, monkeypatch, write_result: "str | None",
+                       stderr_tail: str = "") -> None:
+        """Mock claude CLI + subprocess.run that raises TimeoutExpired.
+        When write_result is given, the fake sub-agent writes the artifact
+        (with a future mtime, definitely >= sentinel) before 'timing out' —
+        simulating a sub-agent killed during post-artifact wrap-up.
+        """
+        import os
+        import shutil
+        import subprocess
+        import time as _time
+        monkeypatch.setattr(shutil, "which", lambda _: "/fake/claude")
+        work = tmp_path / ".sessi-work"
+        def _fake_run(*_a, **_k):
+            if write_result is not None:
+                work.mkdir(parents=True, exist_ok=True)
+                rp = work / "env_check_result.json"
+                rp.write_text(write_result, encoding="utf-8")
+                fut = _time.time() + 60
+                os.utime(rp, (fut, fut))
+            raise subprocess.TimeoutExpired(
+                cmd=["claude", "-p"], timeout=300,
+                output=b"partial stdout", stderr=stderr_tail.encode() or None,
+            )
+        monkeypatch.setattr(subprocess, "run", _fake_run)
+
+    def test_timeout_with_fresh_artifact_ready_true_exits_0(self, tmp_path, monkeypatch):
+        """Sub-agent wrote a valid ready=true artifact, then got killed during
+        wrap-up (finalize / final response). The check succeeded — rc must be 0.
+        """
+        from harness_cli import cmd_run_env_check
+        self._setup_timeout(tmp_path, monkeypatch, write_result='{"ready": true}')
+        monkeypatch.setattr("harness_cli._verify_env_check_claims", lambda _: [])
+        args = argparse.Namespace(project=str(tmp_path), phase=1, fr_id=None)
+        assert cmd_run_env_check(args) == 0
+
+    def test_timeout_with_fresh_artifact_ready_false_exits_1(self, tmp_path, monkeypatch):
+        """Artifact-based fallback must still honor ready=false."""
+        from harness_cli import cmd_run_env_check
+        self._setup_timeout(tmp_path, monkeypatch, write_result='{"ready": false}')
+        monkeypatch.setattr("harness_cli._verify_env_check_claims", lambda _: [])
+        args = argparse.Namespace(project=str(tmp_path), phase=1, fr_id=None)
+        assert cmd_run_env_check(args) == 1
+
+    def test_timeout_without_artifact_exits_1(self, tmp_path, monkeypatch):
+        """No artifact written by this spawn → genuine failure, rc 1."""
+        from harness_cli import cmd_run_env_check
+        self._setup_timeout(tmp_path, monkeypatch, write_result=None)
+        monkeypatch.setattr("harness_cli._verify_env_check_claims", lambda _: [])
+        args = argparse.Namespace(project=str(tmp_path), phase=1, fr_id=None)
+        assert cmd_run_env_check(args) == 1
+
+    def test_timeout_with_stale_artifact_exits_1(self, tmp_path, monkeypatch):
+        """A leftover artifact from a PREVIOUS run (mtime older than this
+        run's sentinel) must not be accepted as this spawn's output.
+        """
+        import os
+        import time as _time
+        from harness_cli import cmd_run_env_check
+        self._setup_timeout(tmp_path, monkeypatch, write_result=None)
+        work = tmp_path / ".sessi-work"
+        work.mkdir(parents=True, exist_ok=True)
+        rp = work / "env_check_result.json"
+        rp.write_text('{"ready": true}', encoding="utf-8")
+        past = _time.time() - 3600
+        os.utime(rp, (past, past))
+        monkeypatch.setattr("harness_cli._verify_env_check_claims", lambda _: [])
+        args = argparse.Namespace(project=str(tmp_path), phase=1, fr_id=None)
+        assert cmd_run_env_check(args) == 1
+
+    def test_timeout_prints_partial_stderr(self, tmp_path, monkeypatch, capsys):
+        """Observability: TimeoutExpired partial output must be surfaced."""
+        from harness_cli import cmd_run_env_check
+        self._setup_timeout(tmp_path, monkeypatch, write_result=None,
+                            stderr_tail="AUTH_HINT: token refresh loop")
+        monkeypatch.setattr("harness_cli._verify_env_check_claims", lambda _: [])
+        args = argparse.Namespace(project=str(tmp_path), phase=1, fr_id=None)
+        assert cmd_run_env_check(args) == 1
+        _, err = capsys.readouterr()
+        assert "AUTH_HINT: token refresh loop" in err
+        assert "partial stdout" in err
+
 
 class TestValidateP8Completion:
     """Tests for _validate_p8_completion pre-flight checks."""
