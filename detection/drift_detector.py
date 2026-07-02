@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional, Set
-from core.utils.project_layout import phase_artifacts
+from core.utils.project_layout import phase_artifacts, ProjectLayout
 
 
 # ---------------------------------------------------------------------------
@@ -47,16 +47,20 @@ def read_package_dir(project_path: Path) -> Optional[str]:
         try:
             cp = configparser.ConfigParser()
             cp.read(str(candidate), encoding="utf-8")
-            if not cp.has_section("options"):
-                return None
-            if not cp.has_option("options", "package_dir"):
-                return None
-            raw = cp.get("options", "package_dir")
-            for line in raw.splitlines():
-                line = line.strip()
-                if line.startswith("="):
-                    val = line[1:].strip()
-                    return val or None
+            # A setup.cfg without `[options] package_dir` is inconclusive, not
+            # a definitive "no src-layout" — the project may declare src-layout
+            # a different way (e.g. `[tool:pytest] pythonpath=`) or not use
+            # setuptools' package_dir convention at all. Fall through to the
+            # pyproject.toml check and ultimately the ProjectLayout fallback
+            # below instead of short-circuiting the whole function here.
+            if cp.has_section("options") and cp.has_option("options", "package_dir"):
+                raw = cp.get("options", "package_dir")
+                for line in raw.splitlines():
+                    line = line.strip()
+                    if line.startswith("="):
+                        val = line[1:].strip()
+                        if val:
+                            return val
         except Exception:  # pylint: disable=broad-exception-caught  # nosec B110
             pass
 
@@ -73,10 +77,25 @@ def read_package_dir(project_path: Path) -> Optional[str]:
         except Exception:
             pass
 
-    import warnings
-    for cand_dir in (project_path / "03-development" / "src", project_path / "src"):
-        if cand_dir.is_dir():
-            warnings.warn("A 'src/' directory exists but no package_dir is detected in setup.cfg or pyproject.toml.")
+    # Fallback: config-file declaration (setuptools-style `[options] package_dir`
+    # or PEP 621 `where=[...]`) is absent — a project declaring src-layout via
+    # `[tool:pytest] pythonpath=` (or any other non-setuptools convention) would
+    # otherwise never resolve. Reuse ProjectLayout.active_src_dir — the same
+    # canonical, filesystem-existence-based abstraction phase_hooks.py,
+    # phase_truth_verifier.py, phase_artifact_enforcer.py, and sab_amender.py
+    # already rely on — instead of re-deriving src-layout detection here.
+    # Resolve both sides before relative_to(): ProjectLayout always returns an
+    # absolute active_src_dir, but callers (e.g. DriftDetector.__init__) may
+    # pass a relative project_path (e.g. Path(".")) without resolving it —
+    # relative_to() between an absolute and a relative path raises ValueError,
+    # which would otherwise be silently swallowed below.
+    try:
+        resolved_project = project_path.resolve()
+        active_src = ProjectLayout(resolved_project).active_src_dir
+        if active_src.is_dir():
+            return str(active_src.relative_to(resolved_project))
+    except Exception:  # pylint: disable=broad-exception-caught  # nosec B110
+        pass
 
     return None
 
@@ -111,8 +130,28 @@ def sab_module_to_path_variants(
 
     # If a package dir is known (e.g. "src"), also try the prefixed form so
     # that SAB "taskq.cli" matches src/taskq/cli.py in src/-layout projects.
+    # Guard against double-prefixing: a module may already self-declare its
+    # src segment (mod="src.taskq.config" -> dotted_path="src/taskq/config.py")
+    # — if dotted_path's first segment already equals pkg_dir's basename, the
+    # caller's own "03-development/"-prefixed existence check (applied to the
+    # unprefixed dotted_path candidate) already resolves it; prepending pkg_dir
+    # here would instead produce a bogus doubled segment ("<pkg_dir>/src/...").
     if pkg_dir and not dotted_path.startswith(f"{pkg_dir}/"):
-        candidates.append(f"{pkg_dir}/{dotted_path}")
+        pkg_dir_basename = pkg_dir.rsplit("/", 1)[-1]
+        if dotted_path.split("/", 1)[0] != pkg_dir_basename:
+            candidates.append(f"{pkg_dir}/{dotted_path}")
+
+    # A dotted SAB entry may name a PACKAGE, not a leaf module (e.g.
+    # "taskq.cli" referring to the taskq/cli/ subpackage, whose actual file
+    # is taskq/cli/__init__.py) — distinct from "taskq.cli.cli" (the leaf
+    # module taskq/cli/cli.py, a separate SAB entry). Without this, every
+    # dotted SAB entry that names a package is false-flagged as missing.
+    init_path = mod.replace(".", "/") + "/__init__.py"
+    candidates.append(init_path)
+    if pkg_dir and not init_path.startswith(f"{pkg_dir}/"):
+        pkg_dir_basename = pkg_dir.rsplit("/", 1)[-1]
+        if init_path.split("/", 1)[0] != pkg_dir_basename:
+            candidates.append(f"{pkg_dir}/{init_path}")
 
     return candidates
 
@@ -275,6 +314,18 @@ class DriftDetector:
         checked = 0
         drifted = 0
 
+        # SAD.md's own FR-mapping table only commits to a basename (e.g.
+        # `models.py`), not a full path — it never claims which subpackage a
+        # module lives under. active_src_dir is resolved once (not per-mapping)
+        # so a recursive basename search can find a file regardless of nesting
+        # depth (src-layout: 03-development/src/taskq/core/models.py), matching
+        # the precision level SAD.md itself uses instead of guessing a fixed
+        # prefix depth.
+        try:
+            active_src_dir = ProjectLayout(self.project_path).active_src_dir
+        except Exception:  # pylint: disable=broad-exception-caught  # nosec B110
+            active_src_dir = None
+
         for fr_num, rel_path in mappings:
             checked += 1
             # Try relative path and common prefix variants.
@@ -286,6 +337,9 @@ class DriftDetector:
                 self.project_path / "app" / rel_path.split("/")[-1],
             ]
             exists = any(p.exists() for p in candidates)
+            if not exists and active_src_dir and active_src_dir.is_dir():
+                basename = rel_path.split("/")[-1]
+                exists = next(active_src_dir.rglob(basename), None) is not None
             if not exists:
                 drifted += 1
                 items.append(DriftItem(
@@ -498,9 +552,16 @@ class DriftDetector:
                 # produces a malformed dotted+slash hybrid that
                 # sab_module_to_path_variants() returns as a literal
                 # path instead of resolving.
+                # Guard against double-prefixing (same collision class as
+                # sab_module_to_path_variants): a module may already
+                # self-declare its src segment (actual_mod="src.taskq.config"),
+                # in which case prepending pkg_dir's own "...src" basename
+                # again produces a bogus doubled segment.
                 if pkg_dir and not actual_mod.endswith("/") and not actual_mod.endswith(".py"):
-                    norm_pkg = pkg_dir.replace("/", ".")
-                    sab_files[f"{norm_pkg}.{actual_mod}"] = layer_name
+                    pkg_dir_basename = pkg_dir.rsplit("/", 1)[-1]
+                    if actual_mod.split(".", 1)[0] != pkg_dir_basename:
+                        norm_pkg = pkg_dir.replace("/", ".")
+                        sab_files[f"{norm_pkg}.{actual_mod}"] = layer_name
                 # Also register files inside directories (e.g. "core/quality_gate/" → all files)
                 if actual_mod.endswith("/"):
                     for py_file in self.project_path.rglob(f"{actual_mod}*.py"):
@@ -571,9 +632,25 @@ class DriftDetector:
             # (src.X.py → src/X.py) to match dotted-module SAB entries (Bug #31 fix).
             _rel_norm = rel[len("03-development/"):] if rel.startswith("03-development/") else rel
             _rel_dotted = _rel_norm[:-3].replace("/", ".") if _rel_norm.endswith(".py") else None
+            # Also strip the resolved pkg_dir's own segment (e.g. "src/") so a
+            # file at 03-development/src/taskq/executor.py normalizes to
+            # "taskq/executor.py" (dotted "taskq.executor"), matching SAB's
+            # bare dotted entries — the inverse direction of the src-layout
+            # normalization sab_module_to_path_variants() applies in Check 1.
+            # Without this, every src-layout file's dotted form keeps a
+            # literal "src." segment SAB entries never declare, so Check 2
+            # false-flags every real file as unregistered.
+            _pkg_stripped = _rel_norm
+            if pkg_dir:
+                _pkg_rel = pkg_dir[len("03-development/"):] if pkg_dir.startswith("03-development/") else pkg_dir
+                if _pkg_rel and _rel_norm.startswith(f"{_pkg_rel}/"):
+                    _pkg_stripped = _rel_norm[len(_pkg_rel) + 1:]
+            _pkg_dotted = _pkg_stripped[:-3].replace("/", ".") if _pkg_stripped.endswith(".py") else None
             if (rel not in sab_file_set
                     and _rel_norm not in sab_file_set
+                    and _pkg_stripped not in sab_file_set
                     and (_rel_dotted is None or _rel_dotted not in sab_file_set)
+                    and (_pkg_dotted is None or _pkg_dotted not in sab_file_set)
                     and not rel.startswith("tests/")
                     and "/tests/" not in rel):
                 checked += 1
