@@ -24,6 +24,35 @@ except ImportError:  # pragma: no cover  (graceful degrade)
     atomic_write_json = None  # type: ignore[assignment]
 
 
+def _first_non_null(d: dict, *keys: str, default):
+    """Return the first key present in ``d`` with a non-null value.
+
+    JSON `null` bypasses `dict.get(key, default)` — the default only
+    applies when the key is absent, not when it's explicitly None — and
+    an `or`-chain over multiple keys is wrong the other way (a legitimate
+    `0` or `""` is falsy and would incorrectly fall through to the next
+    key). This checks presence-and-not-None per key, in order.
+    """
+    for k in keys:
+        v = d.get(k)
+        if k in d and v is not None:
+            return v
+    return default
+
+
+def path_escapes_root(candidate: Path, root: Path) -> bool:
+    """True if `candidate` resolves to a location outside `root`.
+
+    Shared containment check for agent-controlled path fields (tool_output,
+    issue_registry_path, ...) so an agent writing `../../etc/passwd` (or an
+    absolute path, or a symlink to outside) into a gate result JSON can't be
+    silently read. May raise OSError/RuntimeError if resolution fails (e.g.
+    a symlink loop) — callers catch those themselves since the message they
+    surface differs per call site.
+    """
+    return not candidate.resolve().is_relative_to(root.resolve())
+
+
 def _atomic_write_gate_result(path: Path, data: dict) -> None:
     """Atomic JSON write for gate_result.json (and any other
     pipeline-critical JSON state). Falls back to direct write if
@@ -605,8 +634,12 @@ def _crg_enrich_gate_findings(
     _score_overridden = False
     if untested_hubs:
         _hub_penalty = min(len(untested_hubs) * 3, 15)
-        _new_dims = []
-        for _d in dims:
+        # Index-based replace (same pattern as steps 1/2/3/7/8 above) rather
+        # than a rebuild-into-_new_dims loop — the rebuild variant used to
+        # depend on step 7's in-place `dims[_i] = ...` for test_coverage
+        # having already run first, since it read from the same `dims` list
+        # object. Index-based replace has no such ordering dependency.
+        for _i, _d in enumerate(dims):
             if _d.name == "test_coverage":
                 new_issue = {
                     "severity": "high",
@@ -627,12 +660,9 @@ def _crg_enrich_gate_findings(
                     _score_overridden = True
                 # Combine issue-add and score-change into ONE replace to avoid two passes
                 # over the original DimResult and to keep `issues` as a fresh list.
-                _new_dims.append(dataclasses.replace(
+                dims[_i] = dataclasses.replace(
                     _d, score=_new_score, issues=_d.issues + [new_issue]
-                ))
-            else:
-                _new_dims.append(_d)
-        dims = _new_dims
+                )
 
     return dims, _score_overridden
 
@@ -719,9 +749,7 @@ def _check_tool_evidence(ctx: "GateContext", raw: dict) -> list[str]:
             # outside) into the gate result JSON must not be silently
             # read by the audit cross-check.
             try:
-                if not out_path.resolve().is_relative_to(
-                    _Path(ctx.project_root).resolve()
-                ):
+                if path_escapes_root(out_path, _Path(ctx.project_root)):
                     violations.append(
                         f"{dim_name}: tool_output path '{tool_output}' "
                         f"escapes project root — refusing to read"
@@ -1015,9 +1043,7 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
                 # resolves outside project_root (see _check_tool_evidence
                 # for the rationale).
                 try:
-                    if not _tpath.resolve().is_relative_to(
-                        _Path(ctx.project_root).resolve()
-                    ):
+                    if path_escapes_root(_tpath, _Path(ctx.project_root)):
                         _problem = (
                             f"tool_output path '{_tout}' escapes project "
                             f"root — refusing to read"
@@ -2302,10 +2328,10 @@ class HarnessBridge:
             dimensions=dims,
             # JSON `null` bypasses `dict.get(k, default)` and surfaces as None —
             # coerce defensively so a None never reaches `open_critical == 0` checks.
-            open_critical=int(raw.get("open_critical_count") or raw.get("open_critical") or 0),
-            open_high=int(raw.get("open_high_count") or raw.get("open_high") or 0),
+            open_critical=int(_first_non_null(raw, "open_critical_count", "open_critical", default=0)),
+            open_high=int(_first_non_null(raw, "open_high_count", "open_high", default=0)),
             quality_complete=_quality_complete,
-            rounds_used=raw.get("rounds_used", 1),
+            rounds_used=_first_non_null(raw, "rounds_used", default=1),
         )
 
         # DA waivers: zero out threshold for dimensions whose design was justified by a
@@ -2692,7 +2718,11 @@ class HarnessBridge:
                 )
         sab = self._reconcile_with_sab_json(sab, _sab_json)
 
-        _project_root = Path(sad_path).parent.parent
+        # Reuse the already-resolved, project_root-aware root computed above
+        # for SAB.json — re-deriving `Path(sad_path).parent.parent` here would
+        # reintroduce the same CWD-relative hazard HR-09 fixed for SAB.json,
+        # just for NFR parsing instead.
+        _project_root = _project_root_for_sab_json
         nfr_map = sab.get("nfr_dim_map", {})
         # Fallback: if SAD.md nfr_dim_map is empty, parse from SRS.md
         if not nfr_map:

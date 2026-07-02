@@ -49,6 +49,7 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import os
 import re
@@ -2763,6 +2764,10 @@ def _verify_env_check_claims(project: Path) -> "list[str]":
     except (ValueError, OSError):
         return []
     findings: list[str] = []
+    # Tools whose fast checks (PATH/venv-bin/semantic-name) all missed are
+    # deferred here instead of probed inline — see the batched concurrent
+    # probe below.
+    _pending_probes: list[tuple[str, str, dict, list[str]]] = []
     for t in data.get("cli_tools", {}).get("required", []):
         if isinstance(t, dict) and t.get("present") and t.get("name"):
             raw_name = str(t["name"])
@@ -2865,22 +2870,44 @@ def _verify_env_check_claims(project: Path) -> "list[str]":
                         _vp = project / _vd / _bindir / _py_exe
                         if _vp.exists():
                             _interps.append(str(_vp))
-                    for _interp in _interps:
-                        try:
-                            _r = subprocess.run(
-                                [_interp, "-c", f"import {_pkg}"],
-                                capture_output=True, timeout=5, env=_import_env,
-                            )
-                            if _r.returncode == 0:
-                                _found = True
-                                break
-                        except Exception:
-                            pass
+                    # Defer the actual subprocess spawn: several unresolved
+                    # tools each sequentially spawning up to len(_interps)
+                    # `import <pkg>` probes (5s timeout each) can serialize
+                    # to tens of seconds on this blocking CLI path. Batch
+                    # all deferred probes below and run them concurrently.
+                    _pending_probes.append((raw_name, _pkg, _import_env, _interps))
+                    continue
             if not _found:
                 findings.append(
                     f"cli_tool '{raw_name}': claimed present, but not found on PATH, "
                     f"in $VIRTUAL_ENV/bin/, or via Python import"
                 )
+
+    if _pending_probes:
+        def _probe_import(item: "tuple[str, str, dict, list[str]]") -> "tuple[str, bool]":
+            _raw_name, _pkg, _import_env, _interps = item
+            for _interp in _interps:
+                try:
+                    _r = subprocess.run(
+                        [_interp, "-c", f"import {_pkg}"],
+                        capture_output=True, timeout=5, env=_import_env,
+                    )
+                    if _r.returncode == 0:
+                        return _raw_name, True
+                except Exception:
+                    pass
+            return _raw_name, False
+
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=min(8, len(_pending_probes))
+        ) as _ex:
+            for _raw_name, _found_import in _ex.map(_probe_import, _pending_probes):
+                if not _found_import:
+                    findings.append(
+                        f"cli_tool '{_raw_name}': claimed present, but not found on PATH, "
+                        f"in $VIRTUAL_ENV/bin/, or via Python import"
+                    )
+
     for v in data.get("env_vars", {}).get("required", []):
         if isinstance(v, dict) and v.get("present") and v.get("name"):
             name = str(v["name"])
@@ -3154,8 +3181,9 @@ def _check_gate4_prerequisites(project: Path) -> "tuple[bool, set[str]]":
             # Containment check: agent-controlled path must resolve inside the
             # project root. Blocking traversal (`../../etc/passwd`) probes here
             # even though the registry contents are only advisory.
+            from harness.harness_bridge import path_escapes_root
             try:
-                if issue_registry and not issue_registry.resolve().is_relative_to(project.resolve()):
+                if issue_registry and path_escapes_root(issue_registry, project):
                     print(
                         f"[Gate 4] (A5, advisory): issue_registry_path escapes project root "
                         f"({issue_registry}); refusing to read.",

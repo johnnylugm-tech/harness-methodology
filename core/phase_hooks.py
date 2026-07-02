@@ -906,7 +906,9 @@ class PhaseHooks:
                     evidence.append(
                         f"state.json last_gate={_st.get('last_gate')!r} "
                         f"last_fr={_st.get('last_fr')!r}")
-            except (OSError, json.JSONDecodeError):
+            except (OSError, json.JSONDecodeError, AttributeError):
+                # AttributeError: state.json parsed but isn't a dict (e.g. a
+                # list) — treat like unreadable/unparseable, no evidence.
                 pass
             _md = self._layout.methodology_dir
             for _artifact in ("gate1_result.json", "fr_progress.json",
