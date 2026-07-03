@@ -1,0 +1,77 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "harness-methodology/change_request.schema.json",
+  "title": "Phase 9 Change Request ticket (.methodology/change_requests/CR-NNN.json)",
+  "description": "Maintenance-phase work unit. type=bug maps to ASPICE SUP.9 (Problem Resolution Management), type=feat maps to ASPICE SUP.10 (Change Request Management). Managed by core/maintenance/cr_manager.py; closure evidence follows the bug_hunt_report anti-fabrication contract (resolved needs fix_commit AND, for bugs, an existing repro_test file).",
+  "type": "object",
+  "required": ["id", "type", "title", "status", "created_at"],
+  "properties": {
+    "id": {"type": "string", "pattern": "^CR-[0-9]{2,4}$"},
+    "type": {"type": "string", "enum": ["bug", "feat"]},
+    "title": {"type": "string", "minLength": 3},
+    "description": {"type": "string"},
+    "status": {
+      "type": "string",
+      "enum": ["OPEN", "ANALYZED", "APPROVED", "IN_PROGRESS", "VERIFIED", "CLOSED", "REJECTED"]
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["critical", "high", "medium", "low"],
+      "description": "bug: problem severity (SUP.9 classification); feat: priority"
+    },
+    "affected_frs": {
+      "type": "array",
+      "items": {"type": "string", "pattern": "^FR-[0-9]{2,3}$"},
+      "description": "bug: existing FRs whose behavior is wrong; feat: new or changed FR IDs. Every listed FR must re-pass Gate 1 before closure."
+    },
+    "impact_analysis": {
+      "type": "object",
+      "description": "SUP.10 analysis: which artifacts this CR touches. cr-close verifies the touched artifacts were actually updated.",
+      "properties": {
+        "srs": {"type": "boolean", "description": "SRS.md sections added/updated"},
+        "sad": {"type": "boolean", "description": "SAD.md module rows added/updated"},
+        "test_spec": {"type": "boolean", "description": "TEST_SPEC.md FR sections added/updated"},
+        "modules": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "source modules touched (new modules require SAB amendment)"
+        },
+        "notes": {"type": "string"}
+      }
+    },
+    "root_cause": {
+      "type": "string",
+      "description": "bug only — required before APPROVED (SUP.9 analysis step)"
+    },
+    "repro_test": {
+      "type": "string",
+      "description": "bug only — project-relative path of the failing repro test, required before APPROVED; the file must exist (anti-fabrication)"
+    },
+    "approval": {
+      "type": "object",
+      "description": "feat only — required before APPROVED (SUP.10 approval decision)",
+      "properties": {
+        "approved_by": {"type": "string"},
+        "justification": {"type": "string"}
+      },
+      "required": ["approved_by", "justification"]
+    },
+    "resolution": {
+      "type": "object",
+      "description": "closure evidence, populated before CLOSED",
+      "properties": {
+        "fix_commit": {"type": "string", "description": "commit sha of the fix/implementation"},
+        "gate1_results": {
+          "type": "object",
+          "additionalProperties": {"type": "number"},
+          "description": "FR-XX -> Gate 1 score recorded at closure"
+        },
+        "notes": {"type": "string"}
+      }
+    },
+    "rejected_reason": {"type": "string", "description": "required when status=REJECTED"},
+    "created_at": {"type": "string", "description": "ISO-8601"},
+    "updated_at": {"type": "string", "description": "ISO-8601"},
+    "closed_at": {"type": "string", "description": "ISO-8601, set on CLOSED/REJECTED"}
+  }
+}

@@ -29,13 +29,14 @@ from __future__ import annotations
 import re
 from typing import Literal
 
-# Canonical pattern: TASK-XX, FR-XX, NFR-XX where XX is zero-padded to 2 digits.
-_CANONICAL_RE = re.compile(r"^(TASK|FR|NFR)-(\d{2,})$")
+# Canonical pattern: TASK-XX, FR-XX, NFR-XX, CR-XXX where XX is zero-padded.
+# CR = Change Request (Phase 9 maintenance tickets, CR-BUG/CR-FEAT typed).
+_CANONICAL_RE = re.compile(r"^(TASK|FR|NFR|CR)-(\d{2,})$")
 _DIGIT_RE = re.compile(r"\d+")
 
 
 # Public type aliases for downstream code
-CanonicalPrefix = Literal["TASK", "FR", "NFR"]
+CanonicalPrefix = Literal["TASK", "FR", "NFR", "CR"]
 
 
 def canonical_form(s: object) -> str:
@@ -72,11 +73,15 @@ def canonical_form(s: object) -> str:
     while stripped and not stripped[0].isalnum():
         stripped = stripped[1:]
 
-    # Find the prefix (TASK / FR / NFR, case-insensitive) starting at position 0
-    prefix_match = re.match(r"^(TASK|FR|NFR)", stripped, re.IGNORECASE)
+    # Find the prefix (TASK / FR / NFR / CR, case-insensitive) at position 0.
+    # CR must come after FR/NFR in the alternation? No — alternation is
+    # left-to-right on the SAME start position, and none of these prefixes
+    # is a prefix of another at position 0 (CR vs FR differ at char 0), so
+    # order is safe.
+    prefix_match = re.match(r"^(TASK|FR|NFR|CR)", stripped, re.IGNORECASE)
     if not prefix_match:
         raise ValueError(
-            f"Non-canonical FR-ID: {s!r} — must start with TASK/FR/NFR"
+            f"Non-canonical FR-ID: {s!r} — must start with TASK/FR/NFR/CR"
         )
     prefix = prefix_match.group(1).upper()
 
