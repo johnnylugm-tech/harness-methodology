@@ -101,9 +101,9 @@ def get_code_phase_routing() -> Dict[int, Dict]:
 
     # Build routing dict with all phases
     routing = {}
-    for phase in range(1, 9):
-        # next_phase is always phase+1 unless we're at phase 8
-        if phase < 8:
+    for phase in range(1, 10):
+        # next_phase is always phase+1 unless we're at phase 9 (terminal steady state)
+        if phase < 9:
             next_phase = phase + 1
             next_name = phase_names.get(next_phase, f"Phase {next_phase}")
         else:
@@ -134,13 +134,17 @@ def get_code_phase_routing() -> Dict[int, Dict]:
             # P8 exit: "Cleared by P6 Gate 4" (no separate eval) — no exit gate
             exit_gate_type = None
             exit_score = None
+        elif phase == 9:
+            # P9 (Maintenance): re-entrant steady state — never exits
+            exit_gate_type = None
+            exit_score = None
         else:
             exit_gate_type = None
             exit_score = None
 
         routing[phase] = {
             'phase_num': phase,
-            'phase_name': phase_names.get(phase + 1, f"Phase {phase + 1}") if phase < 8 else "Pipeline Complete",
+            'phase_name': phase_names.get(phase + 1, f"Phase {phase + 1}") if phase < 9 else "Maintenance (steady state)",
             'next_phase': next_phase,
             'next_name': next_name,
             'entry_gate': entry_gates.get(phase),
@@ -161,7 +165,7 @@ def get_diagram_phase_routing() -> Dict[int, Dict]:
 
     # Extract the matrix table (now has 6 columns: Phase, Entry, Exit Gate, Exit Score, Structure, Artifacts)
     matrix_match = re.search(
-        r'\| Phase \| Entry.*?\n\| \*\*P8\*\*.*?\|.*?\|.*?\|.*?\|.*?\|.*?\|',
+        r'\| Phase \| Entry.*?\n\| \*\*P9\*\*.*?\|.*?\|.*?\|.*?\|.*?\|.*?\|',
         content,
         re.DOTALL
     )
@@ -201,7 +205,7 @@ class TestFlowchartVsCode:
         code_routing = get_code_phase_routing()
 
         # Each phase should have phase_num key
-        for phase in range(1, 9):
+        for phase in range(1, 10):
             assert phase in code_routing, f"Phase {phase} not found in code routing"
             assert code_routing[phase]['phase_num'] == phase
 
@@ -209,7 +213,7 @@ class TestFlowchartVsCode:
         """Phase 1-8 must be documented in flowchart."""
         diagram_routing = get_diagram_phase_routing()
 
-        for phase in range(1, 9):
+        for phase in range(1, 10):
             assert phase in diagram_routing, f"Phase {phase} not found in diagram routing"
 
     def test_phase_transitions(self):
@@ -225,7 +229,8 @@ class TestFlowchartVsCode:
             5: (6, "Quality Assurance"),
             6: (7, "Risk Management"),
             7: (8, "Configuration Management"),
-            8: (None, None),  # Pipeline complete
+            8: (9, "Maintenance"),
+            9: (None, None),  # Terminal steady state — never exits
         }
 
         for phase, (next_p, next_name) in expected_transitions.items():

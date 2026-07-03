@@ -2,7 +2,7 @@
 
 > 本文件定義團隊的不可變原則。所有專案必須遵守這些規則。
 > 此為編譯後的 artifact，不可手動變更。版本哈希用於驗證完整性。
-> schema_version: 2.7
+> schema_version: 2.8
 
 ---
 
@@ -46,7 +46,7 @@
 
 | Gate | Phase | 最低分數 | 維度數 | 說明 |
 |------|-------|---------|--------|------|
-| Gate 1 | P3/P4/P5/P7/P8 (per FR) | **per-dim** (no composite) | 3 (lint/type/cov) | FR 級別檢查 |
+| Gate 1 | P3/P4/P5/P7/P8 (per FR)、P9 (per CR 觸碰 FR) | **per-dim** (no composite) | 3 (lint/type/cov) | FR 級別檢查 |
 | Gate 2 | P3 exit | **≥ 75** | 9 | Phase 級別 composite |
 | Gate 3 | P4 exit | **≥ 80** | 14 | 完整 CRG recon |
 | Gate 4 | P6 exit | **≥ 85** | 14 | 全專案 |
@@ -129,8 +129,26 @@
 | P6 | Gate 3 (P5) | `git log` 確認 P5 Phase Truth PASS |
 | P7 | Gate 4 (P6) | `git log` 確認 P6 Gate 4 PASS |
 | P8 | Gate 4 (P6) | `git log` 確認 P6 Gate 4 PASS |
+| P9 | Gate 4 (P6) + P8 完成 | `advance-phase --completed 8`（state.json phase_completed[8]） |
 
-> ¹ Agent B peer review of deliverables (僅 Phase 1-2 適用。Phase 3-8 改以 Phase End Audit 替代).
+> ¹ Agent B peer review of deliverables (僅 Phase 1-2 適用。Phase 3-9 改以 Phase End Audit 替代).
+
+#### P9 — Maintenance（維護態，ASPICE SUP.9 / SUP.10）
+
+P9 是**可重入穩態**：`advance-phase --completed 9` 永遠 BLOCKED（無 Phase 10）。
+所有工作以變更工單（Change Request）為單位循環：
+
+| 工單類型 | ASPICE 對應 | 進入 APPROVED 的必要證據 | 收尾（cr-close）必要證據 |
+|----------|-------------|--------------------------|--------------------------|
+| CR-BUG (`--type bug`) | SUP.9 問題解決管理 | root_cause + 實存的失敗 repro test | fix_commit + repro test 實存 + 觸碰 FR Gate 1 PASS |
+| CR-FEAT (`--type feat`) | SUP.10 變更請求管理 | affected_frs + impact_analysis + approval（核准人+理由） | fix_commit + 觸碰 FR Gate 1 PASS |
+
+每張 CR 的改動必須**寫回既有 phase 資料夾產物**（SRS.md / SAD.md / TEST_SPEC.md / src / tests），
+並重新進入追溯鏈：quality_manifest 外科更新（fr_ids 與 fr_module_traceability 同步 append，
+嚴禁整檔重生）→ 觸碰 FR 重跑 Gate 1（未觸碰走 `--delta`）→ `build-trace-attestation --write` →
+drift 檢查乾淨。`cr-close` fail-closed 強制執行上述全部；工單狀態機
+（OPEN→ANALYZED→APPROVED→IN_PROGRESS→VERIFIED→CLOSED，任一狀態可→REJECTED）由
+`core/maintenance/cr_manager.py` 驗證。交付物：`09-maintenance/MAINTENANCE_LOG.md`（CR 索引）。
 
 ### 2.4 Constitution Score 門檻
 
@@ -150,7 +168,7 @@
 
 | ID | Metric | Threshold | Applicable Phases | Verify Method |
 |----|--------|-----------|-------------------|---------------|
-| TH-01 | ASPICE Compliance Rate | >80% | 1–8 | `trace-check` |
+| TH-01 | ASPICE Compliance Rate | >80% | 1–9 | `trace-check` |
 | TH-02 | Constitution Total Score | ≥80% | 5–8 | `run-gate` D12 |
 | TH-03 | Constitution — Correctness | =100% | 1–4 | `run-constitution` |
 | TH-04 | Constitution — Security | =100% | 1–4 | `run-constitution` |
@@ -159,10 +177,10 @@
 | TH-07 | Logic Correctness Score | ≥90 | 5–8 | `phase-verify` |
 | TH-08 | AgentEvaluator Standard | ≥80 | 1–2 | `evaluate` |
 | TH-09 | AgentEvaluator Strict | ≥90 | 3–8 | `evaluate --strict` |
-| TH-10 | Test Pass Rate | =100% | 3–8 | `pytest` |
+| TH-10 | Test Pass Rate | =100% | 3–9 | `pytest` |
 | TH-11 | Unit Test Coverage | ≥70% | 3 | `coverage` |
-| TH-12 | Unit Test Coverage | ≥80% | 4–8 | `coverage` |
-| TH-13 | SRS FR Coverage | =100% | 4–8 | `trace-check` |
+| TH-12 | Unit Test Coverage | ≥80% | 4–9 | `coverage` |
+| TH-13 | SRS FR Coverage | =100% | 4–9 | `trace-check` |
 | TH-14 | Specification Completeness | =100% | 1 | `verify-spec` |
 | TH-15 | Phase Truth | >90% | 1–8 | `phase-verify` |
 | TH-16 | Code-to-SAD Mapping Rate | =100% | 3 | `trace-check` |
@@ -177,6 +195,7 @@
 > P6: TH-02, TH-07, TH-15
 > P7: TH-07, TH-15
 > P8: TH-02, TH-15
+> P9: TH-01, TH-10, TH-12, TH-13（per-CR：觸碰 FR 的 Gate 1 + 全套測試綠 + 追溯 100%）
 
 ---
 

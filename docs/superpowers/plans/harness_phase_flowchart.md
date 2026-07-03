@@ -168,7 +168,16 @@ flowchart TD
     
     P8_G4D --> P8_END["🎉 Pipeline Complete<br/>Archive .methodology/"]
     
-    P8_END --> END([End])
+    P8_END --> P9["🔧 P9: Maintenance<br/>(steady state — never exits)<br/>advance-phase --completed 8"]
+    
+    P9 --> P9_CR{Incoming<br/>change request?}
+    P9_CR -->|CR-BUG SUP.9| P9_BUG["cr-open --type bug<br/>repro test first → root cause<br/>→ fix → Gate 1 touched FRs"]
+    P9_CR -->|CR-FEAT SUP.10| P9_FEAT["cr-open --type feat<br/>impact + approval → SRS/SAD/TEST_SPEC<br/>writeback → TDD → Gate 1"]
+    P9_BUG --> P9_CLOSE["🔒 cr-close (fail-closed)<br/>evidence + Gate 1 + attestation + drift<br/>→ MAINTENANCE_LOG.md"]
+    P9_FEAT --> P9_CLOSE
+    P9_CLOSE --> P9_PUSH["✅ push-milestone<br/>--type cr-close"]
+    P9_PUSH --> P9_CR
+    P9_CR -->|idle| END([Steady state])
     
     style P1 fill:#e1f5ff
     style P2 fill:#f3e5f5
@@ -222,6 +231,7 @@ flowchart TD
 | **P6** | Gate 3 (P5)* | **Gate 4** | ≥ 85 | **NO FR Loop** | QUALITY_REPORT.md, RELEASE_NOTES.md + sessions_spawn.log |
 | **P7** | **Gate 4 (P6)*** | None² | N/A | Per-FR Loop | RISK_REGISTER.md + sessions_spawn.log |
 | **P8** | **Gate 4 (P6)*** | None² | N/A | Per-FR Loop | CONFIG_RECORDS.md + sessions_spawn.log |
+| **P9** | **Gate 4 (P6)* + P8 done** | None³ | N/A | Per-CR Loop | MAINTENANCE_LOG.md + CR-NN.json |
 
 > \* Entry checks via git log verification (`_entry_gate_check`)
 > 

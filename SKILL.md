@@ -192,6 +192,11 @@ Before advancing to Phase N+1, confirm ALL:
 | Git hook pre-commit check | `python harness_cli.py pre-commit-check --phase N` |
 | Recover from crash | `python harness_cli.py generate-next-plan --project .` |
 | Audit a completed phase | `python harness_cli.py audit-phase --phase N --repo .` |
+| P9: open a Change Request | `python harness_cli.py cr-open --type bug\|feat --title "..." --project .` |
+| P9: update/advance a CR | `python harness_cli.py cr-update --cr CR-NN --set field=value --status S` |
+| P9: list/inspect CRs | `python harness_cli.py cr-status [--cr CR-NN] --project .` |
+| P9: close a CR (fail-closed checklist) | `python harness_cli.py cr-close --cr CR-NN --project .` |
+| P9: push closed-CR milestone | `python harness_cli.py push-milestone --type cr-close --cr CR-NN --project .` |
 
 ### 0.6a Dynamic Plan Workflow (plan-all → load-context)
 
@@ -202,7 +207,8 @@ FR IDs and module mappings are loaded at execution time, not baked into the plan
 ```bash
 python harness_cli.py init-project --phase 1 --project .
 python harness_cli.py plan-all --project .
-# → Generates all 8 phase plans in .methodology/phaseN_plan.md
+# → Generates all 9 phase plans in .methodology/phaseN_plan.md
+#   (phase9_plan.md is the maintenance playbook — static, CR-driven)
 ```
 
 **Each phase entry:**
@@ -219,6 +225,41 @@ Dynamic plans contain `Mode: Dynamic` in the header.
 
 > Full dynamic plan spec: `docs/superpowers/plans/2026-05-05-ssi-merge-into-harness.md`
 
+### 0.6b P9 Maintenance Workflow (Change Requests — ASPICE SUP.9/SUP.10)
+
+After `advance-phase --completed 8`, the project sits permanently at Phase 9.
+All further work is ticket-driven; NO code change without a CR.
+
+**CR-BUG (bug fix — SUP.9 problem resolution):**
+```bash
+python harness_cli.py cr-open --type bug --title "..." --severity high --project .
+# 1. failing repro test FIRST, then record it + root cause:
+python harness_cli.py cr-update --cr CR-NN --set repro_test=tests/test_crNN_repro.py \
+    --set root_cause="..."
+python harness_cli.py cr-update --cr CR-NN --status ANALYZED   # → APPROVED → IN_PROGRESS
+# 2. fix code (keep [FR-XX] annotations); repro green; full suite green
+# 3. Gate 1 on touched FRs (untouched: --delta):
+python harness_cli.py run-gate --gate 1 --fr-id FR-XX --phase 9 --project .
+python harness_cli.py finalize-gate --gate 1 --fr-id FR-XX --phase 9 --project .
+# 4. evidence + close:
+python harness_cli.py cr-update --cr CR-NN --set affected_frs=FR-XX \
+    --set resolution.fix_commit=<sha> --status VERIFIED
+python harness_cli.py cr-close --cr CR-NN --project .
+python harness_cli.py push-milestone --type cr-close --cr CR-NN --project .
+```
+
+**CR-FEAT (feature add/change — SUP.10 change request):**
+Same lifecycle, but APPROVED requires `--set approval.approved_by=... --set
+approval.justification=...`, and the spec chain is written back IN PLACE before
+TDD: SRS.md `### FR-XX:` → SAD.md module row (new module → `amend-sab`) →
+TEST_SPEC.md section + TEST_INVENTORY.yaml → `run-fr-step --phase 9` TDD loop.
+
+**Invariants (cr-close enforces, fail-closed):** resolution.fix_commit present;
+CR-BUG repro_test exists on disk; every affected FR has a passing Gate 1 record
+in quality_manifest (surgical append — NEVER regenerate the manifest);
+`build-trace-attestation --write` re-run and `verify-trace` clean; spec/SAD
+drift clean. Closed CRs append to `09-maintenance/MAINTENANCE_LOG.md`.
+
 ---
 
 ## 1. Phase Routing
@@ -233,8 +274,11 @@ Dynamic plans contain `Mode: Dynamic` in the header.
 | P6 | Quality Assurance | Gate3 | Gate4 (85) | QUALITY_REPORT.md |
 | P7 | Risk Management | Gate4 | None² | RISK_REGISTER.md |
 | P8 | Configuration Management | Gate4 | None² | CONFIG_RECORDS.md |
+| P9 | Maintenance (steady state) | Gate4 + P8 done³ | Never exits³ | MAINTENANCE_LOG.md |
 
-> ¹ **Agent B¹** = Agent B peer review of deliverables (Phase 1-2 only). Phase 3+ replaces A/B with automated Phase End Audit. NOT `run-gate --gate 1`. Gate 1 only applies to code phases (P3–P5, P7, P8) where linting/type_safety/test_coverage can be measured. P6 has no per-FR Gate 1 — it uses a single Gate 4 (14-dim full audit) at phase exit.
+> ¹ **Agent B¹** = Agent B peer review of deliverables (Phase 1-2 only). Phase 3+ replaces A/B with automated Phase End Audit. NOT `run-gate --gate 1`. Gate 1 only applies to code phases (P3–P5, P7, P8 per-FR; P9 per-CR touched FRs) where linting/type_safety/test_coverage can be measured. P6 has no per-FR Gate 1 — it uses a single Gate 4 (14-dim full audit) at phase exit.
+>
+> ³ **P9 Maintenance** = re-entrant steady state entered via `advance-phase --completed 8`; `advance-phase --completed 9` is always BLOCKED. Work is Change-Request-driven: CR-BUG (ASPICE SUP.9) / CR-FEAT (ASPICE SUP.10) via `cr-open` → `cr-update` → `cr-close` (fail-closed re-entry checklist: evidence + Gate 1 per touched FR + trace attestation + drift). See §0.6b.
 >
 > ¹ **None¹** (P5) = Phase Truth check only (HR-11: ≥90%); no separate exit gate evaluation.
 >
@@ -246,7 +290,7 @@ Dynamic plans contain `Mode: Dynamic` in the header.
 
 | Gate | Phases | score_gate | Dims | Blocking |
 |------|--------|------------|------|----------|
-| Gate1 | P3, P4, P5, P7, P8 per-FR | per-dim (linting≥90, type_safety≥85, test_coverage≥80; no composite) | 3 (Tier 1) | yes |
+| Gate1 | P3, P4, P5, P7, P8 per-FR; P9 per-CR touched FRs | per-dim (linting≥90, type_safety≥85, test_coverage≥80; no composite) | 3 (Tier 1) | yes |
 | Gate2 | P3 exit | 75 | 10 (Tier 1+2 + traceability) | yes |
 | Gate3 | P4 exit | 80 | 16 (all tiers + traceability + adversarial_review) | yes |
 | Gate4 | P6 full | 85 | 15 (all tiers + traceability) | yes |
