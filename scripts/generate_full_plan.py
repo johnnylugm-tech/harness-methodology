@@ -2675,9 +2675,12 @@ def generate_phase5_tasks(repo_path: Path, dynamic: bool = False, gate_meta: "di
     lines.extend([
         "### P5 System Verification",
         "",
-        "- **[BASELINE]** Generate `05-verification/VERIFICATION_REPORT.md` (system state snapshot):",
+        "- **[BASELINE]** Generate `05-verification/BASELINE.md` (system state snapshot):",
         "  - Document: current version, test results summary, coverage %, Gate 3 composite score",
         "  - Reference: `04-testing/TEST_RESULTS.md` and `03-development/src/` module list",
+        "  - Structure: 7 `##` sections per `templates/BASELINE.md` (Overview, Functional,",
+        "    Quality, Performance, Issue Log, Change Log, Acceptance Sign-off) — audit-phase",
+        "    C5 counts H2 headings and warns below 7",
         "- **[VERIFY-REPORT]** Generate `05-verification/VERIFICATION_REPORT.md`:",
         "  - For each FR: verification status, acceptance criteria result (PASS/FAIL), evidence",
         "  - Include: test coverage %, mutation score, deferred issues from Gate 3",
@@ -2700,7 +2703,7 @@ def generate_phase5_tasks(repo_path: Path, dynamic: bool = False, gate_meta: "di
     ])
 
     lines.append("### Phase 5 Deliverables")
-    lines.append("- `05-verification/VERIFICATION_REPORT.md` - System baseline")
+    lines.append("- `05-verification/BASELINE.md` - System baseline")
     lines.append("- `05-verification/VERIFICATION_REPORT.md` - Verification report")
     lines.append(_sessions_spawn_deliverable())
     lines.append("- Gate 1 PASS for every FR")

@@ -37,6 +37,12 @@
 
 > HIGH severity count must be 0 before establishing baseline
 
-## 6. Acceptance Sign-off
+## 6. Change Log
+
+| Date | Change | Commit / Ref |
+|------|--------|--------------|
+| {date} | {description} | {sha} |
+
+## 7. Acceptance Sign-off
 - Agent A: {name} ({session_id}) - {date}
 - Approver: {name} ({session_id}) - {date}

@@ -1924,6 +1924,17 @@ class TestCrossProjectFixes:
         assert result is not None
         assert "[BASELINE]" in result, "P5 must include [BASELINE] generation step"
         assert "[VERIFY-REPORT]" in result, "P5 must include [VERIFY-REPORT] generation step"
+        # The [BASELINE] step must target BASELINE.md itself — audit-phase C1
+        # requires 05-verification/BASELINE.md as a blocking P5 deliverable,
+        # so a plan that only ever names VERIFICATION_REPORT.md leaves the
+        # required artifact ungenerated.
+        assert "**[BASELINE]** Generate `05-verification/BASELINE.md`" in result, (
+            "[BASELINE] step must generate 05-verification/BASELINE.md "
+            "(not VERIFICATION_REPORT.md)"
+        )
+        assert "`05-verification/BASELINE.md` - System baseline" in result, (
+            "P5 deliverables must list BASELINE.md"
+        )
 
     # Fix 8: dynamic P7 must have risk register generation steps
     def test_p7_dynamic_has_risk_generation_steps(self, tmp_path: Path):

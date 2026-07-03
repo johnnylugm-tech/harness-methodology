@@ -1487,6 +1487,73 @@ class TestCmdAdvancePhase:
         assert exit_code == 0
         assert "variance ok" in output.lower()
 
+    def test_gate_score_variance_saturated_allows(self, tmp_path, monkeypatch):
+        """Near-ceiling scores (mean >= 99.5) with stddev < 0.5 are NOT blocked.
+
+        When every FR is at-or-near the ceiling, per-FR variance is bounded
+        by the distance to the ceiling, so a low stddev is a legitimate
+        outcome of a clean codebase — not fabrication. Mirrors the gate-3
+        dimension-variance `_saturated` exemption (mean >= 99.5).
+        """
+        import json as _json
+        import yaml as _yaml
+
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir(parents=True)
+        (method_dir / "state.json").write_text(_json.dumps({
+            "state": "ACTIVE", "current_phase": 3, "phase_truth_passed": True, "last_gate": 2,
+        }))
+        (method_dir / "quality_manifest.json").write_text(_json.dumps({
+            "fr_ids": ["FR-01", "FR-02", "FR-03"],
+            "gate_results": {"gate1": {"FR-01": True, "FR-02": True, "FR-03": True}},
+        }))
+
+        decision_dir = method_dir / "decision_logs"
+        decision_dir.mkdir(parents=True)
+        # stddev = 0.205 (< 0.5) but mean = 99.77 (>= 99.5) → saturated, allowed
+        for fr, score in [("FR-01", 99.5), ("FR-02", 100.0), ("FR-03", 99.8)]:
+            lf = decision_dir / f"GATE_3_{fr}.yaml"
+            lf.write_text(_yaml.dump({
+                "ctx": {"fr_id": fr},
+                "scores": {"gate_score": score},
+            }))
+
+        # Gate 1 per-FR coverage: gate_timestamps.jsonl must have one entry per FR
+        ts_lines = [
+            _json.dumps({"phase": 3, "gate": 1, "fr_id": fr, "ts": 1.0})
+            for fr in ["FR-01", "FR-02", "FR-03"]
+        ]
+        (method_dir / "gate_timestamps.jsonl").write_text("\n".join(ts_lines) + "\n")
+        # next-phase plan required by _advance_prechecks (phase >= 3)
+        (method_dir / "phase4_plan.md").touch()
+
+        # P3 deliverables: src + tests dirs now required by PhaseArtifactRegistry
+        (tmp_path / "03-development").mkdir()
+        (tmp_path / "03-development" / "src").mkdir()
+        (tmp_path / "03-development" / "tests").mkdir()
+        for fr in ["FR-01", "FR-02", "FR-03"]:
+            num = fr.split("-")[1].zfill(2)
+            (tmp_path / "03-development" / "tests" / f"test_fr{num}.py").write_text(
+                f"# stub for {fr}\n", encoding="utf-8"
+            )
+            (tmp_path / "03-development" / "src" / f"mod_{num}.py").write_text(
+                f"\"\"\"[{fr}] stub module.\"\"\"\n", encoding="utf-8"
+            )
+
+        def _fake_run(cmd, **kw):
+            class R:
+                returncode = 0
+                stdout = "===== test session starts =====\nTOTAL    10  0  100%\n"
+                stderr = ""
+            return R()
+
+        exit_code, output = self._call_advance_phase(
+            monkeypatch, tmp_path, completed=3, skip_prechecks=False,
+            subprocess_run=_fake_run,
+        )
+        assert exit_code == 0, f"saturated near-ceiling scores must not be blocked:\n{output}"
+        assert "variance ok" in output.lower()
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Test _advance_fsm state.json preservation

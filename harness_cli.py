@@ -2029,11 +2029,17 @@ def _check_gate_score_variance(project: Path, phase: int) -> int:
         # when ALL scores were identical (one decimal of variation defeated it,
         # e.g. 85.0 + 85.0 + 85.1). Now we compute stddev — if N≥3 scores have
         # stddev < 0.5, they're suspiciously uniform.
+        # Saturated exception: when every FR is at-or-near the ceiling
+        # (mean >= 99.5), per-FR variance is bounded by the distance to the
+        # ceiling, so low stddev is a legitimate outcome of a clean codebase
+        # rather than fabrication. Same threshold as the gate-3
+        # dimension-variance `_saturated` exemption below.
         if len(_scores) >= 3:
             import statistics as _stats
             _stdev = _stats.pstdev(_scores)
-            if _stdev < 0.5:
-                _mean = _stats.fmean(_scores)
+            _mean = _stats.fmean(_scores)
+            _saturated = _mean >= 99.5
+            if _stdev < 0.5 and not _saturated:
                 print(
                     f"\n[BLOCKED] Gate score variance check failed for Phase {phase}:\n"
                     f"  {len(_scores)} per-FR scores cluster around {_mean:.2f} "
