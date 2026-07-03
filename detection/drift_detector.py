@@ -284,6 +284,7 @@ class DriftDetector:
         6: ["06-quality/QUALITY_REPORT.md"],
         7: phase_artifacts(7),
         8: ["08-config/CONFIG_RECORDS.md", "08-config/RELEASE_CHECKLIST.md"],
+        9: ["09-maintenance/MAINTENANCE_LOG.md"],
     }
 
     def __init__(self, project_path: str):

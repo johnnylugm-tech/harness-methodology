@@ -367,6 +367,7 @@ def _phase_configs() -> dict[int, PhaseConfig]:
         6: PhaseConfig(phase_num=6, name="Quality", entry_score=85, exit_gate=4, key_artifact="QUALITY_REPORT.md", per_fr_gate1=False),
         7: PhaseConfig(phase_num=7, name="Risk", entry_score=85, exit_gate=None, key_artifact="RISK_REGISTER.md", per_fr_gate1=True),
         8: PhaseConfig(phase_num=8, name="Configuration", entry_score=85, exit_gate=None, key_artifact="CONFIG_RECORDS.md", per_fr_gate1=True),
+        9: PhaseConfig(phase_num=9, name="Maintenance", entry_score=85, exit_gate=None, key_artifact="09-maintenance/MAINTENANCE_LOG.md", per_fr_gate1=True),
     }
 
 
@@ -467,6 +468,11 @@ def _build_defaults() -> ConstitutionProfile:
         "fr-", "nfr-", "requirement", "specification",
         "config", "configuration", "deployment", "release", "environment",
         "rollback", "secret",
+    ]
+    _p9_correctness_kw = [
+        "fr-", "nfr-", "cr-", "requirement", "specification",
+        "change request", "bug", "fix", "root cause", "regression",
+        "repro", "resolution", "impact",
     ]
 
     # Meta-documents excluded from constitution keyword scans.
@@ -600,6 +606,15 @@ def _build_defaults() -> ConstitutionProfile:
                 active_dimensions=["correctness", "security"],
                 composite_threshold=65.0,
                 dimension_keywords={"correctness": _p8_correctness_kw},
+            ),
+            # P9 (Maintenance): correctness + security only, same reasoning as
+            # P5-P8 (MAINTENANCE_LOG.md is a prose/index doc, not code).
+            # Correctness keywords cover the CR vocabulary (change request,
+            # root cause, repro, resolution) so a well-kept CR index passes.
+            9: PhaseProfile(
+                active_dimensions=["correctness", "security"],
+                composite_threshold=65.0,
+                dimension_keywords={"correctness": _p9_correctness_kw},
             ),
         },
         dimensions={

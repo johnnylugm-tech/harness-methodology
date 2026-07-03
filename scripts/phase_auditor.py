@@ -46,13 +46,16 @@ HARD_RULES = {
 
 # Gate entry requirements: phase → required gate number that must have PASS
 # (mirrors _ENTRY_GATE_MAP in harness_cli.py)
-_ENTRY_GATE_MAP: dict[int, int] = {4: 2, 5: 3, 6: 3, 7: 4, 8: 4}
+# P9 (Maintenance) requires Gate 4 PASS, same as P7/P8.
+_ENTRY_GATE_MAP: dict[int, int] = {4: 2, 5: 3, 6: 3, 7: 4, 8: 4, 9: 4}
 
 # Minimum numeric score for each exit gate (from framework spec)
 # Gate 2 = P3 exit (≥40%), Gate 3 = P4 exit (≥70%), Gate 4 = P6 QA (≥88%)
 _GATE_SCORE_THRESHOLDS: dict[int, float] = {2: 40.0, 3: 70.0, 4: 88.0}
 
 # Milestone commit requirements per phase (formerly in deprecated phase_end_audit.py)
+# P9 has no fixed milestone list: cr-close pushes a `cr-close` milestone per
+# closed CR, and the phase itself never exits.
 _PHASE_MILESTONES: dict[int, list[str]] = {
     3: ["p3-mid", "p3-pre-gate2"],
     4: ["p4-mid", "p4-pre-gate3"],
@@ -247,6 +250,23 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
         ],
         "thresholds": {},
         "min_duration_minutes": 10,
+    },
+    9: {
+        "name": "Maintenance",
+        "agent_a": "developer",
+        "agent_b": "reviewer",
+        "ab_rounds": 1,
+        "constitution_type": None,
+        "deliverables": [
+            (["09-maintenance/MAINTENANCE_LOG.md"],
+             "MAINTENANCE_LOG.md -- Change Request index (CR-BUG/CR-FEAT)", True),
+        ],
+        "thresholds": {
+            "TH-01": ("ASPICE Compliance Rate", ">80%"),
+        },
+        # Maintenance is a re-entrant steady state — CRs arrive at any pace,
+        # so no minimum duration applies.
+        "min_duration_minutes": 0,
     },
 }
 
@@ -1995,8 +2015,8 @@ Examples:
     )
     parser.add_argument("--repo", required=True,
                         help="GitHub repo (owner/repo)")
-    parser.add_argument("--phase", type=int, required=True, choices=range(1, 9),
-                        help="Phase number to audit (1-8)")
+    parser.add_argument("--phase", type=int, required=True, choices=range(1, 10),
+                        help="Phase number to audit (1-9)")
     parser.add_argument("--branch", default="main",
                         help="Target branch (default: main)")
     parser.add_argument("--output", choices=["markdown", "json"], default="markdown",
@@ -2006,7 +2026,7 @@ Examples:
     args = parser.parse_args()
 
     if args.phase not in PHASE_SPEC:
-        print(f"Phase {args.phase} not defined; supported range: 1-8", file=sys.stderr)
+        print(f"Phase {args.phase} not defined; supported range: 1-9", file=sys.stderr)
         sys.exit(1)
 
     # initialize GitHub access layer

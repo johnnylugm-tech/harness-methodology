@@ -54,6 +54,7 @@ def check_phase_title(project_root: Path, phase: int) -> List[Dict[str, str]]:
             layout.get_relative_str(layout.phase8_config_dir / "CONFIG_RECORDS.md"),
             layout.get_relative_str(layout.phase8_config_dir / "RELEASE_CHECKLIST.md"),
         ],
+        9: [layout.get_relative_str(layout.maintenance_log_path)],
     }
     artifacts = phase_artifacts.get(phase, [])
 
@@ -76,7 +77,7 @@ def check_phase_title(project_root: Path, phase: int) -> List[Dict[str, str]]:
 
         # Check for wrong phase number in title
         wrong_phase = None
-        for p in range(1, 9):
+        for p in range(1, 10):
             if p == phase:
                 continue
             if f"Phase {p}" in title or f"phase {p}" in title:

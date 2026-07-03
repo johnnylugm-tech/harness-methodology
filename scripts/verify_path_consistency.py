@@ -32,6 +32,7 @@ PHASE_WHERE_PATTERNS = {
     6: "06-quality",
     7: "07-risk",
     8: "08-config",
+    9: "09-maintenance",
 }
 
 PHASE_ARTIFACTS = {
@@ -39,12 +40,13 @@ PHASE_ARTIFACTS = {
     6: ["06-quality/QUALITY_REPORT.md"],
     7: phase_artifacts(7),
     8: ["08-config/CONFIG_RECORDS.md", "08-config/RELEASE_CHECKLIST.md"],
+    9: ["09-maintenance/MAINTENANCE_LOG.md"],
 }
 
 
 def extract_paths_from_tool(filepath: str) -> Dict[int, Set[str]]:
     """Parse a tool output file for phase-specific path references."""
-    paths: dict[int, set[str]] = {5: set(), 6: set(), 7: set(), 8: set()}
+    paths: dict[int, set[str]] = {5: set(), 6: set(), 7: set(), 8: set(), 9: set()}
     try:
         content = Path(filepath).read_text(encoding="utf-8")
         for phase, pattern in PHASE_WHERE_PATTERNS.items():
@@ -74,18 +76,18 @@ def main():
     print("=" * 60)
 
     inconsistencies = []
-    for phase in [5, 6, 7, 8]:
+    for phase in [5, 6, 7, 8, 9]:
         print(f"\nPhase {phase}")
         print("-" * 40)
         plan_paths = extract_paths_from_plan(phase)
         plan_path_str = list(plan_paths)[0] if plan_paths else "NOT FOUND"
         print(f"  Plan WHERE: {plan_path_str}")
 
-        all_tool_paths: Dict[int, Set[str]] = {5: set(), 6: set(), 7: set(), 8: set()}
+        all_tool_paths: Dict[int, Set[str]] = {5: set(), 6: set(), 7: set(), 8: set(), 9: set()}
         for tool_file in TOOL_FILES:
             if not Path(tool_file).exists():
                 continue
-            for p in [5, 6, 7, 8]:
+            for p in [5, 6, 7, 8, 9]:
                 all_tool_paths[p].update(extract_paths_from_tool(tool_file)[p])
 
         tool_phase_paths = all_tool_paths.get(phase, set())

@@ -12,4 +12,5 @@ PHASE_CONFIG: Dict[int, Dict[str, Any]] = {
     6: {"name": "Quality",         "requires_pytest": False},
     7: {"name": "Risk Assessment", "requires_pytest": False},
     8: {"name": "Config Mgmt",     "requires_pytest": False},
+    9: {"name": "Maintenance",     "requires_pytest": True},
 }

@@ -677,7 +677,7 @@ class IntegratedStagePassGenerator:
 
 def main():
     parser = argparse.ArgumentParser(description="STAGE_PASS Generator (Integrated)")
-    parser.add_argument("--phase", type=int, required=True, choices=range(1, 9))
+    parser.add_argument("--phase", type=int, required=True, choices=range(1, 10))
     parser.add_argument("--project-dir", default=".", dest="project_dir")
     args = parser.parse_args()
     

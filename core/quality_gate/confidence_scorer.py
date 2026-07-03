@@ -45,10 +45,11 @@ _PHASE_INT_TO_ENUM_NAME = {
     6: "QUALITY",
     7: "RISK",
     8: "CONFIG",
+    9: "MAINTENANCE",
 }
 
 # Phases with source code (linting/coverage/type safety apply)
-_CODE_PHASES = {3, 4, 5, 6, 7, 8}
+_CODE_PHASES = {3, 4, 5, 6, 7, 8, 9}
 
 # ── Metric weights by phase type ──────────────────────────────────────────────
 

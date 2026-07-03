@@ -38,7 +38,7 @@ class BVSRunner:
 
     # Minimum phase prerequisites: key phase must have key-1 complete first
     PHASE_PREREQUISITES: Dict[int, int] = {
-        2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 7: 6, 8: 7,
+        2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 7: 6, 8: 7, 9: 8,
     }
 
     def __init__(self, project_path: str, phase: int = 1) -> None:

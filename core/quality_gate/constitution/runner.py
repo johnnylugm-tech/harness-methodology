@@ -500,12 +500,13 @@ def _scan_directory(docs_path: Path, phase: int, check_type: str) -> Constitutio
 
     # P3/P4: scan Python source files only — .md compliance docs are gameable.
     # P1/P2: scan .md (SRS.md, SAD.md are the actual deliverables for those phases).
-    # P5-P8: scan the specific markdown deliverable for each phase.
+    # P5-P9: scan the specific markdown deliverable for each phase.
     DELIVERABLE_MAP = {
         5: "VERIFICATION_REPORT.md",
         6: "QUALITY_REPORT.md",
         7: "RISK_REGISTER.md",
         8: "CONFIG_RECORDS.md",
+        9: "MAINTENANCE_LOG.md",
     }
 
     files_scanned = 0

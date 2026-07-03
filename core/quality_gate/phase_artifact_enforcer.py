@@ -34,10 +34,11 @@ class Phase(enum.Enum):
     QUALITY = 6
     RISK = 7
     CONFIG = 8
+    MAINTENANCE = 9
 
     @classmethod
     def from_int(cls, n: int) -> "Phase":
-        """Convert a phase integer (1-8) to a Phase enum member.
+        """Convert a phase integer (1-9) to a Phase enum member.
 
         Raises KeyError for unknown integers.  Phase 0 (CONSTITUTION) is
         intentionally excluded — it is an internal harness phase, not a
@@ -46,10 +47,10 @@ class Phase(enum.Enum):
         _map: Dict[int, "Phase"] = {
             1: cls.SPECIFY,    2: cls.PLAN,       3: cls.IMPLEMENT,
             4: cls.VERIFY,     5: cls.SYSTEM_TEST, 6: cls.QUALITY,
-            7: cls.RISK,       8: cls.CONFIG,
+            7: cls.RISK,       8: cls.CONFIG,     9: cls.MAINTENANCE,
         }
         if n not in _map:
-            raise KeyError(f"No Phase enum for integer {n!r} (expected 1-8)")
+            raise KeyError(f"No Phase enum for integer {n!r} (expected 1-9)")
         return _map[n]
 
 
@@ -149,6 +150,12 @@ class PhaseArtifactRegistry:
                 ],
                 "depends_on": [Phase.RISK],
             },
+            Phase.MAINTENANCE: {
+                "artifacts": [
+                    layout.get_relative_str(layout.maintenance_log_path),
+                ],
+                "depends_on": [Phase.CONFIG],
+            },
         }
 
     def __init__(self, project_root: str) -> None:
@@ -242,6 +249,7 @@ class PhaseArtifactRegistry:
             Phase.CONSTITUTION: 0, Phase.SPECIFY: 1, Phase.PLAN: 2,
             Phase.IMPLEMENT: 3, Phase.VERIFY: 4, Phase.SYSTEM_TEST: 5,
             Phase.QUALITY: 6, Phase.RISK: 7, Phase.CONFIG: 8,
+            Phase.MAINTENANCE: 9,
         }
         verified: List[str] = []
         missing: List[str] = []

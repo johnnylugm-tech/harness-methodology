@@ -149,8 +149,8 @@ def _load_env_file(env_path: Path) -> list[str]:
             loaded.append(key)
     return loaded
 
-# Phases where Gate 1 runs per-FR
-_PER_FR_GATE1_PHASES: frozenset[int] = frozenset({3, 4, 5, 7, 8})
+# Phases where Gate 1 runs per-FR (P9 maintenance: per-CR touched FRs)
+_PER_FR_GATE1_PHASES: frozenset[int] = frozenset({3, 4, 5, 7, 8, 9})
 # Statuses that indicate an agent dispatch failure (all others treated as success).
 _DISPATCH_ERROR_STATUSES: frozenset[str] = frozenset({"REJECT", "BLOCKED", "FAILED", "ERROR", "TIMEOUT", "REGRESSION_GUARD"})
 # Per-step default max_turns for run-fr-step. --max-turns override takes priority.
@@ -572,7 +572,11 @@ _PHASE_EXIT_GATES: dict[int, int] = {3: 2, 4: 3, 6: 4}
 # Phases that require Gate 1 per-FR evaluation during advance-phase.
 # Phase 6 (Quality Assurance) has no FR loop — it uses Gate 4 exclusively —
 # so Gate 1 per-FR records are not expected for it.
-# Mirrors _PHASE_GATE1_PHASES in scripts/generate_full_plan.py.
+# Phase 9 (Maintenance) is deliberately absent: advance-phase --completed 9
+# is always BLOCKED (terminal steady state), so its Gate 1 records are
+# checked per-CR by cr-close, not here.
+# Mirrors _PHASE_GATE1_PHASES in scripts/generate_full_plan.py (which DOES
+# include 9 — plan/gate steps apply to P9 CRs).
 _PHASES_WITH_GATE1_FR_CHECK: frozenset[int] = frozenset({3, 4, 5, 7, 8})
 
 # P1/P2 deliverable labels used as approval-file keys in agent_b_approvals/
@@ -1547,12 +1551,12 @@ def _verify_entry_gate(project: Path, phase: int) -> dict:
     - P4-P8: quality_manifest.json gate PASS
     """
     # SG-6: reject out-of-range phase early. Previously `phase <= 1` accepted
-    # phase=0 and phase=-1, which is meaningless (only 1..8 exist).
-    if not (1 <= phase <= 8):
+    # phase=0 and phase=-1, which is meaningless (only 1..9 exist).
+    if not (1 <= phase <= 9):
         return {
             "passed": False,
             "gate": "InvalidPhase",
-            "reason": f"phase={phase} is out of range 1..8",
+            "reason": f"phase={phase} is out of range 1..9",
         }
     if phase == 1:
         return {"passed": True, "gate": "None", "reason": "P1 has no entry gate"}
@@ -3943,6 +3947,7 @@ def cmd_generate_next_plan(args: argparse.Namespace) -> int:
         3: "Implementation",            4: "Testing",
         5: "Verification & Delivery",   6: "Quality Assurance",
         7: "Risk Management",           8: "Configuration Management",
+        9: "Maintenance",
     }
     print(f"\nPhase      : {current_phase} ({phase_names.get(current_phase, '?')})")
 
@@ -5216,9 +5221,10 @@ def cmd_status(args: argparse.Namespace) -> int:
 
     # Phase progress table
     phase_names = {1: "Requirements", 2: "Architecture", 3: "Implementation",
-                   4: "Testing", 5: "Verification", 6: "Quality", 7: "Risk", 8: "Config"}
+                   4: "Testing", 5: "Verification", 6: "Quality", 7: "Risk", 8: "Config",
+                   9: "Maintenance"}
     phase_status = {}
-    for p in range(1, 9):
+    for p in range(1, 10):
         if p < current_phase:
             phase_status[p] = "COMPLETE"
         elif p == current_phase:
@@ -5273,7 +5279,7 @@ def cmd_status(args: argparse.Namespace) -> int:
             "project": str(project),
             "fsm": {"state": state.get("state", "UNKNOWN"), "current_phase": current_phase,
                     "last_update": state.get("last_update", "-")},
-            "phase_progress": {str(p): phase_status[p] for p in range(1, 9)},
+            "phase_progress": {str(p): phase_status[p] for p in range(1, 10)},
             "fr_ids": fr_ids,
             "gates": gates,
         }
@@ -5297,7 +5303,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 
     # Phase progress table
     print("\n[Phase Progress]")
-    for p in range(1, 9):
+    for p in range(1, 10):
         icon = {"COMPLETE": "✅", "IN_PROGRESS": "🔄", "NOT_STARTED": "⬜"}.get(phase_status[p], "⬜")
         print(f"  {icon} P{p} {phase_names.get(p, 'Unknown'):<16} {phase_status[p]}")
 
@@ -8594,6 +8600,7 @@ _CLAUDE_AUTO_END   = "<!-- harness:auto-end -->"
 _PHASE_NAMES = {
     1: "Requirements", 2: "Architecture", 3: "Implementation",
     4: "Testing", 5: "Verification", 6: "Quality", 7: "Risk", 8: "Config Management",
+    9: "Maintenance",
 }
 
 
@@ -9450,6 +9457,7 @@ _PHASE_DIRS: dict[int, str] = {
     6: "06-quality",
     7: "07-risk",
     8: "08-config",
+    9: "09-maintenance",
 }
 
 # Sub-directories created inside phase dirs on init (not tracked for naming checks).
@@ -10424,6 +10432,7 @@ def cmd_audit_structure(args: argparse.Namespace) -> int:
         6: ["06-quality/QUALITY_REPORT.md"],
         7: _phase_artifacts(7),
         8: ["08-config/CONFIG_RECORDS.md", "08-config/RELEASE_CHECKLIST.md"],
+        9: ["09-maintenance/MAINTENANCE_LOG.md"],
     }
     PHASE_ARTIFACTS = {k: v for k, v in _ALL_PHASE_ARTIFACTS.items() if k <= current_phase}
 
@@ -10539,8 +10548,13 @@ def cmd_audit_structure(args: argparse.Namespace) -> int:
     # --- Dimension 5: Naming convention ---
     naming_issues = []
     expected_names = set(PHASE_DIRS.values())
+    # Known/unknown judged against ALL canonical phase dirs — init-project
+    # pre-creates every phase directory (including future phases), so a
+    # not-yet-reached phase dir (e.g. 09-maintenance at P1) is legitimate.
+    # Only the phase-truncated set drives the `missing` check below.
+    all_canonical_names = set(_PHASE_DIRS.values())
     # Map "NN" prefix → canonical dir name, e.g. "05" → "05-verification"
-    expected_by_prefix: dict[str, str] = {n.split("-")[0]: n for n in expected_names}
+    expected_by_prefix: dict[str, str] = {n.split("-")[0]: n for n in all_canonical_names}
     found_dirs = set()
     for child in project.iterdir():
         if not child.is_dir():
@@ -10550,7 +10564,7 @@ def cmd_audit_structure(args: argparse.Namespace) -> int:
         m = _re.match(r"^(\d{2})-", child.name)
         if m:
             found_dirs.add(child.name)
-            if child.name not in expected_names:
+            if child.name not in all_canonical_names:
                 prefix = m.group(1)
                 canonical = expected_by_prefix.get(prefix)
                 if canonical:
@@ -11158,7 +11172,7 @@ def build_parser() -> argparse.ArgumentParser:
         "check-constitution",
         help="Check document quality against constitution standards for a phase",
     )
-    cc.add_argument("--phase",   required=True, type=int, choices=range(1, 9),
+    cc.add_argument("--phase",   required=True, type=int, choices=range(1, 10),
                     help="Phase to check (1–8)")
     cc.add_argument("--project", default=".", help="Project root (default: .)")
     cc.add_argument(

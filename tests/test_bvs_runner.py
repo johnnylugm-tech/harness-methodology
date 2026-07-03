@@ -15,7 +15,8 @@ class TestBVSRunnerInit:
     def test_phase_prerequisites(self):
         assert BVSRunner.PHASE_PREREQUISITES[2] == 1
         assert BVSRunner.PHASE_PREREQUISITES[8] == 7
-        assert len(BVSRunner.PHASE_PREREQUISITES) == 7
+        assert BVSRunner.PHASE_PREREQUISITES[9] == 8
+        assert len(BVSRunner.PHASE_PREREQUISITES) == 8
 
 
 class TestRunPhaseOrder:

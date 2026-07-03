@@ -121,7 +121,7 @@ class ExecutionLogger:
     def _infer_phase_from_task(task: str) -> int:
         """Infer phase number from task description."""
         task_lower = task.lower()
-        for pn in range(1, 9):
+        for pn in range(1, 10):
             if f"phase {pn}" in task_lower or f"p{pn}" in task_lower:
                 return pn
         return 1

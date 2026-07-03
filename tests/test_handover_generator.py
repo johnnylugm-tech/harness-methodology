@@ -106,20 +106,35 @@ class TestHandoverGenerator:
         assert "3. Gamma step" in content
 
     def test_unknown_phase_raises_value_error(self, tmp_path: Path):
-        """Phase 9 (and any value outside 1-8) is invalid input — the
+        """Phase 10 (and any value outside 1-9) is invalid input — the
         write() boundary must reject it with ValueError. (Previously
         the test was asserting silent fallback rendering, which was
         exactly the bug: an invalid phase would render a bash block
-        pointing at `.methodology/phase9_plan.md`.)"""
+        pointing at `.methodology/phase10_plan.md`. Phase 9 became a
+        legal phase — Maintenance — so the out-of-range probe is 10.)"""
         gen = HandoverGenerator(tmp_path)
         with pytest.raises(ValueError, match="phase"):
             gen.write(
-                checkpoint_id="P9-exit-20260504",
-                phase=9,
+                checkpoint_id="P10-exit-20260504",
+                phase=10,
                 task_background="bg",
                 current_status="status",
                 next_steps=["step 1"],
             )
+
+    def test_phase9_maintenance_is_valid(self, tmp_path: Path):
+        """Phase 9 (Maintenance) is a legal steady-state phase — write()
+        must accept it and render the maintenance phase name."""
+        gen = HandoverGenerator(tmp_path)
+        gen.write(
+            checkpoint_id="P9-cr-close-20260703",
+            phase=9,
+            task_background="bg",
+            current_status="status",
+            next_steps=["step 1"],
+        )
+        content = (tmp_path / "HANDOVER.md").read_text(encoding="utf-8")
+        assert "Maintenance" in content
 
     def test_write_overwrites_existing(self, tmp_path: Path):
         gen = HandoverGenerator(tmp_path)

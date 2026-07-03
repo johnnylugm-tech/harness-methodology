@@ -711,6 +711,94 @@ TASK_ID: task-p8-review
 }}
 ═══════════════════════════════════════
 ```"""
+    },
+    9: {
+        "name": "Maintenance",
+        "agent_a": "developer",
+        "agent_b": "reviewer",
+        "developer": """```
+TASK: Execute Change Request (CR-BUG / CR-FEAT) under maintenance discipline
+TASK_ID: task-p9
+═══════════════════════════════════════
+
+[Phase Goal]
+Resolve the assigned Change Request while re-entering the existing
+traceability chain (ASPICE SUP.9 problem resolution / SUP.10 change
+request management). Changes are written back into the phase folders
+(01-requirements, 02-architecture, 03-development) — never around them.
+
+[On Demand Reading] (read only these sections, NO full-file dump)
+- .methodology/change_requests/CR-NNN.json (the assigned CR)
+- SRS.md (only the affected FR sections)
+- SAD.md (only the affected module rows)
+- TEST_SPEC.md (only the affected FR sections)
+
+[Workflow — CR-BUG (SUP.9)]
+1. Write a failing repro test FIRST; record its path in the CR
+2. Document root cause in the CR before fixing
+3. Fix code (preserve [FR-XX] annotations); repro test turns green
+4. Re-run Gate 1 on touched FRs; untouched FRs use --delta
+
+[Workflow — CR-FEAT (SUP.10)]
+1. Add/update FR in SRS.md; SAD.md module row; TEST_SPEC.md section
+2. New modules must go through SAB amendment (amend-sab)
+3. TDD implement with [FR-XX] annotations + tests/test_frNN.py
+4. Gate 1 on new/changed FRs; rebuild trace attestation
+
+[Verification Criteria]
+- cr-close checklist passes (traceability, gate scores, attestation)
+- MAINTENANCE_LOG.md updated with the CR entry
+
+[FORBIDDEN]
+- NO code change without a CR ticket
+- NO closing a CR-BUG without an existing repro test + fix commit
+- NO editing quality_manifest.json by full regeneration (surgical append only)
+- NO citations missing or lacking line numbers -> HR-15 violation
+
+[OUTPUT_FORMAT]
+{{
+ "status": "success|error|unable_to_proceed",
+ "result": "actual output (CR id, touched FRs, gate results)",
+ "confidence": 1-10,
+ "citations": ["SRS.md#L10-L15"],
+ "summary": "within 50 words"
+}}
+
+HR-15 enforced: citations must include 'filename#Llinenum' format
+═══════════════════════════════════════
+```""",
+        "reviewer": """```
+TASK: Review Change Request execution
+TASK_ID: task-p9-review
+═══════════════════════════════════════
+
+[Review Scope] (read only these sections, NO full-file dump)
+- .methodology/change_requests/CR-NNN.json
+- 09-maintenance/MAINTENANCE_LOG.md (the CR entry)
+- Touched FR sections in SRS.md / SAD.md / TEST_SPEC.md
+
+[Verification Checklist]
+1. CR-BUG: repro test exists, failed before fix, passes after
+2. CR-FEAT: new FR fully traced (SRS -> SAD -> TEST_SPEC -> code -> test)
+3. Gate 1 re-run on every touched FR; deltas recorded for untouched
+4. Trace attestation rebuilt and verify-trace clean
+5. MAINTENANCE_LOG.md entry complete with resolution evidence
+
+[REJECT_IF]
+- Resolution lacks fix_commit or repro_test evidence -> REJECT
+- Touched FR without a fresh Gate 1 record -> REJECT
+- Traceability chain broken (ghost FR / missing annotation) -> REJECT
+- Missing citations or no line numbers -> REJECT (HR-15)
+
+[OUTPUT_FORMAT]
+{{
+ "status": "APPROVE|REJECT",
+ "confidence": 1-10,
+ "violations": ["specific issues"],
+ "summary": "within 50 words"
+}}
+═══════════════════════════════════════
+```"""
     }
 }
 

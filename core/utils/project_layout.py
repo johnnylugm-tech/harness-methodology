@@ -32,6 +32,7 @@ _PHASE_PROP_MAP: dict[int, list[tuple[str, str]]] = {
         ("phase8_config_dir", "CONFIG_RECORDS.md"),
         ("phase8_config_dir", "RELEASE_CHECKLIST.md"),
     ],
+    9: [("phase9_maintenance_dir", "MAINTENANCE_LOG.md")],
 }
 
 
@@ -90,6 +91,8 @@ class ProjectLayout:
     def phase7_risk_dir(self) -> Path:         return self.root / "07-risk"
     @property
     def phase8_config_dir(self) -> Path:       return self.root / "08-config"
+    @property
+    def phase9_maintenance_dir(self) -> Path:  return self.root / "09-maintenance"
 
     # ==========================================
     # 2. 核心產物 (Core Artifacts)
@@ -140,6 +143,11 @@ class ProjectLayout:
     def config_records_path(self) -> Path:         return self.phase8_config_dir / "CONFIG_RECORDS.md"
     @property
     def release_checklist_path(self) -> Path:      return self.phase8_config_dir / "RELEASE_CHECKLIST.md"
+
+    @property
+    def maintenance_log_path(self) -> Path:        return self.phase9_maintenance_dir / "MAINTENANCE_LOG.md"
+    @property
+    def change_requests_dir(self) -> Path:         return self.methodology_dir / "change_requests"
 
     @property
     def handover_path(self) -> Path:               return self.root / "HANDOVER.md"
@@ -242,6 +250,7 @@ class ProjectLayout:
             6: self.phase6_quality_dir,
             7: self.phase7_risk_dir,
             8: self.phase8_config_dir,
+            9: self.phase9_maintenance_dir,
         }
         return mapping.get(phase, self.root / "docs")
 

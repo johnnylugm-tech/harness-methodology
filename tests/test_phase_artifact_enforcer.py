@@ -11,7 +11,7 @@ from core.quality_gate.phase_artifact_enforcer import (  # pyright: ignore[repor
 
 class TestPhase:
     def test_all_phases_exist(self):
-        assert len(list(Phase)) == 9
+        assert len(list(Phase)) == 10
         assert Phase.CONSTITUTION.value == 0
         assert Phase.SPECIFY.value == 1
         assert Phase.PLAN.value == 2
@@ -21,10 +21,11 @@ class TestPhase:
         assert Phase.QUALITY.value == 6
         assert Phase.RISK.value == 7
         assert Phase.CONFIG.value == 8
+        assert Phase.MAINTENANCE.value == 9
 
     def test_phase_values_are_sequential(self):
         values = [p.value for p in Phase]
-        assert values == list(range(9))
+        assert values == list(range(10))
 
 
 class TestPhaseArtifactRegistry:

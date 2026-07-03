@@ -486,6 +486,7 @@ class PhaseTruthVerifier:
                 layout.get_relative_str(layout.config_records_path),
                 layout.get_relative_str(layout.release_checklist_path),
             ],
+            9: [layout.get_relative_str(layout.maintenance_log_path)],
         }
 
         checklist = []
@@ -648,7 +649,7 @@ if __name__ == "__main__":  # pragma: no cover
     import argparse
 
     parser = argparse.ArgumentParser(description="Phase Truth Verifier")
-    parser.add_argument("--phase", type=int, required=True, choices=range(1, 9),
+    parser.add_argument("--phase", type=int, required=True, choices=range(1, 10),
                         help="Phase number (1-8)")
     parser.add_argument("--project", default=".", help="Project root path")
 

@@ -50,6 +50,7 @@ _PHASE_NAMES: dict[int, str] = {
     6: "Full Review / Gate 4",
     7: "Risk Register",
     8: "Config & Records",
+    9: "Maintenance",
 }
 
 #: Default notes prepended to every handover document.
@@ -188,7 +189,7 @@ class HandoverGenerator:
         # render nonsensical text into the bash code block in HANDOVER.md,
         # and an out-of-range phase would even inject a path like
         # `.methodology/phase99_plan.md` that doesn't exist.
-        _VALID_PHASES = range(1, 9)
+        _VALID_PHASES = range(1, 10)
         if not isinstance(phase, int) or isinstance(phase, bool):
             raise ValueError(
                 f"phase must be an int in {list(_VALID_PHASES)}; got "

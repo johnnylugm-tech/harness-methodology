@@ -301,6 +301,7 @@ class FrameworkEnforcer:
             Phase.CONSTITUTION: 0, Phase.SPECIFY: 1, Phase.PLAN: 2,
             Phase.IMPLEMENT: 3, Phase.VERIFY: 4, Phase.SYSTEM_TEST: 5,
             Phase.QUALITY: 6, Phase.RISK: 7, Phase.CONFIG: 8,
+            Phase.MAINTENANCE: 9,
         }
         verified: list[str] = []
         missing: list[str] = []
@@ -333,6 +334,7 @@ class FrameworkEnforcer:
             6: {"Phase 6 (QUALITY)":     ["06-quality/QUALITY_REPORT.md"]},
             7: {"Phase 7 (RISK)":        phase_artifacts(7)},
             8: {"Phase 8 (CONFIG)":      ["08-config/CONFIG_RECORDS.md", "08-config/RELEASE_CHECKLIST.md"]},
+            9: {"Phase 9 (MAINTENANCE)": ["09-maintenance/MAINTENANCE_LOG.md"]},
         }
         missing = []
         found = []

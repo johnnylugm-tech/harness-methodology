@@ -467,8 +467,8 @@ def parse_srs_nfr_sections(srs_path: Optional[Path]) -> List[Dict]:
 # Gate Step Helpers (two-phase evaluation: run-gate → evaluate → finalize-gate)
 # ============================================================================
 
-# Phase → gate applicability
-_PHASE_GATE1_PHASES: frozenset = frozenset({3, 4, 5, 7, 8})   # Gate 1 per-FR
+# Phase → gate applicability (P9 maintenance: per-CR touched FRs)
+_PHASE_GATE1_PHASES: frozenset = frozenset({3, 4, 5, 7, 8, 9})   # Gate 1 per-FR
 _PHASE_EXIT_GATES: dict = {3: 2, 4: 3, 6: 4}                  # phase → exit gate num
 
 # 10-Push Strategy labels for the P1/P2 checkpoint pushes (① ②).
@@ -1378,6 +1378,7 @@ def _phase_advance_step(phase: int, dynamic: bool = False) -> List[str]:
         2: "Architecture Design", 3: "Implementation",
         4: "Testing", 5: "Verification & Delivery", 6: "Quality Assurance",
         7: "Risk Management", 8: "Configuration Management",
+        9: "Maintenance",
     }
     next_name = next_names.get(next_phase, f"Phase {next_phase}")
     # TDD thresholds: mirror _advance_prechecks in harness_cli.py
@@ -3065,6 +3066,7 @@ def generate_full_plan(phase: int, repo_path: Path, output_path: Optional[Path] 
         6: "Quality Assurance",
         7: "Risk Management",
         8: "Configuration Management",
+        9: "Maintenance",
     }
 
     mode_line = ["> **Mode**: Dynamic (load-context at execution time)", ""] if dynamic else []
