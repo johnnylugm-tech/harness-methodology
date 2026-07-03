@@ -11633,7 +11633,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     vh.add_argument(
         "--from-phase", type=int, required=True, dest="from_phase",
-        choices=[1, 2, 3, 4, 5, 6, 7],
+        choices=[1, 2, 3, 4, 5, 6, 7, 8],
         help="Phase number that just completed; validator checks deliverables needed by P{N+1}",
     )
     vh.add_argument("--project", default=".", help="Project root (default: .)")
