@@ -706,6 +706,43 @@ class GitStrategy:
         msg = "docs(P8): config records — pipeline complete"
         return self._commit_and_push(msg)
 
+    # ── P9 maintenance — per-CR closure push ─────────────────────────────────
+
+    def commit_and_push_cr_close(
+        self,
+        cr_id: str,
+        cr_title: str = "",
+        background: str = "",
+        notes: list[str] | None = None,
+    ) -> bool:
+        """
+        Commit + push after a Phase 9 Change Request closes (cr-close).
+        Re-entrant: one push per closed CR, no fixed push number.
+        """
+        if not self.enabled:
+            return True
+        _bg = background or (
+            f"P9 Maintenance: {cr_id} closed ({cr_title})." if cr_title
+            else f"P9 Maintenance: {cr_id} closed."
+        )
+        self._write_handover(
+            checkpoint_id=self._cp(f"P9-{cr_id}-closed"),
+            phase=9,
+            background=_bg,
+            status=f"{cr_id} closed with full re-entry checklist "
+                   f"(Gate 1 + attestation + drift).",
+            steps=[
+                "Open the next CR when needed: cr-open --type bug|feat --title ...",
+                "Check open tickets: cr-status",
+            ],
+            notes=notes,
+            # P9 is the terminal steady state — resume_phase=9 prevents
+            # HandoverGenerator from computing _target = phase+1 = 10.
+            resume_phase=9,
+        )
+        msg = f"maint({cr_id}): change request closed"
+        return self._commit_and_push(msg)
+
     # ── Deprecated: kept for backward compatibility ──────────────────────────
 
     def commit_and_push_final(self, phases: list[int]) -> bool:

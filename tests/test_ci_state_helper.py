@@ -141,12 +141,14 @@ class TestCmdIsP8:
         cmd_is_p8(args)
         assert capsys.readouterr().out.strip() == "false"
 
-    def test_true_when_phase_9(self, tmp_path, capsys):
+    def test_false_when_phase_9_maintenance(self, tmp_path, capsys):
+        """Phase 9 (Maintenance) pushes must NOT re-trigger P8 archive checks —
+        is-p8 is true only at exact phase 8 with a pushed p8 milestone."""
         sf = tmp_path / "state.json"
         sf.write_text(json.dumps({"current_phase": 9}), encoding="utf-8")
         args = self._args(sf)
         cmd_is_p8(args)
-        assert capsys.readouterr().out.strip() == "true"
+        assert capsys.readouterr().out.strip() == "false"
 
     def test_true_when_phase_8_and_p8_milestone(self, tmp_path, capsys):
         sf = tmp_path / "state.json"
@@ -197,7 +199,10 @@ class TestMain:
 
     def test_is_p8_via_main(self, tmp_path, capsys):
         sf = tmp_path / "state.json"
-        sf.write_text(json.dumps({"current_phase": 9}), encoding="utf-8")
+        sf.write_text(json.dumps({
+            "current_phase": 8,
+            "last_milestone_command": "push-milestone --type p8",
+        }), encoding="utf-8")
         rc = main(["is-p8", "--state-file", str(sf)])
         assert rc == 0
         assert capsys.readouterr().out.strip() == "true"

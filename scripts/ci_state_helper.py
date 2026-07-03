@@ -84,7 +84,10 @@ def cmd_is_p8(args: argparse.Namespace) -> int:
         phase_int = int(phase)
     except (ValueError, TypeError):
         phase_int = 0
-    if phase_int > 8 or (phase_int == 8 and "p8" in last_milestone.lower()):
+    # Phase 9 (Maintenance) is a post-P8 steady state, NOT "P8 completed
+    # just now" — the P8 archive checks must not re-trigger on every
+    # maintenance push, so only exact phase 8 + a pushed p8 milestone counts.
+    if phase_int == 8 and "p8" in last_milestone.lower():
         print("true")
     else:
         print("false")

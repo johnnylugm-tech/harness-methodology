@@ -1009,6 +1009,8 @@ def _entry_gate_check(phase: int) -> List[str]:
             ".methodology/quality_manifest.json records Gate 4 PASS from P6"),
         8: ("Gate 4 PASS (P6 exit — P7 has no exit gate, P7 completed stands between)",
             ".methodology/quality_manifest.json records Gate 4 PASS from P6"),
+        9: ("Gate 4 PASS + P8 completed (Maintenance entry via advance-phase --completed 8)",
+            ".methodology/quality_manifest.json records Gate 4 PASS from P6"),
     }
     if phase not in _ENTRY_MAP:
         return []
@@ -1541,7 +1543,7 @@ def _validate_handoff_precondition_block(phase: int) -> List[str]:
 
     Inserted into the Pre-Phase Preflight block of every plan from P2 onward.
     """
-    if phase < 2 or phase > 8:
+    if phase < 2 or phase > 9:
         return []
     from_phase = phase - 1
     return [
@@ -2965,14 +2967,6 @@ def generate_phase8_tasks(repo_path: Path, dynamic: bool = False, gate_meta: "di
         "  > Must run BEFORE `push-milestone --type p8`; `_validate_p8_completion()` in push-milestone auto-verifies.",
         "  > CI job `p8-archive-check` also validates this directory on push to main.",
         "",
-        "- **[P8-HANDOVER-CHECK]** Verify `HANDOVER.md` has no Phase 9 references (validated by CI `p8-archive-check`):",
-        "  ```bash",
-        '  grep -qi "phase 9\\|phase9\\|phase9_plan" HANDOVER.md \\',
-        '    && echo "ERROR: Phase 9 refs found — remove them" \\',
-        '    || echo "OK: no Phase 9 refs"',
-        "  ```",
-        "  Phase 8 is the final phase. Any Phase 9 references must be removed.",
-        "",
     ])
 
     lines.extend([
@@ -2982,7 +2976,15 @@ def generate_phase8_tasks(repo_path: Path, dynamic: bool = False, gate_meta: "di
         "  ```bash",
         "  python3 harness_cli.py push-milestone --type p8 --project .",
         "  ```",
-        "  > Writes HANDOVER.md + commits + pushes. Pipeline complete.",
+        "  > Writes HANDOVER.md + commits + pushes. Development pipeline complete.",
+        "",
+        "- **[P8→P9]** Enter maintenance mode (steady state — bug fixes and",
+        "  feature changes continue as Change Requests):",
+        "  ```bash",
+        "  python3 harness_cli.py advance-phase --completed 8 --project .",
+        "  ```",
+        "  > Phase 9 is re-entrant and never exits; work is ticket-driven",
+        "  > (`cr-open` / `cr-close`, see phase9_plan.md).",
         "",
     ])
 
@@ -2995,6 +2997,89 @@ def generate_phase8_tasks(repo_path: Path, dynamic: bool = False, gate_meta: "di
 
     # audit-phase runs inside advance-phase — no separate local step needed
     lines.extend(_phase_advance_step(8, dynamic=dynamic))
+    return lines
+
+
+def generate_phase9_tasks(repo_path: Path, dynamic: bool = False, gate_meta: "dict | None" = None) -> List[str]:
+    """Generate Phase 9 maintenance playbook (CR-driven steady state).
+
+    Unlike P1-P8 plans, this is a re-entrant loop playbook: the real work
+    plan materializes per-CR at cr-open time. ASPICE SUP.9 (CR-BUG) /
+    SUP.10 (CR-FEAT).
+    """
+    _ = (repo_path, dynamic, gate_meta)  # P9 playbook is static — no per-FR template expansion
+    lines: List[str] = []
+    lines.append("## Phase 9 Tasks: Maintenance (Change Request loop)")
+    lines.append("")
+    lines.append("### Phase 9 Overview")
+    lines.append(
+        "Phase 9 is a RE-ENTRANT STEADY STATE — it never exits "
+        "(`advance-phase --completed 9` is always BLOCKED). All work is "
+        "ticket-driven: CR-BUG (ASPICE SUP.9 problem resolution) and CR-FEAT "
+        "(ASPICE SUP.10 change request management). Every change re-enters "
+        "the existing traceability chain; nothing bypasses the phase folders."
+    )
+    lines.append("")
+    lines.extend(_entry_gate_check(9))
+    lines.extend(_preflight_steps(9))
+    lines.extend([
+        "### CR-BUG workflow (SUP.9 — bug fix)",
+        "",
+        "- **[CR-OPEN]** `python3 harness_cli.py cr-open --type bug --title '...' --severity high --project .`",
+        "- **[REPRO-FIRST]** Write a FAILING repro test BEFORE touching code; record it:",
+        "  `cr-update --cr CR-NN --set repro_test=tests/test_crNN_repro.py`",
+        "- **[ROOT-CAUSE]** Document root cause: `cr-update --cr CR-NN --set root_cause='...'`",
+        "  then advance: `--status ANALYZED` → `--status APPROVED` → `--status IN_PROGRESS`",
+        "- **[FIX]** Fix code (keep `[FR-XX]` annotations). If an SRS acceptance",
+        "  criterion was itself wrong, correct SRS.md and note it in impact_analysis.",
+        "- **[VERIFY]** Repro test green + full suite green; re-run Gate 1 on touched FRs:",
+        "  ```bash",
+        "  python3 harness_cli.py run-gate --gate 1 --fr-id FR-XX --phase 9 --project .",
+        "  python3 harness_cli.py finalize-gate --gate 1 --fr-id FR-XX --phase 9 --project .",
+        "  ```",
+        "  Untouched FRs: `run-gate --gate 1 --fr-id FR-YY --phase 9 --delta` (regression check)",
+        "- **[EVIDENCE]** `cr-update --cr CR-NN --set affected_frs=FR-XX --set resolution.fix_commit=<sha> --status VERIFIED`",
+        "",
+        "### CR-FEAT workflow (SUP.10 — feature add/change)",
+        "",
+        "- **[CR-OPEN]** `python3 harness_cli.py cr-open --type feat --title '...' --project .`",
+        "- **[IMPACT]** Record impact + FR IDs: `cr-update --cr CR-NN --set affected_frs=FR-XX",
+        "  --set impact_analysis.srs=true --set impact_analysis.sad=true --set impact_analysis.test_spec=true`",
+        "- **[APPROVAL]** SUP.10 decision: `cr-update --cr CR-NN --set approval.approved_by=<name>",
+        "  --set approval.justification='...'` then `--status ANALYZED` → `APPROVED` → `IN_PROGRESS`",
+        "- **[SPEC-WRITEBACK]** Update the FROZEN artifacts in place (never around them):",
+        "  1. `01-requirements/SRS.md` — add/update `### FR-XX:` section",
+        "  2. `02-architecture/SAD.md` — FR→module table row (new module → `amend-sab`)",
+        "  3. `02-architecture/TEST_SPEC.md` — FR test section; `TEST_INVENTORY.yaml` entry",
+        "- **[TDD]** Implement via run-fr-step (same discipline as P3):",
+        "  ```bash",
+        "  python3 harness_cli.py run-fr-step --step TDD-RED --fr-id FR-XX --phase 9 --project .",
+        "  # → TDD-GREEN → TDD-IMPROVE → GATE1",
+        "  ```",
+        "- **[EVIDENCE]** `cr-update --cr CR-NN --set resolution.fix_commit=<sha> --status VERIFIED`",
+        "",
+        "### CR closure (both types — fail-closed re-entry checklist)",
+        "",
+        "- **[ATTESTATION]** Rebuild the git-anchored trace attestation after artifact changes:",
+        "  ```bash",
+        "  python3 harness_cli.py build-trace-attestation --project . --write",
+        "  ```",
+        "- **[CR-CLOSE]** Full checklist (ticket evidence + Gate 1 per affected FR +",
+        "  attestation verify + spec/SAD drift). Any failure prints the missing items:",
+        "  ```bash",
+        "  python3 harness_cli.py cr-close --cr CR-NN --project .",
+        "  ```",
+        "- **[PUSH]** One milestone push per closed CR:",
+        "  ```bash",
+        "  python3 harness_cli.py push-milestone --type cr-close --cr CR-NN --project .",
+        "  ```",
+        "",
+        "### Phase 9 Deliverables",
+        "- `09-maintenance/MAINTENANCE_LOG.md` — CR index (auto-appended by cr-close)",
+        "- `.methodology/change_requests/CR-NN.json` — ticket state (machine)",
+        "- Gate 1 PASS for every CR-touched FR; attestation clean after every close",
+        "",
+    ])
     return lines
 
 
@@ -3046,6 +3131,7 @@ def generate_full_plan(phase: int, repo_path: Path, output_path: Optional[Path] 
         6: lambda: generate_phase6_tasks(repo_path, dynamic=dynamic, gate_meta=gate_meta),
         7: lambda: generate_phase7_tasks(repo_path, dynamic=dynamic, gate_meta=gate_meta),
         8: lambda: generate_phase8_tasks(repo_path, dynamic=dynamic, gate_meta=gate_meta),
+        9: lambda: generate_phase9_tasks(repo_path, dynamic=dynamic, gate_meta=gate_meta),
     }
 
     generator = generators.get(phase)

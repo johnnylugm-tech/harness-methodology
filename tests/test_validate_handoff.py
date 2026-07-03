@@ -356,9 +356,9 @@ class TestHandoffP7ToP8:
 
 class TestHandoffDispatch:
     def test_unsupported_from_phase_rejected(self, tmp_path: Path):
-        """from-phase=0 and 8+ are not in the validator map; 6 and 7 are now
-        supported as of Bug #115."""
-        for n in (0, 8, 9):
+        """from-phase=0 and 9+ are not in the validator map; 6/7 (Bug #115)
+        and 8 (P8→P9 maintenance entry) are now supported."""
+        for n in (0, 9, 10):
             errs = _validate_handoff(tmp_path, from_phase=n)
             assert any(f"from-phase={n}" in e for e in errs)
 

@@ -171,11 +171,16 @@ jobs:
           IS_P8="false"
           if [ -f "$STATE_FILE" ]; then
             # CV-5: safe parse — corrupt state.json defaults to empty string.
+            # Phase 9 (Maintenance) pushes must NOT re-trigger the P8 archive
+            # checks, so require current_phase == 8 in addition to the p8
+            # milestone marker (mirrors ci_state_helper.py is-p8).
             CMD=$(python3 -c "
           import json, sys
           try:
               d = json.load(open('$STATE_FILE'))
-              print(d.get('last_milestone_command', ''))
+              phase = int(d.get('current_phase', 0))
+              cmd = d.get('last_milestone_command', '')
+              print(cmd if phase == 8 else '')
           except Exception as e:
               print(f'[WARN] state.json unreadable: {e}', file=sys.stderr)
               print('')
@@ -196,17 +201,10 @@ jobs:
           fi
           echo "OK: .methodology-archive/ exists."
 
-      - name: Validate HANDOVER.md has no Phase 9 references (P8 only)
-        if: steps.p8.outputs.IS_P8 == 'true'
-        run: |
-          if [ -f "HANDOVER.md" ]; then
-            if grep -qi "phase 9\|phase9\|phase9_plan" HANDOVER.md; then
-              echo "ERROR: HANDOVER.md references non-existent Phase 9."
-              grep -ni "phase 9\|phase9" HANDOVER.md || true
-              exit 1
-            fi
-            echo "OK: HANDOVER.md has no Phase 9 references."
-          fi
+      # (removed) "HANDOVER.md has no Phase 9 references" — Phase 9
+      # (Maintenance) is now a legal steady state entered via
+      # `advance-phase --completed 8`, so a P8-exit HANDOVER legitimately
+      # points at Phase 9 next steps.
 
       - name: Validate P8 deliverables exist (P8 only)
         # G-NEW-3 fix: P8 is the last phase — no P9 entry check exists.
@@ -260,11 +258,11 @@ jobs:
         env:
           PHASE: ${{ steps.phase.outputs.PHASE }}
         run: |
-          # Threshold per phase: P3=60%, P4-P5=80%, P6+=90% (unified v2.6)
+          # Threshold per phase: P3=60%, P4-P5=80%, P6+=90% (unified v2.6; P9=90)
           python3 - <<'EOF'
           import os, sys, subprocess
           phase = int(os.environ.get("PHASE", "0"))
-          thresholds = {3: 60.0, 4: 80.0, 5: 80.0, 6: 90.0, 7: 90.0, 8: 90.0}
+          thresholds = {3: 60.0, 4: 80.0, 5: 80.0, 6: 90.0, 7: 90.0, 8: 90.0, 9: 90.0}
           threshold = thresholds.get(phase, 60.0)
           if phase < 3:
               print(f"INFO: Phase {phase} < 3 — spec-coverage-check not required.")

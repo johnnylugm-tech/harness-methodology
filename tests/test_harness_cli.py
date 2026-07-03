@@ -1266,14 +1266,17 @@ class TestValidateP8Completion:
             "empty auto-created archive must trigger a content error"
         )
 
-    def test_phase9_reference_in_handover_returns_error(self, tmp_path):
+    def test_phase9_reference_in_handover_is_legal(self, tmp_path):
+        """Phase 9 (Maintenance) is a legal steady state — a P8-exit HANDOVER
+        pointing at Phase 9 next steps must NOT be flagged."""
         archive = tmp_path / ".methodology-archive"
         archive.mkdir()
+        (archive / "quality_manifest.json").write_text("{}", encoding="utf-8")
         handover = tmp_path / "HANDOVER.md"
         handover.write_text("# Handover\n\nNext: Begin Phase 9 tasks.\n")
         from harness_cli import _validate_p8_completion
         errors = _validate_p8_completion(tmp_path)
-        assert any("Phase 9" in e or "phase 9" in e.lower() for e in errors)
+        assert not any("Phase 9" in e or "phase 9" in e.lower() for e in errors)
 
 
 # =============================================================================
@@ -1392,14 +1395,16 @@ class TestP8ArchiveContentCheck:
             "P8 plan should instruct the agent to copy .methodology/, not .sessi-work/"
         )
 
-    def test_phase9_plan_reference_returns_error(self, tmp_path):
+    def test_phase9_plan_reference_is_legal(self, tmp_path):
+        """phase9_plan.md references are legal now that P9 exists."""
         archive = tmp_path / ".methodology-archive"
         archive.mkdir()
+        (archive / "quality_manifest.json").write_text("{}", encoding="utf-8")
         handover = tmp_path / "HANDOVER.md"
         handover.write_text("See phase9_plan.md for next steps.\n")
         from harness_cli import _validate_p8_completion
         errors = _validate_p8_completion(tmp_path)
-        assert any("Phase 9" in e or "phase9" in e.lower() for e in errors)
+        assert not any("Phase 9" in e or "phase9" in e.lower() for e in errors)
 
     def test_no_handover_file_is_ok(self, tmp_path):
         archive = tmp_path / ".methodology-archive"

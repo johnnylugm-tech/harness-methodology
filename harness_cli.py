@@ -659,7 +659,7 @@ def cmd_plan_all(args: argparse.Namespace) -> int:
             "--fr-ids ... --sad ...' to regenerate."
         )
     results = []
-    for phase_num in range(1, 9):
+    for phase_num in range(1, 10):
         out_path = out_dir / f"phase{phase_num}_plan.md"
         plan = generate_full_plan(phase_num, project, out_path, dynamic=True, force=_force)
         status = "OK" if plan else "FAIL"
@@ -4628,15 +4628,10 @@ def _validate_p8_completion(project: Path) -> list[str]:
     if not archive_dir.exists():
         archive_dir.mkdir(parents=True, exist_ok=True)
 
-    # 2. HANDOVER.md must not reference non-existent Phase 9
-    handover = project / "HANDOVER.md"
-    if handover.exists():
-        content = handover.read_text(encoding="utf-8").lower()
-        if "phase 9" in content or "phase9" in content or "phase9_plan" in content:
-            errors.append(
-                "HANDOVER.md references non-existent Phase 9. "
-                "P8 is the final phase. Remove all Phase 9 references from HANDOVER.md."
-            )
+    # 2. (removed) HANDOVER.md used to be forbidden from referencing Phase 9
+    # back when P8 was the terminal phase. Phase 9 (Maintenance) is now a
+    # legal steady state entered via `advance-phase --completed 8`, so a
+    # P8-exit HANDOVER legitimately points at Phase 9 next steps.
 
     # 3. Finding #24: archive must contain .methodology/ contents (not .sessi-work/).
     # Old P8 plan had a typo: 'cp -r .sessi-work/ .methodology-archive/' which copied
@@ -4755,6 +4750,7 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
       p5-baseline — BASELINE.md generated (PUSH ⑦)
       p7          — risk register complete (PUSH ⑨)
       p8          — config records complete (PUSH ⑩)
+      cr-close    — P9 maintenance: per-CR closure push (re-entrant, requires --cr)
 
     Usage:
       python harness_cli.py push-milestone --type p3-mid --project . --fr-done 3 --fr-total 6 --fr-ids FR-01,FR-02,FR-03
@@ -4822,6 +4818,24 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
                 print(f"  • {e}")
             return 1
         ok = git.commit_and_push_p8()
+    elif milestone_type == "cr-close":
+        # P9 maintenance: one push per closed CR. Precondition: the CR must
+        # actually be CLOSED (cr-close ran its full re-entry checklist).
+        _cr_id = getattr(args, "cr", None)
+        if not _cr_id:
+            print("[ERROR] --cr CR-NN required for cr-close milestone")
+            return 1
+        from core.maintenance import CRManager, CRValidationError
+        try:
+            _cr = CRManager(project).load(_cr_id)
+        except CRValidationError as _cr_err:
+            print(f"[ERROR] {_cr_err}")
+            return 1
+        if _cr.get("status") != "CLOSED":
+            print(f"[ERROR] {_cr['id']} is {_cr.get('status')!r} — run cr-close first "
+                  f"(only CLOSED CRs get a milestone push)")
+            return 1
+        ok = git.commit_and_push_cr_close(_cr["id"], _cr.get("title", ""))
     else:
         print(f"[ERROR] Unknown milestone type: {milestone_type}")
         return 1
@@ -5064,6 +5078,24 @@ def _validate_handoff_p7_to_p8(project: Path) -> list[str]:
     return errors
 
 
+def _validate_handoff_p8_to_p9(project: Path) -> list[str]:
+    """P8→P9: config records + release checklist must exist, and the
+    .methodology-archive/ release snapshot must be populated (P8 milestone
+    prerequisite) before entering maintenance."""
+    errors: list[str] = []
+    q8 = project / "08-config"
+    for name in ("CONFIG_RECORDS.md", "RELEASE_CHECKLIST.md"):
+        if not (q8 / name).exists():
+            errors.append(f"{name} missing at 08-config/{name}. Phase 8 produces this file.")
+    archive_dir = project / ".methodology-archive"
+    if not archive_dir.is_dir() or not any(archive_dir.iterdir()):
+        errors.append(
+            ".methodology-archive/ missing or empty — the P8 release snapshot "
+            "must exist before entering maintenance (push-milestone --type p8 validates it)."
+        )
+    return errors
+
+
 _HANDOFF_VALIDATORS = {
     1: _validate_handoff_p1_to_p2,
     2: _validate_handoff_p2_to_p3,
@@ -5072,6 +5104,7 @@ _HANDOFF_VALIDATORS = {
     5: _validate_handoff_p5_to_p6,
     6: _validate_handoff_p6_to_p7,
     7: _validate_handoff_p7_to_p8,
+    8: _validate_handoff_p8_to_p9,
 }
 
 
@@ -5092,9 +5125,9 @@ def _validate_handoff(project: Path, from_phase: int) -> list[str]:
 
     Args:
         project:    project root
-        from_phase: phase number that just completed (1..5). 6/7/8 are
-                    outside the scope of cross-deliverable handoff checks
-                    (P6-Gate-4 is the final gate, P7/P8 are terminal).
+        from_phase: phase number that just completed (1..8). P8→P9 checks
+                    the release snapshot before entering maintenance; P9
+                    itself never hands off (terminal steady state).
 
     Returns:
         list of error strings (empty = handoff OK).
@@ -6120,7 +6153,9 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
     # Prevents "advance first, plan later" ordering bugs. generate-next-plan
     # must be run BEFORE advance-phase so the agent has a plan to follow.
     # Phase 1-2 use HANDOVER.md entry flow; plan generation starts at Phase 3.
-    # Phase 8 is terminal — there is no Phase 9 plan to require.
+    # P8→P9 is exempt: Phase 9 (Maintenance) is ticket-driven — its plan is
+    # a static playbook (phase9_plan.md, generated by plan-all), and the real
+    # work plan materializes per-CR via cr-open, so no pre-advance plan gate.
     if 3 <= completed_phase < 8:
         _next_phase = completed_phase + 1
         _next_plan = project / ".methodology" / f"phase{_next_phase}_plan.md"
@@ -6366,6 +6401,19 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
     # Subprocess calls (git -C, claude -p) do NOT change the parent CWD.
     _saved_cwd = os.getcwd()
     project = Path(args.project).resolve()
+
+    # Phase 9 (Maintenance) is a terminal steady state: work happens as
+    # re-entrant CR tickets (cr-open/cr-close), never as a phase exit.
+    if args.completed_phase >= 9:
+        print(
+            "\n[BLOCKED] advance-phase: Phase 9 (Maintenance) is a terminal "
+            "steady state — there is no Phase 10.\n"
+            "  Maintenance work is ticket-driven and re-entrant:\n"
+            "    python3 harness_cli.py cr-open --type bug|feat --title ... --project .\n"
+            "    python3 harness_cli.py cr-close --cr CR-NN --project .",
+            file=sys.stderr,
+        )
+        return 2
 
     # CV-2: Validate args.completed_phase against state.json::current_phase.
     #
@@ -11079,8 +11127,10 @@ def build_parser() -> argparse.ArgumentParser:
     pm.add_argument("--type", required=True,
                     choices=["p3-mid", "p3-pre-gate2", "p3-post-gate2",
                              "p4-mid", "p4-pre-gate3",
-                             "p5-baseline", "p7", "p8"],
-                    help="Milestone type")
+                             "p5-baseline", "p7", "p8", "cr-close"],
+                    help="Milestone type (cr-close: P9 per-CR closure push, requires --cr)")
+    pm.add_argument("--cr", default=None,
+                    help="CR id for --type cr-close (e.g. CR-01)")
     pm.add_argument("--project", default=".", help="Project root (default: .)")
     pm.add_argument("--fr-ids",  default="", dest="fr_ids",
                     help="Comma-separated FR IDs")
