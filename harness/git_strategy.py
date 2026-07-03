@@ -48,6 +48,10 @@ _GITIGNORE_ENTRIES: list[str] = [
     ".sessi-work/",
     ".methodology/last_block.md",
     ".methodology/steering_history.json",
+    # build-trace-attestation writes a non-committable mirror alongside the
+    # canonical attestation.json; the CLI prints "(gitignored)" for it, so the
+    # ignore rule must actually exist (attestation.json itself stays tracked).
+    ".methodology/trace/attestation.latest.json",
     # Python venv / tool caches (avoid GH001 large-file rejections in pipeline mode)
     ".venv/",
     "venv/",

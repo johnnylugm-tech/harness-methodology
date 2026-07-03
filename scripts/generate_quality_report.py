@@ -48,8 +48,15 @@ def _load_json(path: Path) -> dict[str, Any]:
 
 
 def _find_latest_gate_result(project: Path) -> tuple[int, dict[str, Any]]:
-    """Find the highest-numbered gate result file in .sessi-work/ or .methodology/."""
-    search_dirs = [project / ".sessi-work", project / ".methodology"]
+    """Find the highest-numbered gate result file in .methodology/ or .sessi-work/.
+
+    .methodology/ is searched first: finalize-gate copies the gate result there and
+    patches composite_score/verdict with the harness-computed values, so it is the
+    committable source of truth. The .sessi-work/ copy is ephemeral and carries the
+    agent's own unpatched self-assessment — reading it first produced the 0/100
+    placeholder QUALITY_REPORT.
+    """
+    search_dirs = [project / ".methodology", project / ".sessi-work"]
     
     for gate_num in (4, 3, 2, 1):
         for d in search_dirs:
@@ -80,6 +87,10 @@ def _build_dimension_table(gate_result: dict[str, Any]) -> list[str]:
                 for d in DIMENSIONS_12}
         items = [(d["id"], d["label"]) for d in DIMENSIONS_12]
 
+    waivers = gate_result.get("da_waiver", {})
+    if not isinstance(waivers, dict):
+        waivers = {}
+
     lines = [
         "| Dimension | Score | Status | Detail |",
         "|-----------|-------|--------|--------|",
@@ -91,8 +102,14 @@ def _build_dimension_table(gate_result: dict[str, Any]) -> list[str]:
         detail = entry.get("detail", "") if isinstance(entry, dict) else ""
         if not detail and isinstance(entry, dict):
             detail = entry.get("evidence", "")
-        passed = score >= 70  # default threshold
-        status = "✓ PASS" if passed else "✗ FAIL"
+        # A Devil's-Advocate waiver is the authoritative verdict for a dimension
+        # whose raw tool score is below threshold (e.g. CRG community-cohesion for
+        # an intentional star-topology). Show the raw score honestly but mark it
+        # PASS (DA-waiver) rather than a bare FAIL.
+        if waivers.get(kid):
+            status = "✓ PASS (DA-waiver)"
+        else:
+            status = "✓ PASS" if score >= 70 else "✗ FAIL"
         lines.append(f"| {label} | {score}/100 | {status} | {detail} |")
     return lines
 

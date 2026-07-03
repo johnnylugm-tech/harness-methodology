@@ -6388,6 +6388,35 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
 
     return 0
 
+
+def _advance_commit_targets(
+    completed_phase: int,
+    next_phase: int,
+    manifest_regenerated: bool,
+    fr_progress_exists: bool,
+) -> list[str]:
+    """Files the advance-phase local commit must stage.
+
+    Uses an explicit list (not `git add -A`) so unrelated working-tree noise is
+    not swept in. fr_progress.json is rewritten by _advance_fsm during this same
+    advance, so it must be staged — but only when present: pre-Gate-1 advances
+    (P1->P2, P2->P3) have no fr_progress.json yet, and an explicit `git add` of a
+    missing pathspec fails the whole commit.
+    """
+    targets = [
+        ".methodology/state.json", "HANDOVER.md",
+        "CLAUDE.md",
+        f".methodology/phase{completed_phase}_plan.md",
+    ]
+    if fr_progress_exists:
+        targets.append(".methodology/fr_progress.json")
+    if manifest_regenerated:
+        targets.append(".methodology/quality_manifest.json")
+    if next_phase == 8:
+        targets += ["08-config/CONFIG_RECORDS.md", "08-config/RELEASE_CHECKLIST.md"]
+    return targets
+
+
 def cmd_advance_phase(args: argparse.Namespace) -> int:
     """Advance to next phase: update state.json atomically.
 
@@ -6718,15 +6747,10 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
         # atomically (state.json + manifest). Without this, the regenerated file
         # would only land in the next push, leaving a window where CI sees stale
         # manifest.
-        _add_targets = [
-            ".methodology/state.json", "HANDOVER.md",
-            "CLAUDE.md",
-            f".methodology/phase{args.completed_phase}_plan.md",
-        ]
-        if _manifest_regenerated:
-            _add_targets.append(".methodology/quality_manifest.json")
-        if next_phase == 8:
-            _add_targets += ["08-config/CONFIG_RECORDS.md", "08-config/RELEASE_CHECKLIST.md"]
+        _add_targets = _advance_commit_targets(
+            args.completed_phase, next_phase, _manifest_regenerated,
+            (project / ".methodology" / "fr_progress.json").exists(),
+        )
         add_result = subprocess.run(
             ["git", "-C", str(project), "add", *_add_targets],
             capture_output=True, text=True,

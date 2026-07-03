@@ -31,6 +31,7 @@ _REQUIRED_ENTRIES = {
     ".sessi-work/",
     ".methodology/last_block.md",
     ".methodology/steering_history.json",
+    ".methodology/trace/attestation.latest.json",
 }
 
 
