@@ -954,7 +954,10 @@ def _compute_stryker_score(project: Path) -> tuple[bool, float, str]:
     mutants: list = []
     for file_data in (report.get("files") or {}).values():
         mutants.extend(file_data.get("mutants") or [])
-    killed = sum(1 for m in mutants if m.get("status") in ("Killed", "Timeout"))
+    # Timeout counts as survived, matching the mutmut path's documented
+    # policy (_count_mutmut_results above) — a timed-out mutant means tests
+    # took too long, not that they proved the mutation wrong.
+    killed = sum(1 for m in mutants if m.get("status") == "Killed")
     total = len(mutants)
     if total == 0:
         return True, 0.0, "Stryker produced 0 mutants. Score = 0."

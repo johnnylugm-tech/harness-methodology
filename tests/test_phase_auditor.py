@@ -305,6 +305,32 @@ class TestC10LocalState:
                    and ".methodology/gate4_result.json" in f.title
                    for f in a.result.findings)
 
+    def test_gate4_explicit_quality_complete_false_is_critical(self):
+        """quality_complete=False must not be overridden by a truthy
+        'passed' field — the old `data.get("quality_complete") or
+        data.get("passed")` treated False the same as missing."""
+        gate4 = json.dumps({"quality_complete": False, "passed": True})
+        a = self._make_auditor(6, {
+            ".methodology/state.json": json.dumps({"current_phase": 6}),
+            ".sessi-work/gate4_result.json": gate4,
+        })
+        a.check_c10_local_state()
+        assert any(f.severity == "CRITICAL" and f.check_id == "C10"
+                   and "quality_complete=False" in f.title
+                   for f in a.result.findings)
+
+    def test_gate4_falls_back_to_passed_when_quality_complete_absent(self):
+        """When quality_complete is entirely absent, "passed" is still a
+        valid fallback signal."""
+        gate4 = json.dumps({"passed": True})
+        a = self._make_auditor(6, {
+            ".methodology/state.json": json.dumps({"current_phase": 6}),
+            ".sessi-work/gate4_result.json": gate4,
+        })
+        a.check_c10_local_state()
+        assert any(f.severity == "PASS" and f.check_id == "C10"
+                   for f in a.result.findings)
+
     def test_gate4_not_required_below_p6(self):
         """P5 and below: no gate4_result.json check should run."""
         a = self._make_auditor(5, {

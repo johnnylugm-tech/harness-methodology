@@ -300,7 +300,7 @@ def _override_adversarial_review_dim_score(
             if _d.score != verdict.score:
                 print(
                     f"[harness] adversarial_review override: "
-                    f"{_d.score:.1f} → {verdict.score:.1f} "
+                    f"{(_d.score or 0.0):.1f} → {verdict.score:.1f} "
                     f"(open_blocking={verdict.open_blocking})"
                 )
                 _changed = True
@@ -652,7 +652,7 @@ def _crg_enrich_gate_findings(
                 }
                 _new_score = round(max(0.0, (_d.score or 0.0) - _hub_penalty), 1)
                 print(
-                    f"[harness] CRG hub penalty test_coverage: {_d.score:.1f} → "
+                    f"[harness] CRG hub penalty test_coverage: {(_d.score or 0.0):.1f} → "
                     f"{_new_score:.1f} "
                     f"(-{_hub_penalty} for {len(untested_hubs)} untested critical hub(s))"
                 )
@@ -2299,7 +2299,11 @@ class HarnessBridge:
                 _total_weight += w
             _overall_score = _weighted / max(_total_weight, 0.001)
         elif dims:
-            _overall_score = sum(d.score for d in dims) / max(len(dims), 1)
+            # Same None-skip as the weighted branch above — a dim with no
+            # applicable score (e.g. pytest-benchmark with no benchmarks)
+            # must not crash the simple average.
+            _scored = [d.score for d in dims if d.score is not None]
+            _overall_score = sum(_scored) / max(len(_scored), 1)
         else:
             _overall_score = 0.0
 

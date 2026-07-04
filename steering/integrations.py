@@ -482,8 +482,10 @@ class SteeringIntegrator:
                 bvs_result = self.bvs_integrator.check_phase_invariants(steering_result, {})
                 integration_results.append(bvs_result)
             except Exception as e:
+                # A check that crashed did not verify compliance — treating it
+                # as hr_compliant=True let a broken check mask a real violation.
                 integration_results.append(IntegrationResult(
-                    hr_compliant=True, violations=[],
+                    hr_compliant=False, violations=[],
                     warnings=[f"BVS check failed: {e}"], metrics={}, details={}
                 ))
 
@@ -496,14 +498,21 @@ class SteeringIntegrator:
                     self._constitution_integrator = SteeringConstitutionIntegrator(
                         VerificationConstitutionChecker(), CitationParser()
                     )
-                winner_output = steering_result.best_so_far.output
-                const_result = self._constitution_integrator.check_output_compliance(
-                    winner_output, self.phase
-                )
-                integration_results.append(const_result)
+                if steering_result.best_so_far is None:
+                    integration_results.append(IntegrationResult(
+                        hr_compliant=False, violations=[],
+                        warnings=["Constitution check skipped: steering produced no best_so_far output"],
+                        metrics={}, details={}
+                    ))
+                else:
+                    winner_output = steering_result.best_so_far.output
+                    const_result = self._constitution_integrator.check_output_compliance(
+                        winner_output, self.phase
+                    )
+                    integration_results.append(const_result)
             except Exception as e:
                 integration_results.append(IntegrationResult(
-                    hr_compliant=True, violations=[],
+                    hr_compliant=False, violations=[],
                     warnings=[f"Constitution check failed: {e}"], metrics={}, details={}
                 ))
 
@@ -512,8 +521,9 @@ class SteeringIntegrator:
             try:
                 if self._cqg_integrator is None:
                     self._cqg_integrator = SteeringCQGIntegrator()
-                winner_output = steering_result.best_so_far.output
-                self._cqg_integrator.measure_code_quality(winner_output)
+                if steering_result.best_so_far is not None:
+                    winner_output = steering_result.best_so_far.output
+                    self._cqg_integrator.measure_code_quality(winner_output)
             except Exception:  # nosec B110  # degrade gracefully
                 pass
 

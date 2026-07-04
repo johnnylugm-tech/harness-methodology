@@ -219,6 +219,19 @@ class TestCheckSpecTraceUpgraded:
         assert report["total"] == 0
         assert report["complete"] is True
 
+    def test_preflight_traceability_zero_fr_project_passes_at_p5(self, tmp_path, monkeypatch):
+        """A pure-library project with zero FRs must vacuously pass
+        traceability at P5+ — total==0 means nothing is untested or
+        uncoded, not 'incomplete'. Attestation status is mocked clean so
+        this test isolates the (unrelated) `complete` computation."""
+        monkeypatch.setattr(
+            "scripts.verify_trace_attestation.verify_attestation",
+            lambda _project: (0, "clean"),
+        )
+        hooks = PhaseHooks(str(tmp_path), phase=5)
+        result = hooks.preflight_traceability()
+        assert result["passed"] is True
+
     def test_check_traceability_test_from_content(self, tmp_path):
         """Test files without FR in filename but with FR in content."""
         (tmp_path / "02-architecture").mkdir(parents=True, exist_ok=True)

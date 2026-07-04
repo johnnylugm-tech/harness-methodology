@@ -192,6 +192,7 @@ class GitStrategy:
                 "`python3 harness_cli.py plan-phase --phase 2 --project .`"
             )
 
+        _prev_handover = self._snapshot_handover()
         self._write_handover(
             checkpoint_id=self._cp("P1-exit"),
             phase=1,
@@ -210,7 +211,9 @@ class GitStrategy:
             deliverables=deliverables,
         )
         msg = f"phase1(review-complete): SRS + P1 deliverables; {len(fr_ids)} FR(s) [{fr_list}]"
-        return self._commit_and_push(msg, skip_hooks=True)
+        ok = self._commit_and_push(msg, skip_hooks=True)
+        self._revert_handover_on_push_failure(ok, _prev_handover)
+        return ok
 
     # ── Push ② — P2 exit ────────────────────────────────────────────────────
 
@@ -254,6 +257,7 @@ class GitStrategy:
                 "`python3 harness_cli.py plan-phase --phase 3 --project .`"
             )
 
+        _prev_handover = self._snapshot_handover()
         self._write_handover(
             checkpoint_id=self._cp("P2-exit"),
             phase=2,
@@ -271,7 +275,9 @@ class GitStrategy:
             deliverables=deliverables,
         )
         msg = f"phase2(review-complete): SAD + ADR + quality manifest complete [fr_ids={fr_list}]"
-        return self._commit_and_push(msg, skip_hooks=True)
+        ok = self._commit_and_push(msg, skip_hooks=True)
+        self._revert_handover_on_push_failure(ok, _prev_handover)
+        return ok
 
     # ── Push ③ — P3 mid ─────────────────────────────────────────────────────
 
@@ -319,6 +325,7 @@ class GitStrategy:
             file_md = "\n".join(f"  - `{f}`" for f in committed)
             status_parts.append(f"\n**Recently Committed Files:**\n{file_md}")
 
+        _prev_handover = self._snapshot_handover()
         self._write_handover(
             checkpoint_id=self._cp("P3-mid"),
             phase=3,
@@ -341,7 +348,9 @@ class GitStrategy:
             f"feat(P3-mid): {fr_done}/{fr_total} FR(s) Gate1 PASS "
             f"[{fr_list}]"
         )
-        return self._commit_and_push(msg)
+        ok = self._commit_and_push(msg)
+        self._revert_handover_on_push_failure(ok, _prev_handover)
+        return ok
 
     # ── Push ④ — P3 pre-Gate2 ────────────────────────────────────────────────
 
@@ -379,6 +388,7 @@ class GitStrategy:
             file_md = "\n".join(f"  - `{f}`" for f in committed)
             status_parts.append(f"\n**Recently Committed Files:**\n{file_md}")
 
+        _prev_handover = self._snapshot_handover()
         self._write_handover(
             checkpoint_id=self._cp("P3-pre-gate2"),
             phase=3,
@@ -396,7 +406,9 @@ class GitStrategy:
             resume_phase=3,
         )
         msg = f"feat(P3-pre-gate2): all {len(fr_ids)} FR(s) Gate1 PASS; ready for Gate 2"
-        return self._commit_and_push(msg)
+        ok = self._commit_and_push(msg)
+        self._revert_handover_on_push_failure(ok, _prev_handover)
+        return ok
 
     # ── Push ⑤ — P3 post-Gate2 (P3 formal exit, v2.9.1 B.2) ────────────────
 
@@ -440,6 +452,7 @@ class GitStrategy:
             file_md = "\n".join(f"  - `{f}`" for f in committed)
             status_parts.append(f"\n**Recently Committed Files:**\n{file_md}")
 
+        _prev_handover = self._snapshot_handover()
         self._write_handover(
             checkpoint_id=self._cp("P3-post-gate2"),
             phase=3,
@@ -457,7 +470,9 @@ class GitStrategy:
             resume_phase=4,
         )
         msg = f"feat(P3-post-gate2): Gate 2 PASS + all {len(fr_ids)} FR(s) Gate1 PASS; P3 exit"
-        return self._commit_and_push(msg)
+        ok = self._commit_and_push(msg)
+        self._revert_handover_on_push_failure(ok, _prev_handover)
+        return ok
 
     # ── Push ③④ (P4 variant) — P4 mid + pre-Gate3 milestones ────────────────
 
@@ -498,6 +513,7 @@ class GitStrategy:
             file_md = "\n".join(f"  - `{f}`" for f in committed)
             status_parts.append(f"\n**Recently Committed Files:**\n{file_md}")
 
+        _prev_handover = self._snapshot_handover()
         self._write_handover(
             checkpoint_id=self._cp("P4-mid"),
             phase=4,
@@ -516,7 +532,9 @@ class GitStrategy:
             resume_phase=4,
         )
         msg = f"feat(P4-mid): {fr_done}/{fr_total} FRs Gate1 re-eval PASS"
-        return self._commit_and_push(msg)
+        ok = self._commit_and_push(msg)
+        self._revert_handover_on_push_failure(ok, _prev_handover)
+        return ok
 
     def commit_and_push_p4_pre_gate3(
         self,
@@ -544,6 +562,7 @@ class GitStrategy:
             file_md = "\n".join(f"  - `{f}`" for f in committed)
             status_parts.append(f"\n**Recently Committed Files:**\n{file_md}")
 
+        _prev_handover = self._snapshot_handover()
         self._write_handover(
             checkpoint_id=self._cp("P4-pre-gate3"),
             phase=4,
@@ -561,7 +580,9 @@ class GitStrategy:
             resume_phase=4,
         )
         msg = f"feat(P4-pre-gate3): all {len(fr_ids)} FR(s) Gate1 re-eval PASS; ready for Gate 3"
-        return self._commit_and_push(msg)
+        ok = self._commit_and_push(msg)
+        self._revert_handover_on_push_failure(ok, _prev_handover)
+        return ok
 
     # ── Push ⑤⑥⑧ — Gate 2/3/4 PASS ────────────────────────────────────────
 
@@ -616,6 +637,7 @@ class GitStrategy:
             ],
         }
 
+        _prev_handover = self._snapshot_handover()
         self._write_handover(
             checkpoint_id=self._cp(cp_map.get(gate_num, f"P{phase}-gate{gate_num}")),
             phase={2: 3, 3: 4, 4: 6}.get(gate_num, phase),
@@ -628,6 +650,7 @@ class GitStrategy:
 
         msg = f"{label}({phase_label}): Gate{gate_num} PASS score={score:.1f} {suffix}".rstrip()
         ok = self._commit_and_push(msg)
+        self._revert_handover_on_push_failure(ok, _prev_handover)
         if ok and gate_num == 4:
             self._tag_release(score)
         return ok
@@ -644,6 +667,7 @@ class GitStrategy:
         """
         if not self.enabled:
             return True
+        _prev_handover = self._snapshot_handover()
         self._write_handover(
             # P5-BUG-03: Use P5-exit semantic naming instead of P5-baseline
             checkpoint_id=self._cp("P5-exit"),
@@ -658,7 +682,9 @@ class GitStrategy:
             notes=notes,
         )
         msg = "docs(P5): BASELINE.md — review baseline checkpoint"
-        return self._commit_and_push(msg)
+        ok = self._commit_and_push(msg)
+        self._revert_handover_on_push_failure(ok, _prev_handover)
+        return ok
 
     # ── Push ⑨ — P7 exit ────────────────────────────────────────────────────
 
@@ -672,6 +698,7 @@ class GitStrategy:
         """
         if not self.enabled:
             return True
+        _prev_handover = self._snapshot_handover()
         self._write_handover(
             checkpoint_id=self._cp("P7-exit"),
             phase=7,
@@ -685,7 +712,9 @@ class GitStrategy:
             notes=notes,
         )
         msg = "docs(P7): risk register complete"
-        return self._commit_and_push(msg)
+        ok = self._commit_and_push(msg)
+        self._revert_handover_on_push_failure(ok, _prev_handover)
+        return ok
 
     # ── Push ⑩ — P8 exit ────────────────────────────────────────────────────
 
@@ -699,6 +728,7 @@ class GitStrategy:
         """
         if not self.enabled:
             return True
+        _prev_handover = self._snapshot_handover()
         self._write_handover(
             checkpoint_id=self._cp("P8-exit"),
             phase=8,
@@ -715,7 +745,9 @@ class GitStrategy:
             resume_phase=8,
         )
         msg = "docs(P8): config records — pipeline complete"
-        return self._commit_and_push(msg)
+        ok = self._commit_and_push(msg)
+        self._revert_handover_on_push_failure(ok, _prev_handover)
+        return ok
 
     # ── P9 maintenance — per-CR closure push ─────────────────────────────────
 
@@ -736,6 +768,7 @@ class GitStrategy:
             f"P9 Maintenance: {cr_id} closed ({cr_title})." if cr_title
             else f"P9 Maintenance: {cr_id} closed."
         )
+        _prev_handover = self._snapshot_handover()
         self._write_handover(
             checkpoint_id=self._cp(f"P9-{cr_id}-closed"),
             phase=9,
@@ -752,7 +785,9 @@ class GitStrategy:
             resume_phase=9,
         )
         msg = f"maint({cr_id}): change request closed"
-        return self._commit_and_push(msg)
+        ok = self._commit_and_push(msg)
+        self._revert_handover_on_push_failure(ok, _prev_handover)
+        return ok
 
     # ── Deprecated: kept for backward compatibility ──────────────────────────
 
@@ -998,6 +1033,34 @@ class GitStrategy:
             print(f"  [git] HANDOVER.md written: {checkpoint_id}")
         except Exception as exc:  # pylint: disable=broad-exception-caught
             print(f"  [git WARN] HandoverGenerator failed: {exc}")
+
+    def _snapshot_handover(self) -> str | None:
+        """Capture HANDOVER.md's current content (None if it doesn't exist yet).
+
+        Every commit_and_push_* method writes HANDOVER.md before attempting
+        the commit+push, so the new content lands in the pushed commit on
+        success. Call this immediately before `_write_handover` and pass the
+        result to `_revert_handover_on_push_failure` so a failed push doesn't
+        leave disk claiming a checkpoint/handoff that was never pushed.
+        """
+        handover_path = self.project / "HANDOVER.md"
+        try:
+            return handover_path.read_text(encoding="utf-8") if handover_path.exists() else None
+        except OSError:
+            return None
+
+    def _revert_handover_on_push_failure(self, ok: bool, prev_content: str | None) -> None:
+        """Restore HANDOVER.md to its pre-write state when push failed."""
+        if ok:
+            return
+        handover_path = self.project / "HANDOVER.md"
+        try:
+            if prev_content is None:
+                handover_path.unlink(missing_ok=True)
+            else:
+                handover_path.write_text(prev_content, encoding="utf-8")
+        except OSError as exc:
+            print(f"  [git WARN] Could not revert HANDOVER.md after push failure: {exc}")
 
     def _cp(self, label: str) -> str:
         """Build a checkpoint_id with today's date suffix."""

@@ -586,6 +586,19 @@ class TestGateOverride:
         assert changed is True
         assert new_dims[0].score == 0.0
 
+    def test_none_score_does_not_crash_override(self, tmp_path: Path):
+        """A pre-existing adversarial_review DimResult with score=None (not
+        yet scored) must not crash the override's diff-print — it must be
+        overridden cleanly, same as any other differing score."""
+        _write_report(tmp_path, _minimal_report(findings=[
+            _finding(severity="critical", resolution={"status": "open"}),
+        ]))
+        dims = [DimResult(name="adversarial_review", score=None, threshold=100.0)]  # type: ignore[arg-type]
+        new_dims, changed = _override_adversarial_review_dim_score(
+            dims, str(tmp_path), self.CONFIG_DIMS)
+        assert changed is True
+        assert new_dims[0].score == 0.0
+
     def test_clean_report_scores_100(self, tmp_path: Path):
         """Report with no open critical/high finding → framework scores 100."""
         _write_report(tmp_path, _minimal_report(findings=[

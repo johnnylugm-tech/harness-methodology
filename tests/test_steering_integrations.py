@@ -5,6 +5,7 @@ from steering.integrations import (
     IntegrationResult,
     HR12Resolution,
     SteeringCQGIntegrator,
+    SteeringIntegrator,
 )
 
 
@@ -149,3 +150,92 @@ class TestSteeringCQGIntegrator:
     def test_extract_code_blocks_none(self):
         cqg = SteeringCQGIntegrator()
         assert cqg._extract_code_blocks("no code here") == []
+
+
+class _FakeSteeringResult:
+    def __init__(self, best_so_far=None):
+        self.best_so_far = best_so_far
+
+
+class _FakeSteering:
+    def __init__(self, best_so_far=None):
+        self._result = _FakeSteeringResult(best_so_far)
+
+    def iterate(self, output_a, output_b):
+        return self._result
+
+
+def _make_integrator(monkeypatch, best_so_far=None):
+    """Bypass SteeringIntegrator.__init__ (needs a real provider) and wire
+    only what iterate_with_full_check touches. Uses monkeypatch so the
+    duck-typed fakes below don't have to satisfy the real collaborators'
+    type annotations."""
+    integrator = object.__new__(SteeringIntegrator)
+    monkeypatch.setattr(integrator, "steering", _FakeSteering(best_so_far), raising=False)
+    monkeypatch.setattr(integrator, "_bvs_integrator", None, raising=False)
+    monkeypatch.setattr(integrator, "_constitution_integrator", None, raising=False)
+    monkeypatch.setattr(integrator, "_cqg_integrator", None, raising=False)
+    monkeypatch.setattr(integrator, "phase", 3, raising=False)
+    return integrator
+
+
+class TestIterateWithFullCheckExceptionHandling:
+    """A check that raised did not verify compliance — hr_compliant must be
+    False, not True, or a broken check silently masks a real violation."""
+
+    def test_bvs_exception_marks_noncompliant(self, monkeypatch):
+        integrator = _make_integrator(monkeypatch)
+
+        class _RaisingBVS:
+            def check_phase_invariants(self, *_a, **_k):
+                raise RuntimeError("bvs boom")
+
+        monkeypatch.setattr(integrator, "_bvs_integrator", _RaisingBVS(), raising=False)
+
+        _steering_result, results = integrator.iterate_with_full_check(
+            {}, {}, run_bvs=True, run_constitution=False, run_cqg=False
+        )
+        assert len(results) == 1
+        assert results[0].hr_compliant is False
+        assert "bvs boom" in results[0].warnings[0]
+
+    def test_constitution_exception_marks_noncompliant(self, monkeypatch):
+        winner = type("Winner", (), {"output": "code"})()
+        integrator = _make_integrator(monkeypatch, best_so_far=winner)
+
+        class _RaisingConstitution:
+            def check_output_compliance(self, *_a, **_k):
+                raise RuntimeError("constitution boom")
+
+        monkeypatch.setattr(integrator, "_constitution_integrator", _RaisingConstitution(), raising=False)
+
+        _steering_result, results = integrator.iterate_with_full_check(
+            {}, {}, run_bvs=False, run_constitution=True, run_cqg=False
+        )
+        assert len(results) == 1
+        assert results[0].hr_compliant is False
+        assert "constitution boom" in results[0].warnings[0]
+
+    def test_constitution_skips_cleanly_when_no_best_so_far(self, monkeypatch):
+        integrator = _make_integrator(monkeypatch, best_so_far=None)
+
+        _steering_result, results = integrator.iterate_with_full_check(
+            {}, {}, run_bvs=False, run_constitution=True, run_cqg=False
+        )
+        assert len(results) == 1
+        assert results[0].hr_compliant is False
+        assert "best_so_far" in results[0].warnings[0]
+
+    def test_cqg_skips_cleanly_when_no_best_so_far(self, monkeypatch):
+        integrator = _make_integrator(monkeypatch, best_so_far=None)
+
+        class _ExplodingCQG:
+            def measure_code_quality(self, *_a, **_k):
+                raise AssertionError("must not be called when best_so_far is None")
+
+        monkeypatch.setattr(integrator, "_cqg_integrator", _ExplodingCQG(), raising=False)
+
+        # Must not raise.
+        integrator.iterate_with_full_check(
+            {}, {}, run_bvs=False, run_constitution=False, run_cqg=True
+        )

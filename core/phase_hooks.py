@@ -434,7 +434,11 @@ class PhaseHooks:
 
         untested_list = list(untested_set)
         uncoded_list = list(uncoded_set)
-        complete = total > 0 and len(untested_list) == 0 and len(uncoded_list) == 0
+        # A project with zero FRs (pure library, no traceable requirements)
+        # vacuously satisfies traceability — nothing is untested or uncoded.
+        # `total > 0` used to be required, permanently blocking such projects
+        # at P5+ even though there is nothing to trace.
+        complete = len(untested_list) == 0 and len(uncoded_list) == 0
 
         # P3: informational only (code being built)
         # P4: informational only (tests being built)
@@ -749,13 +753,16 @@ class PhaseHooks:
 
         if language == "python":
             key_re = re.compile(
-                r"os\.(?:getenv|environ\.get)\(\s*['\"]([A-Z][A-Z0-9_]+)['\"]"
-                r"|os\.environ\[\s*['\"]([A-Z][A-Z0-9_]+)['\"]"
+                # Require the call/subscript to actually close — otherwise
+                # syntactically broken code (e.g. a missing `)`) still
+                # matches and is misreported as a legitimate declaration.
+                r"os\.(?:getenv|environ\.get)\(\s*['\"]([A-Z][A-Z0-9_]+)['\"]\s*[,)]"
+                r"|os\.environ\[\s*['\"]([A-Z][A-Z0-9_]+)['\"]\s*\]"
             )
         else:
             key_re = re.compile(
                 r"process\.env\.([A-Z][A-Z0-9_]+)"
-                r"|process\.env\[\s*['\"]([A-Z][A-Z0-9_]+)['\"]"
+                r"|process\.env\[\s*['\"]([A-Z][A-Z0-9_]+)['\"]\s*\]"
             )
 
         used: dict[str, str] = {}  # key → first "file:line"

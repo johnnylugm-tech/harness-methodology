@@ -296,6 +296,38 @@ class TestFinalizeGate:
         # Recomputed from dims (all pass, score >= gate) → quality_complete True
         assert result.quality_complete is True
 
+    def test_finalize_gate_simple_average_skips_none_scores(self, tmp_path):
+        """L2302: the no-weight-config fallback average must skip dims with
+        score=None, same as the weighted branch a few lines above it —
+        otherwise sum() crashes with TypeError the moment any dimension is
+        not yet applicable (e.g. no benchmark tests)."""
+        from harness.harness_bridge import DimResult
+        bridge = HarnessBridge()
+        # Dict-style dimensions with no "weight" key keep _dim_weights empty,
+        # so finalize_gate falls into the unweighted `elif dims:` branch.
+        config = {"score_gate": 80.0, "dimensions": [{"name": "coverage", "threshold": 75.0}]}
+        ctx = self._make_context(tmp_path, gate_num=3, config=config)
+        self._write_result(ctx, {
+            "quality_complete": True,
+            "open_critical_count": 0, "open_high_count": 0,
+            "breakdown": {"coverage": {"score": 90.0, "threshold": 75.0}},
+        })
+
+        def _fake_enrich(_crg, dims, _project_root, _work_dir, _gate_num):
+            return list(dims) + [DimResult(name="pytest_benchmark", score=None, threshold=75.0)], False  # type: ignore[arg-type]
+
+        # A None-scored dim separately fails the (pre-existing, out of scope
+        # here) all-dims-pass check, so the gate blocks — that's expected.
+        # What this test verifies is that computing the composite score no
+        # longer crashes and correctly excludes the None-score dim.
+        with patch("harness.harness_bridge._crg_enrich_gate_findings", side_effect=_fake_enrich):
+            with patch.object(bridge, "_update_quality_manifest"):
+                with patch.object(bridge, "_log"):
+                    with patch.object(bridge, "_effort"):
+                        with pytest.raises(GateBlockedError) as exc_info:
+                            bridge.finalize_gate(ctx)
+        assert exc_info.value.result.score == 90.0  # the None-score dim is excluded from the average
+
     def test_finalize_gate_raises_blocked_on_open_critical(self, tmp_path):
         bridge = HarnessBridge()
         ctx = self._make_context(tmp_path, gate_num=2)
@@ -1257,6 +1289,36 @@ class TestCrgGatekeeperPhases:
         tc = next(d for d in result_dims if d.name == "test_coverage")
         assert tc.score == 85.0  # unchanged
         assert score_overridden is False
+
+    def test_phase2_untested_hub_with_none_score_does_not_crash(self, tmp_path):
+        """test_coverage score=None (not yet applicable) must not crash the
+        hub-penalty print — the penalty computation already falls back to
+        0.0 via `(_d.score or 0.0)`; the diagnostic print must do the same."""
+        from harness.harness_bridge import _crg_enrich_gate_findings, DimResult
+        from unittest.mock import MagicMock
+
+        dims = [DimResult(name="test_coverage", score=None, threshold=80.0)]  # type: ignore[arg-type]
+
+        crg = MagicMock()
+        crg._check_available.return_value = True
+        crg.find_large_functions.return_value = {}
+        crg.get_hub_nodes.return_value = {"hubs": [{"name": "critical_fn", "fan_in": 15}]}
+        crg.check_dead_code.return_value = {}
+        crg.get_review_context.return_value = {}
+        crg.get_impact_radius.return_value = {}
+        crg.get_affected_flows.return_value = {}
+        crg.get_knowledge_gaps.return_value = {}
+        crg.list_flows.return_value = {}
+        crg.query_graph.return_value = {"results": []}  # untested hub
+
+        result_dims, score_overridden = _crg_enrich_gate_findings(
+            crg, dims, str(tmp_path), str(tmp_path), gate_num=3
+        )
+
+        tc = next(d for d in result_dims if d.name == "test_coverage")
+        # (None or 0.0) - 3 = -3, floored at 0.0
+        assert tc.score == 0.0
+        assert score_overridden is True
 
 
 # =============================================================================

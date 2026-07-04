@@ -90,6 +90,18 @@ class PhaseProfile:
         )
 
 
+def _copy_phase_profile(p: "PhaseProfile") -> "PhaseProfile":
+    """Copy a PhaseProfile's mutable containers so the result is independent
+    of the source — used by ConstitutionProfile.merge() to honor its own
+    'Returns a NEW profile' contract instead of aliasing the caller's objects."""
+    return PhaseProfile(
+        active_dimensions=list(p.active_dimensions),
+        composite_threshold=p.composite_threshold,
+        dimension_keywords=dict(p.dimension_keywords),
+        exclude_patterns=list(p.exclude_patterns),
+    )
+
+
 @dataclass
 class ScoringProfile:
     """Scoring method configuration."""
@@ -168,7 +180,8 @@ class ConstitutionProfile:
     def dimension_keywords(self, dim: str) -> List[str]:
         """Return the keyword set for a dimension."""
         d = self.dimensions.get(dim)
-        return d.keywords if d else []
+        # Copy — the internal list must not be mutable by the caller.
+        return list(d.keywords) if d else []
 
     def dimension_keywords_for_phase(self, dim: str, phase: Optional[int]) -> List[str]:
         """Return the keyword set for a dimension at a specific phase.
@@ -237,7 +250,10 @@ class ConstitutionProfile:
         """
         result = ConstitutionProfile(
             scoring=overrides.scoring if overrides.scoring.method != "min_of_dimensions" else self.scoring,
-            phases=dict(self.phases),
+            # Copy each PhaseProfile, not just the outer dict — a phase this
+            # merge doesn't touch would otherwise stay aliased to self.phases,
+            # so mutating the "new" result's untouched phases would mutate self.
+            phases={pk: _copy_phase_profile(pv) for pk, pv in self.phases.items()},
             dimensions=dict(self.dimensions),
             file_filters=dict(self.file_filters),
         )
@@ -254,7 +270,10 @@ class ConstitutionProfile:
                     exclude_patterns=pv.exclude_patterns or existing.exclude_patterns,
                 )
             else:
-                result.phases[pk] = pv
+                # Copy — otherwise result would alias the caller's own
+                # `overrides` object, breaking merge()'s "returns a NEW
+                # profile" contract in the other direction.
+                result.phases[pk] = _copy_phase_profile(pv)
         # merge global exclude_patterns (preserve order, don't duplicate)
         if overrides.exclude_patterns:
             seen = set(result.exclude_patterns)
@@ -721,9 +740,12 @@ def load_profile(
         try:
             with open(resolved_path, "r", encoding="utf-8") as f:
                 profile = profile.merge(ConstitutionProfile.from_dict(json.load(f)))
-        except Exception:
+        except Exception as exc:
             import warnings
-            warnings.warn(f"Failed to load constitution profile from {resolved_path} — using defaults")
+            warnings.warn(
+                f"Failed to load constitution profile from {resolved_path} — "
+                f"using defaults. Cause: {type(exc).__name__}: {exc}"
+            )
 
     # 2. enforcement.json → constitution key (if present)
     enforcement_path = ".methodology/enforcement.json"
@@ -734,8 +756,15 @@ def load_profile(
             constitution_override = enforcement_data.get("constitution")
             if constitution_override:
                 profile = profile.merge(ConstitutionProfile.from_dict(constitution_override))
-        except Exception:
-            pass  # enforcement.json is optional; silent fallback
+        except Exception as exc:
+            # enforcement.json is optional, so a missing/malformed file must not
+            # block the gate — but silently swallowing the error (no warning at
+            # all) hides a real config mistake in a file that DOES exist.
+            import warnings
+            warnings.warn(
+                f"Failed to load constitution override from {enforcement_path} — "
+                f"ignoring it. Cause: {type(exc).__name__}: {exc}"
+            )
 
     # 3. Env var
     env_name = env or "METHODOLOGY_CONSTITUTION_PROFILE"

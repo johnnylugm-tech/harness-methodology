@@ -178,3 +178,61 @@ class TestConfigLiveness:
         result = PhaseHooks(str(project), phase=4).preflight_config_liveness()
         assert result["passed"] is False
         assert set(result["orphans"]) == {"TYPO_KEY", "BRACKET_KEY"}
+
+    def test_syntactically_broken_getenv_not_matched(self, tmp_path):
+        """A missing closing `)` is a real syntax error — the scanner must
+        not treat it as a legitimate declaration and silently pass."""
+        project = _project(tmp_path)
+        (project / ".env.example").write_text("APP_KEY=\n", encoding="utf-8")
+        (project / "src" / "config.py").write_text(
+            'import os\n'
+            'A = os.getenv("APP_KEY"\n'  # missing closing paren
+            'print(A)\n',
+            encoding="utf-8",
+        )
+        result = PhaseHooks(str(project), phase=4).preflight_config_liveness()
+        # APP_KEY must NOT be counted as used — the broken line doesn't
+        # actually close the getenv() call.
+        assert result["used_count"] == 0
+
+    def test_syntactically_broken_environ_bracket_not_matched(self, tmp_path):
+        """A missing closing `]` on os.environ[...] must not be treated as
+        a legitimate declaration."""
+        project = _project(tmp_path)
+        (project / ".env.example").write_text("APP_KEY=\n", encoding="utf-8")
+        (project / "src" / "config.py").write_text(
+            'import os\n'
+            'A = os.environ["APP_KEY"\n'  # missing closing bracket
+            'print(A)\n',
+            encoding="utf-8",
+        )
+        result = PhaseHooks(str(project), phase=4).preflight_config_liveness()
+        assert result["used_count"] == 0
+
+    def test_syntactically_broken_process_env_bracket_not_matched(self, tmp_path):
+        """A missing closing `]` on process.env[...] must not be treated as
+        a legitimate declaration (JS/TS)."""
+        project = _project(tmp_path, language="typescript")
+        (project / ".env.example").write_text("APP_KEY=\n", encoding="utf-8")
+        (project / "src" / "config.ts").write_text(
+            'const a = process.env["APP_KEY"\n'  # missing closing bracket
+            'console.log(a);\n',
+            encoding="utf-8",
+        )
+        result = PhaseHooks(str(project), phase=4).preflight_config_liveness()
+        assert result["used_count"] == 0
+
+    def test_getenv_with_default_arg_still_matches(self, tmp_path):
+        """A comma right after the closing quote (second positional arg)
+        must still count as a valid, closed call — the fix must not
+        require the closing quote to be immediately followed by `)`."""
+        project = _project(tmp_path)
+        (project / ".env.example").write_text("APP_KEY=\n", encoding="utf-8")
+        (project / "src" / "config.py").write_text(
+            'import os\n'
+            'A = os.getenv("APP_KEY", "default-value")\n',
+            encoding="utf-8",
+        )
+        result = PhaseHooks(str(project), phase=4).preflight_config_liveness()
+        assert result["passed"] is True
+        assert result["used_count"] == 1

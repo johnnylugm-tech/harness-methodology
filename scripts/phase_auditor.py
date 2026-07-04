@@ -1715,7 +1715,12 @@ class PhaseAuditor:
             else:
                 try:
                     data = json.loads(g4)
-                    passed = data.get("quality_complete") or data.get("passed")
+                    # quality_complete is authoritative when present — an
+                    # explicit False must not be overridden by a truthy
+                    # "passed" field. Only fall back to "passed" when
+                    # quality_complete is absent entirely.
+                    _qc = data.get("quality_complete")
+                    passed = _qc if _qc is not None else data.get("passed")
                     sev = "PASS" if passed else "CRITICAL"
                     self.result.add(Finding(
                         check_id="C10", dimension="Local State Consistency",

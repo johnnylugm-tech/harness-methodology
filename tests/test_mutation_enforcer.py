@@ -830,6 +830,38 @@ def test_apply_mutmut_to_workdir_runs_in_workdir(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
+def test_stryker_score_does_not_count_timeout_as_killed(tmp_path):
+    """Timeout mutants must count as survived, not killed — matching the
+    mutmut path's documented policy (_count_mutmut_results: 'timeout →
+    counts as survived, per evaluate_dimension.md: tests took too long,
+    mutant may have escaped'). Counting Timeout as Killed inflates the
+    score and hides real test performance regressions."""
+    import core.quality_gate.mutation_enforcer as me
+
+    reports_dir = tmp_path / "reports" / "mutation"
+    reports_dir.mkdir(parents=True)
+    (reports_dir / "mutation.json").write_text(json.dumps({
+        "files": {
+            "src/mod.py": {
+                "mutants": [
+                    {"status": "Killed"},
+                    {"status": "Killed"},
+                    {"status": "Timeout"},
+                    {"status": "Survived"},
+                ]
+            }
+        }
+    }), encoding="utf-8")
+
+    ok, score, msg = me._compute_stryker_score(tmp_path)
+
+    assert ok is True
+    # 2 killed / 4 total = 50.0 — Timeout must NOT be added to killed (which
+    # would incorrectly give 3/4 = 75.0).
+    assert score == 50.0
+    assert "killed=2" in msg
+
+
 def test_compute_mutation_score_fails_when_src_dir_missing(tmp_path, monkeypatch):
     """A missing paths_to_mutate source directory means mutmut never ran —
     the docstring's own contract is 'success: True iff mutmut ran AND

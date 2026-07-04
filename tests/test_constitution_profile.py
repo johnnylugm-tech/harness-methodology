@@ -204,6 +204,68 @@ class TestMerge:
         assert merged.dimension_threshold("correctness") == 100.0
         assert merged.dimension_keywords("correctness") == ["my-fr"]
 
+    def test_merge_untouched_phase_is_independent_of_base(self):
+        """merge() promises 'Returns a NEW profile' — a phase the override
+        doesn't touch must not stay aliased to base.phases; mutating the
+        merged result must not leak back into base."""
+        base = defaults()
+        override = ConstitutionProfile.from_dict({
+            "phases": {"3": {"composite_threshold": 85}}
+        })
+        merged = base.merge(override)
+        # Phase 1 is untouched by the override — mutate the merged copy's
+        # container in place and confirm base's own phase 1 is unaffected.
+        merged.phases[1].active_dimensions.append("mutated")
+        assert "mutated" not in base.phases[1].active_dimensions
+
+    def test_merge_new_phase_is_independent_of_overrides(self):
+        """A phase introduced only by `overrides` must be copied into the
+        result, not aliased — mutating the merged result must not leak
+        back into the caller's own overrides object."""
+        base = ConstitutionProfile.from_dict({})  # no phases at all
+        override = ConstitutionProfile.from_dict({
+            "phases": {"9": {"active_dimensions": ["correctness"]}}
+        })
+        merged = base.merge(override)
+        merged.phases[9].active_dimensions.append("mutated")
+        assert "mutated" not in override.phases[9].active_dimensions
+
+
+class TestDimensionKeywordsImmutability:
+    def test_returned_list_is_a_copy(self):
+        """Callers must not be able to mutate the profile's internal
+        keyword list through the returned value."""
+        p = defaults()
+        kw = p.dimension_keywords("correctness")
+        kw.append("should-not-persist")
+        assert "should-not-persist" not in p.dimension_keywords("correctness")
+
+
+class TestLoadProfileWarningMessages:
+    def setup_method(self):
+        reset_profile()
+
+    def teardown_method(self):
+        reset_profile()
+
+    def test_invalid_profile_file_warning_includes_cause(self):
+        """The warning must include the actual parse error, not just the
+        path — otherwise a malformed profile fails silently in practice."""
+        with tempfile.TemporaryDirectory() as d:
+            bad = Path(d) / "bad.json"
+            bad.write_text("not json")
+            with pytest.warns(UserWarning, match="JSONDecodeError"):
+                load_profile(path=str(bad))
+
+    def test_invalid_enforcement_json_warns(self, tmp_path, monkeypatch):
+        """enforcement.json parse failures must warn — previously a bare
+        `except Exception: pass` gave zero visibility into a broken file."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".methodology").mkdir()
+        (tmp_path / ".methodology" / "enforcement.json").write_text("not json")
+        with pytest.warns(UserWarning, match="enforcement.json"):
+            load_profile(path="/nonexistent/profile.json")
+
 
 class TestLoadProfile:
     def setup_method(self):
