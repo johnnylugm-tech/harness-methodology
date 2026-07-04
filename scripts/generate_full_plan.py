@@ -1364,7 +1364,7 @@ def _phase_advance_step(phase: int, dynamic: bool = False) -> List[str]:
                ] if phase >= 3 else []),
             # TDD precheck: advance-phase enforces gitleaks/ruff/mypy/pytest/spec-coverage/mutmut
             "- **[TDD-PRECHECK]** P8 completion checklist (final quality gate before archive):",
-            "  - diagnostic script check: orphan diagnostic scripts (e.g. `_diag_xxx.py`) at repo root will BLOCK (exit 17)",
+            "  - diagnostic script check: orphan diagnostic scripts (e.g. `_diag_xxx.py`) at repo root will BLOCK (exit 21)",
             "  - secrets scanning: `gitleaks detect --source .` (exit 20) — whole-repo, runs before linting",
             "  - linting: `ruff check .` (exit 18) — fix violations before advancing",
             "  - type safety: `python3 -m mypy . --ignore-missing-imports` (exit 19)",
@@ -1422,7 +1422,7 @@ def _phase_advance_step(phase: int, dynamic: bool = False) -> List[str]:
            "",
            ] if phase == 5 else []),
         *(["- **[TDD-PRECHECK]** Verify TDD checks pass — advance-phase enforces:",
-           "  - diagnostic script check: orphan diagnostic scripts (e.g. `_diag_xxx.py`) at repo root will BLOCK (exit 17)",
+           "  - diagnostic script check: orphan diagnostic scripts (e.g. `_diag_xxx.py`) at repo root will BLOCK (exit 21)",
            "  - secrets scanning: `gitleaks detect --source .` (exit 20) — whole-repo, runs before linting",
            "  - linting: `ruff check .` (exit 18) — fix violations before advancing",
            "  - type safety: `python3 -m mypy . --ignore-missing-imports` (exit 19)",

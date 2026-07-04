@@ -6284,6 +6284,74 @@ class TestPushMilestoneStateJsonWriteBeforePush:
         assert "commit_and_push_p8" in call_order
         assert "atomic_write_json(state.json)" not in call_order
 
+    def test_reverted_on_p8_validation_failure(self, tmp_path, monkeypatch):
+        """P8 preflight failure must revert the optimistic audit write —
+        ci_state_helper.cmd_is_p8 trusts last_milestone_command alone."""
+        import harness_cli as hc
+
+        meth = tmp_path / ".methodology"
+        meth.mkdir(parents=True, exist_ok=True)
+        state_path = meth / "state.json"
+        state_path.write_text(json.dumps({"existing": True}), encoding="utf-8")
+        (meth / "quality_manifest.json").write_text(
+            json.dumps({"fr_ids": []}), encoding="utf-8"
+        )
+
+        class FakeGit:
+            def ensure_gitignore(self): pass
+            def commit_and_push_p8(self):
+                raise AssertionError("commit_and_push_p8 must not be called on preflight failure")
+
+        monkeypatch.setattr(hc, "_make_git", lambda *_a, **_k: FakeGit())
+        monkeypatch.setattr(hc, "_validate_p8_completion", lambda _p: ["missing artifact"])
+
+        args = argparse.Namespace(
+            project=str(tmp_path), type="p8", fr_ids="",
+            fr_done=None, fr_total=None, no_git=False, dry_run=False,
+        )
+        rc = hc.cmd_push_milestone(args)
+        assert rc == 1
+
+        sd = json.loads(state_path.read_text(encoding="utf-8"))
+        assert "last_milestone_command" not in sd
+        assert "last_milestone_at" not in sd
+        assert sd["existing"] is True
+
+    def test_reverted_on_push_failure(self, tmp_path, monkeypatch):
+        """commit_and_push_p8 returning False must revert the optimistic write."""
+        import harness_cli as hc
+
+        meth = tmp_path / ".methodology"
+        meth.mkdir(parents=True, exist_ok=True)
+        state_path = meth / "state.json"
+        state_path.write_text(
+            json.dumps({"existing": True, "last_milestone_command": "push-milestone --type p7"}),
+            encoding="utf-8",
+        )
+        (meth / "quality_manifest.json").write_text(
+            json.dumps({"fr_ids": []}), encoding="utf-8"
+        )
+
+        class FakeGit:
+            def ensure_gitignore(self): pass
+            def commit_and_push_p8(self):
+                return False
+
+        monkeypatch.setattr(hc, "_make_git", lambda *_a, **_k: FakeGit())
+        monkeypatch.setattr(hc, "_validate_p8_completion", lambda _p: [])
+
+        args = argparse.Namespace(
+            project=str(tmp_path), type="p8", fr_ids="",
+            fr_done=None, fr_total=None, no_git=False, dry_run=False,
+        )
+        rc = hc.cmd_push_milestone(args)
+        assert rc == 1
+
+        sd = json.loads(state_path.read_text(encoding="utf-8"))
+        # reverted to the prior (pre-p8-attempt) value, not left at the failed attempt's value
+        assert sd["last_milestone_command"] == "push-milestone --type p7"
+        assert sd["existing"] is True
+
 
 class TestPushCheckpointStateJsonWriteBeforePush:
     """Site 2: cmd_push_checkpoint must write state.json BEFORE
@@ -6389,6 +6457,52 @@ class TestPushCheckpointStateJsonWriteBeforePush:
         # Filter call_order for state.json entries
         state_writes = [e for e in call_order if "state.json" in e]
         assert not state_writes
+
+    def test_reverted_on_push_failure(self, tmp_path, monkeypatch):
+        """_verify_entry_gate reads state.json's live content directly, so a
+        failed commit_and_push_p1 must revert the optimistic checkpoint write
+        — otherwise a local push failure still satisfies the Human1 gate."""
+        import harness_cli as hc
+
+        meth = tmp_path / ".methodology"
+        meth.mkdir(parents=True, exist_ok=True)
+        state_path = meth / "state.json"
+        state_path.write_text(json.dumps({"existing": True}), encoding="utf-8")
+
+        import scripts.build_trace_attestation as bat
+        monkeypatch.setattr(bat, "build_attestation", lambda _p: {})
+        monkeypatch.setattr(bat, "write_attestation", lambda _p, _a: None)
+
+        fake_sha = "deadbeefcafebabe1234567890abcdef12345678"
+
+        def _fake_run(cmd, **_kw):
+            class _R:
+                returncode = 0
+                stdout = fake_sha if "rev-parse" in cmd else ""
+                stderr = ""
+            return _R()
+
+        monkeypatch.setattr(hc.subprocess, "run", _fake_run)
+
+        class FakeGit:
+            def ensure_gitignore(self): pass
+            def commit_and_push_p1(self, **_kw):
+                return False
+
+        monkeypatch.setattr(hc, "_make_git", lambda *_a, **_k: FakeGit())
+
+        args = argparse.Namespace(
+            project=str(tmp_path), phase=1, fr_ids="FR-01",
+            dry_run=False, no_git=False, no_push=False,
+        )
+        rc = hc.cmd_push_checkpoint(args)
+        assert rc == 1
+
+        sd = json.loads(state_path.read_text(encoding="utf-8"))
+        assert "last_push_checkpoint" not in sd
+        assert "last_push_checkpoint_phase" not in sd
+        assert "phase_completed" not in sd or "1" not in sd["phase_completed"]
+        assert sd["existing"] is True
 
 
 class TestFinalizeGate4StateJsonWriteBeforePush:

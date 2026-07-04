@@ -4281,8 +4281,17 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
     # SHA captured BEFORE push: pre-push HEAD is parent of the new commit. CI
     # uses `phase_completed[N].sha` only for `git merge-base --is-ancestor`
     # (harness_cli.py:1583-1596), and the pre-push HEAD satisfies that check.
+    #
+    # Revert-on-failure: _verify_entry_gate reads state.json's live working-tree
+    # content directly (not git history), so if commit_and_push_p1/p2 fails, the
+    # optimistic write above must be undone — otherwise a local push failure still
+    # lets advance-phase proceed as if P{phase} had been pushed.
     state_path = project / ".methodology" / "state.json"
     _pre_push_sha = ""
+    _prev_last_push_checkpoint = None
+    _prev_last_push_checkpoint_phase = None
+    _prev_phase_completed_entry = None
+    _wrote_checkpoint_state = False
     if state_path.exists():
         import subprocess as _sp
         try:
@@ -4300,6 +4309,9 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
         try:
             with file_lock(state_lock_path(project)):
                 _state_data = json.loads(state_path.read_text(encoding="utf-8"))
+                _prev_last_push_checkpoint = _state_data.get("last_push_checkpoint")
+                _prev_last_push_checkpoint_phase = _state_data.get("last_push_checkpoint_phase")
+                _prev_phase_completed_entry = _state_data.get("phase_completed", {}).get(str(phase))
                 _state_data["last_push_checkpoint"] = datetime.now(timezone.utc).isoformat()
                 _state_data["last_push_checkpoint_phase"] = phase
                 _state_data.setdefault("phase_completed", {})[str(phase)] = {
@@ -4307,6 +4319,7 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
                 atomic_write_json(state_path, _state_data)
+                _wrote_checkpoint_state = True
         except Exception as _state_err:  # pylint: disable=broad-exception-caught
             print(f"  [WARN] Could not write push-checkpoint sentinel to state.json: {_state_err}")
 
@@ -4322,6 +4335,27 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
             background=f"P{phase} phase completed — pushed for record.",
             notes=["Phase checkpoint push"],
         )
+
+    if not ok and _wrote_checkpoint_state:
+        try:
+            with file_lock(state_lock_path(project)):
+                _state_data = json.loads(state_path.read_text(encoding="utf-8"))
+                if _prev_last_push_checkpoint is None:
+                    _state_data.pop("last_push_checkpoint", None)
+                else:
+                    _state_data["last_push_checkpoint"] = _prev_last_push_checkpoint
+                if _prev_last_push_checkpoint_phase is None:
+                    _state_data.pop("last_push_checkpoint_phase", None)
+                else:
+                    _state_data["last_push_checkpoint_phase"] = _prev_last_push_checkpoint_phase
+                if _prev_phase_completed_entry is None:
+                    _state_data.get("phase_completed", {}).pop(str(phase), None)
+                else:
+                    _state_data.setdefault("phase_completed", {})[str(phase)] = _prev_phase_completed_entry
+                atomic_write_json(state_path, _state_data)
+        except Exception as _revert_err:  # pylint: disable=broad-exception-caught
+            print(f"  [WARN] Could not revert push-checkpoint sentinel after push failure: {_revert_err}")
+
     if ok:
         # Post-push self-check: warn loudly on dirty residue. Push itself
         # succeeded — the dirt is post-commit residue. Don't fail-fast.
@@ -4866,24 +4900,54 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
     # Bug fix (P8 E2E 2026-07-04): write last_milestone_command + last_milestone_at
     # to state.json BEFORE commit_and_push_* so the audit fields land in the
     # pushed commit. See plan: ~/.claude/plans/abundant-stargazing-hejlsberg.md
+    #
+    # Revert-on-failure: ci_state_helper.cmd_is_p8 trusts last_milestone_command
+    # alone (no success flag), so any exit below this point that didn't actually
+    # push (validation failure or commit_and_push_* returning False) must restore
+    # these fields — otherwise a failed/blocked milestone still reads as pushed.
     state_path = project / ".methodology" / "state.json"
+    _prev_last_milestone_command = None
+    _prev_last_milestone_at = None
+    _wrote_milestone_state = False
     if state_path.exists():
         try:
             with file_lock(state_lock_path(project)):
                 _state_data = json.loads(state_path.read_text(encoding="utf-8"))
+                _prev_last_milestone_command = _state_data.get("last_milestone_command")
+                _prev_last_milestone_at = _state_data.get("last_milestone_at")
                 _state_data["last_milestone_command"] = f"push-milestone --type {milestone_type}"
                 _state_data["last_milestone_at"] = datetime.now(timezone.utc).isoformat()
                 atomic_write_json(state_path, _state_data)
+                _wrote_milestone_state = True
         except Exception as _state_err:  # pylint: disable=broad-exception-caught
             print(
                 f"\n  [WARN] Could not write last_milestone_command to state.json: {_state_err}"
             )
+
+    def _revert_milestone_audit_write() -> None:
+        if not _wrote_milestone_state:
+            return
+        try:
+            with file_lock(state_lock_path(project)):
+                _sd = json.loads(state_path.read_text(encoding="utf-8"))
+                if _prev_last_milestone_command is None:
+                    _sd.pop("last_milestone_command", None)
+                else:
+                    _sd["last_milestone_command"] = _prev_last_milestone_command
+                if _prev_last_milestone_at is None:
+                    _sd.pop("last_milestone_at", None)
+                else:
+                    _sd["last_milestone_at"] = _prev_last_milestone_at
+                atomic_write_json(state_path, _sd)
+        except Exception as _revert_err:  # pylint: disable=broad-exception-caught
+            print(f"  [WARN] Could not revert stale milestone audit fields: {_revert_err}")
 
     if milestone_type == "p3-mid":
         fr_done = args.fr_done
         fr_total = args.fr_total
         if fr_done is None or fr_total is None or fr_total == 0:
             print("[ERROR] --fr-done and --fr-total required for p3-mid (fr-total must be >0)")
+            _revert_milestone_audit_write()
             return 1
         ok = git.commit_and_push_p3_mid(fr_done, fr_total, fr_ids)
     elif milestone_type == "p3-pre-gate2":
@@ -4895,6 +4959,7 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
             print("[ERROR] p3-post-gate2 blocked — pre-flight checks failed:")
             for _e in _pre:
                 print(f"  • {_e}")
+            _revert_milestone_audit_write()
             return 1
         ok = git.commit_and_push_p3_post_gate2(fr_ids)
     elif milestone_type == "p4-mid":
@@ -4902,6 +4967,7 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
         fr_total = args.fr_total
         if fr_done is None or fr_total is None or fr_total == 0:
             print("[ERROR] --fr-done and --fr-total required for p4-mid (fr-total must be >0)")
+            _revert_milestone_audit_write()
             return 1
         ok = git.commit_and_push_p4_mid(fr_done, fr_total, fr_ids)
     elif milestone_type == "p4-pre-gate3":
@@ -4916,6 +4982,7 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
             print("[ERROR] P8 push blocked — pre-flight checks failed:")
             for e in p8_errors:
                 print(f"  • {e}")
+            _revert_milestone_audit_write()
             return 1
         ok = git.commit_and_push_p8()
     elif milestone_type == "cr-close":
@@ -4924,21 +4991,28 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
         _cr_id = getattr(args, "cr", None)
         if not _cr_id:
             print("[ERROR] --cr CR-NN required for cr-close milestone")
+            _revert_milestone_audit_write()
             return 1
         from core.maintenance import CRManager, CRValidationError
         try:
             _cr = CRManager(project).load(_cr_id)
         except CRValidationError as _cr_err:
             print(f"[ERROR] {_cr_err}")
+            _revert_milestone_audit_write()
             return 1
         if _cr.get("status") != "CLOSED":
             print(f"[ERROR] {_cr['id']} is {_cr.get('status')!r} — run cr-close first "
                   f"(only CLOSED CRs get a milestone push)")
+            _revert_milestone_audit_write()
             return 1
         ok = git.commit_and_push_cr_close(_cr["id"], _cr.get("title", ""))
     else:
         print(f"[ERROR] Unknown milestone type: {milestone_type}")
+        _revert_milestone_audit_write()
         return 1
+
+    if not ok:
+        _revert_milestone_audit_write()
 
     if ok:
         # Post-push self-check: warn loudly on dirty residue. The push itself
