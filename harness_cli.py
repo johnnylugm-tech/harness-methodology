@@ -45,6 +45,8 @@ Exit codes:
     10  PAUSE — Claude must evaluate gate; run finalize-gate then re-run pipeline
     11  Phase Truth < 90% (HR-11); fix and re-run with --phase-from N
     16  Constitution postflight below phase threshold; fix document quality
+    17  Scope violation: untracked diagnostic script(s) at repo root; move to
+        .sessi-work/tmp or delete, then re-run advance-phase
 """
 from __future__ import annotations
 
@@ -6181,6 +6183,24 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
     if audit_rc != 0:
         return audit_rc
 
+    # ── WRITE_SCOPE guard: no orphan diagnostic scripts at the repo root ──
+    # Mechanism (not agent self-discipline) that keeps debug artifacts out of the
+    # source tree. A workflow advance agent once stranded _diag_constitution.py here
+    # while diagnosing a constitution BLOCK; BLOCK the advance until it is cleaned.
+    _orphans = _scope_violation_scripts(project)
+    if _orphans:
+        print(
+            f"\n[BLOCKED] Scope violation: {len(_orphans)} untracked diagnostic "
+            f"script(s) at the repo root:"
+        )
+        for _o in _orphans:
+            print(f"  - {_o}")
+        print(
+            "  Debug/diagnostic artifacts must live under .sessi-work/tmp/ "
+            "(gitignored). Move or delete them, then re-run advance-phase."
+        )
+        return 17
+
     # ── Constitution postflight: check current phase's own docs ──────
     # (all phases 1-8).  Closed-loop: each phase verifies its OWN
     # document quality before advancing, not the next phase's preflight.
@@ -6414,6 +6434,44 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
     _check_submodule_drift(project)
 
     return 0
+
+
+_SCOPE_SCRIPT_EXTS: frozenset[str] = frozenset({".py", ".js", ".ts", ".sh"})
+_SCOPE_DEBUG_NAME_RE = re.compile(r"diag|debug|scratch|explore|probe|tmp", re.IGNORECASE)
+
+
+def _scope_violation_scripts(project: Path) -> list[str]:
+    """Untracked diagnostic/debug scripts stranded at the repo root.
+
+    WRITE_SCOPE convention: agent-generated debug artifacts belong under
+    .sessi-work/tmp/ (gitignored), never the source tree. A workflow advance agent
+    once left _diag_constitution.py at the repo root while diagnosing a constitution
+    BLOCK. This is the mechanism that catches such orphans (the per-phase self-clean
+    prompt rule only reduces their frequency; it relies on the agent complying).
+
+    Narrow, high-precision pattern to avoid false positives that would halt the
+    pipeline: untracked (git ??) AND top-level (no path separator — recursing would
+    flag legitimate new module files not yet committed mid-phase) AND a script
+    extension AND a name signalling a diagnostic. .sessi-work/ is gitignored, so its
+    contents never surface as untracked and are never flagged.
+    """
+    result = subprocess.run(
+        ["git", "-C", str(project), "status", "--porcelain", "--untracked-files=all"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return []
+    offenders: list[str] = []
+    for line in result.stdout.splitlines():
+        if not line.startswith("??"):
+            continue
+        path = line[3:].strip()
+        if "/" in path:  # top-level only
+            continue
+        p = Path(path)
+        if p.suffix.lower() in _SCOPE_SCRIPT_EXTS and _SCOPE_DEBUG_NAME_RE.search(p.stem):
+            offenders.append(path)
+    return offenders
 
 
 def _advance_commit_targets(

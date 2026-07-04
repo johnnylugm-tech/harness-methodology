@@ -1881,6 +1881,7 @@ class TestAdvancePrechecksTDD:
             class _FakeResult:
                 pass
             res = _FakeResult()
+            res.stdout = ""  # type: ignore[reportAttributeAccessIssue]
             if "pytest" in cmd:
                 res.returncode = 1  # type: ignore[reportAttributeAccessIssue]
             else:
@@ -3528,6 +3529,7 @@ def test_l1_advance_prechecks_gitleaks_blocks(tmp_path, monkeypatch):
     def fake_run(cmd, **kwargs):
         class R:
             returncode = 1 if cmd[0] == "gitleaks" else 0
+            stdout = ""
         return R()
     monkeypatch.setattr(harness_cli.subprocess, "run", fake_run)
 
@@ -3544,6 +3546,7 @@ def test_l1_advance_prechecks_ruff_blocks(tmp_path, monkeypatch):
     def fake_run(cmd, **kwargs):
         class R:
             returncode = 1 if cmd[0] == "ruff" else 0
+            stdout = ""
         return R()
     monkeypatch.setattr(harness_cli.subprocess, "run", fake_run)
 
@@ -3561,6 +3564,7 @@ def test_l1_advance_prechecks_mypy_blocks(tmp_path, monkeypatch):
         is_mypy = len(cmd) >= 3 and cmd[1] == "-m" and cmd[2] == "mypy"
         class R:
             returncode = 1 if is_mypy else 0
+            stdout = ""
         return R()
     monkeypatch.setattr(harness_cli.subprocess, "run", fake_run)
 
