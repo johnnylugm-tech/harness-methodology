@@ -3873,20 +3873,29 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
 
         git = _make_git(args, Path(args.project).resolve())
         git.ensure_gitignore()
+        # Bug fix (P8 E2E 2026-07-04): write last_milestone_command for gate 4
+        # to state.json BEFORE commit_and_push_gate so the audit field lands in
+        # the pushed commit. Previously this block was inside the else AFTER
+        # push, leaving state.json dirty in the working tree forever. The
+        # original raw `write_text` also lacked the file_lock used elsewhere
+        # (file_lock + atomic_write_json pattern from _update_state_checkpoint).
+        # See plan: ~/.claude/plans/abundant-stargazing-hejlsberg.md
+        if args.gate == 4:
+            _state_path = Path(args.project).resolve() / ".methodology" / "state.json"
+            if _state_path.exists():
+                try:
+                    with file_lock(state_lock_path(Path(args.project).resolve())):
+                        _sd = json.loads(_state_path.read_text(encoding="utf-8"))
+                        _sd["last_milestone_command"] = (
+                            f"finalize-gate --gate 4 --phase {args.phase}"
+                        )
+                        atomic_write_json(_state_path, _sd)
+                except Exception as _sme:
+                    print(f"  [WARN] Could not write last_milestone_command to state.json: {_sme}")
         if args.gate == 1:
             git.commit_fr_gate1(fr_id or "unknown", result.score, args.phase)
         else:
             git.commit_and_push_gate(args.gate, args.phase, result.score)
-            # G-06 fix: record last_milestone_command for gate 4 so CI push-milestone-enforcement
-            # audit trail reflects the actual gate push (not P5 residual).
-            if args.gate == 4:
-                _state_path = Path(args.project).resolve() / ".methodology" / "state.json"
-                try:
-                    _sd = json.loads(_state_path.read_text(encoding="utf-8"))
-                    _sd["last_milestone_command"] = f"finalize-gate --gate 4 --phase {args.phase}"
-                    _state_path.write_text(json.dumps(_sd, indent=2), encoding="utf-8")
-                except Exception as _sme:
-                    print(f"  [WARN] Could not write last_milestone_command to state.json: {_sme}")
         return 0
 
     except FileNotFoundError as e:
@@ -4224,6 +4233,37 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
     except Exception as _att_err:  # pylint: disable=broad-exception-caught
         print(f"  [WARN] attestation pre-refresh failed: {_att_err}")
 
+    # Bug fix (P8 E2E 2026-07-04): write push-checkpoint sentinel + phase_completed
+    # to state.json BEFORE commit_and_push_p1/p2 so the audit fields land in the
+    # pushed commit. See plan: ~/.claude/plans/abundant-stargazing-hejlsberg.md
+    #
+    # SHA captured BEFORE push: pre-push HEAD is parent of the new commit. CI
+    # uses `phase_completed[N].sha` only for `git merge-base --is-ancestor`
+    # (harness_cli.py:1583-1596), and the pre-push HEAD satisfies that check.
+    state_path = project / ".methodology" / "state.json"
+    _pre_push_sha = ""
+    if state_path.exists():
+        import subprocess as _sp
+        try:
+            _pre_push_sha = _sp.run(
+                ["git", "-C", str(project), "rev-parse", "HEAD"],
+                capture_output=True, text=True, timeout=10,
+            ).stdout.strip()
+        except Exception:  # pylint: disable=broad-exception-caught
+            _pre_push_sha = ""
+        try:
+            with file_lock(state_lock_path(project)):
+                _state_data = json.loads(state_path.read_text(encoding="utf-8"))
+                _state_data["last_push_checkpoint"] = datetime.now(timezone.utc).isoformat()
+                _state_data["last_push_checkpoint_phase"] = phase
+                _state_data.setdefault("phase_completed", {})[str(phase)] = {
+                    "sha": _pre_push_sha,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+                atomic_write_json(state_path, _state_data)
+        except Exception as _state_err:  # pylint: disable=broad-exception-caught
+            print(f"  [WARN] Could not write push-checkpoint sentinel to state.json: {_state_err}")
+
     if phase == 1:
         ok = git.commit_and_push_p1(
             fr_ids=fr_ids,
@@ -4241,25 +4281,6 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
         if handover.exists():
             print(f"  HANDOVER.md → {handover}")
         print("  [git] pushed → remote ✓")
-        # Write sentinel + phase_completed for CI entry gate verification
-        state_path = project / ".methodology" / "state.json"
-        if state_path.exists():
-            try:
-                state_data = json.loads(state_path.read_text(encoding="utf-8"))
-                state_data["last_push_checkpoint"] = datetime.now(timezone.utc).isoformat()
-                state_data["last_push_checkpoint_phase"] = phase
-                # phase_completed + SHA for git merge-base --is-ancestor verification
-                import subprocess as _sp
-                _sha = _sp.run(
-                    ["git", "-C", str(project), "rev-parse", "HEAD"],
-                    capture_output=True, text=True, timeout=10,
-                ).stdout.strip()
-                state_data.setdefault("phase_completed", {})[str(phase)] = {
-                    "sha": _sha, "timestamp": datetime.now(timezone.utc).isoformat(),
-                }
-                atomic_write_json(state_path, state_data)
-            except Exception as _e:  # pylint: disable=broad-exception-caught
-                print(f"  [WARN] Could not write push-checkpoint sentinel to state.json: {_e}")
         # Next-step hint — push-checkpoint records phase_completed[N] but does NOT
         # update current_phase. Hooks and CI continue to read the same phase until
         # advance-phase is called explicitly. Keeps phase transitions atomic.
@@ -4787,6 +4808,22 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
             except Exception:  # pylint: disable=broad-exception-caught
                 pass
 
+    # Bug fix (P8 E2E 2026-07-04): write last_milestone_command + last_milestone_at
+    # to state.json BEFORE commit_and_push_* so the audit fields land in the
+    # pushed commit. See plan: ~/.claude/plans/abundant-stargazing-hejlsberg.md
+    state_path = project / ".methodology" / "state.json"
+    if state_path.exists():
+        try:
+            with file_lock(state_lock_path(project)):
+                _state_data = json.loads(state_path.read_text(encoding="utf-8"))
+                _state_data["last_milestone_command"] = f"push-milestone --type {milestone_type}"
+                _state_data["last_milestone_at"] = datetime.now(timezone.utc).isoformat()
+                atomic_write_json(state_path, _state_data)
+        except Exception as _state_err:  # pylint: disable=broad-exception-caught
+            print(
+                f"\n  [WARN] Could not write last_milestone_command to state.json: {_state_err}"
+            )
+
     if milestone_type == "p3-mid":
         fr_done = args.fr_done
         fr_total = args.fr_total
@@ -4849,18 +4886,6 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
         return 1
 
     if ok:
-        # Record milestone type and timestamp for audit trail
-        state_path = project / ".methodology" / "state.json"
-        if state_path.exists():
-            try:
-                state_data = json.loads(state_path.read_text(encoding="utf-8"))
-                state_data["last_milestone_command"] = f"push-milestone --type {milestone_type}"
-                state_data["last_milestone_at"] = datetime.now(timezone.utc).isoformat()
-                atomic_write_json(state_path, state_data)
-            except Exception as _state_err:  # pylint: disable=broad-exception-caught
-                print(
-                    f"\n  [WARN] Could not write last_milestone_command to state.json: {_state_err}"
-                )
         handover = project / "HANDOVER.md"
         if handover.exists():
             print(f"  HANDOVER.md → {handover}")

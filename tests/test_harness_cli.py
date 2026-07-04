@@ -6210,3 +6210,388 @@ class TestBackupTempDirCleanup:
         after = set(sys_temp.glob("harness-sentinels-*"))
         leaked = after - before
         assert not leaked, f"Backup temp dir leaked: {leaked}"
+
+
+# =============================================================================
+# state.json write-after-push family (P8 E2E 2026-07-04)
+# Bug: cmd_push_milestone / _cmd_finalize_gate_impl gate-4 / cmd_push_checkpoint
+# wrote audit fields to .methodology/state.json AFTER commit_and_push_* returned,
+# so the write never landed in the pushed commit. Tests below prove the order
+# (write-before-push) and the on-disk content.
+# =============================================================================
+
+
+class TestPushMilestoneStateJsonWriteBeforePush:
+    """Site 1: cmd_push_milestone must write state.json BEFORE
+    git.commit_and_push_p8() so the audit fields land in the pushed commit.
+    """
+
+    def _setup(self, tmp_path, monkeypatch, milestone_type="p8", exists=True):
+        import harness_cli as hc
+
+        meth = tmp_path / ".methodology"
+        meth.mkdir(parents=True, exist_ok=True)
+        state_path = meth / "state.json"
+        if exists:
+            state_path.write_text(json.dumps({"existing": True}), encoding="utf-8")
+        # minimal quality_manifest so fr_ids auto-populate is safe
+        (meth / "quality_manifest.json").write_text(
+            json.dumps({"fr_ids": []}), encoding="utf-8"
+        )
+
+        call_order: list[str] = []
+
+        class FakeGit:
+            def ensure_gitignore(self): pass
+            def commit_and_push_p8(self):
+                call_order.append("commit_and_push_p8")
+                return True
+
+        monkeypatch.setattr(hc, "_make_git", lambda *_a, **_k: FakeGit())
+        # bypass p8 preflight (we don't have real artifacts)
+        monkeypatch.setattr(hc, "_validate_p8_completion", lambda _p: [])
+
+        _orig_atomic = hc.atomic_write_json
+
+        def _spy(path, data, **_kw):
+            if Path(path).name == "state.json":
+                call_order.append("atomic_write_json(state.json)")
+            _orig_atomic(path, data)
+
+        monkeypatch.setattr(hc, "atomic_write_json", _spy)
+        return call_order, state_path, hc
+
+    def test_state_json_written_before_commit_and_push_p8(self, tmp_path, monkeypatch):
+        call_order, state_path, hc = self._setup(tmp_path, monkeypatch)
+        args = argparse.Namespace(
+            project=str(tmp_path), type="p8", fr_ids="",
+            fr_done=None, fr_total=None, no_git=False, dry_run=False,
+        )
+        rc = hc.cmd_push_milestone(args)
+        assert rc == 0
+
+        # 1. on-disk content
+        sd = json.loads(state_path.read_text(encoding="utf-8"))
+        assert sd["last_milestone_command"] == "push-milestone --type p8"
+        assert "last_milestone_at" in sd
+        assert sd["existing"] is True  # pre-existing keys preserved
+
+        # 2. ordering: state.json write must precede commit_and_push_p8
+        idx_write = call_order.index("atomic_write_json(state.json)")
+        idx_push = call_order.index("commit_and_push_p8")
+        assert idx_write < idx_push, (
+            f"state.json write must precede commit_and_push_p8; got order: {call_order}"
+        )
+
+    def test_skip_when_state_json_missing(self, tmp_path, monkeypatch):
+        call_order, _state_path, hc = self._setup(tmp_path, monkeypatch, exists=False)
+        args = argparse.Namespace(
+            project=str(tmp_path), type="p8", fr_ids="",
+            fr_done=None, fr_total=None, no_git=False, dry_run=False,
+        )
+        rc = hc.cmd_push_milestone(args)
+        assert rc == 0
+        # push still happened, write was skipped
+        assert "commit_and_push_p8" in call_order
+        assert "atomic_write_json(state.json)" not in call_order
+
+
+class TestPushCheckpointStateJsonWriteBeforePush:
+    """Site 2: cmd_push_checkpoint must write state.json BEFORE
+    git.commit_and_push_p1() so phase_completed[N].sha lands in the push.
+    """
+
+    def test_state_json_written_before_commit_and_push_p1_with_phase_completed_sha(
+        self, tmp_path, monkeypatch
+    ):
+        import harness_cli as hc
+
+        meth = tmp_path / ".methodology"
+        meth.mkdir(parents=True, exist_ok=True)
+        state_path = meth / "state.json"
+        state_path.write_text(json.dumps({"existing": True}), encoding="utf-8")
+
+        # stub attestation refresh (no-op)
+        import scripts.build_trace_attestation as bat
+        monkeypatch.setattr(bat, "build_attestation", lambda _p: {})
+        monkeypatch.setattr(bat, "write_attestation", lambda _p, _a: None)
+
+        # stub subprocess.run: rev-parse returns fake SHA; other calls no-op
+        fake_sha = "deadbeefcafebabe1234567890abcdef12345678"
+
+        def _fake_run(cmd, **_kw):
+            class _R:
+                returncode = 0
+                stdout = fake_sha if "rev-parse" in cmd else ""
+                stderr = ""
+            return _R()
+
+        monkeypatch.setattr(hc.subprocess, "run", _fake_run)
+
+        call_order: list[str] = []
+
+        class FakeGit:
+            def ensure_gitignore(self): pass
+            def commit_and_push_p1(self, **_kw):
+                call_order.append("commit_and_push_p1")
+                return True
+
+        monkeypatch.setattr(hc, "_make_git", lambda *_a, **_k: FakeGit())
+
+        _orig_atomic = hc.atomic_write_json
+
+        def _spy(path, data, **_kw):
+            if Path(path).name == "state.json":
+                call_order.append("atomic_write_json(state.json)")
+            _orig_atomic(path, data)
+
+        monkeypatch.setattr(hc, "atomic_write_json", _spy)
+
+        args = argparse.Namespace(
+            project=str(tmp_path), phase=1, fr_ids="FR-01",
+            dry_run=False, no_git=False, no_push=False,
+        )
+        rc = hc.cmd_push_checkpoint(args)
+        assert rc == 0
+
+        # 1. on-disk content
+        sd = json.loads(state_path.read_text(encoding="utf-8"))
+        assert sd["last_push_checkpoint_phase"] == 1
+        assert "last_push_checkpoint" in sd
+        assert sd["phase_completed"]["1"]["sha"] == fake_sha
+        assert "timestamp" in sd["phase_completed"]["1"]
+        assert sd["existing"] is True
+
+        # 2. ordering
+        idx_write = call_order.index("atomic_write_json(state.json)")
+        idx_push = call_order.index("commit_and_push_p1")
+        assert idx_write < idx_push, (
+            f"state.json write must precede commit_and_push_p1; got: {call_order}"
+        )
+
+    def test_skip_when_state_json_missing(self, tmp_path, monkeypatch):
+        import harness_cli as hc
+
+        meth = tmp_path / ".methodology"
+        meth.mkdir(parents=True, exist_ok=True)
+        # do NOT write state.json
+        import scripts.build_trace_attestation as bat
+        monkeypatch.setattr(bat, "build_attestation", lambda _p: {})
+        monkeypatch.setattr(bat, "write_attestation", lambda _p, _a: None)
+
+        call_order: list[str] = []
+
+        class FakeGit:
+            def ensure_gitignore(self): pass
+            def commit_and_push_p1(self, **_kw):
+                call_order.append("commit_and_push_p1")
+                return True
+
+        monkeypatch.setattr(hc, "_make_git", lambda *_a, **_k: FakeGit())
+
+        args = argparse.Namespace(
+            project=str(tmp_path), phase=1, fr_ids="",
+            dry_run=False, no_git=False, no_push=False,
+        )
+        rc = hc.cmd_push_checkpoint(args)
+        assert rc == 0
+        assert "commit_and_push_p1" in call_order
+        # no atomic_write_json was called for state.json (it doesn't exist)
+        # Filter call_order for state.json entries
+        state_writes = [e for e in call_order if "state.json" in e]
+        assert not state_writes
+
+
+class TestFinalizeGate4StateJsonWriteBeforePush:
+    """Site 3: _cmd_finalize_gate_impl gate-4 branch must write state.json
+    BEFORE git.commit_and_push_gate() and use atomic_write_json (not raw write_text).
+    """
+
+    def _run_with_spy(self, tmp_path, monkeypatch, gate=4, phase=6):
+        import harness_cli as hc
+        from harness.harness_bridge import GateResult
+
+        sessi = tmp_path / ".sessi-work"
+        sessi.mkdir(parents=True, exist_ok=True)
+        (sessi / f"gate{gate}_result.json").write_text(
+            json.dumps({"composite_score": 90.0}), encoding="utf-8"
+        )
+        meth = tmp_path / ".methodology"
+        meth.mkdir(parents=True, exist_ok=True)
+        state_path = meth / "state.json"
+        state_path.write_text(json.dumps({"existing": True}), encoding="utf-8")
+        (meth / "quality_manifest.json").write_text(
+            json.dumps({"gate_results": {}}), encoding="utf-8"
+        )
+
+        monkeypatch.setattr(hc, "_finalize_gate_preflight", lambda *_a: None)
+        monkeypatch.setattr(hc, "_finalize_gate_fr_checks", lambda *_a: None)
+        monkeypatch.setattr(hc, "_finalize_gate_cross_checks", lambda *_a: None)
+        monkeypatch.setattr(hc, "_check_gate4_prerequisites", lambda *_a: (False, set()))
+        monkeypatch.setattr(hc, "_update_state_checkpoint", lambda *_, **__: None)
+        monkeypatch.setattr(hc, "_update_claude_md", lambda _p: None)
+        monkeypatch.setattr(hc, "_record_gate_timestamp", lambda *_a: None)
+        monkeypatch.setattr(hc, "_generate_stage_pass", lambda *_a: None)
+
+        # Bypass structural postflight (artifact links + drift) — irrelevant to
+        # the write-before-push assertion and would otherwise need a fully
+        # populated phase artifact tree.
+        class _FakePhaseHooks:
+            def __init__(self, *_a, **_kw): pass
+            def postflight_artifact_links(self): return {"passed": True}
+            def postflight_drift_check(self): return {"passed": True}
+        import core.phase_hooks as _ph_mod
+        monkeypatch.setattr(_ph_mod, "PhaseHooks", _FakePhaseHooks)
+
+        # Bypass PhaseTruthVerifier (HR-11) — also irrelevant; requires full
+        # phase artifact tree and runs only for phase exit gates.
+        class _FakePhaseTruthVerifier:
+            def __init__(self, *_a, **_kw): pass
+            def verify(self): return {"passed": True, "total_score": 100.0}
+        import core.quality_gate.phase_truth_verifier as _ptv_mod
+        monkeypatch.setattr(_ptv_mod, "PhaseTruthVerifier", _FakePhaseTruthVerifier)
+
+        call_order: list[str] = []
+
+        class FakeGit:
+            def ensure_gitignore(self): pass
+            def commit_fr_gate1(self, *_a): pass
+            def commit_and_push_gate(self, *_a):
+                call_order.append("commit_and_push_gate")
+                return None
+
+        monkeypatch.setattr(hc, "_make_git", lambda *_a: FakeGit())
+
+        class FakeBridge:
+            def prepare_gate(self, **_): return object()
+            def finalize_gate(self, _ctx, **_):
+                return GateResult(
+                    gate_num=gate, score=90.0, dimensions=[],
+                    open_critical=0, open_high=0,
+                    quality_complete=True, rounds_used=1,
+                )
+
+        import harness.harness_bridge as hb
+        monkeypatch.setattr(hb, "HarnessBridge", FakeBridge)
+
+        _orig_atomic = hc.atomic_write_json
+
+        def _spy(path, data, **_kw):
+            if Path(path).name == "state.json":
+                call_order.append("atomic_write_json(state.json)")
+            _orig_atomic(path, data)
+
+        monkeypatch.setattr(hc, "atomic_write_json", _spy)
+
+        # capture raw write_text calls on state.json
+        raw_writes: list[str] = []
+        _orig_write_text = Path.write_text
+
+        def _write_text_spy(self, *a, **kw):
+            if self.name == "state.json":
+                raw_writes.append("write_text(state.json)")
+            return _orig_write_text(self, *a, **kw)
+
+        monkeypatch.setattr(Path, "write_text", _write_text_spy)
+
+        args = argparse.Namespace(
+            project=str(tmp_path), gate=gate, phase=phase, fr_id=None,
+        )
+        rc = hc._cmd_finalize_gate_impl(args)
+        return rc, call_order, raw_writes, state_path
+
+    def test_gate4_state_json_written_before_commit_and_push_gate(self, tmp_path, monkeypatch):
+        rc, call_order, raw_writes, state_path = self._run_with_spy(
+            tmp_path, monkeypatch, gate=4, phase=6
+        )
+        assert rc == 0
+
+        # 1. on-disk content
+        sd = json.loads(state_path.read_text(encoding="utf-8"))
+        assert sd["last_milestone_command"] == "finalize-gate --gate 4 --phase 6"
+        assert sd["existing"] is True
+
+        # 2. ordering
+        idx_write = call_order.index("atomic_write_json(state.json)")
+        idx_push = call_order.index("commit_and_push_gate")
+        assert idx_write < idx_push, (
+            f"state.json write must precede commit_and_push_gate; got: {call_order}"
+        )
+
+        # 3. must use atomic_write_json, NOT raw write_text
+        assert not raw_writes, (
+            f"gate-4 audit write must use atomic_write_json, not raw write_text; "
+            f"raw write_text calls: {raw_writes}"
+        )
+
+    def test_skip_when_state_json_missing(self, tmp_path, monkeypatch):
+        import harness_cli as hc
+        from harness.harness_bridge import GateResult
+
+        sessi = tmp_path / ".sessi-work"
+        sessi.mkdir(parents=True, exist_ok=True)
+        (sessi / "gate4_result.json").write_text(
+            json.dumps({"composite_score": 90.0}), encoding="utf-8"
+        )
+        (tmp_path / ".methodology").mkdir(parents=True, exist_ok=True)
+        (tmp_path / ".methodology" / "quality_manifest.json").write_text(
+            json.dumps({"gate_results": {}}), encoding="utf-8"
+        )
+        # NOTE: state.json intentionally NOT created
+
+        monkeypatch.setattr(hc, "_finalize_gate_preflight", lambda *_a: None)
+        monkeypatch.setattr(hc, "_finalize_gate_fr_checks", lambda *_a: None)
+        monkeypatch.setattr(hc, "_finalize_gate_cross_checks", lambda *_a: None)
+        monkeypatch.setattr(hc, "_check_gate4_prerequisites", lambda *_a: (False, set()))
+        monkeypatch.setattr(hc, "_update_state_checkpoint", lambda *_, **__: None)
+        monkeypatch.setattr(hc, "_update_claude_md", lambda _p: None)
+        monkeypatch.setattr(hc, "_record_gate_timestamp", lambda *_a: None)
+        monkeypatch.setattr(hc, "_generate_stage_pass", lambda *_a: None)
+
+        # Bypass structural postflight (artifact links + drift) — irrelevant to
+        # the write-before-push assertion and would otherwise need a fully
+        # populated phase artifact tree.
+        class _FakePhaseHooks:
+            def __init__(self, *_a, **_kw): pass
+            def postflight_artifact_links(self): return {"passed": True}
+            def postflight_drift_check(self): return {"passed": True}
+        import core.phase_hooks as _ph_mod
+        monkeypatch.setattr(_ph_mod, "PhaseHooks", _FakePhaseHooks)
+
+        # Bypass PhaseTruthVerifier (HR-11) — also irrelevant; requires full
+        # phase artifact tree and runs only for phase exit gates.
+        class _FakePhaseTruthVerifier:
+            def __init__(self, *_a, **_kw): pass
+            def verify(self): return {"passed": True, "total_score": 100.0}
+        import core.quality_gate.phase_truth_verifier as _ptv_mod
+        monkeypatch.setattr(_ptv_mod, "PhaseTruthVerifier", _FakePhaseTruthVerifier)
+
+        call_order: list[str] = []
+
+        class FakeGit:
+            def ensure_gitignore(self): pass
+            def commit_and_push_gate(self, *_a):
+                call_order.append("commit_and_push_gate")
+                return None
+
+        monkeypatch.setattr(hc, "_make_git", lambda *_a: FakeGit())
+
+        class FakeBridge:
+            def prepare_gate(self, **_): return object()
+            def finalize_gate(self, _ctx, **_):
+                return GateResult(
+                    gate_num=4, score=90.0, dimensions=[],
+                    open_critical=0, open_high=0,
+                    quality_complete=True, rounds_used=1,
+                )
+
+        import harness.harness_bridge as hb
+        monkeypatch.setattr(hb, "HarnessBridge", FakeBridge)
+
+        args = argparse.Namespace(
+            project=str(tmp_path), gate=4, phase=6, fr_id=None,
+        )
+        rc = hc._cmd_finalize_gate_impl(args)
+        assert rc == 0
+        # push still happened; audit write was skipped (no state.json to write)
+        assert "commit_and_push_gate" in call_order
