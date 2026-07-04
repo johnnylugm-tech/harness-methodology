@@ -24,9 +24,10 @@ class TestChildEnv:
         for key in _SDK_STREAM_MARKERS:
             assert key not in env
 
-    def test_keeps_regular_env(self, monkeypatch):
+    def test_keeps_regular_env(self, monkeypatch, tmp_path):
         monkeypatch.setenv("PATH", "/usr/bin")
         monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
+        monkeypatch.setattr("core.agent_spawner.Path.cwd", lambda: tmp_path)
         env = _child_env()
         assert env["PATH"] == "/usr/bin"
         # User BYO endpoint config is the user's domain — never scrubbed.
