@@ -572,9 +572,14 @@ class PhaseHooks:
             if sad_frs:
                 blocking = self.phase is not None and self.phase >= 5
                 print(f"   TEST_SPEC.md is missing but SAD.md contains {len(sad_frs)} FRs.")
-                return {"passed": not blocking, "skipped": False, 
-                        "error": "TEST_SPEC.md is missing but SAD.md has FRs.",
-                        "orphans": len(sad_frs), "missing_spec": True}
+                if blocking:
+                    return {"passed": False, "skipped": False, 
+                            "error": "TEST_SPEC.md is missing but SAD.md has FRs.",
+                            "orphans": len(sad_frs), "missing_spec": True}
+                else:
+                    return {"passed": True, "skipped": False, 
+                            "warning": "TEST_SPEC.md is missing but SAD.md has FRs.",
+                            "orphans": len(sad_frs), "missing_spec": True}
             print("   Skipped: TEST_SPEC.md not present at 02-architecture/")
             return {"passed": True, "skipped": True,
                     "reason": "TEST_SPEC.md missing and no SAD FRs to track"}

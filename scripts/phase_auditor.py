@@ -744,23 +744,6 @@ class PhaseAuditor:
                 rule_ref="HR-11",
             ))
 
-    # -- C3: A/B Session Separation Verification ---------------------────
-    def check_c3_session_separation(self):
-        """C3: A/B session separation — DEPRECATED / always PASS.
-
-        The HR-10/HR-01 A/B audit was removed framework-wide: sessions_spawn.log is an
-        agent-writable file, so counting entries / distinct session_ids could not actually
-        prove an independent Agent B review occurred. P1/P2 quality is enforced by the Agent B
-        deliverable review itself; P3+ by tool-scored gates + S4 cross-validation. C3 is kept
-        as a stable, non-blocking PASS so downstream check indexing is unaffected.
-        """
-        self.result.add(Finding(
-            check_id="C3", dimension="A/B Session Separation",
-            severity="PASS",
-            title="A/B session-separation audit removed (sessions_spawn.log was not tamper-evident)",
-            detail="Enforcement moved to deliverable-quality gates + S4 cross-validation.",
-        ))
-
     # -- C5: Phase Core Document Content Depth -----------------------
     def check_c5_content_depth(self):
         """C5: Content quality of core documents (SRS FR count, section completeness, etc.)"""
@@ -1625,7 +1608,6 @@ class PhaseAuditor:
         checks = [
             ("C1  Deliverable Completeness",   self.check_c1_deliverables),
             ("C2  STAGE_PASS Certificate",     self.check_c2_stage_pass),
-            ("C3  A/B Session Separation",     self.check_c3_session_separation),
             ("C5  Document Content Depth",     self.check_c5_content_depth),
             ("C6  Commit Timeline",            self.check_c6_commit_timeline),
             ("C8  Integrity Tracker",          self.check_c8_integrity),

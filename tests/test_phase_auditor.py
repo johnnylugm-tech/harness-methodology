@@ -58,29 +58,6 @@ def auditor_factory():
     return _make
 
 
-class TestC3SessionSeparation:
-    """C3: A/B session separation — now a deprecated non-blocking PASS.
-
-    The HR-10/HR-01 audit was removed (sessions_spawn.log is agent-writable and was not
-    tamper-evident). C3 is kept as a stable PASS so check indexing is unaffected.
-    """
-
-    def test_c3_always_pass_regardless_of_log(self, auditor_factory):
-        """C3 yields a single PASS and never a CRITICAL, whatever the log state."""
-        for files, phase in (
-            ({}, 1),                                              # no log
-            ({".methodology/sessions_spawn.log": "\n\n\n"}, 2),  # empty log
-            ({".methodology/sessions_spawn.log": VALID_AB_JSONL}, 1),  # valid log
-            ({"sessions_spawn.log": VALID_AB_JSONL}, 4),         # P3+ root log
-        ):
-            auditor = auditor_factory(files, phase=phase)
-            auditor.check_c3_session_separation()
-            criticals = [f for f in auditor.result.findings if f.severity == "CRITICAL"]
-            passes = [f for f in auditor.result.findings if f.severity == "PASS"]
-            assert criticals == [], f"C3 must not block (files={files}, phase={phase})"
-            assert len(passes) == 1, f"C3 must emit exactly one PASS (files={files})"
-
-
 class TestC9GatePass:
     """C9: quality_manifest.json gate PASS verification."""
 
