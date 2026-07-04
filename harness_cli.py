@@ -9433,19 +9433,25 @@ def _format_block_diagnostic(
         f"Failing dimensions ({len(failing)}):",
     ]
     for dim in failing:
-        gap = dim.threshold - dim.score
+        if dim.score is not None:
+            gap = dim.threshold - dim.score
+            lines.append(
+                f"  [FAIL] {dim.name:<22} score={dim.score:>5.1f}  "
+                f"need={dim.threshold:>5.1f}  gap={gap:>4.1f}"
+            )
+        else:
+            lines.append(
+                f"  [FAIL] {dim.name:<22} score= None  "
+                f"need={dim.threshold:>5.1f}  gap= N/A"
+            )
         hint = _DIMENSION_HINTS.get(dim.name, "Review dimension-specific issues in SSI output")
-        lines.append(
-            f"  [FAIL] {dim.name:<22} score={dim.score:>5.1f}  "
-            f"need={dim.threshold:>5.1f}  gap={gap:>4.1f}"
-        )
         lines.append(f"         → {hint}")
 
     if passing:
         lines.append("")
         lines.append(
             f"Passing ({len(passing)}): "
-            + ", ".join(f"{d.name}={d.score:.1f}" for d in passing)
+            + ", ".join(f"{d.name}={d.score:.1f}" if d.score is not None else f"{d.name}=None" for d in passing)
         )
 
     fr_flag = f" --fr-id {fr_id}" if fr_id else ""
@@ -9469,14 +9475,22 @@ def _format_block_diagnostic(
         "",
     ]
     for dim in failing:
-        gap = dim.threshold - dim.score
         hint = _DIMENSION_HINTS.get(dim.name, "Review SSI output")
-        report_lines += [
-            f"### {dim.name}",
-            f"- score: {dim.score:.1f} / threshold: {dim.threshold:.1f} (gap: {gap:.1f})",
-            f"- fix: {hint}",
-            "",
-        ]
+        if dim.score is not None:
+            gap = dim.threshold - dim.score
+            report_lines += [
+                f"### {dim.name}",
+                f"- score: {dim.score:.1f} / threshold: {dim.threshold:.1f} (gap: {gap:.1f})",
+                f"- fix: {hint}",
+                "",
+            ]
+        else:
+            report_lines += [
+                f"### {dim.name}",
+                f"- score: None / threshold: {dim.threshold:.1f} (gap: N/A)",
+                f"- fix: {hint}",
+                "",
+            ]
     report_lines += [
         "## Resume Commands",
         "",

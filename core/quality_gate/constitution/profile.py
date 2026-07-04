@@ -107,13 +107,14 @@ class ScoringProfile:
     """Scoring method configuration."""
 
     method: str = "min_of_dimensions"
+    _explicit: bool = field(default=False, repr=False, compare=False)
 
     def to_dict(self) -> dict:
         return {"method": self.method}
 
     @classmethod
-    def from_dict(cls, d: dict) -> "ScoringProfile":
-        return cls(method=d.get("method", "min_of_dimensions"))
+    def from_dict(cls, d: dict, explicit: bool = False) -> "ScoringProfile":
+        return cls(method=d.get("method", "min_of_dimensions"), _explicit=explicit)
 
 
 @dataclass
@@ -230,7 +231,7 @@ class ConstitutionProfile:
             dimensions[k] = DimensionProfile.from_dict(v)
 
         return cls(
-            scoring=ScoringProfile.from_dict(d.get("scoring", {})),
+            scoring=ScoringProfile.from_dict(d["scoring"], explicit=True) if "scoring" in d else ScoringProfile(),
             phases=phases,
             dimensions=dimensions,
             file_filters=d.get("file_filters", {}),
@@ -249,7 +250,7 @@ class ConstitutionProfile:
         Dicts (phases, dimensions, file_filters) are merged key-by-key.
         """
         result = ConstitutionProfile(
-            scoring=overrides.scoring if overrides.scoring.method != "min_of_dimensions" else self.scoring,
+            scoring=overrides.scoring if overrides.scoring._explicit else self.scoring,
             # Copy each PhaseProfile, not just the outer dict — a phase this
             # merge doesn't touch would otherwise stay aliased to self.phases,
             # so mutating the "new" result's untouched phases would mutate self.

@@ -609,6 +609,9 @@ class PhaseAuditor:
 
         self._check_required_sections(content)
         self._check_quality_status(content)
+        self._check_agent_b_review(content)
+        self._parse_and_check_confidence(content)
+        self._check_johnny_confirm(content)
 
     def _find_stage_pass_path(self) -> Optional[str]:
         """Locate the STAGE_PASS file in the git tree for this phase."""
@@ -702,7 +705,7 @@ class PhaseAuditor:
             score_match = re.search(r"(\d{2,3})/100", content)
         if score_match:
             score = int(score_match.group(1))
-            if score >= 70:
+            if score >= 90:
                 sev, icon = "PASS", "\u2705"
             elif score >= 50:
                 sev, icon = "WARNING", "\u26a0\ufe0f"
@@ -758,174 +761,6 @@ class PhaseAuditor:
             detail="Enforcement moved to deliverable-quality gates + S4 cross-validation.",
         ))
 
-    def _parse_session_records(self, content: str) -> Optional[list]:
-        """Parse line-delimited JSON from .methodology/sessions_spawn.log (or sessions_spawn.log fallback)."""
-        sessions = []
-        for line in content.strip().splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                sessions.append(json.loads(line))
-            except json.JSONDecodeError:
-                if "session_id" in line:
-                    sessions.append({"raw": line})
-
-        if not sessions:
-            self.result.add(Finding(
-                check_id="C3", dimension="A/B Session Separation",
-                severity="CRITICAL",
-                title="sessions_spawn.log (in .methodology/ or root) is empty or unparseable",
-                detail=f"First 100 chars: {content[:100]}",
-                rule_ref="HR-10",
-            ))
-            return None
-        return sessions
-
-    def _extract_roles_and_ids(
-        self, sessions: list
-    ) -> tuple[set[str], set[str]]:
-        """Extract unique roles and session_ids from parsed sessions."""
-        roles = set()
-        session_ids = set()
-        for s in sessions:
-            if isinstance(s, dict):
-                role = s.get("role", "")
-                sid = s.get("session_id", "")
-                if role:
-                    roles.add(role.lower())
-                if sid:
-                    session_ids.add(sid)
-        return roles, session_ids
-
-    def _check_session_roles(
-        self, roles: set[str], expected_a: str, expected_b: str
-    ) -> None:
-        """Verify that both Agent A and Agent B roles are present."""
-        has_a = expected_a in roles
-        has_b = expected_b in roles
-        if has_a and has_b:
-            self.result.add(Finding(
-                check_id="C3", dimension="A/B Session Separation",
-                severity="PASS",
-                title=f"Found Agent A ({expected_a}) and Agent B ({expected_b}) records",
-                detail=f"roles set: {roles}",
-            ))
-        else:
-            missing = []
-            if not has_a:
-                missing.append(f"Agent A ({expected_a})")
-            if not has_b:
-                missing.append(f"Agent B ({expected_b})")
-            self.result.add(Finding(
-                check_id="C3", dimension="A/B Session Separation",
-                severity="CRITICAL",
-                title=f"sessions_spawn.log (in .methodology/ or root) missing roles: {', '.join(missing)}",
-                detail=f"Found roles: {roles}; expected: {expected_a}, {expected_b}",
-                rule_ref="HR-01",
-            ))
-
-    def _check_session_id_uniqueness(self, session_ids: set[str]) -> None:
-        """Verify unique session IDs (A/B separation evidence)."""
-        if len(session_ids) >= 2:
-            self.result.add(Finding(
-                check_id="C3", dimension="A/B Session Separation",
-                severity="PASS",
-                title=f"Session IDs: {len(session_ids)} unique (A/B separation confirmed)",
-                detail=f"IDs (first 20 chars): {[str(sid)[:20] for sid in list(session_ids)[:4]]}",
-            ))
-        elif len(session_ids) == 1:
-            self.result.add(Finding(
-                check_id="C3", dimension="A/B Session Separation",
-                severity="CRITICAL",
-                title="All session_ids identical (suspected self-review)",
-                detail=f"Unique session: {list(session_ids)[0]}",
-                rule_ref="HR-01",
-            ))
-        else:
-            self.result.add(Finding(
-                check_id="C3", dimension="A/B Session Separation",
-                severity="WARNING",
-                title="Cannot parse session_id values",
-                detail=f"session_ids (first 4): {[str(sid)[:20] for sid in list(session_ids)[:4]]}",
-            ))
-
-    def _check_empty_tasks(self, sessions: list) -> None:
-        """Check for empty task fields (OpenClaw system limitation)."""
-        empty_tasks = sum(
-            1 for s in sessions
-            if isinstance(s, dict) and not s.get("task", "").strip()
-        )
-        if empty_tasks > 0:
-            self.result.add(Finding(
-                check_id="C3", dimension="A/B Session Separation",
-                severity="INFO",
-                title=f"{empty_tasks} session record(s) have empty task field (OpenClaw system limitation)",
-                detail="sessions_spawn.log (in .methodology/ or root) is generated by OpenClaw; Framework cannot control its format",
-            ))
-
-    def _check_agent_b_approvals(self) -> None:
-        """C3 supplement: verify agent_b_approvals/*.json have review_status=APPROVE (P3+)."""
-        if self.phase < 3:
-            return  # P1/P2: sessions_spawn.log check is sufficient
-
-        tree = self.gh.get_tree()
-        approval_files = [
-            item["path"] for item in tree
-            if item["path"].startswith(".methodology/agent_b_approvals/")
-            and item["path"].endswith(".json")
-        ]
-        if not approval_files:
-            self.result.add(Finding(
-                check_id="C3", dimension="A/B Session Separation",
-                severity="CRITICAL",
-                title="No Agent B approval files found in .methodology/agent_b_approvals/",
-                detail="Each FR requires an approval JSON with review_status=APPROVE (P3+).",
-                rule_ref="HR-01",
-            ))
-            return
-
-        # A1 parity (mirror harness_cli._MIN_REVIEW_REASON_CHARS): an APPROVE must
-        # carry real review rationale + citations, otherwise it is a shell approval
-        # the main agent can self-issue without reviewing anything.
-        # Kept as a local literal so this standalone audit script does not import the
-        # harness_cli entry-point module (decouples the GitHub-side audit from the CLI).
-        _min_reason = 40
-        approved = 0
-        for path in approval_files:
-            c = self.gh.get_file_content(path)
-            try:
-                data = json.loads(c) if c else {}
-            except json.JSONDecodeError:
-                continue
-            if data.get("review_status") != "APPROVE":
-                continue
-            reason = str(data.get("reason", "")).strip()
-            citations = data.get("citations", [])
-            if len(reason) < _min_reason or not isinstance(citations, list) or not citations:
-                continue
-            approved += 1
-
-        total = len(approval_files)
-        if approved == total:
-            sev = "PASS"
-            icon = "✅"
-            rule_ref = ""
-        elif approved > 0:
-            sev = "WARNING"
-            icon = "⚠️"
-            rule_ref = "HR-01"
-        else:
-            sev = "CRITICAL"
-            icon = "❌"
-            rule_ref = "HR-01"
-        self.result.add(Finding(
-            check_id="C3", dimension="A/B Session Separation",
-            severity=sev,
-            title=f"{icon} {approved}/{total} Agent B approval file(s) have a substantiated APPROVE (review_status + reason + citations).",
-            detail=f"Files checked: {[p.split('/')[-1] for p in approval_files[:5]]}",
-            rule_ref=rule_ref,
-        ))
     # -- C5: Phase Core Document Content Depth -----------------------
     def check_c5_content_depth(self):
         """C5: Content quality of core documents (SRS FR count, section completeness, etc.)"""
@@ -1383,8 +1218,8 @@ class PhaseAuditor:
         content = self._content(["08-config/RELEASE_CHECKLIST.md"])
         if not content:
             return
-        checked = len(re.findall(r"^- \[x\]", content, re.MULTILINE | re.IGNORECASE))
-        unchecked = len(re.findall(r"^- \[ \]", content, re.MULTILINE))
+        checked = len(re.findall(r"^\s*- \[x\]", content, re.MULTILINE | re.IGNORECASE))
+        unchecked = len(re.findall(r"^\s*- \[ \]", content, re.MULTILINE))
         total = checked + unchecked
         sev = "PASS" if total >= 5 and unchecked == 0 else "WARNING"
         self.result.add(Finding(

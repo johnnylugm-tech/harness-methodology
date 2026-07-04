@@ -869,7 +869,7 @@ class GitStrategy:
             f = line.strip()
             if f:
                 seen[f] = None
-        return list(seen.keys())[:20]
+        return list(seen.keys())[:n]
 
     def _ab_session_summary(self) -> str:
         """Read sessions_spawn.log → markdown bullet list of A/B results."""

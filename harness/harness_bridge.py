@@ -11,7 +11,7 @@ import sys
 import dataclasses
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from harness.crg_bridge import CRGBridge
 from harness.decision_log import DecisionLogWriter, DecisionLogEntry, DecisionContext
@@ -71,7 +71,7 @@ def _atomic_write_gate_result(path: Path, data: dict) -> None:
 class DimResult:
     """Result of a single quality dimension evaluation."""
     name: str
-    score: float
+    score: Optional[float]
     threshold: float
     issues: list[dict] = field(default_factory=list)
 
@@ -1844,7 +1844,7 @@ class HarnessBridge:
                     # Validate: warn if FR section exists but has no table header
                     # (missing header means 0 spec names even though rows exist)
                     _fr_section_exists = bool(
-                        re.search(r"^###\s+" + fr_id + r"(?:[:\s]|$)", _spec_text, re.MULTILINE)
+                        re.search(r"^###\s+" + re.escape(fr_id) + r"(?:[:\s]|$)", _spec_text, re.MULTILINE)
                     )
                     if _fr_section_exists and not _spec_names:
                         print(
@@ -2182,7 +2182,7 @@ class HarnessBridge:
                 _new_dims = []
                 for _d in dims:
                     if _d.name == "architecture":
-                        _old = _d.score
+                        _old = _d.score if _d.score is not None else 0.0
                         _new = float(_arch_score)
                         if abs(_old - _new) > 1.5:
                             _cohesion_raw = (_crg_m.get("community_cohesion") or {}).get("score", _new)
@@ -2831,7 +2831,7 @@ class HarnessBridge:
         """
         import statistics as _stats
         try:
-            dim_scores = [d.score for d in dims]  # B3: include zero-scored dims
+            dim_scores = [d.score for d in dims if d.score is not None]  # B3: include zero-scored dims
             if len(dim_scores) < 3:
                 return
             _stdev = _stats.pstdev(dim_scores)

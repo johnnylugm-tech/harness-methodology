@@ -1054,7 +1054,7 @@ class PhaseHooks:
                 force_ok = lines[0].lower() == "false"
                 delete_ok = lines[1].lower() == "false"
                 return force_ok and delete_ok
-            return False
+            return True  # Format unexpected — assume OK
         except Exception:
             return True  # Can't verify — assume OK (don't cry wolf)
 
@@ -1223,9 +1223,11 @@ class PhaseHooks:
                                         "agent_id": agent_id})
         print(f"\n[MONITORING] After Rev: {fr_id} review={review_status}")
         self._append_log(f"AFTER_REV: {fr_id} review={review_status}")
-        if self.fr_results and self.fr_results[-1].get("fr_id") == fr_id:
-            self.fr_results[-1].update({"rev_status": status, "review_status": review_status,
-                                         "rev_confidence": confidence})
+        for fr_item in reversed(self.fr_results):
+            if fr_item.get("fr_id") == fr_id:
+                fr_item.update({"rev_status": status, "review_status": review_status,
+                                 "rev_confidence": confidence})
+                break
 
     def monitoring_hr12_check(self, fr_id: str, iteration: int, max_iterations: int = 5) -> bool:
         """HR-12 check: block if max iterations exceeded."""

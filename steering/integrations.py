@@ -330,8 +330,10 @@ class SteeringCQGIntegrator:
     def _extract_code_blocks(self, text: str) -> List[str]:
         """Simple code block extraction (```...```)."""
         import re
-        pattern = r"```[\w]*\n(.*?)```"
-        return re.findall(pattern, text, re.DOTALL)
+        blocks = []
+        for match in re.finditer(r"(`{3,})[\w]*\n(.*?)(\1)", text, re.DOTALL):
+            blocks.append(match.group(2))
+        return blocks
 
 
 # ---------------------------------------------------------------------------
@@ -393,7 +395,6 @@ class HR12Resolution:
         min_iterations: int,
         current_round: int,
         score_delta: float,
-        quality_threshold: float = 0.85,
         convergence_threshold: float = 0.05
     ) -> dict:
         """

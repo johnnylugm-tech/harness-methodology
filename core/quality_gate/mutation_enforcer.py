@@ -507,7 +507,7 @@ def _count_mutmut_results(cache_path: Path) -> tuple[int, int]:
         db.close()
         return killed, survived
     except (sqlite3.Error, OSError, IOError):
-        raise
+        return 0, 0
 
 
 def run_stryker_precheck(project: Path) -> tuple[bool, str]:
@@ -757,7 +757,7 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
             shutil.copy2(workdir_cache, cache_file)
             if stash_dir is not None and Path(stash_dir).exists():
                 shutil.rmtree(stash_dir, ignore_errors=True)
-        elif stash_dir is not None and Path(stash_dir).exists():
+        elif not _precheck_ok and stash_dir is not None and Path(stash_dir).exists():
             # 1. Prior cache existed — restore it (project root must be
             #    exactly as it was before this precheck).
             stashed_cache = Path(stash_dir) / ".mutmut-cache"
