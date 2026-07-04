@@ -8,7 +8,6 @@ import pytest
 from pathlib import Path
 from unittest import mock
 import io
-import contextlib
 
 
 # =============================================================================
@@ -385,7 +384,6 @@ class TestCmdAuditStructure:
 
     def test_json_output_is_valid(self, tmp_path):
         from harness_cli import cmd_audit_structure
-        import io
         import sys
 
         args = self._make_args(str(tmp_path), json_out=True)
@@ -429,7 +427,6 @@ class TestCmdAuditStructure:
             (tmp_path / d).mkdir()
 
         args = self._make_args(str(tmp_path), json_out=True)
-        import io
         import sys
         buf = io.StringIO()
         old = sys.stdout
@@ -450,7 +447,6 @@ class TestCmdAuditStructure:
         (tmp_path / "09-unknown").mkdir()  # not in the canonical set
 
         args = self._make_args(str(tmp_path), json_out=True)
-        import io
         import sys
         buf = io.StringIO()
         old = sys.stdout
@@ -493,7 +489,6 @@ class TestCmdAuditStructure:
         )
 
         args = self._make_args(str(tmp_path), json_out=True)
-        import io
         import sys
         buf = io.StringIO()
         old = sys.stdout
@@ -521,7 +516,6 @@ class TestCmdAuditStructure:
 
     def _audit_json(self, tmp_path):
         """Run cmd_audit_structure with json_out and return parsed result."""
-        import io
         import sys
         from harness_cli import cmd_audit_structure
 
@@ -742,7 +736,6 @@ class TestInitThenAudit:
     def test_init_then_audit_reports_dirs_and_artifacts(self, tmp_path):
         """After init-project, audit-structure should pass directory existence."""
         import argparse
-        import io
         import sys
 
         from harness_cli import _init_phase_dirs, cmd_audit_structure
@@ -2657,7 +2650,6 @@ class TestRunFrStep:
         """resume-fr-phase prints the first step that is not yet done."""
         import harness_cli
         import sys
-        import io
 
         (tmp_path / ".methodology").mkdir()
         (tmp_path / ".methodology" / "quality_manifest.json").write_text(
@@ -2682,7 +2674,6 @@ class TestRunFrStep:
         """resume-fr-phase reports all complete when every step is done."""
         import harness_cli
         import sys
-        import io
 
         (tmp_path / ".methodology").mkdir()
         (tmp_path / ".methodology" / "quality_manifest.json").write_text(
@@ -2701,7 +2692,6 @@ class TestRunFrStep:
         """resume-fr-phase uses fr_progress.json when quality_manifest.json is absent."""
         import harness_cli
         import sys
-        import io
 
         (tmp_path / ".methodology").mkdir()
         (tmp_path / ".methodology" / "fr_progress.json").write_text(
@@ -2751,7 +2741,6 @@ class TestRunFrStep:
         """resume-fr-phase emits GATE1-DELTA for carry-forward phases when code unchanged."""
         import harness_cli
         import sys
-        import io
 
         (tmp_path / ".methodology").mkdir()
         (tmp_path / ".methodology" / "quality_manifest.json").write_text(
@@ -2780,7 +2769,6 @@ class TestRunFrStep:
         """Carry-forward phases switch to full TDD when code changed since last Gate 1."""
         import harness_cli
         import sys
-        import io
 
         (tmp_path / ".methodology").mkdir()
         (tmp_path / ".methodology" / "quality_manifest.json").write_text(
@@ -4330,7 +4318,6 @@ def test_generate_sab_exits_1_when_output_exists_without_overwrite(tmp_path, mon
 
     monkeypatch.setattr(sys, "argv", ["generate_sab.py", "--project", str(tmp_path)])
 
-    import io
     captured_stderr = io.StringIO()
     monkeypatch.setattr(sys, "stderr", captured_stderr)
 
