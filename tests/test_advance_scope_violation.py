@@ -62,3 +62,12 @@ def test_flags_multiple_script_extensions(tmp_path):
     (tmp_path / "probe_x.sh").write_text("echo\n")
     (tmp_path / "explore.ts").write_text("1\n")
     assert set(_scope_violation_scripts(tmp_path)) == {"scratch.js", "probe_x.sh", "explore.ts"}
+
+
+def test_flags_filename_with_space(tmp_path):
+    # git quotes paths containing a space (core.quotePath) — without -z the
+    # quotes land in the parsed path, corrupting the suffix check so the file
+    # silently evaded detection.
+    _git_init(tmp_path)
+    (tmp_path / "diag tool.py").write_text("x = 1\n")
+    assert _scope_violation_scripts(tmp_path) == ["diag tool.py"]

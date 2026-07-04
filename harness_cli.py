@@ -45,7 +45,7 @@ Exit codes:
     10  PAUSE — Claude must evaluate gate; run finalize-gate then re-run pipeline
     11  Phase Truth < 90% (HR-11); fix and re-run with --phase-from N
     16  Constitution postflight below phase threshold; fix document quality
-    17  Scope violation: untracked diagnostic script(s) at repo root; move to
+    21  Scope violation: untracked diagnostic script(s) at repo root; move to
         .sessi-work/tmp or delete, then re-run advance-phase
 """
 from __future__ import annotations
@@ -6199,7 +6199,7 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
             "  Debug/diagnostic artifacts must live under .sessi-work/tmp/ "
             "(gitignored). Move or delete them, then re-run advance-phase."
         )
-        return 17
+        return 21
 
     # ── Constitution postflight: check current phase's own docs ──────
     # (all phases 1-8).  Closed-loop: each phase verifies its OWN
@@ -6437,7 +6437,22 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
 
 
 _SCOPE_SCRIPT_EXTS: frozenset[str] = frozenset({".py", ".js", ".ts", ".sh"})
-_SCOPE_DEBUG_NAME_RE = re.compile(r"diag|debug|scratch|explore|probe|tmp", re.IGNORECASE)
+# Precision > recall by design (see _scope_violation_scripts docstring): this is
+# a small, explicit set of tokens, matched whole (not as a substring) against
+# "_"/"-"-separated segments of the filename stem — "_diag_constitution" splits
+# to ["diag", "constitution"], an exact hit; "swipe" or "attempt" never match
+# "wip"/"tmp" as a substring would. Whole-token matching makes it safe to extend
+# this set (no accidental substring collisions to reason about), unlike a raw
+# substring/regex search.
+_SCOPE_DEBUG_NAME_TOKENS: frozenset[str] = frozenset({
+    "diag", "debug", "scratch", "explore", "probe", "tmp",
+    "sandbox", "throwaway", "adhoc", "wip", "poc",
+})
+
+
+def _scope_debug_name_match(stem: str) -> bool:
+    tokens = re.split(r"[_\-\s]+", stem.lower())
+    return any(t in _SCOPE_DEBUG_NAME_TOKENS for t in tokens)
 
 
 def _scope_violation_scripts(project: Path) -> list[str]:
@@ -6454,22 +6469,36 @@ def _scope_violation_scripts(project: Path) -> list[str]:
     flag legitimate new module files not yet committed mid-phase) AND a script
     extension AND a name signalling a diagnostic. .sessi-work/ is gitignored, so its
     contents never surface as untracked and are never flagged.
+
+    Uses `-z` (NUL-terminated, unquoted paths): without it, `git status --porcelain`
+    quotes any path containing a space or non-ASCII character (core.quotePath), so
+    e.g. "diag tool.py" comes back as the literal 13-char string `"diag tool.py"`
+    (quotes included) — Path(...).suffix is then '.py"', which never matches
+    _SCOPE_SCRIPT_EXTS and the file silently evades detection.
+
+    `--untracked-files=normal` (git's default) rather than `=all`: an untracked
+    directory is reported once (`?? dirname/`) instead of git recursing into and
+    listing every file inside it — those entries would all be discarded by the
+    top-level-only filter below anyway, so `=all` only adds wasted work on a large
+    untracked tree (e.g. a not-yet-gitignored build/venv dir) with no behavior
+    difference for the loose top-level files this check actually targets.
     """
     result = subprocess.run(
-        ["git", "-C", str(project), "status", "--porcelain", "--untracked-files=all"],
+        ["git", "-C", str(project), "status", "--porcelain=v1", "-z",
+         "--untracked-files=normal"],
         capture_output=True, text=True,
     )
     if result.returncode != 0:
         return []
     offenders: list[str] = []
-    for line in result.stdout.splitlines():
-        if not line.startswith("??"):
+    for entry in result.stdout.split("\0"):
+        if not entry.startswith("??"):
             continue
-        path = line[3:].strip()
+        path = entry[3:]
         if "/" in path:  # top-level only
             continue
         p = Path(path)
-        if p.suffix.lower() in _SCOPE_SCRIPT_EXTS and _SCOPE_DEBUG_NAME_RE.search(p.stem):
+        if p.suffix.lower() in _SCOPE_SCRIPT_EXTS and _scope_debug_name_match(p.stem):
             offenders.append(path)
     return offenders
 
