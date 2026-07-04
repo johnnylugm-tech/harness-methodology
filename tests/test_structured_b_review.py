@@ -95,6 +95,7 @@ class TestExtractBReviewJson:
             "Please address these issues."
         )
         result, meta = extract_b_review_json(text)
+        assert result is not None
         assert meta["found"] is True
         assert result["review_status"] == "REJECT"
         assert len(result["gaps"]) == 1

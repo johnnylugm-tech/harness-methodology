@@ -115,6 +115,7 @@ class TestQualityManifestProjectRoot:
             )
 
         # The manifest FILE must be under the explicit project_root, not cwd.
+        assert out is not None
         assert out.is_absolute(), f"expected absolute path, got {out}"
         assert str(project_root) in str(out), (
             f"manifest path {out} must be under project_root "

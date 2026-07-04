@@ -129,7 +129,7 @@ def generate(project_root: Path, output_dir: Path | None = None) -> dict:
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    p = argparse.ArgumentParser(description=(__doc__ or "").split("\n\n")[0])
     p.add_argument("--project", required=True, help="Project root")
     p.add_argument("--output-dir", help="Override output directory")
     args = p.parse_args()

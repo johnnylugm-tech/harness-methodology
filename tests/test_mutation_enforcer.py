@@ -1338,17 +1338,17 @@ def test_mutmut_results_crash_returns_false(tmp_path, monkeypatch):
     def fake_run(cmd, **kwargs):
         if isinstance(cmd, list) and len(cmd) >= 2 and cmd[1] == "results":
             # mutmut results crashes: this is the bug we're testing
-            class R:
+            class ErrorResult:
                 returncode = 1
                 stdout = ""
                 stderr = "mutmut: error: no results yet"
-            return R()
+            return ErrorResult()
         # mutmut run succeeds
-        class R:
+        class SuccessResult:
             returncode = 0
             stdout = ""
             stderr = ""
-        return R()
+        return SuccessResult()
 
     monkeypatch.setattr(me.subprocess, "run", fake_run)
     monkeypatch.setattr(me, "_write_survivors_artifact", lambda *a, **k: None)

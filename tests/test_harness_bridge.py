@@ -95,6 +95,7 @@ class TestHarnessBridgeIntegration:
                     sad_path="SAD.md", project_root=str(tmp_path), force=True,
                 )
                 import json
+                assert out_path is not None
                 data = json.loads(out_path.read_text())
                 assert data["fr_ids"] == ["FR-01", "FR-02", "FR-03"]
 

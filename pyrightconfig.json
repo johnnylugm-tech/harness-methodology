@@ -1,5 +1,1 @@
-{
-  "extraPaths": [
-    "harness/ssi/scripts"
-  ]
-}
+{"venvPath": ".", "venv": ".venv", "extraPaths": ["harness/ssi", "harness/ssi/scripts", "harness", "core"]}

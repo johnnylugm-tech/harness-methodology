@@ -70,6 +70,8 @@ def write_sab_from_sad(tmp_path):
         sab = extract_sab_from_sad(sad_path)
         sab_path = tmp_path / ".methodology" / "SAB.json"
         sab_path.parent.mkdir(parents=True, exist_ok=True)
+        if sab is None:
+            raise ValueError("extract_sab_from_sad returned None for test")
         sab_path.write_text(json.dumps(sab.to_dict()))
         return sab_path
 
