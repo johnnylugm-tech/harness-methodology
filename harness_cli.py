@@ -5839,8 +5839,17 @@ def cmd_effort(args: argparse.Namespace) -> int:
 def _generate_stage_pass(project_path: Path, gate_num: int, phase_num: int) -> None:
     """Write machine-generated 00-summary/Phase{N}_STAGE_PASS.md from quality_manifest.json.
 
-    No LLM involvement — content comes entirely from quality_manifest.json.
-    Called automatically by cmd_finalize_gate() after bridge.finalize_gate succeeds.
+    No LLM involvement — content comes entirely from quality_manifest.json +
+    state.json.phase_truth_passed (fallback). Called automatically by
+    cmd_finalize_gate() after bridge.finalize_gate succeeds.
+
+    Gate-data interpretation rules (B-class bug fix — Phase 1-2 + per-FR Gate 1):
+      - Gate 2/3/4: flat dict with top-level `score` + `quality_complete`.
+      - Gate 1 in Phase 3+: per-FR dict `{"FR-XX": {"score": N, "quality_complete":
+        bool}, ...}` — aggregate across FRs (ALL must be True for PASS).
+      - Empty gate_data (Phase 1-2 where Gate 1 has not fired yet) — fall back to
+        state.json.phase_truth_passed to derive verdict. Without this fallback,
+        Phase 1-2 always wrote "exit gate FAIL" even when the phase succeeded.
     """
     from datetime import datetime, timezone as _tz
 
@@ -5849,12 +5858,47 @@ def _generate_stage_pass(project_path: Path, gate_num: int, phase_num: int) -> N
     if manifest_path.exists():
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            gate_data = manifest.get("gate_results", {}).get(f"gate{gate_num}", {})
+            gate_data = manifest.get("gate_results", {}).get(f"gate{gate_num}", {}) or {}
         except (json.JSONDecodeError, OSError):
             pass
 
-    score = gate_data.get("score", "N/A")
-    qc    = gate_data.get("quality_complete", False)
+    # Detect per-FR Gate 1 structure: dict values are dicts (FR records), not scalars.
+    # Flat Gate 2/3/4 has top-level "score" + "quality_complete" scalars.
+    is_per_fr_gate1 = (
+        gate_num == 1
+        and bool(gate_data)
+        and all(isinstance(v, dict) for v in gate_data.values())
+    )
+
+    if is_per_fr_gate1:
+        # Aggregate per-FR Gate 1: all FRs must be quality_complete for PASS.
+        fr_records = list(gate_data.values())
+        scores = [r.get("score") for r in fr_records if isinstance(r.get("score"), (int, float))]
+        qc = all(bool(r.get("quality_complete")) for r in fr_records)
+        if scores:
+            score = round(sum(scores) / len(scores), 2)
+        else:
+            score = "N/A"
+    elif gate_data:
+        # Flat structure (Gate 2/3/4 or pre-DELTA Gate 1).
+        score = gate_data.get("score", "N/A")
+        qc = bool(gate_data.get("quality_complete", False))
+    else:
+        # Empty gate_data — gate has not fired for this phase.
+        # Phase 1-2 + Phase 5/7/8: Gate 1 not fired yet (Gate 1 is per-FR at
+        # Phase 3+, or DELTA at Phase 5/7/8 — DELTA may not write gate_results
+        # when no code changes). Fall back to state.json.phase_truth_passed,
+        # which is set by advance-phase verify_phase_truth on success.
+        score = "N/A"
+        qc = False
+        state_path = project_path / ".methodology" / "state.json"
+        if state_path.exists():
+            try:
+                state = json.loads(state_path.read_text(encoding="utf-8"))
+                if state.get("phase_truth_passed") is True:
+                    qc = True
+            except (json.JSONDecodeError, OSError):
+                pass
 
     out_dir = project_path / "00-summary"
     out_dir.mkdir(parents=True, exist_ok=True)

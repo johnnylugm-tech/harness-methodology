@@ -4245,6 +4245,202 @@ def test_stage_pass_autogenerate_is_git_added(tmp_path, monkeypatch):
 
 
 # =============================================================================
+# _generate_stage_pass gate_data-empty bug (Phase 1-2 case)
+# =============================================================================
+
+class TestGenerateStagePassEmptyGateData:
+    """Bug: For Phase 1-2, Gate 1 has not fired yet (Gate 1 is per-FR, fires in
+    Phase 3+). quality_manifest.json gate_results.gate1 = {} (empty dict).
+
+    _generate_stage_pass() reads this empty dict, computes quality_complete=False
+    (default), and writes STAGE_PASS.md saying "Phase 1 exit gate FAIL" — even
+    though the phase actually succeeded (Constitution PASS, all 4 deliverables
+    APPROVED, advance-phase recorded phase_truth_passed:true in state.json).
+
+    Fix: when gate_data is empty AND the phase is one where the gate has not
+    fired yet (Phase 1-2 → Gate 1; Phase 5/7/8 → Gate 1 GATE1-DELTA logic
+    applies, but quality_manifest.gate1 may still be {} before DELTA — fallback
+    to state.json.phase_truth_passed to derive the verdict.
+    """
+
+    def _setup(self, tmp_path, phase_truth_passed):
+        """Create tmp project: state.json + empty quality_manifest."""
+        import json
+
+        methodology = tmp_path / ".methodology"
+        methodology.mkdir(parents=True)
+        state = {
+            "state": "RUNNING",
+            "current_phase": 2,
+            "phase_truth_passed": phase_truth_passed,
+            "last_update": "2026-07-04T10:52:47Z",
+        }
+        (methodology / "state.json").write_text(json.dumps(state), encoding="utf-8")
+
+        # Empty quality_manifest: gate1 = {} (Gate 1 not fired for Phase 1-2)
+        manifest = {
+            "schema_version": "1.0",
+            "generated_at_phase": 1,
+            "gate_results": {
+                "gate1": {},
+                "gate2": None,
+                "gate3": None,
+                "gate4": None,
+            },
+        }
+        (methodology / "quality_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        return methodology
+
+    def test_phase1_pass_when_phase_truth_passed_true(self, tmp_path):
+        """Phase 1 with phase_truth_passed=True → STAGE_PASS.md must say PASS."""
+        from harness_cli import _generate_stage_pass
+
+        self._setup(tmp_path, phase_truth_passed=True)
+
+        _generate_stage_pass(tmp_path, gate_num=1, phase_num=1)
+
+        out = tmp_path / "00-summary" / "Phase1_STAGE_PASS.md"
+        assert out.exists(), "STAGE_PASS.md not generated"
+        content = out.read_text(encoding="utf-8")
+        assert "PASS" in content, f"Expected PASS verdict for Phase 1 (phase_truth_passed=True); got:\n{content}"
+        assert "FAIL" not in content.split("## Summary")[1], (
+            f"Summary section must say PASS, not FAIL; got:\n{content}"
+        )
+
+    def test_phase1_fail_when_phase_truth_passed_false(self, tmp_path):
+        """Phase 1 with phase_truth_passed=False → STAGE_PASS.md must say FAIL."""
+        from harness_cli import _generate_stage_pass
+
+        self._setup(tmp_path, phase_truth_passed=False)
+
+        _generate_stage_pass(tmp_path, gate_num=1, phase_num=1)
+
+        out = tmp_path / "00-summary" / "Phase1_STAGE_PASS.md"
+        assert out.exists()
+        content = out.read_text(encoding="utf-8")
+        assert "FAIL" in content.split("## Summary")[1], (
+            f"Summary section must say FAIL when phase_truth_passed=False; got:\n{content}"
+        )
+
+    def test_phase1_passes_when_state_json_missing(self, tmp_path):
+        """No state.json + empty quality_manifest → fall back to FAIL (safe default)."""
+        from harness_cli import _generate_stage_pass
+
+        # No state.json — function should not crash; default to FAIL.
+        methodology = tmp_path / ".methodology"
+        methodology.mkdir(parents=True)
+        manifest = {
+            "schema_version": "1.0",
+            "gate_results": {"gate1": {}, "gate2": None, "gate3": None, "gate4": None},
+        }
+        (methodology / "quality_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+        _generate_stage_pass(tmp_path, gate_num=1, phase_num=1)
+        out = tmp_path / "00-summary" / "Phase1_STAGE_PASS.md"
+        assert out.exists()
+        content = out.read_text(encoding="utf-8")
+        assert "FAIL" in content.split("## Summary")[1]
+
+    def test_phase3_gate1_per_fr_quality_complete_false_overrides_truth(self, tmp_path):
+        """Phase 3 Gate 1 per-FR with any FR quality_complete=False → FAIL,
+        even if phase_truth_passed=True. Gate data takes precedence.
+        """
+        from harness_cli import _generate_stage_pass
+
+        methodology = tmp_path / ".methodology"
+        methodology.mkdir(parents=True)
+        state = {"current_phase": 4, "phase_truth_passed": True}
+        (methodology / "state.json").write_text(json.dumps(state), encoding="utf-8")
+
+        # Gate 1 per-FR: FR-01 failed (real failure)
+        manifest = {
+            "schema_version": "1.0",
+            "gate_results": {
+                "gate1": {
+                    "FR-01": {"score": 65.0, "quality_complete": False},
+                    "FR-02": {"score": 92.0, "quality_complete": True},
+                },
+                "gate2": None,
+                "gate3": None,
+                "gate4": None,
+            },
+        }
+        (methodology / "quality_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+        _generate_stage_pass(tmp_path, gate_num=1, phase_num=3)
+
+        out = tmp_path / "00-summary" / "Phase3_STAGE_PASS.md"
+        assert out.exists()
+        content = out.read_text(encoding="utf-8")
+        assert "FAIL" in content.split("## Summary")[1], (
+            f"Phase 3 Gate 1 with FR-01 quality_complete=False must say FAIL; got:\n{content}"
+        )
+
+    def test_phase3_gate1_per_fr_all_pass(self, tmp_path):
+        """Phase 3 Gate 1 per-FR all quality_complete=True → PASS."""
+        from harness_cli import _generate_stage_pass
+
+        methodology = tmp_path / ".methodology"
+        methodology.mkdir(parents=True)
+        state = {"current_phase": 4, "phase_truth_passed": True}
+        (methodology / "state.json").write_text(json.dumps(state), encoding="utf-8")
+
+        # Gate 1 per-FR: all pass
+        manifest = {
+            "schema_version": "1.0",
+            "gate_results": {
+                "gate1": {
+                    "FR-01": {"score": 92.0, "quality_complete": True},
+                    "FR-02": {"score": 88.0, "quality_complete": True},
+                },
+                "gate2": None,
+                "gate3": None,
+                "gate4": None,
+            },
+        }
+        (methodology / "quality_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+        _generate_stage_pass(tmp_path, gate_num=1, phase_num=3)
+
+        out = tmp_path / "00-summary" / "Phase3_STAGE_PASS.md"
+        assert out.exists()
+        content = out.read_text(encoding="utf-8")
+        assert "PASS" in content.split("## Summary")[1], (
+            f"Phase 3 Gate 1 all FRs pass → must say PASS; got:\n{content}"
+        )
+
+    def test_phase3_gate2_flat_structure_unchanged(self, tmp_path):
+        """Phase 3 Gate 2 (flat) with quality_complete=True → PASS."""
+        from harness_cli import _generate_stage_pass
+
+        methodology = tmp_path / ".methodology"
+        methodology.mkdir(parents=True)
+        state = {"current_phase": 4, "phase_truth_passed": True}
+        (methodology / "state.json").write_text(json.dumps(state), encoding="utf-8")
+
+        manifest = {
+            "schema_version": "1.0",
+            "gate_results": {
+                "gate1": {},
+                "gate2": {"score": 95.0, "quality_complete": True},
+                "gate3": None,
+                "gate4": None,
+            },
+        }
+        (methodology / "quality_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+        _generate_stage_pass(tmp_path, gate_num=2, phase_num=3)
+
+        out = tmp_path / "00-summary" / "Phase3_STAGE_PASS.md"
+        assert out.exists()
+        content = out.read_text(encoding="utf-8")
+        assert "PASS" in content.split("## Summary")[1], (
+            f"Phase 3 Gate 2 quality_complete=True → must say PASS; got:\n{content}"
+        )
+        assert "95.0" in content, "Gate 2 score must be displayed"
+
+
+# =============================================================================
 # Phase 8 bug regressions (B1 / B2 / B3)
 # =============================================================================
 
