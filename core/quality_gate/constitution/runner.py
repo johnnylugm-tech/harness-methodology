@@ -174,6 +174,75 @@ def _should_scan_file(file_path: Path, check_type: str) -> bool:
     return any(kw in file_lower for kw in keywords)
 
 
+# Per-phase deliverable scored by the constitution runner at P5-P9. Module-level
+# so _scannable_files (quality scoring) and missing_keywords (diagnostics) share
+# one source of truth for which file each phase is graded on.
+DELIVERABLE_MAP: Dict[int, str] = {
+    5: "VERIFICATION_REPORT.md",
+    6: "QUALITY_REPORT.md",
+    7: "RISK_REGISTER.md",
+    8: "CONFIG_RECORDS.md",
+    9: "MAINTENANCE_LOG.md",
+}
+
+
+def _scannable_files(directory: Path, phase: Optional[int], check_type: str) -> List[Path]:
+    """Files the constitution scorer grades in *directory* for *phase*.
+
+    Single source for both _scan_directory (quality scoring) and missing_keywords
+    (keyword-gap diagnostics): P5-P9 the single named deliverable, P3/P4 .py
+    sources, P1/P2 .md deliverables — minus hidden paths, profile exclusions, and
+    the check_type file filter.
+    """
+    if not directory.exists():
+        return []
+    if phase is not None and phase >= 5:
+        name = DELIVERABLE_MAP.get(phase)
+        candidate = directory / name if name else None
+        items = [candidate] if candidate and candidate.exists() else []
+    elif phase is not None and phase >= 3:
+        items = list(directory.rglob("*.py"))
+    else:
+        items = list(directory.rglob("*.md"))
+    out: List[Path] = []
+    for item in items:
+        if any(part.startswith(".") for part in item.relative_to(directory).parts):
+            continue
+        if get_profile().is_excluded(item, phase=phase):
+            continue
+        if not _should_scan_file(item, check_type):
+            continue
+        out.append(item)
+    return out
+
+
+def missing_keywords(
+    docs_path,
+    dim: str,
+    phase: Optional[int] = None,
+    check_type: str = "all",
+) -> List[str]:
+    """Dimension keywords (phase-aware) that appear in NONE of the scored docs.
+
+    Actionable companion to a failing constitution dimension: the scorer reports
+    "security 20% < 65%"; this reports *which* security keywords are absent, so a
+    fixing agent knows what to add instead of reverse-engineering the gap with a
+    throwaway diagnostic script. Uses the same file selection (_scannable_files)
+    and the same lowercased-substring presence test as _keyword_density.
+    """
+    keywords = get_profile().dimension_keywords_for_phase(dim, phase)
+    if not keywords:
+        return []
+    parts: List[str] = []
+    for fp in _scannable_files(Path(docs_path), phase, check_type):
+        try:
+            parts.append(fp.read_text(encoding="utf-8").lower())
+        except Exception:
+            continue
+    blob = "\n".join(parts)
+    return [kw for kw in keywords if kw.lower() not in blob]
+
+
 _STUB_PLACEHOLDER_RE = re.compile(r'(?<!\$)\{[A-Za-z][A-Za-z0-9_ ]*\}')
 
 
@@ -498,42 +567,11 @@ def _scan_directory(docs_path: Path, phase: int, check_type: str) -> Constitutio
         if phase_dir.exists() and phase_dir.resolve() != docs_path.resolve():
             target_dirs.append(phase_dir)
 
-    # P3/P4: scan Python source files only — .md compliance docs are gameable.
-    # P1/P2: scan .md (SRS.md, SAD.md are the actual deliverables for those phases).
-    # P5-P9: scan the specific markdown deliverable for each phase.
-    DELIVERABLE_MAP = {
-        5: "VERIFICATION_REPORT.md",
-        6: "QUALITY_REPORT.md",
-        7: "RISK_REGISTER.md",
-        8: "CONFIG_RECORDS.md",
-        9: "MAINTENANCE_LOG.md",
-    }
-
+    # File selection per phase (P5-P9 named deliverable, P3/P4 .py, P1/P2 .md)
+    # lives in _scannable_files so scoring and missing_keywords stay in lockstep.
     files_scanned = 0
     for directory in target_dirs:
-        if not directory.exists():
-            continue
-        if phase is not None and phase >= 5:
-            # P5-P8: look for the specific deliverable by name
-            deliverable_name = DELIVERABLE_MAP.get(phase)
-            if deliverable_name:
-                candidate = directory / deliverable_name
-                items = [candidate] if candidate.exists() else []
-            else:
-                items = []
-        elif phase is not None and phase >= 3:
-            # P3/P4: scan Python source files
-            items = list(directory.rglob("*.py"))
-        else:
-            # P1/P2: scan markdown deliverables
-            items = list(directory.rglob("*.md"))
-        for item in items:
-            if any(part.startswith(".") for part in item.relative_to(directory).parts):
-                continue
-            if get_profile().is_excluded(item, phase=phase):
-                continue
-            if not _should_scan_file(item, check_type):
-                continue
+        for item in _scannable_files(directory, phase, check_type):
             dims = _scan_file_compliance(item, phase=phase)
             for d, v in dims.items():
                 all_dim_scores[d].append(v)

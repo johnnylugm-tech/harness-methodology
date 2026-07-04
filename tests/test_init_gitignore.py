@@ -32,6 +32,11 @@ _REQUIRED_ENTRIES = {
     ".methodology/last_block.md",
     ".methodology/steering_history.json",
     ".methodology/trace/attestation.latest.json",
+    # Pure debug/trace logs: appended every phase run, read only from the working
+    # tree (HR-10 A/B audit), never functionally required from git history. Tracking
+    # them produced a perpetually-dirty tree fixed by manual chore(e2e-collect) commits.
+    ".methodology/sessions_spawn.log",
+    ".harness/traces/",
 }
 
 

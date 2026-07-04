@@ -28,6 +28,25 @@ def test_baseline_targets_always_present():
     assert ".methodology/phase6_plan.md" in targets
 
 
+def test_includes_gate_timestamps_when_present():
+    # gate_timestamps.jsonl is functional state (read back for FR-gate verification)
+    # and is appended by the DELTA fast-path within a phase; the advance commit must
+    # sweep its tail so it does not linger unstaged (recurring P5/P6/P7 dirty tree).
+    targets = _advance_commit_targets(
+        6, 7, manifest_regenerated=False, fr_progress_exists=True,
+        gate_timestamps_exists=True,
+    )
+    assert ".methodology/gate_timestamps.jsonl" in targets
+
+
+def test_omits_gate_timestamps_when_absent():
+    targets = _advance_commit_targets(
+        1, 2, manifest_regenerated=False, fr_progress_exists=False,
+        gate_timestamps_exists=False,
+    )
+    assert ".methodology/gate_timestamps.jsonl" not in targets
+
+
 def test_manifest_added_only_when_regenerated():
     with_manifest = _advance_commit_targets(2, 3, manifest_regenerated=True, fr_progress_exists=False)
     without = _advance_commit_targets(2, 3, manifest_regenerated=False, fr_progress_exists=False)

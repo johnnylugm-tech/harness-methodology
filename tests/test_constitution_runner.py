@@ -14,8 +14,10 @@ from core.quality_gate.constitution.runner import (  # pyright: ignore[reportMis
     _threshold_for_dimension,
     _should_scan_file,
     _get_completed_phases,
+    missing_keywords,
     run_constitution_check,
 )
+from core.quality_gate.constitution.profile import get_profile
 from core.quality_gate.constitution.profile import defaults
 
 from constitution import get_phase_thresholds  # pyright: ignore[reportMissingImports]
@@ -1229,4 +1231,35 @@ class TestDoubleScanPrevention:
         )
         result = _scan_directory(docs, phase=3, check_type="all")
         assert result.score > 0
+
+
+class TestMissingKeywords:
+    """missing_keywords() — actionable per-dimension keyword gap for a failing
+    constitution dimension (which concepts to add), aligned with the scorer's
+    file selection and lowercased-substring presence test."""
+
+    def test_absent_keywords_reported(self, tmp_path):
+        kws = get_profile().dimension_keywords_for_phase("security", 7)
+        assert kws, "profile must define P7 security keywords for this test"
+        content = "# Risk Register\n\nWe apply " + kws[0] + " throughout.\n" + "x" * 200
+        (tmp_path / "RISK_REGISTER.md").write_text(content, encoding="utf-8")
+        miss = missing_keywords(tmp_path, "security", 7)
+        expected = [k for k in kws if k.lower() not in content.lower()]
+        assert miss == expected
+        assert kws[0] not in miss  # present keyword is not reported missing
+
+    def test_all_present_returns_empty(self, tmp_path):
+        kws = get_profile().dimension_keywords_for_phase("security", 7)
+        content = "# Risk\n" + " ".join(kws) + "\n" + "x" * 200
+        (tmp_path / "RISK_REGISTER.md").write_text(content, encoding="utf-8")
+        assert missing_keywords(tmp_path, "security", 7) == []
+
+    def test_unknown_dimension_returns_empty(self, tmp_path):
+        (tmp_path / "RISK_REGISTER.md").write_text("x" * 200, encoding="utf-8")
+        assert missing_keywords(tmp_path, "nonexistent_dim", 7) == []
+
+    def test_missing_deliverable_reports_all(self, tmp_path):
+        # P7 scores only RISK_REGISTER.md; if it is absent, every keyword is missing.
+        kws = get_profile().dimension_keywords_for_phase("security", 7)
+        assert missing_keywords(tmp_path, "security", 7) == kws
 

@@ -6198,6 +6198,20 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
         )
         _const_threshold = get_profile().composite_threshold(completed_phase)
         if not _const_result.passed:
+            # Turn the opaque "security 20% < 65%" into an actionable list of the
+            # exact keywords each failing dimension is missing. Without this the
+            # fixing agent has to reverse-engineer the gap itself — which is what
+            # drove agents to write throwaway diagnostic scripts into the repo root.
+            from core.quality_gate.constitution.runner import missing_keywords
+            _failing_dims: list[str] = []
+            for _v in _const_result.violations:
+                _d = _v.get("dimension")
+                if _d and _d not in _failing_dims:
+                    _failing_dims.append(_d)
+            _dim_missing = {
+                _d: missing_keywords(str(_phase_dir), _d, completed_phase)
+                for _d in _failing_dims
+            }
             print(
                 f"\n[BLOCKED] Phase {completed_phase} constitution = "
                 f"{_const_result.score:.0f}% "
@@ -6205,14 +6219,27 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
                 f"violations={len(_const_result.violations)}"
             )
             for v in _const_result.violations[:5]:
-                print(f"  - [{v.get('dimension', '?')}] {v.get('message', str(v))[:120]}")
+                _vd = v.get("dimension", "?")
+                _miss = _dim_missing.get(_vd) or []
+                _suffix = f"  ·  missing: {', '.join(_miss)}" if _miss else ""
+                print(f"  - [{_vd}] {v.get('message', str(v))[:120]}{_suffix}")
+            _gap_str = "; ".join(
+                f"{_d}: {', '.join(_kws)}"
+                for _d, _kws in _dim_missing.items() if _kws
+            )
+            _gap_clause = (
+                f" Add explicit, substantive coverage of these missing keywords — "
+                f"{_gap_str}."
+                if _gap_str else ""
+            )
             print(
                 f"\n  Re-dispatch Agent A to fix document quality:\n"
                 f"    python harness_cli.py dispatch --role developer "
                 f"--phase {completed_phase} --project . \\\n"
                 f'      --prompt "Constitution check failed '
                 f'(score {_const_result.score:.0f}%, '
-                f'threshold {_const_threshold:.0f}%). '
+                f'threshold {_const_threshold:.0f}%).'
+                f'{_gap_clause} '
                 f'Improve document quality to meet keyword coverage thresholds."'
             )
             return 16
@@ -6394,6 +6421,7 @@ def _advance_commit_targets(
     next_phase: int,
     manifest_regenerated: bool,
     fr_progress_exists: bool,
+    gate_timestamps_exists: bool = False,
 ) -> list[str]:
     """Files the advance-phase local commit must stage.
 
@@ -6402,6 +6430,11 @@ def _advance_commit_targets(
     advance, so it must be staged — but only when present: pre-Gate-1 advances
     (P1->P2, P2->P3) have no fr_progress.json yet, and an explicit `git add` of a
     missing pathspec fails the whole commit.
+
+    gate_timestamps.jsonl is functional FR-gate state (read back to verify per-FR
+    gate events) that the DELTA fast-path appends within a phase; the advance
+    commit sweeps its tail so it does not linger unstaged after every phase bump.
+    Conditional-exists for the same missing-pathspec reason as fr_progress.json.
     """
     targets = [
         ".methodology/state.json", "HANDOVER.md",
@@ -6410,6 +6443,8 @@ def _advance_commit_targets(
     ]
     if fr_progress_exists:
         targets.append(".methodology/fr_progress.json")
+    if gate_timestamps_exists:
+        targets.append(".methodology/gate_timestamps.jsonl")
     if manifest_regenerated:
         targets.append(".methodology/quality_manifest.json")
     if next_phase == 8:
@@ -6750,6 +6785,7 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
         _add_targets = _advance_commit_targets(
             args.completed_phase, next_phase, _manifest_regenerated,
             (project / ".methodology" / "fr_progress.json").exists(),
+            (project / ".methodology" / "gate_timestamps.jsonl").exists(),
         )
         add_result = subprocess.run(
             ["git", "-C", str(project), "add", *_add_targets],

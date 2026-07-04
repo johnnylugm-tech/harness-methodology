@@ -52,6 +52,13 @@ _GITIGNORE_ENTRIES: list[str] = [
     # canonical attestation.json; the CLI prints "(gitignored)" for it, so the
     # ignore rule must actually exist (attestation.json itself stays tracked).
     ".methodology/trace/attestation.latest.json",
+    # Pure debug/trace logs appended every phase run. They are read only from the
+    # working tree (sessions_spawn.log by the HR-10 A/B audit) and are never read
+    # back from git history, so tracking them only produced a perpetually-dirty
+    # tree that had to be swept by manual chore(e2e-collect) commits.
+    # (gate_timestamps.jsonl stays tracked — it is functional FR-gate state.)
+    ".methodology/sessions_spawn.log",
+    ".harness/traces/",
     # Python venv / tool caches (avoid GH001 large-file rejections in pipeline mode)
     ".venv/",
     "venv/",
