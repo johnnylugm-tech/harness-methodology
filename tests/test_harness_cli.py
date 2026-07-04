@@ -314,6 +314,40 @@ class TestCheckConstitutionFile:
         assert rc == 1
         assert "[FAIL]" in out
 
+    def test_file_flag_fail_prints_missing_keywords(self, tmp_path, capsys):
+        """FAIL output must enumerate the absent per-dimension keywords (actionable
+        gap) — not only the vague 'Fix document gaps' line — so a fixing agent
+        knows what to add. Mirrors the advance-postflight idiom."""
+        import argparse
+        from harness_cli import cmd_check_constitution
+        from core.quality_gate.constitution.profile import get_profile
+
+        kws = get_profile().dimension_keywords_for_phase("correctness", 2)
+        assert kws and len(kws) >= 2
+
+        adr_dir = tmp_path / "02-architecture" / "adr"
+        adr_dir.mkdir(parents=True)
+        adr = adr_dir / "ADR.md"
+        # Include ONLY the first correctness keyword; the rest are genuinely absent.
+        adr.write_text(
+            "# ADR-01: decisions\n\n"
+            + f"This record references {kws[0]} extensively. "
+            + ("Plain prose with no other special terms. " * 20),
+            encoding="utf-8",
+        )
+        args = argparse.Namespace(
+            phase=2, project=str(tmp_path),
+            file="02-architecture/adr/ADR.md",
+        )
+        rc = cmd_check_constitution(args)
+        out = capsys.readouterr().out.lower()
+        assert rc == 1
+        assert "[fail]" in out
+        assert "missing:" in out
+        absent = [k for k in kws if k.lower() not in adr.read_text(encoding="utf-8").lower()]
+        assert absent, "test setup must leave at least one keyword absent"
+        assert any(k.lower() in out for k in absent)
+
     def test_file_flag_omitted_uses_directory_branch(self, tmp_path, capsys):
         """Default (no --file) still uses the phase directory branch."""
         import argparse

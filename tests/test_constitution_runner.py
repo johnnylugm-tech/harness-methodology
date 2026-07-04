@@ -1263,3 +1263,21 @@ class TestMissingKeywords:
         kws = get_profile().dimension_keywords_for_phase("security", 7)
         assert missing_keywords(tmp_path, "security", 7) == kws
 
+    def test_single_file_path_scoped_to_that_file(self, tmp_path):
+        # check-constitution --file scores ONE file; missing_keywords must accept a
+        # file path and report the gap for that file alone — a sibling holding the
+        # other keywords must not mask it (same scope as check_single_file).
+        kws = get_profile().dimension_keywords_for_phase("correctness", 2)
+        assert kws and len(kws) >= 2, "profile must define P2 correctness keywords"
+        target = tmp_path / "ADR.md"
+        target_text = "# ADR\n\nThis record references " + kws[0] + ".\n" + "x" * 200
+        target.write_text(target_text, encoding="utf-8")
+        # Sibling containing ALL keywords — must NOT be scanned when a file is passed.
+        (tmp_path / "SIBLING.md").write_text(
+            " ".join(kws) + "\n" + "x" * 200, encoding="utf-8")
+        miss = missing_keywords(target, "correctness", 2)
+        expected = [k for k in kws if k.lower() not in target_text.lower()]
+        assert miss == expected
+        assert kws[0] not in miss  # the one present keyword is not reported missing
+        assert miss, "sibling must not mask target's genuine gaps"
+

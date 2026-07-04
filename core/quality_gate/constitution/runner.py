@@ -196,7 +196,13 @@ def _scannable_files(directory: Path, phase: Optional[int], check_type: str) -> 
     """
     if not directory.exists():
         return []
-    if phase is not None and phase >= 5:
+    if directory.is_file():
+        # Single-file mode (check-constitution --file): score just this file,
+        # mirroring check_single_file's scope so missing_keywords reports the gap
+        # for that one file — not siblings. The filter loop below tolerates a file
+        # path (relative_to(self) → '.', so the hidden-parts guard is a no-op).
+        items = [directory]
+    elif phase is not None and phase >= 5:
         name = DELIVERABLE_MAP.get(phase)
         candidate = directory / name if name else None
         items = [candidate] if candidate and candidate.exists() else []

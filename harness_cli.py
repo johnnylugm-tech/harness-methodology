@@ -9781,16 +9781,30 @@ def cmd_check_logic(args: argparse.Namespace) -> int:
     return 0 if result.passed else 1
 
 
-def _print_constitution_result(result, composite_threshold, profile, phase: int) -> int:
+def _print_constitution_result(result, composite_threshold, profile, phase: int, docs_path) -> int:
     """Print per-dimension breakdown + pass/fail verdict. Shared between
     directory-mode and single-file-mode branches of cmd_check_constitution.
-    Returns 0 on pass, 1 on fail.
+    *docs_path* is the graded directory or single file; it is used to enumerate
+    the exact keywords behind each sub-threshold *active* dimension so a fixing
+    agent adds content instead of reverse-engineering the gap (same idiom as the
+    advance-phase postflight). Returns 0 on pass, 1 on fail.
     """
+    from core.quality_gate.constitution.runner import missing_keywords
+
+    # Only the active (composite-scored) dimensions gate the phase; display-only
+    # dims (e.g. security on a P2 architecture doc) are shown but must NOT drive
+    # keyword advice, or agents chase irrelevant terms into the wrong document.
+    _active = set(profile.active_dimensions(phase))
     print(f"\n  Score: {result.score:.0f}%  (threshold={composite_threshold:.0f}%)")
     for dim, score in sorted(result.dimensions.items()):
         dim_threshold = profile.dimension_threshold(dim, phase)
         status = "✓" if score >= dim_threshold else "✗"
-        print(f"    {status} {dim}: {score:.0f}%  (threshold={dim_threshold:.0f}%)")
+        suffix = ""
+        if score < dim_threshold and dim in _active and docs_path is not None:
+            _miss = missing_keywords(str(docs_path), dim, phase)
+            if _miss:
+                suffix = f"  ·  missing: {', '.join(_miss)}"
+        print(f"    {status} {dim}: {score:.0f}%  (threshold={dim_threshold:.0f}%){suffix}")
 
     if result.violations:
         # result.violations flags any per-dimension score below its own
@@ -9810,7 +9824,7 @@ def _print_constitution_result(result, composite_threshold, profile, phase: int)
         print(f"\n  [PASS] Constitution quality ≥ {composite_threshold:.0f}% ✓")
         return 0
     print(f"\n  [FAIL] Constitution quality {result.score:.0f}% < {composite_threshold:.0f}%")
-    print("  Fix document gaps and re-run check-constitution until PASS.")
+    print("  Add substantive coverage of the missing keywords listed above, then re-run check-constitution until PASS.")
     return 1
 
 
@@ -9858,7 +9872,7 @@ def cmd_check_constitution(args: argparse.Namespace) -> int:
         print(f"{'='*60}")
 
         result = check_single_file(file_path, phase)
-        return _print_constitution_result(result, composite_threshold, profile, phase)
+        return _print_constitution_result(result, composite_threshold, profile, phase, file_path)
 
     # ── Existing directory branch (unchanged) ──────────────────────────
     from core.utils.project_layout import ProjectLayout
@@ -9878,7 +9892,7 @@ def cmd_check_constitution(args: argparse.Namespace) -> int:
         current_phase=phase, check_mode="postflight",
     )
 
-    return _print_constitution_result(result, composite_threshold, profile, phase)
+    return _print_constitution_result(result, composite_threshold, profile, phase, _phase_dir)
 
 
 # ---------------------------------------------------------------------------
