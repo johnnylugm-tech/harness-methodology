@@ -6757,6 +6757,72 @@ class TestPostPushSelfCheck:
         assert hc._post_push_self_check(tmp_path) == []
 
 
+class TestAdvanceFsmPreservesExistingStateFields:
+    """_advance_fsm must merge into state.json, not replace it — a bare
+    replacement silently discarded fields owned by other commands
+    (last_push_checkpoint, phase_completed, ci_readiness_ack, language,
+    test_runner, ...) on every advance-phase call."""
+
+    def test_preserves_unrelated_existing_fields(self, tmp_path, monkeypatch):
+        import harness_cli as hc
+
+        meth = tmp_path / ".methodology"
+        meth.mkdir(parents=True, exist_ok=True)
+        state_path = meth / "state.json"
+        state_path.write_text(json.dumps({
+            "state": "RUNNING",
+            "current_phase": 1,
+            "last_push_checkpoint": "2026-07-01T00:00:00+00:00",
+            "phase_completed": {"1": {"sha": "deadbeef", "timestamp": "2026-07-01T00:00:00+00:00"}},
+            "ci_readiness_ack": ["branch_protection"],
+            "language": "python",
+            "test_runner": "pytest",
+        }), encoding="utf-8")
+
+        monkeypatch.setattr(hc.HandoverGenerator, "write", lambda self, **_kw: None)
+
+        hc._advance_fsm(tmp_path, completed_phase=1, last_gate=1, last_fr="FR-01")
+
+        sd = json.loads(state_path.read_text(encoding="utf-8"))
+        # fields owned by other commands must survive
+        assert sd["last_push_checkpoint"] == "2026-07-01T00:00:00+00:00"
+        assert sd["phase_completed"] == {"1": {"sha": "deadbeef", "timestamp": "2026-07-01T00:00:00+00:00"}}
+        assert sd["ci_readiness_ack"] == ["branch_protection"]
+        assert sd["language"] == "python"
+        assert sd["test_runner"] == "pytest"
+        # fields this function owns must be updated
+        assert sd["current_phase"] == 2
+        assert sd["last_gate"] == 1
+        assert sd["last_fr"] == "FR-01"
+        assert sd["phase_truth_passed"] is True
+
+    def test_still_works_when_state_json_missing(self, tmp_path, monkeypatch):
+        import harness_cli as hc
+
+        monkeypatch.setattr(hc.HandoverGenerator, "write", lambda self, **_kw: None)
+        hc._advance_fsm(tmp_path, completed_phase=1, last_gate=None, last_fr=None)
+
+        state_path = tmp_path / ".methodology" / "state.json"
+        sd = json.loads(state_path.read_text(encoding="utf-8"))
+        assert sd["current_phase"] == 2
+        assert sd["state"] == "INIT"
+
+    def test_still_works_with_corrupt_state_json(self, tmp_path, monkeypatch):
+        import harness_cli as hc
+
+        meth = tmp_path / ".methodology"
+        meth.mkdir(parents=True, exist_ok=True)
+        state_path = meth / "state.json"
+        state_path.write_text("{not valid json", encoding="utf-8")
+
+        monkeypatch.setattr(hc.HandoverGenerator, "write", lambda self, **_kw: None)
+        hc._advance_fsm(tmp_path, completed_phase=1, last_gate=None, last_fr=None)
+
+        sd = json.loads(state_path.read_text(encoding="utf-8"))
+        assert sd["current_phase"] == 2
+        assert sd["state"] == "INIT"
+
+
 class TestPushMilestonePostPushDirtyWarn:
     """Site 1: cmd_push_milestone should warn (NOT fail) when post-push
     tree is dirty."""

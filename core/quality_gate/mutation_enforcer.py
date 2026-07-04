@@ -624,7 +624,7 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
     paths_list = [p.strip() for p in paths_to_mutate.split(",") if p.strip()]
     missing = [p for p in paths_list if not (cwd / p).exists()]
     if missing:
-        return True, f"paths_to_mutate contains missing entries: {missing}"
+        return False, f"paths_to_mutate contains missing entries: {missing}"
 
     src_dir = cwd / paths_to_mutate
 
@@ -817,9 +817,9 @@ def compute_mutation_score(project: Path) -> tuple[bool, float, str]:
     cwd, paths_to_mutate = _resolve_mutmut_workdir(project)
     src_dir = cwd / paths_to_mutate
     if not src_dir.exists():
-        return True, 0.0, (
+        return False, 0.0, (
             f"Source directory {src_dir} does not exist; "
-            "skipping mutation testing (no code to mutate)."
+            "mutmut did not run — check [mutmut] paths_to_mutate in setup.cfg."
         )
 
     if _is_editable_install(project):

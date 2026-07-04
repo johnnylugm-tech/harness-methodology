@@ -591,6 +591,12 @@ def test_run_mutation_precheck_rejects_missing_paths(tmp_path, monkeypatch):
         f"BUG: run_mutation_precheck silently returned (True, '') for "
         f"missing core/bar.py. Expected a non-empty failure message. Got: {result}"
     )
+    # Missing paths must be reported as a failure, not success (the docstring's
+    # own stated intent: "fail on any missing entry").
+    assert result[0] is False, (
+        f"BUG: run_mutation_precheck returned success=True for missing "
+        f"core/bar.py — a misconfigured paths_to_mutate must block, not pass. Got: {result}"
+    )
     # The fix reports which paths are missing.
     assert "missing" in result[1] or "bar.py" in result[1], (
         f"Expected failure message mentioning 'missing' or 'bar.py', got: {result}"
@@ -822,6 +828,25 @@ def test_apply_mutmut_to_workdir_runs_in_workdir(tmp_path, monkeypatch):
 # workdir (with the runner fix) AND promotes the cache to project root so
 # downstream consumers can read `mutmut results` without rerunning.
 # ---------------------------------------------------------------------------
+
+
+def test_compute_mutation_score_fails_when_src_dir_missing(tmp_path, monkeypatch):
+    """A missing paths_to_mutate source directory means mutmut never ran —
+    the docstring's own contract is 'success: True iff mutmut ran AND
+    produced parseable output'. Returning success=True here (score 0.0)
+    let a misconfigured setup.cfg silently pass the mutation_testing gate
+    dimension instead of blocking it."""
+    import core.quality_gate.mutation_enforcer as me
+
+    # tmp_path has no 03-development/src at all — default paths_to_mutate
+    # resolves to a directory that doesn't exist.
+    monkeypatch.setattr(me.shutil, "which", lambda name: "/usr/bin/mutmut" if name == "mutmut" else None)
+
+    ok, score, msg = me.compute_mutation_score(tmp_path)
+
+    assert ok is False, f"BUG: compute_mutation_score returned success=True for a missing source dir. Got: {(ok, score, msg)}"
+    assert score == 0.0
+    assert "does not exist" in msg
 
 
 def test_compute_mutation_score_promotes_cache_to_project_root(tmp_path, monkeypatch):

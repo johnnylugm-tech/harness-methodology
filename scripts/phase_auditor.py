@@ -1768,7 +1768,16 @@ class PhaseAuditor:
 
     # -- Run all checks -------------------------------------------────
     def run_all_checks(self) -> AuditResult:
-        """Execute all C1-C12 checks and compute final audit score."""
+        """Execute all remaining C-checks and compute final audit score.
+
+        C4, C7, and C11 are intentionally absent, not missing: they enforced
+        agent-writable artifacts (DEVELOPMENT_LOG.md content/coverage, plan
+        checkbox marks) that carry no tamper-evidence — same rationale as
+        HR-07/HR-10 (see SKILL.md §2). C4 (`d151ff9`) and C7 (`654480b`) were
+        removed with DEVELOPMENT_LOG.md itself; C11 (`8528428`) was removed
+        because agents could bulk-mark checkboxes with `sed -i` without doing
+        the work. Do not re-add checks here for those numbers.
+        """
         print(f"\n{'='*60}")
         print(f"Auditing {self.gh.repo} -- Phase {self.phase}: {self.spec.get('name','')}")
         print(f"{'='*60}")

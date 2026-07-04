@@ -9259,17 +9259,24 @@ def _advance_fsm(project: Path, completed_phase: int,
     state_path.parent.mkdir(parents=True, exist_ok=True)
     with file_lock(state_lock_path(project)):
         existing_state = "INIT"
+        state_data: dict = {}
         if state_path.exists():
             try:
-                raw_state = json.loads(state_path.read_text()).get("state", "INIT")
-                existing_state = validate_fsm_state(raw_state)
-            except FSMError as e:
-                print(f"\n  [FSM ERROR] {e}")
-                print("  Fix state.json manually or run `advance-phase` with a clean state.")
-                sys.exit(11)
+                state_data = json.loads(state_path.read_text())
             except Exception:  # pylint: disable=broad-exception-caught
-                existing_state = "INIT"
-        state_data = {
+                state_data = {}
+            else:
+                try:
+                    existing_state = validate_fsm_state(state_data.get("state", "INIT"))
+                except FSMError as e:
+                    print(f"\n  [FSM ERROR] {e}")
+                    print("  Fix state.json manually or run `advance-phase` with a clean state.")
+                    sys.exit(11)
+        # Merge into the existing dict rather than replacing it — state.json also
+        # carries fields this function doesn't own (last_push_checkpoint,
+        # phase_completed, ci_readiness_ack, language, test_runner, ...); a bare
+        # replacement here silently discarded them on every advance-phase call.
+        state_data.update({
             "state": existing_state,
             "current_phase": next_phase,
             "last_gate": last_gate,
@@ -9278,7 +9285,7 @@ def _advance_fsm(project: Path, completed_phase: int,
             # P5-BUG-02: User expects phase_truth_passed to be True after advance-phase runs verify_phase_truth
             "phase_truth_passed": True,
             "last_milestone_command": f"advance-phase --completed-phase {completed_phase}",
-        }
+        })
         atomic_write_json(state_path, state_data)
         # B5: Advance fr_progress.json inside the same lock so state.json and
         # fr_progress.json are always updated atomically from any reader's
