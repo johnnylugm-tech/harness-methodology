@@ -27,6 +27,38 @@ _SDK_STREAM_MARKERS = (
 )
 
 
+# Substrings in a failed `claude -p` output that signal an environment / API /
+# model / network problem (the model could not be reached or used — the agent
+# never really ran) rather than a genuine agent-logic error.
+_INFRA_ERROR_RE = re.compile(
+    r"connection (?:closed|error|reset|refused|aborted)"
+    r"|could not connect|connection to .{0,60}closed"
+    r"|econnreset|etimedout|enotfound|econnrefused"
+    r"|network (?:error|unreachable)"
+    r"|\b(?:401|403|404|429|5\d{2})\b"
+    r"|unauthorized|authentication|invalid x-api-key|api[\s_-]?key|oauth"
+    r"|stream closed|getoauthtoken|permission denied"
+    r"|rate[\s_-]?limit|overloaded|quota|credit balance"
+    r"|insufficient (?:credit|quota|balance)"
+    r"|connector"
+    r"|model\b.{0,30}(?:not found|does not exist|unavailable)",
+    re.IGNORECASE,
+)
+
+
+def _classify_dispatch_error(output: str) -> str:
+    """Classify a non-zero `claude -p` failure for sessions_spawn.log observability.
+
+    Returns "INFRA_ERROR" when the failure output signals an environment / API /
+    model / network problem (the model could not be reached or used), else
+    "EXECUTION_ERROR". This lets a run of dispatch ERRORs be recognised as
+    environmental instead of mis-diagnosed as a harness bug. Observability label
+    only: the entry's `status` stays "ERROR", so all existing control flow
+    (retry, dispatch-error detection) is unchanged.
+    """
+    return "INFRA_ERROR" if output and _INFRA_ERROR_RE.search(output) else "EXECUTION_ERROR"
+
+
 def _child_env() -> dict[str, str]:
     """os.environ copy safe to pass to a spawned `claude -p` subprocess."""
     env = os.environ.copy()
@@ -191,10 +223,12 @@ class AgentSpawner:
                 timeout_result = {**timeout_result, "status": "REGRESSION_GUARD", "regression_flags": regression_flags}
             return timeout_result
         if proc.returncode != 0:
+            _err_output = proc.stderr or proc.stdout
             error_result = {
-                "output": proc.stderr or proc.stdout,
+                "output": _err_output,
                 "status": "ERROR",
                 "exit_code": proc.returncode,
+                "error_class": _classify_dispatch_error(_err_output or ""),
             }
             post_diff = self._git_diff_numstat(self.project_path, base=pre_sha or "HEAD")
             regression_flags = self._dispatch_diff_budget(pre_diff, post_diff, pre_sha=pre_sha)
@@ -262,6 +296,11 @@ class AgentSpawner:
             from core.sessions_spawn_logger import SessionsSpawnLogger
             logger = SessionsSpawnLogger(self.project_path)
             session_id = result.get("session_id", "")
+            # error_class ("INFRA_ERROR"/"EXECUTION_ERROR") only on failed
+            # dispatches; omit it from complete/SPAWNED entries to avoid noise.
+            _extra: dict[str, Any] = {}
+            if result.get("error_class"):
+                _extra["error_class"] = result["error_class"]
             logger.log_spawn(
                 role=role, task=task[:200], session_id=session_id,
                 status=result.get("status", "SPAWNED"),
@@ -269,6 +308,7 @@ class AgentSpawner:
                 regression_flags=regression_flags or {},
                 error_output=(result.get("output") or "")[:500],
                 exit_code=result.get("exit_code"),
+                **_extra,
             )
         except Exception as e:
             import sys

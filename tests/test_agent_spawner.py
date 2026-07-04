@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from core.agent_spawner import AgentSpawner
+from core.agent_spawner import AgentSpawner, _classify_dispatch_error
 
 
 class TestAgentSpawner:
@@ -619,6 +619,22 @@ class TestTimeoutRegressionGuard:
         assert guard_called[0][0] == {}  # pre_diff (pre-spawn snapshot)
         # post_diff is captured after timeout, git may report changed state
 
+    def test_nonzero_returncode_records_error_class(self):
+        """ERROR from an API/model failure is labelled INFRA_ERROR (observability):
+        status stays ERROR (control flow unchanged) but error_class distinguishes
+        an environment failure from a real agent-logic error in sessions_spawn.log."""
+        spawner = self._spawner()
+        mock_proc = MagicMock()
+        mock_proc.returncode = 1
+        mock_proc.stderr = "API error: Connection closed by remote host"
+        mock_proc.stdout = ""
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            with patch("core.agent_spawner.subprocess.run", return_value=mock_proc):
+                result = spawner.spawn(role="developer", prompt="Do task",
+                                       context={}, model="claude")
+        assert result["status"] == "ERROR"
+        assert result["error_class"] == "INFRA_ERROR"
+
     def test_nonzero_returncode_triggers_regression_guard(self):
         """Non-zero exit branch must still call _dispatch_diff_budget before returning."""
         spawner = self._spawner()
@@ -650,6 +666,35 @@ class TestTimeoutRegressionGuard:
         )
         assert result["status"] == "ERROR"
         assert result["exit_code"] == 1
+
+
+class TestClassifyDispatchError:
+    """_classify_dispatch_error — infra (env/API/model/network) vs execution."""
+
+    @pytest.mark.parametrize("output", [
+        "Connection closed by remote host",
+        "could not connect to api.anthropic.com",
+        "API error 404: model 'MiniMax-M3' not found",
+        "Authentication failed: invalid x-api-key",
+        "HTTP 401 Unauthorized",
+        "rate limit exceeded, retry later",
+        "Overloaded (529)",
+        "Your credit balance is too low",
+        "claude.ai connector is disabled",
+        "ECONNRESET",
+    ])
+    def test_infra_signatures(self, output):
+        assert _classify_dispatch_error(output) == "INFRA_ERROR"
+
+    @pytest.mark.parametrize("output", [
+        "AssertionError: test_fr01 expected 3 got 4",
+        "GATE1: FAIL — coverage 80% < 100%",
+        "Traceback (most recent call last): KeyError 'x'",
+        "internal error",
+        "",
+    ])
+    def test_execution_defaults(self, output):
+        assert _classify_dispatch_error(output) == "EXECUTION_ERROR"
 
 
 class TestCalculateLogicalRemoval:
