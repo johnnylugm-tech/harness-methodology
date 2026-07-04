@@ -553,3 +553,33 @@ class TestTraceabilityFrCoverage:
         a.check_c5_content_depth()
         assert any(f.check_id == "C5" and f.severity == "WARNING"
                    and "TBD" in f.title for f in a.result.findings)
+
+
+class TestC2StagePassMachineGenerated:
+    """C2 must not CRITICAL-fail against the sole active generator's output.
+
+    _generate_stage_pass() (harness_cli.py) is documented as "No LLM
+    involvement" — it can never contain Agent B review keywords or a
+    Confidence Score. Checks that assume LLM-authored content would
+    CRITICAL-fail on every advance-phase run.
+    """
+
+    MACHINE_GENERATED_CONTENT = (
+        "# Phase 3 STAGE_PASS\n\n"
+        "Generated: 2026-07-05 00:00 UTC\n\n"
+        "## Gate Score\n"
+        "Gate 1 Composite Score: **95.0**\n\n"
+        "## Quality Status\n"
+        "quality_complete: **True**\n\n"
+        "## Deliverables\n"
+        "Phase 3 deliverables verified by PhaseArtifactRegistry.\n\n"
+        "## Summary\n"
+        "Phase 3 exit gate PASS.\n"
+    )
+
+    def test_machine_generated_content_has_no_c2_critical(self):
+        files = {"00-summary/Phase3_STAGE_PASS.md": self.MACHINE_GENERATED_CONTENT}
+        a = PhaseAuditor(FakeGitHubFetcher(files), 3)  # type: ignore[reportArgumentType]
+        a.check_c2_stage_pass()
+        criticals = [f for f in a.result.findings if f.check_id == "C2" and f.severity == "CRITICAL"]
+        assert not criticals, f"Unexpected C2 CRITICAL finding(s): {[c.title for c in criticals]}"

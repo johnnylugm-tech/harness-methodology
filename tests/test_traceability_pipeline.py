@@ -223,7 +223,14 @@ class TestCheckSpecTraceUpgraded:
         """A pure-library project with zero FRs must vacuously pass
         traceability at P5+ — total==0 means nothing is untested or
         uncoded, not 'incomplete'. Attestation status is mocked clean so
-        this test isolates the (unrelated) `complete` computation."""
+        this test isolates the (unrelated) `complete` computation.
+
+        SAD.md must actually exist (declaring no FRs) — a project that
+        legitimately has zero requirements still produced an architecture
+        doc at P2. Omitting SAD.md entirely is a different, unrelated
+        case (see test_preflight_traceability_missing_sad_at_p5_blocks)."""
+        (tmp_path / "02-architecture").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "02-architecture" / "SAD.md").write_text("# SAD\n\nNo FRs.\n")
         monkeypatch.setattr(
             "scripts.verify_trace_attestation.verify_attestation",
             lambda _project: (0, "clean"),
@@ -231,6 +238,18 @@ class TestCheckSpecTraceUpgraded:
         hooks = PhaseHooks(str(tmp_path), phase=5)
         result = hooks.preflight_traceability()
         assert result["passed"] is True
+
+    def test_preflight_traceability_missing_sad_at_p5_blocks(self, tmp_path, monkeypatch):
+        """Zero FRs because SAD.md itself is missing is a scan FAILURE,
+        not 'no requirements' — must not silently pass at P5+ (the
+        vacuous-pass rule above only applies when SAD.md exists)."""
+        monkeypatch.setattr(
+            "scripts.verify_trace_attestation.verify_attestation",
+            lambda _project: (0, "clean"),
+        )
+        hooks = PhaseHooks(str(tmp_path), phase=5)
+        result = hooks.preflight_traceability()
+        assert result["passed"] is False
 
     def test_check_traceability_test_from_content(self, tmp_path):
         """Test files without FR in filename but with FR in content."""

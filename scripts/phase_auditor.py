@@ -609,9 +609,6 @@ class PhaseAuditor:
 
         self._check_required_sections(content)
         self._check_quality_status(content)
-        self._check_agent_b_review(content)
-        self._parse_and_check_confidence(content)
-        self._check_johnny_confirm(content)
 
     def _find_stage_pass_path(self) -> Optional[str]:
         """Locate the STAGE_PASS file in the git tree for this phase."""

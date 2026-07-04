@@ -1481,4 +1481,79 @@ def test_zero_mutants_from_corrupt_cache_returns_false(tmp_path, monkeypatch):
 # --------------------------------------------------------------------------------------
 
 
+def test_sqlite_error_not_swallowed_as_zero_mutants(tmp_path, monkeypatch):
+    """Sqlite failures in _count_mutmut_results must propagate as errors.
+
+    A bare `except Exception: return 0, 0` was swallowing all sqlite failures
+    (locked db, corrupt file, missing table). The fix re-raises specific
+    exceptions (sqlite3.Error, OSError, IOError) so compute_mutation_score's
+    broad `except Exception` handler converts them to a (False, 0.0, "Error...")
+    failure response instead of a false clean pass.
+    """
+    import sqlite3
+    import core.quality_gate.mutation_enforcer as me
+
+    src = tmp_path / "03-development" / "src"
+    src.mkdir(parents=True)
+    tests = tmp_path / "03-development" / "tests"
+    tests.mkdir(parents=True)
+    (tests / "test_x.py").write_text("def test_x(): pass\n")
+
+    # _count_mutmut_results reads from workdir_cache = Path(workdir)/".mutmut-cache".
+    # compute_mutation_score creates workdir via tempfile.mkdtemp(...).
+    # We mock mkdtemp to return a predictable path so we can create the cache there.
+    fake_workdir = tmp_path / "_mutmut_workdir"
+    fake_workdir.mkdir()
+
+    def fake_mkdtemp(prefix=None, dir=None):
+        return str(fake_workdir)
+
+    # Create the cache file that _count_mutmut_results will try to open.
+    # Content doesn't matter since sqlite3.connect is patched to raise.
+    (fake_workdir / ".mutmut-cache").write_text("dummy", encoding="utf-8")
+
+    def raising_connect(*a, **k):
+        raise sqlite3.OperationalError("database is locked")
+
+    class FakeRes:
+        returncode = 0
+        stdout = "TotalMutants = 0\n"
+        stderr = ""
+
+    def fake_run(cmd, *args, **kwargs):
+        if isinstance(cmd, list) and len(cmd) >= 2 and cmd[1] == "results":
+            return FakeRes()
+        class R:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+        return R()
+
+    monkeypatch.setattr(sqlite3, "connect", raising_connect)
+    monkeypatch.setattr(me.tempfile, "mkdtemp", fake_mkdtemp)
+    monkeypatch.setattr(me.subprocess, "run", fake_run)
+    monkeypatch.setattr(me, "_write_survivors_artifact", lambda *a, **k: None)
+    monkeypatch.setattr(me.shutil, "which", lambda name: "/usr/bin/mutmut" if name == "mutmut" else None)
+    monkeypatch.setattr(me, "_resolve_mutmut_workdir", lambda _p: (tmp_path, "03-development/src"))
+    monkeypatch.setattr(me, "_is_editable_install", lambda _p: False)
+    monkeypatch.setattr(me, "_read_paths_to_exclude", lambda _p: [])
+    monkeypatch.setattr(me, "_detect_data_only_files", lambda _p: [])
+    monkeypatch.setattr(me, "_abs_paths_to_mutate", lambda _cwd, _paths: str(src))
+    monkeypatch.setattr(me, "_resolve_test_dir", lambda _cwd, _p: str(tests))
+    monkeypatch.setattr(me, "_copy_setup_cfg_to_workdir", lambda *a, **kw: None)
+
+    ok, score, msg = me.compute_mutation_score(tmp_path)
+    # Before fix: ok=True, score=0.0, msg="mutmut produced 0 mutants" — sqlite error
+    #              swallowed as zero mutants (false clean pass).
+    # After fix:  ok=False, error message from compute_mutation_score's broad
+    #             except Exception handler mentioning the sqlite error.
+    assert ok is False, (
+        f"Expected ok=False when sqlite raises OperationalError, "
+        f"got ok={ok}, score={score}, msg={msg!r}"
+    )
+    assert "OperationalError" in msg or "database is locked" in msg, (
+        f"Expected error message to mention the sqlite error, got: {msg!r}"
+    )
+
+
 

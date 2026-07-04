@@ -437,8 +437,14 @@ class PhaseHooks:
         # A project with zero FRs (pure library, no traceable requirements)
         # vacuously satisfies traceability — nothing is untested or uncoded.
         # `total > 0` used to be required, permanently blocking such projects
-        # at P5+ even though there is nothing to trace.
-        complete = len(untested_list) == 0 and len(uncoded_list) == 0
+        # at P5+ even though there is nothing to trace. But zero FRs because
+        # SAD.md itself is missing/unparseable is a scan FAILURE, not "no
+        # requirements" — must not be indistinguishable from the vacuous case.
+        from core.traceability.scanner import _find_sad
+        sad_missing = total == 0 and _find_sad(self.project_path) is None
+        complete = (
+            len(untested_list) == 0 and len(uncoded_list) == 0 and not sad_missing
+        )
 
         # P3: informational only (code being built)
         # P4: informational only (tests being built)
@@ -454,6 +460,8 @@ class PhaseHooks:
               f"Test: {c['test_coverage']} | "
               f"{'BLOCKING' if blocking else 'INFO'}")
         print(f"   Attestation: {att_status}  {att_msg}")
+        if sad_missing:
+            print("   [BLOCKED] SAD.md not found — cannot confirm zero FRs is intentional")
         if untested_list:
             print(f"   Untested FRs: {', '.join(untested_list)}")
         if uncoded_list:

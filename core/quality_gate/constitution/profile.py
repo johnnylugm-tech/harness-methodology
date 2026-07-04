@@ -97,7 +97,7 @@ def _copy_phase_profile(p: "PhaseProfile") -> "PhaseProfile":
     return PhaseProfile(
         active_dimensions=list(p.active_dimensions),
         composite_threshold=p.composite_threshold,
-        dimension_keywords=dict(p.dimension_keywords),
+        dimension_keywords={k: list(v) for k, v in p.dimension_keywords.items()},
         exclude_patterns=list(p.exclude_patterns),
     )
 
@@ -108,6 +108,14 @@ class ScoringProfile:
 
     method: str = "min_of_dimensions"
     _explicit: bool = field(default=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        # from_dict(explicit=True) already marks intent correctly. This is a
+        # backstop for callers that construct ScoringProfile directly (bypassing
+        # from_dict) — a non-default method clearly signals an explicit choice,
+        # so merge() must not silently discard it in favor of self.scoring.
+        if self.method != "min_of_dimensions":
+            self._explicit = True
 
     def to_dict(self) -> dict:
         return {"method": self.method}

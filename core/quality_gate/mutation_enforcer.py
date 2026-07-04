@@ -485,8 +485,10 @@ def _count_mutmut_results(cache_path: Path) -> tuple[int, int]:
       - pending, checking, no_tests, skipped, check_failed → ignored
                        (test infrastructure issue, not a mutant verdict)
 
-    Returns (killed, survived). Returns (0, 0) if the cache is missing
-    or unreadable — caller should treat that as "no score available".
+    Returns (killed, survived). Returns (0, 0) only if the cache file is
+    missing. Raises sqlite3.Error/OSError/IOError if it exists but is
+    unreadable (locked/corrupt) — the caller must not treat a read failure
+    as a clean zero-mutant result (see test_sqlite_error_not_swallowed_as_zero_mutants).
     """
     import sqlite3
     if not cache_path.exists():
@@ -507,7 +509,7 @@ def _count_mutmut_results(cache_path: Path) -> tuple[int, int]:
         db.close()
         return killed, survived
     except (sqlite3.Error, OSError, IOError):
-        return 0, 0
+        raise
 
 
 def run_stryker_precheck(project: Path) -> tuple[bool, str]:

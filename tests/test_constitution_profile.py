@@ -8,6 +8,7 @@ from pathlib import Path
 
 from core.quality_gate.constitution.profile import (
     ConstitutionProfile,
+    ScoringProfile,
     defaults,
     load_profile,
     get_profile,
@@ -229,6 +230,30 @@ class TestMerge:
         merged = base.merge(override)
         merged.phases[9].active_dimensions.append("mutated")
         assert "mutated" not in override.phases[9].active_dimensions
+
+    def test_merge_uses_directly_constructed_scoring_override(self):
+        """A caller that builds ConstitutionProfile(scoring=ScoringProfile(...))
+        directly, bypassing from_dict, must still have that scoring override
+        honored by merge() — not silently dropped because _explicit was never
+        set (from_dict is the only path that currently sets it)."""
+        base = defaults()
+        override = ConstitutionProfile(scoring=ScoringProfile(method="weighted"))
+        merged = base.merge(override)
+        assert merged.scoring.method == "weighted"
+
+    def test_merge_untouched_phase_dimension_keywords_is_independent_of_base(self):
+        """Same independence guarantee as test_merge_untouched_phase_is_independent_of_base,
+        but for dimension_keywords — a Dict[str, List[str]] whose inner
+        lists must also be copied, not just the outer dict."""
+        base = ConstitutionProfile.from_dict({
+            "phases": {"1": {"dimension_keywords": {"correctness": ["fr-1"]}}}
+        })
+        override = ConstitutionProfile.from_dict({
+            "phases": {"3": {"composite_threshold": 85}}
+        })
+        merged = base.merge(override)
+        merged.phases[1].dimension_keywords["correctness"].append("mutated")
+        assert "mutated" not in base.phases[1].dimension_keywords["correctness"]
 
 
 class TestDimensionKeywordsImmutability:
