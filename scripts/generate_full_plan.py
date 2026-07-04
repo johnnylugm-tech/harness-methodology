@@ -76,6 +76,69 @@ _HARNESS_VERSION = _get_harness_version()
 # Phase-Specific Parsers
 # ============================================================================
 
+def _parse_srs_fr_block_json(content: str) -> Dict[str, Dict]:
+    """Extract machine-readable FR metadata from SRS Appendix A.
+
+    Two detection paths (most specific first):
+      1. Sentinel-wrapped: <!-- FR:START --> ... ```json ... <!-- FR:END -->
+         (template-style; lives in harness/templates/SRS.md)
+      2. Bare fence under "FR Block (machine-readable)" / "Appendix A"
+         heading (INGESTION MODE-style; actual SRS.md shipped with
+         integration-test).
+
+    Returns {fr_id: {implementation_modules, acceptance_criteria,
+    verification_method, title, description}} — fields absent in the JSON
+    are simply omitted from the inner dict; the caller must .get(...) with
+    a default. FR IDs are zero-padded to FR-01 form regardless of input.
+    """
+    payload: Optional[str] = None
+    # Path 1: sentinel-wrapped (template format)
+    sentinel_re = re.compile(
+        r'<!--\s*FR:START\s*-->(.*?)<!--\s*FR:END\s*-->', re.DOTALL)
+    m = sentinel_re.search(content)
+    if m:
+        fence_m = re.search(r'```(?:json)?\s*(.*?)```', m.group(1), re.DOTALL)
+        payload = fence_m.group(1) if fence_m else m.group(1)
+    else:
+        # Path 2: bare fence under Appendix A / FR Block heading
+        heading_re = re.compile(
+            r'##\s+(?:Appendix A|FR Block)[^\n]*\n.*?```(?:json)?\s*(.*?)```',
+            re.DOTALL)
+        fence_m = heading_re.search(content)
+        if fence_m:
+            payload = fence_m.group(1)
+
+    if not payload:
+        return {}
+
+    try:
+        data = json.loads(payload)
+    except (ValueError, json.JSONDecodeError) as exc:
+        print(
+            f"[generate_full_plan] WARNING: FR Block JSON malformed — {exc}",
+            file=sys.stderr,
+        )
+        return {}
+
+    out: Dict[str, Dict] = {}
+    for fr in data.get('functional_requirements', []):
+        fid = fr.get('id')
+        if not fid:
+            continue
+        # Normalize: strip any "FR-1" → "FR-01" inconsistency (defense in
+        # depth — parse_srs_fr_sections also zfills at line ~104)
+        id_m = re.match(r'^FR-(\d+)$', fid)
+        if id_m:
+            fid = f"FR-{id_m.group(1).zfill(2)}"
+        out[fid] = {
+            k: fr[k] for k in
+            ('implementation_modules', 'acceptance_criteria',
+             'verification_method', 'title', 'description')
+            if k in fr
+        }
+    return out
+
+
 def parse_srs_fr_sections(srs_path) -> List[Dict]:
     """Parse SRS.md to extract FR sections"""
     if srs_path is None:
@@ -94,9 +157,23 @@ def parse_srs_fr_sections(srs_path) -> List[Dict]:
         sad_content = sad_path.read_text(encoding='utf-8')
         content += "\n" + sad_content
 
-    # Find all FR sections (FR-01 to FR-99)
-    # Note: pattern uses full-width colon to match Chinese-formatted SRS
-    fr_pattern = re.compile(r'(### FR-(\d+):[^\n]+\n\n)(.*?)(?=\n---\n|\n### FR-\d+|$)', re.DOTALL)
+    # Extract machine-readable FR metadata from Appendix A JSON block
+    # BEFORE regex section parse so we can merge structural fields
+    # (implementation_modules / acceptance_criteria / verification_method)
+    # into the returned fr dict. Section-body regex fields (test_cases,
+    # requirements) are still populated by the regex below.
+    fr_json_meta = _parse_srs_fr_block_json(content)
+
+    # Find all FR sections (FR-01 to FR-99).
+    # Char class `[:—–-]` accepts four heading separators:
+    #   :   — template-style colon (existing behavior, kept for back-compat)
+    #   —   — INGESTION MODE em-dash (canonical for SRS authored from SPEC.md)
+    #   –   — en-dash (some editors auto-convert em-dash)
+    #   -   — hyphen (CLI / quick-write fallback)
+    fr_pattern = re.compile(
+        r'(### FR-(\d+)\s*[:—–-][^\n]+\n\n)(.*?)(?=\n---\n|\n### FR-\d+|$)',
+        re.DOTALL,
+    )
 
     frs = []
     for m in fr_pattern.finditer(content):
@@ -117,13 +194,20 @@ def parse_srs_fr_sections(srs_path) -> List[Dict]:
             content_section = details.split('Content')[1].split('**')[0].strip()
             req_lines = [line.strip() for line in content_section.split('\n') if line.strip() and line.strip().startswith('-')]
 
+        # Merge Appendix A JSON metadata into the fr dict. JSON wins for
+        # title/description (machine-authored, structural); section-body
+        # regex wins for test_cases/requirements (JSON has no such fields).
+        json_meta = fr_json_meta.get(fr_num, {})
         frs.append({
             'fr': fr_num,
-            'title': title,
-            'desc': desc,
+            'title': json_meta.get('title') or title,
+            'desc': json_meta.get('description') or desc,
             'test_cases': test_cases,
             'requirements': req_lines,
-            'raw_details': details[:500]
+            'implementation_modules': json_meta.get('implementation_modules', []),
+            'acceptance_criteria': json_meta.get('acceptance_criteria', []),
+            'verification_method': json_meta.get('verification_method', ''),
+            'raw_details': details[:500],
         })
 
     # Fallback: if no section-format FRs found, try table-format extraction.
@@ -157,7 +241,8 @@ def parse_srs_fr_sections(srs_path) -> List[Dict]:
     if not frs:
         print(
             "[generate_full_plan] WARNING: No FR sections found in SRS.md.\n"
-            "  Expected format: '### FR-01: Title' sections or '| FR-01 | desc |' table rows.\n"
+            "  Expected format: '### FR-01: Title' / '### FR-01 — Title' sections,\n"
+            "  or '| FR-01 | desc |' table rows.\n"
             "  The generated plan will have no per-FR task blocks. Verify SRS.md format.",
             file=sys.stderr,
         )

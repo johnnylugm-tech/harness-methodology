@@ -43,6 +43,8 @@ from generate_full_plan import (  # type: ignore[reportMissingImports]
     generate_phase8_tasks,
     generate_full_plan,
     _p3_milestone_push_steps,
+    parse_srs_fr_sections,         # INGESTION MODE fix: em-dash + JSON block
+    _parse_srs_fr_block_json,      # INGESTION MODE fix: Appendix A JSON parser
 )
 
 
@@ -2471,3 +2473,224 @@ class TestPlanCliContract:
                 f"phase{phase}_plan.md mutation_testing fix strategy missing "
                 "`compute_mutation_score()` framework function (Bug #108)"
             )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# INGESTION MODE SRS parser fix (2026-07-04)
+#
+# Bug: parse_srs_fr_sections could not parse SRS.md files authored under
+# INGESTION MODE (verbatim transcription of SPEC.md §3 / §4). Two gaps:
+#   (1) Regex only accepted `### FR-01: Title` (colon) but INGESTION MODE uses
+#       `### FR-01 — Title` (em-dash).
+#   (2) Appendix A JSON block (`functional_requirements[]` with structured
+#       fields: implementation_modules, acceptance_criteria, verification_method)
+#       was never read.
+#
+# Fix: consumer-side regex char class + new _parse_srs_fr_block_json().
+# This test file exercises the 3 behaviors end-to-end on synthetic SRS samples
+# AND against the real 01-requirements/SRS.md shipped with integration-test.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _write_minimal_srs(tmp_path: Path, body: str) -> Path:
+    """Write a minimal SRS.md + manifest under tmp_path so parse_srs_fr_sections
+    can run (it requires ProjectLayout(repo).sad_path resolution to work, but
+    the function only fails if SAD exists; absence → silent skip)."""
+    req_dir = tmp_path / "01-requirements"
+    req_dir.mkdir(parents=True, exist_ok=True)
+    (req_dir / "SRS.md").write_text(body, encoding="utf-8")
+    # ProjectLayout needs state.json + quality_manifest.json to construct; the
+    # parser itself tolerates missing SAD but the import will fail without
+    # .methodology dir. Provide both as stubs.
+    m_dir = tmp_path / ".methodology"
+    m_dir.mkdir(exist_ok=True)
+    (m_dir / "state.json").write_text('{"current_phase": 1}', encoding="utf-8")
+    (m_dir / "quality_manifest.json").write_text(
+        '{"fr_ids": [], "gate_results": {}}', encoding="utf-8"
+    )
+    return tmp_path
+
+
+class TestParseSrsFrSectionsIngestsEmDash:
+    """Gap (1) fix: heading regex must accept em-dash / en-dash / hyphen /
+    colon — not just colon. INGESTION MODE SRS uses em-dash per SPEC.md §3."""
+
+    def test_parses_em_dash_heading(self, tmp_path: Path):
+        body = "# SRS\n\n### FR-01 — 任務提交與驗證\n\n**Description**: submit\n\nAcceptance.\n"
+        _write_minimal_srs(tmp_path, body)
+        frs = parse_srs_fr_sections(tmp_path / "01-requirements" / "SRS.md")
+        assert len(frs) == 1, f"expected 1 FR, got {len(frs)}: {frs}"
+        assert frs[0]["fr"] == "FR-01"
+        assert "任務提交與驗證" in frs[0]["title"]
+
+    def test_parses_colon_heading_regression(self, tmp_path: Path):
+        """Regression: existing template-style colon headings must still parse."""
+        body = "# SRS\n\n### FR-01: Submit task\n\n**Description**: submit\n"
+        _write_minimal_srs(tmp_path, body)
+        frs = parse_srs_fr_sections(tmp_path / "01-requirements" / "SRS.md")
+        assert len(frs) == 1
+        assert frs[0]["fr"] == "FR-01"
+
+    def test_parses_en_dash_heading(self, tmp_path: Path):
+        body = "# SRS\n\n### FR-01 – Submit task\n\n**Description**: submit\n"
+        _write_minimal_srs(tmp_path, body)
+        frs = parse_srs_fr_sections(tmp_path / "01-requirements" / "SRS.md")
+        assert len(frs) == 1, f"en-dash heading should parse: got {frs}"
+        assert frs[0]["fr"] == "FR-01"
+
+    def test_parses_hyphen_heading(self, tmp_path: Path):
+        body = "# SRS\n\n### FR-01 - Submit task\n\n**Description**: submit\n"
+        _write_minimal_srs(tmp_path, body)
+        frs = parse_srs_fr_sections(tmp_path / "01-requirements" / "SRS.md")
+        assert len(frs) == 1, f"hyphen heading should parse: got {frs}"
+        assert frs[0]["fr"] == "FR-01"
+
+
+class TestParseSrsFrBlockJson:
+    """Gap (2) fix: SRS Appendix A JSON block must be parsed and merged into
+    fr dict. Two detection paths: sentinel-wrapped + bare-fence-under-Appendix-A."""
+
+    def test_parses_sentinel_wrapped_block(self):
+        content = (
+            "Some preceding text.\n\n"
+            "<!-- FR:START -->\n"
+            "```json\n"
+            '{"functional_requirements": [{"id": "FR-01", '
+            '"implementation_modules": ["src/a.py"], '
+            '"acceptance_criteria": ["AC-1", "AC-2"], '
+            '"verification_method": "pytest tests/test_a.py"}]}\n'
+            "```\n"
+            "<!-- FR:END -->\n"
+        )
+        meta = _parse_srs_fr_block_json(content)
+        assert "FR-01" in meta
+        assert meta["FR-01"]["implementation_modules"] == ["src/a.py"]
+        assert meta["FR-01"]["acceptance_criteria"] == ["AC-1", "AC-2"]
+        assert meta["FR-01"]["verification_method"] == "pytest tests/test_a.py"
+
+    def test_parses_bare_fence_under_appendix_heading(self):
+        """INGESTION MODE style: no sentinels, only `## Appendix A` heading
+        followed by a bare ```json fence (actual SRS.md uses this layout)."""
+        content = (
+            "# SRS\n\n## 3. Functional Requirements\n\n### FR-01 — Submit\n\n"
+            "## Appendix A — FR Block (machine-readable)\n\n"
+            "```json\n"
+            '{"functional_requirements": [{"id": "FR-02", '
+            '"implementation_modules": ["src/b.py"], '
+            '"verification_method": "pytest tests/test_b.py"}]}\n'
+            "```\n"
+        )
+        meta = _parse_srs_fr_block_json(content)
+        assert "FR-02" in meta
+        assert meta["FR-02"]["implementation_modules"] == ["src/b.py"]
+        assert meta["FR-02"]["verification_method"] == "pytest tests/test_b.py"
+
+    def test_returns_empty_on_no_block(self):
+        content = "# SRS\n\nNo JSON appendix here.\n"
+        meta = _parse_srs_fr_block_json(content)
+        assert meta == {}
+
+    def test_returns_empty_on_malformed_json(self, capsys):
+        content = (
+            "## Appendix A\n\n```json\n"
+            "{this is not valid json\n"
+            "```\n"
+        )
+        meta = _parse_srs_fr_block_json(content)
+        assert meta == {}
+        captured = capsys.readouterr()
+        assert "FR Block JSON malformed" in captured.err
+
+    def test_zfills_fr_id(self):
+        """JSON may contain 'FR-1' (no zero-pad); output must normalize to FR-01."""
+        content = (
+            "## Appendix A\n\n```json\n"
+            '{"functional_requirements": [{"id": "FR-1", '
+            '"implementation_modules": ["x.py"]}]}\n'
+            "```\n"
+        )
+        meta = _parse_srs_fr_block_json(content)
+        assert "FR-01" in meta
+        assert "FR-1" not in meta
+
+
+class TestParseSrsFrSectionsMergesJson:
+    """Integration: section regex + JSON block must merge so the returned
+    fr dict carries BOTH section-body fields (test_cases, requirements) and
+    JSON-only fields (implementation_modules, acceptance_criteria,
+    verification_method)."""
+
+    def test_merges_implementation_modules_from_json(self, tmp_path: Path):
+        body = (
+            "# SRS\n\n### FR-01 — Submit\n\n"
+            "**Description**: Submit a task.\n\n"
+            "Acceptance criteria text here.\n\n"
+            "## Appendix A\n\n```json\n"
+            '{"functional_requirements": [{"id": "FR-01", '
+            '"implementation_modules": ["src/store.py", "src/cli.py"], '
+            '"acceptance_criteria": ["AC-FR-01-01"], '
+            '"verification_method": "pytest tests/test_submit.py"}]}\n'
+            "```\n"
+        )
+        _write_minimal_srs(tmp_path, body)
+        frs = parse_srs_fr_sections(tmp_path / "01-requirements" / "SRS.md")
+        assert len(frs) == 1
+        fr = frs[0]
+        assert fr["fr"] == "FR-01"
+        assert fr["implementation_modules"] == ["src/store.py", "src/cli.py"]
+        assert fr["acceptance_criteria"] == ["AC-FR-01-01"]
+        assert fr["verification_method"] == "pytest tests/test_submit.py"
+
+    def test_json_title_overrides_section_heading(self, tmp_path: Path):
+        """When JSON block has a title field, it wins over the section heading."""
+        body = (
+            "# SRS\n\n### FR-01 — Section Heading Title\n\n"
+            "## Appendix A\n\n```json\n"
+            '{"functional_requirements": [{"id": "FR-01", '
+            '"title": "JSON Title Wins"}]}\n'
+            "```\n"
+        )
+        _write_minimal_srs(tmp_path, body)
+        frs = parse_srs_fr_sections(tmp_path / "01-requirements" / "SRS.md")
+        assert len(frs) == 1
+        assert frs[0]["title"] == "JSON Title Wins"
+
+    def test_keeps_section_only_fields_when_no_json(self, tmp_path: Path):
+        """No Appendix A → implementation_modules default to [], existing
+        section-only behavior (test_cases, requirements) preserved."""
+        body = (
+            "# SRS\n\n### FR-01 — Submit\n\n"
+            "**Description**: Submit a task.\n"
+        )
+        _write_minimal_srs(tmp_path, body)
+        frs = parse_srs_fr_sections(tmp_path / "01-requirements" / "SRS.md")
+        assert len(frs) == 1
+        fr = frs[0]
+        assert fr["implementation_modules"] == []
+        assert fr["acceptance_criteria"] == []
+        assert fr["verification_method"] == ""
+
+    def test_real_srs_md_extracts_all_5_frs(self):
+        """Regression against the actual INGESTION MODE SRS.md shipped with
+        the integration-test project. Must extract all 5 FRs (FR-01..FR-05)
+        with their JSON block metadata."""
+        repo_root = Path(__file__).parent.parent.parent
+        srs_path = repo_root / "01-requirements" / "SRS.md"
+        if not srs_path.exists():
+            pytest.skip(f"Real SRS.md not present at {srs_path}")
+        frs = parse_srs_fr_sections(srs_path)
+        assert len(frs) == 5, f"expected 5 FRs from real SRS.md, got {len(frs)}"
+        # Every FR must carry the JSON-only structural fields
+        for fr in frs:
+            assert fr["fr"].startswith("FR-"), f"bad FR id: {fr}"
+            assert isinstance(fr["implementation_modules"], list), \
+                f"{fr['fr']}: implementation_modules not list"
+            assert len(fr["implementation_modules"]) > 0, \
+                f"{fr['fr']}: implementation_modules empty in real SRS"
+            assert isinstance(fr["acceptance_criteria"], list), \
+                f"{fr['fr']}: acceptance_criteria not list"
+            assert len(fr["acceptance_criteria"]) > 0, \
+                f"{fr['fr']}: acceptance_criteria empty in real SRS"
+            assert isinstance(fr["verification_method"], str), \
+                f"{fr['fr']}: verification_method not str"
+            assert len(fr["verification_method"]) > 0, \
+                f"{fr['fr']}: verification_method empty in real SRS"
