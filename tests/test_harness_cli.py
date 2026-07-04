@@ -4531,6 +4531,262 @@ def test_generate_sab_exits_1_when_output_exists_without_overwrite(tmp_path, mon
     )
 
 
+# =============================================================================
+# STAGE_PASS.md always-regenerate (B-class bug fix: stale FAIL artifact)
+# =============================================================================
+
+class TestAdvancePhaseRegeneratesStagePass:
+    """Bug: STAGE_PASS.md committed by an older _generate_stage_pass logic
+    (pre-d8fccea "always FAIL" for empty gate_data) is never overwritten by
+    subsequent advance-phase runs. Result: PhaseAuditor C1 sees stale FAIL even
+    after the underlying logic was fixed.
+
+    Fix: advance-phase trigger at harness_cli.py:6345 must ALWAYS call
+    _generate_stage_pass, then git-add only if content actually changed.
+    """
+
+    def test_regenerates_when_stale_exists(self, tmp_path, monkeypatch):
+        """Pre-create stale Phase3_STAGE_PASS.md (the pre-d8fccea FAIL content),
+        run _advance_prechecks, assert the file content was overwritten by the
+        current _generate_stage_pass logic (not just appended/touched)."""
+        import harness_cli
+        from harness_cli import _advance_prechecks
+
+        _setup_advance_prechecks_env(tmp_path, monkeypatch)
+
+        # Pre-create stale STAGE_PASS.md with the bug-era "FAIL" content.
+        sp_dir = tmp_path / "00-summary"
+        sp_dir.mkdir(exist_ok=True)
+        sp_path = sp_dir / "Phase3_STAGE_PASS.md"
+        stale_content = (
+            "# Phase 3 STAGE_PASS\n\n"
+            "Generated: 2026-07-04 09:00 UTC\n\n"
+            "## Gate Score\n"
+            "Gate 1 Composite Score: **N/A**\n\n"
+            "## Quality Status\n"
+            "quality_complete: **False**\n\n"
+            "## Summary\n"
+            "Phase 3 exit gate FAIL.\n"
+        )
+        sp_path.write_text(stale_content, encoding="utf-8")
+        pre_existing_bytes = sp_path.read_bytes()
+
+        # Mock _generate_stage_pass to write the CURRENT (post-fix) "PASS" content.
+        new_content = (
+            "# Phase 3 STAGE_PASS\n\n"
+            "Generated: 2026-07-04 12:00 UTC\n\n"
+            "## Summary\n"
+            "Phase 3 exit gate PASS.\n"
+        )
+
+        def _write_new_stage_pass(project, gate, phase):
+            sp = project / "00-summary" / f"Phase{phase}_STAGE_PASS.md"
+            sp.parent.mkdir(exist_ok=True)
+            sp.write_text(new_content, encoding="utf-8")
+
+        monkeypatch.setattr("harness_cli._generate_stage_pass", _write_new_stage_pass)
+        monkeypatch.setattr(harness_cli.subprocess, "run", _fake_subprocess_capture_git_add)
+
+        _advance_prechecks(tmp_path, completed_phase=3)
+
+        # Assert: file content was overwritten (not still stale).
+        post_bytes = sp_path.read_bytes()
+        assert post_bytes != pre_existing_bytes, (
+            "STAGE_PASS.md was NOT overwritten — always-regenerate missing"
+        )
+        assert post_bytes == new_content.encode("utf-8"), (
+            f"STAGE_PASS.md content mismatch.\n"
+            f"Expected: {new_content!r}\n"
+            f"Got: {post_bytes.decode('utf-8')!r}"
+        )
+
+    def test_git_add_called_when_content_changed(self, tmp_path, monkeypatch):
+        """When _generate_stage_pass produces content different from existing
+        file, advance-phase must call `git add` so the refresh lands in commit."""
+        import harness_cli
+        from harness_cli import _advance_prechecks
+
+        _setup_advance_prechecks_env(tmp_path, monkeypatch)
+
+        sp_dir = tmp_path / "00-summary"
+        sp_dir.mkdir(exist_ok=True)
+        sp_path = sp_dir / "Phase3_STAGE_PASS.md"
+        sp_path.write_text("# STALE OLD CONTENT\n", encoding="utf-8")
+
+        def _write_different(project, gate, phase):
+            sp = project / "00-summary" / f"Phase{phase}_STAGE_PASS.md"
+            sp.parent.mkdir(exist_ok=True)
+            sp.write_text("# NEW CONTENT AFTER REGENERATE\n", encoding="utf-8")
+
+        monkeypatch.setattr("harness_cli._generate_stage_pass", _write_different)
+
+        git_add_calls: list[list] = []
+
+        def fake_subprocess_run(cmd, **kwargs):
+            class R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+            cmd_list = list(cmd)
+            if cmd_list[:2] == ["git", "add"]:
+                git_add_calls.append(cmd_list)
+            return R()
+
+        monkeypatch.setattr(harness_cli.subprocess, "run", fake_subprocess_run)
+
+        _advance_prechecks(tmp_path, completed_phase=3)
+
+        expected_path = str(tmp_path / "00-summary" / "Phase3_STAGE_PASS.md")
+        assert any(expected_path in " ".join(str(x) for x in call) for call in git_add_calls), (
+            f"git add STAGE_PASS.md not called when content changed.\n"
+            f"Captured git-add calls: {git_add_calls}"
+        )
+
+    def test_git_add_skipped_when_content_unchanged(self, tmp_path, monkeypatch):
+        """When _generate_stage_pass produces content identical to existing
+        file, advance-phase must NOT call `git add` (avoid empty no-op commits)."""
+        import harness_cli
+        from harness_cli import _advance_prechecks
+
+        _setup_advance_prechecks_env(tmp_path, monkeypatch)
+
+        sp_dir = tmp_path / "00-summary"
+        sp_dir.mkdir(exist_ok=True)
+        sp_path = sp_dir / "Phase3_STAGE_PASS.md"
+        same_content = "# SAME CONTENT\n"
+        sp_path.write_text(same_content, encoding="utf-8")
+
+        def _write_same(project, gate, phase):
+            sp = project / "00-summary" / f"Phase{phase}_STAGE_PASS.md"
+            sp.parent.mkdir(exist_ok=True)
+            sp.write_text(same_content, encoding="utf-8")
+
+        monkeypatch.setattr("harness_cli._generate_stage_pass", _write_same)
+
+        git_add_calls: list[list] = []
+
+        def fake_subprocess_run(cmd, **kwargs):
+            class R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+            cmd_list = list(cmd)
+            if cmd_list[:2] == ["git", "add"]:
+                git_add_calls.append(cmd_list)
+            return R()
+
+        monkeypatch.setattr(harness_cli.subprocess, "run", fake_subprocess_run)
+
+        _advance_prechecks(tmp_path, completed_phase=3)
+
+        expected_path = str(tmp_path / "00-summary" / "Phase3_STAGE_PASS.md")
+        stage_pass_add_calls = [
+            call for call in git_add_calls
+            if expected_path in " ".join(str(x) for x in call)
+        ]
+        assert stage_pass_add_calls == [], (
+            f"git add STAGE_PASS.md was called when content unchanged.\n"
+            f"Calls: {stage_pass_add_calls}"
+        )
+
+    def test_missing_file_still_generates_regression(self, tmp_path, monkeypatch):
+        """Regression: if STAGE_PASS.md does not exist, advance-phase still
+        calls _generate_stage_pass and stages the new file (original behavior
+        must be preserved)."""
+        import harness_cli
+        from harness_cli import _advance_prechecks
+
+        _setup_advance_prechecks_env(tmp_path, monkeypatch)
+
+        sp_path = tmp_path / "00-summary" / "Phase3_STAGE_PASS.md"
+        assert not sp_path.exists()
+
+        called = {"count": 0}
+
+        def _write_when_missing(project, gate, phase):
+            called["count"] += 1
+            sp = project / "00-summary" / f"Phase{phase}_STAGE_PASS.md"
+            sp.parent.mkdir(exist_ok=True)
+            sp.write_text("# GENERATED\n", encoding="utf-8")
+
+        monkeypatch.setattr("harness_cli._generate_stage_pass", _write_when_missing)
+        monkeypatch.setattr(harness_cli.subprocess, "run", _fake_subprocess_capture_git_add)
+
+        _advance_prechecks(tmp_path, completed_phase=3)
+
+        assert called["count"] == 1, "_generate_stage_pass not called for missing file"
+        assert sp_path.exists(), "STAGE_PASS.md not generated for missing-file case"
+
+
+def _fake_subprocess_capture_git_add(cmd, **kwargs):
+    """Stand-in for test_stage_pass_autogenerate_is_git_added pattern."""
+    class R:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+    return R()
+
+
+# =============================================================================
+# _advance_commit_targets includes STAGE_PASS.md when present
+# =============================================================================
+
+class TestAdvanceCommitTargetsIncludesStagePass:
+    """Bug: _advance_commit_targets at harness_cli.py:6713 did NOT include
+    00-summary/Phase{N}_STAGE_PASS.md. Result: STAGE_PASS.md regenerated by
+    advance-phase's earlier git-add (line 6361) would land in commit only via
+    that earlier git-add; if it were missed, the file would never enter the
+    advance commit and would persist as dirty tree residue.
+
+    Fix: include STAGE_PASS.md in the advance commit targets so a single
+    git-add covers everything."""
+
+    def test_targets_includes_stage_pass_when_exists(self):
+        from harness_cli import _advance_commit_targets
+
+        targets = _advance_commit_targets(
+            completed_phase=3,
+            next_phase=4,
+            manifest_regenerated=False,
+            fr_progress_exists=False,
+            gate_timestamps_exists=False,
+            stage_pass_exists=True,
+        )
+        assert "00-summary/Phase3_STAGE_PASS.md" in targets, (
+            f"STAGE_PASS.md missing from advance commit targets.\nGot: {targets}"
+        )
+
+    def test_targets_excludes_stage_pass_when_missing(self):
+        from harness_cli import _advance_commit_targets
+
+        targets = _advance_commit_targets(
+            completed_phase=3,
+            next_phase=4,
+            manifest_regenerated=False,
+            fr_progress_exists=False,
+            gate_timestamps_exists=False,
+            stage_pass_exists=False,
+        )
+        assert "00-summary/Phase3_STAGE_PASS.md" not in targets, (
+            f"STAGE_PASS.md should NOT be in targets when missing.\nGot: {targets}"
+        )
+
+    def test_targets_uses_completed_phase_in_path(self):
+        """The path uses completed_phase (the phase just finished), not next_phase."""
+        from harness_cli import _advance_commit_targets
+
+        targets = _advance_commit_targets(
+            completed_phase=6,
+            next_phase=7,
+            manifest_regenerated=False,
+            fr_progress_exists=False,
+            gate_timestamps_exists=False,
+            stage_pass_exists=True,
+        )
+        assert "00-summary/Phase6_STAGE_PASS.md" in targets
+        assert "00-summary/Phase7_STAGE_PASS.md" not in targets
+
+
 # B3: _advance_prechecks at completed_phase=8 must NOT block on phase9_plan.md
 # (Phase 8 is the terminal phase — there is no Phase 9).
 def test_advance_prechecks_p8_does_not_require_phase9_plan(tmp_path, monkeypatch):
