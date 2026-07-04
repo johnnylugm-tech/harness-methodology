@@ -6726,6 +6726,17 @@ class TestPushCheckpointPostPushDirtyWarn:
             hc, "_post_push_self_check",
             lambda _p: list(dirty_paths),
         )
+
+        import subprocess
+        _orig_run = subprocess.run
+        def _fake_run(cmd, *args, **kwargs):
+            if cmd and cmd[0] == "git" and "rev-parse" in cmd:
+                class FakeRes:
+                    stdout = "fakesha12345\n"
+                return FakeRes()
+            return _orig_run(cmd, *args, **kwargs)
+        monkeypatch.setattr(subprocess, "run", _fake_run)
+
         # Bypass attestation refresh (irrelevant to this assertion).
         import scripts.build_trace_attestation as _bta_mod
         monkeypatch.setattr(_bta_mod, "build_attestation", lambda _p: {})
