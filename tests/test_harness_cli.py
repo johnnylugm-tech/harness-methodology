@@ -7,6 +7,8 @@ import json
 import pytest
 from pathlib import Path
 from unittest import mock
+import io
+import contextlib
 
 
 # =============================================================================
@@ -6594,4 +6596,279 @@ class TestFinalizeGate4StateJsonWriteBeforePush:
         rc = hc._cmd_finalize_gate_impl(args)
         assert rc == 0
         # push still happened; audit write was skipped (no state.json to write)
+        assert "commit_and_push_gate" in call_order
+
+
+# =============================================================================
+# _post_push_self_check + 3-site dirty-warn integration
+# =============================================================================
+# See plan: ~/.claude/plans/abundant-stargazing-hejlsberg.md
+#
+# Bug class: post-push working-tree dirtiness (28864f7 family). 28864f7 fixed
+# the specific state.json audit-write-after-push case at 3 sites, but did not
+# add a generic post-push self-check. This module adds one (warn-only, never
+# fail-fast) and wires it into the same 3 sites.
+
+
+class TestPostPushSelfCheck:
+    """Unit tests for the `_post_push_self_check(project)` helper."""
+
+    def test_clean_when_status_empty(self, tmp_path, monkeypatch):
+        import harness_cli as hc
+        fake_result = mock.Mock(returncode=0, stdout="")
+        monkeypatch.setattr(hc.subprocess, "run", lambda *_a, **_kw: fake_result)
+        assert hc._post_push_self_check(tmp_path) == []
+
+    def test_returns_modified_paths(self, tmp_path, monkeypatch):
+        import harness_cli as hc
+        fake_result = mock.Mock(
+            returncode=0,
+            stdout=" M .methodology/state.json\n M .methodology/HANDOVER.md\n",
+        )
+        monkeypatch.setattr(hc.subprocess, "run", lambda *_a, **_kw: fake_result)
+        out = hc._post_push_self_check(tmp_path)
+        assert out == [
+            ".methodology/state.json",
+            ".methodology/HANDOVER.md",
+        ]
+
+    def test_returns_untracked_paths(self, tmp_path, monkeypatch):
+        import harness_cli as hc
+        fake_result = mock.Mock(
+            returncode=0, stdout="?? new_file.py\n?? docs/scratch.md\n",
+        )
+        monkeypatch.setattr(hc.subprocess, "run", lambda *_a, **_kw: fake_result)
+        out = hc._post_push_self_check(tmp_path)
+        assert out == ["new_file.py", "docs/scratch.md"]
+
+    def test_handles_subprocess_failure(self, tmp_path, monkeypatch):
+        import harness_cli as hc
+
+        def _raise(*_a, **_kw):
+            raise OSError("git not found")
+        monkeypatch.setattr(hc.subprocess, "run", _raise)
+        assert hc._post_push_self_check(tmp_path) == []  # best-effort
+
+    def test_handles_nonzero_returncode(self, tmp_path, monkeypatch):
+        import harness_cli as hc
+        fake_result = mock.Mock(returncode=128, stdout="fatal: not a git repo")
+        monkeypatch.setattr(hc.subprocess, "run", lambda *_a, **_kw: fake_result)
+        assert hc._post_push_self_check(tmp_path) == []
+
+
+class TestPushMilestonePostPushDirtyWarn:
+    """Site 1: cmd_push_milestone should warn (NOT fail) when post-push
+    tree is dirty."""
+
+    def _setup(self, tmp_path, monkeypatch, dirty_paths):
+        import harness_cli as hc
+
+        meth = tmp_path / ".methodology"
+        meth.mkdir(parents=True, exist_ok=True)
+        (meth / "state.json").write_text(json.dumps({"existing": True}), encoding="utf-8")
+
+        call_order: list[str] = []
+
+        class FakeGit:
+            def ensure_gitignore(self): pass
+            def commit_and_push_p8(self):
+                call_order.append("commit_and_push_p8")
+                return True
+
+        monkeypatch.setattr(hc, "_make_git", lambda *_a: FakeGit())
+        # Bypass P8 pre-flight validation — needs real .methodology-archive.
+        monkeypatch.setattr(hc, "_validate_p8_completion", lambda _p: [])
+        # Stub the new helper so the test does NOT need a real git repo.
+        monkeypatch.setattr(
+            hc, "_post_push_self_check",
+            lambda _p: list(dirty_paths),
+        )
+        return call_order
+
+    def test_warns_on_post_push_dirty(self, tmp_path, monkeypatch, capsys):
+        import harness_cli as hc
+        call_order = self._setup(
+            tmp_path, monkeypatch, dirty_paths=[".methodology/state.json"],
+        )
+        args = argparse.Namespace(
+            project=str(tmp_path), type="p8", fr_ids="",
+            fr_done=None, fr_total=None, no_git=False, dry_run=False,
+        )
+        rc = hc.cmd_push_milestone(args)
+        out = capsys.readouterr().out
+        assert rc == 0  # warn-only, NOT fail-fast
+        assert "[WARN] post-push dirty tree" in out
+        assert "state.json" in out
+        assert "commit_and_push_p8" in call_order
+
+    def test_silent_on_clean(self, tmp_path, monkeypatch, capsys):
+        import harness_cli as hc
+        call_order = self._setup(tmp_path, monkeypatch, dirty_paths=[])
+        args = argparse.Namespace(
+            project=str(tmp_path), type="p8", fr_ids="",
+            fr_done=None, fr_total=None, no_git=False, dry_run=False,
+        )
+        rc = hc.cmd_push_milestone(args)
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert "[WARN] post-push dirty tree" not in out
+        assert "commit_and_push_p8" in call_order
+
+
+class TestPushCheckpointPostPushDirtyWarn:
+    """Site 2: cmd_push_checkpoint should warn (NOT fail) when post-push
+    tree is dirty."""
+
+    def _setup(self, tmp_path, monkeypatch, dirty_paths):
+        import harness_cli as hc
+
+        meth = tmp_path / ".methodology"
+        meth.mkdir(parents=True, exist_ok=True)
+        (meth / "state.json").write_text(json.dumps({"existing": True}), encoding="utf-8")
+
+        call_order: list[str] = []
+
+        class FakeGit:
+            def ensure_gitignore(self): pass
+            def commit_and_push_p1(self, **_kw):
+                call_order.append("commit_and_push_p1")
+                return True
+
+        monkeypatch.setattr(hc, "_make_git", lambda *_a: FakeGit())
+        monkeypatch.setattr(
+            hc, "_post_push_self_check",
+            lambda _p: list(dirty_paths),
+        )
+        # Bypass attestation refresh (irrelevant to this assertion).
+        import scripts.build_trace_attestation as _bta_mod
+        monkeypatch.setattr(_bta_mod, "build_attestation", lambda _p: {})
+        monkeypatch.setattr(_bta_mod, "write_attestation", lambda _p, _a: None)
+        return call_order
+
+    def test_warns_on_post_push_dirty(self, tmp_path, monkeypatch, capsys):
+        import harness_cli as hc
+        call_order = self._setup(
+            tmp_path, monkeypatch, dirty_paths=[".methodology/HANDOVER.md"],
+        )
+        args = argparse.Namespace(
+            project=str(tmp_path), phase=1, fr_ids="FR-01,FR-02",
+        )
+        rc = hc.cmd_push_checkpoint(args)
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert "[WARN] post-push dirty tree" in out
+        assert "HANDOVER.md" in out
+        assert "commit_and_push_p1" in call_order
+
+    def test_silent_on_clean(self, tmp_path, monkeypatch, capsys):
+        import harness_cli as hc
+        call_order = self._setup(tmp_path, monkeypatch, dirty_paths=[])
+        args = argparse.Namespace(
+            project=str(tmp_path), phase=1, fr_ids="FR-01,FR-02",
+        )
+        rc = hc.cmd_push_checkpoint(args)
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert "[WARN] post-push dirty tree" not in out
+        assert "commit_and_push_p1" in call_order
+
+
+class TestFinalizeGate4PostPushDirtyWarn:
+    """Site 3: _cmd_finalize_gate_impl gate-4 should warn (NOT fail) when
+    post-push tree is dirty."""
+
+    def _setup(self, tmp_path, monkeypatch, dirty_paths):
+        import harness_cli as hc
+        from harness.harness_bridge import GateResult
+
+        sessi = tmp_path / ".sessi-work"
+        sessi.mkdir(parents=True, exist_ok=True)
+        (sessi / "gate4_result.json").write_text(
+            json.dumps({"composite_score": 90.0}), encoding="utf-8",
+        )
+        meth = tmp_path / ".methodology"
+        meth.mkdir(parents=True, exist_ok=True)
+        (meth / "state.json").write_text(
+            json.dumps({"existing": True}), encoding="utf-8",
+        )
+        (meth / "quality_manifest.json").write_text(
+            json.dumps({"gate_results": {}}), encoding="utf-8",
+        )
+
+        monkeypatch.setattr(hc, "_finalize_gate_preflight", lambda *_a: None)
+        monkeypatch.setattr(hc, "_finalize_gate_fr_checks", lambda *_a: None)
+        monkeypatch.setattr(hc, "_finalize_gate_cross_checks", lambda *_a: None)
+        monkeypatch.setattr(hc, "_check_gate4_prerequisites",
+                            lambda *_a: (False, set()))
+        monkeypatch.setattr(hc, "_update_state_checkpoint", lambda *_, **__: None)
+        monkeypatch.setattr(hc, "_update_claude_md", lambda _p: None)
+        monkeypatch.setattr(hc, "_record_gate_timestamp", lambda *_a: None)
+        monkeypatch.setattr(hc, "_generate_stage_pass", lambda *_a: None)
+
+        class _FakePhaseHooks:
+            def __init__(self, *_a, **_kw): pass
+            def postflight_artifact_links(self): return {"passed": True}
+            def postflight_drift_check(self): return {"passed": True}
+        import core.phase_hooks as _ph_mod
+        monkeypatch.setattr(_ph_mod, "PhaseHooks", _FakePhaseHooks)
+
+        class _FakePhaseTruthVerifier:
+            def __init__(self, *_a, **_kw): pass
+            def verify(self): return {"passed": True, "total_score": 100.0}
+        import core.quality_gate.phase_truth_verifier as _ptv_mod
+        monkeypatch.setattr(_ptv_mod, "PhaseTruthVerifier", _FakePhaseTruthVerifier)
+
+        call_order: list[str] = []
+
+        class FakeGit:
+            def ensure_gitignore(self): pass
+            def commit_and_push_gate(self, *_a):
+                call_order.append("commit_and_push_gate")
+                return True
+
+        monkeypatch.setattr(hc, "_make_git", lambda *_a: FakeGit())
+        monkeypatch.setattr(
+            hc, "_post_push_self_check",
+            lambda _p: list(dirty_paths),
+        )
+
+        class FakeBridge:
+            def prepare_gate(self, **_): return object()
+            def finalize_gate(self, _ctx, **_):
+                return GateResult(
+                    gate_num=4, score=90.0, dimensions=[],
+                    open_critical=0, open_high=0,
+                    quality_complete=True, rounds_used=1,
+                )
+        import harness.harness_bridge as hb
+        monkeypatch.setattr(hb, "HarnessBridge", FakeBridge)
+
+        return call_order
+
+    def test_warns_on_post_push_dirty(self, tmp_path, monkeypatch, capsys):
+        import harness_cli as hc
+        call_order = self._setup(
+            tmp_path, monkeypatch,
+            dirty_paths=[".methodology/quality_manifest.json"],
+        )
+        args = argparse.Namespace(
+            project=str(tmp_path), gate=4, phase=6, fr_id=None,
+        )
+        rc = hc._cmd_finalize_gate_impl(args)
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert "[WARN] post-push dirty tree" in out
+        assert "quality_manifest.json" in out
+        assert "commit_and_push_gate" in call_order
+
+    def test_silent_on_clean(self, tmp_path, monkeypatch, capsys):
+        import harness_cli as hc
+        call_order = self._setup(tmp_path, monkeypatch, dirty_paths=[])
+        args = argparse.Namespace(
+            project=str(tmp_path), gate=4, phase=6, fr_id=None,
+        )
+        rc = hc._cmd_finalize_gate_impl(args)
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert "[WARN] post-push dirty tree" not in out
         assert "commit_and_push_gate" in call_order

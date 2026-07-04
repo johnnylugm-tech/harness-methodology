@@ -3896,6 +3896,15 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
             git.commit_fr_gate1(fr_id or "unknown", result.score, args.phase)
         else:
             git.commit_and_push_gate(args.gate, args.phase, result.score)
+            # Post-push self-check: warn loudly on dirty residue. Push itself
+            # succeeded — the dirt is post-commit residue. Don't fail-fast.
+            _dirty = _post_push_self_check(Path(args.project).resolve())
+            if _dirty:
+                print(
+                    f"  [WARN] post-push dirty tree ({len(_dirty)} path(s)):\n"
+                    + "\n".join(f"    • {p}" for p in _dirty[:10])
+                    + (f"\n    ... and {len(_dirty) - 10} more" if len(_dirty) > 10 else "")
+                )
         return 0
 
     except FileNotFoundError as e:
@@ -4192,6 +4201,38 @@ def cmd_generate_verification_report(args: argparse.Namespace) -> int:
         pass
     return 0
 
+
+def _post_push_self_check(project: Path) -> list[str]:
+    """List dirty/untracked paths after a push (read-only, no modification).
+
+    Bug class (post-28864f7): any post-push dirtiness (state.json mid-write
+    residue, attestation.latest.json drift, HANDOVER.md half-flushed, etc.)
+    leaves the working tree dirty. The caller should WARN loudly but NOT
+    fail-fast — the push itself succeeded; the dirt is residue from the same
+    atomic_write_json fsync that landed in the commit.
+
+    Best-effort: if the probe fails (no git, non-zero rc, exception), return
+    []. The probe is a diagnostic aid, never a gate.
+    """
+    import subprocess as _sp
+    try:
+        _r = _sp.run(
+            ["git", "-C", str(project), "status", "--porcelain"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except Exception:  # pylint: disable=broad-exception-caught
+        return []
+    if _r.returncode != 0:
+        return []
+    # porcelain lines: " XY path" or "?? path" — split off the 2-char status
+    # prefix and the optional space.
+    out: list[str] = []
+    for _line in _r.stdout.splitlines():
+        if len(_line) > 3:
+            out.append(_line[3:].strip())
+    return out
+
+
 # ---------------------------------------------------------------------------
 # push-checkpoint  (P1/P2 human review checkpoint push + HANDOVER.md)
 # ---------------------------------------------------------------------------
@@ -4282,6 +4323,15 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
             notes=["Phase checkpoint push"],
         )
     if ok:
+        # Post-push self-check: warn loudly on dirty residue. Push itself
+        # succeeded — the dirt is post-commit residue. Don't fail-fast.
+        _dirty = _post_push_self_check(project)
+        if _dirty:
+            print(
+                f"  [WARN] post-push dirty tree ({len(_dirty)} path(s)):\n"
+                + "\n".join(f"    • {p}" for p in _dirty[:10])
+                + (f"\n    ... and {len(_dirty) - 10} more" if len(_dirty) > 10 else "")
+            )
         handover = project / "HANDOVER.md"
         if handover.exists():
             print(f"  HANDOVER.md → {handover}")
@@ -4891,6 +4941,15 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
         return 1
 
     if ok:
+        # Post-push self-check: warn loudly on dirty residue. The push itself
+        # succeeded — the dirt is post-commit residue. Don't fail-fast.
+        _dirty = _post_push_self_check(project)
+        if _dirty:
+            print(
+                f"  [WARN] post-push dirty tree ({len(_dirty)} path(s)):\n"
+                + "\n".join(f"    • {p}" for p in _dirty[:10])
+                + (f"\n    ... and {len(_dirty) - 10} more" if len(_dirty) > 10 else "")
+            )
         handover = project / "HANDOVER.md"
         if handover.exists():
             print(f"  HANDOVER.md → {handover}")
