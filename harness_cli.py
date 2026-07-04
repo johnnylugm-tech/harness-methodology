@@ -4245,12 +4245,17 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
     if state_path.exists():
         import subprocess as _sp
         try:
-            _pre_push_sha = _sp.run(
+            _run_res = _sp.run(
                 ["git", "-C", str(project), "rev-parse", "HEAD"],
-                capture_output=True, text=True, timeout=10,
-            ).stdout.strip()
-        except Exception:  # pylint: disable=broad-exception-caught
-            _pre_push_sha = ""
+                capture_output=True, text=True, timeout=10, check=True
+            )
+            _pre_push_sha = _run_res.stdout.strip()
+            if not _pre_push_sha:
+                print("  [ERROR] git rev-parse HEAD returned empty SHA. Aborting push.")
+                return 1
+        except Exception as _sha_err:  # pylint: disable=broad-exception-caught
+            print(f"  [ERROR] Failed to resolve pre-push HEAD SHA: {_sha_err}. Aborting push.")
+            return 1
         try:
             with file_lock(state_lock_path(project)):
                 _state_data = json.loads(state_path.read_text(encoding="utf-8"))
