@@ -22,6 +22,8 @@ _HARNESS_ROOT = Path(__file__).parent.parent
 if str(_HARNESS_ROOT) not in sys.path:
     sys.path.insert(0, str(_HARNESS_ROOT))
 
+from core.utils.project_layout import ProjectLayout  # noqa: E402
+
 
 def _import_extract_sab_from_sad():
     """Import extract_sab_from_sad from core.quality_gate.sab_parser."""
@@ -112,7 +114,7 @@ def main():
     args = parser.parse_args()
 
     project = Path(args.project)
-    sad_file = project / "02-architecture" / "SAD.md"
+    sad_file = ProjectLayout(project).sad_path
 
     if not sad_file.exists():
         print(f"SAD.md not found: {sad_file}", file=sys.stderr)
@@ -182,7 +184,7 @@ def main():
         layer["modules"] = [
             "03-development/" + m
             if (not (project / m).exists()
-                and (project / "03-development" / m).exists())
+                and (ProjectLayout(project).phase3_development_dir / m).exists())
             else m
             for m in layer.get("modules", [])
         ]

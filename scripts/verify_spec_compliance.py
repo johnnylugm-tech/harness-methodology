@@ -2,31 +2,41 @@
 """
 Spec Compliance Verification Script
 ====================================
-Auto-check if implementation complies with spec requirements.
+FR-driven: every FR module mapped in the project's SAD.md must exist on
+disk and carry its [FR-XX] traceability marker. All check targets derive
+from the project's own architecture document — this script must never
+hardcode a particular target project's modules. (Its previous incarnation
+shipped a past target project's module names and false-positive failed
+every other project; E2E round 2 HIGH finding. tests/test_no_hardcoded_paths.py
+now lint-blocks that class.)
 
 Usage:
     python verify_spec_compliance.py /path/to/project
     python verify_spec_compliance.py /path/to/project --fix
 """
 
-import os
-import re
-import sys
 import argparse
+import os
+import sys
 from pathlib import Path
 from typing import Dict
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # repo root for direct runs
+
+from core.utils.project_layout import ProjectLayout  # noqa: E402
+from detection.drift_detector import DriftDetector  # noqa: E402
+
 
 class SpecComplianceChecker:
-    """Spec compliance checker."""
+    """FR-implementation compliance checker (SAD.md is the source of truth)."""
 
-    # Hooks for project-specific fix hints — add entries via check_* methods at runtime.
-    # Framework ships empty; target projects populate via SpecComplianceChecker subclass or config.
+    # Hooks for project-specific fix hints — add entries via config at runtime.
+    # Framework ships empty; target projects populate via subclass or config.
     _FIX_HINTS: dict[str, str] = {}
 
     def __init__(self, project_path: str):
-        """Initialize instance with default configuration."""
         self.project_path = Path(project_path)
+        self.layout = ProjectLayout(self.project_path)
         self.issues: list[str] = []
         self.passed: list[str] = []
 
@@ -42,110 +52,72 @@ class SpecComplianceChecker:
                 hints.append(f"{issue}\n    → Manual inspection required")
         return hints
 
-    def check_all(self) -> Dict:
-        """Run all checks."""
-        checks = [
-            self.check_audio_merge,
-            self.check_splitters,
-            self.check_retry_mechanism,
-            self.check_circuit_breaker,
-            self.check_logging,
-            self.check_prosody_control,
+    def _resolve_module(self, rel_path: str) -> Path | None:
+        """Locate a SAD-mapped module on disk. SAD only commits to a
+        basename-ish path, so mirror DriftDetector.detect_sad_drift's
+        resolution: direct candidates first, then a recursive basename
+        search under the active src dir (src-layout support)."""
+        candidates = [
+            self.project_path / rel_path,
+            self.layout.phase3_development_dir / rel_path,
         ]
-        for check in checks:
-            try:
-                check()
-            except Exception as e:
-                self.issues.append(f"Check failed: {check.__name__} - {e}")
+        for candidate in candidates:
+            if candidate.is_file():
+                return candidate
+        basename = rel_path.split("/")[-1]
+        src_dir = self.layout.active_src_dir
+        if src_dir.is_dir():
+            for found in sorted(src_dir.rglob(basename)):
+                if found.is_file():
+                    return found
+        return None
+
+    def check_all(self) -> Dict:
+        """Check every FR→module mapping declared in SAD.md."""
+        sad_path = self.layout.sad_path
+        if not sad_path.is_file():
+            # Fail closed: no SAD.md means no FR map — not a vacuous pass.
+            self.issues.append(
+                "SAD.md not found (02-architecture/ or project root) — "
+                "cannot derive the FR→module map"
+            )
+            return self._result()
+
+        content = sad_path.read_text(encoding="utf-8", errors="replace")
+        mappings = DriftDetector.SAD_FR_PATTERN.findall(content)  # [(fr_num, path), ...]
+        if not mappings:
+            # Zero mappings is indistinguishable from a parse failure —
+            # same fail-closed rule as preflight_traceability.
+            self.issues.append(
+                f"No FR→module mappings found in {sad_path.name} — "
+                "nothing to verify (parse failure or missing FR table)"
+            )
+            return self._result()
+
+        for fr_num, rel_path in mappings:
+            fr_id = f"FR-{fr_num}"
+            module = self._resolve_module(rel_path)
+            if module is None:
+                self.issues.append(f"{fr_id}: mapped module {rel_path} not found on disk")
+                continue
+            text = module.read_text(encoding="utf-8", errors="replace")
+            if f"[{fr_id}]" in text:
+                self.passed.append(f"{fr_id}: {rel_path} implemented with [{fr_id}] marker")
+            else:
+                self.issues.append(
+                    f"{fr_id}: {self.layout.get_relative_str(module)} lacks the "
+                    f"[{fr_id}] traceability marker"
+                )
+        return self._result()
+
+    def _result(self) -> Dict:
+        total = len(self.passed) + len(self.issues)
         return {
             "passed": self.passed,
             "issues": self.issues,
-            "total": len(self.passed) + len(self.issues),
-            "score": f"{len(self.passed)}/{len(self.passed) + len(self.issues)}"
+            "total": total,
+            "score": f"{len(self.passed)}/{total}",
         }
-
-    def check_audio_merge(self):
-        """Check audio merge handles all segments."""
-        cli_file = self.project_path / "src" / "cli.py"
-        if not cli_file.exists():
-            self.issues.append("cli.py not found")
-            return
-        content = cli_file.read_text()
-        if re.search(r"shutil\.copy\(temp_files\[0\]", content):
-            self.issues.append("Audio merge: only copies first segment, not all (P6)")
-            return
-        if "for temp_file in temp_files" in content and "write(f.read())" in content:
-            self.passed.append("Audio merge: correctly handles all segments (P6)")
-        else:
-            self.issues.append("Audio merge: merge logic not found")
-
-    def check_splitters(self):
-        """Check splitters include newline character."""
-        tp_file = self.project_path / "src" / "text_processor.py"
-        if not tp_file.exists():
-            self.issues.append("text_processor.py not found")
-            return
-        content = tp_file.read_text()
-        if r'"\n"' in content or r"'\n'" in content:
-            self.passed.append("Splitters: includes newline character (P8)")
-        else:
-            self.issues.append("Splitters: missing newline character (P8)")
-
-    def check_retry_mechanism(self):
-        """Check retry mechanism has exponential backoff."""
-        retry_file = self.project_path / "src" / "retry_handler.py"
-        if not retry_file.exists():
-            self.issues.append("retry_handler.py not found")
-            return
-        content = retry_file.read_text()
-        if "2 ** attempt" in content or "pow(2, attempt)" in content:
-            self.passed.append("Retry: exponential backoff implemented")
-        else:
-            self.issues.append("Retry: exponential backoff not found")
-
-    def check_circuit_breaker(self):
-        """Check circuit breaker has full state machine."""
-        retry_file = self.project_path / "src" / "retry_handler.py"
-        if not retry_file.exists():
-            return
-        content = retry_file.read_text()
-        if "CircuitState" in content or "CircuitBreaker" in content:
-            self.passed.append("Circuit breaker: state machine implemented")
-
-    def check_logging(self):
-        """Check for proper logging."""
-        cli_file = self.project_path / "src" / "cli.py"
-        if not cli_file.exists():
-            return
-        content = cli_file.read_text()
-        if "logging" in content and ("logger.error" in content or "logger.info" in content):
-            self.passed.append("Logging: using logging module")
-        elif "print(" in content:
-            self.issues.append("Logging: using print() only, recommend switching to logging")
-
-    def check_prosody_control(self):
-        """Check prosody control is fully implemented (spec P8)."""
-        prosody_file = self.project_path / "src" / "prosody_manager.py"
-        if not prosody_file.exists():
-            self.issues.append("Prosody: prosody_manager.py not found (P8)")
-            return
-        content = prosody_file.read_text()
-        has_200  = '"200"' in content or "'200'" in content or ": 200" in content
-        has_500  = '"500"' in content or "'500'" in content or ": 500" in content
-        has_1000 = '"1000"' in content or "'1000'" in content or ": 1000" in content
-        if not has_200:
-            self.issues.append("Prosody: comma pause not set (should be 200ms)")
-        if not has_500:
-            self.issues.append("Prosody: period pause not set (should be 500ms)")
-        if not has_1000:
-            self.issues.append("Prosody: newline pause not set (should be 1000ms)")
-        if has_200 and has_500 and has_1000:
-            self.passed.append("Prosody: pause timing correctly implemented (P8)")
-            cli_file = self.project_path / "src" / "cli.py"
-            if cli_file.exists() and "ProsodyManager" in cli_file.read_text():
-                self.passed.append("Prosody: integrated into CLI")
-            else:
-                self.issues.append("Prosody: not integrated into CLI")
 
 
 def main():

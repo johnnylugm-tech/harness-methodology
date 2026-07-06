@@ -32,6 +32,9 @@ from pathlib import Path
 from string import Template
 
 _HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(_HERE.parent))  # repo root for core imports
+
+from core.utils.project_layout import ProjectLayout  # noqa: E402
 
 
 def _read_json(path: Path) -> dict:
@@ -108,7 +111,7 @@ def _render_template(template_path: Path, context: dict) -> str:
 def generate(project_root: Path, output_dir: Path | None = None) -> dict:
     """Render both templates and write to output_dir. Returns a summary
     dict with the paths written (useful for tests)."""
-    output_dir = output_dir or (project_root / "08-config")
+    output_dir = output_dir or ProjectLayout(project_root).phase8_config_dir
     output_dir.mkdir(parents=True, exist_ok=True)
     context = _collect(project_root)
 

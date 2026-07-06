@@ -22,6 +22,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+_SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(_SCRIPT_DIR.parent))
+
+from core.utils.project_layout import ProjectLayout  # noqa: E402
+
 # ── 12 Dimension labels (Gate 3/4) ─────────────────────────────────────
 DIMENSIONS_12: list[dict[str, str]] = [
     {"id": "completeness",    "label": "Completeness"},
@@ -307,7 +312,7 @@ def generate_quality_report(project_root: str,
     content = "\n".join(lines)
 
     # Determine output path
-    out = Path(output_path) if output_path else project / "06-quality" / "QUALITY_REPORT.md"
+    out = Path(output_path) if output_path else ProjectLayout(project).quality_report_path
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(content, encoding="utf-8")
     print(f"[QREPORT] Written → {out}  ({len(lines)} lines)")

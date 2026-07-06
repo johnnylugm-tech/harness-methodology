@@ -31,6 +31,8 @@ _HARNESS_ROOT = Path(__file__).parent.parent
 if str(_HARNESS_ROOT) not in sys.path:
     sys.path.insert(0, str(_HARNESS_ROOT))
 
+from core.utils.project_layout import ProjectLayout  # noqa: E402
+
 
 def _load_json(path: Path) -> dict[str, Any]:
     """Load a JSON file, returning {} on failure."""
@@ -130,7 +132,7 @@ def generate_verification_report(project_root: str | Path) -> Path:
     """Generate 05-verification/VERIFICATION_REPORT.md. Returns the output path."""
     project = Path(project_root).resolve()
     manifest_path = project / ".methodology" / "quality_manifest.json"
-    srs_path = project / "01-requirements" / "SRS.md"
+    srs_path = ProjectLayout(project).srs_path
 
     manifest = _load_json(manifest_path)
     fr_ids: list[str] = manifest.get("fr_ids", []) or []
@@ -230,7 +232,7 @@ def generate_verification_report(project_root: str | Path) -> Path:
 - Generated: {now}
 - Generator commit: see `git log -1 --format='%H' -- harness/scripts/generate_verification_report.py`
 """
-    out = project / "05-verification" / "VERIFICATION_REPORT.md"
+    out = ProjectLayout(project).verification_report_path
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(body, encoding="utf-8")
     return out

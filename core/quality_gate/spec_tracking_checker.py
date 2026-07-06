@@ -21,8 +21,9 @@ class SpecTrackingChecker:
     def __init__(self, project_root: str):
         self.project_root = Path(project_root)
         # Support multiple possible locations
+        from core.utils.project_layout import ProjectLayout
         self.spec_file_candidates = [
-            self.project_root / "01-requirements" / "SPEC_TRACKING.md",
+            ProjectLayout(self.project_root).spec_tracking_path,
         ]
         self.template_file = Path(__file__).parent.parent / "templates" / "SPEC_TRACKING.md"
         self.spec_file = None
@@ -322,10 +323,10 @@ def compute_trace_dimension(project, gate: int) -> dict:
                 extract_nfr_ids_from_srs,
                 scan_test_nfr_coverage,
             )
-            srs_path = project_path / "01-requirements" / "SRS.md"
+            from core.utils.project_layout import ProjectLayout
+            srs_path = ProjectLayout(project_path).srs_path
             nfr_ids = extract_nfr_ids_from_srs(srs_path)
             if nfr_ids:
-                from core.utils.project_layout import ProjectLayout
                 test_nfr_map = scan_test_nfr_coverage(
                     ProjectLayout(project_path).active_test_dir
                 )

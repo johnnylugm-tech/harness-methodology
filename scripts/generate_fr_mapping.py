@@ -19,8 +19,13 @@ Scan strategy (priority order):
 import argparse
 import json
 import re
+import sys
 from pathlib import Path
 from collections import defaultdict
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # repo root for core imports
+
+from core.utils.project_layout import ProjectLayout  # noqa: E402
 
 # FR -> keyword mapping (for keyword match fallback)
 FR_KEYWORDS = {
@@ -56,8 +61,8 @@ def scan_for_fr_tags(project: Path) -> dict:
     """Scan all Python files, parse FR tags from docstrings."""
     fr_files: dict[str, list[str]] = defaultdict(list)
     src_dirs = [
-        project / "03-development" / "src",
-        project / "03-development" / "tests",
+        ProjectLayout(project).phase3_development_dir / "src",
+        ProjectLayout(project).phase3_development_dir / "tests",
         project / "src",
         project / "tests",
         project / "lib",
@@ -81,7 +86,7 @@ def scan_for_fr_tags(project: Path) -> dict:
 def scan_for_keywords(project: Path, fr_id: str, keywords: list) -> list:
     """Keyword match fallback."""
     files = []
-    src_dirs = [project / "03-development" / "src", project / "src", project / "lib"]
+    src_dirs = [ProjectLayout(project).phase3_development_dir / "src", project / "src", project / "lib"]
     for src_dir in src_dirs:
         if not src_dir.exists():
             continue

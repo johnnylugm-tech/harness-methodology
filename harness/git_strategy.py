@@ -41,6 +41,7 @@ from pathlib import Path
 
 from harness.handover_generator import HandoverGenerator
 from harness.fr_progress_tracker import FRProgressTracker
+from core.utils.project_layout import ProjectLayout
 
 # Harness runtime artifacts that pollute git history
 _GITIGNORE_ENTRIES: list[str] = [
@@ -845,7 +846,7 @@ class GitStrategy:
         missing colons are silently skipped.
         """
         for srs_path in (
-            self.project / "01-requirements" / "SRS.md",
+            ProjectLayout(self.project).srs_path,
         ):
             if not srs_path.exists():
                 continue
@@ -911,7 +912,7 @@ class GitStrategy:
         Table column order assumed: Gap ID | Source | Area | Disposition | Target Phase
         """
         for path in (
-            self.project / "01-requirements" / "SPEC_TRACKING.md",
+            ProjectLayout(self.project).spec_tracking_path,
         ):
             if not path.exists():
                 continue

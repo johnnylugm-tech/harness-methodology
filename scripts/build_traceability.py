@@ -30,6 +30,7 @@ from core.requirement_traceability import (  # noqa: E402
 from core.traceability.overlay import (  # noqa: E402
     render_merged_markdown,
 )
+from core.utils.project_layout import ProjectLayout  # noqa: E402
 from core.traceability.scanner import (  # noqa: E402
     extract_fr_ids_from_sad,
     extract_nfr_ids_from_srs,
@@ -53,7 +54,7 @@ def build_traceability(
     rt = RequirementTraceability(project_id=project_id)
 
     if sad_path is None:
-        sad_path = project / "02-architecture" / "SAD.md"
+        sad_path = ProjectLayout(project).sad_path
 
     # 1. Extract FRs from SAD.md (source of truth)
     sad_frs = extract_fr_ids_from_sad(sad_path)
@@ -63,14 +64,14 @@ def build_traceability(
     code_fr_map = scan_python_fr_annotations(project)
 
     # 3. Scan tests for FR coverage
-    has_03_tests = (project / "03-development" / "tests").is_dir()
+    has_03_tests = (ProjectLayout(project).phase3_development_dir / "tests").is_dir()
     has_root_tests = (project / "tests").is_dir()
     # Bug M26 fix: previously the fallback `else project / "tests"`
     # evaluated even when neither directory existed, silently producing
     # zero test coverage with no diagnostic. Now emit a warning on the
     # returned model so the report reflects the missing test layer.
     if has_03_tests:
-        tests_dir = project / "03-development" / "tests"
+        tests_dir = ProjectLayout(project).phase3_development_dir / "tests"
     elif has_root_tests:
         tests_dir = project / "tests"
     else:
@@ -129,7 +130,7 @@ def build_traceability(
             rt.add_test_coverage(test_file=test_file, fr_id=fr_id)
 
     # NFR coverage: scan SRS.md + test files; stored on rt for matrix rendering.
-    srs_path = project / "01-requirements" / "SRS.md"
+    srs_path = ProjectLayout(project).srs_path
     nfr_ids = extract_nfr_ids_from_srs(srs_path)
     test_nfr_map = scan_test_nfr_coverage(project / "tests") if nfr_ids else {}
     # Use setattr to avoid Pyright complaints about unknown attribute.

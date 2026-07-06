@@ -1346,7 +1346,8 @@ def _fr_dev_steps(fr_id: str, phase: int, project: Path) -> List[str]:
     num = re.match(r"FR-(\d+)", fr_id)
     num_str = num.group(1).zfill(2) if num else re.sub(r"[^a-z0-9]", "_", fr_id.lower()).strip("_")
     srs_flag = " --srs 01-requirements/SRS.md"
-    test_dir_str = "03-development/tests" if (project / "03-development" / "tests").is_dir() else "tests"
+    _layout = ProjectLayout(project)
+    test_dir_str = _layout.get_relative_str(_layout.active_test_dir)
     return [
         f"**TDD — {fr_id}** (Orchestrator dispatches sub-agents · push after each step):",
         "",
@@ -1676,7 +1677,8 @@ def _dynamic_fr_template_block(phase: int, project: Path, gate_meta: "dict | Non
             ">   Provide: last Gate 1 output + pytest failure log.",
         ]
     else:
-        test_dir_str = "03-development/tests" if (project / "03-development" / "tests").is_dir() else "tests"
+        _layout = ProjectLayout(project)
+        test_dir_str = _layout.get_relative_str(_layout.active_test_dir)
         fr_steps = [
             f"- **[ORCH-RED]**     `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step TDD-RED --project . --srs 01-requirements/SRS.md`",
             f"- **[P3-MIRROR]**    `python3 harness_cli.py check-test-mirrors-spec --phase {phase} --fr-id {{FR-ID}} --test-file {test_dir_str}/test_*.py --project .`",
@@ -3207,7 +3209,7 @@ def generate_full_plan(phase: int, repo_path: Path, output_path: Optional[Path] 
             return _existing
 
     srs_paths = [
-        repo_path / "01-requirements" / "SRS.md",
+        ProjectLayout(repo_path).srs_path,
     ]
     srs_path = next((p for p in srs_paths if p.exists()), None)
 

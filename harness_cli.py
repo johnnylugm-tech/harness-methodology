@@ -100,6 +100,7 @@ from core.phase_topology import (  # noqa: E402
 )
 from core.pre_flight import check_cli_tools  # noqa: E402
 from core.harness_config import get_timeout  # noqa: E402
+from core.utils.project_layout import ProjectLayout  # noqa: E402
 from core.canonical_form import canonical_form  # noqa: E402  # I: single source of truth for FR/NFR/TASK IDs
 
 
@@ -407,7 +408,7 @@ def _fr_step_preflight(step: str, project: Path, fr_id: str | None, srs_path: "P
 
     # ── 4. TEST_SPEC.md (required for TDD-RED — test names come from here) ───
     # Must match _extract_test_spec_names: canonical location is 02-architecture/
-    test_spec = project / "02-architecture" / "TEST_SPEC.md"
+    test_spec = ProjectLayout(project).test_spec_path
     if step == "TDD-RED":
         if not test_spec.exists():
             errors.append(
@@ -737,7 +738,7 @@ def _get_test_directories(project: Path) -> list[Path]:
             pass
             
     # 2. Canonical harness layout
-    canonical_tests = project / "03-development" / "tests"
+    canonical_tests = ProjectLayout(project).phase3_development_dir / "tests"
     if canonical_tests.is_dir():
         # Avoid duplicate if symlink already resolved to canonical
         if canonical_tests.resolve() not in [d.resolve() for d in dirs]:
@@ -1065,9 +1066,9 @@ def _run_spec_coverage_check(
         (exit_code, coverage_pct). 0 = pass, 1 = below threshold.
         If TEST_SPEC.md is absent, returns (0, 100.0) — non-blocking.
     """
-    spec_path = project / "02-architecture" / "TEST_SPEC.md"
+    spec_path = ProjectLayout(project).test_spec_path
     if not spec_path.exists():
-        sad_path = project / "02-architecture" / "SAD.md"
+        sad_path = ProjectLayout(project).sad_path
         sad_has_frs = False
         if sad_path.exists():
             sad_text = sad_path.read_text(encoding="utf-8", errors="replace")
@@ -1404,7 +1405,7 @@ def cmd_check_test_spec_consistency(args: argparse.Namespace) -> int:
     TEST_SPEC.md; it never opens any requirements source (SRS/SAD/SPEC).
     """
     project = Path(args.project).resolve()
-    spec_path = project / "02-architecture" / "TEST_SPEC.md"
+    spec_path = ProjectLayout(project).test_spec_path
     if not spec_path.exists():
         print("[check-test-spec-consistency] 02-architecture/TEST_SPEC.md not found — skipping.")
         return 0
@@ -1452,7 +1453,7 @@ def cmd_check_test_mirrors_spec(args: argparse.Namespace) -> int:
     the test, never TEST_SPEC. Reads only TEST_SPEC.md and the test file.
     """
     project = Path(args.project).resolve()
-    spec_path = project / "02-architecture" / "TEST_SPEC.md"
+    spec_path = ProjectLayout(project).test_spec_path
     fr_id = args.fr_id
     # Bug #26 fix: --test-file accepts nargs="+", so args.test_files is a list.
     # Iterate each file; aggregate violations across all files. The command
@@ -1520,7 +1521,7 @@ def cmd_check_test_inventory(args: argparse.Namespace) -> int:
 
     project = Path(args.project).resolve()
     inventory_path = project / "TEST_INVENTORY.yaml"
-    spec_path = project / "02-architecture" / "TEST_SPEC.md"
+    spec_path = ProjectLayout(project).test_spec_path
 
     # --strict: only block if BOTH TEST_SPEC.md AND TEST_INVENTORY.yaml are missing
     if getattr(args, "strict", False):
@@ -1832,7 +1833,6 @@ def _trace_dirty_state(project_path: Path) -> Dict[str, Any]:
 
     # Newest test file (language-aware glob; test_*.py or *.test.ts etc.)
     from core.utils.lang_patterns import iter_test_files, project_language
-    from core.utils.project_layout import ProjectLayout
     tests_dir = ProjectLayout(project_path).active_test_dir
     if tests_dir.is_dir():
         try:
@@ -2436,9 +2436,7 @@ def _check_sab_module_alignment(project: str, gate: int) -> Optional[int]:
     if gate != 1:
         return None
     sab_path = Path(project) / ".methodology" / "SAB.json"
-    src_dir = Path(project) / "03-development" / "src"
-    if not src_dir.exists():
-        src_dir = Path(project) / "src"
+    src_dir = ProjectLayout(project).active_src_dir
     if not (sab_path.exists() and src_dir.exists()):
         return None
     try:
@@ -2558,7 +2556,8 @@ def _cmd_run_gate_impl(args: argparse.Namespace) -> int:
             if _num_match
             else _canon
         )
-        _test_dir_str = "03-development/tests" if (Path(project) / "03-development" / "tests").is_dir() else "tests"
+        _layout = ProjectLayout(project)
+        _test_dir_str = _layout.get_relative_str(_layout.active_test_dir)
         _test_file = f"{_test_dir_str}/test_fr{_num_str}.py"
         _src_dir = "03-development/src"
 
@@ -2873,7 +2872,6 @@ def _verify_env_check_claims(project: Path) -> "list[str]":
                     _pkg = name.replace("-", "_")
                     _import_env = {**os.environ}
                     try:
-                        from core.utils.project_layout import ProjectLayout
                         _src_dir = ProjectLayout(project).active_src_dir
                         if _src_dir.is_dir():
                             _import_env["PYTHONPATH"] = os.pathsep.join(
@@ -3426,7 +3424,6 @@ def _finalize_gate_preflight(args: argparse.Namespace, project_path: Path) -> "i
 def _finalize_gate_fr_checks(args: argparse.Namespace, project_path: Path) -> "int | None":
     """I-2/I-3/I-4: Gate 1 per-FR checks (test file existence, RED ordering, spec coverage)."""
     fr_id = getattr(args, "fr_id", None) or None
-    from core.utils.project_layout import ProjectLayout
     _active_tests = ProjectLayout(project_path).active_test_dir
 
     # I-2: FR test file existence
@@ -3444,7 +3441,7 @@ def _finalize_gate_fr_checks(args: argparse.Namespace, project_path: Path) -> "i
             return 1
 
     # I-4: Spec Coverage (Gate 1, threshold 40%)
-    if args.gate == 1 and fr_id and (project_path / "02-architecture" / "TEST_SPEC.md").exists():
+    if args.gate == 1 and fr_id and (ProjectLayout(project_path).test_spec_path).exists():
         _sc1_code, _sc1_pct = _run_spec_coverage_check(
             project_path, 40.0, fr_id=fr_id, verbose=True
         )
@@ -3462,7 +3459,7 @@ def _finalize_gate_cross_checks(args: argparse.Namespace, project_path: Path) ->
     """
     # I-5: D4 Spec Coverage (Gates 2-4, unified v2.6)
     # Thresholds: Gate2=60%, Gate3=80%, Gate4=90%.
-    if args.gate >= 2 and (project_path / "02-architecture" / "TEST_SPEC.md").exists():
+    if args.gate >= 2 and (ProjectLayout(project_path).test_spec_path).exists():
         # F-2.4 fix: source the threshold from the canonical constant
         # in `spec_tracking_checker` to prevent silent divergence if
         # either side is updated independently.
@@ -5082,7 +5079,7 @@ def _validate_handoff_p1_to_p2(project: Path) -> list[str]:
         )
 
     # Check that every FR in SRS has at least one test name in inventory
-    srs_path = project / "01-requirements" / "SRS.md"
+    srs_path = ProjectLayout(project).srs_path
     if srs_path.exists():
         srs_text = srs_path.read_text(encoding="utf-8", errors="replace")
         declared_frs = set(re.findall(r"\bFR-\d+\b", srs_text))
@@ -5111,7 +5108,7 @@ def _validate_handoff_p1_to_p2(project: Path) -> list[str]:
 def _validate_handoff_p2_to_p3(project: Path) -> list[str]:
     """P2→P3: TEST_SPEC.md must contain parseable named test cases (table format)."""
     errors: list[str] = []
-    spec_path = project / "02-architecture" / "TEST_SPEC.md"
+    spec_path = ProjectLayout(project).test_spec_path
     if not spec_path.exists():
         return [
             "TEST_SPEC.md missing at 02-architecture/TEST_SPEC.md. "
@@ -5164,7 +5161,7 @@ def _validate_handoff_p4_to_p5(project: Path) -> list[str]:
     below, which is the correct handoff boundary for that file.
     """
     errors: list[str] = []
-    results_path = project / "04-testing" / "TEST_RESULTS.md"
+    results_path = ProjectLayout(project).test_results_path
     if not results_path.exists():
         return [
             "TEST_RESULTS.md missing at 04-testing/TEST_RESULTS.md. "
@@ -5201,7 +5198,7 @@ def _validate_handoff_p4_to_p5(project: Path) -> list[str]:
 def _validate_handoff_p5_to_p6(project: Path) -> list[str]:
     """P5→P6: VERIFICATION_REPORT.md must exist (aligned with plan text)."""
     errors: list[str] = []
-    report = project / "05-verification" / "VERIFICATION_REPORT.md"
+    report = ProjectLayout(project).verification_report_path
     if not report.exists() and not (project / "VERIFICATION_REPORT.md").exists():
         return [
             "VERIFICATION_REPORT.md missing at 05-verification/VERIFICATION_REPORT.md (or VERIFICATION_REPORT.md). "
@@ -5214,7 +5211,7 @@ def _validate_handoff_p6_to_p7(project: Path) -> list[str]:
     """P6→P7: QUALITY_REPORT.md, RELEASE_NOTES.md, FINAL_SIGN_OFF.md must exist
     (same artifacts P6 dispatch review covers; also gate4 quality_complete must be True)."""
     errors: list[str] = []
-    q6 = project / "06-quality"
+    q6 = ProjectLayout(project).phase6_quality_dir
     for name in ("QUALITY_REPORT.md", "RELEASE_NOTES.md", "FINAL_SIGN_OFF.md"):
         if not (q6 / name).exists() and not (project / name).exists():
             errors.append(f"{name} missing at 06-quality/{name} (or root). Phase 6 produces this file.")
@@ -5243,7 +5240,7 @@ def _validate_handoff_p7_to_p8(project: Path) -> list[str]:
     """P7→P8: risk register deliverables must exist (07-risk/RISK_REGISTER.md,
     RISK_MITIGATION_PLANS.md, RISK_STATUS_REPORT.md)."""
     errors: list[str] = []
-    q7 = project / "07-risk"
+    q7 = ProjectLayout(project).phase7_risk_dir
     for name in ("RISK_REGISTER.md", "RISK_MITIGATION_PLANS.md", "RISK_STATUS_REPORT.md"):
         if not (q7 / name).exists():
             errors.append(f"{name} missing at 07-risk/{name}. Phase 7 produces this file.")
@@ -5255,7 +5252,7 @@ def _validate_handoff_p8_to_p9(project: Path) -> list[str]:
     .methodology-archive/ release snapshot must be populated (P8 milestone
     prerequisite) before entering maintenance."""
     errors: list[str] = []
-    q8 = project / "08-config"
+    q8 = ProjectLayout(project).phase8_config_dir
     for name in ("CONFIG_RECORDS.md", "RELEASE_CHECKLIST.md"):
         if not (q8 / name).exists():
             errors.append(f"{name} missing at 08-config/{name}. Phase 8 produces this file.")
@@ -5684,7 +5681,7 @@ def cmd_load_context(args: argparse.Namespace) -> int:
     fr_details: dict = {}
     try:
         from scripts.generate_full_plan import parse_srs_fr_sections
-        srs_path = project / "01-requirements" / "SRS.md"
+        srs_path = ProjectLayout(project).srs_path
         frs = parse_srs_fr_sections(srs_path if srs_path.exists() else None)
         for fr in frs:
             fr_details[fr["fr"]] = {
@@ -5994,7 +5991,6 @@ def _validate_fr_coverage_immediate(
     same measurement so the manifest's recorded score is verified live.
 
     """
-    from core.utils.project_layout import ProjectLayout
     layout = ProjectLayout(project)
     src_dir = layout.active_src_dir
     tests_dir = layout.active_test_dir
@@ -6431,7 +6427,6 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
     try:
         from core.quality_gate.constitution import run_constitution_check
         from core.quality_gate.constitution.profile import get_profile
-        from core.utils.project_layout import ProjectLayout
         _phase_dir = ProjectLayout(project).get_phase_dir(completed_phase)
         _const_result = run_constitution_check(
             check_type="all", docs_path=str(_phase_dir),
@@ -6549,7 +6544,7 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
             sc_thresh = 60.0
 
         # 1. pytest + 100% coverage on TDD-governed source
-        src_dir = project / "03-development" / "src"
+        src_dir = ProjectLayout(project).active_src_dir
         if src_dir.is_dir():
             # 0.2 Linting (ruff)
             if shutil.which("ruff"):
@@ -7001,7 +6996,7 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
     # silent-skip — we have been bitten by silent skips before.
     _manifest_regenerated = False
     if args.completed_phase == 2:
-        sad_path = project / "02-architecture" / "SAD.md"
+        sad_path = ProjectLayout(project).sad_path
         if sad_path.exists():
             try:
                 from harness.harness_bridge import HarnessBridge
@@ -7023,7 +7018,7 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                     # using em-dash (`### FR-01 — ...`) — leaving fr_ids empty and
                     # tripping the manifest-integrity pre-flight (Bug #140).
                     import re as _re_fr
-                    _srs = project / "01-requirements" / "SRS.md"
+                    _srs = ProjectLayout(project).srs_path
                     if _srs.exists():
                         _fr_ids = [
                             f"FR-{n}" for n in _re_fr.findall(
@@ -7380,11 +7375,11 @@ def _fr_step_already_done(step: str, fr_id: str, project: Path) -> bool:
     # Dual verification for TDD
     if step.upper() == "TDD-RED":
         num_str = _fr_num_str(fr_id)
-        test_dir = project / "03-development" / "tests" if (project / "03-development" / "tests").is_dir() else project / "tests"
+        test_dir = ProjectLayout(project).active_test_dir
         test_file = test_dir / f"test_fr{num_str}.py"
         return test_file.exists()
     elif step.upper() == "TDD-GREEN":
-        src_dir = project / "03-development" / "src"
+        src_dir = ProjectLayout(project).active_src_dir
         if not src_dir.exists():
             return False
         num_str = _fr_num_str(fr_id)
@@ -7620,7 +7615,7 @@ def _extract_test_spec_names(project: Path, fr_id: str) -> tuple[list[str], str]
 
     Returns ([], "") when TEST_SPEC.md is missing or has no entries for this FR.
     """
-    test_spec_path = project / "02-architecture" / "TEST_SPEC.md"
+    test_spec_path = ProjectLayout(project).test_spec_path
     if not test_spec_path.exists():
         return [], ""
 
@@ -7727,7 +7722,8 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
     """
     step = step.upper()
     num_str = _fr_num_str(fr_id)
-    test_dir_str = "03-development/tests" if (project / "03-development" / "tests").is_dir() else "tests"
+    _layout = ProjectLayout(project)
+    test_dir_str = _layout.get_relative_str(_layout.active_test_dir)
     test_file = f"{test_dir_str}/test_fr{num_str}.py"
     src_dir = "03-development/src"
 
@@ -8400,7 +8396,8 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
     # Compute src_dir and test_file — used by GATE1 retry and _capture_tool_snapshot.
     _num_str = _fr_num_str(fr_id)
     src_dir = "03-development/src"
-    test_dir_str = "03-development/tests" if (project / "03-development" / "tests").is_dir() else "tests"
+    _layout = ProjectLayout(project)
+    test_dir_str = _layout.get_relative_str(_layout.active_test_dir)
     test_file = f"{test_dir_str}/test_fr{_num_str}.py"
 
     # Per-FR config: read fr_config from quality_manifest.json.
@@ -9904,7 +9901,6 @@ def cmd_check_constitution(args: argparse.Namespace) -> int:
         return _print_constitution_result(result, composite_threshold, profile, phase, file_path)
 
     # ── Existing directory branch (unchanged) ──────────────────────────
-    from core.utils.project_layout import ProjectLayout
     _phase_dir = ProjectLayout(project).get_phase_dir(phase)
     if not _phase_dir.exists():
         print(f"[SKIP] Phase {phase} directory not found: {_phase_dir}")

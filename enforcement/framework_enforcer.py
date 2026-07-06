@@ -22,7 +22,7 @@ import sys
 import xml.etree.ElementTree as ET  # nosec B405
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
-from core.utils.project_layout import phase_artifacts
+from core.utils.project_layout import ProjectLayout, phase_artifacts
 
 
 
@@ -169,7 +169,7 @@ class FrameworkEnforcer:
         for candidate in [
             self.project_root / "CHECKLIST.md",
             self.project_root / "docs" / "CHECKLIST.md",
-            self.project_root / "01-requirements" / "CHECKLIST.md",
+            ProjectLayout(self.project_root).phase1_requirements_dir / "CHECKLIST.md",
         ]:
             if candidate.exists():
                 return {"exists": True, "path": str(candidate)}
@@ -192,7 +192,7 @@ class FrameworkEnforcer:
         # ── Fast path: parse existing coverage.xml ────────────────────────
         for candidate in [
             self.project_root / "coverage.xml",
-            self.project_root / "03-development" / "coverage.xml",
+            ProjectLayout(self.project_root).phase3_development_dir / "coverage.xml",
             self.project_root / "htmlcov" / "coverage.xml",
         ]:
             if candidate.exists():
@@ -216,7 +216,7 @@ class FrameworkEnforcer:
         cov_source = read_coveragerc_source(self.project_root)
         
         test_target = "."
-        if (self.project_root / "03-development" / "tests").is_dir():
+        if (ProjectLayout(self.project_root).phase3_development_dir / "tests").is_dir():
             test_target = "03-development/tests"
         elif (self.project_root / "tests").is_dir():
             test_target = "tests"
@@ -250,7 +250,7 @@ class FrameworkEnforcer:
         """Run check traceability matrix validation."""
         trace_file = None
         for candidate in [
-            self.project_root / "01-requirements" / "TRACEABILITY_MATRIX.md",
+            ProjectLayout(self.project_root).traceability_matrix_path,
         ]:
             if candidate.exists():
                 trace_file = candidate

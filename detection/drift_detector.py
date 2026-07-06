@@ -40,7 +40,7 @@ def read_package_dir(project_path: Path) -> Optional[str]:
     """
     import configparser
 
-    for candidate in (project_path / "03-development" / "setup.cfg",
+    for candidate in (ProjectLayout(project_path).phase3_development_dir / "setup.cfg",
                       project_path / "setup.cfg"):
         if not candidate.exists():
             continue
@@ -65,7 +65,7 @@ def read_package_dir(project_path: Path) -> Optional[str]:
             pass
 
     import re
-    for candidate in (project_path / "03-development" / "pyproject.toml",
+    for candidate in (ProjectLayout(project_path).phase3_development_dir / "pyproject.toml",
                       project_path / "pyproject.toml"):
         if not candidate.exists():
             continue
@@ -334,7 +334,7 @@ class DriftDetector:
             # src/X.py but files live at 03-development/src/X.py.
             candidates = [
                 self.project_path / rel_path,
-                self.project_path / "03-development" / rel_path,
+                ProjectLayout(self.project_path).phase3_development_dir / rel_path,
                 self.project_path / "app" / rel_path.split("/")[-1],
             ]
             exists = any(p.exists() for p in candidates)
@@ -583,7 +583,7 @@ class DriftDetector:
                 exists = False
                 for candidate in path_variants:
                     if ((self.project_path / candidate).exists() or
-                            (self.project_path / "03-development" / candidate).exists()):
+                            (ProjectLayout(self.project_path).phase3_development_dir / candidate).exists()):
                         exists = True
                         break
                 if not exists:

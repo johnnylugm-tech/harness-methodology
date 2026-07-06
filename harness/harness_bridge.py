@@ -18,6 +18,7 @@ from harness.decision_log import DecisionLogWriter, DecisionLogEntry, DecisionCo
 from harness.effort_tracker import EffortTracker, EffortRecord
 from core.phase_topology import PER_FR_GATE1_PHASES
 from core.quality_gate.constitution.profile import GateConfig
+from core.utils.project_layout import ProjectLayout
 
 try:
     from core.atomic_io import atomic_write_json  # type: ignore[import-not-found]
@@ -1593,7 +1594,7 @@ class HarnessBridge:
         sad_path = None
         for sad_candidate in [
             root / "SAD.md",
-            root / "02-architecture" / "SAD.md",
+            ProjectLayout(root).phase2_architecture_dir / "SAD.md",
             root / "architecture" / "SAD.md",
             root / "docs" / "SAD.md",
         ]:
@@ -1616,7 +1617,7 @@ class HarnessBridge:
         srs_path = None
         for srs_candidate in [
             root / "SRS.md",
-            root / "01-requirements" / "SRS.md",
+            ProjectLayout(root).srs_path,
             root / "requirements" / "SRS.md",
             root / "docs" / "SRS.md",
         ]:
@@ -1834,10 +1835,9 @@ class HarnessBridge:
         _spec_names: list[str] = []
         _existing_spec: set[str] = set()
         if fr_id and gate_num == 1 and phase in PER_FR_GATE1_PHASES:
-            _test_dir = Path(project_root) / "03-development" / "tests"
-            if not _test_dir.is_dir():
-                _test_dir = Path(project_root) / "tests"
-            _spec_path = Path(project_root) / "02-architecture" / "TEST_SPEC.md"
+            _layout = ProjectLayout(project_root)
+            _test_dir = _layout.active_test_dir
+            _spec_path = _layout.test_spec_path
             if _spec_path.exists():
                 try:
                     _spec_text = _spec_path.read_text(encoding="utf-8")
@@ -2483,7 +2483,7 @@ class HarnessBridge:
         - H3-heading:  ### NFR-01: Performance
         - Pipe-table:  | NFR-01 | Performance | description |
         """
-        srs_path = project_root / "01-requirements" / "SRS.md"
+        srs_path = ProjectLayout(project_root).srs_path
         if not srs_path.exists():
             return {}
         try:
@@ -2511,7 +2511,7 @@ class HarnessBridge:
         Looks for a pipe-table whose header contains 'NFR Association'.
         Returns {nfr_id: [fr_id, ...]} reverse mapping.
         """
-        srs_path = project_root / "01-requirements" / "SRS.md"
+        srs_path = ProjectLayout(project_root).srs_path
         if not srs_path.exists():
             return {}
         try:
