@@ -185,10 +185,13 @@ class SpecTrackingChecker:
 
 # ---------------------------------------------------------------------------
 # PR 4: gate-dimension trace score
-# Fuses 4a (FR → code → test) with 4b (TEST_SPEC → test) into a single
-# `traceability` dimension. 4a is 100% at G2/G3/G4 over FRs with status
-# ∈ {IN_PROGRESS, VERIFIED} (PENDING excluded from denominator).
-# 4b is unchanged (60/80/90%). Merged score = min(4a, 4b). Fail-closed.
+# Fuses 4a (FR → code → test) with 4b (TEST_SPEC → test) and 4c (NFR →
+# test) into a single `traceability` dimension. 4a is 100% at G2/G3/G4
+# over FRs with status ∈ {IN_PROGRESS, VERIFIED} (PENDING excluded from
+# denominator). 4b and 4c share the 60/80/90% threshold ladder at
+# G2/G3/G4. NFR-99 (placeholder for deferred/ambiguity markers per
+# phase1_plan.md R-CANONICAL-INTERP-001) is excluded from the 4c
+# denominator. Merged score = min(4a, 4b, 4c). Fail-closed.
 # ---------------------------------------------------------------------------
 
 TRACE_THRESHOLDS = {2: 100, 3: 100, 4: 100}  # 4a: 100% at G2/G3/G4
@@ -326,6 +329,11 @@ def compute_trace_dimension(project, gate: int) -> dict:
             from core.utils.project_layout import ProjectLayout
             srs_path = ProjectLayout(project_path).srs_path
             nfr_ids = extract_nfr_ids_from_srs(srs_path)
+            # F-2.2: NFR-99 is the placeholder convention for deferred
+            # / TBD / ambiguity markers (see phase1_plan.md L96,
+            # R-CANONICAL-INTERP-001). It is not a real NFR that requires
+            # test coverage — exclude from the 4c denominator.
+            nfr_ids = {n for n in nfr_ids if n != "NFR-99"}
             if nfr_ids:
                 test_nfr_map = scan_test_nfr_coverage(
                     ProjectLayout(project_path).active_test_dir

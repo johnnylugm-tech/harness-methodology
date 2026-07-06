@@ -268,6 +268,54 @@ def test_4c_nfr_untested_fails_gate2(tmp_path):
     assert result["passed"] is False
 
 
+def test_4c_excludes_nfr99_placeholder(tmp_path):
+    """NFR-99 is the harness convention for deferred/TBD/ambiguity markers.
+
+    Per phase1_plan.md L96 + phase1_agent_b_rules (R-CANONICAL-INTERP-001),
+    NFR-99 is a placeholder emitted when canonical spec contains TBD/TODO/
+    ambiguous phrases that REQUIRE stakeholder resolution. It is NOT a real
+    NFR that needs test coverage at Gate 2; demanding test coverage would
+    create a self-contradictory requirement (write tests for unresolved
+    ambiguity). Therefore 4c denominator must exclude NFR-99.
+    """
+    sys_path = str(Path(__file__).resolve().parent.parent)
+    if sys_path not in __import__("sys").path:
+        __import__("sys").path.insert(0, sys_path)
+    # 7 NFRs total, 1 is NFR-99 placeholder, 6 are real.
+    # Only 2 of 6 real NFRs have test references → 2/6 = 33.3%.
+    # NFR-99 is excluded from denominator entirely.
+    _make_nfr_repo(
+        tmp_path,
+        ["NFR-01", "NFR-02", "NFR-03", "NFR-04", "NFR-05", "NFR-06", "NFR-99"],
+        {
+            "test_a.py": "# NFR-01 perf\ndef test_latency(): pass\n",
+            "test_b.py": "# NFR-02 sec\ndef test_redaction(): pass\n",
+        },
+    )
+    from core.quality_gate.spec_tracking_checker import compute_trace_dimension
+    with patch("harness_cli._run_spec_coverage_check", return_value=(0, 100.0)):
+        result = compute_trace_dimension(tmp_path, gate=2)
+    # 2 covered / 6 real = 33.33% (not 2/7 = 28.57%)
+    assert result["4c_nfr_to_test_pct"] == 33.33
+    # NFR-99 must NOT appear in nfr_untested (it's not in denominator)
+    assert "NFR-99" not in result["nfr_untested"]
+    # Real untested NFRs must appear
+    assert set(result["nfr_untested"]) == {"NFR-03", "NFR-04", "NFR-05", "NFR-06"}
+
+
+def test_4c_only_nfr99_present_is_vacuous_pass(tmp_path):
+    """SRS.md containing ONLY NFR-99 placeholder → 4c = 100% vacuous pass."""
+    sys_path = str(Path(__file__).resolve().parent.parent)
+    if sys_path not in __import__("sys").path:
+        __import__("sys").path.insert(0, sys_path)
+    _make_nfr_repo(tmp_path, ["NFR-99"], {})
+    from core.quality_gate.spec_tracking_checker import compute_trace_dimension
+    with patch("harness_cli._run_spec_coverage_check", return_value=(0, 100.0)):
+        result = compute_trace_dimension(tmp_path, gate=2)
+    assert result["4c_nfr_to_test_pct"] == 100.0
+    assert result["nfr_untested"] == []
+
+
 def test_4c_nfr_partial_coverage_fails_gate2(tmp_path):
     """50% NFR coverage < 60% threshold at G2 → gate fails."""
     sys_path = str(Path(__file__).resolve().parent.parent)

@@ -1670,6 +1670,55 @@ class TestTddDevSteps:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Regression tests for 4c NFR→test coverage instruction injection (F-2.3)
+#
+# Root cause: compute_trace_dimension (PR 4 / f8b0302) requires every NFR-XX
+# in SRS.md to appear in at least one test file at Gate 2+. Until now the
+# plan generator told agents "NFR compliance verified via Gate 2 tool-scored
+# dimensions, not separate tasks" — which gave agents NO instruction to add
+# `NFR-XX` annotations to test files. Result: 4c = 0% and Gate 2 fails
+# out-of-the-box for any project that follows the plan verbatim.
+#
+# Fix: inject NFR annotation instruction into per-FR TDD-RED step + NFR
+# Coverage section + HR-16 reminder block.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestNfrAnnotationInstruction:
+    def test_p3_static_nfr_section_removed_misleading_wording(self, project: Path):
+        """The static NFR Coverage section MUST NOT tell agents that NFR
+        compliance is verified without separate tasks — that wording caused
+        agents to skip NFR annotations in test files."""
+        joined = "\n".join(generate_phase3_tasks(project, project / "SRS.md"))
+        # Old misleading wording (replaced by explicit annotation instruction)
+        assert "not separate tasks" not in joined
+        # New explicit instruction
+        assert "NFR" in joined and ("annotation" in joined.lower() or "annotate" in joined.lower())
+
+    def test_p3_fr_dev_steps_includes_nfr_annotation_instruction(self, project: Path):
+        """_fr_dev_steps ORCH-RED block must mention annotating test file
+        with NFR-XX IDs derived from SRS.md §2 NFR Association column.
+        Without this, compute_trace_dimension 4c denominator blocks Gate 2."""
+        joined = "\n".join(_fr_dev_steps("FR-01", phase=3, project=project))
+        # The instruction must reference both the test file and NFR tagging
+        assert "test_fr" in joined
+        assert "NFR" in joined
+        # Must explain WHY (4c gate dimension) so agents don't dismiss it
+        assert "4c" in joined or "traceability" in joined.lower()
+
+    def test_hr16_reminder_mentions_4b_and_4c(self, project: Path):
+        """The HR-16 hard-rule reminder must mention all three trace dims
+        (4a, 4b, 4c), not just 4a. Agents reading only "4a = 100%" will miss
+        the 4c requirement that is enforced at Gate 2+."""
+        # generate_full_plan() is what the orchestrator consumes; it is
+        # where the hard-rules block (incl. HR-16 reminder) is assembled.
+        joined = generate_full_plan(3, project)
+        # The reminder must reference each trace dim
+        assert "4a" in joined
+        assert "4b" in joined
+        assert "4c" in joined
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Regression tests for bugs fixed in commit fe3e429
 # ═══════════════════════════════════════════════════════════════════════════════
 
