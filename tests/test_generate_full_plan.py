@@ -114,6 +114,15 @@ class TestGateExitCheckpoint:
         joined = "\n".join(lines)
         assert "gate4_result.json" in joined
 
+    def test_da_waiver_points_at_gate_result_json(self):
+        """Doc/code drift fix: the waiver lives in .sessi-work/gate{N}_result.json
+        (read by _collect_da_waivers), NOT quality_manifest.json. Gate 3 honors
+        the same mechanism as Gate 4."""
+        for gate_num, phase in [(3, 4), (4, 6)]:
+            joined = "\n".join(_gate_exit_checkpoint(gate_num, phase))
+            assert "gate{N}_result.json" in joined, f"Gate {gate_num}"
+            assert "set `da_waiver` in quality_manifest.json" not in joined, f"Gate {gate_num}"
+
     def test_early_stop_cases_present(self):
         """GAP-E fix: early-stop cases must appear in exit gate checklist."""
         for gate_num, phase in [(2, 3), (3, 4), (4, 6)]:

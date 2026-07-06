@@ -259,12 +259,28 @@ _PROJECT_ROOT=$(pwd)
 **Scored by the framework's OWN independent CRG run — not the LLM, not the agent.**
 At finalize-gate the harness itself runs `code-review-graph build` + `postprocess`
 (via `harness/crg_independent.py`) and computes `community_cohesion.score` — percent of
-healthy communities (cohesion >= 0.3 AND size <= 50). Test-only communities
-(name starts with `tests`/`test`) are automatically excluded from scoring —
-test files have no structural dependency edges with each other and always form
-an oversized zero-cohesion blob under directory-based grouping. Whatever value
-you record is **overwritten** by this framework-computed score, so do not
-fabricate it.
+healthy communities. A community is healthy when `cohesion >= threshold` (default 0.3;
+env `CRG_COHESION_HEALTHY`) and `size <= 50`; communities with `size < 5` are exempt
+from the low-cohesion penalty (too few nodes for a meaningful edge-density estimate).
+Non-product communities are excluded from scoring when the name starts with
+`tests`/`test`, OR >50 % of files are under `tests/`/`.methodology/`, OR >50 % of
+files match a `crg_excludes` glob (below) — test files and project tooling have no
+structural dependency edges with each other and always form zero-cohesion blobs
+under directory-based grouping. Whatever value you record is **overwritten** by this
+framework-computed score, so do not fabricate it.
+
+**Per-project calibration** (top-level keys in `.methodology/harness_config.json`,
+committed and reproducible — beats `CRG_*` env vars):
+```json
+{
+  "crg_cohesion_healthy": 0.2,
+  "crg_excludes": [".claude/*", "*.mjs"]
+}
+```
+- `crg_cohesion_healthy` — lower the healthy floor for small packages (≤ ~10 source
+  files) where Leiden over-fragments and per-community cohesion estimates are noisy.
+- `crg_excludes` — fnmatch globs over repo-relative file paths; workflow scripts and
+  root driver scripts are tooling, not product code.
 
 `code-review-graph` is a REQUIRED component (like ruff/mypy); a missing binary BLOCKS
 the gate (verified at run-phase preflight — no graceful degradation).
@@ -296,17 +312,17 @@ that imports from ≥5 sub-packages, CRG Leiden algorithm will report `score = 0
 **Detection**: `list_communities` shows 1 large community (size > 50) AND
 `get_hub_nodes` shows 1 node with fan_out > 8, all other nodes fan_in ≤ 2.
 
-**Gate 3 path**: Complete the Devil's Advocate challenge (verify_round.md Step 4) and
-document that the orchestrator pattern is intentional. Gate 3 will block on score — note
-the justification in findings and proceed to Gate 4 with DA evidence.
-
-**Gate 4 path**: Set both fields in `gate4_result.json`:
+**Gate 3 / Gate 4 path**: Set these fields in `.sessi-work/gate{N}_result.json`
+(gate3_result.json at Gate 3, gate4_result.json at Gate 4):
 ```json
-"devil_advocate": {"architecture": true, ...},
-"da_waiver":      {"architecture": true}
+"devil_advocate":          {"architecture": true, ...},
+"da_waiver":               {"architecture": true},
+"devil_advocate_evidence": {"architecture": {"challenge": "...", "response": "..."}}
 ```
-The harness `finalize_gate()` will bypass the architecture score threshold when both
-`devil_advocate.architecture` and `da_waiver.architecture` are `true`.
+The harness `finalize-gate` will bypass the architecture score threshold when
+`devil_advocate.architecture` and `da_waiver.architecture` are both `true` AND the
+`devil_advocate_evidence.architecture` entry carries a real challenge + response
+(≥120 chars each — a bare boolean is rejected and BLOCKS the gate).
 
 > **Structural defence only (A3):** the `devil_advocate.architecture` evidence
 > (challenge + response prose) is agent-authored — the harness checks it is present and

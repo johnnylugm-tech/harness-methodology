@@ -134,7 +134,10 @@ def check_fr_coverage(project_root: Path, _phase: int) -> List[Dict[str, str]]:
         return violations
 
     claimed_frs: set[str] = set()
-    for m in re.finditer(r'FR-(\d+)', results_content, re.IGNORECASE):
+    # (?<![A-Za-z]) so "NFR-06" is not miscounted as a claim of FR-06 —
+    # NFR rows in TEST_RESULTS.md are legitimate and have no fr_id session
+    # log entries, so the substring match produced false-positive HIGHs.
+    for m in re.finditer(r'(?<![A-Za-z])FR-(\d+)', results_content, re.IGNORECASE):
         claimed_frs.add(f"FR-{m.group(1).zfill(2)}")
 
     if not claimed_frs:

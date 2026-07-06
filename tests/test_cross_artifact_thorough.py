@@ -45,6 +45,22 @@ def test_check_fr_coverage_missing_fr_id_in_log(tmp_path):
     assert len(violations) == 1
     assert violations[0]["fr_id"] == "FR-01"
 
+def test_check_fr_coverage_nfr_rows_not_miscounted_as_fr(tmp_path):
+    """NFR-06 must NOT be claimed as FR-06 — the old r'FR-(\\d+)' pattern
+    matched the substring inside 'NFR-06', producing a false-positive HIGH
+    ('FR-06 claimed but has no session log evidence') for every NFR row
+    in TEST_RESULTS.md."""
+    (tmp_path / "04-testing").mkdir(parents=True)
+    (tmp_path / "04-testing" / "TEST_RESULTS.md").write_text(
+        "| FR-01 | pass |\n| NFR-06 | env-var defaults | 3 | test_nfr.py |\n"
+    )
+    (tmp_path / ".methodology").mkdir(parents=True)
+    (tmp_path / ".methodology" / "sessions_spawn.log").write_text('{"fr_id": "FR-01"}\n')
+
+    violations = check_fr_coverage(tmp_path, 4)
+    assert violations == []
+
+
 def test_check_fr_coverage_read_error(tmp_path):
     (tmp_path / "04-testing").mkdir(parents=True)
     (tmp_path / "04-testing" / "TEST_RESULTS.md").mkdir()
