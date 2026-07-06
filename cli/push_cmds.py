@@ -213,6 +213,16 @@ def cmd_push_milestone(args: _hc.argparse.Namespace) -> int:
         print(f"[dry-run] push-milestone --type {args.type} would: write HANDOVER.md + "
               f"commit + push to origin (no changes made; Bug #112 safety flag)")
         return 0
+    # F-2.5-style refresh: deliverables may have been written since
+    # attestation.json was last built, which would fail the `_trace_dirty_state`
+    # pre-commit probe mid-push. Mirrors the same pre-refresh block in
+    # cmd_push_checkpoint (push_cmds.py:40-50) so every push path is symmetric.
+    try:
+        from scripts.build_trace_attestation import build_attestation, write_attestation
+        _att = build_attestation(project)
+        write_attestation(project, _att)
+    except Exception as _att_err:  # pylint: disable=broad-exception-caught
+        print(f"  [WARN] attestation pre-refresh failed: {_att_err}")
     milestone_type = args.type
     fr_ids = [f.strip() for f in args.fr_ids.split(",") if f.strip()]
 

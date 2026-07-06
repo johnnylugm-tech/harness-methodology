@@ -501,7 +501,7 @@ def _record_gate_timestamp(project: Path, phase: int, gate_num: int, fr_id: str 
         pass  # Non-blocking
 
 def _check_commit_intervals(
-    project: str, phase: int, gate_num: int
+    project: str, phase: int, gate_num: int, fr_id: str | None = None
 ) -> tuple[bool, str]:
     """Check if current gate attempt would exceed the batch-commit threshold (P1).
 
@@ -510,7 +510,11 @@ def _check_commit_intervals(
     accumulate in the file and trigger false positives on retry.
 
     Blocks if ≥2 prior successful finalizations exist within a 2-second window for the
-    same (phase, gate) bucket (3 total = statistically implausible for genuine per-FR work).
+    same (phase, gate, fr_id) bucket (3 total = statistically implausible for genuine
+    per-FR work). fr_id is optional: when None the check is phase-level only (legacy
+    behaviour for callers that don't track per-FR); when provided, distinct FRs do
+    not collide into the same bucket, so 5 FRs completing in the same 2s window is
+    no longer flagged as fraud.
     Returns (ok, diagnostic).
     """
     import time as _time
@@ -542,6 +546,14 @@ def _check_commit_intervals(
                 if (entry.get("phase") == phase
                         and entry.get("gate") == gate_num
                         and now - entry.get("ts", 0) <= 2.0):
+                    # Per-FR bucket isolation: when the caller provides an fr_id,
+                    # only count entries with the SAME fr_id as "same bucket".
+                    # Distinct FRs finalizing within 2s (the natural per-FR
+                    # sequential finalize-gate pattern) must NOT collide here —
+                    # doing so was producing false-positive fraud blocks during
+                    # Phase 3 Gate 1 finalization runs.
+                    if fr_id is not None and entry.get("fr_id") != fr_id:
+                        continue
                     recent.append(entry)
         except OSError:
             pass
@@ -2379,9 +2391,11 @@ def _finalize_gate_preflight(args: argparse.Namespace, project_path: Path) -> "i
         )
         return 8
 
-    # S0b: Commit interval enforcement (P1 — prevent batch fabrication)
+    # S0b: Commit interval enforcement (P1 — prevent batch fabrication).
+    # Per-FR isolation: pass fr_id so distinct FRs finalizing in the same
+    # 2s window are not falsely flagged as batch fabrication.
     _interval_ok, _interval_msg = _check_commit_intervals(
-        project, args.phase, args.gate
+        project, args.phase, args.gate, fr_id
     )
     if not _interval_ok:
         print(f"\n[BLOCKED] Commit interval violation: {_interval_msg}")

@@ -230,3 +230,19 @@ class TestSpecTrackingParserFindEntriesWithoutStatus:
         content = "Some text | Spec | Status | Notes\nFR-01 | Done | ok"
         result = SpecTrackingParser.find_entries_without_status(content)
         assert isinstance(result, list)
+
+    def test_approved_prose_recognised_h4(self):
+        """H-4: P2 SPEC_TRACKING.md uses 'APPROVED' as the status marker
+        after Peer Review. Without this, completeness checker scored 0%
+        on every entry. Now 'approved' (any case) counts as recognised."""
+        content = (
+            "| FR ID | Spec | Status |\n"
+            "|-------|------|--------|\n"
+            "| FR-01 | feature | Approved |\n"
+            "| FR-02 | feature | APPROVED |\n"
+            "| FR-03 | feature | done |\n"
+        )
+        result = SpecTrackingParser.find_entries_without_status(content)
+        assert result == [], (
+            f"approved/APPROVED must be recognised; got missing={result}"
+        )

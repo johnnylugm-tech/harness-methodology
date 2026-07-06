@@ -190,6 +190,28 @@ class TestCommitIntervals:
         ok, _ = _check_commit_intervals(str(tmp_path), 4, 3)
         assert ok  # Gate 3 ≠ Gate 1 → different bucket
 
+    def test_distinct_frs_dont_collide_into_fraud_bucket(self, tmp_path):
+        """H-1: 3 distinct FRs finalizing within 2s is the natural per-FR
+        sequential pattern — must NOT be flagged as batch fabrication.
+        Regression: before this fix, all 3 collapsed into one (phase, gate)
+        bucket and triggered a false-positive BLOCK on FR-03/04/05 in P3."""
+        from harness_cli import _check_commit_intervals, _record_gate_timestamp
+        _record_gate_timestamp(tmp_path, 3, 1, "FR-01")
+        _record_gate_timestamp(tmp_path, 3, 1, "FR-02")
+        ok, msg = _check_commit_intervals(str(tmp_path), 3, 1, "FR-03")
+        assert ok, f"distinct FRs must not collide; got BLOCK: {msg}"
+        assert msg == ""
+
+    def test_same_fr_in_window_still_blocked(self, tmp_path):
+        """H-1: Same FR finalized 3× in window — MUST still block.
+        Preserves the original anti-batch-fabrication guarantee."""
+        from harness_cli import _check_commit_intervals, _record_gate_timestamp
+        _record_gate_timestamp(tmp_path, 3, 1, "FR-01")
+        _record_gate_timestamp(tmp_path, 3, 1, "FR-01")
+        ok, msg = _check_commit_intervals(str(tmp_path), 3, 1, "FR-01")
+        assert not ok
+        assert "within 2 seconds" in msg
+
 
 # ---------------------------------------------------------------------------
 # S3: Tool evidence enforcement

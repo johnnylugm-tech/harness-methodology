@@ -39,7 +39,7 @@ class SpecTrackingParser:
         # words appeared inside feature descriptions rather than the status column.
         if non_empty:
             p_clean = re.sub(r"[^\w\s\-]", "", non_empty[0]).strip().lower()
-            if p_clean in ("done", "pending", "not implemented", "in progress", "in-progress", "not started", "deferred"):
+            if p_clean in ("done", "pending", "not implemented", "in progress", "in-progress", "not started", "deferred", "approved"):
                 return non_empty[0]
         return ""
 
