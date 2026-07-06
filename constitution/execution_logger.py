@@ -19,6 +19,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
+from core.phase_topology import VALID_PHASES
+
 
 @dataclass
 class ExecutionLogEntry:
@@ -121,7 +123,7 @@ class ExecutionLogger:
     def _infer_phase_from_task(task: str) -> int:
         """Infer phase number from task description."""
         task_lower = task.lower()
-        for pn in range(1, 10):
+        for pn in VALID_PHASES:
             if f"phase {pn}" in task_lower or f"p{pn}" in task_lower:
                 return pn
         return 1

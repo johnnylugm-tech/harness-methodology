@@ -28,6 +28,8 @@ import json
 from pathlib import Path
 from typing import Any, List, Dict, Optional
 
+from core.phase_topology import PHASE_PREREQUISITES as _TOPOLOGY_PREREQUISITES
+
 
 class BVSRunner:
     """Behavioral Verification System runner.
@@ -36,10 +38,9 @@ class BVSRunner:
     and ExecutionLogger integration.
     """
 
-    # Minimum phase prerequisites: key phase must have key-1 complete first
-    PHASE_PREREQUISITES: Dict[int, int] = {
-        2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 7: 6, 8: 7, 9: 8,
-    }
+    # Minimum phase prerequisites: key phase must have key-1 complete first.
+    # Sourced from the topology SSOT (core/phase_topology.py).
+    PHASE_PREREQUISITES: Dict[int, int] = _TOPOLOGY_PREREQUISITES
 
     def __init__(self, project_path: str, phase: int = 1) -> None:
         """Initialize with project root and target phase."""

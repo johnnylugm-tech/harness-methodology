@@ -29,6 +29,12 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional, cast
 from core.harness_config import load_harness_config as _load_harness_config
+from core.phase_topology import (
+    EXIT_GATE_MAP,
+    PER_FR_GATE1_PHASES,
+    VALID_PHASES,
+    phase_name,
+)
 from core.utils.project_layout import ProjectLayout
 
 try:
@@ -552,9 +558,10 @@ def parse_srs_nfr_sections(srs_path: Optional[Path]) -> List[Dict]:
 # Gate Step Helpers (two-phase evaluation: run-gate → evaluate → finalize-gate)
 # ============================================================================
 
-# Phase → gate applicability (P9 maintenance: per-CR touched FRs)
-_PHASE_GATE1_PHASES: frozenset = frozenset({3, 4, 5, 7, 8, 9})   # Gate 1 per-FR
-_PHASE_EXIT_GATES: dict = {3: 2, 4: 3, 6: 4}                  # phase → exit gate num
+# Phase → gate applicability. Sourced from the topology SSOT
+# (core/phase_topology.py) — do not re-declare literals here.
+_PHASE_GATE1_PHASES: frozenset = PER_FR_GATE1_PHASES   # Gate 1 per-FR
+_PHASE_EXIT_GATES: dict = EXIT_GATE_MAP                 # phase → exit gate num
 
 # 10-Push Strategy labels for the P1/P2 checkpoint pushes (① ②).
 # Pushes ③–⑩ are emitted by _milestone_push_steps / _gate_exit_checkpoint;
@@ -1463,13 +1470,7 @@ def _phase_advance_step(phase: int, dynamic: bool = False) -> List[str]:
             "",
         ]
     next_phase = phase + 1
-    next_names = {
-        2: "Architecture Design", 3: "Implementation",
-        4: "Testing", 5: "Verification & Delivery", 6: "Quality Assurance",
-        7: "Risk Management", 8: "Configuration Management",
-        9: "Maintenance",
-    }
-    next_name = next_names.get(next_phase, f"Phase {next_phase}")
+    next_name = phase_name(next_phase, default=f"Phase {next_phase}")
     # TDD thresholds: mirror _advance_prechecks in harness_cli.py
     _tdd_sc = 90.0 if phase >= 6 else (80.0 if phase >= 4 else 60.0)  # unified v2.6
     lines = [
@@ -1631,7 +1632,7 @@ def _validate_handoff_precondition_block(phase: int) -> List[str]:
 
     Inserted into the Pre-Phase Preflight block of every plan from P2 onward.
     """
-    if phase < 2 or phase > 9:
+    if phase < 2 or phase not in VALID_PHASES:
         return []
     from_phase = phase - 1
     return [
@@ -3237,17 +3238,7 @@ def generate_full_plan(phase: int, repo_path: Path, output_path: Optional[Path] 
 
     task_lines = generator()
 
-    phase_names = {
-        1: "Requirements Specification",
-        2: "Architecture Design",
-        3: "Implementation",
-        4: "Testing",
-        5: "Verification & Delivery",
-        6: "Quality Assurance",
-        7: "Risk Management",
-        8: "Configuration Management",
-        9: "Maintenance",
-    }
+    phase_names = {p: phase_name(p) for p in VALID_PHASES}
 
     mode_line = ["> **Mode**: Dynamic (load-context at execution time)", ""] if dynamic else []
     plan_lines = [

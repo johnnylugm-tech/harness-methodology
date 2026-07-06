@@ -45,20 +45,11 @@ def get_code_phase_routing() -> Dict[int, Dict]:
                     'dims': dim_str,
                 }
 
-    # Extract _phase_advance_step next_names dict
-    advance_match = re.search(
-        r'next_names\s*=\s*\{(.*?)\}',
-        content,
-        re.DOTALL
-    )
-    phase_names = {}
-    if advance_match:
-        block = advance_match.group(1)
-        # Handle both comma-separated on same line and multi-line formats
-        for m in re.finditer(r'(\d+):\s*"([^"]+)"', block):
-            phase_num = int(m.group(1))
-            phase_name = m.group(2)
-            phase_names[phase_num] = phase_name
+    # Phase display names come from the topology SSOT. (The next_names
+    # source literal this used to regex-scrape was migrated into
+    # core/phase_topology.py, which generate_full_plan now imports.)
+    from core.phase_topology import PHASES
+    phase_names = {p: spec.name for p, spec in PHASES.items()}
 
     # Extract _PHASE_ROLES: phase -> (role_a, role_b, hint)
     phase_roles = {}

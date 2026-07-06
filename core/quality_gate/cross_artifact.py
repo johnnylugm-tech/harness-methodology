@@ -21,6 +21,7 @@ import json
 import re
 from pathlib import Path
 from typing import Any, Dict, List
+from core.phase_topology import VALID_PHASES
 from core.utils.project_layout import ProjectLayout, phase_artifacts as _phase_artifacts
 
 
@@ -77,7 +78,7 @@ def check_phase_title(project_root: Path, phase: int) -> List[Dict[str, str]]:
 
         # Check for wrong phase number in title
         wrong_phase = None
-        for p in range(1, 10):
+        for p in VALID_PHASES:
             if p == phase:
                 continue
             if f"Phase {p}" in title or f"phase {p}" in title:

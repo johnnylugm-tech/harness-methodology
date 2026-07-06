@@ -59,6 +59,7 @@ sys.path.insert(0, str(_parent_dir))
 from enforcement.framework_enforcer import FrameworkEnforcer  # noqa: E402
 from pathlib import Path  # noqa: E402
 from core.quality_gate.claims_verifier import ClaimsVerifier  # noqa: E402
+from core.phase_topology import VALID_PHASES  # noqa: E402
 from core.quality_gate.phase_config import PHASE_CONFIG  # noqa: E402
 from core.utils.project_layout import ProjectLayout  # noqa: E402
 
@@ -677,7 +678,7 @@ class IntegratedStagePassGenerator:
 
 def main():
     parser = argparse.ArgumentParser(description="STAGE_PASS Generator (Integrated)")
-    parser.add_argument("--phase", type=int, required=True, choices=range(1, 10))
+    parser.add_argument("--phase", type=int, required=True, choices=VALID_PHASES)
     parser.add_argument("--project-dir", default=".", dest="project_dir")
     args = parser.parse_args()
     

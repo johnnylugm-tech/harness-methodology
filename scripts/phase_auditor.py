@@ -29,6 +29,10 @@ from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import quote
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # repo root for direct runs
+
+from core.phase_topology import ENTRY_GATE_MAP, VALID_PHASES  # noqa: E402
+
 
 # ─────────────────────────────────────────────
 # 1. METHODOLOGY-V2 v6.13 RULE LIBRARY (hardcoded, no remote framework dependency)
@@ -44,10 +48,9 @@ HARD_RULES = {
     "HR-11": "Phase Truth score < 90% blocks entry to next Phase",
 }
 
-# Gate entry requirements: phase → required gate number that must have PASS
-# (mirrors _ENTRY_GATE_MAP in harness_cli.py)
-# P9 (Maintenance) requires Gate 4 PASS, same as P7/P8.
-_ENTRY_GATE_MAP: dict[int, int] = {4: 2, 5: 3, 6: 3, 7: 4, 8: 4, 9: 4}
+# Gate entry requirements: phase → required gate number that must have PASS.
+# Sourced from the topology SSOT (core/phase_topology.py) — do not re-declare.
+_ENTRY_GATE_MAP: dict[int, int] = ENTRY_GATE_MAP
 
 # Minimum numeric score for each exit gate (from framework spec)
 # Gate 2 = P3 exit (≥40%), Gate 3 = P4 exit (≥70%), Gate 4 = P6 QA (≥88%)
@@ -1776,7 +1779,7 @@ Examples:
     )
     parser.add_argument("--repo", required=True,
                         help="GitHub repo (owner/repo)")
-    parser.add_argument("--phase", type=int, required=True, choices=range(1, 10),
+    parser.add_argument("--phase", type=int, required=True, choices=VALID_PHASES,
                         help="Phase number to audit (1-9)")
     parser.add_argument("--branch", default="main",
                         help="Target branch (default: main)")

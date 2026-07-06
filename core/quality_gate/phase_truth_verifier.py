@@ -23,6 +23,7 @@ import sys
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
+from core.phase_topology import VALID_PHASES
 from core.utils.project_layout import ProjectLayout
 from core.utils.project_layout import phase_artifacts as _phase_artifacts
 
@@ -649,8 +650,8 @@ if __name__ == "__main__":  # pragma: no cover
     import argparse
 
     parser = argparse.ArgumentParser(description="Phase Truth Verifier")
-    parser.add_argument("--phase", type=int, required=True, choices=range(1, 10),
-                        help="Phase number (1-8)")
+    parser.add_argument("--phase", type=int, required=True, choices=VALID_PHASES,
+                        help="Phase number (1-9)")
     parser.add_argument("--project", default=".", help="Project root path")
 
     args = parser.parse_args()

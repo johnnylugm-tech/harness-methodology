@@ -32,6 +32,10 @@ from pathlib import Path
 
 _log = logging.getLogger(__name__)
 
+# Hard import by design: a soft fallback literal here is exactly what caused
+# the P8→9 crash (a stale range(1, 9) copy while the pipeline grew a phase).
+from core.phase_topology import VALID_PHASES  # noqa: E402
+
 try:
     from core.atomic_io import atomic_write_text  # type: ignore[import-not-found]
 except ImportError:  # pragma: no cover  (graceful degrade)
@@ -189,7 +193,7 @@ class HandoverGenerator:
         # render nonsensical text into the bash code block in HANDOVER.md,
         # and an out-of-range phase would even inject a path like
         # `.methodology/phase99_plan.md` that doesn't exist.
-        _VALID_PHASES = range(1, 10)
+        _VALID_PHASES = VALID_PHASES
         if not isinstance(phase, int) or isinstance(phase, bool):
             raise ValueError(
                 f"phase must be an int in {list(_VALID_PHASES)}; got "

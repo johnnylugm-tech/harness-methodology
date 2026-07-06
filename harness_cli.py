@@ -89,6 +89,15 @@ sys.path.insert(0, str(_REPO_ROOT))
 
 # Atomic state-file writers (CV-3 / SG-12 from robustness audit)
 from core.atomic_io import atomic_write_json, file_lock, state_lock_path  # noqa: E402
+from core.phase_topology import (  # noqa: E402
+    ADVANCE_GATE1_CHECK_PHASES as _TOPOLOGY_ADVANCE_GATE1,
+    ENTRY_GATE_MAP as _TOPOLOGY_ENTRY_GATES,
+    EXIT_GATE_MAP as _TOPOLOGY_EXIT_GATES,
+    PER_FR_GATE1_PHASES as _TOPOLOGY_PER_FR_GATE1,
+    PHASE_DIRS as _TOPOLOGY_PHASE_DIRS,
+    VALID_PHASES,
+    phase_name as _topology_phase_name,
+)
 from core.pre_flight import check_cli_tools  # noqa: E402
 from core.harness_config import get_timeout  # noqa: E402
 from core.canonical_form import canonical_form  # noqa: E402  # I: single source of truth for FR/NFR/TASK IDs
@@ -151,8 +160,9 @@ def _load_env_file(env_path: Path) -> list[str]:
             loaded.append(key)
     return loaded
 
-# Phases where Gate 1 runs per-FR (P9 maintenance: per-CR touched FRs)
-_PER_FR_GATE1_PHASES: frozenset[int] = frozenset({3, 4, 5, 7, 8, 9})
+# Phases where Gate 1 runs per-FR (P9 maintenance: per-CR touched FRs).
+# Sourced from the topology SSOT (core/phase_topology.py) — do not re-declare.
+_PER_FR_GATE1_PHASES: frozenset[int] = _TOPOLOGY_PER_FR_GATE1
 # Statuses that indicate an agent dispatch failure (all others treated as success).
 _DISPATCH_ERROR_STATUSES: frozenset[str] = frozenset({"REJECT", "BLOCKED", "FAILED", "ERROR", "TIMEOUT", "REGRESSION_GUARD"})
 # Per-step default max_turns for run-fr-step. --max-turns override takes priority.
@@ -565,21 +575,19 @@ def _record_gate1_score(project: Path, phase: int, fr_id: str, score: float) -> 
 
 
 # Entry gate required per phase (CONSTITUTION.md §2.3)
-# Single source of truth: scripts/phase_auditor.py
-from scripts.phase_auditor import _ENTRY_GATE_MAP  # noqa: E402 (module-level after constants)
+# Single source of truth: core/phase_topology.py
+_ENTRY_GATE_MAP: dict[int, int] = _TOPOLOGY_ENTRY_GATES
 
-# Phase → composite exit gate number
-_PHASE_EXIT_GATES: dict[int, int] = {3: 2, 4: 3, 6: 4}
+# Phase → composite exit gate number (topology SSOT)
+_PHASE_EXIT_GATES: dict[int, int] = _TOPOLOGY_EXIT_GATES
 
 # Phases that require Gate 1 per-FR evaluation during advance-phase.
-# Phase 6 (Quality Assurance) has no FR loop — it uses Gate 4 exclusively —
-# so Gate 1 per-FR records are not expected for it.
+# Phase 6 (Quality Assurance) has no FR loop — it uses Gate 4 exclusively.
 # Phase 9 (Maintenance) is deliberately absent: advance-phase --completed 9
 # is always BLOCKED (terminal steady state), so its Gate 1 records are
-# checked per-CR by cr-close, not here.
-# Mirrors _PHASE_GATE1_PHASES in scripts/generate_full_plan.py (which DOES
-# include 9 — plan/gate steps apply to P9 CRs).
-_PHASES_WITH_GATE1_FR_CHECK: frozenset[int] = frozenset({3, 4, 5, 7, 8})
+# checked per-CR by cr-close, not here. Expressed as a derivation in
+# core/phase_topology.py so it can never drift from PER_FR_GATE1_PHASES.
+_PHASES_WITH_GATE1_FR_CHECK: frozenset[int] = _TOPOLOGY_ADVANCE_GATE1
 
 # P1/P2 deliverable labels used as approval-file keys in agent_b_approvals/
 _PHASE_DELIVERABLES: dict[int, list[str]] = {
@@ -661,7 +669,7 @@ def cmd_plan_all(args: argparse.Namespace) -> int:
             "--fr-ids ... --sad ...' to regenerate."
         )
     results = []
-    for phase_num in range(1, 10):
+    for phase_num in VALID_PHASES:
         out_path = out_dir / f"phase{phase_num}_plan.md"
         plan = generate_full_plan(phase_num, project, out_path, dynamic=True, force=_force)
         status = "OK" if plan else "FAIL"
@@ -1554,7 +1562,7 @@ def _verify_entry_gate(project: Path, phase: int) -> dict:
     """
     # SG-6: reject out-of-range phase early. Previously `phase <= 1` accepted
     # phase=0 and phase=-1, which is meaningless (only 1..9 exist).
-    if not (1 <= phase <= 9):
+    if phase not in VALID_PHASES:
         return {
             "passed": False,
             "gate": "InvalidPhase",
@@ -3968,14 +3976,7 @@ def cmd_generate_next_plan(args: argparse.Namespace) -> int:
         except Exception:  # pylint: disable=broad-exception-caught
             pass
 
-    phase_names = {
-        1: "Requirements Specification", 2: "Architecture Design",
-        3: "Implementation",            4: "Testing",
-        5: "Verification & Delivery",   6: "Quality Assurance",
-        7: "Risk Management",           8: "Configuration Management",
-        9: "Maintenance",
-    }
-    print(f"\nPhase      : {current_phase} ({phase_names.get(current_phase, '?')})")
+    print(f"\nPhase      : {current_phase} ({_topology_phase_name(current_phase, default='?')})")
 
     # ── Resolve plan file ────────────────────────────────────────────────────
     plan_file = project / ".methodology" / f"phase{current_phase}_plan.md"
@@ -5423,12 +5424,11 @@ def cmd_status(args: argparse.Namespace) -> int:
     fr_ids = manifest.get("fr_ids", [])
     gates = manifest.get("gate_results", {})
 
-    # Phase progress table
-    phase_names = {1: "Requirements", 2: "Architecture", 3: "Implementation",
-                   4: "Testing", 5: "Verification", 6: "Quality", 7: "Risk", 8: "Config",
-                   9: "Maintenance"}
+    # Phase progress table (short display names shared with the CLAUDE.md
+    # status block — one map, keys anchored by test_phase_topology_ssot)
+    phase_names = _PHASE_NAMES
     phase_status = {}
-    for p in range(1, 10):
+    for p in VALID_PHASES:
         if p < current_phase:
             phase_status[p] = "COMPLETE"
         elif p == current_phase:
@@ -5483,7 +5483,7 @@ def cmd_status(args: argparse.Namespace) -> int:
             "project": str(project),
             "fsm": {"state": state.get("state", "UNKNOWN"), "current_phase": current_phase,
                     "last_update": state.get("last_update", "-")},
-            "phase_progress": {str(p): phase_status[p] for p in range(1, 10)},
+            "phase_progress": {str(p): phase_status[p] for p in VALID_PHASES},
             "fr_ids": fr_ids,
             "gates": gates,
         }
@@ -5507,7 +5507,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 
     # Phase progress table
     print("\n[Phase Progress]")
-    for p in range(1, 10):
+    for p in VALID_PHASES:
         icon = {"COMPLETE": "✅", "IN_PROGRESS": "🔄", "NOT_STARTED": "⬜"}.get(phase_status[p], "⬜")
         print(f"  {icon} P{p} {phase_names.get(p, 'Unknown'):<16} {phase_status[p]}")
 
@@ -9942,19 +9942,9 @@ def _harness_workflow_template() -> str:
         )
     return template_path.read_text(encoding="utf-8")
 
-# Canonical phase directory names (single authoritative source — used by both
-# _init_phase_dirs and cmd_audit_structure so they can never drift apart).
-_PHASE_DIRS: dict[int, str] = {
-    1: "01-requirements",
-    2: "02-architecture",
-    3: "03-development",
-    4: "04-testing",
-    5: "05-verification",
-    6: "06-quality",
-    7: "07-risk",
-    8: "08-config",
-    9: "09-maintenance",
-}
+# Canonical phase directory names — sourced from the topology SSOT
+# (core/phase_topology.py), shared by _init_phase_dirs and cmd_audit_structure.
+_PHASE_DIRS: dict[int, str] = _TOPOLOGY_PHASE_DIRS
 
 # Sub-directories created inside phase dirs on init (not tracked for naming checks).
 _PHASE_INIT_SUBDIRS: list[str] = [
@@ -11958,7 +11948,7 @@ def build_parser() -> argparse.ArgumentParser:
         "check-constitution",
         help="Check document quality against constitution standards for a phase",
     )
-    cc.add_argument("--phase",   required=True, type=int, choices=range(1, 10),
+    cc.add_argument("--phase",   required=True, type=int, choices=VALID_PHASES,
                     help="Phase to check (1–8)")
     cc.add_argument("--project", default=".", help="Project root (default: .)")
     cc.add_argument(

@@ -16,6 +16,7 @@ from typing import Any, Optional
 from harness.crg_bridge import CRGBridge
 from harness.decision_log import DecisionLogWriter, DecisionLogEntry, DecisionContext
 from harness.effort_tracker import EffortTracker, EffortRecord
+from core.phase_topology import PER_FR_GATE1_PHASES
 from core.quality_gate.constitution.profile import GateConfig
 
 try:
@@ -1832,7 +1833,7 @@ class HarnessBridge:
         # tests all pass at 100% coverage.
         _spec_names: list[str] = []
         _existing_spec: set[str] = set()
-        if fr_id and gate_num == 1 and phase in {3, 4, 5, 7, 8, 9}:
+        if fr_id and gate_num == 1 and phase in PER_FR_GATE1_PHASES:
             _test_dir = Path(project_root) / "03-development" / "tests"
             if not _test_dir.is_dir():
                 _test_dir = Path(project_root) / "tests"
