@@ -1,0 +1,67 @@
+# =============================================================================
+# Regression-guard registry
+# =============================================================================
+# Each entry pins a test that guards a previously fixed bug. Deleting or
+# renaming any test listed here MUST be accompanied, in the same commit, by
+# an update to this file explaining why the guard is no longer needed —
+# scripts/verify_regression_guards.py blocks pre-push and CI otherwise, and
+# tests/test_verify_regression_guards.py fails in any plain pytest run.
+#
+# Why this exists: the sqlite-swallow fix (ff98cc7) was silently reverted AND
+# its guard test deleted in the same span; nothing caught it until a manual
+# review (re-fixed in 7247c5d). 667 test functions have been deleted across
+# this repo's history with zero detection.
+#
+# Entry fields:
+#   test:     exact pytest node id (parametrized guards: bare id without [..])
+#   bug:      what regression this test pins (shown when the guard goes missing)
+#   fixed_in: commit(s) that fixed the bug
+# =============================================================================
+
+- test: tests/test_mutation_enforcer.py::test_sqlite_error_not_swallowed_as_zero_mutants
+  bug: "mutmut sqlite cache read failure swallowed as (0,0) — fabricates a clean zero-mutant score"
+  fixed_in: "ff98cc7 (regressed once with this test deleted; re-fixed in 7247c5d)"
+
+- test: tests/test_mutation_enforcer.py::test_count_mutmut_results_typical_mix_bug_108
+  bug: "Bug #108: mutation score must come from the sqlite cache (authoritative), not mutmut stdout"
+  fixed_in: "3e33833"
+
+- test: tests/test_mutation_enforcer.py::test_copy_setup_cfg_reads_nested_layout_and_promotes_pythonpath_bug_106b
+  bug: "Bug #106b: nested-layout setup.cfg pythonpath not rewritten to absolute — breaks pytest imports in workdir"
+  fixed_in: "3e33833"
+
+- test: tests/test_phase_auditor.py::TestC2StagePassMachineGenerated::test_machine_generated_content_has_no_c2_critical
+  bug: "C2 applied LLM-review keyword checks to the machine-generated STAGE_PASS — advance-phase CRITICAL-failed on every run"
+  fixed_in: "7247c5d"
+
+- test: tests/test_traceability_pipeline.py::TestCheckSpecTraceUpgraded::test_preflight_traceability_missing_sad_at_p5_blocks
+  bug: "missing SAD.md made total==0 look like a vacuous zero-FR pass at P5+ — a scan failure must block, not pass"
+  fixed_in: "7247c5d"
+
+- test: tests/test_constitution_profile.py::TestMerge::test_merge_untouched_phase_dimension_keywords_is_independent_of_base
+  bug: "_copy_phase_profile shallow-copied dimension_keywords — merged profile shared inner lists with base"
+  fixed_in: "7247c5d"
+
+- test: tests/test_constitution_profile.py::TestMerge::test_merge_uses_directly_constructed_scoring_override
+  bug: "directly-constructed ScoringProfile silently dropped by merge() because _explicit was never set"
+  fixed_in: "7247c5d"
+
+- test: tests/test_harness_cli.py::TestGate1LiveCoverageCheck::test_phases_with_gate1_fr_check_constant
+  bug: "P5 was incompletely removed from the per-FR Gate 1 set (multi-copy drift incident) — set membership must stay pinned"
+  fixed_in: "5e18f58"
+
+- test: tests/test_harness_cli.py::TestPushMilestoneStateJsonWriteBeforePush::test_state_json_written_before_commit_and_push_p8
+  bug: "audit fields written to state.json AFTER commit_and_push — the pushed state.json was stale"
+  fixed_in: "28864f7"
+
+- test: tests/test_harness_cli.py::TestPushMilestoneStateJsonWriteBeforePush::test_reverted_on_push_failure
+  bug: "push-milestone: audit fields left behind in state.json after a failed push — local state diverges from origin"
+  fixed_in: "dd9129b"
+
+- test: tests/test_harness_cli.py::TestPushCheckpointStateJsonWriteBeforePush::test_reverted_on_push_failure
+  bug: "push-checkpoint: same class — audit-field write not reverted when the push fails"
+  fixed_in: "dd9129b"
+
+- test: tests/test_manifest_integrity.py::TestManifestIntegrityPatternB::test_empty_gate1_with_fsm_evidence_blocks
+  bug: "Pattern B: empty manifest gate1 with FSM execution evidence must block (truncation/fabrication defense)"
+  fixed_in: "621f2a9"

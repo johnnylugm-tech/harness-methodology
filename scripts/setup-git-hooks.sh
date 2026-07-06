@@ -392,6 +392,25 @@ if [ "$_ALL_HARNESS_CHORE" = true ]; then
     exit 0
 fi
 
+# Regression-guard registry: block the push if any guard test was deleted
+# without a matching registry update in the same commit. Framework repo only —
+# target projects have no tests/REGRESSION_GUARDS.yaml, so this is a no-op there.
+if [ -f "$PROJECT_ROOT/tests/REGRESSION_GUARDS.yaml" ] && [ -f "$PROJECT_ROOT/scripts/verify_regression_guards.py" ]; then
+    echo ""
+    echo "Checking regression-guard registry..."
+    "$PYTHON" "$PROJECT_ROOT/scripts/verify_regression_guards.py" \
+        --registry "$PROJECT_ROOT/tests/REGRESSION_GUARDS.yaml" \
+        --repo-root "$PROJECT_ROOT" || {
+        echo ""
+        echo "=============================================="
+        echo "PRE-PUSH BLOCKED: regression guard missing"
+        echo "=============================================="
+        echo "A test listed in tests/REGRESSION_GUARDS.yaml no longer exists."
+        echo "Restore it, or update the registry in the same commit with a reason."
+        exit 1
+    }
+fi
+
 # Run full Phase preflight before push (no bypass — use run-phase for complete check)
 echo ""
 echo "Running Phase $PHASE full preflight before push..."

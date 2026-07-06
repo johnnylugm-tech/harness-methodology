@@ -26,6 +26,9 @@ jobs:
       - name: Lint (ruff)
         run: ruff check .
 
+      - name: Regression-guard registry check
+        run: python scripts/verify_regression_guards.py
+
       - name: Unit tests
         run: pytest tests/ -v --tb=short
 
