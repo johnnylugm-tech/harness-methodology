@@ -42,7 +42,7 @@ def test_4a_no_longer_negative_for_has_module_only(has_module_only_repo):
     """The old code returned pct_4a = -100.0 for this case. The fix
     must return a non-negative percentage."""
     compute = _phase(has_module_only_repo, 5)
-    with patch("harness_cli._run_spec_coverage_check", return_value=(0, 100.0)):
+    with patch("core.quality_gate.spec_coverage._run_spec_coverage_check", return_value=(0, 100.0)):
         result = compute(has_module_only_repo, gate=5)
     assert result["4a_fr_to_test_pct"] >= 0, (
         f"4a went negative: {result['4a_fr_to_test_pct']} — denominator dedup regression"
@@ -55,6 +55,6 @@ def test_4a_complete_when_no_gaps(has_module_only_repo):
     """After we add a test stub for FR-99, 4a should be 100%."""
     (has_module_only_repo / "tests" / "test_fr_99.py").write_text('"""[FR-99] stub"""\n')
     compute = _phase(has_module_only_repo, 5)
-    with patch("harness_cli._run_spec_coverage_check", return_value=(0, 100.0)):
+    with patch("core.quality_gate.spec_coverage._run_spec_coverage_check", return_value=(0, 100.0)):
         result = compute(has_module_only_repo, gate=5)
     assert result["4a_fr_to_test_pct"] == 100.0

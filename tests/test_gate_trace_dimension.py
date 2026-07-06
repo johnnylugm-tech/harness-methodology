@@ -91,7 +91,7 @@ def test_4a_pct_uses_active_denominator(fixture_repo):
         __import__("sys").path.insert(0, sys_path)
     from core.quality_gate.spec_tracking_checker import compute_trace_dimension
 
-    with patch("harness_cli._run_spec_coverage_check", return_value=(0, 100.0)):
+    with patch("core.quality_gate.spec_coverage._run_spec_coverage_check", return_value=(0, 100.0)):
         result = compute_trace_dimension(fixture_repo, gate=2)
     # 2 active FRs: FR-01 has code+test, FR-02 has code but no test.
     # complete = 2 - 0 - 1 = 1 → 1/2 = 50%
@@ -108,7 +108,7 @@ def test_4a_passes_at_100_when_all_active_traced(fixture_repo):
         __import__("sys").path.insert(0, sys_path)
     (fixture_repo / "tests" / "test_b.py").write_text('"""[FR-02]"""\n')
     from core.quality_gate.spec_tracking_checker import compute_trace_dimension
-    with patch("harness_cli._run_spec_coverage_check", return_value=(0, 100.0)):
+    with patch("core.quality_gate.spec_coverage._run_spec_coverage_check", return_value=(0, 100.0)):
         result = compute_trace_dimension(fixture_repo, gate=2)
     assert result["4a_fr_to_test_pct"] == 100.0
     assert result["passed"] is True
@@ -120,7 +120,7 @@ def test_4a_vacuously_100_for_empty_project(tmp_path):
     if sys_path not in __import__("sys").path:
         __import__("sys").path.insert(0, sys_path)
     from core.quality_gate.spec_tracking_checker import compute_trace_dimension
-    with patch("harness_cli._run_spec_coverage_check", return_value=(0, 100.0)):
+    with patch("core.quality_gate.spec_coverage._run_spec_coverage_check", return_value=(0, 100.0)):
         result = compute_trace_dimension(tmp_path, gate=2)
     assert result["4a_fr_to_test_pct"] == 100.0
 
@@ -135,7 +135,7 @@ def test_4a_zero_when_all_frs_pending_at_gate2(tmp_path):
     (arch / "SAD.md").write_text("FR-01: feature alpha\nFR-02: feature beta\n")
     # No code annotations, no test files — FRs remain PENDING
     from core.quality_gate.spec_tracking_checker import compute_trace_dimension
-    with patch("harness_cli._run_spec_coverage_check", return_value=(0, 100.0)):
+    with patch("core.quality_gate.spec_coverage._run_spec_coverage_check", return_value=(0, 100.0)):
         result = compute_trace_dimension(tmp_path, gate=2)
     assert result["4a_fr_to_test_pct"] == 0.0
     assert result["passed"] is False
@@ -152,7 +152,7 @@ def test_merged_pct_is_min_of_4a_and_4b(fixture_repo):
         __import__("sys").path.insert(0, sys_path)
     from core.quality_gate.spec_tracking_checker import compute_trace_dimension
 
-    with patch("harness_cli._run_spec_coverage_check", return_value=(0, 50.0)):
+    with patch("core.quality_gate.spec_coverage._run_spec_coverage_check", return_value=(0, 50.0)):
         result = compute_trace_dimension(fixture_repo, gate=2)
     # 4a = 50% (FR-02 missing test), 4b = 50% (mocked)
     # merged = min(50, 50) = 50
@@ -180,7 +180,7 @@ def test_result_has_required_keys(fixture_repo):
     if sys_path not in __import__("sys").path:
         __import__("sys").path.insert(0, sys_path)
     from core.quality_gate.spec_tracking_checker import compute_trace_dimension
-    with patch("harness_cli._run_spec_coverage_check", return_value=(0, 100.0)):
+    with patch("core.quality_gate.spec_coverage._run_spec_coverage_check", return_value=(0, 100.0)):
         result = compute_trace_dimension(fixture_repo, gate=3)
     for key in ("name", "4a_fr_to_test_pct", "4b_test_spec_pct", "4c_nfr_to_test_pct",
                 "merged_pct", "passed", "threshold_4a", "threshold_4b",
@@ -235,7 +235,7 @@ def test_4c_no_nfrs_in_srs_is_vacuous_pass(tmp_path):
     (tmp_path / "01-requirements").mkdir(parents=True)
     (tmp_path / "01-requirements" / "SRS.md").write_text("# Requirements\nNo NFRs here.\n")
     from core.quality_gate.spec_tracking_checker import compute_trace_dimension
-    with patch("harness_cli._run_spec_coverage_check", return_value=(0, 100.0)):
+    with patch("core.quality_gate.spec_coverage._run_spec_coverage_check", return_value=(0, 100.0)):
         result = compute_trace_dimension(tmp_path, gate=2)
     assert result["4c_nfr_to_test_pct"] == 100.0
     assert result["nfr_untested"] == []
@@ -248,7 +248,7 @@ def test_4c_nfr_all_covered_passes(tmp_path):
         __import__("sys").path.insert(0, sys_path)
     _make_nfr_repo(tmp_path, ["NFR-01"], {"test_perf.py": "# NFR-01 performance\ndef test_latency(): pass\n"})
     from core.quality_gate.spec_tracking_checker import compute_trace_dimension
-    with patch("harness_cli._run_spec_coverage_check", return_value=(0, 100.0)):
+    with patch("core.quality_gate.spec_coverage._run_spec_coverage_check", return_value=(0, 100.0)):
         result = compute_trace_dimension(tmp_path, gate=2)
     assert result["4c_nfr_to_test_pct"] == 100.0
     assert result["nfr_untested"] == []
@@ -261,7 +261,7 @@ def test_4c_nfr_untested_fails_gate2(tmp_path):
         __import__("sys").path.insert(0, sys_path)
     _make_nfr_repo(tmp_path, ["NFR-01", "NFR-08"], {})  # no test files
     from core.quality_gate.spec_tracking_checker import compute_trace_dimension
-    with patch("harness_cli._run_spec_coverage_check", return_value=(0, 100.0)):
+    with patch("core.quality_gate.spec_coverage._run_spec_coverage_check", return_value=(0, 100.0)):
         result = compute_trace_dimension(tmp_path, gate=2)
     assert result["4c_nfr_to_test_pct"] == 0.0
     assert set(result["nfr_untested"]) == {"NFR-01", "NFR-08"}
@@ -327,7 +327,7 @@ def test_4c_nfr_partial_coverage_fails_gate2(tmp_path):
         {"test_perf.py": "# NFR-01 covered\ndef test_latency(): pass\n"},
     )
     from core.quality_gate.spec_tracking_checker import compute_trace_dimension
-    with patch("harness_cli._run_spec_coverage_check", return_value=(0, 100.0)):
+    with patch("core.quality_gate.spec_coverage._run_spec_coverage_check", return_value=(0, 100.0)):
         result = compute_trace_dimension(tmp_path, gate=2)
     assert result["4c_nfr_to_test_pct"] == 50.0  # 1 of 2 covered
     assert "NFR-08" in result["nfr_untested"]

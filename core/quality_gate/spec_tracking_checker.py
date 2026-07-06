@@ -309,7 +309,7 @@ def compute_trace_dimension(project, gate: int) -> dict:
 
     # 4b: TEST_SPEC → test (delegated to existing D4 spec-coverage)
     try:
-        from harness_cli import _run_spec_coverage_check
+        from core.quality_gate.spec_coverage import _run_spec_coverage_check
         _sc_code, sc_pct = _run_spec_coverage_check(project_path, threshold_4b)  # noqa: F841
         result["4b_test_spec_pct"] = sc_pct
     except Exception as e:
