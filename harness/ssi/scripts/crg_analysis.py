@@ -23,7 +23,7 @@ Explicit thresholds (documented, reviewable, changeable):
 
   RISK_DEEP_THRESHOLD          0.7    risk_score ≥ this → deep analysis mandatory
   RISK_FAST_THRESHOLD          0.3    risk_score < this → fast scan allowed
-  COHESION_HEALTHY             0.4    cohesion ≥ this = healthy community
+  COHESION_HEALTHY             0.3    cohesion ≥ this = healthy community
   COMMUNITY_OVERSIZED          50     size > this = god-module candidate
   DEAD_CODE_ESCALATE_RATIO     0.05   dead/total > 5% → escalate low → medium
   HUB_CRITICAL_FAN_IN          15     fan_in ≥ this = critical severity
@@ -96,7 +96,12 @@ def compute_eval_depth(risk_score):
     return "standard"
 
 
-def compute_community_cohesion_score(communities: list) -> dict:
+def compute_community_cohesion_score(
+    communities: list,
+    cohesion_healthy: Optional[float] = None,
+    extra_excludes: Optional[list] = None,
+    project_root: Optional[str] = None,
+) -> dict:
     """
     Aggregate community cohesion into a 0-100 architecture sub-score.
 
@@ -111,18 +116,53 @@ def compute_community_cohesion_score(communities: list) -> dict:
       score   = 100 * healthy / total_communities (excluding test-only)
 
     Each unhealthy community is classified for diagnostic output.
+
+    Optional per-project calibration (plumbed by the caller — this module
+    must stay importable standalone under the CRG interpreter, so it never
+    reads core.harness_config itself):
+      cohesion_healthy — overrides COHESION_HEALTHY. Precedence: explicit
+        param > CRG_COHESION_HEALTHY env var > builtin 0.3. The param is a
+        committed, reproducible project decision (harness_config.json) and
+        must beat ambient shell state.
+      extra_excludes — fnmatch globs over repo-relative file paths; a
+        community whose files are majority-matched (>50 %) is excluded
+        from scoring, same rule as the tests/.methodology path detection.
+      project_root — absolute repo root used to relativize community file
+        paths (CRG emits absolute paths) before glob matching.
     """
     if not communities:
         return {"score": 100, "healthy": 0, "total": 0, "unhealthy": []}
 
+    _thr = COHESION_HEALTHY if cohesion_healthy is None else float(cohesion_healthy)
+    _excl_globs = [g for g in (extra_excludes or []) if isinstance(g, str)]
+    _root = str(project_root).rstrip("/") if project_root else None
+
+    def _rel(f: str) -> str:
+        # CRG emits absolute member paths (…/src/taskq/cli.py::func);
+        # relativize to the repo root so globs like ".claude/*" can match.
+        if _root and f.startswith(_root + "/"):
+            return f[len(_root) + 1:]
+        return f.lstrip("/")
+
+    def _matches_exclude(f: str) -> bool:
+        import fnmatch
+        rel = _rel(f)
+        return any(fnmatch.fnmatch(rel, g) for g in _excl_globs)
+
     # Exclude non-product communities from architecture scoring.
-    # Two detection strategies (either is sufficient):
+    # Three detection strategies (any is sufficient):
     #   Name-based: community name starts with "tests", "test", or "test_" —
     #     catches the primary test blob which is always named this way.
     #   Path-based: >50 % of the community's files are in a tests/ directory
     #     or under .methodology/ — catches integration-test communities whose
     #     name doesn't start with "test" (e.g. "integration-returns") and
     #     methodology helper files that are not product code.
+    #   Config-based: >50 % of the community's files match a crg_excludes
+    #     glob from .methodology/harness_config.json (plumbed by the caller)
+    #     — project tooling (workflow scripts, root driver scripts) is not
+    #     product code. Note the `files` list is a capped sample (dump caps
+    #     at 30 entries), so very large communities are majority-judged on
+    #     that sample — same limitation as the path-based rule.
     def _is_non_product(c: dict) -> bool:
         name = c.get("name", "")
         if (name.split("-")[0] in ("tests", "test") or name.startswith("test_")):
@@ -135,6 +175,10 @@ def compute_community_cohesion_score(communities: list) -> dict:
             )
             if non_product > len(files) / 2:
                 return True
+            if _excl_globs:
+                excluded = sum(1 for f in files if _matches_exclude(f))
+                if excluded > len(files) / 2:
+                    return True
         return False
 
     _scored_communities = [c for c in communities if not _is_non_product(c)]
@@ -146,7 +190,7 @@ def compute_community_cohesion_score(communities: list) -> dict:
         cohesion = c.get("cohesion", 1.0)
         size = c.get("size", 0)
         reasons = []
-        if cohesion < COHESION_HEALTHY and size >= COMMUNITY_MIN_SIZE:
+        if cohesion < _thr and size >= COMMUNITY_MIN_SIZE:
             reasons.append(f"low_cohesion({cohesion:.2f})")
         if size > COMMUNITY_OVERSIZED:
             reasons.append(f"oversized({size})")
@@ -171,9 +215,10 @@ def compute_community_cohesion_score(communities: list) -> dict:
         "total_all": len(communities),
         "excluded_test_communities": _excluded,
         "unhealthy": unhealthy,
-        "_cohesion_threshold": COHESION_HEALTHY,
+        "_cohesion_threshold": _thr,
         "_community_oversized": COMMUNITY_OVERSIZED,
         "_community_min_size": COMMUNITY_MIN_SIZE,
+        "_extra_excludes": list(_excl_globs),
     }
 
 

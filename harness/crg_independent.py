@@ -134,7 +134,22 @@ def run_independent_crg(project_root: str, work_dir: str) -> dict:
         sys.path.insert(0, _scripts_dir)
     from crg_analysis import compute_community_cohesion_score  # reused formula
 
-    cohesion = compute_community_cohesion_score(recon.get("communities", []))
+    # Per-project calibration (crg_cohesion_healthy / crg_excludes in
+    # .methodology/harness_config.json). Defensive import: this module
+    # normally runs under the harness interpreter where `core` is on the
+    # path, but odd sys.path setups must not break the gate.
+    try:
+        from core.harness_config import get_crg_settings
+        _crg_cfg = get_crg_settings(root)
+    except ImportError:
+        _crg_cfg = {"cohesion_healthy": None, "excludes": []}
+
+    cohesion = compute_community_cohesion_score(
+        recon.get("communities", []),
+        cohesion_healthy=_crg_cfg["cohesion_healthy"],
+        extra_excludes=_crg_cfg["excludes"],
+        project_root=root,
+    )
 
     # 4. Large-function penalty (Phase 1 gatekeeper).
     #    crg_dump_communities.py includes large_functions_critical when

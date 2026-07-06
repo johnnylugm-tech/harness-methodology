@@ -9,8 +9,22 @@ Schema version 1::
         "mutation_testing": false,
         "phase4_llm_review": true,
         "crg_architecture": true
-      }
+      },
+      "crg_cohesion_healthy": 0.2,
+      "crg_excludes": [".claude/*", "*.mjs"]
     }
+
+``features`` holds boolean flags (see ``load_harness_config``). The
+top-level ``crg_*`` value keys calibrate the framework-owned CRG
+architecture score (see ``get_crg_settings``):
+
+* ``crg_cohesion_healthy`` — per-project cohesion floor for a community
+  to count as healthy (float in (0, 1]). Small packages (≤ ~10 source
+  files) may calibrate below the 0.3 default because Leiden community
+  detection over-fragments at that scale.
+* ``crg_excludes`` — fnmatch globs over repo-relative file paths; a
+  community whose files are majority-matched is excluded from scoring
+  (project tooling such as workflow scripts is not product code).
 
 Missing file or malformed JSON → hardcoded defaults (no crash).
 Unknown keys are silently ignored (forward-compatible).
@@ -57,6 +71,46 @@ def get_feature(project: "str | Path", key: str) -> Any:
     has no entry for it.
     """
     return load_harness_config(project).get(key)
+
+
+_CRG_VALUE_DEFAULTS: dict[str, Any] = {
+    "cohesion_healthy": None,  # None → crg_analysis falls back to env/0.3
+    "excludes": [],
+}
+
+
+def get_crg_settings(project: "str | Path") -> dict:
+    """Return per-project CRG calibration values.
+
+    Reads the top-level ``crg_cohesion_healthy`` / ``crg_excludes`` keys of
+    ``.methodology/harness_config.json`` (NOT nested under ``features`` —
+    those are booleans only). Returns::
+
+        {"cohesion_healthy": float | None, "excludes": list[str]}
+
+    Missing file, malformed JSON, or bad types degrade to the defaults —
+    the gate must never crash on a hand-edited config.
+    """
+    settings = {k: (list(v) if isinstance(v, list) else v)
+                for k, v in _CRG_VALUE_DEFAULTS.items()}
+    cfg_path = Path(project) / ".methodology" / "harness_config.json"
+    if not cfg_path.exists():
+        return settings
+    try:
+        raw = json.loads(cfg_path.read_text(encoding="utf-8"))
+    except Exception:
+        return settings
+    if not isinstance(raw, dict):
+        return settings
+    thr = raw.get("crg_cohesion_healthy")
+    if isinstance(thr, (int, float)) and not isinstance(thr, bool):
+        thr_f = float(thr)
+        if 0.0 < thr_f <= 1.0:
+            settings["cohesion_healthy"] = thr_f
+    excludes = raw.get("crg_excludes")
+    if isinstance(excludes, list):
+        settings["excludes"] = [e for e in excludes if isinstance(e, str)]
+    return settings
 
 
 def is_dim_disabled(dim_name: str, project_root: "str | Path") -> bool:

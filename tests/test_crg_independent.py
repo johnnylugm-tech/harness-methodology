@@ -189,3 +189,100 @@ class TestCommunityMinSizeExemption:
         result = self._score([{"name": "c", "cohesion": 0.9, "size": 10}])
         assert "_community_min_size" in result
         assert result["_community_min_size"] == 5
+
+
+class TestPerProjectCrgCalibration:
+    """crg_cohesion_healthy / crg_excludes from harness_config.json calibrate
+    the framework-owned architecture score (small packages over-fragmented by
+    Leiden; project tooling communities are not product code)."""
+
+    def _score(self, communities, **kw):
+        from harness.ssi.scripts.crg_analysis import compute_community_cohesion_score
+        return compute_community_cohesion_score(communities, **kw)
+
+    def test_cohesion_healthy_param_overrides_default(self):
+        # 0.28 < default 0.3 → unhealthy; with param 0.25 → healthy
+        comm = [{"name": "small-pkg", "cohesion": 0.28, "size": 8}]
+        assert self._score(comm)["healthy"] == 0
+        result = self._score(comm, cohesion_healthy=0.25)
+        assert result["healthy"] == 1
+        assert result["_cohesion_threshold"] == 0.25
+
+    def test_default_threshold_reported_when_no_param(self):
+        result = self._score([{"name": "c", "cohesion": 0.9, "size": 10}])
+        assert result["_cohesion_threshold"] == 0.3
+        assert result["_extra_excludes"] == []
+
+    def test_extra_excludes_majority_match_excludes_community(self):
+        comm = [
+            {"name": "workflows", "cohesion": 0.1, "size": 10,
+             "files": ["/repo/.claude/workflows/a.js", "/repo/.claude/workflows/b.js",
+                       "/repo/src/x.py"]},
+            {"name": "core", "cohesion": 0.9, "size": 10,
+             "files": ["/repo/src/a.py", "/repo/src/b.py"]},
+        ]
+        result = self._score(comm, extra_excludes=[".claude/*"], project_root="/repo")
+        # workflows: 2/3 files match → excluded from scoring entirely
+        assert result["total"] == 1
+        assert result["healthy"] == 1
+        assert result["score"] == 100.0
+        assert result["_extra_excludes"] == [".claude/*"]
+
+    def test_extra_excludes_half_match_keeps_community(self):
+        # exactly 50% is NOT a majority → community stays scored
+        comm = [{"name": "mixed", "cohesion": 0.1, "size": 10,
+                 "files": ["/repo/.claude/workflows/a.js", "/repo/src/x.py"]}]
+        result = self._score(comm, extra_excludes=[".claude/*"], project_root="/repo")
+        assert result["total"] == 1
+        assert result["healthy"] == 0
+
+    def test_absolute_paths_relativized_against_project_root(self):
+        # root-level glob "*.mjs": fnmatch's * crosses "/", but the pattern
+        # still only matches after correct relativization
+        comm = [{"name": "verify", "cohesion": 0.1, "size": 6,
+                 "files": ["/repo/harness-e2e.mjs", "/repo/phase1-workflow.mjs"]}]
+        result = self._score(comm, extra_excludes=["*.mjs"], project_root="/repo")
+        assert result["total"] == 0
+        assert result["score"] == 100
+
+    def test_no_project_root_falls_back_to_lstrip(self):
+        comm = [{"name": "verify", "cohesion": 0.1, "size": 6,
+                 "files": ["/a.mjs", "/b.mjs"]}]
+        result = self._score(comm, extra_excludes=["*.mjs"])
+        assert result["total"] == 0
+
+    def test_run_independent_crg_threads_settings(self, tmp_path):
+        """End-to-end: harness_config.json values reach the cohesion formula.
+
+        Communities carry no `files` key here: pytest's tmp_path contains
+        `/test_`, which would trip the legacy path-based exclusion and mask
+        the assertion (glob matching itself is unit-tested above with a
+        clean /repo root).
+        """
+        communities = {"communities": [
+            {"name": "core", "cohesion": 0.28, "size": 8},
+        ]}
+
+        def fake_run(cmd, **kw):
+            if any("crg_dump" in str(c) for c in cmd):
+                return _proc(stdout=json.dumps(communities))
+            return _proc()
+
+        (tmp_path / ".methodology").mkdir()
+        (tmp_path / ".methodology" / "harness_config.json").write_text(json.dumps({
+            "crg_cohesion_healthy": 0.25,
+            "crg_excludes": [".claude/*"],
+        }))
+
+        with patch("harness.crg_independent.shutil.which", return_value="/bin/code-review-graph"), \
+             patch("harness.crg_independent._crg_interpreter", return_value="/bin/py"), \
+             patch("harness.crg_independent.subprocess.run", side_effect=fake_run):
+            metrics = run_independent_crg(str(tmp_path), str(tmp_path / ".sessi-work"))
+
+        # core healthy at configured threshold 0.25 (unhealthy at default 0.3)
+        cohesion = metrics["community_cohesion"]
+        assert cohesion["total"] == 1
+        assert cohesion["score"] == 100.0
+        assert cohesion["_cohesion_threshold"] == 0.25
+        assert cohesion["_extra_excludes"] == [".claude/*"]
+        assert metrics["architecture_score"] == 100.0

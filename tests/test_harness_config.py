@@ -5,7 +5,13 @@ import json
 import pytest
 from pathlib import Path
 
-from core.harness_config import STALL_TIMEOUTS, get_feature, get_timeout, load_harness_config
+from core.harness_config import (
+    STALL_TIMEOUTS,
+    get_crg_settings,
+    get_feature,
+    get_timeout,
+    load_harness_config,
+)
 
 pytestmark = [pytest.mark.mutation_oracle, pytest.mark.core]
 
@@ -46,6 +52,65 @@ class TestLoadHarnessConfig:
         cfg = load_harness_config(tmp_path)
         assert cfg["crg_architecture"] is False
         assert "future_flag" not in cfg
+
+
+# ---------------------------------------------------------------------------
+# TestGetCrgSettings
+# ---------------------------------------------------------------------------
+
+class TestGetCrgSettings:
+    def _write(self, tmp_path, payload):
+        (tmp_path / ".methodology").mkdir(exist_ok=True)
+        (tmp_path / ".methodology" / "harness_config.json").write_text(
+            payload if isinstance(payload, str) else json.dumps(payload)
+        )
+
+    def test_missing_file_returns_defaults(self, tmp_path):
+        assert get_crg_settings(tmp_path) == {"cohesion_healthy": None, "excludes": []}
+
+    def test_valid_values_parsed(self, tmp_path):
+        self._write(tmp_path, {
+            "crg_cohesion_healthy": 0.2,
+            "crg_excludes": [".claude/*", "*.mjs"],
+        })
+        assert get_crg_settings(tmp_path) == {
+            "cohesion_healthy": 0.2,
+            "excludes": [".claude/*", "*.mjs"],
+        }
+
+    def test_out_of_range_cohesion_ignored(self, tmp_path):
+        for bad in (0, -0.5, 1.5, "abc", True, None):
+            self._write(tmp_path, {"crg_cohesion_healthy": bad})
+            assert get_crg_settings(tmp_path)["cohesion_healthy"] is None, bad
+
+    def test_boundary_one_accepted(self, tmp_path):
+        self._write(tmp_path, {"crg_cohesion_healthy": 1.0})
+        assert get_crg_settings(tmp_path)["cohesion_healthy"] == 1.0
+
+    def test_non_list_excludes_ignored(self, tmp_path):
+        self._write(tmp_path, {"crg_excludes": "not-a-list"})
+        assert get_crg_settings(tmp_path)["excludes"] == []
+
+    def test_mixed_type_excludes_sanitized(self, tmp_path):
+        self._write(tmp_path, {"crg_excludes": [".claude/*", 42, None, "harness/*"]})
+        assert get_crg_settings(tmp_path)["excludes"] == [".claude/*", "harness/*"]
+
+    def test_malformed_json_returns_defaults(self, tmp_path):
+        self._write(tmp_path, "not json{{{")
+        assert get_crg_settings(tmp_path) == {"cohesion_healthy": None, "excludes": []}
+
+    def test_load_harness_config_unaffected_by_crg_keys(self, tmp_path):
+        """Boolean-consumer safety: crg_* value keys must not leak into the
+        features dict returned by load_harness_config."""
+        self._write(tmp_path, {
+            "version": 1,
+            "features": {"crg_architecture": False},
+            "crg_cohesion_healthy": 0.2,
+            "crg_excludes": [".claude/*"],
+        })
+        cfg = load_harness_config(tmp_path)
+        assert set(cfg) == {"mutation_testing", "phase4_llm_review", "crg_architecture"}
+        assert cfg["crg_architecture"] is False
 
 
 # ---------------------------------------------------------------------------
