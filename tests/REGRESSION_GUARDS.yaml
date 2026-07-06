@@ -65,3 +65,7 @@
 - test: tests/test_manifest_integrity.py::TestManifestIntegrityPatternB::test_empty_gate1_with_fsm_evidence_blocks
   bug: "Pattern B: empty manifest gate1 with FSM execution evidence must block (truncation/fabrication defense)"
   fixed_in: "621f2a9"
+
+- test: tests/test_handover_generator.py::TestCmdPushMilestone::test_p5_baseline_without_gate3_evidence_blocks
+  bug: "E2E round 2 C-1/C-2: push-milestone p5-baseline/p7/p8 committed and pushed with no entry-gate evidence (unfixed since 2026-06-17; caught live by adversarial probe P3)"
+  fixed_in: "方案三(b) probe commit"

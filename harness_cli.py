@@ -4895,6 +4895,35 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
             except Exception:  # pylint: disable=broad-exception-caught
                 pass
 
+    # Entry-gate evidence BEFORE any side effect (E2E round 2 C-1/C-2:
+    # p5-baseline and p7 pushed fake milestones with no gate evidence; even
+    # the failing path left a milestone commit behind). Fail-closed: a
+    # missing or unreadable manifest is absence of evidence, not permission.
+    _MILESTONE_ENTRY_GATES = {
+        "p5-baseline": _ENTRY_GATE_MAP[5],
+        "p7": _ENTRY_GATE_MAP[7],
+        "p8": _ENTRY_GATE_MAP[8],
+    }
+    _required_gate = _MILESTONE_ENTRY_GATES.get(milestone_type)
+    if _required_gate is not None:
+        _gate_rec: dict = {}
+        try:
+            _mf_gate = json.loads(
+                (project / ".methodology" / "quality_manifest.json").read_text(encoding="utf-8")
+            )
+            _gate_rec = (_mf_gate.get("gate_results") or {}).get(f"gate{_required_gate}") or {}
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            _gate_rec = {}
+        if not _gate_rec.get("quality_complete"):
+            print(
+                f"[BLOCKED] push-milestone --type {milestone_type}: entry gate "
+                f"Gate {_required_gate} has no PASS evidence "
+                f"(gate_results.gate{_required_gate}.quality_complete is not True "
+                "in .methodology/quality_manifest.json).\n"
+                f"  Run the Gate {_required_gate} evaluation and finalize-gate first."
+            )
+            return 2
+
     # Bug fix (P8 E2E 2026-07-04): write last_milestone_command + last_milestone_at
     # to state.json BEFORE commit_and_push_* so the audit fields land in the
     # pushed commit. See plan: ~/.claude/plans/abundant-stargazing-hejlsberg.md

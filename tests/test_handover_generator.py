@@ -1,5 +1,6 @@
 # tests/test_handover_generator.py
 # Tests for HandoverGenerator and GitStrategy handover integration.
+import json
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -834,15 +835,37 @@ class TestCmdPushMilestone:
         )
         assert exit_code == 0
 
+    @staticmethod
+    def _write_gate_evidence(tmp_path, gate_num: int) -> None:
+        """p5-baseline/p7/p8 milestones are entry-gated (E2E C-1/C-2 fix):
+        the manifest must carry a passing record for the required gate."""
+        meth = tmp_path / ".methodology"
+        meth.mkdir(parents=True, exist_ok=True)
+        (meth / "quality_manifest.json").write_text(
+            json.dumps({"fr_ids": [],
+                        "gate_results": {f"gate{gate_num}": {"quality_complete": True}}}),
+            encoding="utf-8",
+        )
+
     def test_p5_baseline(self, tmp_path, monkeypatch):
+        self._write_gate_evidence(tmp_path, 3)
         exit_code, _ = self._call_push_milestone(monkeypatch, tmp_path, "p5-baseline")
         assert exit_code == 0
 
+    def test_p5_baseline_without_gate3_evidence_blocks(self, tmp_path, monkeypatch):
+        """C-1 regression probe at the unit level: no Gate 3 record → BLOCKED
+        before any commit_and_push call."""
+        exit_code, output = self._call_push_milestone(monkeypatch, tmp_path, "p5-baseline")
+        assert exit_code == 2
+        assert "Gate 3" in output
+
     def test_p7(self, tmp_path, monkeypatch):
+        self._write_gate_evidence(tmp_path, 4)
         exit_code, _ = self._call_push_milestone(monkeypatch, tmp_path, "p7")
         assert exit_code == 0
 
     def test_p8(self, tmp_path, monkeypatch):
+        self._write_gate_evidence(tmp_path, 4)
         # P8 pre-flight requires .methodology-archive/ with methodology content.
         # `cp -r .methodology/ .methodology-archive/` copies plan files to the root
         # of the archive dir (no "methodology/" subdir), so seed it that way.

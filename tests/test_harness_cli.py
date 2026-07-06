@@ -6778,7 +6778,10 @@ class TestPushMilestoneStateJsonWriteBeforePush:
             state_path.write_text(json.dumps({"existing": True}), encoding="utf-8")
         # minimal quality_manifest so fr_ids auto-populate is safe
         (meth / "quality_manifest.json").write_text(
-            json.dumps({"fr_ids": []}), encoding="utf-8"
+            # gate4 evidence: p8 milestones are entry-gated (E2E C-1/C-2 fix)
+            json.dumps({"fr_ids": [],
+                        "gate_results": {"gate4": {"quality_complete": True}}}),
+            encoding="utf-8",
         )
 
         call_order: list[str] = []
@@ -6847,7 +6850,10 @@ class TestPushMilestoneStateJsonWriteBeforePush:
         state_path = meth / "state.json"
         state_path.write_text(json.dumps({"existing": True}), encoding="utf-8")
         (meth / "quality_manifest.json").write_text(
-            json.dumps({"fr_ids": []}), encoding="utf-8"
+            # gate4 evidence: p8 milestones are entry-gated (E2E C-1/C-2 fix)
+            json.dumps({"fr_ids": [],
+                        "gate_results": {"gate4": {"quality_complete": True}}}),
+            encoding="utf-8",
         )
 
         class FakeGit:
@@ -6882,7 +6888,10 @@ class TestPushMilestoneStateJsonWriteBeforePush:
             encoding="utf-8",
         )
         (meth / "quality_manifest.json").write_text(
-            json.dumps({"fr_ids": []}), encoding="utf-8"
+            # gate4 evidence: p8 milestones are entry-gated (E2E C-1/C-2 fix)
+            json.dumps({"fr_ids": [],
+                        "gate_results": {"gate4": {"quality_complete": True}}}),
+            encoding="utf-8",
         )
 
         class FakeGit:
@@ -7386,6 +7395,12 @@ class TestPushMilestonePostPushDirtyWarn:
         meth = tmp_path / ".methodology"
         meth.mkdir(parents=True, exist_ok=True)
         (meth / "state.json").write_text(json.dumps({"existing": True}), encoding="utf-8")
+        # gate4 evidence: p8 milestones are entry-gated (E2E C-1/C-2 fix)
+        (meth / "quality_manifest.json").write_text(
+            json.dumps({"fr_ids": [],
+                        "gate_results": {"gate4": {"quality_complete": True}}}),
+            encoding="utf-8",
+        )
 
         call_order: list[str] = []
 
