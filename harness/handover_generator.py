@@ -175,7 +175,7 @@ class HandoverGenerator:
     # Public API
     # ------------------------------------------------------------------
 
-    def write(
+    def render(
         self,
         checkpoint_id: str,
         phase: int,
@@ -187,7 +187,7 @@ class HandoverGenerator:
         plan_override: str | None = None,
         deliverables: list[str] | None = None,
         resume_phase: int | None = None,
-    ) -> Path:
+    ) -> str:
         # API-boundary validation: the type hints say int, but bad callers
         # can still pass strings (or out-of-range ints). Either would
         # render nonsensical text into the bash code block in HANDOVER.md,
@@ -260,7 +260,7 @@ class HandoverGenerator:
             "state": self._state_snapshot(),
             "plan": plan_path,
         }
-        content = self._render(
+        return self._render(
             checkpoint_id=checkpoint_id,
             phase=phase,
             task_background=task_background,
@@ -273,7 +273,20 @@ class HandoverGenerator:
             resume_phase=resume_phase,
             target_phase=_target,
         )
-        path = self.project / "HANDOVER.md"
+
+    @property
+    def handover_path(self) -> Path:
+        return self.project / "HANDOVER.md"
+
+    def write(self, *args, **kwargs) -> Path:
+        """render() + atomic write to ``<project>/HANDOVER.md``.
+
+        Kept as the convenience entry point; callers that must publish
+        HANDOVER.md together with other state files (advance-phase) call
+        render() and stage the content in a StateTransaction instead.
+        """
+        content = self.render(*args, **kwargs)
+        path = self.handover_path
         # Atomic write: a SIGKILL/OOM/power-loss mid-flush of plain
         # path.write_text would leave HANDOVER.md truncated or empty,
         # destroying the sole state for resuming a new session.

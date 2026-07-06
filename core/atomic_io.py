@@ -145,3 +145,91 @@ def state_lock_path(project_root: Path) -> Path:
     """Conventional lock-file location for a project's state writes."""
     from core.utils.project_layout import ProjectLayout
     return ProjectLayout(project_root).methodology_dir / ".state.lock"
+
+
+class StateTransaction:
+    """Multi-file staged state commit: stage → journal → rename in order.
+
+    Point-fixing individual write sites (#104, #118, 28864f7, dd9129b)
+    kept rediscovering the same bug class: a command writes file A, then
+    fails while producing file B, leaving the project half-advanced
+    (state.json said P9, HANDOVER.md was never regenerated). This class
+    makes the write set all-or-nothing-visible:
+
+      with StateTransaction(project) as txn:
+          txn.stage_text(handover_path, handover_text)
+          txn.stage_json(state_path, state)      # authoritative file LAST
+          txn.commit()
+
+    Guarantees:
+    - Nothing is visible before commit(); staging writes only `*.txn.tmp`
+      siblings. An exception before commit aborts and removes them.
+    - commit() first writes a journal (`.methodology/.txn_journal.json`)
+      listing every pending rename, then renames in staging order, then
+      deletes the journal. A crash mid-commit leaves the journal + the
+      un-renamed tmps on disk — `harness doctor` reports the interrupted
+      transaction instead of the project silently running on half-state.
+    - Stage the highest-authority file (state.json) LAST so a partial
+      commit can never claim more progress than the artifacts support.
+    """
+
+    def __init__(self, project_root: Path):
+        self.project_root = Path(project_root)
+        self.journal_path = self.project_root / ".methodology" / ".txn_journal.json"
+        self._staged: list[tuple[Path, Path]] = []  # (tmp, target) in stage order
+
+    def stage_text(self, path: Path, content: str, *, encoding: str = "utf-8") -> None:
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f".{path.name}.txn.tmp")
+        with open(tmp, "w", encoding=encoding) as f:
+            f.write(content)
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except OSError:  # pragma: no cover  (some filesystems unsupported)
+                pass
+        self._staged.append((tmp, path))
+
+    def stage_json(self, path: Path, data: Any, *, indent: int = 2,
+                   ensure_ascii: bool = False) -> None:
+        content = json.dumps(data, indent=indent, ensure_ascii=ensure_ascii)
+        if not content.endswith("\n"):
+            content += "\n"
+        self.stage_text(path, content)
+
+    def commit(self) -> None:
+        if not self._staged:
+            return
+        atomic_write_json(self.journal_path, {
+            "pending": [
+                {"tmp": str(tmp), "target": str(target)}
+                for tmp, target in self._staged
+            ],
+        })
+        # A failure past this point deliberately KEEPS the journal and any
+        # un-renamed tmps: they are the evidence doctor reports. Cleaning
+        # them here would turn a detectable interruption into silent
+        # half-state — the exact bug class this class exists to kill.
+        for tmp, target in self._staged:
+            os.replace(tmp, target)
+        self.journal_path.unlink(missing_ok=True)
+        self._staged.clear()
+
+    def abort(self) -> None:
+        """Discard everything staged (pre-commit failures only)."""
+        for tmp, _target in self._staged:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:  # pragma: no cover
+                pass
+        self._staged.clear()
+
+    def __enter__(self) -> "StateTransaction":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        if exc_type is not None and not self.journal_path.exists():
+            # Pre-commit failure: nothing published, clean the tmps.
+            # Mid-commit failure (journal on disk) keeps its evidence.
+            self.abort()

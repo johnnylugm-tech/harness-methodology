@@ -34,7 +34,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from core.atomic_io import atomic_write_json, atomic_write_text
+from core.atomic_io import StateTransaction, atomic_write_json, atomic_write_text
 from core.canonical_form import canonical_form
 from core.utils.project_layout import ProjectLayout
 
@@ -188,8 +188,8 @@ class CRManager:
             problems.extend(self.closure_problems(cr))
         return problems
 
-    def transition(self, cr_id: str, new_status: str) -> dict[str, Any]:
-        cr = self.load(cr_id)
+    def _apply_transition(self, cr: dict[str, Any], new_status: str) -> dict[str, Any]:
+        """Validate + mutate in memory; no IO (see close() for staged writes)."""
         problems = self.validate_transition(cr, new_status)
         if problems:
             raise CRValidationError(
@@ -199,8 +199,29 @@ class CRManager:
         cr["status"] = new_status
         if new_status in _TERMINAL:
             cr["closed_at"] = _now()
+        return cr
+
+    def transition(self, cr_id: str, new_status: str) -> dict[str, Any]:
+        cr = self._apply_transition(self.load(cr_id), new_status)
         self.save(cr)
         return cr
+
+    def close(self, cr_id: str) -> tuple[dict[str, Any], Path]:
+        """CLOSED transition + MAINTENANCE_LOG append as one StateTransaction.
+
+        A crash between the two writes previously left a CLOSED ticket
+        missing from the human-readable index. The log row is staged first,
+        the authoritative CR json last, so a partial commit never shows a
+        closed ticket without its log entry.
+        """
+        cr = self._apply_transition(self.load(cr_id), "CLOSED")
+        cr["updated_at"] = _now()
+        log_path, log_content = self._render_maintenance_log(cr)
+        with StateTransaction(self.project) as txn:
+            txn.stage_text(log_path, log_content)
+            txn.stage_json(self._path(cr["id"]), cr)
+            txn.commit()
+        return cr, log_path
 
     def update_fields(self, cr_id: str, fields: dict[str, Any]) -> dict[str, Any]:
         """Merge field updates (no status change — use transition for that)."""
@@ -241,10 +262,9 @@ class CRManager:
 
     # ── maintenance log ───────────────────────────────────────────────────
 
-    def append_maintenance_log(self, cr: dict[str, Any]) -> Path:
-        """Append the closed/rejected CR to 09-maintenance/MAINTENANCE_LOG.md."""
+    def _render_maintenance_log(self, cr: dict[str, Any]) -> tuple[Path, str]:
+        """Full post-append log content for *cr*; no IO (staged by close())."""
         log_path = self.layout.maintenance_log_path
-        log_path.parent.mkdir(parents=True, exist_ok=True)
         if log_path.exists():
             content = log_path.read_text(encoding="utf-8")
         else:
@@ -265,5 +285,11 @@ class CRManager:
         )
         if not content.endswith("\n"):
             content += "\n"
-        atomic_write_text(log_path, content + row)
+        return log_path, content + row
+
+    def append_maintenance_log(self, cr: dict[str, Any]) -> Path:
+        """Append the closed/rejected CR to 09-maintenance/MAINTENANCE_LOG.md."""
+        log_path, content = self._render_maintenance_log(cr)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(log_path, content)
         return log_path

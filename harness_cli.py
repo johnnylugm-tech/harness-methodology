@@ -88,7 +88,7 @@ _REPO_ROOT = Path(__file__).parent
 sys.path.insert(0, str(_REPO_ROOT))
 
 # Atomic state-file writers (CV-3 / SG-12 from robustness audit)
-from core.atomic_io import atomic_write_json, file_lock, state_lock_path  # noqa: E402
+from core.atomic_io import StateTransaction, atomic_write_json, file_lock, state_lock_path  # noqa: E402
 from core.phase_topology import (  # noqa: E402
     ADVANCE_GATE1_CHECK_PHASES as _TOPOLOGY_ADVANCE_GATE1,
     ENTRY_GATE_MAP as _TOPOLOGY_ENTRY_GATES,
@@ -9346,7 +9346,13 @@ def _advance_fsm(project: Path, completed_phase: int,
 
     next_phase = completed_phase + 1
 
-    # 1. Write .methodology/state.json (the authoritative phase record).
+    # 1. Prepare the full write set BEFORE anything becomes visible, then
+    # publish HANDOVER.md + state.json in one StateTransaction (state.json
+    # LAST — it is the authoritative file, so a partial commit can never
+    # claim more progress than the artifacts on disk support). This is the
+    # fix for the half-state class: the old order wrote state.json first
+    # and only WARNed when HANDOVER regeneration failed afterwards, leaving
+    # state advanced with a stale crash-recovery document (the P8→9 crash).
     # Cross-process locked (SG-12) so a parallel _update_state_checkpoint
     # or push-milestone state-write cannot corrupt the file.
     state_path = project / ".methodology" / "state.json"
@@ -9380,7 +9386,30 @@ def _advance_fsm(project: Path, completed_phase: int,
             "phase_truth_passed": True,
             "last_milestone_command": f"advance-phase --completed-phase {completed_phase}",
         })
-        atomic_write_json(state_path, state_data)
+
+        # Render HANDOVER.md before any write — a render failure aborts the
+        # advance with NOTHING published (previously it warned after state
+        # was already advanced).
+        gen = HandoverGenerator(project)
+        handover_content = gen.render(
+            checkpoint_id=f"P{next_phase}-entry-{datetime.now(timezone.utc).strftime('%Y%m%d')}",
+            phase=next_phase,
+            task_background=(
+                f"Phase {completed_phase} completed. Advancing FSM to Phase {next_phase}."
+            ),
+            current_status=f"FSM advanced from Phase {completed_phase} to Phase {next_phase}.",
+            next_steps=[
+                f"Follow SKILL.md §0.1 Phase {next_phase} entry checklist",
+                f"Read the Phase {next_phase} plan and execute",
+            ],
+            resume_phase=next_phase,
+        )
+
+        with StateTransaction(project) as txn:
+            txn.stage_text(gen.handover_path, handover_content)
+            txn.stage_json(state_path, state_data)   # authoritative file last
+            txn.commit()
+
         # B5: Advance fr_progress.json inside the same lock so state.json and
         # fr_progress.json are always updated atomically from any reader's
         # perspective. Moving it outside created a window where another process
@@ -9401,31 +9430,9 @@ def _advance_fsm(project: Path, completed_phase: int,
                 file=sys.stderr,
             )
     print(f"  [FSM] state.json current_phase → {next_phase}")
+    print(f"  [FSM] HANDOVER.md regenerated for Phase {next_phase}")
 
-    # 3. Regenerate HANDOVER.md so crash-recovery always reflects current phase.
-    #    _advance_fsm() call skipped HANDOVER regeneration (Gap 4 in audit).
-    try:
-        HandoverGenerator(project).write(
-            checkpoint_id=f"P{next_phase}-entry-{datetime.now(timezone.utc).strftime('%Y%m%d')}",
-            phase=next_phase,
-            task_background=(
-                f"Phase {completed_phase} completed. Advancing FSM to Phase {next_phase}."
-            ),
-            current_status=f"FSM advanced from Phase {completed_phase} to Phase {next_phase}.",
-            next_steps=[
-                f"Follow SKILL.md §0.1 Phase {next_phase} entry checklist",
-                f"Read the Phase {next_phase} plan and execute",
-            ],
-            resume_phase=next_phase,
-        )
-        print(f"  [FSM] HANDOVER.md regenerated for Phase {next_phase}")
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        print(
-            f"  [WARN] HANDOVER.md regeneration failed: {exc}",
-            file=sys.stderr,
-        )
-
-    # 4. No other phase storage — state.json is the single source of truth.
+    # 2. No other phase storage — state.json is the single source of truth.
     #    git config quality.phase and GitHub CURRENT_PHASE variable are no longer used.
 
 # ---------------------------------------------------------------------------
@@ -9693,6 +9700,32 @@ def cmd_verify_spec(args: argparse.Namespace) -> int:
             print("\n  [INFO] --fix shows suggestions only. Apply fixes manually.")
 
     return 0 if not result["issues"] else 1
+
+# ---------------------------------------------------------------------------
+# doctor
+# ---------------------------------------------------------------------------
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    """Read-only cross-file state consistency check. Reports, never repairs —
+    an auto-repair path would itself become a fabrication surface."""
+    from core.doctor import run_doctor
+
+    project = Path(args.project).resolve()
+    findings = run_doctor(project)
+
+    print(f"\n{'='*60}\ndoctor  project={project}\n{'='*60}")
+    if not findings:
+        print("  OK: state / manifest / CLAUDE.md / attestation consistent; "
+              "no interrupted transactions")
+        return 0
+
+    errors = 0
+    for finding in findings:
+        print(f"  [{finding.severity}] {finding.check}: {finding.message}")
+        if finding.severity == "ERROR":
+            errors += 1
+    print(f"\n  {errors} error(s), {len(findings) - errors} other finding(s)")
+    return 1 if errors else 0
 
 # ---------------------------------------------------------------------------
 # migrate-trace-overlay (PR 2 of closed-loop traceability plan)
@@ -10969,11 +11002,12 @@ def cmd_cr_close(args: argparse.Namespace) -> int:
         return 1
 
     try:
-        cr = mgr.transition(cr["id"], "CLOSED")
+        # One StateTransaction: CR json + MAINTENANCE_LOG land together
+        # (or not at all) — see CRManager.close.
+        cr, log_path = mgr.close(cr["id"])
     except CRValidationError as exc:
         print(f"[cr-close] BLOCKED: {exc}", file=sys.stderr)
         return 1
-    log_path = mgr.append_maintenance_log(cr)
 
     # decision log (audit trail — same channel as gate decisions)
     try:
@@ -11722,6 +11756,15 @@ def build_parser() -> argparse.ArgumentParser:
     st.add_argument("--json", action="store_true", help="Machine-readable JSON output")
     st.add_argument("--full", action="store_true", help="Include test stats and auto-fix rounds")
     st.set_defaults(func=cmd_status)
+
+    # doctor (read-only cross-file consistency check)
+    dr = sub.add_parser(
+        "doctor",
+        help="Check state.json / manifest / CLAUDE.md / attestation consistency "
+             "and detect interrupted state transactions (read-only)",
+    )
+    dr.add_argument("--project", default=".", help="Project root (default: .)")
+    dr.set_defaults(func=cmd_doctor)
 
     # load-context
     lc = sub.add_parser("load-context",
