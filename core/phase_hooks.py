@@ -931,9 +931,45 @@ class PhaseHooks:
                 # list) — treat like unreadable/unparseable, no evidence.
                 pass
             _md = self._layout.methodology_dir
+            # Treat a file as evidence only when its contents actually
+            # describe Gate 1 work. An empty placeholder file (post-reset,
+            # mid-write) must not block phase entry — that's exactly the
+            # "false-positive pre-flight stall" pattern that motivated this
+            # hook in the first place. Bug #141: fr_progress.json with
+            # `frs: {}` was being counted as evidence even though no FR has
+            # been processed yet.
+            def _has_real_gate1_content(raw: object) -> bool:
+                """Return True iff `raw` describes real Gate 1 results.
+
+                Acceptable shapes:
+                  - dict with FR-XX keys (gate1_result.json / .gate1_scores.json)
+                  - dict with non-empty "frs" sub-dict (fr_progress.json)
+                  - list of FR entries
+                """
+                if isinstance(raw, dict):
+                    if any(isinstance(k, str) and k.startswith("FR-")
+                           for k in raw.keys()):
+                        return True
+                    frs = raw.get("frs")
+                    if isinstance(frs, dict) and frs:
+                        return True
+                    return False
+                if isinstance(raw, list):
+                    return bool(raw)
+                return False
             for _artifact in ("gate1_result.json", "fr_progress.json",
                               ".gate1_scores.json"):
-                if (_md / _artifact).exists():
+                _p = _md / _artifact
+                if not _p.exists():
+                    continue
+                try:
+                    _raw = json.loads(_p.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    # Unparseable file → count it as evidence (corruption
+                    # case the hook was written for).
+                    evidence.append(_artifact)
+                    continue
+                if _has_real_gate1_content(_raw):
                     evidence.append(_artifact)
             if evidence:
                 issues.append(

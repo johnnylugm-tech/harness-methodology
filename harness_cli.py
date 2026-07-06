@@ -7016,13 +7016,18 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                     except Exception:  # pylint: disable=broad-exception-caught
                         pass
                 if not _fr_ids:
-                    # Fallback: scan SRS.md for "### FR-XX:" headers or "| FR-XX |" table rows
+                    # Fallback: scan SRS.md for FR markers. Match "### FR-XX" headers
+                    # (separator can be `:`, `—`, `-`, `|`, or whitespace after the
+                    # number) and table rows "| FR-XX | ...". Previous regex required
+                    # `\s*:|\s*|` after the digits, which silently dropped SRS files
+                    # using em-dash (`### FR-01 — ...`) — leaving fr_ids empty and
+                    # tripping the manifest-integrity pre-flight (Bug #140).
                     import re as _re_fr
                     _srs = project / "01-requirements" / "SRS.md"
                     if _srs.exists():
                         _fr_ids = [
                             f"FR-{n}" for n in _re_fr.findall(
-                                r"^(?:###\s+FR-|\|\s*FR-)(\d+)(?:\s*:|\s*\|)",
+                                r"^(?:###\s+FR-|\|\s*FR-)(\d+)\b",
                                 _srs.read_text(encoding="utf-8"),
                                 _re_fr.MULTILINE,
                             )

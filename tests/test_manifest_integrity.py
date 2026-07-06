@@ -70,16 +70,32 @@ class TestManifestIntegrityPatternB:
         assert "gate1" in result["reason"]
 
     def test_empty_gate1_with_residual_artifact_blocks(self, tmp_path, hooks_factory):
-        """gate1_result.json on disk proves Gate 1 ran even if state.json
-        says otherwise: block."""
+        """gate1_result.json with real Gate 1 results proves Gate 1 ran
+        even if state.json says otherwise: block. Empty `{}` is a
+        placeholder (post-reset) and must NOT count (Bug #141)."""
         _write_manifest(tmp_path, gate1={})
         _write_state(tmp_path, last_gate=None, last_fr=None)
-        (tmp_path / ".methodology" / "gate1_result.json").write_text("{}", encoding="utf-8")
+        (tmp_path / ".methodology" / "gate1_result.json").write_text(
+            json.dumps({"FR-01": {"score": 99.0}}), encoding="utf-8")
 
         result = hooks_factory().preflight_manifest_integrity()
 
         assert result["passed"] is False
         assert "gate1" in result["reason"]
+
+    def test_empty_placeholder_does_not_count_as_evidence(
+            self, tmp_path, hooks_factory):
+        """Bug #141: fr_progress.json with `frs: {}` is post-reset residue,
+        not Gate 1 evidence. Empty placeholder files must not block phase
+        entry — that's the false-positive the hook was written to avoid."""
+        _write_manifest(tmp_path, gate1={})
+        _write_state(tmp_path, last_gate=None, last_fr=None)
+        (tmp_path / ".methodology" / "fr_progress.json").write_text(
+            json.dumps({"phase": 3, "frs": {}}), encoding="utf-8")
+
+        result = hooks_factory().preflight_manifest_integrity()
+
+        assert result["passed"] is True, result
 
     def test_populated_gate1_passes(self, tmp_path, hooks_factory):
         _write_manifest(tmp_path, gate1={"FR-01": {"score": 99.0}})
