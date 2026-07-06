@@ -1669,16 +1669,32 @@ def _normalize_sab_module_to_dotted(mod: object) -> Optional[str]:
 
 
 def _check_sab_module_alignment(project: str, gate: int) -> Optional[int]:
-    """Gate 1 Architecture Amendment Protocol: block if unregistered modules found.
+    """Gate 1 Architecture Amendment Protocol: block on bidirectional SAB drift.
 
-    Returns 1 when gate==1 and at least one .py file in src/ is absent from SAB.json.
+    Returns 1 when gate==1 and either:
+      (a) unregistered: at least one .py file in src/ is absent from SAB.json, OR
+      (b) phantom: SAB.json declares modules the codebase has not implemented.
     Returns None when the check is skipped (gate != 1, SAB.json missing, no src dir)
-    or when all modules are registered.
+    or when SAB and codebase are symmetrically aligned.
 
     SAB ``modules`` entries may be expressed in either dotted
     (``taskq.cli``) or path (``03-development/src/taskq/cli.py``) form;
     both are normalised to dotted names before comparison so the check
     agrees with `drift_detector.sab_module_to_path_variants`.
+
+    Phantom detection (the (b) branch) closes the silent gap that previously
+    let P2 architecture planning register `taskq.config` / `taskq.models`
+    layers survive into P4 uncaught. The implementation delegates to
+    `core.quality_gate.sab_amender.phantom_modules` so this check, the
+    standalone `amend-sab` CLI, and `preflight_sab_check` (P4+) all agree
+    on what "phantom" means — three callers, one definition.
+
+    Bug class: P2-SAB-drift — first surfaced 2026-07-06 during phase4-testing
+    E2E, where preflight_sab_check BLOCKED with "Layer config: 1 modules
+    missing from codebase" because nothing had enforced (b) at any earlier
+    gate. Pushing the symmetric check down to Gate 1 forces amendment at
+    the earliest point where recovery is still cheap (P2 amendment protocol
+    or P3 implementation).
     """
     if gate != 1:
         return None
@@ -1710,6 +1726,23 @@ def _check_sab_module_alignment(project: str, gate: int) -> Optional[int]:
                 f"Unregistered modules detected: {unregistered}\n"
                 f"You must create an Amendment PR to update SAB.json and SAD.md "
                 f"before Gate 1 evaluation can proceed."
+            )
+            return 1
+
+        # Phantom check: SAB declares modules the codebase lacks. Use the
+        # shared helper so the message + handling stay in sync with
+        # `preflight_sab_check` (P4+) and the standalone `amend-sab` CLI.
+        from core.quality_gate.sab_amender import phantom_modules as _phantom
+        phantoms = _phantom(sab_data, actual_modules)
+        if phantoms:
+            print(
+                f"\n[BLOCKED] run-gate: Architecture Amendment Protocol violation.\n"
+                f"Phantom modules declared in SAB.json but not implemented in codebase: {phantoms}\n"
+                f"You must either:\n"
+                f"  (a) implement them in 03-development/src/<module>.py, OR\n"
+                f"  (b) amend SAB.json to remove them from the layer's modules list.\n"
+                f"Phantom drift caught here (Gate 1) so recovery is still cheap — "
+                f"otherwise P4 preflight will block on the same drift with no path back to P2 amendment."
             )
             return 1
     except Exception as e:

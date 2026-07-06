@@ -28,6 +28,7 @@ humans and re-derived from SAD.md by `scripts/generate_sab.py`.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Iterable
 
@@ -119,6 +120,42 @@ def missing_modules(sab: dict, discovered: Iterable[str], src_dir: str = _DEFAUL
     """Modules present on disk but not yet in any SAB layer."""
     registered = _flatten_registered(sab, src_dir)
     return [m for m in discovered if m not in registered]
+
+
+def phantom_modules(sab: dict, discovered: Iterable[str], src_dir: str = _DEFAULT_SRC_DIR) -> list[str]:
+    """Modules declared in SAB.json but with no on-disk implementation.
+
+    P2 architecture planning often pre-registers modules in SAB layers before
+    P3 implementation catches up. Without this check, the planning-vs-implementation
+    drift goes undetected until Phase 4 preflight (`PhaseHooks.preflight_sab_check`
+    at phase_hooks.py:341) — and by then P2 amendment is no longer reachable.
+
+    Returns the dotted names of phantom modules in deterministic (sorted) order.
+    Filters out:
+      - directory markers (trailing ``/`` in raw entry form)
+      - FR IDs (``FR-XX``) — those are traceability placeholders, not modules
+      - dotted names that DO exist on disk (already implemented; not phantom)
+
+    Companion to `missing_modules`: that one returns ``discovered - registered``
+    (codebase has new modules not in SAB); this returns ``registered - discovered``
+    (SAB claims modules the codebase lacks). Symmetric coverage closes the gap
+    where P2 plans something P3 silently drops.
+    """
+    registered = _flatten_registered(sab, src_dir)
+    discovered_set = set(discovered)
+    phantoms: list[str] = []
+    for raw in registered:
+        # Normalize once more so FR-XX / path / dotted forms all compare equal.
+        # _flatten_registered already normalized; defensive guard in case the
+        # helper is ever called from a context that bypassed normalization.
+        dotted = normalize_sab_module_to_dotted(raw, src_dir)
+        if dotted is None:
+            continue
+        if dotted.startswith("FR-") or re.match(r"^FR-\d+$", dotted):
+            continue
+        if dotted not in discovered_set:
+            phantoms.append(dotted)
+    return sorted(set(phantoms))
 
 
 def _heuristic_layer_choice(sab: dict, module_path: str) -> str:
