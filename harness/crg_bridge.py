@@ -141,12 +141,28 @@ class CRGBridge:
     # ── Graph lifecycle ────────────────────────────────────────────────────
 
     def refresh_graph(self, project_root: str) -> None:
-        if not self._check_available():
+        if not self._check_available() or _crg_build is None:
+            # Deferred-MCP runtime: mcp_tools is importable but
+            # ``build_or_update_graph_tool`` resolves to None (the tool
+            # was declared but its schema was never loaded via
+            # ToolSearch). The legacy import-check returns ``True``
+            # for the module itself, so without this guard a
+            # ``TypeError: 'NoneType' object is not callable`` crashes
+            # every prepare_gate() call. Crashing prepare_gate blocks
+            # Gate 2/3/4 entirely — the graph rebuild is non-essential
+            # for evaluation; crg_api's read-only tools still serve.
+            if _crg_build is None and not getattr(self, "_build_none_warned", False):
+                print(
+                    "[CRG] build_or_update_graph_tool unavailable "
+                    "(deferred-MCP runtime); skipping graph refresh.",
+                    file=sys.stderr,
+                )
+                self._build_none_warned = True
             return
         _crg_build(repo_root=project_root, full_rebuild=False)  # type: ignore[misc]
 
     def run_reconnaissance(self, project_root: str) -> dict:
-        if not self._check_available():
+        if not self._check_available() or _crg_build is None:
             return {}
         _crg_build(repo_root=project_root, full_rebuild=True)  # type: ignore[misc]
         p = Path(project_root) / ".sessi-work" / "crg_reconnaissance.json"
