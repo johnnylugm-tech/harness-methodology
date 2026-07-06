@@ -68,4 +68,4 @@
 
 - test: tests/test_handover_generator.py::TestCmdPushMilestone::test_p5_baseline_without_gate3_evidence_blocks
   bug: "E2E round 2 C-1/C-2: push-milestone p5-baseline/p7/p8 committed and pushed with no entry-gate evidence (unfixed since 2026-06-17; caught live by adversarial probe P3)"
-  fixed_in: "方案三(b) probe commit"
+  fixed_in: "502fd3c"
