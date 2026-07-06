@@ -5264,6 +5264,73 @@ class TestP2AdvanceRegeneratesManifest:
             f"git-add included manifest despite no SAD.md; calls: {self._git_add_calls}"
         )
 
+    def test_p2_advance_fails_fast_when_fr_ids_empty(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        """Fail-fast guard: when current manifest has no fr_ids AND SRS.md
+        has no FR markers, cmd_advance_phase must NOT call
+        generate_quality_manifest with an empty list (which would silently
+        write an empty manifest passing the regeneration print, then trip
+        preflight Pattern A in P3). Instead: return non-zero and emit an
+        actionable error pointing at the SRS regex / fr_ids injection fix.
+        Companion regression to Bug #140 — the SRS regex is fixed but a
+        malformed SRS file must surface the failure locally, not at P3
+        preflight.
+        """
+        import harness_cli
+        import json
+        from harness_cli import cmd_advance_phase
+
+        self._setup(tmp_path, monkeypatch)
+        # Empty the seed fr_ids so neither manifest nor SRS provides a list.
+        mf = tmp_path / ".methodology" / "quality_manifest.json"
+        seed = json.loads(mf.read_text(encoding="utf-8"))
+        seed["fr_ids"] = []
+        mf.write_text(json.dumps(seed), encoding="utf-8")
+        # SRS.md with NO FR markers (regression for the post-Bug-140 shape:
+        # malformed SRS that the regex correctly accepts as zero matches).
+        (tmp_path / "01-requirements" / "SRS.md").write_text(
+            "# SRS\n\n_No FR markers in this body._\n", encoding="utf-8"
+        )
+
+        # generate_quality_manifest should NEVER be called — replace it
+        # with a sentinel that fails the test if invoked.
+        called = {"n": 0}
+
+        def _must_not_call(*a, **kw):
+            called["n"] += 1
+            raise AssertionError(
+                "generate_quality_manifest must not run with empty fr_ids"
+            )
+
+        monkeypatch.setattr(
+            "harness.harness_bridge.HarnessBridge.generate_quality_manifest",
+            _must_not_call,
+        )
+
+        rc = cmd_advance_phase(self._build_args(tmp_path, 2))
+
+        assert rc != 0, (
+            f"expected non-zero return on empty fr_ids, got rc={rc}"
+        )
+        assert called["n"] == 0, (
+            f"generate_quality_manifest must not be invoked, was called "
+            f"{called['n']} time(s)"
+        )
+
+        # Manifest must be left untouched (still generated_at_phase=1).
+        after = json.loads(mf.read_text(encoding="utf-8"))
+        assert after.get("generated_at_phase") == 1, (
+            f"manifest must not be overwritten when fail-fast fires; "
+            f"generated_at_phase={after.get('generated_at_phase')}"
+        )
+
+        captured = capsys.readouterr()
+        combined = captured.out + captured.err
+        assert "fr_ids" in combined, (
+            f"expected actionable error mentioning fr_ids; got: {combined}"
+        )
+
 
 # =============================================================================
 # P7→P8: deterministic CONFIG_RECORDS / RELEASE_CHECKLIST baseline

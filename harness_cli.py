@@ -7032,6 +7032,30 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                                 _re_fr.MULTILINE,
                             )
                         ]
+                # Fail-fast guard: if both seed manifest and SRS regex
+                # produce zero FRs, do NOT silently call
+                # generate_quality_manifest with an empty list. An empty
+                # manifest passes the regeneration print, then trips
+                # preflight Pattern A in P3 — the failure surfaces far
+                # from its cause. Refuse the advance locally instead so
+                # the user fixes the SRS format / fr_ids injection at
+                # the point of failure. (Bug #140 hardened the regex;
+                # this guards the malformed-SRS case the regex now
+                # correctly reports as zero matches.)
+                if not _fr_ids:
+                    print(
+                        f"  [P2→P3] manifest regeneration REFUSED: "
+                        f"fr_ids is empty (no seed in quality_manifest.json "
+                        f"and no FR markers matched in SRS.md).\n"
+                        f"    Fix one of:\n"
+                        f"      - inject fr_ids into quality_manifest.json\n"
+                        f"    (recommended: pre-populate via `harness_cli.py "
+                        f"manifest --fr-ids FR-XX ... --sad {sad_path}`)\n"
+                        f"      - repair SRS.md so FR headers are detectable "
+                        f"by `^(?:###\\s+FR-|\\|\\s*FR-)(\\d+)\\b`",
+                        file=sys.stderr,
+                    )
+                    return 2
                 _bridge = HarnessBridge()
                 _out = _bridge.generate_quality_manifest(
                     fr_ids=_fr_ids,
