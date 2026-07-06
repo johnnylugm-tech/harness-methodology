@@ -1,0 +1,116 @@
+#!/bin/bash
+# =============================================================================
+# pre-push hook
+# =============================================================================
+# Check Quality Gate before push.
+# =============================================================================
+
+set -e
+
+# Unset git worktree env vars so all git commands resolve to this repo
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
+
+# Get project root directory and cd into it
+PROJECT_ROOT=$(git rev-parse --show-toplevel)
+cd "$PROJECT_ROOT" || { echo "[harness] ERROR: cannot cd to $PROJECT_ROOT"; exit 1; }
+
+# Auto-detect harness_cli.py: root first, then harness/ submodule
+if [ -f "$PROJECT_ROOT/harness_cli.py" ]; then
+    HARNESS_CLI="$PROJECT_ROOT/harness_cli.py"
+elif [ -f "$PROJECT_ROOT/harness/harness_cli.py" ]; then
+    HARNESS_CLI="$PROJECT_ROOT/harness/harness_cli.py"
+else
+    HARNESS_CLI=""
+fi
+
+# Detect venv-aware Python (prefer project .venv over system python3)
+if [ -f "$PROJECT_ROOT/.venv/bin/python" ]; then
+    PYTHON="$PROJECT_ROOT/.venv/bin/python"
+elif [ -f "$PROJECT_ROOT/.venv/bin/python3" ]; then
+    PYTHON="$PROJECT_ROOT/.venv/bin/python3"
+else
+    PYTHON="python3"
+fi
+
+# Get current Phase (from state.json or default to 1)
+PHASE=$("$PYTHON" -c "import json; d=json.load(open('.methodology/state.json')); print(d.get('current_phase', 1))" 2>/dev/null || echo "1")
+
+# Check if Python is available
+if ! "$PYTHON" --version &>/dev/null 2>&1; then
+    echo "Warning: python not found ($PYTHON), skipping quality gate check"
+    exit 0
+fi
+
+# Check if harness CLI exists
+if [ ! -f "$HARNESS_CLI" ]; then
+    echo "Warning: harness_cli.py not found, skipping quality gate check"
+    exit 0
+fi
+
+# Infrastructure-only commits (submodule pointer updates) do not change
+# project code — skip the gate check. Check ALL commits being pushed;
+# if every one is chore(harness):, skip. Mixed pushes (code + harness) still
+# run the full check.
+_ALL_HARNESS_CHORE=true
+while read -r _local_ref _local_sha _remote_ref _remote_sha; do
+    if [ "$_local_sha" = "0000000000000000000000000000000000000000" ]; then
+        continue  # branch deletion — skip
+    fi
+    _RANGE=""
+    if [ "$_remote_sha" = "0000000000000000000000000000000000000000" ]; then
+        _RANGE="$_local_sha"  # new branch — all commits
+    else
+        _RANGE="${_remote_sha}..${_local_sha}"
+    fi
+    _NON_CHORE=$(git log "$_RANGE" --format="%s" 2>/dev/null | grep -vE '^chore\(harness\):' | head -1)
+    if [ -n "$_NON_CHORE" ]; then
+        _ALL_HARNESS_CHORE=false
+        break
+    fi
+done
+if [ "$_ALL_HARNESS_CHORE" = true ]; then
+    echo "All commits are infrastructure (harness submodule) — skipping gate check"
+    exit 0
+fi
+
+# Regression-guard registry: block the push if any guard test was deleted
+# without a matching registry update in the same commit. Framework repo only —
+# target projects have no tests/REGRESSION_GUARDS.yaml, so this is a no-op there.
+if [ -f "$PROJECT_ROOT/tests/REGRESSION_GUARDS.yaml" ] && [ -f "$PROJECT_ROOT/scripts/verify_regression_guards.py" ]; then
+    echo ""
+    echo "Checking regression-guard registry..."
+    "$PYTHON" "$PROJECT_ROOT/scripts/verify_regression_guards.py" \
+        --registry "$PROJECT_ROOT/tests/REGRESSION_GUARDS.yaml" \
+        --repo-root "$PROJECT_ROOT" || {
+        echo ""
+        echo "=============================================="
+        echo "PRE-PUSH BLOCKED: regression guard missing"
+        echo "=============================================="
+        echo "A test listed in tests/REGRESSION_GUARDS.yaml no longer exists."
+        echo "Restore it, or update the registry in the same commit with a reason."
+        exit 1
+    }
+fi
+
+# Run full Phase preflight before push (no bypass — use run-phase for complete check)
+echo ""
+echo "Running Phase $PHASE full preflight before push..."
+
+"$PYTHON" "$HARNESS_CLI" run-phase --phase "$PHASE" --project "$PROJECT_ROOT"
+
+RESULT=$?
+
+if [ $RESULT -ne 0 ]; then
+    echo ""
+    echo "=============================================="
+    echo "PRE-PUSH PREFLIGHT FAILED"
+    echo "=============================================="
+    echo ""
+    echo "Phase $PHASE run-phase checks failed."
+    echo "Fix all issues before pushing."
+    echo ""
+    exit 1
+fi
+
+echo "Pre-push check passed!"
+exit 0

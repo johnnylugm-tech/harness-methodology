@@ -1,0 +1,70 @@
+#!/bin/bash
+# =============================================================================
+# pre-commit hook — submodule guard
+# =============================================================================
+# Detects uncommitted edits in harness/ submodule. Warns (does NOT block)
+# the developer with remediation steps. The hard-raise behavior lives in
+# pre_flight.check_submodule_safety, called from advance-phase.
+# =============================================================================
+
+set -e
+
+# Unset git worktree env vars so all git commands resolve to this repo
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
+
+# Get project root directory
+PROJECT_ROOT=$(git rev-parse --show-toplevel)
+
+# Auto-detect harness/ submodule
+if [ -d "$PROJECT_ROOT/harness" ]; then
+    SUBMODULE="$PROJECT_ROOT/harness"
+elif [ -f "$PROJECT_ROOT/.gitmodules" ]; then
+    # First submodule listed wins
+    SUBMODULE=$(git config --file "$PROJECT_ROOT/.gitmodules" --get-regexp '^submodule\..*\.path$' | head -1 | awk '{print $2}' | sed "s|^|$PROJECT_ROOT/|")
+else
+    SUBMODULE=""
+fi
+
+if [ -z "$SUBMODULE" ] || [ ! -d "$SUBMODULE" ]; then
+    exit 0  # no submodule → skip
+fi
+
+# Detect venv-aware Python
+if [ -f "$PROJECT_ROOT/.venv/bin/python" ]; then
+    PYTHON="$PROJECT_ROOT/.venv/bin/python"
+elif [ -f "$PROJECT_ROOT/.venv/bin/python3" ]; then
+    PYTHON="$PROJECT_ROOT/.venv/bin/python3"
+else
+    PYTHON="python3"
+fi
+
+# Run submodule guard check-edits mode (non-blocking, prints to stdout)
+EDITS=$("$PYTHON" -m core.submodule_guard --submodule "$SUBMODULE" --mode check-edits 2>/dev/null || true)
+if [ -n "$EDITS" ]; then
+    echo "[submodule-guard] WARNING: harness/ submodule has uncommitted edit(s):"
+    echo "$EDITS" | sed 's/^/  /'
+    echo "  These would be lost on 'git submodule update --remote'."
+    echo "  Commit them first, or use --no-fetch to preserve."
+fi
+
+# I: canonical FR-ID lint on staged Python/JS files (non-blocking by default;
+# pass --strict to block commits that introduce non-canonical FR-IDs).
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(py|js|mjs|ts)$' || true)
+if [ -n "$STAGED_FILES" ]; then
+    cd "$PROJECT_ROOT/harness"  # canonical_lint expects to import core.*
+    CANON_HITS=$("$PYTHON" -m core.canonical_lint $STAGED_FILES 2>&1 || true)
+    CANON_EXIT=$?
+    cd "$PROJECT_ROOT"
+    if [ $CANON_EXIT -ne 0 ] && [ -n "$CANON_HITS" ]; then
+        echo ""
+        echo "[canonical-lint] WARNING: non-canonical FR-ID(s) detected:"
+        echo "$CANON_HITS" | sed 's/^/  /'
+        echo "  Use canonical_form() from core.canonical_form to normalise."
+        if [ "${HARNESS_STRICT_CANONICAL:-0}" = "1" ]; then
+            echo "  HARNESS_STRICT_CANONICAL=1 → blocking commit."
+            exit 1
+        fi
+    fi
+fi
+
+exit 0

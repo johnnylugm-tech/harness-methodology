@@ -1,0 +1,59 @@
+#!/bin/bash
+# =============================================================================
+# post-merge hook
+# =============================================================================
+# Auto-check Phase status after merge.
+# =============================================================================
+
+set -e
+
+# Unset git worktree env vars so all git commands resolve to this repo
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
+
+# Get project root directory and cd into it
+PROJECT_ROOT=$(git rev-parse --show-toplevel)
+cd "$PROJECT_ROOT" || { echo "[harness] ERROR: cannot cd to $PROJECT_ROOT"; exit 1; }
+
+# Auto-detect harness_cli.py: root first, then harness/ submodule
+if [ -f "$PROJECT_ROOT/harness_cli.py" ]; then
+    HARNESS_CLI="$PROJECT_ROOT/harness_cli.py"
+elif [ -f "$PROJECT_ROOT/harness/harness_cli.py" ]; then
+    HARNESS_CLI="$PROJECT_ROOT/harness/harness_cli.py"
+else
+    HARNESS_CLI=""
+fi
+
+# Detect venv-aware Python (prefer project .venv over system python3)
+if [ -f "$PROJECT_ROOT/.venv/bin/python" ]; then
+    PYTHON="$PROJECT_ROOT/.venv/bin/python"
+elif [ -f "$PROJECT_ROOT/.venv/bin/python3" ]; then
+    PYTHON="$PROJECT_ROOT/.venv/bin/python3"
+else
+    PYTHON="python3"
+fi
+
+# Get current Phase (from state.json or default to 1)
+PHASE=$("$PYTHON" -c "import json; d=json.load(open('.methodology/state.json')); print(d.get('current_phase', 1))" 2>/dev/null || echo "1")
+
+# Check if Python is available
+if ! "$PYTHON" --version &>/dev/null 2>&1; then
+    echo "Warning: python not found ($PYTHON), skipping quality gate check"
+    exit 0
+fi
+
+# Check if harness CLI exists
+if [ ! -f "$HARNESS_CLI" ]; then
+    echo "Warning: harness_cli.py not found, skipping quality gate check"
+    exit 0
+fi
+
+# Run Quality Gate check
+echo ""
+echo "Running Phase $PHASE Quality Gate check after merge..."
+echo ""
+
+"$PYTHON" "$HARNESS_CLI" pre-commit-check --phase "$PHASE" --project "$PROJECT_ROOT" || true
+
+echo ""
+echo "Post-merge quality check completed."
+exit 0
