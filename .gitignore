@@ -77,3 +77,5 @@ XX.*
 .git_diff*.txt
 docs/proposals/
 .harness-bug-hunt/
+diff.txt
+.methodology/fr_mapping.json
