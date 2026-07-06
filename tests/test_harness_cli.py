@@ -3811,6 +3811,104 @@ class TestGate4DaWaiverThresholdCheck:
 
 
 # =============================================================================
+# Gate 3 DA waiver — _collect_da_waivers reads gate3_result.json
+# =============================================================================
+
+class TestGate3DaWaiverCollection:
+    """Gate 3 honors the same artifact-backed DA waivers as Gate 4.
+
+    Doc/code drift fix: phase4_plan.md and the phase4 workflow always claimed a
+    Gate 3 architecture FAIL could be waived via da_waiver, but the CLI only
+    read the waiver at gate==4. _collect_da_waivers is now gate-parametrized
+    and called for gate 3 at the finalize-gate call site (waiver collection
+    only — none of the Gate 4 A3-completeness/A5/B2/B3 prerequisites).
+    """
+
+    _LONG = "y" * 130  # > _DA_EVIDENCE_MIN_CHARS (120)
+
+    def _make_g3(self, dim: str, tool_score: float, threshold: float | None,
+                 evidence: bool = True, da_true: bool = True) -> dict:
+        g3: dict = {
+            "devil_advocate": {dim: da_true},
+            "da_waiver": {dim: True},
+            "breakdown": {dim: {"tool_score": tool_score}},
+        }
+        if threshold is not None:
+            g3["breakdown"][dim]["threshold"] = threshold
+        if evidence:
+            g3["devil_advocate_evidence"] = {
+                dim: {"challenge": self._LONG, "response": self._LONG}
+            }
+        return g3
+
+    def _run(self, tmp_path: Path, g3: "dict | None") -> tuple[bool, set]:
+        from harness_cli import _collect_da_waivers
+
+        if g3 is not None:
+            sessi = tmp_path / ".sessi-work"
+            sessi.mkdir(parents=True, exist_ok=True)
+            (sessi / "gate3_result.json").write_text(json.dumps(g3), encoding="utf-8")
+        return _collect_da_waivers(tmp_path, 3)
+
+    def test_waiver_applied_below_threshold(self, tmp_path):
+        blocked, da_waivers = self._run(
+            tmp_path, self._make_g3("architecture", tool_score=64.7, threshold=80.0))
+        assert not blocked
+        assert da_waivers == {"architecture"}
+
+    def test_waiver_skipped_at_or_above_threshold(self, tmp_path):
+        blocked, da_waivers = self._run(
+            tmp_path, self._make_g3("architecture", tool_score=85.0, threshold=80.0))
+        assert not blocked
+        assert da_waivers == set()
+
+    def test_blocked_when_evidence_missing(self, tmp_path):
+        """Requested-but-unbacked waiver must fail loudly (fabrication guard)."""
+        blocked, da_waivers = self._run(
+            tmp_path, self._make_g3("architecture", tool_score=64.7, threshold=80.0,
+                                    evidence=False))
+        assert blocked
+        assert da_waivers == set()
+
+    def test_blocked_when_evidence_too_short(self, tmp_path):
+        g3 = self._make_g3("architecture", tool_score=64.7, threshold=80.0)
+        g3["devil_advocate_evidence"]["architecture"]["response"] = "too short"
+        blocked, da_waivers = self._run(tmp_path, g3)
+        assert blocked
+        assert da_waivers == set()
+
+    def test_no_waiver_when_devil_advocate_false(self, tmp_path):
+        blocked, da_waivers = self._run(
+            tmp_path, self._make_g3("architecture", tool_score=64.7, threshold=80.0,
+                                    da_true=False))
+        assert not blocked
+        assert da_waivers == set()
+
+    def test_no_file_returns_empty(self, tmp_path):
+        blocked, da_waivers = self._run(tmp_path, None)
+        assert not blocked
+        assert da_waivers == set()
+
+    def test_missing_threshold_defaults_to_waiver_applied(self, tmp_path):
+        """threshold absent → float('inf') → conservative: waiver applied (M1 parity)."""
+        blocked, da_waivers = self._run(
+            tmp_path, self._make_g3("architecture", tool_score=100.0, threshold=None))
+        assert not blocked
+        assert da_waivers == {"architecture"}
+
+    def test_gate4_reader_ignores_gate3_file(self, tmp_path):
+        """_collect_da_waivers(project, 4) must not pick up gate3_result.json."""
+        from harness_cli import _collect_da_waivers
+        sessi = tmp_path / ".sessi-work"
+        sessi.mkdir(parents=True, exist_ok=True)
+        (sessi / "gate3_result.json").write_text(
+            json.dumps(self._make_g3("architecture", 64.7, 80.0)), encoding="utf-8")
+        blocked, da_waivers = _collect_da_waivers(tmp_path, 4)
+        assert not blocked
+        assert da_waivers == set()
+
+
+# =============================================================================
 # Bug 2 — finalize-gate persist: composite_score patched with harness score
 # =============================================================================
 

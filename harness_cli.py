@@ -1740,7 +1740,9 @@ def _check_sab_module_alignment(project: str, gate: int) -> Optional[int]:
                 f"Phantom modules declared in SAB.json but not implemented in codebase: {phantoms}\n"
                 f"You must either:\n"
                 f"  (a) implement them in 03-development/src/<module>.py, OR\n"
-                f"  (b) amend SAB.json to remove them from the layer's modules list.\n"
+                f"  (b) amend SAB.json to remove them from the layer's modules list\n"
+                f"      (and sync the SAD.md sections that reference the removed modules — "
+                f"amend-sab does not edit SAD.md).\n"
                 f"Phantom drift caught here (Gate 1) so recovery is still cheap — "
                 f"otherwise P4 preflight will block on the same drift with no path back to P2 amendment."
             )
@@ -2134,6 +2136,89 @@ def _validate_da_evidence(dim: str, g4: dict) -> "str | None":
     return None
 
 
+def _load_gate_result_json(project: Path, gate: int) -> dict:
+    """Load gate{gate}_result.json from the standard candidate locations.
+
+    Candidate order (first parseable hit wins): .sessi-work/ (agent-written,
+    freshest), .methodology/ (persisted by a previous finalize-gate), project
+    root. Returns {} when no candidate exists or parses.
+    """
+    result_candidates = [
+        project / ".sessi-work" / f"gate{gate}_result.json",
+        project / ".methodology" / f"gate{gate}_result.json",
+        project / f"gate{gate}_result.json",
+    ]
+    for candidate in result_candidates:
+        if candidate.exists():
+            try:
+                return json.loads(candidate.read_text(encoding="utf-8"))
+            except Exception as _e:
+                print(f"[Gate {gate}] ⚠ Could not parse {candidate}: {_e} — skipping extended checks",
+                      file=sys.stderr)
+    return {}
+
+
+def _collect_da_waivers(project: Path, gate: int, gres: "dict | None" = None) -> "tuple[bool, set[str]]":
+    """Collect artifact-backed DA score-threshold waivers from gate{gate}_result.json.
+
+    A waiver lets a CRG-ONLY dim (e.g. architecture) pass below threshold when
+    the Devil's Advocate challenge concluded the design is intentional
+    (Orchestrator/hub-and-spoke, small-package Leiden fragmentation). Valid at
+    Gate 3 and Gate 4 — finalize_gate's threshold zeroing is gate-agnostic.
+
+    Requires devil_advocate.<dim>=true, da_waiver.<dim>=true, AND real
+    devil_advocate_evidence.<dim> (challenge + response). Returns
+    (blocked, da_waivers): blocked=True only when a requested waiver's DA
+    evidence is missing/insufficient — a requested-but-unbacked waiver must
+    fail loudly (fabrication guard), not be silently dropped.
+
+    Note: the .methodology/ candidate can carry a waiver persisted from a
+    previous finalize-gate run (parity with the long-standing Gate 4
+    behavior); .sessi-work/ is checked first so a fresh agent-written file
+    always wins.
+    """
+    blocked = False
+    da_waivers: set[str] = set()
+    g = _load_gate_result_json(project, gate) if gres is None else gres
+    if not g:
+        return blocked, da_waivers
+    devil_advocate: dict = g.get("devil_advocate", {})
+    _da_waiver_raw: dict = g.get("da_waiver", {})
+    for _dim, _waived in _da_waiver_raw.items():
+        if not (_waived and devil_advocate.get(_dim, False)):
+            continue
+        _w_problem = _validate_da_evidence(_dim, g)
+        if _w_problem:
+            print(
+                f"\n[BLOCKED] Gate {gate} (A3): da_waiver for '{_dim}' requires DA evidence — {_w_problem}",
+                file=sys.stderr,
+            )
+            blocked = True
+            continue
+        # Only apply the waiver when the dimension is actually below threshold.
+        # If tool_score >= threshold the dimension already passes; accepting
+        # the waiver would still set da_waiver_needs_human_review = True in
+        # quality_manifest.json, which is a false-positive review flag.
+        _bd = g.get("breakdown", {}).get(_dim, {})
+        _tool_score = float(_bd.get("tool_score", 0.0))
+        _threshold = float(_bd.get("threshold", float("inf")))
+        if _tool_score >= _threshold:
+            print(
+                f"[Gate {gate}] A3: da_waiver for '{_dim}' skipped — "
+                f"tool_score={_tool_score:.1f} ≥ threshold={_threshold:.1f} "
+                "(waiver not needed; dimension already passes).",
+                file=sys.stderr,
+            )
+            continue
+        da_waivers.add(_dim)
+        print(
+            f"[Gate {gate}] A3: DA waiver active for '{_dim}' "
+            "(score threshold bypassed — artifact-backed DA challenge confirmed intentional design).",
+            file=sys.stderr,
+        )
+    return blocked, da_waivers
+
+
 def _check_gate4_prerequisites(project: Path) -> "tuple[bool, set[str]]":
     """
     Run all Gate 4 blocking prerequisites before calling bridge.finalize_gate.
@@ -2155,19 +2240,7 @@ def _check_gate4_prerequisites(project: Path) -> "tuple[bool, set[str]]":
     da_waivers: set[str] = set()
 
     # ── Load gate4_result.json for A2/A3/A4/A5 ───────────────────────
-    result_candidates = [
-        project / ".sessi-work" / "gate4_result.json",
-        project / ".methodology" / "gate4_result.json",
-        project / "gate4_result.json",
-    ]
-    g4: dict = {}
-    for candidate in result_candidates:
-        if candidate.exists():
-            try:
-                g4 = json.loads(candidate.read_text(encoding="utf-8"))
-                break
-            except Exception as _e:
-                print(f"[Gate 4] ⚠ Could not parse {candidate}: {_e} — skipping extended checks", file=sys.stderr)
+    g4 = _load_gate_result_json(project, 4)
 
     if g4:
         # (A2 model_used removed — after the MCP backends were dropped every dim
@@ -2210,43 +2283,10 @@ def _check_gate4_prerequisites(project: Path) -> "tuple[bool, set[str]]":
                     )
                     blocked = True
                 else:
-                    # DA challenge complete + artifact-backed — collect score-threshold waivers.
-                    # A waiver lets a CRG-ONLY dim (e.g. architecture) pass below threshold when the
-                    # DA challenge concluded the design is intentional (Orchestrator/hub-and-spoke).
-                    # Requires devil_advocate.<dim>=true, da_waiver.<dim>=true, AND DA evidence.
-                    _da_waiver_raw: dict = g4.get("da_waiver", {})
-                    for _dim, _waived in _da_waiver_raw.items():
-                        if not (_waived and devil_advocate.get(_dim, False)):
-                            continue
-                        _w_problem = _validate_da_evidence(_dim, g4)
-                        if _w_problem:
-                            print(
-                                f"\n[BLOCKED] Gate 4 (A3): da_waiver for '{_dim}' requires DA evidence — {_w_problem}",
-                                file=sys.stderr,
-                            )
-                            blocked = True
-                            continue
-                        # Only apply the waiver when the dimension is actually below threshold.
-                        # If tool_score >= threshold the dimension already passes; accepting
-                        # the waiver would still set da_waiver_needs_human_review = True in
-                        # quality_manifest.json, which is a false-positive review flag.
-                        _bd = g4.get("breakdown", {}).get(_dim, {})
-                        _tool_score = float(_bd.get("tool_score", 0.0))
-                        _threshold = float(_bd.get("threshold", float("inf")))
-                        if _tool_score >= _threshold:
-                            print(
-                                f"[Gate 4] A3: da_waiver for '{_dim}' skipped — "
-                                f"tool_score={_tool_score:.1f} ≥ threshold={_threshold:.1f} "
-                                "(waiver not needed; dimension already passes).",
-                                file=sys.stderr,
-                            )
-                            continue
-                        da_waivers.add(_dim)
-                        print(
-                            f"[Gate 4] A3: DA waiver active for '{_dim}' "
-                            "(score threshold bypassed — artifact-backed DA challenge confirmed intentional design).",
-                            file=sys.stderr,
-                        )
+                    # DA challenge complete + artifact-backed — collect score-threshold
+                    # waivers (shared with the Gate 3 path; see _collect_da_waivers).
+                    _w_blocked, da_waivers = _collect_da_waivers(project, 4, gres=g4)
+                    blocked = blocked or _w_blocked
 
         # ── A5: Issue Registry (advisory only — no longer blocks) ─────
         # The registry contents are agent-written; "exists + non-empty" never
@@ -2617,6 +2657,13 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
     if args.gate == 4:
         _gate4_block, _da_waivers = _check_gate4_prerequisites(Path(project))
         if _gate4_block:
+            return 5
+    elif args.gate == 3:
+        # Gate 3 honors the same artifact-backed DA waivers (from
+        # gate3_result.json) — waiver collection only, none of the Gate 4
+        # A3-completeness/A5/B2/B3 prerequisites apply at this gate.
+        _g3_block, _da_waivers = _collect_da_waivers(Path(project), 3)
+        if _g3_block:
             return 5
 
     # Rebuild context (loads config; skips CRG recon second time since recon file already exists)
@@ -6103,8 +6150,12 @@ _DIMENSION_HINTS: dict[str, str] = {
     "architecture":       (
         "Two distinct failure modes — check tool_evidence to identify which applies: "
         "(1) CRG community issues: if god-module (size>50) or low cohesion (all communities <0.3) — "
-        "either complete Devil's Advocate challenge to justify the design (Tier 3 prerequisite) "
-        "then re-run run-gate, OR reduce cross-package coupling so CRG detects sub-communities; "
+        "either file an artifact-backed DA waiver in .sessi-work/gate{N}_result.json "
+        "(devil_advocate + da_waiver + devil_advocate_evidence.architecture; valid at Gate 3 AND Gate 4) "
+        "then re-run finalize-gate, OR reduce cross-package coupling so CRG detects sub-communities; "
+        "for persistent CRG false positives (workflow tooling counted as product code, small-package "
+        "Leiden over-fragmentation) calibrate crg_excludes / crg_cohesion_healthy in "
+        ".methodology/harness_config.json; "
         "(2) Import boundary violations: verify imports comply with SAD.md layer boundaries and fix violations."
     ),
     "readability":        "Add [FR-XX] docstrings with Citations:; split functions >30 lines",
