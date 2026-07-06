@@ -5277,7 +5277,6 @@ class TestP2AdvanceRegeneratesManifest:
         malformed SRS file must surface the failure locally, not at P3
         preflight.
         """
-        import harness_cli
         import json
         from harness_cli import cmd_advance_phase
 
