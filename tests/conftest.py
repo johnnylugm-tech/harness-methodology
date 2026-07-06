@@ -7,6 +7,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
+# The mutmut smoke fixture is a standalone mini project: its test file only
+# imports inside the mutation_enforcer's workdir run, never from this suite.
+collect_ignore_glob = ["fixtures/mutmut_smoke/*"]
+
 # CRG is mandatory — mcp_tools module only exists inside Claude Code runtime.
 # Mock it here so all tests that transitively import CRG code can run.
 # Tests that need real MCP tool behavior for non-CRG paths (e.g. Hermes/Gemini)
