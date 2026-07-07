@@ -500,6 +500,50 @@ def _record_gate_timestamp(project: Path, phase: int, gate_num: int, fr_id: str 
     except OSError:
         pass  # Non-blocking
 
+
+def _gate1_evidence_exists(project: Path, fr_id: str, phase: int = 3) -> bool:
+    """Multi-source Gate 1 evidence check (O2, 2026-07-07).
+
+    Accepts any of three co-equal Gate 1 evidence channels — eliminates the
+    single-source-of-evidence design defect where a clean restart wiping
+    `.sessi-work/sentinels/` would block P3→P4 handoff even though Gate 1
+    was genuinely complete (fr_progress.json + gate_timestamps.jsonl both
+    persist this fact).
+
+    Try in order:
+      1. `.sessi-work/sentinels/g1_p{phase}_{fr}.flag`  — run-gate's mark
+      2. `.sessi-work/sentinels/g1_p{phase}_{fr}.finalized` — finalize-gate's mark
+         (finalize-gate implies run-gate ran, so this is sufficient)
+      3. `.methodology/gate_timestamps.jsonl` row matching phase/gate/fr_id
+         (P1-persistent; survives clean restart)
+
+    `fr_id` normalization (`replace("-", "").lower()`) matches `_sentinel_path`
+    (line 1187) and `_finalize_sentinel_path` (line 1206).
+    """
+    fr_key = fr_id.replace("-", "").lower()
+    sentinels_dir = project / ".sessi-work" / "sentinels"
+    if (sentinels_dir / f"g1_p{phase}_{fr_key}.flag").exists():
+        return True
+    if (sentinels_dir / f"g1_p{phase}_{fr_key}.finalized").exists():
+        return True
+    ts_file = project / ".methodology" / _GATE_TIMESTAMPS_FILE
+    if ts_file.exists():
+        try:
+            for line in ts_file.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                _e = json.loads(line)
+                if (
+                    _e.get("phase") == phase
+                    and _e.get("gate") == 1
+                    and str(_e.get("fr_id", "")).replace("-", "").lower() == fr_key
+                ):
+                    return True
+        except (json.JSONDecodeError, OSError):
+            pass
+    return False
+
+
 def _check_commit_intervals(
     project: str, phase: int, gate_num: int, fr_id: str | None = None
 ) -> tuple[bool, str]:
@@ -3335,9 +3379,15 @@ def _validate_p3_post_gate2_precondition(
     Required (errors block the push):
       1. .methodology/gate2_result.json exists, gate == 2, composite ≥ 75
       2. every FR in `fr_ids` has a per-FR Gate 1 sentinel in
-         .sessi-work/sentinels/ (matches what `finalize-gate --gate 1 --fr-id FR-XX`
-         would write). This is the per-FR 95% bar that `advance-phase` also
-         enforces — the milestone cannot be a softer gate than advance-phase.
+         .sessi-work/sentinels/ (matches what `run-gate --gate 1 --fr-id FR-XX`
+         writes — the `.flag` file). This is the per-FR 95% bar that
+         `advance-phase` also enforces — the milestone cannot be a softer
+         gate than advance-phase.
+
+         Note: `finalize-gate` writes `.finalized` (not `.flag`). Per-FR
+         `.flag` is written by `run-gate` only. The fix below runs both
+         steps; `finalize-gate` alone does not write `.flag` and will not
+         satisfy this check.
     """
     errors: list[str] = []
 
@@ -3367,18 +3417,27 @@ def _validate_p3_post_gate2_precondition(
     # the check used .lower() without stripping the hyphen, looking for
     # g1_fr-01.flag and reporting a spurious missing sentinel after a
     # successful Gate 1 finalize.
+    # O2 (2026-07-07): accept any of three co-equal Gate 1 evidence channels
+    # — .flag (run-gate), .finalized (finalize-gate), or a phase-3/gate-1/fr-id
+    # row in .methodology/gate_timestamps.jsonl. Single-source dependency was
+    # a UX trap (clean restart wiping .sessi-work/ always blocked P3→P4).
     missing_sentinels: list[str] = []
     for fr_id in fr_ids:
         # v2.13: this precondition is Phase 3-specific (filename _validate_p3_…);
         # pass phase=3 explicitly so we look for the per-phase path (Bug #121).
-        sentinel = _sentinel_path(project, 1, fr_id, phase=3)
-        if not sentinel.exists():
+        if not _gate1_evidence_exists(project, fr_id, phase=3):
             missing_sentinels.append(fr_id)
     if missing_sentinels:
         errors.append(
             f"Per-FR Gate 1 sentinel missing for {len(missing_sentinels)} FR(s): "
-            f"{', '.join(missing_sentinels)}. Run "
-            f"`finalize-gate --gate 1 --phase 3 --fr-id <FR-ID> --project .` for each."
+            f"{', '.join(missing_sentinels)}.\n"
+            f"  Cause: .sessi-work/sentinels/g1_p3_{{fr}}.flag is written by "
+            f"`run-gate` (not `finalize-gate`, which writes `.finalized`).\n"
+            f"  Fix:   run BOTH steps for each missing FR —\n"
+            f"           1. python harness_cli.py run-gate      "
+            f"--gate 1 --phase 3 --fr-id <FR-ID> --project .\n"
+            f"           2. python harness_cli.py finalize-gate "
+            f"--gate 1 --phase 3 --fr-id <FR-ID> --project ."
         )
 
     return errors

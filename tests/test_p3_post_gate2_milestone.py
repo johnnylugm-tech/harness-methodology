@@ -22,6 +22,7 @@ from pathlib import Path
 
 
 from harness_cli import _validate_p3_post_gate2_precondition
+from harness_cli import _GATE_TIMESTAMPS_FILE
 
 
 def _seed_gate2_pass(project: Path, composite: float = 92.25) -> None:
@@ -112,3 +113,108 @@ class TestP3PostGate2Cli:
             ["push-milestone", "--type", "p3-post-gate2", "--project", "/tmp/dummy"]
         )
         assert args.type == "p3-post-gate2"
+
+
+# ════════════════════════════════════════════════════════════════════════
+# O1 (2026-07-07): error message + docstring correction
+# ════════════════════════════════════════════════════════════════════════
+
+
+class TestP3ErrorMessageTwoStepGuidance:
+    """O1: P3→P4 handoff error message must point to BOTH run-gate and
+    finalize-gate (run-gate writes `.flag`, finalize-gate alone is insufficient)."""
+
+    def test_error_message_directs_user_to_run_gate_first(self, tmp_path: Path):
+        """Error must mention `run-gate` as the first step."""
+        _seed_gate2_pass(tmp_path, composite=92.25)
+        errs = _validate_p3_post_gate2_precondition(tmp_path, ["FR-01"])
+        joined = " ".join(errs)
+        assert "run-gate" in joined
+        assert "1." in joined  # step numbering
+
+    def test_error_message_does_not_promote_finalize_gate_alone(self, tmp_path: Path):
+        """Error must NOT say "Run `finalize-gate`" alone — that was the misleading
+        trap. Both steps must be listed; finalize-gate should not appear as the
+        only fix."""
+        _seed_gate2_pass(tmp_path, composite=92.25)
+        errs = _validate_p3_post_gate2_precondition(tmp_path, ["FR-01"])
+        joined = " ".join(errs)
+        # Both steps present, run-gate as step 1
+        assert "1." in joined
+        assert "2." in joined
+        assert "run-gate" in joined
+        assert "finalize-gate" in joined
+
+    def test_docstring_documents_run_gate_writer(self):
+        """Docstring must reference `run-gate` (the actual `.flag` writer), not
+        `finalize-gate` (which writes `.finalized`, a different marker)."""
+        from harness_cli import _validate_p3_post_gate2_precondition
+
+        doc = _validate_p3_post_gate2_precondition.__doc__ or ""
+        assert "run-gate" in doc, "docstring must reference run-gate (the .flag writer)"
+        # The misleading line "matches what `finalize-gate`" must be gone.
+        assert "matches what `finalize-gate`" not in doc
+
+
+# ════════════════════════════════════════════════════════════════════════
+# O2 (2026-07-07): multi-source Gate 1 evidence
+# ════════════════════════════════════════════════════════════════════════
+
+
+def _seed_fr_finalized(project: Path, fr_id: str) -> None:
+    """O2: simulate finalize-gate having written its .finalized marker."""
+    (project / ".sessi-work" / "sentinels").mkdir(parents=True, exist_ok=True)
+    (project / ".sessi-work" / "sentinels" / f"g1_p3_{fr_id.replace('-', '').lower()}.finalized").write_text(
+        "test-finalized\n", encoding="utf-8"
+    )
+
+
+def _seed_gate_timestamp(project: Path, *, phase: int, gate: int, fr_id: str) -> None:
+    """O2: simulate _record_gate_timestamp having appended a row."""
+    (project / ".methodology").mkdir(parents=True, exist_ok=True)
+    ts_file = project / ".methodology" / _GATE_TIMESTAMPS_FILE
+    entry = {"phase": phase, "gate": gate, "fr_id": fr_id, "ts": 1700000000.0}
+    with open(str(ts_file), "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry) + "\n")
+
+
+class TestP3MultiSourceGate1Evidence:
+    """O2: handoff validator accepts any of three co-equal Gate 1 evidence channels
+    (.flag, .finalized, gate_timestamps.jsonl) — eliminates single-source-of-evidence
+    design defect that blocked P3→P4 after clean restart wiped .sessi-work/."""
+
+    def test_only_finalized_sentinel_passes_handoff(self, tmp_path: Path):
+        """Only `.finalized` (no `.flag`, no jsonl) → must PASS handoff."""
+        _seed_gate2_pass(tmp_path, composite=92.25)
+        _seed_fr_finalized(tmp_path, "FR-01")
+        errs = _validate_p3_post_gate2_precondition(tmp_path, ["FR-01"])
+        assert errs == [], f"expected no errors, got: {errs}"
+
+    def test_only_gate_timestamps_jsonl_row_passes_handoff(self, tmp_path: Path):
+        """Only `gate_timestamps.jsonl` (no sentinel files) → must PASS handoff."""
+        _seed_gate2_pass(tmp_path, composite=92.25)
+        _seed_gate_timestamp(tmp_path, phase=3, gate=1, fr_id="FR-01")
+        errs = _validate_p3_post_gate2_precondition(tmp_path, ["FR-01"])
+        assert errs == [], f"expected no errors, got: {errs}"
+
+    def test_none_of_the_three_sources_fails_handoff(self, tmp_path: Path):
+        """All three channels empty → must FAIL with the improved 2-step message."""
+        _seed_gate2_pass(tmp_path, composite=92.25)
+        errs = _validate_p3_post_gate2_precondition(tmp_path, ["FR-01"])
+        assert any("FR-01" in e and "run-gate" in e for e in errs)
+
+    def test_gate_timestamps_with_wrong_phase_does_not_satisfy(self, tmp_path: Path):
+        """Phase scoping must hold — a phase-5 entry must not satisfy phase-3 gate 1."""
+        _seed_gate2_pass(tmp_path, composite=92.25)
+        _seed_gate_timestamp(tmp_path, phase=5, gate=1, fr_id="FR-01")
+        errs = _validate_p3_post_gate2_precondition(tmp_path, ["FR-01"])
+        assert any("FR-01" in e and "sentinel" in e for e in errs), \
+            f"phase-5 entry must not satisfy phase-3 precondition; got: {errs}"
+
+    def test_gate_timestamps_fr_id_case_insensitive(self, tmp_path: Path):
+        """fr_id normalization (`replace("-", "").lower()`) must match `_sentinel_path`."""
+        _seed_gate2_pass(tmp_path, composite=92.25)
+        # Mixed-case row, hyphen stripped by caller
+        _seed_gate_timestamp(tmp_path, phase=3, gate=1, fr_id="fr-01")
+        errs = _validate_p3_post_gate2_precondition(tmp_path, ["FR-01"])
+        assert errs == [], f"case-insensitive fr_id should pass; got: {errs}"
