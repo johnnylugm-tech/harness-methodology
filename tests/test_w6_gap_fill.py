@@ -504,65 +504,9 @@ class TestPhaseHooks:
             f"original state.json was corrupted by partial write: {surviving!r}"
         )
 
-    def test_gap_report_uses_atomic_write(self, tmp_path):
-        """Bug #104: gap_report.json write site must go through atomic_write_json."""
-        from core import phase_hooks as ph_mod
-        (tmp_path / "SPEC.md").write_text("# Spec\n", encoding="utf-8")
-        mock_summary = MagicMock(total_gaps=1, missing=1, incomplete=0,
-                                 orphaned=0, critical=0, major=1, minor=0)
-        mock_det_mod = MagicMock()
-        mock_det_mod.GapDetector.return_value.detect.return_value = []
-        mock_det_mod.GapDetector.return_value.get_summary.return_value = mock_summary
-        real_awj = ph_mod.atomic_write_json
-        captured: list = []
-        def spy_awj(*args, **kwargs):
-            captured.append(args[0])
-            return real_awj(*args, **kwargs)
-        h = self._hooks(tmp_path, phase=3)
-        with patch.dict("sys.modules", {
-            "gap_detector": MagicMock(),
-            "gap_detector.parser": MagicMock(),
-            "gap_detector.scanner": MagicMock(),
-            "gap_detector.detector": mock_det_mod,
-        }), patch.object(ph_mod, "atomic_write_json", side_effect=spy_awj):
-            result = h.preflight_gap_analysis()
-        assert len(captured) == 1, f"expected 1 atomic_write_json call, got {len(captured)}"
-        assert captured[0].name == "gap_report.json"
-        assert result["passed"] is True
-
-    def test_gap_report_survives_crash(self, tmp_path, monkeypatch):
-        """Bug #104: a crash during gap_report.json write must not leave a partial file.
-
-        preflight_gap_analysis() catches all exceptions and returns a skipped result,
-        so the OSError from os.replace is swallowed. The invariant we test is that
-        the partial temp file was cleaned up and gap_report.json was never created.
-        """
-        from core import atomic_io
-        (tmp_path / "SPEC.md").write_text("# Spec\n", encoding="utf-8")
-        mock_summary = MagicMock(total_gaps=0, missing=0, incomplete=0,
-                                 orphaned=0, critical=0, major=0, minor=0)
-        mock_det_mod = MagicMock()
-        mock_det_mod.GapDetector.return_value.detect.return_value = []
-        mock_det_mod.GapDetector.return_value.get_summary.return_value = mock_summary
-        def boom(*_):
-            raise OSError("simulated mid-write crash (Bug #104 regression)")
-        monkeypatch.setattr(atomic_io.os, "replace", boom)
-        h = self._hooks(tmp_path, phase=3)
-        report_path = tmp_path / ".methodology" / "gap_report.json"
-        with patch.dict("sys.modules", {
-            "gap_detector": MagicMock(),
-            "gap_detector.parser": MagicMock(),
-            "gap_detector.scanner": MagicMock(),
-            "gap_detector.detector": mock_det_mod,
-        }):
-            result = h.preflight_gap_analysis()
-        # preflight_gap_analysis() swallows the OSError; the error key confirms it fired.
-        assert "error" in result
-        assert "simulated mid-write crash" in result["error"]
-        # The atomic write guarantee: no partial gap_report.json left on disk.
-        assert not report_path.exists(), (
-            "partial gap_report.json left behind after simulated crash (Bug #104 not fixed)"
-        )
+    # (Two Bug #104 gap_report.json tests removed with preflight_gap_analysis —
+    #  the write site is gone; the atomic-write property itself stays covered
+    #  by test_atomic_io / test_state_transaction and the state.json test above.)
 
     def test_monitoring_before_dev_appends_event(self, tmp_path):
         h = self._hooks(tmp_path)

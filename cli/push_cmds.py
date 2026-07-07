@@ -1,4 +1,4 @@
-"""Checkpoint/milestone push commands (push-checkpoint, push-milestone, ci-ack).
+"""Checkpoint/milestone push commands (push-checkpoint, push-milestone).
 
 Extracted verbatim from harness_cli.py (方案六). Free names that live
 in harness_cli resolve through `_hc.` at call time, so existing
@@ -154,36 +154,6 @@ def cmd_push_checkpoint(args: _hc.argparse.Namespace) -> int:
             f"    python3 harness_cli.py advance-phase --phase {_next} --project {project}"
         )
     return 0 if ok else 1
-
-
-def cmd_ci_ack(args: _hc.argparse.Namespace) -> int:
-    """Acknowledge a `preflight_ci_readiness` advisory component.
-
-    CI readiness checks (branch_protection, ecc_hooks, ci_workflow, ...) are
-    advisory-only — they never block a phase. But a project that has decided
-    NOT to resolve one (e.g. an agent forbidden from touching branch
-    protection rules) has no way to silence the repeated warning. This writes
-    a one-time acknowledgment to .methodology/state.json so
-    `preflight_ci_readiness` stops flagging that component as missing.
-
-    Usage:
-      python3 harness_cli.py ci-ack --component branch_protection --project .
-    """
-    from core.phase_hooks import PhaseHooks
-    if args.component not in PhaseHooks.CI_READINESS_COMPONENTS:
-        print(f"[ERROR] Unknown component '{args.component}'. Valid components: "
-              f"{', '.join(PhaseHooks.CI_READINESS_COMPONENTS)}")
-        return 1
-    project = _hc.Path(args.project).resolve()
-    state_path = project / ".methodology" / "state.json"
-    if not state_path.exists():
-        print(f"[ERROR] state.json not found at {state_path}")
-        return 1
-    state_data = _hc.json.loads(state_path.read_text(encoding="utf-8"))
-    state_data.setdefault("ci_readiness_ack", {})[args.component] = True
-    _hc.atomic_write_json(state_path, state_data)
-    print(f"  [ci-ack] '{args.component}' acknowledged — preflight_ci_readiness will no longer warn about it.")
-    return 0
 
 
 def cmd_push_milestone(args: _hc.argparse.Namespace) -> int:
@@ -416,15 +386,8 @@ def register(sub) -> None:
                     help="Disable git commit/push (HANDOVER.md still written)")
     pc.set_defaults(func=cmd_push_checkpoint)
 
-    # ci-ack (silence a preflight_ci_readiness advisory component)
-    cia = sub.add_parser(
-        "ci-ack",
-        help="Acknowledge a CI-readiness advisory component (e.g. branch_protection) to silence its warning",
-    )
-    cia.add_argument("--component", required=True,
-                    help="Component name as reported by CI Readiness Check (e.g. branch_protection, ecc_hooks, ci_workflow)")
-    cia.add_argument("--project", default=".", help="Project root (default: .)")
-    cia.set_defaults(func=cmd_ci_ack)
+    # (ci-ack removed with preflight_ci_readiness — the advisory it silenced
+    #  no longer runs; 減法 T2.)
 
     # push-milestone (P3+ milestone push + HANDOVER.md)
     pm = sub.add_parser(

@@ -3124,13 +3124,9 @@ def _post_push_self_check(project: Path) -> list[str]:
 # Moved verbatim to cli/push_cmds.py (方案六). Re-exported so
 # existing `from harness_cli import ...` imports keep working.
 from cli.push_cmds import (  # noqa: E402, F401
-    cmd_ci_ack,
     cmd_push_checkpoint,
     cmd_push_milestone,
 )
-# ---------------------------------------------------------------------------
-# ci-ack  (acknowledge a CI-readiness advisory component to silence its warning)
-# ---------------------------------------------------------------------------
 
 def _extract_review_json(text: str, _depth: int = 0) -> "dict | None":
     """Extract the first JSON object containing 'review_status' from free text.

@@ -5,7 +5,7 @@ Tests for ASPICE traceability pipeline: build → check → preflight.
 import json
 import sys
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -505,128 +505,10 @@ class TestPreflightArtifactChain:
             assert result["passed"] is False
 
 
-# ---------------------------------------------------------------------------
-# preflight_gap_analysis tests
-# ---------------------------------------------------------------------------
+# (TestPreflightGapAnalysis removed with preflight_gap_analysis — the
+#  check had no failing branch by construction; the on-demand
+#  run-gap-analysis command with its real exit-2 path remains tested.)
 
-class TestPreflightGapAnalysis:
-    """Tests for PhaseHooks.preflight_gap_analysis() — M3 gap detection in preflight."""
-
-    def _make_hooks(self, tmp_path, phase=3):
-        method_dir = tmp_path / ".methodology"
-        method_dir.mkdir()
-        (method_dir / "state.json").write_text(
-            f'{{"state": "ACTIVE", "current_phase": {phase}}}'
-        )
-        return PhaseHooks(str(tmp_path), phase=phase, enable_kill_switch=False)
-
-    def test_p1_skips_gap_analysis(self, tmp_path):
-        """P1/P2 skip gap analysis entirely."""
-        h = PhaseHooks(str(tmp_path), phase=1, enable_kill_switch=False)
-        result = h.preflight_gap_analysis()
-        assert result["passed"] is True
-        assert result.get("skipped") is True
-        assert result.get("reason") == "P1/P2 — no gap analysis"
-
-    def test_p2_skips_gap_analysis(self, tmp_path):
-        """P2 skips gap analysis."""
-        h = PhaseHooks(str(tmp_path), phase=2, enable_kill_switch=False)
-        result = h.preflight_gap_analysis()
-        assert result.get("skipped") is True
-
-    def test_p3_runs_when_spec_missing(self, tmp_path):
-        """P3 returns skipped when SPEC.md not found."""
-        h = self._make_hooks(tmp_path, phase=3)
-        result = h.preflight_gap_analysis()
-        assert result["passed"] is True
-        assert result.get("skipped") is True
-        assert result.get("reason") == "SPEC.md not found"
-
-    def test_p3_runs_with_spec_present(self, tmp_path):
-        """P3 runs gap analysis when SPEC.md exists."""
-        h = self._make_hooks(tmp_path, phase=3)
-        (tmp_path / "SPEC.md").write_text("# Requirements\n## FR-01\nDescription here\n")
-        with patch("gap_detector.parser.SpecParser") as mock_parser, \
-             patch("gap_detector.scanner.CodeScanner") as mock_scanner, \
-             patch("gap_detector.detector.GapDetector") as mock_detector:
-            mock_parser.return_value.parse.return_value = {}
-            mock_scanner.return_value.scan.return_value = {}
-            mock_detector.return_value.detect.return_value = []
-            mock_summary = MagicMock()
-            mock_summary.total_gaps = 2
-            mock_summary.missing = 1
-            mock_summary.incomplete = 1
-            mock_summary.orphaned = 0
-            mock_summary.critical = 1
-            mock_summary.major = 1
-            mock_summary.minor = 0
-            mock_detector.return_value.get_summary.return_value = mock_summary
-
-            result = h.preflight_gap_analysis()
-            assert result["passed"] is True
-            assert result["total_gaps"] == 2
-            assert result["critical"] == 1
-
-    def test_gap_analysis_handles_import_error(self, tmp_path):
-        """Graceful fallback when gap_detector unavailable.
-
-        NOTE: patches SpecParser instantiation (not the from-import itself)
-        because Python caches successful imports. Both paths end up in the
-        same except ImportError handler — result is identical.
-        """
-        h = self._make_hooks(tmp_path, phase=3)
-        (tmp_path / "SPEC.md").write_text("# Test")
-        with patch("gap_detector.parser.SpecParser", side_effect=ImportError):
-            result = h.preflight_gap_analysis()
-            assert result["passed"] is True
-            assert result.get("skipped") is True
-            assert result.get("reason") == "gap_detector unavailable"
-
-    def test_gap_analysis_handles_runtime_error(self, tmp_path):
-        """Graceful fallback on unexpected errors."""
-        h = self._make_hooks(tmp_path, phase=3)
-        (tmp_path / "SPEC.md").write_text("# Test")
-        with patch("gap_detector.parser.SpecParser", side_effect=RuntimeError("boom")):
-            result = h.preflight_gap_analysis()
-            assert result["passed"] is True
-            assert result.get("skipped") is True
-            assert "boom" in result.get("error", "")
-
-    def test_gap_analysis_in_preflight_all(self, tmp_path):
-        """preflight_all() includes gap_analysis in results."""
-        h = self._make_hooks(tmp_path, phase=3)
-        result = h.preflight_all()
-        assert "gap_analysis" in result["details"]
-        assert result["details"]["gap_analysis"]["passed"] is True
-
-    def test_phase_none_does_not_skip(self, tmp_path):
-        """When phase is None, gap analysis proceeds (not skipped)."""
-        h = PhaseHooks(str(tmp_path), phase=None, enable_kill_switch=False)
-        (tmp_path / "SPEC.md").write_text("# Test")
-        with patch("gap_detector.parser.SpecParser") as mock_parser, \
-             patch("gap_detector.scanner.CodeScanner"), \
-             patch("gap_detector.detector.GapDetector") as mock_detector:
-            mock_parser.return_value.parse.return_value = {}
-            mock_detector.return_value.detect.return_value = []
-            mock_summary = MagicMock()
-            mock_summary.total_gaps = 0
-            mock_summary.missing = 0
-            mock_summary.incomplete = 0
-            mock_summary.orphaned = 0
-            mock_summary.critical = 0
-            mock_summary.major = 0
-            mock_summary.minor = 0
-            mock_detector.return_value.get_summary.return_value = mock_summary
-
-            result = h.preflight_gap_analysis()
-            assert result["passed"] is True
-            # Should NOT have "P1/P2 — no gap analysis" skip reason
-            assert result.get("reason") != "P1/P2 — no gap analysis"
-
-
-# ---------------------------------------------------------------------------
-# Overlay path resolution: must look at project root, not .methodology/
-# ---------------------------------------------------------------------------
 
 class TestOverlayPathResolution:
     """Regression: preflight_traceability must load overlay from project root.

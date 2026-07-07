@@ -168,12 +168,14 @@ M1 kill-switch circuit state is checked before each phase. M3 gap analysis runs 
 - `stop:cost-tracker` — tracks token/cost per session
 
 Installation: `bash scripts/setup-ecc-hooks.sh` (or `init-project` auto-checks).
-Verified by: `preflight_ci_readiness()` advisory check at every `run-phase` preflight.
+(The former `preflight_ci_readiness()` advisory re-check was removed in 減法 T2 —
+it could never block and cost a network round-trip on every push; `init-project`
+remains the setup/verification point.)
 
 **GitHub branch protection (server-side — bypass-proof)**: `init-project` auto-detects `gh` CLI
 and configures branch protection on `main` (block force pushes + deletions, no PR requirement
-per the direct-push model). Without `gh`, prints a manual setup guide. Verified by:
-`preflight_ci_readiness()` best-effort check via `gh api` at every `run-phase` preflight.
+per the direct-push model). Without `gh`, prints a manual setup guide. Configured and
+verified at `init-project` time (the per-push advisory re-check was removed in 減法 T2).
 This is the **only truly bypass-proof** layer — even `--no-verify` + missing ECC hooks
 cannot bypass GitHub's server-side enforcement.
 
@@ -859,8 +861,6 @@ File paths used:
 | `preflight_sab_check()` | validates SAB.json layer integrity, module presence | P3+ only; blocks if SAB.json missing or violations found |
 | `preflight_traceability()` | runs `check_spec_trace.check_traceability()` for FR→code→test coverage | P3 info-only, P4+ blocks if gaps exist |
 | `preflight_tool_registry()` | checks `ToolRegistry.list_tools()` | skipped if not installed |
-| `preflight_gap_analysis()` | runs M3 `GapDetector` for SPEC.md↔codebase gaps (P3+ only) | never blocks (advisory only) |
-| `preflight_ci_readiness()` | checks CI workflow, git hooks, harness import path | never blocks (warning only) |
 | `preflight_fr_spec_consistency()` | cross-checks each FR's [FR-XX] docstring/code references against SAD.md | never blocks (advisory only) |
 | `preflight_reliability_lint()` | v2.9 A2 — checks error-handling pattern coverage, exception-use hygiene | blocks if score below phase threshold |
 | `preflight_config_liveness()` | v2.9 A3 — re-verifies cli_tools/env_vars claimed-present at runtime (PATH / os.environ); claimed-but-missing → BLOCK | blocks if any claimed tool/var missing |
@@ -1734,9 +1734,7 @@ PhaseHooks("/path/to/project", phase=3)
   │    ├─ preflight_drift_detection()  → M2 DriftDetector.detect_all() (score ≥ drift_threshold)
   │    ├─ preflight_sab_check()        → validates SAB.json layers + deps (P3+ only)
   │    ├─ preflight_tool_registry()    → ToolRegistry.list_tools() (skipped if not installed)
-  │    ├─ preflight_traceability()     → check_spec_trace.check_traceability() (P3 info, P4+ block)
-  │    ├─ preflight_gap_analysis()     → M3 GapDetector SPEC.md↔codebase gap scan (P3+ advisory)
-  │    └─ preflight_ci_readiness()     → CI workflow + git hooks presence (warning only)
+  │    └─ preflight_traceability()     → check_spec_trace.check_traceability() (P3 info, P4+ block)
   │
   ├─ [per-FR development loop]
   │    ├─ monitoring_before_dev(fr_id, agent_id="agent-a")   → M1 circuit check + start monitoring

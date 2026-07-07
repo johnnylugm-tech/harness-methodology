@@ -183,8 +183,6 @@ class TestPhaseHooksEdge:
         hooks.preflight_sab_check = MagicMock(return_value={"passed": True})
         hooks.preflight_tool_registry = MagicMock(return_value={"passed": True})
         hooks.preflight_traceability = MagicMock(return_value={"passed": True})
-        hooks.preflight_gap_analysis = MagicMock(return_value={"passed": True})
-        hooks.preflight_ci_readiness = MagicMock(return_value={"passed": True})
         hooks.preflight_previous_phase_artifacts = MagicMock(return_value={"passed": True})
         result = hooks.preflight_all()
         assert "bvs_phase_order" in result["details"]

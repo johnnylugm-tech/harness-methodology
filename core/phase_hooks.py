@@ -818,62 +818,6 @@ class PhaseHooks:
                 "orphans": orphans, "used_count": len(used),
                 "declaration_files": decl_files}
 
-    def preflight_gap_analysis(self) -> Dict[str, Any]:
-        """M3 gap analysis — detect SPEC.md ↔ codebase gaps (P3+, informational)."""
-        if self.phase is not None and self.phase < 3:
-            return {"passed": True, "skipped": True, "reason": "P1/P2 — no gap analysis"}
-        print("\n[PRE-FLIGHT] M3 Gap Analysis")
-        try:
-            from gap_detector.parser import SpecParser
-            from gap_detector.scanner import CodeScanner
-            from gap_detector.detector import GapDetector
-
-            spec_path = self._layout.spec_path
-            if not spec_path.exists():
-                print("   SPEC.md not found — skipping gap analysis")
-                return {"passed": True, "skipped": True, "reason": "SPEC.md not found"}
-
-            spec = SpecParser(str(spec_path)).parse()
-            scanner = CodeScanner(str(self.project_path))
-            code = scanner.scan()
-            detector = GapDetector(spec, code)
-            gaps = detector.detect()
-            summary = detector.get_summary()
-
-            report_path = self._layout.methodology_dir / "gap_report.json"
-            report_path.parent.mkdir(parents=True, exist_ok=True)
-            # Bug #104 fix: atomic write so a crash mid-write does not
-            # leave a truncated gap_report.json. The next preflight would
-            # otherwise refuse to load the corrupt JSON and surface a
-            # confusing parse error instead of the real gap analysis
-            # result.
-            atomic_write_json(report_path, {
-                "summary": {
-                    "total": summary.total_gaps, "missing": summary.missing,
-                    "incomplete": summary.incomplete, "orphaned": summary.orphaned,
-                    "critical": summary.critical, "major": summary.major,
-                    "minor": summary.minor,
-                },
-                "gaps": [{"type": g.gap_type, "severity": g.severity,
-                          "reason": g.reason, "action": g.recommended_action}
-                         for g in gaps],
-            })
-            print(f"   Gap report → {report_path}  "
-                  f"(total={summary.total_gaps}, critical={summary.critical})")
-            return {"passed": True, "total_gaps": summary.total_gaps,
-                    "critical": summary.critical}
-        except ImportError:
-            print("   gap_detector unavailable — skipping")
-            return {"passed": True, "skipped": True, "reason": "gap_detector unavailable"}
-        except Exception as exc:
-            print(f"   Gap analysis error: {exc}")
-            return {"passed": True, "skipped": True, "error": str(exc)}
-
-    CI_READINESS_COMPONENTS = (
-        "ci_workflow", "git_hooks", "harness_importable",
-        "ecc_hooks", "branch_protection",
-    )
-
     def preflight_manifest_integrity(self) -> Dict[str, Any]:
         """Fix IV — validate quality_manifest.json structure before any phase preflight.
 
@@ -996,117 +940,6 @@ class PhaseHooks:
               f"{len(gate1)} gate1 entries")
         return {"passed": True, "fr_count": len(fr_ids)}
 
-    def preflight_ci_readiness(self) -> Dict[str, Any]:
-        """Check target project CI wiring + ECC hooks + branch protection (advisory, non-blocking)."""
-        print("\n[PRE-FLIGHT] CI Readiness Check")
-        checks: Dict[str, bool] = {}
-        # Accept either harness_quality_gate.yml (target-project contract, see
-        # init-project) or harness_ci.yml (this framework repo's own CI; both
-        # are referenced in CONTRIBUTING/README/INTEGRATION and are equivalent
-        # in scope — lint + test + manifest/trace validation).
-        workflows_dir = self.project_path / ".github" / "workflows"
-        checks["ci_workflow"] = (
-            (workflows_dir / "harness_quality_gate.yml").exists()
-            or (workflows_dir / "harness_ci.yml").exists()
-        )
-        hooks_dir = self.project_path / ".git" / "hooks"
-        checks["git_hooks"] = (hooks_dir / "prepare-commit-msg").exists()
-        checks["harness_importable"] = (
-            (self.project_path / "harness" / "core" / "quality_gate" / "__init__.py").exists()
-            or (self.project_path / "core" / "quality_gate" / "__init__.py").exists()
-            or (self.project_path / "harness_cli.py").exists()
-            or (self.project_path / "harness" / "harness_cli.py").exists()
-        )
-        # ECC hooks — session-level git --no-verify blocker
-        ecc_file = Path.home() / ".claude" / "hooks" / "hooks.json"
-        if ecc_file.exists():
-            try:
-                import json as _json
-                ecc_data = _json.loads(ecc_file.read_text(encoding="utf-8"))
-                checks["ecc_hooks"] = "pre:bash:dispatcher" in ecc_data
-            except Exception:
-                checks["ecc_hooks"] = False
-        else:
-            checks["ecc_hooks"] = False
-        # Branch protection — best-effort via gh CLI
-        checks["branch_protection"] = self._check_branch_protection()
-
-        missing = [k for k, v in checks.items() if not v]
-        # ci-ack: projects that deliberately cannot/will not resolve a component
-        # (e.g. an agent forbidden from touching branch protection rules) can
-        # acknowledge it once via `harness_cli.py ci-ack --component <name>` so
-        # this advisory warning doesn't repeat on every phase's preflight.
-        ack: Dict[str, bool] = {}
-        state_path = self.project_path / ".methodology" / "state.json"
-        if state_path.exists():
-            try:
-                ack_data = json.loads(state_path.read_text(encoding="utf-8")).get("ci_readiness_ack")
-                ack = ack_data if isinstance(ack_data, dict) else {}
-            except Exception:
-                pass
-        missing = [k for k in missing if not ack.get(k)]
-        if missing:
-            print(f"   WARNING: Missing CI/enforcement components: {missing}")
-            if "ecc_hooks" in missing:
-                print("   → ECC hooks: bash scripts/setup-ecc-hooks.sh")
-            if "branch_protection" in missing:
-                print("   → Branch protection: python3 harness_cli.py init-project --setup-branch-protection")
-            if not checks["ci_workflow"]:
-                print(f"   → CI: python3 harness_cli.py init-project --project {self.project_path}")
-        else:
-            print("   All CI wiring + bypass protections present")
-        return {"passed": True, "checks": checks,
-                "missing": missing,
-                "message": "All CI wiring present" if not missing else f"Missing: {missing}"}
-
-    def _check_branch_protection(self) -> bool:
-        """Best-effort check for GitHub branch protection on main (requires gh CLI).
-
-        Returns True when: (a) protection is positively confirmed active, or
-        (b) we cannot verify (auth/network errors, missing gh) — assumes OK to
-        avoid false alarms.  Returns False only when we positively confirm
-        protection is absent (API 404) or no GitHub remote exists.
-        """
-        try:
-            import subprocess
-            remote = subprocess.run(
-                ["git", "-C", str(self.project_path), "remote", "get-url", "origin"],
-                capture_output=True, text=True, timeout=10,
-            )
-            if remote.returncode != 0:
-                return False  # No git remote — not a GitHub project
-            remote_url = remote.stdout.strip()
-            if "github.com" not in remote_url:
-                return False  # Not a GitHub remote — skip
-
-            # Parse owner/repo
-            url = remote_url.rstrip(".git")
-            parts = url.split("github.com")[-1].strip("/:").split("/")
-            if len(parts) < 2:
-                return False
-            owner, repo = parts[-2], parts[-1]
-
-            r = subprocess.run(
-                ["gh", "api", f"repos/{owner}/{repo}/branches/main/protection",
-                 "--jq", ".allow_force_pushes.enabled,.allow_deletions.enabled"],
-                capture_output=True, text=True, timeout=15,
-            )
-            if r.returncode != 0:
-                # 404 = "Branch not protected" → genuinely unconfigured
-                if "404" in (r.stderr or "") or "Not Found" in (r.stderr or ""):
-                    return False
-                # Other errors (auth, network) → can't verify; don't alert
-                return True  # Assume OK if we can't reach the API
-            # Parse two boolean lines: allow_force_pushes, allow_deletions
-            lines = [ln.strip() for ln in r.stdout.strip().splitlines() if ln.strip()]
-            if len(lines) >= 2:
-                force_ok = lines[0].lower() == "false"
-                delete_ok = lines[1].lower() == "false"
-                return force_ok and delete_ok
-            return True  # Format unexpected — assume OK
-        except Exception:
-            return True  # Can't verify — assume OK (don't cry wolf)
-
     def preflight_previous_phase_artifacts(self) -> Dict[str, Any]:
         """Check that previous phase's required deliverables exist (ASPICE traceability).
 
@@ -1192,8 +1025,6 @@ class PhaseHooks:
             "fr_spec_consistency": self.preflight_fr_spec_consistency(),
             "reliability_lint": self.preflight_reliability_lint(),
             "config_liveness": self.preflight_config_liveness(),
-            "gap_analysis": self.preflight_gap_analysis(),
-            "ci_readiness": self.preflight_ci_readiness(),
         }
         self.preflight_results = results
         all_passed = all(r.get("passed", False) for r in results.values())
