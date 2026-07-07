@@ -264,7 +264,7 @@ Full integration guide: **[INTEGRATION.md](INTEGRATION.md)**. Summary:
 |---|---|---|---|
 | **GitHub Actions CI** | `.github/workflows/harness_ci.yml` | This repo (framework self-test) | Mutation testing (median-3, threshold ≥70, requires `pytest.mark.mutation_oracle` scoped testing via `setup.cfg`) + `pytest tests/` on push/PR to `main` |
 | **Git Hooks installer** | `scripts/setup-git-hooks.sh` | Target project | Installs `prepare-commit-msg` (block commit), `post-merge` (warn), `pre-push` (block push) keyed on `.methodology/state.json` `current_phase`. Skips checks for `chore(harness):` commits |
-| **Drift Monitor cron** | `scripts/cron_drift_monitor.py` | Target project (crontab) | Hourly architecture drift detection; alert via log / email / Slack. Path via `DRIFT_PROJECT_PATH` env var |
+| **Drift Monitor cron** | `scripts/cron_drift_monitor.py` | Target project (crontab) | ~~Hourly architecture drift detection; alert via log / email / Slack. Path via `DRIFT_PROJECT_PATH` env var~~ **REMOVED** (減法 T4) |
 | **On-demand scripts** | `scripts/*.py` | Target project | FR audit, phase audit, spec compliance, FR mapping — see INTEGRATION.md §3.4 |
 
 **Key rule**: `setup-git-hooks.sh` must run inside the target project (not inside this repo). Hooks call `core.quality_gate` — the `core/quality_gate/` module must be importable from the target project root (submodule, pip, or copy).
@@ -1123,7 +1123,7 @@ def run_until_converge(get_next_pair_fn, max_rounds=None) -> IterationResult:
 - Defect B: Efficiency logic inverted → fixed to quality/tokens ratio
 - Defect C: Convergence logic inverted → delta < threshold means converged (not diverged)
 
-#### `steering/integrations.py` — Integration Adapters
+#### `steering/integrations.py` — Integration Adapters **(REMOVED)**
 
 **Responsibility**: Connects `SteeringLoop` to BVS, Constitution, CQG, and HR-12 enforcement systems.
 
@@ -2109,11 +2109,11 @@ CREATE TABLE IF NOT EXISTS effort (
 
 ### §3.19 — `constitution/` (HR Compliance Package)
 
-**Purpose**: Real implementations of the HR-compliance interfaces imported by `steering/integrations.py`. Eliminates the graceful-degrade no-ops; `SteeringIntegrator` is now fully operational.
+**Purpose**: Real implementations of the HR-compliance interfaces (note: `steering` was removed in 減法 T4).
 
 | File | Class | Role |
 |---|---|---|
-| `constitution/__init__.py` | — | Package marker; re-exports the three most-imported classes (`BVSRunner`, `CitationParser`, `VerificationConstitutionChecker`) for convenience. The other 5 (`ClaimVerifier`, `ClaimExtractor` (functions), `ExecutionLogger`, `InferentialSensor`, `InvariantEngine`) are reachable via the submodule path only. |
+| `constitution/__init__.py` | — | Package marker; re-exports the most-imported classes (`BVSRunner`, `CitationParser`) for convenience. The other 5 (`ClaimVerifier`, `ClaimExtractor` (functions), `ExecutionLogger`, `InferentialSensor`, `InvariantEngine`) are reachable via the submodule path only. |
 | `constitution/bvs_runner.py` | `BVSRunner` | HR-03 phase-order checker: reads `.methodology/state.json`, validates phase prerequisites and FSM state |
 | `constitution/citation_parser.py` | `CitationParser` | HR-07/09: regex extraction of citation markers (`[FR-01]`, `[§3.2]`, etc.) and obligation-verb claims; `verify_claim()` checks traceability keywords |
 | `constitution/claim_extractor.py` | (module-level functions + `Claim` data class) | Module exposes `extract_claims()`, `claims_to_dict()` (and the helper `_extract_keywords()`) as **module-level functions**, plus a `Claim` dataclass (line 23) that holds individual claim records. There is **no `ClaimExtractor` class** — callers import the functions directly, not a `ClaimExtractor` instance. |
@@ -2121,7 +2121,7 @@ CREATE TABLE IF NOT EXISTS effort (
 | `constitution/execution_logger.py` | `ExecutionLogger` | Logs constitution check execution for audit trail |
 | `constitution/inferential_sensor.py` | `InferentialSensor` | Inference-based compliance sensing for non-explicit violations |
 | `constitution/invariant_engine.py` | `InvariantEngine` | Evaluates phase invariants (hard rules) against runtime state |
-| `constitution/verification_constitution_checker.py` | `VerificationConstitutionChecker` | Bridges `steering/integrations.py` to `enforcement.constitution_as_code` (R001-R007); gracefully degrades to pass-through if `enforcement/` unavailable |
+| `constitution/verification_constitution_checker.py` | `VerificationConstitutionChecker` | ~~Bridges `steering/integrations.py` to `enforcement.constitution_as_code` (R001-R007); gracefully degrades to pass-through if `enforcement/` unavailable~~ **REMOVED** (減法 T3) |
 
 **Imports**: stdlib only (`re`, `json`, `pathlib`). No external dependencies.  
 **Integration**: `SteeringIntegrator.bvs_integrator` property and `iterate_with_full_check()` now call real code instead of hitting `ImportError`.
@@ -2175,9 +2175,9 @@ python scripts/generate_full_plan.py --phase 3 --repo /path/to/project \
 | Script | Size | Purpose |
 |---|---|---|
 | `setup-git-hooks.sh` | 9KB | Installs `prepare-commit-msg` / `post-merge` / `pre-push` hooks in a **target project** |
-| `cron_drift_monitor.py` | 5KB | Hourly drift detection cron; reads `DRIFT_PROJECT_PATH` env var; alerts via log + optional Slack webhook / SMTP email (both env-var configurable) |
+| `cron_drift_monitor.py` | 5KB | ~~Hourly drift detection cron; reads `DRIFT_PROJECT_PATH` env var; alerts via log + optional Slack webhook / SMTP email (both env-var configurable)~~ **REMOVED** (減法 T4) |
 | `cron_docs_optimizer.py` | 9KB | Scheduled docs quality optimizer; runs against stale documentation |
-| `drift_crontab.example` | 780B | Example crontab configuration for `cron_drift_monitor.py` |
+| `drift_crontab.example` | 780B | ~~Example crontab configuration for `cron_drift_monitor.py`~~ **REMOVED** (減法 T4) |
 | `DRIFT_CRON_SETUP.md` | 2KB | Setup guide for drift cron monitoring |
 | `harness-init.sh` | 5KB | Bootstrap script: creates `.methodology/` skeleton, copies config templates to a new target project |
 
@@ -2791,7 +2791,7 @@ within this repository.
 | Priority | Action | Score Delta | Unlock Condition | Dimension |
 |---|---|---|---|---|
 | **P1** | ~~SSI result field name verification~~ | ✅ **DONE (v2.0.2)** | `_parse_result()` dual-fallback handles both `open_critical_count`/`open_critical` field name variants — see §8.2. | A |
-| **P1** | ~~`constitution/` package stub or real impl~~ | ✅ Done (v2.0.1) | `constitution/` implemented — `BVSRunner`, `CitationParser`, `VerificationConstitutionChecker` all deployed. | A |
+| **P1** | ~~`constitution/` package stub or real impl~~ | ✅ Done (v2.0.1) | `constitution/` implemented — `BVSRunner`, `CitationParser` deployed. (`VerificationConstitutionChecker` removed later in T3) | A |
 | **P2** | ~~`harness_bridge` empirical project validation~~ | ✅ **DONE** | omnibot-full project (Gate 4 score 89.6, 2026-05-14). Tier 1 deterministic scoring stable, subprocess call chain works end-to-end. | A (20→21) |
 | **P2** | CRG activation + empirical data | **+1 -> 94** | First real project run with CRG MCP available. Validates `min(tool, llm)` floor and `crg_metrics.json` structural signals. Currently `CRGBridge._check_available()` returns `False` in standalone mode | E (10->11) |
 | **P3** | ASPICE full traceability matrix (Phase E docs) | ✅ **DONE** | `scripts/build_traceability.py` populates `RequirementTraceability` model from SAD.md + `[FR-XX]` annotations + test files, auto-generates `TRACEABILITY_MATRIX.md` with ASPICE SWE.3 compliance. `scripts/check_spec_trace.py` upgraded to v2 content-level. `PhaseHooks.preflight_traceability()` blocks at P4+. | C (15→16) |
@@ -2802,8 +2802,8 @@ within this repository.
 | Item | File | Status | Action |
 |---|---|---|---|
 | SSI output field mismatch | `harness/harness_bridge.py` | ✅ **Resolved (v2.0.2)** — `_parse_result()` now uses dual-fallback: `raw.get("open_critical", raw.get("open_critical_count", 0))` and `raw.get("open_high", raw.get("open_high_count", 0))`. Accepts both SSI runner field name variants. | — |
-| `constitution.*` graceful degrade | `steering/integrations.py` | ✅ **Resolved (v2.0.1)** — `constitution/` package implemented: `BVSRunner` (HR-03 phase checks), `CitationParser` (HR-07/09), `VerificationConstitutionChecker` (bridges R001-R007). All imports now resolve; `SteeringIntegrator` fully operational. | See §3.19 |
-| HR-12 real limiter not wired | `steering/integrations.py` | ✅ **Resolved (v2.0.2)** — `SteeringIntegrator.should_continue` property now cross-checks `HR12Resolution(max_allowed, early_stop_threshold, min_rounds_before_stop).should_stop()` against `SteeringLoop.should_continue()`. HR-12 takes priority; `VerificationConstitutionChecker.check()` called on stop. | — |
+| `constitution.*` graceful degrade | `steering/integrations.py` | ✅ **Resolved (v2.0.1)** (Note: `steering` and `VerificationConstitutionChecker` later removed in T3/T4) | See §3.19 |
+| HR-12 real limiter not wired | `steering/integrations.py` | ✅ **Resolved (v2.0.2)** (Note: `steering` later removed in T4) | — |
 | Gate 4 Hermes approval timeout | `harness/harness_bridge.py` | ✅ **Resolved (v2.0.2, updated v2.2)** — `HarnessBridge.GATE4_HERMES_TIMEOUT_MS = int(os.environ.get("HERMES_TIMEOUT_MS", "120000"))` (default 120 s); `ReviewerRouter.HERMES_TIMEOUT_MS` reads same env var (default 120 s). Both sync via env var — set `HERMES_TIMEOUT_MS` to override globally. | — |
 | `enforcement.json` policy hot-reload | `enforcement/policy_engine.py` | ✅ **Resolved (v2.0.2)** — `PolicyEngine.reload_policy(json_path)` hot-reloads policies by ID from `enforcement.json`; `PolicyEngine.from_json(json_path)` classmethod for fresh engine. `harness_cli.py reload-policy` command exposes this as CLI (7th command). | — |
 | Sequential A/B + dep-ordered decomposition | `harness/reviewer_router.py` | ✅ **Resolved (v2.1)** — `_decompose_with_deps()` replaces `_maybe_decompose()`; `review()` sequential for-loop replaces list comprehension; `_enrich_with_context()` injects `approved_context`; `_topological_sort()` ensures dependency-safe order; `SubTask` dataclass tracks label/deps/index/total. | See §3.2, §4.2 |

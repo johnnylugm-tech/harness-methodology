@@ -11,7 +11,7 @@
 # Each rule has:
 #   id: kebab-case identifier (R-CANONICAL-INTERP-001 form)
 #   text: canonical text. The plan source and workflow JS prompts embed this
-#         text in their respective surfaces; the check_methodology_consistency.py
+#         text in their respective surfaces; the check_methodology_consistency.py (REMOVED)
 #         tool verifies byte-equality across surfaces via @rule markers.
 #   surfaces: which surfaces must carry this rule text. One of:
 #       plan_task_hint — generate_full_plan.py task_hint block for the matching deliverable
@@ -26,7 +26,7 @@
 #      canonical text (see generate_full_plan.py:572 for the pattern).
 #   3. Add a `// @rule R-X` marker in the workflow JS prompt that wraps the
 #      same canonical text (see .claude/workflows/phase1-requirements.js srsAPrompt).
-#   4. Run `python3 harness/scripts/check_methodology_consistency.py` — it will
+#   4. Run `python3 harness/scripts/check_methodology_consistency.py (REMOVED)` — it will
 #      refuse to pass unless all surfaces agree byte-equal.
 
 rules:

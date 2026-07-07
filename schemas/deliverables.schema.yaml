@@ -65,5 +65,5 @@ deliverables:
     notes: |
       YAML files have no H1 concept. The disk_prefix '# TEST_INVENTORY.yaml'
       is a comment-based anchor that MUST appear on the first line of the
-      file (Bug C fix #138). The check_methodology_consistency.py validator
+      file (Bug C fix #138). The check_methodology_consistency.py (REMOVED) validator
       asserts this matches the template_h1 first line within 1 line tolerance.

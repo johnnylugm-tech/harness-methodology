@@ -3,7 +3,7 @@ import subprocess
 
 SOURCES = [
     "core", "harness", "detection", "enforcement",
-    "gap_detector", "kill_switch", "steering", "scripts",
+    "gap_detector", "kill_switch", "scripts",
 ]
 SRC_EXCLUDE_PATTERN = (
     "tests|harness/ssi/scripts|harness/ssi/prompts"
