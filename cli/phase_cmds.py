@@ -151,7 +151,7 @@ def cmd_pre_commit_check(args: _hc.argparse.Namespace) -> int:
     print("\n[INFO] Fast preflight passed (FSM + BVS phase order + kill-switch + trace freshness).")
     print("[INFO] Full enforcement (drift, traceability) runs at run-phase / finalize-gate.")
 
-    print("[INFO] Skipped: drift, traceability, gap analysis, CI readiness.")
+    print("[INFO] Skipped here: drift, traceability (run at run-phase / finalize-gate).")
     print("[INFO] Next steps:")
     return 0
 
