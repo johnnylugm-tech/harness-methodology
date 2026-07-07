@@ -15,10 +15,16 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
+import pytest
 
 
 REPO = Path(os.environ.get("INTEGRATION_TEST_DIR", Path(__file__).resolve().parent.parent.parent / "integration-test"))
 WORKFLOWS = REPO / ".claude" / "workflows"
+
+pytestmark = pytest.mark.skipif(
+    not WORKFLOWS.exists(),
+    reason="integration-test repository not found, skipping workflow pattern tests"
+)
 
 # Per-phase expected artifact paths and commit message fragments
 EXPECTED = {

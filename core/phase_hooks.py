@@ -1309,9 +1309,15 @@ class PhaseHooks:
         return self._do_postflight_all()
 
     def _do_postflight_all(self) -> Dict[str, Any]:
-        """Run all post-flight checks."""
+        """Run all post-flight checks.
+
+        Constitution keyword scoring no longer participates (減法 T3): it was
+        the framework's highest-maintenance check (58 fix commits), gameable
+        by keyword-sprinkling, and already reduced to a single dimension.
+        Run it on demand via `check-constitution` when document quality needs
+        a keyword audit.
+        """
         print(f"\n{'='*60}\nPOST-FLIGHT: Phase {self.phase}\n{'='*60}")
-        const_result = self.postflight_constitution()
         bvs_result = self.postflight_bvs_invariants()
         steering_result = self.postflight_steering_summary()
         drift_result = self.postflight_drift_check()
@@ -1324,8 +1330,7 @@ class PhaseHooks:
         if self.phase and self.phase >= 3 and total_frs > 0:
             frs_ok = fr_approved >= total_frs
         success = (
-            const_result.get("passed", False)
-            and bvs_result.get("passed", True)
+            bvs_result.get("passed", True)
             and frs_ok
             and drift_result.get("passed", True)
             and artifact_links_result.get("passed", True)
@@ -1333,7 +1338,7 @@ class PhaseHooks:
         state_result = self.postflight_update_state(success=success)
         summary = self.postflight_summary()
         print(f"\nPOST-FLIGHT: {'PASS' if success else 'FAIL'}")
-        return {"success": success, "constitution": const_result,
+        return {"success": success,
                 "bvs_invariants": bvs_result, "steering": steering_result,
                 "drift_detection": drift_result, "artifact_links": artifact_links_result,
                 "state_update": state_result, "summary": summary}

@@ -44,7 +44,7 @@ Exit codes:
     8   Missing deliverables block — required artifacts not found on disk or not git-tracked
     10  PAUSE — Claude must evaluate gate; run finalize-gate then re-run pipeline
     11  Phase Truth < 90% (HR-11); fix and re-run with --phase-from N
-    16  Constitution postflight below phase threshold; fix document quality
+    16  (retired 減法 T3 — constitution keyword scoring is on-demand only)
     21  Scope violation: untracked diagnostic script(s) at repo root; move to
         .sessi-work/tmp or delete, then re-run advance-phase
 """
@@ -1197,7 +1197,7 @@ def _trace_dirty_state(project_path: Path) -> Dict[str, Any]:
 
 
 def _run_fast_preflight(hooks) -> dict:
-    """Lightweight preflight: FSM, constitution, BVS phase order, kill-switch, trace mtime.
+    """Lightweight preflight: FSM, BVS phase order, kill-switch, trace mtime.
 
     Used exclusively by cmd_pre_commit_check (git commit hook path).
     Not exposed via run-phase to prevent agents from bypassing full enforcement.
@@ -4316,75 +4316,14 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
         )
         return 21
 
-    # ── Constitution postflight: check current phase's own docs ──────
-    # (all phases 1-8).  Closed-loop: each phase verifies its OWN
-    # document quality before advancing, not the next phase's preflight.
-    # Scans only the phase-specific directory (e.g. 01-requirements/),
-    # NOT the entire project root — table/matrix/tracking docs in other
-    # directories dilute keyword density and produce false positives.
-    try:
-        from core.quality_gate.constitution import run_constitution_check
-        from core.quality_gate.constitution.profile import get_profile
-        _phase_dir = ProjectLayout(project).get_phase_dir(completed_phase)
-        _const_result = run_constitution_check(
-            check_type="all", docs_path=str(_phase_dir),
-            current_phase=completed_phase, check_mode="postflight",
-        )
-        _const_threshold = get_profile().composite_threshold(completed_phase)
-        if not _const_result.passed:
-            # Turn the opaque "security 20% < 65%" into an actionable list of the
-            # exact keywords each failing dimension is missing. Without this the
-            # fixing agent has to reverse-engineer the gap itself — which is what
-            # drove agents to write throwaway diagnostic scripts into the repo root.
-            from core.quality_gate.constitution.runner import missing_keywords
-            _failing_dims: list[str] = []
-            for _v in _const_result.violations:
-                _d = _v.get("dimension")
-                if _d and _d not in _failing_dims:
-                    _failing_dims.append(_d)
-            _dim_missing = {
-                _d: missing_keywords(str(_phase_dir), _d, completed_phase)
-                for _d in _failing_dims
-            }
-            print(
-                f"\n[BLOCKED] Phase {completed_phase} constitution = "
-                f"{_const_result.score:.0f}% "
-                f"(threshold={_const_threshold:.0f}%), "
-                f"violations={len(_const_result.violations)}"
-            )
-            for v in _const_result.violations[:5]:
-                _vd = v.get("dimension", "?")
-                _miss = _dim_missing.get(_vd) or []
-                _suffix = f"  ·  missing: {', '.join(_miss)}" if _miss else ""
-                print(f"  - [{_vd}] {v.get('message', str(v))[:120]}{_suffix}")
-            _gap_str = "; ".join(
-                f"{_d}: {', '.join(_kws)}"
-                for _d, _kws in _dim_missing.items() if _kws
-            )
-            _gap_clause = (
-                f" Add explicit, substantive coverage of these missing keywords — "
-                f"{_gap_str}."
-                if _gap_str else ""
-            )
-            print(
-                f"\n  Re-dispatch Agent A to fix document quality:\n"
-                f"    python harness_cli.py dispatch --role developer "
-                f"--phase {completed_phase} --project . \\\n"
-                f'      --prompt "Constitution check failed '
-                f'(score {_const_result.score:.0f}%, '
-                f'threshold {_const_threshold:.0f}%).'
-                f'{_gap_clause} '
-                f'Improve document quality to meet keyword coverage thresholds."'
-            )
-            return 16
-        print(
-            f"  [Constitution] Phase {completed_phase} postflight = "
-            f"{_const_result.score:.0f}% (threshold={_const_threshold:.0f}%) ✓"
-        )
-    except ImportError:
-        print("  [WARN] Constitution checker not available — skipping postflight")
-    except Exception as _ce:
-        print(f"  [WARN] Constitution postflight failed: {_ce}")
+    # ── Constitution keyword scoring: demoted to on-demand (減法 T3) ──────
+    # The keyword-based document scorer no longer auto-gates advance-phase
+    # (previously exit 16). Evidence for the demotion: 58 fix commits of
+    # false-positive tuning (the highest maintenance tax of any check), it is
+    # trivially gamed by keyword-sprinkling, and every phase had already been
+    # reduced to the single "correctness" dimension. Document quality is
+    # carried by A/B peer review + the tool-backed Gate 2/3/4 dimensions.
+    # On-demand: python harness_cli.py check-constitution --phase N --project .
 
     # ── Agent B approvals (P1/P2/P6) — after C1 so deliverables confirmed ──
     if completed_phase in (1, 2, 6):

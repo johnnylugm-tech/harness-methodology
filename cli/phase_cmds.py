@@ -148,7 +148,7 @@ def cmd_pre_commit_check(args: _hc.argparse.Namespace) -> int:
         print(f"\nPRE-FLIGHT FAILED: {pre['details']}")
         return 1
 
-    print("\n[INFO] Fast preflight passed (FSM + constitution + kill-switch).")
+    print("\n[INFO] Fast preflight passed (FSM + BVS phase order + kill-switch + trace freshness).")
     print("[INFO] Full enforcement (drift, traceability) runs at run-phase / finalize-gate.")
 
     print("[INFO] Skipped: drift, traceability, gap analysis, CI readiness.")
@@ -816,7 +816,7 @@ def register(sub) -> None:
     rp.add_argument("--project", default=".", help="Project root (default: .)")
     rp.set_defaults(func=cmd_run_phase)
 
-    # pre-commit-check (git commit hook only — FSM + constitution + kill-switch)
+    # pre-commit-check (git commit hook only — FSM + BVS order + kill-switch + trace freshness)
     pcc = sub.add_parser(
         "pre-commit-check",
         help="Lightweight check for git commit hooks (FSM/constitution/kill-switch only; no drift/traceability)",
