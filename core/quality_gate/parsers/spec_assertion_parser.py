@@ -21,7 +21,19 @@ import re
 
 from core.quality_gate.red_assertion_check import SpecCase, SubAssertion
 
-__all__ = ["SpecAssertionParser"]
+__all__ = ["SpecAssertionParser", "MalformedTableRowError"]
+
+
+class MalformedTableRowError(ValueError):
+    """A markdown table row started with '|' but did not end with '|'.
+
+    Bug B fix (2026-07-07): `_rows_after_header` used to treat this the same
+    as a genuine end-of-table line (anything not starting+ending with '|'),
+    silently truncating every row after the malformed one. A single missing
+    trailing '|' (e.g. from a truncated cell value) would then cascade into
+    dropping the rest of the table, surfacing downstream as a wall of
+    unrelated `unknown_case` violations instead of the actual formatting bug.
+    """
 
 _FR_HEADER = re.compile(r"^###\s+((?:N?FR)-\d+)\b")
 _INPUT_KV = re.compile(r'(\w+)\s*=\s*"((?:[^"\\]|\\.)*)"')
@@ -105,8 +117,13 @@ class SpecAssertionParser:
                 rows = []
                 for j in range(idx + 1, len(lines)):
                     t = lines[j].strip()
-                    if not (t.startswith("|") and t.endswith("|")):
-                        break
+                    if not t.startswith("|"):
+                        break  # genuine end of table (blank line, next heading, prose)
+                    if not t.endswith("|"):
+                        raise MalformedTableRowError(
+                            f"line {j + 1}: table row starts with '|' but does not "
+                            f"end with '|' (truncated cell?): {t[:80]!r}"
+                        )
                     rc = [c.strip() for c in t.strip("|").split("|")]
                     if _is_separator(rc):
                         continue

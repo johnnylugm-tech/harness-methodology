@@ -243,10 +243,16 @@ def cmd_check_test_spec_consistency(args: _hc.argparse.Namespace) -> int:
         print("[check-test-spec-consistency] 02-architecture/TEST_SPEC.md not found — skipping.")
         return 0
 
-    from core.quality_gate.parsers import SpecAssertionParser
+    from core.quality_gate.parsers import MalformedTableRowError, SpecAssertionParser
     from core.quality_gate.red_assertion_check import check_test_spec_consistency
 
-    parsed = SpecAssertionParser.parse(spec_path.read_text(encoding="utf-8"))
+    try:
+        parsed = SpecAssertionParser.parse(spec_path.read_text(encoding="utf-8"))
+    except MalformedTableRowError as exc:
+        print(f"[FAIL] TEST_SPEC.md malformed table row: {exc}")
+        print("\n[BLOCKED] TEST_SPEC.md self-consistency: table parsing failed — "
+              "fix the malformed row above (likely a missing trailing '|') and re-run.")
+        return 1
     fr_filter = getattr(args, "fr_id", None)
     if fr_filter:
         parsed = {k: v for k, v in parsed.items() if k == fr_filter}
@@ -297,13 +303,19 @@ def cmd_check_test_mirrors_spec(args: _hc.argparse.Namespace) -> int:
         print("[check-test-mirrors-spec] 02-architecture/TEST_SPEC.md not found — skipping.")
         return 0
 
-    from core.quality_gate.parsers import SpecAssertionParser
+    from core.quality_gate.parsers import MalformedTableRowError, SpecAssertionParser
     from core.quality_gate.red_assertion_check import (
         check_test_mirrors_spec,
         check_test_mirrors_spec_js,
     )
 
-    parsed = SpecAssertionParser.parse(spec_path.read_text(encoding="utf-8"))
+    try:
+        parsed = SpecAssertionParser.parse(spec_path.read_text(encoding="utf-8"))
+    except MalformedTableRowError as exc:
+        print(f"[FAIL] TEST_SPEC.md malformed table row: {exc}")
+        print("\n[BLOCKED] check-test-mirrors-spec: table parsing failed — "
+              "fix the malformed row above (likely a missing trailing '|') and re-run.")
+        return 1
     if fr_id not in parsed:
         print(f"[check-test-mirrors-spec] {fr_id} has no Inputs+Sub-assertion tables "
               "in TEST_SPEC.md — nothing to mirror.")
