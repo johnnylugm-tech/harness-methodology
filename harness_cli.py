@@ -885,7 +885,6 @@ from cli.check_cmds import (  # noqa: E402, F401
     cmd_build_trace_attestation,
     cmd_check_constitution,
     cmd_check_logic,
-    cmd_check_test_inventory,
     cmd_check_test_mirrors_spec,
     cmd_check_test_spec_consistency,
     cmd_crg_arch_check,
@@ -3462,8 +3461,7 @@ def _validate_handoff_p1_to_p2(project: Path) -> list[str]:
     """P1→P2: TEST_INVENTORY.yaml must exist, be non-empty, and cover all FRs."""
     errors: list[str] = []
     # NOTE: TEST_INVENTORY.yaml lives at project root per harness design
-    # (cmd_check_test_inventory @ line ~993, D4 checksum @ line ~5018,
-    #  init-project template @ line ~8286). This B.1 check originally
+    # (D4 spec-coverage fallback, init-project template). This B.1 check originally
     # looked at 01-requirements/ — inconsistent with the rest of harness,
     # and silently blocked every fresh project's P2 entry (Bug
     # discovered 2026-06-17, integration-test E2E).

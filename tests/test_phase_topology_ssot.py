@@ -112,15 +112,6 @@ class TestPythonMirrors:
         from core.utils.project_layout import _PHASE_PROP_MAP
         assert set(_PHASE_PROP_MAP) == ALL_PHASES
 
-    def test_verify_path_consistency_keys(self):
-        # Scoped by design to the document-deliverable phases (P5+): its
-        # WHERE-pattern check only audits those directories. A new phase
-        # ≥5 must therefore appear here too.
-        from scripts.verify_path_consistency import PHASE_ARTIFACTS, PHASE_WHERE_PATTERNS
-        expected = {p for p in VALID_PHASES if p >= 5}
-        assert set(PHASE_ARTIFACTS) == expected
-        assert set(PHASE_WHERE_PATTERNS) == expected
-
     def test_drift_detector_artifact_keys(self):
         from detection.drift_detector import DriftDetector
         assert set(DriftDetector.PHASE_ARTIFACTS) == ALL_PHASES

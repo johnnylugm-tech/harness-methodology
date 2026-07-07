@@ -340,32 +340,6 @@ def cmd_check_test_mirrors_spec(args: _hc.argparse.Namespace) -> int:
     return 0
 
 
-def cmd_check_test_inventory(args: _hc.argparse.Namespace) -> int:
-    """[DEPRECATED v2.6] Delegates to spec-coverage-check.
-
-    TEST_SPEC.md is now the single source of truth for all test traceability.
-    Use spec-coverage-check instead: python harness_cli.py spec-coverage-check --project . --threshold N
-    """
-    print("[DEPRECATED] check-test-inventory is deprecated as of v2.6.")
-    print("  TEST_SPEC.md is now the single source of truth for test traceability.")
-    print("  Delegating to spec-coverage-check.")
-    print("  Please use: python harness_cli.py spec-coverage-check --project . --threshold <N>")
-    print()
-
-    project = _hc.Path(args.project).resolve()
-    inventory_path = project / "TEST_INVENTORY.yaml"
-    spec_path = _hc.ProjectLayout(project).test_spec_path
-
-    # --strict: only block if BOTH TEST_SPEC.md AND TEST_INVENTORY.yaml are missing
-    if getattr(args, "strict", False):
-        if not spec_path.exists() and not inventory_path.exists():
-            print("[BLOCKED] Neither TEST_SPEC.md nor TEST_INVENTORY.yaml found. "
-                  "P1/P2 must produce these files.")
-            return 8
-
-    return cmd_spec_coverage_check(args)
-
-
 def cmd_manifest(args: _hc.argparse.Namespace) -> int:
     """Generate quality_manifest.json at P2 exit.
 
@@ -887,23 +861,8 @@ def register(sub) -> None:
     ctms.add_argument("--test-file", dest="test_files", nargs="+", required=True, help="Path(s) to the RED test file(s); accepts one or more paths to support per-FR splits like test_fr01_inputs.py + test_fr01_edge.py")
     ctms.set_defaults(func=cmd_check_test_mirrors_spec)
 
-    # check-test-inventory (D4 — deprecated v2.6, delegates to spec-coverage-check)
-    cti = sub.add_parser(
-        "check-test-inventory",
-        help="[DEPRECATED v2.6] Delegates to spec-coverage-check. Use spec-coverage-check instead.",
-    )
-    cti.add_argument("--project", default=".", help="Project root (default: .)")
-    cti.add_argument("--strict", action="store_true",
-                     help="Hard-block if both TEST_SPEC.md and TEST_INVENTORY.yaml missing")
-    cti.add_argument("--threshold", type=float, default=80.0,
-                     help="Minimum compliance percentage (default: 80.0)")
-    cti.add_argument("--diff-mode", action="store_true", dest="diff_mode",
-                     help="(deprecated) Compare checksum against P1 baseline")
-    cti.add_argument("--srs-crosscut", action="store_true", dest="srs_crosscut",
-                     help="(deprecated) use verify-spec instead")
-    cti.add_argument("--crg-gaps", action="store_true", dest="crg_gaps",
-                     help="(deprecated) use run-gap-analysis instead")
-    cti.set_defaults(func=cmd_check_test_inventory)
+    # (check-test-inventory removed — deprecated since v2.6, it only
+    #  delegated to spec-coverage-check. Use spec-coverage-check directly.)
 
     # manifest
     mf = sub.add_parser("manifest", help="Generate quality_manifest.json at P2 exit")

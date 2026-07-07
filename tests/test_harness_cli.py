@@ -721,7 +721,7 @@ class TestCmdAuditStructure:
 
     # --- Bug 7 regression: P7 artifact list single source of truth ---
     # Before the fix, the P7 list was duplicated in 8+ places (drift_detector,
-    # framework_enforcer, harness_cli, verify_path_consistency, etc.). Any
+    # framework_enforcer, harness_cli, etc.). Any
     # rename required editing all of them. Tests below verify the centralized
     # phase_artifacts() function and that all consumers agree.
 

@@ -123,8 +123,7 @@ python harness_cli.py push-milestone    --type p3-mid|p3-pre-gate2|p4-mid|p4-pre
 python harness_cli.py dispatch          --role developer|reviewer --fr-id FR-01 --prompt "..." [--phase 3] [--project .] [--timeout 300] [--max-turns 20]
 python harness_cli.py verify-agent-b-approvals --phase N [--fr-ids FR-01,FR-02] [--project .]
 python harness_cli.py audit-structure   [--project .] [--json]
-python harness_cli.py check-test-inventory [--project .] [--strict] [--threshold N] [--diff-mode]  # deprecated v2.6.0 — delegates to spec-coverage-check
-python harness_cli.py spec-coverage-check  [--project .] [--threshold N] [--fr-id FR-XX]  # D4 unified (v2.6.0)
+python harness_cli.py spec-coverage-check  [--project .] [--threshold N] [--fr-id FR-XX]  # D4 unified (v2.6.0); replaces removed check-test-inventory
 python harness_cli.py gate4-tag         [--project .] [--fr-id FR-XX] [--no-git]
 python harness_cli.py load-context      [--project .] [--output FILE]
 python harness_cli.py run-fr-step       --fr-id FR-XX [--phase N] [--project .]
@@ -2191,8 +2190,8 @@ python scripts/generate_full_plan.py --phase 3 --repo /path/to/project \
 | `spec_logic_checker.py` | 10KB | Validates spec logic consistency (no contradictory requirements, all FRs have priorities). Also invocable via `harness_cli.py check-logic`. |
 | `dev_log_checker.py` | 12KB | ~~Validates `DEVELOPMENT_LOG.md` format and HR-07 session_id presence~~ **REMOVED** (HR-07 removed; see SKILL.md) |
 | `verify_spec_compliance.py` | 7KB | End-to-end spec compliance: code must implement every FR declared in SAD.md. Also invocable via `harness_cli.py verify-spec`. |
-| `verify_path_consistency.py` | 3KB | Confirms all path references in SAD.md and manifest match actual filesystem |
-| `state_monitor.py` | 6KB | Reads `.methodology/state.json`; reports FSM state, phase, timestamps |
+| `verify_path_consistency.py` | 3KB | ~~Confirms path references match filesystem~~ **REMOVED** (superseded by tests/test_no_hardcoded_paths.py + topology anchor tests) |
+| `state_monitor.py` | 6KB | ~~Reads state.json; reports FSM state~~ **REMOVED** (zero callers; `status` / `doctor` commands cover it) |
 | `ci_state_helper.py` | 4KB | CI Safe State Extractor: Replaces unsafe bare json inline parses in CI workflows |
 | `rotate_decision_logs.py` | 5KB | Decision Log Archiver: Prevents unbounded growth of decision logs; archives directories older than retention days |
 

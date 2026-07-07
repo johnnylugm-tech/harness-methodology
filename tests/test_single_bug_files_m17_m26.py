@@ -38,32 +38,9 @@ def with_sys_path(scripts_dir, monkeypatch):
     return scripts_dir
 
 
-# ---------------------------------------------------------------------------
-# M17: verify_path_consistency.py:76 — empty tool paths treated as CONSISTENT
-# ---------------------------------------------------------------------------
-
-class TestM17VerifyPathConsistency:
-    def test_no_tool_refs_reports_unverified_not_consistent(
-        self, with_sys_path, tmp_path, monkeypatch
-    ):
-        m = _load(
-            "verify_path_consistency",
-            str(Path(with_sys_path) / "verify_path_consistency.py"),
-        )
-        # Make Phase 5 plan point to a path, but tool files have no references
-        (tmp_path / "docs").mkdir(parents=True)
-        (tmp_path / "docs" / "Phase5_Plan_5W1H_AB.md").write_text(
-            "**WHERE** | `05-verification`\n", encoding="utf-8"
-        )
-        monkeypatch.chdir(tmp_path)
-        # No tool files exist → all tool_phase_paths will be empty
-        rc = m.main()
-        # rc == 0 means "consistent" — but should be non-zero when no
-        # tool refs exist. This silently masks missing tool phase refs.
-        assert rc != 0, (
-            "M17: no tool refs but rc=0 (consistent). "
-            "This silently masks missing tool phase references."
-        )
+# (M17 removed together with scripts/verify_path_consistency.py — the script
+#  was orphaned tooling superseded by tests/test_no_hardcoded_paths.py and the
+#  topology anchors in tests/test_phase_topology_ssot.py.)
 
 
 # ---------------------------------------------------------------------------

@@ -4,7 +4,6 @@ Tests for test compliance improvements (I-1 through I-6).
 Covers:
   I-2: _check_fr_test_file_exists()   — Gate 1 FR→test file check
   I-3: _check_red_phase_ordering()    — D1 RED ordering
-  I-1: cmd_check_test_inventory()     — D4 TEST_INVENTORY.yaml compliance
   I-6a: score.py R8b                  — objective_primary flag
   I-1 helpers: _scan_test_functions(), _flatten_test_names()
 """
@@ -24,7 +23,6 @@ from harness_cli import (  # pyright: ignore[reportMissingImports]
     _check_red_phase_ordering,
     _scan_test_functions,
     _flatten_test_names,
-    cmd_check_test_inventory,
 )
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "harness" / "ssi" / "scripts"))
@@ -227,120 +225,8 @@ class TestFlattenTestNames:
         assert names == {"test_x", "test_y"}
 
 
-# ===================================================================
-# I-1: cmd_check_test_inventory
-# ===================================================================
-
-class TestCmdCheckTestInventory:
-    """cmd_check_test_inventory(args)."""
-
-    def _make_args(self, tmp_path: Path, **overrides) -> "any":  # type: ignore[reportGeneralTypeIssues]
-        import argparse
-        ns = argparse.Namespace()
-        ns.project = str(tmp_path)
-        ns.strict = False
-        ns.threshold = 80.0
-        ns.diff_mode = False
-        ns.srs_crosscut = False
-        ns.crg_gaps = False
-        for k, v in overrides.items():
-            setattr(ns, k, v)
-        return ns
-
-    def _write_inventory(self, path: Path, names: list[str]):
-        """Write a minimal TEST_INVENTORY.yaml (for backward compat tests)."""
-        target = path / "TEST_INVENTORY.yaml"
-        lines = ["format_version: '1.0'", "fr_tests:", "  FR-01:", "    unit:"]
-        for n in names:
-            lines.append(f"      - {n}")
-        lines.append("cross_cutting: {}")
-        target.write_text("\n".join(lines) + "\n")
-
-    def _write_test_spec(self, path: Path, names: list[str], fr_id: str = "FR-01"):
-        """Write a minimal TEST_SPEC.md that spec-coverage-check can parse."""
-        spec_dir = path / "02-architecture"
-        spec_dir.mkdir(parents=True, exist_ok=True)
-        lines = [
-            "# TEST_SPEC.md",
-            "",
-            f"### {fr_id}: Example requirement",
-            "",
-            "| # | Test Function | Type | Derivation |",
-            "|---|---|---|---|",
-        ]
-        for i, n in enumerate(names, 1):
-            lines.append(f"| {i} | `{n}` | happy_path | Q1 |")
-        (spec_dir / "TEST_SPEC.md").write_text("\n".join(lines) + "\n")
-
-    def _write_test_file(self, path: Path, fns: list[str]):
-        """Write a test file with given function names."""
-        (path / "tests").mkdir(parents=True, exist_ok=True)
-        content = "\n".join(f"def {f}(): pass" for f in fns)
-        (path / "tests" / "test_dummy.py").write_text(content)
-
-    def test_all_covered_passes(self, tmp_path: Path):
-        """All required tests exist → passes (delegates to spec-coverage)."""
-        self._write_test_spec(tmp_path, ["test_alpha", "test_bravo"])
-        self._write_test_file(tmp_path, ["test_alpha", "test_bravo"])
-        code = cmd_check_test_inventory(self._make_args(tmp_path))
-        assert code == 0, "expected pass when all covered"
-
-    def test_missing_functions_fails(self, tmp_path: Path):
-        """Required tests missing → fails below threshold."""
-        self._write_test_spec(tmp_path, ["test_alpha", "test_bravo", "test_charlie", "test_delta"])
-        self._write_test_file(tmp_path, ["test_alpha"])  # only 1/4
-        code = cmd_check_test_inventory(self._make_args(tmp_path, threshold=50.0))
-        assert code == 1, "expected failure when 1/4 < 50%"
-
-    def test_neither_spec_nor_inventory_with_strict(self, tmp_path: Path):
-        """Neither TEST_SPEC.md nor TEST_INVENTORY.yaml with strict → blocked (8)."""
-        code = cmd_check_test_inventory(self._make_args(tmp_path, strict=True))
-        assert code == 8, "expected block (8) when neither file exists"
-
-    def test_p1_naming_authority_enforced(self, tmp_path: Path):
-        """If TEST_SPEC.md lacks names from TEST_INVENTORY.yaml, it blocks."""
-        # 1. P1 inventory requires test_alpha and test_beta
-        self._write_inventory(tmp_path, ["test_alpha", "test_beta"])
-        # 2. P2 spec hallucinates and only has test_alpha
-        self._write_test_spec(tmp_path, ["test_alpha", "test_hallucinated"])
-        # 3. test implementations match spec
-        self._write_test_file(tmp_path, ["test_alpha", "test_hallucinated"])
-        # 4. the check should block because test_beta is missing in spec
-        from harness_cli import _run_spec_coverage_check
-        code, pct = _run_spec_coverage_check(tmp_path, threshold=60.0, verbose=False)
-        assert code == 1, "expected block due to P1 naming authority violation"
-
-    def test_no_spec_without_strict(self, tmp_path: Path):
-        """No TEST_SPEC.md with strict=False → delegation returns 0 (missing → 100%)."""
-        code = cmd_check_test_inventory(self._make_args(tmp_path))
-        assert code == 0, "expected delegation pass (0) when no spec and not strict"
-
-    def test_srs_crosscut_deprecated(self, tmp_path: Path):
-        """--srs-crosscut prints deprecation, still delegates correctly."""
-        self._write_test_spec(tmp_path, ["test_alpha"])
-        self._write_test_file(tmp_path, ["test_alpha"])
-        code = cmd_check_test_inventory(
-            self._make_args(tmp_path, srs_crosscut=True)
-        )
-        assert code == 0  # delegation still passes
-
-    def test_crg_gaps_deprecated(self, tmp_path: Path):
-        """--crg-gaps prints deprecation, still delegates correctly."""
-        self._write_test_spec(tmp_path, ["test_alpha"])
-        self._write_test_file(tmp_path, ["test_alpha"])
-        code = cmd_check_test_inventory(
-            self._make_args(tmp_path, crg_gaps=True)
-        )
-        assert code == 0  # delegation still passes
-
-    def test_diff_mode_preserved(self, tmp_path: Path):
-        """--diff-mode preserved for backward compat, delegates correctly."""
-        self._write_test_spec(tmp_path, ["test_alpha"])
-        self._write_test_file(tmp_path, ["test_alpha"])
-        code = cmd_check_test_inventory(
-            self._make_args(tmp_path, diff_mode=True)
-        )
-        assert code == 0  # delegation still passes
+# (I-1 TestCmdCheckTestInventory removed with the deprecated
+#  check-test-inventory command — spec-coverage-check is the D4 path.)
 
 
 # ===================================================================

@@ -188,8 +188,8 @@ Run from target project root with harness on `PYTHONPATH` (or via submodule).
 | Spec compliance (ASPICE) | `python harness_cli.py verify-spec` | `python harness/scripts/verify_spec_compliance.py` |
 | Logic correctness check | `python harness_cli.py check-logic --srs SRS.md` | `python harness/scripts/spec_logic_checker.py` |
 | M3 gap analysis | `python harness_cli.py run-gap-analysis` | — |
-| Path consistency | — | `python harness/scripts/verify_path_consistency.py` |
-| State inspection | `python harness_cli.py status` | `python harness/scripts/state_monitor.py` |
+| Path consistency | (enforced by tests/test_no_hardcoded_paths.py + topology anchors) | — |
+| State inspection | `python harness_cli.py status` / `doctor` | — |
 | Dev log check | — | `python harness/scripts/dev_log_checker.py` |
 
 **Full pipeline execution**:

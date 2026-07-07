@@ -912,11 +912,9 @@ python harness_cli.py spec-coverage-check \
 
 TEST_SPEC.md (P2) 是所有測試追溯的**單一來源**。此命令驗證 TEST_SPEC.md 中宣告的每一個測試案例都有對應的測試函式存在於 `tests/`。
 
-### `check-test-inventory` — 已棄用（v2.6）
+### `check-test-inventory` — 已移除
 
-此命令已棄用，會自動委派至 `spec-coverage-check`。請改用上述 `spec-coverage-check`。
-
-**返回碼**：0=所有檢查通過；1=有 FAIL（`--strict` 模式）；2=錯誤
+此命令自 v2.6 棄用（僅委派至 `spec-coverage-check`），現已移除。請直接使用上述 `spec-coverage-check`。
 
 ---
 
