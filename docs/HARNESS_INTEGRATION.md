@@ -108,7 +108,6 @@ Exit: Gate 4 score ≥ 85 AND critical_open == 0 AND quality_complete
 ```
 check_fr_full Layer 3: same as Gate 1 (per-FR, 3 dims)
 auto-research: unchanged (parent-system only, not gate-specific)
-steering: unchanged (parent-system only, P7/P8 only)
 ```
 
 ## Early-Stop Logic (Gates 2–4)

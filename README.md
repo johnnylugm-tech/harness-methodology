@@ -86,7 +86,6 @@ python harness_cli.py status
 
 See **[INTEGRATION.md](INTEGRATION.md)** for:
 - Git hooks setup (`scripts/setup-git-hooks.sh`)
-- Drift monitor cron (`scripts/cron_drift_monitor.py`)
 - Recommended target-project GitHub Actions
 - Environment variables reference
 

@@ -3,7 +3,7 @@
 Supports HR-07 (citation reference standards) and HR-09 (claims accuracy).
 
 Used by:
-    steering/integrations.py :: SteeringConstitutionIntegrator
+    constitution/claim_verifier.py (HR-09 Claims Verifier)
 
 Interface contract:
     extract_citations(text: str) -> list[str]   # e.g. ["[FR-01]", "[SAD §3.2]"]

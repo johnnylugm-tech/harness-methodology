@@ -192,14 +192,6 @@ CLASSIFICATION_TABLE: Dict[str, Dict[str, Any]] = {
         "problem_type": "over_interpretation_gap",
     },
 
-    # ── steering/steering_loop.py ──
-    "steering_loop/convergence_stalled": {
-        "strategy": FixStrategy.AUTO_FIX,
-        "confidence": 75.0,
-        "max_rounds": 5,
-        "problem_type": "low_constitution_score",
-    },
-
     # ── gates ──
     "gate/gate1_blocked": {
         "strategy": FixStrategy.AUTO_FIX_WITH_VERIFICATION,

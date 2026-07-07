@@ -525,8 +525,6 @@ opentelemetry-api>=1.20.0
 opentelemetry-sdk>=1.20.0
 ```
 
-**SteeringLoop tracing**: pass `project_root=Path(".")` to `SteeringLoop(...)` to enable CRG-lazy-cache integration in `LLMJudgeScorer`. The `score_with_critic_debate()` method fires a multi-round critic debate when score deltas are close (< `DEBATE_DELTA_THRESHOLD=0.15`) or when sensitive modules are changed and delta < `SENSITIVE_DEBATE_THRESHOLD=0.30`. Sensitive module prefixes: `steering/`, `enforcement/`, `core/auto_fix/`, `core/fsm/`.
-
 **Span names**: `phase_{N}_preflight`, `phase_{N}_postflight`
 
 ---

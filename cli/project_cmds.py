@@ -251,12 +251,9 @@ def cmd_init_project(args: _hc.argparse.Namespace) -> int:
         _canonical_path, _ = write_attestation(project, _attestation)
         print(f"   OK — wrote {_canonical_path}")
 
-    # 8. Drift monitor hint
-    print("\n[8/11] Drift Monitor hint (optional cronjob)")
-    print("  Add this crontab entry (edit with: crontab -e):")
-    print(f"  0 * * * * DRIFT_PROJECT_PATH={project} \\")
-    print(f"    python3 {harness_root}/scripts/cron_drift_monitor.py \\")
-    print(f"    >> {project}/logs/drift_monitor.log 2>&1")
+    # 8. (cron drift monitor removed in 減法 T4 — drift is already checked
+    #    twice per push: preflight_drift_detection + postflight_drift_check)
+    print("\n[8/11] Drift protection: enforced at every push (no cron needed)")
 
     # 9. ECC hooks (Claude Code session layer — blocks git --no-verify)
     print("\n[9/11] ECC hooks (git --no-verify blocker)...")

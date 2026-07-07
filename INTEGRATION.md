@@ -15,7 +15,6 @@ harness-methodology (this repo)          Your Target Project (any repo)
 Framework source + CI self-tests         Your code + harness installed as dep
 .github/workflows/harness_ci.yml  ←→    .github/workflows/harness_quality_gate.yml
 scripts/ (tools to run elsewhere)  →     .git/hooks/ (installed via setup.sh)
-                                    →    scripts/cron_drift_monitor.py (pointed at project)
 ```
 
 **Rule**: Never mix the two. harness-methodology's CI tests the framework. Your project's CI runs the framework against your code.
@@ -148,29 +147,12 @@ python3 -c "import json; print(json.load(open('.methodology/state.json'))['curre
 
 > **No bypass mechanism exists for git hooks.** If `run-phase` fails before push, fix the underlying issue. Use `git commit --no-verify` only as a last resort for emergency hotfixes; CI will detect the missing sentinel on the next push audit.
 
-### 3.3 Step 3 (Optional): Drift Monitor — Continuous Architecture Watch
+### 3.3 Drift Protection
 
-The drift monitor detects structural divergence between code and spec artifacts hourly.
-
-**Manual test first**:
-```bash
-DRIFT_PROJECT_PATH=/path/to/your-project \
-  python /path/to/harness-methodology/scripts/cron_drift_monitor.py
-```
-
-**Install crontab**:
-```bash
-# Edit crontab
-crontab -e
-
-# Add (replace paths):
-0 * * * * DRIFT_PROJECT_PATH=/your/project \
-  /your/venv/bin/python \
-  /path/to/harness/scripts/cron_drift_monitor.py \
-  >> /your/project/logs/drift_monitor.log 2>&1
-```
-
-> **Note**: Email/Slack notification channels (`drift_notifier`, `EmailChannel`, `SlackChannel`) are planned but not yet implemented. Currently log-only.
+Drift detection runs automatically at every push: `preflight_drift_detection`
+(run-phase preflight) and `postflight_drift_check`. The former hourly cron
+monitor (`scripts/cron_drift_monitor.py`) was removed in 減法 T4 — it fully
+overlapped the per-push checks.
 
 ### 3.4 Step 4 (Optional): On-Demand Analysis Scripts
 

@@ -117,7 +117,6 @@ One-time setup                      Automatic thereafter
 ────────────────────────────────────────────────────────────
 setup-git-hooks.sh           →  hooks fire on every commit / merge / push
 Add CI YAML to target repo   →  gate check on every push (blocks if fail)
-Set DRIFT_PROJECT_PATH       →  drift alert every hour (log / email / Slack)
 ```
 
 | Trigger | Mechanism | Blocking? |
@@ -695,7 +694,6 @@ Claude 會依序確認並執行：
 2. setup-git-hooks.sh 安裝 hooks 到目標專案 .git/hooks/
 3. .methodology/state.json 初始化（current_phase = 3）
 4. 建立 CI workflow（.github/workflows/harness_quality_gate.yml）
-5. 確認 DRIFT_PROJECT_PATH（可選）
 ```
 
 **設定完成後的開發者體驗（完全透明）：**
@@ -993,12 +991,10 @@ Hooks 是可選的 shell/Python 指令，在特定 phase/gate/FR 事件自動執
 |---|---|---|
 | `HARNESS_CLAUDE_MODEL` | `claude-sonnet-4-5` | Override the Claude model used for all dimension evaluation and review (all tiers use Claude sub-agent). |
 | `SSI_ROOT` | `harness/ssi` | Path to embedded SSI package (auto-detected from harness_cli.py) |
-| `DRIFT_PROJECT_PATH` | cwd | **Required for drift monitor** — absolute path to target project. Without this, `cron_drift_monitor.py` silently analyses the cron job's working directory instead of your project. |
 | `PYTHONPATH` | — | Must include harness-methodology repo root for imports. **Only needed for Option B (global clone)** — not required for Option A (submodule) or Option C (copy). |
 
 **Setup example**:
 ```bash
-export DRIFT_PROJECT_PATH=/path/to/your/project
 # Option B (global clone) only:
 export PYTHONPATH=/path/to/harness-methodology:$PYTHONPATH
 ```

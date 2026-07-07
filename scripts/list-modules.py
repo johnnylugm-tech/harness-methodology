@@ -25,7 +25,6 @@ MANIFEST_DIRS = [
     "detection",
     "gap_detector",
     "kill_switch",
-    "steering",
 ]
 
 REQUIRED_FIELDS = ["name", "version", "category", "description", "depends_on", "compat"]

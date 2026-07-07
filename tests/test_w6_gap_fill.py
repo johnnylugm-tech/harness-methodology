@@ -603,23 +603,18 @@ class TestPhaseHooks:
         assert result["passed"] is True  # graceful when sessions_spawn.log absent
 
     def test_postflight_all_includes_bvs(self, tmp_path):
-        """postflight_all() result includes bvs_invariants and steering keys."""
+        """postflight_all() result includes the bvs_invariants key.
+
+        (steering removed in 減法 T4 — the env-gated subsystem was dormant
+        by default and never enabled in any E2E run.)"""
         self._write_state(tmp_path, current_phase=2)
         h = self._hooks(tmp_path, phase=3)
-        h.postflight_constitution = MagicMock(return_value={"passed": True, "score": 90})
         h.postflight_drift_check = MagicMock(return_value={"passed": True})
         h.postflight_update_state = MagicMock(return_value={"updated": True})
         h.postflight_summary = MagicMock(return_value={"total_frs": 0, "approved": 0})
         result = h.postflight_all()
         assert "bvs_invariants" in result
-        assert "steering" in result
-
-    def test_postflight_steering_skips_when_disabled(self, tmp_path):
-        """Steering postflight skips when STEERING_ENABLED not set."""
-        h = self._hooks(tmp_path, phase=3)
-        result = h.postflight_steering_summary()
-        assert result.get("skipped") is True
-        assert "STEERING_ENABLED" in result.get("reason", "")
+        assert "steering" not in result
 
 
 # ─── AgentProofHook ────────────────────────────────────────────────────────────

@@ -1256,48 +1256,6 @@ class PhaseHooks:
             print(f"   BVS invariant error: {e}")
             return {"passed": True, "skipped": True, "error": str(e)}
 
-    def postflight_steering_summary(self) -> Dict[str, Any]:
-        """Post-phase Steering cross-FR consistency check (phase 3+, opt-in).
-
-        Compares adjacent FR result pairs to detect quality drift across
-        FRs within a phase. Requires ≥2 FR results to produce comparisons.
-        This is NOT a same-FR dev-vs-rev comparison — that requires both
-        Agent A and Agent B outputs stored per FR, which is future work.
-        """
-        print("\n[POST-FLIGHT] Steering Phase Summary")
-        if self.phase and self.phase < 3:
-            return {"passed": True, "skipped": True, "reason": "P1/P2 — no Steering"}
-        import os
-        if os.environ.get("STEERING_ENABLED", "").lower() not in ("1", "true", "yes"):
-            return {"passed": True, "skipped": True, "reason": "STEERING_ENABLED not set"}
-        if len(self.fr_results) < 2:
-            return {"passed": True, "skipped": True,
-                    "reason": f"Need ≥2 FR results, have {len(self.fr_results)}"}
-        try:
-            from steering.integrations import SteeringIntegrator
-            from steering.provider import create_steering_provider
-            provider = create_steering_provider()
-            phase: int = self.phase if self.phase is not None else 3
-            integrator = SteeringIntegrator(provider, str(self.project_path), phase=phase)
-            import json
-            for i, fr in enumerate(self.fr_results):
-                if i + 1 < len(self.fr_results):
-                    a_out = {"text": json.dumps(fr)}
-                    b_out = {"text": json.dumps(self.fr_results[i + 1])}
-                    integrator.iterate_with_full_check(
-                        a_out, b_out, run_bvs=False, run_constitution=True,
-                    )
-            summary = integrator.get_full_summary()
-            print(f"   Steering iterations: {summary['steering']['total_iterations']}")
-            return {"passed": True, "iterations": summary["steering"]["total_iterations"],
-                    "summary": summary}
-        except ImportError:
-            print("[WARN] Steering modules unavailable — skipping phase summary", file=sys.stderr)
-            return {"passed": True, "skipped": True, "message": "Steering modules unavailable"}
-        except Exception as e:
-            print(f"   Steering error: {e}")
-            return {"passed": True, "skipped": True, "error": str(e)}
-
     def postflight_all(self) -> Dict[str, Any]:
         """Run all post-flight checks wrapped in an OpenTelemetry span."""
         if getattr(self, "tracer", None):
@@ -1319,7 +1277,6 @@ class PhaseHooks:
         """
         print(f"\n{'='*60}\nPOST-FLIGHT: Phase {self.phase}\n{'='*60}")
         bvs_result = self.postflight_bvs_invariants()
-        steering_result = self.postflight_steering_summary()
         drift_result = self.postflight_drift_check()
         artifact_links_result = self.postflight_artifact_links()
         fr_approved = sum(1 for r in self.fr_results if r.get("review_status") == "APPROVE")
@@ -1339,7 +1296,7 @@ class PhaseHooks:
         summary = self.postflight_summary()
         print(f"\nPOST-FLIGHT: {'PASS' if success else 'FAIL'}")
         return {"success": success,
-                "bvs_invariants": bvs_result, "steering": steering_result,
+                "bvs_invariants": bvs_result,
                 "drift_detection": drift_result, "artifact_links": artifact_links_result,
                 "state_update": state_result, "summary": summary}
 

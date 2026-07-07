@@ -112,9 +112,6 @@ ERROR_CLASS_MAP: dict[str, ErrorClass] = {
     "phase_truth_verifier/phase_truth_low": ErrorClass.GATE_FAILURE,
     "phase_truth_verifier/low_constitution_score": ErrorClass.QUALITY_DEFICIT,
 
-    # Steering loop
-    "steering_loop/low_constitution_score": ErrorClass.QUALITY_DEFICIT,
-
     # Gate blocked entries
     "gate/gate1_blocked": ErrorClass.GATE_FAILURE,
     "gate/gate2_blocked": ErrorClass.GATE_FAILURE,
