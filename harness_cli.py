@@ -52,6 +52,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import importlib.util
 import json
 import os
 import re
@@ -2961,15 +2962,31 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
 
         # ── Auto-generate quality deliverables for Gate 4 ─────────────
         if args.gate == 4:
+            # Bug fix P6-2026-07-07: cwd-relative `from scripts.X` failed
+            # whenever finalize-gate was run from the project root (scripts/
+            # lives under the harness submodule, not the consumer project).
+            # Each generator is loaded by absolute file path so the call works
+            # regardless of cwd / PYTHONPATH.
+            def _load_harness_script(module_filename: str):
+                scripts_dir = Path(__file__).resolve().parent / "scripts"
+                spec = importlib.util.spec_from_file_location(
+                    f"harness_gate4_{module_filename[:-3]}", scripts_dir / module_filename,
+                )
+                if spec is None or spec.loader is None:
+                    raise ImportError(f"cannot load spec for {module_filename}")
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                return mod
+
             try:
-                from scripts.generate_quality_report import generate_quality_report
-                generate_quality_report(str(Path(args.project).resolve()))
+                _qreport_mod = _load_harness_script("generate_quality_report.py")
+                _qreport_mod.generate_quality_report(str(Path(args.project).resolve()))
             except Exception as _qre:
                 print(f"  [WARN] QUALITY_REPORT.md generation skipped: {_qre}")
 
             try:
-                from scripts.generate_release_notes import generate_release_notes
-                generate_release_notes(str(Path(args.project).resolve()))
+                _rnotes_mod = _load_harness_script("generate_release_notes.py")
+                _rnotes_mod.generate_release_notes(str(Path(args.project).resolve()))
             except Exception as _rne:
                 print(f"  [WARN] RELEASE_NOTES.md generation skipped: {_rne}")
 

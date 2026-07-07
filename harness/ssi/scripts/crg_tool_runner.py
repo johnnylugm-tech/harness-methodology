@@ -52,6 +52,24 @@ def main() -> int:
         return 4
 
     try:
+        # Bug fix P6-2026-07-07: filter kwargs against the tool's actual
+        # signature so a CRG tool version mismatch (e.g. v2.x dropping
+        # `min_fan_in` from get_hub_nodes_func) returns {} via the
+        # graceful `args.gate_kwargs_filter` path instead of crashing on
+        # `got an unexpected keyword argument`. The CRG bridge calls
+        # these tools with extra kwargs that earlier versions accepted;
+        # older tools should still succeed with what they do support.
+        try:
+            import inspect
+            _sig = inspect.signature(fn)
+            if not any(
+                p.kind == inspect.Parameter.VAR_KEYWORD
+                for p in _sig.parameters.values()
+            ):
+                _accepted = set(_sig.parameters.keys())
+                kwargs = {k: v for k, v in kwargs.items() if k in _accepted}
+        except (TypeError, ValueError):
+            pass  # signature introspection failed — pass kwargs verbatim
         result = fn(repo_root=repo_root, **kwargs)
     except Exception as exc:  # surface the tool's own error to the caller
         print(f"{func_name} failed: {exc}", file=sys.stderr)
