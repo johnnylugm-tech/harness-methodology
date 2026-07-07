@@ -90,7 +90,7 @@ do NOT start work until every item is checked.
 
 | Boundary | What to verify | CLI |
 |----------|---------------|-----|
-| Before any phase work | Entry gate verify, FSM state, previous phase artifacts, constitution, kill-switch, drift, SAB, traceability, gap analysis, CI readiness | `run-phase --phase N` |
+| Before any phase work | Entry gate verify, FSM state, previous phase artifacts, kill-switch, drift, SAB, traceability, manifest integrity, FR-spec consistency, reliability lint, config liveness | `run-phase --phase N` |
 | After each FR (P3/P4/P5/P7/P8) | Gate 1 per-FR (per-dim: linting ≥90, type_safety ≥85, test_coverage ≥80) | `run-gate --gate 1 --fr-id FR-XX` + evaluate + `finalize-gate` |
 | Phase exit (P3→Gate2, P4→Gate3, P6→Gate4) | Gate score ≥ threshold + Phase Truth ≥ 90% (HR-11) | `run-gate --gate N` + evaluate + `finalize-gate` |
 | P1/P2 exit | Human peer review (no automated gate) | Deliverables: SRS.md / SAD.md + ADR.md (see ⁴) |

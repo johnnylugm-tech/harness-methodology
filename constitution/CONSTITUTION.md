@@ -161,6 +161,8 @@ drift 檢查乾淨。`cr-close` fail-closed 強制執行上述全部；工單狀
 | P5–P8 | TH-02 | constitution 綜合 | ≥80% (FrameworkEnforcer BLOCK + Constitution) |
 
 > **掃描範圍**: P1/P2 掃描 `.md` 文件（SRS.md、SAD.md 為主要交付物）。P3+ 只掃描 `.py` 原始碼 — 掃 `.md` 容易被 keyword stuffing 繞過，程式碼的 docstring/type hint/安全詞彙才能真實反映品質。
+>
+> **執法模式（減法 T3, 2026-07-07）**: constitution 關鍵字評分已退出自動管線（不再於 advance-phase postflight 以 exit 16 阻斷，也不參與 postflight_all 成敗）。本表門檻改為 **on-demand 稽核基準**：`python harness_cli.py check-constitution --phase N --project .`。文件品質的自動把關由 A/B peer review 與 Gate 2/3/4 工具實測維度承擔。
 
 ### 2.5 Threshold Rules (TH-01 ~ TH-17)
 
