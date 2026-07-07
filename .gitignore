@@ -10,7 +10,9 @@
 # Hermes plan backups — redundant with git history
 .hermes/
 # Claude Code local config — machine-specific, not for version control
-.claude/
+.claude/*
+!.claude/workflows/
+!.claude/settings.local.json
 # Python coverage binary
 .coverage
 # Ephemeral coverage snapshots emitted by quality runs

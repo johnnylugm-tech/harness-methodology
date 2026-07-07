@@ -1,0 +1,429 @@
+// Phase 8 — Configuration Management (faithful to .methodology/phase8_plan.md v2.12.0)
+//
+// Structure: FR-loop型 + FINAL phase (NO advance-phase — pipeline ends here).
+// Per-FR GATE1-DELTA re-eval, then REVIEW+APPEND the config baseline (the
+// framework deterministically generated CONFIG_RECORDS.md + RELEASE_CHECKLIST.md
+// via `scripts/phase8_doc_gen.py` during P7→P8 advance-phase per harness_cli.py
+// :6016-6030, harness commits 4738542 + 3f1fd73), create .methodology-archive/
+// (cp -r .methodology/ — NOT .sessi-work/, per harness commit 3f1fd73), verify
+// no Phase 9 refs, p8 push.
+//
+// Playbook lessons: NO import/fs/process, Bash CLI, SCOPE RULES,
+// PY = .venv/bin/python, scriptPath launch.
+// v4 (2026-07-02): gate verdicts use FLAT schema: (playbook §5.2 rev) — regex
+// over LLM prose was the root cause of the #126/#134/#135/#136/ENV_CHECK_RC
+// bug class. Heavy orchestrators keep prose narrative; verdicts come from
+// schema proxy agents reading harness artifacts (manifest qc, git log, rc).
+
+export const meta = {
+  name: 'phase8-config',
+  description: 'Phase 8 Config — per-FR GATE1-DELTA + CONFIG_RECORDS/RELEASE_CHECKLIST + archive + p8 push (phase8_plan.md v2.12.0)',
+  phases: [
+    { title: 'Entry & Preflight' },
+    { title: 'Env Check' },
+    { title: 'Manifest Integrity' },
+    { title: 'Load FRs' },
+    { title: 'Per-FR Delta' },
+    { title: 'Config Docs' },
+    { title: 'Artifacts Commit' },
+    { title: 'Archive' },
+    { title: 'Final Push' },
+  ],
+}
+
+// ---- args / REPO / PY ----
+// REPO precedence: args.repo override wins, then DEFAULT_REPO canonical path.
+// process.env.HARNESS_REPO cannot be read here — playbook §4 forbids process.*
+// in workflow JS. Caller scripts (run-e2e.mjs / harness-e2e.js /
+// phase1-workflow.mjs) read HARNESS_REPO and inject it via args.repo.
+const DEFAULT_REPO = '.'
+let REPO = DEFAULT_REPO
+if (typeof args === 'string') { try { args = JSON.parse(args) } catch {} }
+if (args && typeof args === 'object' && typeof args.repo === 'string' && args.repo.length > 0) REPO = args.repo
+const PY = REPO + '/.venv/bin/python'
+log('REPO = ' + REPO + ' | PY = ' + PY)
+// v15: budget guard (Bug #3 — port from phase2-architecture)
+if (typeof budget !== 'undefined' && budget.remaining && budget.remaining() < 200000) {
+  log('WARNING: budget low (' + Math.round((budget.remaining() || 0) / 1000) + 'k remaining) — workflow may not complete')
+}
+
+// ---- J: WRITE SCOPE convention for LLM agent debug artifacts ----
+// All agent-generated debug scripts, coverage reports, and exploration
+// artifacts MUST go under ${REPO}/.sessi-work/tmp/<random_id>/. This
+// directory is gitignored and gets cleaned automatically. Direct writes
+// to 03-development/, scripts/, .claude/, harness/, .methodology/, or
+// .github/ require explicit user approval per agent scope rules.
+//
+// Why this matters: debug_* scripts (fr04_cov.py, show_cov.py, etc.)
+// otherwise pollute the source tree and require manual cleanup before
+// commit. Sandboxing them keeps the working tree clean by default.
+//
+// Self-audit (add to agent prompt end): "List every Write/Edit file
+// path used in this task; confirm all paths start with .sessi-work/tmp/."
+const WRITE_SCOPE_TMP = REPO + '/.sessi-work/tmp'
+log('WRITE SCOPE: debug artifacts → ' + WRITE_SCOPE_TMP)
+
+// ---- Gate verdict schemas (flat, top-level consts — playbook §5.2/§5.3) ----
+// Verdict authority rule: heavy orchestrator agents keep prose narrative;
+// their PASS/FAIL is NEVER parsed from that prose. A separate bash-proxy
+// agent reads the harness's own artifact (manifest quality_complete,
+// git log milestone commit, CLI exit code) and reports through the schema.
+const VERDICT_SCHEMA = {
+  type: 'object',
+  properties: {
+    pass: { type: 'boolean', description: 'true only if the command output proves PASS' },
+    reason: { type: 'string', description: 'verbatim command output tail (or failure reason)' },
+  },
+  required: ['pass', 'reason'],
+}
+const RC_SCHEMA = {
+  type: 'object',
+  properties: { rc: { type: 'integer', description: 'exact numeric exit code of the command' } },
+  required: ['rc'],
+}
+const CTX_SCHEMA = {
+  type: 'object',
+  properties: {
+    fr_ids: { type: 'array', items: { type: 'string' } },
+    fr_count: { type: 'integer' },
+  },
+  required: ['fr_ids', 'fr_count'],
+}
+const DELTA_FAST_SCHEMA = {
+  type: 'object',
+  properties: {
+    pass_fr_ids: { type: 'array', items: { type: 'string' }, description: 'FRs whose manifest gate1 quality_complete printed True after GATE1-DELTA' },
+    fail_fr_ids: { type: 'array', items: { type: 'string' }, description: 'FRs that did not print True (False/None/timeout/error)' },
+  },
+  required: ['pass_fr_ids', 'fail_fr_ids'],
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// Phase: Entry & Preflight
+// ════════════════════════════════════════════════════════════════════════
+
+phase('Entry & Preflight')
+log('ENTRY-CHECK Gate4 + run-phase 8 (reliability/config/attestation fixes) + handoff + CI')
+const preflightReport = await agent(
+  'YOU ARE THE PHASE-8 PREFLIGHT ORCHESTRATOR. Run bash in order; report.\n'
+  + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
+  + 'Steps:\n'
+  + '1. ENTRY-CHECK: run EXACTLY this bash command to verify Gate 4 status (do NOT rely on reading the file yourself — use the command output):\n`' + PY + ' -c "import json; m=json.load(open(\'' + REPO + '/.methodology/quality_manifest.json\')); g4=(m.get(\'gate_results\',{}) or {}).get(\'gate4\',{}) or {}; print(\'GATE_VERIFIED\' if isinstance(g4,dict) and g4.get(\'quality_complete\') is True else \'GATE_MISSING\')"`\nIf GATE_MISSING → FAIL (return to Phase 6).\n'
+  + '2. PREFLIGHT: `' + PY + ' ' + REPO + '/harness_cli.py run-phase --phase 8 --project ' + REPO + '`. FAIL → fix, re-run (max 3). Also fix if reported: reliability lint (subprocess timeout / mkstemp / TOCTOU / sleep-in-async), config liveness (env keys absent from .env.example), attestation missing/mismatch (build-trace-attestation --write + commit; re-run until "Attestation: clean").\n'
+  + '3. HANDOFF: `' + PY + ' ' + REPO + '/harness_cli.py validate-handoff --from-phase 7 --project ' + REPO + '`. Must exit 0.\n'
+  + '4. PREFLIGHT-CI: confirm `' + REPO + '/.github/workflows/harness_quality_gate.yml` (CI workflow) + `' + REPO + '/.git/hooks/prepare-commit-msg` (git hook) both exist; confirm state.json current_phase=8. If stale: `init-project --phase 8 --project ' + REPO + ' --overwrite`.\n\n'
+  + 'Verdict: report via the StructuredOutput tool — pass=true ONLY if ALL 4 steps succeeded; reason = one-line summary (on FAIL: which step + verbatim error tail).\n\n'
+  + 'SCOPE RULES:\n- DO NOT generate config docs / run TDD steps / create archive.\n- DO NOT run push-milestone.\n- DO NOT modify harness/.\n- ONLY preflight commands + fixes.',
+  { label: 'preflight', phase: 'Entry & Preflight', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
+)
+if (!(preflightReport && preflightReport.pass === true)) {
+  return { error: 'Phase 8 preflight did not PASS', reason: preflightReport ? String(preflightReport.reason ?? '').slice(-600) : 'agent returned null (skipped or terminal API error)' }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// Phase: Env Check
+// ════════════════════════════════════════════════════════════════════════
+phase('Env Check')
+log('run-env-check (root-cause fix: CLI exit code reflects ready flag)')
+// Bug #127 root-cause fix (2026-06-27): `cmd_run_env_check` now returns
+// exit 0 when ready=true and 1 when ready=false (previously always 0).
+// Workflows check `$?` directly with no LLM orchestrator agent in the loop.
+// 2026-07-02 paraphrase incident (phase3): the agent rewrote ENV_CHECK_RC=0
+// as "RC=0" and the regex gate false-negatived a READY environment. Schema
+// transport is paraphrase-proof.
+const envReport = await agent(
+  'You MUST use the Bash tool. Run exactly this ONE command (single line, the `;` keeps $? bound to run-env-check):\n'
+  + PY + ' ' + REPO + '/harness_cli.py run-env-check --phase 8 --project ' + REPO + '; echo "RC=$?"\n'
+  + 'Then report via the StructuredOutput tool: rc = the exact numeric exit code echoed on the final RC= line.',
+  { label: 'env-check', phase: 'Env Check', agentType: 'general-purpose', schema: RC_SCHEMA },
+)
+if (!(envReport && envReport.rc === 0)) {
+  return { error: 'Phase 8 env-check did not PASS', rc: envReport ? envReport.rc : null, note: envReport ? 'run-env-check exit ' + envReport.rc + ' — read .sessi-work/env_check_result.json' : 'agent returned null (skipped or terminal API error)' }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// Phase: Manifest Integrity (ported from phase3, 155ec07 + 286ccca)
+// ════════════════════════════════════════════════════════════════════════
+phase('Manifest Integrity')
+// 2026-07-02 incident class: a sub-agent action (bare pytest → harness test
+// CWD leak) can corrupt quality_manifest.json MID-RUN, not just before entry.
+// Detect the three known corruption patterns (fr_ids truncated, traceability
+// cleared, gate1 wiped) at entry AND re-check before the phase-exit push so
+// corruption is never baked into a milestone commit.
+const integrityCmd = PY + ' -c "import json, sys; m = json.load(open(\'' + REPO + '/.methodology/quality_manifest.json\')); ids = m.get(\'fr_ids\') or []; mt = m.get(\'fr_module_traceability\') or {}; g1 = (m.get(\'gate_results\',{}) or {}).get(\'gate1\',{}) or {}; ok_ids = len(ids) >= 2; ok_trace = len(mt) >= len(ids); ok_g1 = isinstance(g1, dict) and len(g1) >= len(ids); print(\'OK\' if (ok_ids and ok_trace and ok_g1) else json.dumps({\'BROKEN\': True, \'fr_ids_count\': len(ids), \'traceability_count\': len(mt), \'gate1_keys\': len(g1), \'recovery\': \'git checkout HEAD -- .methodology/quality_manifest.json\'}))"'
+async function checkManifestIntegrity(phaseLabel, agentLabel) {
+  const verdict = await agent(
+    'Run EXACTLY this command via the Bash tool:\n`' + integrityCmd + '`\n'
+    + 'Then report via the StructuredOutput tool: pass = true ONLY if stdout is exactly `OK`; reason = the verbatim stdout.',
+    { label: agentLabel, phase: phaseLabel, agentType: 'general-purpose', schema: VERDICT_SCHEMA },
+  )
+  const ok = !!(verdict && verdict.pass === true)
+  const raw = verdict ? String(verdict.reason ?? '').trim() : 'agent returned null'
+  if (!ok) log('  manifest integrity FAIL [' + agentLabel + ']: ' + raw)
+  return { ok, raw }
+}
+const integrity0 = await checkManifestIntegrity('Manifest Integrity', 'manifest-integrity')
+if (!integrity0.ok) {
+  return { error: 'Manifest Integrity: quality_manifest.json appears corrupted', detail: integrity0.raw, recovery: 'git checkout HEAD -- .methodology/quality_manifest.json (verify HEAD is healthy first)', note: 'Working-tree manifest fails the P4+ shape check (fr_ids/traceability/gate1 per-FR records). A sub-agent likely wrote to it directly. Restore a healthy copy and re-run.' }
+}
+log('  manifest integrity OK')
+
+// ════════════════════════════════════════════════════════════════════════
+// Phase: Load FRs
+// ════════════════════════════════════════════════════════════════════════
+phase('Load FRs')
+log('load-context --phase 8 → fr_ids')
+// v15: retry loop — agent() wrapped (Bug #2); v4: schema transport, no prose parsing
+// v2.13.1: hardened against agent hallucination (Bug #122).
+let ctx = null
+const ctxFile = REPO + '/.sessi-work/phase8_ctx.json'
+for (let attempt = 1; attempt <= 3; attempt++) {
+  try {
+    // Bug #134 fix (2026-06-28): validate JSON-parseable, not just non-zero size.
+    // Previous `test -s FILE && echo FILE_OK_<size>` passed for partial writes.
+    // Root-cause: use `python3 -c 'json.load(...)'` so incomplete JSON raises
+    // mid-write → no FILE_OK marker → regen path triggered.
+    // Bug #136 sibling: bash built via template literal (single quotes safe).
+    const ctxCheckCmd = `${PY} -c "import json,os,sys; json.load(open('${ctxFile}')); print('FILE_OK_'+str(os.path.getsize('${ctxFile}')))" || echo FILE_MISSING`
+    const existsVerdict = await agent(
+      `You MUST use the Bash tool. Run exactly:\n${ctxCheckCmd}\nThen report via the StructuredOutput tool: pass = true ONLY if stdout starts with FILE_OK_; reason = the verbatim stdout.`,
+      { label: 'ctx-check-' + attempt, phase: 'Load FRs', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
+    )
+    if (!(existsVerdict && existsVerdict.pass === true)) {
+      log('  ctx file missing/invalid (attempt ' + attempt + ') — regenerating')
+      const ctxRegenCmd = `${PY} ${REPO}/harness_cli.py load-context --phase 8 --project ${REPO} --json > ${ctxFile} && ${PY} -c "import json,os; json.load(open('${ctxFile}')); print('REGEN_OK_'+str(os.path.getsize('${ctxFile}')))"`
+      await agent(
+        `You MUST use the Bash tool. Run exactly:\n${ctxRegenCmd}\nReturn the raw stdout as your final message.`,
+        { label: 'ctx-regen-' + attempt, phase: 'Load FRs', agentType: 'general-purpose' },
+      )
+      continue
+    }
+  } catch (e) { log('  ctx-check agent failed: ' + String(e.message ?? e).slice(0, 80)); continue }
+
+  // Bug #135 fix (2026-06-28) + v4 schema transport: emit parseable JSON via
+  // Python; the agent transcribes the fields into StructuredOutput (AJV-
+  // validated, retries on mismatch). No prose parsing left on this path.
+  try {
+    const ctxParseCmd = `${PY} -c "import json; d=json.load(open('${ctxFile}')); print(json.dumps({'fr_ids':d.get('fr_ids',[]),'fr_count':len(d.get('fr_ids',[]))}))"`
+    const ctxResult = await agent(
+      `You MUST use the Bash tool. Run exactly:\n${ctxParseCmd}\nStdout is a single JSON line. Report via the StructuredOutput tool: fr_ids, fr_count = the EXACT values from that JSON line (transcribe, do not recompute).`,
+      { label: 'load-ctx-a' + attempt, phase: 'Load FRs', agentType: 'general-purpose', schema: CTX_SCHEMA },
+    )
+    if (ctxResult && Array.isArray(ctxResult.fr_ids) && ctxResult.fr_ids.length > 0) {
+      ctx = ctxResult
+      log('  load-ctx OK (schema-validated, ' + ctx.fr_ids.length + ' FRs)')
+      break
+    }
+    log('  load-ctx returned empty fr_ids (attempt ' + attempt + '): keys=' + Object.keys(ctxResult ?? {}).join(','))
+  } catch (e) { log('  load-ctx agent failed: ' + String(e.message ?? e).slice(0, 80)); continue }
+}
+if (!ctx) return { error: 'Load FRs: ctx failed after 3 attempts', ctxFile }
+let frIds = Array.isArray(ctx.fr_ids) ? ctx.fr_ids
+  : (Array.isArray(ctx.fr_details) ? ctx.fr_details.map(f => f.id || f.fr_id || f.fr).filter(Boolean) : [])
+if (!frIds.length) return { error: 'Load FRs: no fr_ids found in ctx', ctxKeys: Object.keys(ctx) }
+const frTitle = {}
+if (Array.isArray(ctx.fr_details)) for (const f of ctx.fr_details) frTitle[f.id || f.fr_id] = f.title || f.name || ''
+log('  fr_ids = ' + JSON.stringify(frIds))
+
+// ════════════════════════════════════════════════════════════════════════
+// Phase: Per-FR Delta (GATE1-DELTA; auto-triggers full TDD on code change)
+// ════════════════════════════════════════════════════════════════════════
+phase('Per-FR Delta')
+const gate1Pass = []
+const gate1Fail = []
+// DELTA fast-path: probe every FR's GATE1-DELTA through the harness CLI in ONE
+// agent — unchanged-code FRs pass immediately inside the CLI, so N already-PASS
+// FRs cost 1 spawn instead of 2N (delta + verify). Verdict authority is manifest
+// qc AND a phase-scoped gate_timestamps.jsonl entry (NOT the agent's self-report).
+// The timestamp is required because manifest qc is not phase-scoped: a stale
+// `true` from an earlier phase would mask a timed-out/failed run-fr-step this
+// phase. run-fr-step writes the {phase, gate:1, fr_id} timestamp only on
+// successful completion (both the unchanged-skip and full-dispatch paths); a
+// killed dispatch writes nothing, so absence ⇒ fail ⇒ full per-FR loop.
+let deltaTodo = frIds
+const fastProbe = await agent(
+  'YOU ARE THE GATE1-DELTA FAST-PATH PROBE. Classify each FR — fix NOTHING.\n'
+  + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\nFRs: ' + JSON.stringify(frIds) + '\n\n'
+  + 'For EACH FR in order, substituting <FR> with the FR id:\n'
+  + '1. `' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase 8 --fr-id <FR> --step GATE1-DELTA --project ' + REPO + ' 2>&1 | tail -5`\n'
+  + '2. Authoritative verdict (manifest qc AND a phase-8 gate-1 timestamp for <FR>): `' + PY + ' -c "import json; g=(json.load(open(\'' + REPO + '/.methodology/quality_manifest.json\')).get(\'gate_results\',{}) or {}).get(\'gate1\',{}).get(\'<FR>\',{}) or {}; ts=any(e.get(\'phase\')==8 and e.get(\'gate\')==1 and e.get(\'fr_id\')==\'<FR>\' for e in (json.loads(l) for l in open(\'' + REPO + '/.methodology/gate_timestamps.jsonl\') if l.strip())); print(bool(g.get(\'quality_complete\')) and ts)"`\n'
+  + '   stdout `True` → pass_fr_ids; anything else (False/None/timeout/error/missing file) → fail_fr_ids.\n\n'
+  + 'HARD RULES:\n- DO NOT fix code, edit files, or run TDD steps.\n- DO NOT retry a failing FR — classify it and move on (the full loop handles it).\n- DO NOT run push-milestone / generate config docs / create archive.\n- DO NOT modify harness/.\n\n'
+  + 'Report via the StructuredOutput tool: pass_fr_ids + fail_fr_ids (every FR in exactly one list).',
+  { label: 'delta-fastpath', phase: 'Per-FR Delta', agentType: 'general-purpose', schema: DELTA_FAST_SCHEMA },
+)
+if (fastProbe && Array.isArray(fastProbe.pass_fr_ids)) {
+  const fastPassed = fastProbe.pass_fr_ids.filter((f) => frIds.includes(f))
+  for (const fr of fastPassed) {
+    gate1Pass.push(fr)
+    log('  ' + fr + ' GATE1-DELTA fast-path PASS [manifest qc + p8 timestamp] — full DELTA skipped')
+  }
+  deltaTodo = frIds.filter((f) => !fastPassed.includes(f))
+} else {
+  log('  delta-fastpath unavailable — falling back to full per-FR loop')
+}
+for (const frId of deltaTodo) {
+  log('  === ' + frId + ' — GATE1-DELTA ===')
+  const frReport = await agent(
+    'YOU ARE THE CONFIG-AWARE VERIFIER for ' + frId + ' (' + (frTitle[frId] || '') + '). Re-evaluate Gate 1 for THIS ONE FR.\n'
+    + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
+    + 'Steps:\n'
+    + '1. `' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase 8 --fr-id ' + frId + ' --step GATE1-DELTA --project ' + REPO + '`\n'
+    + '   - PASS → done.\n'
+    + '   - FAIL → full TDD auto-triggered: TDD-RED → TDD-GREEN → TDD-IMPROVE → GATE1 (each for ' + frId + '). Max 3 rounds. Still failing → report FAIL.\n'
+    + '   If ' + frId + '’s code is unchanged since last Gate 1 PASS, this passes immediately.\n\n'
+    + 'Report final line: "' + frId + ' GATE1: PASS" or "' + frId + ' GATE1: FAIL — <reason>".\n\n'
+    + 'SCOPE RULES:\n- DO NOT touch any FR OTHER than ' + frId + '.\n- DO NOT run push-milestone / generate config docs / create archive.\n- DO NOT modify harness/.\n- ONLY GATE1-DELTA (+ full TDD if needed) for ' + frId + '.',
+    { label: 'delta-' + frId, phase: 'Per-FR Delta', agentType: 'general-purpose' },
+  )
+  // L1 (ported from phase3): distinguish a session/rate-limit block (null/empty
+  // agent return) from a real Gate 1 FAIL — a rate-limit mid-DELTA must not be
+  // misreported as a code-quality failure. DELTA auto-skip makes resume safe.
+  if (frReport === null || frReport === undefined || (typeof frReport === 'string' && frReport.length < 10)) {
+    log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting, resume after quota reset')
+    return { session_limit_blocked: true, phase: 8, fr_id: frId, gate1Pass, message: 'Agent hit session/rate limit during ' + frId + ' GATE1-DELTA. Resume after quota reset — completed FRs skip via DELTA auto-satisfy.' }
+  }
+  // AUTHORITATIVE Gate 1 verdict (ported from phase3, 9fe2036): read the harness
+  // quality_manifest — NOT the sub-agent's self-reported "GATE1: PASS" string. A
+  // sub-agent can report PASS even when finalize-gate raised GateBlockedError,
+  // silently advancing a FR the harness actually blocked (2026-06-30 incident).
+  const verifyCmd = PY + ' -c "import json; g=(json.load(open(\'' + REPO + '/.methodology/quality_manifest.json\')).get(\'gate_results\',{}) or {}).get(\'gate1\',{}).get(\'' + frId + '\',{}) or {}; print(\'GATE1_VERIFIED_PASS\' if g.get(\'quality_complete\') is True else \'GATE1_VERIFIED_FAIL score=\'+str(g.get(\'score\')))"'
+  const verdict = await agent(
+    'Run EXACTLY this command via the Bash tool:\n`' + verifyCmd + '`\n'
+    + 'Then report via the StructuredOutput tool: pass = true ONLY if stdout is GATE1_VERIFIED_PASS; reason = the verbatim stdout.',
+    { label: 'gate1-verify-' + frId, phase: 'Per-FR Delta', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
+  )
+  const passed = !!(verdict && verdict.pass === true)
+  if (passed) { gate1Pass.push(frId); log('  ' + frId + ' Gate 1 PASS [harness-verified]') }
+  else { gate1Fail.push(frId); log('  ' + frId + ' Gate 1 FAIL [harness manifest qc != true; sub-agent self-report ignored]') }
+}
+if (gate1Fail.length) {
+  return { error: 'Phase 8: Gate 1 FAILED for FR(s): ' + gate1Fail.join(', ') + ' (escalate)', gate1Pass, gate1Fail }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// Phase: Config Docs (REVIEW + APPEND CONFIG_RECORDS + RELEASE_CHECKLIST)
+// ════════════════════════════════════════════════════════════════════════
+// Per phase8_plan.md + harness commit 4738542: CONFIG_RECORDS.md and
+// RELEASE_CHECKLIST.md are DETERMINISTICALLY generated by scripts/phase8_doc_gen.py
+// during P7→P8 advance-phase (harness_cli.py:6016-6030). P8 work is therefore
+// REVIEW + APPEND human-only context, NOT regenerate from scratch. Do NOT
+// overwrite the deterministic baseline (it breaks byte-equality for downstream
+// consumers); use Edit/append to add the human-only sections.
+phase('Config Docs')
+log('Review deterministic baseline (phase8_doc_gen.py output) + append human-only context')
+const docsReport = await agent(
+  'YOU ARE THE P8 CONFIG REVIEWER. The framework has ALREADY deterministically generated\n'
+  + 'the config baseline during P7→P8 advance-phase. Your job: REVIEW + APPEND.\n'
+  + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
+  + 'Steps (Bash for read-only checks; Edit for human-only append):\n'
+  + '0. VERIFY BASELINE EXISTS: `test -f ' + REPO + '/08-config/CONFIG_RECORDS.md && test -f ' + REPO + '/08-config/RELEASE_CHECKLIST.md && echo BASELINE_OK || echo BASELINE_MISSING`. If MISSING, regenerate via `' + PY + ' ' + REPO + '/harness/scripts/phase8_doc_gen.py --project ' + REPO + '` (fallback per harness advance-phase behavior; should not normally fire).\n'
+  + '1. CONFIG_RECORDS APPEND: Edit ' + REPO + '/08-config/CONFIG_RECORDS.md and APPEND a `## Human Context (P8 append)` section with: ownership per config item, secret rotation cadence, access audit log reference. KEEP all existing framework-generated sections (env var inventory, source-of-truth module refs, feature flags) intact. Do NOT overwrite the framework version.\n'
+  + '2. RELEASE_CHECKLIST APPEND: Edit ' + REPO + '/08-config/RELEASE_CHECKLIST.md and APPEND a `## Human Context (P8 append)` section with: deployment runbook URL, rollback owner + on-call, post-release monitoring dashboard, customer comms template. KEEP the framework-generated Gate 4 PASS proof, quality_manifest composite_score, FR coverage, git tag/hash intact.\n'
+  + '3. SANITY: `grep -c "^## " ' + REPO + '/08-config/CONFIG_RECORDS.md && grep -c "^## " ' + REPO + '/08-config/RELEASE_CHECKLIST.md` — confirm both files still have the framework sections (count >= baseline).\n\n'
+  + 'Verdict: report via the StructuredOutput tool — pass=true ONLY if the baseline was verified AND human context appended; reason = one-line summary.\n\n'
+  + 'SCOPE RULES:\n- DO NOT regenerate CONFIG_RECORDS.md / RELEASE_CHECKLIST.md from scratch.\n- DO NOT use Write tool to overwrite either file — Edit/append only.\n- DO NOT run push-milestone / create archive (next phases do that).\n- DO NOT modify harness/.\n- DO NOT re-implement FRs.\n- ONLY verify baseline + append human context.',
+  { label: 'config-docs', phase: 'Config Docs', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
+)
+if (!(docsReport && docsReport.pass === true)) {
+  return { error: 'Phase 8 config docs did not PASS', reason: docsReport ? String(docsReport.reason ?? '').slice(-500) : 'agent returned null' }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// Phase: Artifacts Commit (commit config docs BEFORE Archive)
+// ════════════════════════════════════════════════════════════════════════
+// Mirrors phase4 d4f4724 + phase5/7 carry-over. Commit CONFIG_RECORDS.md +
+// RELEASE_CHECKLIST.md before Archive creates .methodology-archive/ (which
+// the Archive phase itself commits). Explicit path allowlist, never
+// `git add -A`. Idempotent (`|| true`).
+phase('Artifacts Commit')
+log('Committing phase-8 config docs (explicit paths) so a verify-handoff FAIL exit leaves a clean tree')
+await agent(
+  'Run ONE bash command and report its stdout/stderr:\n'
+  + '`git -C ' + REPO + ' add 08-config/CONFIG_RECORDS.md 08-config/RELEASE_CHECKLIST.md .methodology && git -C ' + REPO + ' commit -m "chore(p8): config-records + release-checklist artifacts" || true`\n\n'
+  + 'Report: the verbatim stdout/stderr of that command. "nothing to commit" is a valid outcome.\n\n'
+  + 'SCOPE RULES:\n- DO NOT run any code, tests, gates, or phase transitions.\n- DO NOT stage any path other than the three listed above.\n- ONLY the git command above.',
+  { label: 'artifacts-commit', phase: 'Artifacts Commit', agentType: 'general-purpose' },
+)
+
+// ════════════════════════════════════════════════════════════════════════
+// Phase: Archive (P8-ARCHIVE + P8-HANDOVER-CHECK — required by CI p8-archive-check)
+// ════════════════════════════════════════════════════════════════════════
+phase('Archive')
+log('Create .methodology-archive/ + verify HANDOVER.md has no Phase 9 refs')
+const archiveReport = await agent(
+  'YOU ARE THE P8 ARCHIVE ORCHESTRATOR. Prepare the archive (REQUIRED before p8 push).\n'
+  + 'REPO: ' + REPO + '\n\n'
+  + 'Steps (Bash):\n'
+  + '1. P8-ARCHIVE: `mkdir -p ' + REPO + '/.methodology-archive && cp -r ' + REPO + '/.methodology/ ' + REPO + '/.methodology-archive/`. (push-milestone _validate_p8_completion + CI p8-archive-check both verify this dir. Source MUST be `.methodology/` — NOT `.sessi-work/` per harness commit 3f1fd73 which fixed the wrong-source silent bug.)\n'
+  + '2. P8-HANDOVER-CHECK: `grep -qi "phase 9\\|phase9\\|phase9_plan" ' + REPO + '/HANDOVER.md && echo "HAS_P9" || echo "NO_P9"`. Phase 8 is final — if HAS_P9, remove the Phase 9 references from HANDOVER.md (Edit).\n\n'
+  + 'Verdict: report via the StructuredOutput tool — pass=true ONLY if the archive dir was created AND HANDOVER.md has no Phase 9 refs; reason = one-line summary.\n\n'
+  + 'SCOPE RULES:\n- DO NOT run push-milestone yet.\n- DO NOT modify harness/.\n- ONLY create .methodology-archive/ + clean HANDOVER.md Phase 9 refs.',
+  { label: 'archive', phase: 'Archive', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
+)
+if (!(archiveReport && archiveReport.pass === true)) {
+  return { error: 'Phase 8 archive prep did not PASS', reason: archiveReport ? String(archiveReport.reason ?? '').slice(-500) : 'agent returned null' }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// Phase: Final Push (p8 — pipeline complete; NO advance-phase, P8 is last)
+// ════════════════════════════════════════════════════════════════════════
+phase('Final Push')
+log('push-milestone p8 (final — pipeline complete)')
+// Round loop (2026-07-02 audit finding, ported from phase3): push-milestone
+// p8's completion checks (gitleaks/ruff/mypy/coverage/spec-coverage/Phase
+// Truth, and more via _validate_p8_completion) are more than any single
+// prompt can safely enumerate, and a static checklist goes stale the moment
+// harness adds or changes one. The GUARD at step 0 makes this safe to
+// re-run: an already-pushed p8 commit short-circuits immediately.
+let p8Ok = false, pushReport = ''
+const ADVANCE_MAX_ROUNDS = 5
+for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
+  log('  Final Push round ' + round + '/' + ADVANCE_MAX_ROUNDS)
+  // Last-line integrity guard: the phase-exit push commits .methodology/
+  // wholesale — block here so mid-run corruption never reaches git history
+  // (2026-07-02: commit 3198402 baked a corrupted manifest into main).
+  // Re-check every round — a fix attempt in a prior round could reintroduce it.
+  const advIntegrity = await checkManifestIntegrity('Final Push', 'advance-integrity-r' + round)
+  if (!advIntegrity.ok) {
+    return { error: 'Final Push round ' + round + ': quality_manifest.json corrupted — refusing to commit it', detail: advIntegrity.raw, recovery: 'git checkout HEAD -- .methodology/quality_manifest.json (verify HEAD is healthy first), merge the latest gate result back into gate_results, then resume', note: 'Blocking prevents the corruption from being committed by the p8 final push.' }
+  }
+  pushReport = await agent(
+    'YOU ARE THE P8 FINAL PUSHER. This is the LAST step of the 8-phase pipeline. ROUND ' + round + '.\n'
+    + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
+    + 'Steps:\n'
+    + '0. GUARD: `git -C ' + REPO + ' log --oneline --grep="p8" -1`. If exists, report "P8-PUSH: PASS (already pushed)" and stop.\n'
+    + '1. PUSH ⑩: `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p8 --project ' + REPO + '`. _validate_p8_completion independently re-verifies EVERYTHING before it will push (lint, types, coverage, Phase Truth, .methodology-archive/ presence, and more) — its own output tells you exactly what is missing. If it prints "[BLOCKED] ...", that message IS the fix instruction: read it verbatim and do exactly what it says, then re-run this same push-milestone command. Do NOT guess what might be wrong — trust only what push-milestone itself reports. It is safe to re-run repeatedly within this round. On success it writes HANDOVER.md + commits + pushes. If a hook blocks, reword commit to start with `chore(harness):` (NOT --no-verify), retry.\n'
+    + '2. Confirm: pipeline complete (all 8 phases done).\n\n'
+    + 'Report final line: "P8-PUSH: PASS|FAIL — <details>". If still FAIL after exhausting this round\'s turn, report the LAST [BLOCKED] message verbatim so the next round starts from where this one left off.\n\n'
+    + 'SCOPE RULES:\n- DO NOT run advance-phase (Phase 8 is the final phase — there is no Phase 9).\n- DO NOT use --no-verify.\n- DO NOT modify harness/ (HR-17).\n- ONLY push-milestone p8 + the specific fixes its own output asked for.\n- Any diagnostic/debug script MUST be written under .sessi-work/tmp/ (never repo root or source dirs) and self-cleaned before you exit.',
+    { label: 'final-push-r' + round, phase: 'Final Push', agentType: 'general-purpose' },
+  )
+  if (pushReport === null || pushReport === undefined || (typeof pushReport === 'string' && pushReport.length < 10)) {
+    log('  Final Push agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
+    return { session_limit_blocked: true, phase: 8, step: 'final-push', message: 'Agent hit session/rate limit during Final Push. Resume after quota reset — the GUARD step skips if already pushed.' }
+  }
+  // AUTHORITATIVE Final Push verdict: push-milestone p8 creates a milestone
+  // commit — the same artifact the step-0 GUARD checks. Read git log via a
+  // schema proxy; the pusher's prose "P8-PUSH: PASS" is narrative only.
+  const p8VerifyCmd = 'git -C ' + REPO + ' log --oneline --grep="p8" -1'
+  const p8v = await agent(
+    'Run EXACTLY this command via the Bash tool:\n`' + p8VerifyCmd + '`\n'
+    + 'Then report via the StructuredOutput tool: pass = true ONLY if stdout contains a commit line (non-empty); reason = the verbatim stdout (or "empty").',
+    { label: 'p8-verify-r' + round, phase: 'Final Push', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
+  )
+  p8Ok = !!(p8v && p8v.pass === true)
+  if (p8Ok) { log('  Final Push PASS [git-verified: ' + String(p8v.reason ?? '').slice(0, 80) + ']'); break }
+  log('  Final Push not yet PASS [' + (p8v ? String(p8v.reason ?? '').slice(0, 80) : 'verify agent null') + '] — retry round ' + (round + 1))
+}
+if (!p8Ok) return { error: 'Phase 8 p8 push did not PASS in ' + ADVANCE_MAX_ROUNDS + ' rounds — check the last [BLOCKED] message below', raw: String(pushReport ?? '').slice(-600) }
+
+log('Phase 8 workflow complete. 🎉 8-phase pipeline complete.')
+return {
+  phase: 8,
+  fr_count: frIds.length,
+  gate1_pass: gate1Pass,
+  p8_push_status: p8Ok ? 'PASS' : 'unknown',
+  artifacts: ['08-config/CONFIG_RECORDS.md', '08-config/RELEASE_CHECKLIST.md', '.methodology-archive/', 'HANDOVER.md'],
+  notes: 'Phase 8 complete per phase8_plan.md v2.12.0. 🎉 Full P1→P8 pipeline complete — archive .methodology/ for the audit trail.',
+}
