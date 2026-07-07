@@ -1132,8 +1132,18 @@ def cmd_audit_structure(args: _hc.argparse.Namespace) -> int:
 
 
 def cmd_audit_phase(args: _hc.argparse.Namespace) -> int:
-    """Audit a phase against GitHub or local artifacts (C1-C10 PhaseAuditor check)."""
-    from scripts.phase_auditor import PhaseAuditor, GitHubFetcher, LocalFetcher
+    """Audit a phase against GitHub or local artifacts (C1-C10 PhaseAuditor check).
+
+    A1-2026-07-07: replace cwd-relative `from scripts.phase_auditor import …`
+    with module-scope `load_harness_script()` call (see harness_cli.py:A1-2026-07-07
+    docstring for path-fix rationale). Behavior is otherwise bit-equivalent —
+    user-facing CLI is allowed to hard-fail if the install is corrupted (an
+    ImportError means scripts/ is missing, which is a real problem worth surfacing).
+    """
+    _pa_mod = _hc.load_harness_script("phase_auditor.py")
+    PhaseAuditor, GitHubFetcher, LocalFetcher = (
+        _pa_mod.PhaseAuditor, _pa_mod.GitHubFetcher, _pa_mod.LocalFetcher,
+    )
 
     project = getattr(args, "project", None)
     if project:

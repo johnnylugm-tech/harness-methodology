@@ -465,6 +465,49 @@ _GATE_TIMESTAMPS_FILE = "gate_timestamps.jsonl"
 _GATE_TIMESTAMPS_MAX_ENTRIES = 200
 # Sizing: 22 FRs × max_fix_rounds(3) × 3 phases ≈ 200; increase if FR count > 22.
 
+
+def load_harness_script(module_filename: str):
+    """Load a helper from `<harness_repo>/scripts/<name>.py` by absolute path.
+
+    Bug fix P6-2026-07-07: cwd-relative `from scripts.X` failed whenever
+    finalize-gate was run from the consumer project root (scripts/ lives
+    under the harness submodule, not the consumer project's cwd / sys.path).
+    Each generator is loaded by absolute file path so the call works
+    regardless of cwd / PYTHONPATH.
+
+    A1-2026-07-07 (completion): the same pattern existed in
+    `_run_phase_auditor` (Site 2, silent skip + return 0) and
+    `cmd_audit_phase` (Site 3, user-facing CLI; hard fail with traceback)
+    — both hoisted to call this module-scope helper, eliminating 3
+    inline duplicate copies.
+
+    Layout contract:
+      harness_repo             = Path(__file__).resolve().parent        (directory containing harness_cli.py)
+      harness_repo / scripts   = location of helper modules
+    Tests replicate this via
+      tests/test_finalize_gate_helpers_load_via_absolute_path.py:39-40
+    (`HARNESS_REPO / "scripts"`) so the .parent / "scripts" resolution
+    below is the single source of truth. A dedicated
+    `TestA1_HelperPathFix::test_load_harness_script_resolves_correct_scripts_dir`
+    test invokes the real function (not the replicated path math).
+    """
+    harness_repo = Path(__file__).resolve().parent
+    target = harness_repo / "scripts" / module_filename
+    if not target.is_file():
+        raise ImportError(
+            f"harness scripts helper not found: {target} "
+            f"(cwd={Path.cwd()}, harness_repo={harness_repo})"
+        )
+    spec = importlib.util.spec_from_file_location(
+        f"harness_runtime_{module_filename[:-3]}", target,
+    )
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load spec for {module_filename} at {target}")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def _record_gate_timestamp(project: Path, phase: int, gate_num: int, fr_id: str | None) -> None:
     """Append gate commit timestamp to .methodology/gate_timestamps.jsonl (P1 persistence).
 
@@ -2967,25 +3010,18 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
             # lives under the harness submodule, not the consumer project).
             # Each generator is loaded by absolute file path so the call works
             # regardless of cwd / PYTHONPATH.
-            def _load_harness_script(module_filename: str):
-                scripts_dir = Path(__file__).resolve().parent / "scripts"
-                spec = importlib.util.spec_from_file_location(
-                    f"harness_gate4_{module_filename[:-3]}", scripts_dir / module_filename,
-                )
-                if spec is None or spec.loader is None:
-                    raise ImportError(f"cannot load spec for {module_filename}")
-                mod = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(mod)
-                return mod
-
+            #
+            # A1-2026-07-07: helper hoisted to module-scope `load_harness_script`
+            # (see top of file) so `_run_phase_auditor` and `cmd_audit_phase`
+            # share the same code path; this inline definition is removed.
             try:
-                _qreport_mod = _load_harness_script("generate_quality_report.py")
+                _qreport_mod = load_harness_script("generate_quality_report.py")
                 _qreport_mod.generate_quality_report(str(Path(args.project).resolve()))
             except Exception as _qre:
                 print(f"  [WARN] QUALITY_REPORT.md generation skipped: {_qre}")
 
             try:
-                _rnotes_mod = _load_harness_script("generate_release_notes.py")
+                _rnotes_mod = load_harness_script("generate_release_notes.py")
                 _rnotes_mod.generate_release_notes(str(Path(args.project).resolve()))
             except Exception as _rne:
                 print(f"  [WARN] RELEASE_NOTES.md generation skipped: {_rne}")
@@ -3892,7 +3928,8 @@ def _run_phase_auditor(project: Path, completed_phase: int) -> int:
       2  = error / import failure
     """
     try:
-        from scripts.phase_auditor import PhaseAuditor, LocalFetcher
+        _pa_mod = load_harness_script("phase_auditor.py")
+        PhaseAuditor, LocalFetcher = _pa_mod.PhaseAuditor, _pa_mod.LocalFetcher
     except ImportError as exc:
         print(f"  [WARN] PhaseAuditor unavailable ({exc}) — skipping comprehensive audit")
         return 0

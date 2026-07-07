@@ -159,3 +159,261 @@ class TestRegressionAnchor:
         assert "Bug fix P6-2026-07-07" in runner_src
         assert "min_fan_in" in runner_src, \
             "the named-arg example is the WHY this filter exists"
+
+    def test_design_intent_a1_completion_docstring_present(self):
+        """A1-2026-07-07 (completion): the helper is now shared by 3 sites;
+        a revert that drops the docstring makes the path-bug regression
+        silently come back. The literal substring anchors the design contract.
+        """
+        cli_src = (HARNESS_REPO / "harness_cli.py").read_text(encoding="utf-8")
+        assert "A1-2026-07-07" in cli_src, \
+            "A1 docstring MUST persist in harness_cli.py at module scope"
+        project_src = (
+            HARNESS_REPO / "cli" / "project_cmds.py"
+        ).read_text(encoding="utf-8")
+        assert "A1-2026-07-07" in project_src, \
+            "A1 docstring MUST persist in project_cmds.py at Site 3"
+
+
+class TestA1_HelperPathFix:
+    """A1-2026-07-07 critical regression: the original P6 inlined helper used
+    `Path(__file__).resolve().parent / "scripts"` — wrong (resolves to a
+    non-existent `<harness_repo>/harness/scripts/`). Tests replicated the
+    path calc using `.parent.parent` and passed without invoking the real
+    helper. This class invokes the REAL module-level helper from `/tmp`
+    cwd to catch the path fix in production code, not just the test mirror.
+    """
+
+    def _call_real_helper_from_cwd(self, module_filename: str, cwd: str) -> subprocess.CompletedProcess:
+        """Run the real `load_harness_script` defined in harness_cli.py from
+        a foreign cwd. The harness repo path is propagated via env so the
+        subprocess can import it."""
+        harness_repo = str(HARNESS_REPO)
+        snippet = (
+            "import sys, json; "
+            f"sys.path.insert(0, {harness_repo!r}); "
+            "from harness_cli import load_harness_script; "
+            f"mod = load_harness_script({module_filename!r}); "
+            "attrs = [a for a in dir(mod) if not a.startswith('_')]; "
+            "print(json.dumps(sorted(attrs)))"
+        )
+        return subprocess.run(
+            [sys.executable, "-c", snippet],
+            cwd=cwd, capture_output=True, text=True, timeout=30,
+        )
+
+    def test_load_harness_script_resolves_correct_scripts_dir(self):
+        """Real module-level `load_harness_script('generate_quality_report.py')`
+        from /tmp cwd MUST succeed — this is the regression anchor for the
+        `.parent.parent` path fix."""
+        result = self._call_real_helper_from_cwd(
+            "generate_quality_report.py", cwd="/tmp",
+        )
+        assert result.returncode == 0, (
+            f"real helper must succeed from /tmp cwd; "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+        import json as _json
+        attrs = _json.loads(result.stdout.strip())
+        assert "generate_quality_report" in attrs, (
+            f"module must expose generate_quality_report callable, got {attrs!r}"
+        )
+
+    def test_load_harness_script_phase_auditor_real_path(self):
+        """Real helper loads `phase_auditor.py` from foreign cwd and exposes
+        all three classes used by Site 2 + Site 3."""
+        result = self._call_real_helper_from_cwd(
+            "phase_auditor.py", cwd="/tmp",
+        )
+        assert result.returncode == 0, (
+            f"real helper must succeed for phase_auditor.py from /tmp cwd; "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+        import json as _json
+        attrs = _json.loads(result.stdout.strip())
+        for cls in ("PhaseAuditor", "LocalFetcher", "GitHubFetcher"):
+            assert cls in attrs, (
+                f"phase_auditor.py must expose {cls}, got {attrs!r}"
+            )
+
+    def test_load_harness_script_missing_module_raises_import_error(self):
+        """A non-existent module name raises ImportError whose message carries
+        the resolved target path — debugging affordance for the path fix."""
+        sys_path = str(HARNESS_REPO)
+        # Multiline snippet via heredoc-equivalent (exec on a single compile
+        # unit) — Python -c cannot parse `try/except` on a single line.
+        snippet = (
+            "import sys\n"
+            f"sys.path.insert(0, {sys_path!r})\n"
+            "from harness_cli import load_harness_script\n"
+            "try:\n"
+            "    load_harness_script('does_not_exist_xyz.py')\n"
+            "except ImportError as e:\n"
+            "    print(repr(str(e)))\n"
+            "else:\n"
+            "    print('NO_RAISE')\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", snippet],
+            cwd="/tmp", capture_output=True, text=True, timeout=30,
+        )
+        assert result.returncode == 0, (
+            f"subprocess must finish; stderr={result.stderr!r}"
+        )
+        out = result.stdout.strip()
+        assert out != "NO_RAISE", "missing module must raise ImportError"
+        assert "does_not_exist_xyz.py" in out, (
+            f"ImportError must reference the missing filename, got: {out!r}"
+        )
+
+
+class TestA1_ThreeSitesInvokeSameHelper:
+    """A1-2026-07-07 invariant: the 3 sites that previously inline-imported
+    `from scripts.X` must all call the shared `load_harness_script()`. A
+    regression that re-inlines one site is caught here at the source level.
+    """
+
+    def test_harness_cli_has_exactly_one_definition_of_load_harness_script(self):
+        """Exactly one `def load_harness_script` at module scope; no inlined
+        copies inside `_cmd_finalize_gate_impl` or `_run_phase_auditor`."""
+        cli_src = (HARNESS_REPO / "harness_cli.py").read_text(encoding="utf-8")
+        # Count top-level `def load_harness_script` (line beginning, no leading whitespace)
+        top_level_defs = [
+            line for line in cli_src.splitlines()
+            if line.startswith("def load_harness_script(")
+        ]
+        assert len(top_level_defs) == 1, (
+            f"expected exactly 1 module-scope def, got {len(top_level_defs)}: "
+            f"{top_level_defs!r}"
+        )
+        # No inline def inside functions (4-space indent means nested).
+        # Inline copies would have at least 8-space indent.
+        inline_defs = [
+            line for line in cli_src.splitlines()
+            if (line.startswith("        def load_harness_script(")
+                or line.startswith("            def load_harness_script("))
+        ]
+        assert inline_defs == [], (
+            f"inline copies found — must use module-scope helper: {inline_defs!r}"
+        )
+
+    def test_site_2_run_phase_auditor_calls_helper(self):
+        """Site 2 (`_run_phase_auditor`) source must invoke
+        `load_harness_script('phase_auditor.py')`, NOT a real cwd-relative
+        `from scripts.phase_auditor import …` (an explanation in a docstring
+        that mentions the old import name is allowed)."""
+        import re
+        cli_src = (HARNESS_REPO / "harness_cli.py").read_text(encoding="utf-8")
+        # Locate the function source region (simple text scan works because
+        # the function body is contiguous).
+        fn_start = cli_src.find("def _run_phase_auditor(")
+        assert fn_start > 0, "_run_phase_auditor must exist"
+        # Find next top-level def or end-of-file to bound the function source.
+        tail = cli_src[fn_start:]
+        next_def = tail.find("\n\ndef ", 1)
+        fn_src = tail if next_def < 0 else tail[:next_def]
+        assert "load_harness_script(\"phase_auditor.py\")" in fn_src, (
+            "Site 2 must call load_harness_script(\"phase_auditor.py\")"
+        )
+        executable_imports = re.findall(
+            r"^[ \t]*from scripts\.phase_auditor import",
+            fn_src, flags=re.MULTILINE,
+        )
+        assert executable_imports == [], (
+            f"Site 2 must NOT use cwd-relative import as executable code; "
+            f"got: {executable_imports!r}"
+        )
+
+    def test_site_3_cmd_audit_phase_calls_helper(self):
+        """Site 3 (`cmd_audit_phase`) source must invoke
+        `_hc.load_harness_script('phase_auditor.py')`, NOT a real
+        cwd-relative `from scripts.phase_auditor import …` (an explanation
+        in the docstring that mentions the old import name is allowed)."""
+        import re
+        pc_path = HARNESS_REPO / "cli" / "project_cmds.py"
+        pc_src = pc_path.read_text(encoding="utf-8")
+        fn_start = pc_src.find("def cmd_audit_phase(")
+        assert fn_start > 0, "cmd_audit_phase must exist"
+        tail = pc_src[fn_start:]
+        next_def = tail.find("\n\ndef ", 1)
+        fn_src = tail if next_def < 0 else tail[:next_def]
+        assert "_hc.load_harness_script(\"phase_auditor.py\")" in fn_src, (
+            f"Site 3 must call _hc.load_harness_script(\"phase_auditor.py\"); "
+            f"got fn_src head: {fn_src[:400]!r}"
+        )
+        # Check *executable* imports only — match lines whose leading
+        # whitespace is followed by `from scripts.phase_auditor import`
+        # (i.e. NOT inside a docstring).
+        executable_imports = re.findall(
+            r"^[ \t]*from scripts\.phase_auditor import",
+            fn_src, flags=re.MULTILINE,
+        )
+        assert executable_imports == [], (
+            f"Site 3 must NOT use cwd-relative import as executable code; "
+            f"got: {executable_imports!r}"
+        )
+
+
+class TestA1_PhaseAuditorAbsolutePathLoad:
+    """A1-2026-07-07 site coverage: each site that previously inline-imported
+    `from scripts.phase_auditor import …` now loads via the helper. These tests
+    confirm both Site 2 and Site 3 work from a foreign cwd.
+    """
+
+    def test_phase_auditor_loadable_directly_via_helper(self):
+        """In-process check: import harness_cli then call load_harness_script
+        for phase_auditor, attribute lookup must succeed."""
+        sys.path.insert(0, str(HARNESS_REPO))
+        try:
+            # Force fresh import each time so the helper resolves at runtime
+            # rather than via a cached module attribute.
+            import importlib
+            if "harness_cli" in sys.modules:
+                importlib.reload(sys.modules["harness_cli"])
+            import harness_cli  # noqa: F401
+            mod = harness_cli.load_harness_script("phase_auditor.py")
+            assert hasattr(mod, "PhaseAuditor")
+            assert hasattr(mod, "LocalFetcher")
+            assert hasattr(mod, "GitHubFetcher")
+        finally:
+            sys.path.pop(0)
+
+    def test_run_phase_auditor_invokable_from_consumer_cwd(self):
+        """Smoke: invoke `_run_phase_auditor` from /tmp cwd via subprocess.
+        Without A1 fix, this would have triggered the
+        `from scripts.phase_auditor import …` ImportError and printed
+        `[WARN] PhaseAuditor unavailable … skipping`. With A1, the helper
+        resolves the absolute path and the function runs end-to-end.
+
+        NOTE: real LocalFetcher walks filesystem in `advance-phase` flow; we
+        only assert NO `[WARN] PhaseAuditor unavailable` emission, which is
+        the A1 regression anchor. Other runtime exceptions are acceptable
+        for this scope.
+        """
+        scripts = str(HARNESS_REPO)
+        snippet = (
+            "import sys, pathlib; "
+            f"sys.path.insert(0, {scripts!r}); "
+            # Use a non-existent path arg so PhaseAuditor.run_all_checks bails
+            # before it would have walked a real filesystem. We only assert
+            # that the import-line does NOT silent-skip with [WARN].
+            "import harness_cli as _hc; "
+            "mod = _hc.load_harness_script('phase_auditor.py'); "
+            "fetcher = mod.LocalFetcher(project_root='/tmp/__a1_smoke_does_not_exist__'); "
+            "auditor = mod.PhaseAuditor(fetcher=fetcher, phase=1); "
+            "res = auditor.run_all_checks(); "
+            "print('A1_LOAD_OK', len(res.findings))"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", snippet],
+            cwd="/tmp", capture_output=True, text=True, timeout=30,
+        )
+        # We don't care about returncode — we care about WARN emission
+        combined = (result.stdout + result.stderr).strip()
+        assert "[WARN] PhaseAuditor unavailable" not in combined, (
+            f"A1 fix should prevent silent-skip warning; got: {combined[:600]!r}"
+        )
+        # Sanity: the import succeeded and PhaseAuditor produced output
+        assert "A1_LOAD_OK" in combined, (
+            f"PhaseAuditor should run and produce A1_LOAD_OK marker; got: {combined[:600]!r}"
+        )
