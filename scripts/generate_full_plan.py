@@ -1024,7 +1024,7 @@ def _deliverable_ab_block(phase: int, deliverable: Dict, sub_n: int, total: int,
 
 
 def _preflight_steps(phase: int) -> List[str]:
-    """Preflight hook step — run before the FR development loop (FSM + Constitution check + CI readiness)."""
+    """Preflight hook step — run before the FR development loop (FSM + Kill-Switch)."""
     if phase == 1:
         ci_check = [
             "- **[PREFLIGHT-CI]** Verify CI wiring (all 3 items auto-set by `init-project`):",
@@ -1051,11 +1051,11 @@ def _preflight_steps(phase: int) -> List[str]:
     return [
         "### Pre-Phase Preflight",
         "",
-        "- **[PREFLIGHT]** Run phase hooks (FSM, Constitution, Kill-Switch, Drift, CI Readiness):",
+        "- **[PREFLIGHT]** Run phase hooks (FSM, Kill-Switch, Drift):",
         "  ```bash",
         f"  python3 harness_cli.py run-phase --phase {phase} --project .",
         "  ```",
-        "  If FAILED: fix FSM/Constitution/Drift issues. There is no gate bypass flag.",
+        "  If FAILED: fix FSM/Drift issues. There is no gate bypass flag.",
         "  Re-run `run-phase` after each fix. Max 3 attempts.",
         f"  After 3 FAIL: escalate to human — provide last `run-phase --phase {phase}` full output.",
         f"  Human fix → re-run `run-phase --phase {phase} --project .` → PASS required before continuing.",

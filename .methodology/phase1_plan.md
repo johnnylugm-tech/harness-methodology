@@ -34,11 +34,11 @@ Phase 1 is the project starting point. Define complete SRS.
 
 ### Pre-Phase Preflight
 
-- [ ] **[PREFLIGHT]** Run phase hooks (FSM, Constitution, Kill-Switch, Drift, CI Readiness):
+- [ ] **[PREFLIGHT]** Run phase hooks (FSM, Kill-Switch, Drift):
   ```bash
   python3 harness_cli.py run-phase --phase 1 --project .
   ```
-  If FAILED: fix FSM/Constitution/Drift issues. There is no gate bypass flag.
+  If FAILED: fix FSM/Drift issues. There is no gate bypass flag.
   Re-run `run-phase` after each fix. Max 3 attempts.
   After 3 FAIL: escalate to human — provide last `run-phase --phase 1` full output.
   Human fix → re-run `run-phase --phase 1 --project .` → PASS required before continuing.

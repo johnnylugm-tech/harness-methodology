@@ -150,7 +150,7 @@ python harness_cli.py verify-trace            --project . [--strict]            
 **Manual step-by-step flow per phase**:
 ```
 [phase.1]   plan-phase         — Generate execution plan
-[phase.2]   run-phase          — FSM + constitution + kill-switch + artifacts + drift + SAB + traceability + gap analysis + CI readiness
+[phase.2]   run-phase          — FSM + kill-switch + artifacts + drift + SAB + traceability
 [phase.3]   Gate 1 per-FR      — Per-FR quality gate evaluation (phases 3,4,5,7,8)
 [phase.4]   Phase exit gate    — Composite gate evaluation (G2 at P3, G3 at P4, G4 at P6)
 [phase.5]   Phase Truth        — HR-11 ≥ 90% verification (built into advance-phase)
@@ -3103,7 +3103,7 @@ P6 does NOT have a per-FR loop. Gate 4 evaluates all 14 dimensions across the en
 | P5–P8 | 70% | — | — | 30% | — |
 
 **Preflight Hooks (all phases)**
-`run-phase` runs before each phase work loop: FSM state check → KillSwitch status → Previous phase artifacts (ASPICE chain, P2+) → Constitution validation → SAB check (P3+) → Traceability check (P3 info, P4+ block) → CI readiness → Tool registry → DriftDetector (P3+, now includes SAB drift) → GapDetector (P4+).
+`run-phase` runs before each phase work loop: FSM state check → KillSwitch status → Previous phase artifacts (ASPICE chain, P2+) → SAB check (P3+) → Traceability check (P3 info, P4+ block) → Tool registry → DriftDetector (P3+, now includes SAB drift) → GapDetector (P4+).
 
 **SAB Architecture Baseline (P2 → P3–P8)**
 The SAB (Software Architecture Baseline) is a machine-readable architecture contract generated at P2 exit from SAD.md §6. It flows through four integration lines:

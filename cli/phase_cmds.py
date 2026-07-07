@@ -125,7 +125,7 @@ def cmd_pre_commit_check(args: _hc.argparse.Namespace) -> int:
 
     Intended exclusively for git commit hooks where speed matters.
     Skips constitution (verified at advance-phase postflight), drift,
-    traceability, gap analysis, and CI readiness — those are
+    traceability, and gap analysis — those are
     enforced by run-phase / finalize-gate.
 
     Do NOT use this command in pipelines or as a substitute for run-phase.

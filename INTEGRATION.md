@@ -370,7 +370,7 @@ This rule is obsolete. `sessions_spawn.log` is no longer enforced (see the Super
 When moving to the next phase in a target project:
 
 ```bash
-# 1. Run preflight checks (includes CI readiness)
+# 1. Run preflight checks
 python harness_cli.py run-phase --phase <current> --project .
 
 # 2. Verify current phase gate passes

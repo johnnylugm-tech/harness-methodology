@@ -289,7 +289,6 @@ Before each phase's work loop, `run-phase` executes:
 - Tool registry verification
 - DriftDetector initialization (P3+)
 - GapDetector initialization (P3+)
-- CI readiness (advisory)
 
 ### sessions_spawn.log
 **Required for all phases P1–P8** (HR-10):
