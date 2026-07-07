@@ -12,11 +12,12 @@ Pattern invariants:
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
 
-REPO = Path("/Users/johnny/projects/integration-test")
+REPO = Path(os.environ.get("INTEGRATION_TEST_DIR", Path(__file__).resolve().parent.parent.parent / "integration-test"))
 WORKFLOWS = REPO / ".claude" / "workflows"
 
 # Per-phase expected artifact paths and commit message fragments
