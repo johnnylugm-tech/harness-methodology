@@ -1760,12 +1760,23 @@ def _filter_phantoms_for_fr(project: str, fr_id: str, phantoms: set[str]) -> set
 
     Gate 1 runs once per FR, in sequence (P3/P5/P7/P8 per harness/CLAUDE.md's
     Gate Status Reference). A phantom module is only this FR's problem when
-    it's owned by `fr_id` itself, owned by an FR that has ALREADY passed
+    it's owned by `fr_id` itself, or owned by an FR that has ALREADY passed
     Gate 1 (real regression — that FR claimed done but the module is now
-    missing), or unattributed to any FR in `fr_module_traceability` (orphan —
-    the original 6436ab6 motivating case: permanently-dead planned modules
-    no future FR will ever build). A module owned by an FR not yet gated
-    simply hasn't been built yet by sequencing, not by drift.
+    missing). A module owned by an FR not yet gated simply hasn't been built
+    yet by sequencing, not by drift.
+
+    A module with NO owner in `fr_module_traceability` (shared/entry-layer
+    scaffolding like config/models/__main__) is not skipped here even though
+    it isn't blocked — it's simply not blockable at this per-FR gate, because
+    no single FR's TDD loop is responsible for building it, so blocking here
+    only punishes whichever FR happens to be gated first (2026-07-08 false-
+    block: taskq.config/models/breaker/store/__main__ have no FR owner and
+    would BLOCK any early FR forever). The real, unconditional enforcement
+    point for a permanently-missing SAB module is `preflight_sab_check`
+    (core/phase_hooks.py:341), which checks every SAB-layer module against
+    disk regardless of FR ownership, gated at P4 entry (`self.phase >= 4`) —
+    that already closes the original 6436ab6 orphan case; this per-FR gate
+    doesn't need to duplicate it.
 
     Ownership lookup reuses `fr_module_traceability` — the same manifest
     field `_print_fr_scoped_overrides_py`/`_js` already use for per-FR
@@ -1795,7 +1806,7 @@ def _filter_phantoms_for_fr(project: str, fr_id: str, phantoms: set[str]) -> set
 
     return {
         mod for mod in phantoms
-        if owner_of.get(mod) is None or owner_of.get(mod) == fr_id or owner_of.get(mod) in passed_frs
+        if owner_of.get(mod) == fr_id or owner_of.get(mod) in passed_frs
     }
 
 

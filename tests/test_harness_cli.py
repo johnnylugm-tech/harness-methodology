@@ -6435,10 +6435,14 @@ class TestSabPhantomPerFrScoping:
         )
         assert _check_sab_module_alignment(str(tmp_path), gate=1, fr_id="FR-01") == 1
 
-    def test_phantom_orphan_module_still_blocks(self, tmp_path):
-        """A module with no owning FR in fr_module_traceability at all (the
-        original 6436ab6 case: permanently-dead planned modules) must still
-        block regardless of which FR is being gated."""
+    def test_phantom_unowned_module_is_skipped_at_fr_gate1(self, tmp_path):
+        """A module with no FR owner in fr_module_traceability at all (e.g.
+        shared/entry-layer scaffolding like config/models/__main__) is not any
+        FR's TDD responsibility — blocking here only punishes whichever FR
+        happens to gate first. The real enforcement point for a permanently-
+        missing SAB module is preflight_sab_check (phase_hooks.py:341), which
+        is unconditional and phase-gated at P4 entry, independent of
+        fr_module_traceability."""
         from harness_cli import _check_sab_module_alignment
         self._make_sab(tmp_path, ["taskq.cli", "taskq.config"])
         self._make_src(tmp_path, "taskq.cli")  # taskq.config never traced to any FR
@@ -6447,7 +6451,7 @@ class TestSabPhantomPerFrScoping:
             traceability={"FR-01": "taskq.cli"},  # taskq.config absent from mapping
             gate1={},
         )
-        assert _check_sab_module_alignment(str(tmp_path), gate=1, fr_id="FR-01") == 1
+        assert _check_sab_module_alignment(str(tmp_path), gate=1, fr_id="FR-01") is None
 
     def test_phantom_manifest_unreadable_falls_back_to_unscoped(self, tmp_path):
         """No quality_manifest.json at all — can't determine ownership, stay
