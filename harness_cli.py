@@ -41,6 +41,7 @@ Exit codes:
     1   Hard failure (investigate error)
     2   run-gap-analysis: critical gaps detected (distinct from hard error)
     5   Gate 4 prerequisites block (A2/A3/A5 schema, B2 score files)
+    6   finalize-gate: gate passed but git commit did not land (manifest rolled back) — fix and re-run
     8   Missing deliverables block — required artifacts not found on disk or not git-tracked
     10  PAUSE — Claude must evaluate gate; run finalize-gate then re-run pipeline
     11  Phase Truth < 90% (HR-11); fix and re-run with --phase-from N
@@ -2777,6 +2778,35 @@ def _finalize_gate_cross_checks(args: argparse.Namespace, project_path: Path) ->
     return None  # all cross-checks passed
 
 
+def _mark_gate_commit_failed(project_path: Path, gate: int, fr_id: str | None) -> None:
+    """Roll back gate_results.quality_complete after a failed git commit.
+
+    finalize-gate optimistically patches quality_manifest.json's gate_results
+    BEFORE attempting the git commit. Every phase workflow (phase3..8-*.js)
+    treats quality_complete==True as the SOLE authority that a gate passed —
+    it never inspects this CLI's exit code. If `git commit` is rejected
+    (e.g. prepare-commit-msg hook stale trace attestation) after that
+    optimistic write, the on-disk manifest still reads True even though
+    nothing landed in git. Flip it back so quality_complete==True always
+    implies "durably committed".
+    """
+    _mfst = project_path / ".methodology" / "quality_manifest.json"
+    if not _mfst.exists():
+        return
+    try:
+        _mfst_json = json.loads(_mfst.read_text(encoding="utf-8"))
+        _gr = _mfst_json.get("gate_results", {}) or {}
+        _entry = (_gr.get("gate1") or {}).get(fr_id) if (gate == 1 and fr_id) else _gr.get(f"gate{gate}")
+        if isinstance(_entry, dict):
+            _entry["quality_complete"] = False
+            _entry["commit_landed"] = False
+            atomic_write_json(_mfst, _mfst_json)
+            print(f"  [WARN] git commit did not land — rolled back quality_complete "
+                  f"to False for gate{gate}" + (f"/{fr_id}" if fr_id else ""))
+    except (OSError, json.JSONDecodeError) as _mf_err:
+        print(f"  [WARN] Could not roll back quality_manifest.json after commit failure: {_mf_err}")
+
+
 def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
     """
     Phase 2: read gate{N}_result.json, check thresholds, update manifest, git.
@@ -3140,18 +3170,32 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
                 except Exception as _sme:
                     print(f"  [WARN] Could not write last_milestone_command to state.json: {_sme}")
         if args.gate == 1:
-            git.commit_fr_gate1(fr_id or "unknown", result.score, args.phase)
+            _commit_ok = git.commit_fr_gate1(fr_id or "unknown", result.score, args.phase)
         else:
-            git.commit_and_push_gate(args.gate, args.phase, result.score)
-            # Post-push self-check: warn loudly on dirty residue. Push itself
-            # succeeded — the dirt is post-commit residue. Don't fail-fast.
-            _dirty = _post_push_self_check(Path(args.project).resolve())
-            if _dirty:
-                print(
-                    f"  [WARN] post-push dirty tree ({len(_dirty)} path(s)):\n"
-                    + "\n".join(f"    • {p}" for p in _dirty[:10])
-                    + (f"\n    ... and {len(_dirty) - 10} more" if len(_dirty) > 10 else "")
-                )
+            _commit_ok = git.commit_and_push_gate(args.gate, args.phase, result.score)
+            if _commit_ok:
+                # Post-push self-check: warn loudly on dirty residue. Push itself
+                # succeeded — the dirt is post-commit residue. Don't fail-fast.
+                _dirty = _post_push_self_check(Path(args.project).resolve())
+                if _dirty:
+                    print(
+                        f"  [WARN] post-push dirty tree ({len(_dirty)} path(s)):\n"
+                        + "\n".join(f"    • {p}" for p in _dirty[:10])
+                        + (f"\n    ... and {len(_dirty) - 10} more" if len(_dirty) > 10 else "")
+                    )
+
+        if not _commit_ok:
+            _mark_gate_commit_failed(project_path, args.gate, fr_id)
+            print(
+                f"\n[BLOCKED] Gate {args.gate} evaluation passed but the git commit "
+                "did not land (see '[git WARN] git commit failed' above — often a "
+                "prepare-commit-msg hook rejection, e.g. stale trace attestation).\n"
+                "  quality_manifest.json rolled back to quality_complete=false.\n"
+                "  Fix the reported error, then re-run:\n"
+                f"  python harness_cli.py finalize-gate --gate {args.gate} "
+                f"--phase {args.phase} --project {project}"
+            )
+            return 6
         return 0
 
     except FileNotFoundError as e:

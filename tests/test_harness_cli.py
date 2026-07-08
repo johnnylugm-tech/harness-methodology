@@ -4008,8 +4008,8 @@ class TestFinalizeGatePersistCompositeScore:
 
         class FakeGit:
             def ensure_gitignore(self): pass
-            def commit_fr_gate1(self, *_a): pass
-            def commit_and_push_gate(self, *_a): pass
+            def commit_fr_gate1(self, *_a): return True
+            def commit_and_push_gate(self, *_a): return True
 
         monkeypatch.setattr(hc, "_make_git", lambda *_a: FakeGit())
 
@@ -4112,8 +4112,8 @@ class TestFinalizeGateManifestPatch:
 
         class FakeGit:
             def ensure_gitignore(self): pass
-            def commit_fr_gate1(self, *_a): pass
-            def commit_and_push_gate(self, *_a): pass
+            def commit_fr_gate1(self, *_a): return True
+            def commit_and_push_gate(self, *_a): return True
 
         monkeypatch.setattr(hc, "_make_git", lambda *_a: FakeGit())
 
@@ -4219,6 +4219,142 @@ class TestFinalizeGateManifestPatch:
 
 
 # =============================================================================
+# finalize-gate optimistically patches quality_manifest.json's gate_results
+# BEFORE the git commit is attempted. Every phase workflow (phase3..8-*.js)
+# treats quality_complete==True as the SOLE authority a gate passed. If the
+# git commit fails (e.g. prepare-commit-msg hook rejects a stale trace
+# attestation) after that optimistic write, the manifest must be rolled back
+# to quality_complete=False and the CLI must return a non-zero exit code —
+# otherwise the manifest keeps lying and downstream workflow verify steps
+# wrongly conclude the gate passed and was durably committed.
+# =============================================================================
+
+class TestFinalizeGateCommitFailureRollback:
+    def _run(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+        gate: int,
+        phase: int,
+        fr_id: str | None,
+        initial_manifest: dict,
+        commit_ok: bool,
+        post_push_calls: list | None = None,
+        harness_score: float = 96.6,
+    ) -> tuple[int, dict]:
+        import harness_cli as hc
+        from harness.harness_bridge import GateResult
+
+        sessi = tmp_path / ".sessi-work"
+        sessi.mkdir(parents=True, exist_ok=True)
+        (sessi / f"gate{gate}_result.json").write_text(
+            json.dumps({"composite_score": harness_score}), encoding="utf-8"
+        )
+        meth = tmp_path / ".methodology"
+        meth.mkdir(parents=True, exist_ok=True)
+        manifest_path = meth / "quality_manifest.json"
+        manifest_path.write_text(json.dumps(initial_manifest), encoding="utf-8")
+
+        monkeypatch.setattr(hc, "_finalize_gate_preflight", lambda _a, _p: None)
+        monkeypatch.setattr(hc, "_finalize_gate_fr_checks", lambda _a, _p: None)
+        monkeypatch.setattr(hc, "_finalize_gate_cross_checks", lambda _a, _p: None)
+        monkeypatch.setattr(hc, "_update_state_checkpoint", lambda *_, **__: None)
+        monkeypatch.setattr(hc, "_update_claude_md", lambda _p: None)
+        monkeypatch.setattr(hc, "_record_gate_timestamp", lambda *_a: None)
+        monkeypatch.setattr(hc, "_generate_stage_pass", lambda *_a: None)
+        monkeypatch.setattr(
+            hc, "_post_push_self_check",
+            lambda _p: (post_push_calls.append(1) if post_push_calls is not None else None) or [],
+        )
+
+        class FakeGit:
+            def ensure_gitignore(self): pass
+            def commit_fr_gate1(self, *_a): return commit_ok
+            def commit_and_push_gate(self, *_a): return commit_ok
+
+        monkeypatch.setattr(hc, "_make_git", lambda *_a: FakeGit())
+
+        # Stub PhaseHooks so gate≥2 post-flight structural checks pass
+        import core.phase_hooks as ph_mod
+        class _FakeHooks:
+            def __init__(self, *_a, **_): pass
+            def postflight_artifact_links(self): return {"passed": True}
+            def postflight_drift_check(self): return {"passed": True}
+        monkeypatch.setattr(ph_mod, "PhaseHooks", _FakeHooks)
+
+        # Stub PhaseTruthVerifier so HR-11 check passes (last gate of phase)
+        import core.quality_gate.phase_truth_verifier as ptv_mod
+        class _FakePTV:
+            def __init__(self, *_a, **_): pass
+            def verify(self): return {"passed": True, "total_score": 100.0}
+        monkeypatch.setattr(ptv_mod, "PhaseTruthVerifier", _FakePTV)
+
+        _score = harness_score
+
+        class FakeBridge:
+            def prepare_gate(self, **_): return object()
+            def finalize_gate(self, _ctx, **_):
+                return GateResult(
+                    gate_num=gate, score=_score, dimensions=[],
+                    open_critical=0, open_high=0,
+                    quality_complete=True, rounds_used=2,
+                )
+
+        import harness.harness_bridge as hb
+        monkeypatch.setattr(hb, "HarnessBridge", FakeBridge)
+
+        args = argparse.Namespace(
+            project=str(tmp_path), gate=gate, phase=phase, fr_id=fr_id,
+        )
+        rc = hc._cmd_finalize_gate_impl(args)
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        return rc, manifest
+
+    def test_gate2_commit_failure_rolls_back_quality_complete(self, tmp_path, monkeypatch):
+        initial = {"fr_ids": ["FR-01"], "gate_results": {"gate1": {}, "gate2": None}}
+        rc, manifest = self._run(
+            tmp_path, monkeypatch, gate=2, phase=3, fr_id=None,
+            initial_manifest=initial, commit_ok=False,
+        )
+        assert rc == 6
+        g2 = manifest["gate_results"]["gate2"]
+        assert g2["quality_complete"] is False, (
+            f"gate2.quality_complete must roll back to False on commit failure: {g2}"
+        )
+
+    def test_gate1_commit_failure_rolls_back_quality_complete(self, tmp_path, monkeypatch):
+        initial = {"fr_ids": ["FR-01"], "gate_results": {"gate1": {}}}
+        rc, manifest = self._run(
+            tmp_path, monkeypatch, gate=1, phase=3, fr_id="FR-01",
+            initial_manifest=initial, commit_ok=False,
+        )
+        assert rc == 6
+        g1 = manifest["gate_results"]["gate1"]["FR-01"]
+        assert g1["quality_complete"] is False, (
+            f"gate1.FR-01.quality_complete must roll back to False on commit failure: {g1}"
+        )
+
+    def test_commit_success_keeps_quality_complete_true(self, tmp_path, monkeypatch):
+        initial = {"fr_ids": ["FR-01"], "gate_results": {"gate1": {}, "gate2": None}}
+        rc, manifest = self._run(
+            tmp_path, monkeypatch, gate=2, phase=3, fr_id=None,
+            initial_manifest=initial, commit_ok=True,
+        )
+        assert rc == 0
+        assert manifest["gate_results"]["gate2"]["quality_complete"] is True
+
+    def test_post_push_dirty_check_skipped_when_commit_failed(self, tmp_path, monkeypatch):
+        calls: list = []
+        initial = {"fr_ids": ["FR-01"], "gate_results": {"gate1": {}, "gate2": None}}
+        rc, _ = self._run(
+            tmp_path, monkeypatch, gate=2, phase=3, fr_id=None,
+            initial_manifest=initial, commit_ok=False, post_push_calls=calls,
+        )
+        assert rc == 6
+        assert calls == [], "_post_push_self_check must not run when the commit itself failed"
+
+
+# =============================================================================
 # D2 variance check must tolerate a None-scored dimension
 # =============================================================================
 
@@ -4259,8 +4395,8 @@ class TestFinalizeGateNoneDimVariance:
 
         class FakeGit:
             def ensure_gitignore(self): pass
-            def commit_fr_gate1(self, *_a): pass
-            def commit_and_push_gate(self, *_a): pass
+            def commit_fr_gate1(self, *_a): return True
+            def commit_and_push_gate(self, *_a): return True
         monkeypatch.setattr(hc, "_make_git", lambda *_a: FakeGit())
 
         class FakeBridge:
@@ -7389,7 +7525,7 @@ class TestFinalizeGate4StateJsonWriteBeforePush:
             def commit_fr_gate1(self, *_a): pass
             def commit_and_push_gate(self, *_a):
                 call_order.append("commit_and_push_gate")
-                return None
+                return True
 
         monkeypatch.setattr(hc, "_make_git", lambda *_a: FakeGit())
 
@@ -7503,7 +7639,7 @@ class TestFinalizeGate4StateJsonWriteBeforePush:
             def ensure_gitignore(self): pass
             def commit_and_push_gate(self, *_a):
                 call_order.append("commit_and_push_gate")
-                return None
+                return True
 
         monkeypatch.setattr(hc, "_make_git", lambda *_a: FakeGit())
 
