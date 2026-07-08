@@ -1755,7 +1755,51 @@ def _normalize_sab_module_to_dotted(mod: object) -> Optional[str]:
     return normalize_sab_module_to_dotted(mod)
 
 
-def _check_sab_module_alignment(project: str, gate: int) -> Optional[int]:
+def _filter_phantoms_for_fr(project: str, fr_id: str, phantoms: set[str]) -> set[str]:
+    """Narrow a global phantom-module set to what `fr_id`'s Gate 1 should block on.
+
+    Gate 1 runs once per FR, in sequence (P3/P5/P7/P8 per harness/CLAUDE.md's
+    Gate Status Reference). A phantom module is only this FR's problem when
+    it's owned by `fr_id` itself, owned by an FR that has ALREADY passed
+    Gate 1 (real regression — that FR claimed done but the module is now
+    missing), or unattributed to any FR in `fr_module_traceability` (orphan —
+    the original 6436ab6 motivating case: permanently-dead planned modules
+    no future FR will ever build). A module owned by an FR not yet gated
+    simply hasn't been built yet by sequencing, not by drift.
+
+    Ownership lookup reuses `fr_module_traceability` — the same manifest
+    field `_print_fr_scoped_overrides_py`/`_js` already use for per-FR
+    scoping — and `_normalize_sab_module_to_dotted` so ownership keys and
+    the phantom set being filtered agree on format. Manifest unreadable →
+    stay conservative and return `phantoms` unfiltered (original behavior).
+    """
+    manifest_path = Path(project) / ".methodology" / "quality_manifest.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        return phantoms
+
+    gate1_results = manifest.get("gate_results", {}).get("gate1", {})
+    passed_frs = {
+        fr for fr, result in gate1_results.items()
+        if isinstance(result, dict) and result.get("quality_complete") is True
+    }
+
+    owner_of: dict[str, str] = {}
+    for owner_fr, entries in manifest.get("fr_module_traceability", {}).items():
+        mods = [entries] if isinstance(entries, str) else (entries if isinstance(entries, list) else [])
+        for m in mods:
+            dotted = _normalize_sab_module_to_dotted(m)
+            if dotted is not None:
+                owner_of.setdefault(dotted, owner_fr)
+
+    return {
+        mod for mod in phantoms
+        if owner_of.get(mod) is None or owner_of.get(mod) == fr_id or owner_of.get(mod) in passed_frs
+    }
+
+
+def _check_sab_module_alignment(project: str, gate: int, fr_id: Optional[str] = None) -> Optional[int]:
     """Gate 1 Architecture Amendment Protocol: block on bidirectional SAB drift.
 
     Returns 1 when gate==1 and either:
@@ -1782,6 +1826,16 @@ def _check_sab_module_alignment(project: str, gate: int) -> Optional[int]:
     gate. Pushing the symmetric check down to Gate 1 forces amendment at
     the earliest point where recovery is still cheap (P2 amendment protocol
     or P3 implementation).
+
+    Per-FR scoping (2026-07-08 fix): the (b) phantom check above is
+    project-wide by construction, but Gate 1 is documented/designed as
+    per-FR (see harness/CLAUDE.md Gate Status Reference, and
+    `_print_fr_scoped_overrides_py`/`_js` using the same
+    `fr_module_traceability` mapping). Phase 3 gates FRs sequentially, so
+    gating an early FR (e.g. FR-01) was tripping on later FRs' modules that
+    legitimately don't exist yet — see `_filter_phantoms_for_fr`. Passing
+    `fr_id` narrows the phantom set to that FR's own scope before deciding
+    whether to block; `fr_id=None` preserves the original unscoped check.
     """
     if gate != 1:
         return None
@@ -1820,11 +1874,13 @@ def _check_sab_module_alignment(project: str, gate: int) -> Optional[int]:
         # shared helper so the message + handling stay in sync with
         # `preflight_sab_check` (P4+) and the standalone `amend-sab` CLI.
         from core.quality_gate.sab_amender import phantom_modules as _phantom
-        phantoms = _phantom(sab_data, actual_modules)
+        phantoms = set(_phantom(sab_data, actual_modules))
+        if phantoms and fr_id:
+            phantoms = _filter_phantoms_for_fr(project, fr_id, phantoms)
         if phantoms:
             print(
                 f"\n[BLOCKED] run-gate: Architecture Amendment Protocol violation.\n"
-                f"Phantom modules declared in SAB.json but not implemented in codebase: {phantoms}\n"
+                f"Phantom modules declared in SAB.json but not implemented in codebase: {sorted(phantoms)}\n"
                 f"You must either:\n"
                 f"  (a) implement them in 03-development/src/<module>.py, OR\n"
                 f"  (b) amend SAB.json to remove them from the layer's modules list\n"
@@ -1893,7 +1949,7 @@ def _cmd_run_gate_impl(args: argparse.Namespace) -> int:
         return 8
 
     # Architecture Amendment Protocol: Module Alignment Check (Gate 1)
-    _amend_result = _check_sab_module_alignment(project, args.gate)
+    _amend_result = _check_sab_module_alignment(project, args.gate, fr_id)
     if _amend_result is not None:
         return _amend_result
 

@@ -6308,6 +6308,124 @@ class TestSabModuleAlignmentCheck:
 
 
 # =============================================================================
+# _check_sab_module_alignment — phantom branch + per-FR scoping (2026-07-08 fix)
+#
+# Bug: phantom detection (SAB declares a module the codebase lacks) was
+# project-wide, but Gate 1 runs per-FR in sequence (P3/P5/P7/P8). Gating an
+# early FR tripped on later FRs' modules that legitimately don't exist yet.
+# Fix narrows the phantom set via `fr_module_traceability` before blocking.
+# =============================================================================
+
+class TestSabPhantomPerFrScoping:
+    def _make_sab(self, tmp_path: Path, modules: list) -> None:
+        (tmp_path / ".methodology").mkdir(exist_ok=True)
+        sab_data = {
+            "layers": [{"name": "app", "modules": modules}],
+            "allowed_dependencies": [],
+        }
+        (tmp_path / ".methodology" / "SAB.json").write_text(
+            json.dumps(sab_data), encoding="utf-8"
+        )
+
+    def _make_manifest(self, tmp_path: Path, *, traceability: dict, gate1: dict) -> None:
+        (tmp_path / ".methodology").mkdir(exist_ok=True)
+        manifest = {
+            "fr_module_traceability": traceability,
+            "gate_results": {"gate1": gate1},
+        }
+        (tmp_path / ".methodology" / "quality_manifest.json").write_text(
+            json.dumps(manifest), encoding="utf-8"
+        )
+
+    def _make_src(self, tmp_path: Path, *existing_modules: str) -> None:
+        src = tmp_path / "src"
+        src.mkdir(exist_ok=True)
+        for mod in existing_modules:
+            (src / f"{mod}.py").write_text("x = 1")
+
+    def test_phantom_blocks_without_fr_id(self, tmp_path):
+        """fr_id=None preserves original unscoped (global) behavior."""
+        from harness_cli import _check_sab_module_alignment
+        self._make_sab(tmp_path, ["taskq.cli", "taskq.cache"])
+        self._make_src(tmp_path, "taskq.cli")  # taskq.cache missing
+        assert _check_sab_module_alignment(str(tmp_path), gate=1) == 1
+
+    def test_phantom_not_owned_by_current_fr_is_skipped(self, tmp_path):
+        """Reproduces the P3 FR-01 false positive: FR-01 gated first, FR-04's
+        module legitimately doesn't exist yet — must NOT block FR-01."""
+        from harness_cli import _check_sab_module_alignment
+        self._make_sab(tmp_path, ["taskq.cli", "taskq.cache"])
+        self._make_src(tmp_path, "taskq.cli")  # taskq.cache (FR-04) not built yet
+        self._make_manifest(
+            tmp_path,
+            traceability={"FR-01": "taskq.cli", "FR-04": "taskq.cache"},
+            gate1={},  # no FR has passed gate1 yet
+        )
+        assert _check_sab_module_alignment(str(tmp_path), gate=1, fr_id="FR-01") is None
+
+    def test_phantom_owned_by_current_fr_still_blocks(self, tmp_path):
+        """A module the FR BEING GATED owns is still its own responsibility."""
+        from harness_cli import _check_sab_module_alignment
+        self._make_sab(tmp_path, ["taskq.cli"])
+        self._make_src(tmp_path)  # taskq.cli itself missing
+        self._make_manifest(
+            tmp_path,
+            traceability={"FR-01": "taskq.cli"},
+            gate1={},
+        )
+        assert _check_sab_module_alignment(str(tmp_path), gate=1, fr_id="FR-01") == 1
+
+    def test_phantom_owned_by_already_passed_fr_still_blocks(self, tmp_path):
+        """A module owned by an FR that already passed Gate 1 going missing
+        is a real regression, not a sequencing artifact — must still block."""
+        from harness_cli import _check_sab_module_alignment
+        self._make_sab(tmp_path, ["taskq.cli", "taskq.cache"])
+        self._make_src(tmp_path, "taskq.cli")  # taskq.cache (FR-04, already PASS) missing
+        self._make_manifest(
+            tmp_path,
+            traceability={"FR-01": "taskq.cli", "FR-04": "taskq.cache"},
+            gate1={"FR-04": {"score": 97.0, "quality_complete": True}},
+        )
+        assert _check_sab_module_alignment(str(tmp_path), gate=1, fr_id="FR-01") == 1
+
+    def test_phantom_orphan_module_still_blocks(self, tmp_path):
+        """A module with no owning FR in fr_module_traceability at all (the
+        original 6436ab6 case: permanently-dead planned modules) must still
+        block regardless of which FR is being gated."""
+        from harness_cli import _check_sab_module_alignment
+        self._make_sab(tmp_path, ["taskq.cli", "taskq.config"])
+        self._make_src(tmp_path, "taskq.cli")  # taskq.config never traced to any FR
+        self._make_manifest(
+            tmp_path,
+            traceability={"FR-01": "taskq.cli"},  # taskq.config absent from mapping
+            gate1={},
+        )
+        assert _check_sab_module_alignment(str(tmp_path), gate=1, fr_id="FR-01") == 1
+
+    def test_phantom_manifest_unreadable_falls_back_to_unscoped(self, tmp_path):
+        """No quality_manifest.json at all — can't determine ownership, stay
+        conservative and block (same as fr_id=None)."""
+        from harness_cli import _check_sab_module_alignment
+        self._make_sab(tmp_path, ["taskq.cli", "taskq.cache"])
+        self._make_src(tmp_path, "taskq.cli")
+        # no manifest written at all
+        assert _check_sab_module_alignment(str(tmp_path), gate=1, fr_id="FR-01") == 1
+
+    def test_phantom_list_traceability_entry(self, tmp_path):
+        """fr_module_traceability entries may be list[str] (an FR owning
+        multiple modules), not just str — ownership lookup must handle both."""
+        from harness_cli import _check_sab_module_alignment
+        self._make_sab(tmp_path, ["taskq.cli", "taskq.store"])
+        self._make_src(tmp_path)  # both missing
+        self._make_manifest(
+            tmp_path,
+            traceability={"FR-01": ["taskq.cli", "taskq.store"]},
+            gate1={},
+        )
+        assert _check_sab_module_alignment(str(tmp_path), gate=1, fr_id="FR-01") == 1
+
+
+# =============================================================================
 # _print_fr_scoped_overrides_py  (FR scope uses fr_module_traceability,
 # not import-based detection — commit pending)
 # =============================================================================
