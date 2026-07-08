@@ -164,7 +164,14 @@ def _relevance(lesson: Lesson, fr_ids: set[str], dimension: str | None) -> int:
     score = 0
     if dimension and lesson.dimension == dimension:
         score += 2
-    score += len(fr_ids & set(lesson.fr_ids))
+        
+    overlap = len(fr_ids & set(lesson.fr_ids))
+    score += overlap
+    
+    # Global lessons (no specific FRs) get a base relevance of 1 so they aren't dropped
+    if not lesson.fr_ids:
+        score += 1
+        
     return score
 
 

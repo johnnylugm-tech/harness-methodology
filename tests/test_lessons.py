@@ -62,6 +62,15 @@ def test_recall_is_capped(tmp_path: Path) -> None:
     assert len(got) == 3
 
 
+def test_recall_global_lessons(tmp_path: Path) -> None:
+    # A project-level lesson (no fr_ids) should be recalled even if it doesn't match the query fr_ids perfectly,
+    # because its base relevance is 1.
+    _mk(tmp_path, failure_mode="global block", dimension=None, fr_ids=[])
+    got = recall_lessons(tmp_path, fr_ids=["FR-01"], dimension=None)
+    assert len(got) == 1
+    assert got[0].failure_mode == "global block"
+
+
 def test_recall_empty_when_no_lessons(tmp_path: Path) -> None:
     assert recall_lessons(tmp_path, dimension="x") == []
 
