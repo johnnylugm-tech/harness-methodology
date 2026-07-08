@@ -162,3 +162,28 @@ def test_property_spec_is_wired_into_preflight_all() -> None:
         "property_spec gate dropped from _do_preflight_all — declared but "
         "unexecuted / contradictory property invariants would stop blocking"
     )
+
+
+def test_ast_check_avoids_false_positive(tmp_path: Path) -> None:
+    # A file with an unrelated property test and a loose FR-01 comment 
+    # should NOT be treated as a property test for FR-01.
+    body = (
+        "### FR-01: something\n\n"
+        "| # | Test Function | Inputs | Type | Derivation |\n"
+        "|---|---|---|---|---|\n"
+        "| 1 | `test_fr01_x` | source=\"abc\" | happy_path | Q1 |\n"
+        "\n"
+        "**Properties**\n"
+        "| property_id | invariant | applies_to |\n"
+        "|---|---|---|\n"
+        "| P1 | `len(source) == 3` | 1 |\n"
+    )
+    test_content = (
+        "# FR-01: some notes\n\n"
+        "@given(st.integers())\n"
+        "def test_unrelated():\n"
+        "    pass\n"
+    )
+    proj = _project(tmp_path, body, test_files={"test_fr01.py": test_content})
+    vs = check_property_spec(proj, require_execution=True)
+    assert any(v.check_type == "property_not_executed" for v in vs)

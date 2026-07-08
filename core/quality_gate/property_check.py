@@ -150,8 +150,35 @@ def _fr_tokens(fr_id: str) -> tuple[str, ...]:
 def _fr_has_property_test(fr_id: str, test_blobs: list[str]) -> bool:
     tokens = _fr_tokens(fr_id)
     for blob in test_blobs:
-        if _PROP_TOOL.search(blob) and any(tok in blob for tok in tokens):
+        if not (_PROP_TOOL.search(blob) and any(tok in blob for tok in tokens)):
+            continue
+
+        try:
+            import ast
+            tree = ast.parse(blob)
+            lines = blob.splitlines()
+            
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    start_line = node.decorator_list[0].lineno if hasattr(node, "decorator_list") and node.decorator_list else node.lineno
+                    end_line = node.end_lineno if hasattr(node, "end_lineno") and node.end_lineno else node.lineno
+                    
+                    # Expand range by 1 to include immediately preceding comment (e.g. # FR-XX)
+                    start_idx = max(0, start_line - 2)
+                    end_idx = end_line
+                    
+                    func_source = "\n".join(lines[start_idx:end_idx])
+                    
+                    if _PROP_TOOL.search(func_source) and any(tok in func_source for tok in tokens):
+                        return True
+                        
+            # If we parsed AST but found no matching function block, check next file
+            continue
+            
+        except (SyntaxError, ImportError, AttributeError):
+            # Fallback for non-python files (JS/TS) or if parsing fails
             return True
+            
     return False
 
 
