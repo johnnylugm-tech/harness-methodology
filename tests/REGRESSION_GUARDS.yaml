@@ -77,3 +77,11 @@
 - test: tests/test_property_check.py::test_property_spec_is_wired_into_preflight_all
   bug: "Direction B property gate: preflight_property_spec must stay composed into _do_preflight_all — silent removal would let a declared-but-unexecuted or contradictory property invariant pass undetected"
   fixed_in: "Direction B (lightweight property-declaration gate)"
+
+- test: tests/test_lessons.py::test_gate_block_capture_is_wired_into_finalize_gate
+  bug: "Direction C cross-run memory: record_gate_block must stay wired into finalize-gate's GateBlockedError handler — otherwise the closed loop stops learning from gate blocks"
+  fixed_in: "Direction C (cross-run failure memory auto-injection)"
+
+- test: tests/test_lessons.py::test_lesson_injection_is_wired_into_load_context
+  bug: "Direction C cross-run memory: recall_lessons must stay wired into cmd_load_context — otherwise phase entry stops surfacing past failure modes to the agent"
+  fixed_in: "Direction C (cross-run failure memory auto-injection)"

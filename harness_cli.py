@@ -2796,7 +2796,11 @@ def _mark_gate_commit_failed(project_path: Path, gate: int, fr_id: str | None) -
     try:
         _mfst_json = json.loads(_mfst.read_text(encoding="utf-8"))
         _gr = _mfst_json.get("gate_results", {}) or {}
-        _entry = (_gr.get("gate1") or {}).get(fr_id) if (gate == 1 and fr_id) else _gr.get(f"gate{gate}")
+        if gate == 1:
+            _actual_fr = fr_id or "unknown"
+            _entry = (_gr.get("gate1") or {}).get(_actual_fr)
+        else:
+            _entry = _gr.get(f"gate{gate}")
         if isinstance(_entry, dict):
             _entry["quality_complete"] = False
             _entry["commit_landed"] = False
@@ -3212,6 +3216,14 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
         print(_format_block_diagnostic(
             e, args.gate, args.phase, fr_id, 3, project_path,
         ))
+        # Direction C: distil the block into cross-run failure memory so the
+        # next run recalls it (best-effort — must never break the gate flow).
+        try:
+            from core.lessons import record_gate_block
+            record_gate_block(project_path, gate_num=args.gate, phase=args.phase,
+                              fr_id=fr_id, result=e.result)
+        except Exception:  # noqa: BLE001
+            pass
         return 1
 
 # ---------------------------------------------------------------------------

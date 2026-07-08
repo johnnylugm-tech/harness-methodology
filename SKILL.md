@@ -353,6 +353,8 @@ Agent B (REVIEWER / architect)
 
 > **P2 optional property gate**: an FR with an algebraic invariant (round-trip / idempotence / monotonicity / conservation) MAY declare a `**Properties**` table in TEST_SPEC.md. `python harness_cli.py check-property-spec` then (a) self-consistency-checks each invariant against its cases via the same red_assertion engine, and (b) from P4 requires an executing property test (`hypothesis @given` / fast-check). Opt-in per FR; property strength is measured by the existing `mutation_testing` dimension, not a new score. Runs inside `run-phase` pre-flight.
 
+> **Cross-run failure memory (auto)**: every `finalize-gate` BLOCK distils the failing dimensions into `.methodology/lessons/<key>.md` (idempotent, human-inspectable). At phase entry, `load-context` auto-injects a `lessons` block of the most relevant past failures for that phase's FRs — relevance-gated (by FR overlap) and capped at 5, so it cannot pollute the prompt. The agent sees "known failure modes to avoid" from prior runs without any manual step. To record a confirmed bug-hunt finding into the same memory, call `core.lessons.record_lesson`.
+
 > Phase 3-5, 7-8 不再使用 A/B 協作，改以自動化 Phase End Audit 替代（見 §0.4 完成檢查表）。
 >
 > **P6 Gate 4 注意**：Phase 6 (Gate 4) 重新引入 Agent B 審查機制，確保所有發布文件與品質數據（包含 `QUALITY_REPORT.md`, `RELEASE_NOTES.md`, `FINAL_SIGN_OFF.md`, 與 `quality_manifest.json`）經過交叉核實。

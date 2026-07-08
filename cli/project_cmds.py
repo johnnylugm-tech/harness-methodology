@@ -683,6 +683,15 @@ def cmd_load_context(args: _hc.argparse.Namespace) -> int:
         "fr_id_source": fr_id_source or "none",
     }
 
+    # Direction C: auto-inject relevant past-failure lessons at phase entry.
+    # Relevance-gated (by this phase's FRs) + capped → cannot pollute context.
+    try:
+        from core.lessons import format_lessons_block, recall_lessons
+        result["lessons"] = format_lessons_block(
+            recall_lessons(project, fr_ids=fr_ids, limit=5))
+    except Exception:  # pylint: disable=broad-exception-caught
+        result["lessons"] = ""
+
     # Sentinel warning: existing artifacts still in template state?
     # P1/P2 entry agents must distinguish "real SRS.md" from "template placeholder
     # left by `init-project`". Without this check, Agent A might assume P1 is
