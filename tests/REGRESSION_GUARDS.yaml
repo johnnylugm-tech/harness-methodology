@@ -73,3 +73,7 @@
 - test: tests/test_spec_alignment.py::test_spec_alignment_is_wired_into_preflight_all
   bug: "Direction A front-edge gate: preflight_spec_alignment (canonical_spec↔SRS coverage) must stay composed into _do_preflight_all — silent removal (as constitution's 2 call sites were cut) would let dropped/invented requirements pass into P2 undetected"
   fixed_in: "Direction A (spec-alignment front-edge gate)"
+
+- test: tests/test_property_check.py::test_property_spec_is_wired_into_preflight_all
+  bug: "Direction B property gate: preflight_property_spec must stay composed into _do_preflight_all — silent removal would let a declared-but-unexecuted or contradictory property invariant pass undetected"
+  fixed_in: "Direction B (lightweight property-declaration gate)"

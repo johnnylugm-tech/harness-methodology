@@ -95,6 +95,23 @@ Inputs.
 |---|---|---|
 | AC5-bopomofo-space | `" " in expected` | 3 |
 
+**Properties** — OPTIONAL (Direction B, opt-in per FR). Universal invariants that
+must hold for ALL inputs, not just the declared cases. Add one only when the FR
+has an algebraic property (round-trip, idempotence, monotonicity, conservation).
+Same shape as Sub-assertions but with the `invariant` header:
+
+| property_id | invariant (predicate over Inputs / result) | applies_to (case #) |
+|---|---|---|
+| P1-roundtrip | `decode(encode(source)) == source` | 1 |
+
+Rules (enforced by `harness_cli.py check-property-spec`):
+  * an invariant referencing only case Inputs is self-consistency-checked against
+    those cases by the same P2 engine — a false invariant FAILS before P3;
+  * once declared, the FR MUST have a property-based test executing it
+    (`hypothesis @given` / fast-check) — blocked from P4;
+  * property STRENGTH (does it kill mutants?) is measured by the existing
+    `mutation_testing` dimension — deliberately NOT re-scored here.
+
 <!--
 Repeat pattern for FR-02, FR-03, ... FR-NN.
 Each FR needs at minimum:

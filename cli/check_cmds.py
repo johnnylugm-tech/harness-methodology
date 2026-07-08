@@ -321,6 +321,39 @@ def cmd_check_spec_alignment(args: _hc.argparse.Namespace) -> int:
     return 0
 
 
+def cmd_check_property_spec(args: _hc.argparse.Namespace) -> int:
+    """Lightweight property-declaration gate (Direction B).
+
+    Opt-in: only FRs that declare a `**Properties**` table in TEST_SPEC.md are
+    checked. Declared invariants are self-consistency-checked by the reused
+    red_assertion engine (a false invariant is a spec contradiction), and —
+    unless --no-require-execution — each property-declaring FR must have a
+    property-based test (hypothesis @given / fast-check) actually executing it.
+    Property *strength* is backed by the existing mutation_testing dimension,
+    not re-scored here. No new gate dimension, no per-FR mutation.
+    """
+    project = _hc.Path(args.project).resolve()
+    from core.quality_gate.property_check import check_property_spec
+
+    require = not getattr(args, "no_require_execution", False)
+    violations = check_property_spec(project, require_execution=require)
+    errors = [v for v in violations if v.severity == "error"]
+    reviews = [v for v in violations if v.severity == "info"]
+    for v in errors:
+        print(f"[FAIL] {v.rule_id} {v.check_type}: {v.message}")
+    for v in reviews:
+        print(f"[review] {v.rule_id}: {v.message}")
+    if errors:
+        print(f"\n[BLOCKED] property declarations: {len(errors)} issue(s) — a declared "
+              "invariant that is false for its case, or is never executed by a property "
+              "test, verifies nothing. Fix TEST_SPEC.md / add the hypothesis test.")
+        return 1
+    print("[check-property-spec] OK — declared property invariants consistent"
+          + (" and executed" if require else "")
+          + (f"; {len(reviews)} needs-review" if reviews else "") + ".")
+    return 0
+
+
 def cmd_check_test_mirrors_spec(args: _hc.argparse.Namespace) -> int:
     """P3 mirror gate — verify a RED test faithfully implements TEST_SPEC.md.
 
@@ -920,6 +953,19 @@ def register(sub) -> None:
     )
     csa.add_argument("--project", default=".", help="Project root (default: .)")
     csa.set_defaults(func=cmd_check_spec_alignment)
+
+    # check-property-spec (Direction B: opt-in property-declaration gate)
+    cps = sub.add_parser(
+        "check-property-spec",
+        help="Verify TEST_SPEC `**Properties**` invariants are self-consistent and "
+             "executed by a property-based test (hypothesis/fast-check); opt-in per FR",
+    )
+    cps.add_argument("--project", default=".", help="Project root (default: .)")
+    cps.add_argument("--no-require-execution", action="store_true",
+                     dest="no_require_execution",
+                     help="Check invariant self-consistency only (pre-P4 usage); do not "
+                          "require an executing property test yet")
+    cps.set_defaults(func=cmd_check_property_spec)
 
     # (check-test-inventory removed — deprecated since v2.6, it only
     #  delegated to spec-coverage-check. Use spec-coverage-check directly.)

@@ -683,6 +683,48 @@ class PhaseHooks:
             "divergences": [v.rule_id for v in errors],
         }
 
+    def preflight_property_spec(self) -> Dict[str, Any]:
+        """Opt-in property-declaration gate (Direction B, lightweight).
+
+        Only FRs that declare a TEST_SPEC `**Properties**` table are checked:
+        declared invariants must be self-consistent (reused red_assertion
+        engine), and from P4 — once tests exist — actually executed by a
+        property-based test (hypothesis / fast-check). Property *strength* is
+        backed by the existing mutation_testing dimension, not re-scored here.
+        Informational at P1; blocking from P2 (self-consistency) / P4
+        (execution). No declarations → skipped (opt-in, not a fake gate).
+        """
+        from core.quality_gate.property_check import check_property_spec
+        print("\n[PRE-FLIGHT] Property Declarations")
+        require_execution = self.phase is not None and self.phase >= 4
+        try:
+            violations = check_property_spec(
+                self._layout.root, require_execution=require_execution)
+        except Exception as e:  # noqa: BLE001 — fail-closed on scan error
+            print(f"   [BLOCKED] property-spec scan error: {e}")
+            return {"passed": False, "blocking": True, "error": str(e)}
+
+        if not violations:
+            print("   No property declarations, or all consistent + executed.")
+            return {"passed": True, "skipped": True}
+
+        errors = [v for v in violations if v.severity == "error"]
+        reviews = [v for v in violations if v.severity == "info"]
+        blocking = self.phase is not None and self.phase >= 2
+        passed = (len(errors) == 0) or (not blocking)
+        for v in errors:
+            print(f"   {v.rule_id} {v.check_type}: {v.message}")
+        if errors and blocking:
+            print(f"   [BLOCKED] Phase {self.phase}: {len(errors)} property issue(s)")
+        elif errors:
+            print(f"   INFO: {len(errors)} property issue(s); not blocking at "
+                  f"phase {self.phase}")
+        elif reviews:
+            print(f"   needs_review: {len(reviews)} invariant(s) not evaluable "
+                  "against cases")
+        return {"passed": passed, "blocking": blocking,
+                "errors": len(errors), "needs_review": len(reviews)}
+
     # Source dirs scanned by the reliability/config-liveness preflights —
     # same layout convention as the in-process scanners (lang_scanners).
     _SCAN_SRC_DIRS = ("03-development/src", "src")
@@ -1079,6 +1121,7 @@ class PhaseHooks:
             "traceability": self.preflight_traceability(),
             "fr_spec_consistency": self.preflight_fr_spec_consistency(),
             "spec_alignment": self.preflight_spec_alignment(),
+            "property_spec": self.preflight_property_spec(),
             "reliability_lint": self.preflight_reliability_lint(),
             "config_liveness": self.preflight_config_liveness(),
         }

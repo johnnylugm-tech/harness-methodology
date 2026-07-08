@@ -147,6 +147,49 @@ class TestSpecAlignmentProbes:
         assert "FR-09" in combined and "invent" in combined.lower(), combined[-2000:]
 
 
+class TestPropertyProbes:
+    """Direction B: opt-in property gate. Declaring an invariant obliges an
+    executing property test and a self-consistent predicate — both decidable,
+    so an agent cannot claim a property it never tested or that contradicts its
+    own example."""
+
+    @staticmethod
+    def _spec(tmp_path: Path, invariant: str) -> Path:
+        arch = tmp_path / "02-architecture"
+        arch.mkdir()
+        (arch / "TEST_SPEC.md").write_text(
+            "## Functional Requirement Test Cases\n\n"
+            "### FR-01: roundtrip\n\n"
+            "| # | Test Function | Inputs | Type | Derivation |\n"
+            "|---|---|---|---|---|\n"
+            '| 1 | `test_fr01_x` | source="abc" | happy_path | Q1 |\n\n'
+            "**Properties**:\n"
+            "| property_id | invariant | applies_to |\n"
+            "|---|---|---|\n"
+            f"| P1 | `{invariant}` | 1 |\n",
+            encoding="utf-8",
+        )
+        return tmp_path
+
+    def test_declared_but_unexecuted_property_blocks_cli(self, tmp_path):
+        """A property invariant with no hypothesis/fast-check test executing it
+        must block — declaring an invariant proves nothing on its own."""
+        sandbox = self._spec(tmp_path, "len(source) == 3")  # holds, but no test
+        result = _run(sandbox, "check-property-spec")
+        assert result.returncode != 0
+        combined = result.stdout + result.stderr
+        assert "property_not_executed" in combined, combined[-2000:]
+
+    def test_contradictory_invariant_blocks_cli(self, tmp_path):
+        """An invariant false for its own declared case is a spec contradiction
+        (reused red_assertion engine) — blocks regardless of any test."""
+        sandbox = self._spec(tmp_path, "len(source) == 5")  # false for "abc"
+        result = _run(sandbox, "check-property-spec", "--no-require-execution")
+        assert result.returncode != 0
+        combined = result.stdout + result.stderr
+        assert "FR-01" in combined and "BLOCK" in combined.upper(), combined[-2000:]
+
+
 class TestManifestProbes:
     def test_p6_truncated_manifest_with_fsm_evidence_blocks(self, tmp_path):
         """Pattern B: a manifest whose gate1 results were emptied while FSM
