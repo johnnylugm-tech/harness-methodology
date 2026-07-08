@@ -743,7 +743,7 @@ _PHASE_DELIVERABLE_DEPS: Dict[int, List[Dict]] = {
             "label": "TEST_SPEC.md",
             "desc": "Test Specification Catalog — named test cases from SRS (single source of truth, D4 unified check)",
             "depends_on": ["ADR.md"],
-            "task_hint": "Generate TEST_SPEC.md via derive_test_cases.md skill → preserve TEST_INVENTORY.yaml names where specified → apply Step 1b Architecture-Risk Triggers FIRST (scan SAD modules: shared mutable state → force NP-13; external process → force NP-15; network client/cache → force NP-07; forced cases go in tests/integration/ and are tagged SAD: in Pattern Activation table) → apply 8-Question Protocol per FR (Q1-Q8 + Step 2.5 Interface Contracts + Step 4 Infrastructure Wiring) → fill concrete Inputs + a Sub-assertion predicate table per FR → run check-test-spec-consistency → populate cross-cutting section. **v2.9.1 B.3**: parser expects `### FR-XX: ...` followed by table rows. A prose strategy doc with no table rows will FAIL the D4 spec-coverage check (no vacuous pass when FRs are defined) — re-run this skill if TEST_SPEC.md is wrong shape.",
+            "task_hint": "Generate TEST_SPEC.md via derive_test_cases.md skill → preserve TEST_INVENTORY.yaml names where specified → apply Step 1b Architecture-Risk Triggers FIRST (scan SAD modules: shared mutable state → force NP-13; external process → force NP-15; network client/cache → force NP-07; forced cases go in tests/integration/ and are tagged SAD: in Pattern Activation table) → apply 8-Question Protocol per FR (Q1-Q8 + Step 2.5 Interface Contracts + Step 4 Infrastructure Wiring) → fill concrete Inputs + a Sub-assertion predicate table per FR → run check-test-spec-consistency → populate cross-cutting section. **v2.9.1 B.3**: parser expects `### FR-XX: ...` followed by table rows. A prose strategy doc with no table rows will FAIL the D4 spec-coverage check (no vacuous pass when FRs are defined) — re-run this skill if TEST_SPEC.md is wrong shape. **Direction B (Properties)**: If an FR has algebraic invariants, declare a `**Properties**` table for it.",
             "checks": ["Every FR has ≥1 named test case (happy_path + validation mandatory)?",
                        "8-Question Protocol applied per FR (Q1-Q8 as applicable by classification, YAML names do NOT exempt missing categories)?",
                        "Classification assigned per FR (API_ENDPOINT|DATA_ENTITY|ALGORITHM|STATE_MACHINE|INTEGRATION|SECURITY_CONTROL|INFRASTRUCTURE)?",
@@ -752,6 +752,7 @@ _PHASE_DELIVERABLE_DEPS: Dict[int, List[Dict]] = {
                        "Every case has concrete Inputs in TRUE form (key=\"value\"), NOT pytest-id form (underscore-replaced)?",
                        "Sub-assertions table populated per FR (rule_id + predicate + applies_to referencing real case #s)?",
                        "Self-consistency gate passes? (python3 harness_cli.py check-test-spec-consistency --project .)",
+                       "Direction B property gate passes? (python3 harness_cli.py check-property-spec --project .)",
                        "Cross-cutting sections complete (NFR Integration + Deployment Smoke + Backward Compatibility if multi-phase)?",
                        "Summary table populated with counts per type?"],
             "embed_docs": ["01-requirements/SRS.md (APPROVED — full content)",
@@ -1371,6 +1372,8 @@ def _fr_dev_steps(fr_id: str, phase: int, project: Path) -> List[str]:
         "    Without these annotations compute_trace_dimension 4c = 0% and",
         "    Gate 2 blocks. NFR-99 placeholder is excluded (do not annotate).",
         "",
+        "  → **Property Tests (Direction B)**: If this FR has algebraic invariants (see `**Properties**` in `TEST_SPEC.md`),",
+        "    the sub-agent MUST implement an executing property test (e.g., `@given` from `hypothesis` or `fast-check`).",
         "- **[P3-MIRROR]** Verify the RED test mirrors TEST_SPEC.md "
         "(P3 only implements — correctness was locked in P2; on FAIL fix the TEST, not TEST_SPEC):",
         "  ```bash",
@@ -1405,6 +1408,8 @@ def _fr_dev_steps(fr_id: str, phase: int, project: Path) -> List[str]:
         "  → GATE1 FAIL: auto-dispatches CODE-FIX sub-agent → retries (max 3 rounds)",
         "  → exit 2 = BLOCKED: human intervention required before continuing",
         f"  → Human fix → re-run `run-fr-step --step GATE1 --fr-id {fr_id}` → exit 0 required before continuing.",
+        "  → **Manual Lessons (Direction C)**: If you manually resolve a bug, you MAY record it:",
+        "    `python3 -c \"from core.lessons import Lesson, record_lesson; from pathlib import Path; record_lesson(Path('.'), Lesson('failure', 'fix', 'manual'))\"`",
         "",
         "- **[ORCH-POST]** After GATE1 PASS — orchestrator runs directly:",
         "  ```bash",
@@ -1626,7 +1631,8 @@ def _dynamic_phase_context_block(phase: int, has_fr_template: bool = True) -> Li
         f"python3 harness_cli.py load-context --phase {phase} --project . --json \\",
         f"  > .sessi-work/phase{phase}_ctx.json",
         "```",
-        "> Outputs `fr_ids`, `fr_details`, `modules` from current project state.",
+        "> Outputs `fr_ids`, `fr_details`, `modules`, and `lessons` from current project state.",
+        "> **IMPORTANT (Direction C)**: Please carefully review the `lessons` (past failure modes) and DO NOT repeat them.",
     ]
     if has_fr_template:
         result.append("> All `{FR-ID}` references in tasks below come from this file.")
@@ -2879,6 +2885,13 @@ def generate_phase6_tasks(repo_path: Path, dynamic: bool = False, gate_meta: "di
 
     lines.extend(_gate_exit_checkpoint(gate_num=4, phase=6, gate_meta=gate_meta))
 
+    lines.append("### Post-Gate 4 Git Tagging")
+    lines.append("- After Gate 4 PASS, generate the annotated git tag with composite scores:")
+    lines.append("  ```bash")
+    lines.append("  python3 harness_cli.py gate4-tag --project .")
+    lines.append("  ```")
+    lines.append("  → Verify: `git tag -l -n9` shows the new `gate4-pass-*` tag.")
+    lines.append("")
     lines.append("### Phase 6 Deliverables")
     lines.append("- Gate 4 PASS (composite ≥ 85, all 15 dims, CRG recon done)")
     lines.append("- `06-quality/QUALITY_REPORT.md` - Quality report (auto-generated by Gate 4)")
