@@ -2854,6 +2854,53 @@ class TestRunFrStep:
         f.write_text("# [FR-01]")
         assert harness_cli._fr_step_already_done("TDD-GREEN", "FR-01", tmp_path)
 
+    def test_gate1_already_done_uses_quality_complete_not_overall_score(self, tmp_path, monkeypatch):
+        """_fr_step_already_done("GATE1", ...) must key off the manifest's
+        quality_complete verdict, not a same-ballpark-by-coincidence
+        comparison of overall_score against quality_targets.min_coverage.
+
+        Repro (2026-07-08 P3 run): FR-01 overall_score=80.28 (weighted
+        composite of linting/type_safety/test_coverage) happened to clear
+        min_coverage=80 (a coverage-percentage threshold, different unit),
+        so the old code treated GATE1 as already-done and skipped
+        re-evaluation even though quality_complete was False (test_coverage
+        dimension score=42 < its own 80 threshold).
+        """
+        import harness_cli
+        import subprocess as _sp
+
+        class _FakeResult:
+            returncode = 0
+            stdout = "feat(FR-01): Gate1 PASS"
+
+        monkeypatch.setattr(_sp, "run", lambda *_, **__: _FakeResult())
+
+        manifest_dir = tmp_path / ".methodology"
+        manifest_dir.mkdir(parents=True, exist_ok=True)
+        manifest_path = manifest_dir / "quality_manifest.json"
+
+        # overall_score clears min_coverage numerically, but quality_complete
+        # is False (a dimension-level threshold — test_coverage — failed).
+        manifest_path.write_text(json.dumps({
+            "quality_targets": {"min_coverage": 80.0},
+            "gate_results": {"gate1": {"FR-01": {
+                "score": 80.28, "quality_complete": False,
+            }}},
+        }))
+        assert not harness_cli._fr_step_already_done("GATE1", "FR-01", tmp_path), (
+            "quality_complete=False must force re-evaluation regardless of "
+            "how overall_score compares to min_coverage"
+        )
+
+        # quality_complete True → safe to skip.
+        manifest_path.write_text(json.dumps({
+            "quality_targets": {"min_coverage": 80.0},
+            "gate_results": {"gate1": {"FR-01": {
+                "score": 97.62, "quality_complete": True,
+            }}},
+        }))
+        assert harness_cli._fr_step_already_done("GATE1", "FR-01", tmp_path)
+
     def test_run_fr_step_handles_git_push_failure_as_fatal(self, tmp_path, monkeypatch, capsys):
         """cmd_run_fr_step prints an error and returns 1 when git push fails (fatal check-recovery)."""
         import sys

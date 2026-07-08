@@ -4761,23 +4761,27 @@ def _fr_step_already_done(step: str, fr_id: str, project: Path) -> bool:
         return False
 
     # GATE1 / GATE1-DELTA: commit pattern alone is insufficient — a "Gate1 PASS"
-    # commit may have been written with a fabricated or sub-threshold score (e.g.
-    # 0.0 or 66.0). Verify the recorded score actually meets the project threshold
-    # before treating this step as done. Threshold is read from quality_targets
-    # (min_coverage in quality_manifest.json) with 80.0 as the fallback default.
+    # commit may have been written with a fabricated or sub-threshold score.
+    # Verify the manifest's own quality_complete verdict — the single source
+    # of truth for "did this FR actually pass" (see ssi/scripts/score.py:
+    # quality_complete = meets_score_gate AND open_critical==0 AND open_high==0)
+    # — before treating this step as done. Comparing overall_score against
+    # quality_targets.min_coverage (as this used to do) compares two
+    # differently-scaled numbers: overall_score is a weighted composite of
+    # linting/type_safety/test_coverage, min_coverage is a coverage-percentage
+    # threshold. They can clear each other by coincidence (e.g. overall_score
+    # 80.28 vs min_coverage 80) while the real per-dimension gate (test_coverage
+    # scoring 42) still fails, silently skipping re-evaluation forever.
     if step.upper() in ("GATE1", "GATE1-DELTA"):
         _manifest_path = project / ".methodology" / "quality_manifest.json"
         try:
             _manifest = json.loads(_manifest_path.read_text(encoding="utf-8"))
-            _threshold = float(
-                _manifest.get("quality_targets", {}).get("min_coverage", 80.0)
-            )
-            _score = float(
+            _qc = (
                 _manifest.get("gate_results", {})
-                .get("gate1", {}).get(fr_id, {}).get("score", 0.0)
+                .get("gate1", {}).get(fr_id, {}).get("quality_complete")
             )
-            if _score < _threshold:
-                return False   # commit exists but score below threshold → re-run
+            if _qc is not True:
+                return False   # commit exists but quality_complete not True → re-run
         except (OSError, json.JSONDecodeError, ValueError, AttributeError):
             return False       # manifest unreadable → re-run to be safe
 
