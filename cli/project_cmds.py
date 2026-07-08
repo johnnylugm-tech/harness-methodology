@@ -613,7 +613,7 @@ def cmd_load_context(args: _hc.argparse.Namespace) -> int:
                     _spec_rel = _m_inline.group(1).strip()
                 else:
                     _m_heading = _re.search(
-                        r"^##\s*canonical_spec\s*$\n([^\n]+)",
+                        r"^##\s*canonical_spec\s*$\n+(\S+)",
                         _brief_text,
                         _re.MULTILINE,
                     )
