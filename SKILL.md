@@ -349,6 +349,8 @@ Agent B (REVIEWER / architect)
 | P1 | REQUIREMENTS_ENGINEER | BUSINESS_ANALYST | Draft SRS.md with `### FR-XX:` sections | Review SRS.md against business goals; verify FR-ID traceability |
 | P2 | ARCHITECT | TECH_LEAD | Design SAD.md; write ADR.md; generate TEST_SPEC.md via `derive_test_cases.md` skill | Review SAD.md, ADR.md, and TEST_SPEC.md for completeness, coverage, and SRS alignment |
 
+> **P1 ingestion machine-backstop**: when `PROJECT_BRIEF.md` declares a `canonical_spec`, the LLM A/B review is backstopped by a decidable gate — `python harness_cli.py check-spec-alignment --project .`. It fails if any canonical `### FR-NN` is dropped from SRS.md or any SRS FR is invented (no canonical counterpart), mechanically enforcing the R-CANONICAL-INTERP-001 "100% transcribe" rule that A/B otherwise uphold by hand. It runs inside every `run-phase` pre-flight (informational at P1, blocking from P2). Elicitation mode (no canonical_spec) has no ground truth → N/A.
+
 > Phase 3-5, 7-8 不再使用 A/B 協作，改以自動化 Phase End Audit 替代（見 §0.4 完成檢查表）。
 >
 > **P6 Gate 4 注意**：Phase 6 (Gate 4) 重新引入 Agent B 審查機制，確保所有發布文件與品質數據（包含 `QUALITY_REPORT.md`, `RELEASE_NOTES.md`, `FINAL_SIGN_OFF.md`, 與 `quality_manifest.json`）經過交叉核實。

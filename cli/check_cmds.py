@@ -282,6 +282,45 @@ def cmd_check_test_spec_consistency(args: _hc.argparse.Namespace) -> int:
     return 0
 
 
+def cmd_check_spec_alignment(args: _hc.argparse.Namespace) -> int:
+    """Front-edge gate — prove SRS.md faithfully covers the canonical_spec (PRD).
+
+    The one boundary nothing else machine-checks: canonical_spec → SRS. In
+    INGESTION MODE (PROJECT_BRIEF.md declares canonical_spec) every canonical FR
+    must appear in SRS.md and every SRS FR must trace back — a dropped or
+    invented requirement FAILS, before P2 builds the wrong target. Elicitation
+    mode (no canonical_spec) has no ground truth and is reported N/A. This
+    mechanically enforces the ingestion prompt rule R-CANONICAL-INTERP-001 that
+    today only Agent A/B (LLM) uphold. Distinct from check-test-spec-consistency
+    (TEST_SPEC self-consistency) and preflight_fr_spec_consistency (SAD↔SPEC).
+    """
+    project = _hc.Path(args.project).resolve()
+    from core.quality_gate.spec_alignment import (
+        check_spec_alignment,
+        resolve_canonical_spec,
+    )
+
+    if resolve_canonical_spec(project) is None:
+        print("[check-spec-alignment] Elicitation mode (no canonical_spec declared) — N/A.")
+        return 0
+
+    violations = check_spec_alignment(project)
+    errors = [v for v in violations if v.severity == "error"]
+    reviews = [v for v in violations if v.severity == "info"]
+    for v in errors:
+        print(f"[FAIL] {v.rule_id} {v.check_type}: {v.message}")
+    for v in reviews:
+        print(f"[review] {v.rule_id}: {v.message}")
+    if errors:
+        print(f"\n[BLOCKED] canonical_spec ↔ SRS: {len(errors)} divergence(s) — "
+              "fix SRS.md (P1) before P2. A dropped/invented requirement means the "
+              "build target no longer matches the PRD.")
+        return 1
+    print("[check-spec-alignment] OK — SRS.md covers canonical_spec"
+          + (f"; {len(reviews)} needs-review (Agent B sign-off)" if reviews else "") + ".")
+    return 0
+
+
 def cmd_check_test_mirrors_spec(args: _hc.argparse.Namespace) -> int:
     """P3 mirror gate — verify a RED test faithfully implements TEST_SPEC.md.
 
@@ -872,6 +911,15 @@ def register(sub) -> None:
     ctms.add_argument("--fr-id", dest="fr_id", required=True, help="FR id (e.g. FR-01)")
     ctms.add_argument("--test-file", dest="test_files", nargs="+", required=True, help="Path(s) to the RED test file(s); accepts one or more paths to support per-FR splits like test_fr01_inputs.py + test_fr01_edge.py")
     ctms.set_defaults(func=cmd_check_test_mirrors_spec)
+
+    # check-spec-alignment (P1: canonical_spec ↔ SRS front-edge coverage gate)
+    csa = sub.add_parser(
+        "check-spec-alignment",
+        help="P1: prove SRS.md covers the canonical_spec (no dropped/invented FR); "
+             "ingestion-mode only, N/A under elicitation",
+    )
+    csa.add_argument("--project", default=".", help="Project root (default: .)")
+    csa.set_defaults(func=cmd_check_spec_alignment)
 
     # (check-test-inventory removed — deprecated since v2.6, it only
     #  delegated to spec-coverage-check. Use spec-coverage-check directly.)

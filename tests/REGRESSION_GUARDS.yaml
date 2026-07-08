@@ -69,3 +69,7 @@
 - test: tests/test_handover_generator.py::TestCmdPushMilestone::test_p5_baseline_without_gate3_evidence_blocks
   bug: "E2E round 2 C-1/C-2: push-milestone p5-baseline/p7/p8 committed and pushed with no entry-gate evidence (unfixed since 2026-06-17; caught live by adversarial probe P3)"
   fixed_in: "502fd3c"
+
+- test: tests/test_spec_alignment.py::test_spec_alignment_is_wired_into_preflight_all
+  bug: "Direction A front-edge gate: preflight_spec_alignment (canonical_spec↔SRS coverage) must stay composed into _do_preflight_all — silent removal (as constitution's 2 call sites were cut) would let dropped/invented requirements pass into P2 undetected"
+  fixed_in: "Direction A (spec-alignment front-edge gate)"

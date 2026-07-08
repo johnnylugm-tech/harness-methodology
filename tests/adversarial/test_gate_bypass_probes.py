@@ -112,6 +112,41 @@ class TestMutationProbes:
             _count_mutmut_results(cache)
 
 
+class TestSpecAlignmentProbes:
+    """Direction A: canonical_spec (PRD) → SRS front-edge gate. A dropped or
+    invented requirement is decidable (no LLM), so an agent cannot make it pass
+    without actually reconciling SRS.md with the canonical source."""
+
+    @staticmethod
+    def _ingestion(tmp_path: Path, srs_body: str) -> Path:
+        (tmp_path / "PROJECT_BRIEF.md").write_text(
+            "canonical_spec: SPEC.md\n", encoding="utf-8")
+        (tmp_path / "SPEC.md").write_text(
+            "### FR-01: login\n### FR-02: logout\n", encoding="utf-8")
+        req = tmp_path / "01-requirements"
+        req.mkdir()
+        (req / "SRS.md").write_text(srs_body, encoding="utf-8")
+        return tmp_path
+
+    def test_dropped_requirement_blocks_cli(self, tmp_path):
+        """SRS omits canonical FR-02 → check-spec-alignment must exit non-zero
+        naming the dropped requirement (build target no longer matches PRD)."""
+        sandbox = self._ingestion(tmp_path, "### FR-01: login\n")
+        result = _run(sandbox, "check-spec-alignment")
+        assert result.returncode != 0
+        combined = result.stdout + result.stderr
+        assert "FR-02" in combined and "dropped" in combined.lower(), combined[-2000:]
+
+    def test_invented_requirement_blocks_cli(self, tmp_path):
+        """SRS adds FR-09 with no canonical counterpart → must block."""
+        sandbox = self._ingestion(
+            tmp_path, "### FR-01: login\n### FR-02: logout\n### FR-09: telepathy\n")
+        result = _run(sandbox, "check-spec-alignment")
+        assert result.returncode != 0
+        combined = result.stdout + result.stderr
+        assert "FR-09" in combined and "invent" in combined.lower(), combined[-2000:]
+
+
 class TestManifestProbes:
     def test_p6_truncated_manifest_with_fsm_evidence_blocks(self, tmp_path):
         """Pattern B: a manifest whose gate1 results were emptied while FSM

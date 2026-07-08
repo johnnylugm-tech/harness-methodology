@@ -628,6 +628,61 @@ class PhaseHooks:
             "orphan_count": orphans,
         }
 
+    def preflight_spec_alignment(self) -> Dict[str, Any]:
+        """Front-edge gate: canonical_spec (PRD) ↔ SRS.md FR-set coverage.
+
+        Ingestion mode only (PROJECT_BRIEF.md declares canonical_spec). Catches
+        requirements dropped from — or invented beyond — the canonical source,
+        the one boundary neither `preflight_traceability` (SRS/SAD → downstream)
+        nor `preflight_fr_spec_consistency` (SAD ↔ TEST_SPEC) checks. It
+        mechanically enforces the ingestion prompt rule R-CANONICAL-INTERP-001
+        that today only Agent A/B (LLM) uphold. Informational while P1 is still
+        being authored (phase < 2); blocking from P2 entry. Elicitation mode has
+        no ground truth → skipped (not a fake gate — genuinely N/A).
+        """
+        from core.quality_gate.spec_alignment import (
+            check_spec_alignment,
+            resolve_canonical_spec,
+        )
+        print("\n[PRE-FLIGHT] Spec Alignment (canonical_spec ↔ SRS)")
+        project = self._layout.root
+        if resolve_canonical_spec(project) is None:
+            print("   Skipped: elicitation mode (no canonical_spec declared).")
+            return {"passed": True, "skipped": True, "reason": "elicitation mode"}
+
+        try:
+            violations = check_spec_alignment(project)
+        except Exception as e:  # noqa: BLE001 — fail-closed on any scan error
+            print(f"   [BLOCKED] spec-alignment scan error: {e}")
+            return {"passed": False, "blocking": True, "error": str(e)}
+
+        errors = [v for v in violations if v.severity == "error"]
+        reviews = [v for v in violations if v.severity == "info"]
+        blocking = self.phase is not None and self.phase >= 2
+        passed = (len(errors) == 0) or (not blocking)
+
+        if errors:
+            for v in errors:
+                print(f"   {v.rule_id} {v.check_type}: {v.message}")
+            if blocking:
+                print(f"   [BLOCKED] Phase {self.phase}: {len(errors)} "
+                      "canonical↔SRS divergence(s) — fix SRS.md before P2")
+            else:
+                print(f"   INFO: {len(errors)} divergence(s); not blocking at "
+                      f"phase {self.phase}")
+        elif reviews:
+            print(f"   needs_review: {reviews[0].message}")
+        else:
+            print("   SRS.md covers canonical_spec")
+
+        return {
+            "passed": passed,
+            "blocking": blocking,
+            "errors": len(errors),
+            "needs_review": len(reviews),
+            "divergences": [v.rule_id for v in errors],
+        }
+
     # Source dirs scanned by the reliability/config-liveness preflights —
     # same layout convention as the in-process scanners (lang_scanners).
     _SCAN_SRC_DIRS = ("03-development/src", "src")
@@ -1023,6 +1078,7 @@ class PhaseHooks:
             "tool_registry": self.preflight_tool_registry(),
             "traceability": self.preflight_traceability(),
             "fr_spec_consistency": self.preflight_fr_spec_consistency(),
+            "spec_alignment": self.preflight_spec_alignment(),
             "reliability_lint": self.preflight_reliability_lint(),
             "config_liveness": self.preflight_config_liveness(),
         }
