@@ -23,6 +23,7 @@ if str(_HARNESS_ROOT) not in sys.path:
     sys.path.insert(0, str(_HARNESS_ROOT))
 
 from core.utils.project_layout import ProjectLayout  # noqa: E402
+from core.quality_gate.sab_amender import normalize_sab_module_to_dotted  # noqa: E402
 
 
 def _import_extract_sab_from_sad():
@@ -175,6 +176,21 @@ def main():
     if sab_spec is None:
         print(f"Failed to parse {sad_file} - no SAB block found", file=sys.stderr)
         return 1
+
+    # Drop __init__.py-sourced entries: `_check_sab_module_alignment`
+    # (harness_cli.py) and `discover_modules()` (sab_amender.py) both
+    # deliberately exclude __init__.py from their on-disk module scan
+    # ("package marker, not a module" — the same convention everywhere
+    # else). A SAD.md table row for __init__.py (e.g. `M-INIT`) copied
+    # verbatim into a SAB layer's `modules` list creates a phantom that
+    # can NEVER resolve — the scanner will never find it regardless of
+    # whether the file exists. Filter it out here so SAB.json never
+    # disagrees with the convention its own consumers enforce.
+    for layer in sab_spec.layers:
+        layer["modules"] = [
+            m for m in layer.get("modules", [])
+            if (normalize_sab_module_to_dotted(m) or "").rsplit(".", 1)[-1] != "__init__"
+        ]
 
     # Normalize module paths: if SAD declares src/X.py but the actual file lives
     # at 03-development/src/X.py (project uses 03-development/ layout with a src

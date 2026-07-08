@@ -98,3 +98,42 @@ class TestGenerateSabGenerate:
         result = _run_cli("--project", str(tmp_path))
         assert result.returncode == 1
         assert "SAD.md not found" in result.stderr
+
+
+class TestGenerateSabDropsInitModules:
+    """__init__.py-sourced entries can never resolve: `_check_sab_module_alignment`
+    (harness_cli.py) and `discover_modules()` (sab_amender.py) both exclude
+    __init__.py from their on-disk scan by convention, so a SAB layer that
+    still lists one is a permanent, unresolvable phantom. generate_sab.py
+    must drop these at generation time regardless of what SAD.md's SAB block
+    literally lists."""
+
+    def test_dotted_init_entry_is_dropped(self, tmp_path):
+        _write_sad(tmp_path, _VALID_SAB.replace(
+            'modules: ["app.api"]', 'modules: ["app.api", "app.__init__"]'
+        ))
+        result = _run_cli("--project", str(tmp_path))
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        data = json.loads((tmp_path / ".methodology" / "SAB.json").read_text())
+        assert data["layers"][0]["modules"] == ["app.api"]
+
+    def test_path_form_init_entry_is_dropped(self, tmp_path):
+        _write_sad(tmp_path, _VALID_SAB.replace(
+            'modules: ["app.api"]', 'modules: ["app.api", "app/__init__.py"]'
+        ))
+        result = _run_cli("--project", str(tmp_path))
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        data = json.loads((tmp_path / ".methodology" / "SAB.json").read_text())
+        assert data["layers"][0]["modules"] == ["app.api"]
+
+    def test_non_init_modules_survive_the_filter(self, tmp_path):
+        """Sanity check: the filter targets __init__ specifically, not
+        every module — a module merely containing "init" as a substring
+        (e.g. app.initializer) must not be dropped."""
+        _write_sad(tmp_path, _VALID_SAB.replace(
+            'modules: ["app.api"]', 'modules: ["app.api", "app.initializer"]'
+        ))
+        result = _run_cli("--project", str(tmp_path))
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        data = json.loads((tmp_path / ".methodology" / "SAB.json").read_text())
+        assert data["layers"][0]["modules"] == ["app.api", "app.initializer"]
