@@ -119,6 +119,28 @@ def test_missing_srs_blocks_in_ingestion(tmp_path: Path) -> None:
     assert any(v.severity == "error" for v in vs)
 
 
+def test_heading_form_with_trailing_metadata(tmp_path: Path) -> None:
+    # PROJECT_BRIEF heading form with a version annotation after the path
+    # (e.g. "SPEC.md (v3.0.0, 2026-07-04, 5 FR / 6 NFR / 8 env vars)") must
+    # capture only the path token — not the whole line — so the alignment
+    # gate can still locate SPEC.md.
+    _write(
+        tmp_path / "PROJECT_BRIEF.md",
+        "## canonical_spec\nSPEC.md (v3.0.0, 2026-07-04, 5 FR / 6 NFR / 8 env vars)\n",
+    )
+    _write(tmp_path / "SPEC.md", _CANON_3)
+    _write(ProjectLayout(tmp_path).srs_path, _CANON_3)
+    assert check_spec_alignment(tmp_path) == []
+
+
+def test_heading_form_clean(tmp_path: Path) -> None:
+    # Plain heading form (no trailing metadata) must still resolve cleanly.
+    _write(tmp_path / "PROJECT_BRIEF.md", "## canonical_spec\nSPEC.md\n")
+    _write(tmp_path / "SPEC.md", _CANON_3)
+    _write(ProjectLayout(tmp_path).srs_path, _CANON_3)
+    assert check_spec_alignment(tmp_path) == []
+
+
 def test_zero_pad_normalisation(tmp_path: Path) -> None:
     # canonical FR-1 vs SRS FR-01 must be treated as the same requirement.
     proj = _project(

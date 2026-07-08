@@ -41,8 +41,14 @@ _FR_DEFERRED = re.compile(r"FR-(\d+)-deferred\b")
 # canonical_spec declaration in PROJECT_BRIEF.md — two accepted layouts, same
 # as the P1 fallback in cli/project_cmds.py (kept in sync; ~4 lines, replicated
 # rather than shared to avoid a cli→core import edge).
+#
+# Both forms capture the path token only (\S+) so trailing metadata like
+# `SPEC.md (v3.0.0, 2026-07-04, 5 FR / 6 NFR / 8 env vars)` is stripped
+# rather than treated as part of the file path. Without this the heading
+# form regressed silently when PROJECT_BRIEF.md added a version annotation
+# after the path (see test_heading_form_with_trailing_metadata).
 _CANON_INLINE = re.compile(r"^\s*canonical_spec\s*:\s*(\S+)\s*$", re.MULTILINE)
-_CANON_HEADING = re.compile(r"^##\s*canonical_spec\s*$\n([^\n]+)", re.MULTILINE)
+_CANON_HEADING = re.compile(r"^##\s*canonical_spec\s*$\n+(\S+)", re.MULTILINE)
 
 
 def _fid(num: str) -> str:
