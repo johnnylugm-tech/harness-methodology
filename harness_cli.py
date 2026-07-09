@@ -4520,7 +4520,18 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
     # live build_traceability scan — never a gate input. Refresh them here so a
     # phase advance can't leave a stale/hand-mocked matrix; staged only if
     # changed (same no-op guard as STAGE_PASS).
-    _regen_traceability_views(project)
+    #
+    # Gated to completed_phase >= 3: at P1/P2, 01-requirements/TRACEABILITY_MATRIX.md
+    # is the legal_artifacts.py SSOT's peer-reviewed P1 deliverable (phase1_plan.md
+    # Sub-Task 3/4), not yet a "render-only view" — no code exists yet for
+    # build_traceability to scan, so the regen silently replaced the approved
+    # deliverable with an all-zero empty scaffold (Total Requirements: 0, every
+    # SWE.3 practice FAIL) on every single P1->P2 advance. The "stale/hand-mocked
+    # matrix" drift this regen guards against is a post-implementation concern
+    # (matches the completed_phase >= 3 threshold already used above for
+    # PhaseTruthVerifier, the first point real code exists to scan).
+    if completed_phase >= 3:
+        _regen_traceability_views(project)
 
     # ── Next-phase plan: must exist before advancing (Phase 3–7) ────
     # Prevents "advance first, plan later" ordering bugs. generate-next-plan
