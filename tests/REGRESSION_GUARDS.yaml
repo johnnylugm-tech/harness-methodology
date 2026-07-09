@@ -93,3 +93,7 @@
 - test: tests/test_spec_tracking_render.py::test_spec_tracking_wired_into_view_regen
   bug: "SSOT view閉環: write_spec_tracking Status refresh must stay wired into the view regen — else SPEC_TRACKING Status stops reflecting the real build_traceability scan"
   fixed_in: "SSOT view-regen 閉環 (render-from-scan, not write-back)"
+
+- test: tests/test_artifact_consistency.py::test_artifact_consistency_is_wired_into_preflight_all
+  bug: "P1/P2 audit gate: preflight_artifact_consistency must stay composed into _do_preflight_all — else invented forward-ref filenames (ARCHITECTURE.md) and NFRs dropped from ADR's traceability table stop being caught"
+  fixed_in: "artifact_consistency gate (audit issues 2/3)"

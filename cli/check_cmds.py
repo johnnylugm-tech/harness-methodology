@@ -354,6 +354,38 @@ def cmd_check_property_spec(args: _hc.argparse.Namespace) -> int:
     return 0
 
 
+def cmd_check_artifact_consistency(args: _hc.argparse.Namespace) -> int:
+    """P2/P3 gate — machine-catch two P1/P2 artifact hallucinations (audit fix).
+
+    check_forward_refs: a `NN-stage/FILE.md` reference must name a real framework
+    deliverable (catches 02-architecture/ARCHITECTURE.md when the P2 deliverable
+    is SAD.md). check_nfr_adr_coverage: every SRS NFR must appear in ADR.md's
+    traceability TABLE (catches an NFR dropped from the table). Both decidable,
+    no LLM. NFR coverage is only meaningful once ADR.md exists (P3+).
+    """
+    project = _hc.Path(args.project).resolve()
+    from core.quality_gate.artifact_consistency import (
+        check_forward_refs,
+        check_nfr_adr_coverage,
+    )
+
+    violations = check_forward_refs(project) + check_nfr_adr_coverage(project)
+    errors = [v for v in violations if v.severity == "error"]
+    reviews = [v for v in violations if v.severity == "info"]
+    for v in errors:
+        print(f"[FAIL] {v.rule_id} {v.check_type}: {v.message}")
+    for v in reviews:
+        print(f"[review] {v.rule_id}: {v.message}")
+    if errors:
+        print(f"\n[BLOCKED] artifact consistency: {len(errors)} issue(s) — an invented "
+              "filename (404s downstream automation) or an NFR missing from ADR's "
+              "traceability table. Fix the P1/P2 artifact.")
+        return 1
+    print("[check-artifact-consistency] OK"
+          + (f"; {len(reviews)} needs-review" if reviews else "") + ".")
+    return 0
+
+
 def cmd_check_test_mirrors_spec(args: _hc.argparse.Namespace) -> int:
     """P3 mirror gate — verify a RED test faithfully implements TEST_SPEC.md.
 
@@ -966,6 +998,15 @@ def register(sub) -> None:
                      help="Check invariant self-consistency only (pre-P4 usage); do not "
                           "require an executing property test yet")
     cps.set_defaults(func=cmd_check_property_spec)
+
+    # check-artifact-consistency (P2/P3: forward-ref legality + NFR→ADR coverage)
+    aci = sub.add_parser(
+        "check-artifact-consistency",
+        help="P2/P3: catch invented forward-reference filenames (ARCHITECTURE.md vs "
+             "SAD.md) and NFRs dropped from ADR.md's traceability table",
+    )
+    aci.add_argument("--project", default=".", help="Project root (default: .)")
+    aci.set_defaults(func=cmd_check_artifact_consistency)
 
     # (check-test-inventory removed — deprecated since v2.6, it only
     #  delegated to spec-coverage-check. Use spec-coverage-check directly.)

@@ -357,6 +357,8 @@ Agent B (REVIEWER / architect)
 
 > **Traceability views are render-only (auto-refreshed)**: `TRACEABILITY_MATRIX.md` and `SPEC_TRACKING.md`'s Status column are NOT authoritative — the authoritative FR status is `build_traceability`'s live code/test scan (what the gate `traceability` dimension uses) and `quality_manifest.json`. `advance-phase` re-renders both from that scan (TRACEABILITY_MATRIX via `generate_markdown_matrix`; SPEC_TRACKING via in-place Status refresh), staging each only if changed. Never hand-edit the Status column / AUTO-GEN block — it is overwritten on the next advance; put manual traceability rows in `TRACEABILITY_MATRIX.overlay.yaml` and semantic SPEC_TRACKING columns in the table body.
 
+> **Artifact-consistency gate (P2/P3, auto)**: `python harness_cli.py check-artifact-consistency` (also in `run-phase` pre-flight) machine-catches two agent hallucinations: (a) a forward-reference to an invented filename — every `NN-stage/FILE.md` reference in a P1/P2 artifact must name a real deliverable (e.g. the P2 architecture doc is `SAD.md`, never `ARCHITECTURE.md`), blocking from P2; (b) an SRS NFR dropped from ADR.md's traceability *table* (a prose mention does not count), blocking from P3. Decidable, no LLM.
+
 > Phase 3-5, 7-8 不再使用 A/B 協作，改以自動化 Phase End Audit 替代（見 §0.4 完成檢查表）。
 >
 > **P6 Gate 4 注意**：Phase 6 (Gate 4) 重新引入 Agent B 審查機制，確保所有發布文件與品質數據（包含 `QUALITY_REPORT.md`, `RELEASE_NOTES.md`, `FINAL_SIGN_OFF.md`, 與 `quality_manifest.json`）經過交叉核實。

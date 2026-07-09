@@ -725,6 +725,46 @@ class PhaseHooks:
         return {"passed": passed, "blocking": blocking,
                 "errors": len(errors), "needs_review": len(reviews)}
 
+    def preflight_artifact_consistency(self) -> Dict[str, Any]:
+        """Machine-catch two P1/P2 artifact hallucinations (audit fix): an
+        invented forward-reference filename (02-architecture/ARCHITECTURE.md when
+        the P2 deliverable is SAD.md) and an NFR dropped from ADR.md's
+        traceability table. Decidable, no LLM. forward-refs block from P2 (P1
+        artifacts fixed); NFR→ADR coverage runs from P3 (ADR.md exists after P2).
+        Informational at P1; fail-closed on scan error.
+        """
+        from core.quality_gate.artifact_consistency import (
+            check_forward_refs,
+            check_nfr_adr_coverage,
+        )
+        print("\n[PRE-FLIGHT] Artifact Consistency")
+        try:
+            violations = check_forward_refs(self._layout.root)
+            if self.phase is not None and self.phase >= 3:
+                violations = violations + check_nfr_adr_coverage(self._layout.root)
+        except Exception as e:  # noqa: BLE001 — fail-closed on scan error
+            print(f"   [BLOCKED] artifact-consistency scan error: {e}")
+            return {"passed": False, "blocking": True, "error": str(e)}
+
+        errors = [v for v in violations if v.severity == "error"]
+        reviews = [v for v in violations if v.severity == "info"]
+        blocking = self.phase is not None and self.phase >= 2
+        passed = (len(errors) == 0) or (not blocking)
+        if errors:
+            for v in errors:
+                print(f"   {v.rule_id} {v.check_type}: {v.message}")
+            if blocking:
+                print(f"   [BLOCKED] Phase {self.phase}: {len(errors)} artifact issue(s)")
+            else:
+                print(f"   INFO: {len(errors)} artifact issue(s); not blocking at "
+                      f"phase {self.phase}")
+        elif reviews:
+            print(f"   needs_review: {reviews[0].message}")
+        else:
+            print("   P1/P2 artifact references + NFR→ADR coverage consistent")
+        return {"passed": passed, "blocking": blocking,
+                "errors": len(errors), "needs_review": len(reviews)}
+
     # Source dirs scanned by the reliability/config-liveness preflights —
     # same layout convention as the in-process scanners (lang_scanners).
     _SCAN_SRC_DIRS = ("03-development/src", "src")
@@ -1122,6 +1162,7 @@ class PhaseHooks:
             "fr_spec_consistency": self.preflight_fr_spec_consistency(),
             "spec_alignment": self.preflight_spec_alignment(),
             "property_spec": self.preflight_property_spec(),
+            "artifact_consistency": self.preflight_artifact_consistency(),
             "reliability_lint": self.preflight_reliability_lint(),
             "config_liveness": self.preflight_config_liveness(),
         }

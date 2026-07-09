@@ -190,6 +190,40 @@ class TestPropertyProbes:
         assert "FR-01" in combined and "BLOCK" in combined.upper(), combined[-2000:]
 
 
+class TestArtifactConsistencyProbes:
+    """Audit issues 2 & 3: both are decidable, so an agent cannot ship an
+    invented forward-reference filename or an NFR dropped from ADR's table and
+    have the real CLI pass."""
+
+    def test_illegal_forward_ref_blocks_cli(self, tmp_path):
+        """A P1 artifact referencing 02-architecture/ARCHITECTURE.md (real
+        deliverable: SAD.md) must block — it 404s downstream automation."""
+        req = tmp_path / "01-requirements"
+        req.mkdir()
+        (req / "TRACEABILITY_MATRIX.md").write_text(
+            "Architecture doc: `./02-architecture/ARCHITECTURE.md`\n", encoding="utf-8")
+        result = _run(tmp_path, "check-artifact-consistency")
+        assert result.returncode != 0
+        combined = result.stdout + result.stderr
+        assert "ARCHITECTURE.md" in combined, combined[-2000:]
+
+    def test_nfr_dropped_from_adr_table_blocks_cli(self, tmp_path):
+        """An SRS NFR absent from ADR.md's traceability table must block, even
+        if it is mentioned in prose elsewhere."""
+        req = tmp_path / "01-requirements"
+        req.mkdir()
+        (req / "SRS.md").write_text("### NFR-01\n### NFR-06\n", encoding="utf-8")
+        adr = tmp_path / "02-architecture" / "adr"
+        adr.mkdir(parents=True)
+        (adr / "ADR.md").write_text(
+            "| ADR | FR / NFR served |\n|-----|------|\n| ADR-1 | NFR-01 |\n\n"
+            "prose: NFR-06 is covered by ADR-1\n", encoding="utf-8")
+        result = _run(tmp_path, "check-artifact-consistency")
+        assert result.returncode != 0
+        combined = result.stdout + result.stderr
+        assert "NFR-06" in combined, combined[-2000:]
+
+
 class TestManifestProbes:
     def test_p6_truncated_manifest_with_fsm_evidence_blocks(self, tmp_path):
         """Pattern B: a manifest whose gate1 results were emptied while FSM
