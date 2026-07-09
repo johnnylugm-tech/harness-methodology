@@ -221,14 +221,14 @@ class TestLanguageDetection:
 
 class TestCheckToolForDim:
     def test_unsupported_language_blocks_with_clear_message(self):
-        import harness_cli
-        ok, diag = harness_cli._check_tool_for_dim("linting", "ruff", "go")
+        from harness.tool_checks import check_tool_for_dim
+        ok, diag = check_tool_for_dim("linting", "ruff", "go")
         assert ok is False
         assert "no 'go' toolchain entry" in diag
 
     def test_python_unknown_tool_falls_back_to_dim_table(self):
-        import harness_cli
+        from harness.tool_checks import check_tool_for_dim
         # 'harness-trace' has no ToolSpec and 'traceability' no fallback entry
         # → no tool requirement (legacy behavior preserved)
-        ok, diag = harness_cli._check_tool_for_dim("traceability", "harness-trace")
+        ok, diag = check_tool_for_dim("traceability", "harness-trace")
         assert ok is True and diag == ""

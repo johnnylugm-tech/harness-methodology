@@ -213,7 +213,7 @@ for f, d in r.get('files', {}).items():
 > **Bug #105 historical context (pre-fix shell protocol, kept for reference
 > only — do NOT execute):**
 ```bash
-# mutmut was pre-verified by run-gate (_verify_gate_tools). No install needed here.
+# mutmut was pre-verified by run-gate (tool_checks.verify_gate_tools). No install needed here.
 # REQUIRED: mutmut 2.x (pip install 'mutmut<3').
 # mutmut 3.x uses a trampoline mechanism incompatible with most project layouts
 # (projects with src/ layout or editable installs crash or produce all exit_code=-11).

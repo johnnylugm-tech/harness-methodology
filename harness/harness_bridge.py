@@ -1108,7 +1108,7 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
             )
             continue
         if returncode in (-3, -4):
-            # -3 not-found (already guarded by S2 _verify_gate_tools before finalize) /
+            # -3 not-found (already guarded by S2 tool_checks.verify_gate_tools before finalize) /
             # -4 tool error (framework-side, not agent-controllable) — warn only.
             print(
                 f"  [S4-WARN] {dim_name}: '{tool}' cross-validation skipped "
@@ -1132,7 +1132,7 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
         harness_score = compute_tool_score(tool, output, returncode)
         if harness_score is None:
             # readability (radon-mi) returns None only when there is NO analysable
-            # source (radon availability is already gated by S2 _verify_gate_tools).
+            # source (radon availability is already gated by S2 tool_checks.verify_gate_tools).
             # A passing readability score with nothing to analyse is unverifiable.
             if dim_name == "readability":
                 violations.append(

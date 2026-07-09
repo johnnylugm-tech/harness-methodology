@@ -91,7 +91,7 @@ class TestRunPhaseCLI:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# finalize-gate fail-to-pass: tool enforcement (S0 _verify_gate_tools)
+# finalize-gate fail-to-pass: tool enforcement (S0, now tool_checks.verify_gate_tools)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestRunPhasePassCLI:

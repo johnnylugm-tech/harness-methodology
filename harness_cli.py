@@ -133,38 +133,11 @@ def _fr_num_str(fr_id: str) -> str:
 # (Bug #105 compute_mutation_score import removed in S1 — cli/gate_cmds.py now
 # imports it directly from core.quality_gate.mutation_enforcer.)
 from core.quality_gate.legal_artifacts import PHASE_DELIVERABLES  # noqa: E402  # DRY: single source of truth shared with artifact_consistency.LEGAL_ARTIFACTS
-
-# ---------------------------------------------------------------------------
-# .env file loader (no external dependency)
-# ---------------------------------------------------------------------------
-
-def _load_env_file(env_path: Path) -> list[str]:
-    """Load KEY=VALUE pairs from a .env file into os.environ.
-
-    Rules:
-    - Lines starting with # or blank are skipped.
-    - Does NOT override variables already set in the shell environment.
-    - Strips surrounding single/double quotes from values.
-    - Inline comments (value # comment) are stripped.
-
-    Returns list of keys that were loaded (empty if file not found).
-    """
-    if not env_path.is_file():
-        return []
-    loaded: list[str] = []
-    for raw in env_path.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        key = key.strip()
-        if not key:
-            continue
-        value = value.split("#")[0].strip().strip('"').strip("'")
-        if key not in os.environ:   # never override shell-level vars
-            os.environ[key] = value
-            loaded.append(key)
-    return loaded
+# S2 extractions — call via module namespace (tool_checks.verify_…) so the
+# only monkeypatch seam is the function's home module, never a harness_cli
+# attribute that could go stale.
+from core.utils import env_loader  # noqa: E402
+from harness import tool_checks  # noqa: E402
 
 # Phases where Gate 1 runs per-FR (P9 maintenance: per-CR touched FRs).
 # Sourced from the topology SSOT (core/phase_topology.py) — do not re-declare.
@@ -187,181 +160,6 @@ _STEP_MAX_TURNS: dict[str, int] = {
     "COVERAGE-FIX": 90,   # bulk spec-test writing (100+ tests) needs headroom
 }
 
-# ---------------------------------------------------------------------------
-# Tool availability checks (S2: prevents LLM guessing when tools are missing).
-# Tool-id → (check_cmd, human_name) lives in the toolchain registry
-# (harness/toolchains/registry.py) and is resolved per project language.
-# Only the dimension-name fallback for older YAML configs without a tool field
-# remains here. Dimension names that don't map to a dedicated tool
-# (LLM-evaluated dimensions) have no tool requirement.
-_DIM_FALLBACK_CHECKS: dict[str, tuple[str, str]] = {
-    "secrets_scanning": ("gitleaks version 2>&1", "gitleaks"),
-    "mutation_testing": ("mutmut --help 2>&1", "mutmut"),
-    "license_compliance": ("scancode --version 2>&1", "scancode-toolkit"),
-    "linting": ("ruff --version 2>&1 || python3 -m ruff --version 2>&1", "ruff"),
-    "type_safety": ("mypy --version 2>&1", "mypy"),
-    "test_coverage": ("pytest --version 2>&1", "pytest + coverage"),
-    "architecture": ("code-review-graph status 2>&1", "code-review-graph"),
-}
-
-def _run_tool_check(check_cmd: str, cwd: str | None = None) -> bool:
-    """Run a shell availability probe; True when it exits 0.
-
-    *cwd* is the target project root: some check_cmds are cwd-relative —
-    `npx --no-install <tool>` resolves node_modules from cwd, and the
-    tsc-checkjs probe does `test -f tsconfig.checkjs.json`. Passing it
-    explicitly decouples the probe from the harness's ambient cwd.
-    """
-    result = subprocess.run(
-        ["bash", "-c", check_cmd],
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        timeout=10, text=True, cwd=cwd,
-    )
-    return result.returncode == 0
-
-
-def _check_tool_for_dim(
-    dim_name: str, tool_name: str | None, language: str = "python",
-    project_root: str | None = None,
-) -> tuple[bool, str]:
-    """Check if the required tool for a dimension is installed.
-
-    Resolves the YAML tool name through the toolchain registry (for python the
-    YAML name passes through unchanged; other languages resolve by dimension
-    via DIMENSION_TOOLS). Falls back to the dimension-name table for older
-    configs without a tool field. *project_root* is the cwd for cwd-relative
-    probes (npx, tsconfig.checkjs.json). Returns (available, diagnostic).
-    """
-    from harness.toolchains import get_tool_spec, resolve_tool_id
-
-    resolved = resolve_tool_id(dim_name, language, yaml_tool=tool_name)
-    if resolved is None and language != "python":
-        # Registered languages must cover every tool-scored dimension (R8);
-        # reaching here means the toolchain registry has no entry.
-        return False, (
-            f"{dim_name}: no '{language}' toolchain entry — "
-            f"language not fully supported (see harness/toolchains/registry.py)"
-        )
-
-    spec = get_tool_spec(resolved) if resolved else None
-    if spec is not None:
-        try:
-            ok = _run_tool_check(spec.check_cmd, cwd=project_root)
-            return ok, (
-                "" if ok else f"{dim_name}: {spec.human_name} ({resolved}) not found"
-            )
-        except Exception:
-            return False, f"{dim_name}: {spec.human_name} ({resolved}) check failed"
-
-    # Fall back to dimension name lookup (older configs without tool field)
-    info = _DIM_FALLBACK_CHECKS.get(dim_name)
-    if info is None:
-        return True, ""  # No tool requirement — pass (LLM-evaluated dimension)
-    check_cmd, human_name = info
-    try:
-        ok = _run_tool_check(check_cmd, cwd=project_root)
-        return ok, ("" if ok else f"{dim_name}: {human_name} not found")
-    except Exception:
-        return False, f"{dim_name}: {human_name} check failed"
-
-def _verify_gate_tools(
-    gate_num: int, project: str, state_root: str | None = None
-) -> tuple[bool, list[str]]:
-    """Check all required tools for a gate exist (S2).
-
-    Reads gate YAML config: if a dimension has requires_tool_execution: true
-    and a tool field, the tool MUST be installed. Dimensions without
-    requires_tool_execution (e.g. security, architecture) are LLM-evaluated
-    and skipped.
-
-    Tool resolution is language-aware: the project language is read from
-    *state_root*/.methodology/state.json (defaults to *project* — pass
-    state_root explicitly when gate configs and FSM state live in different
-    roots, as in init-project where configs come from the harness checkout).
-
-    Returns (all_ok, missing_list).
-    """
-    from harness.toolchains import get_project_language
-    # The target project (where state.json + node_modules + tsconfig live) is
-    # state_root when given (init-project: configs come from the harness
-    # checkout), else project itself.
-    target_root = state_root or project
-    language = get_project_language(target_root)
-    import yaml as _yaml
-    cfg_path = None
-    # Try phase-specific name first, then generic pattern
-    for pattern in [
-        f"gate{gate_num}_p*.yaml",
-        f"gate{gate_num}_*.yaml",
-    ]:
-        import glob as _glob
-        candidates = _glob.glob(
-            str(Path(project) / "harness" / "gate_configs" / pattern)
-        )
-        if candidates:
-            cfg_path = Path(candidates[0])
-            break
-    if not cfg_path or not cfg_path.exists():
-        return True, []  # No config to check — pass
-
-    try:
-        cfg = _yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
-    except Exception:
-        return True, []
-
-    from harness.harness_bridge import filter_enabled_dimensions
-    cfg["dimensions"] = filter_enabled_dimensions(
-        cfg.get("dimensions", []), target_root
-    )
-
-    missing: list[str] = []
-    for dim in cfg.get("dimensions", []):
-        dim_name = dim.get("name", "")
-        requires_tool = dim.get("requires_tool_execution", False)
-        if not requires_tool:
-            continue  # LLM-evaluated dimension — skip tool check
-        tool_name = dim.get("tool")  # May be None for older configs
-        ok, diag = _check_tool_for_dim(
-            dim_name, tool_name, language, project_root=target_root
-        )
-        if not ok and diag:
-            missing.append(diag)
-    return len(missing) == 0, missing
-
-
-def _verify_all_gate_tools(project: str) -> tuple[bool, list[str]]:
-    """Check that every tool required by ANY gate config is installed.
-
-    Run at each phase entry so missing required components (notably
-    `code-review-graph`, which scores the architecture dimension) surface at
-    project setup rather than deep inside Gate 3/4. CRG and the other SSI tools
-    are hard dependencies — there is no graceful degradation.
-    """
-    all_missing: list[str] = []
-    seen: set[str] = set()
-    for gate_num in (1, 2, 3, 4):
-        _, missing = _verify_gate_tools(gate_num, project)
-        for m in missing:
-            if m not in seen:
-                seen.add(m)
-                all_missing.append(m)
-
-    # Soft check: mutmut 2.5.x hardcodes `python` (not `python3`). If mutmut is
-    # required but only python3 exists, warn (don't block — the user can symlink).
-    if not all_missing:
-        _mutmut_needed = any("mutmut" in m for m in seen)
-        if _mutmut_needed:
-            import shutil as _shutil
-            if _shutil.which("mutmut") and not _shutil.which("python") and _shutil.which("python3"):
-                print(
-                    "  [WARN] mutmut hardcodes `python` (not `python3`).\n"
-                    "    Preferred fix: activate the project venv (`.venv/bin/python` exists).\n"
-                    "    Fallback: ln -s $(which python3) /usr/local/bin/python\n"
-                    "    Without this, mutation_testing dimension will fail at Gate 3/4.",
-                    file=sys.stderr,
-                )
-
-    return len(all_missing) == 0, all_missing
 
 def _fr_step_preflight(step: str, project: Path, fr_id: str | None, srs_path: "Path | str | None" = None) -> tuple[bool, list[str]]:
     """Verify environment and artifacts are ready before spawning a sub-agent for an FR step.
@@ -436,7 +234,7 @@ def _fr_step_preflight(step: str, project: Path, fr_id: str | None, srs_path: "P
         return f"✗ {name} not found in PATH — install with: pip install {name}"
 
     if step in ("GATE1", "GATE1-DELTA", "CODE-FIX"):
-        _, gate_errors = _verify_gate_tools(1, str(project))
+        _, gate_errors = tool_checks.verify_gate_tools(1, str(project))
         errors.extend(gate_errors)
         # Delegate env readiness to LLM-driven run-env-check — no hardcoded
         # DATABASE_URL/pytest/ruff here. Claude evaluates project-specific needs
@@ -1117,7 +915,7 @@ def _cmd_run_phase_impl(args: argparse.Namespace) -> int:
     # Required-component check (hard dependencies — incl. code-review-graph, which
     # scores the architecture dimension). Verified at every phase entry so a missing
     # component surfaces at setup, not deep inside Gate 3/4. No graceful degradation.
-    _tools_ok, _missing_components = _verify_all_gate_tools(str(project))
+    _tools_ok, _missing_components = tool_checks.verify_all_gate_tools(str(project))
     if not _tools_ok:
         print(
             "\n[BLOCKED] run-phase: required components not installed:\n"
@@ -1943,7 +1741,7 @@ def _cmd_run_gate_impl(args: argparse.Namespace) -> int:
 
     # Block evaluation before printing the prompt — prevents fabrication via
     # "evaluate without tools, then install stub to pass finalize-gate".
-    _tools_ok, _missing_tools = _verify_gate_tools(args.gate, project)
+    _tools_ok, _missing_tools = tool_checks.verify_gate_tools(args.gate, project)
     if not _tools_ok:
         print(
             f"\n[BLOCKED] run-gate: required tools not installed for Gate {args.gate}:\n"
@@ -2603,7 +2401,7 @@ def _finalize_gate_preflight(args: argparse.Namespace, project_path: Path) -> "i
     fr_id = getattr(args, "fr_id", None) or None
 
     # S0a: Tool availability
-    _tools_ok, _missing_tools = _verify_gate_tools(args.gate, project)
+    _tools_ok, _missing_tools = tool_checks.verify_gate_tools(args.gate, project)
     if not _tools_ok:
         print(
             f"\n[BLOCKED] Required tools not installed for Gate {args.gate}:\n"
@@ -7207,18 +7005,18 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     """Main entry point for the CLI."""
     # Load .env from CWD first (covers `cd project && python harness_cli.py`).
-    _load_env_file(Path.cwd() / ".env")
+    env_loader.load_env_file(Path.cwd() / ".env")
     # Also load from --project path if it differs from CWD.
     for i, arg in enumerate(sys.argv[1:], 1):
         if arg in ("--project", "-p") and i < len(sys.argv):
             proj_env = Path(sys.argv[i]) / ".env"
             if proj_env.resolve() != (Path.cwd() / ".env").resolve():
-                _load_env_file(proj_env)
+                env_loader.load_env_file(proj_env)
             break
         if arg.startswith("--project="):
             proj_env = Path(arg.split("=", 1)[1]) / ".env"
             if proj_env.resolve() != (Path.cwd() / ".env").resolve():
-                _load_env_file(proj_env)
+                env_loader.load_env_file(proj_env)
             break
 
     parser = build_parser()

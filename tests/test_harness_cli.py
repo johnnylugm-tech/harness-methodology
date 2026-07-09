@@ -3670,7 +3670,10 @@ class TestInitProjectRootWrapper:
         monkeypatch.setattr(hc, "_update_claude_md", lambda _p: None)
         monkeypatch.setattr(hc, "_check_and_offer_ecc_hooks", lambda _h: None)
         monkeypatch.setattr(hc, "_auto_offer_branch_protection", lambda _p: None)
-        monkeypatch.setattr(hc, "_verify_gate_tools", lambda _g, _h, **_: ({}, []))
+        # S2: verify_gate_tools moved to harness/tool_checks.py; all callers
+        # (incl. cli/project_cmds) resolve it via that module's namespace.
+        from harness import tool_checks as _tc
+        monkeypatch.setattr(_tc, "verify_gate_tools", lambda _g, _h, **_: ({}, []))
         monkeypatch.setattr(hc, "_check_crg_available", lambda: True)
         monkeypatch.setattr(hc, "_harness_workflow_template", lambda: "# ci\n")
         # S1: cmd_init_project (cli/project_cmds) binds atomic_write_json

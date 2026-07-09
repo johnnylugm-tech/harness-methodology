@@ -127,7 +127,7 @@ def check_command(cmd):
 
     Probes run through `bash -c` so multi-word commands ("python3 --version",
     "npx --no-install eslint --version") work — same convention as
-    harness_cli._run_tool_check.
+    harness.tool_checks.run_tool_check.
     """
     try:
         result = subprocess.run(

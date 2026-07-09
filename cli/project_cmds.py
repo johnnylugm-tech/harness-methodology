@@ -20,6 +20,7 @@ from typing import Any
 from core.atomic_io import atomic_write_json
 from core.phase_topology import PHASE_DIRS, VALID_PHASES
 from core.utils.project_layout import ProjectLayout
+from harness import tool_checks
 import harness_cli as _hc
 
 
@@ -287,7 +288,7 @@ def cmd_init_project(args: argparse.Namespace) -> int:
     for _gate_num in (1, 2, 3, 4):
         # Gate configs come from the harness checkout; the language comes from
         # the target project's freshly written state.json (state_root).
-        _, _missing = _hc._verify_gate_tools(
+        _, _missing = tool_checks.verify_gate_tools(
             _gate_num, str(harness_root), state_root=str(project)
         )
         for _m in _missing:
