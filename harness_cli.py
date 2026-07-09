@@ -1194,6 +1194,24 @@ def _trace_dirty_state(project_path: Path) -> Dict[str, Any]:
         return {"passed": False, "reason": f"attestation.json stat failed: {e}",
                 "staler": None, "newer": None}
 
+    # Phase-aware: in implementation phases (>=3), test files are expected
+    # to be newer than attestation.json during TDD cycles. Attestation is
+    # regenerated in ORCH-POST after GATE1, not after each TDD step.
+    # Blocking on stale attestation during TDD would reject every GREEN
+    # and GATE1 commit (see P3 health-check 2026-07-10: FR-02/03 commits
+    # blocked by prepare-commit-msg hook). Full preflight (run-phase) still
+    # enforces attestation at push time.
+    current_phase = 1
+    state_path = project_path / ".methodology" / "state.json"
+    if state_path.exists():
+        try:
+            current_phase = json.loads(
+                state_path.read_text(encoding="utf-8")
+            ).get("current_phase", 1)
+        except Exception:
+            pass
+    strict_trace = current_phase < 3  # P1/P2: hard-block; P3+: warn-only
+
     # SAD.md (canonical locations)
     for sad_candidate in ("02-architecture/SAD.md", "SAD.md"):
         sad_path = project_path / sad_candidate
@@ -1227,12 +1245,25 @@ def _trace_dirty_state(project_path: Path) -> Dict[str, Any]:
                                   key=lambda p: p.stat().st_mtime)
                 if newest_test.stat().st_mtime > att_mtime:
                     rel = str(newest_test.relative_to(project_path))
-                    return {"passed": False,
-                            "reason": (
-                                f"{rel} newer than attestation.json — "
-                                f"{_FIX_HINT}"
-                            ),
-                            "staler": rel, "newer": "attestation.json"}
+                    if strict_trace:
+                        return {"passed": False,
+                                "reason": (
+                                    f"{rel} newer than attestation.json — "
+                                    f"{_FIX_HINT}"
+                                ),
+                                "staler": rel, "newer": "attestation.json"}
+                    else:
+                        # P3+: warn but don't block commit. Test files are
+                        # naturally newer than attestation during TDD cycles;
+                        # attestation regenerates in ORCH-POST after GATE1.
+                        # Full preflight (run-phase) still enforces at push.
+                        print(
+                            f"[INFO] {rel} newer than attestation.json — "
+                            f"expected during TDD cycles in Phase {current_phase}, "
+                            f"not blocking commit. Full preflight at push time "
+                            f"will still enforce attestation.",
+                            file=sys.stderr,
+                        )
             except OSError:
                 pass
 
@@ -2806,6 +2837,14 @@ def _mark_gate_commit_failed(project_path: Path, gate: int, fr_id: str | None) -
             atomic_write_json(_mfst, _mfst_json)
             print(f"  [WARN] git commit did not land — rolled back quality_complete "
                   f"to False for gate{gate}" + (f"/{fr_id}" if fr_id else ""))
+            # Surface hook rejection details captured by git_strategy._commit
+            _diag = project_path / ".sessi-work" / "last_commit_blocked.txt"
+            if _diag.exists():
+                try:
+                    _diag_text = _diag.read_text(encoding="utf-8")
+                    print(f"  [DIAG] Hook rejection details:\n{_diag_text[:2000]}")
+                except OSError:
+                    pass
     except (OSError, json.JSONDecodeError) as _mf_err:
         print(f"  [WARN] Could not roll back quality_manifest.json after commit failure: {_mf_err}")
 
