@@ -3284,7 +3284,7 @@ class TestParseSpecNamesForFr:
 
 class TestRunFrStepSkipSideEffects:
     """When _fr_step_already_done returns True,
-    _record_gate_timestamp (for GATE1-DELTA) must still be called."""
+    gate1_evidence.record_gate_timestamp (for GATE1-DELTA) must still be called."""
 
     def _make_plan(self, tmp_path: Path, phase: int, fr_id: str) -> Path:
         plan = tmp_path / ".methodology" / f"phase{phase}_plan.md"
@@ -3306,11 +3306,12 @@ class TestRunFrStepSkipSideEffects:
         }), encoding="utf-8")
 
     def test_gate_timestamp_recorded_on_gate1_delta_skip(self, tmp_path, monkeypatch):
-        """_record_gate_timestamp must be called for GATE1-DELTA skip."""
+        """record_gate_timestamp must be called for GATE1-DELTA skip."""
         import harness_cli
         recorded = []
         monkeypatch.setattr(harness_cli, "_fr_step_already_done", lambda *a, **k: True)
-        monkeypatch.setattr(harness_cli, "_record_gate_timestamp",
+        from core.quality_gate import gate1_evidence as _ge
+        monkeypatch.setattr(_ge, "record_gate_timestamp",
                             lambda project, phase, gate, fr_id: recorded.append((phase, gate, fr_id)))
 
         self._make_manifest(tmp_path, "FR-03")
@@ -3325,11 +3326,12 @@ class TestRunFrStepSkipSideEffects:
         assert (5, 1, "FR-03") in recorded, f"gate timestamp not recorded: {recorded}"
 
     def test_no_gate_timestamp_for_non_delta_skip(self, tmp_path, monkeypatch):
-        """_record_gate_timestamp must NOT be called for non-DELTA step skips."""
+        """record_gate_timestamp must NOT be called for non-DELTA step skips."""
         import harness_cli
         recorded = []
         monkeypatch.setattr(harness_cli, "_fr_step_already_done", lambda *a, **k: True)
-        monkeypatch.setattr(harness_cli, "_record_gate_timestamp",
+        from core.quality_gate import gate1_evidence as _ge
+        monkeypatch.setattr(_ge, "record_gate_timestamp",
                             lambda *a, **k: recorded.append(True))
 
         self._make_manifest(tmp_path, "FR-01")
@@ -4008,7 +4010,8 @@ class TestFinalizeGatePersistCompositeScore:
         monkeypatch.setattr(hc, "_finalize_gate_cross_checks", lambda _a, _p: None)
         monkeypatch.setattr(hc, "_update_state_checkpoint", lambda *_, **__: None)
         monkeypatch.setattr(hc, "_update_claude_md", lambda _p: None)
-        monkeypatch.setattr(hc, "_record_gate_timestamp", lambda *_a: None)
+        from core.quality_gate import gate1_evidence as _ge
+        monkeypatch.setattr(_ge, "record_gate_timestamp", lambda *_a: None)
         monkeypatch.setattr(hc, "_generate_stage_pass", lambda *_a: None)
 
         _harness_score = harness_score
@@ -4114,7 +4117,8 @@ class TestFinalizeGateManifestPatch:
         monkeypatch.setattr(hc, "_finalize_gate_cross_checks", lambda _a, _p: None)
         monkeypatch.setattr(hc, "_update_state_checkpoint", lambda *_, **__: None)
         monkeypatch.setattr(hc, "_update_claude_md", lambda _p: None)
-        monkeypatch.setattr(hc, "_record_gate_timestamp", lambda *_a: None)
+        from core.quality_gate import gate1_evidence as _ge
+        monkeypatch.setattr(_ge, "record_gate_timestamp", lambda *_a: None)
         monkeypatch.setattr(hc, "_generate_stage_pass", lambda *_a: None)
 
         class FakeGit:
@@ -4267,7 +4271,8 @@ class TestFinalizeGateCommitFailureRollback:
         monkeypatch.setattr(hc, "_finalize_gate_cross_checks", lambda _a, _p: None)
         monkeypatch.setattr(hc, "_update_state_checkpoint", lambda *_, **__: None)
         monkeypatch.setattr(hc, "_update_claude_md", lambda _p: None)
-        monkeypatch.setattr(hc, "_record_gate_timestamp", lambda *_a: None)
+        from core.quality_gate import gate1_evidence as _ge
+        monkeypatch.setattr(_ge, "record_gate_timestamp", lambda *_a: None)
         monkeypatch.setattr(hc, "_generate_stage_pass", lambda *_a: None)
         monkeypatch.setattr(
             hc, "_post_push_self_check",
@@ -4397,7 +4402,8 @@ class TestFinalizeGateNoneDimVariance:
         monkeypatch.setattr(hc, "_finalize_gate_cross_checks", lambda _a, _p: None)
         monkeypatch.setattr(hc, "_update_state_checkpoint", lambda *_, **__: None)
         monkeypatch.setattr(hc, "_update_claude_md", lambda _p: None)
-        monkeypatch.setattr(hc, "_record_gate_timestamp", lambda *_a: None)
+        from core.quality_gate import gate1_evidence as _ge
+        monkeypatch.setattr(_ge, "record_gate_timestamp", lambda *_a: None)
         monkeypatch.setattr(hc, "_generate_stage_pass", lambda *_a: None)
 
         class FakeGit:
@@ -7511,7 +7517,8 @@ class TestFinalizeGate4StateJsonWriteBeforePush:
         monkeypatch.setattr(hc, "_check_gate4_prerequisites", lambda *_a: (False, set()))
         monkeypatch.setattr(hc, "_update_state_checkpoint", lambda *_, **__: None)
         monkeypatch.setattr(hc, "_update_claude_md", lambda _p: None)
-        monkeypatch.setattr(hc, "_record_gate_timestamp", lambda *_a: None)
+        from core.quality_gate import gate1_evidence as _ge
+        monkeypatch.setattr(_ge, "record_gate_timestamp", lambda *_a: None)
         monkeypatch.setattr(hc, "_generate_stage_pass", lambda *_a: None)
 
         # Bypass structural postflight (artifact links + drift) — irrelevant to
@@ -7626,7 +7633,8 @@ class TestFinalizeGate4StateJsonWriteBeforePush:
         monkeypatch.setattr(hc, "_check_gate4_prerequisites", lambda *_a: (False, set()))
         monkeypatch.setattr(hc, "_update_state_checkpoint", lambda *_, **__: None)
         monkeypatch.setattr(hc, "_update_claude_md", lambda _p: None)
-        monkeypatch.setattr(hc, "_record_gate_timestamp", lambda *_a: None)
+        from core.quality_gate import gate1_evidence as _ge
+        monkeypatch.setattr(_ge, "record_gate_timestamp", lambda *_a: None)
         monkeypatch.setattr(hc, "_generate_stage_pass", lambda *_a: None)
 
         # Bypass structural postflight (artifact links + drift) — irrelevant to
@@ -7964,7 +7972,8 @@ class TestFinalizeGate4PostPushDirtyWarn:
                             lambda *_a: (False, set()))
         monkeypatch.setattr(hc, "_update_state_checkpoint", lambda *_, **__: None)
         monkeypatch.setattr(hc, "_update_claude_md", lambda _p: None)
-        monkeypatch.setattr(hc, "_record_gate_timestamp", lambda *_a: None)
+        from core.quality_gate import gate1_evidence as _ge
+        monkeypatch.setattr(_ge, "record_gate_timestamp", lambda *_a: None)
         monkeypatch.setattr(hc, "_generate_stage_pass", lambda *_a: None)
 
         class _FakePhaseHooks:

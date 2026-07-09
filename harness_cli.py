@@ -136,6 +136,7 @@ from core.quality_gate.legal_artifacts import PHASE_DELIVERABLES  # noqa: E402  
 # S2 extractions — call via module namespace (tool_checks.verify_…) so the
 # only monkeypatch seam is the function's home module, never a harness_cli
 # attribute that could go stale.
+from core.quality_gate import gate1_evidence  # noqa: E402
 from core.utils import env_loader  # noqa: E402
 from harness import tool_checks  # noqa: E402
 
@@ -254,11 +255,6 @@ def _fr_step_preflight(step: str, project: Path, fr_id: str | None, srs_path: "P
 
     return len(errors) == 0, errors
 
-# Non-dotfile (consistent with other .methodology/ files like state.json, sessions_spawn.log).
-# Replaces the old ".gate_timestamps.jsonl" hidden file name used before 2026-05-18.
-_GATE_TIMESTAMPS_FILE = "gate_timestamps.jsonl"
-_GATE_TIMESTAMPS_MAX_ENTRIES = 200
-# Sizing: 22 FRs × max_fix_rounds(3) × 3 phases ≈ 200; increase if FR count > 22.
 
 
 def load_harness_script(module_filename: str):
@@ -301,179 +297,6 @@ def load_harness_script(module_filename: str):
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
-
-
-def _record_gate_timestamp(project: Path, phase: int, gate_num: int, fr_id: str | None) -> None:
-    """Append gate commit timestamp to .methodology/gate_timestamps.jsonl (P1 persistence).
-
-    Called only on SUCCESSFUL gate finalization — not on failed checks — so the file
-    represents genuine completed gates, not attempts.  Trims to the last
-    _GATE_TIMESTAMPS_MAX_ENTRIES entries to bound file growth.
-    """
-    import time as _time
-    ts_dir = project / ".methodology"
-    ts_dir.mkdir(parents=True, exist_ok=True)
-    ts_file = ts_dir / _GATE_TIMESTAMPS_FILE
-
-    # One-time migration: rename old hidden-file to the new visible name
-    _old = ts_dir / ".gate_timestamps.jsonl"
-    if _old.exists() and not ts_file.exists():
-        try:
-            _old.rename(ts_file)
-        except OSError:
-            pass
-
-    entry = {"phase": phase, "gate": gate_num, "fr_id": fr_id or "phase", "ts": _time.time()}
-    try:
-        # Append
-        with open(str(ts_file), "a", encoding="utf-8") as f:
-            f.write(json.dumps(entry) + "\n")
-        # Trim to last _GATE_TIMESTAMPS_MAX_ENTRIES lines
-        raw = ts_file.read_text(encoding="utf-8")
-        lines = [line for line in raw.splitlines() if line.strip()]
-        if len(lines) > _GATE_TIMESTAMPS_MAX_ENTRIES:
-            ts_file.write_text(
-                "\n".join(lines[-_GATE_TIMESTAMPS_MAX_ENTRIES:]) + "\n",
-                encoding="utf-8",
-            )
-    except OSError:
-        pass  # Non-blocking
-
-
-def _gate1_evidence_exists(project: Path, fr_id: str, phase: int = 3) -> bool:
-    """Multi-source Gate 1 evidence check (O2, 2026-07-07).
-
-    Accepts any of three co-equal Gate 1 evidence channels — eliminates the
-    single-source-of-evidence design defect where a clean restart wiping
-    `.sessi-work/sentinels/` would block P3→P4 handoff even though Gate 1
-    was genuinely complete (fr_progress.json + gate_timestamps.jsonl both
-    persist this fact).
-
-    Try in order:
-      1. `.sessi-work/sentinels/g1_p{phase}_{fr}.flag`  — run-gate's mark
-      2. `.sessi-work/sentinels/g1_p{phase}_{fr}.finalized` — finalize-gate's mark
-         (finalize-gate implies run-gate ran, so this is sufficient)
-      3. `.methodology/gate_timestamps.jsonl` row matching phase/gate/fr_id
-         (P1-persistent; survives clean restart)
-
-    `fr_id` normalization (`replace("-", "").lower()`) matches `_sentinel_path`
-    (line 1187) and `_finalize_sentinel_path` (line 1206).
-    """
-    fr_key = fr_id.replace("-", "").lower()
-    sentinels_dir = project / ".sessi-work" / "sentinels"
-    if (sentinels_dir / f"g1_p{phase}_{fr_key}.flag").exists():
-        return True
-    if (sentinels_dir / f"g1_p{phase}_{fr_key}.finalized").exists():
-        return True
-    ts_file = project / ".methodology" / _GATE_TIMESTAMPS_FILE
-    if ts_file.exists():
-        try:
-            for line in ts_file.read_text(encoding="utf-8").splitlines():
-                if not line.strip():
-                    continue
-                _e = json.loads(line)
-                if (
-                    _e.get("phase") == phase
-                    and _e.get("gate") == 1
-                    and str(_e.get("fr_id", "")).replace("-", "").lower() == fr_key
-                ):
-                    return True
-        except (json.JSONDecodeError, OSError):
-            pass
-    return False
-
-
-def _check_commit_intervals(
-    project: str, phase: int, gate_num: int, fr_id: str | None = None
-) -> tuple[bool, str]:
-    """Check if current gate attempt would exceed the batch-commit threshold (P1).
-
-    Pure read — does NOT write timestamps.  The caller (cmd_finalize_gate) must call
-    _record_gate_timestamp() only on successful finalization, so failed attempts don't
-    accumulate in the file and trigger false positives on retry.
-
-    Blocks if ≥2 prior successful finalizations exist within a 2-second window for the
-    same (phase, gate, fr_id) bucket (3 total = statistically implausible for genuine
-    per-FR work). fr_id is optional: when None the check is phase-level only (legacy
-    behaviour for callers that don't track per-FR); when provided, distinct FRs do
-    not collide into the same bucket, so 5 FRs completing in the same 2s window is
-    no longer flagged as fraud.
-    Returns (ok, diagnostic).
-    """
-    import time as _time
-    project_path = Path(project)
-    ts_dir = project_path / ".methodology"
-    ts_file = ts_dir / _GATE_TIMESTAMPS_FILE
-
-    # One-time migration: honour renamed dotfile for legacy projects
-    _old = ts_dir / ".gate_timestamps.jsonl"
-    if _old.exists() and not ts_file.exists():
-        try:
-            _old.rename(ts_file)
-        except OSError:
-            pass
-
-    now = _time.time()
-    recent: list[dict] = []
-
-    if ts_file.exists():
-        try:
-            for line in ts_file.read_text(encoding="utf-8").splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    entry = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if (entry.get("phase") == phase
-                        and entry.get("gate") == gate_num
-                        and now - entry.get("ts", 0) <= 2.0):
-                    # Per-FR bucket isolation: when the caller provides an fr_id,
-                    # only count entries with the SAME fr_id as "same bucket".
-                    # Distinct FRs finalizing within 2s (the natural per-FR
-                    # sequential finalize-gate pattern) must NOT collide here —
-                    # doing so was producing false-positive fraud blocks during
-                    # Phase 3 Gate 1 finalization runs.
-                    if fr_id is not None and entry.get("fr_id") != fr_id:
-                        continue
-                    recent.append(entry)
-        except OSError:
-            pass
-
-    if len(recent) >= 2:  # 2 prior successful + 1 current attempt = 3 total in window
-        return False, (
-            f"{len(recent) + 1} gate commits within 2 seconds — "
-            "scores must be evaluated per-FR with genuine evidence, not batch-copied"
-        )
-    return True, ""
-
-_GATE1_SCORES_FILE = ".gate1_scores.json"
-
-def _record_gate1_score(project: Path, phase: int, fr_id: str, score: float) -> None:
-    """Track Gate 1 composite score per FR for inter-FR variance check.
-
-    Prunes phases older than (phase - 1) to bound file growth; the previous phase
-    data is kept so finalize-gate can still reference it, but anything further back
-    is stale and safe to drop.
-    """
-    scores_file = project / ".methodology" / _GATE1_SCORES_FILE
-    scores: dict = {}
-    if scores_file.exists():
-        try:
-            scores = json.loads(scores_file.read_text(encoding="utf-8"))
-        except Exception:  # pylint: disable=broad-exception-caught
-            pass
-    scores.setdefault(str(phase), {})[fr_id] = score
-    # Prune stale phases — keep current and previous only
-    stale = [k for k in list(scores.keys()) if int(k) < phase - 1]
-    for k in stale:
-        del scores[k]
-    try:
-        atomic_write_json(scores_file, scores)
-    except Exception:  # pylint: disable=broad-exception-caught
-        pass
-
 
 
 
@@ -2414,7 +2237,7 @@ def _finalize_gate_preflight(args: argparse.Namespace, project_path: Path) -> "i
     # S0b: Commit interval enforcement (P1 — prevent batch fabrication).
     # Per-FR isolation: pass fr_id so distinct FRs finalizing in the same
     # 2s window are not falsely flagged as batch fabrication.
-    _interval_ok, _interval_msg = _check_commit_intervals(
+    _interval_ok, _interval_msg = gate1_evidence.check_commit_intervals(
         project, args.phase, args.gate, fr_id
     )
     if not _interval_ok:
@@ -2889,9 +2712,9 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
         _update_claude_md(Path(args.project).resolve())  # gate pass → refresh CLAUDE.md
 
         # P1: Record successful finalization timestamp HERE (after all checks pass),
-        # not inside _check_commit_intervals.  Failed attempts must not leave a trace
+        # not inside check_commit_intervals.  Failed attempts must not leave a trace
         # so that retries don't accumulate phantom entries.
-        _record_gate_timestamp(Path(args.project).resolve(), args.phase, args.gate, fr_id)
+        gate1_evidence.record_gate_timestamp(Path(args.project).resolve(), args.phase, args.gate, fr_id)
 
         # ── Auto-generate machine STAGE_PASS.md ──────────────────────
         _generate_stage_pass(project_path, args.gate, args.phase)
@@ -3388,7 +3211,7 @@ def _validate_p3_post_gate2_precondition(
     for fr_id in fr_ids:
         # v2.13: this precondition is Phase 3-specific (filename _validate_p3_…);
         # pass phase=3 explicitly so we look for the per-phase path (Bug #121).
-        if not _gate1_evidence_exists(project, fr_id, phase=3):
+        if not gate1_evidence.gate1_evidence_exists(project, fr_id, phase=3):
             missing_sentinels.append(fr_id)
     if missing_sentinels:
         errors.append(
@@ -6073,7 +5896,7 @@ def _update_state_checkpoint(
                 pass
         # Track Gate 1 score for inter-FR variance check (D2 extension)
         if gate_num == 1 and fr_id and gate_score is not None and phase is not None:
-            _record_gate1_score(project, phase, fr_id, gate_score)
+            gate1_evidence.record_gate1_score(project, phase, fr_id, gate_score)
         existing["last_gate"] = gate_num
         existing["last_fr"] = fr_id
         existing["last_update"] = datetime.now(timezone.utc).isoformat()

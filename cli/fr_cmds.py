@@ -17,6 +17,7 @@ import sys
 from pathlib import Path
 
 from core.harness_config import get_timeout
+from core.quality_gate import gate1_evidence
 from core.quality_gate.legal_artifacts import PHASE_DELIVERABLES
 from core.utils.project_layout import ProjectLayout
 import harness_cli as _hc
@@ -218,10 +219,10 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
     # 1. Idempotency — skip if already committed
     if _hc._fr_step_already_done(step, fr_id, project):
         print(f"[run-fr-step] {fr_id} {step}: already done → skip")
-        #   _record_gate_timestamp (GATE1-DELTA only) — prevents exit-14 block
+        #   gate1_evidence.record_gate_timestamp (GATE1-DELTA only) — prevents exit-14 block
         #     from _check_gate1_live_coverage when ALL FRs skip (no code changes)
         if step.upper() == "GATE1-DELTA":
-            _hc._record_gate_timestamp(project, phase, 1, fr_id)
+            gate1_evidence.record_gate_timestamp(project, phase, 1, fr_id)
         return 0
 
     # 2. Pre-flight checks — must pass before agent dispatch
@@ -637,7 +638,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
     # this, advance-phase always exits 14 when run-fr-step is used instead of
     # finalize-gate --gate 1 per FR).
     if step in ("GATE1", "GATE1-DELTA"):
-        _hc._record_gate_timestamp(project, phase, 1, fr_id)
+        gate1_evidence.record_gate_timestamp(project, phase, 1, fr_id)
 
     # 5. Verify commit exists (non-fatal warning for TDD-IMPROVE / CODE-FIX)
     if step not in ("TDD-IMPROVE", "CODE-FIX") and not _hc._fr_step_already_done(step, fr_id, project):

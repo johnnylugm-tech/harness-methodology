@@ -22,7 +22,7 @@ from pathlib import Path
 
 
 from harness_cli import _validate_p3_post_gate2_precondition
-from harness_cli import _GATE_TIMESTAMPS_FILE
+from core.quality_gate.gate1_evidence import GATE_TIMESTAMPS_FILE
 
 
 def _seed_gate2_pass(project: Path, composite: float = 92.25) -> None:
@@ -170,9 +170,9 @@ def _seed_fr_finalized(project: Path, fr_id: str) -> None:
 
 
 def _seed_gate_timestamp(project: Path, *, phase: int, gate: int, fr_id: str) -> None:
-    """O2: simulate _record_gate_timestamp having appended a row."""
+    """O2: simulate gate1_evidence.record_gate_timestamp having appended a row."""
     (project / ".methodology").mkdir(parents=True, exist_ok=True)
-    ts_file = project / ".methodology" / _GATE_TIMESTAMPS_FILE
+    ts_file = project / ".methodology" / GATE_TIMESTAMPS_FILE
     entry = {"phase": phase, "gate": gate, "fr_id": fr_id, "ts": 1700000000.0}
     with open(str(ts_file), "a", encoding="utf-8") as f:
         f.write(json.dumps(entry) + "\n")

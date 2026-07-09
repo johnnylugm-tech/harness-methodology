@@ -32,7 +32,7 @@ _HC_REF_CEILING = {
     "__init__.py": 0,
     "check_cmds.py": 8,    # S1 de-laundered (was 95 at S0)
     "cr_cmds.py": 0,
-    "fr_cmds.py": 33,      # S1 (was 73)
+    "fr_cmds.py": 31,      # S3 (was 73 → S1 33)
     "gate_cmds.py": 8,     # S1 (was 53)
     "phase_cmds.py": 12,   # S1 (was 81)
     "project_cmds.py": 14, # S2 (was 68 → S1 15)
