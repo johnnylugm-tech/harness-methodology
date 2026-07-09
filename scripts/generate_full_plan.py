@@ -177,14 +177,14 @@ def parse_srs_fr_sections(srs_path) -> List[Dict]:
     #   –   — en-dash (some editors auto-convert em-dash)
     #   -   — hyphen (CLI / quick-write fallback)
     fr_pattern = re.compile(
-        r'(### FR-(\d+)\s*[:—–-][^\n]+\n\n)(.*?)(?=\n---\n|\n### FR-\d+|$)',
+        r'(#{2,3} FR-(\d+)\s*[:—–-][^\n]+\n\n)(.*?)(?=\n---\n|\n#{2,3} FR-\d+|$)',
         re.DOTALL,
     )
 
     frs = []
     for m in fr_pattern.finditer(content):
         fr_num = f"FR-{m.group(2).zfill(2)}"
-        title = m.group(1).strip().split('\n')[0].replace('### ', '')
+        title = re.sub(r'^#{2,3}\s+', '', m.group(1).strip().split('\n')[0])
         details = m.group(3).strip()
 
         # Extract description (matches Chinese SRS format)

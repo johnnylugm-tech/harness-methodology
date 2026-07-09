@@ -81,3 +81,30 @@ def test_harness_cli_re_exports_phase_deliverables() -> None:
     assert hc._PHASE_DELIVERABLES is importlib.import_module(
         "core.quality_gate.legal_artifacts"
     ).PHASE_DELIVERABLES
+
+
+def test_print_legal_artifacts_cli_output() -> None:
+    """``print-legal-artifacts`` CLI produces valid JSON with both keys."""
+    import json
+    import subprocess
+    import sys
+
+    cp = subprocess.run(
+        [sys.executable, "harness_cli.py", "print-legal-artifacts"],
+        capture_output=True, text=True, cwd=".",
+    )
+    assert cp.returncode == 0, f"stderr: {cp.stderr}"
+    data = json.loads(cp.stdout)
+    assert set(data) == {"legal_artifacts", "phase_deliverables"}
+    # legal_artifacts: stage → list[str]
+    assert isinstance(data["legal_artifacts"], dict)
+    for stage, files in data["legal_artifacts"].items():
+        assert isinstance(stage, str) and stage.startswith("0")
+        assert isinstance(files, list) and len(files) > 0
+        assert all(isinstance(f, str) for f in files)
+    # phase_deliverables: phase → list[str]
+    assert isinstance(data["phase_deliverables"], dict)
+    for phase, files in data["phase_deliverables"].items():
+        assert isinstance(phase, str)  # JSON keys are always strings
+        assert isinstance(files, list) and len(files) > 0
+        assert all(isinstance(f, str) for f in files)

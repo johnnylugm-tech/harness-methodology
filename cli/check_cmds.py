@@ -369,7 +369,9 @@ def cmd_check_artifact_consistency(args: _hc.argparse.Namespace) -> int:
         check_nfr_adr_coverage,
     )
 
-    violations = check_forward_refs(project) + check_nfr_adr_coverage(project)
+    violations = (check_forward_refs(project)
+                  + ([] if getattr(args, 'forward_refs_only', False)
+                     else check_nfr_adr_coverage(project)))
     errors = [v for v in violations if v.severity == "error"]
     reviews = [v for v in violations if v.severity == "info"]
     for v in errors:
@@ -921,6 +923,40 @@ def cmd_check_constitution(args: _hc.argparse.Namespace) -> int:
     return _hc._print_constitution_result(result, composite_threshold, profile, phase, _phase_dir)
 
 
+def cmd_print_legal_artifacts(args: _hc.argparse.Namespace) -> int:
+    """Print legal-deliverable filenames as JSON (SSOT for workflow JS prompts).
+
+    Outputs a JSON object with two keys:
+      - ``legal_artifacts``: dict[str, set[str]] — stage-dir → legal filenames
+        (forward-ref whitelist, same shape as LEGAL_ARTIFACTS in legal_artifacts.py).
+      - ``phase_deliverables``: dict[int, list[str]] — phase-number → deliverables
+        (Agent B approval keys, same shape as PHASE_DELIVERABLES in legal_artifacts.py).
+
+    Workflow JS callers parse this on startup instead of hardcoding a copy of the
+    whitelist in their prompts, eliminating the DRY violation described in
+    legal_artifacts.py's module docstring.
+
+    Usage:
+        python harness_cli.py print-legal-artifacts
+    """
+    from core.quality_gate.legal_artifacts import LEGAL_ARTIFACTS, PHASE_DELIVERABLES
+
+    # Convert set values to sorted lists for deterministic JSON output.
+    serializable = {
+        k: sorted(v) if isinstance(v, set) else v
+        for k, v in LEGAL_ARTIFACTS.items()
+    }
+    payload = {
+        "legal_artifacts": serializable,
+        "phase_deliverables": {
+            str(k): v for k, v in PHASE_DELIVERABLES.items()
+        },
+    }
+    _hc.json.dump(payload, _hc.sys.stdout, indent=2)
+    print()  # trailing newline
+    return 0
+
+
 def register(sub) -> None:
     """Wire this family's parsers onto the main subparser action."""
     # bug-hunt-targets (v2.9 C4 — Gate-3 adversarial-review targeting manifest)
@@ -1006,6 +1042,10 @@ def register(sub) -> None:
              "SAD.md) and NFRs dropped from ADR.md's traceability table",
     )
     aci.add_argument("--project", default=".", help="Project root (default: .)")
+    aci.add_argument("--forward-refs-only", action="store_true",
+                     dest="forward_refs_only",
+                     help="Check forward references only (skip NFR→ADR coverage; "
+                          "useful at P1/P2 when ADR.md does not exist yet)")
     aci.set_defaults(func=cmd_check_artifact_consistency)
 
     # (check-test-inventory removed — deprecated since v2.6, it only
@@ -1157,3 +1197,10 @@ def register(sub) -> None:
         ),
     )
     cc.set_defaults(func=cmd_check_constitution)
+
+    # print-legal-artifacts (SSOT exposure for workflow JS prompts — DRY fix)
+    pla = sub.add_parser(
+        "print-legal-artifacts",
+        help="Print legal-deliverable filenames as JSON (SSOT for workflow JS)",
+    )
+    pla.set_defaults(func=cmd_print_legal_artifacts)
