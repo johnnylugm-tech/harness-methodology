@@ -85,3 +85,11 @@
 - test: tests/test_lessons.py::test_lesson_injection_is_wired_into_load_context
   bug: "Direction C cross-run memory: recall_lessons must stay wired into cmd_load_context — otherwise phase entry stops surfacing past failure modes to the agent"
   fixed_in: "Direction C (cross-run failure memory auto-injection)"
+
+- test: tests/test_traceability_view_regen.py::test_advance_phase_wires_traceability_view_regen
+  bug: "SSOT view閉環: _regen_traceability_views must stay wired into advance-phase — else TRACEABILITY_MATRIX/SPEC_TRACKING go stale/hand-mocked again (the automation-gap the report flagged)"
+  fixed_in: "SSOT view-regen 閉環 (render-from-scan, not write-back)"
+
+- test: tests/test_spec_tracking_render.py::test_spec_tracking_wired_into_view_regen
+  bug: "SSOT view閉環: write_spec_tracking Status refresh must stay wired into the view regen — else SPEC_TRACKING Status stops reflecting the real build_traceability scan"
+  fixed_in: "SSOT view-regen 閉環 (render-from-scan, not write-back)"

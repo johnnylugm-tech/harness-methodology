@@ -4041,6 +4041,73 @@ def _generate_stage_pass(project_path: Path, gate_num: int, phase_num: int) -> N
         print(f"  [WARN] Could not write STAGE_PASS.md: {exc}")
 
 
+def _regen_and_stage_view(project: Path, path: Path, render) -> None:
+    """Render a human-readable view file from SSOT and `git add` it only if its
+    bytes actually changed (same no-op-commit guard as the STAGE_PASS regen).
+
+    Best-effort: a render error is warned, never fatal — these are render-only
+    views, not the authoritative source (that is build_traceability /
+    quality_manifest.json).
+    """
+    old_hash = None
+    if path.exists():
+        try:
+            old_hash = hash(path.read_bytes())
+        except OSError:
+            pass
+    try:
+        render(path)
+    except Exception as e:  # noqa: BLE001
+        print(f"  [advance-phase] {path.name} view regen skipped: {e}")
+        return
+    if not path.exists():
+        return
+    try:
+        new_hash = hash(path.read_bytes())
+    except OSError:
+        new_hash = None
+    if new_hash != old_hash:
+        subprocess.run(["git", "add", str(path)], cwd=str(project), capture_output=True)
+        print(f"  [advance-phase] {path.name} refreshed from SSOT → staged")
+
+
+def _regen_traceability_views(project: Path) -> None:
+    """Always-regenerate the human-readable traceability views from the live
+    build_traceability scan, so a phase advance can never leave a stale or
+    hand-mocked matrix behind. The authoritative FR status is that scan (code /
+    test coverage) and quality_manifest.json — these Markdown files are
+    render-only views (AUTO-GEN sentinel block); their content is never a gate
+    input. Regenerated at phase granularity (advance-phase), matching their role
+    as phase-level ASPICE tracking views.
+    """
+    try:
+        from scripts.build_traceability import (
+            build_traceability,
+            generate_markdown_matrix,
+        )
+    except Exception as e:  # noqa: BLE001
+        print(f"  [advance-phase] traceability views skipped (import): {e}")
+        return
+    try:
+        rt = build_traceability(project)
+    except Exception as e:  # noqa: BLE001
+        print(f"  [advance-phase] traceability views skipped (scan failed): {e}")
+        return
+    layout = ProjectLayout(project)
+    _regen_and_stage_view(
+        project, layout.traceability_matrix_path,
+        lambda p: generate_markdown_matrix(rt, p),
+    )
+    try:
+        from core.traceability.spec_tracking_render import write_spec_tracking
+        _regen_and_stage_view(
+            project, layout.spec_tracking_path,
+            lambda p: write_spec_tracking(project, rt, out_path=p),
+        )
+    except Exception as e:  # noqa: BLE001
+        print(f"  [advance-phase] SPEC_TRACKING view skipped: {e}")
+
+
 def _run_phase_auditor(project: Path, completed_phase: int) -> int:
     """Run PhaseAuditor (local mode) — replaced deprecated phase_end_audit.py (v2.5.0).
 
@@ -4448,6 +4515,13 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
             print(
                 f"  [STAGE_PASS] content changed → staged {completed_phase} advance commit"
             )
+
+    # ── Always-regenerate traceability views from SSOT ───────────────
+    # TRACEABILITY_MATRIX.md (and SPEC_TRACKING.md) are render-only views of the
+    # live build_traceability scan — never a gate input. Refresh them here so a
+    # phase advance can't leave a stale/hand-mocked matrix; staged only if
+    # changed (same no-op guard as STAGE_PASS).
+    _regen_traceability_views(project)
 
     # ── Next-phase plan: must exist before advancing (Phase 3–7) ────
     # Prevents "advance first, plan later" ordering bugs. generate-next-plan
