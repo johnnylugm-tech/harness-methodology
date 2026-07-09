@@ -9,10 +9,19 @@ imports are unaffected.
 
 from __future__ import annotations
 
+import argparse
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+from core.phase_topology import VALID_PHASES
+from core.utils.project_layout import ProjectLayout
 import harness_cli as _hc
 
 
-def cmd_bug_hunt_targets(args: _hc.argparse.Namespace) -> int:
+def cmd_bug_hunt_targets(args: argparse.Namespace) -> int:
     """v2.9 C4: aggregate hunt-targeting signals into bug_hunt_targets.json.
 
     Sources (each best-effort, provenance recorded):
@@ -30,7 +39,7 @@ def cmd_bug_hunt_targets(args: _hc.argparse.Namespace) -> int:
 
     from core.utils.lang_patterns import iter_source_files, project_language
 
-    project = _hc.Path(args.project).resolve()
+    project = Path(args.project).resolve()
     language = project_language(project)
     sources: dict = {}
 
@@ -38,14 +47,14 @@ def cmd_bug_hunt_targets(args: _hc.argparse.Namespace) -> int:
     declared: list[dict] = []
     manifest_path = project / ".methodology" / "quality_manifest.json"
     try:
-        manifest = _hc.json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         for entry in manifest.get("high_risk_modules", []):
             if isinstance(entry, str):
                 declared.append({"path": entry, "risk": ""})
             elif isinstance(entry, dict) and entry.get("path"):
                 declared.append({"path": entry["path"],
                                  "risk": entry.get("risk", "")})
-    except (OSError, _hc.json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError):
         pass
     sources["declared"] = len(declared)
 
@@ -53,11 +62,11 @@ def cmd_bug_hunt_targets(args: _hc.argparse.Namespace) -> int:
     crg_hubs: list[dict] = []
     crg_path = project / ".sessi-work" / "crg_metrics.json"
     try:
-        crg = _hc.json.loads(crg_path.read_text(encoding="utf-8"))
+        crg = json.loads(crg_path.read_text(encoding="utf-8"))
         for hub in (crg.get("hub_risk_map") or {}).get("hubs", []):
             if hub.get("severity") in ("critical", "high") and hub.get("file"):
                 crg_hubs.append(hub)
-    except (OSError, _hc.json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError):
         pass
     sources["crg_hubs"] = len(crg_hubs)
 
@@ -65,10 +74,10 @@ def cmd_bug_hunt_targets(args: _hc.argparse.Namespace) -> int:
     survivors: list[dict] = []
     surv_path = project / ".methodology" / "mutation_survivors.json"
     try:
-        survivors = _hc.json.loads(
+        survivors = json.loads(
             surv_path.read_text(encoding="utf-8")
         ).get("survivors", [])
-    except (OSError, _hc.json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError):
         pass
     sources["mutation_survivors"] = len(survivors)
     survivors_by_file: dict[str, int] = {}
@@ -81,12 +90,12 @@ def cmd_bug_hunt_targets(args: _hc.argparse.Namespace) -> int:
     for gate_num in (4, 3, 2):
         gpath = project / ".methodology" / f"gate{gate_num}_result.json"
         try:
-            gdata = _hc.json.loads(gpath.read_text(encoding="utf-8"))
+            gdata = json.loads(gpath.read_text(encoding="utf-8"))
             dim = (gdata.get("breakdown") or {}).get("integration_coverage")
             if isinstance(dim, dict) and dim.get("score") is not None:
                 integration = {"gate": gate_num, "score": dim["score"]}
                 break
-        except (OSError, _hc.json.JSONDecodeError):
+        except (OSError, json.JSONDecodeError):
             continue
     sources["integration_coverage"] = integration is not None
 
@@ -116,23 +125,23 @@ def cmd_bug_hunt_targets(args: _hc.argparse.Namespace) -> int:
             )
 
     high_risk = [
-        {"path": p, "name": _hc.Path(p).stem, "reasons": r}
+        {"path": p, "name": Path(p).stem, "reasons": r}
         for p, r in sorted(reasons.items())
     ]
     high_paths = set(reasons)
     standard = [
-        {"path": p, "name": _hc.Path(p).stem,
+        {"path": p, "name": Path(p).stem,
          **({"survivors": survivors_by_file[p]} if p in survivors_by_file else {})}
         for p in inventory if p not in high_paths
     ]
 
     git_sha = ""
     try:
-        git_sha = _hc.subprocess.run(
+        git_sha = subprocess.run(
             ["git", "rev-parse", "HEAD"], cwd=project,
             capture_output=True, text=True, timeout=10,
         ).stdout.strip()
-    except (_hc.subprocess.SubprocessError, OSError):
+    except (subprocess.SubprocessError, OSError):
         pass
 
     targets = {
@@ -147,7 +156,7 @@ def cmd_bug_hunt_targets(args: _hc.argparse.Namespace) -> int:
     }
     out_path = project / ".methodology" / "bug_hunt_targets.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(_hc.json.dumps(targets, indent=2, ensure_ascii=False) + "\n",
+    out_path.write_text(json.dumps(targets, indent=2, ensure_ascii=False) + "\n",
                         encoding="utf-8")
 
     print(f"[bug-hunt-targets] {len(high_risk)} high-risk (3-lens), "
@@ -161,20 +170,20 @@ def cmd_bug_hunt_targets(args: _hc.argparse.Namespace) -> int:
     return 0
 
 
-def cmd_spec_coverage_check(args: _hc.argparse.Namespace) -> int:
+def cmd_spec_coverage_check(args: argparse.Namespace) -> int:
     """Spec Coverage Check — compare TEST_SPEC.md items against actual test files.
 
     Validates that every named test case declared in the P2 TEST_SPEC.md artifact
     has been implemented as a real test function in tests/.
     """
-    project = _hc.Path(args.project).resolve()
+    project = Path(args.project).resolve()
     threshold = getattr(args, "threshold", 80.0)
     fr_id = getattr(args, "fr_id", None)
     code, _ = _hc._run_spec_coverage_check(project, threshold, fr_id=fr_id, verbose=True)
     return code
 
 
-def cmd_crg_arch_check(args: _hc.argparse.Namespace) -> int:
+def cmd_crg_arch_check(args: argparse.Namespace) -> int:
     """Non-interactive CRG architecture gate for CI (deterministic, no LLM).
 
     Builds/refreshes the graph and computes the architecture score via
@@ -184,7 +193,7 @@ def cmd_crg_arch_check(args: _hc.argparse.Namespace) -> int:
     drift vs that baseline reaches --drift-threshold. This closes the audit gap
     where CRG never ran in CI (architecture scoring was local-only).
     """
-    project = _hc.Path(args.project).resolve()
+    project = Path(args.project).resolve()
     from core.harness_config import is_dim_disabled
     if is_dim_disabled("architecture", str(project)):
         print("[crg-arch-check] INFO: crg_architecture disabled in harness_config.json — skipping")
@@ -208,11 +217,11 @@ def cmd_crg_arch_check(args: _hc.argparse.Namespace) -> int:
 
     baseline = getattr(args, "baseline", None)
     if baseline:
-        bp = _hc.Path(baseline)
+        bp = Path(baseline)
         if bp.is_file():
             try:
                 from harness.ssi.scripts.crg_analysis import compute_structural_drift
-                _bl = _hc.json.loads(bp.read_text(encoding="utf-8"))
+                _bl = json.loads(bp.read_text(encoding="utf-8"))
                 drift = compute_structural_drift(_bl, metrics)
                 dthr = getattr(args, "drift_threshold", 0.4)
                 print(f"[crg-arch-check] drift vs {bp.name}: {drift:.2f} (threshold {dthr:.2f})")
@@ -227,7 +236,7 @@ def cmd_crg_arch_check(args: _hc.argparse.Namespace) -> int:
     return 0
 
 
-def cmd_check_test_spec_consistency(args: _hc.argparse.Namespace) -> int:
+def cmd_check_test_spec_consistency(args: argparse.Namespace) -> int:
     """P2 self-consistency gate — prove TEST_SPEC.md is not unsatisfiable.
 
     Correctness is locked in P2: for each declared case the sub-assertion
@@ -237,8 +246,8 @@ def cmd_check_test_spec_consistency(args: _hc.argparse.Namespace) -> int:
     so P3 never implements an unsatisfiable catalog. The engine reads ONLY
     TEST_SPEC.md; it never opens any requirements source (SRS/SAD/SPEC).
     """
-    project = _hc.Path(args.project).resolve()
-    spec_path = _hc.ProjectLayout(project).test_spec_path
+    project = Path(args.project).resolve()
+    spec_path = ProjectLayout(project).test_spec_path
     if not spec_path.exists():
         print("[check-test-spec-consistency] 02-architecture/TEST_SPEC.md not found — skipping.")
         return 0
@@ -282,7 +291,7 @@ def cmd_check_test_spec_consistency(args: _hc.argparse.Namespace) -> int:
     return 0
 
 
-def cmd_check_spec_alignment(args: _hc.argparse.Namespace) -> int:
+def cmd_check_spec_alignment(args: argparse.Namespace) -> int:
     """Front-edge gate — prove SRS.md faithfully covers the canonical_spec (PRD).
 
     The one boundary nothing else machine-checks: canonical_spec → SRS. In
@@ -294,7 +303,7 @@ def cmd_check_spec_alignment(args: _hc.argparse.Namespace) -> int:
     today only Agent A/B (LLM) uphold. Distinct from check-test-spec-consistency
     (TEST_SPEC self-consistency) and preflight_fr_spec_consistency (SAD↔SPEC).
     """
-    project = _hc.Path(args.project).resolve()
+    project = Path(args.project).resolve()
     from core.quality_gate.spec_alignment import (
         check_spec_alignment,
         resolve_canonical_spec,
@@ -321,7 +330,7 @@ def cmd_check_spec_alignment(args: _hc.argparse.Namespace) -> int:
     return 0
 
 
-def cmd_check_property_spec(args: _hc.argparse.Namespace) -> int:
+def cmd_check_property_spec(args: argparse.Namespace) -> int:
     """Lightweight property-declaration gate (Direction B).
 
     Opt-in: only FRs that declare a `**Properties**` table in TEST_SPEC.md are
@@ -332,7 +341,7 @@ def cmd_check_property_spec(args: _hc.argparse.Namespace) -> int:
     Property *strength* is backed by the existing mutation_testing dimension,
     not re-scored here. No new gate dimension, no per-FR mutation.
     """
-    project = _hc.Path(args.project).resolve()
+    project = Path(args.project).resolve()
     from core.quality_gate.property_check import check_property_spec
 
     require = not getattr(args, "no_require_execution", False)
@@ -354,7 +363,7 @@ def cmd_check_property_spec(args: _hc.argparse.Namespace) -> int:
     return 0
 
 
-def cmd_check_artifact_consistency(args: _hc.argparse.Namespace) -> int:
+def cmd_check_artifact_consistency(args: argparse.Namespace) -> int:
     """P2/P3 gate — machine-catch two P1/P2 artifact hallucinations (audit fix).
 
     check_forward_refs: a `NN-stage/FILE.md` reference must name a real framework
@@ -363,7 +372,7 @@ def cmd_check_artifact_consistency(args: _hc.argparse.Namespace) -> int:
     traceability TABLE (catches an NFR dropped from the table). Both decidable,
     no LLM. NFR coverage is only meaningful once ADR.md exists (P3+).
     """
-    project = _hc.Path(args.project).resolve()
+    project = Path(args.project).resolve()
     from core.quality_gate.artifact_consistency import (
         check_forward_refs,
         check_nfr_adr_coverage,
@@ -388,7 +397,7 @@ def cmd_check_artifact_consistency(args: _hc.argparse.Namespace) -> int:
     return 0
 
 
-def cmd_check_test_mirrors_spec(args: _hc.argparse.Namespace) -> int:
+def cmd_check_test_mirrors_spec(args: argparse.Namespace) -> int:
     """P3 mirror gate — verify a RED test faithfully implements TEST_SPEC.md.
 
     Run AFTER the RED test is written (not before). Structure-only: no
@@ -397,13 +406,13 @@ def cmd_check_test_mirrors_spec(args: _hc.argparse.Namespace) -> int:
     different case set, or a declared assertion missing) -> FAIL, so the fix is
     the test, never TEST_SPEC. Reads only TEST_SPEC.md and the test file.
     """
-    project = _hc.Path(args.project).resolve()
-    spec_path = _hc.ProjectLayout(project).test_spec_path
+    project = Path(args.project).resolve()
+    spec_path = ProjectLayout(project).test_spec_path
     fr_id = args.fr_id
     # Bug #26 fix: --test-file accepts nargs="+", so args.test_files is a list.
     # Iterate each file; aggregate violations across all files. The command
     # fails (exit 1) if any one file has an error-severity violation.
-    test_files = [_hc.Path(f).resolve() for f in args.test_files]
+    test_files = [Path(f).resolve() for f in args.test_files]
 
     if not spec_path.exists():
         print("[check-test-mirrors-spec] 02-architecture/TEST_SPEC.md not found — skipping.")
@@ -458,7 +467,7 @@ def cmd_check_test_mirrors_spec(args: _hc.argparse.Namespace) -> int:
     return 0
 
 
-def cmd_manifest(args: _hc.argparse.Namespace) -> int:
+def cmd_manifest(args: argparse.Namespace) -> int:
     """Generate quality_manifest.json at P2 exit.
 
     Refuses to overwrite an existing manifest unless ``--force`` is passed,
@@ -467,7 +476,7 @@ def cmd_manifest(args: _hc.argparse.Namespace) -> int:
     """
     from harness.harness_bridge import HarnessBridge
 
-    sad_resolved = _hc.Path(args.sad).resolve()
+    sad_resolved = Path(args.sad).resolve()
     # SAB.json is written under .methodology/ at the project root, so the project
     # root is the parent directory that *contains* .methodology/. Walking up from
     # the SAD path until we find it (or fall back to the SAD's parent) keeps the
@@ -498,14 +507,14 @@ def cmd_manifest(args: _hc.argparse.Namespace) -> int:
         )
         return 0
     print(f"quality_manifest.json written → {out}")
-    manifest = _hc.json.loads(out.read_text(encoding="utf-8"))
+    manifest = json.loads(out.read_text(encoding="utf-8"))
     print(f"  fr_ids        : {manifest['fr_ids']}")
     print(f"  generated_at  : phase {manifest['generated_at_phase']}")
     _hc._generate_sab_json(project)
     return 0
 
 
-def cmd_generate_verification_report(args: _hc.argparse.Namespace) -> int:
+def cmd_generate_verification_report(args: argparse.Namespace) -> int:
     """Generate 05-verification/VERIFICATION_REPORT.md from manifest + SRS.
 
     Created to fix Finding #16: P5 plan's VERIFY-REPORT task said "Generate
@@ -518,11 +527,11 @@ def cmd_generate_verification_report(args: _hc.argparse.Namespace) -> int:
     """
     from scripts.generate_verification_report import generate_verification_report
 
-    project = _hc.Path(args.project).resolve()
+    project = Path(args.project).resolve()
     try:
         out = generate_verification_report(project)
     except Exception as exc:  # pylint: disable=broad-exception-caught
-        print(f"[FAIL] generate-verification-report: {exc}", file=_hc.sys.stderr)
+        print(f"[FAIL] generate-verification-report: {exc}", file=sys.stderr)
         return 1
     print(f"VERIFICATION_REPORT.md written → {out}")
     # Echo summary lines so the operator can see pass/fail count at a glance
@@ -536,7 +545,7 @@ def cmd_generate_verification_report(args: _hc.argparse.Namespace) -> int:
     return 0
 
 
-def cmd_verify_agent_b_approvals(args: _hc.argparse.Namespace) -> int:
+def cmd_verify_agent_b_approvals(args: argparse.Namespace) -> int:
     """Verify that Agent B approval JSON files exist for all required FRs.
 
     Each FR must have a corresponding .methodology/agent_b_approvals/FR-XX.json
@@ -549,7 +558,7 @@ def cmd_verify_agent_b_approvals(args: _hc.argparse.Namespace) -> int:
       python harness_cli.py verify-agent-b-approvals --phase 8 --fr-ids FR-01,FR-02 --project .
       python harness_cli.py verify-agent-b-approvals --phase 8 --project .  # reads from manifest
     """
-    project = _hc.Path(args.project).resolve()
+    project = Path(args.project).resolve()
     phase = args.phase
 
     fr_ids_arg = getattr(args, "fr_ids", "") or ""
@@ -565,7 +574,7 @@ def cmd_verify_agent_b_approvals(args: _hc.argparse.Namespace) -> int:
     return 0 if passed else 1
 
 
-def cmd_write_approval(args: _hc.argparse.Namespace) -> int:
+def cmd_write_approval(args: argparse.Namespace) -> int:
     """Deterministically persist an Agent B approval JSON to disk + verify in-process.
 
     Replaces the LLM-as-shell-wrapper pattern in workflow JS (persistApproval helper
@@ -583,26 +592,26 @@ def cmd_write_approval(args: _hc.argparse.Namespace) -> int:
     """
     import json as _json
 
-    project = _hc.Path(args.project).resolve()
+    project = Path(args.project).resolve()
     fr_id = args.fr_id
     if not fr_id:
-        print("[write-approval] ERROR: --fr-id is required", file=_hc.sys.stderr)
+        print("[write-approval] ERROR: --fr-id is required", file=sys.stderr)
         return 1
 
     # Resolve JSON payload from --json arg or stdin
     if args.stdin:
-        raw = _hc.sys.stdin.read()
+        raw = sys.stdin.read()
     else:
         raw = args.json or ""
     if not raw:
-        print("[write-approval] ERROR: no JSON payload (--json or --stdin required)", file=_hc.sys.stderr)
+        print("[write-approval] ERROR: no JSON payload (--json or --stdin required)", file=sys.stderr)
         return 1
 
     # Validate JSON is parseable before any disk I/O
     try:
         payload = _json.loads(raw)
     except _json.JSONDecodeError as e:
-        print(f"[write-approval] ERROR: invalid JSON payload: {e}", file=_hc.sys.stderr)
+        print(f"[write-approval] ERROR: invalid JSON payload: {e}", file=sys.stderr)
         return 1
 
     approvals_dir = project / ".methodology" / "agent_b_approvals"
@@ -612,25 +621,25 @@ def cmd_write_approval(args: _hc.argparse.Namespace) -> int:
         # Atomic write (tmp + os.replace) — same pattern as taskq NFR-03 atomic contract
         tmp_path = approval_path.with_suffix(approval_path.suffix + ".tmp")
         tmp_path.write_text(_json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-        _hc.os.replace(tmp_path, approval_path)
+        os.replace(tmp_path, approval_path)
     except OSError as e:
-        print(f"[write-approval] ERROR: write failed for {approval_path}: {e}", file=_hc.sys.stderr)
+        print(f"[write-approval] ERROR: write failed for {approval_path}: {e}", file=sys.stderr)
         return 1
 
     # Deterministic in-process verify (replaces LLM-as-shell-wrapper disk check)
     if not approval_path.is_file():
-        print(f"[write-approval] ERROR: verify failed — {approval_path} not on disk after write", file=_hc.sys.stderr)
+        print(f"[write-approval] ERROR: verify failed — {approval_path} not on disk after write", file=sys.stderr)
         return 2
     size = approval_path.stat().st_size
     if size < 10:
-        print(f"[write-approval] ERROR: verify failed — {approval_path} only {size} bytes", file=_hc.sys.stderr)
+        print(f"[write-approval] ERROR: verify failed — {approval_path} only {size} bytes", file=sys.stderr)
         return 2
 
     print(f"[write-approval] OK: {approval_path} ({size} bytes, written + verified)")
     return 0
 
 
-def cmd_verify_file(args: _hc.argparse.Namespace) -> int:
+def cmd_verify_file(args: argparse.Namespace) -> int:
     """Deterministically verify a file exists and (optionally) has parseable content.
 
     Replaces 18 LLM-as-shell-wrapper sites across 6 phase workflow JS files
@@ -644,39 +653,39 @@ def cmd_verify_file(args: _hc.argparse.Namespace) -> int:
     """
     import json as _json
 
-    file_path = _hc.Path(args.file)
+    file_path = Path(args.file)
     if not file_path.is_absolute():
-        file_path = (_hc.Path(args.project).resolve() / file_path) if args.project else file_path
+        file_path = (Path(args.project).resolve() / file_path) if args.project else file_path
 
     expect = (args.expect or "any").lower()  # any | json | yaml | text
     min_bytes = args.min_bytes if args.min_bytes is not None else 1
 
     if not file_path.exists():
-        print(f"[verify-file] MISSING: {file_path}", file=_hc.sys.stderr)
+        print(f"[verify-file] MISSING: {file_path}", file=sys.stderr)
         return 1
     if not file_path.is_file():
-        print(f"[verify-file] NOT_A_FILE: {file_path}", file=_hc.sys.stderr)
+        print(f"[verify-file] NOT_A_FILE: {file_path}", file=sys.stderr)
         return 1
 
     size = file_path.stat().st_size
     if size < min_bytes:
-        print(f"[verify-file] TOO_SMALL: {file_path} ({size} bytes < {min_bytes})", file=_hc.sys.stderr)
+        print(f"[verify-file] TOO_SMALL: {file_path} ({size} bytes < {min_bytes})", file=sys.stderr)
         return 1
 
     if expect == "json":
         try:
             _json.loads(file_path.read_text(encoding="utf-8"))
         except (_json.JSONDecodeError, UnicodeDecodeError, OSError) as e:
-            print(f"[verify-file] INVALID_JSON: {file_path}: {e}", file=_hc.sys.stderr)
+            print(f"[verify-file] INVALID_JSON: {file_path}: {e}", file=sys.stderr)
             return 1
     elif expect == "yaml":
         try:
             import yaml as _yaml  # type: ignore
             _yaml.safe_load(file_path.read_text(encoding="utf-8"))
         except ImportError:
-            print("[verify-file] WARN: PyYAML not installed — skipping YAML parse, treating as text", file=_hc.sys.stderr)
+            print("[verify-file] WARN: PyYAML not installed — skipping YAML parse, treating as text", file=sys.stderr)
         except Exception as e:  # yaml.YAMLError + others
-            print(f"[verify-file] INVALID_YAML: {file_path}: {e}", file=_hc.sys.stderr)
+            print(f"[verify-file] INVALID_YAML: {file_path}: {e}", file=sys.stderr)
             return 1
     # expect == "any" | "text" — just existence + size check
 
@@ -684,9 +693,9 @@ def cmd_verify_file(args: _hc.argparse.Namespace) -> int:
     return 0
 
 
-def cmd_run_gap_analysis(args: _hc.argparse.Namespace) -> int:
+def cmd_run_gap_analysis(args: argparse.Namespace) -> int:
     """Run M3 gap analysis: detect gaps between SPEC.md and codebase."""
-    project = _hc.Path(args.project).resolve()
+    project = Path(args.project).resolve()
     spec = args.spec or "SPEC.md"
 
     print(f"\n{'='*60}\nrun-gap-analysis (M3)  project={project}\n{'='*60}")
@@ -723,11 +732,11 @@ def cmd_run_gap_analysis(args: _hc.argparse.Namespace) -> int:
     return 0
 
 
-def cmd_verify_spec(args: _hc.argparse.Namespace) -> int:
+def cmd_verify_spec(args: argparse.Namespace) -> int:
     """Verify implementation complies with spec requirements (6-dimension check)."""
     from scripts.verify_spec_compliance import SpecComplianceChecker
 
-    project = str(_hc.Path(args.project).resolve())
+    project = str(Path(args.project).resolve())
     print(f"\n{'='*60}\nverify-spec  project={project}\n{'='*60}")
 
     checker = SpecComplianceChecker(project)
@@ -756,7 +765,7 @@ def cmd_verify_spec(args: _hc.argparse.Namespace) -> int:
     return 0 if not result["issues"] else 1
 
 
-def cmd_migrate_trace_overlay(args: _hc.argparse.Namespace) -> int:
+def cmd_migrate_trace_overlay(args: argparse.Namespace) -> int:
     """Wrap a sentinel-less TRACEABILITY_MATRIX.md in AUTO-GEN sentinels.
 
     Idempotent. Re-running on an already-migrated file is a no-op. The
@@ -767,7 +776,7 @@ def cmd_migrate_trace_overlay(args: _hc.argparse.Namespace) -> int:
     """
     from core.traceability.overlay import migrate_existing_matrix
 
-    project = _hc.Path(args.project).resolve()
+    project = Path(args.project).resolve()
     matrix_path = project / "TRACEABILITY_MATRIX.md"
     overlay_path = project / "TRACEABILITY_MATRIX.overlay.yaml"
 
@@ -788,13 +797,13 @@ def cmd_migrate_trace_overlay(args: _hc.argparse.Namespace) -> int:
     return 0
 
 
-def cmd_build_trace_attestation(args: _hc.argparse.Namespace) -> int:
+def cmd_build_trace_attestation(args: argparse.Namespace) -> int:
     """Re-derive the matrix and write a git-anchored SHA-256 attestation."""
     from scripts.build_trace_attestation import build_attestation, write_attestation
 
-    project = _hc.Path(args.project).resolve()
-    overlay = _hc.Path(args.overlay).resolve() if args.overlay else None
-    trace_dir = _hc.Path(args.trace_dir)
+    project = Path(args.project).resolve()
+    overlay = Path(args.overlay).resolve() if args.overlay else None
+    trace_dir = Path(args.trace_dir)
     attestation = build_attestation(project, overlay_path=overlay)
     if not args.write:
         # Build-only mode (matches scripts/build_trace_attestation.py --no-write).
@@ -812,11 +821,11 @@ def cmd_build_trace_attestation(args: _hc.argparse.Namespace) -> int:
     print(f"  wrote latest:    {latest}  (gitignored)")
     if attestation.get("overlay_errors"):
         for err in attestation["overlay_errors"]:
-            print(f"  overlay error: {err}", file=_hc.sys.stderr)
+            print(f"  overlay error: {err}", file=sys.stderr)
     return 0
 
 
-def cmd_verify_trace(args: _hc.argparse.Namespace) -> int:
+def cmd_verify_trace(args: argparse.Namespace) -> int:
     """Verify committed attestation matches re-derived matrix.
 
     Exit codes (must match scripts/verify_trace_attestation.py):
@@ -824,9 +833,9 @@ def cmd_verify_trace(args: _hc.argparse.Namespace) -> int:
     """
     from scripts.verify_trace_attestation import verify_attestation
 
-    project = _hc.Path(args.project).resolve()
-    overlay = _hc.Path(args.overlay).resolve() if args.overlay else None
-    trace_dir = _hc.Path(args.trace_dir)
+    project = Path(args.project).resolve()
+    overlay = Path(args.overlay).resolve() if args.overlay else None
+    trace_dir = Path(args.trace_dir)
     code, msg = verify_attestation(project, overlay, trace_dir)
     gate_tag = f" [gate {args.gate}]" if getattr(args, "gate", None) else ""
     print(f"\nverify-trace{gate_tag}  project={project}")
@@ -834,18 +843,18 @@ def cmd_verify_trace(args: _hc.argparse.Namespace) -> int:
     return code
 
 
-def cmd_check_logic(args: _hc.argparse.Namespace) -> int:
+def cmd_check_logic(args: argparse.Namespace) -> int:
     """Check code for logic correctness issues (output/branch/lazy-init/semantic)."""
     from scripts.spec_logic_checker import SpecLogicChecker, SemanticValidator
 
-    project = str(_hc.Path(args.project).resolve())
+    project = str(Path(args.project).resolve())
     print(f"\n{'='*60}\ncheck-logic  project={project}\n{'='*60}")
 
     checker = SpecLogicChecker(project)
     result = checker.scan_python_files()
     checker.print_report(result)
 
-    if args.srs and _hc.Path(args.srs).exists():
+    if args.srs and Path(args.srs).exists():
         print(f"\n{'─'*60}")
         print("Semantic Validation (SRS)")
         print(f"{'─'*60}")
@@ -857,7 +866,7 @@ def cmd_check_logic(args: _hc.argparse.Namespace) -> int:
     return 0 if result.passed else 1
 
 
-def cmd_check_constitution(args: _hc.argparse.Namespace) -> int:
+def cmd_check_constitution(args: argparse.Namespace) -> int:
     """Check constitution document quality for the current phase.
 
     Runs constitution postflight on the phase-specific directory so agents
@@ -874,7 +883,7 @@ def cmd_check_constitution(args: _hc.argparse.Namespace) -> int:
     from core.quality_gate.constitution.runner import check_single_file
     from core.quality_gate.constitution.profile import get_profile
 
-    project = _hc.Path(args.project).resolve()
+    project = Path(args.project).resolve()
     phase = int(args.phase)
     profile = get_profile()
     composite_threshold = profile.composite_threshold(phase)
@@ -882,7 +891,7 @@ def cmd_check_constitution(args: _hc.argparse.Namespace) -> int:
     # ── Single-file branch (--file) ────────────────────────────────────
     file_arg = getattr(args, "file", None)
     if file_arg:
-        file_path = _hc.Path(file_arg)
+        file_path = Path(file_arg)
         if not file_path.is_absolute():
             file_path = (project / file_path).resolve()
 
@@ -904,7 +913,7 @@ def cmd_check_constitution(args: _hc.argparse.Namespace) -> int:
         return _hc._print_constitution_result(result, composite_threshold, profile, phase, file_path)
 
     # ── Existing directory branch (unchanged) ──────────────────────────
-    _phase_dir = _hc.ProjectLayout(project).get_phase_dir(phase)
+    _phase_dir = ProjectLayout(project).get_phase_dir(phase)
     if not _phase_dir.exists():
         print(f"[SKIP] Phase {phase} directory not found: {_phase_dir}")
         return 0
@@ -923,7 +932,7 @@ def cmd_check_constitution(args: _hc.argparse.Namespace) -> int:
     return _hc._print_constitution_result(result, composite_threshold, profile, phase, _phase_dir)
 
 
-def cmd_print_legal_artifacts(args: _hc.argparse.Namespace) -> int:
+def cmd_print_legal_artifacts(args: argparse.Namespace) -> int:
     """Print legal-deliverable filenames as JSON (SSOT for workflow JS prompts).
 
     Outputs a JSON object with two keys:
@@ -952,7 +961,7 @@ def cmd_print_legal_artifacts(args: _hc.argparse.Namespace) -> int:
             str(k): v for k, v in PHASE_DELIVERABLES.items()
         },
     }
-    _hc.json.dump(payload, _hc.sys.stdout, indent=2)
+    json.dump(payload, sys.stdout, indent=2)
     print()  # trailing newline
     return 0
 
@@ -1184,7 +1193,7 @@ def register(sub) -> None:
         "check-constitution",
         help="Check document quality against constitution standards for a phase",
     )
-    cc.add_argument("--phase",   required=True, type=int, choices=_hc.VALID_PHASES,
+    cc.add_argument("--phase",   required=True, type=int, choices=VALID_PHASES,
                     help="Phase to check (1–8)")
     cc.add_argument("--project", default=".", help="Project root (default: .)")
     cc.add_argument(

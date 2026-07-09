@@ -60,9 +60,8 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile  # noqa: F401  (cli/ families resolve via _hc)
 import warnings
-from datetime import datetime, timedelta, timezone  # noqa: F401  (timedelta: cli/ families resolve via _hc)
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
@@ -104,7 +103,6 @@ from core.phase_topology import (  # noqa: E402
     PER_FR_GATE1_PHASES as _TOPOLOGY_PER_FR_GATE1,
     PHASE_DIRS as _TOPOLOGY_PHASE_DIRS,
     VALID_PHASES,
-    phase_name as _topology_phase_name,  # noqa: F401  (cli/ families resolve via _hc)
 )
 from core.pre_flight import check_cli_tools  # noqa: E402
 from core.harness_config import get_timeout  # noqa: E402
@@ -132,11 +130,8 @@ def _fr_num_str(fr_id: str) -> str:
         return canon
     except ValueError:
         return fr_id
-# Bug #105: framework-owned mutation_testing path. Pyright cannot resolve this
-# import statically (no type stub for core.quality_gate.mutation_enforcer),
-# so we silence reportAttributeAccessIssue here. Kept even though no direct
-# caller remains in this file: cli/gate_cmds.py resolves it via _hc.
-from core.quality_gate.mutation_enforcer import compute_mutation_score  # noqa: E402, F401 # type: ignore[reportAttributeAccessIssue] # Bug #105
+# (Bug #105 compute_mutation_score import removed in S1 — cli/gate_cmds.py now
+# imports it directly from core.quality_gate.mutation_enforcer.)
 from core.quality_gate.legal_artifacts import PHASE_DELIVERABLES  # noqa: E402  # DRY: single source of truth shared with artifact_consistency.LEGAL_ARTIFACTS
 
 # ---------------------------------------------------------------------------

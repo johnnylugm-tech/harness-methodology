@@ -9,10 +9,17 @@ imports are unaffected.
 
 from __future__ import annotations
 
+import argparse
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+
+from core.atomic_io import atomic_write_json, file_lock, state_lock_path
+from core.phase_topology import ENTRY_GATE_MAP
 import harness_cli as _hc
 
 
-def cmd_push_checkpoint(args: _hc.argparse.Namespace) -> int:
+def cmd_push_checkpoint(args: argparse.Namespace) -> int:
     """Push P1/P2 human-review checkpoint with HANDOVER.md generation.
 
     Unlike raw git push, this calls GitStrategy which:
@@ -25,7 +32,7 @@ def cmd_push_checkpoint(args: _hc.argparse.Namespace) -> int:
       python harness_cli.py push-checkpoint --phase 1 --project . --fr-ids FR-01,FR-02,FR-03
       python harness_cli.py push-checkpoint --phase 2 --project . --fr-ids FR-01,FR-02
     """
-    project = _hc.Path(args.project).resolve()
+    project = Path(args.project).resolve()
     fr_ids = [f.strip() for f in args.fr_ids.split(",") if f.strip()]
     # Note: if fr_ids is empty here, GitStrategy.commit_and_push_p1/p2 will
     # auto-detect from SRS.md — no need to block here.
@@ -82,18 +89,18 @@ def cmd_push_checkpoint(args: _hc.argparse.Namespace) -> int:
             print(f"  [ERROR] Failed to resolve pre-push HEAD SHA: {_sha_err}. Aborting push.")
             return 1
         try:
-            with _hc.file_lock(_hc.state_lock_path(project)):
-                _state_data = _hc.json.loads(state_path.read_text(encoding="utf-8"))
+            with file_lock(state_lock_path(project)):
+                _state_data = json.loads(state_path.read_text(encoding="utf-8"))
                 _prev_last_push_checkpoint = _state_data.get("last_push_checkpoint")
                 _prev_last_push_checkpoint_phase = _state_data.get("last_push_checkpoint_phase")
                 _prev_phase_completed_entry = _state_data.get("phase_completed", {}).get(str(phase))
-                _state_data["last_push_checkpoint"] = _hc.datetime.now(_hc.timezone.utc).isoformat()
+                _state_data["last_push_checkpoint"] = datetime.now(timezone.utc).isoformat()
                 _state_data["last_push_checkpoint_phase"] = phase
                 _state_data.setdefault("phase_completed", {})[str(phase)] = {
                     "sha": _pre_push_sha,
-                    "timestamp": _hc.datetime.now(_hc.timezone.utc).isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
-                _hc.atomic_write_json(state_path, _state_data)
+                atomic_write_json(state_path, _state_data)
                 _wrote_checkpoint_state = True
         except Exception as _state_err:  # pylint: disable=broad-exception-caught
             print(f"  [WARN] Could not write push-checkpoint sentinel to state.json: {_state_err}")
@@ -113,8 +120,8 @@ def cmd_push_checkpoint(args: _hc.argparse.Namespace) -> int:
 
     if not ok and _wrote_checkpoint_state:
         try:
-            with _hc.file_lock(_hc.state_lock_path(project)):
-                _state_data = _hc.json.loads(state_path.read_text(encoding="utf-8"))
+            with file_lock(state_lock_path(project)):
+                _state_data = json.loads(state_path.read_text(encoding="utf-8"))
                 if _prev_last_push_checkpoint is None:
                     _state_data.pop("last_push_checkpoint", None)
                 else:
@@ -127,7 +134,7 @@ def cmd_push_checkpoint(args: _hc.argparse.Namespace) -> int:
                     _state_data.get("phase_completed", {}).pop(str(phase), None)
                 else:
                     _state_data.setdefault("phase_completed", {})[str(phase)] = _prev_phase_completed_entry
-                _hc.atomic_write_json(state_path, _state_data)
+                atomic_write_json(state_path, _state_data)
         except Exception as _revert_err:  # pylint: disable=broad-exception-caught
             print(f"  [WARN] Could not revert push-checkpoint sentinel after push failure: {_revert_err}")
 
@@ -156,7 +163,7 @@ def cmd_push_checkpoint(args: _hc.argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
-def cmd_push_milestone(args: _hc.argparse.Namespace) -> int:
+def cmd_push_milestone(args: argparse.Namespace) -> int:
     """Push milestone checkpoint with HANDOVER.md generation.
 
     Milestone pushes are the crash-recovery points for P3+:
@@ -176,7 +183,7 @@ def cmd_push_milestone(args: _hc.argparse.Namespace) -> int:
       python harness_cli.py push-milestone --type p3-post-gate2 --project . --fr-ids FR-01,FR-02,FR-03
       python harness_cli.py push-milestone --type p5-baseline --project .
     """
-    project = _hc.Path(args.project).resolve()
+    project = Path(args.project).resolve()
     git = _hc._make_git(args, project)
     git.ensure_gitignore()
     if getattr(args, "dry_run", False):
@@ -202,7 +209,7 @@ def cmd_push_milestone(args: _hc.argparse.Namespace) -> int:
         manifest_path = project / ".methodology" / "quality_manifest.json"
         if manifest_path.exists():
             try:
-                _mf = _hc.json.loads(manifest_path.read_text(encoding="utf-8"))
+                _mf = json.loads(manifest_path.read_text(encoding="utf-8"))
                 fr_ids = _mf.get("fr_ids", [])
             except Exception:  # pylint: disable=broad-exception-caught
                 pass
@@ -212,19 +219,19 @@ def cmd_push_milestone(args: _hc.argparse.Namespace) -> int:
     # the failing path left a milestone commit behind). Fail-closed: a
     # missing or unreadable manifest is absence of evidence, not permission.
     _MILESTONE_ENTRY_GATES = {
-        "p5-baseline": _hc._ENTRY_GATE_MAP[5],
-        "p7": _hc._ENTRY_GATE_MAP[7],
-        "p8": _hc._ENTRY_GATE_MAP[8],
+        "p5-baseline": ENTRY_GATE_MAP[5],
+        "p7": ENTRY_GATE_MAP[7],
+        "p8": ENTRY_GATE_MAP[8],
     }
     _required_gate = _MILESTONE_ENTRY_GATES.get(milestone_type)
     if _required_gate is not None:
         _gate_rec: dict = {}
         try:
-            _mf_gate = _hc.json.loads(
+            _mf_gate = json.loads(
                 (project / ".methodology" / "quality_manifest.json").read_text(encoding="utf-8")
             )
             _gate_rec = (_mf_gate.get("gate_results") or {}).get(f"gate{_required_gate}") or {}
-        except (FileNotFoundError, _hc.json.JSONDecodeError, OSError):
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
             _gate_rec = {}
         if not _gate_rec.get("quality_complete"):
             print(
@@ -250,13 +257,13 @@ def cmd_push_milestone(args: _hc.argparse.Namespace) -> int:
     _wrote_milestone_state = False
     if state_path.exists():
         try:
-            with _hc.file_lock(_hc.state_lock_path(project)):
-                _state_data = _hc.json.loads(state_path.read_text(encoding="utf-8"))
+            with file_lock(state_lock_path(project)):
+                _state_data = json.loads(state_path.read_text(encoding="utf-8"))
                 _prev_last_milestone_command = _state_data.get("last_milestone_command")
                 _prev_last_milestone_at = _state_data.get("last_milestone_at")
                 _state_data["last_milestone_command"] = f"push-milestone --type {milestone_type}"
-                _state_data["last_milestone_at"] = _hc.datetime.now(_hc.timezone.utc).isoformat()
-                _hc.atomic_write_json(state_path, _state_data)
+                _state_data["last_milestone_at"] = datetime.now(timezone.utc).isoformat()
+                atomic_write_json(state_path, _state_data)
                 _wrote_milestone_state = True
         except Exception as _state_err:  # pylint: disable=broad-exception-caught
             print(
@@ -267,8 +274,8 @@ def cmd_push_milestone(args: _hc.argparse.Namespace) -> int:
         if not _wrote_milestone_state:
             return
         try:
-            with _hc.file_lock(_hc.state_lock_path(project)):
-                _sd = _hc.json.loads(state_path.read_text(encoding="utf-8"))
+            with file_lock(state_lock_path(project)):
+                _sd = json.loads(state_path.read_text(encoding="utf-8"))
                 if _prev_last_milestone_command is None:
                     _sd.pop("last_milestone_command", None)
                 else:
@@ -277,7 +284,7 @@ def cmd_push_milestone(args: _hc.argparse.Namespace) -> int:
                     _sd.pop("last_milestone_at", None)
                 else:
                     _sd["last_milestone_at"] = _prev_last_milestone_at
-                _hc.atomic_write_json(state_path, _sd)
+                atomic_write_json(state_path, _sd)
         except Exception as _revert_err:  # pylint: disable=broad-exception-caught
             print(f"  [WARN] Could not revert stale milestone audit fields: {_revert_err}")
 

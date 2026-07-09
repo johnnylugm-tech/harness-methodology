@@ -9,15 +9,32 @@ imports are unaffected.
 
 from __future__ import annotations
 
+import argparse
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional
+
+from core.atomic_io import file_lock, state_lock_path
+from core.harness_config import get_timeout
+from core.phase_topology import EXIT_GATE_MAP, PER_FR_GATE1_PHASES, VALID_PHASES, phase_name
+from core.utils.project_layout import ProjectLayout
+from harness.handover_generator import HandoverGenerator
 import harness_cli as _hc
 
 
-def cmd_plan_phase(args: _hc.argparse.Namespace) -> int:
+def cmd_plan_phase(args: argparse.Namespace) -> int:
     """Generate phase execution plan from SRS/SAD artifacts."""
     from scripts.generate_full_plan import generate_full_plan
 
-    repo_path = _hc.Path(args.project).resolve()
-    output_path = _hc.Path(args.output) if args.output else None
+    repo_path = Path(args.project).resolve()
+    output_path = Path(args.output) if args.output else None
 
     print(f"\n{'='*60}\nplan-phase: Phase {args.phase} | repo={repo_path}\n{'='*60}")
 
@@ -34,12 +51,12 @@ def cmd_plan_phase(args: _hc.argparse.Namespace) -> int:
     return 0
 
 
-def cmd_plan_all(args: _hc.argparse.Namespace) -> int:
+def cmd_plan_all(args: argparse.Namespace) -> int:
     """Generate all 8 phase plans in dynamic mode at project start."""
     from scripts.generate_full_plan import generate_full_plan
 
-    project = _hc.Path(args.project).resolve()
-    out_dir = _hc.Path(args.output_dir) if args.output_dir else project / ".methodology"
+    project = Path(args.project).resolve()
+    out_dir = Path(args.output_dir) if args.output_dir else project / ".methodology"
 
     if not (project / ".methodology").is_dir():
         print("[ERROR] .methodology/ not found. Run init-project first.")
@@ -59,9 +76,9 @@ def cmd_plan_all(args: _hc.argparse.Namespace) -> int:
     _manifest = out_dir / "quality_manifest.json"
     if _manifest.is_file():
         try:
-            _hc.json.loads(_manifest.read_text(encoding="utf-8"))
+            json.loads(_manifest.read_text(encoding="utf-8"))
             _manifest_usable = True
-        except (OSError, _hc.json.JSONDecodeError):
+        except (OSError, json.JSONDecodeError):
             _manifest_usable = False
     else:
         _manifest_usable = False
@@ -72,7 +89,7 @@ def cmd_plan_all(args: _hc.argparse.Namespace) -> int:
             "--fr-ids ... --sad ...' to regenerate."
         )
     results = []
-    for phase_num in _hc.VALID_PHASES:
+    for phase_num in VALID_PHASES:
         out_path = out_dir / f"phase{phase_num}_plan.md"
         plan = generate_full_plan(phase_num, project, out_path, dynamic=True, force=_force)
         status = "OK" if plan else "FAIL"
@@ -91,7 +108,7 @@ def cmd_plan_all(args: _hc.argparse.Namespace) -> int:
         "|-------|--------|------|",
     ]
     for phase_num, status, path in results:
-        status_lines.append(f"| {phase_num} | {status} | {_hc.Path(path).name} |")
+        status_lines.append(f"| {phase_num} | {status} | {Path(path).name} |")
     status_lines.append("")
     status_path.write_text("\n".join(status_lines), encoding="utf-8")
     print(f"\nplan_status.md → {status_path}")
@@ -103,11 +120,11 @@ def cmd_plan_all(args: _hc.argparse.Namespace) -> int:
     return 0
 
 
-def cmd_run_phase(args: _hc.argparse.Namespace) -> int:
+def cmd_run_phase(args: argparse.Namespace) -> int:
     """OTEL span wrapper for run-phase. Business logic in _cmd_run_phase_impl."""
     try:
         from core.observability import init_tracer
-        _tracer = init_tracer(_hc.Path(args.project).resolve())
+        _tracer = init_tracer(Path(args.project).resolve())
     except Exception:
         _tracer = None
     if _tracer is None:
@@ -120,7 +137,7 @@ def cmd_run_phase(args: _hc.argparse.Namespace) -> int:
         return _exit
 
 
-def cmd_pre_commit_check(args: _hc.argparse.Namespace) -> int:
+def cmd_pre_commit_check(args: argparse.Namespace) -> int:
     """Lightweight pre-commit hook check (FSM + kill-switch only).
 
     Intended exclusively for git commit hooks where speed matters.
@@ -132,7 +149,7 @@ def cmd_pre_commit_check(args: _hc.argparse.Namespace) -> int:
     """
     from core.phase_hooks import PhaseHooks
 
-    project = _hc.Path(args.project).resolve()
+    project = Path(args.project).resolve()
     hooks = PhaseHooks(str(project), phase=args.phase)
 
     print(f"\n{'='*60}\npre-commit-check: Phase {args.phase}\n{'='*60}")
@@ -156,7 +173,7 @@ def cmd_pre_commit_check(args: _hc.argparse.Namespace) -> int:
     return 0
 
 
-def cmd_advance_phase(args: _hc.argparse.Namespace) -> int:
+def cmd_advance_phase(args: argparse.Namespace) -> int:
     """Advance to next phase: update state.json atomically.
 
     Calls _advance_fsm() which:
@@ -173,8 +190,8 @@ def cmd_advance_phase(args: _hc.argparse.Namespace) -> int:
     # Preserve CWD — if any Python code in this process changes directory
     # (e.g. os.chdir in a hook or library), restore it before returning.
     # Subprocess calls (git -C, claude -p) do NOT change the parent CWD.
-    _saved_cwd = _hc.os.getcwd()
-    project = _hc.Path(args.project).resolve()
+    _saved_cwd = os.getcwd()
+    project = Path(args.project).resolve()
 
     # Phase 9 (Maintenance) is a terminal steady state: work happens as
     # re-entrant CR tickets (cr-open/cr-close), never as a phase exit.
@@ -185,7 +202,7 @@ def cmd_advance_phase(args: _hc.argparse.Namespace) -> int:
             "  Maintenance work is ticket-driven and re-entrant:\n"
             "    python3 harness_cli.py cr-open --type bug|feat --title ... --project .\n"
             "    python3 harness_cli.py cr-close --cr CR-NN --project .",
-            file=_hc.sys.stderr,
+            file=sys.stderr,
         )
         return 2
 
@@ -200,8 +217,8 @@ def cmd_advance_phase(args: _hc.argparse.Namespace) -> int:
         try:
             # B4 (CV-2): hold the state lock for the read so a concurrent
             # advance-phase process cannot write between our read and the check.
-            with _hc.file_lock(_hc.state_lock_path(project)):
-                _state = _hc.json.loads(state_path.read_text(encoding="utf-8"))
+            with file_lock(state_lock_path(project)):
+                _state = json.loads(state_path.read_text(encoding="utf-8"))
             _current = int(_state.get("current_phase", 0))
 
             if _current and _current > args.completed_phase:
@@ -235,12 +252,12 @@ def cmd_advance_phase(args: _hc.argparse.Namespace) -> int:
                     f"is ahead of state.json::current_phase={_current}.\n"
                     f"  This prevents accidental phase skips. To advance, use:\n"
                     f"    python3 harness_cli.py advance-phase --completed {_current} --project {project}",
-                    file=_hc.sys.stderr,
+                    file=sys.stderr,
                 )
                 return 2
             # Check phase_truth_passed for phases with exit gates
-            if args.completed_phase in _hc._PHASE_EXIT_GATES:
-                _req_gate = _hc._PHASE_EXIT_GATES[args.completed_phase]
+            if args.completed_phase in EXIT_GATE_MAP:
+                _req_gate = EXIT_GATE_MAP[args.completed_phase]
                 _passed = _state.get("phase_truth_passed")
                 _last_gate = _state.get("last_gate")
                 # P5-BUG-02 defense: Ensure both phase_truth_passed and the last_gate match the exit gate
@@ -249,10 +266,10 @@ def cmd_advance_phase(args: _hc.argparse.Namespace) -> int:
                         f"\n[BLOCKED] advance-phase: phase_truth_passed not recorded "
                         f"in state.json for Phase {args.completed_phase}.\n"
                         f"  Run: python harness_cli.py finalize-gate "
-                        f"--gate {_hc._PHASE_EXIT_GATES[args.completed_phase]} "
+                        f"--gate {EXIT_GATE_MAP[args.completed_phase]} "
                         f"--phase {args.completed_phase} --project {project}\n"
                         f"  and ensure Phase Truth ≥ 90% before advancing.",
-                        file=_hc.sys.stderr,
+                        file=sys.stderr,
                     )
                     # Exit 12 = phase_truth_passed missing in state.json.
                     # Distinct from exit 11 (Phase Truth score < 90%) so pipeline
@@ -260,10 +277,10 @@ def cmd_advance_phase(args: _hc.argparse.Namespace) -> int:
                     #   11 → re-run Phase Truth until score ≥ 90%
                     #   12 → run finalize-gate for the exit gate of this phase
                     return 12
-        except (ValueError, OSError, _hc.json.JSONDecodeError) as exc:
+        except (ValueError, OSError, json.JSONDecodeError) as exc:
             print(
                 f"  [WARN] Could not read state.json::current_phase for validation: {exc} — proceeding.",
-                file=_hc.sys.stderr,
+                file=sys.stderr,
             )
 
     next_phase = args.completed_phase + 1
@@ -275,7 +292,7 @@ def cmd_advance_phase(args: _hc.argparse.Namespace) -> int:
     last_fr_id = None
     if manifest_path.exists():
         try:
-            manifest = _hc.json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         except Exception:  # pylint: disable=broad-exception-caught
             pass
 
@@ -331,12 +348,12 @@ def cmd_advance_phase(args: _hc.argparse.Namespace) -> int:
     # mcp_tools import only existed inside interactive Claude Code and silently no-op'd,
     # so .code-review-graph/wiki/ was never produced.
     if args.completed_phase >= 2:
-        _crg_bin = _hc.shutil.which("code-review-graph")
+        _crg_bin = shutil.which("code-review-graph")
         if _crg_bin:
             try:
-                _hc.subprocess.run(
+                subprocess.run(
                     [_crg_bin, "wiki", "--repo", str(project)],
-                    check=True, capture_output=True, text=True, timeout=_hc.get_timeout("subprocess"),
+                    check=True, capture_output=True, text=True, timeout=get_timeout("subprocess"),
                 )
                 print("  [CRG] Wiki updated → .code-review-graph/wiki/")
             except Exception as _w:  # non-blocking, but surface the reason (no silent pass)
@@ -353,25 +370,25 @@ def cmd_advance_phase(args: _hc.argparse.Namespace) -> int:
     # a successful Gate 1 finalize.
     sessi_work = project / ".sessi-work"
     sentinels_dir = sessi_work / "sentinels"
-    _sentinels_backup: _hc.Optional[_hc.Path] = None
+    _sentinels_backup: Optional[Path] = None
     # Bug H1 fix: wrap backup→rm→restore in try/finally so the temp dir is
     # cleaned up even if shutil.rmtree / copytree raises a non-OSError
     # (KeyboardInterrupt, RuntimeError, etc.) that ignore_errors won't swallow.
     try:
         if sentinels_dir.is_dir():
-            _sentinels_backup = _hc.Path(_hc.tempfile.mkdtemp(prefix="harness-sentinels-"))
-            _hc.shutil.copytree(sentinels_dir, _sentinels_backup / "sentinels")
+            _sentinels_backup = Path(tempfile.mkdtemp(prefix="harness-sentinels-"))
+            shutil.copytree(sentinels_dir, _sentinels_backup / "sentinels")
         if sessi_work.is_dir():
-            _hc.shutil.rmtree(sessi_work, ignore_errors=True)
+            shutil.rmtree(sessi_work, ignore_errors=True)
             print(f"  [advance-phase] Cleared stale {sessi_work}")
         if _sentinels_backup is not None:
             sentinels_dir.mkdir(parents=True, exist_ok=True)
-            _hc.shutil.copytree(_sentinels_backup / "sentinels", sentinels_dir, dirs_exist_ok=True)
+            shutil.copytree(_sentinels_backup / "sentinels", sentinels_dir, dirs_exist_ok=True)
             _n = sum(1 for _ in sentinels_dir.iterdir() if _.is_file())
             print(f"  [advance-phase] Preserved {_n} sentinel(s) under {sentinels_dir}")
     finally:
         if _sentinels_backup is not None:
-            _hc.shutil.rmtree(_sentinels_backup, ignore_errors=True)
+            shutil.rmtree(_sentinels_backup, ignore_errors=True)
 
     # Fix Finding #3: auto-regenerate quality_manifest.json at P2 exit.
     #
@@ -388,7 +405,7 @@ def cmd_advance_phase(args: _hc.argparse.Namespace) -> int:
     # silent-skip — we have been bitten by silent skips before.
     _manifest_regenerated = False
     if args.completed_phase == 2:
-        sad_path = _hc.ProjectLayout(project).sad_path
+        sad_path = ProjectLayout(project).sad_path
         if sad_path.exists():
             try:
                 from harness.harness_bridge import HarnessBridge
@@ -397,7 +414,7 @@ def cmd_advance_phase(args: _hc.argparse.Namespace) -> int:
                 _fr_ids: list[str] = []
                 if _mf_path.exists():
                     try:
-                        _fr_ids = _hc.json.loads(
+                        _fr_ids = json.loads(
                             _mf_path.read_text(encoding="utf-8")
                         ).get("fr_ids", [])
                     except Exception:  # pylint: disable=broad-exception-caught
@@ -410,7 +427,7 @@ def cmd_advance_phase(args: _hc.argparse.Namespace) -> int:
                     # using em-dash (`### FR-01 — ...`) — leaving fr_ids empty and
                     # tripping the manifest-integrity pre-flight (Bug #140).
                     import re as _re_fr
-                    _srs = _hc.ProjectLayout(project).srs_path
+                    _srs = ProjectLayout(project).srs_path
                     if _srs.exists():
                         _fr_ids = [
                             f"FR-{n}" for n in _re_fr.findall(
@@ -440,7 +457,7 @@ def cmd_advance_phase(args: _hc.argparse.Namespace) -> int:
                         f"manifest --fr-ids FR-XX ... --sad {sad_path}`)\n"
                         f"      - repair SRS.md so FR headers are detectable "
                         f"by `^(?:###\\s+FR-|\\|\\s*FR-)(\\d+)\\b`",
-                        file=_hc.sys.stderr,
+                        file=sys.stderr,
                     )
                     return 2
                 _bridge = HarnessBridge()
@@ -461,14 +478,14 @@ def cmd_advance_phase(args: _hc.argparse.Namespace) -> int:
                     f"    P3 entry will use stale P1 manifest. Fix and run:\n"
                     f"    python3 harness_cli.py manifest "
                     f"--fr-ids {' '.join(_fr_ids)} --sad {sad_path}",  # type: ignore[reportPossiblyUnboundVariable]
-                    file=_hc.sys.stderr,
+                    file=sys.stderr,
                 )
         else:
             print(
                 f"  [P2→P3] {sad_path} not found — manifest regeneration skipped.\n"
                 f"    P3 entry will use the existing manifest. Create SAD.md and run:\n"
                 f"    python3 harness_cli.py manifest --fr-ids FR-XX [...] --sad {sad_path}",
-                file=_hc.sys.stderr,
+                file=sys.stderr,
             )
 
     # P7→P8: deterministic baseline for CONFIG_RECORDS.md / RELEASE_CHECKLIST.md.
@@ -490,12 +507,12 @@ def cmd_advance_phase(args: _hc.argparse.Namespace) -> int:
                 f"  [P7→P8] phase8_doc_gen failed: {_p8e}\n"
                 f"    P8 entry will rely on LLM generation. Investigate:\n"
                 f"    python3 scripts/phase8_doc_gen.py --project {project}",
-                file=_hc.sys.stderr,
+                file=sys.stderr,
             )
 
-    gen = _hc.HandoverGenerator(project)
+    gen = HandoverGenerator(project)
     gen.write(
-        checkpoint_id=f"P{next_phase}-entry-{_hc.datetime.now(_hc.timezone.utc).strftime('%Y%m%d')}",
+        checkpoint_id=f"P{next_phase}-entry-{datetime.now(timezone.utc).strftime('%Y%m%d')}",
         phase=next_phase,
         task_background=task_bg,
         current_status=status,
@@ -507,7 +524,7 @@ def cmd_advance_phase(args: _hc.argparse.Namespace) -> int:
     )
 
     # Commit locally (no push — next milestone push publishes to origin)
-    if _hc.os.environ.get("HARNESS_NO_GIT"):
+    if os.environ.get("HARNESS_NO_GIT"):
         print("[advance-phase] HARNESS_NO_GIT=1 — skipping git commit")
     else:
         # Fix Finding #3: include regenerated quality_manifest.json in commit when
@@ -521,14 +538,14 @@ def cmd_advance_phase(args: _hc.argparse.Namespace) -> int:
             (project / ".methodology" / "gate_timestamps.jsonl").exists(),
             (project / "00-summary" / f"Phase{args.completed_phase}_STAGE_PASS.md").exists(),
         )
-        add_result = _hc.subprocess.run(
+        add_result = subprocess.run(
             ["git", "-C", str(project), "add", *_add_targets],
             capture_output=True, text=True,
         )
         if add_result.returncode != 0:
             print(f"[advance-phase] WARN: git add failed — {add_result.stderr.strip()}")
         else:
-            commit_result = _hc.subprocess.run(
+            commit_result = subprocess.run(
                 ["git", "-C", str(project), "commit", "-m",
                  f"handover: advance to Phase {next_phase}"],
                 capture_output=True, text=True,
@@ -544,15 +561,15 @@ def cmd_advance_phase(args: _hc.argparse.Namespace) -> int:
     # Restore CWD if any internal Python code (hook, library) changed it.
     # Subprocess calls do NOT change the parent process CWD.
     try:
-        if _hc.os.getcwd() != _saved_cwd:
-            _hc.os.chdir(_saved_cwd)
+        if os.getcwd() != _saved_cwd:
+            os.chdir(_saved_cwd)
             print(f"[advance-phase] CWD restored to {_saved_cwd}")
     except OSError:
         pass
     return 0
 
 
-def cmd_generate_next_plan(args: _hc.argparse.Namespace) -> int:
+def cmd_generate_next_plan(args: argparse.Namespace) -> int:
     """
     Recovery / position reporter.
 
@@ -570,7 +587,7 @@ def cmd_generate_next_plan(args: _hc.argparse.Namespace) -> int:
     generate it first.  If all checkpoints in the current phase are done,
     reports the next phase to start.
     """
-    project = _hc.Path(getattr(args, "project", ".")).resolve()
+    project = Path(getattr(args, "project", ".")).resolve()
     phase_hint = getattr(args, "phase", None)
     manifest_path = project / ".methodology" / "quality_manifest.json"
 
@@ -586,14 +603,14 @@ def cmd_generate_next_plan(args: _hc.argparse.Namespace) -> int:
     last_fr: str | None = None
     if state_path.exists():
         try:
-            state = _hc.json.loads(state_path.read_text(encoding="utf-8"))
+            state = json.loads(state_path.read_text(encoding="utf-8"))
             current_phase = phase_hint or int(state.get("current_phase", 3))
             last_gate = state.get("last_gate")
             last_fr = state.get("last_fr")
         except Exception:  # pylint: disable=broad-exception-caught
             pass
 
-    print(f"\nPhase      : {current_phase} ({_hc._topology_phase_name(current_phase, default='?')})")
+    print(f"\nPhase      : {current_phase} ({phase_name(current_phase, default='?')})")
 
     # ── Resolve plan file ────────────────────────────────────────────────────
     plan_file = project / ".methodology" / f"phase{current_phase}_plan.md"
@@ -617,7 +634,7 @@ def cmd_generate_next_plan(args: _hc.argparse.Namespace) -> int:
         print(f"\n{'='*W}")
         return 0
 
-    manifest = _hc.json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     fr_ids: list[str] = manifest.get("fr_ids", [])
     gate_results: dict = manifest.get("gate_results", {})
     gate1_results: dict = gate_results.get("gate1", {})
@@ -626,7 +643,7 @@ def cmd_generate_next_plan(args: _hc.argparse.Namespace) -> int:
     # Each entry: (label, is_complete_fn)
     checkpoints: list[tuple[str, bool]] = []
 
-    if current_phase in _hc._PER_FR_GATE1_PHASES:
+    if current_phase in PER_FR_GATE1_PHASES:
         for fr_id in fr_ids:
             # Prefer state.json's last_gate/last_fr for completion signal;
             # fall back to manifest gate_results scan.
@@ -642,8 +659,8 @@ def cmd_generate_next_plan(args: _hc.argparse.Namespace) -> int:
                 done = bool(fr_res and fr_res.get("quality_complete"))
             checkpoints.append((f"Gate 1 / {fr_id}", done))
 
-    if current_phase in _hc._PHASE_EXIT_GATES:
-        gate_num = _hc._PHASE_EXIT_GATES[current_phase]
+    if current_phase in EXIT_GATE_MAP:
+        gate_num = EXIT_GATE_MAP[current_phase]
         if last_gate is not None:
             done = last_gate >= gate_num
         else:
@@ -702,7 +719,7 @@ def cmd_generate_next_plan(args: _hc.argparse.Namespace) -> int:
         print(f"  python harness_cli.py run-gate --gate 1 --phase {current_phase} "
               f"--project {project} --fr-id {fr_id_next}")
     elif "Gate" in next_label:
-        m = _hc.re.search(r"Gate (\d+)", next_label)
+        m = re.search(r"Gate (\d+)", next_label)
         if m:
             g = m.group(1)
             print(f"\n  Quick-start Gate {g}:")
@@ -713,7 +730,7 @@ def cmd_generate_next_plan(args: _hc.argparse.Namespace) -> int:
     return 0
 
 
-def cmd_validate_handoff(args: _hc.argparse.Namespace) -> int:
+def cmd_validate_handoff(args: argparse.Namespace) -> int:
     """v2.9.1 B.1: Cross-deliverable dependency check for phase handoffs.
 
     Validates that the upstream phase's deliverables are present and
@@ -728,7 +745,7 @@ def cmd_validate_handoff(args: _hc.argparse.Namespace) -> int:
 
     Exit 0 = handoff OK. Exit 1 = handoff blocked (error list printed).
     """
-    project = _hc.Path(args.project).resolve()
+    project = Path(args.project).resolve()
     from_phase = args.from_phase
     errors = _hc._validate_handoff(project, from_phase)
     if not errors:
@@ -740,7 +757,7 @@ def cmd_validate_handoff(args: _hc.argparse.Namespace) -> int:
     return 1
 
 
-def cmd_sync_harness(args: _hc.argparse.Namespace) -> int:
+def cmd_sync_harness(args: argparse.Namespace) -> int:
     """J: `harness sync` — pull + commit + push harness submodule.
 
     One-shot replacement for the 4-step manual process:
@@ -755,7 +772,7 @@ def cmd_sync_harness(args: _hc.argparse.Namespace) -> int:
         SubmoduleSyncError,
         sync_submodule,
     )
-    project = _hc.Path(getattr(args, "project", "."))
+    project = Path(getattr(args, "project", "."))
     submodule = project / (args.submodule or "harness")
     push = not getattr(args, "no_push", False)
 
@@ -767,7 +784,7 @@ def cmd_sync_harness(args: _hc.argparse.Namespace) -> int:
             branch=getattr(args, "branch", "main"),
         )
     except SubmoduleSyncError as e:
-        print(f"[sync-harness] FAILED: {e}", file=_hc.sys.stderr)
+        print(f"[sync-harness] FAILED: {e}", file=sys.stderr)
         return 19
 
     n = result["behind_count"]

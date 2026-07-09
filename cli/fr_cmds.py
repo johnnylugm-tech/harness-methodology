@@ -9,10 +9,20 @@ imports are unaffected.
 
 from __future__ import annotations
 
+import argparse
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+from core.harness_config import get_timeout
+from core.quality_gate.legal_artifacts import PHASE_DELIVERABLES
+from core.utils.project_layout import ProjectLayout
 import harness_cli as _hc
 
 
-def cmd_dispatch(args: _hc.argparse.Namespace) -> int:
+def cmd_dispatch(args: argparse.Namespace) -> int:
     """Dispatch Agent A or B via AgentSpawner, auto-logging to sessions_spawn.log.
 
     Usage:
@@ -23,7 +33,7 @@ def cmd_dispatch(args: _hc.argparse.Namespace) -> int:
     """
     from core.agent_spawner import AgentSpawner
 
-    project = _hc.Path(args.project).resolve()
+    project = Path(args.project).resolve()
 
     # --prompt-file: read prompt from file to avoid shell escaping issues
     # with {} curly braces, backticks, JSON examples, or $() in the prompt text.
@@ -33,7 +43,7 @@ def cmd_dispatch(args: _hc.argparse.Namespace) -> int:
         if _prompt:
             print("[dispatch] WARNING: --prompt-file takes precedence; --prompt ignored")
         try:
-            _prompt = _hc.Path(_prompt_file).read_text(encoding="utf-8")
+            _prompt = Path(_prompt_file).read_text(encoding="utf-8")
         except (FileNotFoundError, OSError) as exc:
             print(f"[dispatch] ERROR: cannot read --prompt-file: {exc}")
             return 1
@@ -53,8 +63,8 @@ def cmd_dispatch(args: _hc.argparse.Namespace) -> int:
     # --skip-deliverable-validation bypasses this check for custom reviews
     # (e.g. holistic cross-document review, P1_HOLISTIC / P2_HOLISTIC).
     _skip_dv = getattr(args, "skip_deliverable_validation", False)
-    if args.phase in _hc._PHASE_DELIVERABLES and not _skip_dv:
-        _valid_ids = _hc._PHASE_DELIVERABLES[args.phase]
+    if args.phase in PHASE_DELIVERABLES and not _skip_dv:
+        _valid_ids = PHASE_DELIVERABLES[args.phase]
         if not args.fr_id:
             print(
                 f"[dispatch] ERROR: phase {args.phase} requires --fr-id (deliverable name).\n"
@@ -91,7 +101,7 @@ def cmd_dispatch(args: _hc.argparse.Namespace) -> int:
     # Use None sentinel to distinguish "user didn't specify" from explicit --timeout 300.
     _raw_timeout: int | None = args.timeout
     if _raw_timeout is None:
-        _raw_timeout = _hc.get_timeout("task_dev") if (args.phase in {1, 2} and not is_reviewer) else _hc.get_timeout("task_default")
+        _raw_timeout = get_timeout("task_dev") if (args.phase in {1, 2} and not is_reviewer) else get_timeout("task_default")
     result = spawner.spawn(
         role=args.role,
         prompt=_prompt,
@@ -122,7 +132,7 @@ def cmd_dispatch(args: _hc.argparse.Namespace) -> int:
             approvals_dir.mkdir(parents=True, exist_ok=True)
             approval_file = approvals_dir / f"{args.fr_id}.json"
             approval_file.write_text(
-                _hc.json.dumps(review_data, indent=2, ensure_ascii=False),
+                json.dumps(review_data, indent=2, ensure_ascii=False),
                 encoding="utf-8",
             )
             print(f"  [dispatch] approval JSON → {approval_file}")
@@ -146,7 +156,7 @@ def cmd_dispatch(args: _hc.argparse.Namespace) -> int:
             outputs_dir.mkdir(parents=True, exist_ok=True)
             output_file = outputs_dir / f"{args.fr_id}.json"
             output_file.write_text(
-                _hc.json.dumps(agent_output, indent=2, ensure_ascii=False),
+                json.dumps(agent_output, indent=2, ensure_ascii=False),
                 encoding="utf-8",
             )
             print(f"  [dispatch] agent output JSON → {output_file}")
@@ -161,7 +171,7 @@ def cmd_dispatch(args: _hc.argparse.Namespace) -> int:
     return 0
 
 
-def cmd_run_fr_step(args: _hc.argparse.Namespace) -> int:
+def cmd_run_fr_step(args: argparse.Namespace) -> int:
     """Dispatch a single FR TDD step as sub-agent + push to GitHub on completion.
 
     Steps: TDD-RED | TDD-GREEN | TDD-IMPROVE | GATE1 | GATE1-DELTA
@@ -175,13 +185,13 @@ def cmd_run_fr_step(args: _hc.argparse.Namespace) -> int:
     phase = args.phase
     fr_id = args.fr_id
     step = args.step.upper()
-    project = _hc.Path(args.project).resolve()
-    srs_path = _hc.Path(args.srs).resolve() if args.srs else None
+    project = Path(args.project).resolve()
+    srs_path = Path(args.srs).resolve() if args.srs else None
 
     # Compute src_dir and test_file — used by GATE1 retry and _capture_tool_snapshot.
     _num_str = _hc._fr_num_str(fr_id)
     src_dir = "03-development/src"
-    _layout = _hc.ProjectLayout(project)
+    _layout = ProjectLayout(project)
     test_dir_str = _layout.get_relative_str(_layout.active_test_dir)
     test_file = f"{test_dir_str}/test_fr{_num_str}.py"
 
@@ -196,12 +206,12 @@ def cmd_run_fr_step(args: _hc.argparse.Namespace) -> int:
     _fr_manifest_path = project / ".methodology" / "quality_manifest.json"
     try:
         _fr_conf = (
-            _hc.json.loads(_fr_manifest_path.read_text(encoding="utf-8"))
+            json.loads(_fr_manifest_path.read_text(encoding="utf-8"))
             .get("fr_config", {}).get(fr_id, {})
         )
-    except (OSError, _hc.json.JSONDecodeError, AttributeError):
+    except (OSError, json.JSONDecodeError, AttributeError):
         pass
-    _fr_timeout = _fr_conf.get("timeout", getattr(args, "timeout", _hc.get_timeout("fr_step")))
+    _fr_timeout = _fr_conf.get("timeout", getattr(args, "timeout", get_timeout("fr_step")))
     _fr_max_fix_rounds = _fr_conf.get("max_fix_rounds", getattr(args, "max_fix_rounds", 3))
     _fr_code_fix_max_turns: int | None = _fr_conf.get("code_fix_max_turns")
 
@@ -217,10 +227,10 @@ def cmd_run_fr_step(args: _hc.argparse.Namespace) -> int:
     # 2. Pre-flight checks — must pass before agent dispatch
     preflight_ok, preflight_errors = _hc._fr_step_preflight(step, project, fr_id, srs_path=srs_path)
     if not preflight_ok:
-        print(f"\n[PRE-FLIGHT FAILED] run-fr-step --fr-id {fr_id} --step {step}", file=_hc.sys.stderr)
+        print(f"\n[PRE-FLIGHT FAILED] run-fr-step --fr-id {fr_id} --step {step}", file=sys.stderr)
         for err in preflight_errors:
-            print(f"  {err}", file=_hc.sys.stderr)
-        print(file=_hc.sys.stderr)
+            print(f"  {err}", file=sys.stderr)
+        print(file=sys.stderr)
         return 1
 
     # 3. Build minimal need-to-know prompt (only after pre-flight passes)
@@ -305,11 +315,11 @@ def cmd_run_fr_step(args: _hc.argparse.Namespace) -> int:
             try:
                 _mf_path = project / ".methodology" / "quality_manifest.json"
                 if _mf_path.exists():
-                    _mf_json = _hc.json.loads(_mf_path.read_text(encoding="utf-8"))
+                    _mf_json = json.loads(_mf_path.read_text(encoding="utf-8"))
                     _fr_entry = (_mf_json.get("gate_results", {})
                                  .get("gate1", {}).get(fr_id, {}))
                     _mf_qc = bool(_fr_entry.get("quality_complete", False))
-            except (OSError, _hc.json.JSONDecodeError):
+            except (OSError, json.JSONDecodeError):
                 pass
             _sub_reported_pass = (
                 isinstance(result.get("output", ""), str)
@@ -323,7 +333,7 @@ def cmd_run_fr_step(args: _hc.argparse.Namespace) -> int:
                     f"Running finalize-gate directly."
                 )
                 try:
-                    _fix_args = _hc.argparse.Namespace(**vars(args))
+                    _fix_args = argparse.Namespace(**vars(args))
                     _fix_args.gate = 1
                     _fix_args.fr_id = fr_id
                     _fix_args.phase = args.phase
@@ -488,7 +498,7 @@ def cmd_run_fr_step(args: _hc.argparse.Namespace) -> int:
                             ("python3", ["-m", "ruff", "format", src_dir]),
                         ):
                             try:
-                                _tr = _hc.subprocess.run(
+                                _tr = subprocess.run(
                                     [_tool_cmd] + _fix_flow,
                                     capture_output=True, timeout=30,
                                 )
@@ -519,18 +529,18 @@ def cmd_run_fr_step(args: _hc.argparse.Namespace) -> int:
                         # same default _check_gate1_live_coverage uses).
                         _cov_min = 80.0
                         try:
-                            _mfst = _hc.json.loads(
-                                (_hc.Path(str(project)) / ".methodology"
+                            _mfst = json.loads(
+                                (Path(str(project)) / ".methodology"
                                  / "quality_manifest.json").read_text(
                                     encoding="utf-8"))
                             _cov_min = float(
                                 (_mfst.get("quality_targets") or {})
                                 .get("min_coverage", 80.0))
-                        except (OSError, ValueError, _hc.json.JSONDecodeError):
+                        except (OSError, ValueError, json.JSONDecodeError):
                             pass
                         try:
                             _live_cov = _hc._validate_fr_coverage_immediate(
-                                _hc.Path(str(project)))
+                                Path(str(project)))
                         except Exception as _exc:
                             _live_cov = None
                             print("  [run-fr-step] COVERAGE-FIX inline "
@@ -547,9 +557,9 @@ def cmd_run_fr_step(args: _hc.argparse.Namespace) -> int:
                             # ground truth into the manifest so the next
                             # GATE1 re-evaluation sees the corrected flag.
                             try:
-                                _mfst_path = _hc.Path(str(project)) / ".methodology" \
+                                _mfst_path = Path(str(project)) / ".methodology" \
                                     / "quality_manifest.json"
-                                _mfst = _hc.json.loads(
+                                _mfst = json.loads(
                                     _mfst_path.read_text(encoding="utf-8"))
                                 _gr = _mfst.setdefault(
                                     "gate_results", {})
@@ -566,7 +576,7 @@ def cmd_run_fr_step(args: _hc.argparse.Namespace) -> int:
                                 _tmp = _mfst_path.with_suffix(
                                     ".json.tmp")
                                 _tmp.write_text(
-                                    _hc.json.dumps(_mfst, indent=2,
+                                    json.dumps(_mfst, indent=2,
                                                sort_keys=True),
                                     encoding="utf-8")
                                 import os as _os
@@ -576,7 +586,7 @@ def cmd_run_fr_step(args: _hc.argparse.Namespace) -> int:
                                       f"gate1.{fr_id}.quality_complete=True "
                                       f"(score={_live_cov:.1f})")
                             except (OSError, ValueError,
-                                    _hc.json.JSONDecodeError) as _mfst_exc:
+                                    json.JSONDecodeError) as _mfst_exc:
                                 print("  [run-fr-step] COVERAGE-FIX inline "
                                       "fallback: manifest stamp failed "
                                       f"({_mfst_exc}) — continuing GATE1 "
@@ -633,7 +643,7 @@ def cmd_run_fr_step(args: _hc.argparse.Namespace) -> int:
     if step not in ("TDD-IMPROVE", "CODE-FIX") and not _hc._fr_step_already_done(step, fr_id, project):
         print(f"[run-fr-step] {fr_id} {step}: WARNING — expected commit not found in git log")
 
-    no_push = getattr(args, "no_push", False) or _hc.os.environ.get("HARNESS_NO_GIT")
+    no_push = getattr(args, "no_push", False) or os.environ.get("HARNESS_NO_GIT")
     if no_push:
         print("[run-fr-step] --no-push or HARNESS_NO_GIT specified — skipping git push")
     else:
@@ -650,26 +660,26 @@ def cmd_run_fr_step(args: _hc.argparse.Namespace) -> int:
     return 0
 
 
-def cmd_resume_fr_phase(args: _hc.argparse.Namespace) -> int:
+def cmd_resume_fr_phase(args: argparse.Namespace) -> int:
     """Print the next pending run-fr-step command for crash recovery.
 
     Scans git log for completed step commit patterns and quality_manifest.json
     for the FR list.  Prints the exact command to run to continue.
     """
     phase = args.phase
-    project = _hc.Path(args.project).resolve()
+    project = Path(args.project).resolve()
     manifest_path = project / ".methodology" / "quality_manifest.json"
     progress_path = project / ".methodology" / "fr_progress.json"
 
     fr_ids: list[str] = []
     if manifest_path.exists():
         try:
-            fr_ids = _hc.json.loads(manifest_path.read_text(encoding="utf-8")).get("fr_ids", [])
+            fr_ids = json.loads(manifest_path.read_text(encoding="utf-8")).get("fr_ids", [])
         except Exception:
             pass
     if not fr_ids and progress_path.exists():
         try:
-            data = _hc.json.loads(progress_path.read_text(encoding="utf-8"))
+            data = json.loads(progress_path.read_text(encoding="utf-8"))
             fr_ids = list(data.get("frs", {}).keys())
         except Exception:
             pass
@@ -702,7 +712,7 @@ def cmd_resume_fr_phase(args: _hc.argparse.Namespace) -> int:
     return 0
 
 
-def cmd_run_tool(args: _hc.argparse.Namespace) -> int:
+def cmd_run_tool(args: argparse.Namespace) -> int:
     """CLI dispatcher for individual tool invocations (Bug #110).
 
     Thin wrapper around `harness.tool_runners.run_tool` + `compute_tool_score`.
@@ -712,7 +722,7 @@ def cmd_run_tool(args: _hc.argparse.Namespace) -> int:
     from harness.tool_runners import run_tool, compute_tool_score
     import json as _json
 
-    project_root = str(_hc.Path(args.project).resolve())
+    project_root = str(Path(args.project).resolve())
     output, returncode = run_tool(
         args.tool,
         project_root,
@@ -746,12 +756,12 @@ def cmd_run_tool(args: _hc.argparse.Namespace) -> int:
     return 0 if returncode == 0 else 1
 
 
-def cmd_reload_policy(args: _hc.argparse.Namespace) -> int:
+def cmd_reload_policy(args: argparse.Namespace) -> int:
     """Hot-reload enforcement policies from enforcement.json."""
     from enforcement.policy_engine import PolicyEngine
 
     json_path = args.policy_file
-    if not _hc.Path(json_path).exists():
+    if not Path(json_path).exists():
         print(f"\n[ERROR] Policy file not found: {json_path}")
         print("  Create enforcement/enforcement.json with a 'policies' array.")
         return 1

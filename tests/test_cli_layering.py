@@ -30,13 +30,13 @@ REPO = Path(__file__).resolve().parent.parent
 # and this snapshot becomes the permanent all-zero architecture gate.
 _HC_REF_CEILING = {
     "__init__.py": 0,
-    "check_cmds.py": 95,
+    "check_cmds.py": 8,    # S1 de-laundered (was 95 at S0)
     "cr_cmds.py": 0,
-    "fr_cmds.py": 73,
-    "gate_cmds.py": 53,
-    "phase_cmds.py": 81,
-    "project_cmds.py": 68,
-    "push_cmds.py": 39,
+    "fr_cmds.py": 33,      # S1 (was 73)
+    "gate_cmds.py": 8,     # S1 (was 53)
+    "phase_cmds.py": 12,   # S1 (was 81)
+    "project_cmds.py": 15, # S1 (was 68)
+    "push_cmds.py": 7,     # S1 (was 39)
 }
 
 _HC_REF = re.compile(r"\b_hc\.")

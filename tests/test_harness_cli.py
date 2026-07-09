@@ -3673,7 +3673,11 @@ class TestInitProjectRootWrapper:
         monkeypatch.setattr(hc, "_verify_gate_tools", lambda _g, _h, **_: ({}, []))
         monkeypatch.setattr(hc, "_check_crg_available", lambda: True)
         monkeypatch.setattr(hc, "_harness_workflow_template", lambda: "# ci\n")
+        # S1: cmd_init_project (cli/project_cmds) binds atomic_write_json
+        # directly from core.atomic_io — patch its namespace, not just hc's.
+        from cli import project_cmds as _projc
         monkeypatch.setattr(hc, "atomic_write_json", lambda _p, _d: None)
+        monkeypatch.setattr(_projc, "atomic_write_json", lambda _p, _d: None)
 
         args = argparse.Namespace(
             project=str(tmp_path),
@@ -7205,7 +7209,11 @@ class TestPushMilestoneStateJsonWriteBeforePush:
                 call_order.append("atomic_write_json(state.json)")
             _orig_atomic(path, data)
 
+        # S1: push commands (cli/push_cmds) bind atomic_write_json directly
+        # from core.atomic_io — patch both namespaces with the same spy.
+        from cli import push_cmds as _pushc
         monkeypatch.setattr(hc, "atomic_write_json", _spy)
+        monkeypatch.setattr(_pushc, "atomic_write_json", _spy)
         return call_order, state_path, hc
 
     def test_state_json_written_before_commit_and_push_p8(self, tmp_path, monkeypatch):
@@ -7366,7 +7374,10 @@ class TestPushCheckpointStateJsonWriteBeforePush:
                 call_order.append("atomic_write_json(state.json)")
             _orig_atomic(path, data)
 
+        # S1: cli/push_cmds binds atomic_write_json directly — patch both.
+        from cli import push_cmds as _pushc
         monkeypatch.setattr(hc, "atomic_write_json", _spy)
+        monkeypatch.setattr(_pushc, "atomic_write_json", _spy)
 
         args = argparse.Namespace(
             project=str(tmp_path), phase=1, fr_ids="FR-01",

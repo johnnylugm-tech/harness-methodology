@@ -9,14 +9,24 @@ imports are unaffected.
 
 from __future__ import annotations
 
+import argparse
+import json
+import shutil
+import subprocess
+import sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+from core.harness_config import get_timeout
+from core.quality_gate.mutation_enforcer import compute_mutation_score
 import harness_cli as _hc
 
 
-def cmd_run_gate(args: _hc.argparse.Namespace) -> int:
+def cmd_run_gate(args: argparse.Namespace) -> int:
     """OTEL span wrapper for run-gate. Business logic in _cmd_run_gate_impl."""
     try:
         from core.observability import init_tracer
-        _tracer = init_tracer(_hc.Path(getattr(args, "project", ".")).resolve())
+        _tracer = init_tracer(Path(getattr(args, "project", ".")).resolve())
     except Exception:
         _tracer = None
     if _tracer is None:
@@ -34,11 +44,11 @@ def cmd_run_gate(args: _hc.argparse.Namespace) -> int:
         return _exit
 
 
-def cmd_finalize_gate(args: _hc.argparse.Namespace) -> int:
+def cmd_finalize_gate(args: argparse.Namespace) -> int:
     """OTEL span wrapper for finalize-gate. Business logic in _cmd_finalize_gate_impl."""
     try:
         from core.observability import init_tracer
-        _tracer = init_tracer(_hc.Path(getattr(args, "project", ".")).resolve())
+        _tracer = init_tracer(Path(getattr(args, "project", ".")).resolve())
     except Exception:
         _tracer = None
     if _tracer is None:
@@ -67,7 +77,7 @@ def cmd_finalize_gate(args: _hc.argparse.Namespace) -> int:
         return _exit
 
 
-def cmd_run_env_check(args: _hc.argparse.Namespace) -> int:
+def cmd_run_env_check(args: argparse.Namespace) -> int:
     """Print project-aware environment evaluation prompt for Claude.
 
     Reads SAD.md + SRS.md from the target project, constructs an evaluation
@@ -79,7 +89,7 @@ def cmd_run_env_check(args: _hc.argparse.Namespace) -> int:
     """
     from harness.harness_bridge import HarnessBridge
 
-    project = str(_hc.Path(args.project).resolve())
+    project = str(Path(args.project).resolve())
     fr_id = getattr(args, "fr_id", None) or None
 
     bridge = HarnessBridge()
@@ -93,25 +103,25 @@ def cmd_run_env_check(args: _hc.argparse.Namespace) -> int:
         print(
             "[WARN] Neither SAD.md nor SRS.md found in project. "
             "Env check will have no project context to evaluate.",
-            file=_hc.sys.stderr,
+            file=sys.stderr,
         )
 
     # Ensure .sessi-work/ exists before writing the sentinel and result.
-    _hc.Path(ctx.work_dir).mkdir(parents=True, exist_ok=True)
+    Path(ctx.work_dir).mkdir(parents=True, exist_ok=True)
 
     # Write sentinel so finalize-env-check can verify run-env-check was called.
-    sf = _hc._sentinel_env_path(_hc.Path(project))
+    sf = _hc._sentinel_env_path(Path(project))
     sf.parent.mkdir(parents=True, exist_ok=True)
-    sf.write_text(f"{_hc.datetime.now(_hc.timezone.utc).isoformat()}\n", encoding="utf-8")
-    print(f"[SENTINEL] {sf.relative_to(_hc.Path(project))} written.")
+    sf.write_text(f"{datetime.now(timezone.utc).isoformat()}\n", encoding="utf-8")
+    print(f"[SENTINEL] {sf.relative_to(Path(project))} written.")
 
     # Spawn sub-agent to perform the env check inline.
     # Uses bypassPermissions so the agent can run psql, docker, etc.
     # --setting-sources "" blocks user-level CLAUDE.md/hooks (isolation).
     prompt = ctx.evaluation_prompt()
-    cli = _hc.shutil.which("claude")
+    cli = shutil.which("claude")
     if not cli:
-        print("[ERROR] claude CLI not found.", file=_hc.sys.stderr)
+        print("[ERROR] claude CLI not found.", file=sys.stderr)
         return 1
 
     cmd = [
@@ -127,15 +137,15 @@ def cmd_run_env_check(args: _hc.argparse.Namespace) -> int:
     print("[INFO] Spawning env-check sub-agent...")
     from core.agent_spawner import _child_env
     try:
-        proc = _hc.subprocess.run(
+        proc = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
-            timeout=_hc.get_timeout("subprocess"),
-            cwd=str(_hc.Path(project).resolve()),
+            timeout=get_timeout("subprocess"),
+            cwd=str(Path(project).resolve()),
             env=_child_env(),
         )
-    except _hc.subprocess.TimeoutExpired as _te:
+    except subprocess.TimeoutExpired as _te:
         # Observability (same class as the sessions_spawn ERROR fix):
         # TimeoutExpired carries the partial captured output — print its tail
         # so a timeout is never a black box.
@@ -143,7 +153,7 @@ def cmd_run_env_check(args: _hc.argparse.Namespace) -> int:
             if _stream:
                 _txt = (_stream.decode("utf-8", "replace")
                         if isinstance(_stream, bytes) else str(_stream))
-                print(f"[TIMEOUT-{_label}] ...{_txt[-500:]}", file=_hc.sys.stderr)
+                print(f"[TIMEOUT-{_label}] ...{_txt[-500:]}", file=sys.stderr)
         # Bug #138 root-cause fix (2026-07-02): "process exited within the
         # timeout" is the wrong success proxy. The check has already succeeded
         # once env_check_result.json is (re)written — the sub-agent's
@@ -153,7 +163,7 @@ def cmd_run_env_check(args: _hc.argparse.Namespace) -> int:
         # artifact was written by THIS spawn (mtime >= this run's sentinel);
         # fail only when it wasn't. A leftover artifact from a previous run
         # is older than the sentinel and is NOT accepted.
-        _rp = _hc.Path(project) / ".sessi-work" / "env_check_result.json"
+        _rp = Path(project) / ".sessi-work" / "env_check_result.json"
         try:
             _fresh = _rp.exists() and _rp.stat().st_mtime >= sf.stat().st_mtime
         except OSError:
@@ -161,33 +171,33 @@ def cmd_run_env_check(args: _hc.argparse.Namespace) -> int:
         if not _fresh:
             print(
                 f"[ERROR] env-check sub-agent timed out after "
-                f"{_hc.get_timeout('subprocess')}s without writing "
+                f"{get_timeout('subprocess')}s without writing "
                 f"env_check_result.json.",
-                file=_hc.sys.stderr,
+                file=sys.stderr,
             )
             return 1
         print(
             "[WARN] env-check sub-agent timed out during wrap-up, but "
             "env_check_result.json was written by this run — proceeding "
             "with artifact verification.",
-            file=_hc.sys.stderr,
+            file=sys.stderr,
         )
         proc = None
 
     if proc is not None and proc.returncode != 0:
-        print(f"[ERROR] env-check sub-agent failed (exit {proc.returncode}).", file=_hc.sys.stderr)
+        print(f"[ERROR] env-check sub-agent failed (exit {proc.returncode}).", file=sys.stderr)
         if proc.stderr:
-            print(proc.stderr[:500], file=_hc.sys.stderr)
+            print(proc.stderr[:500], file=sys.stderr)
         return 1
 
-    result_path = _hc.Path(project) / ".sessi-work" / "env_check_result.json"
+    result_path = Path(project) / ".sessi-work" / "env_check_result.json"
     if not result_path.exists():
-        print("[ERROR] env-check sub-agent did not write env_check_result.json.", file=_hc.sys.stderr)
+        print("[ERROR] env-check sub-agent did not write env_check_result.json.", file=sys.stderr)
         return 1
 
-    _fab = _hc._verify_env_check_claims(_hc.Path(project))
+    _fab = _hc._verify_env_check_claims(Path(project))
     if _fab:
-        print("[ERROR] env-check agent fabricated claims:\n  " + "\n  ".join(_fab), file=_hc.sys.stderr)
+        print("[ERROR] env-check agent fabricated claims:\n  " + "\n  ".join(_fab), file=sys.stderr)
         return 1
 
     # Bug #127 root-cause fix (2026-06-27): reflect the agent's `ready` flag in
@@ -197,7 +207,7 @@ def cmd_run_env_check(args: _hc.argparse.Namespace) -> int:
     # ready=false, forcing every workflow JS to do its own LLM-orchestrator
     # judgment pass on the result — fragile and prone to hallucinated failures.
     try:
-        _ready_data = _hc.json.loads(result_path.read_text(encoding="utf-8"))
+        _ready_data = json.loads(result_path.read_text(encoding="utf-8"))
         _ready = bool(_ready_data.get("ready", False)) if isinstance(_ready_data, dict) else False
     except (ValueError, OSError):
         _ready = False
@@ -212,7 +222,7 @@ def cmd_run_env_check(args: _hc.argparse.Namespace) -> int:
     return 0
 
 
-def cmd_finalize_env_check(args: _hc.argparse.Namespace) -> int:
+def cmd_finalize_env_check(args: argparse.Namespace) -> int:
     """Verify env_check_result.json and report environment readiness.
 
     Reads the result written by Claude after inline evaluation, validates
@@ -221,7 +231,7 @@ def cmd_finalize_env_check(args: _hc.argparse.Namespace) -> int:
     """
     from harness.harness_bridge import HarnessBridge
 
-    project = _hc.Path(args.project).resolve()
+    project = Path(args.project).resolve()
     fr_id = getattr(args, "fr_id", None) or None
 
     # Sentinel check — prevent fabricated results
@@ -237,9 +247,9 @@ def cmd_finalize_env_check(args: _hc.argparse.Namespace) -> int:
     # Staleness check: env_check_result.json must not predate the sentinel.
     # This catches cases where an old result file is reused after a new
     # run-env-check invocation without re-running the evaluation.
-    sentinel_time: _hc.datetime | None = None
+    sentinel_time: datetime | None = None
     try:
-        sentinel_time = _hc.datetime.fromisoformat(sf.read_text(encoding="utf-8").strip())
+        sentinel_time = datetime.fromisoformat(sf.read_text(encoding="utf-8").strip())
     except (ValueError, OSError):
         pass  # non-fatal — sentinel exists, timestamp unreadable
 
@@ -247,15 +257,15 @@ def cmd_finalize_env_check(args: _hc.argparse.Namespace) -> int:
         result_path = project / ".sessi-work" / "env_check_result.json"
         if result_path.exists():
             try:
-                _data = _hc.json.loads(result_path.read_text(encoding="utf-8"))
+                _data = json.loads(result_path.read_text(encoding="utf-8"))
                 _checked_at_str = _data.get("checked_at", "")
                 if _checked_at_str:
-                    _checked_at = _hc.datetime.fromisoformat(
+                    _checked_at = datetime.fromisoformat(
                         _checked_at_str.replace("Z", "+00:00")
                     )
                     # Allow 10 s tolerance for the sentinel being written
                     # just before the sub-agent starts.
-                    if _checked_at < sentinel_time - _hc.timedelta(seconds=10):
+                    if _checked_at < sentinel_time - timedelta(seconds=10):
                         print(
                             "[WARN] env_check_result.json predates the sentinel — "
                             "result may be from a previous run. "
@@ -287,7 +297,7 @@ def cmd_finalize_env_check(args: _hc.argparse.Namespace) -> int:
         return 1
 
 
-def cmd_gate4_tag(args: _hc.argparse.Namespace) -> int:
+def cmd_gate4_tag(args: argparse.Namespace) -> int:
     """Create annotated git tag for Gate 4 pass using composite score from gate4_result.json.
 
     Reads gate4_result.json (from .sessi-work/, .methodology/, or project root),
@@ -297,7 +307,7 @@ def cmd_gate4_tag(args: _hc.argparse.Namespace) -> int:
     Usage:
       python harness_cli.py gate4-tag --project .
     """
-    project = _hc.Path(args.project).resolve()
+    project = Path(args.project).resolve()
 
     # Locate gate4_result.json
     candidates = [
@@ -311,7 +321,7 @@ def cmd_gate4_tag(args: _hc.argparse.Namespace) -> int:
         return 1
 
     try:
-        g4 = _hc.json.loads(g4_path.read_text(encoding="utf-8"))
+        g4 = json.loads(g4_path.read_text(encoding="utf-8"))
         score = g4.get("composite_score", g4.get("total_score"))
     except Exception as exc:
         print(f"[ERROR] Failed to parse gate4_result.json: {exc}")
@@ -331,7 +341,7 @@ def cmd_gate4_tag(args: _hc.argparse.Namespace) -> int:
     tag_name = f"harness-v4-{today}-score{score_str}"
     tag_msg = f"Gate 4 PASS (score {score_str})"
 
-    result = _hc.subprocess.run(  # nosec B603 B607
+    result = subprocess.run(  # nosec B603 B607
         ["git", "-C", str(project), "tag", "-a", tag_name, "-m", tag_msg],
         capture_output=True, text=True,
     )
@@ -344,7 +354,7 @@ def cmd_gate4_tag(args: _hc.argparse.Namespace) -> int:
     return 0
 
 
-def cmd_mutation_test_score(args: _hc.argparse.Namespace) -> int:
+def cmd_mutation_test_score(args: argparse.Namespace) -> int:
     """Compute mutation_testing score by running mutmut in a temp workdir.
 
     Bug #105: this is the publish-side counterpart to the in-process
@@ -365,11 +375,11 @@ def cmd_mutation_test_score(args: _hc.argparse.Namespace) -> int:
       0 — mutmut ran and produced a score (printed as JSON)
       1 — mutmut missing / crashed / no parseable output
     """
-    project = _hc.Path(args.project).resolve()
+    project = Path(args.project).resolve()
     if not project.exists():
-        print(f"[ERROR] project root not found: {project}", file=_hc.sys.stderr)
+        print(f"[ERROR] project root not found: {project}", file=sys.stderr)
         return 1
-    success, score, msg = _hc.compute_mutation_score(project)
+    success, score, msg = compute_mutation_score(project)
     # Machine-readable single-line JSON, easy for the LLM agent to parse.
     import json as _json
     print(_json.dumps({

@@ -9,10 +9,21 @@ imports are unaffected.
 
 from __future__ import annotations
 
+import argparse
+import json
+import os
+import re
+import sys
+from pathlib import Path
+from typing import Any
+
+from core.atomic_io import atomic_write_json
+from core.phase_topology import PHASE_DIRS, VALID_PHASES
+from core.utils.project_layout import ProjectLayout
 import harness_cli as _hc
 
 
-def cmd_init_project(args: _hc.argparse.Namespace) -> int:
+def cmd_init_project(args: argparse.Namespace) -> int:
     """
     Initialize harness CI wiring in a target project (Context B setup).
 
@@ -25,9 +36,9 @@ def cmd_init_project(args: _hc.argparse.Namespace) -> int:
     """
     import subprocess  # imported here (not at module level) to keep startup cost low
 
-    project = _hc.Path(args.project).resolve()
+    project = Path(args.project).resolve()
     phase = args.phase
-    harness_root = _hc.Path(__file__).parent.resolve()
+    harness_root = Path(__file__).parent.resolve()
 
     # Resolve project language before any writes — every later gate run reads
     # the persisted value from state.json (toolchain resolution, S2 checks).
@@ -206,9 +217,9 @@ def cmd_init_project(args: _hc.argparse.Namespace) -> int:
         # templates / CI workflow / harness_cli.py wrapper, not FSM state.
         print(f"   SKIP: {state_path} already exists (FSM state is never reset by init-project; delete it manually to reinitialize)")
         try:
-            _existing_state = _hc.json.loads(state_path.read_text(encoding="utf-8"))
+            _existing_state = json.loads(state_path.read_text(encoding="utf-8"))
             _existing_lang = _existing_state.get("language", "python")
-        except (_hc.json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError):
             _existing_lang = "python"
         if _existing_lang != language:
             print(
@@ -228,7 +239,7 @@ def cmd_init_project(args: _hc.argparse.Namespace) -> int:
         }
         if test_runner:
             _state["test_runner"] = test_runner
-        _hc.atomic_write_json(state_path, _state)
+        atomic_write_json(state_path, _state)
         print(f"   OK — state.json initialized (phase={phase}, language={language})")
     # Refresh CLAUDE.md harness status block now that state.json exists
     _hc._update_claude_md(project)
@@ -375,9 +386,9 @@ def cmd_init_project(args: _hc.argparse.Namespace) -> int:
     return 0
 
 
-def cmd_status(args: _hc.argparse.Namespace) -> int:
+def cmd_status(args: argparse.Namespace) -> int:
     """Show current manifest + FSM state, phase progress, and optionally test stats."""
-    project = _hc.Path(args.project).resolve()
+    project = Path(args.project).resolve()
     manifest_path = project / ".methodology" / "quality_manifest.json"
     state_path    = project / ".methodology" / "state.json"
     json_out = getattr(args, "json", False)
@@ -386,11 +397,11 @@ def cmd_status(args: _hc.argparse.Namespace) -> int:
     # Gather state
     state = {}
     if state_path.exists():
-        state = _hc.json.loads(state_path.read_text(encoding="utf-8"))
+        state = json.loads(state_path.read_text(encoding="utf-8"))
 
     manifest = {}
     if manifest_path.exists():
-        manifest = _hc.json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
     current_phase = state.get("current_phase", 0)
     fr_ids = manifest.get("fr_ids", [])
@@ -400,7 +411,7 @@ def cmd_status(args: _hc.argparse.Namespace) -> int:
     # status block — one map, keys anchored by test_phase_topology_ssot)
     phase_names = _hc._PHASE_NAMES
     phase_status = {}
-    for p in _hc.VALID_PHASES:
+    for p in VALID_PHASES:
         if p < current_phase:
             phase_status[p] = "COMPLETE"
         elif p == current_phase:
@@ -426,17 +437,17 @@ def cmd_status(args: _hc.argparse.Namespace) -> int:
         # Bug #117 ext: route through sys.executable so the venv's pytest is
         # used; bare 'pytest' on macOS PATH resolves to CommandLineTools 3.9.
         try:
-            r = subprocess.run([_hc.sys.executable, "-m", "pytest", "--collect-only", "-q", "--no-header"],
+            r = subprocess.run([sys.executable, "-m", "pytest", "--collect-only", "-q", "--no-header"],
                              cwd=project, capture_output=True, text=True, timeout=30)
-            m = _hc.re.search(r"(\d+) tests? collected", r.stdout + r.stderr)
+            m = re.search(r"(\d+) tests? collected", r.stdout + r.stderr)
             if m:
                 test_count = int(m.group(1))
         except Exception:
             pass
         try:
-            r = subprocess.run([_hc.sys.executable, "-m", "pytest", "--cov=.", "--cov-report=term", "--tb=no", "-q"],
+            r = subprocess.run([sys.executable, "-m", "pytest", "--cov=.", "--cov-report=term", "--tb=no", "-q"],
                              cwd=project, capture_output=True, text=True, timeout=120)
-            m = _hc.re.search(r"TOTAL\s+\d+\s+\d+\s+(\d+)%", r.stdout + r.stderr)
+            m = re.search(r"TOTAL\s+\d+\s+\d+\s+(\d+)%", r.stdout + r.stderr)
             if m:
                 coverage_pct = int(m.group(1))
         except Exception:
@@ -455,7 +466,7 @@ def cmd_status(args: _hc.argparse.Namespace) -> int:
             "project": str(project),
             "fsm": {"state": state.get("state", "UNKNOWN"), "current_phase": current_phase,
                     "last_update": state.get("last_update", "-")},
-            "phase_progress": {str(p): phase_status[p] for p in _hc.VALID_PHASES},
+            "phase_progress": {str(p): phase_status[p] for p in VALID_PHASES},
             "fr_ids": fr_ids,
             "gates": gates,
         }
@@ -463,7 +474,7 @@ def cmd_status(args: _hc.argparse.Namespace) -> int:
             result["test_count"] = test_count
             result["coverage_pct"] = coverage_pct
             result["auto_fix_rounds_used"] = auto_fix_rounds_used
-        print(_hc.json.dumps(result, indent=2, default=str))
+        print(json.dumps(result, indent=2, default=str))
         return 0
 
     # Text output
@@ -479,7 +490,7 @@ def cmd_status(args: _hc.argparse.Namespace) -> int:
 
     # Phase progress table
     print("\n[Phase Progress]")
-    for p in _hc.VALID_PHASES:
+    for p in VALID_PHASES:
         icon = {"COMPLETE": "✅", "IN_PROGRESS": "🔄", "NOT_STARTED": "⬜"}.get(phase_status[p], "⬜")
         print(f"  {icon} P{p} {phase_names.get(p, 'Unknown'):<16} {phase_status[p]}")
 
@@ -515,7 +526,7 @@ def cmd_status(args: _hc.argparse.Namespace) -> int:
     print("\n[CRG]")
     if crg_status_path.exists():
         try:
-            crg_status = _hc.json.loads(crg_status_path.read_text(encoding="utf-8"))
+            crg_status = json.loads(crg_status_path.read_text(encoding="utf-8"))
             if crg_status.get("available"):
                 nodes = crg_status.get("node_count", "?")
                 action = crg_status.get("action", "")
@@ -548,7 +559,7 @@ def cmd_status(args: _hc.argparse.Namespace) -> int:
                     pass  # MCP not available in this subprocess context
             else:
                 print(f"  status    : unavailable — {crg_status.get('reason', 'unknown')}")
-        except (_hc.json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError):
             print("  status    : error reading crg_status.json")
     else:
         print("  status    : not initialized — run Gate 3 or Gate 4 to build graph")
@@ -563,11 +574,11 @@ def cmd_status(args: _hc.argparse.Namespace) -> int:
     return 0
 
 
-def cmd_load_context(args: _hc.argparse.Namespace) -> int:
+def cmd_load_context(args: argparse.Namespace) -> int:
     """Load project context for a phase and output as JSON."""
     import json as _json
 
-    project = _hc.Path(args.project).resolve()
+    project = Path(args.project).resolve()
     phase = args.phase
 
     manifest_path = project / ".methodology" / "quality_manifest.json"
@@ -621,8 +632,8 @@ def cmd_load_context(args: _hc.argparse.Namespace) -> int:
                         _spec_rel = _m_heading.group(1).strip()
                 if _spec_rel:
                     _spec_path = (
-                        _hc.Path(_spec_rel)
-                        if _hc.Path(_spec_rel).is_absolute()
+                        Path(_spec_rel)
+                        if Path(_spec_rel).is_absolute()
                         else project / _spec_rel
                     )
                     if _spec_path.exists():
@@ -653,7 +664,7 @@ def cmd_load_context(args: _hc.argparse.Namespace) -> int:
     fr_details: dict = {}
     try:
         from scripts.generate_full_plan import parse_srs_fr_sections
-        srs_path = _hc.ProjectLayout(project).srs_path
+        srs_path = ProjectLayout(project).srs_path
         frs = parse_srs_fr_sections(srs_path if srs_path.exists() else None)
         for fr in frs:
             fr_details[fr["fr"]] = {
@@ -730,7 +741,7 @@ def cmd_load_context(args: _hc.argparse.Namespace) -> int:
     return 0
 
 
-def cmd_read_file(args: _hc.argparse.Namespace) -> int:
+def cmd_read_file(args: argparse.Namespace) -> int:
     from scripts.file_loader import load_file  # lazy import — file_loader.py is heavy
 
     result = load_file(
@@ -741,15 +752,15 @@ def cmd_read_file(args: _hc.argparse.Namespace) -> int:
         include_content=args.content,
     )
 
-    json_text = _hc.json.dumps(result, indent=2, ensure_ascii=False)
+    json_text = json.dumps(result, indent=2, ensure_ascii=False)
 
     if args.json_out:
-        _hc.Path(args.json_out).write_text(json_text, encoding="utf-8")
+        Path(args.json_out).write_text(json_text, encoding="utf-8")
     else:
         print(json_text)
 
     if args.content_out and result.get("content") is not None:
-        _hc.Path(args.content_out).write_text(result["content"], encoding="utf-8")
+        Path(args.content_out).write_text(result["content"], encoding="utf-8")
 
     if not args.quiet:
         status = result["status"]
@@ -764,7 +775,7 @@ def cmd_read_file(args: _hc.argparse.Namespace) -> int:
         )
         if status != "OK":
             msg += f" — {result['diagnostic']}"
-        print(msg, file=_hc.sys.stderr)
+        print(msg, file=sys.stderr)
 
     if result["status"] == "OK":
         return 0
@@ -773,7 +784,7 @@ def cmd_read_file(args: _hc.argparse.Namespace) -> int:
     return 2  # READ_ERROR
 
 
-def cmd_effort(args: _hc.argparse.Namespace) -> int:
+def cmd_effort(args: argparse.Namespace) -> int:
     """Show gate effort metrics summary."""
     from harness.effort_tracker import EffortTracker
 
@@ -783,16 +794,16 @@ def cmd_effort(args: _hc.argparse.Namespace) -> int:
     print(f"\n{'='*60}")
     title = f"Effort Summary{' | Phase ' + str(args.phase) if args.phase else ''}"
     print(f"{title}\n{'='*60}")
-    print(_hc.json.dumps(summary, indent=2))
+    print(json.dumps(summary, indent=2))
     return 0
 
 
-def cmd_doctor(args: _hc.argparse.Namespace) -> int:
+def cmd_doctor(args: argparse.Namespace) -> int:
     """Read-only cross-file state consistency check. Reports, never repairs —
     an auto-repair path would itself become a fabrication surface."""
     from core.doctor import run_doctor
 
-    project = _hc.Path(args.project).resolve()
+    project = Path(args.project).resolve()
     findings = run_doctor(project)
 
     print(f"\n{'='*60}\ndoctor  project={project}\n{'='*60}")
@@ -810,7 +821,7 @@ def cmd_doctor(args: _hc.argparse.Namespace) -> int:
     return 1 if errors else 0
 
 
-def cmd_amend_sab(args: _hc.argparse.Namespace) -> int:
+def cmd_amend_sab(args: argparse.Namespace) -> int:
     """Run the SAB Architecture Amendment Protocol as a standalone subcommand.
 
     `run-gate --gate 1` blocks with `[BLOCKED] Architecture Amendment Protocol
@@ -827,12 +838,12 @@ def cmd_amend_sab(args: _hc.argparse.Namespace) -> int:
     Idempotent: re-running adds nothing on the second call.
     Returns 0 on success (including no-op), 1 on hard failure.
     """
-    project = _hc.Path(args.project).resolve()
+    project = Path(args.project).resolve()
     try:
         from core.quality_gate.sab_amender import amend_sab
         added = amend_sab(project, src_dir=args.src_dir, dry_run=args.dry_run)
     except Exception as exc:
-        print(f"[amend-sab] failed: {exc}", file=_hc.sys.stderr)
+        print(f"[amend-sab] failed: {exc}", file=sys.stderr)
         return 1
 
     if args.dry_run:
@@ -854,7 +865,7 @@ def cmd_amend_sab(args: _hc.argparse.Namespace) -> int:
     return 0
 
 
-def cmd_kill_switch(args: _hc.argparse.Namespace) -> int:
+def cmd_kill_switch(args: argparse.Namespace) -> int:
     """CLI surface for the M1 KillSwitch (CV-6 from robustness audit).
 
     Operators previously had to write Python to manually trigger or re-enable
@@ -872,16 +883,16 @@ def cmd_kill_switch(args: _hc.argparse.Namespace) -> int:
     try:
         from kill_switch.kill_switch import KillSwitch
     except ImportError as exc:
-        print(f"[ERROR] kill_switch module unavailable: {exc}", file=_hc.sys.stderr)
+        print(f"[ERROR] kill_switch module unavailable: {exc}", file=sys.stderr)
         return 1
 
-    operator = getattr(args, "operator", None) or _hc.os.environ.get("USER") or "operator"
+    operator = getattr(args, "operator", None) or os.environ.get("USER") or "operator"
     ks = KillSwitch()
     action = args.kill_action
 
     if action == "trigger":
         if not args.agent_id or not args.reason:
-            print("[ERROR] kill-switch trigger requires --agent-id and --reason.", file=_hc.sys.stderr)
+            print("[ERROR] kill-switch trigger requires --agent-id and --reason.", file=sys.stderr)
             return 2
         evt = ks.manual_trigger(
             agent_id=args.agent_id, reason=args.reason, operator_id=operator,
@@ -893,7 +904,7 @@ def cmd_kill_switch(args: _hc.argparse.Namespace) -> int:
 
     if action == "reset":
         if not args.agent_id or not args.ack:
-            print("[ERROR] kill-switch reset requires --agent-id and --ack.", file=_hc.sys.stderr)
+            print("[ERROR] kill-switch reset requires --agent-id and --ack.", file=sys.stderr)
             return 2
         ok = ks.re_enable(
             agent_id=args.agent_id, operator_id=operator, acknowledgment=args.ack,
@@ -902,7 +913,7 @@ def cmd_kill_switch(args: _hc.argparse.Namespace) -> int:
             print(f"OK — agent {args.agent_id} re-enabled by {operator}.")
             print(f"  Acknowledgment: {args.ack}")
             return 0
-        print(f"[ERROR] re-enable failed for {args.agent_id}.", file=_hc.sys.stderr)
+        print(f"[ERROR] re-enable failed for {args.agent_id}.", file=sys.stderr)
         return 1
 
     if action == "status":
@@ -912,7 +923,7 @@ def cmd_kill_switch(args: _hc.argparse.Namespace) -> int:
                 state = ks.get_agent_state(args.agent_id)
                 print(f"agent_id={args.agent_id}  circuit_open={open_}  state={state}")
             except Exception as exc:  # pylint: disable=broad-exception-caught
-                print(f"[ERROR] could not read status for {args.agent_id}: {exc}", file=_hc.sys.stderr)
+                print(f"[ERROR] could not read status for {args.agent_id}: {exc}", file=sys.stderr)
                 return 1
         else:
             agents = ks.get_registered_agents()
@@ -929,11 +940,11 @@ def cmd_kill_switch(args: _hc.argparse.Namespace) -> int:
                     print(f"  ⚠  {aid}  status error: {exc}")
         return 0
 
-    print(f"[ERROR] unknown kill-switch action: {action}", file=_hc.sys.stderr)
+    print(f"[ERROR] unknown kill-switch action: {action}", file=sys.stderr)
     return 2
 
 
-def cmd_audit_structure(args: _hc.argparse.Namespace) -> int:
+def cmd_audit_structure(args: argparse.Namespace) -> int:
     """Audit target project directory structure and artifact completeness.
 
     Only checks phases up to current_phase — future-phase directories are
@@ -943,7 +954,7 @@ def cmd_audit_structure(args: _hc.argparse.Namespace) -> int:
     import re as _re
     from core.utils.project_layout import phase_artifacts as _phase_artifacts
 
-    project = _hc.Path(args.project).resolve()
+    project = Path(args.project).resolve()
 
     # Read current phase from state.json — only audit up to this phase.
     try:
@@ -952,8 +963,8 @@ def cmd_audit_structure(args: _hc.argparse.Namespace) -> int:
     except Exception:
         current_phase = 8  # if state unreadable, check all phases
 
-    # Canonical phase directory names — reference module-level _PHASE_DIRS
-    PHASE_DIRS = {k: v for k, v in _hc._PHASE_DIRS.items() if k <= current_phase}
+    # Canonical phase directory names, filtered to the audited range
+    phase_dirs = {k: v for k, v in PHASE_DIRS.items() if k <= current_phase}
 
     # Required artifacts per phase (aligned with phase_artifact_enforcer.py)
     _ALL_PHASE_ARTIFACTS = {
@@ -970,14 +981,14 @@ def cmd_audit_structure(args: _hc.argparse.Namespace) -> int:
     }
     PHASE_ARTIFACTS = {k: v for k, v in _ALL_PHASE_ARTIFACTS.items() if k <= current_phase}
 
-    results: dict[str, _hc.Any] = {
+    results: dict[str, Any] = {
         "project": str(project),
         "dimensions": {},
     }
 
     # --- Dimension 1: Directory existence (≤ current_phase only) ---
     dir_status = {}
-    for num, dname in PHASE_DIRS.items():
+    for num, dname in phase_dirs.items():
         dpath = project / dname
         dir_status[f"P{num}"] = {
             "dir": dname,
@@ -1001,7 +1012,7 @@ def cmd_audit_structure(args: _hc.argparse.Namespace) -> int:
             size = fpath.stat().st_size if exists and fpath.is_file() else None
             phase_files.append({"path": p, "exists": exists, "size_bytes": size})
         artifact_status[phase_key] = {
-            "dir": PHASE_DIRS[phase_num],
+            "dir": phase_dirs[phase_num],
             "all_present": all(f["exists"] for f in phase_files),
             "files": phase_files,
         }
@@ -1016,7 +1027,7 @@ def cmd_audit_structure(args: _hc.argparse.Namespace) -> int:
     # operational docs that legitimately contain no FR/NFR references).
     _FR_REF_PHASES = {1, 2, 3, 4}
 
-    def _check_content_quality(fpath: _hc.Path, phase_num: int = 0) -> dict:
+    def _check_content_quality(fpath: Path, phase_num: int = 0) -> dict:
         if not fpath.exists() or not fpath.is_file():
             return {"quality": "missing"}
         try:
@@ -1050,7 +1061,7 @@ def cmd_audit_structure(args: _hc.argparse.Namespace) -> int:
         all_ok = all(q["quality"] == "good" for q in phase_quality
                      if not q["path"].endswith("/"))
         quality_status[phase_key] = {
-            "dir": PHASE_DIRS[phase_num],
+            "dir": phase_dirs[phase_num],
             "all_quality_ok": all_ok,
             "files": phase_quality,
         }
@@ -1081,12 +1092,12 @@ def cmd_audit_structure(args: _hc.argparse.Namespace) -> int:
 
     # --- Dimension 5: Naming convention ---
     naming_issues = []
-    expected_names = set(PHASE_DIRS.values())
+    expected_names = set(phase_dirs.values())
     # Known/unknown judged against ALL canonical phase dirs — init-project
     # pre-creates every phase directory (including future phases), so a
     # not-yet-reached phase dir (e.g. 09-maintenance at P1) is legitimate.
     # Only the phase-truncated set drives the `missing` check below.
-    all_canonical_names = set(_hc._PHASE_DIRS.values())
+    all_canonical_names = set(PHASE_DIRS.values())
     # Map "NN" prefix → canonical dir name, e.g. "05" → "05-verification"
     expected_by_prefix: dict[str, str] = {n.split("-")[0]: n for n in all_canonical_names}
     found_dirs = set()
@@ -1140,7 +1151,7 @@ def cmd_audit_structure(args: _hc.argparse.Namespace) -> int:
     return 0 if all_passed else 1
 
 
-def cmd_audit_phase(args: _hc.argparse.Namespace) -> int:
+def cmd_audit_phase(args: argparse.Namespace) -> int:
     """Audit a phase against GitHub or local artifacts (C1-C10 PhaseAuditor check).
 
     A1-2026-07-07: replace cwd-relative `from scripts.phase_auditor import …`
@@ -1182,7 +1193,7 @@ def cmd_audit_phase(args: _hc.argparse.Namespace) -> int:
     print(f"  Warnings     : {len(result.warnings())}")
 
     if args.save:
-        save_path = _hc.Path(args.save)
+        save_path = Path(args.save)
         if args.output == "json":
             import json as _json
             save_path.write_text(_json.dumps({
