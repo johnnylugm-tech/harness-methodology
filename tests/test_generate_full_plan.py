@@ -2729,26 +2729,30 @@ class TestParseSrsFrSectionsMergesJson:
 
     def test_real_srs_md_extracts_all_5_frs(self):
         """Regression against the actual INGESTION MODE SRS.md shipped with
-        the integration-test project. Must extract all 5 FRs (FR-01..FR-05)
-        with their JSON block metadata."""
+        the integration-test project. Must extract all 5 FRs (FR-01..FR-05).
+
+        INGESTION MODE (phase1_plan.md §[A-1]) is "100% transcribe ... no
+        invention" from SPEC.md. implementation_modules / acceptance_criteria
+        (JSON) / verification_method are sourced exclusively from an OPTIONAL
+        Appendix A JSON block (_parse_srs_fr_block_json) that neither
+        phase1_plan.md nor phase1-requirements.js ever instructs Agent A to
+        emit — module ownership doesn't exist yet at Phase 1 (that's
+        Architecture/Implementation). generate_full_plan.py itself treats
+        these as optional (`.get(..., [])`), same contract asserted by
+        test_keeps_section_only_fields_when_no_json above. So this test only
+        pins the structural (markdown-section) extraction, not JSON-only
+        metadata that INGESTION MODE never produces."""
         repo_root = Path(__file__).parent.parent.parent
         srs_path = repo_root / "01-requirements" / "SRS.md"
         if not srs_path.exists():
             pytest.skip(f"Real SRS.md not present at {srs_path}")
         frs = parse_srs_fr_sections(srs_path)
         assert len(frs) == 5, f"expected 5 FRs from real SRS.md, got {len(frs)}"
-        # Every FR must carry the JSON-only structural fields
         for fr in frs:
             assert fr["fr"].startswith("FR-"), f"bad FR id: {fr}"
             assert isinstance(fr["implementation_modules"], list), \
                 f"{fr['fr']}: implementation_modules not list"
-            assert len(fr["implementation_modules"]) > 0, \
-                f"{fr['fr']}: implementation_modules empty in real SRS"
             assert isinstance(fr["acceptance_criteria"], list), \
                 f"{fr['fr']}: acceptance_criteria not list"
-            assert len(fr["acceptance_criteria"]) > 0, \
-                f"{fr['fr']}: acceptance_criteria empty in real SRS"
             assert isinstance(fr["verification_method"], str), \
                 f"{fr['fr']}: verification_method not str"
-            assert len(fr["verification_method"]) > 0, \
-                f"{fr['fr']}: verification_method empty in real SRS"
