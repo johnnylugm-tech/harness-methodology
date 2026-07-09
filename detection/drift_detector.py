@@ -222,6 +222,7 @@ class DriftItem:
     description: str
     expected: Optional[str] = None
     actual: Optional[str] = None
+    expected_in_phase: Optional[int] = None
 
 
 @dataclass
@@ -250,6 +251,7 @@ class DriftResult:
                     "description": i.description,
                     "expected": i.expected,
                     "actual": i.actual,
+                    "expected_in_phase": i.expected_in_phase,
                 }
                 for i in self.drift_items
             ],
@@ -298,6 +300,14 @@ class DriftDetector:
 
         Reads SAD.md FR-to-file mapping and checks if mapped files exist.
         """
+        current_phase = None
+        if self.state_path.exists():
+            try:
+                current_phase = json.loads(
+                    self.state_path.read_text(encoding="utf-8")
+                ).get("current_phase", 0)
+            except Exception:
+                pass
         sad_path = self._find_file(["02-architecture/SAD.md"])
         if not sad_path:
             return DriftResult(
@@ -350,6 +360,7 @@ class DriftDetector:
                     description=f"SAD maps FR-{fr_num} to {rel_path} but file not found",
                     expected=rel_path,
                     actual=None,
+                    expected_in_phase=3 if (current_phase is not None and current_phase < 3) else None,
                 ))
 
         score = 1.0 - (drifted / max(checked, 1))
