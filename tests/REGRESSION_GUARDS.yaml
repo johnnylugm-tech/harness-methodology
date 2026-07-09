@@ -97,3 +97,11 @@
 - test: tests/test_artifact_consistency.py::test_artifact_consistency_is_wired_into_preflight_all
   bug: "P1/P2 audit gate: preflight_artifact_consistency must stay composed into _do_preflight_all — else invented forward-ref filenames (ARCHITECTURE.md) and NFRs dropped from ADR's traceability table stop being caught"
   fixed_in: "artifact_consistency gate (audit issues 2/3)"
+
+- test: tests/test_cli_layering.py::test_hc_ref_ratchet
+  bug: "cli/ modules borrowing names via `_hc.` late-binding (409 refs at S0) — the debt that forces harness_cli's mid-file E402 imports and sys.modules hack; per-file counts must only decrease"
+  fixed_in: "harness_cli 絞殺者續章 S0 (ratchet 安全網)"
+
+- test: tests/test_cli_layering.py::test_core_never_imports_cli
+  bug: "layering inversion: core/ or harness/ importing the CLI layer would recreate the circular-import class the sys.modules hack papers over (rule was docstring-only in cli/__init__.py)"
+  fixed_in: "harness_cli 絞殺者續章 S0 (分層 gate)"
