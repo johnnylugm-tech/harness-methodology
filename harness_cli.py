@@ -137,6 +137,7 @@ def _fr_num_str(fr_id: str) -> str:
 # so we silence reportAttributeAccessIssue here. Kept even though no direct
 # caller remains in this file: cli/gate_cmds.py resolves it via _hc.
 from core.quality_gate.mutation_enforcer import compute_mutation_score  # noqa: E402, F401 # type: ignore[reportAttributeAccessIssue] # Bug #105
+from core.quality_gate.legal_artifacts import PHASE_DELIVERABLES  # noqa: E402  # DRY: single source of truth shared with artifact_consistency.LEGAL_ARTIFACTS
 
 # ---------------------------------------------------------------------------
 # .env file loader (no external dependency)
@@ -699,11 +700,9 @@ _PHASE_EXIT_GATES: dict[int, int] = _TOPOLOGY_EXIT_GATES
 _PHASES_WITH_GATE1_FR_CHECK: frozenset[int] = _TOPOLOGY_ADVANCE_GATE1
 
 # P1/P2 deliverable labels used as approval-file keys in agent_b_approvals/
-_PHASE_DELIVERABLES: dict[int, list[str]] = {
-    1: ["SRS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md", "TEST_INVENTORY.yaml"],
-    2: ["SAD.md", "ADR.md", "TEST_SPEC.md"],
-    6: ["QUALITY_REPORT.md", "RELEASE_NOTES.md", "FINAL_SIGN_OFF.md", "quality_manifest"],
-}
+# Authoritative list lives in `core.quality_gate.legal_artifacts` (single source
+# of truth shared with `core.quality_gate.artifact_consistency.LEGAL_ARTIFACTS`).
+_PHASE_DELIVERABLES = PHASE_DELIVERABLES  # re-export for backward compat (see legal_artifacts.py)
 # Documents that Agent B must embed per phase (SAD.md doesn't exist until P2)
 _REQUIRED_EMBEDDED_DOCS: dict[int, list[str]] = {
     1: ["SRS.md"],

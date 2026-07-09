@@ -23,25 +23,17 @@ import re
 from pathlib import Path
 
 from core.quality_gate import Violation
+from core.quality_gate.legal_artifacts import LEGAL_ARTIFACTS
 from core.traceability.scanner import extract_nfr_ids_from_srs
 from core.utils.project_layout import ProjectLayout
 
 __all__ = ["check_forward_refs", "check_nfr_adr_coverage"]
 
 # Legal deliverable filenames per stage directory (forward-reference whitelist).
-# Defined here rather than imported from harness_cli._PHASE_DELIVERABLES (P1/2/6
-# only + a cli→core import edge) or project_layout._PHASE_PROP_MAP (its P2 lists
-# only SAD.md, omitting ADR.md/TEST_SPEC.md) — both are incomplete for this use.
-# This is the full set of document names a P1/P2 artifact may forward-reference.
-_LEGAL_ARTIFACTS: dict[str, set[str]] = {
-    "01-requirements": {"SRS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md", "TEST_INVENTORY.yaml"},
-    "02-architecture": {"SAD.md", "ADR.md", "TEST_SPEC.md"},
-    "04-testing": {"TEST_PLAN.md", "TEST_RESULTS.md"},
-    "05-verification": {"BASELINE.md", "VERIFICATION_REPORT.md"},
-    "06-quality": {"QUALITY_REPORT.md", "RELEASE_NOTES.md", "FINAL_SIGN_OFF.md"},
-    "07-risk": {"RISK_REGISTER.md", "RISK_MITIGATION_PLANS.md", "RISK_STATUS_REPORT.md"},
-    "08-config": {"CONFIG_RECORDS.md", "RELEASE_CHECKLIST.md"},
-}
+# Authoritative list lives in `core.quality_gate.legal_artifacts` (single source
+# of truth shared with `harness_cli._PHASE_DELIVERABLES` via the same module).
+# See legal_artifacts.py for the rationale and the prior DRY violation that
+# motivated the consolidation.
 
 # `02-architecture/adr/ADR.md` / `./01-requirements/SRS.md` — stage dir, optional
 # sub-dirs, filename. The filename class excludes '/' so it is the last segment.
@@ -76,7 +68,7 @@ def check_forward_refs(project: Path) -> list[Violation]:
         text = path.read_text(encoding="utf-8", errors="replace")
         for m in _REF.finditer(text):
             stage_dir, filename = m.group(1), m.group(2)
-            legal = _LEGAL_ARTIFACTS.get(stage_dir)
+            legal = LEGAL_ARTIFACTS.get(stage_dir)
             if legal is None or filename in legal:
                 continue  # unknown stage dir (don't second-guess) / legal name
             key = (path.name, stage_dir, filename)
