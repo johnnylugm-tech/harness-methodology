@@ -955,7 +955,7 @@ class TestCmdAdvancePhase:
                     "harness_cli._run_phase_auditor", lambda project, phase: 0,
                 )
                 monkeypatch.setattr(
-                    "harness_cli._verify_agent_b_approvals_core",
+                    "core.quality_gate.agent_b_approvals.verify_agent_b_approvals_core",
                     lambda project, phase, ids: (True, "mocked"),
                 )
                 # Also mock constitution postflight (new in _advance_prechecks)

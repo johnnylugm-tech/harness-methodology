@@ -332,3 +332,51 @@ def _parse_inventory_fallback(text: str) -> dict:
             name = line_s[2:].strip()
             result.setdefault(current_section, {}).setdefault(current_sub, []).append(name)
     return result
+
+
+# --- test-path resolution (moved verbatim from harness_cli.py, S4e) ---
+
+def _collect_shared_test_files(project: Path, base: str,
+                                existing: list[str]) -> None:
+    """Append git-tracked conftest.py and helpers/**/*.py under *base*."""
+    import subprocess as _sp
+    try:
+        r = _sp.run(
+            ["git", "ls-files", f"{base}/conftest.py", f"{base}/helpers/"],
+            capture_output=True, text=True, cwd=str(project),
+        )
+        for line in r.stdout.splitlines():
+            if line.endswith(".py") and line not in existing:
+                existing.append(line)
+    except Exception:
+        pass
+
+
+def _git_test_patterns(project: Path, num: str, num_raw: str) -> list[str]:
+    """Return git-tracked test file path patterns, resolving symlinks.
+
+    Bug #130 fix (2026-06-27): canonical harness layout places tests at
+    ``03-development/tests/``. Without explicit patterns for it, `git log`
+    returns empty and D1-RED blocks. We scan all valid test directories
+    returned by `_get_test_directories`.
+    """
+    patterns = []
+    # Always include 'tests/' by default to preserve historical behavior
+    test_dirs_rel = ["tests"]
+
+    for d in _get_test_directories(project):
+        try:
+            d_rel = str(d.resolve().relative_to(project.resolve()))
+            if d_rel not in test_dirs_rel:
+                test_dirs_rel.append(d_rel)
+        except ValueError:
+            continue
+
+    for d_rel in test_dirs_rel:
+        patterns.extend([
+            f"{d_rel}/test_fr{num}.py",
+            f"{d_rel}/test_fr{num_raw}.py",
+        ])
+        _collect_shared_test_files(project, d_rel, patterns)
+
+    return patterns

@@ -11,9 +11,19 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import re
+import subprocess
+import sys
+from typing import Optional
+
 from core.atomic_io import atomic_write_json
+from core.quality_gate.spec_coverage import _git_test_patterns
+from core.utils.project_layout import ProjectLayout
 
 __all__ = [
+    "fr_gate1_commit_sha",
+    "fr_code_changed_since_last_gate1",
+    "validate_fr_coverage_immediate",
     "GATE_TIMESTAMPS_FILE",
     "GATE_TIMESTAMPS_MAX_ENTRIES",
     "GATE1_SCORES_FILE",
@@ -201,3 +211,160 @@ def record_gate1_score(project: Path, phase: int, fr_id: str, score: float) -> N
         atomic_write_json(scores_file, scores)
     except Exception:  # pylint: disable=broad-exception-caught
         pass
+
+
+# --- Gate-1 change detection + live coverage (moved from harness_cli, S4e) ---
+
+def fr_gate1_commit_sha(fr_id: str, project: Path) -> str | None:
+    """Return the SHA of the most recent Gate 1 PASS commit for the given FR."""
+    import subprocess as _sp
+    pattern = f"feat({fr_id}): Gate1 PASS"
+    r = _sp.run(
+        ["git", "log", "--oneline", "--grep", pattern, "-1", "--format=%H"],
+        capture_output=True, text=True, cwd=str(project),
+    )
+    sha = r.stdout.strip()
+    if sha:
+        return sha
+    # Fallback: P3 batch commit e.g. "feat(P3-mid): 8/8 FR(s) Gate1 PASS"
+    r2 = _sp.run(
+        ["git", "log", "--oneline", "--grep", "Gate1 PASS", "-1", "--format=%H"],
+        capture_output=True, text=True, cwd=str(project),
+    )
+    sha2 = r2.stdout.strip()
+    return sha2 if sha2 else None
+
+def fr_code_changed_since_last_gate1(fr_id: str, project: Path) -> bool:
+    """Check whether FR source/test files have changed since last Gate 1 PASS.
+
+    Returns True if code has changed (re-evaluation needed), False otherwise.
+    Uses AST parsing to accurately determine if changed lines overlap with FR functions.
+    """
+    import subprocess as _sp
+    import ast
+    sha = fr_gate1_commit_sha(fr_id, project)
+    if sha is None:
+        return True  # No prior Gate 1 PASS → treat as changed
+
+    # 1. Check test files directly
+    fr_files: list[str] = []
+    num_match = re.match(r"FR-(\d+)", fr_id)
+    num_str = num_match.group(1).zfill(2) if num_match else ""
+    if num_str:
+        for p in _git_test_patterns(project, num_str, str(int(num_str))):
+            fr_files.append(p)
+            
+    r_test = _sp.run(
+        ["git", "diff", "--name-only", sha, "HEAD", "--"] + fr_files,
+        capture_output=True, text=True, cwd=str(project),
+    )
+    if r_test.stdout.strip():
+        return True
+
+    # 2. Check source files via AST diff overlap
+    r_src = _sp.run(
+        ["git", "diff", "--name-only", sha, "HEAD", "--", "03-development/src"],
+        capture_output=True, text=True, cwd=str(project),
+    )
+    changed_src = [f for f in r_src.stdout.splitlines() if f.endswith(".py")]
+    
+    for py_file in changed_src:
+        curr_path = project / py_file
+
+        if not curr_path.exists():
+            continue
+
+        try:
+            content = curr_path.read_text(encoding="utf-8")
+            if f"[{fr_id}]" not in content:
+                continue
+
+            tree = ast.parse(content)
+            fr_ranges = []
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    doc = ast.get_docstring(node)
+                    if doc and f"[{fr_id}]" in doc:
+                        fr_ranges.append((node.lineno, getattr(node, "end_lineno", node.lineno)))
+
+            if not fr_ranges:
+                # string is in file but not in a docstring, default to changed
+                return True
+
+            # Single -U0 diff for both removed-tag check and hunk line parsing
+            r_u0 = _sp.run(
+                ["git", "diff", "-U0", sha, "HEAD", "--", py_file],
+                capture_output=True, text=True, cwd=str(project),
+            )
+            # Fallback: tag was removed in the diff
+            if f"[{fr_id}]" in r_u0.stdout:
+                return True
+            for line in r_u0.stdout.splitlines():
+                if line.startswith("@@ "):
+                    # @@ -old,n +new,n @@
+                    try:
+                        parts = line.split(" ")[2].split(",")
+                        start_line = int(parts[0].lstrip("+"))
+                        count = int(parts[1]) if len(parts) > 1 else 1
+                        end_line = start_line + count - 1
+
+                        for (fr_start, fr_end) in fr_ranges:
+                            # Overlap check
+                            if start_line <= fr_end and end_line >= fr_start:
+                                return True
+                    except Exception:
+                        pass
+        except Exception:
+            # On parse error, fail safe
+            return True
+
+    return False
+
+def validate_fr_coverage_immediate(
+    project: Path, timeout: int = 120
+) -> Optional[float]:
+    """Run ``pytest --cov`` for the whole project right now and return line coverage %.
+
+    Returns:
+        ``None``      — pytest not installed, no tests found, or subprocess error.
+        ``float``     — coverage percentage (0.0 - 100.0), or 0.0 if tests failed.
+
+    Single whole-project pytest run (1-2s in practice) is used rather than
+    per-FR scoped runs. Rationale: per-FR coverage is structurally misleading
+    in multi-FR projects — each FR's test only covers its own source files,
+    not the other 7 FRs' files, so a per-FR scope would always report
+    ~1/N of project coverage. Whole-project coverage is the only signal
+    that proves "all source is exercised by tests" (the actual TDD goal).
+    Mirrors the TDD-PRECHECK check at line ~4220; advance-phase re-runs the
+    same measurement so the manifest's recorded score is verified live.
+
+    """
+    layout = ProjectLayout(project)
+    src_dir = layout.active_src_dir
+    tests_dir = layout.active_test_dir
+    if not src_dir.is_dir():
+        return None
+    if not tests_dir.is_dir():
+        return None
+    cov_target = layout.get_relative_str(src_dir)
+    cmd = [
+        sys.executable, "-m", "pytest",
+        f"--cov={cov_target}", "--cov-report=term",
+        "--tb=no", "-q",
+    ]
+    try:
+        r = subprocess.run(
+            cmd, capture_output=True, text=True,
+            cwd=str(project), timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return None
+    except Exception:
+        return None
+    m = re.search(r"TOTAL\s+\d+\s+\d+\s+(\d+)%", r.stdout)
+    if m:
+        try:
+            return float(m.group(1))
+        except ValueError:
+            return None
+    return 0.0 if r.returncode == 0 else None

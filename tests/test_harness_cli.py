@@ -8,6 +8,7 @@ import pytest
 from pathlib import Path
 from unittest import mock
 import io
+from core.quality_gate import gate1_evidence
 
 
 # =============================================================================
@@ -28,8 +29,8 @@ class TestFrNumStr:
         ("invalid", "invalid"),  # passthrough on parse failure
     ])
     def test_fr_num_str(self, fr_id, expected):
-        from harness_cli import _fr_num_str
-        assert _fr_num_str(fr_id) == expected
+        from core.canonical_form import fr_num_str
+        assert fr_num_str(fr_id) == expected
 
 
 # =============================================================================
@@ -1458,7 +1459,8 @@ class TestVerifyEntryGate:
         (method / "state.json").write_text(json.dumps(state))
 
     def _make_approvals(self, project: Path, phase: int, status: str = "APPROVE") -> None:
-        from harness_cli import _PHASE_DELIVERABLES, _REQUIRED_EMBEDDED_DOCS
+        from harness_cli import _PHASE_DELIVERABLES
+        from core.quality_gate.agent_b_approvals import REQUIRED_EMBEDDED_DOCS as _REQUIRED_EMBEDDED_DOCS
         approvals = project / ".methodology" / "agent_b_approvals"
         approvals.mkdir(parents=True, exist_ok=True)
         docs = _REQUIRED_EMBEDDED_DOCS.get(phase, ["SRS.md"])
@@ -1980,7 +1982,7 @@ class TestAdvancePrechecksTDD:
         (tmp_path / ".methodology").mkdir()
         _mock_constitution_pass(monkeypatch)
         monkeypatch.setattr("harness_cli._run_phase_auditor", lambda _, __: 0)
-        monkeypatch.setattr("harness_cli._verify_agent_b_approvals_core",
+        monkeypatch.setattr("core.quality_gate.agent_b_approvals.verify_agent_b_approvals_core",
                             lambda _, __, ___: (True, "mocked"))
 
         rc = _advance_prechecks(tmp_path, completed_phase=2)
@@ -2026,7 +2028,7 @@ class TestAdvancePrechecksTDD:
         # Phase 6 fires Agent B approval check before spec-coverage; stub it so
         # only the threshold value is exercised here (agent B tested elsewhere).
         monkeypatch.setattr(
-            "harness_cli._verify_agent_b_approvals_core",
+            "core.quality_gate.agent_b_approvals.verify_agent_b_approvals_core",
             lambda _, __, ___: (True, "mocked"),
         )
         monkeypatch.setattr(
@@ -2209,7 +2211,8 @@ class TestAdvancePreChecksAgentB:
         creates quality_manifest.json.json — the first approval-file assertion fails
         and rc would be 13 (not 0).
         """
-        from harness_cli import _advance_prechecks, _PHASE_DELIVERABLES, _REQUIRED_EMBEDDED_DOCS
+        from harness_cli import _advance_prechecks, _PHASE_DELIVERABLES
+        from core.quality_gate.agent_b_approvals import REQUIRED_EMBEDDED_DOCS as _REQUIRED_EMBEDDED_DOCS
 
         self._mock_p6_non_ab_prechecks(tmp_path, monkeypatch)
 
@@ -2782,8 +2785,7 @@ class TestRunFrStep:
             json.dumps({"fr_ids": ["FR-01"]}), encoding="utf-8"
         )
         monkeypatch.setattr(harness_cli, "_fr_step_already_done", lambda *a: False)
-        monkeypatch.setattr(
-            harness_cli, "_fr_code_changed_since_last_gate1", lambda *a: False,
+        monkeypatch.setattr("core.quality_gate.gate1_evidence.fr_code_changed_since_last_gate1", lambda *a: False,
         )
         captured = io.StringIO()
         monkeypatch.setattr(sys, "stdout", captured)
@@ -2810,8 +2812,7 @@ class TestRunFrStep:
             json.dumps({"fr_ids": ["FR-01"]}), encoding="utf-8"
         )
         monkeypatch.setattr(harness_cli, "_fr_step_already_done", lambda *a: False)
-        monkeypatch.setattr(
-            harness_cli, "_fr_code_changed_since_last_gate1", lambda *a: True,
+        monkeypatch.setattr("core.quality_gate.gate1_evidence.fr_code_changed_since_last_gate1", lambda *a: True,
         )
         captured = io.StringIO()
         monkeypatch.setattr(sys, "stdout", captured)
@@ -3063,50 +3064,45 @@ class TestGate1LiveCoverageCheck:
 
     def test_all_frs_covered_returns_0(self, tmp_path):
         """All FRs have real pytest coverage ≥ min → return 0."""
-        import harness_cli
         self._make_manifest(tmp_path, ["FR-01", "FR-02", "FR-03"])
         with mock.patch.object(
-            harness_cli, "_validate_fr_coverage_immediate", return_value=100.0
+            gate1_evidence, "validate_fr_coverage_immediate", return_value=100.0
         ):
             assert self._run_check(tmp_path, 4) == 0
 
     def test_missing_fr_returns_14(self, tmp_path):
         """Live pytest returns None (no tests/ or pytest errored) → BLOCKED 14."""
-        import harness_cli
         self._make_manifest(tmp_path, ["FR-01", "FR-02", "FR-03"])
         with mock.patch.object(
-            harness_cli, "_validate_fr_coverage_immediate", return_value=None
+            gate1_evidence, "validate_fr_coverage_immediate", return_value=None
         ):
             assert self._run_check(tmp_path, 4) == 14
 
     def test_zero_gate1_entries_returns_14(self, tmp_path):
         """All FRs have pytest erroring (None) → must block."""
-        import harness_cli
         self._make_manifest(tmp_path, ["FR-01", "FR-02"])
         with mock.patch.object(
-            harness_cli, "_validate_fr_coverage_immediate", return_value=None
+            gate1_evidence, "validate_fr_coverage_immediate", return_value=None
         ):
             assert self._run_check(tmp_path, 4) == 14
 
     def test_delta_auto_skip_skips_live_pytest(self, tmp_path):
         """DELTA phase with code unchanged → auto-skip, return 0, pytest not called."""
-        import harness_cli
         self._make_manifest(tmp_path, ["FR-01", "FR-02"])
         with mock.patch.object(
-            harness_cli, "_fr_code_changed_since_last_gate1", return_value=False
+            gate1_evidence, "fr_code_changed_since_last_gate1", return_value=False
         ):
             with mock.patch.object(
-                harness_cli, "_validate_fr_coverage_immediate"
+                gate1_evidence, "validate_fr_coverage_immediate"
             ) as mock_cov:
                 assert self._run_check(tmp_path, 4) == 0
                 mock_cov.assert_not_called()
 
     def test_single_fr_manifest_passes(self, tmp_path):
         """Manifest with one FR, live coverage ≥ min → pass."""
-        import harness_cli
         self._make_manifest(tmp_path, ["FR-01"])
         with mock.patch.object(
-            harness_cli, "_validate_fr_coverage_immediate", return_value=100.0
+            gate1_evidence, "validate_fr_coverage_immediate", return_value=100.0
         ):
             assert self._run_check(tmp_path, 4) == 0
 
@@ -3117,10 +3113,9 @@ class TestGate1LiveCoverageCheck:
 
     def test_multiple_rounds_same_fr_ok(self, tmp_path):
         """Live pytest is per-FR idempotent — second FR also passes."""
-        import harness_cli
         self._make_manifest(tmp_path, ["FR-01", "FR-02"])
         with mock.patch.object(
-            harness_cli, "_validate_fr_coverage_immediate", return_value=100.0
+            gate1_evidence, "validate_fr_coverage_immediate", return_value=100.0
         ):
             assert self._run_check(tmp_path, 4) == 0
 
@@ -3136,12 +3131,11 @@ class TestGate1LiveCoverageCheck:
         per-FR TDD-RED/GREEN/GATE1 steps, so _check_gate1_live_coverage
         should not be called for completed_phase=6.
         """
-        import harness_cli
         self._make_manifest(tmp_path, ["FR-01", "FR-02", "FR-03"])
         # Phase 6 is NOT a DELTA auto-skip phase → falls through to live pytest.
         # Without test files, _validate_fr_coverage_immediate returns None → 14.
         with mock.patch.object(
-            harness_cli, "_validate_fr_coverage_immediate", return_value=None
+            gate1_evidence, "validate_fr_coverage_immediate", return_value=None
         ):
             assert self._run_check(tmp_path, 6) == 14, (
                 "_check_gate1_live_coverage itself returns 14 for phase=6 "
@@ -3164,7 +3158,7 @@ class TestGate1LiveCoverageCheck:
         from unittest.mock import patch
         self._make_manifest(tmp_path, ["FR-01", "FR-02", "FR-03"])
         # No gate_timestamps for phase 7 at all → without auto-skip this would return 14.
-        with patch("harness_cli._fr_code_changed_since_last_gate1", return_value=False):
+        with patch("core.quality_gate.gate1_evidence.fr_code_changed_since_last_gate1", return_value=False):
             assert self._run_check(tmp_path, 7) == 0
 
     def test_delta_loop_no_skip_when_changed(self, tmp_path):
@@ -3172,7 +3166,7 @@ class TestGate1LiveCoverageCheck:
         from unittest.mock import patch
         self._make_manifest(tmp_path, ["FR-01", "FR-02"])
         # One FR changed → not all unchanged → falls through to timestamp check → missing → 14.
-        with patch("harness_cli._fr_code_changed_since_last_gate1",
+        with patch("core.quality_gate.gate1_evidence.fr_code_changed_since_last_gate1",
                    side_effect=lambda fr, project: fr == "FR-02"):
             assert self._run_check(tmp_path, 7) == 14
 
@@ -3181,7 +3175,7 @@ class TestGate1LiveCoverageCheck:
         must also auto-satisfy P4 coverage when no FR's code changed (range is 4,5,7,8)."""
         from unittest.mock import patch
         self._make_manifest(tmp_path, ["FR-01", "FR-02"])
-        with patch("harness_cli._fr_code_changed_since_last_gate1", return_value=False):
+        with patch("core.quality_gate.gate1_evidence.fr_code_changed_since_last_gate1", return_value=False):
             assert self._run_check(tmp_path, 4) == 0
 
 
@@ -3465,25 +3459,25 @@ class TestFrGate1CommitShaFallback:
     def test_per_fr_commit_returned_directly(self, tmp_path, monkeypatch):
         """If per-FR pattern matches, return that SHA without hitting fallback."""
         import subprocess
-        import harness_cli
         monkeypatch.setattr(subprocess, "run", self._fake_run_factory("abc123", "batch999"))
-        sha = harness_cli._fr_gate1_commit_sha("FR-01", tmp_path)
+        from core.quality_gate.gate1_evidence import fr_gate1_commit_sha
+        sha = fr_gate1_commit_sha("FR-01", tmp_path)
         assert sha == "abc123"
 
     def test_fallback_to_batch_commit(self, tmp_path, monkeypatch):
         """If per-FR pattern finds nothing, must return SHA from batch 'Gate1 PASS' grep."""
         import subprocess
-        import harness_cli
         monkeypatch.setattr(subprocess, "run", self._fake_run_factory("", "deadbeef"))
-        sha = harness_cli._fr_gate1_commit_sha("FR-01", tmp_path)
+        from core.quality_gate.gate1_evidence import fr_gate1_commit_sha
+        sha = fr_gate1_commit_sha("FR-01", tmp_path)
         assert sha == "deadbeef"
 
     def test_returns_none_when_no_commit(self, tmp_path, monkeypatch):
         """No Gate1 PASS commit of any kind → returns None."""
         import subprocess
-        import harness_cli
         monkeypatch.setattr(subprocess, "run", self._fake_run_factory("", ""))
-        sha = harness_cli._fr_gate1_commit_sha("FR-01", tmp_path)
+        from core.quality_gate.gate1_evidence import fr_gate1_commit_sha
+        sha = fr_gate1_commit_sha("FR-01", tmp_path)
         assert sha is None
 
 
@@ -3497,7 +3491,8 @@ class TestGitTestPatterns:
         """When tests/ is a regular directory, return only standard patterns."""
         import harness_cli  # noqa: F401  entry-first load order (cli-first crashes until S5)
         (tmp_path / "tests").mkdir()
-        patterns = harness_cli._git_test_patterns(tmp_path, "01", "1")
+        from core.quality_gate.spec_coverage import _git_test_patterns
+        patterns = _git_test_patterns(tmp_path, "01", "1")
         assert patterns == ["tests/test_fr01.py", "tests/test_fr1.py"]
         dirs = harness_cli._get_test_directories(tmp_path)
         assert len(dirs) == 1
@@ -3508,7 +3503,8 @@ class TestGitTestPatterns:
         import harness_cli
         can_tests = tmp_path / "03-development" / "tests"
         can_tests.mkdir(parents=True)
-        patterns = harness_cli._git_test_patterns(tmp_path, "01", "1")
+        from core.quality_gate.spec_coverage import _git_test_patterns
+        patterns = _git_test_patterns(tmp_path, "01", "1")
         assert "03-development/tests/test_fr01.py" in patterns
         assert "03-development/tests/test_fr1.py" in patterns
         dirs = harness_cli._get_test_directories(tmp_path)
@@ -3521,7 +3517,8 @@ class TestGitTestPatterns:
         real = tmp_path / "03-development" / "tests"
         real.mkdir(parents=True)
         (tmp_path / "tests").symlink_to(real)
-        patterns = harness_cli._git_test_patterns(tmp_path, "01", "1")
+        from core.quality_gate.spec_coverage import _git_test_patterns
+        patterns = _git_test_patterns(tmp_path, "01", "1")
         assert "tests/test_fr01.py" in patterns
         assert "03-development/tests/test_fr01.py" in patterns
         assert "03-development/tests/test_fr1.py" in patterns
@@ -3532,12 +3529,12 @@ class TestGitTestPatterns:
 
     def test_symlink_outside_project_ignored(self, tmp_path):
         """Symlink resolving outside project root → ValueError caught, no extra patterns."""
-        import harness_cli
         import tempfile
         outside = Path(tempfile.mkdtemp())
         try:
             (tmp_path / "tests").symlink_to(outside)
-            patterns = harness_cli._git_test_patterns(tmp_path, "01", "1")
+            from core.quality_gate.spec_coverage import _git_test_patterns
+            patterns = _git_test_patterns(tmp_path, "01", "1")
             assert len(patterns) == 2  # only standard patterns, no crash
         finally:
             import shutil
@@ -3579,7 +3576,7 @@ def _setup_advance_prechecks_env(tmp_path, monkeypatch):
     harness_cli._write_finalize_sentinels_for_tests(tmp_path)
 
     monkeypatch.setattr("harness_cli._run_phase_auditor", lambda _, __: 0)
-    monkeypatch.setattr("harness_cli._verify_agent_b_approvals_core", lambda _, __, ___: (True, "mocked"))
+    monkeypatch.setattr("core.quality_gate.agent_b_approvals.verify_agent_b_approvals_core", lambda _, __, ___: (True, "mocked"))
 
     class FakeVerifier:
         def __init__(self, *args, **kwargs): pass
@@ -6981,9 +6978,9 @@ class TestGate1DeltaBatchAutoSkip:
         import harness_cli
         self._manifest(tmp_path, ["FR-01", "FR-02"])
         with mock.patch.object(
-            harness_cli, "_fr_code_changed_since_last_gate1", return_value=False
+            gate1_evidence, "fr_code_changed_since_last_gate1", return_value=False
         ), mock.patch.object(
-            harness_cli, "_validate_fr_coverage_immediate"
+            gate1_evidence, "validate_fr_coverage_immediate"
         ) as mock_pytest:
             rc = harness_cli._check_gate1_live_coverage(tmp_path, 4)
         assert rc == 0
@@ -6996,10 +6993,10 @@ class TestGate1DeltaBatchAutoSkip:
         self._manifest(tmp_path, ["FR-01", "FR-02"])
         # FR-01 changed, FR-02 unchanged → not "all unchanged"
         with mock.patch.object(
-            harness_cli, "_fr_code_changed_since_last_gate1",
+            gate1_evidence, "fr_code_changed_since_last_gate1",
             side_effect=lambda fr, p: fr == "FR-01",
         ), mock.patch.object(
-            harness_cli, "_validate_fr_coverage_immediate", return_value=95.0,
+            gate1_evidence, "validate_fr_coverage_immediate", return_value=95.0,
         ) as mock_pytest:
             rc = harness_cli._check_gate1_live_coverage(tmp_path, 7)
         assert rc == 0
@@ -7011,7 +7008,7 @@ class TestGate1DeltaBatchAutoSkip:
         import harness_cli
         self._manifest(tmp_path, [])
         with mock.patch.object(
-            harness_cli, "_validate_fr_coverage_immediate"
+            gate1_evidence, "validate_fr_coverage_immediate"
         ) as mock_pytest:
             rc = harness_cli._check_gate1_live_coverage(tmp_path, 4)
         assert rc == 0
@@ -7024,10 +7021,10 @@ class TestGate1DeltaBatchAutoSkip:
         import harness_cli
         self._manifest(tmp_path, ["FR-01"])
         with mock.patch.object(
-            harness_cli, "_fr_code_changed_since_last_gate1",
+            gate1_evidence, "fr_code_changed_since_last_gate1",
             side_effect=RuntimeError("git error"),
         ), mock.patch.object(
-            harness_cli, "_validate_fr_coverage_immediate", return_value=85.0,
+            gate1_evidence, "validate_fr_coverage_immediate", return_value=85.0,
         ) as mock_pytest:
             rc = harness_cli._check_gate1_live_coverage(tmp_path, 4)
         assert rc == 0

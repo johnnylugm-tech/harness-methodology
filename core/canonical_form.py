@@ -224,3 +224,25 @@ def _selftest() -> int:
 if __name__ == "__main__":
     import sys
     sys.exit(_selftest())
+
+
+# I: helper for test_frNN.py / sentinel filenames — replaces 6 sites that each
+# did their own `re.match(r"FR-(\\d+)", fr_id)` + fallback `re.sub("[^a-z0-9]", ...)`.
+def fr_num_str(fr_id: str) -> str:
+    """Return zero-padded digit string from FR-ID (canonical_form first).
+
+    Examples:
+      fr_num_str("FR-01") -> "01"
+      fr_num_str("fr01") -> "01"   # canonicalised via canonical_form
+      fr_num_str("FR_12") -> "12"
+      fr_num_str("FR-100") -> "100" # 3+ digits preserved
+      fr_num_str("invalid") -> "invalid"  # passthrough on parse failure
+    """
+    try:
+        canon = canonical_form(fr_id)
+        m = re.match(r"(?:FR|NFR|TASK)-(\d+)", canon)
+        if m:
+            return m.group(1).zfill(2)
+        return canon
+    except ValueError:
+        return fr_id

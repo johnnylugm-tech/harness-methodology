@@ -273,28 +273,21 @@ class TestA1_ThreeSitesInvokeSameHelper:
     regression that re-inlines one site is caught here at the source level.
     """
 
-    def test_harness_cli_has_exactly_one_definition_of_load_harness_script(self):
-        """Exactly one `def load_harness_script` at module scope; no inlined
-        copies inside `_cmd_finalize_gate_impl` or `_run_phase_auditor`."""
-        cli_src = (HARNESS_REPO / "harness_cli.py").read_text(encoding="utf-8")
-        # Count top-level `def load_harness_script` (line beginning, no leading whitespace)
-        top_level_defs = [
-            line for line in cli_src.splitlines()
+    def test_exactly_one_definition_of_load_harness_script(self):
+        """S4e: the single definition lives in core/utils/script_loader.py;
+        harness_cli re-exports it (public compat name) and must NOT grow a
+        second definition or an inlined copy."""
+        loader_src = (HARNESS_REPO / "core" / "utils" / "script_loader.py").read_text(encoding="utf-8")
+        assert sum(
+            1 for line in loader_src.splitlines()
             if line.startswith("def load_harness_script(")
-        ]
-        assert len(top_level_defs) == 1, (
-            f"expected exactly 1 module-scope def, got {len(top_level_defs)}: "
-            f"{top_level_defs!r}"
+        ) == 1, "script_loader.py must hold the single definition"
+        cli_src = (HARNESS_REPO / "harness_cli.py").read_text(encoding="utf-8")
+        assert "def load_harness_script(" not in cli_src, (
+            "harness_cli.py must only re-export load_harness_script, not define it"
         )
-        # No inline def inside functions (4-space indent means nested).
-        # Inline copies would have at least 8-space indent.
-        inline_defs = [
-            line for line in cli_src.splitlines()
-            if (line.startswith("        def load_harness_script(")
-                or line.startswith("            def load_harness_script("))
-        ]
-        assert inline_defs == [], (
-            f"inline copies found — must use module-scope helper: {inline_defs!r}"
+        assert "from core.utils.script_loader import load_harness_script" in cli_src, (
+            "harness_cli.py must keep the public re-export"
         )
 
     def test_site_2_run_phase_auditor_calls_helper(self):
@@ -326,7 +319,7 @@ class TestA1_ThreeSitesInvokeSameHelper:
 
     def test_site_3_cmd_audit_phase_calls_helper(self):
         """Site 3 (`cmd_audit_phase`) source must invoke
-        `_hc.load_harness_script('phase_auditor.py')`, NOT a real
+        `load_harness_script('phase_auditor.py')` (direct import since S4e), NOT a real
         cwd-relative `from scripts.phase_auditor import …` (an explanation
         in the docstring that mentions the old import name is allowed)."""
         import re
@@ -337,8 +330,8 @@ class TestA1_ThreeSitesInvokeSameHelper:
         tail = pc_src[fn_start:]
         next_def = tail.find("\n\ndef ", 1)
         fn_src = tail if next_def < 0 else tail[:next_def]
-        assert "_hc.load_harness_script(\"phase_auditor.py\")" in fn_src, (
-            f"Site 3 must call _hc.load_harness_script(\"phase_auditor.py\"); "
+        assert "load_harness_script(\"phase_auditor.py\")" in fn_src, (
+            f"Site 3 must call load_harness_script(\"phase_auditor.py\"); "
             f"got fn_src head: {fn_src[:400]!r}"
         )
         # Check *executable* imports only — match lines whose leading

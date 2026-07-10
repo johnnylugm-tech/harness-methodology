@@ -1,10 +1,9 @@
 """Verification/check commands (spec, trace, constitution, manifest, approvals, gap analysis).
 
-Extracted verbatim from harness_cli.py (方案六). Free names that live
-in harness_cli resolve through `_hc.` at call time, so existing
-monkeypatches on harness_cli attributes keep working. harness_cli
-re-exports these cmd_* names, so `from harness_cli import cmd_x`
-imports are unaffected.
+Extracted verbatim from harness_cli.py (方案六); helpers moved home in
+絞殺者續章 S4 — this module no longer imports harness_cli (all
+dependencies are direct stdlib/core/harness imports). harness_cli still
+re-exports the cmd_* names, so `from harness_cli import cmd_x` works.
 """
 
 from __future__ import annotations
@@ -17,10 +16,10 @@ import sys
 from pathlib import Path
 
 from core.phase_topology import VALID_PHASES
+from core.quality_gate import agent_b_approvals
 from core.quality_gate.legal_artifacts import PHASE_DELIVERABLES
 from core.quality_gate.spec_coverage import _run_spec_coverage_check
 from core.utils.project_layout import ProjectLayout
-import harness_cli as _hc
 
 
 def cmd_bug_hunt_targets(args: argparse.Namespace) -> int:
@@ -571,7 +570,7 @@ def cmd_verify_agent_b_approvals(args: argparse.Namespace) -> int:
         print("[verify-agent-b] No FR IDs found — pass --fr-ids or ensure quality_manifest.json exists.")
         return 1
 
-    passed, report = _hc._verify_agent_b_approvals_core(project, phase, deliverable_ids)
+    passed, report = agent_b_approvals.verify_agent_b_approvals_core(project, phase, deliverable_ids)
     print(report)
     return 0 if passed else 1
 

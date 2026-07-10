@@ -17,6 +17,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from core.canonical_form import fr_num_str
 from core.harness_config import get_timeout
 from core.pre_flight import check_cli_tools
 from core.quality_gate import gate1_evidence
@@ -193,7 +194,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
     srs_path = Path(args.srs).resolve() if args.srs else None
 
     # Compute src_dir and test_file — used by GATE1 retry and _capture_tool_snapshot.
-    _num_str = _hc._fr_num_str(fr_id)
+    _num_str = fr_num_str(fr_id)
     src_dir = "03-development/src"
     _layout = ProjectLayout(project)
     test_dir_str = _layout.get_relative_str(_layout.active_test_dir)
@@ -543,7 +544,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                         except (OSError, ValueError, json.JSONDecodeError):
                             pass
                         try:
-                            _live_cov = _hc._validate_fr_coverage_immediate(
+                            _live_cov = gate1_evidence.validate_fr_coverage_immediate(
                                 Path(str(project)))
                         except Exception as _exc:
                             _live_cov = None
@@ -697,7 +698,7 @@ def cmd_resume_fr_phase(args: argparse.Namespace) -> int:
     carryforward = phase in (5, 7, 8)
     for fr_id in fr_ids:
         if carryforward:
-            if _hc._fr_code_changed_since_last_gate1(fr_id, project):
+            if gate1_evidence.fr_code_changed_since_last_gate1(fr_id, project):
                 steps = ["TDD-RED", "TDD-GREEN", "TDD-IMPROVE", "GATE1"]
             else:
                 steps = ["GATE1-DELTA"]

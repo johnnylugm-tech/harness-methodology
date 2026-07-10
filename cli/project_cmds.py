@@ -1,10 +1,9 @@
 """Project-level commands (init-project, status, load-context, read-file, effort, doctor, amend-sab, kill-switch, audit-structure, audit-phase).
 
-Extracted verbatim from harness_cli.py (方案六). Free names that live
-in harness_cli resolve through `_hc.` at call time, so existing
-monkeypatches on harness_cli attributes keep working. harness_cli
-re-exports these cmd_* names, so `from harness_cli import cmd_x`
-imports are unaffected.
+Extracted verbatim from harness_cli.py (方案六); helpers moved home in
+絞殺者續章 S4 — this module no longer imports harness_cli (all
+dependencies are direct stdlib/core/harness imports). harness_cli still
+re-exports the cmd_* names, so `from harness_cli import cmd_x` works.
 """
 
 from __future__ import annotations
@@ -22,8 +21,8 @@ from core import claude_md
 from core.atomic_io import atomic_write_json
 from core.phase_topology import PHASE_DIRS, VALID_PHASES
 from core.utils.project_layout import ProjectLayout
+from core.utils.script_loader import load_harness_script
 from harness import tool_checks
-import harness_cli as _hc
 
 
 def cmd_init_project(args: argparse.Namespace) -> int:
@@ -1163,7 +1162,7 @@ def cmd_audit_phase(args: argparse.Namespace) -> int:
     user-facing CLI is allowed to hard-fail if the install is corrupted (an
     ImportError means scripts/ is missing, which is a real problem worth surfacing).
     """
-    _pa_mod = _hc.load_harness_script("phase_auditor.py")
+    _pa_mod = load_harness_script("phase_auditor.py")
     PhaseAuditor, GitHubFetcher, LocalFetcher = (
         _pa_mod.PhaseAuditor, _pa_mod.GitHubFetcher, _pa_mod.LocalFetcher,
     )

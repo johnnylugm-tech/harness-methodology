@@ -52,7 +52,6 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import re
 import shutil
@@ -102,29 +101,9 @@ from core.phase_topology import (  # noqa: E402
 )
 from core.harness_config import get_timeout  # noqa: E402
 from core.utils.project_layout import ProjectLayout  # noqa: E402
-from core.canonical_form import canonical_form  # noqa: E402  # I: single source of truth for FR/NFR/TASK IDs
+from core.canonical_form import canonical_form, fr_num_str  # noqa: E402, F401  # ID SSOT (fr_num_str: in-file + re-export)
 
 
-# I: helper for test_frNN.py / sentinel filenames — replaces 6 sites that each
-# did their own `re.match(r"FR-(\\d+)", fr_id)` + fallback `re.sub("[^a-z0-9]", ...)`.
-def _fr_num_str(fr_id: str) -> str:
-    """Return zero-padded digit string from FR-ID (canonical_form first).
-
-    Examples:
-      _fr_num_str("FR-01") -> "01"
-      _fr_num_str("fr01") -> "01"   # canonicalised via canonical_form
-      _fr_num_str("FR_12") -> "12"
-      _fr_num_str("FR-100") -> "100" # 3+ digits preserved
-      _fr_num_str("invalid") -> "invalid"  # passthrough on parse failure
-    """
-    try:
-        canon = canonical_form(fr_id)
-        m = re.match(r"(?:FR|NFR|TASK)-(\d+)", canon)
-        if m:
-            return m.group(1).zfill(2)
-        return canon
-    except ValueError:
-        return fr_id
 # (Bug #105 compute_mutation_score import removed in S1 — cli/gate_cmds.py now
 # imports it directly from core.quality_gate.mutation_enforcer.)
 from core.quality_gate.legal_artifacts import PHASE_DELIVERABLES  # noqa: E402  # DRY: single source of truth shared with artifact_consistency.LEGAL_ARTIFACTS
@@ -132,7 +111,8 @@ from core.quality_gate.legal_artifacts import PHASE_DELIVERABLES  # noqa: E402  
 # only monkeypatch seam is the function's home module, never a harness_cli
 # attribute that could go stale.
 from core import claude_md  # noqa: E402
-from core.quality_gate import gate1_evidence  # noqa: E402
+from core.quality_gate import agent_b_approvals, gate1_evidence  # noqa: E402
+from core.utils.script_loader import load_harness_script  # noqa: E402, F401  (public re-export: tests + cli import it from here)
 from core.utils import env_loader  # noqa: E402
 from harness import tool_checks  # noqa: E402
 
@@ -144,46 +124,6 @@ _PER_FR_GATE1_PHASES: frozenset[int] = _TOPOLOGY_PER_FR_GATE1
 
 
 
-def load_harness_script(module_filename: str):
-    """Load a helper from `<harness_repo>/scripts/<name>.py` by absolute path.
-
-    Bug fix P6-2026-07-07: cwd-relative `from scripts.X` failed whenever
-    finalize-gate was run from the consumer project root (scripts/ lives
-    under the harness submodule, not the consumer project's cwd / sys.path).
-    Each generator is loaded by absolute file path so the call works
-    regardless of cwd / PYTHONPATH.
-
-    A1-2026-07-07 (completion): the same pattern existed in
-    `_run_phase_auditor` (Site 2, silent skip + return 0) and
-    `cmd_audit_phase` (Site 3, user-facing CLI; hard fail with traceback)
-    — both hoisted to call this module-scope helper, eliminating 3
-    inline duplicate copies.
-
-    Layout contract:
-      harness_repo             = Path(__file__).resolve().parent        (directory containing harness_cli.py)
-      harness_repo / scripts   = location of helper modules
-    Tests replicate this via
-      tests/test_finalize_gate_helpers_load_via_absolute_path.py:39-40
-    (`HARNESS_REPO / "scripts"`) so the .parent / "scripts" resolution
-    below is the single source of truth. A dedicated
-    `TestA1_HelperPathFix::test_load_harness_script_resolves_correct_scripts_dir`
-    test invokes the real function (not the replicated path math).
-    """
-    harness_repo = Path(__file__).resolve().parent
-    target = harness_repo / "scripts" / module_filename
-    if not target.is_file():
-        raise ImportError(
-            f"harness scripts helper not found: {target} "
-            f"(cwd={Path.cwd()}, harness_repo={harness_repo})"
-        )
-    spec = importlib.util.spec_from_file_location(
-        f"harness_runtime_{module_filename[:-3]}", target,
-    )
-    if spec is None or spec.loader is None:
-        raise ImportError(f"cannot load spec for {module_filename} at {target}")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
 
 
 
@@ -206,12 +146,6 @@ _PHASES_WITH_GATE1_FR_CHECK: frozenset[int] = _TOPOLOGY_ADVANCE_GATE1
 # Authoritative list lives in `core.quality_gate.legal_artifacts` (single source
 # of truth shared with `core.quality_gate.artifact_consistency.LEGAL_ARTIFACTS`).
 _PHASE_DELIVERABLES = PHASE_DELIVERABLES  # re-export for backward compat (see legal_artifacts.py)
-# Documents that Agent B must embed per phase (SAD.md doesn't exist until P2)
-_REQUIRED_EMBEDDED_DOCS: dict[int, list[str]] = {
-    1: ["SRS.md"],
-    2: ["SRS.md", "SAD.md"],
-    6: ["QUALITY_REPORT.md", "RELEASE_NOTES.md", "FINAL_SIGN_OFF.md", "VERIFICATION_REPORT.md"],
-}
 
 # ---------------------------------------------------------------------------
 # plan-phase
@@ -237,62 +171,22 @@ from cli.phase_cmds import (  # noqa: E402, F401
 # run-phase
 # ---------------------------------------------------------------------------
 
-def _collect_shared_test_files(project: Path, base: str,
-                                existing: list[str]) -> None:
-    """Append git-tracked conftest.py and helpers/**/*.py under *base*."""
-    import subprocess as _sp
-    try:
-        r = _sp.run(
-            ["git", "ls-files", f"{base}/conftest.py", f"{base}/helpers/"],
-            capture_output=True, text=True, cwd=str(project),
-        )
-        for line in r.stdout.splitlines():
-            if line.endswith(".py") and line not in existing:
-                existing.append(line)
-    except Exception:
-        pass
 
 
 # D4 spec-coverage cluster moved verbatim to core/quality_gate/spec_coverage.py
 # (方案六: core must not import the CLI layer). Re-exported here for the
 # in-file callers, cli/ families (_hc), and existing monkeypatch targets.
 from core.quality_gate.spec_coverage import (  # noqa: E402, F401
+    _collect_shared_test_files,
     _flatten_test_names,
     _get_test_directories,
+    _git_test_patterns,
     _parse_inventory_fallback,
     _parse_test_spec,
     _run_spec_coverage_check,
     _scan_test_functions,
 )
 
-def _git_test_patterns(project: Path, num: str, num_raw: str) -> list[str]:
-    """Return git-tracked test file path patterns, resolving symlinks.
-
-    Bug #130 fix (2026-06-27): canonical harness layout places tests at
-    ``03-development/tests/``. Without explicit patterns for it, `git log`
-    returns empty and D1-RED blocks. We scan all valid test directories
-    returned by `_get_test_directories`.
-    """
-    patterns = []
-    # Always include 'tests/' by default to preserve historical behavior
-    test_dirs_rel = ["tests"]
-
-    for d in _get_test_directories(project):
-        try:
-            d_rel = str(d.resolve().relative_to(project.resolve()))
-            if d_rel not in test_dirs_rel:
-                test_dirs_rel.append(d_rel)
-        except ValueError:
-            continue
-
-    for d_rel in test_dirs_rel:
-        patterns.extend([
-            f"{d_rel}/test_fr{num}.py",
-            f"{d_rel}/test_fr{num_raw}.py",
-        ])
-        _collect_shared_test_files(project, d_rel, patterns)
-
-    return patterns
 
 
 def _check_fr_test_file_exists(project: Path, fr_id: str) -> tuple[bool, str]:
@@ -513,7 +407,7 @@ def _verify_entry_gate(project: Path, phase: int) -> dict:
                     if shallow.returncode == 0 and shallow.stdout.strip() == "true":
                         deliverables = _PHASE_DELIVERABLES.get(prev, [])
                         if deliverables:
-                            passed_ab, _ = _verify_agent_b_approvals_core(
+                            passed_ab, _ = agent_b_approvals.verify_agent_b_approvals_core(
                                 project, prev, deliverables
                             )
                             if passed_ab:
@@ -1499,7 +1393,6 @@ def _find_latest_round_dir(project: Path) -> "tuple[Path, int] | None":
 
 
 _DA_EVIDENCE_MIN_CHARS = 120  # minimum length for challenge / response to count as real
-_MIN_REVIEW_REASON_CHARS = 40  # minimum length for an Agent B APPROVE reason to count as substantive
 
 
 def _validate_da_evidence(dim: str, g4: dict) -> "str | None":
@@ -2519,99 +2412,6 @@ from cli.push_cmds import (  # noqa: E402, F401
 
 
 
-def _verify_agent_b_approvals_core(
-    project: Path, phase: int, deliverable_ids: "list[str]"
-) -> "tuple[bool, str]":
-    """Verify agent_b_approvals/<id>.json files exist and carry APPROVE status.
-
-    Returns (passed, report) where report is a human-readable summary.
-    Uses phase-appropriate required_embedded_docs (P1 only needs SRS.md;
-    P2 needs SRS.md + SAD.md).
-    """
-    required_docs = _REQUIRED_EMBEDDED_DOCS.get(phase, ["SRS.md", "SAD.md"])
-    approvals_dir = project / ".methodology" / "agent_b_approvals"
-    lines: list[str] = [
-        f"[verify-agent-b] Phase {phase} — checking {len(deliverable_ids)} deliverables",
-        f"  Approvals dir : {approvals_dir}",
-    ]
-    missing: list[str] = []
-    rejected: list[str] = []
-    errors: list[str] = []
-
-    for did in deliverable_ids:
-        approval_file = approvals_dir / f"{did}.json"
-        if not approval_file.exists():
-            missing.append(did)
-            continue
-        try:
-            data = json.loads(approval_file.read_text(encoding="utf-8"))
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            errors.append(f"{did}: JSON parse error — {exc}")
-            continue
-        status = data.get("review_status", "")
-        if status != "APPROVE":
-            rejected.append(f"{did}: review_status={status!r} (expected APPROVE)")
-            continue
-        # A1 structure guard: an APPROVE must carry a substantive review, not an empty
-        # rubber-stamp. This cannot verify Agent B authenticity (a structural limit of a
-        # document-phase review) but it blocks the trivially-faked empty APPROVE.
-        _reason = str(data.get("reason", "")).strip()
-        _citations = data.get("citations", [])
-        if len(_reason) < _MIN_REVIEW_REASON_CHARS:
-            errors.append(
-                f"{did}: APPROVE with empty/too-short reason "
-                f"(need ≥{_MIN_REVIEW_REASON_CHARS} chars of review rationale)"
-            )
-            continue
-        if not isinstance(_citations, list) or not _citations:
-            errors.append(
-                f"{did}: APPROVE without citations[] — Agent B must cite what it reviewed."
-            )
-            continue
-        embedded = data.get("docs_embedded", [])
-        # Bug v26 fix (2026-06-29): required_docs may be basenames ("SRS.md") while
-        # B agent writes full repo-relative paths ("01-requirements/SRS.md"). Normalize
-        # both sides to a comparable form (basename + full path) before the membership
-        # check so neither authoring convention triggers a false-positive missing-docs
-        # failure. Previously the strict `d not in embedded` rejected "SRS.md" because
-        # the list contained "01-requirements/SRS.md" — a contract mismatch, not a
-        # real coverage gap.
-        def _norm(s: str) -> set[str]:
-            p = Path(s)
-            return {s, p.name, str(p).lstrip("./")}
-        embedded_norm: set[str] = set()
-        for e in embedded:
-            embedded_norm |= _norm(str(e))
-        missing_docs = [d for d in required_docs if not (_norm(d) & embedded_norm)]
-        if missing_docs:
-            errors.append(
-                f"{did}: docs_embedded missing {missing_docs} — "
-                "Agent B prompt must embed the required source documents."
-            )
-
-    passed = not (missing or rejected or errors)
-    if passed:
-        lines.append(f"  ✓ All {len(deliverable_ids)} Agent B approvals verified.")
-    else:
-        lines.append("\n[BLOCKED] Agent B approval verification failed:")
-        if missing:
-            lines.append(f"  Missing approval files ({len(missing)}):")
-            for d in missing:
-                lines.append(f"    • {approvals_dir / d}.json")
-        if rejected:
-            lines.append(f"  Non-APPROVE statuses ({len(rejected)}):")
-            for r in rejected:
-                lines.append(f"    • {r}")
-        if errors:
-            lines.append(f"  Schema/content errors ({len(errors)}):")
-            for e in errors:
-                lines.append(f"    • {e}")
-        lines.append(
-            "\n  Fix: ensure Agent B writes approval JSON for each deliverable:\n"
-            '    {"fr": "<id>", "review_status": "APPROVE", '
-            '"docs_embedded": ["SRS.md"], "confidence": 0.9}'
-        )
-    return passed, "\n".join(lines)
 
 
 
@@ -3241,54 +3041,6 @@ def _run_phase_auditor(project: Path, completed_phase: int) -> int:
         return 2
 
 
-def _validate_fr_coverage_immediate(
-    project: Path, timeout: int = 120
-) -> Optional[float]:
-    """Run ``pytest --cov`` for the whole project right now and return line coverage %.
-
-    Returns:
-        ``None``      — pytest not installed, no tests found, or subprocess error.
-        ``float``     — coverage percentage (0.0 - 100.0), or 0.0 if tests failed.
-
-    Single whole-project pytest run (1-2s in practice) is used rather than
-    per-FR scoped runs. Rationale: per-FR coverage is structurally misleading
-    in multi-FR projects — each FR's test only covers its own source files,
-    not the other 7 FRs' files, so a per-FR scope would always report
-    ~1/N of project coverage. Whole-project coverage is the only signal
-    that proves "all source is exercised by tests" (the actual TDD goal).
-    Mirrors the TDD-PRECHECK check at line ~4220; advance-phase re-runs the
-    same measurement so the manifest's recorded score is verified live.
-
-    """
-    layout = ProjectLayout(project)
-    src_dir = layout.active_src_dir
-    tests_dir = layout.active_test_dir
-    if not src_dir.is_dir():
-        return None
-    if not tests_dir.is_dir():
-        return None
-    cov_target = layout.get_relative_str(src_dir)
-    cmd = [
-        sys.executable, "-m", "pytest",
-        f"--cov={cov_target}", "--cov-report=term",
-        "--tb=no", "-q",
-    ]
-    try:
-        r = subprocess.run(
-            cmd, capture_output=True, text=True,
-            cwd=str(project), timeout=timeout,
-        )
-    except subprocess.TimeoutExpired:
-        return None
-    except Exception:
-        return None
-    m = re.search(r"TOTAL\s+\d+\s+\d+\s+(\d+)%", r.stdout)
-    if m:
-        try:
-            return float(m.group(1))
-        except ValueError:
-            return None
-    return 0.0 if r.returncode == 0 else None
 
 
 def _check_gate1_live_coverage(project: Path, completed_phase: int) -> int:
@@ -3330,7 +3082,7 @@ def _check_gate1_live_coverage(project: Path, completed_phase: int) -> int:
     if completed_phase in (4, 5, 7, 8):
         try:
             _all_unchanged = all(
-                not _fr_code_changed_since_last_gate1(fr, project)
+                not gate1_evidence.fr_code_changed_since_last_gate1(fr, project)
                 for fr in fr_ids_manifest
             )
         except Exception:  # pylint: disable=broad-exception-caught
@@ -3344,7 +3096,7 @@ def _check_gate1_live_coverage(project: Path, completed_phase: int) -> int:
 
     # Live verification: one whole-project pytest --cov run proves the
     # manifest's recorded per-FR coverage is achievable against current code.
-    cov = _validate_fr_coverage_immediate(project)
+    cov = gate1_evidence.validate_fr_coverage_immediate(project)
     if cov is None:
         print(
             f"\n[BLOCKED] Phase {completed_phase} Gate 1 live coverage check failed:\n"
@@ -3509,7 +3261,7 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
                 # the per-FR finalize step was never called (correctly). Skip check
                 # for FRs where code hasn't changed — same logic as _check_gate1_live_coverage.
                 try:
-                    if not _fr_code_changed_since_last_gate1(_frid, project):
+                    if not gate1_evidence.fr_code_changed_since_last_gate1(_frid, project):
                         continue
                 except Exception:
                     pass
@@ -3671,7 +3423,7 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
     if completed_phase in (1, 2, 6):
         deliverable_ids = _PHASE_DELIVERABLES.get(completed_phase, [])
         if deliverable_ids:
-            passed_ab, report_ab = _verify_agent_b_approvals_core(
+            passed_ab, report_ab = agent_b_approvals.verify_agent_b_approvals_core(
                 project, completed_phase, deliverable_ids
             )
             if not passed_ab:
@@ -3976,11 +3728,11 @@ def _fr_step_already_done(step: str, fr_id: str, project: Path) -> bool:
 
     # GATE1-DELTA: code-change detection (not just commit-pattern check)
     if step.upper() == "GATE1-DELTA":
-        return not _fr_code_changed_since_last_gate1(fr_id, project)
+        return not gate1_evidence.fr_code_changed_since_last_gate1(fr_id, project)
 
     # Dual verification for TDD
     if step.upper() == "TDD-RED":
-        num_str = _fr_num_str(fr_id)
+        num_str = fr_num_str(fr_id)
         test_dir = ProjectLayout(project).active_test_dir
         test_file = test_dir / f"test_fr{num_str}.py"
         return test_file.exists()
@@ -3988,7 +3740,7 @@ def _fr_step_already_done(step: str, fr_id: str, project: Path) -> bool:
         src_dir = ProjectLayout(project).active_src_dir
         if not src_dir.exists():
             return False
-        num_str = _fr_num_str(fr_id)
+        num_str = fr_num_str(fr_id)
         for py_file in src_dir.glob("**/*.py"):
             if num_str in py_file.name:
                 return True
@@ -4001,111 +3753,8 @@ def _fr_step_already_done(step: str, fr_id: str, project: Path) -> bool:
     return True
 
 
-def _fr_gate1_commit_sha(fr_id: str, project: Path) -> str | None:
-    """Return the SHA of the most recent Gate 1 PASS commit for the given FR."""
-    import subprocess as _sp
-    pattern = f"feat({fr_id}): Gate1 PASS"
-    r = _sp.run(
-        ["git", "log", "--oneline", "--grep", pattern, "-1", "--format=%H"],
-        capture_output=True, text=True, cwd=str(project),
-    )
-    sha = r.stdout.strip()
-    if sha:
-        return sha
-    # Fallback: P3 batch commit e.g. "feat(P3-mid): 8/8 FR(s) Gate1 PASS"
-    r2 = _sp.run(
-        ["git", "log", "--oneline", "--grep", "Gate1 PASS", "-1", "--format=%H"],
-        capture_output=True, text=True, cwd=str(project),
-    )
-    sha2 = r2.stdout.strip()
-    return sha2 if sha2 else None
 
 
-def _fr_code_changed_since_last_gate1(fr_id: str, project: Path) -> bool:
-    """Check whether FR source/test files have changed since last Gate 1 PASS.
-
-    Returns True if code has changed (re-evaluation needed), False otherwise.
-    Uses AST parsing to accurately determine if changed lines overlap with FR functions.
-    """
-    import subprocess as _sp
-    import ast
-    sha = _fr_gate1_commit_sha(fr_id, project)
-    if sha is None:
-        return True  # No prior Gate 1 PASS → treat as changed
-
-    # 1. Check test files directly
-    fr_files: list[str] = []
-    num_match = re.match(r"FR-(\d+)", fr_id)
-    num_str = num_match.group(1).zfill(2) if num_match else ""
-    if num_str:
-        for p in _git_test_patterns(project, num_str, str(int(num_str))):
-            fr_files.append(p)
-            
-    r_test = _sp.run(
-        ["git", "diff", "--name-only", sha, "HEAD", "--"] + fr_files,
-        capture_output=True, text=True, cwd=str(project),
-    )
-    if r_test.stdout.strip():
-        return True
-
-    # 2. Check source files via AST diff overlap
-    r_src = _sp.run(
-        ["git", "diff", "--name-only", sha, "HEAD", "--", "03-development/src"],
-        capture_output=True, text=True, cwd=str(project),
-    )
-    changed_src = [f for f in r_src.stdout.splitlines() if f.endswith(".py")]
-    
-    for py_file in changed_src:
-        curr_path = project / py_file
-
-        if not curr_path.exists():
-            continue
-
-        try:
-            content = curr_path.read_text(encoding="utf-8")
-            if f"[{fr_id}]" not in content:
-                continue
-
-            tree = ast.parse(content)
-            fr_ranges = []
-            for node in ast.walk(tree):
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                    doc = ast.get_docstring(node)
-                    if doc and f"[{fr_id}]" in doc:
-                        fr_ranges.append((node.lineno, getattr(node, "end_lineno", node.lineno)))
-
-            if not fr_ranges:
-                # string is in file but not in a docstring, default to changed
-                return True
-
-            # Single -U0 diff for both removed-tag check and hunk line parsing
-            r_u0 = _sp.run(
-                ["git", "diff", "-U0", sha, "HEAD", "--", py_file],
-                capture_output=True, text=True, cwd=str(project),
-            )
-            # Fallback: tag was removed in the diff
-            if f"[{fr_id}]" in r_u0.stdout:
-                return True
-            for line in r_u0.stdout.splitlines():
-                if line.startswith("@@ "):
-                    # @@ -old,n +new,n @@
-                    try:
-                        parts = line.split(" ")[2].split(",")
-                        start_line = int(parts[0].lstrip("+"))
-                        count = int(parts[1]) if len(parts) > 1 else 1
-                        end_line = start_line + count - 1
-
-                        for (fr_start, fr_end) in fr_ranges:
-                            # Overlap check
-                            if start_line <= fr_end and end_line >= fr_start:
-                                return True
-                    except Exception:
-                        pass
-        except Exception:
-            # On parse error, fail safe
-            return True
-
-    return False
 
 
 def _extract_srs_fr_section(srs_path: Path, fr_id: str) -> str:
@@ -4238,7 +3887,7 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
     src_dir, srs_path normalisation, spec data) done once here.
     """
     step = step.upper()
-    num_str = _fr_num_str(fr_id)
+    num_str = fr_num_str(fr_id)
     _layout = ProjectLayout(project)
     test_dir_str = _layout.get_relative_str(_layout.active_test_dir)
     test_file = f"{test_dir_str}/test_fr{num_str}.py"
